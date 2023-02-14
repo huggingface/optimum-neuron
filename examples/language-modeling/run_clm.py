@@ -30,11 +30,10 @@ from itertools import chain
 from typing import Optional
 
 import datasets
-import torch
-from datasets import load_dataset
-
 import evaluate
+import torch
 import transformers
+from datasets import load_dataset
 from transformers import (
     CONFIG_MAPPING,
     MODEL_FOR_CAUSAL_LM_MAPPING,
@@ -53,11 +52,6 @@ from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
 
-## AWS NEURON SPECIFIC ##
-sys.path.insert(0, "..")
-from trainers import patch_transformers_for_neuron_sdk
-patch_transformers_for_neuron_sdk()
-## END OF NEURON SPECIFIC ##
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
 check_min_version("4.27.0.dev0")
@@ -464,8 +458,9 @@ def main():
         block_size = tokenizer.model_max_length
         if block_size > 1024:
             logger.warning(
-                f"The tokenizer picked seems to have a very large `model_max_length` ({tokenizer.model_max_length}). "
-                "Picking 1024 instead. You can change that default value by passing --block_size xxx."
+                "The chosen tokenizer supports a `model_max_length` that is longer than the default `block_size` value"
+                " of 1024. If you would like to use a longer `block_size` up to `tokenizer.model_max_length` you can"
+                " override this default with `--block_size xxx`."
             )
             block_size = 1024
     else:

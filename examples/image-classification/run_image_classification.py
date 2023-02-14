@@ -19,8 +19,10 @@ import sys
 from dataclasses import dataclass, field
 from typing import Optional
 
+import evaluate
 import numpy as np
 import torch
+import transformers
 from datasets import load_dataset
 from PIL import Image
 from torchvision.transforms import (
@@ -32,9 +34,6 @@ from torchvision.transforms import (
     Resize,
     ToTensor,
 )
-
-import evaluate
-import transformers
 from transformers import (
     MODEL_FOR_IMAGE_CLASSIFICATION_MAPPING,
     AutoConfig,
@@ -51,12 +50,6 @@ from transformers.utils.versions import require_version
 
 
 """ Fine-tuning a 🤗 Transformers model for image classification"""
-
-## AWS NEURON SPECIFIC ##
-sys.path.insert(0, "..")
-from trainers import patch_transformers_for_neuron_sdk
-patch_transformers_for_neuron_sdk()
-## END OF NEURON SPECIFIC ##
 
 logger = logging.getLogger(__name__)
 

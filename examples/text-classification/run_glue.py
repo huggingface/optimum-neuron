@@ -24,11 +24,10 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import datasets
-import numpy as np
-from datasets import load_dataset
-
 import evaluate
+import numpy as np
 import transformers
+from datasets import load_dataset
 from transformers import (
     AutoConfig,
     AutoModelForSequenceClassification,
@@ -46,11 +45,6 @@ from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
 
-## AWS NEURON SPECIFIC ##
-sys.path.insert(0, "..")
-from trainers import patch_transformers_for_neuron_sdk, TrainerForPrecompilation as Trainer
-patch_transformers_for_neuron_sdk()
-## END OF NEURON SPECIFIC ##
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
 check_min_version("4.27.0.dev0")

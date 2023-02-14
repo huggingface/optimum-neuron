@@ -14,7 +14,7 @@
 """Various utilities"""
 
 import functools
-from typing import Optional
+import os
 
 import torch
 from torch.utils.data import DataLoader, Dataset, IterableDataset
@@ -24,7 +24,7 @@ from torch.utils._pytree import tree_map
 class FirstAndLastDataset(Dataset):
     def __init__(self, dataloader: DataLoader, num_repeat: int = 10, gradient_accumulation_steps: int = 1):
         self.dataloader = dataloader
-        self.num_repeat = num_repeat # * gradient_accumulation_steps
+        self.num_repeat = num_repeat * gradient_accumulation_steps
         self.samples = self.create_samples()
     
     def _create_samples_for_map_style_dataset(self):
@@ -88,26 +88,6 @@ class FirstAndLastDataset(Dataset):
         return len(self.samples)
 
 
-class DataLoaderForPrecompilationMixin:
-    def get_train_dataloader(self) -> DataLoader:
-        import pdb; pdb.set_trace()
-        return DataLoader(
-            FirstAndLastDataset(super().get_train_dataloader(), gradient_accumulation_steps=self.args.gradient_accumulation_steps),
-            batch_size=None
-        )
-
-    def get_eval_dataloader(self, eval_dataset: Optional[Dataset] = None) -> DataLoader:
-        return DataLoader(
-            FirstAndLastDataset(super().get_eval_dataloader(eval_dataset=eval_dataset)),
-            batch_size=None
-        )
-
-    def get_test_dataloader(self, test_dataset: Dataset) -> DataLoader:
-        return DataLoader(
-            FirstAndLastDataset(super().get_test_dataloader(test_dataset)),
-            batch_size=None
-        )
-
 orig_finfo = torch.finfo 
 
 def patched_finfo(dtype):
@@ -139,3 +119,18 @@ def patch_model(model):
     if hasattr(model.config, "layerdrop"):
         model.config.layerdrop = 0
     return model
+
+
+def prepare_environment_for_neuron():
+    # Set compiler flag to compile for transformer model type
+    os.environ["NEURON_CC_FLAGS"] = os.environ.get('NEURON_CC_FLAGS', '') + " --model-type=transformer"
+
+def patch_transformers_for_neuron_sdk():
+    # Enable torchrun
+    # TODO: seems to not be needed anymore.
+    # import torch_xla.distributed.xla_backend
+    # if os.environ.get("WORLD_SIZE"):
+    #     torch.distributed.init_process_group('xla')
+    
+    # if os.environ.get("XLA_USE_BF16") or os.environ.get("XLA_DOWNCAST_BF16"):
+    #     transformers.modeling_utils.get_parameter_dtype = lambda x: torch.bfloat16

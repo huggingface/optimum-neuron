@@ -15,14 +15,12 @@
 
 import logging
 import os
-from typing import Any
+from typing import Any, Optional
 
-import torch
+from torch.utils.data import DataLoader, Dataset
 
-import transformers
 from transformers import Trainer, Seq2SeqTrainer
-
-from utils import DataLoaderForPrecompilationMixin, patch_model
+from .utils import FirstAndLastDataset, prepare_environment_for_neuron
 
 logger = logging.getLogger(__name__)
 
@@ -32,11 +30,11 @@ class AugmentTrainerForTrainiumMixin:
     def __init__(self, *args, **kwargs):
         if not isinstance(self, Trainer):
             raise TypeError(
-                f"AugmentTrainerForTrainiumMixin can only be mixed with Trainer subclasses, but got {type(self)}"
+                f"{self.__class__.__name__} can only be mixed with Trainer subclasses."
             )
+        prepare_environment_for_neuron()
         super().__init__(*args, **kwargs)
         self.validate_args()
-        import pdb; pdb.set_trace()
 
     def validate_arg(self, arg_name: str, expected_value: Any, error_msg: str):
         disable_strict_mode = os.environ.get("DISABLE_STRICT_MODE", False)
@@ -56,23 +54,38 @@ class AugmentTrainerForTrainiumMixin:
         # TODO: do we need to validate block_size (run_clm)?
         # TODO: do we need to validate val_max_target_length (run_translation)?
 
-    def _wrap_model(self, model, training=True, dataloader=None):
-        # Fixup to enable distributed training with XLA
-        # TODO: investigate on that => might cause issue with gradient accumulation.
-        # Workaround for NaNs seen with transformers version >= 4.21.0
-        # https://github.com/aws-neuron/aws-neuron-sdk/issues/593
-        if os.environ.get("XLA_USE_BF16") or os.environ.get("XLA_DOWNCAST_BF16"):
-            return patch_model(model)
-        return model
+    # def _wrap_model(self, model, training=True, dataloader=None):
+    #     # Fixup to enable distributed training with XLA
+    #     # TODO: investigate on that => might cause issue with gradient accumulation.
+    #     # Workaround for NaNs seen with transformers version >= 4.21.0
+    #     # https://github.com/aws-neuron/aws-neuron-sdk/issues/593
+    #     if os.environ.get("XLA_USE_BF16") or os.environ.get("XLA_DOWNCAST_BF16"):
+    #         return patch_model(model)
+    #     return model
 
+    def get_train_dataloader(self) -> DataLoader:
+        if os.environ.get("IS_PRECOMPILATION", False):
+            return DataLoader(
+                FirstAndLastDataset(super().get_train_dataloader(), gradient_accumulation_steps=self.args.gradient_accumulation_steps),
+                batch_size=None
+            )
+        return super().get_train_dataloader()
 
-class TrainerForPrecompilation(AugmentTrainerForTrainiumMixin, DataLoaderForPrecompilationMixin, Trainer):
-    pass
+    def get_eval_dataloader(self, eval_dataset: Optional[Dataset] = None) -> DataLoader:
+        if os.environ.get("IS_PRECOMPILATION", False):
+            return DataLoader(
+                FirstAndLastDataset(super().get_eval_dataloader(eval_dataset=eval_dataset)),
+                batch_size=None
+            )
+        return super().get_eval_dataloader(eval_dataset=eval_dataset)
 
-
-class Seq2SeqTrainerForPrecompilation(AugmentTrainerForTrainiumMixin, DataLoaderForPrecompilationMixin, Seq2SeqTrainer):
-    pass
-
+    def get_test_dataloader(self, test_dataset: Dataset) -> DataLoader:
+        if os.environ.get("IS_PRECOMPILATION", False):
+            return DataLoader(
+                FirstAndLastDataset(super().get_test_dataloader(test_dataset)),
+                batch_size=None
+            )
+        return super().get_test_dataloader(test_dataset)
 
 
 class TrainiumTrainer(AugmentTrainerForTrainiumMixin, Trainer):
@@ -84,22 +97,3 @@ class Seq2SeqTrainiumTrainer(AugmentTrainerForTrainiumMixin, Seq2SeqTrainer):
 
 
 
-def patch_transformers_for_neuron_sdk():
-    # Set compiler flag to compile for transformer model type
-    os.environ["NEURON_CC_FLAGS"] = os.environ.get('NEURON_CC_FLAGS', '') + " --model-type=transformer"
-    
-    # Enable torchrun
-    # TODO: seems to not be needed anymore.
-    # import torch_xla.distributed.xla_backend
-    # if os.environ.get("WORLD_SIZE"):
-    #     torch.distributed.init_process_group('xla')
-    
-    if os.environ.get("IS_PRECOMPILATION", False):
-        transformers.trainer.Trainer = TrainerForPrecompilation
-        transformers.trainer_seq2seq.Seq2SeqTrainer = Seq2SeqTrainerForPrecompilation
-    else:
-        transformers.Trainer = TrainiumTrainer
-        transformers.Seq2SeqTrainer = Seq2SeqTrainiumTrainer
-        
-    # if os.environ.get("XLA_USE_BF16") or os.environ.get("XLA_DOWNCAST_BF16"):
-    #     transformers.modeling_utils.get_parameter_dtype = lambda x: torch.bfloat16
