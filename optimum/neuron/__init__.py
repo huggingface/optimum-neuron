@@ -14,12 +14,9 @@
 # limitations under the License.
 import os
 
-from .trainers import TrainiumTrainer, Seq2SeqTrainiumTrainer
+from .trainers import Seq2SeqTrainiumTrainer, TrainiumTrainer
 from .utils import patch_transformers_for_neuron_sdk
 
 
 if not os.environ.get("DISABLE_TRANSFORMERS_PATCHING", False):
     patch_transformers_for_neuron_sdk()
-else:
-    import logging
-    logger = logging.getLogger(__name__)

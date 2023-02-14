@@ -18,20 +18,18 @@ import os
 from typing import Any, Optional
 
 from torch.utils.data import DataLoader, Dataset
+from transformers import Seq2SeqTrainer, Trainer
 
-from transformers import Trainer, Seq2SeqTrainer
 from .utils import FirstAndLastDataset, prepare_environment_for_neuron
+
 
 logger = logging.getLogger(__name__)
 
 
 class AugmentTrainerForTrainiumMixin:
-    
     def __init__(self, *args, **kwargs):
         if not isinstance(self, Trainer):
-            raise TypeError(
-                f"{self.__class__.__name__} can only be mixed with Trainer subclasses."
-            )
+            raise TypeError(f"{self.__class__.__name__} can only be mixed with Trainer subclasses.")
         prepare_environment_for_neuron()
         super().__init__(*args, **kwargs)
         self.validate_args()
@@ -47,8 +45,8 @@ class AugmentTrainerForTrainiumMixin:
 
     def validate_args(self):
         self.validate_arg(
-            "pad_to_max_length", 
-            True, 
+            "pad_to_max_length",
+            True,
             "pad_to_max_length=False can lead to very poor performance by trigger a lot of recompilation",
         )
         # TODO: do we need to validate block_size (run_clm)?
@@ -66,25 +64,23 @@ class AugmentTrainerForTrainiumMixin:
     def get_train_dataloader(self) -> DataLoader:
         if os.environ.get("IS_PRECOMPILATION", False):
             return DataLoader(
-                FirstAndLastDataset(super().get_train_dataloader(), gradient_accumulation_steps=self.args.gradient_accumulation_steps),
-                batch_size=None
+                FirstAndLastDataset(
+                    super().get_train_dataloader(), gradient_accumulation_steps=self.args.gradient_accumulation_steps
+                ),
+                batch_size=None,
             )
         return super().get_train_dataloader()
 
     def get_eval_dataloader(self, eval_dataset: Optional[Dataset] = None) -> DataLoader:
         if os.environ.get("IS_PRECOMPILATION", False):
             return DataLoader(
-                FirstAndLastDataset(super().get_eval_dataloader(eval_dataset=eval_dataset)),
-                batch_size=None
+                FirstAndLastDataset(super().get_eval_dataloader(eval_dataset=eval_dataset)), batch_size=None
             )
         return super().get_eval_dataloader(eval_dataset=eval_dataset)
 
     def get_test_dataloader(self, test_dataset: Dataset) -> DataLoader:
         if os.environ.get("IS_PRECOMPILATION", False):
-            return DataLoader(
-                FirstAndLastDataset(super().get_test_dataloader(test_dataset)),
-                batch_size=None
-            )
+            return DataLoader(FirstAndLastDataset(super().get_test_dataloader(test_dataset)), batch_size=None)
         return super().get_test_dataloader(test_dataset)
 
 
@@ -94,6 +90,3 @@ class TrainiumTrainer(AugmentTrainerForTrainiumMixin, Trainer):
 
 class Seq2SeqTrainiumTrainer(AugmentTrainerForTrainiumMixin, Seq2SeqTrainer):
     pass
-
-
-
