@@ -41,7 +41,6 @@ from transformers import (
     AutoTokenizer,
     DataCollatorForLanguageModeling,
     HfArgumentParser,
-    Trainer,
     TrainingArguments,
     is_torch_tpu_available,
     set_seed,
@@ -49,6 +48,8 @@ from transformers import (
 from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
+
+from optimum.neuron import TrainiumTrainer as Trainer
 
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.

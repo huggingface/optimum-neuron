@@ -20,8 +20,10 @@ import time
 from typing import Dict, List, Optional
 
 from torch.utils.data import Dataset
-from transformers import Seq2SeqTrainer, is_torch_tpu_available
+from transformers import is_torch_tpu_available
 from transformers.trainer_utils import PredictionOutput, speed_metrics
+
+from optimum.neuron import Seq2SeqTrainiumTrainer as Seq2SeqTrainer
 
 
 if is_torch_tpu_available(check_device=False):

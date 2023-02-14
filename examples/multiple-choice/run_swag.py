@@ -35,7 +35,6 @@ from transformers import (
     AutoModelForMultipleChoice,
     AutoTokenizer,
     HfArgumentParser,
-    Trainer,
     TrainingArguments,
     default_data_collator,
     set_seed,
@@ -43,6 +42,8 @@ from transformers import (
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import PaddingStrategy, check_min_version, send_example_telemetry
+
+from optimum.neuron import TrainiumTrainer as Trainer
 
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.

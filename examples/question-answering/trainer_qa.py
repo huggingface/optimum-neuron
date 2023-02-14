@@ -18,8 +18,10 @@ A subclass of `Trainer` specific to Question-Answering tasks
 import math
 import time
 
-from transformers import Trainer, is_torch_tpu_available
+from transformers import is_torch_tpu_available
 from transformers.trainer_utils import PredictionOutput, speed_metrics
+
+from optimum.neuron import TrainiumTrainer as Trainer
 
 
 if is_torch_tpu_available(check_device=False):

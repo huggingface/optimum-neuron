@@ -51,7 +51,7 @@ CHECK_MIN_VERSION_PATTERN = re.compile(r"(\n?#\s*[\w\t \.]+\n?)?\s*check_min_ver
 
 LOGGER_PATTERN = re.compile(r"[\w_]+ = logging\.getLogger.*$")
 
-TORCH_REQUIREMENT_PATTERN = re.compile(r"^torch[\w\s]*([<>=]=?\s*[\d\.\d]+)?$")
+TORCH_REQUIREMENT_PATTERN = re.compile(r"torch[\w\s]*([<>=!]=?\s*[\d\.]+)?")
 
 AWS_CODE = {
     "Trainer": "from optimum.neuron import TrainiumTrainer as Trainer",
@@ -141,10 +141,13 @@ def main():
                 trainer_cls, processed_content, import_end_index = remove_trainer_import(file_content) 
                 code = f"\n{AWS_CODE[trainer_cls]}\n"
                 processed_content = insert_code_at_position(code, processed_content, import_end_index)
+                with open(file_path, "w") as fp:
+                    fp.write(processed_content)
             elif file_path.name == "requirements.txt":
                 with open(file_path, "r") as fp:
                     file_content = fp.read()
                 processed_content  = re.sub(TORCH_REQUIREMENT_PATTERN, "", file_content)
+                print(processed_content)
                 with open(file_path, "w") as fp:
                     fp.write(processed_content)
 
@@ -170,10 +173,6 @@ def main():
                 # else:
                 #     processed_content = insert_code_at_position(code, processed_content, import_end_index)
 
-                with open(file_path, "w") as fp:
-                    fp.write(processed_content)
-
-        
     # Linting and styling.
     subprocess.run(["black", f"{args.dest}"])
     subprocess.run(["ruff", f"{args.dest}", "--fix"])
