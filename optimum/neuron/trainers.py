@@ -20,7 +20,7 @@ from typing import Any, Optional
 from torch.utils.data import DataLoader, Dataset
 from transformers import Seq2SeqTrainer, Trainer
 
-from .utils import FirstAndLastDataset, prepare_environment_for_neuron
+from .utils import FirstAndLastDataset, patch_model, prepare_environment_for_neuron
 
 
 logger = logging.getLogger(__name__)
@@ -49,17 +49,23 @@ class AugmentTrainerForTrainiumMixin:
             True,
             "pad_to_max_length=False can lead to very poor performance by trigger a lot of recompilation",
         )
+        self.validate_arg(
+            "prediction_loss_only",
+            True,
+            "prediction_loss_only=False is not supported for now because it requires generation.",
+        )
         # TODO: do we need to validate block_size (run_clm)?
         # TODO: do we need to validate val_max_target_length (run_translation)?
 
-    # def _wrap_model(self, model, training=True, dataloader=None):
-    #     # Fixup to enable distributed training with XLA
-    #     # TODO: investigate on that => might cause issue with gradient accumulation.
-    #     # Workaround for NaNs seen with transformers version >= 4.21.0
-    #     # https://github.com/aws-neuron/aws-neuron-sdk/issues/593
-    #     if os.environ.get("XLA_USE_BF16") or os.environ.get("XLA_DOWNCAST_BF16"):
-    #         return patch_model(model)
-    #     return model
+    def _wrap_model(self, model, training=True, dataloader=None):
+        # TODO: not needed anymore?
+        # if os.environ.get("XLA_USE_BF16") or os.environ.get("XLA_DOWNCAST_BF16"):
+        #     return patch_model(model)
+        logger.info(
+            "Disabling DDP because it is currently not playing well with multiple workers training, for more "
+            "information please refer to https://awsdocs-neuron.readthedocs-hosted.com/en/latest/frameworks/torch/torch-neuronx/tutorials/training/finetune_hftrainer.html#multi-worker-training"
+        )
+        return patch_model(model)
 
     def get_train_dataloader(self) -> DataLoader:
         if os.environ.get("IS_PRECOMPILATION", False):
