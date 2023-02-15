@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 """Various utilities"""
 
+import contextlib
 import functools
 import os
 
@@ -115,9 +116,9 @@ def patch_forward(forward_fn):
 
 
 def patch_model(model):
-    model.forward = patch_forward(model.forward)
     if hasattr(model.config, "layerdrop"):
         model.config.layerdrop = 0
+    model.no_sync = lambda: contextlib.nullcontext()
     return model
 
 
