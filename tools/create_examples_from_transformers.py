@@ -65,6 +65,7 @@ def download_examples_from_transformers(
         dest_dir = Path(dest_dir)
 
     if predicate is None:
+
         def predicate(_):
             return True
 

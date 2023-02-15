@@ -14,14 +14,14 @@
 # limitations under the License.
 """Tests every architecture supported on every task it supports on 🤗 Transformers traning example scripts."""
 
-import glob
 import json
+import logging
 import os
 import re
 import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Callable, Dict, List, Optional, Tuple, Union
+from typing import Callable, Dict, List, Optional, Union
 from unittest import TestCase
 
 from transformers import (
@@ -38,8 +38,10 @@ from transformers import (
     MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING,
 )
 from transformers.testing_utils import slow
-
 from utils import MODELS_TO_TEST_MAPPING
+
+
+logger = logging.getLogger(__name__)
 
 
 def _get_supported_models_for_script(
@@ -48,18 +50,10 @@ def _get_supported_models_for_script(
     """
     Filters models that can perform the task from models_to_test.
     """
-
-    def is_valid_model_type(model_type: str) -> bool:
-        return CONFIG_MAPPING[model_type] in task_mapping
-        # if in_task_mapping:
-        #     return task_mapping[CONFIG_MAPPING[model_type]] in _PRETRAINED_TO_PIPELINED_REGISTRY
-        # return False
-
     supported_models = []
     for model_type, model_name in models_to_test.items():
-        if is_valid_model_type(model_type):
+        if CONFIG_MAPPING[model_type] in task_mapping:
             supported_models.append((model_type, model_name))
-
     return supported_models
 
 
@@ -152,11 +146,8 @@ class ExampleTestMeta(type):
                     gradient_accumulation_steps=self.GRADIENT_ACCUMULATION_STEPS,
                     extra_command_line_arguments=self.EXTRA_COMMAND_LINE_ARGUMENTS,
                 )
-                print()
-                print("#### Running command line... ####")
                 joined_cmd_line = " ".join(cmd_line)
-                print(joined_cmd_line)
-                print()
+                logger.info("#### Running command line... ####\n{joined_cmd_line}\n")
                 p = subprocess.Popen(joined_cmd_line, shell=True)
                 return_code = p.wait()
                 self.assertEqual(return_code, 0)
@@ -180,6 +171,8 @@ class ExampleTesterBase(TestCase):
     """
     Base example tester class.
 
+    # TODO: update this.
+
     Attributes:
         EXAMPLE_DIR (`str` or `os.Pathlike`): the directory containing the examples.
         EXAMPLE_NAME (`str`): the name of the example script without the file extension, e.g. run_qa, run_glue, etc.
@@ -198,7 +191,7 @@ class ExampleTesterBase(TestCase):
         DATALOADER_DROP_LAST (`bool`): whether to drop the last batch if it is a remainder batch.
     """
 
-    EXAMPLE_DIR = Path(os.path.dirname(__file__)).parent / "examples"
+    EXAMPLE_DIR = Path(__file__).parent.parent / "examples"
     EXAMPLE_NAME = None
     TASK_NAME = None
     DATASET_CONFIG_NAME = None
@@ -208,14 +201,12 @@ class ExampleTesterBase(TestCase):
     EVAL_SCORE_GREATER_IS_BETTER = True
     SCORE_NAME = "eval_accuracy"
     DATASET_PARAMETER_NAME = "dataset_name"
-    NUM_EPOCHS = 1
+    NUM_EPOCHS = 2
     LEARNING_RATE = 1e-4
-    TRAIN_BATCH_SIZE = 2
-    EVAL_BATCH_SIZE = 2
-    INFERENCE_DEVICE_ITERATIONS = 4
+    TRAIN_BATCH_SIZE = 4
+    EVAL_BATCH_SIZE = 4
     GRADIENT_ACCUMULATION_STEPS = 64
-    TRAIN_REPLICATION_FACTOR = 2
-    INFERENCE_REPLICATION_FACTOR = 2
+    NPROC_PER_NODE = 2
     EXTRA_COMMAND_LINE_ARGUMENTS = None
 
     def setUp(self):
@@ -228,37 +219,31 @@ class ExampleTesterBase(TestCase):
         self,
         script: str,
         model_name: str,
-        ipu_config_name: str,
         output_dir: str,
         task: Optional[str] = None,
         dataset_config_name: Optional[str] = None,
         do_eval: bool = True,
         lr: float = 1e-4,
-        train_batch_size: int = 2,
-        eval_batch_size: int = 2,
-        num_epochs: int = 2,
-        inference_device_iterations: int = 4,
+        train_batch_size: int = 4,
+        eval_batch_size: int = 4,
+        num_epochs: int = 1,
         gradient_accumulation_steps: int = 64,
         extra_command_line_arguments: Optional[List[str]] = None,
     ) -> List[str]:
         do_eval_option = "--do_eval" if do_eval else " "
         task_option = f"--{self.DATASET_PARAMETER_NAME} {task}" if task else " "
-        ipu_config_overrides = ",".join(
-            [
-                "executable_cache_dir=disabled",
-                f"replication_factor={self.TRAIN_REPLICATION_FACTOR}",
-                f"inference_replication_factor={self.INFERENCE_REPLICATION_FACTOR}",
-                "device_iterations=1",
-                f"inference_device_iterations={inference_device_iterations}",
-                f"gradient_accumulation_steps={gradient_accumulation_steps}",
-            ]
-        )
 
-        cmd_line = [
-            "venv/bin/python" if self.venv_was_created else "python",
+        if os.environ.get("MULTI_PROC", "false").lower() == "false":
+            program = ["venv/bin/python" if self.venv_was_created else "python"]
+        else:
+            program = [
+                "venv/bin/torchrun" if self.venv_was_created else "torchrun",
+                f"--nproc_per_node={self.NPROC_PER_NODE}",
+            ]
+
+        cmd_line = program + [
             f"{script}",
             f"--model_name_or_path {model_name}",
-            f"--ipu_config_name {ipu_config_name}",
             f"{task_option}",
             "--do_train",
             f"{do_eval_option}",
@@ -267,11 +252,10 @@ class ExampleTesterBase(TestCase):
             f"--learning_rate {lr}",
             f"--per_device_train_batch_size {train_batch_size}",
             f"--per_device_eval_batch_size {eval_batch_size}",
+            f"--gradient_accumulation_steps {gradient_accumulation_steps}",
             "--save_strategy epoch",
-            f"--ipu_config_overrides {ipu_config_overrides}",
             f" --num_train_epochs {num_epochs}",
-            "--dataloader_num_workers 16",
-            "--pad_on_batch_axis",
+            "--dataloader_num_workers 4",
             "--save_steps -1",
             "--save_total_limit 1",
             "--report_to none",
@@ -308,42 +292,6 @@ class ExampleTesterBase(TestCase):
             return_code = p.wait()
             self.assertEqual(return_code, 0)
 
-    def _get_poptorch_wheel_path(self, sdk_path: Optional[str] = None) -> str:
-        """
-        Retrieves the path for the poptorch wheel.
-        """
-        if sdk_path is None:
-            sdk_path = os.environ["SDK_PATH"]
-        paths = glob.glob(f"{sdk_path}/poptorch-*.whl")
-        if len(paths) == 0:
-            raise FileNotFoundError(f"Could not find poptorch wheel at {sdk_path}")
-        if len(paths) > 1:
-            raise RuntimeError(f"Multiple poptorch wheels were found at {sdk_path}")
-        return paths[0]
-
-    def _get_enable_path(self, library_name: str, sdk_path: Optional[str] = None) -> str:
-        """
-        Retrieves the path for the "enable" scripts for either poplar or popart.
-        """
-        if library_name not in ["poplar", "popart"]:
-            raise ValueError(
-                f'The library name must either be "poplar" or "popart" but "{library_name}" was provided here.'
-            )
-        if sdk_path is None:
-            sdk_path = os.environ["SDK_PATH"]
-        paths = glob.glob(f"{sdk_path}/{library_name}*/enable.sh")
-        if len(paths) == 0:
-            raise FileNotFoundError(f"Could not find {library_name} enable script at {sdk_path}")
-        if len(paths) > 1:
-            raise RuntimeError(f"Multiple {library_name} enable scripts were found at {sdk_path}")
-        return paths[0]
-
-    def _get_poplar_enable_path(self, sdk_path: Optional[str] = None):
-        return self._get_enable_path("poplar", sdk_path=sdk_path)
-
-    def _get_popart_enable_path(self, sdk_path: Optional[str] = None):
-        return self._get_enable_path("popart", sdk_path=sdk_path)
-
     def _install_requirements(self, requirements_filename: Union[str, os.PathLike]):
         """
         Installs the necessary requirements to run the example if the provided file exists, otherwise does nothing.
@@ -356,8 +304,14 @@ class ExampleTesterBase(TestCase):
         return_code = p.wait()
         self.assertEqual(return_code, 0)
 
-        # Install SDK
-        cmd_line = f"{pip_name} install .[testing] {self._get_poptorch_wheel_path()}".split()
+        # Set pip repository pointing to the Neuron repository
+        cmd_line = f"{pip_name} config set global.extra-index-url https://pip.repos.neuron.amazonaws.com"
+        p = subprocess.Popen(cmd_line)
+        return_code = p.wait()
+        self.assertEqual(return_code, 0)
+
+        # Install wget, awscli, Neuron Compiler and Neuron Framework
+        cmd_line = f"{pip_name} install wget awscli neuronx-cc==2.* torch-neuronx torchvision"
         p = subprocess.Popen(cmd_line)
         return_code = p.wait()
         self.assertEqual(return_code, 0)
@@ -370,14 +324,14 @@ class ExampleTesterBase(TestCase):
         return_code = p.wait()
         self.assertEqual(return_code, 0)
 
-    def _cleanup_dataset_cache(self):
-        """
-        Cleans up the dataset cache to free up space for other tests.
-        """
-        cmd_line = ["rm" "-r", "/nethome/michaelb/.cache/huggingface/datasets"]
-        p = subprocess.Popen(cmd_line)
-        return_code = p.wait()
-        self.assertEqual(return_code, 0)
+    # def _cleanup_dataset_cache(self):
+    #     """
+    #     Cleans up the dataset cache to free up space for other tests.
+    #     """
+    #     cmd_line = ["rm" "-r", "/nethome/michaelb/.cache/huggingface/datasets"]
+    #     p = subprocess.Popen(cmd_line)
+    #     return_code = p.wait()
+    #     self.assertEqual(return_code, 0)
 
 
 class TextClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_glue"):
@@ -396,7 +350,7 @@ class MultipleChoiceExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, 
     # Using a small gradient accumulation steps value because input data is repated for the multiple choice task.
     TRAIN_BATCH_SIZE = 1
     EVAL_BATCH_SIZE = 1
-    EVAL_SCORE_THRESHOLD_OVERRIDES = {"distilbert-base-uncased": 0.645, "Graphcore/groupbert-base-uncased": 0.66}
+    EVAL_SCORE_THRESHOLD_OVERRIDES = {"distilbert-base-uncased": 0.645}
 
 
 class QuestionAnsweringExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_qa"):
@@ -412,7 +366,6 @@ class SummarizationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, e
     EVAL_IS_SUPPORTED = False
     EVAL_SCORE_THRESHOLD = 30
     SCORE_NAME = "eval_rougeLsum"
-    INFERENCE_DEVICE_ITERATIONS = 6
     EXTRA_COMMAND_LINE_ARGUMENTS = [
         "--dataset_config 3.0.0",
         "--prediction_loss_only",
@@ -425,7 +378,6 @@ class SummarizationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, e
         self,
         script: str,
         model_name: str,
-        ipu_config_name: str,
         output_dir: str,
         task: Optional[str] = None,
         dataset_config_name: Optional[str] = None,
@@ -434,7 +386,6 @@ class SummarizationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, e
         train_batch_size: int = 1,
         eval_batch_size: int = 1,
         num_epochs: int = 2,
-        inference_device_iterations: int = 6,
         gradient_accumulation_steps: int = 64,
         extra_command_line_arguments: Optional[List[str]] = None,
     ) -> List[str]:
@@ -445,7 +396,6 @@ class SummarizationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, e
         return super()._create_command_line(
             script,
             model_name,
-            ipu_config_name,
             output_dir,
             task=task,
             dataset_config_name=dataset_config_name,
@@ -454,7 +404,6 @@ class SummarizationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, e
             train_batch_size=train_batch_size,
             eval_batch_size=eval_batch_size,
             num_epochs=num_epochs,
-            inference_device_iterations=inference_device_iterations,
             gradient_accumulation_steps=gradient_accumulation_steps,
             extra_command_line_arguments=extra_command_line_arguments,
         )
@@ -482,7 +431,6 @@ class TranslationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, exa
         self,
         script: str,
         model_name: str,
-        ipu_config_name: str,
         output_dir: str,
         task: Optional[str] = None,
         dataset_config_name: Optional[str] = None,
@@ -491,7 +439,6 @@ class TranslationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, exa
         train_batch_size: int = 1,
         eval_batch_size: int = 1,
         num_epochs: int = 2,
-        inference_device_iterations: int = 6,
         gradient_accumulation_steps: int = 64,
         extra_command_line_arguments: Optional[List[str]] = None,
     ) -> List[str]:
@@ -502,7 +449,6 @@ class TranslationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, exa
         return super()._create_command_line(
             script,
             model_name,
-            ipu_config_name,
             output_dir,
             task=task,
             dataset_config_name=dataset_config_name,
@@ -511,7 +457,6 @@ class TranslationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, exa
             train_batch_size=train_batch_size,
             eval_batch_size=eval_batch_size,
             num_epochs=num_epochs,
-            inference_device_iterations=inference_device_iterations,
             gradient_accumulation_steps=gradient_accumulation_steps,
             extra_command_line_arguments=extra_command_line_arguments,
         )
@@ -538,8 +483,8 @@ class ImageClassificationExampleTester(
 #     NUM_EPOCHS = 3
 #     EXTRA_COMMAND_LINE_ARGUMENTS = ["--max_length_seconds 1", "--attention_mask False"]
 #     LEARNING_RATE = 3e-5
-# 
-# 
+#
+#
 # class SpeechRecognitionExampleTester(
 #     ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_speech_recognition_ctc"
 # ):
