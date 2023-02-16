@@ -350,7 +350,6 @@ class TokenClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestM
 
 
 class MultipleChoiceExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_swag"):
-    # Using a small gradient accumulation steps value because input data is repated for the multiple choice task.
     EVAL_SCORE_THRESHOLD_OVERRIDES = {"distilbert-base-uncased": 0.645}
 
 
