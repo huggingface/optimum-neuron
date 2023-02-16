@@ -35,10 +35,10 @@ class AugmentTrainerForTrainiumMixin:
         self.validate_args()
 
     def validate_arg(self, arg_name: str, expected_value: Any, error_msg: str):
-        disable_strict_mode = os.environ.get("DISABLE_STRICT_MODE", False)
+        disable_strict_mode = os.environ.get("DISABLE_STRICT_MODE", "false")
         arg = getattr(self.args, arg_name, expected_value)
         if arg != expected_value:
-            if disable_strict_mode:
+            if disable_strict_mode == "true":
                 logger.warning(error_msg)
             else:
                 raise ValueError(error_msg)
@@ -66,7 +66,7 @@ class AugmentTrainerForTrainiumMixin:
         return patch_model(model)
 
     def get_train_dataloader(self) -> DataLoader:
-        if os.environ.get("IS_PRECOMPILATION", False):
+        if os.environ.get("IS_PRECOMPILATION", "false") == "true":
             return DataLoader(
                 FirstAndLastDataset(
                     super().get_train_dataloader(), gradient_accumulation_steps=self.args.gradient_accumulation_steps
@@ -76,14 +76,14 @@ class AugmentTrainerForTrainiumMixin:
         return super().get_train_dataloader()
 
     def get_eval_dataloader(self, eval_dataset: Optional[Dataset] = None) -> DataLoader:
-        if os.environ.get("IS_PRECOMPILATION", False):
+        if os.environ.get("IS_PRECOMPILATION", "false") == "true":
             return DataLoader(
                 FirstAndLastDataset(super().get_eval_dataloader(eval_dataset=eval_dataset)), batch_size=None
             )
         return super().get_eval_dataloader(eval_dataset=eval_dataset)
 
     def get_test_dataloader(self, test_dataset: Dataset) -> DataLoader:
-        if os.environ.get("IS_PRECOMPILATION", False):
+        if os.environ.get("IS_PRECOMPILATION", "false") == "true":
             return DataLoader(FirstAndLastDataset(super().get_test_dataloader(test_dataset)), batch_size=None)
         return super().get_test_dataloader(test_dataset)
 
