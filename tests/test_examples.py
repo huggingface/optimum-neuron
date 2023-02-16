@@ -98,14 +98,13 @@ class ExampleTestMeta(type):
     @classmethod
     def _create_test(cls, model_name: str) -> Callable[["ExampleTesterBase"], None]:
         """
-        Creates a test function that runs an example for a specific (model_name, ipu_config_name) pair.
+        Creates a test function that runs an example for a model_name.
 
         Args:
-            model_name: the model_name_or_path.
-            ipu_config_name: the ipu config name.
+            model_name (`str`): the model_name_or_path.
 
         Returns:
-            The test function that runs the example.
+            `Callable[[ExampleTesterBase], None]`: The test function that runs the example.
         """
 
         @slow
@@ -164,30 +163,30 @@ class ExampleTesterBase(TestCase):
     """
     Base example tester class.
 
-    # TODO: update this.
-
     Attributes:
-        EXAMPLE_DIR (`str` or `os.Pathlike`): the directory containing the examples.
-        EXAMPLE_NAME (`str`): the name of the example script without the file extension, e.g. run_qa, run_glue, etc.
-        TASK_NAME (`str`): the name of the dataset to use.
-        EVAL_IS_SUPPORTED (`bool`): whether evaluation is currently supported on IPUs.
+        EXAMPLE_DIR (`Union[str, Path]`) -- The directory containing the examples.
+        EXAMPLE_NAME (`Optional[str]`) -- The name of the example script without the file extension, e.g. run_qa, run_glue, etc.
+        TASK_NAME (`str`) -- The name of the dataset to use.
+        EVAL_IS_SUPPORTED (`bool`) -- Whether evaluation is currently supported on AWS Tranium.
             If True, the example will run evaluation, otherwise it will be skipped.
-        EVAL_SCORE_THRESHOLD (`float`): the score threshold from which training is assumed to have worked.
-        EVAL_SCORE_THRESHOLD_OVERRIDES (`dict`): per-model score threshold overrides
-        SCORE_NAME (`str`): the name of the metric to use for checking that the example ran successfully.
-        DATASET_PARAMETER_NAME (`str`): the argument name to use for the dataset parameter.
+        EVAL_SCORE_THRESHOLD (`float`) -- The score threshold from which training is assumed to have worked.
+        EVAL_SCORE_THRESHOLD_OVERRIDES (`Dict[str, float]`) -- Per-model score threshold overrides.
+        SCORE_NAME (`str`) -- The name of the metric to use for checking that the example ran successfully.
+        DATASET_PARAMETER_NAME (`str`) -- The argument name to use for the dataset parameter.
             Most of the time it will be "dataset_name", but for some tasks on a benchmark it might be something else.
-        TRAIN_BATCH_SIZE (`int`): the batch size to give to the example script for training.
-        EVAL_BATCH_SIZE (`int`): the batch size to give to the example script for evaluation.
-        INFERENCE_DEVICE_ITERATIONS (`int`): the number of device iterations to use for evaluation.
-        GRADIENT_ACCUMULATION_STEPS (`int`): the number of gradient accumulation to use during training.
-        DATALOADER_DROP_LAST (`bool`): whether to drop the last batch if it is a remainder batch.
+        TRAIN_BATCH_SIZE (`int`) -- The batch size to give to the example script for training.
+        EVAL_BATCH_SIZE (`int`) -- The batch size to give to the example script for evaluation.
+        GRADIENT_ACCUMULATION_STEPS (`int`) -- The number of gradient accumulation to use during training.
+        DATALOADER_DROP_LAST (`bool`) -- Whether to drop the last batch if it is a remainder batch.
+        NPROC_PER_NODE (`int`) -- The number of Neuron cores to use when doing multiple workers training.
+        EXTRA_COMMAND_LINE_ARGUMENTS (`str`) -- Extra arguments, if needed, to be passed to the command line traning
+            script.
     """
 
     EXAMPLE_DIR = Path(__file__).parent.parent / "examples"
-    EXAMPLE_NAME = None
+    EXAMPLE_NAME = ""
     TASK_NAME = None
-    DATASET_CONFIG_NAME = None
+    DATASET_CONFIG_NAME = ""
     EVAL_IS_SUPPORTED = True
     EVAL_SCORE_THRESHOLD = 0.75
     EVAL_SCORE_THRESHOLD_OVERRIDES = None
@@ -196,11 +195,11 @@ class ExampleTesterBase(TestCase):
     DATASET_PARAMETER_NAME = "dataset_name"
     NUM_EPOCHS = 2
     LEARNING_RATE = 1e-4
-    TRAIN_BATCH_SIZE = 4
+    TRAIN_BATCH_SIZE = 2
     EVAL_BATCH_SIZE = 4
-    GRADIENT_ACCUMULATION_STEPS = 64
+    GRADIENT_ACCUMULATION_STEPS = 32
     NPROC_PER_NODE = 2
-    EXTRA_COMMAND_LINE_ARGUMENTS = None
+    EXTRA_COMMAND_LINE_ARGUMENTS = ""
 
     def setUp(self):
         self._create_venv()
@@ -283,7 +282,7 @@ class ExampleTesterBase(TestCase):
 
     def _remove_venv(self):
         """
-        Creates the virtual environment for the example.
+        Removes the virtual environment for the example.
         """
         if self.venv_was_created:
             cmd_line = "rm -rf venv".split()
@@ -330,6 +329,7 @@ class ExampleTesterBase(TestCase):
         return_code = p.wait()
         self.assertEqual(return_code, 0)
 
+    # TODO: enable that?
     # def _cleanup_dataset_cache(self):
     #     """
     #     Cleans up the dataset cache to free up space for other tests.
@@ -343,19 +343,14 @@ class ExampleTesterBase(TestCase):
 class TextClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_glue"):
     TASK_NAME = "sst2"
     DATASET_PARAMETER_NAME = "task_name"
-    INFERENCE_DEVICE_ITERATIONS = 5
 
 
 class TokenClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_ner"):
     TASK_NAME = "conll2003"
-    TRAIN_BATCH_SIZE = 1
-    EVAL_BATCH_SIZE = 1
 
 
 class MultipleChoiceExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_swag"):
     # Using a small gradient accumulation steps value because input data is repated for the multiple choice task.
-    TRAIN_BATCH_SIZE = 1
-    EVAL_BATCH_SIZE = 1
     EVAL_SCORE_THRESHOLD_OVERRIDES = {"distilbert-base-uncased": 0.645}
 
 
