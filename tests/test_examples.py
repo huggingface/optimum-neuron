@@ -15,7 +15,6 @@
 """Tests every architecture supported on every task it supports on 🤗 Transformers traning example scripts."""
 
 import json
-import logging
 import os
 import re
 import subprocess
@@ -41,18 +40,15 @@ from transformers.testing_utils import slow
 from utils import MODELS_TO_TEST_MAPPING
 
 
-logger = logging.getLogger(__name__)
-
-
-def _get_supported_models_for_script(
-    models_to_test: Dict[str, str], task_mapping: Dict[str, str], task: str = "default"
-) -> List[str]:
+def _get_supported_models_for_script(models_to_test: Dict[str, str], task_mapping: Dict[str, str]) -> List[str]:
     """
     Filters models that can perform the task from models_to_test.
     """
     supported_models = []
     for model_type, model_name in models_to_test.items():
         if CONFIG_MAPPING[model_type] in task_mapping:
+            if model_type == "bart" and task_mapping is not MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING:
+                continue
             supported_models.append((model_type, model_name))
     return supported_models
 
@@ -76,9 +72,7 @@ _SCRIPT_TO_MODEL_MAPPING = {
     "run_audio_classification": _get_supported_models_for_script(
         MODELS_TO_TEST_MAPPING, MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING
     ),
-    "run_speech_recognition_ctc": _get_supported_models_for_script(
-        MODELS_TO_TEST_MAPPING, MODEL_FOR_CTC_MAPPING, task="ctc"
-    ),
+    "run_speech_recognition_ctc": _get_supported_models_for_script(MODELS_TO_TEST_MAPPING, MODEL_FOR_CTC_MAPPING),
 }
 
 
@@ -142,12 +136,11 @@ class ExampleTestMeta(type):
                     train_batch_size=self.TRAIN_BATCH_SIZE,
                     eval_batch_size=self.EVAL_BATCH_SIZE,
                     num_epochs=self.NUM_EPOCHS,
-                    inference_device_iterations=self.INFERENCE_DEVICE_ITERATIONS,
                     gradient_accumulation_steps=self.GRADIENT_ACCUMULATION_STEPS,
                     extra_command_line_arguments=self.EXTRA_COMMAND_LINE_ARGUMENTS,
                 )
                 joined_cmd_line = " ".join(cmd_line)
-                logger.info("#### Running command line... ####\n{joined_cmd_line}\n")
+                print(f"#### Running command line... ####\n{joined_cmd_line}\n")
                 p = subprocess.Popen(joined_cmd_line, shell=True)
                 return_code = p.wait()
                 self.assertEqual(return_code, 0)
@@ -282,6 +275,12 @@ class ExampleTesterBase(TestCase):
         return_code = p.wait()
         self.assertEqual(return_code, 0)
 
+        # Install pip
+        cmd_line = "venv/bin/python -m ensurepip --upgrade".split()
+        p = subprocess.Popen(cmd_line)
+        return_code = p.wait()
+        self.assertEqual(return_code, 0)
+
     def _remove_venv(self):
         """
         Creates the virtual environment for the example.
@@ -296,6 +295,7 @@ class ExampleTesterBase(TestCase):
         """
         Installs the necessary requirements to run the example if the provided file exists, otherwise does nothing.
         """
+
         pip_name = "venv/bin/pip" if self.venv_was_created else "pip"
 
         # Update pip
@@ -305,13 +305,19 @@ class ExampleTesterBase(TestCase):
         self.assertEqual(return_code, 0)
 
         # Set pip repository pointing to the Neuron repository
-        cmd_line = f"{pip_name} config set global.extra-index-url https://pip.repos.neuron.amazonaws.com"
+        cmd_line = f"{pip_name} config set global.extra-index-url https://pip.repos.neuron.amazonaws.com".split()
         p = subprocess.Popen(cmd_line)
         return_code = p.wait()
         self.assertEqual(return_code, 0)
 
         # Install wget, awscli, Neuron Compiler and Neuron Framework
-        cmd_line = f"{pip_name} install wget awscli neuronx-cc==2.* torch-neuronx torchvision"
+        cmd_line = f"{pip_name} install wget awscli neuronx-cc==2.* torch-neuronx torchvision".split()
+        p = subprocess.Popen(cmd_line)
+        return_code = p.wait()
+        self.assertEqual(return_code, 0)
+
+        # Install wget, awscli, Neuron Compiler and Neuron Framework
+        cmd_line = f"{pip_name} install -e {Path(__file__).parent.parent}".split()
         p = subprocess.Popen(cmd_line)
         return_code = p.wait()
         self.assertEqual(return_code, 0)
