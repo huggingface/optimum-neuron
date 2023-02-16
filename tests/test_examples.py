@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests every architecture supported on every task it supports on 🤗 Transformers traning example scripts."""
+"""Tests every (architecture, task) supported pair on 🤗 Transformers traning example scripts."""
 
 import json
 import os
