@@ -128,6 +128,29 @@ class ExampleTestMeta(type):
                     example_script,
                     model_name,
                     tmp_dir,
+                    is_precompilation=True,
+                    task=self.TASK_NAME,
+                    dataset_config_name=self.DATASET_CONFIG_NAME,
+                    do_eval=False,
+                    lr=self.LEARNING_RATE,
+                    train_batch_size=self.TRAIN_BATCH_SIZE,
+                    eval_batch_size=self.EVAL_BATCH_SIZE,
+                    num_epochs=1,
+                    gradient_accumulation_steps=self.GRADIENT_ACCUMULATION_STEPS,
+                    extra_command_line_arguments=self.EXTRA_COMMAND_LINE_ARGUMENTS,
+                )
+                joined_cmd_line = " ".join(cmd_line)
+                print(f"#### Running precompilation... ####\n{joined_cmd_line}\n")
+                p = subprocess.Popen(joined_cmd_line, shell=True, env=dict(os.environ, IS_PRECOMPILATION="true", XLA_USE_BF16="1"))
+                return_code = p.wait()
+                self.assertEqual(return_code, 0)
+
+            with TemporaryDirectory(dir=Path(self.EXAMPLE_DIR)) as tmp_dir:
+                os.environ["HF_HOME"] = os.path.join(tmp_dir, "hf_home")
+                cmd_line = self._create_command_line(
+                    example_script,
+                    model_name,
+                    tmp_dir,
                     task=self.TASK_NAME,
                     dataset_config_name=self.DATASET_CONFIG_NAME,
                     do_eval=self.EVAL_IS_SUPPORTED,
@@ -140,7 +163,7 @@ class ExampleTestMeta(type):
                 )
                 joined_cmd_line = " ".join(cmd_line)
                 print(f"#### Running command line... ####\n{joined_cmd_line}\n")
-                p = subprocess.Popen(joined_cmd_line, shell=True)
+                p = subprocess.Popen(joined_cmd_line, shell=True, env=dict(os.environ, XLA_USE_BF16="1"))
                 return_code = p.wait()
                 self.assertEqual(return_code, 0)
 
@@ -193,11 +216,12 @@ class ExampleTesterBase(TestCase):
     EVAL_SCORE_GREATER_IS_BETTER = True
     SCORE_NAME = "eval_accuracy"
     DATASET_PARAMETER_NAME = "dataset_name"
-    NUM_EPOCHS = 2
+    NUM_EPOCHS = 1
+    MAX_STEPS = None
     LEARNING_RATE = 1e-4
-    TRAIN_BATCH_SIZE = 2
-    EVAL_BATCH_SIZE = 4
-    GRADIENT_ACCUMULATION_STEPS = 32
+    TRAIN_BATCH_SIZE = 8
+    EVAL_BATCH_SIZE = 8
+    GRADIENT_ACCUMULATION_STEPS = 1
     NPROC_PER_NODE = 2
     EXTRA_COMMAND_LINE_ARGUMENTS = ""
 
@@ -212,6 +236,7 @@ class ExampleTesterBase(TestCase):
         script: str,
         model_name: str,
         output_dir: str,
+        is_precompilation: bool = False,
         task: Optional[str] = None,
         dataset_config_name: Optional[str] = None,
         do_eval: bool = True,
@@ -225,13 +250,23 @@ class ExampleTesterBase(TestCase):
         do_eval_option = "--do_eval" if do_eval else " "
         task_option = f"--{self.DATASET_PARAMETER_NAME} {task}" if task else " "
 
-        if os.environ.get("MULTI_PROC", "false").lower() == "false":
+        if os.environ.get("MULTI_PROC", "false") == "false":
             program = ["venv/bin/python" if self.venv_was_created else "python"]
         else:
             program = [
                 "venv/bin/torchrun" if self.venv_was_created else "torchrun",
                 f"--nproc_per_node={self.NPROC_PER_NODE}",
             ]
+
+        if is_precompilation:
+            neuron_parallel_compile_path = "venv/bin/neuron_parallel_compile" if self.venv_was_created else "neuron_parallel_compile"
+            program = [neuron_parallel_compile_path] + program
+
+        # TODO: make that a parameter to the function?
+        if self.MAX_STEPS is not None:
+            max_steps = f"--max_steps {self.MAX_STEPS}"
+        else:
+            max_steps = ""
 
         cmd_line = program + [
             f"{script}",
@@ -247,12 +282,13 @@ class ExampleTesterBase(TestCase):
             f"--gradient_accumulation_steps {gradient_accumulation_steps}",
             "--save_strategy epoch",
             f" --num_train_epochs {num_epochs}",
+            max_steps,
             "--dataloader_num_workers 4",
             "--save_steps -1",
             "--save_total_limit 1",
             "--report_to none",
         ]
-        if dataset_config_name is not None:
+        if dataset_config_name:
             cmd_line.append(f"--dataset_config_name {dataset_config_name}")
 
         if extra_command_line_arguments is not None:
@@ -363,6 +399,7 @@ class SummarizationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, e
     DATASET_CONFIG = "3.0.0"
     TRAIN_BATCH_SIZE = 1
     EVAL_BATCH_SIZE = 1
+    MAX_STEPS = 200
     EVAL_IS_SUPPORTED = False
     EVAL_SCORE_THRESHOLD = 30
     SCORE_NAME = "eval_rougeLsum"
@@ -379,6 +416,7 @@ class SummarizationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, e
         script: str,
         model_name: str,
         output_dir: str,
+        is_precompilation: bool = False,
         task: Optional[str] = None,
         dataset_config_name: Optional[str] = None,
         do_eval: bool = True,
@@ -397,6 +435,7 @@ class SummarizationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, e
             script,
             model_name,
             output_dir,
+            is_precompilation=is_precompilation,
             task=task,
             dataset_config_name=dataset_config_name,
             do_eval=do_eval,
@@ -413,10 +452,10 @@ class TranslationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, exa
     TASK_NAME = "wmt16"
     TRAIN_BATCH_SIZE = 1
     EVAL_BATCH_SIZE = 1
+    MAX_STEPS = 200
     EVAL_IS_SUPPORTED = False
     EVAL_SCORE_THRESHOLD = 22
     SCORE_NAME = "eval_bleu"
-    INFERENCE_DEVICE_ITERATIONS = 6
     EXTRA_COMMAND_LINE_ARGUMENTS = [
         "--dataset_config ro-en",
         "--source_lang ro",
@@ -432,6 +471,7 @@ class TranslationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, exa
         script: str,
         model_name: str,
         output_dir: str,
+        is_precompilation: bool = False,
         task: Optional[str] = None,
         dataset_config_name: Optional[str] = None,
         do_eval: bool = True,
@@ -450,6 +490,7 @@ class TranslationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, exa
             script,
             model_name,
             output_dir,
+            is_precompilation=is_precompilation,
             task=task,
             dataset_config_name=dataset_config_name,
             do_eval=do_eval,
@@ -466,7 +507,6 @@ class ImageClassificationExampleTester(
     ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_image_classification"
 ):
     TASK_NAME = "cifar10"
-    NUM_EPOCHS = 2
     EXTRA_COMMAND_LINE_ARGUMENTS = [
         "--remove_unused_columns false",
         "--dataloader_drop_last true",
@@ -480,7 +520,6 @@ class ImageClassificationExampleTester(
 #     TASK_NAME = "superb"
 #     DATASET_CONFIG_NAME = "ks"
 #     GRADIENT_ACCUMULATION_STEPS = 16
-#     NUM_EPOCHS = 3
 #     EXTRA_COMMAND_LINE_ARGUMENTS = ["--max_length_seconds 1", "--attention_mask False"]
 #     LEARNING_RATE = 3e-5
 #
