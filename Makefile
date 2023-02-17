@@ -20,6 +20,14 @@ REAL_CLONE_URL = $(if $(CLONE_URL),$(CLONE_URL),$(DEFAULT_CLONE_URL))
 
 .PHONY:	style test
 
+# Creates example scripts from Transformers
+transformers_examples:
+	rm -f examples/**/*.py
+	python tools/create_examples_from_transformers.py --version $(VERSION) examples
+
+transformers_examples_with_precompilation: transformers_examples
+	python tools/make_examples_run_both_precompilation_and_training.py  --examples_dir examples
+
 # Run code quality checks
 style_check:
 	black --check .

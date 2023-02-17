@@ -31,11 +31,16 @@ if __name__ == "__main__":
     ):
         logger.info("Starting the precompilation phase, this may take a while...")
         os.environ["IS_PRECOMPILATION"] = "true"
+        with open(__file__, "r") as fp:
+            file_content = fp.read()
+        with open(__file__, "w") as fp:
+            fp.write("#!" + sys.executable + "\n" + file_content)
         from libneuronxla.neuron_parallel_compile import main as neuron_parallel_compile_main
 
+        # from torch.distributed.run import main as neuron_parallel_compile_main
         original_argv = list(sys.argv)
         # TODO: handle interpreter = "torchrun"
-        sys.argv = ["python"] + sys.argv
+        # sys.argv = ["python"] + sys.argv
         neuron_parallel_compile_main()
         sys.argv = original_argv
         os.environ["IS_PRECOMPILATION"] = "false"

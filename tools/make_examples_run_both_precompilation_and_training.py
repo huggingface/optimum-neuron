@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 """Make the 🤗 Transformers training script examples run both precompilation and training."""
 
+import os
+import stat
 import shutil
 import subprocess
 from pathlib import Path
@@ -55,10 +57,15 @@ if __name__ == "__main__":
     if os.environ.get("DISABLE_PRECOMPILATION", "false") == "false" and os.environ.get("IS_PRECOMPILATION", "false") == "false":
         logger.info("Starting the precompilation phase, this may take a while...")
         os.environ["IS_PRECOMPILATION"] = "true"
+        with open(__file__, "r") as fp:
+            file_content = fp.read()
+        with open(__file__, "w") as fp:
+            fp.write("#!" + sys.executable + "\\n" + file_content)
         from libneuronxla.neuron_parallel_compile import main as neuron_parallel_compile_main
+        # from torch.distributed.run import main as neuron_parallel_compile_main
         original_argv = list(sys.argv)
         # TODO: handle interpreter = "torchrun"
-        sys.argv = ["python"] + sys.argv
+        # sys.argv = ["python"] + sys.argv
         neuron_parallel_compile_main()
         sys.argv = original_argv
         os.environ["IS_PRECOMPILATION"] = "false"
@@ -68,6 +75,7 @@ if __name__ == "__main__":
 
 
 def transform_example(example_path: Path):
+    original_file_permission = stat.S_IMODE(os.lstat(example_path).st_mode)
     new_example_path = example_path.parent / f"_{example_path.name}"
     shutil.move(example_path, new_example_path)
     
@@ -79,6 +87,8 @@ def transform_example(example_path: Path):
                 MAIN_CONTENT,
         ])
         fp.write(transformed_example_content)
+
+    os.chmod(example_path, original_file_permission)
 
 
 def parse_args():
