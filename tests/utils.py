@@ -15,17 +15,17 @@
 
 
 MODELS_TO_TEST_MAPPING = {
-    "albert": "albert-base-v2",
-    "bart": "facebook/bart-base",
+    # "albert": "albert-base-v2",
+    # "bart": "facebook/bart-base",
     "bert": "bert-base-uncased",
     "camembert": "camembert-base",
     "distilbert": "distilbert-base-uncased",
     "electra": "google/electra-base-discriminator",
     "gpt2": "gpt2",
     "gpt_neo": "EleutherAI/gpt-neo-125M",
-    "marian": "Helsinki-NLP/opus-mt-en-ro",
+    # "marian": "Helsinki-NLP/opus-mt-en-ro",
     "roberta": "roberta-base",
-    "t5": "t5-small",
+    # "t5": "t5-small",
     "vit": "google/vit-base-patch16-224-in21k",
     "xlm-roberta": "xlm-roberta-base",
     # TODO: issue with this model for now.

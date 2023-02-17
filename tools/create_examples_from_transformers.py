@@ -20,11 +20,8 @@ from argparse import ArgumentParser
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Callable, List, Optional, Union
-
 from git import Repo
 
-
-REPO_URL = "https://github.com/huggingface/transformers.git"
 
 SUPPORTED_EXAMPLES = [
     "text-classification",
@@ -36,6 +33,10 @@ SUPPORTED_EXAMPLES = [
     "translation",
     "summarization",
 ]
+
+
+REPO_URL = "https://github.com/huggingface/transformers.git"
+
 
 UNSUPPORTED_SCRIPTS_FOR_NOW = [
     "run_plm.py",

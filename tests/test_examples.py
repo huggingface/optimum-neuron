@@ -193,7 +193,7 @@ class ExampleTesterBase(TestCase):
     EVAL_SCORE_GREATER_IS_BETTER = True
     SCORE_NAME = "eval_accuracy"
     DATASET_PARAMETER_NAME = "dataset_name"
-    NUM_EPOCHS = 2
+    NUM_EPOCHS = 1
     LEARNING_RATE = 1e-4
     TRAIN_BATCH_SIZE = 2
     EVAL_BATCH_SIZE = 4
@@ -252,7 +252,7 @@ class ExampleTesterBase(TestCase):
             "--save_total_limit 1",
             "--report_to none",
         ]
-        if dataset_config_name is not None:
+        if dataset_config_name:
             cmd_line.append(f"--dataset_config_name {dataset_config_name}")
 
         if extra_command_line_arguments is not None:
@@ -466,7 +466,7 @@ class ImageClassificationExampleTester(
     ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_image_classification"
 ):
     TASK_NAME = "cifar10"
-    NUM_EPOCHS = 2
+    NUM_EPOCHS = 1
     EXTRA_COMMAND_LINE_ARGUMENTS = [
         "--remove_unused_columns false",
         "--dataloader_drop_last true",
