@@ -106,9 +106,11 @@ def is_model_officially_supported(model: "PreTrainedModel") -> bool:
 
 
 class FirstAndLastDataset(Dataset):
-    def __init__(self, dataloader: DataLoader, num_repeat: int = 10, gradient_accumulation_steps: int = 1):
+    def __init__(
+        self, dataloader: DataLoader, num_repeat: int = 10, gradient_accumulation_steps: int = 1, world_size: int = 1
+    ):
         self.dataloader = dataloader
-        self.num_repeat = num_repeat * gradient_accumulation_steps
+        self.num_repeat = num_repeat * gradient_accumulation_steps * world_size
         self.samples = self.create_samples()
 
     def _create_samples_for_map_style_dataset(self):
@@ -148,7 +150,6 @@ class FirstAndLastDataset(Dataset):
         iterator = iter(self.dataloader)
         first_batch = next(iterator)
         samples = [first_batch] * self.num_repeat
-        yield first_batch
         last_batch = None
         while True:
             try:
@@ -209,7 +210,7 @@ def patch_forward(forward_fn):
     return wrapper
 
 
-def patch_model(model):
+def patch_model(model: "PreTrainedModel") -> "PreTrainedModel":
     if hasattr(model.config, "layerdrop"):
         model.config.layerdrop = 0
     model.no_sync = lambda: contextlib.nullcontext()
