@@ -142,9 +142,7 @@ class ExampleTestMeta(type):
                 )
                 joined_cmd_line = " ".join(cmd_line)
                 print(f"#### Running precompilation... ####\n{joined_cmd_line}\n")
-                p = subprocess.Popen(
-                    joined_cmd_line, shell=True, env=dict(os.environ, IS_PRECOMPILATION="true", XLA_USE_BF16="1")
-                )
+                p = subprocess.Popen(joined_cmd_line, shell=True, env=dict(os.environ, XLA_USE_BF16="1"))
                 return_code = p.wait()
                 self.assertEqual(return_code, 0)
 

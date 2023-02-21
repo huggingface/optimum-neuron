@@ -20,7 +20,13 @@ from typing import Any, Optional
 from torch.utils.data import DataLoader, Dataset
 from transformers import Seq2SeqTrainer, Trainer
 
-from .utils import FirstAndLastDataset, patch_model, prepare_environment_for_neuron
+from .utils import (
+    FirstAndLastDataset,
+    is_model_officially_supported,
+    is_precompilation,
+    patch_model,
+    prepare_environment_for_neuron,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -33,6 +39,8 @@ class AugmentTrainerForTrainiumMixin:
         prepare_environment_for_neuron()
         super().__init__(*args, **kwargs)
         self.validate_args()
+
+        # TODO: handle some arguments when is_precompilation is True.
 
     def validate_arg(self, arg_name: str, expected_value: Any, error_msg: str):
         disable_strict_mode = os.environ.get("DISABLE_STRICT_MODE", False)
@@ -63,10 +71,15 @@ class AugmentTrainerForTrainiumMixin:
             "Disabling DDP because it is currently not playing well with multiple workers training, for more "
             "information please refer to https://awsdocs-neuron.readthedocs-hosted.com/en/latest/frameworks/torch/torch-neuronx/tutorials/training/finetune_hftrainer.html#multi-worker-training"
         )
+        if not is_model_officially_supported(model):
+            logger.warning(
+                f"{model.__class__.__name__} is not officially supported by optimum-neuron. Training might not work as  "
+                "expected."
+            )
         return patch_model(model)
 
     def get_train_dataloader(self) -> DataLoader:
-        if os.environ.get("IS_PRECOMPILATION", False):
+        if is_precompilation():
             return DataLoader(
                 FirstAndLastDataset(
                     super().get_train_dataloader(), gradient_accumulation_steps=self.args.gradient_accumulation_steps
@@ -76,14 +89,14 @@ class AugmentTrainerForTrainiumMixin:
         return super().get_train_dataloader()
 
     def get_eval_dataloader(self, eval_dataset: Optional[Dataset] = None) -> DataLoader:
-        if os.environ.get("IS_PRECOMPILATION", False):
+        if is_precompilation():
             return DataLoader(
                 FirstAndLastDataset(super().get_eval_dataloader(eval_dataset=eval_dataset)), batch_size=None
             )
         return super().get_eval_dataloader(eval_dataset=eval_dataset)
 
     def get_test_dataloader(self, test_dataset: Dataset) -> DataLoader:
-        if os.environ.get("IS_PRECOMPILATION", False):
+        if is_precompilation():
             return DataLoader(FirstAndLastDataset(super().get_test_dataloader(test_dataset)), batch_size=None)
         return super().get_test_dataloader(test_dataset)
 

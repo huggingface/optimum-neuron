@@ -15,11 +15,94 @@
 
 import contextlib
 import functools
+import importlib
 import os
+from typing import TYPE_CHECKING, Callable, List, Optional, Tuple, Union
 
 import torch
 from torch.utils._pytree import tree_map
 from torch.utils.data import DataLoader, Dataset, IterableDataset
+from transformers.models.auto.modeling_auto import (
+    MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING_NAMES,
+    MODEL_FOR_BACKBONE_MAPPING_NAMES,
+    MODEL_FOR_CAUSAL_LM_MAPPING_NAMES,
+    MODEL_FOR_CTC_MAPPING_NAMES,
+    MODEL_FOR_DOCUMENT_QUESTION_ANSWERING_MAPPING_NAMES,
+    MODEL_FOR_IMAGE_CLASSIFICATION_MAPPING_NAMES,
+    MODEL_FOR_MASKED_IMAGE_MODELING_MAPPING_NAMES,
+    MODEL_FOR_MASKED_LM_MAPPING_NAMES,
+    MODEL_FOR_MULTIPLE_CHOICE_MAPPING_NAMES,
+    MODEL_FOR_NEXT_SENTENCE_PREDICTION_MAPPING_NAMES,
+    MODEL_FOR_PRETRAINING_MAPPING_NAMES,
+    MODEL_FOR_QUESTION_ANSWERING_MAPPING_NAMES,
+    MODEL_FOR_SEMANTIC_SEGMENTATION_MAPPING_NAMES,
+    MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING_NAMES,
+    MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING_NAMES,
+    MODEL_FOR_SPEECH_SEQ_2_SEQ_MAPPING_NAMES,
+    MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING_NAMES,
+    MODEL_MAPPING_NAMES,
+)
+
+
+if TYPE_CHECKING:
+    from transformers import PreTrainedModel
+
+
+def _generate_supported_model_class_names(
+    model_type: str,
+    supported_tasks: Optional[Union[str, List[str]]] = None,
+) -> List[str]:
+    task_mapping = {
+        "default": MODEL_MAPPING_NAMES,
+        "pretraining": MODEL_FOR_PRETRAINING_MAPPING_NAMES,
+        "next-sentence-prediction": MODEL_FOR_NEXT_SENTENCE_PREDICTION_MAPPING_NAMES,
+        "masked-lm": MODEL_FOR_MASKED_LM_MAPPING_NAMES,
+        "causal-lm": MODEL_FOR_CAUSAL_LM_MAPPING_NAMES,
+        "seq2seq-lm": MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING_NAMES,
+        "speech-seq2seq": MODEL_FOR_SPEECH_SEQ_2_SEQ_MAPPING_NAMES,
+        "multiple-choice": MODEL_FOR_MULTIPLE_CHOICE_MAPPING_NAMES,
+        "document-question-answering": MODEL_FOR_DOCUMENT_QUESTION_ANSWERING_MAPPING_NAMES,
+        "question-answering": MODEL_FOR_QUESTION_ANSWERING_MAPPING_NAMES,
+        "sequence-classification": MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING_NAMES,
+        "token-classification": MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING_NAMES,
+        "masked-image-modeling": MODEL_FOR_MASKED_IMAGE_MODELING_MAPPING_NAMES,
+        "image-classification": MODEL_FOR_IMAGE_CLASSIFICATION_MAPPING_NAMES,
+        "ctc": MODEL_FOR_CTC_MAPPING_NAMES,
+        "audio-classification": MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING_NAMES,
+        "semantic-segmentation": MODEL_FOR_SEMANTIC_SEGMENTATION_MAPPING_NAMES,
+        "backbone": MODEL_FOR_BACKBONE_MAPPING_NAMES,
+    }
+
+    if supported_tasks is None:
+        supported_tasks = task_mapping.keys()
+
+    if isinstance(supported_tasks, str):
+        supported_tasks = [supported_tasks]
+
+    model_class_names = []
+    for task in supported_tasks:
+        class_name = task_mapping[task].get(model_type, None)
+        if class_name:
+            model_class_names.append(class_name)
+
+    return model_class_names
+
+
+_SUPPORTED_MODEL_TYPES = ["bert", "camembert", "roberta", "xlm-roberta"]
+
+_SUPPORTED_MODEL_NAMES = set()
+for model_type in _SUPPORTED_MODEL_TYPES:
+    if isinstance(model_type, str):
+        model_type = (model_type, None)
+    _SUPPORTED_MODEL_NAMES.update(_generate_supported_model_class_names(*model_type))
+
+
+def is_precompilation() -> bool:
+    return os.environ.get("NEURON_PARALLEL_COMPILE") == "1"
+
+
+def is_model_officially_supported(model: "PreTrainedModel") -> bool:
+    return model.__class__.__name__ in _SUPPORTED_MODEL_NAMES
 
 
 class FirstAndLastDataset(Dataset):
@@ -99,17 +182,28 @@ def patched_finfo(dtype):
 
 
 class Patcher:
+    def __init__(self, patching_specs: Optional[List[Tuple[str, Callable]]] = None):
+        self.patching_specs = []
+        for orig, patch in patching_specs or []:
+            module_qualified_name, attribute_name = orig.rsplit(".", maxsplit=1)
+            module = importlib.import_module(module_qualified_name)
+            self.patching_specs.append((module, attribute_name, getattr(module, attribute_name), patch))
+
     def __enter__(self):
-        torch.finfo = patched_finfo
+        for module, attribute_name, _, patch in self.patching_specs:
+            setattr(module, attribute_name, patch)
 
     def __exit__(self, exc_type, exc_value, traceback):
-        torch.finfo = orig_finfo
+        for module, attribute_name, _, patch in self.patching_specs:
+            setattr(module, attribute_name, patch)
 
 
 def patch_forward(forward_fn):
+    patcher = Patcher(patching_specs=[("torch.finfo", patched_finfo)])
+
     @functools.wraps(forward_fn)
     def wrapper(*args, **kwargs):
-        with Patcher():
+        with patcher:
             return forward_fn(*args, **kwargs)
 
     return wrapper
@@ -123,10 +217,14 @@ def patch_model(model):
 
 
 def prepare_environment_for_neuron():
+    """
+    Prepares the system environment for Transformers models training on AWS Neuron.
+    """
     # Set compiler flag to compile for transformer model type
     os.environ["NEURON_CC_FLAGS"] = os.environ.get("NEURON_CC_FLAGS", "") + " --model-type=transformer"
 
 
 def patch_transformers_for_neuron_sdk():
-    # TODO: does nothing for now but might needed to patch functions in case of bug.
-    pass
+    """
+    Patches the Transformers library if needed to make it work with AWS Neuron.
+    """
