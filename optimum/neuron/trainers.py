@@ -65,7 +65,7 @@ class AugmentTrainerForTrainiumMixin:
             args.do_predict = False
 
     def validate_arg(self, arg_name: str, expected_value: Any, error_msg: str):
-        disable_strict_mode = os.environ.get("DISABLE_STRICT_MODE", False)
+        disable_strict_mode = os.environ.get("DISABLE_STRICT_MODE", "false")
         arg = getattr(self.args, arg_name, expected_value)
         if arg != expected_value:
             if disable_strict_mode in ["1", "true"]:
