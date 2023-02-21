@@ -18,6 +18,7 @@ import json
 import os
 import re
 import subprocess
+from datetime import date
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Callable, Dict, List, Optional, Union
@@ -91,12 +92,12 @@ class ExampleTestMeta(type):
             if models_to_test is None:
                 raise AttributeError(f"could not create class because no model was found for example {example_name}")
         for model_type, model_name in models_to_test:
-            attrs[f"test_{example_name}_{model_type}"] = cls._create_test(model_name)
+            attrs[f"test_{example_name}_{model_type}"] = cls._create_test(model_type, model_name)
         attrs["EXAMPLE_NAME"] = example_name
         return super().__new__(cls, name, bases, attrs)
 
     @classmethod
-    def _create_test(cls, model_name: str) -> Callable[["ExampleTesterBase"], None]:
+    def _create_test(cls, model_type: str, model_name: str) -> Callable[["ExampleTesterBase"], None]:
         """
         Creates a test function that runs an example for a model_name.
 
@@ -141,7 +142,9 @@ class ExampleTestMeta(type):
                 )
                 joined_cmd_line = " ".join(cmd_line)
                 print(f"#### Running precompilation... ####\n{joined_cmd_line}\n")
-                p = subprocess.Popen(joined_cmd_line, shell=True, env=dict(os.environ, IS_PRECOMPILATION="true", XLA_USE_BF16="1"))
+                p = subprocess.Popen(
+                    joined_cmd_line, shell=True, env=dict(os.environ, IS_PRECOMPILATION="true", XLA_USE_BF16="1")
+                )
                 return_code = p.wait()
                 self.assertEqual(return_code, 0)
 
@@ -163,6 +166,7 @@ class ExampleTestMeta(type):
                 )
                 joined_cmd_line = " ".join(cmd_line)
                 print(f"#### Running command line... ####\n{joined_cmd_line}\n")
+                os.environ["WANDB_NAME"] = f"{self.EXAMPLE_NAME}_{model_type}"
                 p = subprocess.Popen(joined_cmd_line, shell=True, env=dict(os.environ, XLA_USE_BF16="1"))
                 return_code = p.wait()
                 self.assertEqual(return_code, 0)
@@ -259,7 +263,9 @@ class ExampleTesterBase(TestCase):
             ]
 
         if is_precompilation:
-            neuron_parallel_compile_path = "venv/bin/neuron_parallel_compile" if self.venv_was_created else "neuron_parallel_compile"
+            neuron_parallel_compile_path = (
+                "venv/bin/neuron_parallel_compile" if self.venv_was_created else "neuron_parallel_compile"
+            )
             program = [neuron_parallel_compile_path] + program
 
         # TODO: make that a parameter to the function?
@@ -286,8 +292,10 @@ class ExampleTesterBase(TestCase):
             "--dataloader_num_workers 4",
             "--save_steps -1",
             "--save_total_limit 1",
-            "--report_to none",
         ]
+        if is_precompilation:
+            cmd_line.append("--report_to none")
+
         if dataset_config_name:
             cmd_line.append(f"--dataset_config_name {dataset_config_name}")
 
@@ -364,6 +372,27 @@ class ExampleTesterBase(TestCase):
         p = subprocess.Popen(cmd_line)
         return_code = p.wait()
         self.assertEqual(return_code, 0)
+
+        # Potentially install WANDB
+        wandb_token = os.environ.get("WANDB_TOKEN", None)
+        if wandb_token is not None:
+            cmd_line = f"{pip_name} install wandb".split()
+            p = subprocess.Popen(cmd_line)
+            return_code = p.wait()
+            self.assertEqual(return_code, 0)
+
+            wandb_name = "venv/bin/wandb" if self.venv_was_created else "wandb"
+            cmd_line = f"{wandb_name} login --relogin {wandb_token}".split()
+            p = subprocess.Popen(cmd_line)
+            self.assertEqual(return_code, 0)
+
+            wandb_project_name = os.environ.get("WANDB_PROJECT", "aws-neuron-tests")
+            today = date.today().strftime("%d%m%Y")
+            wandb_project_name = f"aws-neuron-tests-{today}"
+            os.environ["WANDB_PROJECT"] = wandb_project_name
+            cmd_line = f"{wandb_name} init -p {wandb_project_name}".split()
+            p = subprocess.Popen(cmd_line)
+            self.assertEqual(return_code, 0)
 
     # TODO: enable that?
     # def _cleanup_dataset_cache(self):
