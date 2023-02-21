@@ -57,6 +57,12 @@ class AugmentTrainerForTrainiumMixin:
         if args.max_steps is not None:
             logger.info("Disabling max_steps for precompilation.")
             args.nax_steps = None
+        if args.do_eval is True:
+            logger.info("Disabling evaluation during precompilation as this is not well supported yet.")
+            args.do_eval = False
+        if args.do_predict is True:
+            logger.info("Disabling prediction during precompilation as this is not well supported yet.")
+            args.do_predict = False
 
     def validate_arg(self, arg_name: str, expected_value: Any, error_msg: str):
         disable_strict_mode = os.environ.get("DISABLE_STRICT_MODE", False)

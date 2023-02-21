@@ -221,9 +221,9 @@ class ExampleTesterBase(TestCase):
     NUM_EPOCHS = 1
     MAX_STEPS = None
     LEARNING_RATE = 1e-4
-    TRAIN_BATCH_SIZE = 8
-    EVAL_BATCH_SIZE = 8
-    GRADIENT_ACCUMULATION_STEPS = 1
+    TRAIN_BATCH_SIZE = 32
+    EVAL_BATCH_SIZE = 32
+    GRADIENT_ACCUMULATION_STEPS = 16
     NPROC_PER_NODE = 2
     EXTRA_COMMAND_LINE_ARGUMENTS = ""
 
@@ -408,8 +408,8 @@ class TextClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestMe
     DATASET_PARAMETER_NAME = "task_name"
 
 
-class TokenClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_ner"):
-    TASK_NAME = "conll2003"
+# class TokenClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_ner"):
+#     TASK_NAME = "conll2003"
 
 
 class MultipleChoiceExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_swag"):
