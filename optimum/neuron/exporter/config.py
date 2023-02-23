@@ -12,11 +12,22 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import os
+"""
+Common Neuron configuration classes that handle most of the features for building model specific 
+configurations.
+"""
 
-from .trainers import Seq2SeqTrainiumTrainer, TrainiumTrainer
-from .utils import is_neuron_available, is_neuronx_available
+from ...utils import DummyTextInputGenerator, logging
+from .base import NeuronConfig
 
 
-if not os.environ.get("DISABLE_TRANSFORMERS_PATCHING", False):
-    patch_transformers_for_neuron_sdk()
+logger = logging.get_logger(__name__)
+
+
+class TextEncoderNeuronConfig(NeuronConfig):
+    """
+    Handles encoder-based text architectures.
+    """
+
+    DUMMY_INPUT_GENERATOR_CLASSES = (DummyTextInputGenerator,)
+    MANDATORY_AXES = ("batch_size", "sequence_length", ("multiple-choice", "num_choices"))
