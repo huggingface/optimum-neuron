@@ -169,14 +169,17 @@ class NeuronConfig(ExportConfig, ABC):
         else:
             return super().__setattr__(name, value)
 
-    def _validate_mandatory_axes(self):
+    def _validate_mandatory_axes(self, **kwargs):
         for name, axis_dim in self._axes.items():
             if axis_dim is None:
                 raise MissingMandatoryAxisDimension(
                     f"The value for the {name} axis is missing, it is needed to perform the export to Neuron compiled model."
                 )
 
-    def _create_dummy_input_generator_classes(self) -> List["DummyInputGenerator"]:
+    def _create_dummy_input_generator_classes(self, **kwargs) -> List["DummyInputGenerator"]:
+        for name, axis_dim in self._axes.items():
+            self._axes[name] = kwargs.pop(name, axis_dim)
+
         self._validate_mandatory_axes()
         return [cls_(self.task, self._normalized_config, **self._axes) for cls_ in self.DUMMY_INPUT_GENERATOR_CLASSES]
 
@@ -212,7 +215,7 @@ class NeuronConfig(ExportConfig, ABC):
         """
         return self._TASK_TO_COMMON_OUTPUTS[self.task]
 
-    def generate_dummy_inputs(self, return_tuple=True, **kwargs) -> Dict[str, "torch.Tensor"] | Tuple:
+    def generate_dummy_inputs(self, return_tuple=True, **kwargs) -> Union[Dict[str, "torch.Tensor"], Tuple]:
         """
         Generates dummy inputs that the exported model should be able to process.
         This method is actually used to determine the input specs and their static shapes that are needed for the export.

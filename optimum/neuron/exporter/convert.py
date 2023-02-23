@@ -16,7 +16,7 @@
 
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from optimum.exporters.error_utils import AtolError, OutputMatchError, ShapeError
@@ -27,12 +27,15 @@ from ..utils import is_neuron_available, is_neuronx_available
 
 
 if TYPE_CHECKING:
-    if is_neuron_available():
-        import torch_neuron as neuron
-    if is_neuronx_available():
-        import torch_neuronx as neuron
+    from transformers import PreTrainedModel
 
     from .base import NeuronConfig
+
+if is_neuron_available():
+    import torch_neuron as neuron
+
+if is_neuronx_available():
+    import torch_neuronx as neuron
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
@@ -82,11 +85,13 @@ def validate_model_outputs(
             atol = config.ATOL_FOR_VALIDATION
 
     ref_inputs = config.generate_dummy_inputs(return_tuple=False, **input_shapes)
-    ref_outputs = reference_model(**ref_inputs)
+    with torch.no_grad():
+        reference_model.eval()
+        ref_outputs = reference_model(**ref_inputs)
 
-    neuron_inputs = config.generate_dummy_inputs(**input_shapes)
+    neuron_inputs = tuple(ref_inputs.values())
     neuron_model = torch.jit.load(neuron_model_path)
-    neuron_outputs = neuron_model(**neuron_inputs)
+    neuron_outputs = neuron_model(*neuron_inputs)
 
     # Check if we have a subset of the keys into neuron_outputs against ref_outputs
     ref_output_names_set, neuron_output_names_set = set(ref_outputs.keys()), set(neuron_named_outputs)
@@ -112,6 +117,7 @@ def validate_model_outputs(
     value_failures = []
     for name, output in zip(neuron_output_names_set, neuron_outputs):
         ref_output = ref_outputs[name].numpy()
+        output = output.numpy()
 
         logger.info(f'\t- Validating Neuron Model output "{name}":')
 
@@ -173,6 +179,7 @@ def export(
 
     logger.info(f"Using PyTorch: {torch.__version__}")
     model.config.return_dict = True
+    model.config.torchscript = True
 
     # Check if we need to override certain configuration item
     if config.values_override is not None:

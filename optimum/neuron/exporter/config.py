@@ -17,7 +17,8 @@ Common Neuron configuration classes that handle most of the features for buildin
 configurations.
 """
 
-from ...utils import DummyTextInputGenerator, logging
+from optimum.utils import DummyTextInputGenerator, logging
+
 from .base import NeuronConfig
 
 
