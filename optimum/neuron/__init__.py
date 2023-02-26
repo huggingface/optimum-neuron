@@ -12,11 +12,30 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import os
+from typing import TYPE_CHECKING
 
-# from .trainers import Seq2SeqTrainiumTrainer, TrainiumTrainer
-from .utils import is_neuron_available, is_neuronx_available
+from transformers.utils import _LazyModule
 
 
-# if not os.environ.get("DISABLE_TRANSFORMERS_PATCHING", False):
-#     patch_transformers_for_neuron_sdk()
+_import_structure = {
+    "trainers": ["TrainiumTrainer", "Seq2SeqTrainiumTrainer"],
+    "utils": ["is_neuron_available", "is_neuronx_available", "patch_transformers_for_neuron_sdk"],
+}
+
+if TYPE_CHECKING:
+    import os
+
+    from .trainers import Seq2SeqTrainiumTrainer, TrainiumTrainer
+    from .utils import is_neuron_available, is_neuronx_available, patch_transformers_for_neuron_sdk
+
+    if not os.environ.get("DISABLE_TRANSFORMERS_PATCHING", False):
+        patch_transformers_for_neuron_sdk()
+else:
+    import sys
+
+    sys.modules[__name__] = _LazyModule(
+        __name__,
+        globals()["__file__"],
+        _import_structure,
+        module_spec=__spec__,
+    )
