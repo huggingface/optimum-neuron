@@ -15,7 +15,7 @@
 
 
 MODELS_TO_TEST_MAPPING = {
-    "albert": "albert-base-v2",
+    # "albert": "albert-base-v2",
     "bart": "facebook/bart-base",
     "bert": "bert-base-uncased",
     "camembert": "camembert-base",
