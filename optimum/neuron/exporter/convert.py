@@ -15,11 +15,10 @@
 """Neuron TorchScript model check and export functions."""
 
 from pathlib import Path
-from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import numpy as np
-from transformers.utils import is_torch_available
+import torch
 
 from ...exporters.error_utils import AtolError, OutputMatchError, ShapeError
 from ...utils import logging
@@ -32,10 +31,10 @@ if TYPE_CHECKING:
     from .base import NeuronConfig
 
 if is_neuron_available():
-    import torch_neuron as neuron
+    import torch_neuron as neuron  # noqa: F811
 
 if is_neuronx_available():
-    import torch_neuronx as neuron
+    import torch_neuronx as neuron  # noqa: F811
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
@@ -70,12 +69,6 @@ def validate_model_outputs(
     Raises:
         ValueError: If the outputs shapes or values do not match between the reference and the exported model.
     """
-    if not is_torch_available():
-        raise ImportError(
-            "Cannot validate conversion because PyTorch is not installed. " "Please install PyTorch first."
-        )
-    import torch
-
     logger.info("Validating Neuron model...")
 
     if atol is None:
@@ -171,10 +164,6 @@ def export(
         `Tuple[List[str], List[str]]`: A tuple with an ordered list of the model's inputs, and the named inputs from
         the Neuron configuration.
     """
-    if not is_torch_available():
-        raise ImportError("Cannot convert because PyTorch is not installed. " "Please install PyTorch first.")
-    import torch
-
     output.parent.mkdir(parents=True, exist_ok=True)
 
     logger.info(f"Using PyTorch: {torch.__version__}")

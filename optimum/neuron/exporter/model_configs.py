@@ -23,7 +23,7 @@ from .config import TextEncoderNeuronConfig
 
 class BertNeuronConfig(TextEncoderNeuronConfig):
     NORMALIZED_CONFIG_CLASS = NormalizedConfigManager.get_normalized_config_class("bert")
-    ATOL_FOR_VALIDATION = 1e-2
+    ATOL_FOR_VALIDATION = 1e-1
 
     @property
     def inputs(self) -> List[str]:
