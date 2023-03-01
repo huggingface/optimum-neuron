@@ -15,7 +15,7 @@
 import os
 
 from .trainers import Seq2SeqTrainiumTrainer, TrainiumTrainer
-from .utils import patch_transformers_for_neuron_sdk
+from .utils.training_utils import patch_transformers_for_neuron_sdk
 
 
 if not os.environ.get("DISABLE_TRANSFORMERS_PATCHING", False):

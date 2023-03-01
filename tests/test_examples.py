@@ -426,14 +426,11 @@ class ExampleTesterBase(TestCase):
 class CausalLMExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_clm"):
     TASK_NAME = "wikitext"
     DATASET_CONFIG_NAME = "wikitext-2-raw-v1"
-    # EVAL_IS_SUPPORTED = True
-    # EXTRA_COMMAND_LINE_ARGUMENTS = [
-    #     "--dataset_config 3.0.0",
-    #     "--prediction_loss_only",
-    #     "--pad_to_max_length",
-    #     "--max_target_length 200",
-    #     "--max_source_length 1024",
-    # ]
+    NUM_EPOCHS = 3
+    TRAIN_BATCH_SIZE = 4
+    SCORE_NAME = "perplexity"
+    EVAL_SCORE_THRESHOLD = 35
+    EVAL_SCORE_GREATER_IS_BETTER = False
 
 
 class TextClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_glue"):
@@ -443,10 +440,16 @@ class TextClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestMe
 
 class TokenClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_ner"):
     TASK_NAME = "conll2003"
+    # EXTRA_COMMAND_LINE_ARGUMENTS = [
+    #     "--max_seq_length 384",
+    # ]
 
 
 class MultipleChoiceExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_swag"):
     EVAL_SCORE_THRESHOLD_OVERRIDES = {"distilbert-base-uncased": 0.645}
+    EXTRA_COMMAND_LINE_ARGUMENTS = [
+        "--max_seq_length 384",
+    ]
 
 
 class QuestionAnsweringExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_qa"):
@@ -464,7 +467,6 @@ class SummarizationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, e
     EVAL_SCORE_THRESHOLD = 30
     SCORE_NAME = "eval_rougeLsum"
     EXTRA_COMMAND_LINE_ARGUMENTS = [
-        # "--dataset_config 3.0.0",
         "--prediction_loss_only",
         "--pad_to_max_length",
         "--max_target_length 200",
@@ -518,7 +520,6 @@ class TranslationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, exa
     EVAL_SCORE_THRESHOLD = 22
     SCORE_NAME = "eval_bleu"
     EXTRA_COMMAND_LINE_ARGUMENTS = [
-        # "--dataset_config ro-en",
         "--source_lang ro",
         "--target_lang en",
         "--pad_to_max_length",

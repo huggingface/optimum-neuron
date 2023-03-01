@@ -11,16 +11,16 @@
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
-"""Defines Trainer subclasses to perform training on AWS Trainium 1 instances."""
+"""Defines Trainer subclasses to perform training on AWS Trainium instances."""
 
 import logging
-import os
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Optional
 
 from torch.utils.data import DataLoader, Dataset
 from transformers import Seq2SeqTrainer, Trainer
 
-from .utils import (
+from .utils.argument_utils import validate_arg
+from .utils.training_utils import (
     FirstAndLastDataset,
     is_model_officially_supported,
     is_precompilation,
@@ -64,26 +64,13 @@ class AugmentTrainerForTrainiumMixin:
             logger.info("Disabling prediction during precompilation as this is not well supported yet.")
             args.do_predict = False
 
-    def validate_arg(self, arg_name: str, expected_value: Any, error_msg: str):
-        disable_strict_mode = os.environ.get("DISABLE_STRICT_MODE", "false")
-        arg = getattr(self.args, arg_name, expected_value)
-        if arg != expected_value:
-            if disable_strict_mode in ["1", "true"]:
-                logger.warning(error_msg)
-            else:
-                raise ValueError(error_msg)
-
     def validate_args(self):
-        self.validate_arg(
-            "pad_to_max_length",
-            True,
-            "pad_to_max_length=False can lead to very poor performance by trigger a lot of recompilation",
-        )
         if isinstance(self, Seq2SeqTrainer):
-            self.validate_arg(
+            validate_arg(
+                self.args,
                 "prediction_loss_only",
-                True,
                 "prediction_loss_only=False is not supported for now because it requires generation.",
+                expected_value=True,
             )
 
     def _wrap_model(self, model, training=True, dataloader=None):

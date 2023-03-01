@@ -20,6 +20,7 @@ import os
 from typing import TYPE_CHECKING, Callable, List, Optional, Tuple, Union
 
 import torch
+import transformers
 from torch.utils._pytree import tree_map
 from torch.utils.data import DataLoader, Dataset, IterableDataset
 from transformers.models.auto.modeling_auto import (
@@ -42,6 +43,8 @@ from transformers.models.auto.modeling_auto import (
     MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING_NAMES,
     MODEL_MAPPING_NAMES,
 )
+
+from ..hf_argparser import TrainiumHfArgumentParser
 
 
 if TYPE_CHECKING:
@@ -230,3 +233,5 @@ def patch_transformers_for_neuron_sdk():
     """
     Patches the Transformers library if needed to make it work with AWS Neuron.
     """
+    # Doing this patching here to minimize the number of modifications users need to do.
+    transformers.hf_argparser.HfArgumentParser = TrainiumHfArgumentParser
