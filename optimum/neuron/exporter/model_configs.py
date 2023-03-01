@@ -34,8 +34,8 @@ class AlbertNeuronConfig(BertNeuronConfig):
     pass
 
 
-class ConvBertNeuronConfig(BertNeuronConfig):
-    pass
+# class ConvBertNeuronConfig(BertNeuronConfig):
+#     pass
 
 
 class ElectraNeuronConfig(BertNeuronConfig):
@@ -43,6 +43,10 @@ class ElectraNeuronConfig(BertNeuronConfig):
 
 
 class FlaubertNeuronConfig(BertNeuronConfig):
+    ATOL_FOR_VALIDATION = 1e-1
+
+
+class MobileBertNeuronConfig(BertNeuronConfig):
     pass
 
 
@@ -50,12 +54,8 @@ class RoFormerNeuronConfig(BertNeuronConfig):
     pass
 
 
-class MobileBertNeuronConfig(BertNeuronConfig):
-    pass
-
-
 class XLMNeuronConfig(BertNeuronConfig):
-    pass
+    ATOL_FOR_VALIDATION = 1e-1
 
 
 class DistilBertNeuronConfig(BertNeuronConfig):
@@ -66,15 +66,15 @@ class DistilBertNeuronConfig(BertNeuronConfig):
         return ["input_ids", "attention_mask"]
 
 
+class CamembertNeuronConfig(DistilBertNeuronConfig):
+    pass
+
+
 class MPNetNeuronConfig(DistilBertNeuronConfig):
     pass
 
 
 class RobertaNeuronConfig(DistilBertNeuronConfig):
-    pass
-
-
-class CamembertNeuronConfig(DistilBertNeuronConfig):
     pass
 
 

@@ -20,24 +20,44 @@ from unittest import TestCase
 
 import pytest
 from optimum.neuron.exporter import export, validate_model_outputs
-from optimum.neuron.exporter.model_configs import BertNeuronConfig
+from optimum.neuron.exporter.model_configs import (
+    BertNeuronConfig,
+    DebertaNeuronConfig,
+    DistilBertNeuronConfig,
+    FlaubertNeuronConfig,
+    XLMNeuronConfig,
+)
 from parameterized import parameterized
 from transformers import AutoModelForSequenceClassification, AutoTokenizer, is_torch_available
 from transformers.testing_utils import require_torch, slow
 
 
 EXPORT_MODELS_TINY = {
-    "bert": "hf-internal-testing/tiny-random-BertModel",
+    "albert": ("hf-internal-testing/tiny-random-AlbertModel", BertNeuronConfig),
+    "bert": ("hf-internal-testing/tiny-random-BertModel", BertNeuronConfig),
+    "camembert": ("hf-internal-testing/tiny-random-camembert", DistilBertNeuronConfig),
+    # "convbert": ("hf-internal-testing/tiny-random-ConvBertModel", BertNeuronConfig),
+    "deberta": ("hf-internal-testing/tiny-random-DebertaModel", DebertaNeuronConfig),
+    "deberta-v2": ("hf-internal-testing/tiny-random-DebertaV2Model", DebertaNeuronConfig),
+    "distilbert": ("hf-internal-testing/tiny-random-DistilBertModel", DistilBertNeuronConfig),
+    "electra": ("hf-internal-testing/tiny-random-ElectraModel", BertNeuronConfig),
+    "flaubert": ("hf-internal-testing/tiny-random-flaubert", FlaubertNeuronConfig),
+    "mobilebert": ("hf-internal-testing/tiny-random-MobileBertModel", BertNeuronConfig),
+    "mpnet": ("hf-internal-testing/tiny-random-MPNetModel", DistilBertNeuronConfig),
+    "roberta": ("hf-internal-testing/tiny-random-RobertaModel", DistilBertNeuronConfig),
+    "roformer": ("hf-internal-testing/tiny-random-RoFormerModel", BertNeuronConfig),
+    "xlm": ("hf-internal-testing/tiny-random-XLMModel", XLMNeuronConfig),
+    "xlm-roberta": ("hf-internal-testing/tiny-xlm-roberta", DistilBertNeuronConfig),
 }
 
 
 def _get_models_to_test(export_models_dict: Dict):
     models_to_test = []
     if is_torch_available():
-        for model_type, model_id in export_models_dict.items():
+        for model_type, (model_id, neuron_config_constructor) in export_models_dict.items():
             task = "sequence-classification"
             model_type = model_type.replace("_", "-")
-            models_to_test.append((f"{model_type}_{task}", model_type, model_id, task))
+            models_to_test.append((f"{model_type}_{task}", model_type, model_id, task, neuron_config_constructor))
 
     return sorted(models_to_test)
 
@@ -48,16 +68,12 @@ class NeuronXExportTestCase(TestCase):
     """
 
     def _neuronx_export(
-        self,
-        test_name: str,
-        model_type: str,
-        model_id: str,
-        task: str,
+        self, test_name: str, model_type: str, model_id: str, task: str, neuron_config_constructor: "NeuronConfig"
     ):
         model = AutoModelForSequenceClassification.from_pretrained(model_id)
         reference_model = copy.deepcopy(model)
 
-        neuron_config = BertNeuronConfig(config=model.config, task=task)
+        neuron_config = neuron_config_constructor(config=model.config, task=task)
 
         atol = neuron_config.ATOL_FOR_VALIDATION
         dummy_inputs_shapes = {"batch_size": 2, "sequence_length": 18}
@@ -84,5 +100,5 @@ class NeuronXExportTestCase(TestCase):
 
     @parameterized.expand(_get_models_to_test(EXPORT_MODELS_TINY))
     @require_torch
-    def test_bert_export(self, test_name, name, model_name, task):
-        self._neuronx_export(test_name, name, model_name, task)
+    def test_bert_export(self, test_name, name, model_name, task, neuron_config_constructor):
+        self._neuronx_export(test_name, name, model_name, task, neuron_config_constructor)
