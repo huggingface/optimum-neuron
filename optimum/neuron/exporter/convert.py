@@ -154,7 +154,7 @@ def export(
     model: "PreTrainedModel",
     config: "NeuronConfig",
     output: Path,
-    input_shapes: Optional[Dict] = None,
+    input_shapes: Optional[Dict[str, Tuple[int, ...]]] = None,
 ) -> Tuple[List[str], List[str]]:
     """
     Exports a PyTorch model to a Neuron compiled TorchScript model.
