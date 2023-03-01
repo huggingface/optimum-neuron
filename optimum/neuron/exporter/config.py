@@ -18,7 +18,6 @@ configurations.
 """
 
 from ...utils import DummyTextInputGenerator, logging
-
 from .base import NeuronConfig
 
 
