@@ -214,6 +214,7 @@ def patch_model(model: "PreTrainedModel") -> "PreTrainedModel":
     if hasattr(model.config, "layerdrop"):
         model.config.layerdrop = 0
     model.no_sync = lambda: contextlib.nullcontext()
+    model.forward = patch_forward(model.forward)
     return model
 
 

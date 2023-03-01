@@ -21,7 +21,7 @@ import subprocess
 from datetime import date
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Callable, Dict, List, Optional, Union
+from typing import Callable, Dict, List, Optional, Set, Union
 from unittest import TestCase
 
 from transformers import (
@@ -41,12 +41,18 @@ from transformers.testing_utils import slow
 from utils import MODELS_TO_TEST_MAPPING
 
 
-def _get_supported_models_for_script(models_to_test: Dict[str, str], task_mapping: Dict[str, str]) -> List[str]:
+def _get_supported_models_for_script(
+    models_to_test: Dict[str, str], task_mapping: Dict[str, str], to_exclude: Optional[Set[str]] = None
+) -> List[str]:
     """
     Filters models that can perform the task from models_to_test.
     """
+    if to_exclude is None:
+        to_exclude = set()
     supported_models = []
     for model_type, model_name in models_to_test.items():
+        if model_type in to_exclude:
+            continue
         if CONFIG_MAPPING[model_type] in task_mapping:
             if model_type == "bart" and task_mapping is not MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING:
                 continue
@@ -55,18 +61,26 @@ def _get_supported_models_for_script(models_to_test: Dict[str, str], task_mappin
 
 
 _SCRIPT_TO_MODEL_MAPPING = {
-    "run_clm": _get_supported_models_for_script(MODELS_TO_TEST_MAPPING, MODEL_FOR_CAUSAL_LM_MAPPING),
+    "run_clm": _get_supported_models_for_script(
+        MODELS_TO_TEST_MAPPING, MODEL_FOR_CAUSAL_LM_MAPPING, to_exclude={"bart"}
+    ),
     "run_mlm": _get_supported_models_for_script(MODELS_TO_TEST_MAPPING, MODEL_FOR_MASKED_LM_MAPPING),
     "run_swag": _get_supported_models_for_script(MODELS_TO_TEST_MAPPING, MODEL_FOR_MULTIPLE_CHOICE_MAPPING),
-    "run_qa": _get_supported_models_for_script(MODELS_TO_TEST_MAPPING, MODEL_FOR_QUESTION_ANSWERING_MAPPING),
+    "run_qa": _get_supported_models_for_script(
+        MODELS_TO_TEST_MAPPING, MODEL_FOR_QUESTION_ANSWERING_MAPPING, to_exclude={"bart"}
+    ),
     "run_summarization": _get_supported_models_for_script(
-        MODELS_TO_TEST_MAPPING, MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING
+        MODELS_TO_TEST_MAPPING, MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING, to_exclude={"marian"}
     ),
     "run_translation": _get_supported_models_for_script(
         MODELS_TO_TEST_MAPPING, MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING
     ),
-    "run_glue": _get_supported_models_for_script(MODELS_TO_TEST_MAPPING, MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING),
-    "run_ner": _get_supported_models_for_script(MODELS_TO_TEST_MAPPING, MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING),
+    "run_glue": _get_supported_models_for_script(
+        MODELS_TO_TEST_MAPPING, MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING, to_exclude={"bart", "gpt2", "gpt_neo"}
+    ),
+    "run_ner": _get_supported_models_for_script(
+        MODELS_TO_TEST_MAPPING, MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING, to_exclude={"gpt2"}
+    ),
     "run_image_classification": _get_supported_models_for_script(
         MODELS_TO_TEST_MAPPING, MODEL_FOR_IMAGE_CLASSIFICATION_MAPPING
     ),
@@ -123,28 +137,29 @@ class ExampleTestMeta(type):
 
             self._install_requirements(example_script.parent / "requirements.txt")
 
-            with TemporaryDirectory(dir=Path(self.EXAMPLE_DIR)) as tmp_dir:
-                os.environ["HF_HOME"] = os.path.join(tmp_dir, "hf_home")
-                cmd_line = self._create_command_line(
-                    example_script,
-                    model_name,
-                    tmp_dir,
-                    is_precompilation=True,
-                    task=self.TASK_NAME,
-                    dataset_config_name=self.DATASET_CONFIG_NAME,
-                    do_eval=False,
-                    lr=self.LEARNING_RATE,
-                    train_batch_size=self.TRAIN_BATCH_SIZE,
-                    eval_batch_size=self.EVAL_BATCH_SIZE,
-                    num_epochs=1,
-                    gradient_accumulation_steps=self.GRADIENT_ACCUMULATION_STEPS,
-                    extra_command_line_arguments=self.EXTRA_COMMAND_LINE_ARGUMENTS,
-                )
-                joined_cmd_line = " ".join(cmd_line)
-                print(f"#### Running precompilation... ####\n{joined_cmd_line}\n")
-                p = subprocess.Popen(joined_cmd_line, shell=True, env=dict(os.environ, XLA_USE_BF16="1"))
-                return_code = p.wait()
-                self.assertEqual(return_code, 0)
+            if self.DO_PRECOMPILATION:
+                with TemporaryDirectory(dir=Path(self.EXAMPLE_DIR)) as tmp_dir:
+                    os.environ["HF_HOME"] = os.path.join(tmp_dir, "hf_home")
+                    cmd_line = self._create_command_line(
+                        example_script,
+                        model_name,
+                        tmp_dir,
+                        is_precompilation=True,
+                        task=self.TASK_NAME,
+                        dataset_config_name=self.DATASET_CONFIG_NAME,
+                        do_eval=False,
+                        lr=self.LEARNING_RATE,
+                        train_batch_size=self.TRAIN_BATCH_SIZE,
+                        eval_batch_size=self.EVAL_BATCH_SIZE,
+                        num_epochs=1,
+                        gradient_accumulation_steps=self.GRADIENT_ACCUMULATION_STEPS,
+                        extra_command_line_arguments=self.EXTRA_COMMAND_LINE_ARGUMENTS,
+                    )
+                    joined_cmd_line = " ".join(cmd_line)
+                    print(f"#### Running precompilation... ####\n{joined_cmd_line}\n")
+                    p = subprocess.Popen(joined_cmd_line, shell=True, env=dict(os.environ, XLA_USE_BF16="1"))
+                    return_code = p.wait()
+                    self.assertEqual(return_code, 0)
 
             with TemporaryDirectory(dir=Path(self.EXAMPLE_DIR)) as tmp_dir:
                 os.environ["HF_HOME"] = os.path.join(tmp_dir, "hf_home")
@@ -226,6 +241,7 @@ class ExampleTesterBase(TestCase):
     GRADIENT_ACCUMULATION_STEPS = 16
     NPROC_PER_NODE = 2
     EXTRA_COMMAND_LINE_ARGUMENTS = ""
+    DO_PRECOMPILATION = True
 
     def setUp(self):
         self._create_venv()
@@ -290,6 +306,7 @@ class ExampleTesterBase(TestCase):
             "--dataloader_num_workers 4",
             "--save_steps -1",
             "--save_total_limit 1",
+            "--logging_steps 1",
         ]
         if is_precompilation:
             cmd_line.append("--report_to none")
@@ -305,22 +322,23 @@ class ExampleTesterBase(TestCase):
 
     @property
     def venv_was_created(self):
-        return os.path.isdir("venv")
+        return os.environ.get("USE_VENV", "true") == "true" and os.path.isdir("venv")
 
     def _create_venv(self):
         """
         Creates the virtual environment for the example.
         """
-        cmd_line = "python -m venv venv".split()
-        p = subprocess.Popen(cmd_line)
-        return_code = p.wait()
-        self.assertEqual(return_code, 0)
+        if os.environ.get("USE_VENV", "true") == "true":
+            cmd_line = "python -m venv venv".split()
+            p = subprocess.Popen(cmd_line)
+            return_code = p.wait()
+            self.assertEqual(return_code, 0)
 
-        # Install pip
-        cmd_line = "venv/bin/python -m ensurepip --upgrade".split()
-        p = subprocess.Popen(cmd_line)
-        return_code = p.wait()
-        self.assertEqual(return_code, 0)
+            # Install pip
+            cmd_line = "venv/bin/python -m ensurepip --upgrade".split()
+            p = subprocess.Popen(cmd_line)
+            return_code = p.wait()
+            self.assertEqual(return_code, 0)
 
     def _remove_venv(self):
         """
@@ -346,27 +364,31 @@ class ExampleTesterBase(TestCase):
         self.assertEqual(return_code, 0)
 
         # Set pip repository pointing to the Neuron repository
-        cmd_line = f"{pip_name} config set global.extra-index-url https://pip.repos.neuron.amazonaws.com".split()
-        p = subprocess.Popen(cmd_line)
-        return_code = p.wait()
-        self.assertEqual(return_code, 0)
+        # cmd_line = f"{pip_name} config set global.extra-index-url https://pip.repos.neuron.amazonaws.com".split()
+        # p = subprocess.Popen(cmd_line)
+        # return_code = p.wait()
+        # self.assertEqual(return_code, 0)
 
-        # Install wget, awscli, Neuron Compiler and Neuron Framework
-        cmd_line = f"{pip_name} install wget awscli neuronx-cc==2.* torch-neuronx torchvision".split()
-        p = subprocess.Popen(cmd_line)
-        return_code = p.wait()
-        self.assertEqual(return_code, 0)
+        # # Install wget, awscli, Neuron Compiler and Neuron Framework
+        # cmd_line = f"{pip_name} install wget awscli neuronx-cc==2.* torch-neuronx torchvision".split()
+        # p = subprocess.Popen(cmd_line)
+        # return_code = p.wait()
+        # self.assertEqual(return_code, 0)
 
-        # Install wget, awscli, Neuron Compiler and Neuron Framework
         cmd_line = f"{pip_name} install -e {Path(__file__).parent.parent}".split()
         p = subprocess.Popen(cmd_line)
         return_code = p.wait()
         self.assertEqual(return_code, 0)
 
         # Install requirements
-        if not Path(requirements_filename).exists():
-            return
-        cmd_line = f"{pip_name} install -r {requirements_filename}".split()
+        if Path(requirements_filename).exists():
+            cmd_line = f"{pip_name} install -r {requirements_filename}".split()
+            p = subprocess.Popen(cmd_line)
+            return_code = p.wait()
+            self.assertEqual(return_code, 0)
+
+        # TODO: remove that as soon as possible.
+        cmd_line = f"{pip_name} install numpy==1.20.3".split()
         p = subprocess.Popen(cmd_line)
         return_code = p.wait()
         self.assertEqual(return_code, 0)
@@ -379,28 +401,33 @@ class ExampleTesterBase(TestCase):
             return_code = p.wait()
             self.assertEqual(return_code, 0)
 
+            env_with_updated_path = dict(os.environ, PATH=f"/home/ubuntu/.local/bin:{os.environ['PATH']}")
+
             wandb_name = "venv/bin/wandb" if self.venv_was_created else "wandb"
             cmd_line = f"{wandb_name} login --relogin {wandb_token}".split()
-            p = subprocess.Popen(cmd_line)
+            p = subprocess.Popen(cmd_line, env=env_with_updated_path)
             self.assertEqual(return_code, 0)
 
             wandb_project_name = os.environ.get("WANDB_PROJECT", "aws-neuron-tests")
             today = date.today().strftime("%d%m%Y")
-            wandb_project_name = f"aws-neuron-tests-{today}"
+            wandb_project_name = f"{wandb_project_name}-{today}"
             os.environ["WANDB_PROJECT"] = wandb_project_name
             cmd_line = f"{wandb_name} init -p {wandb_project_name}".split()
-            p = subprocess.Popen(cmd_line)
+            p = subprocess.Popen(cmd_line, env=env_with_updated_path)
             self.assertEqual(return_code, 0)
 
-    # TODO: enable that?
-    # def _cleanup_dataset_cache(self):
-    #     """
-    #     Cleans up the dataset cache to free up space for other tests.
-    #     """
-    #     cmd_line = ["rm" "-r", "/nethome/michaelb/.cache/huggingface/datasets"]
-    #     p = subprocess.Popen(cmd_line)
-    #     return_code = p.wait()
-    #     self.assertEqual(return_code, 0)
+
+class CausalLMExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example="run_clm"):
+    TASK_NAME = "wikitext"
+    DATSET_CONFIG = "wikitext-2-raw-v1"
+    # EVAL_IS_SUPPORTED = True
+    # EXTRA_COMMAND_LINE_ARGUMENTS = [
+    #     "--dataset_config 3.0.0",
+    #     "--prediction_loss_only",
+    #     "--pad_to_max_length",
+    #     "--max_target_length 200",
+    #     "--max_source_length 1024",
+    # ]
 
 
 class TextClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_glue"):
@@ -408,8 +435,8 @@ class TextClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestMe
     DATASET_PARAMETER_NAME = "task_name"
 
 
-# class TokenClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_ner"):
-#     TASK_NAME = "conll2003"
+class TokenClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_ner"):
+    TASK_NAME = "conll2003"
 
 
 class MultipleChoiceExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_swag"):
@@ -431,7 +458,7 @@ class SummarizationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, e
     EVAL_SCORE_THRESHOLD = 30
     SCORE_NAME = "eval_rougeLsum"
     EXTRA_COMMAND_LINE_ARGUMENTS = [
-        "--dataset_config 3.0.0",
+        # "--dataset_config 3.0.0",
         "--prediction_loss_only",
         "--pad_to_max_length",
         "--max_target_length 200",
@@ -477,6 +504,7 @@ class SummarizationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, e
 
 class TranslationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_translation"):
     TASK_NAME = "wmt16"
+    DATASET_CONFIG = "ro-en"
     TRAIN_BATCH_SIZE = 1
     EVAL_BATCH_SIZE = 1
     MAX_STEPS = 200
@@ -484,7 +512,7 @@ class TranslationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, exa
     EVAL_SCORE_THRESHOLD = 22
     SCORE_NAME = "eval_bleu"
     EXTRA_COMMAND_LINE_ARGUMENTS = [
-        "--dataset_config ro-en",
+        # "--dataset_config ro-en",
         "--source_lang ro",
         "--target_lang en",
         "--pad_to_max_length",
@@ -492,6 +520,8 @@ class TranslationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, exa
         "--max_target_length 512",
         "--prediction_loss_only",
     ]
+    # TODO: for now it does not work for T5, enable this ASAP.
+    DO_PRECOMPILATION = False
 
     def _create_command_line(
         self,
