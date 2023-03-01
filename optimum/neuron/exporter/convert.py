@@ -47,7 +47,7 @@ def validate_model_outputs(
     neuron_model_path: Path,
     neuron_named_outputs: List[str],
     atol: Optional[float] = None,
-    input_shapes: Optional[Dict] = None,
+    input_shapes: Optional[Dict[str, Tuple[int, ...]]] = None,
 ):
     """
     Validates the export by checking that the outputs from both the reference and the exported model match.
