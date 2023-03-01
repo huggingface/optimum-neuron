@@ -62,7 +62,9 @@ def _get_supported_models_for_script(
 
 _SCRIPT_TO_MODEL_MAPPING = {
     "run_clm": _get_supported_models_for_script(
-        MODELS_TO_TEST_MAPPING, MODEL_FOR_CAUSAL_LM_MAPPING, to_exclude={"bart"}
+        MODELS_TO_TEST_MAPPING,
+        MODEL_FOR_CAUSAL_LM_MAPPING,
+        to_exclude={"bart", "bert", "camembert", "electra", "roberta", "xlm-roberta"},
     ),
     "run_mlm": _get_supported_models_for_script(MODELS_TO_TEST_MAPPING, MODEL_FOR_MASKED_LM_MAPPING),
     "run_swag": _get_supported_models_for_script(MODELS_TO_TEST_MAPPING, MODEL_FOR_MULTIPLE_CHOICE_MAPPING),
@@ -364,16 +366,20 @@ class ExampleTesterBase(TestCase):
         self.assertEqual(return_code, 0)
 
         # Set pip repository pointing to the Neuron repository
-        # cmd_line = f"{pip_name} config set global.extra-index-url https://pip.repos.neuron.amazonaws.com".split()
-        # p = subprocess.Popen(cmd_line)
-        # return_code = p.wait()
-        # self.assertEqual(return_code, 0)
+        cmd_line = f"{pip_name} config set global.extra-index-url https://pip.repos.neuron.amazonaws.com".split()
+        p = subprocess.Popen(cmd_line)
+        return_code = p.wait()
+        self.assertEqual(return_code, 0)
 
-        # # Install wget, awscli, Neuron Compiler and Neuron Framework
-        # cmd_line = f"{pip_name} install wget awscli neuronx-cc==2.* torch-neuronx torchvision".split()
-        # p = subprocess.Popen(cmd_line)
-        # return_code = p.wait()
-        # self.assertEqual(return_code, 0)
+        # Install wget, awscli, Neuron Compiler and Neuron Framework
+        cmd_line = f"{pip_name} freeze | grep torch-neuronx".split()
+        p = subprocess.Popen(cmd_line, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        outs, _ = p.communicate()
+        if outs is not None:
+            cmd_line = f"{pip_name} install wget awscli neuronx-cc==2.* torch-neuronx torchvision".split()
+            p = subprocess.Popen(cmd_line)
+            return_code = p.wait()
+            self.assertEqual(return_code, 0)
 
         cmd_line = f"{pip_name} install -e {Path(__file__).parent.parent}".split()
         p = subprocess.Popen(cmd_line)
@@ -417,9 +423,9 @@ class ExampleTesterBase(TestCase):
             self.assertEqual(return_code, 0)
 
 
-class CausalLMExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example="run_clm"):
+class CausalLMExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_clm"):
     TASK_NAME = "wikitext"
-    DATSET_CONFIG = "wikitext-2-raw-v1"
+    DATASET_CONFIG_NAME = "wikitext-2-raw-v1"
     # EVAL_IS_SUPPORTED = True
     # EXTRA_COMMAND_LINE_ARGUMENTS = [
     #     "--dataset_config 3.0.0",
@@ -450,7 +456,7 @@ class QuestionAnsweringExampleTester(ExampleTesterBase, metaclass=ExampleTestMet
 
 class SummarizationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_summarization"):
     TASK_NAME = "cnn_dailymail"
-    DATASET_CONFIG = "3.0.0"
+    DATASET_CONFIG_NAME = "3.0.0"
     TRAIN_BATCH_SIZE = 1
     EVAL_BATCH_SIZE = 1
     MAX_STEPS = 200
@@ -504,7 +510,7 @@ class SummarizationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, e
 
 class TranslationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_translation"):
     TASK_NAME = "wmt16"
-    DATASET_CONFIG = "ro-en"
+    DATASET_CONFIG_NAME = "ro-en"
     TRAIN_BATCH_SIZE = 1
     EVAL_BATCH_SIZE = 1
     MAX_STEPS = 200
