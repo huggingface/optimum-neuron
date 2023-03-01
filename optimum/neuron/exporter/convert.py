@@ -43,7 +43,7 @@ logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 def validate_model_outputs(
     config: "NeuronConfig",
-    reference_model: Union["PreTrainedModel"],
+    reference_model: "PreTrainedModel",
     neuron_model_path: Path,
     neuron_named_outputs: List[str],
     atol: Optional[float] = None,
