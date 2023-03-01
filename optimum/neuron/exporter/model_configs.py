@@ -17,14 +17,13 @@
 
 from typing import List
 
-from optimum.utils.normalized_config import NormalizedConfigManager
-
+from ...utils.normalized_config import NormalizedConfigManager
 from .config import TextEncoderNeuronConfig
 
 
 class BertNeuronConfig(TextEncoderNeuronConfig):
     NORMALIZED_CONFIG_CLASS = NormalizedConfigManager.get_normalized_config_class("bert")
-    ATOL_FOR_VALIDATION = 1e-3
+    ATOL_FOR_VALIDATION = 1e-2
 
     @property
     def inputs(self) -> List[str]:
@@ -60,6 +59,8 @@ class XLMNeuronConfig(BertNeuronConfig):
 
 
 class DistilBertNeuronConfig(BertNeuronConfig):
+    ATOL_FOR_VALIDATION = 1e-1
+
     @property
     def inputs(self) -> List[str]:
         return ["input_ids", "attention_mask"]

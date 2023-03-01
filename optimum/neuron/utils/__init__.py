@@ -16,6 +16,8 @@ from .import_utils import is_neuron_available, is_neuronx_available
 from .training_utils import (
     FirstAndLastDataset,
     Patcher,
+    is_model_officially_supported,
+    is_precompilation,
     patch_forward,
     patch_model,
     patch_transformers_for_neuron_sdk,

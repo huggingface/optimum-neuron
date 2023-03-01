@@ -19,10 +19,10 @@ from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 
 import numpy as np
-from optimum.exporters.error_utils import AtolError, OutputMatchError, ShapeError
-from optimum.utils import logging
 from transformers.utils import is_torch_available
 
+from ...exporters.error_utils import AtolError, OutputMatchError, ShapeError
+from ...utils import logging
 from ..utils import is_neuron_available, is_neuronx_available
 
 
@@ -42,7 +42,7 @@ logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 
 def validate_model_outputs(
-    config: Union["NeuronConfig"],
+    config: "NeuronConfig",
     reference_model: Union["PreTrainedModel"],
     neuron_model_path: Path,
     neuron_named_outputs: List[str],
