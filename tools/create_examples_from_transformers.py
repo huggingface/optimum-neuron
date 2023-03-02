@@ -206,7 +206,7 @@ def main():
                 with open(file_path, "r") as fp:
                     file_content = fp.read()
                 processed_content = re.sub(TORCH_REQUIREMENT_PATTERN, "", file_content)
-                if file_path.parent == "image-classification":
+                if file_path.parent.name == "image-classification":
                     processed_content += "\nscikit-learn"
                 with open(file_path, "w") as fp:
                     fp.write(processed_content)

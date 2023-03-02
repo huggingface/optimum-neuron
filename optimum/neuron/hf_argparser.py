@@ -42,23 +42,23 @@ class TrainiumHfArgumentParser(HfArgumentParser):
     def parse_args_into_dataclasses(self, *args, **kwargs):
         outputs = super().parse_args_into_dataclasses(*args, **kwargs)
         for args in outputs:
-            self.validate_arg(args)
+            self.validate_args(args)
         return outputs
 
     def parse_dict(self, *args, **kwargs):
         outputs = super().parse_dict(*args, **kwargs)
         for args in outputs:
-            self.validate_arg(args)
+            self.validate_args(args)
         return outputs
 
     def parse_json_file(self, *args, **kwargs):
         outputs = super().parse_json_file(*args, **kwargs)
         for args in outputs:
-            self.validate_arg(args)
+            self.validate_args(args)
         return outputs
 
     def parse_yaml_file(self, *args, **kwargs):
         outputs = super().parse_yaml_file(*args, **kwargs)
         for args in outputs:
-            self.validate_arg(args)
+            self.validate_args(args)
         return outputs
