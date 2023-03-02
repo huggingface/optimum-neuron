@@ -445,7 +445,6 @@ class TextClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestMe
 
 class TokenClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_ner"):
     TASK_NAME = "conll2003"
-    TRAIN_BATCH_SIZE = 4
     EXTRA_COMMAND_LINE_ARGUMENTS = [
         "--max_seq_length 384",
     ]
@@ -453,7 +452,7 @@ class TokenClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestM
 
 class MultipleChoiceExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_swag"):
     EVAL_SCORE_THRESHOLD_OVERRIDES = {"distilbert-base-uncased": 0.645}
-    TRAIN_BATCH_SIZE = 4
+    NUM_EPOCHS = 2
     EXTRA_COMMAND_LINE_ARGUMENTS = [
         "--max_seq_length 384",
     ]

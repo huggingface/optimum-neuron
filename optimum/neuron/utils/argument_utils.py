@@ -54,6 +54,9 @@ def validate_arg(
                         return arg == expected_value
                     ```
     """
+    if not hasattr(args, arg_name):
+        return
+
     if expected_value is None and validation_function is None:
         raise ValueError(
             "At least an expected value or a validation_function must be provided, but none was provided here."
@@ -64,9 +67,6 @@ def validate_arg(
             return arg == expected_value
 
         validation_function = expected_validation_function
-
-    if not hasattr(args, arg_name):
-        return
 
     arg = getattr(args, arg_name)
     if not validation_function(arg):

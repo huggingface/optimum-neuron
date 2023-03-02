@@ -14,6 +14,7 @@
 """Defines Trainer subclasses to perform training on AWS Trainium instances."""
 
 import logging
+import os
 from typing import TYPE_CHECKING, Optional
 
 from torch.utils.data import DataLoader, Dataset
@@ -49,6 +50,8 @@ class AugmentTrainerForTrainiumMixin:
         super().__init__(*args, **kwargs)
 
         self.validate_args()
+        if self.args.bf16:
+            os.environ["XLA_USE_BF16"] = "1"
 
     def prepare_args_for_precompilation(self, args: "TrainingArguments"):
         if args.num_train_epochs != 1:
