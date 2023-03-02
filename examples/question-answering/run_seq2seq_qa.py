@@ -34,13 +34,14 @@ from transformers import (
     AutoModelForSeq2SeqLM,
     AutoTokenizer,
     DataCollatorForSeq2Seq,
-    HfArgumentParser,
     Seq2SeqTrainingArguments,
     set_seed,
 )
 from transformers.trainer_utils import EvalLoopOutput, EvalPrediction, get_last_checkpoint
 from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
+
+from optimum.neuron import TrainiumHfArgumentParser as HfArgumentParser
 
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.

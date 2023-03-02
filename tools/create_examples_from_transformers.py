@@ -184,18 +184,6 @@ def main():
                 hf_argument_file_path = file_path
 
                 print(f"Processing {file_path}")
-                # Not needed since formatting make those separate anyways.
-                # if trainer_file_path == hf_argument_file_path:
-                #     with open(trainer_file_path, "r") as fp:
-                #         file_content = fp.read()
-                #     trainer_cls, processed_content, import_end_index = remove_import(TRAINER_IMPORT_PATTERN, file_content)
-                #     _, processed_content, import_end_index = remove_import(HF_ARGUMENT_PARSER_IMPORT_PATTERN, processed_content)
-                #     code = generate_new_import_code(AWS_CODE["HfArgumentParser"], AWS_CODE[trainer_cls])
-                #     code = f"\n{code}\n"
-                #     processed_content = insert_code_at_position(code, processed_content, import_end_index)
-                #     with open(trainer_file_path, "w") as fp:
-                #         fp.write(processed_content)
-                # else:
                 with open(trainer_file_path, "r") as fp:
                     file_content = fp.read()
                 trainer_cls, processed_content, import_end_index = remove_import(TRAINER_IMPORT_PATTERN, file_content)
@@ -218,6 +206,8 @@ def main():
                 with open(file_path, "r") as fp:
                     file_content = fp.read()
                 processed_content = re.sub(TORCH_REQUIREMENT_PATTERN, "", file_content)
+                if file_path.parent == "image-classification":
+                    processed_content += "\nscikit-learn"
                 with open(file_path, "w") as fp:
                     fp.write(processed_content)
 
