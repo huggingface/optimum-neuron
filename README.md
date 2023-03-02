@@ -90,6 +90,7 @@ trainer = Trainer(
 
 Check out [the documentation of Optimum Neuron](https://huggingface.co/docs/optimum/**neuron**/index) for more advanced usage.
 
+<!---
 
 ## Validated Models
 
@@ -114,5 +115,7 @@ The following model architectures, tasks and device distributions have been vali
 </div>
 
 Other models and tasks supported by the 🤗 Transformers library may also work. You can refer to this [section](https://github.com/huggingface/optimum-neuron#how-to-use-it) for using them with 🤗 Optimum Neuron. Besides, [this page](https://github.com/huggingface/optimum-neuron/tree/main/examples) explains how to modify any [example](https://github.com/huggingface/transformers/tree/main/examples/pytorch) from the 🤗 Transformers library to make it work with 🤗 Optimum Neuron.
+
+-->
 
 If you find any issue while using those, please open an issue or a pull request.
