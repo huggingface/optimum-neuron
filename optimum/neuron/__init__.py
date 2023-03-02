@@ -14,6 +14,7 @@
 # limitations under the License.
 import os
 
+from .hf_argparser import TrainiumHfArgumentParser
 from .trainers import Seq2SeqTrainiumTrainer, TrainiumTrainer
 from .utils.training_utils import patch_transformers_for_neuron_sdk
 

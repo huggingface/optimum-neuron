@@ -196,6 +196,11 @@ class ExampleTestMeta(type):
                     if self.EVAL_SCORE_GREATER_IS_BETTER:
                         self.assertGreaterEqual(float(results[self.SCORE_NAME]), threshold)
                     else:
+                        print("SCORE NAME", results[self.SCORE_NAME])
+                        import logging
+
+                        logger = logging.getLogger(__name__)
+                        logger.info("SCORE NAME", results[self.SCORE_NAME])
                         self.assertLessEqual(float(results[self.SCORE_NAME]), threshold)
 
         return test
@@ -428,7 +433,7 @@ class CausalLMExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, exampl
     DATASET_CONFIG_NAME = "wikitext-2-raw-v1"
     NUM_EPOCHS = 3
     TRAIN_BATCH_SIZE = 4
-    SCORE_NAME = "perplexity"
+    SCORE_NAME = "random_test"
     EVAL_SCORE_THRESHOLD = 35
     EVAL_SCORE_GREATER_IS_BETTER = False
 
@@ -440,13 +445,15 @@ class TextClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestMe
 
 class TokenClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_ner"):
     TASK_NAME = "conll2003"
-    # EXTRA_COMMAND_LINE_ARGUMENTS = [
-    #     "--max_seq_length 384",
-    # ]
+    TRAIN_BATCH_SIZE = 4
+    EXTRA_COMMAND_LINE_ARGUMENTS = [
+        "--max_seq_length 384",
+    ]
 
 
 class MultipleChoiceExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_swag"):
     EVAL_SCORE_THRESHOLD_OVERRIDES = {"distilbert-base-uncased": 0.645}
+    TRAIN_BATCH_SIZE = 4
     EXTRA_COMMAND_LINE_ARGUMENTS = [
         "--max_seq_length 384",
     ]
