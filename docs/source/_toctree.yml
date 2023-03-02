@@ -1,0 +1,27 @@
+- sections:
+  - local: index
+    title: 🤗 Optimum Neuron
+  - local: installation
+    title: Installation
+  - local: quickstart
+    title: Quickstart
+  - sections:
+    - local: tutorials/overview
+      title: Overview
+    - local: tutorials/getting_started
+      title: Getting started with AWS Trainium and Hugging Face Transformers
+    title: Tutorials
+  - sections:
+    - local: usage_guides/overview
+      title: Overview
+    - local: usage_guides/setup_aws_instance
+      title: How to fine-tune a Transformers model with AWS Trainium
+    - local: usage_guides/fine_tune
+      title: Set up AWS Trainium instance            
+    title: How-To Guides
+  - sections:
+    - local: package_reference/trainer
+      title: Trainium Trainer
+    title: Reference
+  title: Optimum Neuron
+  isExpanded: true
