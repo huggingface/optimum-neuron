@@ -52,7 +52,7 @@ pip install -r requirements.txt
 
 ### Quick Start
 
-🤗 Optimum Neuron was designed with one goal in mind: **to make training and evaluation straightforward for any 🤗 Transformers user while leveraging the complete power of AWS Accelerators**.
+🤗 Optimum Neuron was designed with one goal in mind: **to make training and inference straightforward for any 🤗 Transformers user while leveraging the complete power of AWS Accelerators**.
 
 #### Transformers Interface
 
