@@ -15,24 +15,20 @@
 """Neuron configuration base classes."""
 
 from abc import ABC, abstractmethod
-from ctypes import ArgumentError
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import torch
-from transformers.utils import is_torch_available
+
+from optimum.exporters.base import ExportConfig
 
 
 if TYPE_CHECKING:
-    from optimum.exporters.base import ExportConfig
-    from optimum.utils import DummyInputGenerator
     from transformers import PretrainedConfig
+
+    from optimum.utils import DummyInputGenerator
 
 
 class MissingMandatoryAxisDimension(ValueError):
-    pass
-
-
-class ExportConfig(ABC):
     pass
 
 

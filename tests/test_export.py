@@ -18,8 +18,11 @@ from tempfile import NamedTemporaryFile
 from typing import Dict
 from unittest import TestCase
 
-import pytest
-from optimum.neuron.exporter import export, validate_model_outputs
+from parameterized import parameterized
+from transformers import AutoModelForSequenceClassification, is_torch_available
+from transformers.testing_utils import require_torch
+
+from optimum.neuron.exporter import NeuronConfig, export, validate_model_outputs
 from optimum.neuron.exporter.model_configs import (
     BertNeuronConfig,
     DebertaNeuronConfig,
@@ -27,9 +30,6 @@ from optimum.neuron.exporter.model_configs import (
     FlaubertNeuronConfig,
     XLMNeuronConfig,
 )
-from parameterized import parameterized
-from transformers import AutoModelForSequenceClassification, AutoTokenizer, is_torch_available
-from transformers.testing_utils import require_torch, slow
 
 
 EXPORT_MODELS_TINY = {
