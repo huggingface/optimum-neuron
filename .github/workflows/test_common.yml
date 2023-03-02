@@ -9,13 +9,15 @@ on:
       - "optimum/neuron/**.py"
       - "tests/**.py"
       - "examples/**.py"
-
+      - "tools/**.py"
+      
   pull_request:
     branches: [ main ]
     paths:
       - "optimum/neuron/**.py"
       - "tests/**.py"
       - "examples/**.py"
+      - "tools/**.py"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
