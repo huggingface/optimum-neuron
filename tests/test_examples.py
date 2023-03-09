@@ -247,7 +247,8 @@ class ExampleTesterBase(TestCase):
     TASK_NAME = None
     DATASET_CONFIG_NAME = ""
     EVAL_IS_SUPPORTED = True
-    EVAL_SCORE_THRESHOLD = 0.75
+    # Camembert is pretrained on French.
+    EVAL_SCORE_THRESHOLD = {"default": 0.75, "camembert": 0.5}
     EVAL_SCORE_THRESHOLD_OVERRIDES = None
     EVAL_SCORE_GREATER_IS_BETTER = True
     SCORE_NAME = "eval_accuracy"
