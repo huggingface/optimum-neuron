@@ -13,12 +13,13 @@
 # See the License for the specific language governing permissions and
 """Utilities related to CLI arguments."""
 
-import logging
 import os
 from typing import Any, Callable, Optional
 
+from ...utils import logging
 
-logger = logging.getLogger(__name__)
+
+logger = logging.get_logger()
 
 DISABLE_ARGUMENT_PATCH = os.environ.get("OPTIMUM_DISABLE_ARGUMENT_PATCH", "0")
 DISABLE_STRICT_MODE = os.environ.get("OPTIMUM_DISABLE_STRICT_MODE", "0")

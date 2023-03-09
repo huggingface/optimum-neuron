@@ -21,7 +21,7 @@ import subprocess
 from datetime import date
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Callable, Dict, List, Optional, Set, Union
+from typing import Any, Callable, Dict, List, Optional, Set, Union
 from unittest import TestCase
 
 from transformers import (
@@ -72,7 +72,7 @@ _SCRIPT_TO_MODEL_MAPPING = {
         MODELS_TO_TEST_MAPPING, MODEL_FOR_QUESTION_ANSWERING_MAPPING, to_exclude={"bart"}
     ),
     "run_summarization": _get_supported_models_for_script(
-        MODELS_TO_TEST_MAPPING, MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING, to_exclude={"marian"}
+        MODELS_TO_TEST_MAPPING, MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING, to_exclude={"marian", "m2m_100"}
     ),
     "run_translation": _get_supported_models_for_script(
         MODELS_TO_TEST_MAPPING, MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING
@@ -112,6 +112,12 @@ class ExampleTestMeta(type):
         attrs["EXAMPLE_NAME"] = example_name
         return super().__new__(cls, name, bases, attrs)
 
+    @staticmethod
+    def process_class_attribute(attribute: Union[Any, Dict[str, Any]], model_type: str) -> Any:
+        if isinstance(attribute, dict):
+            return attribute.get(model_type, attribute["default"])
+        return attribute
+
     @classmethod
     def _create_test(cls, model_type: str, model_name: str) -> Callable[["ExampleTesterBase"], None]:
         """
@@ -139,7 +145,18 @@ class ExampleTestMeta(type):
 
             self._install_requirements(example_script.parent / "requirements.txt")
 
-            if self.DO_PRECOMPILATION:
+            do_precompilation = ExampleTestMeta.process_class_attribute(self.DO_PRECOMPILATION, model_type)
+            train_batch_size = ExampleTestMeta.process_class_attribute(self.TRAIN_BATCH_SIZE, model_type)
+            eval_batch_size = ExampleTestMeta.process_class_attribute(self.EVAL_BATCH_SIZE, model_type)
+            gradient_accumulation_steps = ExampleTestMeta.process_class_attribute(
+                self.GRADIENT_ACCUMULATION_STEPS, model_type
+            )
+            extra_command_line_arguments = [
+                ExampleTestMeta.process_class_attribute(arg, model_type) for arg in self.EXTRA_COMMAND_LINE_ARGUMENTS
+            ]
+            learning_rate = ExampleTestMeta.process_class_attribute(self.LEARNING_RATE, model_type)
+
+            if do_precompilation:
                 with TemporaryDirectory(dir=Path(self.EXAMPLE_DIR)) as tmp_dir:
                     os.environ["HF_HOME"] = os.path.join(tmp_dir, "hf_home")
                     cmd_line = self._create_command_line(
@@ -150,16 +167,16 @@ class ExampleTestMeta(type):
                         task=self.TASK_NAME,
                         dataset_config_name=self.DATASET_CONFIG_NAME,
                         do_eval=False,
-                        lr=self.LEARNING_RATE,
-                        train_batch_size=self.TRAIN_BATCH_SIZE,
-                        eval_batch_size=self.EVAL_BATCH_SIZE,
+                        lr=learning_rate,
+                        train_batch_size=train_batch_size,
+                        eval_batch_size=eval_batch_size,
                         num_epochs=1,
-                        gradient_accumulation_steps=self.GRADIENT_ACCUMULATION_STEPS,
-                        extra_command_line_arguments=self.EXTRA_COMMAND_LINE_ARGUMENTS,
+                        gradient_accumulation_steps=gradient_accumulation_steps,
+                        extra_command_line_arguments=extra_command_line_arguments,
                     )
                     joined_cmd_line = " ".join(cmd_line)
                     print(f"#### Running precompilation... ####\n{joined_cmd_line}\n")
-                    p = subprocess.Popen(joined_cmd_line, shell=True, env=dict(os.environ, XLA_USE_BF16="1"))
+                    p = subprocess.Popen(joined_cmd_line, shell=True)
                     return_code = p.wait()
                     self.assertEqual(return_code, 0)
 
@@ -172,17 +189,17 @@ class ExampleTestMeta(type):
                     task=self.TASK_NAME,
                     dataset_config_name=self.DATASET_CONFIG_NAME,
                     do_eval=self.EVAL_IS_SUPPORTED,
-                    lr=self.LEARNING_RATE,
-                    train_batch_size=self.TRAIN_BATCH_SIZE,
-                    eval_batch_size=self.EVAL_BATCH_SIZE,
+                    lr=learning_rate,
+                    train_batch_size=train_batch_size,
+                    eval_batch_size=eval_batch_size,
                     num_epochs=self.NUM_EPOCHS,
-                    gradient_accumulation_steps=self.GRADIENT_ACCUMULATION_STEPS,
-                    extra_command_line_arguments=self.EXTRA_COMMAND_LINE_ARGUMENTS,
+                    gradient_accumulation_steps=gradient_accumulation_steps,
+                    extra_command_line_arguments=extra_command_line_arguments,
                 )
                 joined_cmd_line = " ".join(cmd_line)
                 print(f"#### Running command line... ####\n{joined_cmd_line}\n")
                 os.environ["WANDB_NAME"] = f"{self.EXAMPLE_NAME}_{model_type}"
-                p = subprocess.Popen(joined_cmd_line, shell=True, env=dict(os.environ, XLA_USE_BF16="1"))
+                p = subprocess.Popen(joined_cmd_line, shell=True)
                 return_code = p.wait()
                 self.assertEqual(return_code, 0)
 
@@ -196,11 +213,6 @@ class ExampleTestMeta(type):
                     if self.EVAL_SCORE_GREATER_IS_BETTER:
                         self.assertGreaterEqual(float(results[self.SCORE_NAME]), threshold)
                     else:
-                        print("SCORE NAME", results[self.SCORE_NAME])
-                        import logging
-
-                        logger = logging.getLogger(__name__)
-                        logger.info("SCORE NAME", results[self.SCORE_NAME])
                         self.assertLessEqual(float(results[self.SCORE_NAME]), threshold)
 
         return test
@@ -314,6 +326,7 @@ class ExampleTesterBase(TestCase):
             "--save_steps -1",
             "--save_total_limit 1",
             "--logging_steps 1",
+            "--bf16",
         ]
         if is_precompilation:
             cmd_line.append("--report_to none")
@@ -445,6 +458,8 @@ class TextClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestMe
 
 class TokenClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_ner"):
     TASK_NAME = "conll2003"
+    TRAIN_BATCH_SIZE = {"default": 4, "distilbert": 6}
+    EVAL_BATCH_SIZE = {"default": 4, "distilbert": 6}
     EXTRA_COMMAND_LINE_ARGUMENTS = [
         "--max_seq_length 384",
     ]
@@ -452,6 +467,9 @@ class TokenClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestM
 
 class MultipleChoiceExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_swag"):
     EVAL_SCORE_THRESHOLD_OVERRIDES = {"distilbert-base-uncased": 0.645}
+    TRAIN_BATCH_SIZE = {"default": 4, "distilbert": 6}
+    EVAL_BATCH_SIZE = {"default": 4, "distilbert": 6}
+    LEARNING_RATE = {"default": 1e-4, "xlm-roberta": 1e-5, "albert": 1e-5}
     NUM_EPOCHS = 2
     EXTRA_COMMAND_LINE_ARGUMENTS = [
         "--max_seq_length 384",
@@ -476,7 +494,7 @@ class SummarizationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, e
         "--prediction_loss_only",
         "--pad_to_max_length",
         "--max_target_length 200",
-        "--max_source_length 1024",
+        {"default": "--max_source_length 1024", "t5": "--max_source_length 768"},
     ]
 
     def _create_command_line(
@@ -529,12 +547,14 @@ class TranslationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, exa
         "--source_lang ro",
         "--target_lang en",
         "--pad_to_max_length",
-        "--max_source_length 512",
-        "--max_target_length 512",
+        {"default": "--max_source_length 512", "m2m_100": "--max_source_length 128"},
+        {"default": "--max_target_length 512", "m2m_100": "--max_target_length 128"},
+        # "--max_source_length 512",
+        # "--max_target_length 512",
         "--prediction_loss_only",
     ]
     # TODO: for now it does not work for T5, enable this ASAP.
-    DO_PRECOMPILATION = False
+    DO_PRECOMPILATION = {"t5": False, "default": True}
 
     def _create_command_line(
         self,

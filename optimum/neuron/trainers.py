@@ -13,13 +13,13 @@
 # See the License for the specific language governing permissions and
 """Defines Trainer subclasses to perform training on AWS Trainium instances."""
 
-import logging
 import os
 from typing import TYPE_CHECKING, Optional
 
 from torch.utils.data import DataLoader, Dataset
 from transformers import Seq2SeqTrainer, Trainer
 
+from ..utils import logging
 from .utils.argument_utils import validate_arg
 from .utils.training_utils import (
     FirstAndLastDataset,
@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from transformers import TrainingArguments
 
 
-logger = logging.getLogger(__name__)
+logger = logging.get_logger()
 
 
 class AugmentTrainerForTrainiumMixin:
@@ -42,16 +42,18 @@ class AugmentTrainerForTrainiumMixin:
         if not isinstance(self, Trainer):
             raise TypeError(f"{self.__class__.__name__} can only be mixed with Trainer subclasses.")
 
-        prepare_environment_for_neuron()
+        training_args = kwargs.get("args", None)
+        if training_args is not None:
+            if training_args.bf16:
+                training_args.bf16 = False
+                os.environ["XLA_USE_BF16"] = "1"
 
+        self.validate_args(training_args)
         if is_precompilation():
-            self.prepare_args_for_precompilation(kwargs["args"])
+            self.prepare_args_for_precompilation(training_args)
 
+        prepare_environment_for_neuron()
         super().__init__(*args, **kwargs)
-
-        self.validate_args()
-        if self.args.bf16:
-            os.environ["XLA_USE_BF16"] = "1"
 
     def prepare_args_for_precompilation(self, args: "TrainingArguments"):
         if args.num_train_epochs != 1:
@@ -67,10 +69,10 @@ class AugmentTrainerForTrainiumMixin:
             logger.info("Disabling prediction during precompilation as this is not well supported yet.")
             args.do_predict = False
 
-    def validate_args(self):
+    def validate_args(self, args: "TrainingArguments"):
         if isinstance(self, Seq2SeqTrainer):
             validate_arg(
-                self.args,
+                args,
                 "prediction_loss_only",
                 "prediction_loss_only=False is not supported for now because it requires generation.",
                 expected_value=True,
