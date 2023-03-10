@@ -34,7 +34,9 @@ if TYPE_CHECKING:
     from transformers import TrainingArguments
 
 
-logger = logging.get_logger()
+logger = logging.get_logger("transformers.trainer")
+# TODO: make sure this is the proper way of doing things.
+logger.setLevel(logging.INFO)
 
 
 class AugmentTrainerForTrainiumMixin:

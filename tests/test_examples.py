@@ -468,12 +468,11 @@ class TokenClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestM
 
 class MultipleChoiceExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_swag"):
     EVAL_SCORE_THRESHOLD_OVERRIDES = {"distilbert-base-uncased": 0.645}
-    TRAIN_BATCH_SIZE = {"default": 4, "distilbert": 6}
-    EVAL_BATCH_SIZE = {"default": 4, "distilbert": 6}
-    LEARNING_RATE = {"default": 1e-4, "xlm-roberta": 1e-5, "albert": 1e-5}
-    NUM_EPOCHS = 2
+    TRAIN_BATCH_SIZE = {"default": 2, "distilbert": 3}
+    EVAL_BATCH_SIZE = {"default": 2, "distilbert": 3}
+    NUM_EPOCHS = 3
     EXTRA_COMMAND_LINE_ARGUMENTS = [
-        "--max_seq_length 384",
+        "--max_seq_length 512",
     ]
 
 
