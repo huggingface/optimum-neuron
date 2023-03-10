@@ -146,74 +146,54 @@ class ExampleTestMeta(type):
             self._install_requirements(example_script.parent / "requirements.txt")
 
             do_precompilation = ExampleTestMeta.process_class_attribute(self.DO_PRECOMPILATION, model_type)
-            train_batch_size = ExampleTestMeta.process_class_attribute(self.TRAIN_BATCH_SIZE, model_type)
-            eval_batch_size = ExampleTestMeta.process_class_attribute(self.EVAL_BATCH_SIZE, model_type)
-            gradient_accumulation_steps = ExampleTestMeta.process_class_attribute(
-                self.GRADIENT_ACCUMULATION_STEPS, model_type
-            )
-            extra_command_line_arguments = [
-                ExampleTestMeta.process_class_attribute(arg, model_type) for arg in self.EXTRA_COMMAND_LINE_ARGUMENTS
-            ]
-            learning_rate = ExampleTestMeta.process_class_attribute(self.LEARNING_RATE, model_type)
+            only_precompilation = ExampleTestMeta.process_class_attribute(self.ONLY_PRECOMPILATION, model_type)
 
+            eval_is_supported = ExampleTestMeta.process_class_attribute(self.EVAL_IS_SUPPORTED, model_type)
+            eval_score_threshold = ExampleTestMeta.process_class_attribute(self.EVAL_SCORE_THRESHOLD, model_type)
+
+            env = self.get_env(model_type)
             if do_precompilation:
                 with TemporaryDirectory(dir=Path(self.EXAMPLE_DIR)) as tmp_dir:
                     os.environ["HF_HOME"] = os.path.join(tmp_dir, "hf_home")
                     cmd_line = self._create_command_line(
                         example_script,
                         model_name,
+                        model_type,
                         tmp_dir,
                         is_precompilation=True,
-                        task=self.TASK_NAME,
-                        dataset_config_name=self.DATASET_CONFIG_NAME,
-                        do_eval=False,
-                        lr=learning_rate,
-                        train_batch_size=train_batch_size,
-                        eval_batch_size=eval_batch_size,
-                        num_epochs=1,
-                        gradient_accumulation_steps=gradient_accumulation_steps,
-                        extra_command_line_arguments=extra_command_line_arguments,
                     )
                     joined_cmd_line = " ".join(cmd_line)
                     print(f"#### Running precompilation... ####\n{joined_cmd_line}\n")
-                    p = subprocess.Popen(joined_cmd_line, shell=True)
+                    p = subprocess.Popen(joined_cmd_line, shell=True, env=env)
                     return_code = p.wait()
                     self.assertEqual(return_code, 0)
 
-            with TemporaryDirectory(dir=Path(self.EXAMPLE_DIR)) as tmp_dir:
-                os.environ["HF_HOME"] = os.path.join(tmp_dir, "hf_home")
-                cmd_line = self._create_command_line(
-                    example_script,
-                    model_name,
-                    tmp_dir,
-                    task=self.TASK_NAME,
-                    dataset_config_name=self.DATASET_CONFIG_NAME,
-                    do_eval=self.EVAL_IS_SUPPORTED,
-                    lr=learning_rate,
-                    train_batch_size=train_batch_size,
-                    eval_batch_size=eval_batch_size,
-                    num_epochs=self.NUM_EPOCHS,
-                    gradient_accumulation_steps=gradient_accumulation_steps,
-                    extra_command_line_arguments=extra_command_line_arguments,
-                )
-                joined_cmd_line = " ".join(cmd_line)
-                print(f"#### Running command line... ####\n{joined_cmd_line}\n")
-                os.environ["WANDB_NAME"] = f"{self.EXAMPLE_NAME}_{model_type}"
-                p = subprocess.Popen(joined_cmd_line, shell=True)
-                return_code = p.wait()
-                self.assertEqual(return_code, 0)
+            if not only_precompilation:
+                with TemporaryDirectory(dir=Path(self.EXAMPLE_DIR)) as tmp_dir:
+                    os.environ["HF_HOME"] = os.path.join(tmp_dir, "hf_home")
+                    cmd_line = self._create_command_line(
+                        example_script,
+                        model_name,
+                        model_type,
+                        tmp_dir,
+                        task=self.TASK_NAME,
+                    )
+                    joined_cmd_line = " ".join(cmd_line)
+                    print(f"#### Running command line... ####\n{joined_cmd_line}\n")
+                    os.environ["WANDB_NAME"] = f"{self.EXAMPLE_NAME}_{model_type}"
+                    p = subprocess.Popen(joined_cmd_line, shell=True, env=env)
+                    return_code = p.wait()
+                    self.assertEqual(return_code, 0)
 
-                if self.EVAL_IS_SUPPORTED:
-                    with open(Path(tmp_dir) / "all_results.json") as fp:
-                        results = json.load(fp)
-                    threshold_overrides = {}
-                    if isinstance(self.EVAL_SCORE_THRESHOLD_OVERRIDES, dict):
-                        threshold_overrides = self.EVAL_SCORE_THRESHOLD_OVERRIDES
-                    threshold = threshold_overrides.get(model_name, self.EVAL_SCORE_THRESHOLD)
-                    if self.EVAL_SCORE_GREATER_IS_BETTER:
-                        self.assertGreaterEqual(float(results[self.SCORE_NAME]), threshold)
-                    else:
-                        self.assertLessEqual(float(results[self.SCORE_NAME]), threshold)
+                    if eval_is_supported:
+                        with open(Path(tmp_dir) / "all_results.json") as fp:
+                            results = json.load(fp)
+                        threshold_overrides = {}
+                        threshold = threshold_overrides.get(model_name, eval_score_threshold)
+                        if self.EVAL_SCORE_GREATER_IS_BETTER:
+                            self.assertGreaterEqual(float(results[self.SCORE_NAME]), threshold)
+                        else:
+                            self.assertLessEqual(float(results[self.SCORE_NAME]), threshold)
 
         return test
 
@@ -229,7 +209,6 @@ class ExampleTesterBase(TestCase):
         EVAL_IS_SUPPORTED (`bool`) -- Whether evaluation is currently supported on AWS Tranium.
             If True, the example will run evaluation, otherwise it will be skipped.
         EVAL_SCORE_THRESHOLD (`float`) -- The score threshold from which training is assumed to have worked.
-        EVAL_SCORE_THRESHOLD_OVERRIDES (`Dict[str, float]`) -- Per-model score threshold overrides.
         SCORE_NAME (`str`) -- The name of the metric to use for checking that the example ran successfully.
         DATASET_PARAMETER_NAME (`str`) -- The argument name to use for the dataset parameter.
             Most of the time it will be "dataset_name", but for some tasks on a benchmark it might be something else.
@@ -249,7 +228,6 @@ class ExampleTesterBase(TestCase):
     EVAL_IS_SUPPORTED = True
     # Camembert is pretrained on French.
     EVAL_SCORE_THRESHOLD = {"default": 0.75, "camembert": 0.5}
-    EVAL_SCORE_THRESHOLD_OVERRIDES = None
     EVAL_SCORE_GREATER_IS_BETTER = True
     SCORE_NAME = "eval_accuracy"
     DATASET_PARAMETER_NAME = "dataset_name"
@@ -261,7 +239,11 @@ class ExampleTesterBase(TestCase):
     GRADIENT_ACCUMULATION_STEPS = 16
     NPROC_PER_NODE = 2
     EXTRA_COMMAND_LINE_ARGUMENTS = ""
+    LOGGING_STEPS = 1
+    SAVE_STEPS = -1
+    ONLY_PRECOMPILATION = False
     DO_PRECOMPILATION = True
+    NEURON_CACHE = None
 
     def setUp(self):
         self._create_venv()
@@ -269,31 +251,58 @@ class ExampleTesterBase(TestCase):
     def tearDown(self):
         self._remove_venv()
 
+    def get_env(self, model_type: str) -> Dict[str, str]:
+        env = dict(os.environ)
+        neuron_cache = ExampleTestMeta.process_class_attribute(self.NEURON_CACHE, model_type)
+        if neuron_cache is not None:
+            env["NEURON_CC_FLAGS"] = env.get("NEURON_CC_FLAGS", "") + f" --cache_dir={neuron_cache}"
+        return env 
+
     def _create_command_line(
         self,
         script: str,
         model_name: str,
+        model_type: str,
         output_dir: str,
         is_precompilation: bool = False,
-        task: Optional[str] = None,
-        dataset_config_name: Optional[str] = None,
-        do_eval: bool = True,
-        lr: float = 1e-4,
-        train_batch_size: int = 4,
-        eval_batch_size: int = 4,
-        num_epochs: int = 1,
-        gradient_accumulation_steps: int = 64,
-        extra_command_line_arguments: Optional[List[str]] = None,
     ) -> List[str]:
+        # Task related.
+        task = ExampleTestMeta.process_class_attribute(self.TASK_NAME, model_type)
+        dataset_parameter_name = ExampleTestMeta.process_class_attribute(self.DATASET_PARAMETER_NAME, model_type)
+        dataset_config_name = ExampleTestMeta.process_class_attribute(self.DATASET_CONFIG_NAME, model_type)
+
+        # Batch size related.
+        train_batch_size = ExampleTestMeta.process_class_attribute(self.TRAIN_BATCH_SIZE, model_type)
+        eval_batch_size = ExampleTestMeta.process_class_attribute(self.EVAL_BATCH_SIZE, model_type)
+        gradient_accumulation_steps = ExampleTestMeta.process_class_attribute(
+            self.GRADIENT_ACCUMULATION_STEPS, model_type
+        )
+
+        # Training related.
+        learning_rate = ExampleTestMeta.process_class_attribute(self.LEARNING_RATE, model_type)
+        eval_is_supported = ExampleTestMeta.process_class_attribute(self.EVAL_IS_SUPPORTED, model_type)
+        n_proc_per_node = ExampleTestMeta.process_class_attribute(self.NPROC_PER_NODE, model_type)
+        num_train_epochs = ExampleTestMeta.process_class_attribute(self.NUM_EPOCHS, model_type)
+        max_steps = ExampleTestMeta.process_class_attribute(self.MAX_STEPS, model_type)
+        logging_steps = ExampleTestMeta.process_class_attribute(self.LOGGING_STEPS, model_type)
+        save_steps = ExampleTestMeta.process_class_attribute(self.SAVE_STEPS, model_type)
+
+        # Extra
+        extra_command_line_arguments = [
+            ExampleTestMeta.process_class_attribute(arg, model_type) for arg in self.EXTRA_COMMAND_LINE_ARGUMENTS
+        ]
+
+        do_eval = eval_is_supported and not is_precompilation
+
         do_eval_option = "--do_eval" if do_eval else " "
-        task_option = f"--{self.DATASET_PARAMETER_NAME} {task}" if task else " "
+        task_option = f"--{dataset_parameter_name} {task}" if task else " "
 
         if os.environ.get("MULTI_PROC", "false") == "false":
             program = ["venv/bin/python" if self.venv_was_created else "python"]
         else:
             program = [
                 "venv/bin/torchrun" if self.venv_was_created else "torchrun",
-                f"--nproc_per_node={self.NPROC_PER_NODE}",
+                f"--nproc_per_node={n_proc_per_node}",
             ]
 
         if is_precompilation:
@@ -302,9 +311,8 @@ class ExampleTesterBase(TestCase):
             )
             program = [neuron_parallel_compile_path] + program
 
-        # TODO: make that a parameter to the function?
-        if self.MAX_STEPS is not None:
-            max_steps = f"--max_steps {self.MAX_STEPS}"
+        if max_steps is not None:
+            max_steps = f"--max_steps {max_steps}"
         else:
             max_steps = ""
 
@@ -316,17 +324,17 @@ class ExampleTesterBase(TestCase):
             f"{do_eval_option}",
             f"--output_dir {output_dir}",
             "--overwrite_output_dir true",
-            f"--learning_rate {lr}",
+            f"--learning_rate {learning_rate}",
             f"--per_device_train_batch_size {train_batch_size}",
             f"--per_device_eval_batch_size {eval_batch_size}",
             f"--gradient_accumulation_steps {gradient_accumulation_steps}",
             "--save_strategy epoch",
-            f" --num_train_epochs {num_epochs}",
+            f" --num_train_epochs {num_train_epochs}",
             max_steps,
             "--dataloader_num_workers 4",
-            "--save_steps -1",
+            f"--save_steps {save_steps}",
             "--save_total_limit 1",
-            "--logging_steps 1",
+            f"--logging_steps {logging_steps}",
             "--bf16",
         ]
         if is_precompilation:
@@ -467,7 +475,7 @@ class TokenClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestM
 
 
 class MultipleChoiceExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_swag"):
-    EVAL_SCORE_THRESHOLD_OVERRIDES = {"distilbert-base-uncased": 0.645}
+    EVAL_SCORE_THRESHOLD = {"default": 0.75, "camembert": 0.5, "distilbert": 0.645}
     TRAIN_BATCH_SIZE = {"default": 2, "distilbert": 3}
     EVAL_BATCH_SIZE = {"default": 2, "distilbert": 3}
     NUM_EPOCHS = 3
