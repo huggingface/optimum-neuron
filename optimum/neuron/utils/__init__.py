@@ -12,12 +12,3 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import os
-
-from .hf_argparser import TrainiumHfArgumentParser
-from .trainers import Seq2SeqTrainiumTrainer, TrainiumTrainer
-from .utils.training_utils import patch_transformers_for_neuron_sdk
-
-
-if not os.environ.get("DISABLE_TRANSFORMERS_PATCHING", False):
-    patch_transformers_for_neuron_sdk()

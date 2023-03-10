@@ -34,7 +34,6 @@ from transformers import (
     AutoModelForSeq2SeqLM,
     AutoTokenizer,
     DataCollatorForSeq2Seq,
-    HfArgumentParser,
     M2M100Tokenizer,
     MBart50Tokenizer,
     MBart50TokenizerFast,
@@ -49,6 +48,7 @@ from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
 
 from optimum.neuron import Seq2SeqTrainiumTrainer as Seq2SeqTrainer
+from optimum.neuron import TrainiumHfArgumentParser as HfArgumentParser
 
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.

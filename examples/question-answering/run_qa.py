@@ -35,7 +35,6 @@ from transformers import (
     AutoTokenizer,
     DataCollatorWithPadding,
     EvalPrediction,
-    HfArgumentParser,
     PreTrainedTokenizerFast,
     TrainingArguments,
     default_data_collator,
@@ -45,6 +44,8 @@ from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
 from utils_qa import postprocess_qa_predictions
+
+from optimum.neuron import TrainiumHfArgumentParser as HfArgumentParser
 
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
