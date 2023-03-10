@@ -34,9 +34,7 @@ if TYPE_CHECKING:
     from transformers import TrainingArguments
 
 
-logger = logging.get_logger("transformers.trainer")
-# TODO: make sure this is the proper way of doing things.
-logger.setLevel(logging.INFO)
+logger = logging.get_logger(__name__)
 
 
 class AugmentTrainerForTrainiumMixin:
@@ -56,6 +54,8 @@ class AugmentTrainerForTrainiumMixin:
 
         prepare_environment_for_neuron()
         super().__init__(*args, **kwargs)
+        transformers_loggers = logging.get_logger("transformers.trainer")
+        logger.setLevel(transformers_loggers.level)
 
     def prepare_args_for_precompilation(self, args: "TrainingArguments"):
         if args.num_train_epochs != 1:
