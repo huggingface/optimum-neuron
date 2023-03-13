@@ -65,8 +65,6 @@ That's how most of the [example scripts](https://github.com/huggingface/optimum-
 
 ```diff
 from transformers import TrainingArguments
--from transformers import HfArgumentParser, Trainer
-+from optimum.neuron import TraniumArgumentParser as HfArgumentParser
 +from optimum.neuron import TrainiumTrainer as Trainer
 
 training_args = TrainingArguments(
