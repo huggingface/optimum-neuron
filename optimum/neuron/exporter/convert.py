@@ -146,6 +146,8 @@ def export(
     config: "NeuronConfig",
     output: Path,
     input_shapes: Optional[Dict[str, Tuple[int, ...]]] = None,
+    auto_cast: Optional[str] = "none",
+    auto_cast_type: Optional[str] = None,
 ) -> Tuple[List[str], List[str]]:
     """
     Exports a PyTorch model to a Neuron compiled TorchScript model.
@@ -159,6 +161,10 @@ def export(
             Directory to store the exported Neuron model.
         input_shapes (`optional[Dict]`, defaults to `None`):
             If specified, allows to use specific shapes for the example input provided to the Neuron exporter.
+        auto_cast (`optional[str]`, defaults to `"none"`):
+            Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `"none"`, `"matmult"` or `"all"`, you should use `"none"` to disable any auto-casting, use `"matmul"` to cast FP32 matrix multiplication operations, and use `"all"` to cast all FP32 operations.
+        auto_cast_type (`optional[str]`, defaults to `None`)
+            The data type to cast FP32 operations to when auto-cast mode is enabled.
 
     Returns:
         `Tuple[List[str], List[str]]`: A tuple with an ordered list of the model's inputs, and the named inputs from
@@ -166,9 +172,10 @@ def export(
     """
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    logger.info(f"Using PyTorch: {torch.__version__}")
+    logger.info(f"Using Neuron: {neuron.__version__}")
     model.config.return_dict = True
     model.config.torchscript = True
+    model.eval()
 
     # Check if we need to override certain configuration item
     if config.values_override is not None:
@@ -181,7 +188,20 @@ def export(
         input_shapes = {}  # will use the defaults from DEFAULT_DUMMY_SHAPES
 
     dummy_inputs = config.generate_dummy_inputs(**input_shapes)
-    neuron_model = neuron.trace(model, dummy_inputs)
+    logger.info(f"Using Neuron: --auto-cast {auto_cast}")
+    compiler_args = ["--auto-cast", auto_cast]
+
+    if auto_cast_type is not None:
+        if auto_cast == "none":
+            logger.warning(
+                f'The `auto_cast` argument is {auto_cast},  so the `auto_cast_type` {auto_cast_type} will be ignored. Set `auto_cast` as "matmul" or "all" if you want to cast some operations to {auto_cast_type} data type.'
+            )
+            auto_cast_type = None
+        else:
+            compiler_args.extend(["--auto-cast-type", auto_cast_type])
+        logger.info(f"Using Neuron: --auto-cast-type {str(auto_cast_type)}")
+
+    neuron_model = neuron.trace(model, dummy_inputs, compiler_args=compiler_args)
     torch.jit.save(neuron_model, output)
 
     return config.inputs, config.outputs

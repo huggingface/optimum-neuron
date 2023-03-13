@@ -23,7 +23,7 @@ from .config import TextEncoderNeuronConfig
 
 class BertNeuronConfig(TextEncoderNeuronConfig):
     NORMALIZED_CONFIG_CLASS = NormalizedConfigManager.get_normalized_config_class("bert")
-    ATOL_FOR_VALIDATION = 1e-1
+    ATOL_FOR_VALIDATION = 1e-4
 
     @property
     def inputs(self) -> List[str]:
@@ -59,7 +59,7 @@ class XLMNeuronConfig(BertNeuronConfig):
 
 
 class DistilBertNeuronConfig(BertNeuronConfig):
-    ATOL_FOR_VALIDATION = 1e-1
+    ATOL_FOR_VALIDATION = 1e-4
 
     @property
     def inputs(self) -> List[str]:
