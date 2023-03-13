@@ -194,7 +194,7 @@ def export(
     if auto_cast_type is not None:
         if auto_cast == "none":
             logger.warning(
-                f'The `auto_cast` argument is {auto_cast},  so the `auto_cast_type` {auto_cast_type} will be ignored. Set `auto_cast` as "matmul" or "all" if you want to cast some operations to {auto_cast_type} data type.'
+                f'The `auto_cast` argument is {auto_cast},  so the `auto_cast_type` {auto_cast_type} will be ignored. Set `auto_cast` as "matmult" or "all" if you want to cast some operations to {auto_cast_type} data type.'
             )
             auto_cast_type = None
         else:
