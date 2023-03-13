@@ -57,10 +57,10 @@ pip install -r requirements.txt
 #### Transformers Interface
 
 There are two main classes one needs to know:
-- `TrainiumArgumentParser`: the same as the original [`HfArgumentParser`](https://huggingface.co/docs/transformers/main/en/internal/trainer_utils#transformers.HfArgumentParser) with additional checks on the argument values to make sure that they will work well with AWS Trainium instances.
-- [`TrainiumTrainer`](https://huggingface.co/docs/optimum/neuron/package_reference/trainer): this version trainer takes care of doing the proper checks and changes to the supported models to make them trainable on AWS Trainium instances.
+- TrainiumArgumentParser: the same as the original [HfArgumentParser](https://huggingface.co/docs/transformers/main/en/internal/trainer_utils#transformers.HfArgumentParser) with additional checks on the argument values to make sure that they will work well with AWS Trainium instances.
+- [TrainiumTrainer](https://huggingface.co/docs/optimum/neuron/package_reference/trainer): this version trainer takes care of doing the proper checks and changes to the supported models to make them trainable on AWS Trainium instances.
 
-The [`TrainiumTrainer`](https://huggingface.co/docs/optimum/neuron/package_reference/trainer) is very similar to the [🤗 Transformers Trainer](https://huggingface.co/docs/transformers/main_classes/trainer), and adapting a script using the Trainer to make it work with Trainium will mostly consist in simply swapping the `Trainer` class for the `TrainiumTrainer` one.
+The [TrainiumTrainer](https://huggingface.co/docs/optimum/neuron/package_reference/trainer) is very similar to the [🤗 Transformers Trainer](https://huggingface.co/docs/transformers/main_classes/trainer), and adapting a script using the Trainer to make it work with Trainium will mostly consist in simply swapping the Trainer class for the TrainiumTrainer one.
 That's how most of the [example scripts](https://github.com/huggingface/optimum-neuron/tree/main/examples) were adapted from their [original counterparts](https://github.com/huggingface/transformers/tree/main/examples/pytorch).
 
 ```diff
