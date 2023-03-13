@@ -19,7 +19,7 @@ import subprocess
 from argparse import ArgumentParser
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Callable, List, Optional, Union
+from typing import Callable, List, Optional, Tuple, Union
 
 from git import Repo
 
@@ -43,15 +43,26 @@ UNSUPPORTED_SCRIPTS_FOR_NOW = [
 ]
 
 
-IMPORT_PATTERN = re.compile(
-    r"from transformers import \(?[\w\s,_]*?([\t ]*((Seq2Seq)?Trainer),?\n?)((?!from)[\w\s,_])*\)?"
+IMPORT_PATTERN = r"from transformers import \(?[\w\s,_]*?([\t ]*({class_pattern}),?\n?)((?!from)[\w\s,_])*\)?"
+
+# TRAINER_IMPORT_PATTERN = re.compile(
+#     r"from transformers import \(?[\w\s,_]*?([\t ]*((Seq2Seq)?Trainer),?\n?)((?!from)[\w\s,_])*\)?"
+# )
+
+TRAINER_IMPORT_PATTERN = re.compile(IMPORT_PATTERN.format(class_pattern="(Seq2Seq)?Trainer"))
+# HF_ARGUMENT_PARSER_IMPORT_PATTERN = re.compile(IMPORT_PATTERN.format(class_pattern="HfArgumentParser"))
+HF_ARGUMENT_PARSER_IMPORT_PATTERN = re.compile(
+    r"from transformers import \(?[\w\s,_]*?([\t ]*(HfArgumentParser),?\n?)((?!from)[\w\s,_])*\)?"
 )
+
 
 TORCH_REQUIREMENT_PATTERN = re.compile(r"torch[\w\s]*([<>=!]=?\s*[\d\.]+)?\n")
 
+
 AWS_CODE = {
-    "Trainer": "from optimum.neuron import TrainiumTrainer as Trainer",
-    "Seq2SeqTrainer": "from optimum.neuron import Seq2SeqTrainiumTrainer as Seq2SeqTrainer",
+    "Trainer": "TrainiumTrainer as Trainer",
+    "Seq2SeqTrainer": "Seq2SeqTrainiumTrainer as Seq2SeqTrainer",
+    "HfArgumentParser": "TrainiumHfArgumentParser as HfArgumentParser",
 }
 
 
@@ -97,8 +108,17 @@ def keep_only_examples_with_trainer_and_requirements_predicate(file_path: Path) 
     return is_python_or_text and is_supported and (not_a_no_trainer_script or is_requirements)
 
 
+def remove_import(pattern: re.Pattern, file_content: str) -> Tuple[str, str, int]:
+    match_ = re.search(pattern, file_content)
+    if match_ is None:
+        raise ValueError(f"Could not find a match for pattern {pattern}.")
+    cls_ = match_.group(2)
+    new_content = file_content[: match_.start(1)] + file_content[match_.end(1) :]
+    return cls_, new_content, match_.end(0) - (match_.end(1) - match_.start(1))
+
+
 def remove_trainer_import(file_content: str) -> tuple[str, str, int]:
-    match_ = re.search(IMPORT_PATTERN, file_content)
+    match_ = re.search(TRAINER_IMPORT_PATTERN, file_content)
     if match_ is None:
         raise ValueError("Could not find the import of the Trainer class from transformers.")
     trainer_cls = match_.group(2)
@@ -108,6 +128,15 @@ def remove_trainer_import(file_content: str) -> tuple[str, str, int]:
 
 def insert_code_at_position(code: str, file_content: str, position: int) -> str:
     return file_content[:position] + code + file_content[position:]
+
+
+def generate_new_import_code(*optimum_neuron_imports: str) -> str:
+    if not optimum_neuron_imports:
+        raise ValueError("At least one import is expected to generate new import code.")
+    import_line = ["from optimum.neuron import"]
+    import_line += [f"{import_}," for import_ in optimum_neuron_imports[:-1]]
+    import_line.append(optimum_neuron_imports[-1])
+    return " ".join(import_line)
 
 
 def parse_args():
@@ -146,22 +175,39 @@ def main():
             continue
         for file_path in example_dir.iterdir():
             if "run" in file_path.name and file_path.suffix == ".py":
-                print(f"Processing {file_path}")
                 if file_path.name == "run_qa.py":
-                    file_path = file_path.parent / "trainer_qa.py"
+                    trainer_file_path = file_path.parent / "trainer_qa.py"
                 elif file_path.name == "run_seq2seq_qa.py":
-                    file_path = file_path.parent / "trainer_seq2seq_qa.py"
-                with open(file_path, "r") as fp:
+                    trainer_file_path = file_path.parent / "trainer_seq2seq_qa.py"
+                else:
+                    trainer_file_path = file_path
+                hf_argument_file_path = file_path
+
+                print(f"Processing {file_path}")
+                with open(trainer_file_path, "r") as fp:
                     file_content = fp.read()
-                trainer_cls, processed_content, import_end_index = remove_trainer_import(file_content)
-                code = f"\n{AWS_CODE[trainer_cls]}\n"
+                trainer_cls, processed_content, import_end_index = remove_import(TRAINER_IMPORT_PATTERN, file_content)
+                code = generate_new_import_code(AWS_CODE[trainer_cls])
+                code = f"\n{code}\n"
                 processed_content = insert_code_at_position(code, processed_content, import_end_index)
-                with open(file_path, "w") as fp:
+                with open(trainer_file_path, "w") as fp:
                     fp.write(processed_content)
+
+                with open(hf_argument_file_path, "r") as fp:
+                    file_content = fp.read()
+                _, processed_content, import_end_index = remove_import(HF_ARGUMENT_PARSER_IMPORT_PATTERN, file_content)
+                code = generate_new_import_code(AWS_CODE["HfArgumentParser"])
+                code = f"\n{code}\n"
+                processed_content = insert_code_at_position(code, processed_content, import_end_index)
+                with open(hf_argument_file_path, "w") as fp:
+                    fp.write(processed_content)
+
             elif file_path.name == "requirements.txt":
                 with open(file_path, "r") as fp:
                     file_content = fp.read()
                 processed_content = re.sub(TORCH_REQUIREMENT_PATTERN, "", file_content)
+                if file_path.parent.name == "image-classification":
+                    processed_content += "\nscikit-learn"
                 with open(file_path, "w") as fp:
                     fp.write(processed_content)
 

@@ -15,7 +15,7 @@
 
 
 MODELS_TO_TEST_MAPPING = {
-    # "albert": "albert-base-v2",
+    "albert": "albert-base-v2",
     "bart": "facebook/bart-base",
     "bert": "bert-base-uncased",
     "camembert": "camembert-base",
@@ -29,7 +29,7 @@ MODELS_TO_TEST_MAPPING = {
     "vit": "google/vit-base-patch16-224-in21k",
     "xlm-roberta": "xlm-roberta-base",
     # TODO: issue with this model for now.
-    # "m2m_100": "facebook/m2m100_418M",
+    "m2m_100": "facebook/m2m100_418M",
     # "wav2vec2": "facebook/wav2vec2-base",
     # Remaning: XLNet, Deberta-v2, MPNet, CLIP
 }
