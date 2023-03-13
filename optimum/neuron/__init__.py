@@ -18,9 +18,9 @@ from transformers.utils import _LazyModule
 
 
 _import_structure = {
+    "hf_argparser": ["TrainiumHfArgumentParser"],
     "trainers": ["TrainiumTrainer", "Seq2SeqTrainiumTrainer"],
     "utils": ["is_neuron_available", "is_neuronx_available", "patch_transformers_for_neuron_sdk"],
-    "hf_argparser": ["TrainiumHfArgumentParser"],
 }
 
 if TYPE_CHECKING:
