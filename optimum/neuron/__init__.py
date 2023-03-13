@@ -26,9 +26,9 @@ _import_structure = {
 if TYPE_CHECKING:
     import os
 
+    from .hf_argparser import TrainiumHfArgumentParser
     from .trainers import Seq2SeqTrainiumTrainer, TrainiumTrainer
     from .utils import is_neuron_available, is_neuronx_available, patch_transformers_for_neuron_sdk
-    from .hf_argparser import TrainiumHfArgumentParser
 
     if not os.environ.get("DISABLE_TRANSFORMERS_PATCHING", False):
         patch_transformers_for_neuron_sdk()
