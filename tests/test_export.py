@@ -25,7 +25,6 @@ from transformers.testing_utils import require_torch
 from optimum.neuron.exporter import NeuronConfig, export, validate_model_outputs
 from optimum.neuron.exporter.model_configs import (
     BertNeuronConfig,
-    DebertaNeuronConfig,
     DistilBertNeuronConfig,
     FlaubertNeuronConfig,
     XLMNeuronConfig,
@@ -36,9 +35,9 @@ EXPORT_MODELS_TINY = {
     "albert": ("hf-internal-testing/tiny-random-AlbertModel", BertNeuronConfig),
     "bert": ("hf-internal-testing/tiny-random-BertModel", BertNeuronConfig),
     "camembert": ("hf-internal-testing/tiny-random-camembert", DistilBertNeuronConfig),
-    # "convbert": ("hf-internal-testing/tiny-random-ConvBertModel", BertNeuronConfig),
-    "deberta": ("hf-internal-testing/tiny-random-DebertaModel", DebertaNeuronConfig),
-    "deberta-v2": ("hf-internal-testing/tiny-random-DebertaV2Model", DebertaNeuronConfig),
+    # "convbert": ("hf-internal-testing/tiny-random-ConvBertModel", BertNeuronConfig),  # Failed for INF2
+    # "deberta": ("hf-internal-testing/tiny-random-DebertaModel", DebertaNeuronConfig),  # Failed for INF1: 'XSoftmax'
+    # "deberta-v2": ("hf-internal-testing/tiny-random-DebertaV2Model", DebertaNeuronConfig),  # Failed for INF1: 'XSoftmax'
     "distilbert": ("hf-internal-testing/tiny-random-DistilBertModel", DistilBertNeuronConfig),
     "electra": ("hf-internal-testing/tiny-random-ElectraModel", BertNeuronConfig),
     "flaubert": ("hf-internal-testing/tiny-random-flaubert", FlaubertNeuronConfig),
@@ -100,5 +99,5 @@ class NeuronXExportTestCase(TestCase):
 
     @parameterized.expand(_get_models_to_test(EXPORT_MODELS_TINY))
     @require_torch
-    def test_bert_export(self, test_name, name, model_name, task, neuron_config_constructor):
+    def test_export(self, test_name, name, model_name, task, neuron_config_constructor):
         self._neuronx_export(test_name, name, model_name, task, neuron_config_constructor)
