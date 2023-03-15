@@ -35,7 +35,7 @@ QUALITY_REQUIRES = [
 EXTRAS_REQUIRE = {
     "tests": TESTS_REQUIRE,
     "quality": QUALITY_REQUIRES,
-    "neuronx": ["neuronx-cc==2.*", "torch-neuronx"],
+    "neuron": ["neuron-cc[tensorflow]", "torch-neuron"],
 }
 
 setup(
