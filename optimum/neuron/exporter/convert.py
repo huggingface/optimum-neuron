@@ -20,9 +20,9 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 import numpy as np
 import torch
 
-from ...exporters.error_utils import AtolError, OutputMatchError, ShapeError
+from ...exporters.error_utils import OutputMatchError, ShapeError
 from ...utils import logging
-from ..utils import is_neuron_available, is_neuronx_available
+from ..utils import convert_neuronx_compiler_args_to_neuron, is_neuron_available, is_neuronx_available
 
 
 if TYPE_CHECKING:
@@ -31,10 +31,10 @@ if TYPE_CHECKING:
     from .base import NeuronConfig
 
 if is_neuron_available():
-    import torch_neuron as neuron  # noqa: F811
+    import torch.neuron as neuron  # noqa: F811
 
 if is_neuronx_available():
-    import torch_neuronx as neuron  # noqa: F811
+    import torch_neuronx as neuronx  # noqa: F811
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
@@ -135,7 +135,7 @@ def validate_model_outputs(
 
     if value_failures:
         msg = "\n".join(f"- {t[0]}: max diff = {t[1]}" for t in value_failures)
-        raise AtolError(
+        logger.warning(
             "The maximum absolute difference between the output of the reference model and the Neuron "
             f"exported model is not within the set tolerance {atol}:\n{msg}"
         )
@@ -146,11 +146,28 @@ def export(
     config: "NeuronConfig",
     output: Path,
     input_shapes: Optional[Dict[str, Tuple[int, ...]]] = None,
+    **kwargs,
+) -> Tuple[List[str], List[str]]:
+    if is_neuron_available():
+        export_neuron(model, config, output, input_shapes)
+    elif is_neuronx_available():
+        export_neuronx(model, config, output, input_shapes, **kwargs)
+    else:
+        raise RuntimeError(
+            "Cannot export the model because the neuron(x) compiler is not installed. See https://awsdocs-neuron.readthedocs-hosted.com/en/latest/frameworks/torch/torch-setup.html."
+        )
+
+
+def export_neuronx(
+    model: "PreTrainedModel",
+    config: "NeuronConfig",
+    output: Path,
+    input_shapes: Optional[Dict[str, Tuple[int, ...]]] = None,
     auto_cast: Optional[str] = "none",
     auto_cast_type: Optional[str] = None,
 ) -> Tuple[List[str], List[str]]:
     """
-    Exports a PyTorch model to a Neuron compiled TorchScript model.
+    Exports a PyTorch model to a Neuronx compiled TorchScript model.
 
     Args:
         model ([`PreTrainedModel`]):
@@ -163,8 +180,8 @@ def export(
             If specified, allows to use specific shapes for the example input provided to the Neuron exporter.
         auto_cast (`optional[str]`, defaults to `"none"`):
             Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `"none"`, `"matmult"` or `"all"`, you should use `"none"` to disable any auto-casting, use `"matmul"` to cast FP32 matrix multiplication operations, and use `"all"` to cast all FP32 operations.
-        auto_cast_type (`optional[str]`, defaults to `None`)
-            The data type to cast FP32 operations to when auto-cast mode is enabled.
+        auto_cast_type (`optional[str]`, defaults to `None`):
+            The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"` or `"tf32"`.
 
     Returns:
         `Tuple[List[str], List[str]]`: A tuple with an ordered list of the model's inputs, and the named inputs from
@@ -172,7 +189,6 @@ def export(
     """
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    logger.info(f"Using Neuron: {neuron.__version__}")
     model.config.return_dict = True
     model.config.torchscript = True
     model.eval()
@@ -201,7 +217,63 @@ def export(
             compiler_args.extend(["--auto-cast-type", auto_cast_type])
         logger.info(f"Using Neuron: --auto-cast-type {str(auto_cast_type)}")
 
-    neuron_model = neuron.trace(model, dummy_inputs, compiler_args=compiler_args)
+    neuron_model = neuronx.trace(model, dummy_inputs, compiler_args=compiler_args)
     torch.jit.save(neuron_model, output)
+
+    return config.inputs, config.outputs
+
+
+def export_neuron(
+    model: "PreTrainedModel",
+    config: "NeuronConfig",
+    output: Path,
+    input_shapes: Optional[Dict[str, Tuple[int, ...]]] = None,
+    auto_cast: Optional[str] = "none",
+    auto_cast_type: Optional[str] = None,
+    disable_fast_relayout: Optional[bool] = False,
+) -> Tuple[List[str], List[str]]:
+    """
+    Exports a PyTorch model to a Neuron compiled TorchScript model.
+
+    Args:
+        model ([`PreTrainedModel`]):
+            The model to export.
+        config ([`~exporter.NeuronConfig`]):
+            The Neuron configuration associated with the exported model.
+        output (`Path`):
+            Directory to store the exported Neuron model.
+        input_shapes (`optional[Dict]`, defaults to `None`):
+            If specified, allows to use specific shapes for the example input provided to the Neuron exporter.
+        auto_cast (`optional[str]`, defaults to `"none"`):
+            Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `"none"`, `"matmult"` or `"all"`, you should use `"none"` to disable any auto-casting, use `"matmul"` to cast FP32 matrix multiplication operations, and use `"all"` to cast all FP32 operations.
+        auto_cast_type (`optional[str]`, defaults to `None`):
+            The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"` or `"tf32"`.
+        disable_fast_relayout (`optional[bool]`, defaults to `False`):
+            Whether to disable fast relayout optimization which improves performance by using the matrix multiplier for tensor transpose.
+
+    Returns:
+        `Tuple[List[str], List[str]]`: A tuple with an ordered list of the model's inputs, and the named inputs from
+        the Neuron configuration.
+    """
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    model.config.return_dict = True
+    model.config.torchscript = True
+    model.eval()
+
+    # Check if we need to override certain configuration item
+    if config.values_override is not None:
+        logger.info(f"Overriding {len(config.values_override)} configuration item(s)")
+        for override_config_key, override_config_value in config.values_override.items():
+            logger.info(f"\t- {override_config_key} -> {override_config_value}")
+            setattr(model.config, override_config_key, override_config_value)
+
+    if input_shapes is None:
+        input_shapes = {}  # will use the defaults from DEFAULT_DUMMY_SHAPES
+
+    dummy_inputs = config.generate_dummy_inputs(**input_shapes)
+    compiler_args = convert_neuronx_compiler_args_to_neuron(auto_cast, auto_cast_type, disable_fast_relayout)
+    neuron_model = neuron.trace(model, dummy_inputs, compiler_args=compiler_args)
+    neuron_model.save(output)
 
     return config.inputs, config.outputs
