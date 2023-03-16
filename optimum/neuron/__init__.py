@@ -30,8 +30,6 @@ if TYPE_CHECKING:
     from .trainers import Seq2SeqTrainiumTrainer, TrainiumTrainer
     from .utils import is_neuron_available, is_neuronx_available, patch_transformers_for_neuron_sdk
 
-    if not os.environ.get("DISABLE_TRANSFORMERS_PATCHING", False):
-        patch_transformers_for_neuron_sdk()
 else:
     import sys
 
@@ -41,3 +39,6 @@ else:
         _import_structure,
         module_spec=__spec__,
     )
+
+if not os.environ.get("DISABLE_TRANSFORMERS_PATCHING", False):
+    patch_transformers_for_neuron_sdk()
