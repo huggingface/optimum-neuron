@@ -12,11 +12,34 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+from typing import TYPE_CHECKING
+
+from transformers.utils import _LazyModule
+
+
+_import_structure = {
+    "hf_argparser": ["TrainiumHfArgumentParser"],
+    "trainers": ["TrainiumTrainer", "Seq2SeqTrainiumTrainer"],
+}
+
+if TYPE_CHECKING:
+    from .hf_argparser import TrainiumHfArgumentParser
+    from .trainers import Seq2SeqTrainiumTrainer, TrainiumTrainer
+else:
+    import sys
+
+    sys.modules[__name__] = _LazyModule(
+        __name__,
+        globals()["__file__"],
+        _import_structure,
+        module_spec=__spec__,
+    )
+
+
 import os
 
-from .hf_argparser import TrainiumHfArgumentParser
-from .trainers import Seq2SeqTrainiumTrainer, TrainiumTrainer
-from .utils.training_utils import patch_transformers_for_neuron_sdk
+from .utils import is_neuron_available, is_neuronx_available, patch_transformers_for_neuron_sdk
 
 
 if not os.environ.get("DISABLE_TRANSFORMERS_PATCHING", False):
