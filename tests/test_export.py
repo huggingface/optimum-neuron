@@ -72,10 +72,9 @@ class NeuronXExportTestCase(TestCase):
         model = AutoModelForSequenceClassification.from_pretrained(model_id)
         reference_model = copy.deepcopy(model)
 
-        neuron_config = neuron_config_constructor(config=model.config, task=task)
+        neuron_config = neuron_config_constructor(config=model.config, task=task, batch_size=2, sequence_length=18)
 
         atol = neuron_config.ATOL_FOR_VALIDATION
-        dummy_inputs_shapes = {"batch_size": 2, "sequence_length": 18}
 
         with NamedTemporaryFile("w") as output:
             try:
@@ -83,7 +82,6 @@ class NeuronXExportTestCase(TestCase):
                     model=model,
                     config=neuron_config,
                     output=Path(output.name),
-                    input_shapes=dummy_inputs_shapes,
                 )
 
                 validate_model_outputs(
@@ -92,7 +90,6 @@ class NeuronXExportTestCase(TestCase):
                     neuron_model_path=Path(output.name),
                     neuron_named_outputs=["logits"],
                     atol=atol,
-                    input_shapes=dummy_inputs_shapes,
                 )
             except (RuntimeError, ValueError) as e:
                 self.fail(f"{model_type}, {task} -> {e}")

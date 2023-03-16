@@ -15,7 +15,7 @@
 """Neuron TorchScript model check and export functions."""
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -46,7 +46,6 @@ def validate_model_outputs(
     neuron_model_path: Path,
     neuron_named_outputs: List[str],
     atol: Optional[float] = None,
-    input_shapes: Optional[Dict[str, Tuple[int, ...]]] = None,
 ):
     """
     Validates the export by checking that the outputs from both the reference and the exported model match.
@@ -62,9 +61,6 @@ def validate_model_outputs(
             The names of the outputs to check.
         atol (`Optional[float]`, defaults to `None`):
             The absolute tolerance in terms of outputs difference between the reference and the exported model.
-        input_shapes (`Optional[Dict]`, defaults to `None`):
-            If specified, allows to use specific shapes to validate the Neuron model on.
-            It must be compatible with staically exported Neuron model.
 
     Raises:
         ValueError: If the outputs shapes or values do not match between the reference and the exported model.
@@ -77,6 +73,9 @@ def validate_model_outputs(
         else:
             atol = config.ATOL_FOR_VALIDATION
 
+    input_shapes = {}
+    for axe in config.mandatory_axes:
+        input_shapes[axe] = getattr(config, axe)
     ref_inputs = config.generate_dummy_inputs(return_tuple=False, **input_shapes)
     with torch.no_grad():
         reference_model.eval()
@@ -145,13 +144,12 @@ def export(
     model: "PreTrainedModel",
     config: "NeuronConfig",
     output: Path,
-    input_shapes: Optional[Dict[str, Tuple[int, ...]]] = None,
     **kwargs,
 ) -> Tuple[List[str], List[str]]:
     if is_neuron_available():
-        export_neuron(model, config, output, input_shapes)
+        export_neuron(model, config, output)
     elif is_neuronx_available():
-        export_neuronx(model, config, output, input_shapes, **kwargs)
+        export_neuronx(model, config, output, **kwargs)
     else:
         raise RuntimeError(
             "Cannot export the model because the neuron(x) compiler is not installed. See https://awsdocs-neuron.readthedocs-hosted.com/en/latest/frameworks/torch/torch-setup.html."
@@ -162,7 +160,6 @@ def export_neuronx(
     model: "PreTrainedModel",
     config: "NeuronConfig",
     output: Path,
-    input_shapes: Optional[Dict[str, Tuple[int, ...]]] = None,
     auto_cast: Optional[str] = "none",
     auto_cast_type: Optional[str] = None,
 ) -> Tuple[List[str], List[str]]:
@@ -176,8 +173,6 @@ def export_neuronx(
             The Neuron configuration associated with the exported model.
         output (`Path`):
             Directory to store the exported Neuron model.
-        input_shapes (`optional[Dict]`, defaults to `None`):
-            If specified, allows to use specific shapes for the example input provided to the Neuron exporter.
         auto_cast (`optional[str]`, defaults to `"none"`):
             Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `"none"`, `"matmult"` or `"all"`, you should use `"none"` to disable any auto-casting, use `"matmul"` to cast FP32 matrix multiplication operations, and use `"all"` to cast all FP32 operations.
         auto_cast_type (`optional[str]`, defaults to `None`):
@@ -200,8 +195,9 @@ def export_neuronx(
             logger.info(f"\t- {override_config_key} -> {override_config_value}")
             setattr(model.config, override_config_key, override_config_value)
 
-    if input_shapes is None:
-        input_shapes = {}  # will use the defaults from DEFAULT_DUMMY_SHAPES
+    input_shapes = {}
+    for axe in config.mandatory_axes:
+        input_shapes[axe] = getattr(config, axe)
 
     dummy_inputs = config.generate_dummy_inputs(**input_shapes)
     logger.info(f"Using Neuron: --auto-cast {auto_cast}")
@@ -227,7 +223,6 @@ def export_neuron(
     model: "PreTrainedModel",
     config: "NeuronConfig",
     output: Path,
-    input_shapes: Optional[Dict[str, Tuple[int, ...]]] = None,
     auto_cast: Optional[str] = "none",
     auto_cast_type: Optional[str] = None,
     disable_fast_relayout: Optional[bool] = False,
@@ -242,8 +237,6 @@ def export_neuron(
             The Neuron configuration associated with the exported model.
         output (`Path`):
             Directory to store the exported Neuron model.
-        input_shapes (`optional[Dict]`, defaults to `None`):
-            If specified, allows to use specific shapes for the example input provided to the Neuron exporter.
         auto_cast (`optional[str]`, defaults to `"none"`):
             Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `"none"`, `"matmult"` or `"all"`, you should use `"none"` to disable any auto-casting, use `"matmul"` to cast FP32 matrix multiplication operations, and use `"all"` to cast all FP32 operations.
         auto_cast_type (`optional[str]`, defaults to `None`):
@@ -268,8 +261,9 @@ def export_neuron(
             logger.info(f"\t- {override_config_key} -> {override_config_value}")
             setattr(model.config, override_config_key, override_config_value)
 
-    if input_shapes is None:
-        input_shapes = {}  # will use the defaults from DEFAULT_DUMMY_SHAPES
+    input_shapes = {}
+    for axe in config.mandatory_axes:
+        input_shapes[axe] = getattr(config, axe)
 
     dummy_inputs = config.generate_dummy_inputs(**input_shapes)
     compiler_args = convert_neuronx_compiler_args_to_neuron(auto_cast, auto_cast_type, disable_fast_relayout)
