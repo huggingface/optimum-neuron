@@ -104,7 +104,7 @@ def convert_neuronx_compiler_args_to_neuron(auto_cast="none", auto_cast_type=Non
             compiler_args.extend(["--fast-math", f"fp32-cast-matmult-{auto_cast_type}"])
     else:
         raise ValueError(
-            f"The auto_cast {auto_cast} is not valid. Please use one of the following: none, all or matmult."
+            f"The auto_cast value {auto_cast} is not valid. Please use one of the following: none, all or matmult."
         )
 
     if disable_fast_relayout is True:
