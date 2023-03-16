@@ -88,7 +88,11 @@ def validate_arg(
             raise ValueError(f"{error_msg}\n{raise_error_msg}")
 
 
-def convert_neuronx_compiler_args_to_neuron(auto_cast="none", auto_cast_type=None, disable_fast_relayout=False):
+def convert_neuronx_compiler_args_to_neuron(
+    auto_cast: Optional[str] = "none",
+    auto_cast_type: Optional[str] = None,
+    disable_fast_relayout: Optional[bool] = False,
+):
     """
     Builds `compiler_args` for neuron compiler.
     """
