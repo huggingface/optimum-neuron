@@ -21,8 +21,8 @@ import numpy as np
 import torch
 
 from ...exporters.error_utils import OutputMatchError, ShapeError
+from ...neuron.utils import convert_neuronx_compiler_args_to_neuron, is_neuron_available, is_neuronx_available
 from ...utils import logging
-from ..utils import convert_neuronx_compiler_args_to_neuron, is_neuron_available, is_neuronx_available
 
 
 if TYPE_CHECKING:
