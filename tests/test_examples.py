@@ -217,7 +217,7 @@ class ExampleTesterBase(TestCase):
         GRADIENT_ACCUMULATION_STEPS (`int`) -- The number of gradient accumulation to use during training.
         DATALOADER_DROP_LAST (`bool`) -- Whether to drop the last batch if it is a remainder batch.
         NPROC_PER_NODE (`int`) -- The number of Neuron cores to use when doing multiple workers training.
-        EXTRA_COMMAND_LINE_ARGUMENTS (`str`) -- Extra arguments, if needed, to be passed to the command line traning
+        EXTRA_COMMAND_LINE_ARGUMENTS (`Optional[List[str]]`) -- Extra arguments, if needed, to be passed to the command line traning
             script.
     """
 
@@ -238,7 +238,7 @@ class ExampleTesterBase(TestCase):
     EVAL_BATCH_SIZE = 16
     GRADIENT_ACCUMULATION_STEPS = 16
     NPROC_PER_NODE = 2
-    EXTRA_COMMAND_LINE_ARGUMENTS = ""
+    EXTRA_COMMAND_LINE_ARGUMENTS = None
     LOGGING_STEPS = 1
     SAVE_STEPS = -1
     ONLY_PRECOMPILATION = False
@@ -503,42 +503,28 @@ class SummarizationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, e
         "--pad_to_max_length",
         "--max_target_length 200",
         {"default": "--max_source_length 1024", "t5": "--max_source_length 768"},
+        {"default": "", "t5": "--source_prefix 'summarize: '"},
     ]
 
     def _create_command_line(
         self,
         script: str,
         model_name: str,
+        model_type: str,
         output_dir: str,
         is_precompilation: bool = False,
-        task: Optional[str] = None,
-        dataset_config_name: Optional[str] = None,
-        do_eval: bool = True,
-        lr: float = 1e-4,
-        train_batch_size: int = 1,
-        eval_batch_size: int = 1,
-        num_epochs: int = 2,
-        gradient_accumulation_steps: int = 64,
-        extra_command_line_arguments: Optional[List[str]] = None,
     ) -> List[str]:
+        extra_command_line_arguments = [
+            ExampleTestMeta.process_class_attribute(arg, model_type) for arg in self.EXTRA_COMMAND_LINE_ARGUMENTS
+        ]
         if extra_command_line_arguments is None:
             extra_command_line_arguments = []
-        if "t5" in model_name:
-            extra_command_line_arguments.append("--source_prefix 'summarize: '")
         return super()._create_command_line(
             script,
             model_name,
+            model_type,
             output_dir,
             is_precompilation=is_precompilation,
-            task=task,
-            dataset_config_name=dataset_config_name,
-            do_eval=do_eval,
-            lr=lr,
-            train_batch_size=train_batch_size,
-            eval_batch_size=eval_batch_size,
-            num_epochs=num_epochs,
-            gradient_accumulation_steps=gradient_accumulation_steps,
-            extra_command_line_arguments=extra_command_line_arguments,
         )
 
 

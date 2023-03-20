@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 """Tools that fills the neuron cache with common models for the supported tasks."""
 
+import os
 import time
 from argparse import ArgumentParser
 from pathlib import Path
@@ -242,7 +243,6 @@ def run_auto_fill_cache_for_model_name(model_type: str, model_name: str, shape_v
     getattr(tester, method_name)()
 
 
-
 def parse_args():
     parser = ArgumentParser(description="Tool that runs precompilation to fill the Neuron Cache.")
     parser.add_argument("--cache-path", type=Path, default="neuron-cache", help="The directory in which all the precompiled neff files will be stored.")
@@ -259,6 +259,9 @@ def main():
     else:
         models = args.models
     
+    # Test examples are slow, this allows us to run them.
+    os.environ["RUN_SLOW"] = "1"
+
     for model_type in models:
         testers = get_testers_for_model_type(model_type)
         for task, tester, method_name in testers:
@@ -272,3 +275,6 @@ def main():
                 end = time.time()
                 print(f"Done! Duration: {end - start:.3f}.")
 
+
+if __name__ == "__main__":
+    main()
