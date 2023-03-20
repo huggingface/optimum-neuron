@@ -22,8 +22,8 @@ from parameterized import parameterized
 from transformers import AutoModelForSequenceClassification, is_torch_available
 from transformers.testing_utils import require_torch
 
-from optimum.neuron.exporter import NeuronConfig, export, validate_model_outputs
-from optimum.neuron.exporter.model_configs import (
+from optimum.exporters.neuron import NeuronConfig, export, validate_model_outputs
+from optimum.exporters.neuron.model_configs import (
     BertNeuronConfig,
     DistilBertNeuronConfig,
     FlaubertNeuronConfig,
