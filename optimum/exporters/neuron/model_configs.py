@@ -18,9 +18,22 @@
 from typing import List
 
 from ...utils.normalized_config import NormalizedConfigManager
+from ..tasks import TasksManager
 from .config import TextEncoderNeuronConfig
 
 
+COMMON_TEXT_TASKS = (
+    "default",
+    "masked-lm",
+    "sequence-classification",
+    "multiple-choice",
+    "token-classification",
+    "question-answering",
+)
+register_in_task_manager = TasksManager.create_register("neuron")
+
+
+@register_in_task_manager("bert", COMMON_TEXT_TASKS)
 class BertNeuronConfig(TextEncoderNeuronConfig):
     NORMALIZED_CONFIG_CLASS = NormalizedConfigManager.get_normalized_config_class("bert")
     ATOL_FOR_VALIDATION = 1e-4
@@ -30,34 +43,43 @@ class BertNeuronConfig(TextEncoderNeuronConfig):
         return ["input_ids", "attention_mask", "token_type_ids"]
 
 
+@register_in_task_manager("albert", COMMON_TEXT_TASKS)
 class AlbertNeuronConfig(BertNeuronConfig):
     pass
 
 
+# Issue: https://github.com/aws-neuron/aws-neuron-sdk/issues/641
+# @register_in_task_manager("convbert", COMMON_TEXT_TASKS)
 # class ConvBertNeuronConfig(BertNeuronConfig):
 #     pass
 
 
+@register_in_task_manager("electra", COMMON_TEXT_TASKS)
 class ElectraNeuronConfig(BertNeuronConfig):
     pass
 
 
+@register_in_task_manager("flaubert", COMMON_TEXT_TASKS)
 class FlaubertNeuronConfig(BertNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-1
 
 
+@register_in_task_manager("mobilebert", COMMON_TEXT_TASKS)
 class MobileBertNeuronConfig(BertNeuronConfig):
     pass
 
 
+@register_in_task_manager("roformer", COMMON_TEXT_TASKS)
 class RoFormerNeuronConfig(BertNeuronConfig):
     pass
 
 
+@register_in_task_manager("xlm", COMMON_TEXT_TASKS)
 class XLMNeuronConfig(BertNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-1
 
 
+@register_in_task_manager("distilbert", COMMON_TEXT_TASKS)
 class DistilBertNeuronConfig(BertNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-4
 
@@ -66,22 +88,27 @@ class DistilBertNeuronConfig(BertNeuronConfig):
         return ["input_ids", "attention_mask"]
 
 
+@register_in_task_manager("camembert", COMMON_TEXT_TASKS)
 class CamembertNeuronConfig(DistilBertNeuronConfig):
     pass
 
 
+@register_in_task_manager("mpnet", COMMON_TEXT_TASKS)
 class MPNetNeuronConfig(DistilBertNeuronConfig):
     pass
 
 
+@register_in_task_manager("roberta", COMMON_TEXT_TASKS)
 class RobertaNeuronConfig(DistilBertNeuronConfig):
     pass
 
 
+@register_in_task_manager("xlm-roberta", COMMON_TEXT_TASKS)
 class XLMRobertaNeuronConfig(DistilBertNeuronConfig):
     pass
 
 
+@register_in_task_manager("deberta", COMMON_TEXT_TASKS)
 class DebertaNeuronConfig(BertNeuronConfig):
     @property
     def inputs(self) -> List[str]:
@@ -92,5 +119,6 @@ class DebertaNeuronConfig(BertNeuronConfig):
         return common_inputs
 
 
+@register_in_task_manager("deberta-v2", COMMON_TEXT_TASKS)
 class DebertaV2NeuronConfig(DebertaNeuronConfig):
     pass

@@ -1,4 +1,3 @@
-# coding=utf-8
 # Copyright 2023 The HuggingFace Team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,4 +11,18 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from .tasks import TasksManager  # noqa
+
+from abc import ABC, abstractmethod
+from argparse import ArgumentParser
+
+
+# Copied from optimum.commands.BaseOptimumCLICommand
+class BaseOptimumCLICommand(ABC):
+    @staticmethod
+    @abstractmethod
+    def register_subcommand(parser: ArgumentParser):
+        raise NotImplementedError()
+
+    @abstractmethod
+    def run(self):
+        raise NotImplementedError()
