@@ -70,4 +70,5 @@ setup(
     extras_require=EXTRAS_REQUIRE,
     include_package_data=True,
     zip_safe=False,
+    entry_points={"console_scripts": ["optimum-neuron-cli=optimum.commands.optimum_cli:main"]},
 )
