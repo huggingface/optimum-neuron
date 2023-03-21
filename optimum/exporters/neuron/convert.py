@@ -147,9 +147,9 @@ def export(
     **kwargs,
 ) -> Tuple[List[str], List[str]]:
     if is_neuron_available():
-        export_neuron(model, config, output, **kwargs)
+        return export_neuron(model, config, output, **kwargs)
     elif is_neuronx_available():
-        export_neuronx(model, config, output, **kwargs)
+        return export_neuronx(model, config, output, **kwargs)
     else:
         raise RuntimeError(
             "Cannot export the model because the neuron(x) compiler is not installed. See https://awsdocs-neuron.readthedocs-hosted.com/en/latest/frameworks/torch/torch-setup.html."

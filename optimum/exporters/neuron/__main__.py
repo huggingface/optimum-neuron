@@ -14,6 +14,7 @@
 # limitations under the License.
 """Entry point to the optimum.exporters.neuron command line."""
 
+import copy
 from argparse import ArgumentParser
 
 from ...neuron.utils import is_neuron_available, is_neuronx_available
@@ -24,13 +25,17 @@ from ..tasks import TasksManager
 from .convert import export, validate_model_outputs
 
 
+# TODO The registration took place but doesn't seems to added for the TasksManager in this session
+# from .model_configs import *
+
+
 if is_neuron_available():
-    from .neuron import parse_args_neuron
+    from ...commands.export.neuron import parse_args_neuron
 
     NEURON_COMPILER = "Neuron"
 
 if is_neuronx_available():
-    from .neuronx import parse_args_neuronx as parse_args_neuron  # noqa: F811
+    from ...commands.export.neuronx import parse_args_neuronx as parse_args_neuron  # noqa: F811
 
     NEURON_COMPILER = "Neuronx"
 
@@ -65,6 +70,14 @@ def main():
     model = TasksManager.get_model_from_task(
         task, args.model, framework="pt", cache_dir=args.cache_dir, trust_remote_code=args.trust_remote_code
     )
+    ref_model = copy.deepcopy(model)
+
+    # To remove: hacky registration
+    from .model_configs import BertNeuronConfig
+
+    @register_in_tasks_manager("bert", "sequence-classification")  # noqa: F821
+    class BertNeuronConfig(BertNeuronConfig):
+        pass
 
     neuron_config_constructor = TasksManager.get_exporter_config_constructor(model=model, exporter="neuron", task=task)
     # TODO: find a cleaner way to do this.
@@ -91,7 +104,7 @@ def main():
     try:
         validate_model_outputs(
             config=neuron_config,
-            reference_model=model,
+            reference_model=ref_model,
             neuron_model_path=args.output,
             neuron_named_outputs=neuron_config.outputs,
             atol=args.atol,
