@@ -11,14 +11,9 @@
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
-"""Import utilities."""
-
-import importlib.util
+"""Version utilities."""
 
 
-def is_neuron_available():
-    return importlib.util.find_spec("torch_neuron") is not None
-
-
-def is_neuronx_available():
-    return importlib.util.find_spec("torch_neuronx") is not None
+# TODO: implement that for real.
+def get_neuron_compiler_version() -> str:
+    return "2.8.0"
