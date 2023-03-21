@@ -55,7 +55,11 @@ def get_neuron_cache_path() -> Optional[Path]:
         else:
             path = Path("/var/tmp")
 
-        return path / "neuron-compile-path"
+        return path / "neuron-compile-cache"
+
+
+def list_files_in_neuron_cache(neuron_cache_path: Path) -> List[Path]:
+    return [path for path in neuron_cache_path.rglob("") if path.is_file()]
 
 
 def compute_file_sha256_hash(filename: Union[str, Path]) -> str:
@@ -104,7 +108,7 @@ class NeuronHash:
     @property
     def hash_dict(self) -> Dict[str, Any]:
         hash_dict = asdict(self)
-        # hash_dict["model"] = hash_dict["model"].state_dict
+        hash_dict["model"] = hash_dict["model"].state_dict()
         return hash_dict
 
     def compute_hash(self) -> Tuple[str, str]:
@@ -175,22 +179,32 @@ def get_cached_model_on_the_hub(neuron_hash: NeuronHash) -> Optional[CachedModel
 
 
 def download_cached_model_from_hub(
-    neuron_hash: NeuronHash, target_directory: Optional[Union[str, Path]] = None
+        neuron_hash: NeuronHash, target_directory: Optional[Union[str, Path]] = None, keep_tree_structure: bool = False,
 ) -> bool:
     if target_directory is None:
         target_directory = get_neuron_cache_path()
+        if target_directory is None:
+            raise ValueError(f"A target directory must be specified when no caching directory is used.")
+    elif isinstance(target_directory, str):
+        target_directory = Path(target_directory)
 
     cached_model = get_cached_model_on_the_hub(neuron_hash)
     if cached_model is not None:
-        # TODO: validate if the tree structure is preserved or not?
+        folder = cached_model.folder
         snapshot_download(
             repo_id=cached_model.repo_id,
             revision=cached_model.revision,
             repo_type="model",
             local_dir=target_directory,
             local_dir_use_symlinks=False,
-            allow_patterns=f"{cached_model.folder}/**",
+            allow_patterns=f"{folder}/**",
         )
+
+        if not keep_tree_structure:
+            for path in Path(folder).rglob(""):
+                shutil.move(path, target_directory / path.name)
+            shutil.rmtree(folder)
+
     return cached_model is not None
 
 

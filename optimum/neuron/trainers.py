@@ -14,13 +14,17 @@
 """Defines Trainer subclasses to perform training on AWS Trainium instances."""
 
 import os
+import inspect
 from typing import TYPE_CHECKING, Optional
 
+import torch
 from torch.utils.data import DataLoader, Dataset
 from transformers import Seq2SeqTrainer, Trainer
 
 from ..utils import logging
 from .utils.argument_utils import validate_arg
+from .utils.cache_utils import NeuronHash, download_cached_model_from_hub, get_neuron_cache_path, list_files_in_neuron_cache, get_neuron_cache_path
+
 from .utils.training_utils import (
     FirstAndLastDataset,
     is_model_officially_supported,
@@ -31,7 +35,7 @@ from .utils.training_utils import (
 
 
 if TYPE_CHECKING:
-    from transformers import TrainingArguments
+    from transformers import TrainingArguments, PreTrainedModel
 
 
 logger = logging.get_logger(__name__)
@@ -54,8 +58,75 @@ class AugmentTrainerForTrainiumMixin:
 
         prepare_environment_for_neuron()
         super().__init__(*args, **kwargs)
+
         transformers_loggers = logging.get_logger("transformers.trainer")
         logger.setLevel(transformers_loggers.level)
+        logger.setLevel(logging.INFO)
+
+        # TODO: not ideal because it will not work if multiple processes are run concurrently.
+        self.neuron_cache_path = get_neuron_cache_path()
+        if self.neuron_cache_path is None:
+            self.neuron_cache_state = None
+        else:
+            self.neuron_cache_state = list_files_in_neuron_cache(self.neuron_cache_path)
+
+        if self.model is not None:
+            self.fetch_precompiled_model_for_cache_repo(self.model)
+
+    def neuron_hash_for_model(self, model: "PreTrainedModel", mode: str) -> NeuronHash:
+        dataloader_method_name = f"get_{mode}_dataloader"
+        dataloader = getattr(self, dataloader_method_name)()
+
+        input_names = inspect.signature(model.forward).parameters.keys()
+        batch = next(iter(dataloader))
+        inputs = (batch[input_name] for input_name in batch if input_name in input_names)
+        input_shapes = [input_.shape for input_ in inputs if isinstance(input_, torch.Tensor)]
+
+        if self.args.fp16:
+            data_type = torch.float16
+        elif self.args.bf16:
+            data_type = torch.bfloat16
+        else:
+            data_type = torch.float32
+
+        return NeuronHash(
+            model,
+            input_shapes, 
+            data_type
+        )
+
+    def fetch_precompiled_model_for_cache_repo(self, model: "PreTrainedModel"):
+        original_state = model.training
+        # TODO: change link to Optimum Neuron documentation page explaining the precompilation phase.
+        not_found_in_cache_msg = (
+            "Could not find the precompiled model on the Hub, it is recommended to run the precompilation phase, "
+            "otherwise compilation will be sequential and can take some time. "
+            "For more information, check here: https://awsdocs-neuron.readthedocs-hosted.com/en/latest/frameworks/torch/torch-neuronx/tutorials/training/finetune_hftrainer.html?highlight=precompilation#single-worker-training"
+        )
+        if self.args.do_train:
+            model = model.train()
+            neuron_hash = self.neuron_hash_for_model(model, "train")
+            found_in_cache = download_cached_model_from_hub(neuron_hash)
+            if not found_in_cache:
+                logger.info(not_found_in_cache_msg)
+        if self.args.do_eval:
+            model = model.eval()
+            neuron_hash = self.neuron_hash_for_model(model, "eval")
+            found_in_cache = download_cached_model_from_hub(neuron_hash)
+            if not found_in_cache:
+                logger.info(not_found_in_cache_msg)
+        if self.args.do_predict:
+            model = model.eval()
+            neuron_hash = self.neuron_hash_for_model(model, "test")
+            found_in_cache = download_cached_model_from_hub(neuron_hash)
+            if not found_in_cache:
+                logger.info(not_found_in_cache_msg)
+
+        model = model.train(original_state)
+
+    def upload_diff_cache_path(self, model: "PreTrainedModel"):
+        neuron_hash = self.neuron_hash_for_model(model, "train")
+
 
     def prepare_args_for_precompilation(self, args: "TrainingArguments"):
         if args.num_train_epochs != 1:
@@ -124,6 +195,16 @@ class AugmentTrainerForTrainiumMixin:
                 batch_size=None,
             )
         return super().get_test_dataloader(test_dataset)
+
+    def train(self, *args, **kwargs):
+        res = super().train(*args, **kwargs)
+        if self.neuron_cache_path is not None:
+            current_neuron_cache_state = list_files_in_neuron_cache(self.neuron_cache_path)
+            diff = [path for path in current_neuron_cache_state if path not in self.neuron_cache_state]
+            import pdb; pdb.set_trace()
+            self.neuron_cache_state = current_neuron_cache_state
+
+        return res
 
 
 class TrainiumTrainer(AugmentTrainerForTrainiumMixin, Trainer):
