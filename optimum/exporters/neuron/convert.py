@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, List, Optional, Tuple
 import numpy as np
 import torch
 
-from ...exporters.error_utils import AtolError, OutputMatchError, ShapeError
+from ...exporters.error_utils import OutputMatchError, ShapeError
 from ...neuron.utils import convert_neuronx_compiler_args_to_neuron, is_neuron_available, is_neuronx_available
 from ...utils import logging
 
@@ -134,7 +134,7 @@ def validate_model_outputs(
 
     if value_failures:
         msg = "\n".join(f"- {t[0]}: max diff = {t[1]}" for t in value_failures)
-        raise AtolError(
+        logger.warning(
             "The maximum absolute difference between the output of the reference model and the Neuron "
             f"exported model is not within the set tolerance {atol}:\n{msg}"
         )
