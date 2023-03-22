@@ -23,10 +23,7 @@ from ...utils.save_utils import maybe_save_preprocessors
 from ..error_utils import AtolError, OutputMatchError, ShapeError
 from ..tasks import TasksManager
 from .convert import export, validate_model_outputs
-
-
-# TODO The registration took place but doesn't seems to added for the TasksManager in this session
-# from .model_configs import *
+from .model_configs import *  # noqa: F403
 
 
 if is_neuron_available():
@@ -71,13 +68,6 @@ def main():
         task, args.model, framework="pt", cache_dir=args.cache_dir, trust_remote_code=args.trust_remote_code
     )
     ref_model = copy.deepcopy(model)
-
-    # To remove: hacky registration
-    from .model_configs import BertNeuronConfig
-
-    @register_in_tasks_manager("bert", "sequence-classification")  # noqa: F821
-    class BertNeuronConfig(BertNeuronConfig):
-        pass
 
     neuron_config_constructor = TasksManager.get_exporter_config_constructor(model=model, exporter="neuron", task=task)
     # TODO: find a cleaner way to do this.
