@@ -17,6 +17,8 @@ import subprocess
 import tempfile
 import unittest
 
+from optimum.neuron.utils import is_neuron_available, is_neuronx_available
+
 
 class TestCLI(unittest.TestCase):
     def test_helps_no_raise(self):
@@ -30,8 +32,24 @@ class TestCLI(unittest.TestCase):
             subprocess.run(command, shell=True, check=True)
 
     def test_export_commands(self):
-        with tempfile.TemporaryDirectory() as tempdir:
-            command = (
-                f"optimum-cli export neuron --model hf-internal-testing/tiny-random-BertModel --task sequence-classification {tempdir}",
-            )
+        with tempfile.TemporaryDirectory():
+            if is_neuron_available():
+                command = (
+                    "optimum-cli export neuron"
+                    " --model hf-internal-testing/tiny-random-BertModel"
+                    " --task sequence-classification"
+                    " --auto_cast_type bf16"
+                    " --disable_fast_relayout True"
+                    " --auto_cast matmult {tempdir}",
+                )
+            elif is_neuronx_available():
+                command = (
+                    "optimum-cli export neuron"
+                    " --model hf-internal-testing/tiny-random-BertModel"
+                    " --task sequence-classification"
+                    " --auto_cast_type bf16"
+                    " --auto_cast matmult {tempdir}",
+                )
+            else:
+                raise RuntimeError("The neuron(x) compiler is not installed.")
             subprocess.run(command, shell=True, check=True)
