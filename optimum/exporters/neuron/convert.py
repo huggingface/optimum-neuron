@@ -86,10 +86,10 @@ def validate_model_outputs(
     neuron_outputs = neuron_model(*neuron_inputs)
 
     # Check if we have a subset of the keys into neuron_outputs against ref_outputs
-    ref_output_names_set, neuron_output_names_set = set(ref_outputs.keys()), sorted(
-        set(neuron_named_outputs), key=neuron_named_outputs.index
-    )
-    if not set(neuron_output_names_set).issubset(ref_output_names_set):
+    ref_output_names_set, neuron_output_names_set = set(ref_outputs.keys()), set(neuron_named_outputs)
+    neuron_output_names_list = sorted(neuron_output_names_set, key=neuron_named_outputs.index)
+
+    if not neuron_output_names_set.issubset(ref_output_names_set):
         raise OutputMatchError(
             "Neuron model output names do not match reference model output names.\n"
             f"Reference model output names: {ref_output_names_set}\n"
@@ -109,7 +109,7 @@ def validate_model_outputs(
     # Check the shape and values match
     shape_failures = []
     value_failures = []
-    for name, output in zip(neuron_output_names_set, neuron_outputs):
+    for name, output in zip(neuron_output_names_list, neuron_outputs):
         ref_output = ref_outputs[name].numpy()
         output = output.numpy()
 

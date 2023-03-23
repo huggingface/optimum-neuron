@@ -66,7 +66,7 @@ def _get_models_to_test(export_models_dict: Dict):
     return sorted(models_to_test)
 
 
-class NeuronXExportTestCase(TestCase):
+class NeuronExportTestCase(TestCase):
     """
     Integration tests ensuring supported models are correctly exported.
     """

@@ -22,14 +22,14 @@ from ..tasks import TasksManager
 from .config import TextEncoderNeuronConfig
 
 
-COMMON_TEXT_TASKS = (
+COMMON_TEXT_TASKS = [
     "default",
     "masked-lm",
     "sequence-classification",
     "multiple-choice",
     "token-classification",
     "question-answering",
-)
+]
 register_in_tasks_manager = TasksManager.create_register("neuron")
 
 
@@ -79,7 +79,8 @@ class XLMNeuronConfig(BertNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-1
 
 
-@register_in_tasks_manager("distilbert", *COMMON_TEXT_TASKS)
+# Failed for DistilBERT: https://github.com/aws-neuron/aws-neuron-sdk/issues/645
+@register_in_tasks_manager("distilbert", *COMMON_TEXT_TASKS.remove("multiple-choice"))
 class DistilBertNeuronConfig(BertNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-4
 
