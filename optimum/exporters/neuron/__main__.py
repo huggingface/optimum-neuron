@@ -90,6 +90,9 @@ def main():
         output=args.output,
         **kwargs,
     )
+    import pdb
+
+    pdb.set_trace()
 
     try:
         validate_model_outputs(
