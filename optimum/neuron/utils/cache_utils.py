@@ -20,7 +20,7 @@ import shutil
 import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union, TypeVar
 
 import torch
 from huggingface_hub import HfApi, HfFolder, snapshot_download
@@ -43,6 +43,8 @@ HF_TOKEN = HF_FOLDER.get_token()
 HASH_FILE_NAME = "pytorch_model.bin"
 HF_HUB_CACHE_REPOS = ["michaelbenayoun/cache_test"]
 
+NEURON_COMPILE_CACHE_NAME = "neuron-compile-cache"
+
 
 def get_neuron_cache_path() -> Optional[Path]:
     neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
@@ -55,7 +57,30 @@ def get_neuron_cache_path() -> Optional[Path]:
         else:
             path = Path("/var/tmp")
 
-        return path / "neuron-compile-cache"
+        return path / NEURON_COMPILE_CACHE_NAME 
+
+def set_neuron_cache_path(neuron_cache_path: Union[str, Path], ignore_no_cache: bool = False):
+    neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
+    if "--no-cache" in neuron_cc_flags:
+        if ignore_no_cache:
+            neuron_cc_flags = neuron_cc_flags.replace("--no-cache", "")
+        else:
+            raise ValueError(
+                "Cannot set the neuron compile cache since --no-cache is in NEURON_CC_FLAGS. You can overwrite this "
+                "behaviour by doing ignore_no_cache=True."
+            )
+    if isinstance(neuron_cache_path, Path):
+        neuron_cache_path = neuron_cache_path.as_posix()
+
+    match_ = re.search(r"--cache_dir=([\w\/]+)", neuron_cc_flags)
+    if match_:
+        neuron_cc_flags = neuron_cc_flags[:match_.start(1)] + neuron_cache_path + neuron_cc_flags[match_.end(1):]
+    else:
+        neuron_cc_flags = neuron_cc_flags + f" --cache_dir={neuron_cache_path}"
+    
+    os.environ["NEURON_CC_FLAGS"] = neuron_cc_flags
+
+
 
 
 def list_files_in_neuron_cache(neuron_cache_path: Path) -> List[Path]:
@@ -91,10 +116,14 @@ class StaticTemporaryDirectory:
         shutil.rmtree(self.dirname)
 
 
+T = TypeVar("T")
+TupleOrList = Union[Tuple[T], List[T]]
+
 @dataclass
 class NeuronHash:
     model: "PreTrainedModel"
-    input_shapes: List[int]
+    # TODO: make this type annotation clearer.
+    input_shapes: TupleOrList[Union[int, TupleOrList[int]]]
     data_type: torch.dtype
     num_neuron_cores: int = -1
     neuron_compiler_version: str = ""
@@ -210,7 +239,7 @@ def download_cached_model_from_hub(
 
 def push_to_cache_on_hub(
     neuron_hash: NeuronHash,
-    local_cache_directory: str,
+    local_cache_dir_or_file: Path,
     cache_repo_id: Optional[str] = None,
     overwrite_existing: bool = False,
 ) -> CachedModelOnTheHub:
@@ -223,15 +252,22 @@ def push_to_cache_on_hub(
         exists = any(filename.parent == target_directory for filename in repo_filenames)
         if exists:
             logger.info(
-                f"Did push the cached model located at {local_cache_directory} to the repo named {cache_repo_id} "
+                f"Did not push the cached model located at {local_cache_dir_or_file} to the repo named {cache_repo_id} "
                 "because it already exists there. Use overwrite_existing=True if you want to overwrite the cache on the "
                 "Hub."
             )
-
-    HF_API.upload_folder(
-        folder_path=local_cache_directory,
-        path_in_repo=target_directory.as_posix(),
-        repo_id=cache_repo_id,
-        repo_type="model",
-    )
+    if local_cache_dir_or_file.is_dir():
+        HF_API.upload_folder(
+            folder_path=local_cache_dir_or_file.as_posix(),
+            path_in_repo=target_directory.as_posix(),
+            repo_id=cache_repo_id,
+            repo_type="model",
+        )
+    else:
+        HF_API.upload_file(
+            path_or_fileobj=local_cache_dir_or_file.as_posix(),
+            path_in_repo=(target_directory / local_cache_dir_or_file.name).as_posix(),
+            repo_id=cache_repo_id,
+            repo_type="model",
+        )
     return CachedModelOnTheHub(cache_repo_id, target_directory)
