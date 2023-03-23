@@ -18,11 +18,12 @@ import os
 import re
 import shutil
 import tempfile
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union, TypeVar
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, TypeVar, Union
 
 import torch
+import torch_xla.core.xla_model as xm
 from huggingface_hub import HfApi, HfFolder, snapshot_download
 
 from ...utils import logging
@@ -57,7 +58,8 @@ def get_neuron_cache_path() -> Optional[Path]:
         else:
             path = Path("/var/tmp")
 
-        return path / NEURON_COMPILE_CACHE_NAME 
+        return path / NEURON_COMPILE_CACHE_NAME
+
 
 def set_neuron_cache_path(neuron_cache_path: Union[str, Path], ignore_no_cache: bool = False):
     neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
@@ -74,13 +76,15 @@ def set_neuron_cache_path(neuron_cache_path: Union[str, Path], ignore_no_cache: 
 
     match_ = re.search(r"--cache_dir=([\w\/]+)", neuron_cc_flags)
     if match_:
-        neuron_cc_flags = neuron_cc_flags[:match_.start(1)] + neuron_cache_path + neuron_cc_flags[match_.end(1):]
+        neuron_cc_flags = neuron_cc_flags[: match_.start(1)] + neuron_cache_path + neuron_cc_flags[match_.end(1) :]
     else:
         neuron_cc_flags = neuron_cc_flags + f" --cache_dir={neuron_cache_path}"
-    
+
     os.environ["NEURON_CC_FLAGS"] = neuron_cc_flags
 
 
+def get_num_neuron_cores_used():
+    return int(os.environ.get("LOCAL_WORLD_SIZE", "1"))
 
 
 def list_files_in_neuron_cache(neuron_cache_path: Path) -> List[Path]:
@@ -119,20 +123,32 @@ class StaticTemporaryDirectory:
 T = TypeVar("T")
 TupleOrList = Union[Tuple[T], List[T]]
 
+
 @dataclass
+class _MutableHashAttribute:
+    model_hash: str = ""
+    overall_hash: str = ""
+
+    @property
+    def is_empty(self):
+        return (not self.model_hash) or (not self.overall_hash)
+
+    def __hash__(self):
+        return hash(f"{self.model_hash}_{self.overall_hash}")
+
+
+@dataclass(frozen=True)
 class NeuronHash:
     model: "PreTrainedModel"
     # TODO: make this type annotation clearer.
-    input_shapes: TupleOrList[Union[int, TupleOrList[int]]]
+    input_shapes: Tuple[Tuple[int], ...]
     data_type: torch.dtype
-    num_neuron_cores: int = -1
-    neuron_compiler_version: str = ""
+    num_neuron_cores: int = field(default_factory=get_num_neuron_cores_used)
+    neuron_compiler_version: str = field(default_factory=get_neuron_compiler_version)
+    _hash: _MutableHashAttribute = _MutableHashAttribute()
 
     def __post_init__(self):
-        if not self.neuron_compiler_version:
-            self.neuron_compiler_version = get_neuron_compiler_version()
-        if self.num_neuron_cores < 0:
-            self.num_neuron_cores = int(os.environ.get("LOCAL_WORLD_SIZE", "1"))
+        self.compute_hash()
 
     @property
     def hash_dict(self) -> Dict[str, Any]:
@@ -141,19 +157,24 @@ class NeuronHash:
         return hash_dict
 
     def compute_hash(self) -> Tuple[str, str]:
-        model_hash = ""
-        with tempfile.TemporaryDirectory() as tmpdirname:
-            filename = Path(tmpdirname) / HASH_FILE_NAME
-            torch.save(self.model.state_dict(), filename)
-            model_hash = compute_file_sha256_hash(filename)
+        if self._hash.is_empty:
+            model_hash = ""
+            with tempfile.TemporaryDirectory() as tmpdirname:
+                filename = Path(tmpdirname) / HASH_FILE_NAME
+                xm.save(self.model.state_dict(), filename)
+                model_hash = compute_file_sha256_hash(filename)
 
-        overall_hash = ""
-        hash_dict = self.hash_dict
-        with tempfile.TemporaryDirectory() as tmpdirname:
-            filename = Path(tmpdirname) / HASH_FILE_NAME
-            torch.save(hash_dict, filename)
-            overall_hash = compute_file_sha256_hash(filename)
-        return model_hash, overall_hash
+            overall_hash = ""
+            hash_dict = self.hash_dict
+            with tempfile.TemporaryDirectory() as tmpdirname:
+                filename = Path(tmpdirname) / HASH_FILE_NAME
+                xm.save(hash_dict, filename)
+                overall_hash = compute_file_sha256_hash(filename)
+
+            self._hash.model_hash = model_hash
+            self._hash.overall_hash = overall_hash
+
+        return self._hash.model_hash, self._hash.overall_hash
 
     @property
     def folders(self) -> List[str]:
@@ -208,12 +229,14 @@ def get_cached_model_on_the_hub(neuron_hash: NeuronHash) -> Optional[CachedModel
 
 
 def download_cached_model_from_hub(
-        neuron_hash: NeuronHash, target_directory: Optional[Union[str, Path]] = None, keep_tree_structure: bool = False,
+    neuron_hash: NeuronHash,
+    target_directory: Optional[Union[str, Path]] = None,
+    keep_tree_structure: bool = False,
 ) -> bool:
     if target_directory is None:
         target_directory = get_neuron_cache_path()
         if target_directory is None:
-            raise ValueError(f"A target directory must be specified when no caching directory is used.")
+            raise ValueError("A target directory must be specified when no caching directory is used.")
     elif isinstance(target_directory, str):
         target_directory = Path(target_directory)
 

@@ -13,25 +13,30 @@
 # See the License for the specific language governing permissions and
 """Defines Trainer subclasses to perform training on AWS Trainium instances."""
 
-from dataclasses import dataclass, asdict
-import os
-import math
-from decimal import Decimal
 import inspect
+import os
 import shutil
+from collections import defaultdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Optional, Tuple, Any, Union, Dict, List
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from torch.utils.data import DataLoader, Dataset
 from transformers import Seq2SeqTrainer, Trainer, TrainerCallback, TrainerState
-from transformers.trainer_utils import has_length
 
 from ..utils import logging
 from .utils.argument_utils import validate_arg
-from .utils.cache_utils import NEURON_COMPILE_CACHE_NAME, NeuronHash, compute_file_sha256_hash, download_cached_model_from_hub, get_neuron_cache_path, list_files_in_neuron_cache, get_neuron_cache_path, push_to_cache_on_hub, set_neuron_cache_path
-
+from .utils.cache_utils import (
+    NEURON_COMPILE_CACHE_NAME,
+    NeuronHash,
+    download_cached_model_from_hub,
+    get_neuron_cache_path,
+    list_files_in_neuron_cache,
+    push_to_cache_on_hub,
+    set_neuron_cache_path,
+)
 from .utils.training_utils import (
     FirstAndLastDataset,
     is_model_officially_supported,
@@ -42,7 +47,7 @@ from .utils.training_utils import (
 
 
 if TYPE_CHECKING:
-    from transformers import TrainingArguments, PreTrainedModel, TrainerControl
+    from transformers import PreTrainedModel, TrainerControl, TrainingArguments
 
 
 logger = logging.get_logger(__name__)
@@ -50,22 +55,27 @@ logger = logging.get_logger(__name__)
 
 @dataclass
 class NeuronTrainerState(TrainerState):
-    last_train_inputs: Optional[Dict[str, Any]] = None
-    last_eval_inputs: Optional[Dict[str, Any]] = None
+    # last_train_inputs: Optional[Dict[str, Any]] = None
+    # last_eval_inputs: Optional[Dict[str, Any]] = None
+    last_inputs: Optional[Dict[str, Any]] = None
 
     def __post_init__(self):
         super().__post_init__()
-        if self.last_train_inputs is None:
-            self.last_train_inputs = {}
-        if self.last_eval_inputs is None:
-            self.last_eval_inputs = {}
+        # if self.last_train_inputs is None:
+        #     self.last_train_inputs = {}
+        # if self.last_eval_inputs is None:
+        #     self.last_eval_inputs = {}
+        if self.last_inputs is None:
+            self.last_inputs = {}
 
     @classmethod
     def from_trainer_state(cls, state: TrainerState) -> "NeuronTrainerState":
         neuron_trainer_state = cls(asdict(state))
-        neuron_trainer_state.last_train_inputs = getattr(state, "last_train_inputs", {})
-        neuron_trainer_state.last_eval_inputs = getattr(state, "last_eval_inputs", {})
+        # neuron_trainer_state.last_train_inputs = getattr(state, "last_train_inputs", {})
+        # neuron_trainer_state.last_eval_inputs = getattr(state, "last_eval_inputs", {})
+        neuron_trainer_state.last_inputs = getattr(state, "last_inputs", {})
         return neuron_trainer_state
+
 
 class NeuronCacheCallaback(TrainerCallback):
     def __init__(self):
@@ -77,8 +87,10 @@ class NeuronCacheCallaback(TrainerCallback):
         # Temporary Neuron compile cache.
         self.tmp_neuron_cache, self.tmp_neuron_cache_path = self.create_temporary_neuron_cache(self.neuron_cache_path)
         self.tmp_neuron_cache_state = list(self.tmp_neuron_cache_path.iterdir())
+        self.fetch_files = set()
 
-        self.neuron_hashes : Dict[Tuple["PreTrainedModel", Tuple[Tuple[int], ...]], data_type, str] = {}
+        self.neuron_hashes: Dict[Tuple["PreTrainedModel", Tuple[Tuple[int], ...], torch.dtype], NeuronHash] = {}
+        self.neuron_hash_to_files: Dict[NeuronHash, List[Path]] = defaultdict(list)
 
     def prepare_state(self, state: TrainerState):
         if isinstance(state, NeuronTrainerState):
@@ -98,11 +110,19 @@ class NeuronCacheCallaback(TrainerCallback):
             tmp_cache_file = tmp_neuron_cache_path / cache_file.name
             tmp_cache_file.symlink_to(cache_file)
         set_neuron_cache_path(tmp_neuron_cache_path)
+        tmp_neuron_cache_path = tmp_neuron_cache_path / NEURON_COMPILE_CACHE_NAME
+        tmp_neuron_cache_path.mkdir()
         return tmp_neuron_cache, tmp_neuron_cache_path
 
-    def neuron_hash_for_model(self, args: "TrainingArguments", model: "PreTrainedModel", inputs: Dict[str, Any]) -> NeuronHash:
+    def neuron_hash_for_model(
+        self,
+        args: "TrainingArguments",
+        model: "PreTrainedModel",
+        inputs: Dict[str, Any],
+        try_to_fetch_cached_model: bool = False,
+    ) -> NeuronHash:
         input_names = inspect.signature(model.forward).parameters.keys()
-        input_shapes = tuple(tuple(value.shape) for (input_name, value) in inputs.values() if input_name in input_names)
+        input_shapes = tuple(tuple(value.shape) for (input_name, value) in inputs.items() if input_name in input_names)
 
         if args.fp16:
             data_type = torch.float16
@@ -115,93 +135,59 @@ class NeuronCacheCallaback(TrainerCallback):
         neuron_hash = self.neuron_hashes.get(key, None)
         if neuron_hash is None:
             neuron_hash = NeuronHash(*key)
+            self.neuron_hashes[key] = neuron_hash
+            if try_to_fetch_cached_model:
+                self.try_to_fetch_cached_model(neuron_hash)
         return neuron_hash
 
-    # def fetch_precompiled_model_for_cache_repo(self, model: "PreTrainedModel"):
-    #     original_state = model.training
-    #     # TODO: change link to Optimum Neuron documentation page explaining the precompilation phase.
-    #     not_found_in_cache_msg = (
-    #         "Could not find the precompiled model on the Hub, it is recommended to run the precompilation phase, "
-    #         "otherwise compilation will be sequential and can take some time. "
-    #         "For more information, check here: https://awsdocs-neuron.readthedocs-hosted.com/en/latest/frameworks/torch/torch-neuronx/tutorials/training/finetune_hftrainer.html?highlight=precompilation#single-worker-training"
-    #     )
-    #     if self.args.do_train:
-    #         model = model.train()
-    #         neuron_hash = self.neuron_hash_for_model(model, "train")
-    #         found_in_cache = download_cached_model_from_hub(neuron_hash)
-    #         if not found_in_cache:
-    #             logger.info(not_found_in_cache_msg)
-    #     if self.args.do_eval:
-    #         model = model.eval()
-    #         neuron_hash = self.neuron_hash_for_model(model, "eval")
-    #         found_in_cache = download_cached_model_from_hub(neuron_hash)
-    #         if not found_in_cache:
-    #             logger.info(not_found_in_cache_msg)
-    #     if self.args.do_predict:
-    #         model = model.eval()
-    #         neuron_hash = self.neuron_hash_for_model(model, "test")
-    #         found_in_cache = download_cached_model_from_hub(neuron_hash)
-    #         if not found_in_cache:
-    #             logger.info(not_found_in_cache_msg)
+    def try_to_fetch_cached_model(self, neuron_hash: NeuronHash) -> bool:
+        files_before_fetching = list_files_in_neuron_cache(self.tmp_neuron_cache_path)
+        found_in_cache = download_cached_model_from_hub(neuron_hash, target_directory=self.tmp_neuron_cache_path)
+        if found_in_cache and self.use_neuron_cache:
+            files_after_fetching = list_files_in_neuron_cache(self.tmp_neuron_cache_path)
+            for path in [f for f in files_after_fetching if f not in files_before_fetching]:
+                print("FETCHED PATH", path)
+        return found_in_cache
 
-    #     model = model.train(original_state)
-
-    def upload_diff_in_temporary_cache(self, model: "PreTrainedModel", mode: str):
+    def synchronize_temporary_neuron_cache_state(self) -> List[Path]:
         current_files_in_neuron_cache = list(self.tmp_neuron_cache_path.iterdir())
         diff = [p for p in current_files_in_neuron_cache if p not in self.tmp_neuron_cache_state]
-        neuron_hash = self.neuron_hash_for_model(model, mode)
-        for path in diff:
-            print(f"Uploading {path}...")
-            push_to_cache_on_hub(
-                neuron_hash,
-                path.as_posix(),
-            )
-            if self.use_neuron_cache:
-                shutil.copy(path, self.neuron_cache_path / path.name)
         self.tmp_neuron_cache_state = current_files_in_neuron_cache
+        return diff
 
-    def num_update_steps_per_epoch(self, args: "TrainingArguments", state: "TrainerState", **kwargs) -> int:
-        train_dataloader = kwargs["train_dataloader"]
-        if has_length(train_dataloader):
-            num_update_steps_per_epoch = len(train_dataloader) // args.gradient_accumulation_steps
-        else:
-            num_update_steps_per_epoch = state.max_steps
-        return num_update_steps_per_epoch
-
-
-    def steps_in_epoch(self, args: "TrainingArguments", state: "TrainerState", **kwargs) -> int: 
-        if not hasattr(self, "_steps_in_epoch"):
-            train_dataloader = kwargs["train_dataloader"]
-            if has_length(train_dataloader):
-                if 0 < args.max_steps < self.num_update_steps_per_epoch(args, state, **kwargs):
-                    self._steps_in_epoch = args.max_steps
-                else:
-                    self._steps_in_epoch = len(train_dataloader)
-            else:
-                self._steps_in_epoch = args.max_steps * args.gradient_accumulation_steps
-        return self._steps_in_epoch
-
-    def inv_steps_in_epoch(self, args: "TrainingArguments", state: "TrainerState", **kwargs):
-        if not hasattr(self, "_inv_steps_in_epoch"):
-            self._inv_steps_in_epoch = Decimal.from_float(
-                1 / self.steps_in_epoch(args, state, **kwargs)
-            )
-        return self._inv_steps_in_epoch
-
-    def current_step_in_epoch(self, args: "TrainingArguments", state: "TrainerState", **kwargs) -> int:
-        step = state.global_step
-        steps_in_epoch = self.steps_in_epoch(args, state, **kwargs)
-        num_epochs_done = math.floor(state.epoch)
-        if num_epochs_done > 0:
-            step = step % steps_in_epoch
-        return step
+    def synchronize_temporary_neuron_cache(self):
+        for neuron_hash, files in self.neuron_hash_to_files.items():
+            for path in files:
+                print(f"Uploading {path}...")
+                push_to_cache_on_hub(neuron_hash, path)
+                if self.use_neuron_cache:
+                    if path.is_dir():
+                        shutil.copytree(path, self.neuron_cache_path / path.name)
+                    else:
+                        shutil.copy(path, self.neuron_cache_path / path.name)
 
     def on_step_end(self, args: "TrainingArguments", state: "TrainerState", control: "TrainerControl", **kwargs):
+        """
+        Event called at the end of a training step. If using gradient accumulation, one training step might take
+        several inputs.
+        """
         model = kwargs["model"]
         state = self.prepare_state(state)
-        neuron_hash = self.neuron_hash_for_model(args, model, state.last_train_inputs)
-        if neuron_hash not in self.neuron_hashes:
-            print("")
+        neuron_hash = self.neuron_hash_for_model(args, model, state.last_inputs, try_to_fetch_cached_model=True)
+        diff = self.synchronize_temporary_neuron_cache_state()
+        self.neuron_hash_to_files[neuron_hash].extend(diff)
+
+    def on_save(self, args: "TrainingArguments", state: TrainerState, control: "TrainerControl", **kwargs):
+        """
+        Event called after a checkpoint save.
+        """
+        self.synchronize_temporary_neuron_cache()
+
+    def on_step_middle(self, args: "TrainingArguments", state: TrainerState, control: "TrainerControl", **kwargs):
+        print("Triggered on before!")
+        model = kwargs["model"]
+        self.neuron_hash_for_model(args, model, state.last_inputs, try_to_fetch_cached_model=True)
+
 
 class AugmentTrainerForTrainiumMixin:
     def __init__(self, *args, **kwargs):
@@ -226,7 +212,6 @@ class AugmentTrainerForTrainiumMixin:
         logger.setLevel(logging.INFO)
 
         self.add_callback(NeuronCacheCallaback())
-
 
     def prepare_args_for_precompilation(self, args: "TrainingArguments"):
         if args.num_train_epochs != 1:
@@ -296,9 +281,24 @@ class AugmentTrainerForTrainiumMixin:
             )
         return super().get_test_dataloader(test_dataset)
 
+    def trigger_on_step_middle_for_neuron_cache_callback(self, model: "PreTrainedModel"):
+        for callback in self.callback_handler.callbacks:
+            if isinstance(callback, NeuronCacheCallaback):
+                # kwargs might not have everything expected (like metrics) but all we need is here.
+                kwargs = {
+                    "model": model,
+                    "tokenizer": self.tokenizer,
+                    "optimizer": self.optimizer,
+                    "lr_scheduler": self.lr_scheduler,
+                    "train_dataloader": self.callback_handler.train_dataloader,
+                    "eval_dataloader": self.callback_handler.eval_dataloader,
+                }
+                callback.on_step_middle(self.args, self.state, self.control, **kwargs)
+
     def compute_loss(self, model, inputs, return_outputs: bool = False):
-        self.state.last_train_inputs = inputs
-        return super().compute_loss(model, inputs, return_outputs=return_outputs) 
+        self.state.last_inputs = inputs
+        self.trigger_on_step_middle_for_neuron_cache_callback(model)
+        return super().compute_loss(model, inputs, return_outputs=return_outputs)
 
     def prediction_step(
         self,
@@ -307,7 +307,8 @@ class AugmentTrainerForTrainiumMixin:
         prediction_loss_only: bool,
         ignore_keys: Optional[List[str]] = None,
     ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
-        self.state.last_eval_inputs = inputs
+        self.state.last_inputs = inputs
+        self.trigger_on_step_middle_for_neuron_cache_callback(model)
         return super().prediction_step(model, inputs, prediction_loss_only, ignore_keys=ignore_keys)
 
 
