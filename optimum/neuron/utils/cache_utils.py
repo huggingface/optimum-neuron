@@ -27,7 +27,7 @@ import torch_xla.core.xla_model as xm
 from huggingface_hub import HfApi, HfFolder, snapshot_download
 
 from ...utils import logging
-from .version_utils import get_neuron_compiler_version
+from .version_utils import get_neuronx_cc_version
 
 
 if TYPE_CHECKING:
@@ -144,7 +144,7 @@ class NeuronHash:
     input_shapes: Tuple[Tuple[int], ...]
     data_type: torch.dtype
     num_neuron_cores: int = field(default_factory=get_num_neuron_cores_used)
-    neuron_compiler_version: str = field(default_factory=get_neuron_compiler_version)
+    neuron_compiler_version: str = field(default_factory=get_neuronx_cc_version)
     _hash: _MutableHashAttribute = _MutableHashAttribute()
 
     def __post_init__(self):
@@ -184,6 +184,7 @@ class NeuronHash:
             self.model.config.model_type,
             model_hash,
             overall_hash,
+            f"USER_neuroncc-{self.neuron_compiler_version}",
         ]
 
     @property
@@ -253,9 +254,11 @@ def download_cached_model_from_hub(
         )
 
         if not keep_tree_structure:
-            for path in Path(folder).rglob(""):
+            local_folder = target_directory / folder
+            for path in local_folder.iterdir():
+                print(f"move from {path} to {target_directory / path.name}")
                 shutil.move(path, target_directory / path.name)
-            shutil.rmtree(folder)
+            shutil.rmtree(local_folder)
 
     return cached_model is not None
 

@@ -13,7 +13,21 @@
 # See the License for the specific language governing permissions and
 """Version utilities."""
 
+import re
+import subprocess
 
-# TODO: implement that for real.
-def get_neuron_compiler_version() -> str:
-    return "2.8.0"
+
+NEURONX_VERSION_PATTERN = re.compile(r"NeuronX Compiler version ([\w\.+]+)")
+
+
+def get_neuronx_cc_version() -> str:
+    proc = subprocess.Popen(["neuronx-cc", "--version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    stdout, stderr = proc.communicate()
+    stdout = stdout.decode("utf-8")
+    stderr = stderr.decode("utf-8")
+    match_ = re.search(NEURONX_VERSION_PATTERN, stdout)
+    if match_ is None:
+        match_ = re.search(NEURONX_VERSION_PATTERN, stderr)
+    if match_ is None:
+        raise RuntimeError("Could not infer the NeuronX Compiler version.")
+    return match_.group(1)
