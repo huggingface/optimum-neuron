@@ -128,6 +128,9 @@ def validate_model_outputs(
         else:
             logger.info(f"\t\t-[✓] all values close (atol: {atol})")
 
+    import pdb
+
+    pdb.set_trace()
     if shape_failures:
         msg = "\n".join(f"- {t[0]}: got {t[1]} (reference) and {t[2]} (neuron)" for t in shape_failures)
         raise ShapeError("Output shapes do not match between reference model and the Neuron exported model:\n" "{msg}")
