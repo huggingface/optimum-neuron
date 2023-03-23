@@ -16,7 +16,7 @@
 
 EXPORT_MODELS_TINY = {
     "albert": "hf-internal-testing/tiny-random-AlbertModel",
-    "bert": "hf-internal-testing/tiny-random-BertModel",
+    "bert": {"hf-internal-testing/tiny-random-BertModel": ["default"]},
     "camembert": "hf-internal-testing/tiny-random-camembert",
     # "convbert": "hf-internal-testing/tiny-random-ConvBertModel",  # Failed for INF2
     # "deberta": "hf-internal-testing/tiny-random-DebertaModel",  # Failed for INF1: 'XSoftmax'

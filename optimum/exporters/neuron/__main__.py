@@ -91,9 +91,6 @@ def main():
         **kwargs,
     )
 
-    print(f"neuron config outputs: {neuron_config.outputs}")
-    print(f"{neuron_outputs}")
-
     try:
         validate_model_outputs(
             config=neuron_config,

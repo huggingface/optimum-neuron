@@ -86,7 +86,9 @@ def validate_model_outputs(
     neuron_outputs = neuron_model(*neuron_inputs)
 
     # Check if we have a subset of the keys into neuron_outputs against ref_outputs
-    ref_output_names_set, neuron_output_names_set = set(ref_outputs.keys()), set(neuron_named_outputs)
+    ref_output_names_set, neuron_output_names_set = set(ref_outputs.keys()), sorted(
+        set(neuron_named_outputs), key=neuron_named_outputs.index
+    )
     if not neuron_output_names_set.issubset(ref_output_names_set):
         raise OutputMatchError(
             "Neuron model output names do not match reference model output names.\n"
@@ -128,8 +130,6 @@ def validate_model_outputs(
         else:
             logger.info(f"\t\t-[✓] all values close (atol: {atol})")
 
-    import pdb
-    pdb.set_trace()
     if shape_failures:
         msg = "\n".join(f"- {t[0]}: got {t[1]} (reference) and {t[2]} (neuron)" for t in shape_failures)
         raise ShapeError("Output shapes do not match between reference model and the Neuron exported model:\n" "{msg}")
