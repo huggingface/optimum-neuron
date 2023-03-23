@@ -56,11 +56,14 @@ class AlbertNeuronConfig(BertNeuronConfig):
 
 @register_in_tasks_manager("electra", *COMMON_TEXT_TASKS)
 class ElectraNeuronConfig(BertNeuronConfig):
-    pass
+    @property
+    def outputs(self) -> List[str]:
+        self._TASK_TO_COMMON_OUTPUTS["default"] = ["last_hidden_state"]
+        return self._TASK_TO_COMMON_OUTPUTS[self.task]
 
 
 @register_in_tasks_manager("flaubert", *COMMON_TEXT_TASKS)
-class FlaubertNeuronConfig(BertNeuronConfig):
+class FlaubertNeuronConfig(ElectraNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-1
 
 
@@ -70,17 +73,16 @@ class MobileBertNeuronConfig(BertNeuronConfig):
 
 
 @register_in_tasks_manager("roformer", *COMMON_TEXT_TASKS)
-class RoFormerNeuronConfig(BertNeuronConfig):
+class RoFormerNeuronConfig(ElectraNeuronConfig):
     pass
 
 
 @register_in_tasks_manager("xlm", *COMMON_TEXT_TASKS)
-class XLMNeuronConfig(BertNeuronConfig):
+class XLMNeuronConfig(ElectraNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-1
 
 
-# Failed for DistilBERT: https://github.com/aws-neuron/aws-neuron-sdk/issues/645
-@register_in_tasks_manager("distilbert", *COMMON_TEXT_TASKS.remove("multiple-choice"))
+@register_in_tasks_manager("distilbert", *COMMON_TEXT_TASKS)
 class DistilBertNeuronConfig(BertNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-4
 
@@ -88,24 +90,33 @@ class DistilBertNeuronConfig(BertNeuronConfig):
     def inputs(self) -> List[str]:
         return ["input_ids", "attention_mask"]
 
+    @property
+    def outputs(self) -> List[str]:
+        self._TASK_TO_COMMON_OUTPUTS["default"] = ["last_hidden_state"]
+        return self._TASK_TO_COMMON_OUTPUTS[self.task]
+
 
 @register_in_tasks_manager("camembert", *COMMON_TEXT_TASKS)
-class CamembertNeuronConfig(DistilBertNeuronConfig):
-    pass
+class CamembertNeuronConfig(BertNeuronConfig):
+    ATOL_FOR_VALIDATION = 1e-4
+
+    @property
+    def inputs(self) -> List[str]:
+        return ["input_ids", "attention_mask"]
 
 
 @register_in_tasks_manager("mpnet", *COMMON_TEXT_TASKS)
-class MPNetNeuronConfig(DistilBertNeuronConfig):
+class MPNetNeuronConfig(CamembertNeuronConfig):
     pass
 
 
 @register_in_tasks_manager("roberta", *COMMON_TEXT_TASKS)
-class RobertaNeuronConfig(DistilBertNeuronConfig):
+class RobertaNeuronConfig(CamembertNeuronConfig):
     pass
 
 
 @register_in_tasks_manager("xlm-roberta", *COMMON_TEXT_TASKS)
-class XLMRobertaNeuronConfig(DistilBertNeuronConfig):
+class XLMRobertaNeuronConfig(CamembertNeuronConfig):
     pass
 
 

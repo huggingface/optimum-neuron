@@ -16,12 +16,20 @@
 
 EXPORT_MODELS_TINY = {
     "albert": "hf-internal-testing/tiny-random-AlbertModel",
-    "bert": {"hf-internal-testing/tiny-random-BertModel": ["default"]},
+    "bert": "hf-internal-testing/tiny-random-BertModel",
     "camembert": "hf-internal-testing/tiny-random-camembert",
     # "convbert": "hf-internal-testing/tiny-random-ConvBertModel",  # Failed for INF2
     # "deberta": "hf-internal-testing/tiny-random-DebertaModel",  # Failed for INF1: 'XSoftmax'
     # "deberta-v2": "hf-internal-testing/tiny-random-DebertaV2Model",  # Failed for INF1: 'XSoftmax'
-    "distilbert": "hf-internal-testing/tiny-random-DistilBertModel",
+    "distilbert": {
+        "hf-internal-testing/tiny-random-DistilBertModel": [
+            "default",
+            "masked-lm",
+            "sequence-classification",
+            "token-classification",
+            "question-answering",
+        ]
+    },  # Failed for DistilBERT: https://github.com/aws-neuron/aws-neuron-sdk/issues/645
     "electra": "hf-internal-testing/tiny-random-ElectraModel",
     "flaubert": "hf-internal-testing/tiny-random-flaubert",
     "mobilebert": "hf-internal-testing/tiny-random-MobileBertModel",
@@ -29,5 +37,13 @@ EXPORT_MODELS_TINY = {
     "roberta": "hf-internal-testing/tiny-random-RobertaModel",
     "roformer": "hf-internal-testing/tiny-random-RoFormerModel",
     "xlm": "hf-internal-testing/tiny-random-XLMModel",
-    "xlm-roberta": "hf-internal-testing/tiny-xlm-roberta",
+    "xlm-roberta": {
+        "hf-internal-testing/tiny-xlm-roberta": [
+            "default",
+            "masked-lm",
+            "sequence-classification",
+            "token-classification",
+            "question-answering",
+        ]
+    },
 }
