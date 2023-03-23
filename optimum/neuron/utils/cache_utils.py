@@ -20,7 +20,7 @@ import shutil
 import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, TypeVar, Union, Callable
 
 import torch
 import torch_xla.core.xla_model as xm
@@ -88,7 +88,7 @@ def get_num_neuron_cores_used():
 
 
 def list_files_in_neuron_cache(neuron_cache_path: Path) -> List[Path]:
-    return [path for path in neuron_cache_path.rglob("") if path.is_file()]
+    return [path for path in neuron_cache_path.glob("**/*") if path.is_file()]
 
 
 def compute_file_sha256_hash(filename: Union[str, Path]) -> str:
@@ -140,7 +140,6 @@ class _MutableHashAttribute:
 @dataclass(frozen=True)
 class NeuronHash:
     model: "PreTrainedModel"
-    # TODO: make this type annotation clearer.
     input_shapes: Tuple[Tuple[int], ...]
     data_type: torch.dtype
     num_neuron_cores: int = field(default_factory=get_num_neuron_cores_used)
@@ -184,7 +183,6 @@ class NeuronHash:
             self.model.config.model_type,
             model_hash,
             overall_hash,
-            f"USER_neuroncc-{self.neuron_compiler_version}",
         ]
 
     @property
@@ -214,9 +212,9 @@ def get_cached_model_on_the_hub(neuron_hash: NeuronHash) -> Optional[CachedModel
             repo_id, revision = repo_id
         else:
             revision = "main"
-        repo_filenames = map(Path, HfApi().list_repo_files(repo_id, revision=revision, token=HF_TOKEN))
+        repo_filenames = HfApi().list_repo_files(repo_id, revision=revision, token=HF_TOKEN)
         for repo_filename in repo_filenames:
-            if repo_filename.parent == target_directory:
+            if repo_filename.startswith(target_directory.as_posix()):
                 cache_repo_id = repo_id
                 cache_revision = revision
                 break
@@ -232,7 +230,7 @@ def get_cached_model_on_the_hub(neuron_hash: NeuronHash) -> Optional[CachedModel
 def download_cached_model_from_hub(
     neuron_hash: NeuronHash,
     target_directory: Optional[Union[str, Path]] = None,
-    keep_tree_structure: bool = False,
+    path_in_repo_to_local_path: Optional[Callable[[Path], Path]] = None,
 ) -> bool:
     if target_directory is None:
         target_directory = get_neuron_cache_path()
@@ -252,13 +250,19 @@ def download_cached_model_from_hub(
             local_dir_use_symlinks=False,
             allow_patterns=f"{folder}/**",
         )
-
-        if not keep_tree_structure:
+        if path_in_repo_to_local_path is not None:
             local_folder = target_directory / folder
-            for path in local_folder.iterdir():
-                print(f"move from {path} to {target_directory / path.name}")
-                shutil.move(path, target_directory / path.name)
-            shutil.rmtree(local_folder)
+            for path in local_folder.rglob(""):
+                target_path = path_in_repo_to_local_path(path)
+                shutil.move(path, target_path)
+            # TODO: remove old path?
+
+        # if not keep_tree_structure:
+        #     local_folder = target_directory / folder
+        #     for path in local_folder.iterdir():
+        #         print(f"move from {path} to {target_directory / path.name}")
+        #         shutil.move(path, target_directory / path.name)
+        #     shutil.rmtree(local_folder)
 
     return cached_model is not None
 
@@ -268,32 +272,43 @@ def push_to_cache_on_hub(
     local_cache_dir_or_file: Path,
     cache_repo_id: Optional[str] = None,
     overwrite_existing: bool = False,
+    local_path_to_path_in_repo: Optional[Callable[[Path], Path]] = None,
 ) -> CachedModelOnTheHub:
-    target_directory = neuron_hash.cache_path
     if cache_repo_id is None:
         cache_repo_id = HF_HUB_CACHE_REPOS[0]
 
+    if local_path_to_path_in_repo is not None:
+        path_in_repo = local_path_to_path_in_repo(local_cache_dir_or_file)
+    else:
+        path_in_repo = local_cache_dir_or_file
+
+    path_in_repo = neuron_hash.cache_path / path_in_repo
+
     if not overwrite_existing:
         repo_filenames = map(Path, HfApi().list_repo_files(cache_repo_id, token=HF_TOKEN))
-        exists = any(filename.parent == target_directory for filename in repo_filenames)
+        if local_cache_dir_or_file.is_dir():
+            exists = any(filename.parent == path_in_repo for filename in repo_filenames)
+        else:
+            exists = any(filename == path_in_repo for filename in repo_filenames)
         if exists:
             logger.info(
                 f"Did not push the cached model located at {local_cache_dir_or_file} to the repo named {cache_repo_id} "
                 "because it already exists there. Use overwrite_existing=True if you want to overwrite the cache on the "
                 "Hub."
             )
+
     if local_cache_dir_or_file.is_dir():
         HF_API.upload_folder(
             folder_path=local_cache_dir_or_file.as_posix(),
-            path_in_repo=target_directory.as_posix(),
+            path_in_repo=path_in_repo.as_posix(),
             repo_id=cache_repo_id,
             repo_type="model",
         )
     else:
         HF_API.upload_file(
             path_or_fileobj=local_cache_dir_or_file.as_posix(),
-            path_in_repo=(target_directory / local_cache_dir_or_file.name).as_posix(),
+            path_in_repo=path_in_repo.as_posix(),
             repo_id=cache_repo_id,
             repo_type="model",
         )
-    return CachedModelOnTheHub(cache_repo_id, target_directory)
+    return CachedModelOnTheHub(cache_repo_id, path_in_repo)

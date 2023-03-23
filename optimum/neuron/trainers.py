@@ -86,7 +86,8 @@ class NeuronCacheCallaback(TrainerCallback):
 
         # Temporary Neuron compile cache.
         self.tmp_neuron_cache, self.tmp_neuron_cache_path = self.create_temporary_neuron_cache(self.neuron_cache_path)
-        self.tmp_neuron_cache_state = list(self.tmp_neuron_cache_path.iterdir())
+        # self.tmp_neuron_cache_state = list(self.tmp_neuron_cache_path.iterdir())
+        self.tmp_neuron_cache_state = list_files_in_neuron_cache(self.tmp_neuron_cache_path)
         self.fetch_files = set()
 
         self.neuron_hashes: Dict[Tuple["PreTrainedModel", Tuple[Tuple[int], ...], torch.dtype], NeuronHash] = {}
@@ -140,31 +141,60 @@ class NeuronCacheCallaback(TrainerCallback):
                 self.try_to_fetch_cached_model(neuron_hash)
         return neuron_hash
 
+    def path_after_folder(self, path: Path, folder_name: str) -> Path:
+        try:
+            index = path.parts.index(folder_name)
+        except ValueError:
+            index = len(path.parts)
+        return Path("").joinpath(*path.parts[index + 1:])
+
+    def full_path_to_path_in_cache(self, path: Path):
+        return self.path_after_folder(path, NEURON_COMPILE_CACHE_NAME)
+
     def try_to_fetch_cached_model(self, neuron_hash: NeuronHash) -> bool:
         files_before_fetching = list_files_in_neuron_cache(self.tmp_neuron_cache_path)
-        found_in_cache = download_cached_model_from_hub(neuron_hash, target_directory=self.tmp_neuron_cache_path)
+
+        cache_path = neuron_hash.cache_path
+        def path_in_repo_to_local_path(path):
+            # The last part of cache_path is the overall hash.
+            return self.path_after_folder(path, cache_path.name) / f"USER_neuroncc-{neuron_hash.neuron_compiler_version}"
+
+        found_in_cache = download_cached_model_from_hub(neuron_hash, target_directory=self.tmp_neuron_cache_path, path_in_repo_to_local_path=path_in_repo_to_local_path)
         if found_in_cache and self.use_neuron_cache:
             files_after_fetching = list_files_in_neuron_cache(self.tmp_neuron_cache_path)
             for path in [f for f in files_after_fetching if f not in files_before_fetching]:
-                print("FETCHED PATH", path)
+                path_in_cache = self.full_path_to_path_in_cache(path)
+                path_in_original_cache = self.neuron_cache_path / path_in_cache
+                path_in_original_cache.parent.mkdir(exist_ok=True)
+                if path_in_original_cache.exists():
+                    continue
+                shutil.copy(path, path_in_original_cache)
+
         return found_in_cache
 
     def synchronize_temporary_neuron_cache_state(self) -> List[Path]:
-        current_files_in_neuron_cache = list(self.tmp_neuron_cache_path.iterdir())
+        current_files_in_neuron_cache = list_files_in_neuron_cache(self.tmp_neuron_cache_path) 
         diff = [p for p in current_files_in_neuron_cache if p not in self.tmp_neuron_cache_state]
+        import pdb; pdb.set_trace()
         self.tmp_neuron_cache_state = current_files_in_neuron_cache
         return diff
 
     def synchronize_temporary_neuron_cache(self):
         for neuron_hash, files in self.neuron_hash_to_files.items():
+
+            def local_path_to_path_in_repo(path):
+                return self.path_after_folder(path, f"USER_neuroncc-{neuron_hash.neuron_compiler_version}")
+
             for path in files:
                 print(f"Uploading {path}...")
-                push_to_cache_on_hub(neuron_hash, path)
+                push_to_cache_on_hub(neuron_hash, path, local_path_to_path_in_repo=local_path_to_path_in_repo)
                 if self.use_neuron_cache:
-                    if path.is_dir():
-                        shutil.copytree(path, self.neuron_cache_path / path.name)
-                    else:
-                        shutil.copy(path, self.neuron_cache_path / path.name)
+                    path_in_cache = self.full_path_to_path_in_cache(path)
+                    shutil.copy(path, self.neuron_cache_path / path_in_cache)
+                    # if path.is_dir():
+                    #     shutil.copytree(path, self.neuron_cache_path / path.name)
+                    # else:
+                    #     shutil.copy(path, self.neuron_cache_path / path.name)
 
     def on_step_end(self, args: "TrainingArguments", state: "TrainerState", control: "TrainerControl", **kwargs):
         """
@@ -184,7 +214,6 @@ class NeuronCacheCallaback(TrainerCallback):
         self.synchronize_temporary_neuron_cache()
 
     def on_step_middle(self, args: "TrainingArguments", state: TrainerState, control: "TrainerControl", **kwargs):
-        print("Triggered on before!")
         model = kwargs["model"]
         self.neuron_hash_for_model(args, model, state.last_inputs, try_to_fetch_cached_model=True)
 
