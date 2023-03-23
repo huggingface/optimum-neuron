@@ -89,7 +89,7 @@ def validate_model_outputs(
     ref_output_names_set, neuron_output_names_set = set(ref_outputs.keys()), sorted(
         set(neuron_named_outputs), key=neuron_named_outputs.index
     )
-    if not neuron_output_names_set.issubset(ref_output_names_set):
+    if not set(neuron_output_names_set).issubset(ref_output_names_set):
         raise OutputMatchError(
             "Neuron model output names do not match reference model output names.\n"
             f"Reference model output names: {ref_output_names_set}\n"
@@ -179,7 +179,7 @@ def export_neuronx(
         output (`Path`):
             Directory to store the exported Neuron model.
         auto_cast (`optional[str]`, defaults to `"none"`):
-            Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `"none"`, `"matmult"` or `"all"`, you should use `"none"` to disable any auto-casting, use `"matmul"` to cast FP32 matrix multiplication operations, and use `"all"` to cast all FP32 operations.
+            Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `"none"`, `"matmul"` or `"all"`, you should use `"none"` to disable any auto-casting, use `"matmul"` to cast FP32 matrix multiplication operations, and use `"all"` to cast all FP32 operations.
         auto_cast_type (`optional[str]`, defaults to `None`):
             The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"` or `"tf32"`.
 
@@ -206,6 +206,8 @@ def export_neuronx(
 
     dummy_inputs = config.generate_dummy_inputs(**input_shapes)
     logger.info(f"Using Neuron: --auto-cast {auto_cast}")
+
+    auto_cast = auto_cast + "t" if auto_cast == "matmul" else auto_cast
     compiler_args = ["--auto-cast", auto_cast]
 
     if auto_cast_type is not None:
@@ -243,7 +245,7 @@ def export_neuron(
         output (`Path`):
             Directory to store the exported Neuron model.
         auto_cast (`optional[str]`, defaults to `"none"`):
-            Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `"none"`, `"matmult"` or `"all"`, you should use `"none"` to disable any auto-casting, use `"matmul"` to cast FP32 matrix multiplication operations, and use `"all"` to cast all FP32 operations.
+            Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `"none"`, `"matmul"` or `"all"`, you should use `"none"` to disable any auto-casting, use `"matmul"` to cast FP32 matrix multiplication operations, and use `"all"` to cast all FP32 operations.
         auto_cast_type (`optional[str]`, defaults to `None`):
             The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"` or `"tf32"`.
         disable_fast_relayout (`optional[bool]`, defaults to `False`):

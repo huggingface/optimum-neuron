@@ -97,6 +97,9 @@ def convert_neuronx_compiler_args_to_neuron(
     Builds `compiler_args` for neuron compiler.
     """
     compiler_args = []
+
+    auto_cast = auto_cast + "t" if auto_cast == "matmul" else auto_cast
+
     if auto_cast is None:
         return compiler_args
     elif auto_cast in ["none", "all"]:
