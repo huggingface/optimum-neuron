@@ -74,6 +74,10 @@ def main():
     shapes = {name: getattr(args, name) for name in neuron_config_constructor.func.get_mandatory_axes_for_task(task)}
     neuron_config = neuron_config_constructor(model.config, **shapes)
 
+    import pdb
+
+    pdb.set_trace()
+
     if args.atol is None:
         args.atol = neuron_config.ATOL_FOR_VALIDATION
 
@@ -90,9 +94,6 @@ def main():
         output=args.output,
         **kwargs,
     )
-    import pdb
-
-    pdb.set_trace()
 
     try:
         validate_model_outputs(
