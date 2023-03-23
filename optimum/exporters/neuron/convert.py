@@ -146,12 +146,15 @@ def export(
     model: "PreTrainedModel",
     config: "NeuronConfig",
     output: Path,
+    auto_cast: Optional[str] = "none",
+    auto_cast_type: Optional[str] = None,
     **kwargs,
 ) -> Tuple[List[str], List[str]]:
     if is_neuron_available():
-        return export_neuron(model, config, output, **kwargs)
+        disable_fast_relayout = kwargs.pop("disable_fast_relayout", False)
+        return export_neuron(model, config, output, auto_cast, auto_cast_type, disable_fast_relayout)
     elif is_neuronx_available():
-        return export_neuronx(model, config, output, **kwargs)
+        return export_neuronx(model, config, output, auto_cast, auto_cast_type)
     else:
         raise RuntimeError(
             "Cannot export the model because the neuron(x) compiler is not installed. See https://awsdocs-neuron.readthedocs-hosted.com/en/latest/frameworks/torch/torch-setup.html."
