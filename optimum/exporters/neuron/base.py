@@ -71,7 +71,7 @@ class NeuronConfig(ExportConfig, ABC):
     MANDATORY_AXES = ()
 
     _TASK_TO_COMMON_OUTPUTS = {
-        "default": ["last_hidden_state", "pooler_output"],
+        "default": ["pooler_output", "last_hidden_state"],
         "image-classification": ["logits"],
         "image-segmentation": ["logits", "pred_boxes", "pred_masks"],
         "masked-im": ["logits"],
