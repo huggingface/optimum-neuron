@@ -20,7 +20,7 @@ import shutil
 import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, TypeVar, Union, Callable
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, TypeVar, Union
 
 import torch
 import torch_xla.core.xla_model as xm

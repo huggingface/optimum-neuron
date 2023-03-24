@@ -133,7 +133,6 @@ class NeuronCacheCallaback(TrainerCallback):
             with open(tmp_neuron_cache_path / "cache_stats.json", "w") as fp:
                 json.dump(cache_stats, fp)
 
-
         return tmp_neuron_cache, tmp_neuron_cache_path
 
     def neuron_hash_for_model(
@@ -167,7 +166,7 @@ class NeuronCacheCallaback(TrainerCallback):
             index = path.parts.index(folder_name)
         except ValueError:
             index = len(path.parts)
-        return Path("").joinpath(*path.parts[index + 1:])
+        return Path("").joinpath(*path.parts[index + 1 :])
 
     def full_path_to_path_in_cache(self, path: Path):
         return self.path_after_folder(path, NEURON_COMPILE_CACHE_NAME)
@@ -176,11 +175,16 @@ class NeuronCacheCallaback(TrainerCallback):
         files_before_fetching = list_files_in_neuron_cache(self.tmp_neuron_cache_path, only_relevant_files=True)
 
         cache_path = neuron_hash.cache_path
+
         def path_in_repo_to_path_in_target_directory(path):
             # The last part of cache_path is the overall hash.
-            return Path(neuron_hash.neuron_compiler_version_dir_name) / self.path_after_folder(path, cache_path.name) 
+            return Path(neuron_hash.neuron_compiler_version_dir_name) / self.path_after_folder(path, cache_path.name)
 
-        found_in_cache = download_cached_model_from_hub(neuron_hash, target_directory=self.tmp_neuron_cache_path, path_in_repo_to_path_in_target_directory=path_in_repo_to_path_in_target_directory)
+        found_in_cache = download_cached_model_from_hub(
+            neuron_hash,
+            target_directory=self.tmp_neuron_cache_path,
+            path_in_repo_to_path_in_target_directory=path_in_repo_to_path_in_target_directory,
+        )
         if found_in_cache and self.use_neuron_cache:
             files_after_fetching = list_files_in_neuron_cache(self.tmp_neuron_cache_path, only_relevant_files=True)
             diff = [f for f in files_after_fetching if f not in files_before_fetching]
@@ -197,7 +201,9 @@ class NeuronCacheCallaback(TrainerCallback):
         return found_in_cache
 
     def synchronize_temporary_neuron_cache_state(self) -> List[Path]:
-        current_files_in_neuron_cache = list_files_in_neuron_cache(self.tmp_neuron_cache_path, only_relevant_files=True) 
+        current_files_in_neuron_cache = list_files_in_neuron_cache(
+            self.tmp_neuron_cache_path, only_relevant_files=True
+        )
         diff = [p for p in current_files_in_neuron_cache if p not in self.tmp_neuron_cache_state]
         self.tmp_neuron_cache_state = current_files_in_neuron_cache
         return diff
@@ -343,7 +349,6 @@ class AugmentTrainerForTrainiumMixin:
                     "eval_dataloader": self.callback_handler.eval_dataloader,
                 }
                 callback.on_step_middle(self.args, self.state, self.control, **kwargs)
-
 
     def compute_loss(self, model, inputs, return_outputs: bool = False):
         self.state.last_inputs = inputs

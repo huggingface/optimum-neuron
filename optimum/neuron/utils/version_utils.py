@@ -13,8 +13,6 @@
 # See the License for the specific language governing permissions and
 """Version utilities."""
 
-import re
-import subprocess
 
 
 def get_neuronxcc_version() -> str:
