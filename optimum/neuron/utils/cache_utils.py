@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Ty
 import torch
 import torch_xla.core.xla_model as xm
 from huggingface_hub import HfApi, HfFolder, snapshot_download
+from huggingface_hub.utils import RepositoryNotFoundError
 
 from ...utils import logging
 from .version_utils import get_neuronxcc_version
@@ -43,6 +44,24 @@ HF_TOKEN = HF_FOLDER.get_token()
 
 HASH_FILE_NAME = "pytorch_model.bin"
 HF_HUB_CACHE_REPOS = ["michaelbenayoun/cache_test"]
+
+
+def is_private_repo(repo_id: str) -> bool:
+    HF_API.list_repo_files(repo_id=repo_id, token=HF_TOKEN)
+    private = False
+    try:
+        HF_API.list_repo_files(repo_id=repo_id, token=False)
+    except RepositoryNotFoundError:
+        private = True
+    return private
+
+
+CUSTOM_CACHE_REPO = os.environ.get("CUSTOM_CACHE_REPO", None)
+CUSTOM_CACHE_REPO_IS_PRIVATE = CUSTOM_CACHE_REPO is not None
+if CUSTOM_CACHE_REPO:
+    HF_HUB_CACHE_REPOS = [CUSTOM_CACHE_REPO] + HF_HUB_CACHE_REPOS
+    CUSTOM_CACHE_REPO_IS_PRIVATE = is_private_repo(CUSTOM_CACHE_REPO)
+
 
 NEURON_COMPILE_CACHE_NAME = "neuron-compile-cache"
 
@@ -196,6 +215,13 @@ class NeuronHash:
     def neuron_compiler_version_dir_name(self):
         return f"USER_neuroncc-{self.neuron_compiler_version}"
 
+    @property
+    def is_private(self):
+        model_name_or_path = self.model.config._model_name_or_path
+        if Path(model_name_or_path).exists():
+            return False
+        return is_private_repo(model_name_or_path)
+
 
 @dataclass
 class CachedModelOnTheHub:
@@ -237,20 +263,6 @@ def get_cached_model_on_the_hub(neuron_hash: NeuronHash) -> Optional[CachedModel
         )
 
     return cached_model
-
-
-# def list_cached_model_from_hub(cached_model: Optional[CachedModelOnTheHub] = None, neuron_hash: Optional[NeuronHash] = None) -> List[Path]:
-#     if cached_model is None and neuron_hash is None:
-#         raise ValueError(f"You need to provide either a cached model or a neuron hash.")
-#     elif cached_model is not None and neuron_hash is not None:
-#         raise ValueError(f"You need to provided either a cached model or a neuron hash, but both were provided.")
-#     elif cached_model is None:
-#         cached_model = get_cached_model_on_the_hub(neuron_hash)
-#
-#     repo_files = HfApi().list
-#
-#
-#     return [Path()]
 
 
 def download_cached_model_from_hub(
@@ -318,6 +330,13 @@ def push_to_cache_on_hub(
 ) -> CachedModelOnTheHub:
     if cache_repo_id is None:
         cache_repo_id = HF_HUB_CACHE_REPOS[0]
+
+    is_cache_repo_private = is_private_repo(cache_repo_id)
+    if neuron_hash.is_private and not is_cache_repo_private:
+        raise ValueError(
+            f"Cannot push the cached model to {cache_repo_id} because this repo is not private but the original model is "
+            "coming from private repo."
+        )
 
     if local_path_to_path_in_repo is not None:
         path_in_repo = local_path_to_path_in_repo(local_cache_dir_or_file)
