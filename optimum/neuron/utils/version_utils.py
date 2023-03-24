@@ -17,17 +17,9 @@ import re
 import subprocess
 
 
-NEURONX_VERSION_PATTERN = re.compile(r"NeuronX Compiler version ([\w\.+]+)")
-
-
-def get_neuronx_cc_version() -> str:
-    proc = subprocess.Popen(["neuronx-cc", "--version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    stdout, stderr = proc.communicate()
-    stdout = stdout.decode("utf-8")
-    stderr = stderr.decode("utf-8")
-    match_ = re.search(NEURONX_VERSION_PATTERN, stdout)
-    if match_ is None:
-        match_ = re.search(NEURONX_VERSION_PATTERN, stderr)
-    if match_ is None:
-        raise RuntimeError("Could not infer the NeuronX Compiler version.")
-    return match_.group(1)
+def get_neuronxcc_version() -> str:
+    try:
+        import neuronxcc
+    except ImportError:
+        raise ValueError("NeuronX Compiler python package is not installed.")
+    return neuronxcc.__version__

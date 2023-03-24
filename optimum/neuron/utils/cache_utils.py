@@ -27,7 +27,7 @@ import torch_xla.core.xla_model as xm
 from huggingface_hub import HfApi, HfFolder, snapshot_download
 
 from ...utils import logging
-from .version_utils import get_neuronx_cc_version
+from .version_utils import get_neuronxcc_version
 
 
 if TYPE_CHECKING:
@@ -87,8 +87,11 @@ def get_num_neuron_cores_used():
     return int(os.environ.get("LOCAL_WORLD_SIZE", "1"))
 
 
-def list_files_in_neuron_cache(neuron_cache_path: Path) -> List[Path]:
-    return [path for path in neuron_cache_path.glob("**/*") if path.is_file()]
+def list_files_in_neuron_cache(neuron_cache_path: Path, only_relevant_files: bool = False) -> List[Path]:
+    files = [path for path in neuron_cache_path.glob("**/*") if path.is_file()]
+    if only_relevant_files:
+        files = [p for p in files if p.suffix in [".neff", ".pb", ".txt"]]
+    return files
 
 
 def compute_file_sha256_hash(filename: Union[str, Path]) -> str:
@@ -143,7 +146,7 @@ class NeuronHash:
     input_shapes: Tuple[Tuple[int], ...]
     data_type: torch.dtype
     num_neuron_cores: int = field(default_factory=get_num_neuron_cores_used)
-    neuron_compiler_version: str = field(default_factory=get_neuronx_cc_version)
+    neuron_compiler_version: str = field(default_factory=get_neuronxcc_version)
     _hash: _MutableHashAttribute = _MutableHashAttribute()
 
     def __post_init__(self):
@@ -189,6 +192,10 @@ class NeuronHash:
     def cache_path(self) -> Path:
         return Path("/".join(self.folders))
 
+    @property
+    def neuron_compiler_version_dir_name(self):
+        return f"USER_neuroncc-{self.neuron_compiler_version}"
+
 
 @dataclass
 class CachedModelOnTheHub:
@@ -230,7 +237,7 @@ def get_cached_model_on_the_hub(neuron_hash: NeuronHash) -> Optional[CachedModel
 def download_cached_model_from_hub(
     neuron_hash: NeuronHash,
     target_directory: Optional[Union[str, Path]] = None,
-    path_in_repo_to_local_path: Optional[Callable[[Path], Path]] = None,
+    path_in_repo_to_path_in_target_directory: Optional[Callable[[Path], Path]] = None,
 ) -> bool:
     if target_directory is None:
         target_directory = get_neuron_cache_path()
@@ -250,10 +257,13 @@ def download_cached_model_from_hub(
             local_dir_use_symlinks=False,
             allow_patterns=f"{folder}/**",
         )
-        if path_in_repo_to_local_path is not None:
+        if path_in_repo_to_path_in_target_directory is not None:
             local_folder = target_directory / folder
-            for path in local_folder.rglob(""):
-                target_path = path_in_repo_to_local_path(path)
+            for path in local_folder.glob("**/*"):
+                if not path.is_file():
+                    continue
+                target_path = target_directory / path_in_repo_to_path_in_target_directory(path)
+                target_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(path, target_path)
             # TODO: remove old path?
 
