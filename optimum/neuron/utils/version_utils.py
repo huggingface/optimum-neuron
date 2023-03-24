@@ -14,7 +14,6 @@
 """Version utilities."""
 
 
-
 def get_neuronxcc_version() -> str:
     try:
         import neuronxcc

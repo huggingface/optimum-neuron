@@ -202,6 +202,7 @@ class CachedModelOnTheHub:
     repo_id: str
     folder: Union[str, Path]
     revision: str = "main"
+    files_on_the_hub: str = field(default_factory=list)
 
     def __post_init__(self):
         if isinstance(self.folder, Path):
@@ -220,18 +221,36 @@ def get_cached_model_on_the_hub(neuron_hash: NeuronHash) -> Optional[CachedModel
         else:
             revision = "main"
         repo_filenames = HfApi().list_repo_files(repo_id, revision=revision, token=HF_TOKEN)
+        model_files_on_the_hub = []
         for repo_filename in repo_filenames:
             if repo_filename.startswith(target_directory.as_posix()):
-                cache_repo_id = repo_id
-                cache_revision = revision
-                break
+                if cache_repo_id is None:
+                    cache_repo_id = repo_id
+                    cache_revision = revision
+                model_files_on_the_hub.append(repo_filename)
 
     if cache_repo_id is None:
         cached_model = None
     else:
-        cached_model = CachedModelOnTheHub(cache_repo_id, target_directory, revision=cache_revision)
+        cached_model = CachedModelOnTheHub(
+            cache_repo_id, target_directory, revision=cache_revision, files_on_the_hub=model_files_on_the_hub
+        )
 
     return cached_model
+
+
+# def list_cached_model_from_hub(cached_model: Optional[CachedModelOnTheHub] = None, neuron_hash: Optional[NeuronHash] = None) -> List[Path]:
+#     if cached_model is None and neuron_hash is None:
+#         raise ValueError(f"You need to provide either a cached model or a neuron hash.")
+#     elif cached_model is not None and neuron_hash is not None:
+#         raise ValueError(f"You need to provided either a cached model or a neuron hash, but both were provided.")
+#     elif cached_model is None:
+#         cached_model = get_cached_model_on_the_hub(neuron_hash)
+#
+#     repo_files = HfApi().list
+#
+#
+#     return [Path()]
 
 
 def download_cached_model_from_hub(
@@ -249,30 +268,43 @@ def download_cached_model_from_hub(
     cached_model = get_cached_model_on_the_hub(neuron_hash)
     if cached_model is not None:
         folder = cached_model.folder
-        snapshot_download(
-            repo_id=cached_model.repo_id,
-            revision=cached_model.revision,
-            repo_type="model",
-            local_dir=target_directory,
-            local_dir_use_symlinks=False,
-            allow_patterns=f"{folder}/**",
-        )
-        if path_in_repo_to_path_in_target_directory is not None:
-            local_folder = target_directory / folder
-            for path in local_folder.glob("**/*"):
-                if not path.is_file():
-                    continue
-                target_path = target_directory / path_in_repo_to_path_in_target_directory(path)
-                target_path.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(path, target_path)
-            # TODO: remove old path?
 
-        # if not keep_tree_structure:
-        #     local_folder = target_directory / folder
-        #     for path in local_folder.iterdir():
-        #         print(f"move from {path} to {target_directory / path.name}")
-        #         shutil.move(path, target_directory / path.name)
-        #     shutil.rmtree(local_folder)
+        ignore_patterns = []
+        for filename in cached_model.files_on_the_hub:
+            path_in_repo = Path(filename)
+            if path_in_repo_to_path_in_target_directory is not None:
+                potential_local_path = target_directory / path_in_repo_to_path_in_target_directory(path_in_repo)
+            else:
+                potential_local_path = target_directory / path_in_repo
+
+            if potential_local_path.exists():
+                ignore_patterns.append(filename)
+
+        needs_to_download = cached_model.files_on_the_hub and len(ignore_patterns) != len(
+            cached_model.files_on_the_hub
+        )
+
+        if needs_to_download:
+            snapshot_download(
+                repo_id=cached_model.repo_id,
+                revision=cached_model.revision,
+                repo_type="model",
+                local_dir=target_directory,
+                local_dir_use_symlinks=False,
+                allow_patterns=f"{folder}/**",
+                ignore_patterns=ignore_patterns,
+                tqdm_class=None,
+            )
+
+            if path_in_repo_to_path_in_target_directory is not None:
+                local_folder = target_directory / folder
+                for path in local_folder.glob("**/*"):
+                    if not path.is_file():
+                        continue
+                    target_path = target_directory / path_in_repo_to_path_in_target_directory(path)
+                    target_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(path, target_path)
+                    # TODO: remove old path?
 
     return cached_model is not None
 

@@ -17,6 +17,7 @@ import inspect
 import json
 import os
 import shutil
+import subprocess
 from collections import defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -84,6 +85,8 @@ class NeuronCacheCallaback(TrainerCallback):
         # Real Neuron compile cache if it exists.
         self.neuron_cache_path = get_neuron_cache_path()
         self.use_neuron_cache = self.neuron_cache_path is not None
+        if not self.neuron_cache_path.exists():
+            self.neuron_cache_path.mkdir(parents=True)
 
         # Temporary Neuron compile cache.
         self.tmp_neuron_cache, self.tmp_neuron_cache_path = self.create_temporary_neuron_cache(self.neuron_cache_path)
@@ -99,6 +102,40 @@ class NeuronCacheCallaback(TrainerCallback):
             return state
         return NeuronTrainerState.from_trainer_state(state)
 
+    def get_dir_size(self, path: Path) -> int:
+        if not path.is_dir():
+            raise ValueError(f"{path} is not a directory.")
+        proc = subprocess.Popen(["du", "-s", path.as_posix()], stdout=subprocess.PIPE)
+        stdout, _ = proc.communicate()
+        stdout = stdout.decode("utf-8")
+        return int(stdout.split()[0])
+
+    def _load_cache_stats(self, neuron_cache_path: Path) -> Dict[str, Dict[str, Any]]:
+        cache_stats_path = neuron_cache_path / "cache_stats.json"
+        if cache_stats_path.exists():
+            with open(neuron_cache_path / "cache_stats.json", "r") as fp:
+                cache_stats = json.load(fp)
+        else:
+            cache_stats = {}
+        return cache_stats
+
+    def _insert_in_cache_stats(self, cache_stats: Dict[str, Dict[str, Any]], path: Path):
+        path_in_cache = self.path_after_folder(path, NEURON_COMPILE_CACHE_NAME)
+        cache_key = path_in_cache.parts[0]
+        item = cache_stats.get(cache_key, {})
+        if path.parent.as_posix() in item:
+            return
+        item[path.parent.as_posix()] = {"used_time": 1, "size": self.get_dir_size(path.parent)}
+        cache_stats[cache_key] = item
+
+    def _update_cache_stats(self, neuron_cache_path: Path):
+        cache_stats = self._load_cache_stats(neuron_cache_path)
+        for path in list_files_in_neuron_cache(neuron_cache_path):
+            # path_in_cache = self.path_after_folder(path, NEURON_COMPILE_CACHE_NAME)
+            self._insert_in_cache_stats(cache_stats, path)
+        with open(neuron_cache_path / "cache_stats.json", "w") as fp:
+            json.dump(cache_stats, fp)
+
     def create_temporary_neuron_cache(self, neuron_cache_path: Optional[Path]) -> Tuple[TemporaryDirectory, Path]:
         tmp_neuron_cache = TemporaryDirectory()
         tmp_neuron_cache_path = Path(tmp_neuron_cache.name)
@@ -111,25 +148,23 @@ class NeuronCacheCallaback(TrainerCallback):
         tmp_neuron_cache_path = tmp_neuron_cache_path / NEURON_COMPILE_CACHE_NAME
         tmp_neuron_cache_path.mkdir()
 
-        cache_stats_exist = neuron_cache_path is not None and (neuron_cache_path / "cache_stats.json").exists()
-        cache_stats = {}
-        for neuron_compiler_version_dir in neuron_cache_path.iterdir():
-            if neuron_compiler_version_dir.is_dir():
-                cache_stats[neuron_compiler_version_dir.name] = {}
+        cache_stats_exists = False
+        if neuron_cache_path is not None:
+            cache_stats = self._load_cache_stats(neuron_cache_path)
+        else:
+            cache_stats = {}
 
         for cache_file in neuron_cache_files:
+            if cache_file.name == "cache_stats.json":
+                continue
             path_in_neuron_cache = self.path_after_folder(cache_file, NEURON_COMPILE_CACHE_NAME)
             tmp_cache_file = tmp_neuron_cache_path / path_in_neuron_cache
             tmp_cache_file.parent.mkdir(parents=True, exist_ok=True)
             tmp_cache_file.symlink_to(cache_file)
 
-            # Creating random cache_stats if missing to avoid failing.
-            cache_stats[path_in_neuron_cache.parts[0]][path_in_neuron_cache.parent.as_posix()] = {
-                "used_time": 1,
-                "size": 1,
-            }
+            self._insert_in_cache_stats(cache_stats, cache_file)
 
-        if not cache_stats_exist:
+        if not cache_stats_exists:
             with open(tmp_neuron_cache_path / "cache_stats.json", "w") as fp:
                 json.dump(cache_stats, fp)
 
@@ -173,7 +208,6 @@ class NeuronCacheCallaback(TrainerCallback):
 
     def try_to_fetch_cached_model(self, neuron_hash: NeuronHash) -> bool:
         files_before_fetching = list_files_in_neuron_cache(self.tmp_neuron_cache_path, only_relevant_files=True)
-
         cache_path = neuron_hash.cache_path
 
         def path_in_repo_to_path_in_target_directory(path):
@@ -222,6 +256,9 @@ class NeuronCacheCallaback(TrainerCallback):
                     target_file.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy(path, self.neuron_cache_path / path_in_cache)
 
+        if self.use_neuron_cache:
+            self._update_cache_stats(self.neuron_cache_path)
+
     def on_step_end(self, args: "TrainingArguments", state: "TrainerState", control: "TrainerControl", **kwargs):
         """
         Event called at the end of a training step. If using gradient accumulation, one training step might take
@@ -266,7 +303,7 @@ class AugmentTrainerForTrainiumMixin:
         logger.setLevel(transformers_loggers.level)
         logger.setLevel(logging.INFO)
 
-        self.add_callback(NeuronCacheCallaback())
+        # self.add_callback(NeuronCacheCallaback())
 
     def prepare_args_for_precompilation(self, args: "TrainingArguments"):
         if args.num_train_epochs != 1:
