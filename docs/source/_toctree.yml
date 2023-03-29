@@ -20,6 +20,8 @@
       title: Set up AWS Trainium instance            
     - local: guides/cache_system
       title: Optimum Neuron Trainium model cache            
+    - local: guides/export_model
+      title: Export a model to Inferentia 
     title: How-To Guides
   - sections:
     - local: package_reference/trainer
