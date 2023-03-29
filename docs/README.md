@@ -7,11 +7,11 @@ pip install hf-doc-builder==0.4.0 watchdog --upgrade
 
 2. Local Development
 ```bash
-doc-builder preview optimum docs/source/
+doc-builder preview optimum.neuron docs/source/
 ```
 3. Build Docs
 ```bash
-doc-builder build optimum docs/source/ --build_dir build/ 
+doc-builder build optimum.neuron docs/source/ --build_dir build/ 
 ```
 
 ## Add assets/Images
