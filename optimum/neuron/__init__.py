@@ -39,7 +39,6 @@ else:
 
 import os
 
-from .trainers import Seq2SeqTrainiumTrainer, TrainiumTrainer
 from .utils import is_neuron_available, is_neuronx_available, patch_transformers_for_neuron_sdk
 from .version import __version__
 
