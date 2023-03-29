@@ -34,9 +34,7 @@ jobs:
 
       - name: Setup environment
         run: |
-          cd optimum-neuron
           pip install ".[quality]"
-          cd ..
 
       - name: Make documentation
         shell: bash 
