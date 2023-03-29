@@ -16,6 +16,5 @@ jobs:
     with:
       commit_sha: ${{ github.sha }}
       package: optimum-neuron
-      package_name: optimum
     secrets:
       token: ${{ secrets.HUGGINGFACE_PUSH }}

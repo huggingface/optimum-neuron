@@ -19,6 +19,5 @@ jobs:
       commit_sha: ${{ github.event.pull_request.head.sha }}
       pr_number: ${{ github.event.number }}
       package: optimum-neuron
-      package_name: optimum
     secrets:
       token: ${{ secrets.HUGGINGFACE_PUSH }}
