@@ -30,7 +30,7 @@ QUALITY_REQUIRES = [
     "black",
     "ruff",
     "isort",
-    "hf-doc-builder==0.4.0",
+    "hf_doc_builder @ git+https://github.com/huggingface/doc-builder.git",
 ]
 
 EXTRAS_REQUIRE = {

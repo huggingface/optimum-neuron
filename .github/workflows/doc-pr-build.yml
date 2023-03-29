@@ -39,7 +39,9 @@ jobs:
       - name: Make documentation
         shell: bash 
         run: |
-          doc-builder build optimum.neuron docs/source/ --build_dir neuron-doc-build/ --version pr_$PR_NUMBER --html --clean
+          doc-builder build optimum.neuron docs/source/ --build_dir neuron-doc-build/ --version pr_1 --version_tag_suffix "" --html --clean
+          cd  neuron-doc-build/
+          mv optimum.neuron optimum-neuron
           doc-builder push optimum-neuron --doc_build_repo_id "hf-doc-build/doc-build-dev" --token "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" --commit_msg "Updated with commit $COMMIT_SHA See: https://github.com/huggingface/optimum-neuron/commit/$COMMIT_SHA" --n_retries 5
 
       - name: Find doc comment
