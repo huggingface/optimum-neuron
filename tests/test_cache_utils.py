@@ -17,9 +17,14 @@ import os
 import random
 import string
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest import TestCase
+from typing import List
 
-from optimum.neuron.utils.cache_utils import NEURON_COMPILE_CACHE_NAME, get_neuron_cache_path, get_num_neuron_cores_used, set_neuron_cache_path
+import torch
+from transformers import BertModel, BertConfig, set_seed
+
+from optimum.neuron.utils.cache_utils import NEURON_COMPILE_CACHE_NAME, NeuronHash, get_neuron_cache_path, get_num_neuron_cores_used, list_files_in_neuron_cache, set_neuron_cache_path
 
 def get_random_string(length) -> str:
     letters = string.ascii_lowercase
@@ -61,17 +66,125 @@ class NeuronUtilsTestCase(TestCase):
     def test_get_num_neuron_cores_used(self):
         self.assertEqual(get_num_neuron_cores_used(), 1)
 
-        randon_num_cores = random.randnint(1, 32)
-        os.environ["LOCAL_WORLD_SIZE"] = randon_num_cores
+        randon_num_cores = random.randint(1, 32)
+        os.environ["LOCAL_WORLD_SIZE"] = str(randon_num_cores)
         self.assertEqual(get_num_neuron_cores_used(), randon_num_cores)
 
-    def _create_random_neuron_cache(self, number_of_right_cache_files: int = 32):
+    def _create_random_neuron_cache(self, directory: Path, number_of_right_cache_files: int = 32, return_only_relevant_files: bool = False) -> List[Path]:
         wrong_extensions = [get_random_string(3) for _ in range(4)]
         right_extensions = ["neff", "pb", "txt"]
-        extensions = right_extensions + wrong_extensions
-        for _ in range(number_of_right_cache_files):
-            pass
-        
-    def test_list_files_in_neuron_cache():
-        pass
 
+        filenames = []
+
+        def create_random_nested_directories(number_of_dirs: int) -> Path:
+            p = directory
+            for _ in range(number_of_dirs):
+                p = p / get_random_string(5)
+            p.mkdir(parents=True, exist_ok=True)
+            return p
+
+
+        for _ in range(number_of_right_cache_files):
+            number_of_dirs = random.randint(0, 5)
+            path = create_random_nested_directories(number_of_dirs)
+
+            wrong_extension = random.choice(wrong_extensions)
+            right_extension = random.choice(right_extensions)
+
+            wrong_extension_file = path / f"{get_random_string(6)}.{wrong_extension}"
+            wrong_extension_file.touch(exist_ok=True)
+            if not return_only_relevant_files:
+                filenames.append(wrong_extension_file)
+            right_extension_file = path / f"{get_random_string(6)}.{right_extension}"
+            right_extension_file.touch(exist_ok=True)
+            filenames.append(right_extension_file)
+        
+        return filenames
+
+    def test_list_files_in_neuron_cache(self):
+        with TemporaryDirectory() as tmpdirname:
+            filenames = self._create_random_neuron_cache(Path(tmpdirname), return_only_relevant_files=False)
+            self.assertSetEqual(set(filenames), set(list_files_in_neuron_cache(Path(tmpdirname))))
+            
+        with TemporaryDirectory() as tmpdirname:
+            filenames = self._create_random_neuron_cache(Path(tmpdirname), return_only_relevant_files=True)
+            self.assertSetEqual(set(filenames), set(list_files_in_neuron_cache(Path(tmpdirname), only_relevant_files=True)))
+
+
+
+
+class NeuronHashTestCase(TestCase):
+
+    def _create_bert_model(self):
+        return BertModel(BertConfig())
+
+    def _test_neuron_hash(
+        self,
+        model_a,
+        input_shapes_a,
+        dtype_a,
+        num_neuron_cores_a,
+        model_b,
+        input_shapes_b,
+        dtype_b,
+        num_neuron_cores_b,
+        should_be_equal,
+    ):
+        neuron_hash_a = NeuronHash(model_a, input_shapes_a, dtype_a, num_neuron_cores=num_neuron_cores_a)
+        neuron_hash_b = NeuronHash(model_b, input_shapes_b, dtype_b, num_neuron_cores=num_neuron_cores_b)
+
+        if should_be_equal:
+            self.assertEqual(neuron_hash_a.compute_hash(), neuron_hash_b.compute_hash())
+        else:
+            self.assertNotEqual(neuron_hash_a.compute_hash(), neuron_hash_b.compute_hash())
+
+
+    def test_computed_hash_is_same_for_same_models(self):
+        set_seed(42)
+        bert_model = BertModel(BertConfig())
+        set_seed(42)
+        same_bert_model = BertModel(BertConfig())
+
+        return self._test_neuron_hash(
+            bert_model,
+            ((1, 2), (2, 3)),
+            torch.bfloat16,
+            19,
+            same_bert_model,
+            ((1, 2), (2, 3)),
+            torch.bfloat16,
+            19,
+            True
+        )
+
+
+    def test_computed_hash_is_different_for_different_models(self):
+        set_seed(42)
+        bert_model = BertModel(BertConfig())
+        set_seed(38)
+        same_bert_model = BertModel(BertConfig())
+
+        return self._test_neuron_hash(
+            bert_model,
+            ((1, 2), (2, 3)),
+            torch.bfloat16,
+            19,
+            same_bert_model,
+            ((1, 2), (2, 3)),
+            torch.bfloat16,
+            19,
+            False
+        )
+
+    def test_computed_hash_is_different_for_different_parameters_but_same_model(self):
+        bert_model = BertModel(BertConfig())
+        parameters = [
+            [((1, 2), (2, 3)), ((2, 3), (3, 4))],
+            [torch.float32, torch.float16],
+            [32, 2]
+        ]
+        params_a = [p[0] for p in parameters]
+        for i in range(len(parameters)):
+            params_b = [p[int(i == j)] for j, p in enumerate(parameters)]
+            self._test_neuron_hash(bert_model, *params_a, bert_model, *params_b, False)
+                
