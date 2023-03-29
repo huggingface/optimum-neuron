@@ -12,12 +12,14 @@
       title: Getting started with AWS Trainium and Hugging Face Transformers
     title: Tutorials
   - sections:
-    - local: usage_guides/overview
+    - local: guides/overview
       title: Overview
-    - local: usage_guides/setup_aws_instance
+    - local: guides/setup_aws_instance
       title: How to fine-tune a Transformers model with AWS Trainium
-    - local: usage_guides/fine_tune
+    - local: guides/fine_tune
       title: Set up AWS Trainium instance            
+    - local: guides/cache_system
+      title: Optimum Neuron Trainium model cache            
     title: How-To Guides
   - sections:
     - local: package_reference/trainer
