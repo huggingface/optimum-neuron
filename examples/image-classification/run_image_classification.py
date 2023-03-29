@@ -39,7 +39,6 @@ from transformers import (
     AutoConfig,
     AutoImageProcessor,
     AutoModelForImageClassification,
-    HfArgumentParser,
     TrainingArguments,
     set_seed,
 )
@@ -47,6 +46,7 @@ from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
 
+from optimum.neuron import TrainiumHfArgumentParser as HfArgumentParser
 from optimum.neuron import TrainiumTrainer as Trainer
 
 

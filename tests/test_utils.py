@@ -20,7 +20,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset, IterableDataset
 from transformers import BertConfig, BertForSequenceClassification, PreTrainedModel, Wav2Vec2Config, Wav2Vec2Model
 
-from optimum.neuron.utils import FirstAndLastDataset, is_model_officially_supported, patch_model
+from optimum.neuron.utils.training_utils import FirstAndLastDataset, is_model_officially_supported, patch_model
 
 
 def test_is_model_officially_supported():

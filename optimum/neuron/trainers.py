@@ -11,16 +11,17 @@
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
-"""Defines Trainer subclasses to perform training on AWS Trainium 1 instances."""
+"""Defines Trainer subclasses to perform training on AWS Trainium instances."""
 
-import logging
 import os
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Optional
 
 from torch.utils.data import DataLoader, Dataset
 from transformers import Seq2SeqTrainer, Trainer
 
-from .utils import (
+from ..utils import logging
+from .utils.argument_utils import validate_arg
+from .utils.training_utils import (
     FirstAndLastDataset,
     is_model_officially_supported,
     is_precompilation,
@@ -33,7 +34,7 @@ if TYPE_CHECKING:
     from transformers import TrainingArguments
 
 
-logger = logging.getLogger(__name__)
+logger = logging.get_logger(__name__)
 
 
 class AugmentTrainerForTrainiumMixin:
@@ -41,14 +42,20 @@ class AugmentTrainerForTrainiumMixin:
         if not isinstance(self, Trainer):
             raise TypeError(f"{self.__class__.__name__} can only be mixed with Trainer subclasses.")
 
-        prepare_environment_for_neuron()
+        training_args = kwargs.get("args", None)
+        if training_args is not None:
+            if training_args.bf16:
+                training_args.bf16 = False
+                os.environ["XLA_USE_BF16"] = "1"
 
+        self.validate_args(training_args)
         if is_precompilation():
-            self.prepare_args_for_precompilation(kwargs["args"])
+            self.prepare_args_for_precompilation(training_args)
 
+        prepare_environment_for_neuron()
         super().__init__(*args, **kwargs)
-
-        self.validate_args()
+        transformers_loggers = logging.get_logger("transformers.trainer")
+        logger.setLevel(transformers_loggers.level)
 
     def prepare_args_for_precompilation(self, args: "TrainingArguments"):
         if args.num_train_epochs != 1:
@@ -64,26 +71,13 @@ class AugmentTrainerForTrainiumMixin:
             logger.info("Disabling prediction during precompilation as this is not well supported yet.")
             args.do_predict = False
 
-    def validate_arg(self, arg_name: str, expected_value: Any, error_msg: str):
-        disable_strict_mode = os.environ.get("DISABLE_STRICT_MODE", "false")
-        arg = getattr(self.args, arg_name, expected_value)
-        if arg != expected_value:
-            if disable_strict_mode in ["1", "true"]:
-                logger.warning(error_msg)
-            else:
-                raise ValueError(error_msg)
-
-    def validate_args(self):
-        self.validate_arg(
-            "pad_to_max_length",
-            True,
-            "pad_to_max_length=False can lead to very poor performance by trigger a lot of recompilation",
-        )
+    def validate_args(self, args: "TrainingArguments"):
         if isinstance(self, Seq2SeqTrainer):
-            self.validate_arg(
+            validate_arg(
+                args,
                 "prediction_loss_only",
-                True,
                 "prediction_loss_only=False is not supported for now because it requires generation.",
+                expected_value=True,
             )
 
     def _wrap_model(self, model, training=True, dataloader=None):

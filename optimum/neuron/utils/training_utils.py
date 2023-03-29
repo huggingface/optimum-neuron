@@ -11,7 +11,7 @@
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
-"""Various utilities"""
+"""Training utilities"""
 
 import contextlib
 import functools
@@ -20,6 +20,7 @@ import os
 from typing import TYPE_CHECKING, Callable, List, Optional, Tuple, Union
 
 import torch
+import transformers
 from torch.utils._pytree import tree_map
 from torch.utils.data import DataLoader, Dataset, IterableDataset
 from transformers.models.auto.modeling_auto import (
@@ -42,6 +43,9 @@ from transformers.models.auto.modeling_auto import (
     MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING_NAMES,
     MODEL_MAPPING_NAMES,
 )
+from transformers.utils.logging import set_verbosity as set_verbosity_transformers
+
+from ...utils.logging import set_verbosity as set_verbosity_optimum
 
 
 if TYPE_CHECKING:
@@ -88,7 +92,21 @@ def _generate_supported_model_class_names(
     return model_class_names
 
 
-_SUPPORTED_MODEL_TYPES = ["bert", "camembert", "roberta", "xlm-roberta"]
+_SUPPORTED_MODEL_TYPES = [
+    ("albert", ("sequence-classification", "token-classification", "question-answering")),
+    "bart",
+    "bert",
+    "camembert",
+    "distilbert",
+    "electra",
+    "gpt-2",
+    "gpt-neo",
+    "marian",
+    "roberta",
+    "t5",
+    "vit",
+    ("xlm-roberta", ("sequence-classification", "token-classification", "question-answering")),
+]
 
 _SUPPORTED_MODEL_NAMES = set()
 for model_type in _SUPPORTED_MODEL_TYPES:
@@ -214,6 +232,7 @@ def patch_model(model: "PreTrainedModel") -> "PreTrainedModel":
     if hasattr(model.config, "layerdrop"):
         model.config.layerdrop = 0
     model.no_sync = lambda: contextlib.nullcontext()
+    model.forward = patch_forward(model.forward)
     return model
 
 
@@ -225,7 +244,13 @@ def prepare_environment_for_neuron():
     os.environ["NEURON_CC_FLAGS"] = os.environ.get("NEURON_CC_FLAGS", "") + " --model-type=transformer"
 
 
+def set_verbosity(verbosity: int):
+    set_verbosity_transformers(verbosity)
+    set_verbosity_optimum(verbosity)
+
+
 def patch_transformers_for_neuron_sdk():
     """
     Patches the Transformers library if needed to make it work with AWS Neuron.
     """
+    transformers.utils.logging.set_verbosity = set_verbosity
