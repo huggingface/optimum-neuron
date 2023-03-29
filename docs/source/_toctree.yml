@@ -15,11 +15,11 @@
     - local: guides/overview
       title: Overview
     - local: guides/setup_aws_instance
-      title: How to fine-tune a Transformers model with AWS Trainium
-    - local: guides/fine_tune
       title: Set up AWS Trainium instance            
     - local: guides/cache_system
-      title: Optimum Neuron Trainium model cache            
+      title: Optimum Neuron Trainium model cache     
+    - local: guides/fine_tune
+      title: Fine-tune a Transformers model with AWS Trainium       
     - local: guides/export_model
       title: Export a model to Inferentia 
     title: How-To Guides
