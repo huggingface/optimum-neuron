@@ -6,7 +6,7 @@ on:
       - main
     paths:
       - 'docs/source/**'
-      - 'assets/**'
+      - 'docs/assets/**'
       - 'optimum/**'
       - '.github/workflows/doc-build.yml'
 
