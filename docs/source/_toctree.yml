@@ -8,8 +8,8 @@
   - sections:
     - local: tutorials/overview
       title: Overview
-    - local: tutorials/getting_started
-      title: Getting started with AWS Trainium and Hugging Face Transformers
+    - local: tutorials/fine_tune_bert
+      title: Fine-tune BERT for Text Classification on AWS Trainium
     title: Tutorials
   - sections:
     - local: guides/overview
