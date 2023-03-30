@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+# coding=utf-8
 # Copyright 2023 The HuggingFace Team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,28 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from argparse import ArgumentParser
-
-from .export import ExportCommand
-
-
-def main():
-    parser = ArgumentParser("Optimum CLI tool", usage="optimum-cli <command> [<args>]")
-    commands_parser = parser.add_subparsers(help="optimum-cli command helpers")
-
-    # Register commands
-    ExportCommand.register_subcommand(commands_parser)
-
-    args = parser.parse_args()
-
-    if not hasattr(args, "func"):
-        parser.print_help()
-        exit(1)
-
-    # Run
-    service = args.func(args)
-    service.run()
+from ...neuron.utils import is_neuron_available, is_neuronx_available
+from ..export import ExportCommand
 
 
-if __name__ == "__main__":
-    main()
+if is_neuron_available():
+    from ..export.neuron import NeuronExportCommand
+
+if is_neuronx_available():
+    from ..export.neuronx import NeuronxExportCommand as NeuronExportCommand  # noqa: F811
+
+
+REGISTER_COMMANDS = [(NeuronExportCommand, ExportCommand)]
