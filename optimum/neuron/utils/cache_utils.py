@@ -33,7 +33,7 @@ from .version_utils import get_neuronxcc_version
 
 
 if TYPE_CHECKING:
-    from transformers import PreTrainedModel
+    from transformers import PreTrainedModel, PretrainedConfig
 
 
 logger = logging.get_logger()
@@ -114,11 +114,11 @@ def list_files_in_neuron_cache(neuron_cache_path: Path, only_relevant_files: boo
     return files
 
 
-def compute_file_sha256_hash(filename: Union[str, Path]) -> str:
+def compute_file_sha512_hash(filename: Union[str, Path]) -> str:
     if isinstance(filename, Path):
         filename = filename.as_posix()
 
-    file_hash = hashlib.sha256()
+    file_hash = hashlib.sha512()
     with open(filename, "rb") as f:
         fb = f.read()
         file_hash.update(fb)
@@ -167,16 +167,17 @@ class NeuronHash:
     data_type: torch.dtype
     num_neuron_cores: int = field(default_factory=get_num_neuron_cores_used)
     neuron_compiler_version: str = field(default_factory=get_neuronxcc_version)
-    _hash: _MutableHashAttribute = _MutableHashAttribute()
+    _hash: _MutableHashAttribute = field(default_factory=_MutableHashAttribute)
 
     def __post_init__(self):
         self.compute_hash()
 
     @property
     def hash_dict(self) -> Dict[str, Any]:
-        hash_dict = asdict(self)
-        hash_dict["model"] = hash_dict["model"].state_dict()
-        return hash_dict
+       hash_dict = asdict(self)
+       hash_dict["model"] = hash_dict["model"].state_dict()
+       hash_dict.pop("_hash")
+       return hash_dict
 
     def compute_hash(self) -> Tuple[str, str]:
         if self._hash.is_empty:
@@ -184,14 +185,14 @@ class NeuronHash:
             with tempfile.TemporaryDirectory() as tmpdirname:
                 filename = Path(tmpdirname) / HASH_FILE_NAME
                 xm.save(self.model.state_dict(), filename)
-                model_hash = compute_file_sha256_hash(filename)
+                model_hash = compute_file_sha512_hash(filename)
 
             overall_hash = ""
             hash_dict = self.hash_dict
             with tempfile.TemporaryDirectory() as tmpdirname:
                 filename = Path(tmpdirname) / HASH_FILE_NAME
                 xm.save(hash_dict, filename)
-                overall_hash = compute_file_sha256_hash(filename)
+                overall_hash = compute_file_sha512_hash(filename)
 
             self._hash.model_hash = model_hash
             self._hash.overall_hash = overall_hash
@@ -210,18 +211,34 @@ class NeuronHash:
 
     @property
     def cache_path(self) -> Path:
-        return Path("/".join(self.folders))
+        return Path().joinpath(*self.folders)
 
     @property
     def neuron_compiler_version_dir_name(self):
         return f"USER_neuroncc-{self.neuron_compiler_version}"
 
+    
+    def _try_to_retrive_model_name_or_path(self, config: "PretrainedConfig") -> Optional[str]:
+        attribute_names_to_try = ["_model_name_or_path", "_name_or_path"]
+        model_name_or_path = None
+        for name in attribute_names_to_try:
+            attribute = getattr(config, name, None)
+            if attribute is not None:
+                model_name_or_path = attribute
+                break
+        return model_name_or_path
+
     @property
     def is_private(self):
-        model_name_or_path = self.model.config._model_name_or_path
-        if Path(model_name_or_path).exists():
-            return False
-        return is_private_repo(model_name_or_path)
+        private = None
+        model_name_or_path = self._try_to_retrive_model_name_or_path(self.model.config) 
+        if model_name_or_path is None:
+            private = True
+        elif Path(model_name_or_path).exists():
+            private = True
+        else:
+            private = is_private_repo(model_name_or_path)
+        return private 
 
 
 @dataclass

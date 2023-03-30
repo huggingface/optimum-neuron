@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 """Tests for the cache utilities."""
 
+from dataclasses import FrozenInstanceError
 import os
 import random
 import string
@@ -20,6 +21,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
 from typing import List
+from optimum.neuron.utils.version_utils import get_neuronxcc_version
 
 import torch
 from transformers import BertModel, BertConfig, set_seed
@@ -111,12 +113,21 @@ class NeuronUtilsTestCase(TestCase):
             self.assertSetEqual(set(filenames), set(list_files_in_neuron_cache(Path(tmpdirname), only_relevant_files=True)))
 
 
-
-
 class NeuronHashTestCase(TestCase):
 
-    def _create_bert_model(self):
-        return BertModel(BertConfig())
+    def test_neuron_hash_is_not_mutable(self):
+        bert_model = BertModel(BertConfig())
+        neuron_hash = NeuronHash(bert_model, ((4, 12), (4, 12)), torch.float32, 2)
+
+        with self.assertRaises(FrozenInstanceError):
+            neuron_hash.model = bert_model
+
+        with self.assertRaises(FrozenInstanceError):
+            neuron_hash.input_shapes = ((2, 32), (2, 32))
+
+        with self.assertRaises(FrozenInstanceError):
+            neuron_hash.num_neuron_cores = 32
+            
 
     def _test_neuron_hash(
         self,
@@ -132,7 +143,6 @@ class NeuronHashTestCase(TestCase):
     ):
         neuron_hash_a = NeuronHash(model_a, input_shapes_a, dtype_a, num_neuron_cores=num_neuron_cores_a)
         neuron_hash_b = NeuronHash(model_b, input_shapes_b, dtype_b, num_neuron_cores=num_neuron_cores_b)
-
         if should_be_equal:
             self.assertEqual(neuron_hash_a.compute_hash(), neuron_hash_b.compute_hash())
         else:
@@ -162,18 +172,18 @@ class NeuronHashTestCase(TestCase):
         set_seed(42)
         bert_model = BertModel(BertConfig())
         set_seed(38)
-        same_bert_model = BertModel(BertConfig())
+        different_bert_model = BertModel(BertConfig())
 
         return self._test_neuron_hash(
             bert_model,
             ((1, 2), (2, 3)),
             torch.bfloat16,
             19,
-            same_bert_model,
+            different_bert_model,
             ((1, 2), (2, 3)),
             torch.bfloat16,
             19,
-            False
+            False,
         )
 
     def test_computed_hash_is_different_for_different_parameters_but_same_model(self):
@@ -187,4 +197,38 @@ class NeuronHashTestCase(TestCase):
         for i in range(len(parameters)):
             params_b = [p[int(i == j)] for j, p in enumerate(parameters)]
             self._test_neuron_hash(bert_model, *params_a, bert_model, *params_b, False)
-                
+
+    def test_neuron_hash_folders(self):
+        bert_model = BertModel(BertConfig())
+        input_shapes = ((1, 2), (2, 3))
+        data_type = torch.float32
+        num_neuron_cores = 32
+
+        neuron_hash = NeuronHash(bert_model, input_shapes, data_type, num_neuron_cores=num_neuron_cores, neuron_compiler_version="dummy_version")
+        hashes = neuron_hash.compute_hash()
+        expected_folders = ["dummy_version", "bert"] + list(hashes)
+        self.assertListEqual(neuron_hash.folders, expected_folders)
+
+        neuron_hash = NeuronHash(bert_model, input_shapes, data_type, num_neuron_cores=num_neuron_cores)
+        hashes = neuron_hash.compute_hash()
+        expected_folders = [get_neuronxcc_version(), "bert"] + list(hashes)
+        self.assertListEqual(neuron_hash.folders, expected_folders)
+
+    def test_neuron_hash_is_private(self):
+        input_shapes = ((1, 2), (2, 3))
+        data_type = torch.float32
+
+        bert_model = BertModel(BertConfig())
+        neuron_hash = NeuronHash(bert_model, input_shapes, data_type)
+        self.assertTrue(neuron_hash.is_private)
+
+        bert_model = BertModel.from_pretrained("hf-internal-testing/tiny-random-bert")
+        neuron_hash = NeuronHash(bert_model, input_shapes, data_type)
+
+        self.assertFalse(neuron_hash.is_private)
+
+        with TemporaryDirectory() as tmpdirname:
+            bert_model.save_pretrained(tmpdirname)
+            local_bert_model = BertModel.from_pretrained(tmpdirname)
+            neuron_hash = NeuronHash(local_bert_model, input_shapes, data_type)
+            self.assertTrue(neuron_hash.is_private)
