@@ -19,13 +19,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from ...exporters import TasksManager
-from ..base import BaseOptimumCLICommand
+from ..base import BaseOptimumCLICommand, CommandInfo
 
 
 if TYPE_CHECKING:
     from argparse import ArgumentParser, Namespace, _SubParsersAction
-
-    from ..base import CommandInfo
 
 
 def parse_args_neuron(parser: "ArgumentParser"):
@@ -99,7 +97,7 @@ def parse_args_neuron(parser: "ArgumentParser"):
 
 
 class NeuronExportCommand(BaseOptimumCLICommand):
-    COMMAND = CommandInfo(name="export", help="Export PyTorch models to Neuron compiled TorchScript models.")
+    COMMAND = CommandInfo(name="neuron", help="Export PyTorch models to Neuron compiled TorchScript models.")
 
     def __init__(
         self,
