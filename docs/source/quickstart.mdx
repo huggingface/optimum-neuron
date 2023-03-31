@@ -20,7 +20,6 @@ limitations under the License.
 There are two main classes one needs to know:
 - TrainiumArgumentParser: inherits the original [HfArgumentParser](https://huggingface.co/docs/transformers/main/en/internal/trainer_utils#transformers.HfArgumentParser) in Transformers with additional checks on the argument values to make sure that they will work well with AWS Trainium instances.
 - [TrainiumTrainer](https://huggingface.co/docs/optimum/neuron/package_reference/trainer): the trainer class that takes care of compiling and distributing the model to run on Trainium Chips, and performing training and evaluation.
-  philschmid marked this conversation as resolved.
 
 The [TrainiumTrainer](https://huggingface.co/docs/optimum/neuron/package_reference/trainer) is very similar to the [🤗 Transformers Trainer](https://huggingface.co/docs/transformers/main_classes/trainer), and adapting a script using the Trainer to make it work with Trainium will mostly consist in simply swapping the `Trainer` class for the `TrainiumTrainer` one.
 That's how most of the [example scripts](https://github.com/huggingface/optimum-neuron/tree/main/examples) were adapted from their [original counterparts](https://github.com/huggingface/transformers/tree/main/examples/pytorch).
