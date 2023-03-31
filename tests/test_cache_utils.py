@@ -21,12 +21,17 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
 from typing import List
-from optimum.neuron.utils.version_utils import get_neuronxcc_version
+
+from huggingface_hub import login, HfFolder, create_repo, delete_repo, CommitOperationDelete, HfApi
 
 import torch
-from transformers import BertModel, BertConfig, set_seed
+from transformers import BertModel, BertConfig, set_seed, PreTrainedModel, PretrainedConfig
+from transformers.testing_utils import TOKEN, is_staging_test
 
-from optimum.neuron.utils.cache_utils import NEURON_COMPILE_CACHE_NAME, NeuronHash, get_neuron_cache_path, get_num_neuron_cores_used, list_files_in_neuron_cache, set_neuron_cache_path
+from optimum.neuron.utils.cache_utils import NEURON_COMPILE_CACHE_NAME, NeuronHash, get_neuron_cache_path, get_num_neuron_cores_used, is_private_repo, list_files_in_neuron_cache, push_to_cache_on_hub, set_neuron_cache_path
+from optimum.neuron.utils.version_utils import get_neuronxcc_version
+
+
 
 def get_random_string(length) -> str:
     letters = string.ascii_lowercase
@@ -232,3 +237,125 @@ class NeuronHashTestCase(TestCase):
             local_bert_model = BertModel.from_pretrained(tmpdirname)
             neuron_hash = NeuronHash(local_bert_model, input_shapes, data_type)
             self.assertTrue(neuron_hash.is_private)
+
+
+@is_staging_test
+class CachedModelOnTheHubTestCase(TestCase):
+    USER = "__DUMMY_OPTIMUM_NEURON_USER__"
+    CUSTOM_CACHE_REPO_NAME = "optimum-neuron-cache-testing"
+    CUSTOM_CACHE_REPO = f"{USER}/{CUSTOM_CACHE_REPO_NAME}"
+    CUSTOM_PRIVATE_CACHE_REPO = f"{CUSTOM_CACHE_REPO}-private"
+
+    def setUpClass(self) -> None:
+        self._token = HfFolder.get_token()
+        login(TOKEN)
+        HfFolder.save_token(TOKEN)
+        create_repo(self.CUSTOM_CACHE_REPO, repo_type="model")
+        create_repo(self.CUSTOM_PRIVATE_CACHE_REPO, repo_type="model")
+
+    def tearDownClass(self) -> None:
+        login(self._token)
+        HfFolder.save_token(self._token)
+        delete_repo(repo_id=self.CUSTOM_CACHE_REPO, repo_type="model")
+        delete_repo(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO, repo_type="model")
+
+    def tearDown(self) -> None:
+        api = HfApi()
+        repo_cleanup_operation = CommitOperationDelete(path_in_repo="*/**")
+        operations = [repo_cleanup_operation]
+        api.create_commit(
+            repo_id=self.CUSTOM_CACHE_REPO,
+            operations=operations,
+            commit_message="Cleanup the repo after test",
+        )
+        api.create_commit(
+            repo_id=self.CUSTOM_PRIVATE_CACHE_REPO,
+            operations=operations,
+            commit_message="Cleanup the repo after test",
+        )
+
+
+    def _create_tiny_pretrained_model(self, seed: int = 42):
+
+        class MyTinyModel(PreTrainedModel):
+            def __init__(self):
+                config = PretrainedConfig()
+                super().__init__(config)
+                self.lin1 = torch.nn.Linear(3, 1)
+                self.relu = torch.nn.ReLU()
+
+            def forward(self, x):
+                return self.relu(self.lin1(x))
+
+        set_seed(seed)
+        return MyTinyModel()
+
+    def test_push_to_hub_fails_with_private_model_and_public_repo(self):
+
+        with TemporaryDirectory() as tmpdirname:
+            set_neuron_cache_path(tmpdirname)
+
+            input_shapes = ((3,))
+            data_type = torch.float32
+            tiny_model = self._create_tiny_pretrained_model()
+            tiny_model = tiny_model.to("xla")
+
+            neuron_hash = NeuronHash(tiny_model, input_shapes, data_type)
+            tiny_model(torch.rand(3).to("xla"))
+
+            cached_files = list_files_in_neuron_cache(Path(tmpdirname) / NEURON_COMPILE_CACHE_NAME)
+
+            # The model being loaded locally is assumed to be private, push to hub should prevent from pushing to a 
+            # public repo.
+            with self.assertRaisesRegex(ValueError, "Cannot push the cached model"):
+                push_to_cache_on_hub(neuron_hash, cached_files[0], self.CUSTOM_CACHE_REPO)
+
+            # It should work when using a private repo.
+            cached_model_on_the_hub = push_to_cache_on_hub(neuron_hash, cached_files[0], self.CUSTOM_PRIVATE_CACHE_REPO)
+            self.assertIsNotNone(cached_model_on_the_hub)
+
+    def test_push_to_hub_without_specifying_a_cache_repo_id(self):
+        with TemporaryDirectory() as tmpdirname:
+            set_neuron_cache_path(tmpdirname)
+
+            input_shapes = ((3,))
+            data_type = torch.float32
+            tiny_model = self._create_tiny_pretrained_model()
+            tiny_model = tiny_model.to("xla")
+
+            neuron_hash = NeuronHash(tiny_model, input_shapes, data_type)
+            tiny_model(torch.rand(3).to("xla"))
+
+            cached_files = list_files_in_neuron_cache(Path(tmpdirname) / NEURON_COMPILE_CACHE_NAME)
+
+            os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_PRIVATE_CACHE_REPO
+            push_to_cache_on_hub(neuron_hash, cached_files[0])
+
+    
+    def test_push_to_hub_overwrite_existing(self):
+        with TemporaryDirectory() as tmpdirname:
+            set_neuron_cache_path(tmpdirname)
+
+            input_shapes = ((3,))
+            data_type = torch.float32
+            tiny_model = self._create_tiny_pretrained_model()
+            tiny_model = tiny_model.to("xla")
+
+            neuron_hash = NeuronHash(tiny_model, input_shapes, data_type)
+            tiny_model(torch.rand(3).to("xla"))
+
+            cached_files = list_files_in_neuron_cache(Path(tmpdirname) / NEURON_COMPILE_CACHE_NAME)
+
+            push_to_cache_on_hub(neuron_hash, cached_files[0], self.CUSTOM_PRIVATE_CACHE_REPO)
+            
+
+            with self.assertLogs("optimum", level="INFO") as cm:
+                push_to_cache_on_hub(neuron_hash, cached_files[0], self.CUSTOM_PRIVATE_CACHE_REPO)
+                self.assertIn(cm.output, "Did not push the cached model located at")
+
+            with self.assertLogs("optimum", level="WARNING") as cm:
+                push_to_cache_on_hub(neuron_hash, cached_files[0], self.CUSTOM_PRIVATE_CACHE_REPO, overwrite_existing=True)
+                self.assertIn(
+                    cm.output, 
+                    "Overwriting the already existing cached model on the Hub by the one located at"
+                )

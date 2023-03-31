@@ -39,29 +39,25 @@ if TYPE_CHECKING:
 logger = logging.get_logger()
 
 
-HF_API = HfApi()
-HF_FOLDER = HfFolder()
-HF_TOKEN = HF_FOLDER.get_token()
-
 HASH_FILE_NAME = "pytorch_model.bin"
 HF_HUB_CACHE_REPOS = ["michaelbenayoun/cache_test"]
 
-
 def is_private_repo(repo_id: str) -> bool:
-    HF_API.list_repo_files(repo_id=repo_id, token=HF_TOKEN)
+    HfApi().list_repo_files(repo_id=repo_id, token=HfFolder.get_token())
     private = False
     try:
-        HF_API.list_repo_files(repo_id=repo_id, token=False)
+        HfApi().list_repo_files(repo_id=repo_id, token=False)
     except RepositoryNotFoundError:
         private = True
     return private
 
 
-CUSTOM_CACHE_REPO = os.environ.get("CUSTOM_CACHE_REPO", None)
-CUSTOM_CACHE_REPO_IS_PRIVATE = CUSTOM_CACHE_REPO is not None
-if CUSTOM_CACHE_REPO:
-    HF_HUB_CACHE_REPOS = [CUSTOM_CACHE_REPO] + HF_HUB_CACHE_REPOS
-    CUSTOM_CACHE_REPO_IS_PRIVATE = is_private_repo(CUSTOM_CACHE_REPO)
+def get_hf_hub_cache_repos():
+    custom_cache_repo = os.environ.get("CUSTOM_CACHE_REPO", None)
+    hf_hub_repos = HF_HUB_CACHE_REPOS
+    if custom_cache_repo:
+        hf_hub_repos = [custom_cache_repo] + hf_hub_repos
+    return hf_hub_repos
 
 
 NEURON_COMPILE_CACHE_NAME = "neuron-compile-cache"
@@ -259,12 +255,12 @@ def get_cached_model_on_the_hub(neuron_hash: NeuronHash) -> Optional[CachedModel
     cache_repo_id = None
     cache_revision = None
 
-    for repo_id in HF_HUB_CACHE_REPOS:
+    for repo_id in get_hf_hub_cache_repos():
         if isinstance(repo_id, tuple):
             repo_id, revision = repo_id
         else:
             revision = "main"
-        repo_filenames = HfApi().list_repo_files(repo_id, revision=revision, token=HF_TOKEN)
+        repo_filenames = HfApi().list_repo_files(repo_id, revision=revision, token=HfFolder.get_token())
         model_files_on_the_hub = []
         for repo_filename in repo_filenames:
             if repo_filename.startswith(target_directory.as_posix()):
@@ -347,7 +343,7 @@ def push_to_cache_on_hub(
     local_path_to_path_in_repo: Optional[Callable[[Path], Path]] = None,
 ) -> CachedModelOnTheHub:
     if cache_repo_id is None:
-        cache_repo_id = HF_HUB_CACHE_REPOS[0]
+        cache_repo_id = get_hf_hub_cache_repos()[0]
 
     is_cache_repo_private = is_private_repo(cache_repo_id)
     if neuron_hash.is_private and not is_cache_repo_private:
@@ -363,28 +359,33 @@ def push_to_cache_on_hub(
 
     path_in_repo = neuron_hash.cache_path / path_in_repo
 
-    if not overwrite_existing:
-        repo_filenames = map(Path, HfApi().list_repo_files(cache_repo_id, token=HF_TOKEN))
-        if local_cache_dir_or_file.is_dir():
-            exists = any(filename.parent == path_in_repo for filename in repo_filenames)
-        else:
-            exists = any(filename == path_in_repo for filename in repo_filenames)
-        if exists:
+    repo_filenames = map(Path, HfApi().list_repo_files(cache_repo_id, token=HfFolder.get_token()))
+    if local_cache_dir_or_file.is_dir():
+        exists = any(filename.parent == path_in_repo for filename in repo_filenames)
+    else:
+        exists = any(filename == path_in_repo for filename in repo_filenames)
+    if exists:
+        if not overwrite_existing:
             logger.info(
                 f"Did not push the cached model located at {local_cache_dir_or_file} to the repo named {cache_repo_id} "
                 "because it already exists there. Use overwrite_existing=True if you want to overwrite the cache on the "
                 "Hub."
             )
+        else:
+            logger.warning(
+                "Overwriting the already existing cached model on the Hub by the one located at "
+                f"{local_cache_dir_or_file}"
+            )
 
     if local_cache_dir_or_file.is_dir():
-        HF_API.upload_folder(
+        HfApi().upload_folder(
             folder_path=local_cache_dir_or_file.as_posix(),
             path_in_repo=path_in_repo.as_posix(),
             repo_id=cache_repo_id,
             repo_type="model",
         )
     else:
-        HF_API.upload_file(
+        HfApi().upload_file(
             path_or_fileobj=local_cache_dir_or_file.as_posix(),
             path_in_repo=path_in_repo.as_posix(),
             repo_id=cache_repo_id,
