@@ -24,7 +24,6 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Ty
 
 import torch
 import torch_xla.core.xla_model as xm
-
 from huggingface_hub import HfApi, HfFolder, snapshot_download
 from huggingface_hub.utils import RepositoryNotFoundError
 
@@ -33,7 +32,7 @@ from .version_utils import get_neuronxcc_version
 
 
 if TYPE_CHECKING:
-    from transformers import PreTrainedModel, PretrainedConfig
+    from transformers import PretrainedConfig, PreTrainedModel
 
 
 logger = logging.get_logger()
@@ -41,6 +40,7 @@ logger = logging.get_logger()
 
 HASH_FILE_NAME = "pytorch_model.bin"
 HF_HUB_CACHE_REPOS = ["michaelbenayoun/cache_test"]
+
 
 def is_private_repo(repo_id: str) -> bool:
     HfApi().list_repo_files(repo_id=repo_id, token=HfFolder.get_token())
@@ -170,10 +170,10 @@ class NeuronHash:
 
     @property
     def hash_dict(self) -> Dict[str, Any]:
-       hash_dict = asdict(self)
-       hash_dict["model"] = hash_dict["model"].state_dict()
-       hash_dict.pop("_hash")
-       return hash_dict
+        hash_dict = asdict(self)
+        hash_dict["model"] = hash_dict["model"].state_dict()
+        hash_dict.pop("_hash")
+        return hash_dict
 
     def compute_hash(self) -> Tuple[str, str]:
         if self._hash.is_empty:
@@ -213,7 +213,6 @@ class NeuronHash:
     def neuron_compiler_version_dir_name(self):
         return f"USER_neuroncc-{self.neuron_compiler_version}"
 
-    
     def _try_to_retrive_model_name_or_path(self, config: "PretrainedConfig") -> Optional[str]:
         attribute_names_to_try = ["_model_name_or_path", "_name_or_path"]
         model_name_or_path = None
@@ -227,14 +226,14 @@ class NeuronHash:
     @property
     def is_private(self):
         private = None
-        model_name_or_path = self._try_to_retrive_model_name_or_path(self.model.config) 
+        model_name_or_path = self._try_to_retrive_model_name_or_path(self.model.config)
         if model_name_or_path is None:
             private = True
         elif Path(model_name_or_path).exists():
             private = True
         else:
             private = is_private_repo(model_name_or_path)
-        return private 
+        return private
 
 
 @dataclass
