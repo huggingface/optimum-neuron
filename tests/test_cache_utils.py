@@ -259,21 +259,19 @@ class CachedModelOnTheHubTestCase(TestCase):
         delete_repo(repo_id=self.CUSTOM_CACHE_REPO, repo_type="model")
         delete_repo(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO, repo_type="model")
 
-    def tearDown(self) -> None:
+    def remove_all_files_in_repo(self, repo_id: str):
         api = HfApi()
         repo_cleanup_operation = CommitOperationDelete(path_in_repo="*/**")
         operations = [repo_cleanup_operation]
         api.create_commit(
-            repo_id=self.CUSTOM_CACHE_REPO,
+            repo_id=repo_id,
             operations=operations,
-            commit_message="Cleanup the repo after test",
-        )
-        api.create_commit(
-            repo_id=self.CUSTOM_PRIVATE_CACHE_REPO,
-            operations=operations,
-            commit_message="Cleanup the repo after test",
+            commit_message="Cleanup the repo",
         )
 
+    def tearDown(self) -> None:
+        self.remove_all_files_in_repo(self.CUSTOM_CACHE_REPO)
+        self.remove_all_files_in_repo(self.CUSTOM_PRIVATE_CACHE_REPO)
 
     def _create_tiny_pretrained_model(self, seed: int = 42):
 
@@ -344,11 +342,12 @@ class CachedModelOnTheHubTestCase(TestCase):
             neuron_hash = NeuronHash(tiny_model, input_shapes, data_type)
             tiny_model(torch.rand(3).to("xla"))
 
-            cached_files = list_files_in_neuron_cache(Path(tmpdirname) / NEURON_COMPILE_CACHE_NAME)
+            cache_dir = Path(tmpdirname) / NEURON_COMPILE_CACHE_NAME
+            cached_files = list_files_in_neuron_cache(cache_dir)
 
             push_to_cache_on_hub(neuron_hash, cached_files[0], self.CUSTOM_PRIVATE_CACHE_REPO)
             
-
+            # With a file
             with self.assertLogs("optimum", level="INFO") as cm:
                 push_to_cache_on_hub(neuron_hash, cached_files[0], self.CUSTOM_PRIVATE_CACHE_REPO)
                 self.assertIn(cm.output, "Did not push the cached model located at")
@@ -359,3 +358,50 @@ class CachedModelOnTheHubTestCase(TestCase):
                     cm.output, 
                     "Overwriting the already existing cached model on the Hub by the one located at"
                 )
+
+            # Because the directory contains cached_files[0], we cleanup before testing.
+            self.remove_all_files_in_repo(self.CUSTOM_PRIVATE_CACHE_REPO)
+
+            # With a directory
+            with self.assertLogs("optimum", level="INFO") as cm:
+                push_to_cache_on_hub(neuron_hash, cache_dir, self.CUSTOM_PRIVATE_CACHE_REPO)
+                self.assertIn(cm.output, "Did not push the cached model located at")
+
+            with self.assertLogs("optimum", level="WARNING") as cm:
+                push_to_cache_on_hub(neuron_hash, cache_dir, self.CUSTOM_PRIVATE_CACHE_REPO, overwrite_existing=True)
+                self.assertIn(
+                    cm.output, 
+                    "Overwriting the already existing cached model on the Hub by the one located at"
+                )
+
+    def test_push_to_hub_local_path_in_repo(self):
+        with TemporaryDirectory() as tmpdirname:
+            set_neuron_cache_path(tmpdirname)
+
+            input_shapes = ((3,))
+            data_type = torch.float32
+            tiny_model = self._create_tiny_pretrained_model()
+            tiny_model = tiny_model.to("xla")
+
+            neuron_hash = NeuronHash(tiny_model, input_shapes, data_type)
+            tiny_model(torch.rand(3).to("xla"))
+
+            cache_dir = Path(tmpdirname) / NEURON_COMPILE_CACHE_NAME
+            cached_files = list_files_in_neuron_cache(cache_dir)
+
+            def local_path_to_path_in_repo(path):
+                return Path("my/awesome/new/path") / path.name
+
+            # With a file
+            push_to_cache_on_hub(neuron_hash, cached_files[0], self.CUSTOM_PRIVATE_CACHE_REPO, local_path_to_path_in_repo=local_path_to_path_in_repo)
+            files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
+            self.assertIn(f"my/awesome/new/path/{cached_files[0].name}", files_in_repo)
+
+            def another_local_path_to_path_in_repo(path):
+                return Path("my/another/awesome/new/path") / path.name
+
+            # With a directory
+            push_to_cache_on_hub(neuron_hash, cache_dir, self.CUSTOM_PRIVATE_CACHE_REPO, local_path_to_path_in_repo=another_local_path_to_path_in_repo)
+            files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
+            for filename in cache_dir.glob("*/**"):
+                self.assertIn(f"my/awesome/new/path/{filename.name}", files_in_repo)
