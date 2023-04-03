@@ -41,7 +41,7 @@ _NEURON_COMMANDS = {"--disable_fast_relayout": ["True", "False"]}
 _NEURONX_COMMANDS = {}
 
 
-def _get_models_to_test(export_models_dict: Dict):
+def _get_models_to_test(export_models_dict: Dict, random_pick=1):
     models_to_test = []
     for model_type, model_names_tasks in export_models_dict.items():
         model_type = model_type.replace("_", "-")
@@ -69,10 +69,13 @@ def _get_models_to_test(export_models_dict: Dict):
 
                 models_to_test.append((f"{model_type}_{task}", model_name, task))
 
-    return sorted(models_to_test)
+    if random_pick is not None:
+        return sorted(random.choices(models_to_test, k=random_pick))
+    else:
+        return sorted(models_to_test)
 
 
-def _get_commands_to_test(models_to_test, random_pick=30):
+def _get_commands_to_test(models_to_test):
     commands_to_test = []
     for test_name, model_name, task in models_to_test:
         if is_neuron_available():
@@ -89,10 +92,8 @@ def _get_commands_to_test(models_to_test, random_pick=30):
                 [" ".join([arg, option]) for arg, option in zip(command_items, extra_arg_options)]
             )
             commands_to_test.append((test_name, base_command + " " + extra_command))
-    if random_pick is not None:
-        return sorted(random.choices(commands_to_test, k=random_pick))
-    else:
-        return sorted(commands_to_test, k=random_pick)
+
+    return sorted(commands_to_test)
 
 
 class TestCLI(unittest.TestCase):
