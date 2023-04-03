@@ -22,9 +22,10 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, TypeVar, Union
 
+import huggingface_hub
 import torch
 import torch_xla.core.xla_model as xm
-from huggingface_hub import HfApi, HfFolder, snapshot_download
+from huggingface_hub import HfApi, HfFolder
 from huggingface_hub.utils import RepositoryNotFoundError
 
 from ...utils import logging
@@ -108,6 +109,17 @@ def list_files_in_neuron_cache(neuron_cache_path: Path, only_relevant_files: boo
     if only_relevant_files:
         files = [p for p in files if p.suffix in [".neff", ".pb", ".txt"]]
     return files
+
+
+def path_after_folder(path: Path, folder: Union[str, Path], include_folder: bool = False) -> Path:
+    if isinstance(folder, Path):
+        folder = folder.name
+    try:
+        index = path.parts.index(folder)
+    except ValueError:
+        index = len(path.parts)
+    index = index + 1 if not include_folder else index
+    return Path("").joinpath(*path.parts[index:])
 
 
 def compute_file_sha512_hash(filename: Union[str, Path]) -> str:
@@ -241,7 +253,7 @@ class CachedModelOnTheHub:
     repo_id: str
     folder: Union[str, Path]
     revision: str = "main"
-    files_on_the_hub: str = field(default_factory=list)
+    files_on_the_hub: List[str] = field(default_factory=list)
 
     def __post_init__(self):
         if isinstance(self.folder, Path):
@@ -261,12 +273,16 @@ def get_cached_model_on_the_hub(neuron_hash: NeuronHash) -> Optional[CachedModel
             revision = "main"
         repo_filenames = HfApi().list_repo_files(repo_id, revision=revision, token=HfFolder.get_token())
         model_files_on_the_hub = []
+        was_found_in_repo = False
         for repo_filename in repo_filenames:
             if repo_filename.startswith(target_directory.as_posix()):
                 if cache_repo_id is None:
                     cache_repo_id = repo_id
                     cache_revision = revision
+                    was_found_in_repo = True
                 model_files_on_the_hub.append(repo_filename)
+        if was_found_in_repo:
+            break
 
     if cache_repo_id is None:
         cached_model = None
@@ -310,7 +326,8 @@ def download_cached_model_from_hub(
         )
 
         if needs_to_download:
-            snapshot_download(
+            files_before_downloading = [f for f in (target_directory / folder).glob("**/*") if f.is_file()]
+            huggingface_hub.snapshot_download(
                 repo_id=cached_model.repo_id,
                 revision=cached_model.revision,
                 repo_type="model",
@@ -324,12 +341,14 @@ def download_cached_model_from_hub(
             if path_in_repo_to_path_in_target_directory is not None:
                 local_folder = target_directory / folder
                 for path in local_folder.glob("**/*"):
-                    if not path.is_file():
+                    if path.is_dir():
+                        continue
+                    if path in files_before_downloading:
                         continue
                     target_path = target_directory / path_in_repo_to_path_in_target_directory(path)
                     target_path.parent.mkdir(parents=True, exist_ok=True)
                     shutil.move(path, target_path)
-                    # TODO: remove old path?
+                # TODO: remove old directories.
 
     return cached_model is not None
 
@@ -356,6 +375,9 @@ def push_to_cache_on_hub(
     else:
         path_in_repo = local_cache_dir_or_file
 
+    # Joining a path to a absolute path ignores the original path, so we remove the root directory "/" in this case.
+    if path_in_repo.is_absolute():
+        path_in_repo = Path().joinpath(*path_in_repo.parts[1:])
     path_in_repo = neuron_hash.cache_path / path_in_repo
 
     repo_filenames = map(Path, HfApi().list_repo_files(cache_repo_id, token=HfFolder.get_token()))

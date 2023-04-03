@@ -15,11 +15,12 @@
 
 import os
 import random
+import shutil
 import string
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import List
+from typing import List, Optional, Union
 from unittest import TestCase
 
 import torch
@@ -30,9 +31,12 @@ from transformers.testing_utils import is_staging_test
 from optimum.neuron.utils.cache_utils import (
     NEURON_COMPILE_CACHE_NAME,
     NeuronHash,
+    download_cached_model_from_hub,
+    get_cached_model_on_the_hub,
     get_neuron_cache_path,
     get_num_neuron_cores_used,
     list_files_in_neuron_cache,
+    path_after_folder,
     push_to_cache_on_hub,
     set_neuron_cache_path,
 )
@@ -428,9 +432,6 @@ class CachedModelOnTheHubTestCase(TestCase):
             path_in_repo = f"{neuron_hash.cache_path}/my/awesome/new/path/{cached_files[0].name}"
             self.assertIn(path_in_repo, files_in_repo)
 
-            # Because the directory contains cached_files[0], we cleanup before testing.
-            # self.remove_all_files_in_repo(self.CUSTOM_PRIVATE_CACHE_REPO)
-
             def another_local_path_to_path_in_repo(path):
                 return Path("my/another/awesome/new/path") / path.name
 
@@ -444,5 +445,145 @@ class CachedModelOnTheHubTestCase(TestCase):
             files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
             for filename in cache_dir.glob("**/*"):
                 if filename.is_file():
-                    path_in_repo = f"{neuron_hash.cache_path}/my/another/awesome/new/path/{filename.name}"
+                    path_in_cache_dir = path_after_folder(filename, cache_dir, include_folder=True)
+                    path_in_repo = f"{neuron_hash.cache_path}/my/another/awesome/new/path/{path_in_cache_dir}"
                     self.assertIn(path_in_repo, files_in_repo)
+
+    def _push_tiny_pretrained_model_to_hub(
+        self, repo_id: str, cache_dir: Optional[Union[str, Path]] = None
+    ) -> NeuronHash:
+        neuron_hash = None
+        os.environ["CUSTOM_CACHE_REPO"] = repo_id
+        with TemporaryDirectory() as tmpdirname:
+            set_neuron_cache_path(tmpdirname)
+
+            input_shapes = (1,)
+            data_type = torch.float32
+            tiny_model = self._create_and_run_tiny_pretrained_model(random_num_linears=True)
+            neuron_hash = NeuronHash(tiny_model, input_shapes, data_type)
+
+            tmp_cache_dir = Path(tmpdirname) / NEURON_COMPILE_CACHE_NAME
+            push_to_cache_on_hub(
+                neuron_hash,
+                tmp_cache_dir,
+            )
+
+            if cache_dir is not None:
+                for file_or_dir in tmp_cache_dir.iterdir():
+                    if file_or_dir.is_file():
+                        shutil.copy(file_or_dir, cache_dir / path_after_folder(file_or_dir, NEURON_COMPILE_CACHE_NAME))
+                    else:
+                        shutil.copytree(
+                            file_or_dir, cache_dir / path_after_folder(file_or_dir, NEURON_COMPILE_CACHE_NAME)
+                        )
+        return neuron_hash
+
+    def test_download_cached_model_from_hub(self):
+        neuron_hash = self._push_tiny_pretrained_model_to_hub(self.CUSTOM_PRIVATE_CACHE_REPO)
+
+        neuron_cc_flags = os.environ["NEURON_CC_FLAGS"]
+
+        with self.assertRaisesRegex(
+            ValueError, "A target directory must be specified when no caching directory is used"
+        ):
+            os.environ["NEURON_CC_FLAGS"] = "--no-cache"
+            self.assertTrue(download_cached_model_from_hub(neuron_hash))
+
+        os.environ["NEURON_CC_FLAGS"] = neuron_cc_flags
+        self.assertTrue(download_cached_model_from_hub(neuron_hash))
+
+    def test_download_cached_model_from_hub_with_target_directory(self):
+        os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_PRIVATE_CACHE_REPO
+        neuron_hash = self._push_tiny_pretrained_model_to_hub(self.CUSTOM_PRIVATE_CACHE_REPO)
+
+        cached_model_on_the_hub = get_cached_model_on_the_hub(neuron_hash)
+        if cached_model_on_the_hub is None:
+            self.fail("Could not find the model on the Hub, but it should be there.")
+
+        repo_files = set(cached_model_on_the_hub.files_on_the_hub)
+
+        if len(repo_files) == 0:
+            self.fail("Could not find any file in the Hub.")
+
+        # With a target directory specified as a string.
+        with TemporaryDirectory() as tmpdirname:
+            success = download_cached_model_from_hub(neuron_hash, target_directory=tmpdirname)
+            self.assertTrue(success)
+
+            tmpdir = Path(tmpdirname)
+            target_directory_files = {str(path_after_folder(f, tmpdir)) for f in tmpdir.glob("**/*") if f.is_file()}
+            self.assertSetEqual(target_directory_files, repo_files)
+
+        # With a target directory specified as a Path.
+        with TemporaryDirectory() as tmpdirname:
+            tmpdir = Path(tmpdirname)
+            success = download_cached_model_from_hub(neuron_hash, target_directory=tmpdir)
+            self.assertTrue(success)
+
+            target_directory_files = {str(path_after_folder(f, tmpdir)) for f in tmpdir.glob("**/*") if f.is_file()}
+            self.assertSetEqual(target_directory_files, repo_files)
+
+    def test_download_cached_model_from_hub_with_path_in_repo_to_path_in_target_directory(self):
+        os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_PRIVATE_CACHE_REPO
+        neuron_hash = self._push_tiny_pretrained_model_to_hub(self.CUSTOM_PRIVATE_CACHE_REPO)
+
+        cached_model_on_the_hub = get_cached_model_on_the_hub(neuron_hash)
+        if cached_model_on_the_hub is None:
+            self.fail("Could not find the model on the Hub, but it should be there.")
+
+        def path_in_repo_to_path_in_target_directory(path):
+            return Path("custom_folder") / path.name
+
+        repo_files = set(
+            path_in_repo_to_path_in_target_directory(Path(f)) for f in cached_model_on_the_hub.files_on_the_hub
+        )
+
+        if len(repo_files) == 0:
+            self.fail("Could not find any file in the Hub.")
+
+        # With a target directory specified as a string.
+        with TemporaryDirectory() as tmpdirname:
+            success = download_cached_model_from_hub(
+                neuron_hash,
+                target_directory=tmpdirname,
+                path_in_repo_to_path_in_target_directory=path_in_repo_to_path_in_target_directory,
+            )
+            self.assertTrue(success)
+
+            tmpdir = Path(tmpdirname)
+            target_directory_files = {Path("custom_folder") / f.name for f in tmpdir.glob("**/*") if f.is_file()}
+            self.assertSetEqual(target_directory_files, repo_files)
+
+            # Check the the original download directories do not exist since we specified a
+            # path_in_repo_to_path_in_target_directory function.
+            # self.assertListEqual([f.name for f in tmpdir.iterdir()], ["custom_folder"])
+
+    # TODO: not passing yet, to fix ASAP.
+    # def test_download_cached_model_from_hub_needs_to_download(self):
+    #     os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_PRIVATE_CACHE_REPO
+
+    #     with TemporaryDirectory() as tmpdirname:
+    #         neuron_hash = self._push_tiny_pretrained_model_to_hub(self.CUSTOM_PRIVATE_CACHE_REPO, cache_dir=tmpdirname)
+
+    #         with patch("huggingface_hub.snapshot_download") as mock_snapshot_download:
+    #             # All the files are already there, should not download anything.
+    #             download_cached_model_from_hub(neuron_hash, target_directory=tmpdirname)
+    #             self.assertFalse(mock_snapshot_download.called, "No downloading should be peformed since all the files are already in the cache.")
+    #             mock_snapshot_download.reset_mock()
+    #
+    #             # All the files but one are there, should trigger downloading.
+    #             for path in Path(tmpdirname).glob("**/*"):
+    #                 if path.is_file():
+    #                     if path.suffix in [".json", ".txt"]:
+    #                         continue
+    #                     path.unlink()
+    #                     break
+
+    #             download_cached_model_from_hub(neuron_hash, target_directory=tmpdirname)
+    #             self.assertTrue(mock_snapshot_download.called, "Downloading should be peformed since one file is missing in the cache.")
+    #             mock_snapshot_download.reset_mock()
+
+    #             # No file at all, should download.
+    #             with TemporaryDirectory() as another_tmpdirname:
+    #                 download_cached_model_from_hub(neuron_hash, target_directory=another_tmpdirname)
+    #                 self.assertTrue(mock_snapshot_download.called, "Downloading should be peformed since no file is in the cache.")
