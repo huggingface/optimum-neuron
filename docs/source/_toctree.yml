@@ -1,0 +1,31 @@
+- sections:
+  - local: index
+    title: 🤗 Optimum Neuron
+  - local: installation
+    title: Installation
+  - local: quickstart
+    title: Quickstart
+  - sections:
+    - local: tutorials/overview
+      title: Overview
+    - local: tutorials/fine_tune_bert
+      title: Fine-tune BERT for Text Classification on AWS Trainium
+    title: Tutorials
+  - sections:
+    - local: guides/overview
+      title: Overview
+    - local: guides/setup_aws_instance
+      title: Set up AWS Trainium instance            
+    - local: guides/cache_system
+      title: Trainium model cache
+    - local: guides/fine_tune
+      title: Fine-tune Transformers with AWS Trainium
+    - local: guides/export_model
+      title: Export a model to Inferentia 
+    title: How-To Guides
+  - sections:
+    - local: package_reference/trainer
+      title: Trainium Trainer
+    title: Reference
+  title: Optimum Neuron
+  isExpanded: true
