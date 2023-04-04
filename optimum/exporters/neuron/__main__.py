@@ -82,7 +82,8 @@ def main():
     maybe_save_preprocessors(args.model, args.output.parent)
 
     auto_cast = None if args.auto_cast == "None" else args.auto_cast
-    kwargs = {"auto_cast": auto_cast, "auto_cast_type": args.auto_cast_type}
+    auto_cast_type = None if args.auto_cast_type == "None" else args.auto_cast_type
+    kwargs = {"auto_cast": auto_cast, "auto_cast_type": auto_cast_type}
     if hasattr(args, "disable_fast_relayout"):
         kwargs["disable_fast_relayout"] = getattr(args, "disable_fast_relayout")
     neuron_inputs, neuron_outputs = export(
