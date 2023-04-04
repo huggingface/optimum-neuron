@@ -1,4 +1,4 @@
-name: Optimum Common - Tranium-dependent Tests
+name: Optimum Neuron - Tranium-dependent Tests
 
 on:
   push:
