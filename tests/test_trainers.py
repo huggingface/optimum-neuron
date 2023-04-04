@@ -32,10 +32,12 @@ from optimum.neuron.utils.cache_utils import (
     push_to_cache_on_hub,
     set_neuron_cache_path,
 )
+from optimum.neuron.utils.testing_utils import is_trainium_test
 
 from .utils import StagingTestMixin, create_dummy_dataset, create_tiny_pretrained_model
 
 
+@is_trainium_test
 @is_staging_test
 class NeuronCacheCallabackTestCase(StagingTestMixin, TestCase):
     def test_neuron_hash_for_model(self):
@@ -52,7 +54,7 @@ class NeuronCacheCallabackTestCase(StagingTestMixin, TestCase):
         self.assertFalse(callback.neuron_hashes)
 
         callback.neuron_hash_for_model(args, model, inputs)
-        neuron_hash = callback.neuron_hashes[(model, (tuple(tuple(inputs["x"].shape)),), torch.float32)]
+        neuron_hash = callback.neuron_hashes[(model, (tuple(inputs["x"].shape),), torch.float32)]
 
         same_neuron_hash = callback.neuron_hash_for_model(args, model, inputs)
 

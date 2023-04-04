@@ -38,7 +38,8 @@ from transformers import (
     MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING,
 )
 from transformers.testing_utils import slow
-from utils import MODELS_TO_TEST_MAPPING
+
+from .utils import MODELS_TO_TEST_MAPPING
 
 
 def _get_supported_models_for_script(

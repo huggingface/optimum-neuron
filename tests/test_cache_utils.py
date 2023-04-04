@@ -39,6 +39,7 @@ from optimum.neuron.utils.cache_utils import (
     push_to_cache_on_hub,
     set_neuron_cache_path,
 )
+from optimum.neuron.utils.testing_utils import is_trainium_test
 from optimum.neuron.utils.version_utils import get_neuronxcc_version
 
 from .utils import StagingTestMixin
@@ -133,6 +134,7 @@ class NeuronUtilsTestCase(TestCase):
             )
 
 
+@is_trainium_test
 class NeuronHashTestCase(TestCase):
     def test_neuron_hash_is_not_mutable(self):
         bert_model = BertModel(BertConfig())
@@ -252,6 +254,7 @@ class NeuronHashTestCase(TestCase):
             self.assertTrue(neuron_hash.is_private)
 
 
+@is_trainium_test
 @is_staging_test
 class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
     def test_push_to_hub_fails_with_private_model_and_public_repo(self):
@@ -430,9 +433,9 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
         def path_in_repo_to_path_in_target_directory(path):
             return Path("custom_folder") / path.name
 
-        repo_files = set(
+        repo_files = {
             path_in_repo_to_path_in_target_directory(Path(f)) for f in cached_model_on_the_hub.files_on_the_hub
-        )
+        }
 
         if len(repo_files) == 0:
             self.fail("Could not find any file in the Hub.")
