@@ -5,6 +5,7 @@ on:
     branches:
       - main
   pull_request:
+      - main
   workflow_dispatch:
 
 concurrency:

@@ -14,7 +14,8 @@ except Exception as error:
 
 INSTALL_REQUIRES = [
     "transformers >= 4.26.0",
-    "optimum",
+    # TODO: change that at optimum 1.7.4 release.
+    "git+https://github.com/huggingface/optimum.git",
 ]
 
 TESTS_REQUIRE = [
@@ -43,8 +44,8 @@ setup(
     name="optimum-neuron",
     version=__version__,
     description=(
-        "Optimum Neuron is the interface between the Hugging Face Transformers and Diffusers libraries and AWS"
-        " Tranium and Inferentia accelerators. It provides a set of tools enabling easy model loading, training and "
+        "Optimum Neuron is the interface between the Hugging Face Transformers and Diffusers libraries and AWS "
+        "Tranium and Inferentia accelerators. It provides a set of tools enabling easy model loading, training and "
         "inference on single and multiple neuron core settings for different downstream tasks."
     ),
     long_description=open("README.md", "r", encoding="utf-8").read(),
