@@ -91,7 +91,6 @@ class NeuronCacheCallaback(TrainerCallback):
 
         # Temporary Neuron compile cache.
         self.tmp_neuron_cache, self.tmp_neuron_cache_path = self.create_temporary_neuron_cache(self.neuron_cache_path)
-        # self.tmp_neuron_cache_state = list(self.tmp_neuron_cache_path.iterdir())
         self.tmp_neuron_cache_state = list_files_in_neuron_cache(self.tmp_neuron_cache_path, only_relevant_files=True)
         self.fetch_files = set()
 
@@ -201,6 +200,7 @@ class NeuronCacheCallaback(TrainerCallback):
         return path_after_folder(path, NEURON_COMPILE_CACHE_NAME)
 
     def try_to_fetch_cached_model(self, neuron_hash: NeuronHash) -> bool:
+        # TODO: needs to be called ONLY when absolutely needed.
         files_before_fetching = list_files_in_neuron_cache(self.tmp_neuron_cache_path, only_relevant_files=True)
         cache_path = neuron_hash.cache_path
 
@@ -213,18 +213,19 @@ class NeuronCacheCallaback(TrainerCallback):
             target_directory=self.tmp_neuron_cache_path,
             path_in_repo_to_path_in_target_directory=path_in_repo_to_path_in_target_directory,
         )
-        if found_in_cache and self.use_neuron_cache:
+        if found_in_cache:
             files_after_fetching = list_files_in_neuron_cache(self.tmp_neuron_cache_path, only_relevant_files=True)
             diff = [f for f in files_after_fetching if f not in files_before_fetching]
             # The fetched files should not be synchronized with the Hub.
             self.tmp_neuron_cache_state += diff
-            for path in diff:
-                path_in_cache = self.full_path_to_path_in_cache(path)
-                path_in_original_cache = self.neuron_cache_path / path_in_cache
-                path_in_original_cache.parent.mkdir(parents=True, exist_ok=True)
-                if path_in_original_cache.exists():
-                    continue
-                shutil.copy(path, path_in_original_cache)
+            if self.use_neuron_cache:
+                for path in diff:
+                    path_in_cache = self.full_path_to_path_in_cache(path)
+                    path_in_original_cache = self.neuron_cache_path / path_in_cache
+                    path_in_original_cache.parent.mkdir(parents=True, exist_ok=True)
+                    if path_in_original_cache.exists():
+                        continue
+                    shutil.copy(path, path_in_original_cache)
 
         return found_in_cache
 

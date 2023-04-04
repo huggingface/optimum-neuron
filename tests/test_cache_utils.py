@@ -15,17 +15,16 @@
 
 import os
 import random
-import shutil
 import string
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import List, Optional, Union
+from typing import List
 from unittest import TestCase
 
 import torch
-from huggingface_hub import CommitOperationDelete, HfApi, HfFolder, create_repo, delete_repo, login
-from transformers import BertConfig, BertModel, PretrainedConfig, PreTrainedModel, set_seed
+from huggingface_hub import HfApi
+from transformers import BertConfig, BertModel, set_seed
 from transformers.testing_utils import is_staging_test
 
 from optimum.neuron.utils.cache_utils import (
@@ -41,7 +40,8 @@ from optimum.neuron.utils.cache_utils import (
     set_neuron_cache_path,
 )
 from optimum.neuron.utils.version_utils import get_neuronxcc_version
-from optimum.utils.testing_utils import TOKEN, USER
+
+from .utils import StagingTestMixin
 
 
 def get_random_string(length) -> str:
@@ -253,89 +253,14 @@ class NeuronHashTestCase(TestCase):
 
 
 @is_staging_test
-class CachedModelOnTheHubTestCase(TestCase):
-    CUSTOM_CACHE_REPO_NAME = "optimum-neuron-cache-testing"
-    CUSTOM_CACHE_REPO = f"{USER}/{CUSTOM_CACHE_REPO_NAME}"
-    CUSTOM_PRIVATE_CACHE_REPO = f"{CUSTOM_CACHE_REPO}-private"
-    _token = ""
-    MAX_NUM_LINEARS = 20
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls._token = HfFolder.get_token()
-        login(TOKEN)
-        HfFolder.save_token(TOKEN)
-        create_repo(cls.CUSTOM_CACHE_REPO, repo_type="model", exist_ok=True)
-        create_repo(cls.CUSTOM_PRIVATE_CACHE_REPO, repo_type="model", exist_ok=True, private=True)
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        login(cls._token)
-        HfFolder.save_token(cls._token)
-        delete_repo(repo_id=cls.CUSTOM_CACHE_REPO, repo_type="model")
-        delete_repo(repo_id=cls.CUSTOM_PRIVATE_CACHE_REPO, repo_type="model")
-
-    def remove_all_files_in_repo(self, repo_id: str):
-        api = HfApi()
-        filenames = api.list_repo_files(repo_id=repo_id)
-        operations = [CommitOperationDelete(path_in_repo=filename) for filename in filenames]
-        api.create_commit(
-            repo_id=repo_id,
-            operations=operations,
-            commit_message="Cleanup the repo",
-        )
-
-    def tearDown(self) -> None:
-        self.remove_all_files_in_repo(self.CUSTOM_CACHE_REPO)
-        self.remove_all_files_in_repo(self.CUSTOM_PRIVATE_CACHE_REPO)
-
-    def _create_tiny_pretrained_model(self, num_linears: int = 1, random_num_linears: bool = False):
-        # input_sizes = getattr(self, "_input_sizes", {input_size})
-        # if len(input_sizes) == self.MAX_INPUT_SIZE_ALLOWED:
-        #     raise RuntimeError(f"There are too many tests for the maximum input size allowed, please increase it.")
-
-        # if random_input_size:
-        #     while input_size in input_sizes:
-        #         input_size = random.randint(1, self.MAX_INPUT_SIZE_ALLOWED)
-
-        visited_num_linears = getattr(self, "_num_linears", {num_linears})
-        if len(visited_num_linears) == self.MAX_NUM_LINEARS:
-            raise RuntimeError(
-                f"There are too many tests for the maximum number of linears allowed ({self.MAX_NUM_LINEARS}), please "
-                "increase it."
-            )
-        if random_num_linears:
-            num_linears = random.randint(1, self.MAX_NUM_LINEARS)
-
-        class MyTinyModel(PreTrainedModel):
-            def __init__(self):
-                config = PretrainedConfig()
-                super().__init__(config)
-                self.linears = torch.nn.ModuleList([torch.nn.Linear(1, 1) for _ in range(num_linears)])
-                self.relu = torch.nn.ReLU()
-
-            def forward(self, x):
-                for lin in self.linears:
-                    x = lin(x)
-                    x = self.relu(x)
-                return x
-
-        return MyTinyModel()
-
-    def _create_and_run_tiny_pretrained_model(self, num_linears: int = 1, random_num_linears: bool = False):
-        tiny_model = self._create_tiny_pretrained_model(num_linears=num_linears, random_num_linears=random_num_linears)
-        tiny_model = tiny_model.to("xla")
-        random_input = torch.rand(1, device="xla")
-        tiny_model(random_input)
-        return tiny_model
-
+class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
     def test_push_to_hub_fails_with_private_model_and_public_repo(self):
         with TemporaryDirectory() as tmpdirname:
             set_neuron_cache_path(tmpdirname)
 
             input_shapes = (1,)
             data_type = torch.float32
-            tiny_model = self._create_and_run_tiny_pretrained_model(random_num_linears=True)
+            tiny_model = self.create_and_run_tiny_pretrained_model(random_num_linears=True)
             neuron_hash = NeuronHash(tiny_model, input_shapes, data_type)
 
             cached_files = list_files_in_neuron_cache(Path(tmpdirname) / NEURON_COMPILE_CACHE_NAME)
@@ -357,7 +282,7 @@ class CachedModelOnTheHubTestCase(TestCase):
 
             input_shapes = (1,)
             data_type = torch.float32
-            tiny_model = self._create_and_run_tiny_pretrained_model(random_num_linears=True)
+            tiny_model = self.create_and_run_tiny_pretrained_model(random_num_linears=True)
             neuron_hash = NeuronHash(tiny_model, input_shapes, data_type)
 
             cached_files = list_files_in_neuron_cache(Path(tmpdirname) / NEURON_COMPILE_CACHE_NAME)
@@ -371,7 +296,7 @@ class CachedModelOnTheHubTestCase(TestCase):
 
             input_shapes = (1,)
             data_type = torch.float32
-            tiny_model = self._create_and_run_tiny_pretrained_model(random_num_linears=True)
+            tiny_model = self.create_and_run_tiny_pretrained_model(random_num_linears=True)
             neuron_hash = NeuronHash(tiny_model, input_shapes, data_type)
 
             cache_dir = Path(tmpdirname) / NEURON_COMPILE_CACHE_NAME
@@ -412,7 +337,7 @@ class CachedModelOnTheHubTestCase(TestCase):
 
             input_shapes = (1,)
             data_type = torch.float32
-            tiny_model = self._create_and_run_tiny_pretrained_model(random_num_linears=True)
+            tiny_model = self.create_and_run_tiny_pretrained_model(random_num_linears=True)
             neuron_hash = NeuronHash(tiny_model, input_shapes, data_type)
 
             cache_dir = Path(tmpdirname) / NEURON_COMPILE_CACHE_NAME
@@ -449,37 +374,8 @@ class CachedModelOnTheHubTestCase(TestCase):
                     path_in_repo = f"{neuron_hash.cache_path}/my/another/awesome/new/path/{path_in_cache_dir}"
                     self.assertIn(path_in_repo, files_in_repo)
 
-    def _push_tiny_pretrained_model_to_hub(
-        self, repo_id: str, cache_dir: Optional[Union[str, Path]] = None
-    ) -> NeuronHash:
-        neuron_hash = None
-        os.environ["CUSTOM_CACHE_REPO"] = repo_id
-        with TemporaryDirectory() as tmpdirname:
-            set_neuron_cache_path(tmpdirname)
-
-            input_shapes = (1,)
-            data_type = torch.float32
-            tiny_model = self._create_and_run_tiny_pretrained_model(random_num_linears=True)
-            neuron_hash = NeuronHash(tiny_model, input_shapes, data_type)
-
-            tmp_cache_dir = Path(tmpdirname) / NEURON_COMPILE_CACHE_NAME
-            push_to_cache_on_hub(
-                neuron_hash,
-                tmp_cache_dir,
-            )
-
-            if cache_dir is not None:
-                for file_or_dir in tmp_cache_dir.iterdir():
-                    if file_or_dir.is_file():
-                        shutil.copy(file_or_dir, cache_dir / path_after_folder(file_or_dir, NEURON_COMPILE_CACHE_NAME))
-                    else:
-                        shutil.copytree(
-                            file_or_dir, cache_dir / path_after_folder(file_or_dir, NEURON_COMPILE_CACHE_NAME)
-                        )
-        return neuron_hash
-
     def test_download_cached_model_from_hub(self):
-        neuron_hash = self._push_tiny_pretrained_model_to_hub(self.CUSTOM_PRIVATE_CACHE_REPO)
+        neuron_hash = self.push_tiny_pretrained_model_to_hub(self.CUSTOM_PRIVATE_CACHE_REPO)
 
         neuron_cc_flags = os.environ["NEURON_CC_FLAGS"]
 
@@ -494,7 +390,7 @@ class CachedModelOnTheHubTestCase(TestCase):
 
     def test_download_cached_model_from_hub_with_target_directory(self):
         os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_PRIVATE_CACHE_REPO
-        neuron_hash = self._push_tiny_pretrained_model_to_hub(self.CUSTOM_PRIVATE_CACHE_REPO)
+        neuron_hash = self.push_tiny_pretrained_model_to_hub(self.CUSTOM_PRIVATE_CACHE_REPO)
 
         cached_model_on_the_hub = get_cached_model_on_the_hub(neuron_hash)
         if cached_model_on_the_hub is None:
@@ -525,7 +421,7 @@ class CachedModelOnTheHubTestCase(TestCase):
 
     def test_download_cached_model_from_hub_with_path_in_repo_to_path_in_target_directory(self):
         os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_PRIVATE_CACHE_REPO
-        neuron_hash = self._push_tiny_pretrained_model_to_hub(self.CUSTOM_PRIVATE_CACHE_REPO)
+        neuron_hash = self.push_tiny_pretrained_model_to_hub(self.CUSTOM_PRIVATE_CACHE_REPO)
 
         cached_model_on_the_hub = get_cached_model_on_the_hub(neuron_hash)
         if cached_model_on_the_hub is None:

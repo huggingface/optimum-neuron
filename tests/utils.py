@@ -12,6 +12,28 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Various utilities used in multiple tests."""
+
+import os
+import random
+import shutil
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from typing import Optional, Set, Union
+
+import torch
+from huggingface_hub import CommitOperationDelete, HfApi, HfFolder, create_repo, delete_repo, login
+from transformers import PretrainedConfig, PreTrainedModel
+
+from optimum.neuron.utils.cache_utils import (
+    HF_HUB_CACHE_REPOS,
+    NEURON_COMPILE_CACHE_NAME,
+    NeuronHash,
+    path_after_folder,
+    push_to_cache_on_hub,
+    set_neuron_cache_path,
+)
+from optimum.utils.testing_utils import TOKEN, USER
 
 
 MODELS_TO_TEST_MAPPING = {
@@ -33,3 +55,131 @@ MODELS_TO_TEST_MAPPING = {
     # "wav2vec2": "facebook/wav2vec2-base",
     # Remaning: XLNet, Deberta-v2, MPNet, CLIP
 }
+
+
+def create_tiny_pretrained_model(
+    num_linears: int = 1,
+    random_num_linears: bool = False,
+    max_num_linears: int = 20,
+    visited_num_linears: Optional[Set[int]] = None,
+) -> PreTrainedModel:
+    if visited_num_linears is not None:
+        if len(visited_num_linears) == max_num_linears:
+            raise RuntimeError(
+                f"There are too many tests for the maximum number of linears allowed ({max_num_linears}), please "
+                "increase it."
+            )
+    else:
+        visited_num_linears = set()
+
+    if random_num_linears:
+        num_linears = random.randint(1, max_num_linears)
+        while num_linears in visited_num_linears:
+            num_linears = random.randint(1, max_num_linears)
+        visited_num_linears.add(num_linears)
+
+    class MyTinyModel(PreTrainedModel):
+        def __init__(self):
+            config = PretrainedConfig()
+            super().__init__(config)
+            self.linears = torch.nn.ModuleList([torch.nn.Linear(1, 1) for _ in range(num_linears)])
+            self.relu = torch.nn.ReLU()
+
+        def forward(self, x):
+            for lin in self.linears:
+                x = lin(x)
+                x = self.relu(x)
+            return x
+
+    return MyTinyModel()
+
+
+class StagingTestMixin:
+    CUSTOM_CACHE_REPO_NAME = "optimum-neuron-cache-testing"
+    CUSTOM_CACHE_REPO = f"{USER}/{CUSTOM_CACHE_REPO_NAME}"
+    CUSTOM_PRIVATE_CACHE_REPO = f"{CUSTOM_CACHE_REPO}-private"
+    _token = ""
+    MAX_NUM_LINEARS = 20
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._token = HfFolder.get_token()
+        login(TOKEN)
+        HfFolder.save_token(TOKEN)
+        create_repo(cls.CUSTOM_CACHE_REPO, repo_type="model", exist_ok=True)
+        create_repo(cls.CUSTOM_PRIVATE_CACHE_REPO, repo_type="model", exist_ok=True, private=True)
+
+        # We store here which architectures we already used for compiling tiny models.
+        cls.visited_num_linears = set()
+
+        cls.original_hf_hub_repos = list(HF_HUB_CACHE_REPOS)
+        while HF_HUB_CACHE_REPOS:
+            HF_HUB_CACHE_REPOS.pop()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        login(cls._token)
+        HfFolder.save_token(cls._token)
+        delete_repo(repo_id=cls.CUSTOM_CACHE_REPO, repo_type="model")
+        delete_repo(repo_id=cls.CUSTOM_PRIVATE_CACHE_REPO, repo_type="model")
+        for repo_id in reversed(cls.original_hf_hub_repos):
+            HF_HUB_CACHE_REPOS.append(repo_id)
+
+    def remove_all_files_in_repo(self, repo_id: str):
+        api = HfApi()
+        filenames = api.list_repo_files(repo_id=repo_id)
+        operations = [CommitOperationDelete(path_in_repo=filename) for filename in filenames]
+        api.create_commit(
+            repo_id=repo_id,
+            operations=operations,
+            commit_message="Cleanup the repo",
+        )
+
+    def tearDown(self) -> None:
+        self.remove_all_files_in_repo(self.CUSTOM_CACHE_REPO)
+        self.remove_all_files_in_repo(self.CUSTOM_PRIVATE_CACHE_REPO)
+
+    def create_tiny_pretrained_model(self, num_linears: int = 1, random_num_linears: bool = False):
+        return create_tiny_pretrained_model(
+            num_linears=num_linears,
+            random_num_linears=random_num_linears,
+            visited_num_linears=self.visited_num_linears,
+        )
+
+    def create_and_run_tiny_pretrained_model(self, num_linears: int = 1, random_num_linears: bool = False):
+        tiny_model = self.create_tiny_pretrained_model(num_linears=num_linears, random_num_linears=random_num_linears)
+        tiny_model = tiny_model.to("xla")
+        random_input = torch.rand(1, device="xla")
+        tiny_model(random_input)
+        return tiny_model
+
+    def push_tiny_pretrained_model_to_hub(
+        self, repo_id: str, cache_dir: Optional[Union[str, Path]] = None
+    ) -> NeuronHash:
+        neuron_hash = None
+        orig_repo_id = os.environ["CUSTOM_CACHE_REPO"]
+        os.environ["CUSTOM_CACHE_REPO"] = repo_id
+        with TemporaryDirectory() as tmpdirname:
+            set_neuron_cache_path(tmpdirname)
+
+            input_shapes = (1,)
+            data_type = torch.float32
+            tiny_model = self.create_and_run_tiny_pretrained_model(random_num_linears=True)
+            neuron_hash = NeuronHash(tiny_model, input_shapes, data_type)
+
+            tmp_cache_dir = Path(tmpdirname) / NEURON_COMPILE_CACHE_NAME
+            push_to_cache_on_hub(
+                neuron_hash,
+                tmp_cache_dir,
+            )
+
+            if cache_dir is not None:
+                for file_or_dir in tmp_cache_dir.iterdir():
+                    if file_or_dir.is_file():
+                        shutil.copy(file_or_dir, cache_dir / path_after_folder(file_or_dir, NEURON_COMPILE_CACHE_NAME))
+                    else:
+                        shutil.copytree(
+                            file_or_dir, cache_dir / path_after_folder(file_or_dir, NEURON_COMPILE_CACHE_NAME)
+                        )
+        os.environ["CUSTOM_CACHE_REPO"] = orig_repo_id
+        return neuron_hash
