@@ -27,6 +27,8 @@ import torch
 from huggingface_hub import HfApi, HfFolder
 from huggingface_hub.utils import RepositoryNotFoundError
 
+from optimum.neuron.utils.import_utils import is_torch_xla_available
+
 from ...utils import logging
 from .version_utils import get_neuronxcc_version
 
@@ -187,7 +189,10 @@ class NeuronHash:
         return hash_dict
 
     def compute_hash(self) -> Tuple[str, str]:
+        if not is_torch_xla_available():
+            raise RuntimeError("You need to install torch_xla to be able to compute the hash.")
         import torch_xla.core.xla_model as xm
+
         if self._hash.is_empty:
             model_hash = ""
             with tempfile.TemporaryDirectory() as tmpdirname:

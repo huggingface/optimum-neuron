@@ -257,7 +257,7 @@ class NeuronCacheCallaback(TrainerCallback):
         model = kwargs["model"]
         state = self.prepare_state(state)
         neuron_hash = self.neuron_hash_for_model(args, model, state.last_inputs, try_to_fetch_cached_model=True)
-        print("NEURON_HASH", neuron_hash)
+        print("NEURON_HASH", neuron_hash.compute_hash()[1][:200])
         diff = self.synchronize_temporary_neuron_cache_state()
         self.neuron_hash_to_files[neuron_hash].extend(diff)
 
