@@ -254,6 +254,9 @@ class NeuronCacheCallaback(TrainerCallback):
         if self.use_neuron_cache:
             self._update_cache_stats(self.neuron_cache_path)
 
+        for neuron_hash in self.neuron_hash_to_files:
+            self.neuron_hash_to_files[neuron_hash] = []
+
     def on_step_end(self, args: "TrainingArguments", state: "TrainerState", control: "TrainerControl", **kwargs):
         """
         Event called at the end of a training step. If using gradient accumulation, one training step might take
