@@ -18,7 +18,7 @@ import subprocess
 import tempfile
 import unittest
 from itertools import product
-from typing import Dict
+from typing import Dict, Optional
 
 from parameterized import parameterized
 
