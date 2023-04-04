@@ -19,9 +19,10 @@ import random
 import shutil
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Optional, Set, Union
+from typing import Dict, Optional, Set, Tuple, Union
 
 import torch
+from datasets import Dataset
 from huggingface_hub import CommitOperationDelete, HfApi, HfFolder, create_repo, delete_repo, login
 from transformers import PretrainedConfig, PreTrainedModel
 
@@ -57,6 +58,14 @@ MODELS_TO_TEST_MAPPING = {
 }
 
 
+def create_dummy_dataset(input_specs: Dict[str, Tuple[int, ...]], num_examples: int) -> Dataset:
+    def gen():
+        for _ in range(num_examples):
+            yield {name: torch.rand(shape) for name, shape in input_specs.items()}
+
+    return Dataset.from_generator(gen)
+
+
 def create_tiny_pretrained_model(
     num_linears: int = 1,
     random_num_linears: bool = False,
@@ -84,12 +93,18 @@ def create_tiny_pretrained_model(
             super().__init__(config)
             self.linears = torch.nn.ModuleList([torch.nn.Linear(1, 1) for _ in range(num_linears)])
             self.relu = torch.nn.ReLU()
+            self.criterion = torch.nn.MSELoss()
 
-        def forward(self, x):
+        def forward(self, x, labels=None):
             for lin in self.linears:
                 x = lin(x)
                 x = self.relu(x)
-            return x
+            if labels is not None:
+                loss = self.criterion(x, labels)
+                outputs = (loss, x)
+            else:
+                outputs = (x,)
+            return outputs
 
     return MyTinyModel()
 

@@ -58,24 +58,16 @@ logger = logging.get_logger(__name__)
 
 @dataclass
 class NeuronTrainerState(TrainerState):
-    # last_train_inputs: Optional[Dict[str, Any]] = None
-    # last_eval_inputs: Optional[Dict[str, Any]] = None
     last_inputs: Optional[Dict[str, Any]] = None
 
     def __post_init__(self):
         super().__post_init__()
-        # if self.last_train_inputs is None:
-        #     self.last_train_inputs = {}
-        # if self.last_eval_inputs is None:
-        #     self.last_eval_inputs = {}
         if self.last_inputs is None:
             self.last_inputs = {}
 
     @classmethod
     def from_trainer_state(cls, state: TrainerState) -> "NeuronTrainerState":
         neuron_trainer_state = cls(asdict(state))
-        # neuron_trainer_state.last_train_inputs = getattr(state, "last_train_inputs", {})
-        # neuron_trainer_state.last_eval_inputs = getattr(state, "last_eval_inputs", {})
         neuron_trainer_state.last_inputs = getattr(state, "last_inputs", {})
         return neuron_trainer_state
 
@@ -265,6 +257,7 @@ class NeuronCacheCallaback(TrainerCallback):
         model = kwargs["model"]
         state = self.prepare_state(state)
         neuron_hash = self.neuron_hash_for_model(args, model, state.last_inputs, try_to_fetch_cached_model=True)
+        print("NEURON_HASH", neuron_hash)
         diff = self.synchronize_temporary_neuron_cache_state()
         self.neuron_hash_to_files[neuron_hash].extend(diff)
 
@@ -301,7 +294,8 @@ class AugmentTrainerForTrainiumMixin:
         logger.setLevel(transformers_loggers.level)
         logger.setLevel(logging.INFO)
 
-        # self.add_callback(NeuronCacheCallaback())
+        if not is_precompilation():
+            self.add_callback(NeuronCacheCallaback())
 
     def prepare_args_for_precompilation(self, args: "TrainingArguments"):
         if args.num_train_epochs != 1:
@@ -371,6 +365,7 @@ class AugmentTrainerForTrainiumMixin:
             )
         return super().get_test_dataloader(test_dataset)
 
+    # TODO: make this cleaner.
     def trigger_on_step_middle_for_neuron_cache_callback(self, model: "PreTrainedModel"):
         for callback in self.callback_handler.callbacks:
             if isinstance(callback, NeuronCacheCallaback):

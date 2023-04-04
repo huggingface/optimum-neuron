@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 
 import os
+import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
@@ -22,16 +23,17 @@ from huggingface_hub import HfApi
 from transformers import TrainingArguments
 from transformers.testing_utils import is_staging_test
 
-from optimum.neuron.trainers import NeuronCacheCallaback
+from optimum.neuron.trainers import NeuronCacheCallaback, TrainiumTrainer
 from optimum.neuron.utils.cache_utils import (
     NEURON_COMPILE_CACHE_NAME,
     NeuronHash,
+    get_neuron_cache_path,
     list_files_in_neuron_cache,
     push_to_cache_on_hub,
     set_neuron_cache_path,
 )
 
-from .utils import StagingTestMixin
+from .utils import StagingTestMixin, create_dummy_dataset, create_tiny_pretrained_model
 
 
 @is_staging_test
@@ -183,3 +185,101 @@ class NeuronCacheCallabackTestCase(StagingTestMixin, TestCase):
             files_in_cache = list_files_in_neuron_cache(callback.neuron_cache_path, only_relevant_files=True)
             self.assertNotEqual(files_in_repo, new_files_in_repo, "New files should be in the Hub.")
             self.assertNotEqual(files_in_cache, new_files_in_cache, "New files should be in the cache.")
+
+    def test_train_and_eval(self):
+        os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_PRIVATE_CACHE_REPO
+
+        # We take a batch size that does not divide the total number of samples.
+        num_train_samples = 1000
+        per_device_train_batch_size = 32
+        dummy_train_dataset = create_dummy_dataset({"x": (1,), "labels": (1,)}, num_train_samples)
+
+        # We take a batch size that does not divide the total number of samples.
+        num_eval_samples = 100
+        per_device_eval_batch_size = 16
+        dummy_eval_dataset = create_dummy_dataset({"x": (1,), "labels": (1,)}, num_eval_samples)
+
+        model = create_tiny_pretrained_model(random_num_linears=True)
+
+        with TemporaryDirectory() as tmpdirname:
+            set_neuron_cache_path(tmpdirname)
+
+            files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
+            files_in_repo = [f for f in files_in_repo if not f.startswith(".")]
+            files_in_cache = list_files_in_neuron_cache(get_neuron_cache_path(), only_relevant_files=True)
+            self.assertListEqual(files_in_repo, [], "Repo should be empty.")
+            self.assertListEqual(files_in_cache, [], "Cache should be empty.")
+
+            args = TrainingArguments(
+                tmpdirname,
+                do_train=True,
+                do_eval=True,
+                bf16=True,
+                per_device_train_batch_size=per_device_train_batch_size,
+                per_device_eval_batch_size=per_device_eval_batch_size,
+                save_steps=10,
+                num_train_epochs=2,
+            )
+            trainer = TrainiumTrainer(
+                model,
+                args,
+                train_dataset=dummy_train_dataset,
+                eval_dataset=dummy_eval_dataset,
+            )
+            start = time.time()
+            trainer.train()
+            end = time.time()
+            first_training_duration = end - start
+
+            files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
+            files_in_repo = [f for f in files_in_repo if not f.startswith(".")]
+            files_in_cache = list_files_in_neuron_cache(get_neuron_cache_path(), only_relevant_files=True)
+            self.assertNotEqual(files_in_repo, [], "Repo should not be empty after first training.")
+            self.assertNotEqual(files_in_cache, [], "Cache should not be empty after first training.")
+
+        with TemporaryDirectory() as tmpdirname:
+            set_neuron_cache_path(tmpdirname)
+
+            new_files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
+            new_files_in_repo = [f for f in new_files_in_repo if not f.startswith(".")]
+            new_files_in_cache = list_files_in_neuron_cache(get_neuron_cache_path(), only_relevant_files=True)
+            self.assertNotEqual(new_files_in_repo, [], "Repo should not be empty.")
+            self.assertListEqual(new_files_in_cache, [], "Cache should be empty.")
+
+            args = TrainingArguments(
+                tmpdirname,
+                do_train=True,
+                do_eval=True,
+                bf16=True,
+                per_device_train_batch_size=per_device_train_batch_size,
+                per_device_eval_batch_size=per_device_eval_batch_size,
+                save_steps=10,
+                num_train_epochs=2,
+            )
+            trainer = TrainiumTrainer(
+                model,
+                args,
+                train_dataset=dummy_train_dataset,
+                eval_dataset=dummy_eval_dataset,
+            )
+            start = time.time()
+            trainer.train()
+            end = time.time()
+            second_training_duration = end - start
+
+            last_files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
+            last_files_in_repo = [f for f in last_files_in_repo if not f.startswith(".")]
+            last_files_in_cache = list_files_in_neuron_cache(get_neuron_cache_path(), only_relevant_files=True)
+            self.assertListEqual(
+                files_in_repo, last_files_in_repo, "No file should have been added to the Hub after first training."
+            )
+            self.assertListEqual(
+                files_in_cache,
+                last_files_in_cache,
+                "No file should have been added to the cache after first training.",
+            )
+
+            self.assertTrue(
+                second_training_duration < first_training_duration,
+                "Second training should be faster because cached graphs can be used.",
+            )
