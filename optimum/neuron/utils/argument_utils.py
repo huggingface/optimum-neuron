@@ -89,7 +89,7 @@ def validate_arg(
 
 
 def convert_neuronx_compiler_args_to_neuron(
-    auto_cast: Optional[str] = "none",
+    auto_cast: Optional[str] = None,
     auto_cast_type: Optional[str] = None,
     disable_fast_relayout: Optional[bool] = False,
 ):
@@ -98,11 +98,12 @@ def convert_neuronx_compiler_args_to_neuron(
     """
     compiler_args = []
 
-    auto_cast = "matmult" if auto_cast == "matmul" else auto_cast
-
     if auto_cast is None:
-        return compiler_args
-    elif auto_cast in ["none", "all"]:
+        auto_cast = "none"
+    elif auto_cast == "matmul":
+        auto_cast = "matmult"
+
+    if auto_cast in ["none", "all"]:
         compiler_args.extend(["--fast-math", auto_cast])
     elif auto_cast == "matmult":
         if auto_cast_type is None:
@@ -111,7 +112,7 @@ def convert_neuronx_compiler_args_to_neuron(
             compiler_args.extend(["--fast-math", f"fp32-cast-matmult-{auto_cast_type}"])
     else:
         raise ValueError(
-            f"The auto_cast value {auto_cast} is not valid. Please use one of the following: none, all or matmult."
+            f"The auto_cast value {auto_cast} is not valid. Please use one of the following: None, all or matmul."
         )
 
     if disable_fast_relayout is True:
