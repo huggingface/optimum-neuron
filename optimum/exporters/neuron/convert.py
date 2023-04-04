@@ -207,7 +207,7 @@ def export_neuronx(
     dummy_inputs = config.generate_dummy_inputs(**input_shapes)
     logger.info(f"Using Neuron: --auto-cast {auto_cast}")
 
-    auto_cast = auto_cast + "t" if auto_cast == "matmul" else auto_cast
+    auto_cast = "matmult" if auto_cast == "matmul" else auto_cast
     compiler_args = ["--auto-cast", auto_cast]
 
     if auto_cast_type is not None:
