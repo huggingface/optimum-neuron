@@ -1,4 +1,4 @@
-name: Trainium - Run tests on a trn1.2xlarge instance
+name: Optimum Common - Tranium-dependent Tests
 
 on:
   push:

@@ -23,8 +23,10 @@ from typing import List
 from unittest import TestCase
 
 import torch
-from huggingface_hub import HfApi
+from huggingface_hub import HfApi, create_repo, delete_repo
 from transformers import BertConfig, BertModel, set_seed
+from transformers.testing_utils import TOKEN as TRANSFORMERS_TOKEN
+from transformers.testing_utils import USER as TRANSFORMERS_USER
 from transformers.testing_utils import is_staging_test
 
 from optimum.neuron.utils.cache_utils import (
@@ -41,8 +43,9 @@ from optimum.neuron.utils.cache_utils import (
 )
 from optimum.neuron.utils.testing_utils import is_trainium_test
 from optimum.neuron.utils.version_utils import get_neuronxcc_version
+from optimum.utils.testing_utils import USER
 
-from .utils import StagingTestMixin
+from .utils import MyTinyModel, StagingTestMixin
 
 
 def get_random_string(length) -> str:
@@ -376,6 +379,40 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
                     path_in_cache_dir = path_after_folder(filename, cache_dir, include_folder=True)
                     path_in_repo = f"{neuron_hash.cache_path}/my/another/awesome/new/path/{path_in_cache_dir}"
                     self.assertIn(path_in_repo, files_in_repo)
+
+    def test_push_to_hub_without_writing_rights(self):
+        with TemporaryDirectory() as tmpdirname:
+            set_neuron_cache_path(tmpdirname)
+
+            input_shapes = ((1,),)
+            data_type = torch.float32
+            tiny_model = self.create_and_run_tiny_pretrained_model(random_num_linears=True)
+            tiny_model.push_to_hub("tiny-public-model")
+            public_tiny_model = MyTinyModel.from_pretrained(f"{USER}/tiny-public-model")
+            neuron_hash = NeuronHash(public_tiny_model, input_shapes, data_type)
+
+            public_tiny_model = public_tiny_model.to("xla")
+            input_ = torch.rand((32, 1)).to("xla")
+            print(public_tiny_model(input_))
+
+            # This should work because we do have writing access to this repo.
+            os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_CACHE_REPO
+            push_to_cache_on_hub(neuron_hash, get_neuron_cache_path())
+
+            # Creating a repo under the Transformers user.
+            orig_token = self.set_hf_hub_token(TRANSFORMERS_TOKEN)
+            repo_name = "optimum-neuron-cache"
+            create_repo(repo_name, repo_type="model", exist_ok=True)
+            self.set_hf_hub_token(orig_token)
+
+            os.environ["CUSTOM_CACHE_REPO"] = f"{TRANSFORMERS_USER}/{repo_name}"
+            with self.assertLogs("optimum", "WARNING") as cm:
+                push_to_cache_on_hub(neuron_hash, get_neuron_cache_path())
+                self.assertIn("Could not push the cached model to the repo", cm.output[0])
+
+            self.set_hf_hub_token(TRANSFORMERS_TOKEN)
+            delete_repo(repo_name, repo_type="model")
+            self.set_hf_hub_token(orig_token)
 
     def test_download_cached_model_from_hub(self):
         neuron_hash = self.push_tiny_pretrained_model_to_hub(self.CUSTOM_PRIVATE_CACHE_REPO)

@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Ty
 import huggingface_hub
 import torch
 from huggingface_hub import HfApi, HfFolder
-from huggingface_hub.utils import RepositoryNotFoundError
+from huggingface_hub.utils import HfHubHTTPError, RepositoryNotFoundError
 
 from optimum.neuron.utils.import_utils import is_torch_xla_available
 
@@ -41,7 +41,7 @@ logger = logging.get_logger()
 
 
 HASH_FILE_NAME = "pytorch_model.bin"
-HF_HUB_CACHE_REPOS = ["michaelbenayoun/cache_test"]
+HF_HUB_CACHE_REPOS = ["hf-internal-testing/optimum-neuron-cache-testing"]
 
 
 def is_private_repo(repo_id: str) -> bool:
@@ -403,18 +403,30 @@ def push_to_cache_on_hub(
                 f"{local_cache_dir_or_file}"
             )
 
+    could_not_push_message = (
+        "Could not push the cached model to the repo {cache_repo_id}, most likely due to not having the write permission "
+        "for this repo. Exact error: {error}."
+    )
     if local_cache_dir_or_file.is_dir():
-        HfApi().upload_folder(
-            folder_path=local_cache_dir_or_file.as_posix(),
-            path_in_repo=path_in_repo.as_posix(),
-            repo_id=cache_repo_id,
-            repo_type="model",
-        )
+        try:
+            HfApi().upload_folder(
+                folder_path=local_cache_dir_or_file.as_posix(),
+                path_in_repo=path_in_repo.as_posix(),
+                repo_id=cache_repo_id,
+                repo_type="model",
+            )
+        except HfHubHTTPError as e:
+            # TODO: create PR when no writing rights?
+            logger.warning(could_not_push_message.format(cache_repo_id=cache_repo_id, error=e))
     else:
-        HfApi().upload_file(
-            path_or_fileobj=local_cache_dir_or_file.as_posix(),
-            path_in_repo=path_in_repo.as_posix(),
-            repo_id=cache_repo_id,
-            repo_type="model",
-        )
+        try:
+            HfApi().upload_file(
+                path_or_fileobj=local_cache_dir_or_file.as_posix(),
+                path_in_repo=path_in_repo.as_posix(),
+                repo_id=cache_repo_id,
+                repo_type="model",
+            )
+        except HfHubHTTPError as e:
+            # TODO: create PR when no writing rights?
+            logger.warning(could_not_push_message.format(cache_repo_id=cache_repo_id, error=e))
     return CachedModelOnTheHub(cache_repo_id, path_in_repo)

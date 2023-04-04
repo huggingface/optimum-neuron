@@ -66,6 +66,27 @@ def create_dummy_dataset(input_specs: Dict[str, Tuple[int, ...]], num_examples: 
     return Dataset.from_generator(gen)
 
 
+class MyTinyModel(PreTrainedModel):
+    config_class = PretrainedConfig
+
+    def __init__(self, config: PretrainedConfig):
+        super().__init__(config)
+        self.linears = torch.nn.ModuleList([torch.nn.Linear(1, 1) for _ in range(config.num_linears)])
+        self.relu = torch.nn.ReLU()
+        self.criterion = torch.nn.MSELoss()
+
+    def forward(self, x, labels=None):
+        for lin in self.linears:
+            x = lin(x)
+            x = self.relu(x)
+        if labels is not None:
+            loss = self.criterion(x, labels)
+            outputs = (loss, x)
+        else:
+            outputs = (x,)
+        return outputs
+
+
 def create_tiny_pretrained_model(
     num_linears: int = 1,
     random_num_linears: bool = False,
@@ -87,26 +108,10 @@ def create_tiny_pretrained_model(
             num_linears = random.randint(1, max_num_linears)
         visited_num_linears.add(num_linears)
 
-    class MyTinyModel(PreTrainedModel):
-        def __init__(self):
-            config = PretrainedConfig()
-            super().__init__(config)
-            self.linears = torch.nn.ModuleList([torch.nn.Linear(1, 1) for _ in range(num_linears)])
-            self.relu = torch.nn.ReLU()
-            self.criterion = torch.nn.MSELoss()
+    config = PretrainedConfig()
+    config.num_linears = num_linears
 
-        def forward(self, x, labels=None):
-            for lin in self.linears:
-                x = lin(x)
-                x = self.relu(x)
-            if labels is not None:
-                loss = self.criterion(x, labels)
-                outputs = (loss, x)
-            else:
-                outputs = (x,)
-            return outputs
-
-    return MyTinyModel()
+    return MyTinyModel(config)
 
 
 class StagingTestMixin:
@@ -117,10 +122,15 @@ class StagingTestMixin:
     MAX_NUM_LINEARS = 20
 
     @classmethod
+    def set_hf_hub_token(cls, token: str) -> str:
+        orig_token = HfFolder.get_token()
+        login(token)
+        HfFolder.save_token(token)
+        return orig_token
+
+    @classmethod
     def setUpClass(cls) -> None:
-        cls._token = HfFolder.get_token()
-        login(TOKEN)
-        HfFolder.save_token(TOKEN)
+        cls._token = cls.set_hf_hub_token(TOKEN)
         create_repo(cls.CUSTOM_CACHE_REPO, repo_type="model", exist_ok=True)
         create_repo(cls.CUSTOM_PRIVATE_CACHE_REPO, repo_type="model", exist_ok=True, private=True)
 
@@ -133,8 +143,7 @@ class StagingTestMixin:
 
     @classmethod
     def tearDownClass(cls) -> None:
-        login(cls._token)
-        HfFolder.save_token(cls._token)
+        cls.set_hf_hub_token(cls._token)
         delete_repo(repo_id=cls.CUSTOM_CACHE_REPO, repo_type="model")
         delete_repo(repo_id=cls.CUSTOM_PRIVATE_CACHE_REPO, repo_type="model")
         for repo_id in reversed(cls.original_hf_hub_repos):
