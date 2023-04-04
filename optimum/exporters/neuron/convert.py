@@ -148,10 +148,9 @@ def export(
     output: Path,
     auto_cast: Optional[str] = "none",
     auto_cast_type: Optional[str] = None,
-    **kwargs,
+    disable_fast_relayout: Optional[bool] = False,
 ) -> Tuple[List[str], List[str]]:
     if is_neuron_available():
-        disable_fast_relayout = kwargs.pop("disable_fast_relayout", False)
         return export_neuron(model, config, output, auto_cast, auto_cast_type, disable_fast_relayout)
     elif is_neuronx_available():
         return export_neuronx(model, config, output, auto_cast, auto_cast_type)
@@ -178,9 +177,9 @@ def export_neuronx(
             The Neuron configuration associated with the exported model.
         output (`Path`):
             Directory to store the exported Neuron model.
-        auto_cast (`optional[str]`, defaults to `"none"`):
+        auto_cast (`Optional[str]`, defaults to `"none"`):
             Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `"none"`, `"matmul"` or `"all"`, you should use `"none"` to disable any auto-casting, use `"matmul"` to cast FP32 matrix multiplication operations, and use `"all"` to cast all FP32 operations.
-        auto_cast_type (`optional[str]`, defaults to `None`):
+        auto_cast_type (`Optional[str]`, defaults to `None`):
             The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"` or `"tf32"`.
 
     Returns:
@@ -213,7 +212,7 @@ def export_neuronx(
     if auto_cast_type is not None:
         if auto_cast == "none":
             logger.warning(
-                f'The `auto_cast` argument is {auto_cast},  so the `auto_cast_type` {auto_cast_type} will be ignored. Set `auto_cast` as "matmult" or "all" if you want to cast some operations to {auto_cast_type} data type.'
+                f'The `auto_cast` argument is {auto_cast},  so the `auto_cast_type` {auto_cast_type} will be ignored. Set `auto_cast` as "matmul" or "all" if you want to cast some operations to {auto_cast_type} data type.'
             )
             auto_cast_type = None
         else:
@@ -244,11 +243,11 @@ def export_neuron(
             The Neuron configuration associated with the exported model.
         output (`Path`):
             Directory to store the exported Neuron model.
-        auto_cast (`optional[str]`, defaults to `"none"`):
+        auto_cast (`Optional[str]`, defaults to `"none"`):
             Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `"none"`, `"matmul"` or `"all"`, you should use `"none"` to disable any auto-casting, use `"matmul"` to cast FP32 matrix multiplication operations, and use `"all"` to cast all FP32 operations.
-        auto_cast_type (`optional[str]`, defaults to `None`):
+        auto_cast_type (`Optional[str]`, defaults to `None`):
             The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"` or `"tf32"`.
-        disable_fast_relayout (`optional[bool]`, defaults to `False`):
+        disable_fast_relayout (`Optional[bool]`, defaults to `False`):
             Whether to disable fast relayout optimization which improves performance by using the matrix multiplier for tensor transpose.
 
     Returns:
