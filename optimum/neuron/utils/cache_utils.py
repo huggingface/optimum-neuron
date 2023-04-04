@@ -24,7 +24,6 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Ty
 
 import huggingface_hub
 import torch
-import torch_xla.core.xla_model as xm
 from huggingface_hub import HfApi, HfFolder
 from huggingface_hub.utils import RepositoryNotFoundError
 
@@ -188,6 +187,7 @@ class NeuronHash:
         return hash_dict
 
     def compute_hash(self) -> Tuple[str, str]:
+        import torch_xla.core.xla_model as xm
         if self._hash.is_empty:
             model_hash = ""
             with tempfile.TemporaryDirectory() as tmpdirname:
