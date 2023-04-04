@@ -34,7 +34,7 @@ logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 
 _COMMOM_COMMANDS = {
-    "--auto_cast": ["none", "matmult", "all"],
+    "--auto_cast": ["None", "matmult", "all"],
     "--auto_cast_type": ["bf16", "fp16"],  # "tf32"
 }
 _NEURON_COMMANDS = {"--disable_fast_relayout": ["True", "False"]}
