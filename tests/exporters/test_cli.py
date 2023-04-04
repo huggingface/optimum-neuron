@@ -41,7 +41,7 @@ _NEURON_COMMANDS = {"--disable_fast_relayout": ["True", "False"]}
 _NEURONX_COMMANDS = {}
 
 
-def _get_models_to_test(export_models_dict: Dict, random_pick=1):
+def _get_models_to_test(export_models_dict: Dict, random_pick: Optional[int] = 1):
     models_to_test = []
     for model_type, model_names_tasks in export_models_dict.items():
         model_type = model_type.replace("_", "-")
