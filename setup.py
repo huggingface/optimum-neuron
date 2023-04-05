@@ -14,8 +14,7 @@ except Exception as error:
 
 INSTALL_REQUIRES = [
     "transformers >= 4.26.0",
-    # TODO: change that at optimum 1.7.4 release.
-    "optimum @ https://github.com/huggingface/optimum/archive/refs/heads/main.zip",
+    "optimum",
 ]
 
 TESTS_REQUIRE = [
