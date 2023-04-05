@@ -177,7 +177,7 @@ def export_neuronx(
             The Neuron configuration associated with the exported model.
         output (`Path`):
             Directory to store the exported Neuron model.
-        auto_cast (`Optional[str]`, defaults to `"none"`):
+        auto_cast (`Optional[str]`, defaults to `None`):
             Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `None`, `"matmul"` or `"all"`, you should use `None` to disable any auto-casting, use `"matmul"` to cast FP32 matrix multiplication operations, and use `"all"` to cast all FP32 operations.
         auto_cast_type (`Optional[str]`, defaults to `None`):
             The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"` or `"tf32"`.
