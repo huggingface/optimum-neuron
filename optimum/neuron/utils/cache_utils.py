@@ -20,7 +20,7 @@ import shutil
 import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 
 import huggingface_hub
 import torch
@@ -66,6 +66,8 @@ NEURON_COMPILE_CACHE_NAME = "neuron-compile-cache"
 
 
 def get_neuron_cache_path() -> Optional[Path]:
+    # NEURON_CC_FLAGS is the environment variable read by the neuron compiler.
+    # Among other things, this is where the cache directory is specified.
     neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
     if "--no-cache" in neuron_cc_flags:
         return None
@@ -80,6 +82,8 @@ def get_neuron_cache_path() -> Optional[Path]:
 
 
 def set_neuron_cache_path(neuron_cache_path: Union[str, Path], ignore_no_cache: bool = False):
+    # NEURON_CC_FLAGS is the environment variable read by the neuron compiler.
+    # Among other things, this is where the cache directory is specified.
     neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
     if "--no-cache" in neuron_cc_flags:
         if ignore_no_cache:
@@ -140,7 +144,7 @@ class StaticTemporaryDirectory:
             dirname = Path(dirname)
         if dirname.exists():
             raise FileExistsError(
-                f"{dirname} already exists, cannot create a static temporary directory witht this name."
+                f"{dirname} already exists, cannot create a static temporary directory with this name."
             )
         self.dirname = dirname
 
@@ -150,10 +154,6 @@ class StaticTemporaryDirectory:
 
     def __exit__(self, *exc):
         shutil.rmtree(self.dirname)
-
-
-T = TypeVar("T")
-TupleOrList = Union[Tuple[T], List[T]]
 
 
 @dataclass
