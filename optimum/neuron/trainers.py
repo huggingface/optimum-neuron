@@ -78,8 +78,7 @@ class NeuronCacheCallaback(TrainerCallback):
         # Real Neuron compile cache if it exists.
         self.neuron_cache_path = get_neuron_cache_path()
         self.use_neuron_cache = self.neuron_cache_path is not None
-        if not self.neuron_cache_path.exists():
-            self.neuron_cache_path.mkdir(parents=True)
+        self.neuron_cache_path.mkdir(parents=True, exist_ok=True)
 
         # Temporary Neuron compile cache.
         self.tmp_neuron_cache, self.tmp_neuron_cache_path = self.create_temporary_neuron_cache(self.neuron_cache_path)
@@ -226,6 +225,7 @@ class NeuronCacheCallaback(TrainerCallback):
             self.tmp_neuron_cache_path, only_relevant_files=True
         )
         diff = [p for p in current_files_in_neuron_cache if p not in self.tmp_neuron_cache_state]
+        print("diff", diff)
         self.tmp_neuron_cache_state = current_files_in_neuron_cache
         return diff
 
