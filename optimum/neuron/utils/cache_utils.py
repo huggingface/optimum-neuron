@@ -197,6 +197,7 @@ class NeuronHash:
         for name, tensor in state_dict.items():
             memfile = io.BytesIO()
             np.save(memfile, tensor.cpu().numpy())
+            # torch.save(tensor, memfile)
             bytes_to_join.append(name.encode("utf-8"))
             bytes_to_join.append(memfile.getvalue())
         return b"".join(bytes_to_join)
