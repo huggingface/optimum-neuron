@@ -14,6 +14,7 @@
 """Utilities for caching."""
 
 import hashlib
+import io
 import os
 import re
 import shutil
@@ -23,11 +24,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 
 import huggingface_hub
+import numpy as np
 import torch
 from huggingface_hub import HfApi, HfFolder
 from huggingface_hub.utils import HfHubHTTPError, RepositoryNotFoundError
-
-from optimum.neuron.utils.import_utils import is_torch_xla_available
 
 from ...utils import logging
 from .version_utils import get_neuronxcc_version
@@ -42,6 +42,9 @@ logger = logging.get_logger()
 
 HASH_FILE_NAME = "pytorch_model.bin"
 HF_HUB_CACHE_REPOS = ["hf-internal-testing/optimum-neuron-cache-testing"]
+NEURON_COMPILE_CACHE_NAME = "neuron-compile-cache"
+
+_IP_PATTERN = re.compile(r"ip-([0-9]{1,3}-){4}")
 
 
 def is_private_repo(repo_id: str) -> bool:
@@ -60,9 +63,6 @@ def get_hf_hub_cache_repos():
     if custom_cache_repo:
         hf_hub_repos = [custom_cache_repo] + hf_hub_repos
     return hf_hub_repos
-
-
-NEURON_COMPILE_CACHE_NAME = "neuron-compile-cache"
 
 
 def get_neuron_cache_path() -> Optional[Path]:
@@ -127,6 +127,10 @@ def path_after_folder(path: Path, folder: Union[str, Path], include_folder: bool
     return Path("").joinpath(*path.parts[index:])
 
 
+def remove_ip_adress_from_path(path: Path) -> Path:
+    return path.parent / re.sub(_IP_PATTERN, "", path.name)
+
+
 def compute_file_sha512_hash(filename: Union[str, Path]) -> str:
     if isinstance(filename, Path):
         filename = filename.as_posix()
@@ -188,27 +192,56 @@ class NeuronHash:
         hash_dict.pop("_hash")
         return hash_dict
 
+    def state_dict_to_bytes(self, state_dict: Dict[str, torch.Tensor]) -> bytes:
+        bytes_to_join = []
+        for name, tensor in state_dict.items():
+            memfile = io.BytesIO()
+            np.save(memfile, tensor.cpu().numpy())
+            bytes_to_join.append(name.encode("utf-8"))
+            bytes_to_join.append(memfile.getvalue())
+        return b"".join(bytes_to_join)
+
+    def compute_sha512_hash(self, *buffers: bytes) -> str:
+        hash_ = hashlib.sha512()
+        for buffer in buffers:
+            hash_.update(buffer)
+        return hash_.hexdigest()
+
     def compute_hash(self) -> Tuple[str, str]:
-        if not is_torch_xla_available():
-            raise RuntimeError("You need to install torch_xla to be able to compute the hash.")
-        import torch_xla.core.xla_model as xm
-
         if self._hash.is_empty:
-            model_hash = ""
-            with tempfile.TemporaryDirectory() as tmpdirname:
-                filename = Path(tmpdirname) / HASH_FILE_NAME
-                xm.save(self.model.state_dict(), filename)
-                model_hash = compute_file_sha512_hash(filename)
+            model_hash = self.compute_sha512_hash(self.state_dict_to_bytes(self.model.state_dict()))
 
-            overall_hash = ""
             hash_dict = self.hash_dict
-            with tempfile.TemporaryDirectory() as tmpdirname:
-                filename = Path(tmpdirname) / HASH_FILE_NAME
-                xm.save(hash_dict, filename)
-                overall_hash = compute_file_sha512_hash(filename)
+            hash_dict["model"] = model_hash
+            hash_dict["data_type"] = str(hash_dict["data_type"]).split(".")[1]
 
+            buffers = [name.encode("utf-8") + str(hash(value)).encode("utf-8") for name, value in hash_dict.items()]
+
+            overal_hash = self.compute_sha512_hash(*buffers)
             self._hash.model_hash = model_hash
-            self._hash.overall_hash = overall_hash
+            self._hash.overall_hash = overal_hash
+        # if not is_torch_xla_available():
+        #     raise RuntimeError("You need to install torch_xla to be able to compute the hash.")
+        # import torch_xla.core.xla_model as xm
+
+        # if self._hash.is_empty:
+        #     model_hash = ""
+        #     with tempfile.TemporaryDirectory() as tmpdirname:
+        #         filename = Path(tmpdirname) / HASH_FILE_NAME
+        #         xm.save(self.model.state_dict(), filename)
+        #         print(filename)
+        #         import pdb; pdb.set_trace()
+        #         model_hash = compute_file_sha512_hash(filename)
+
+        #     overall_hash = ""
+        #     hash_dict = self.hash_dict
+        #     with tempfile.TemporaryDirectory() as tmpdirname:
+        #         filename = Path(tmpdirname) / HASH_FILE_NAME
+        #         xm.save(hash_dict, filename)
+        #         overall_hash = compute_file_sha512_hash(filename)
+
+        #     self._hash.model_hash = model_hash
+        #     self._hash.overall_hash = overall_hash
 
         return self._hash.model_hash, self._hash.overall_hash
 
@@ -323,6 +356,8 @@ def download_cached_model_from_hub(
             else:
                 potential_local_path = target_directory / path_in_repo
 
+            potential_local_path = remove_ip_adress_from_path(potential_local_path)
+
             if potential_local_path.exists():
                 ignore_patterns.append(filename)
 
@@ -409,23 +444,39 @@ def push_to_cache_on_hub(
     )
     if local_cache_dir_or_file.is_dir():
         try:
-            HfApi().upload_folder(
-                folder_path=local_cache_dir_or_file.as_posix(),
-                path_in_repo=path_in_repo.as_posix(),
-                repo_id=cache_repo_id,
-                repo_type="model",
-            )
+            with tempfile.TemporaryDirectory() as tmpdirname:
+                local_anynonymous_cache_dir = remove_ip_adress_from_path(
+                    Path(tmpdirname) / local_cache_dir_or_file.name
+                )
+                shutil.copytree(local_cache_dir_or_file, tmpdirname)
+
+                for file_or_dir in sorted(local_anynonymous_cache_dir.glob("**/*"), reverse=True):
+                    anonymous_file_or_dir = remove_ip_adress_from_path(file_or_dir)
+                    if file_or_dir != anonymous_file_or_dir:
+                        shutil.move(file_or_dir, anonymous_file_or_dir)
+
+                HfApi().upload_folder(
+                    folder_path=local_anynonymous_cache_dir.as_posix(),
+                    path_in_repo=path_in_repo.as_posix(),
+                    repo_id=cache_repo_id,
+                    repo_type="model",
+                )
         except HfHubHTTPError as e:
             # TODO: create PR when no writing rights?
             logger.warning(could_not_push_message.format(cache_repo_id=cache_repo_id, error=e))
     else:
         try:
-            HfApi().upload_file(
-                path_or_fileobj=local_cache_dir_or_file.as_posix(),
-                path_in_repo=path_in_repo.as_posix(),
-                repo_id=cache_repo_id,
-                repo_type="model",
-            )
+            with tempfile.TemporaryDirectory() as tmpdirname:
+                local_anynonymous_cache_file = Path(tmpdirname) / remove_ip_adress_from_path(local_cache_dir_or_file)
+                if local_cache_dir_or_file != local_anynonymous_cache_file:
+                    shutil.copy(local_cache_dir_or_file, local_anynonymous_cache_file)
+
+                HfApi().upload_file(
+                    path_or_fileobj=local_anynonymous_cache_file.as_posix(),
+                    path_in_repo=path_in_repo.as_posix(),
+                    repo_id=cache_repo_id,
+                    repo_type="model",
+                )
         except HfHubHTTPError as e:
             # TODO: create PR when no writing rights?
             logger.warning(could_not_push_message.format(cache_repo_id=cache_repo_id, error=e))

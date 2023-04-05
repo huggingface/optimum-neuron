@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 
+import copy
 import os
 import time
 from pathlib import Path
@@ -30,6 +31,7 @@ from optimum.neuron.utils.cache_utils import (
     get_neuron_cache_path,
     list_files_in_neuron_cache,
     push_to_cache_on_hub,
+    remove_ip_adress_from_path,
     set_neuron_cache_path,
 )
 from optimum.neuron.utils.testing_utils import is_trainium_test
@@ -202,6 +204,7 @@ class NeuronCacheCallabackTestCase(StagingTestMixin, TestCase):
         dummy_eval_dataset = create_dummy_dataset({"x": (1,), "labels": (1,)}, num_eval_samples)
 
         model = create_tiny_pretrained_model(random_num_linears=True)
+        clone = copy.deepcopy(model)
 
         with TemporaryDirectory() as tmpdirname:
             set_neuron_cache_path(tmpdirname)
@@ -259,7 +262,7 @@ class NeuronCacheCallabackTestCase(StagingTestMixin, TestCase):
                 num_train_epochs=2,
             )
             trainer = TrainiumTrainer(
-                model,
+                clone,
                 args,
                 train_dataset=dummy_train_dataset,
                 eval_dataset=dummy_eval_dataset,
@@ -272,6 +275,7 @@ class NeuronCacheCallabackTestCase(StagingTestMixin, TestCase):
             last_files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
             last_files_in_repo = [f for f in last_files_in_repo if not f.startswith(".")]
             last_files_in_cache = list_files_in_neuron_cache(get_neuron_cache_path(), only_relevant_files=True)
+            last_files_in_cache = [remove_ip_adress_from_path(p) for p in last_files_in_cache]
             self.assertListEqual(
                 files_in_repo, last_files_in_repo, "No file should have been added to the Hub after first training."
             )
