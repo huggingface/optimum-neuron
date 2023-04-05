@@ -46,10 +46,11 @@ from optimum.neuron.utils.version_utils import get_neuronxcc_version
 
 # Use that once optimum==1.7.4 is released.
 # from optimum.utils.testing_utils import USER
-
 from .utils import MyTinyModel, StagingTestMixin
 
+
 USER = "__DUMMY_OPTIMUM_USER__"
+
 
 def get_random_string(length) -> str:
     letters = string.ascii_lowercase

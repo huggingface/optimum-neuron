@@ -64,12 +64,10 @@ jobs:
           python-version: 3.9
       - name: Install Python dependencies
         run: pip install .[tests]
-      - name: Test something
-        run: python -c "import optimum.onnxruntime; import optimum.neuron; print(optimum.onnxruntime.__file__); print(optimum.neuron.__file__)"
-      - name: Run tests that need neuron cores 
-        run: pytest -m "is_trainium_test" tests/
-      - name: Run staging tests that need neuron cores 
-        run: HUGGINGFACE_CO_STAGING=1 pytest -m "is_trainium_test and is_staging_test" tests/
+      - name: Run tests on neuron cores
+        run: pytest -m "is_trainium_test" tests/test_*.py
+      - name: Run staging tests on neuron cores 
+        run: HUGGINGFACE_CO_STAGING=1 pytest -m "is_trainium_test and is_staging_test" tests/test_*.py
   stop-runner:
     name: Stop self-hosted EC2 runner
     needs:

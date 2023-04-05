@@ -45,5 +45,5 @@ jobs:
     - name: Test with unittest
       shell: bash
       run: |
-        pytest -m "not is_trainium_test" tests
+        pytest -m "not is_trainium_test and not is_inferentia_test" tests
         

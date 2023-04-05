@@ -29,6 +29,7 @@ from optimum.exporters.neuron.model_configs import (
     FlaubertNeuronConfig,
     XLMNeuronConfig,
 )
+from optimum.neuron.utils.testing_utils import is_inferentia_test
 
 
 EXPORT_MODELS_TINY = {
@@ -61,6 +62,7 @@ def _get_models_to_test(export_models_dict: Dict):
     return sorted(models_to_test)
 
 
+@is_inferentia_test
 class NeuronXExportTestCase(TestCase):
     """
     Integration tests ensuring supported models are correctly exported.
