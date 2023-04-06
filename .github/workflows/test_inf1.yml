@@ -54,7 +54,7 @@ jobs:
         uses: actions/checkout@v2
       - name: Install dependencies
         run: |
-          python -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
+          pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
           pip install .[neuron,tests]
       - name: Test
         run: |
@@ -67,6 +67,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       AWS_REGION: us-east-1
+    if: ${{ always() }} # required to stop the runner even if the error happened in the previous jobs
     steps:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v1
