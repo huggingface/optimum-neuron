@@ -43,7 +43,22 @@ jobs:
               {"Key": "Name", "Value": "ec2-optimum-github-runner"},
               {"Key": "GitHubRepository", "Value": "${{ github.repository }}"}
             ]
-
+  do-the-job:
+    name: Run INF1 tests
+    needs: start-runner # required to start the main job when the runner is ready
+    runs-on: ${{ needs.start-runner.outputs.label }} # run the job on the newly created runner
+    env:
+      AWS_REGION: us-east-1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Install dependencies
+        run: |
+          python -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
+          pip install .[neuron,tests]
+      - name: Test
+        run: |
+          pytest tests/exporters/*
   stop-runner:
     name: Stop self-hosted EC2 runner
     needs:
