@@ -6,10 +6,6 @@ on:
   pull_request:
     branches: [ main ]
 
-permissions:
-  id-token: write
-  contents: read
-
 jobs:
   start-runner:
     name: Start self-hosted EC2 runner
@@ -20,18 +16,16 @@ jobs:
       EC2_INSTANCE_TYPE: inf1.6xlarge
       EC2_SUBNET_ID: subnet-859322b4,subnet-b7533b96,subnet-47cfad21,subnet-a396b2ad,subnet-06576a4b,subnet-df0f6180
       EC2_SECURITY_GROUP: sg-0bb210cd3ec725a13
-      EC2_IAM_ROLE: GitHub_Action_Role
+      EC2_IAM_ROLE: optimum-ec2-github-actions-role
     outputs:
       label: ${{ steps.start-ec2-runner.outputs.label }}
       ec2-instance-id: ${{ steps.start-ec2-runner.outputs.ec2-instance-id }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
+        uses: aws-actions/configure-aws-credentials@v1
         with:
-          role-to-assume: arn:aws:iam::754289655784:role/GitHub_Action_Role
-          role-session-name: optimum-neuron-inf1-session
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
       - name: Start EC2 runner
         id: start-ec2-runner
