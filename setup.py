@@ -14,7 +14,7 @@ except Exception as error:
 
 INSTALL_REQUIRES = [
     "transformers >= 4.26.0",
-    "optimum",
+    "optimum @ git+https://github.com/huggingface/optimum.git",
 ]
 
 TESTS_REQUIRE = [
@@ -29,6 +29,7 @@ TESTS_REQUIRE = [
 QUALITY_REQUIRES = [
     "black",
     "ruff",
+    "isort",
     "hf_doc_builder @ git+https://github.com/huggingface/doc-builder.git",
 ]
 
@@ -70,4 +71,5 @@ setup(
     extras_require=EXTRAS_REQUIRE,
     include_package_data=True,
     zip_safe=False,
+    entry_points={"console_scripts": ["optimum-cli=optimum.commands.optimum_cli:main"]},
 )
