@@ -44,7 +44,7 @@ jobs:
               {"Key": "GitHubRepository", "Value": "${{ github.repository }}"}
             ]
 
- stop-runner:
+  stop-runner:
     name: Stop self-hosted EC2 runner
     needs:
       - start-runner # required to get output from the start-runner job
