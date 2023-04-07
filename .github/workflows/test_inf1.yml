@@ -54,15 +54,12 @@ jobs:
         uses: actions/checkout@v2
       - name: Install dependencies
         run: |
-          sudo apt-get install -y python3.8-venv g++ 
-          python3.8 -m venv aws_neuron_venv_pytorch 
-          source aws_neuron_venv_pytorch/bin/activate 
-          python -m pip install -U pip 
-          python -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
-          python -m pip install .[neuron,tests]
+          python3.8 -m pip install -U pip 
+          python3.8 -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
+          python3.8 -m pip install .[neuron,tests]
       - name: Test
         run: |
-          python -m pytest tests/exporters/test_*
+          python3.8 -m pytest tests/exporters/test_*
   stop-runner:
     name: Stop self-hosted EC2 runner
     needs:
