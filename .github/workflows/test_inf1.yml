@@ -59,7 +59,6 @@ jobs:
       - name: check neuron
         run: |
           python3.8 -m pip show neuron-cc
-          python --version
       - name: check neuron
         run: |
           neuron-top
