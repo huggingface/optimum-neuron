@@ -32,7 +32,8 @@ EXPORT_MODELS_TINY = {
     },  # Failed for DistilBERT: https://github.com/aws-neuron/aws-neuron-sdk/issues/645
     "electra": "hf-internal-testing/tiny-random-ElectraModel",
     "flaubert": "hf-internal-testing/tiny-random-flaubert",
-    "mobilebert": {"hf-internal-testing/tiny-random-MobileBertModel": [
+    "mobilebert": {
+        "hf-internal-testing/tiny-random-MobileBertModel": [
             "masked-lm",
             "sequence-classification",
             "token-classification",
