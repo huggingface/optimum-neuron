@@ -58,7 +58,7 @@ jobs:
           pip install .[neuron,tests]
       - name: Test
         run: |
-          pytest tests/exporters/*
+          pytest tests/exporters/test_*
   stop-runner:
     name: Stop self-hosted EC2 runner
     needs:
