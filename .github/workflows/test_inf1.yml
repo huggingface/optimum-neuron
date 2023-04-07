@@ -56,15 +56,9 @@ jobs:
         run: |
           python3.8 -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
           python3.8 -m pip install .[neuron,tests]
-      - name: check neuron
-        run: |
-          python3.8 -m pip show neuron-cc
-      - name: check neuron
-        run: |
-          neuron-top
       - name: Test
         run: |
-          pytest tests/exporters/test_*
+          python3.8 -m pytest tests/exporters/test_*
   stop-runner:
     name: Stop self-hosted EC2 runner
     needs:
