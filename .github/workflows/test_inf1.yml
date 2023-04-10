@@ -67,6 +67,7 @@ jobs:
         run: |
           python3.8 -m pip install -U pip 
           python3.8 -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
+          python3.8 -m pip install torch-neuron==1.12.1.* neuron-cc[tensorflow] "protobuf" torchvision
           python3.8 -m pip install .[neuron,tests]
       - name: Test
         run: |
