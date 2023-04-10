@@ -74,7 +74,8 @@ jobs:
           sudo cp /tmp/oci-add-hooks/oci-add-hooks /usr/local/bin/
       - name: Setup docker
         run: |
-          sudo apt install containerd
+          sudo apt-get upgrade
+          sudo apt install -y containerd
           sudo apt install -y docker.io
           sudo usermod -aG docker $USER
           sudo cp /opt/aws/neuron/share/docker-daemon.json /etc/docker/daemon.json
