@@ -54,12 +54,16 @@ jobs:
         uses: actions/checkout@v2
       - name: Install dependencies
         run: |
+          sudo yum remove aws-neuron-dkms
+          sudo yum remove aws-neuron-tools
+          sudo yum install aws-neuronx-dkms
+          sudo yum install aws-neuronx-tools
           python3.7 -m venv aws_neuron_venv_pytorch 
           source aws_neuron_venv_pytorch/bin/activate
           python -m pip install -U pip
           python -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
           python -m pip install torch-neuron==1.12.1.* neuron-cc[tensorflow] "protobuf" torchvision
-          python -m pip install -U .[tests]
+          python -m pip install .[tests]
           python -m pytest tests/exporters/test_*
   stop-runner:
     name: Stop self-hosted EC2 runner
