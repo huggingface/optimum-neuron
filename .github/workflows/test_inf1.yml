@@ -74,7 +74,7 @@ jobs:
           sudo cp /tmp/oci-add-hooks/oci-add-hooks /usr/local/bin/
       - name: Setup docker
         run: |
-          sudo apt-get upgrade
+          sudo apt-get -y upgrade 
           sudo apt install -y containerd
           sudo apt install -y docker.io
           sudo usermod -aG docker $USER
