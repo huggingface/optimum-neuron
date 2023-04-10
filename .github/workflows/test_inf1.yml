@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       AWS_REGION: us-east-1
-      EC2_AMI_ID: ami-0dc1c26161f869ed1
+      EC2_AMI_ID: ami-0eeed82b7eb12c7ca
       EC2_INSTANCE_TYPE: inf1.24xlarge
       EC2_SUBNET_ID: subnet-859322b4,subnet-b7533b96,subnet-47cfad21,subnet-a396b2ad,subnet-06576a4b,subnet-df0f6180
       EC2_SECURITY_GROUP: sg-0bb210cd3ec725a13
@@ -52,39 +52,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v2
-      - name: Docker env setup
+      - name: Install dependencies
         run: |
-          . /etc/os-release
-          sudo tee /etc/apt/sources.list.d/neuron.list > /dev/null <<EOF
-          deb https://apt.repos.neuron.amazonaws.com ${VERSION_CODENAME} main
-          EOF
-          wget -qO - https://apt.repos.neuron.amazonaws.com/GPG-PUB-KEY-AMAZON-AWS-NEURON.PUB | sudo apt-key add -
-          sudo apt-get update -y
-          sudo apt-get install linux-headers-$(uname -r) -y
-          sudo apt-get install aws-neuron-dkms -y
-          sudo apt-get install aws-neuron-runtime-base -y
-      - name: Install oci-add-hooks
-        run: |
-          sudo apt install -y golang && export GOCACHE=/root/go/cache && export GOPATH=$HOME/go
-          go get github.com/joeshaw/json-lossless
-          cd /tmp/
-          git clone https://github.com/awslabs/oci-add-hooks
-          cd /tmp/oci-add-hooks
-          make build
-          sudo cp /tmp/oci-add-hooks/oci-add-hooks /usr/local/bin/
-      - name: Setup docker
-        run: |
-          sudo apt install -y containerd
-          sudo apt install -y docker.io
-          sudo usermod -aG docker $USER
-          sudo cp /opt/aws/neuron/share/docker-daemon.json /etc/docker/daemon.json
-          sudo service docker restart
-      - name: Build image
-        run: |
-          docker build -f tests/exporters/docker/Dockerfile -t neuron-inf1 .
-      - name: Test image
-        run: |
-          docker run --env AWS_NEURON_VISIBLE_DEVICES="0"  neuron-inf1 neuron-ls
+          sudo yum install -y python3.7-venv gcc-c++ 
+          python3.7 -m venv aws_neuron_venv_pytorch 
+          source aws_neuron_venv_pytorch/bin/activate
+          pip install ipykernel 
+          python3.7 -m ipykernel install --user --name aws_neuron_venv_pytorch --display-name "Python (torch-neuron)"
+          pip install jupyter notebook
+          pip install environment_kernels
+          python -m pip install -U pip
+          python -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
+          python -m pip install torch-neuron==1.12.1.* neuron-cc[tensorflow] "protobuf" torchvision
+          python -m pip install -U .[neuron,tests]
+          python -m pytest tests/exporters/test_*
   stop-runner:
     name: Stop self-hosted EC2 runner
     needs:
