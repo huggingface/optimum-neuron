@@ -65,13 +65,12 @@ jobs:
           sudo apt-get install aws-neuron-runtime-base -y
       - name: Install oci-add-hooks
         run: |
-          sudo apt install -y golang && \
-          export GOPATH=$HOME/go && \
-          go get github.com/joeshaw/json-lossless && \
-          cd /tmp/ && \
-          git clone https://github.com/awslabs/oci-add-hooks && \
-          cd /tmp/oci-add-hooks && \
-          make build && \
+          sudo apt install -y golang && export GOPATH=$HOME/go
+          go get github.com/joeshaw/json-lossless
+          cd /tmp/
+          git clone https://github.com/awslabs/oci-add-hooks
+          cd /tmp/oci-add-hooks
+          make build
           sudo cp /tmp/oci-add-hooks/oci-add-hooks /usr/local/bin/
       - name: Setup docker
         run: |
