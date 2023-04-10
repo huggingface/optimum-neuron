@@ -52,7 +52,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v2
-      - name: Docker Env Setup
+      - name: Docker env setup
         run: |
           . /etc/os-release
           sudo tee /etc/apt/sources.list.d/neuron.list > /dev/null <<EOF
@@ -63,15 +63,28 @@ jobs:
           sudo apt-get install linux-headers-$(uname -r) -y
           sudo apt-get install aws-neuron-dkms -y
           sudo apt-get install aws-neuron-runtime-base -y
-      - name: Install dependencies
+      - name: Install oci-add-hooks
         run: |
-          python3.8 -m pip install -U pip 
-          python3.8 -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
-          python3.8 -m pip install torch-neuron==1.12.1.* neuron-cc[tensorflow] "protobuf" torchvision
-          python3.8 -m pip install .[neuron,tests]
-      - name: Test
+          sudo apt install -y golang && \
+          export GOPATH=$HOME/go && \
+          go get github.com/joeshaw/json-lossless && \
+          cd /tmp/ && \
+          git clone https://github.com/awslabs/oci-add-hooks && \
+          cd /tmp/oci-add-hooks && \
+          make build && \
+          sudo cp /tmp/oci-add-hooks/oci-add-hooks /usr/local/bin/
+      - name: Setup docker
         run: |
-          python3.8 -m pytest tests/exporters/test_*
+          sudo apt install -y docker.io
+          sudo usermod -aG docker $USER
+          sudo cp /opt/aws/neuron/share/docker-daemon.json /etc/docker/daemon.json
+          sudo service docker restart
+      - name: Build image
+        run: |
+          docker build -f tests/exporters/docker/Dockerfile -t neuron-inf1 .
+      - name: Test image
+        run: |
+          docker run --env AWS_NEURON_VISIBLE_DEVICES="0"  neuron-inf1 neuron-ls
   stop-runner:
     name: Stop self-hosted EC2 runner
     needs:
