@@ -52,6 +52,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v2
+      - name: Docker Env Setup
+        run: |
+          . /etc/os-release
+          sudo tee /etc/apt/sources.list.d/neuron.list > /dev/null <<EOF
+          deb https://apt.repos.neuron.amazonaws.com ${VERSION_CODENAME} main
+          EOF
+          wget -qO - https://apt.repos.neuron.amazonaws.com/GPG-PUB-KEY-AMAZON-AWS-NEURON.PUB | sudo apt-key add -
+          sudo apt-get update -y
+          sudo apt-get install linux-headers-$(uname -r) -y
+          sudo apt-get install aws-neuron-dkms -y
+          sudo apt-get install aws-neuron-runtime-base -y
       - name: Install dependencies
         run: |
           python3.8 -m pip install -U pip 
