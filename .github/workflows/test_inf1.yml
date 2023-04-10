@@ -65,7 +65,7 @@ jobs:
           sudo apt-get install aws-neuron-runtime-base -y
       - name: Install oci-add-hooks
         run: |
-          sudo apt install -y golang && export GOPATH=$HOME/go
+          sudo apt install -y golang && export GOCACHE=/root/go/cache && export GOPATH=$HOME/go
           go get github.com/joeshaw/json-lossless
           cd /tmp/
           git clone https://github.com/awslabs/oci-add-hooks
