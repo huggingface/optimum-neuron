@@ -48,6 +48,7 @@ class AlbertNeuronConfig(BertNeuronConfig):
     pass
 
 
+# Failed for INF2
 # Issue: https://github.com/aws-neuron/aws-neuron-sdk/issues/641
 # @register_in_tasks_manager("convbert", *COMMON_TEXT_TASKS)
 # class ConvBertNeuronConfig(BertNeuronConfig):
@@ -67,7 +68,7 @@ class FlaubertNeuronConfig(ElectraNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-1
 
 
-@register_in_tasks_manager("mobilebert", *COMMON_TEXT_TASKS)
+@register_in_tasks_manager("mobilebert", *COMMON_TEXT_TASKS.remove("default"))
 class MobileBertNeuronConfig(BertNeuronConfig):
     pass
 
@@ -82,7 +83,8 @@ class XLMNeuronConfig(ElectraNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-1
 
 
-@register_in_tasks_manager("distilbert", *COMMON_TEXT_TASKS)
+# https://github.com/aws-neuron/aws-neuron-sdk/issues/645
+@register_in_tasks_manager("distilbert", *COMMON_TEXT_TASKS.remove("multiple-choice"))
 class DistilBertNeuronConfig(BertNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-4
 
@@ -105,32 +107,34 @@ class CamembertNeuronConfig(BertNeuronConfig):
         return ["input_ids", "attention_mask"]
 
 
-@register_in_tasks_manager("mpnet", *COMMON_TEXT_TASKS)
+@register_in_tasks_manager("mpnet", *COMMON_TEXT_TASKS.remove("default"))
 class MPNetNeuronConfig(CamembertNeuronConfig):
     pass
 
 
-@register_in_tasks_manager("roberta", *COMMON_TEXT_TASKS)
+@register_in_tasks_manager("roberta", *COMMON_TEXT_TASKS.remove("default"))
 class RobertaNeuronConfig(CamembertNeuronConfig):
     pass
 
 
-@register_in_tasks_manager("xlm-roberta", *COMMON_TEXT_TASKS)
+@register_in_tasks_manager("xlm-roberta", *COMMON_TEXT_TASKS.remove("default"))
 class XLMRobertaNeuronConfig(CamembertNeuronConfig):
     pass
 
 
-@register_in_tasks_manager("deberta", *COMMON_TEXT_TASKS)
-class DebertaNeuronConfig(BertNeuronConfig):
-    @property
-    def inputs(self) -> List[str]:
-        common_inputs = super().inputs
-        if self._config.type_vocab_size == 0:
-            # We remove token type ids.
-            common_inputs.pop(-1)
-        return common_inputs
+# Failed for INF1: 'XSoftmax'
+# @register_in_tasks_manager("deberta", *COMMON_TEXT_TASKS)
+# class DebertaNeuronConfig(BertNeuronConfig):
+#     @property
+#     def inputs(self) -> List[str]:
+#         common_inputs = super().inputs
+#         if self._config.type_vocab_size == 0:
+#             # We remove token type ids.
+#             common_inputs.pop(-1)
+#         return common_inputs
 
 
-@register_in_tasks_manager("deberta-v2", *COMMON_TEXT_TASKS)
-class DebertaV2NeuronConfig(DebertaNeuronConfig):
-    pass
+# Failed for INF1: 'XSoftmax'
+# @register_in_tasks_manager("deberta-v2", *COMMON_TEXT_TASKS)
+# class DebertaV2NeuronConfig(DebertaNeuronConfig):
+#     pass

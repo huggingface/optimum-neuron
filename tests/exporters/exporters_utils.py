@@ -32,38 +32,10 @@ EXPORT_MODELS_TINY = {
     },  # Failed for DistilBERT: https://github.com/aws-neuron/aws-neuron-sdk/issues/645
     "electra": "hf-internal-testing/tiny-random-ElectraModel",
     "flaubert": "hf-internal-testing/tiny-random-flaubert",
-    "mobilebert": {
-        "hf-internal-testing/tiny-random-MobileBertModel": [
-            "masked-lm",
-            "sequence-classification",
-            "token-classification",
-            "question-answering",
-        ],
-    },
-    "mpnet": {
-        "hf-internal-testing/tiny-random-MPNetModel": [
-            "masked-lm",
-            "sequence-classification",
-            "token-classification",
-            "question-answering",
-        ],
-    },
-    "roberta": {
-        "hf-internal-testing/tiny-random-RobertaModel": [
-            "masked-lm",
-            "sequence-classification",
-            "token-classification",
-            "question-answering",
-        ],
-    },
+    "mobilebert": "hf-internal-testing/tiny-random-MobileBertModel",
+    "mpnet": "hf-internal-testing/tiny-random-MPNetModel",
+    "roberta": "hf-internal-testing/tiny-random-RobertaModel",
     "roformer": "hf-internal-testing/tiny-random-RoFormerModel",
     "xlm": "hf-internal-testing/tiny-random-XLMModel",
-    "xlm-roberta": {
-        "hf-internal-testing/tiny-xlm-roberta": [
-            "masked-lm",
-            "sequence-classification",
-            "token-classification",
-            "question-answering",
-        ]
-    },
+    "xlm-roberta": "hf-internal-testing/tiny-xlm-roberta",
 }
