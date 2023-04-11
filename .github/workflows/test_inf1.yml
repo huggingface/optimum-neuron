@@ -64,8 +64,7 @@ jobs:
           source aws_neuron_venv_pytorch/bin/activate
           python -m pip install -U pip
           python -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
-          python -m pip install torch-neuron==1.12.1.* neuron-cc[tensorflow] "protobuf" torchvision
-          python -m pip install .[tests]
+          python -m pip install .[neuron,tests]
       - name: Run tests
         run: |
           python -m pytest tests/exporters/test_*
