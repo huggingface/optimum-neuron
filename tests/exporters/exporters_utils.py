@@ -21,15 +21,7 @@ EXPORT_MODELS_TINY = {
     # "convbert": "hf-internal-testing/tiny-random-ConvBertModel",  # Failed for INF2
     # "deberta": "hf-internal-testing/tiny-random-DebertaModel",  # Failed for INF1: 'XSoftmax'
     # "deberta-v2": "hf-internal-testing/tiny-random-DebertaV2Model",  # Failed for INF1: 'XSoftmax'
-    "distilbert": {
-        "hf-internal-testing/tiny-random-DistilBertModel": [
-            "default",
-            "masked-lm",
-            "sequence-classification",
-            "token-classification",
-            "question-answering",
-        ]
-    },  # Failed for DistilBERT: https://github.com/aws-neuron/aws-neuron-sdk/issues/645
+    "distilbert": "hf-internal-testing/tiny-random-DistilBertModel",
     "electra": "hf-internal-testing/tiny-random-ElectraModel",
     "flaubert": "hf-internal-testing/tiny-random-flaubert",
     "mobilebert": "hf-internal-testing/tiny-random-MobileBertModel",
