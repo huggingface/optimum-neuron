@@ -54,10 +54,10 @@ jobs:
         uses: actions/checkout@v2
       - name: Install dependencies
         run: |
-          sudo yum remove aws-neuron-dkms
-          sudo yum remove aws-neuron-tools
-          sudo yum install aws-neuronx-dkms
-          sudo yum install aws-neuronx-tools
+          sudo yum remove aws-neuron-dkms -y
+          sudo yum remove aws-neuron-tools -y
+          sudo yum install aws-neuronx-dkms -y
+          sudo yum install aws-neuronx-tools -y
           python3.7 -m venv aws_neuron_venv_pytorch 
           source aws_neuron_venv_pytorch/bin/activate
           python -m pip install -U pip
