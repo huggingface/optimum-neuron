@@ -18,6 +18,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import torch
+from transformers import PreTrainedModel
 
 from optimum.exporters.base import ExportConfig
 
@@ -209,13 +210,13 @@ class NeuronConfig(ExportConfig, ABC):
         """
         return self._TASK_TO_COMMON_OUTPUTS[self.task]
 
-    def generate_dummy_inputs(self, return_tuple=True, **kwargs) -> Union[Dict[str, "torch.Tensor"], Tuple]:
+    def generate_dummy_inputs(self, return_tuple=False, **kwargs) -> Union[Dict[str, "torch.Tensor"], Tuple]:
         """
         Generates dummy inputs that the exported model should be able to process.
         This method is actually used to determine the input specs and their static shapes that are needed for the export.
 
         Returns:
-            `Dict[str, tf.Tensor]`: A dictionary mapping input names to dummy tensors.
+            `Dict[str, torch.Tensor]`: A dictionary mapping input names to dummy tensors.
         """
         dummy_inputs_generators = self._create_dummy_input_generator_classes(**kwargs)
         dummy_inputs = {}
@@ -237,3 +238,31 @@ class NeuronConfig(ExportConfig, ABC):
             return tuple(dummy_inputs.values())
         else:
             return dummy_inputs
+
+    def check_model_inputs_order(
+        self,
+        model: "PreTrainedModel",
+        dummy_inputs: Dict[str, torch.Tensor],
+    ):
+        """
+        Checks if inputs order of the model's forward pass correspond to the generated dummy inputs to ensure the dummy inputs tuple used for
+        tracing are under the correct order.
+        """
+
+        class ModelWrapper(PreTrainedModel):
+            def __init__(self, model: "PreTrainedModel", config: "PretrainedConfig", input_names: List[str]):
+                super().__init__(config)
+                self.model = model
+                self.input_names = input_names
+
+            def forward(self, *input):
+                if len(input) != len(self.input_names):
+                    raise ValueError(
+                        f"The model needs {len(self.input_names)} inputs: {self.input_names}."
+                        f" But only {len(input)} inputs are passed."
+                    )
+
+                ordered_inputs = dict(zip(self.input_names, input))
+                return self.model(**ordered_inputs)
+
+        return ModelWrapper(model, model.config, list(dummy_inputs.keys()))

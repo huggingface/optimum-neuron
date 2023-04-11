@@ -64,7 +64,7 @@ class ElectraNeuronConfig(BertNeuronConfig):
 
 @register_in_tasks_manager("flaubert", *COMMON_TEXT_TASKS)
 class FlaubertNeuronConfig(ElectraNeuronConfig):
-    ATOL_FOR_VALIDATION = 1e-1
+    pass
 
 
 @register_in_tasks_manager("mobilebert", *COMMON_TEXT_TASKS)
@@ -79,7 +79,7 @@ class RoFormerNeuronConfig(ElectraNeuronConfig):
 
 @register_in_tasks_manager("xlm", *COMMON_TEXT_TASKS)
 class XLMNeuronConfig(ElectraNeuronConfig):
-    ATOL_FOR_VALIDATION = 1e-1
+    pass
 
 
 @register_in_tasks_manager("distilbert", *COMMON_TEXT_TASKS)
