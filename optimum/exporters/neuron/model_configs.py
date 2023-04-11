@@ -68,7 +68,7 @@ class FlaubertNeuronConfig(ElectraNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-1
 
 
-@register_in_tasks_manager("mobilebert", *COMMON_TEXT_TASKS.remove("default"))
+@register_in_tasks_manager("mobilebert", *[task for task in COMMON_TEXT_TASKS if task != "default"])
 class MobileBertNeuronConfig(BertNeuronConfig):
     pass
 
@@ -84,7 +84,7 @@ class XLMNeuronConfig(ElectraNeuronConfig):
 
 
 # https://github.com/aws-neuron/aws-neuron-sdk/issues/645
-@register_in_tasks_manager("distilbert", *COMMON_TEXT_TASKS.remove("multiple-choice"))
+@register_in_tasks_manager("distilbert", *[task for task in COMMON_TEXT_TASKS if task != "multiple-choice"])
 class DistilBertNeuronConfig(BertNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-4
 
@@ -107,17 +107,17 @@ class CamembertNeuronConfig(BertNeuronConfig):
         return ["input_ids", "attention_mask"]
 
 
-@register_in_tasks_manager("mpnet", *COMMON_TEXT_TASKS.remove("default"))
+@register_in_tasks_manager("mpnet", *[task for task in COMMON_TEXT_TASKS if task != "default"])
 class MPNetNeuronConfig(CamembertNeuronConfig):
     pass
 
 
-@register_in_tasks_manager("roberta", *COMMON_TEXT_TASKS.remove("default"))
+@register_in_tasks_manager("roberta", *[task for task in COMMON_TEXT_TASKS if task != "default"])
 class RobertaNeuronConfig(CamembertNeuronConfig):
     pass
 
 
-@register_in_tasks_manager("xlm-roberta", *COMMON_TEXT_TASKS.remove("default"))
+@register_in_tasks_manager("xlm-roberta", *[task for task in COMMON_TEXT_TASKS if task != "default"])
 class XLMRobertaNeuronConfig(CamembertNeuronConfig):
     pass
 
