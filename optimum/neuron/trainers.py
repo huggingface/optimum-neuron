@@ -79,9 +79,11 @@ class AugmentTrainerForTrainiumMixin:
         logger.setLevel(transformers_loggers.level)
         logger.setLevel(logging.INFO)
 
-        if not is_precompilation() and self.args.local_rank == 0:
+        if not is_precompilation():
             callback = NeuronCacheCallaback(
-                tmp_neuron_cache=_TMP_NEURON_CACHE_DIR, original_neuron_cache_path=_ORIGINAL_NEURON_CACHE_PATH
+                tmp_neuron_cache=_TMP_NEURON_CACHE_DIR,
+                original_neuron_cache_path=_ORIGINAL_NEURON_CACHE_PATH,
+                only_do_fetching=self.args.local_rank != 0,
             )
             self.add_callback(callback)
 

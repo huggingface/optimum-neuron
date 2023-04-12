@@ -163,6 +163,7 @@ class TrainiumTrainerTestCase(StagingTestMixin, TestCase):
                 "--save_steps=10",
                 "--max_steps=100" "--do_train",
                 "--do_eval",
+                "--bf16",
             ]
 
             start = time.time()
@@ -205,6 +206,7 @@ class TrainiumTrainerTestCase(StagingTestMixin, TestCase):
                 "--save_steps=10",
                 "--max_steps=100" "--do_train",
                 "--do_eval",
+                "--bf16",
             ]
 
             start = time.time()

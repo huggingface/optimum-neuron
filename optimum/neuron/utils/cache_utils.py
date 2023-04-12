@@ -189,6 +189,8 @@ class NeuronHash:
     def hash_dict(self) -> Dict[str, Any]:
         hash_dict = asdict(self)
         hash_dict["model"] = hash_dict["model"].state_dict()
+        hash_dict["_model_class"] = self.model.__class__
+        hash_dict["_is_model_training"] = self.model.training
         hash_dict.pop("_hash")
         return hash_dict
 
@@ -216,7 +218,7 @@ class NeuronHash:
             hash_dict["model"] = model_hash
             hash_dict["data_type"] = str(hash_dict["data_type"]).split(".")[1]
 
-            buffers = [name.encode("utf-8") + str(hash(value)).encode("utf-8") for name, value in hash_dict.items()]
+            buffers = [name.encode("utf-8") + str(value).encode("utf-8") for name, value in hash_dict.items()]
 
             overal_hash = self.compute_sha512_hash(*buffers)
             self._hash.model_hash = model_hash
