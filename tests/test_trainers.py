@@ -14,23 +14,19 @@
 
 import copy
 import os
+import subprocess
 import time
-from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
 
-import torch
 from huggingface_hub import HfApi
 from transformers import TrainingArguments
 from transformers.testing_utils import is_staging_test
 
-from optimum.neuron.trainers import NeuronCacheCallaback, TrainiumTrainer
+from optimum.neuron.trainers import TrainiumTrainer
 from optimum.neuron.utils.cache_utils import (
-    NEURON_COMPILE_CACHE_NAME,
-    NeuronHash,
     get_neuron_cache_path,
     list_files_in_neuron_cache,
-    push_to_cache_on_hub,
     remove_ip_adress_from_path,
     set_neuron_cache_path,
 )
@@ -41,155 +37,7 @@ from .utils import StagingTestMixin, create_dummy_dataset, create_tiny_pretraine
 
 @is_trainium_test
 @is_staging_test
-class NeuronCacheCallabackTestCase(StagingTestMixin, TestCase):
-    def test_neuron_hash_for_model(self):
-        with TemporaryDirectory() as tmpdirname:
-            args = TrainingArguments(tmpdirname)
-        model = self.create_tiny_pretrained_model(random_num_linears=True)
-        inputs = {
-            "x": torch.rand((1,)),
-        }
-
-        callback = NeuronCacheCallaback()
-
-        # We first check that no hashes is in the hash cache already.
-        self.assertFalse(callback.neuron_hashes)
-
-        callback.neuron_hash_for_model(args, model, inputs)
-        neuron_hash = callback.neuron_hashes[(model, (tuple(inputs["x"].shape),), torch.float32)]
-
-        same_neuron_hash = callback.neuron_hash_for_model(args, model, inputs)
-
-        self.assertEqual(neuron_hash, same_neuron_hash, "Neuron hashes should be equal")
-        self.assertEqual(len(callback.neuron_hashes.keys()), 1, "There should be only one entry in neuron_hashes.")
-
-    def test_try_to_fetch_cached_model(self):
-        os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_PRIVATE_CACHE_REPO
-        model = self.create_tiny_pretrained_model(random_num_linears=True).to("xla")
-
-        with TemporaryDirectory() as tmpdirname:
-            set_neuron_cache_path(tmpdirname)
-            args = TrainingArguments(tmpdirname)
-            inputs = {"x": torch.rand((8, 1)).to("xla")}
-            model(**inputs)
-            neuron_hash = NeuronHash(model, ((8, 1),), torch.float32)
-            push_to_cache_on_hub(neuron_hash, Path(tmpdirname) / NEURON_COMPILE_CACHE_NAME)
-
-        with TemporaryDirectory() as tmpdirname:
-            set_neuron_cache_path(tmpdirname)
-            callback = NeuronCacheCallaback()
-            args = TrainingArguments(tmpdirname)
-            inputs = {"x": torch.rand((24, 1))}
-            neuron_hash = callback.neuron_hash_for_model(args, model, inputs)
-
-            found_in_cache = callback.try_to_fetch_cached_model(neuron_hash)
-            self.assertFalse(found_in_cache, "No model should have been fetched.")
-
-            inputs = {"x": torch.rand((8, 1))}
-            neuron_hash = callback.neuron_hash_for_model(args, model, inputs)
-
-            files_before_fetching = list_files_in_neuron_cache(
-                callback.tmp_neuron_cache_path, only_relevant_files=True
-            )
-            tmp_neuron_cache_state = list(callback.tmp_neuron_cache_state)
-            neuron_cache_state = list_files_in_neuron_cache(Path(tmpdirname), only_relevant_files=True)
-
-            found_in_cache = callback.try_to_fetch_cached_model(neuron_hash)
-            self.assertTrue(found_in_cache, "A model should have been fetched.")
-
-            files_after_fetching = list_files_in_neuron_cache(callback.tmp_neuron_cache_path, only_relevant_files=True)
-            new_tmp_neuron_cache_state = list(callback.tmp_neuron_cache_state)
-            new_neuron_cache_state = list_files_in_neuron_cache(Path(tmpdirname), only_relevant_files=True)
-
-            files_diff = [f for f in files_after_fetching if f not in files_before_fetching]
-            state_diff = [f for f in new_tmp_neuron_cache_state if f not in tmp_neuron_cache_state]
-            neuron_cache_files_diff = [f for f in new_neuron_cache_state if f not in neuron_cache_state]
-
-            self.assertNotEqual(files_diff, [])
-            self.assertListEqual(files_diff, state_diff)
-            self.assertEqual(len(files_diff), len(neuron_cache_files_diff))
-
-    def test_synchronize_temporary_neuron_cache_state(self):
-        with TemporaryDirectory() as tmpdirname:
-            set_neuron_cache_path(tmpdirname)
-            callback = NeuronCacheCallaback()
-
-            diff = callback.synchronize_temporary_neuron_cache_state()
-            self.assertListEqual(diff, [], "The diff should be empty.")
-
-            model = self.create_tiny_pretrained_model(random_num_linears=True).to("xla")
-            inputs = {"x": torch.rand((8, 1)).to("xla")}
-            # No compilation happens if not printing for some reason...
-            print(model(**inputs))
-            diff = callback.synchronize_temporary_neuron_cache_state()
-            self.assertNotEqual(diff, [], "The diff should not be empty.")
-
-            diff = callback.synchronize_temporary_neuron_cache_state()
-            self.assertListEqual(
-                diff, [], "The diff should be empty because nothing happened since last synchronization"
-            )
-
-    def test_synchronize_temporary_neuron_cache(self):
-        os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_PRIVATE_CACHE_REPO
-        model = self.create_tiny_pretrained_model(random_num_linears=True).to("xla")
-
-        with TemporaryDirectory() as tmpdirname:
-            set_neuron_cache_path(tmpdirname)
-            args = TrainingArguments(tmpdirname)
-            callback = NeuronCacheCallaback()
-
-            callback.synchronize_temporary_neuron_cache()
-            files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
-            files_in_repo = [f for f in files_in_repo if not f.startswith(".")]
-            files_in_cache = list_files_in_neuron_cache(callback.neuron_cache_path, only_relevant_files=True)
-            self.assertListEqual(files_in_repo, [], "Repo should be empty.")
-            self.assertListEqual(files_in_cache, [], "Cache should be empty.")
-
-            # Running some compilation.
-            inputs = {"x": torch.rand((8, 1)).to("xla")}
-            print(model(**inputs))
-
-            neuron_hash = callback.neuron_hash_for_model(args, model, inputs)
-            diff = callback.synchronize_temporary_neuron_cache_state()
-            callback.neuron_hash_to_files[neuron_hash].extend(diff)
-
-            callback.synchronize_temporary_neuron_cache()
-            files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
-            files_in_repo = [f for f in files_in_repo if not f.startswith(".")]
-            files_in_cache = list_files_in_neuron_cache(callback.neuron_cache_path, only_relevant_files=True)
-            self.assertNotEqual(files_in_repo, [], "Repo should not be empty.")
-            self.assertNotEqual(files_in_cache, [], "Cache should not be empty.")
-
-            # Using the same inputs, nothing should be uploaded.
-            inputs = {"x": torch.rand((8, 1)).to("xla")}
-            print(model(**inputs))
-
-            neuron_hash = callback.neuron_hash_for_model(args, model, inputs)
-            diff = callback.synchronize_temporary_neuron_cache_state()
-            callback.neuron_hash_to_files[neuron_hash].extend(diff)
-
-            callback.synchronize_temporary_neuron_cache()
-            new_files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
-            new_files_in_repo = [f for f in new_files_in_repo if not f.startswith(".")]
-            new_files_in_cache = list_files_in_neuron_cache(callback.neuron_cache_path, only_relevant_files=True)
-            self.assertListEqual(files_in_repo, new_files_in_repo, "No new file should be in the Hub.")
-            self.assertListEqual(files_in_cache, new_files_in_cache, "No new file should be in the cache.")
-
-            # New shahpe, should upload.
-            inputs = {"x": torch.rand((24, 1)).to("xla")}
-            print(model(**inputs))
-
-            neuron_hash = callback.neuron_hash_for_model(args, model, inputs)
-            diff = callback.synchronize_temporary_neuron_cache_state()
-            callback.neuron_hash_to_files[neuron_hash].extend(diff)
-
-            callback.synchronize_temporary_neuron_cache()
-            files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
-            files_in_repo = [f for f in files_in_repo if not f.startswith(".")]
-            files_in_cache = list_files_in_neuron_cache(callback.neuron_cache_path, only_relevant_files=True)
-            self.assertNotEqual(files_in_repo, new_files_in_repo, "New files should be in the Hub.")
-            self.assertNotEqual(files_in_cache, new_files_in_cache, "New files should be in the cache.")
-
+class TrainiumTrainerTestCase(StagingTestMixin, TestCase):
     def test_train_and_eval(self):
         os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_PRIVATE_CACHE_REPO
 
@@ -271,6 +119,105 @@ class NeuronCacheCallabackTestCase(StagingTestMixin, TestCase):
             trainer.train()
             end = time.time()
             second_training_duration = end - start
+
+            last_files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
+            last_files_in_repo = [f for f in last_files_in_repo if not f.startswith(".")]
+            last_files_in_cache = list_files_in_neuron_cache(get_neuron_cache_path(), only_relevant_files=True)
+            last_files_in_cache = [remove_ip_adress_from_path(p) for p in last_files_in_cache]
+            self.assertListEqual(
+                files_in_repo, last_files_in_repo, "No file should have been added to the Hub after first training."
+            )
+            self.assertListEqual(
+                files_in_cache,
+                last_files_in_cache,
+                "No file should have been added to the cache after first training.",
+            )
+
+            self.assertTrue(
+                second_training_duration < first_training_duration,
+                "Second training should be faster because cached graphs can be used.",
+            )
+
+    def train_and_eval_multiple_workers(self):
+        os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_PRIVATE_CACHE_REPO
+
+        with TemporaryDirectory() as tmpdirname:
+            set_neuron_cache_path(tmpdirname)
+
+            files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
+            files_in_repo = [f for f in files_in_repo if not f.startswith(".")]
+            files_in_cache = list_files_in_neuron_cache(get_neuron_cache_path(), only_relevant_files=True)
+            self.assertListEqual(files_in_repo, [], "Repo should be empty.")
+            self.assertListEqual(files_in_cache, [], "Cache should be empty.")
+
+            cmd = [
+                "torchrun",
+                "--nproc_per_node=2",
+                "examples/text-classification/run_glue.py",
+                "--model_name_or_path hf-internal-testing/tiny-random-bert",
+                "--task_name=sst2",
+                "--per_device_train_batch_size= 8",
+                "--per_device_eval_batch_size=8",
+                f"--output_dir={tmpdirname}",
+                "--save_strategy=steps",
+                "--save_steps=10",
+                "--max_steps=100" "--do_train",
+                "--do_eval",
+            ]
+
+            start = time.time()
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            end = time.time()
+            first_training_duration = end - start
+
+            _, stderr = proc.communicate()
+            stderr = stderr.decode("utf-8")
+            if stderr:
+                print(stderr)
+
+            self.assertEqual(proc.returncode, 0, "The first torchrun training command failed.")
+
+            files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
+            files_in_repo = [f for f in files_in_repo if not f.startswith(".")]
+            files_in_cache = list_files_in_neuron_cache(get_neuron_cache_path(), only_relevant_files=True)
+            self.assertNotEqual(files_in_repo, [], "Repo should not be empty after first training.")
+            self.assertNotEqual(files_in_cache, [], "Cache should not be empty after first training.")
+
+        with TemporaryDirectory() as tmpdirname:
+            set_neuron_cache_path(tmpdirname)
+
+            new_files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
+            new_files_in_repo = [f for f in new_files_in_repo if not f.startswith(".")]
+            new_files_in_cache = list_files_in_neuron_cache(get_neuron_cache_path(), only_relevant_files=True)
+            self.assertNotEqual(new_files_in_repo, [], "Repo should not be empty.")
+            self.assertListEqual(new_files_in_cache, [], "Cache should be empty.")
+
+            cmd = [
+                "torchrun",
+                "--nproc_per_node=2",
+                "examples/text-classification/run_glue.py",
+                "--model_name_or_path hf-internal-testing/tiny-random-bert",
+                "--task_name=sst2",
+                "--per_device_train_batch_size= 8",
+                "--per_device_eval_batch_size=8",
+                f"--output_dir={tmpdirname}",
+                "--save_strategy=steps",
+                "--save_steps=10",
+                "--max_steps=100" "--do_train",
+                "--do_eval",
+            ]
+
+            start = time.time()
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            end = time.time()
+            second_training_duration = end - start
+
+            _, stderr = proc.communicate()
+            stderr = stderr.decode("utf-8")
+            if stderr:
+                print(stderr)
+
+            self.assertEqual(proc.returncode, 0, "The second torchrun training command failed.")
 
             last_files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
             last_files_in_repo = [f for f in last_files_in_repo if not f.startswith(".")]

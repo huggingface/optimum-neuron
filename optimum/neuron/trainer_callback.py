@@ -62,21 +62,25 @@ class NeuronTrainerState(TrainerState):
 
 
 class NeuronCacheCallaback(TrainerCallback):
-    def __init__(self, tmp_neuron_cache: Optional[TemporaryDirectory] = None):
+    def __init__(
+        self, tmp_neuron_cache: Optional[TemporaryDirectory] = None, original_neuron_cache_path: Optional[Path] = None
+    ):
         super().__init__()
 
         # Real Neuron compile cache if it exists.
-        self.neuron_cache_path = get_neuron_cache_path()
+        if original_neuron_cache_path is None:
+            self.neuron_cache_path = get_neuron_cache_path()
+        else:
+            self.neuron_cache_path = original_neuron_cache_path
         self.use_neuron_cache = self.neuron_cache_path is not None
         self.neuron_cache_path.mkdir(parents=True, exist_ok=True)
 
         # Temporary Neuron compile cache.
         if tmp_neuron_cache is None:
-            self.tmp_neuron_cache, self.tmp_neuron_cache_path = self.create_temporary_neuron_cache(
-                self.neuron_cache_path
-            )
+            self.tmp_neuron_cache = self.create_temporary_neuron_cache(self.neuron_cache_path)
         else:
-            self.tmp_neuron_cache, self.tmp_neuron_cache_path = tmp_neuron_cache, Path(tmp_neuron_cache.name)
+            self.tmp_neuron_cache = tmp_neuron_cache
+        self.tmp_neuron_cache_path = Path(self.tmp_neuron_cache.name) / NEURON_COMPILE_CACHE_NAME
         self.tmp_neuron_cache_state = list_files_in_neuron_cache(self.tmp_neuron_cache_path, only_relevant_files=True)
         self.fetch_files = set()
 
@@ -126,7 +130,7 @@ class NeuronCacheCallaback(TrainerCallback):
             json.dump(cache_stats, fp)
 
     @classmethod
-    def create_temporary_neuron_cache(cls, neuron_cache_path: Optional[Path]) -> Tuple[TemporaryDirectory, Path]:
+    def create_temporary_neuron_cache(cls, neuron_cache_path: Optional[Path]) -> TemporaryDirectory:
         tmp_neuron_cache = TemporaryDirectory()
         tmp_neuron_cache_path = Path(tmp_neuron_cache.name)
         if neuron_cache_path is not None:
@@ -158,7 +162,7 @@ class NeuronCacheCallaback(TrainerCallback):
             with open(tmp_neuron_cache_path / "cache_stats.json", "w") as fp:
                 json.dump(cache_stats, fp)
 
-        return tmp_neuron_cache, tmp_neuron_cache_path
+        return tmp_neuron_cache
 
     def neuron_hash_for_model(
         self,

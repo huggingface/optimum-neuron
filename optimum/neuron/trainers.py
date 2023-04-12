@@ -14,6 +14,7 @@
 """Defines Trainer subclasses to perform training on AWS Trainium instances."""
 
 import os
+from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
@@ -41,15 +42,16 @@ if TYPE_CHECKING:
 logger = logging.get_logger(__name__)
 
 
+# Used for torch.distributed.
+_ORIGINAL_NEURON_CACHE_PATH: Optional[Path] = None
 _TMP_NEURON_CACHE_DIR: Optional[TemporaryDirectory] = None
 
 if os.environ.get("TORCHELASTIC_RUN_ID"):
     import torch_xla.distributed.xla_backend as xbn
 
     if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
-        _TMP_NEURON_CACHE_DIR, tmp_neuron_cache_path = NeuronCacheCallaback.create_temporary_neuron_cache(
-            get_neuron_cache_path()
-        )
+        _ORIGINAL_NEURON_CACHE_PATH = get_neuron_cache_path()
+        _TMP_NEURON_CACHE_DIR = NeuronCacheCallaback.create_temporary_neuron_cache(get_neuron_cache_path())
         torch.distributed.init_process_group(backend="xla")
         if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
             raise AssertionError("Failed to initialize torch.distributed process group using XLA backend.")
@@ -78,7 +80,9 @@ class AugmentTrainerForTrainiumMixin:
         logger.setLevel(logging.INFO)
 
         if not is_precompilation() and self.args.local_rank == 0:
-            callback = NeuronCacheCallaback(tmp_neuron_cache=_TMP_NEURON_CACHE_DIR)
+            callback = NeuronCacheCallaback(
+                tmp_neuron_cache=_TMP_NEURON_CACHE_DIR, original_neuron_cache_path=_ORIGINAL_NEURON_CACHE_PATH
+            )
             self.add_callback(callback)
 
     def prepare_args_for_precompilation(self, args: "TrainingArguments"):
