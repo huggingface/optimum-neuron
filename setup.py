@@ -13,7 +13,7 @@ except Exception as error:
 
 
 INSTALL_REQUIRES = [
-    "transformers >= 4.26.0",
+    "transformers >= 4.28.0",
     "optimum @ git+https://github.com/huggingface/optimum.git",
 ]
 

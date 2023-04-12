@@ -255,6 +255,10 @@ class NeuronCacheCallaback(TrainerCallback):
         for neuron_hash in self.neuron_hash_to_files:
             self.neuron_hash_to_files[neuron_hash] = []
 
+    def on_step_middle(self, args: "TrainingArguments", state: TrainerState, control: "TrainerControl", **kwargs):
+        model = kwargs["model"]
+        self.neuron_hash_for_model(args, model, state.last_inputs, try_to_fetch_cached_model=True)
+
     def on_step_end(self, args: "TrainingArguments", state: "TrainerState", control: "TrainerControl", **kwargs):
         """
         Event called at the end of a training step. If using gradient accumulation, one training step might take
@@ -267,6 +271,12 @@ class NeuronCacheCallaback(TrainerCallback):
             diff = self.synchronize_temporary_neuron_cache_state()
             self.neuron_hash_to_files[neuron_hash].extend(diff)
 
+    def on_prediction_step(self, args: "TrainingArguments", state: TrainerState, control: "TrainerControl", **kwargs):
+        """
+        Event called after a prediction step.
+        """
+        self.on_step_end(args, state, control, **kwargs)
+
     def on_save(self, args: "TrainingArguments", state: TrainerState, control: "TrainerControl", **kwargs):
         """
         Event called after a checkpoint save.
@@ -274,6 +284,20 @@ class NeuronCacheCallaback(TrainerCallback):
         if not self.only_do_fetching:
             self.synchronize_temporary_neuron_cache()
 
-    def on_step_middle(self, args: "TrainingArguments", state: TrainerState, control: "TrainerControl", **kwargs):
-        model = kwargs["model"]
-        self.neuron_hash_for_model(args, model, state.last_inputs, try_to_fetch_cached_model=True)
+    def on_train_end(self, args: "TrainingArguments", state: TrainerState, control: "TrainerControl", **kwargs):
+        """
+        Event called at the end of training.
+        """
+        self.on_save(args, state, control, **kwargs)
+
+    def on_evaluate(self, args: "TrainingArguments", state: TrainerState, control: "TrainerControl", **kwargs):
+        """
+        Event called after an evaluation phase.
+        """
+        self.on_save(args, state, control, **kwargs)
+
+    def on_predict(self, args: "TrainingArguments", state: TrainerState, control: "TrainerControl", metrics, **kwargs):
+        """
+        Event called after a successful prediction.
+        """
+        self.on_save(args, state, control, **kwargs)

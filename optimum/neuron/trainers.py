@@ -39,8 +39,11 @@ if TYPE_CHECKING:
     from transformers import PreTrainedModel, TrainingArguments
 
 
-logger = logging.get_logger(__name__)
+logger = logging.get_logger("transformers.trainer")
 
+KEEP_HF_HUB_PROGRESS_BARS = os.environ.get("KEEP_HF_HUB_PROGRESS_BARS")
+if KEEP_HF_HUB_PROGRESS_BARS is None:
+    os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
 
 # Used for torch.distributed.
 _ORIGINAL_NEURON_CACHE_PATH: Optional[Path] = None
@@ -75,9 +78,8 @@ class AugmentTrainerForTrainiumMixin:
         prepare_environment_for_neuron()
         super().__init__(*args, **kwargs)
 
-        transformers_loggers = logging.get_logger("transformers.trainer")
-        logger.setLevel(transformers_loggers.level)
-        logger.setLevel(logging.INFO)
+        if self.args.local_rank == 0:
+            logger.setLevel(logging.INFO)
 
         if not is_precompilation():
             callback = NeuronCacheCallaback(
