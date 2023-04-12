@@ -23,12 +23,12 @@ from .config import TextEncoderNeuronConfig
 
 
 COMMON_TEXT_TASKS = [
-    "default",
-    "masked-lm",
-    "sequence-classification",
+    "feature-extraction",
+    "fill-mask",
     "multiple-choice",
-    "token-classification",
     "question-answering",
+    "text-classification",
+    "token-classification",
 ]
 register_in_tasks_manager = TasksManager.create_register("neuron")
 
@@ -58,7 +58,7 @@ class AlbertNeuronConfig(BertNeuronConfig):
 class ElectraNeuronConfig(BertNeuronConfig):
     @property
     def outputs(self) -> List[str]:
-        self._TASK_TO_COMMON_OUTPUTS["default"] = ["last_hidden_state"]
+        self._TASK_TO_COMMON_OUTPUTS["feature-extraction"] = ["last_hidden_state"]
         return self._TASK_TO_COMMON_OUTPUTS[self.task]
 
 
@@ -92,7 +92,7 @@ class DistilBertNeuronConfig(BertNeuronConfig):
 
     @property
     def outputs(self) -> List[str]:
-        self._TASK_TO_COMMON_OUTPUTS["default"] = ["last_hidden_state"]
+        self._TASK_TO_COMMON_OUTPUTS["feature-extraction"] = ["last_hidden_state"]
         return self._TASK_TO_COMMON_OUTPUTS[self.task]
 
 

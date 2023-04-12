@@ -23,9 +23,9 @@ EXPORT_MODELS_TINY = {
     # "deberta-v2": "hf-internal-testing/tiny-random-DebertaV2Model",  # Failed for INF1: 'XSoftmax'
     "distilbert": {
         "hf-internal-testing/tiny-random-DistilBertModel": [
-            "default",
-            "masked-lm",
-            "sequence-classification",
+            "feature-extraction",
+            "fill-mask",
+            "text-classification",
             "token-classification",
             "question-answering",
         ]
@@ -39,9 +39,9 @@ EXPORT_MODELS_TINY = {
     "xlm": "hf-internal-testing/tiny-random-XLMModel",
     "xlm-roberta": {
         "hf-internal-testing/tiny-xlm-roberta": [
-            "default",
-            "masked-lm",
-            "sequence-classification",
+            "feature-extraction",
+            "fill-mask",
+            "text-classification",
             "token-classification",
             "question-answering",
         ]
