@@ -59,7 +59,7 @@ class NeuronConfig(ExportConfig, ABC):
     Args:
         config (`transformers.PretrainedConfig`):
             The model configuration.
-        task (`str`, defaults to `"default"`):
+        task (`str`, defaults to `"feature-extraction"`):
             The task the model should be exported for.
 
         The rest of the arguments are used to specify the shape of the inputs the model can take.
@@ -72,20 +72,20 @@ class NeuronConfig(ExportConfig, ABC):
     MANDATORY_AXES = ()
 
     _TASK_TO_COMMON_OUTPUTS = {
-        "default": ["last_hidden_state", "pooler_output"],
+        "feature-extraction": ["last_hidden_state", "pooler_output"],
+        "fill-mask": ["logits"],
         "image-classification": ["logits"],
         "image-segmentation": ["logits", "pred_boxes", "pred_masks"],
         "masked-im": ["logits"],
-        "masked-lm": ["logits"],
         "multiple-choice": ["logits"],
         "object-detection": ["logits", "pred_boxes"],
         "question-answering": ["start_logits", "end_logits"],
         "semantic-segmentation": ["logits"],
-        "sequence-classification": ["logits"],
+        "text-classification": ["logits"],
         "token-classification": ["logits"],
         "audio-classification": ["logits"],
         "audio-frame-classification": ["logits"],
-        "audio-ctc": ["logits"],
+        "automatic-speech-recognition": ["logits"],
         "audio-xvector": ["logits"],
     }
 
