@@ -41,7 +41,10 @@ logger = logging.get_logger()
 
 
 HASH_FILE_NAME = "pytorch_model.bin"
-HF_HUB_CACHE_REPOS = ["hf-internal-testing/optimum-neuron-cache-testing"]
+if os.environ.get("HUGGINGFACE_CO_STAGING") == "1":
+    HF_HUB_CACHE_REPOS = []
+else:
+    HF_HUB_CACHE_REPOS = ["hf-internal-testing/optimum-neuron-cache-testing"]
 NEURON_COMPILE_CACHE_NAME = "neuron-compile-cache"
 
 _IP_PATTERN = re.compile(r"ip-([0-9]{1,3}-){4}")

@@ -17,6 +17,7 @@
 import os
 import random
 import shutil
+import string
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Dict, Optional, Set, Tuple, Union
@@ -27,7 +28,6 @@ from huggingface_hub import CommitOperationDelete, HfApi, HfFolder, create_repo,
 from transformers import PretrainedConfig, PreTrainedModel
 
 from optimum.neuron.utils.cache_utils import (
-    HF_HUB_CACHE_REPOS,
     NEURON_COMPILE_CACHE_NAME,
     NeuronHash,
     path_after_folder,
@@ -65,6 +65,11 @@ MODELS_TO_TEST_MAPPING = {
     # "wav2vec2": "facebook/wav2vec2-base",
     # Remaning: XLNet, Deberta-v2, MPNet, CLIP
 }
+
+
+def get_random_string(length) -> str:
+    letters = string.ascii_lowercase
+    return "".join(random.choice(letters) for _ in range(length))
 
 
 def create_dummy_dataset(input_specs: Dict[str, Tuple[int, ...]], num_examples: int) -> Dataset:
@@ -146,17 +151,17 @@ class StagingTestMixin:
         # We store here which architectures we already used for compiling tiny models.
         cls.visited_num_linears = set()
 
-        cls.original_hf_hub_repos = list(HF_HUB_CACHE_REPOS)
-        while HF_HUB_CACHE_REPOS:
-            HF_HUB_CACHE_REPOS.pop()
+        # cls.original_hf_hub_repos = list(HF_HUB_CACHE_REPOS)
+        # while HF_HUB_CACHE_REPOS:
+        #     HF_HUB_CACHE_REPOS.pop()
 
     @classmethod
     def tearDownClass(cls) -> None:
         cls.set_hf_hub_token(cls._token)
         delete_repo(repo_id=cls.CUSTOM_CACHE_REPO, repo_type="model")
         delete_repo(repo_id=cls.CUSTOM_PRIVATE_CACHE_REPO, repo_type="model")
-        for repo_id in reversed(cls.original_hf_hub_repos):
-            HF_HUB_CACHE_REPOS.append(repo_id)
+        # for repo_id in reversed(cls.original_hf_hub_repos):
+        #     HF_HUB_CACHE_REPOS.append(repo_id)
 
     def remove_all_files_in_repo(self, repo_id: str):
         api = HfApi()
