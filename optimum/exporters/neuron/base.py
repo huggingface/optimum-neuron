@@ -241,7 +241,7 @@ class NeuronConfig(ExportConfig, ABC):
 
     def check_model_inputs_order(
         self,
-        model: "PreTrainedModel",
+        model: PreTrainedModel,
         dummy_inputs: Dict[str, torch.Tensor],
     ):
         """
@@ -250,7 +250,7 @@ class NeuronConfig(ExportConfig, ABC):
         """
 
         class ModelWrapper(PreTrainedModel):
-            def __init__(self, model: "PreTrainedModel", config: "PretrainedConfig", input_names: List[str]):
+            def __init__(self, model: PreTrainedModel, config: "PretrainedConfig", input_names: List[str]):
                 super().__init__(config)
                 self.model = model
                 self.input_names = input_names
