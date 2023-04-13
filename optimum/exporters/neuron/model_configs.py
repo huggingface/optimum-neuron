@@ -59,7 +59,8 @@ class AlbertNeuronConfig(BertNeuronConfig):
 class ElectraNeuronConfig(BertNeuronConfig):
     @property
     def outputs(self) -> List[str]:
-        self._TASK_TO_COMMON_OUTPUTS["feature-extraction"] = ["last_hidden_state"]
+        if self.task == "feature-extraction":
+            return ["last_hidden_state"]
         return self._TASK_TO_COMMON_OUTPUTS[self.task]
 
 
@@ -93,7 +94,8 @@ class DistilBertNeuronConfig(BertNeuronConfig):
 
     @property
     def outputs(self) -> List[str]:
-        self._TASK_TO_COMMON_OUTPUTS["feature-extraction"] = ["last_hidden_state"]
+        if self.task == "feature-extraction":
+            return ["last_hidden_state"]
         return self._TASK_TO_COMMON_OUTPUTS[self.task]
 
 
