@@ -67,7 +67,7 @@ class NeuronCacheCallabackTestCase(StagingTestMixin, TestCase):
             set_neuron_cache_path(tmpdirname)
             args = TrainingArguments(tmpdirname)
             inputs = {"x": torch.rand((8, 1)).to("xla")}
-            model(**inputs)
+            print(model(**inputs))
             neuron_hash = NeuronHash(model, ((8, 1),), torch.float32)
             push_to_cache_on_hub(neuron_hash, Path(tmpdirname) / NEURON_COMPILE_CACHE_NAME)
 
@@ -150,6 +150,7 @@ class NeuronCacheCallabackTestCase(StagingTestMixin, TestCase):
             callback.neuron_hash_to_files[neuron_hash].extend(diff)
 
             callback.synchronize_temporary_neuron_cache()
+
             files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
             files_in_repo = [f for f in files_in_repo if not f.startswith(".")]
             files_in_cache = list_files_in_neuron_cache(callback.neuron_cache_path, only_relevant_files=True)
@@ -165,6 +166,7 @@ class NeuronCacheCallabackTestCase(StagingTestMixin, TestCase):
             callback.neuron_hash_to_files[neuron_hash].extend(diff)
 
             callback.synchronize_temporary_neuron_cache()
+
             new_files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
             new_files_in_repo = [f for f in new_files_in_repo if not f.startswith(".")]
             new_files_in_cache = list_files_in_neuron_cache(callback.neuron_cache_path, only_relevant_files=True)
@@ -180,6 +182,7 @@ class NeuronCacheCallabackTestCase(StagingTestMixin, TestCase):
             callback.neuron_hash_to_files[neuron_hash].extend(diff)
 
             callback.synchronize_temporary_neuron_cache()
+
             files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
             files_in_repo = [f for f in files_in_repo if not f.startswith(".")]
             files_in_cache = list_files_in_neuron_cache(callback.neuron_cache_path, only_relevant_files=True)

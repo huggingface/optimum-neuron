@@ -39,6 +39,7 @@ from optimum.neuron.utils.cache_utils import (
     list_files_in_neuron_cache,
     path_after_folder,
     push_to_cache_on_hub,
+    remove_ip_adress_from_path,
     set_neuron_cache_path,
 )
 from optimum.neuron.utils.testing_utils import is_trainium_test
@@ -317,28 +318,25 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
             # With a file
             with self.assertLogs("optimum", level="INFO") as cm:
                 push_to_cache_on_hub(neuron_hash, cached_files[0], self.CUSTOM_PRIVATE_CACHE_REPO)
-                self.assertIn(str(cm.output), "Did not push the cached model located at")
+                self.assertIn("Did not push the cached model located at", cm.output[0])
 
             with self.assertLogs("optimum", level="WARNING") as cm:
                 push_to_cache_on_hub(
                     neuron_hash, cached_files[0], self.CUSTOM_PRIVATE_CACHE_REPO, overwrite_existing=True
                 )
                 self.assertIn(
-                    str(cm.output), "Overwriting the already existing cached model on the Hub by the one located at"
+                    "Overwriting the already existing cached model on the Hub by the one located at", cm.output[0]
                 )
-
-            # Because the directory contains cached_files[0], we cleanup before testing.
-            self.remove_all_files_in_repo(self.CUSTOM_PRIVATE_CACHE_REPO)
 
             # With a directory
             with self.assertLogs("optimum", level="INFO") as cm:
                 push_to_cache_on_hub(neuron_hash, cache_dir, self.CUSTOM_PRIVATE_CACHE_REPO)
-                self.assertIn(cm.output, "Did not push the cached model located at")
+                self.assertIn("Did not push the cached model located at", cm.output[0])
 
             with self.assertLogs("optimum", level="WARNING") as cm:
                 push_to_cache_on_hub(neuron_hash, cache_dir, self.CUSTOM_PRIVATE_CACHE_REPO, overwrite_existing=True)
                 self.assertIn(
-                    cm.output, "Overwriting the already existing cached model on the Hub by the one located at"
+                    "Overwriting the already existing cached model on the Hub by the one located at", cm.output[0]
                 )
 
     def test_push_to_hub_local_path_in_repo(self):
@@ -356,15 +354,18 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
             def local_path_to_path_in_repo(path):
                 return Path("my/awesome/new/path") / path.name
 
+            cached_file = cached_files[0]
+
             # With a file
             push_to_cache_on_hub(
                 neuron_hash,
-                cached_files[0],
+                cached_file,
                 self.CUSTOM_PRIVATE_CACHE_REPO,
                 local_path_to_path_in_repo=local_path_to_path_in_repo,
             )
             files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
-            path_in_repo = f"{neuron_hash.cache_path}/my/awesome/new/path/{cached_files[0].name}"
+            anonymous_cached_file = remove_ip_adress_from_path(cached_file)
+            path_in_repo = f"{neuron_hash.cache_path}/my/awesome/new/path/{anonymous_cached_file.name}"
             self.assertIn(path_in_repo, files_in_repo)
 
             def another_local_path_to_path_in_repo(path):
@@ -381,7 +382,10 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
             for filename in cache_dir.glob("**/*"):
                 if filename.is_file():
                     path_in_cache_dir = path_after_folder(filename, cache_dir, include_folder=True)
-                    path_in_repo = f"{neuron_hash.cache_path}/my/another/awesome/new/path/{path_in_cache_dir}"
+                    anonymous_path_in_cache_dir = remove_ip_adress_from_path(path_in_cache_dir)
+                    path_in_repo = (
+                        f"{neuron_hash.cache_path}/my/another/awesome/new/path/{anonymous_path_in_cache_dir}"
+                    )
                     self.assertIn(path_in_repo, files_in_repo)
 
     def test_push_to_hub_without_writing_rights(self):
@@ -419,6 +423,7 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
             self.set_hf_hub_token(orig_token)
 
     def test_download_cached_model_from_hub(self):
+        os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_PRIVATE_CACHE_REPO
         neuron_hash = self.push_tiny_pretrained_model_to_hub(self.CUSTOM_PRIVATE_CACHE_REPO)
 
         neuron_cc_flags = os.environ["NEURON_CC_FLAGS"]

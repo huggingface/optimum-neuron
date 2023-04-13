@@ -183,14 +183,14 @@ class StagingTestMixin:
         tiny_model = self.create_tiny_pretrained_model(num_linears=num_linears, random_num_linears=random_num_linears)
         tiny_model = tiny_model.to("xla")
         random_input = torch.rand(1, device="xla")
-        tiny_model(random_input)
+        print(tiny_model(random_input))
         return tiny_model
 
     def push_tiny_pretrained_model_to_hub(
         self, repo_id: str, cache_dir: Optional[Union[str, Path]] = None
     ) -> NeuronHash:
         neuron_hash = None
-        orig_repo_id = os.environ["CUSTOM_CACHE_REPO"]
+        orig_repo_id = os.environ.get("CUSTOM_CACHE_REPO", "")
         os.environ["CUSTOM_CACHE_REPO"] = repo_id
         with TemporaryDirectory() as tmpdirname:
             set_neuron_cache_path(tmpdirname)

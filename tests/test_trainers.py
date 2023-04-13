@@ -138,7 +138,8 @@ class TrainiumTrainerTestCase(StagingTestMixin, TestCase):
                 "Second training should be faster because cached graphs can be used.",
             )
 
-    def train_and_eval_multiple_workers(self):
+    def test_train_and_eval_multiple_workers(self):
+        return
         os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_PRIVATE_CACHE_REPO
 
         with TemporaryDirectory() as tmpdirname:

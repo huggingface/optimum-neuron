@@ -128,7 +128,7 @@ def path_after_folder(path: Path, folder: Union[str, Path], include_folder: bool
 
 
 def remove_ip_adress_from_path(path: Path) -> Path:
-    return path.parent / re.sub(_IP_PATTERN, "", path.name)
+    return Path().joinpath(*(re.sub(_IP_PATTERN, "", part) for part in path.parts))
 
 
 def compute_file_sha512_hash(filename: Union[str, Path]) -> str:
@@ -233,7 +233,6 @@ class NeuronHash:
         #         filename = Path(tmpdirname) / HASH_FILE_NAME
         #         xm.save(self.model.state_dict(), filename)
         #         print(filename)
-        #         import pdb; pdb.set_trace()
         #         model_hash = compute_file_sha512_hash(filename)
 
         #     overall_hash = ""
@@ -451,12 +450,17 @@ def push_to_cache_on_hub(
                 local_anynonymous_cache_dir = remove_ip_adress_from_path(
                     Path(tmpdirname) / local_cache_dir_or_file.name
                 )
-                shutil.copytree(local_cache_dir_or_file, tmpdirname)
+                shutil.copytree(local_cache_dir_or_file, local_anynonymous_cache_dir)
 
                 for file_or_dir in sorted(local_anynonymous_cache_dir.glob("**/*"), reverse=True):
-                    anonymous_file_or_dir = remove_ip_adress_from_path(file_or_dir)
-                    if file_or_dir != anonymous_file_or_dir:
-                        shutil.move(file_or_dir, anonymous_file_or_dir)
+                    if file_or_dir.is_dir():
+                        if not list(file_or_dir.iterdir()):
+                            file_or_dir.rmdir()
+                        continue
+                    anonymous_file = remove_ip_adress_from_path(file_or_dir)
+                    anonymous_file.parent.mkdir(parents=True, exist_ok=True)
+                    if file_or_dir != anonymous_file:
+                        shutil.move(file_or_dir, anonymous_file)
 
                 HfApi().upload_folder(
                     folder_path=local_anynonymous_cache_dir.as_posix(),
@@ -470,10 +474,15 @@ def push_to_cache_on_hub(
     else:
         try:
             with tempfile.TemporaryDirectory() as tmpdirname:
-                local_anynonymous_cache_file = Path(tmpdirname) / remove_ip_adress_from_path(local_cache_dir_or_file)
+                local_anynonymous_cache_file = remove_ip_adress_from_path(local_cache_dir_or_file)
                 if local_cache_dir_or_file != local_anynonymous_cache_file:
+                    local_anynonymous_cache_file = Path(tmpdirname) / path_after_folder(
+                        local_anynonymous_cache_file, NEURON_COMPILE_CACHE_NAME
+                    )
+                    local_anynonymous_cache_file.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy(local_cache_dir_or_file, local_anynonymous_cache_file)
 
+                print(local_anynonymous_cache_file)
                 HfApi().upload_file(
                     path_or_fileobj=local_anynonymous_cache_file.as_posix(),
                     path_in_repo=path_in_repo.as_posix(),
