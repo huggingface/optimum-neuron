@@ -40,11 +40,12 @@ if TYPE_CHECKING:
 logger = logging.get_logger()
 
 
-HASH_FILE_NAME = "pytorch_model.bin"
 if os.environ.get("HUGGINGFACE_CO_STAGING") == "1":
     HF_HUB_CACHE_REPOS = []
 else:
     HF_HUB_CACHE_REPOS = ["hf-internal-testing/optimum-neuron-cache-testing"]
+
+HASH_FILE_NAME = "pytorch_model.bin"
 NEURON_COMPILE_CACHE_NAME = "neuron-compile-cache"
 
 _IP_PATTERN = re.compile(r"ip-([0-9]{1,3}-){4}")
@@ -134,17 +135,6 @@ def remove_ip_adress_from_path(path: Path) -> Path:
     return Path().joinpath(*(re.sub(_IP_PATTERN, "", part) for part in path.parts))
 
 
-def compute_file_sha512_hash(filename: Union[str, Path]) -> str:
-    if isinstance(filename, Path):
-        filename = filename.as_posix()
-
-    file_hash = hashlib.sha512()
-    with open(filename, "rb") as f:
-        fb = f.read()
-        file_hash.update(fb)
-    return file_hash.hexdigest()
-
-
 class StaticTemporaryDirectory:
     def __init__(self, dirname: Union[str, Path]):
         if isinstance(dirname, str):
@@ -202,7 +192,6 @@ class NeuronHash:
         for name, tensor in state_dict.items():
             memfile = io.BytesIO()
             np.save(memfile, tensor.cpu().numpy())
-            # torch.save(tensor, memfile)
             bytes_to_join.append(name.encode("utf-8"))
             bytes_to_join.append(memfile.getvalue())
         return b"".join(bytes_to_join)
@@ -226,27 +215,6 @@ class NeuronHash:
             overal_hash = self.compute_sha512_hash(*buffers)
             self._hash.model_hash = model_hash
             self._hash.overall_hash = overal_hash
-        # if not is_torch_xla_available():
-        #     raise RuntimeError("You need to install torch_xla to be able to compute the hash.")
-        # import torch_xla.core.xla_model as xm
-
-        # if self._hash.is_empty:
-        #     model_hash = ""
-        #     with tempfile.TemporaryDirectory() as tmpdirname:
-        #         filename = Path(tmpdirname) / HASH_FILE_NAME
-        #         xm.save(self.model.state_dict(), filename)
-        #         print(filename)
-        #         model_hash = compute_file_sha512_hash(filename)
-
-        #     overall_hash = ""
-        #     hash_dict = self.hash_dict
-        #     with tempfile.TemporaryDirectory() as tmpdirname:
-        #         filename = Path(tmpdirname) / HASH_FILE_NAME
-        #         xm.save(hash_dict, filename)
-        #         overall_hash = compute_file_sha512_hash(filename)
-
-        #     self._hash.model_hash = model_hash
-        #     self._hash.overall_hash = overall_hash
 
         return self._hash.model_hash, self._hash.overall_hash
 
@@ -485,7 +453,6 @@ def push_to_cache_on_hub(
                     local_anynonymous_cache_file.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy(local_cache_dir_or_file, local_anynonymous_cache_file)
 
-                print(local_anynonymous_cache_file)
                 HfApi().upload_file(
                     path_or_fileobj=local_anynonymous_cache_file.as_posix(),
                     path_in_repo=path_in_repo.as_posix(),

@@ -151,17 +151,11 @@ class StagingTestMixin:
         # We store here which architectures we already used for compiling tiny models.
         cls.visited_num_linears = set()
 
-        # cls.original_hf_hub_repos = list(HF_HUB_CACHE_REPOS)
-        # while HF_HUB_CACHE_REPOS:
-        #     HF_HUB_CACHE_REPOS.pop()
-
     @classmethod
     def tearDownClass(cls) -> None:
         cls.set_hf_hub_token(cls._token)
         delete_repo(repo_id=cls.CUSTOM_CACHE_REPO, repo_type="model")
         delete_repo(repo_id=cls.CUSTOM_PRIVATE_CACHE_REPO, repo_type="model")
-        # for repo_id in reversed(cls.original_hf_hub_repos):
-        #     HF_HUB_CACHE_REPOS.append(repo_id)
 
     def remove_all_files_in_repo(self, repo_id: str):
         api = HfApi()

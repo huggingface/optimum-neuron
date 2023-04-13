@@ -228,7 +228,6 @@ class NeuronCacheCallaback(TrainerCallback):
         return found_in_cache
 
     def synchronize_temporary_neuron_cache_state(self) -> List[Path]:
-        print("NEURON CACHE PATH", self.tmp_neuron_cache_path)
         current_files_in_neuron_cache = list_files_in_neuron_cache(
             self.tmp_neuron_cache_path, only_relevant_files=True
         )

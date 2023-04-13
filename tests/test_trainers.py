@@ -162,9 +162,6 @@ class TrainiumTrainerTestCase(StagingTestMixin, TestCase):
                 tokens = [get_random_string(random.randint(1, 5)) for _ in range(vocab_size)]
                 fp.write("\n".join(special_tokens + tokens))
 
-            with open(vocab_path, "r") as fp:
-                print(fp.read())
-
             tokenizer = BertTokenizer(vocab_path.as_posix())
             model = BertModel(config)
 
