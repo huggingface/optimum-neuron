@@ -49,6 +49,7 @@ class AlbertNeuronConfig(BertNeuronConfig):
 
 
 # Issue: https://github.com/aws-neuron/aws-neuron-sdk/issues/641
+# (will be fixed by the next neuron sdk release)
 # @register_in_tasks_manager("convbert", *COMMON_TEXT_TASKS)
 # class ConvBertNeuronConfig(BertNeuronConfig):
 #     pass
@@ -120,6 +121,8 @@ class XLMRobertaNeuronConfig(CamembertNeuronConfig):
     pass
 
 
+# https://github.com/aws-neuron/aws-neuron-sdk/issues/642
+# Failed only for INF1: 'XSoftmax'
 @register_in_tasks_manager("deberta", *COMMON_TEXT_TASKS)
 class DebertaNeuronConfig(BertNeuronConfig):
     @property
@@ -131,6 +134,8 @@ class DebertaNeuronConfig(BertNeuronConfig):
         return common_inputs
 
 
+# https://github.com/aws-neuron/aws-neuron-sdk/issues/642
+# Failed only for INF1: 'XSoftmax'
 @register_in_tasks_manager("deberta-v2", *COMMON_TEXT_TASKS)
 class DebertaV2NeuronConfig(DebertaNeuronConfig):
     pass
