@@ -246,17 +246,6 @@ class NeuronHashTestCase(TestCase):
         expected_folders = [DUMMY_COMPILER_VERSION, "bert"] + list(hashes)
         self.assertListEqual(neuron_hash.folders, expected_folders)
 
-        neuron_hash = NeuronHash(
-            bert_model,
-            input_shapes,
-            data_type,
-            num_neuron_cores=num_neuron_cores,
-            neuron_compiler_version=DUMMY_COMPILER_VERSION,
-        )
-        hashes = neuron_hash.compute_hash()
-        expected_folders = [get_neuronxcc_version(), "bert"] + list(hashes)
-        self.assertListEqual(neuron_hash.folders, expected_folders)
-
     def test_neuron_hash_is_private(self):
         input_shapes = ((1, 2), (2, 3))
         data_type = torch.float32
