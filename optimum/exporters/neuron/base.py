@@ -240,7 +240,7 @@ class NeuronConfig(ExportConfig, ABC):
 
     def check_model_inputs_order(
         self,
-        model: PreTrainedModel,
+        model: "PreTrainedModel",
         dummy_inputs: Dict[str, torch.Tensor],
     ):
         """
