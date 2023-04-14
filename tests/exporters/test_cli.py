@@ -25,6 +25,7 @@ from parameterized import parameterized
 from optimum.exporters.neuron.model_configs import *  # noqa: F403
 from optimum.exporters.tasks import TasksManager
 from optimum.neuron.utils import is_neuron_available
+from optimum.neuron.utils.testing_utils import is_inferentia_test
 from optimum.utils import DEFAULT_DUMMY_SHAPES, logging
 
 from .exporters_utils import EXPORT_MODELS_TINY
@@ -83,7 +84,7 @@ def _get_commands_to_test(models_to_test):
         elif is_neuron_available():
             command_items = dict(_COMMOM_COMMANDS, **_NEURONX_COMMANDS)
         else:
-            raise RuntimeError("The neuron(x) compiler is not installed.")
+            continue
 
         base_command = f"optimum-cli export neuron --model {model_name} --task {task}"
 
@@ -96,6 +97,7 @@ def _get_commands_to_test(models_to_test):
     return sorted(commands_to_test)
 
 
+@is_inferentia_test
 class TestCLI(unittest.TestCase):
     def test_helps_no_raise(self):
         commands = [
@@ -107,7 +109,7 @@ class TestCLI(unittest.TestCase):
         for command in commands:
             subprocess.run(command, shell=True, check=True)
 
-    @parameterized.expand(_get_commands_to_test(_get_models_to_test(EXPORT_MODELS_TINY)))
+    @parameterized.expand(_get_commands_to_test(_get_models_to_test(EXPORT_MODELS_TINY)), skip_on_empty=True)
     def test_export_commands(self, test_name, command_content):
         with tempfile.TemporaryDirectory() as tempdir:
             command = command_content + f" {tempdir}"
