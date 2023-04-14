@@ -209,13 +209,15 @@ class NeuronConfig(ExportConfig, ABC):
         """
         return self._TASK_TO_COMMON_OUTPUTS[self.task]
 
-    def generate_dummy_inputs(self, return_tuple: bool = False, **kwargs) -> Union[Dict[str, torch.Tensor], Tuple]:
+    def generate_dummy_inputs(
+        self, return_tuple: bool = False, **kwargs
+    ) -> Union[Dict[str, torch.Tensor], Tuple[torch.Tensor]]:
         """
         Generates dummy inputs that the exported model should be able to process.
         This method is actually used to determine the input specs and their static shapes that are needed for the export.
 
         Returns:
-            `Union[Dict[str, torch.Tensor], Tuple]`: A dictionary mapping input names to dummy tensors.
+            `Union[Dict[str, torch.Tensor], Tuple[torch.Tensor]]`: A dictionary mapping input names to dummy tensors.
         """
         dummy_inputs_generators = self._create_dummy_input_generator_classes(**kwargs)
         dummy_inputs = {}
