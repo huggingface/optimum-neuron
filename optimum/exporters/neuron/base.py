@@ -217,7 +217,7 @@ class NeuronConfig(ExportConfig, ABC):
         This method is actually used to determine the input specs and their static shapes that are needed for the export.
 
         Returns:
-            `Union[Dict[str, torch.Tensor], Tuple[torch.Tensor]]`: A dictionary mapping input names to dummy tensors.
+            `Union[Dict[str, torch.Tensor], Tuple[torch.Tensor]]`: A dictionary mapping input names to dummy tensors or a tuple with dummy tensors.
         """
         dummy_inputs_generators = self._create_dummy_input_generator_classes(**kwargs)
         dummy_inputs = {}
