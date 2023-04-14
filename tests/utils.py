@@ -23,7 +23,7 @@ from tempfile import TemporaryDirectory
 from typing import Dict, Optional, Set, Tuple, Union
 
 import torch
-from datasets import Dataset
+from datasets import Dataset, DatasetDict
 from huggingface_hub import CommitOperationDelete, HfApi, HfFolder, create_repo, delete_repo, login
 from transformers import PretrainedConfig, PreTrainedModel
 
@@ -78,6 +78,30 @@ def create_dummy_dataset(input_specs: Dict[str, Tuple[int, ...]], num_examples: 
             yield {name: torch.rand(shape) for name, shape in input_specs.items()}
 
     return Dataset.from_generator(gen)
+
+
+def create_dummy_text_classification_dataset(
+    num_train_examples: int, num_eval_examples: int, num_test_examples: Optional[int]
+) -> DatasetDict:
+    if num_test_examples is None:
+        num_test_examples = num_eval_examples
+
+    def create_gen(num_examples, with_labels: bool = True):
+        def gen():
+            for _ in range(num_examples):
+                yield {
+                    "sentence": get_random_string(random.randint(64, 256)),
+                    "labels": random.randint(0, 1) if with_labels else -1,
+                }
+
+        return gen
+
+    ds = DatasetDict()
+    ds["train"] = Dataset.from_generator(create_gen(num_train_examples))
+    ds["eval"] = Dataset.from_generator(create_gen(num_eval_examples))
+    ds["test"] = Dataset.from_generator(create_gen(num_test_examples, with_labels=False))
+
+    return ds
 
 
 class MyTinyModel(PreTrainedModel):
