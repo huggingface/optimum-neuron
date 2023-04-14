@@ -51,6 +51,8 @@ from .utils import MyTinyModel, StagingTestMixin, get_random_string
 
 USER = "__DUMMY_OPTIMUM_USER__"
 
+DUMMY_COMPILER_VERSION = "1.2.3"
+
 
 class NeuronUtilsTestCase(TestCase):
     def test_get_neuron_cache_path(self):
@@ -139,7 +141,7 @@ class NeuronUtilsTestCase(TestCase):
 class NeuronHashTestCase(TestCase):
     def test_neuron_hash_is_not_mutable(self):
         bert_model = BertModel(BertConfig())
-        neuron_hash = NeuronHash(bert_model, ((4, 12), (4, 12)), torch.float32, 2)
+        neuron_hash = NeuronHash(bert_model, ((4, 12), (4, 12)), torch.float32, 2, neuron_compiler_version=DUMMY_COMPILER_VERSION)
 
         with self.assertRaises(FrozenInstanceError):
             neuron_hash.model = bert_model
@@ -162,8 +164,8 @@ class NeuronHashTestCase(TestCase):
         num_neuron_cores_b,
         should_be_equal,
     ):
-        neuron_hash_a = NeuronHash(model_a, input_shapes_a, dtype_a, num_neuron_cores=num_neuron_cores_a)
-        neuron_hash_b = NeuronHash(model_b, input_shapes_b, dtype_b, num_neuron_cores=num_neuron_cores_b)
+        neuron_hash_a = NeuronHash(model_a, input_shapes_a, dtype_a, num_neuron_cores=num_neuron_cores_a, neuron_compiler_version=DUMMY_COMPILER_VERSION)
+        neuron_hash_b = NeuronHash(model_b, input_shapes_b, dtype_b, num_neuron_cores=num_neuron_cores_b, neuron_compiler_version=DUMMY_COMPILER_VERSION)
         if should_be_equal:
             self.assertEqual(neuron_hash_a.compute_hash(), neuron_hash_b.compute_hash())
         else:
@@ -224,13 +226,13 @@ class NeuronHashTestCase(TestCase):
             input_shapes,
             data_type,
             num_neuron_cores=num_neuron_cores,
-            neuron_compiler_version="dummy_version",
+            neuron_compiler_version=DUMMY_COMPILER_VERSION,
         )
         hashes = neuron_hash.compute_hash()
-        expected_folders = ["dummy_version", "bert"] + list(hashes)
+        expected_folders = [DUMMY_COMPILER_VERSION, "bert"] + list(hashes)
         self.assertListEqual(neuron_hash.folders, expected_folders)
 
-        neuron_hash = NeuronHash(bert_model, input_shapes, data_type, num_neuron_cores=num_neuron_cores)
+        neuron_hash = NeuronHash(bert_model, input_shapes, data_type, num_neuron_cores=num_neuron_cores, neuron_compiler_version=DUMMY_COMPILER_VERSION)
         hashes = neuron_hash.compute_hash()
         expected_folders = [get_neuronxcc_version(), "bert"] + list(hashes)
         self.assertListEqual(neuron_hash.folders, expected_folders)
@@ -240,18 +242,18 @@ class NeuronHashTestCase(TestCase):
         data_type = torch.float32
 
         bert_model = BertModel(BertConfig())
-        neuron_hash = NeuronHash(bert_model, input_shapes, data_type)
+        neuron_hash = NeuronHash(bert_model, input_shapes, data_type, neuron_compiler_version=DUMMY_COMPILER_VERSION)
         self.assertTrue(neuron_hash.is_private)
 
         bert_model = BertModel.from_pretrained("hf-internal-testing/tiny-random-bert")
-        neuron_hash = NeuronHash(bert_model, input_shapes, data_type)
+        neuron_hash = NeuronHash(bert_model, input_shapes, data_type, neuron_compiler_version=DUMMY_COMPILER_VERSION)
 
         self.assertFalse(neuron_hash.is_private)
 
         with TemporaryDirectory() as tmpdirname:
             bert_model.save_pretrained(tmpdirname)
             local_bert_model = BertModel.from_pretrained(tmpdirname)
-            neuron_hash = NeuronHash(local_bert_model, input_shapes, data_type)
+            neuron_hash = NeuronHash(local_bert_model, input_shapes, data_type, neuron_compiler_version=DUMMY_COMPILER_VERSION)
             self.assertTrue(neuron_hash.is_private)
 
 
