@@ -18,13 +18,12 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import torch
-from transformers import PreTrainedModel
 
 from optimum.exporters.base import ExportConfig
 
 
 if TYPE_CHECKING:
-    from transformers import PretrainedConfig
+    from transformers import PretrainedConfig, PreTrainedModel
 
     from optimum.utils import DummyInputGenerator
 
@@ -210,13 +209,13 @@ class NeuronConfig(ExportConfig, ABC):
         """
         return self._TASK_TO_COMMON_OUTPUTS[self.task]
 
-    def generate_dummy_inputs(self, return_tuple=False, **kwargs) -> Union[Dict[str, "torch.Tensor"], Tuple]:
+    def generate_dummy_inputs(self, return_tuple: bool = False, **kwargs) -> Union[Dict[str, torch.Tensor], Tuple]:
         """
         Generates dummy inputs that the exported model should be able to process.
         This method is actually used to determine the input specs and their static shapes that are needed for the export.
 
         Returns:
-            `Dict[str, torch.Tensor]`: A dictionary mapping input names to dummy tensors.
+            `Union[Dict[str, torch.Tensor], Tuple]`: A dictionary mapping input names to dummy tensors.
         """
         dummy_inputs_generators = self._create_dummy_input_generator_classes(**kwargs)
         dummy_inputs = {}
@@ -249,9 +248,9 @@ class NeuronConfig(ExportConfig, ABC):
         tracing are under the correct order.
         """
 
-        class ModelWrapper(PreTrainedModel):
-            def __init__(self, model: PreTrainedModel, config: "PretrainedConfig", input_names: List[str]):
-                super().__init__(config)
+        class ModelWrapper(torch.nn.Module):
+            def __init__(self, model: "PreTrainedModel", input_names: List[str]):
+                super().__init__()
                 self.model = model
                 self.input_names = input_names
 
@@ -265,4 +264,4 @@ class NeuronConfig(ExportConfig, ABC):
                 ordered_inputs = dict(zip(self.input_names, input))
                 return self.model(**ordered_inputs)
 
-        return ModelWrapper(model, model.config, list(dummy_inputs.keys()))
+        return ModelWrapper(model, list(dummy_inputs.keys()))
