@@ -66,6 +66,9 @@ class AugmentTrainerForTrainiumMixin:
             raise TypeError(f"{self.__class__.__name__} can only be mixed with Trainer subclasses.")
 
         training_args = kwargs.get("args", None)
+        if training_args is None and len(args) >= 2:
+            training_args = args[1]
+
         if training_args is not None:
             if training_args.bf16:
                 training_args.bf16 = False
