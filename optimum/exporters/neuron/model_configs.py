@@ -49,6 +49,7 @@ class AlbertNeuronConfig(BertNeuronConfig):
 
 
 # Issue: https://github.com/aws-neuron/aws-neuron-sdk/issues/641
+# (will be fixed by the next neuron sdk release)
 # @register_in_tasks_manager("convbert", *COMMON_TEXT_TASKS)
 # class ConvBertNeuronConfig(BertNeuronConfig):
 #     pass
@@ -58,13 +59,14 @@ class AlbertNeuronConfig(BertNeuronConfig):
 class ElectraNeuronConfig(BertNeuronConfig):
     @property
     def outputs(self) -> List[str]:
-        self._TASK_TO_COMMON_OUTPUTS["feature-extraction"] = ["last_hidden_state"]
+        if self.task == "feature-extraction":
+            return ["last_hidden_state"]
         return self._TASK_TO_COMMON_OUTPUTS[self.task]
 
 
 @register_in_tasks_manager("flaubert", *COMMON_TEXT_TASKS)
 class FlaubertNeuronConfig(ElectraNeuronConfig):
-    ATOL_FOR_VALIDATION = 1e-1
+    pass
 
 
 @register_in_tasks_manager("mobilebert", *COMMON_TEXT_TASKS)
@@ -79,7 +81,7 @@ class RoFormerNeuronConfig(ElectraNeuronConfig):
 
 @register_in_tasks_manager("xlm", *COMMON_TEXT_TASKS)
 class XLMNeuronConfig(ElectraNeuronConfig):
-    ATOL_FOR_VALIDATION = 1e-1
+    pass
 
 
 @register_in_tasks_manager("distilbert", *COMMON_TEXT_TASKS)
@@ -92,7 +94,8 @@ class DistilBertNeuronConfig(BertNeuronConfig):
 
     @property
     def outputs(self) -> List[str]:
-        self._TASK_TO_COMMON_OUTPUTS["feature-extraction"] = ["last_hidden_state"]
+        if self.task == "feature-extraction":
+            return ["last_hidden_state"]
         return self._TASK_TO_COMMON_OUTPUTS[self.task]
 
 
@@ -120,6 +123,8 @@ class XLMRobertaNeuronConfig(CamembertNeuronConfig):
     pass
 
 
+# https://github.com/aws-neuron/aws-neuron-sdk/issues/642
+# Failed only for INF1: 'XSoftmax'
 @register_in_tasks_manager("deberta", *COMMON_TEXT_TASKS)
 class DebertaNeuronConfig(BertNeuronConfig):
     @property
@@ -131,6 +136,8 @@ class DebertaNeuronConfig(BertNeuronConfig):
         return common_inputs
 
 
+# https://github.com/aws-neuron/aws-neuron-sdk/issues/642
+# Failed only for INF1: 'XSoftmax'
 @register_in_tasks_manager("deberta-v2", *COMMON_TEXT_TASKS)
 class DebertaV2NeuronConfig(DebertaNeuronConfig):
     pass
