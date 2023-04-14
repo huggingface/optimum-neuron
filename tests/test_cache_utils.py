@@ -136,7 +136,6 @@ class NeuronUtilsTestCase(TestCase):
             )
 
 
-@is_trainium_test
 class NeuronHashTestCase(TestCase):
     def test_neuron_hash_is_not_mutable(self):
         bert_model = BertModel(BertConfig())

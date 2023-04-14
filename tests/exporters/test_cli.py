@@ -84,7 +84,7 @@ def _get_commands_to_test(models_to_test):
         elif is_neuron_available():
             command_items = dict(_COMMOM_COMMANDS, **_NEURONX_COMMANDS)
         else:
-            raise RuntimeError("The neuron(x) compiler is not installed.")
+            continue
 
         base_command = f"optimum-cli export neuron --model {model_name} --task {task}"
 
