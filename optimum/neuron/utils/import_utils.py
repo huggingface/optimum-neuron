@@ -11,18 +11,25 @@
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
-# limitations under the License.
+"""Import utilities."""
 
-from .argument_utils import convert_neuronx_compiler_args_to_neuron
-from .import_utils import is_neuron_available, is_neuronx_available
-from .training_utils import (
-    FirstAndLastDataset,
-    Patcher,
-    is_model_officially_supported,
-    is_precompilation,
-    patch_forward,
-    patch_model,
-    patch_transformers_for_neuron_sdk,
-    patched_finfo,
-    prepare_environment_for_neuron,
-)
+import importlib.util
+
+
+def is_neuron_available() -> bool:
+    return importlib.util.find_spec("torch_neuron") is not None
+
+
+def is_neuronx_available() -> bool:
+    return importlib.util.find_spec("torch_neuronx") is not None
+
+
+def is_torch_xla_available() -> bool:
+    found_torch_xla = importlib.util.find_spec("torch_xla") is not None
+    import_succeeded = True
+    if found_torch_xla:
+        try:
+            pass
+        except Exception:
+            import_succeeded = False
+    return found_torch_xla and import_succeeded

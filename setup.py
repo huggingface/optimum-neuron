@@ -13,8 +13,8 @@ except Exception as error:
 
 
 INSTALL_REQUIRES = [
-    "transformers >= 4.26.0",
-    "optimum",
+    "transformers >= 4.28.0",
+    "optimum @ git+https://github.com/huggingface/optimum.git",
 ]
 
 TESTS_REQUIRE = [
@@ -29,20 +29,23 @@ TESTS_REQUIRE = [
 QUALITY_REQUIRES = [
     "black",
     "ruff",
+    "isort",
     "hf_doc_builder @ git+https://github.com/huggingface/doc-builder.git",
 ]
 
 EXTRAS_REQUIRE = {
     "tests": TESTS_REQUIRE,
     "quality": QUALITY_REQUIRES,
+    "neuron": ["neuron-cc[tensorflow]", "torch-neuron", "protobuf==3.20.2", "torchvision"],
+    "neuronx": ["neuronx-cc==2.*", "torch-neuronx", "torchvision"],
 }
 
 setup(
     name="optimum-neuron",
     version=__version__,
     description=(
-        "Optimum Neuron is the interface between the Hugging Face Transformers and Diffusers libraries and AWS"
-        " Tranium and Inferentia accelerators. It provides a set of tools enabling easy model loading, training and "
+        "Optimum Neuron is the interface between the Hugging Face Transformers and Diffusers libraries and AWS "
+        "Tranium and Inferentia accelerators. It provides a set of tools enabling easy model loading, training and "
         "inference on single and multiple neuron core settings for different downstream tasks."
     ),
     long_description=open("README.md", "r", encoding="utf-8").read(),
@@ -68,4 +71,5 @@ setup(
     extras_require=EXTRAS_REQUIRE,
     include_package_data=True,
     zip_safe=False,
+    entry_points={"console_scripts": ["optimum-cli=optimum.commands.optimum_cli:main"]},
 )

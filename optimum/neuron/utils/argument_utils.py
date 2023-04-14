@@ -86,3 +86,36 @@ def validate_arg(
                 "Tranium, set the environment variable OPTIMUM_DISABLE_STRICT_MODE to 1."
             )
             raise ValueError(f"{error_msg}\n{raise_error_msg}")
+
+
+def convert_neuronx_compiler_args_to_neuron(
+    auto_cast: Optional[str] = None,
+    auto_cast_type: Optional[str] = None,
+    disable_fast_relayout: Optional[bool] = False,
+):
+    """
+    Builds `compiler_args` for neuron compiler.
+    """
+    compiler_args = []
+
+    if auto_cast is None:
+        auto_cast = "none"
+    elif auto_cast == "matmul":
+        auto_cast = "matmult"
+
+    if auto_cast in ["none", "all"]:
+        compiler_args.extend(["--fast-math", auto_cast])
+    elif auto_cast == "matmult":
+        if auto_cast_type is None:
+            compiler_args.extend(["--fast-math", "fp32-cast-matmult"])
+        else:
+            compiler_args.extend(["--fast-math", f"fp32-cast-matmult-{auto_cast_type}"])
+    else:
+        raise ValueError(
+            f"The auto_cast value {auto_cast} is not valid. Please use one of the following: None, all or matmul."
+        )
+
+    if disable_fast_relayout is True:
+        compiler_args.append("no-fast-relayout")
+
+    return compiler_args
