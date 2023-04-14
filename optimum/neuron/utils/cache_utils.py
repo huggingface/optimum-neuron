@@ -43,7 +43,7 @@ logger = logging.get_logger()
 if os.environ.get("HUGGINGFACE_CO_STAGING") == "1":
     HF_HUB_CACHE_REPOS = []
 else:
-    HF_HUB_CACHE_REPOS = ["hf-internal-testing/optimum-neuron-cache-testing"]
+    HF_HUB_CACHE_REPOS = ["aws-neuron/optimum-neuron-cache"]
 
 HASH_FILE_NAME = "pytorch_model.bin"
 NEURON_COMPILE_CACHE_NAME = "neuron-compile-cache"
