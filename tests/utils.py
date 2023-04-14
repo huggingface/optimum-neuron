@@ -177,9 +177,10 @@ class StagingTestMixin:
 
     @classmethod
     def tearDownClass(cls) -> None:
-        cls.set_hf_hub_token(cls._token)
         delete_repo(repo_id=cls.CUSTOM_CACHE_REPO, repo_type="model")
         delete_repo(repo_id=cls.CUSTOM_PRIVATE_CACHE_REPO, repo_type="model")
+        if cls._token:
+            cls.set_hf_hub_token(cls._token)
 
     def remove_all_files_in_repo(self, repo_id: str):
         api = HfApi()
