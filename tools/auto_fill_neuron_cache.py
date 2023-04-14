@@ -17,23 +17,30 @@ import os
 import time
 from argparse import ArgumentParser
 from pathlib import Path
-from typing import TYPE_CHECKING, List, Dict
+from typing import TYPE_CHECKING, Dict, List, Union
+
+
+# Important to do it before importing the tests.
+os.environ["RUN_SLOW"] = "1"
 
 # TODO: find a cleaner solution to this.
 import sys
+
+
 path_tests = Path(__file__).parent.parent / "tests"
 sys.path.insert(0, str(path_tests))
 
 from test_examples import (
-        TextClassificationExampleTester,
-        TokenClassificationExampleTester,
-        MultipleChoiceExampleTester,
-        QuestionAnsweringExampleTester,
-        SummarizationExampleTester,
-        TranslationExampleTester,
-        ImageClassificationExampleTester,
-        ExampleTestMeta,
+    ExampleTestMeta,
+    ImageClassificationExampleTester,
+    MultipleChoiceExampleTester,
+    QuestionAnsweringExampleTester,
+    SummarizationExampleTester,
+    TextClassificationExampleTester,
+    TokenClassificationExampleTester,
+    TranslationExampleTester,
 )
+
 
 if TYPE_CHECKING:
     from test_examples import ExampleTesterBase
@@ -49,145 +56,128 @@ TESTER_CLASSES = {
 }
 
 
-
 ARCHITECTURES_TO_COMMON_PRETRAINED_WEIGHTS = {
-    "albert": {
-        "albert-base-v2": {
-            "default": {"batch_size": 16, "sequence_length": 128}, 
-            "token-classification":  {"batch_size": 2, "sequence_length": 512},
-            "multiple-choice":  {"batch_size": 2, "sequence_length": 512},
-        },
-        "albert-large-v2": {
-            "default": {"batch_size": 16, "sequence_length": 128}, 
-            "token-classification":  {"batch_size": 2, "sequence_length": 512},
-            "multiple-choice":  {"batch_size": 2, "sequence_length": 512},
-        },
-    },
-    "bart": {
-        "facebook/bart-base": {
-            "translation": {"batch_size": 8, "source_sequence_length": 512, "target_sequence_length": 512},
-            "summarization": {"batch_size": 8, "source_sequence_length": 200, "target_sequence_length": 1024},
-        },
-        "facebook/bart-large": {
-            "translation": {"batch_size": 8, "source_sequence_length": 512, "target_sequence_length": 512},
-            "summarization": {"batch_size": 8, "source_sequence_length": 200, "target_sequence_length": 1024},
-        },
-
-    },
+    # "bart": {
+    #     "facebook/bart-base": {
+    #         "translation": {"batch_size": 8, "source_sequence_length": 512, "target_sequence_length": 512},
+    #         "summarization": {"batch_size": 8, "source_sequence_length": 200, "target_sequence_length": 1024},
+    #     },
+    #     "facebook/bart-large": {
+    #         "translation": {"batch_size": 8, "source_sequence_length": 512, "target_sequence_length": 512},
+    #         "summarization": {"batch_size": 8, "source_sequence_length": 200, "target_sequence_length": 1024},
+    #     },
+    # },
     "bert": {
         "bert-base-uncased": {
-            "default": {"batch_size": 16, "sequence_length": 128}, 
-            "token-classification":  {"batch_size": 2, "sequence_length": 512},
-            "multiple-choice":  {"batch_size": 2, "sequence_length": 512},
+            "default": {"batch_size": 16, "sequence_length": 128},
+            "token-classification": {"batch_size": 2, "sequence_length": 512},
+            "multiple-choice": {"batch_size": 2, "sequence_length": 512},
         },
         "bert-large-uncased": {
-            "default": {"batch_size": 16, "sequence_length": 128}, 
-            "token-classification":  {"batch_size": 2, "sequence_length": 512},
-            "multiple-choice":  {"batch_size": 2, "sequence_length": 512},
+            "default": {"batch_size": 16, "sequence_length": 128},
+            "token-classification": {"batch_size": 2, "sequence_length": 512},
+            "multiple-choice": {"batch_size": 2, "sequence_length": 512},
         },
     },
     "camembert": {
         "camembert-base": {
-            "default": {"batch_size": 16, "sequence_length": 128}, 
-            "token-classification":  {"batch_size": 2, "sequence_length": 512},
-            "multiple-choice":  {"batch_size": 2, "sequence_length": 512},
+            "default": {"batch_size": 16, "sequence_length": 128},
+            "token-classification": {"batch_size": 2, "sequence_length": 512},
+            "multiple-choice": {"batch_size": 2, "sequence_length": 512},
         },
         "camembert/camembert-large": {
-            "default": {"batch_size": 16, "sequence_length": 128}, 
-            "token-classification":  {"batch_size": 2, "sequence_length": 512},
-            "multiple-choice":  {"batch_size": 2, "sequence_length": 512},
+            "default": {"batch_size": 16, "sequence_length": 128},
+            "token-classification": {"batch_size": 2, "sequence_length": 512},
+            "multiple-choice": {"batch_size": 2, "sequence_length": 512},
         },
     },
     "distilbert": {
         "distilbert-base-uncased": {
-            "default": {"batch_size": 16, "sequence_length": 128}, 
-            "token-classification":  {"batch_size": 2, "sequence_length": 512},
-            "multiple-choice":  {"batch_size": 2, "sequence_length": 512},
+            "default": {"batch_size": 16, "sequence_length": 128},
+            "token-classification": {"batch_size": 2, "sequence_length": 512},
+            "multiple-choice": {"batch_size": 2, "sequence_length": 512},
         },
     },
     "electra": {
         "google/electra-small-discriminator": {
-            "default": {"batch_size": 16, "sequence_length": 128}, 
-            "token-classification":  {"batch_size": 2, "sequence_length": 512},
-            "multiple-choice":  {"batch_size": 2, "sequence_length": 512},
+            "default": {"batch_size": 16, "sequence_length": 128},
+            "token-classification": {"batch_size": 2, "sequence_length": 512},
+            "multiple-choice": {"batch_size": 2, "sequence_length": 512},
         },
         "google/electra-base-discriminator": {
-            "default": {"batch_size": 16, "sequence_length": 128}, 
-            "token-classification":  {"batch_size": 2, "sequence_length": 512},
-            "multiple-choice":  {"batch_size": 2, "sequence_length": 512},
+            "default": {"batch_size": 16, "sequence_length": 128},
+            "token-classification": {"batch_size": 2, "sequence_length": 512},
+            "multiple-choice": {"batch_size": 2, "sequence_length": 512},
         },
         "google/electra-large-discriminator": {
-            "default": {"batch_size": 16, "sequence_length": 128}, 
-            "token-classification":  {"batch_size": 2, "sequence_length": 512},
-            "multiple-choice":  {"batch_size": 2, "sequence_length": 512},
+            "default": {"batch_size": 16, "sequence_length": 128},
+            "token-classification": {"batch_size": 2, "sequence_length": 512},
+            "multiple-choice": {"batch_size": 2, "sequence_length": 512},
         },
     },
     "gpt2": {
         "gpt2": {
-            "default": {"batch_size": 16, "sequence_length": 128}, 
+            "default": {"batch_size": 16, "sequence_length": 128},
         },
         # "gpt2-large": {
-        #     "default": {"batch_size": 16, "sequence_length": 128}, 
+        #     "default": {"batch_size": 16, "sequence_length": 128},
         # },
     },
     "gpt-neo": {
         "EleutherAI/gpt-neo-125M": {
-            "default": {"batch_size": 16, "sequence_length": 128}, 
+            "default": {"batch_size": 16, "sequence_length": 128},
         },
     },
-    "marian": {
-        "Helsinki-NLP/opus-mt-en-es": {
-            "translation": {"batch_size": 8, "source_sequence_length": 512, "target_sequence_length": 512},
-        },
-        "Helsinki-NLP/opus-mt-en-hi": {
-            "translation": {"batch_size": 8, "source_sequence_length": 512, "target_sequence_length": 512},
-        },
-        "Helsinki-NLP/opus-mt-es-en": {
-            "translation": {"batch_size": 8, "source_sequence_length": 512, "target_sequence_length": 512},
-        },
-    },
+    # "marian": {
+    #     "Helsinki-NLP/opus-mt-en-es": {
+    #         "translation": {"batch_size": 8, "source_sequence_length": 512, "target_sequence_length": 512},
+    #     },
+    #     "Helsinki-NLP/opus-mt-en-hi": {
+    #         "translation": {"batch_size": 8, "source_sequence_length": 512, "target_sequence_length": 512},
+    #     },
+    #     "Helsinki-NLP/opus-mt-es-en": {
+    #         "translation": {"batch_size": 8, "source_sequence_length": 512, "target_sequence_length": 512},
+    #     },
+    # },
     "roberta": {
         "roberta-base": {
-            "default": {"batch_size": 16, "sequence_length": 128}, 
-            "token-classification":  {"batch_size": 2, "sequence_length": 512},
-            "multiple-choice":  {"batch_size": 2, "sequence_length": 512},
+            "default": {"batch_size": 16, "sequence_length": 128},
+            "token-classification": {"batch_size": 2, "sequence_length": 512},
+            "multiple-choice": {"batch_size": 2, "sequence_length": 512},
         },
         "roberta-large": {
-            "default": {"batch_size": 16, "sequence_length": 128}, 
-            "token-classification":  {"batch_size": 2, "sequence_length": 512},
-            "multiple-choice":  {"batch_size": 2, "sequence_length": 512},
+            "default": {"batch_size": 16, "sequence_length": 128},
+            "token-classification": {"batch_size": 2, "sequence_length": 512},
+            "multiple-choice": {"batch_size": 2, "sequence_length": 512},
         },
     },
-    "t5": {
-        "t5-small": {
-            "translation": {"batch_size": 8, "source_sequence_length": 512, "target_sequence_length": 512},
-            "summarization": {"batch_size": 8, "source_sequence_length": 200, "target_sequence_length": 1024},
-        },
-        "t5-base": {
-            "translation": {"batch_size": 8, "source_sequence_length": 512, "target_sequence_length": 512},
-            "summarization": {"batch_size": 8, "source_sequence_length": 200, "target_sequence_length": 1024},
-        },
-
-    },
+    # "t5": {
+    #     "t5-small": {
+    #         "translation": {"batch_size": 8, "source_sequence_length": 512, "target_sequence_length": 512},
+    #         "summarization": {"batch_size": 8, "source_sequence_length": 200, "target_sequence_length": 512},
+    #     },
+    #     "t5-base": {
+    #         "translation": {"batch_size": 8, "source_sequence_length": 512, "target_sequence_length": 512},
+    #         "summarization": {"batch_size": 8, "source_sequence_length": 200, "target_sequence_length": 512},
+    #     },
+    # },
     "vit": {
         "google/vit-base-patch16-224": {"default": {"batch_size": 16}},
         "google/vit-base-patch16-224-in21k": {"default": {"batch_size": 16}},
         "google/vit-large-patch16-224-in21k": {"default": {"batch_size": 8}},
-            
     },
     "xlm-roberta": {
         "xlm-roberta-base": {
-            "default": {"batch_size": 16, "sequence_length": 128}, 
-            "token-classification":  {"batch_size": 2, "sequence_length": 512},
-            "multiple-choice":  {"batch_size": 2, "sequence_length": 512},
+            "default": {"batch_size": 16, "sequence_length": 128},
+            "token-classification": {"batch_size": 2, "sequence_length": 512},
+            "multiple-choice": {"batch_size": 2, "sequence_length": 512},
         },
         "xlm-roberta-large": {
-            "default": {"batch_size": 16, "sequence_length": 128}, 
-            "token-classification":  {"batch_size": 2, "sequence_length": 512},
-            "multiple-choice":  {"batch_size": 2, "sequence_length": 512},
+            "default": {"batch_size": 16, "sequence_length": 128},
+            "token-classification": {"batch_size": 2, "sequence_length": 512},
+            "multiple-choice": {"batch_size": 2, "sequence_length": 512},
         },
     },
-
 }
 
 
@@ -200,54 +190,73 @@ def get_testers_for_model_type(model_type: str) -> List["ExampleTesterBase"]:
     return testers
 
 
-def remove_extra_command_line_argument(command_prefix: str, extra_command_line_arguments: List[str]):
+def remove_extra_command_line_argument(
+    command_prefix: str, extra_command_line_arguments: List[Union[str, Dict[str, str]]]
+):
     argument_idx = None
     for idx, cmd_line_argument in enumerate(extra_command_line_arguments):
-        if cmd_line_argument.startswith(command_prefix):
+        if isinstance(cmd_line_argument, dict):
+            starts_with_command_prefix = any(v.startswith(command_prefix) for v in cmd_line_argument.values())
+        else:
+            starts_with_command_prefix = cmd_line_argument.startswith(command_prefix)
+        if starts_with_command_prefix:
             argument_idx = idx
     if argument_idx is not None:
         extra_command_line_arguments.pop(argument_idx)
 
-def run_auto_fill_cache_for_model_name(model_type: str, model_name: str, shape_values_for_task: Dict[str, int], tester: "ExampleTesterBase", method_name: str, neuron_cache: str):
-    
+
+def run_auto_fill_cache_for_model_name(
+    model_type: str,
+    model_name: str,
+    shape_values_for_task: Dict[str, int],
+    tester: "ExampleTesterBase",
+    method_name: str,
+    neuron_cache: str,
+):
     batch_size = shape_values_for_task.get("batch_size")
     sequence_length = shape_values_for_task.get("sequence_length")
     source_sequence_length = shape_values_for_task.get("source_sequence_length")
     target_sequence_length = shape_values_for_task.get("target_sequence_length")
-    
+
     extra_command_line_arguments = tester.EXTRA_COMMAND_LINE_ARGUMENTS
     if extra_command_line_arguments is None:
         extra_command_line_arguments = []
-    
+
     if batch_size is not None:
         tester.TRAIN_BATCH_SIZE = batch_size
         tester.EVAL_BATCH_SIZE = batch_size
-    
+
     if sequence_length is not None:
         remove_extra_command_line_argument("--max_seq_length", extra_command_line_arguments)
         extra_command_line_arguments.append(f"--max_seq_length {sequence_length}")
-    
+
     if source_sequence_length is not None:
         remove_extra_command_line_argument("--max_source_length", extra_command_line_arguments)
         extra_command_line_arguments.append(f"--max_source_length {source_sequence_length}")
-    
+
     if target_sequence_length is not None:
         remove_extra_command_line_argument("--max_target_length", extra_command_line_arguments)
         extra_command_line_arguments.append(f"--max_target_length {target_sequence_length}")
 
     tester.EXTRA_COMMAND_LINE_ARGUMENTS = extra_command_line_arguments
     tester.NEURON_CACHE = neuron_cache
-    tester.ONLY_PRECOMPILATION = True
-    
+    tester.DO_PRECOMPILATION = False
+    tester.MAX_STEPS = 200
+
     setattr(tester, method_name, ExampleTestMeta._create_test(model_type, model_name))
-    getattr(tester, method_name)()
+    getattr(tester, method_name)(tester)
 
 
 def parse_args():
     parser = ArgumentParser(description="Tool that runs precompilation to fill the Neuron Cache.")
-    parser.add_argument("--cache-path", type=Path, default="neuron-cache", help="The directory in which all the precompiled neff files will be stored.")
-    parser.add_argument("--models", type=str, default="all", nargs="+",help="The models to precompile.")
-    parser.add_argument("--tasks", type=str, default="all", nargs="+",help="The tasks to precompile.")
+    parser.add_argument(
+        "--cache-path",
+        type=Path,
+        default="neuron-cache",
+        help="The directory in which all the precompiled neff files will be stored.",
+    )
+    parser.add_argument("--models", type=str, default="all", nargs="+", help="The models to precompile.")
+    parser.add_argument("--tasks", type=str, default="all", nargs="+", help="The tasks to precompile.")
     return parser.parse_args()
 
 
@@ -258,7 +267,7 @@ def main():
         models = list(ARCHITECTURES_TO_COMMON_PRETRAINED_WEIGHTS.keys())
     else:
         models = args.models
-    
+
     # Test examples are slow, this allows us to run them.
     os.environ["RUN_SLOW"] = "1"
 
@@ -270,10 +279,16 @@ def main():
             for model_name, shape_values in ARCHITECTURES_TO_COMMON_PRETRAINED_WEIGHTS[model_type].items():
                 print(f"Running precompilation for {model_name} on {task}...")
                 start = time.time()
-                shape_values_for_task = shape_values.get(task, shape_values["default"])
-                run_auto_fill_cache_for_model_name(model_type, model_name, shape_values_for_task, tester, method_name, args.cache_path)
+                shape_values_for_task = shape_values.get(task)
+                if shape_values_for_task is None:
+                    shape_values_for_task = shape_values["default"]
+                run_auto_fill_cache_for_model_name(
+                    model_type, model_name, shape_values_for_task, tester, method_name, args.cache_path
+                )
                 end = time.time()
                 print(f"Done! Duration: {end - start:.3f}.")
+
+    os.environ["RUN_SLOW"] = "0"
 
 
 if __name__ == "__main__":

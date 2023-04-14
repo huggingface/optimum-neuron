@@ -18,6 +18,9 @@ import json
 import os
 import re
 import subprocess
+
+# Doing it this way to be able to use this file in tools.
+import sys
 from datetime import date
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -39,7 +42,10 @@ from transformers import (
 )
 from transformers.testing_utils import slow
 
-from .utils import MODELS_TO_TEST_MAPPING
+
+path_tests = Path(__file__).parent
+sys.path.insert(0, str(path_tests))
+from utils import MODELS_TO_TEST_MAPPING
 
 
 def _get_supported_models_for_script(
@@ -177,7 +183,6 @@ class ExampleTestMeta(type):
                         model_name,
                         model_type,
                         tmp_dir,
-                        task=self.TASK_NAME,
                     )
                     joined_cmd_line = " ".join(cmd_line)
                     print(f"#### Running command line... ####\n{joined_cmd_line}\n")
@@ -257,7 +262,7 @@ class ExampleTesterBase(TestCase):
         neuron_cache = ExampleTestMeta.process_class_attribute(self.NEURON_CACHE, model_type)
         if neuron_cache is not None:
             env["NEURON_CC_FLAGS"] = env.get("NEURON_CC_FLAGS", "") + f" --cache_dir={neuron_cache}"
-        return env 
+        return env
 
     def _create_command_line(
         self,
