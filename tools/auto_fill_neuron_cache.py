@@ -19,6 +19,8 @@ from argparse import ArgumentParser
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Union
 
+from optimum.neuron.utils.cache_utils import get_num_neuron_cores
+
 
 # Important to do it before importing the tests.
 os.environ["RUN_SLOW"] = "1"
@@ -212,6 +214,7 @@ def run_auto_fill_cache_for_model_name(
     tester: "ExampleTesterBase",
     method_name: str,
     neuron_cache: str,
+    num_neuron_cores: int,
 ):
     batch_size = shape_values_for_task.get("batch_size")
     sequence_length = shape_values_for_task.get("sequence_length")
@@ -242,6 +245,7 @@ def run_auto_fill_cache_for_model_name(
     tester.NEURON_CACHE = neuron_cache
     tester.DO_PRECOMPILATION = False
     tester.MAX_STEPS = 200
+    tester.NPROC_PER_NODE = num_neuron_cores
 
     setattr(tester, method_name, ExampleTestMeta._create_test(model_type, model_name))
     getattr(tester, method_name)(tester)
@@ -271,6 +275,10 @@ def main():
     # Test examples are slow, this allows us to run them.
     os.environ["RUN_SLOW"] = "1"
 
+    total_num_cores = get_num_neuron_cores()
+    num_cores_configurations = [1, 2, 8, total_num_cores]
+    num_cores_configurations = sorted(set(num_cores_configurations))
+
     for model_type in models:
         testers = get_testers_for_model_type(model_type)
         for task, tester, method_name in testers:
@@ -278,15 +286,17 @@ def main():
                 continue
             for model_name, shape_values in ARCHITECTURES_TO_COMMON_PRETRAINED_WEIGHTS[model_type].items():
                 print(f"Running precompilation for {model_name} on {task}...")
-                start = time.time()
-                shape_values_for_task = shape_values.get(task)
-                if shape_values_for_task is None:
-                    shape_values_for_task = shape_values["default"]
-                run_auto_fill_cache_for_model_name(
-                    model_type, model_name, shape_values_for_task, tester, method_name, args.cache_path
-                )
-                end = time.time()
-                print(f"Done! Duration: {end - start:.3f}.")
+                for num_cores in num_cores_configurations:
+                    print(f"For {num_cores} neuron cores")
+                    start = time.time()
+                    shape_values_for_task = shape_values.get(task)
+                    if shape_values_for_task is None:
+                        shape_values_for_task = shape_values["default"]
+                    run_auto_fill_cache_for_model_name(
+                        model_type, model_name, shape_values_for_task, tester, method_name, args.cache_path, num_cores
+                    )
+                    end = time.time()
+                    print(f"Done! Duration: {end - start:.3f}.")
 
     os.environ["RUN_SLOW"] = "0"
 
