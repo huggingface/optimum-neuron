@@ -36,7 +36,13 @@ QUALITY_REQUIRES = [
 EXTRAS_REQUIRE = {
     "tests": TESTS_REQUIRE,
     "quality": QUALITY_REQUIRES,
-    "neuron": ["neuron-cc[tensorflow]", "torch-neuron", "protobuf==3.20.2", "torchvision"],
+    "neuron": [
+        "wheel",
+        "torch-neuron==1.12.1.*",
+        "neuron-cc[tensorflow]",
+        "protobuf",
+        "torchvision",
+    ],
     "neuronx": ["neuronx-cc==2.*", "torch-neuronx", "torchvision"],
 }
 
