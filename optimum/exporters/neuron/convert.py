@@ -270,8 +270,10 @@ def export_neuron(
         input_shapes[axe] = getattr(config, axe)
 
     dummy_inputs = config.generate_dummy_inputs(**input_shapes)
+    dummy_inputs_tuple = tuple(dummy_inputs.values())
+    checked_model = config.check_model_inputs_order(model, dummy_inputs)
     compiler_args = convert_neuronx_compiler_args_to_neuron(auto_cast, auto_cast_type, disable_fast_relayout)
-    neuron_model = neuron.trace(model, dummy_inputs, compiler_args=compiler_args)
+    neuron_model = neuron.trace(checked_model, dummy_inputs_tuple, compiler_args=compiler_args)
     neuron_model.save(output)
 
     return config.inputs, config.outputs

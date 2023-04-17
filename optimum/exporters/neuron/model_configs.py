@@ -23,12 +23,12 @@ from .config import TextEncoderNeuronConfig
 
 
 COMMON_TEXT_TASKS = [
-    "default",
-    "masked-lm",
-    "sequence-classification",
+    "feature-extraction",
+    "fill-mask",
     "multiple-choice",
-    "token-classification",
     "question-answering",
+    "text-classification",
+    "token-classification",
 ]
 register_in_tasks_manager = TasksManager.create_register("neuron")
 
@@ -50,6 +50,7 @@ class AlbertNeuronConfig(BertNeuronConfig):
 
 # Failed for INF2
 # Issue: https://github.com/aws-neuron/aws-neuron-sdk/issues/641
+# (will be fixed by the next neuron sdk release)
 # @register_in_tasks_manager("convbert", *COMMON_TEXT_TASKS)
 # class ConvBertNeuronConfig(BertNeuronConfig):
 #     pass
@@ -59,16 +60,17 @@ class AlbertNeuronConfig(BertNeuronConfig):
 class ElectraNeuronConfig(BertNeuronConfig):
     @property
     def outputs(self) -> List[str]:
-        self._TASK_TO_COMMON_OUTPUTS["default"] = ["last_hidden_state"]
+        if self.task == "feature-extraction":
+            return ["last_hidden_state"]
         return self._TASK_TO_COMMON_OUTPUTS[self.task]
 
 
 @register_in_tasks_manager("flaubert", *COMMON_TEXT_TASKS)
 class FlaubertNeuronConfig(ElectraNeuronConfig):
-    ATOL_FOR_VALIDATION = 1e-1
+    pass
 
 
-@register_in_tasks_manager("mobilebert", *[task for task in COMMON_TEXT_TASKS if task != "default"])
+@register_in_tasks_manager("mobilebert", *COMMON_TEXT_TASKS)
 class MobileBertNeuronConfig(BertNeuronConfig):
     pass
 
@@ -80,11 +82,11 @@ class RoFormerNeuronConfig(ElectraNeuronConfig):
 
 @register_in_tasks_manager("xlm", *COMMON_TEXT_TASKS)
 class XLMNeuronConfig(ElectraNeuronConfig):
-    ATOL_FOR_VALIDATION = 1e-1
+    pass
 
 
 # https://github.com/aws-neuron/aws-neuron-sdk/issues/645
-@register_in_tasks_manager("distilbert", *[task for task in COMMON_TEXT_TASKS if task != "multiple-choice"])
+@register_in_tasks_manager("distilbert", *COMMON_TEXT_TASKS)
 class DistilBertNeuronConfig(BertNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-4
 
@@ -94,7 +96,8 @@ class DistilBertNeuronConfig(BertNeuronConfig):
 
     @property
     def outputs(self) -> List[str]:
-        self._TASK_TO_COMMON_OUTPUTS["default"] = ["last_hidden_state"]
+        if self.task == "feature-extraction":
+            return ["last_hidden_state"]
         return self._TASK_TO_COMMON_OUTPUTS[self.task]
 
 
@@ -107,34 +110,36 @@ class CamembertNeuronConfig(BertNeuronConfig):
         return ["input_ids", "attention_mask"]
 
 
-@register_in_tasks_manager("mpnet", *[task for task in COMMON_TEXT_TASKS if task != "default"])
+@register_in_tasks_manager("mpnet", *COMMON_TEXT_TASKS)
 class MPNetNeuronConfig(CamembertNeuronConfig):
     pass
 
 
-@register_in_tasks_manager("roberta", *[task for task in COMMON_TEXT_TASKS if task != "default"])
+@register_in_tasks_manager("roberta", *COMMON_TEXT_TASKS)
 class RobertaNeuronConfig(CamembertNeuronConfig):
     pass
 
 
-@register_in_tasks_manager("xlm-roberta", *[task for task in COMMON_TEXT_TASKS if task != "default"])
+@register_in_tasks_manager("xlm-roberta", *COMMON_TEXT_TASKS)
 class XLMRobertaNeuronConfig(CamembertNeuronConfig):
     pass
 
 
-# Failed for INF1: 'XSoftmax'
-# @register_in_tasks_manager("deberta", *COMMON_TEXT_TASKS)
-# class DebertaNeuronConfig(BertNeuronConfig):
-#     @property
-#     def inputs(self) -> List[str]:
-#         common_inputs = super().inputs
-#         if self._config.type_vocab_size == 0:
-#             # We remove token type ids.
-#             common_inputs.pop(-1)
-#         return common_inputs
+# https://github.com/aws-neuron/aws-neuron-sdk/issues/642
+# Failed only for INF1: 'XSoftmax'
+@register_in_tasks_manager("deberta", *COMMON_TEXT_TASKS)
+class DebertaNeuronConfig(BertNeuronConfig):
+    @property
+    def inputs(self) -> List[str]:
+        common_inputs = super().inputs
+        if self._config.type_vocab_size == 0:
+            # We remove token type ids.
+            common_inputs.pop(-1)
+        return common_inputs
 
 
-# Failed for INF1: 'XSoftmax'
-# @register_in_tasks_manager("deberta-v2", *COMMON_TEXT_TASKS)
-# class DebertaV2NeuronConfig(DebertaNeuronConfig):
-#     pass
+# https://github.com/aws-neuron/aws-neuron-sdk/issues/642
+# Failed only for INF1: 'XSoftmax'
+@register_in_tasks_manager("deberta-v2", *COMMON_TEXT_TASKS)
+class DebertaV2NeuronConfig(DebertaNeuronConfig):
+    pass

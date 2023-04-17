@@ -25,6 +25,7 @@ from transformers.testing_utils import require_torch
 from optimum.exporters.neuron import NeuronConfig, export, validate_model_outputs
 from optimum.exporters.neuron.model_configs import *  # noqa: F403
 from optimum.exporters.tasks import TasksManager
+from optimum.neuron.utils.testing_utils import is_inferentia_test
 from optimum.utils import DEFAULT_DUMMY_SHAPES, logging
 
 from .exporters_utils import EXPORT_MODELS_TINY
@@ -66,6 +67,7 @@ def _get_models_to_test(export_models_dict: Dict):
     return sorted(models_to_test)
 
 
+@is_inferentia_test
 class NeuronExportTestCase(TestCase):
     """
     Integration tests ensuring supported models are correctly exported.

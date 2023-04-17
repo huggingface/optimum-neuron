@@ -23,7 +23,7 @@ from optimum.exporters.base import ExportConfig
 
 
 if TYPE_CHECKING:
-    from transformers import PretrainedConfig
+    from transformers import PretrainedConfig, PreTrainedModel
 
     from optimum.utils import DummyInputGenerator
 
@@ -58,7 +58,7 @@ class NeuronConfig(ExportConfig, ABC):
     Args:
         config (`transformers.PretrainedConfig`):
             The model configuration.
-        task (`str`, defaults to `"default"`):
+        task (`str`, defaults to `"feature-extraction"`):
             The task the model should be exported for.
 
         The rest of the arguments are used to specify the shape of the inputs the model can take.
@@ -71,20 +71,20 @@ class NeuronConfig(ExportConfig, ABC):
     MANDATORY_AXES = ()
 
     _TASK_TO_COMMON_OUTPUTS = {
-        "default": ["last_hidden_state", "pooler_output"],
+        "feature-extraction": ["last_hidden_state", "pooler_output"],
+        "fill-mask": ["logits"],
         "image-classification": ["logits"],
         "image-segmentation": ["logits", "pred_boxes", "pred_masks"],
         "masked-im": ["logits"],
-        "masked-lm": ["logits"],
         "multiple-choice": ["logits"],
         "object-detection": ["logits", "pred_boxes"],
         "question-answering": ["start_logits", "end_logits"],
         "semantic-segmentation": ["logits"],
-        "sequence-classification": ["logits"],
+        "text-classification": ["logits"],
         "token-classification": ["logits"],
         "audio-classification": ["logits"],
         "audio-frame-classification": ["logits"],
-        "audio-ctc": ["logits"],
+        "automatic-speech-recognition": ["logits"],
         "audio-xvector": ["logits"],
     }
 
@@ -209,13 +209,15 @@ class NeuronConfig(ExportConfig, ABC):
         """
         return self._TASK_TO_COMMON_OUTPUTS[self.task]
 
-    def generate_dummy_inputs(self, return_tuple=True, **kwargs) -> Union[Dict[str, "torch.Tensor"], Tuple]:
+    def generate_dummy_inputs(
+        self, return_tuple: bool = False, **kwargs
+    ) -> Union[Dict[str, torch.Tensor], Tuple[torch.Tensor]]:
         """
         Generates dummy inputs that the exported model should be able to process.
         This method is actually used to determine the input specs and their static shapes that are needed for the export.
 
         Returns:
-            `Dict[str, tf.Tensor]`: A dictionary mapping input names to dummy tensors.
+            `Union[Dict[str, torch.Tensor], Tuple[torch.Tensor]]`: A dictionary mapping input names to dummy tensors or a tuple with dummy tensors.
         """
         dummy_inputs_generators = self._create_dummy_input_generator_classes(**kwargs)
         dummy_inputs = {}
@@ -237,3 +239,31 @@ class NeuronConfig(ExportConfig, ABC):
             return tuple(dummy_inputs.values())
         else:
             return dummy_inputs
+
+    def check_model_inputs_order(
+        self,
+        model: "PreTrainedModel",
+        dummy_inputs: Dict[str, torch.Tensor],
+    ):
+        """
+        Checks if inputs order of the model's forward pass correspond to the generated dummy inputs to ensure the dummy inputs tuple used for
+        tracing are under the correct order.
+        """
+
+        class ModelWrapper(torch.nn.Module):
+            def __init__(self, model: "PreTrainedModel", input_names: List[str]):
+                super().__init__()
+                self.model = model
+                self.input_names = input_names
+
+            def forward(self, *input):
+                if len(input) != len(self.input_names):
+                    raise ValueError(
+                        f"The model needs {len(self.input_names)} inputs: {self.input_names}."
+                        f" But only {len(input)} inputs are passed."
+                    )
+
+                ordered_inputs = dict(zip(self.input_names, input))
+                return self.model(**ordered_inputs)
+
+        return ModelWrapper(model, list(dummy_inputs.keys()))

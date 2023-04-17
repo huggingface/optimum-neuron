@@ -14,13 +14,18 @@
 """Defines Trainer subclasses to perform training on AWS Trainium instances."""
 
 import os
-from typing import TYPE_CHECKING, Optional
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
+import torch
 from torch.utils.data import DataLoader, Dataset
 from transformers import Seq2SeqTrainer, Trainer
 
 from ..utils import logging
+from .trainer_callback import NeuronCacheCallaback
 from .utils.argument_utils import validate_arg
+from .utils.cache_utils import get_neuron_cache_path
 from .utils.training_utils import (
     FirstAndLastDataset,
     is_model_officially_supported,
@@ -31,10 +36,28 @@ from .utils.training_utils import (
 
 
 if TYPE_CHECKING:
-    from transformers import TrainingArguments
+    from transformers import PreTrainedModel, TrainingArguments
 
 
-logger = logging.get_logger(__name__)
+logger = logging.get_logger("transformers.trainer")
+
+KEEP_HF_HUB_PROGRESS_BARS = os.environ.get("KEEP_HF_HUB_PROGRESS_BARS")
+if KEEP_HF_HUB_PROGRESS_BARS is None:
+    os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+
+# Used for torch.distributed.
+_ORIGINAL_NEURON_CACHE_PATH: Optional[Path] = None
+_TMP_NEURON_CACHE_DIR: Optional[TemporaryDirectory] = None
+
+if os.environ.get("TORCHELASTIC_RUN_ID"):
+    import torch_xla.distributed.xla_backend as xbn
+
+    if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
+        _ORIGINAL_NEURON_CACHE_PATH = get_neuron_cache_path()
+        _TMP_NEURON_CACHE_DIR = NeuronCacheCallaback.create_temporary_neuron_cache(get_neuron_cache_path())
+        torch.distributed.init_process_group(backend="xla")
+        if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
+            raise AssertionError("Failed to initialize torch.distributed process group using XLA backend.")
 
 
 class AugmentTrainerForTrainiumMixin:
@@ -43,6 +66,9 @@ class AugmentTrainerForTrainiumMixin:
             raise TypeError(f"{self.__class__.__name__} can only be mixed with Trainer subclasses.")
 
         training_args = kwargs.get("args", None)
+        if training_args is None and len(args) >= 2:
+            training_args = args[1]
+
         if training_args is not None:
             if training_args.bf16:
                 training_args.bf16 = False
@@ -54,8 +80,17 @@ class AugmentTrainerForTrainiumMixin:
 
         prepare_environment_for_neuron()
         super().__init__(*args, **kwargs)
-        transformers_loggers = logging.get_logger("transformers.trainer")
-        logger.setLevel(transformers_loggers.level)
+
+        if self.args.local_rank <= 0:
+            logger.setLevel(logging.INFO)
+
+        if not is_precompilation():
+            callback = NeuronCacheCallaback(
+                tmp_neuron_cache=_TMP_NEURON_CACHE_DIR,
+                original_neuron_cache_path=_ORIGINAL_NEURON_CACHE_PATH,
+                only_do_fetching=self.args.local_rank > 0,
+            )
+            self.add_callback(callback)
 
     def prepare_args_for_precompilation(self, args: "TrainingArguments"):
         if args.num_train_epochs != 1:
@@ -124,6 +159,37 @@ class AugmentTrainerForTrainiumMixin:
                 batch_size=None,
             )
         return super().get_test_dataloader(test_dataset)
+
+    # TODO: make this cleaner.
+    def trigger_on_step_middle_for_neuron_cache_callback(self, model: "PreTrainedModel"):
+        for callback in self.callback_handler.callbacks:
+            if isinstance(callback, NeuronCacheCallaback):
+                # kwargs might not have everything expected (like metrics) but all we need is here.
+                kwargs = {
+                    "model": model,
+                    "tokenizer": self.tokenizer,
+                    "optimizer": self.optimizer,
+                    "lr_scheduler": self.lr_scheduler,
+                    "train_dataloader": self.callback_handler.train_dataloader,
+                    "eval_dataloader": self.callback_handler.eval_dataloader,
+                }
+                callback.on_step_middle(self.args, self.state, self.control, **kwargs)
+
+    def compute_loss(self, model, inputs, return_outputs: bool = False):
+        self.state.last_inputs = inputs
+        self.trigger_on_step_middle_for_neuron_cache_callback(model)
+        return super().compute_loss(model, inputs, return_outputs=return_outputs)
+
+    def prediction_step(
+        self,
+        model: torch.nn.Module,
+        inputs: Dict[str, Union[torch.Tensor, Any]],
+        prediction_loss_only: bool,
+        ignore_keys: Optional[List[str]] = None,
+    ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
+        self.state.last_inputs = inputs
+        self.trigger_on_step_middle_for_neuron_cache_callback(model)
+        return super().prediction_step(model, inputs, prediction_loss_only, ignore_keys=ignore_keys)
 
 
 class TrainiumTrainer(AugmentTrainerForTrainiumMixin, Trainer):
