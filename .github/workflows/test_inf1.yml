@@ -56,9 +56,8 @@ jobs:
         run: |
           sudo apt remove aws-neuronx-dkms -y
           sudo apt remove aws-neuronx-tools -y
-          sudo apt remove aws-neuronx-oci-hook -y
-          sudo apt install -y aws-neuronx-dkms
-          sudo apt install -y aws-neuronx-tools
+          sudo apt-get install aws-neuronx-dkms=2.* -y
+          sudo apt-get install aws-neuronx-tools=2.* -y
       - name: Install python dependencies
         run: |
           python3 -m venv aws_neuron_venv_pytorch 
