@@ -68,7 +68,7 @@ jobs:
       - name: Run tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          python -m pytest tests/exporters/test_*
+          pytest -m is_inferentia_test tests
   stop-runner:
     name: Stop self-hosted EC2 runner
     needs:
