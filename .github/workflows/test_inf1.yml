@@ -52,10 +52,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v2
-      - name: Re-install neuron driver
+      - name: Install neuron driver
         run: |
-          sudo apt remove aws-neuron-dkms -y
-          sudo apt remove aws-neuron-tools -y
           sudo apt install -y aws-neuronx-dkms
           sudo apt install -y aws-neuronx-tools
       - name: Install python dependencies
