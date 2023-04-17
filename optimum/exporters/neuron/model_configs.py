@@ -48,7 +48,6 @@ class AlbertNeuronConfig(BertNeuronConfig):
     pass
 
 
-# Failed for INF2
 # Issue: https://github.com/aws-neuron/aws-neuron-sdk/issues/641
 # (will be fixed by the next neuron sdk release)
 # @register_in_tasks_manager("convbert", *COMMON_TEXT_TASKS)
@@ -85,7 +84,6 @@ class XLMNeuronConfig(ElectraNeuronConfig):
     pass
 
 
-# https://github.com/aws-neuron/aws-neuron-sdk/issues/645
 @register_in_tasks_manager("distilbert", *COMMON_TEXT_TASKS)
 class DistilBertNeuronConfig(BertNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-4
