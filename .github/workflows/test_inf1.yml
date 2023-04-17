@@ -52,12 +52,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v2
-      - name: Install neuron driver
+      - name: Re-install neuron driver
         run: |
           sudo apt remove aws-neuronx-dkms -y
           sudo apt remove aws-neuronx-tools -y
+          . /etc/os-release
+          sudo tee /etc/apt/sources.list.d/neuron.list > /dev/null <<EOF
+          deb https://apt.repos.neuron.amazonaws.com ${VERSION_CODENAME} main
+          EOF
+          wget -qO - https://apt.repos.neuron.amazonaws.com/GPG-PUB-KEY-AMAZON-AWS-NEURON.PUB | sudo apt-key add -
+          sudo apt-get update -y
+          sudo apt-get install linux-headers-$(uname -r) -y
           sudo apt-get install aws-neuronx-dkms=2.* -y
           sudo apt-get install aws-neuronx-tools=2.* -y
+          export PATH=/opt/aws/neuron/bin:$PATH
       - name: Install python dependencies
         run: |
           python3 -m venv aws_neuron_venv_pytorch 
