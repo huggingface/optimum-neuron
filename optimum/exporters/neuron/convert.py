@@ -204,6 +204,8 @@ def export_neuronx(
         input_shapes[axe] = getattr(config, axe)
 
     dummy_inputs = config.generate_dummy_inputs(**input_shapes)
+    dummy_inputs_tuple = tuple(dummy_inputs.values())
+    checked_model = config.check_model_inputs_order(model, dummy_inputs)
 
     if auto_cast is not None:
         logger.info(f"Using Neuron: --auto-cast {auto_cast}")
@@ -217,7 +219,7 @@ def export_neuronx(
     else:
         compiler_args = ["--auto-cast", "none"]
 
-    neuron_model = neuronx.trace(model, dummy_inputs, compiler_args=compiler_args)
+    neuron_model = neuronx.trace(checked_model, dummy_inputs_tuple, compiler_args=compiler_args)
     torch.jit.save(neuron_model, output)
 
     return config.inputs, config.outputs
