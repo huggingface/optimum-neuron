@@ -24,7 +24,7 @@ from parameterized import parameterized
 
 from optimum.exporters.neuron.model_configs import *  # noqa: F403
 from optimum.exporters.tasks import TasksManager
-from optimum.neuron.utils import is_neuron_available
+from optimum.neuron.utils import is_neuron_available, is_neuronx_available
 from optimum.neuron.utils.testing_utils import is_inferentia_test
 from optimum.utils import DEFAULT_DUMMY_SHAPES, logging
 
@@ -38,7 +38,7 @@ _COMMOM_COMMANDS = {
     "--auto_cast": ["None", "matmult", "all"],
     "--auto_cast_type": ["bf16", "fp16"],  # "tf32"
 }
-_NEURON_COMMANDS = {"--disable_fast_relayout": ["True", "False"]}
+_NEURON_COMMANDS = {"": random.choices(["--disable-fast-relayout", ""], k=1)}
 _NEURONX_COMMANDS = {}
 
 
@@ -81,7 +81,7 @@ def _get_commands_to_test(models_to_test):
     for test_name, model_name, task in models_to_test:
         if is_neuron_available():
             command_items = dict(_COMMOM_COMMANDS, **_NEURON_COMMANDS)
-        elif is_neuron_available():
+        elif is_neuronx_available():
             command_items = dict(_COMMOM_COMMANDS, **_NEURONX_COMMANDS)
         else:
             continue
@@ -92,7 +92,7 @@ def _get_commands_to_test(models_to_test):
             extra_command = " ".join(
                 [" ".join([arg, option]) for arg, option in zip(command_items, extra_arg_options)]
             )
-            commands_to_test.append((test_name, base_command + " " + extra_command))
+            commands_to_test.append((test_name + extra_command.strip(), base_command + " " + extra_command))
 
     return sorted(commands_to_test)
 
@@ -115,3 +115,11 @@ class TestCLI(unittest.TestCase):
             command = command_content + f" {tempdir}"
 
             subprocess.run(command, shell=True, check=True)
+
+    def test_dynamic_batching(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            subprocess.run(
+                f"optimum-cli export neuron --dynamic --model hf-internal-testing/tiny-random-BertModel --task text-classification {tempdir}",
+                shell=True,
+                check=True,
+            )
