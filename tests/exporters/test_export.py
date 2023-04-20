@@ -91,7 +91,7 @@ class NeuronExportTestCase(TestCase):
         reference_model = copy.deepcopy(model)
 
         neuron_config = neuron_config_constructor(
-            config=model.config, task=task, dynamic=dynamic_batch_size, batch_size=2, sequence_length=18
+            config=model.config, task=task, dynamic_batch_size=dynamic_batch_size, batch_size=2, sequence_length=18
         )
 
         atol = neuron_config.ATOL_FOR_VALIDATION
