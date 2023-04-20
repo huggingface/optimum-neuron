@@ -70,7 +70,7 @@ def parse_args_neuron(parser: "ArgumentParser"):
     )
     optional_group.add_argument(
         "--disable-fast-relayout",
-        action="store_false",
+        action="store_true",
         help="Whether to disable fast relayout optimization which improves performance by using the matrix multiplier for tensor transpose.",
     )
     optional_group.add_argument(
