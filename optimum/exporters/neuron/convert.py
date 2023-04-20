@@ -146,15 +146,14 @@ def export(
     model: "PreTrainedModel",
     config: "NeuronConfig",
     output: Path,
-    dynamic: bool = False,
     auto_cast: Optional[str] = None,
     auto_cast_type: Optional[str] = None,
     disable_fast_relayout: Optional[bool] = False,
 ) -> Tuple[List[str], List[str]]:
     if is_neuron_available():
-        return export_neuron(model, config, output, dynamic, auto_cast, auto_cast_type, disable_fast_relayout)
+        return export_neuron(model, config, output, auto_cast, auto_cast_type, disable_fast_relayout)
     elif is_neuronx_available():
-        return export_neuronx(model, config, output, dynamic, auto_cast, auto_cast_type)
+        return export_neuronx(model, config, output, auto_cast, auto_cast_type)
     else:
         raise RuntimeError(
             "Cannot export the model because the neuron(x) compiler is not installed. See https://awsdocs-neuron.readthedocs-hosted.com/en/latest/frameworks/torch/torch-setup.html."
@@ -165,7 +164,6 @@ def export_neuronx(
     model: "PreTrainedModel",
     config: "NeuronConfig",
     output: Path,
-    dynamic: bool = False,
     auto_cast: Optional[str] = None,
     auto_cast_type: Optional[str] = None,
 ) -> Tuple[List[str], List[str]]:
@@ -179,8 +177,6 @@ def export_neuronx(
             The Neuron configuration associated with the exported model.
         output (`Path`):
             Directory to store the exported Neuron model.
-        dynamic (`bool`, defaults to `False`):
-            Whether the Neuron compiled model supports dynamic batch size.
         auto_cast (`Optional[str]`, defaults to `None`):
             Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `None`, `"matmul"` or `"all"`, you should use `None` to disable any auto-casting, use `"matmul"` to cast FP32 matrix multiplication operations, and use `"all"` to cast all FP32 operations.
         auto_cast_type (`Optional[str]`, defaults to `None`):
@@ -225,8 +221,8 @@ def export_neuronx(
 
     neuron_model = neuronx.trace(checked_model, dummy_inputs_tuple, compiler_args=compiler_args)
 
-    if dynamic is True:
-        logger.warning("Attention: we only support dynamic batch size so far. Other dimensions will be static.")
+    if config.dynamic is True:
+        logger.warning("Attention: we only support dynamic batch size so far. Other dimensions will remain static.")
         neuron_model = neuronx.dynamic_batch(neuron_model)
 
     torch.jit.save(neuron_model, output)
@@ -238,7 +234,6 @@ def export_neuron(
     model: "PreTrainedModel",
     config: "NeuronConfig",
     output: Path,
-    dynamic: bool = False,
     auto_cast: Optional[str] = None,
     auto_cast_type: Optional[str] = None,
     disable_fast_relayout: Optional[bool] = False,
@@ -253,8 +248,6 @@ def export_neuron(
             The Neuron configuration associated with the exported model.
         output (`Path`):
             Directory to store the exported Neuron model.
-        dynamic (`bool`, defaults to `False`):
-            Whether the Neuron compiled model supports dynamic shape, currently only dynamic batch size is supported.
         auto_cast (`Optional[str]`, defaults to `None`):
             Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `None`, `"matmul"` or `"all"`, you should use `None` to disable any auto-casting, use `"matmul"` to cast FP32 matrix multiplication operations, and use `"all"` to cast all FP32 operations.
         auto_cast_type (`Optional[str]`, defaults to `None`):
@@ -288,11 +281,11 @@ def export_neuron(
     checked_model = config.check_model_inputs_order(model, dummy_inputs)
     compiler_args = convert_neuronx_compiler_args_to_neuron(auto_cast, auto_cast_type, disable_fast_relayout)
 
-    if dynamic is True:
-        logger.warning("Attention: we only support dynamic batch size so far. Other dimensions will be static.")
+    if config.dynamic is True:
+        logger.warning("Attention: we only support dynamic batch size so far. Other dimensions will remain static.")
 
     neuron_model = neuron.trace(
-        checked_model, dummy_inputs_tuple, dynamic_batch_size=dynamic, compiler_args=compiler_args
+        checked_model, dummy_inputs_tuple, dynamic_batch_size=config.dynamic, compiler_args=compiler_args
     )
     neuron_model.save(output)
 
