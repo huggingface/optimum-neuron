@@ -65,7 +65,7 @@ class NeuronConfig(ExportConfig, ABC):
         task (`str`, defaults to `"feature-extraction"`):
             The task the model should be exported for.
         dynamic (`bool`, defaults to `False`):
-            Whether the Neuron compiled model supports dynamic batch size.
+            Whether the Neuron compiled model supports dynamic shapes. Currently, only dynamic batch size is supported.
 
         The rest of the arguments are used to specify the shape of the inputs the model can take.
         They are required or not depending on the model the `NeuronConfig` is designed for.

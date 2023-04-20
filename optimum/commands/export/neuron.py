@@ -70,8 +70,13 @@ def parse_args_neuron(parser: "ArgumentParser"):
     )
     optional_group.add_argument(
         "--disable_fast_relayout",
-        default=False,
+        action="store_false",
         help="Whether to disable fast relayout optimization which improves performance by using the matrix multiplier for tensor transpose.",
+    )
+    optional_group.add_argument(
+        "--dynamic",
+        action="store_true",
+        help="Enable dynamic batching for neuron compiled model",
     )
 
     input_group = parser.add_argument_group("Input shapes")
