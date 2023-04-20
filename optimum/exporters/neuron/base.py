@@ -64,7 +64,7 @@ class NeuronConfig(ExportConfig, ABC):
             The model configuration.
         task (`str`, defaults to `"feature-extraction"`):
             The task the model should be exported for.
-        dynamic (`bool`, defaults to `False`):
+        dynamic_batch_size (`bool`, defaults to `False`):
             Whether the Neuron compiled model supports dynamic shapes. Currently, only dynamic batch size is supported.
 
         The rest of the arguments are used to specify the shape of the inputs the model can take.
@@ -99,7 +99,7 @@ class NeuronConfig(ExportConfig, ABC):
         config: "PretrainedConfig",
         task: str,
         batch_size: int = 1,
-        dynamic: bool = False,
+        dynamic_batch_size: bool = False,
         sequence_length: Optional[int] = None,
         num_choices: Optional[int] = None,
         width: Optional[int] = None,
@@ -114,9 +114,9 @@ class NeuronConfig(ExportConfig, ABC):
         self.mandatory_axes = ()
         self.task = task
         self._axes: Dict[str, int] = {}
-        self.dynamic = dynamic
+        self.dynamic_batch_size = dynamic_batch_size
 
-        if dynamic is True:
+        if self.dynamic_batch_size is True:
             logger.info("Overwriting batch size to 1 for dynamic batch size support.")
             batch_size = 1
 

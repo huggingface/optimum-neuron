@@ -38,8 +38,9 @@ _COMMOM_COMMANDS = {
     "--auto_cast": ["None", "matmult", "all"],
     "--auto_cast_type": ["bf16", "fp16"],  # "tf32"
 }
-_NEURON_COMMANDS = {"": random.choices(["--disable-fast-relayout", ""], k=1)}
+_NEURON_COMMANDS = {}
 _NEURONX_COMMANDS = {}
+_DYNAMIC_COMMANDS = {"neuron": ["--disable-fast-relayout"], "neuronx": []}
 
 
 def _get_models_to_test(export_models_dict: Dict, random_pick: Optional[int] = 1):
@@ -81,8 +82,10 @@ def _get_commands_to_test(models_to_test):
     for test_name, model_name, task in models_to_test:
         if is_neuron_available():
             command_items = dict(_COMMOM_COMMANDS, **_NEURON_COMMANDS)
+            dynamic_args = _DYNAMIC_COMMANDS["neuron"]
         elif is_neuronx_available():
             command_items = dict(_COMMOM_COMMANDS, **_NEURONX_COMMANDS)
+            dynamic_args = _DYNAMIC_COMMANDS["neuronx"]
         else:
             continue
 
@@ -92,7 +95,10 @@ def _get_commands_to_test(models_to_test):
             extra_command = " ".join(
                 [" ".join([arg, option]) for arg, option in zip(command_items, extra_arg_options)]
             )
-            commands_to_test.append((test_name + extra_command.strip(), base_command + " " + extra_command))
+            extra_command += " " + " ".join(random.choices(dynamic_args, k=random.randint(0, len(dynamic_args))))
+            command = base_command + " " + extra_command
+
+            commands_to_test.append((test_name + extra_command.strip(), command))
 
     return sorted(commands_to_test)
 
@@ -119,7 +125,7 @@ class TestCLI(unittest.TestCase):
     def test_dynamic_batching(self):
         with tempfile.TemporaryDirectory() as tempdir:
             subprocess.run(
-                f"optimum-cli export neuron --dynamic --model hf-internal-testing/tiny-random-BertModel --task text-classification {tempdir}",
+                f"optimum-cli export neuron --dynamic-batch-size --model hf-internal-testing/tiny-random-BertModel --task text-classification {tempdir}",
                 shell=True,
                 check=True,
             )

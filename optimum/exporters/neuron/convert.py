@@ -76,7 +76,7 @@ def validate_model_outputs(
     input_shapes = {}
     for axe in config.mandatory_axes:
         input_shapes[axe] = getattr(config, axe)
-    if config.dynamic is True:
+    if config.dynamic_batch_size is True:
         input_shapes["batch_size"] += 1
     ref_inputs = config.generate_dummy_inputs(return_tuple=False, **input_shapes)
     with torch.no_grad():
@@ -223,8 +223,7 @@ def export_neuronx(
 
     neuron_model = neuronx.trace(checked_model, dummy_inputs_tuple, compiler_args=compiler_args)
 
-    if config.dynamic is True:
-        logger.warning("Attention: only dynamic batch size is supported so far. Other dimensions will remain static.")
+    if config.dynamic_batch_size is True:
         neuron_model = neuronx.dynamic_batch(neuron_model)
 
     torch.jit.save(neuron_model, output)
@@ -283,11 +282,8 @@ def export_neuron(
     checked_model = config.check_model_inputs_order(model, dummy_inputs)
     compiler_args = convert_neuronx_compiler_args_to_neuron(auto_cast, auto_cast_type, disable_fast_relayout)
 
-    if config.dynamic is True:
-        logger.warning("Attention: only dynamic batch size is supported so far. Other dimensions will remain static.")
-
     neuron_model = neuron.trace(
-        checked_model, dummy_inputs_tuple, dynamic_batch_size=config.dynamic, compiler_args=compiler_args
+        checked_model, dummy_inputs_tuple, dynamic_batch_size=config.dynamic_batch_size, compiler_args=compiler_args
     )
     neuron_model.save(output)
 
