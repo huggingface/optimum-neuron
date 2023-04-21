@@ -14,6 +14,7 @@
 """Tools that fills the neuron cache with common models for the supported tasks."""
 
 import os
+import sys
 import time
 from argparse import ArgumentParser
 from pathlib import Path
@@ -25,14 +26,13 @@ from optimum.neuron.utils.cache_utils import get_num_neuron_cores
 # Important to do it before importing the tests.
 os.environ["RUN_SLOW"] = "1"
 
-# TODO: find a cleaner solution to this.
-import sys
-
-
 path_tests = Path(__file__).parent.parent / "tests"
 sys.path.insert(0, str(path_tests))
 
-from test_examples import (
+if TYPE_CHECKING:
+    from test_examples import ExampleTesterBase  # noqa: E402
+
+from test_examples import (  # noqa: E402
     ExampleTestMeta,
     ImageClassificationExampleTester,
     MultipleChoiceExampleTester,
@@ -43,9 +43,6 @@ from test_examples import (
     TranslationExampleTester,
 )
 
-
-if TYPE_CHECKING:
-    from test_examples import ExampleTesterBase
 
 TESTER_CLASSES = {
     "sequence-classification": TextClassificationExampleTester,
@@ -76,7 +73,7 @@ ARCHITECTURES_TO_COMMON_PRETRAINED_WEIGHTS = {
             "multiple-choice": {"batch_size": 2, "sequence_length": 512},
         },
         "bert-large-uncased": {
-            "default": {"batch_size": 16, "sequence_length": 128},
+            "default": {"batch_size": 2, "sequence_length": 128},
             "token-classification": {"batch_size": 2, "sequence_length": 512},
             "multiple-choice": {"batch_size": 2, "sequence_length": 512},
         },
@@ -215,6 +212,7 @@ def run_auto_fill_cache_for_model_name(
     method_name: str,
     neuron_cache: str,
     num_neuron_cores: int,
+    bf16: bool,
 ):
     batch_size = shape_values_for_task.get("batch_size")
     sequence_length = shape_values_for_task.get("sequence_length")
@@ -226,6 +224,8 @@ def run_auto_fill_cache_for_model_name(
         extra_command_line_arguments = []
 
     if batch_size is not None:
+        if not bf16:
+            batch_size = int(batch_size / 2)
         tester.TRAIN_BATCH_SIZE = batch_size
         tester.EVAL_BATCH_SIZE = batch_size
 
@@ -245,7 +245,11 @@ def run_auto_fill_cache_for_model_name(
     tester.NEURON_CACHE = neuron_cache
     tester.DO_PRECOMPILATION = False
     tester.MAX_STEPS = 200
+    tester.SAVE_STEPS = 100
     tester.NPROC_PER_NODE = num_neuron_cores
+    tester.BF16 = bf16
+    tester.EVAL_IS_SUPPORTED = False
+    tester.GRADIENT_ACCUMULATION_STEPS = 1
 
     setattr(tester, method_name, ExampleTestMeta._create_test(model_type, model_name))
     getattr(tester, method_name)(tester)
@@ -288,12 +292,38 @@ def main():
                 print(f"Running precompilation for {model_name} on {task}...")
                 for num_cores in num_cores_configurations:
                     print(f"For {num_cores} neuron cores")
+                    if num_cores == 1:
+                        tester.MULTI_PROC = "false"
+                    else:
+                        tester.MULTI_PROC = "true"
                     start = time.time()
                     shape_values_for_task = shape_values.get(task)
                     if shape_values_for_task is None:
                         shape_values_for_task = shape_values["default"]
+                    print("BF16")
                     run_auto_fill_cache_for_model_name(
-                        model_type, model_name, shape_values_for_task, tester, method_name, args.cache_path, num_cores
+                        model_type,
+                        model_name,
+                        shape_values_for_task,
+                        tester,
+                        method_name,
+                        args.cache_path,
+                        num_cores,
+                        True,
+                    )
+                    end = time.time()
+                    print(f"Done! Duration: {end - start:.3f}.")
+                    print("Full-precision")
+                    start = time.time()
+                    run_auto_fill_cache_for_model_name(
+                        model_type,
+                        model_name,
+                        shape_values_for_task,
+                        tester,
+                        method_name,
+                        args.cache_path,
+                        num_cores,
+                        False,
                     )
                     end = time.time()
                     print(f"Done! Duration: {end - start:.3f}.")

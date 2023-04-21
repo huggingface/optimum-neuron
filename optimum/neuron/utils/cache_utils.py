@@ -102,7 +102,7 @@ def set_neuron_cache_path(neuron_cache_path: Union[str, Path], ignore_no_cache: 
     if isinstance(neuron_cache_path, Path):
         neuron_cache_path = neuron_cache_path.as_posix()
 
-    match_ = re.search(r"--cache_dir=([\w\/]+)", neuron_cc_flags)
+    match_ = re.search(r"--cache_dir=([\w\/-]+)", neuron_cc_flags)
     if match_:
         neuron_cc_flags = neuron_cc_flags[: match_.start(1)] + neuron_cache_path + neuron_cc_flags[match_.end(1) :]
     else:

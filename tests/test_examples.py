@@ -45,7 +45,7 @@ from transformers.testing_utils import slow
 
 path_tests = Path(__file__).parent
 sys.path.insert(0, str(path_tests))
-from utils import MODELS_TO_TEST_MAPPING
+from utils import MODELS_TO_TEST_MAPPING  # noqa: E402
 
 
 def _get_supported_models_for_script(
@@ -250,6 +250,8 @@ class ExampleTesterBase(TestCase):
     ONLY_PRECOMPILATION = False
     DO_PRECOMPILATION = True
     NEURON_CACHE = None
+    MULTI_PROC = os.environ.get("MULTI_PROC", "false")
+    BF16 = True
 
     def setUp(self):
         self._create_venv()
@@ -293,6 +295,9 @@ class ExampleTesterBase(TestCase):
         logging_steps = ExampleTestMeta.process_class_attribute(self.LOGGING_STEPS, model_type)
         save_steps = ExampleTestMeta.process_class_attribute(self.SAVE_STEPS, model_type)
 
+        bf16 = ExampleTestMeta.process_class_attribute(self.BF16, model_type)
+        multi_proc = ExampleTestMeta.process_class_attribute(self.MULTI_PROC, model_type)
+
         # Extra
         extra_command_line_arguments = [
             ExampleTestMeta.process_class_attribute(arg, model_type) for arg in self.EXTRA_COMMAND_LINE_ARGUMENTS
@@ -303,7 +308,7 @@ class ExampleTesterBase(TestCase):
         do_eval_option = "--do_eval" if do_eval else " "
         task_option = f"--{dataset_parameter_name} {task}" if task else " "
 
-        if os.environ.get("MULTI_PROC", "false") == "false":
+        if multi_proc == "false":
             program = ["venv/bin/python" if self.venv_was_created else "python"]
         else:
             program = [
@@ -334,15 +339,16 @@ class ExampleTesterBase(TestCase):
             f"--per_device_train_batch_size {train_batch_size}",
             f"--per_device_eval_batch_size {eval_batch_size}",
             f"--gradient_accumulation_steps {gradient_accumulation_steps}",
-            "--save_strategy epoch",
+            "--save_strategy steps",
             f" --num_train_epochs {num_train_epochs}",
             max_steps,
             "--dataloader_num_workers 4",
             f"--save_steps {save_steps}",
             "--save_total_limit 1",
             f"--logging_steps {logging_steps}",
-            "--bf16",
         ]
+        if bf16:
+            cmd_line.append("--bf16")
         if is_precompilation:
             cmd_line.append("--report_to none")
 
