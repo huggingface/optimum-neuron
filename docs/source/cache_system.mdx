@@ -58,7 +58,7 @@ If you are [logged in the Hugging Face Hub](https://huggingface.co/docs/huggingf
 
 ### Cache system flow
 
-![Cache system flow](../source/images/cache_system_flow.jpg)
+![Cache system flow](https://huggingface.co/datasets/optimum/documentation-images/blob/main/neuron/cache_system_flow.jpg)
 
 
 At each the beginning of each training step, the  [`TrainiumTrainer`] computes a `NeuronHash` and checks the cache repo(s) (official and custom) on the Hugging Face Hub to see if there are compiled files associated to this hash. 
