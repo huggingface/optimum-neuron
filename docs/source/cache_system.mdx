@@ -44,6 +44,13 @@ To alleviate that [you can create your own model repo on the Hub](https://huggin
 CUSTOM_CACHE_REPO="michaelbenayoun/my_custom_cache_repo" torchrun ...
 ```
 
+or:
+
+```bash
+export CUSTOM_CACHE_REPO="michaelbenayoun/my_custom_cache_repo"
+torchrun ...
+```
+
 If you are [logged in the Hugging Face Hub](https://huggingface.co/docs/huggingface_hub/quick-start#login) on the Trainium instance, you will then be able to fetch files both from your custom cache repo, which can be public or private, and from the official cache repo, as well as pushing your compiled files to your custom cache repo. 
 
 ### Cache system flow
@@ -56,7 +63,3 @@ If that is the case, the files are downloaded directly to the local cache direct
 
 
 Just as for downloading compiled files, the [`TrainiumTrainer`] will keep track of the newly created compilation files at each training step, and upload them to the Hugging Face Hub at save time or when training ends. This assumes that you have writing access to the cache repo, otherwise nothing will be pushed. 
-
-
-
-

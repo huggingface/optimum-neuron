@@ -5,6 +5,8 @@
     title: Installation
   - local: quickstart
     title: Quickstart
+  - local: cache_system
+    title: Cache sytem with the Hub
   - sections:
     - local: tutorials/overview
       title: Overview
