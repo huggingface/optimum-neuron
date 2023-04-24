@@ -12,7 +12,8 @@ specific language governing permissions and limitations under the License.
 
 # Optimum Neuron Compilation Cache System
 
-As you might have noticed while training your models on Trainium instances, Neuron cores require a compilation step that can take a long time. 
+As you might have noticed while training your models on Trainium instances, Neuron cores work on models compiled to the `neff` format. 
+It means that training requires one or multiple compilation step(s) that can take a long time. 
 
 With [`torch-neuronx`](https://github.com/aws-neuron/aws-neuron-samples/tree/master/torch-neuronx), a Neuron-compatible  version of PyTorch, the compiled files are stored in a local directory once you performed compilation, usually `/var/tmp/neuron-compile-cache`. This way you do not need to perform compilation again when you start another training with similar parameters. 
 
@@ -57,7 +58,7 @@ If you are [logged in the Hugging Face Hub](https://huggingface.co/docs/huggingf
 
 ### Cache system flow
 
-![Cache system flow](./images/cache_system_flow.jpg)
+![Cache system flow](../source/images/cache_system_flow.jpg)
 
 
 At each the beginning of each training step, the  [`TrainiumTrainer`] computes a `NeuronHash` and checks the cache repo(s) (official and custom) on the Hugging Face Hub to see if there are compiled files associated to this hash. 
