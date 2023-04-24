@@ -4,12 +4,15 @@ on:
   push:
     branches:
       - main
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      
     paths:
       - 'docs/source/**'
       - 'docs/assets/**'
       - 'optimum/**'
       - '.github/workflows/doc-build.yml'
-
+  workflow_dispatch:
 
 jobs:
   build_documentation:
@@ -27,6 +30,20 @@ jobs:
           node-version: '18'
           cache-dependency-path: "kit/package-lock.json"
 
+      - name: Set environment variables
+        run: |
+          cd optimum
+          version=`echo "$(grep '^__version__ =' neuron/version.py | cut -d '=' -f 2- | xargs)"`
+
+          if [[ $version == *.dev0 ]]
+          then
+            echo "VERSION=main" >> $GITHUB_ENV
+          else
+            echo "VERSION=v$version" >> $GITHUB_ENV
+          fi
+
+          cd ..
+
       - name: Setup environment
         run: |
           pip install ".[quality]"
@@ -34,7 +51,7 @@ jobs:
       - name: Make documentation
         shell: bash 
         run: |
-          doc-builder build optimum.neuron docs/source/ --build_dir neuron-doc-build/ --version pr_${{ env.PR_NUMBER }} --version_tag_suffix "" --html --clean
+          doc-builder build optimum.neuron docs/source/ --build_dir neuron-doc-build/ --version ${{ env.VERSION }} --version_tag_suffix "" --html --clean
           cd  neuron-doc-build/
           mv optimum.neuron optimum-neuron
           doc-builder push optimum-neuron --doc_build_repo_id "hf-doc-build/doc-build" --token "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" --commit_msg "Updated with commit $COMMIT_SHA See: https://github.com/huggingface/optimum-neuron/commit/$COMMIT_SHA" --n_retries 5
