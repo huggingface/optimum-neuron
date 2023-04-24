@@ -279,5 +279,18 @@ class NeuronModel(OptimizedModel):
         else:
             return path
 
-    def pad_to_compiled_shapes(self):
+    def pad_to_compiled_shapes(self, **inputs):
         pass
+
+    def validate_static_shape(self, **kwargs_shapes):
+        dim_to_pad = []
+        if self.neuron_config is not None:
+            for name in kwargs_shapes.keys():
+                compiled_shape = getattr(self.neuron_config, name, None)
+                rt_shape = kwargs_shapes[name]
+                if rt_shape > compiled_shape:
+                    raise
+                elif rt_shape < compiled_shape:
+                    dim_to_pad.append(name)
+
+        return dim_to_pad
