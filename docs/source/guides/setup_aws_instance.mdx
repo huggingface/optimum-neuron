@@ -16,4 +16,84 @@ limitations under the License.
 
 # Set up AWS Trainium instance
 
-TODO:
+The simplest way to work with AWS Trainium and Hugging Face Transformers is the [Hugging Face Neuron Deep Learning AMI](https://aws.amazon.com/marketplace/pp/prodview-gr3e6yiscria2) (DLAMI). The DLAMI comes with all required libraries pre-packaged for you, including the Neuron Drivers, Transformers, Datasets, and Accelerate.
+
+To create an EC2 Trainium instance, you can start from the console or the Marketplace. This guide will start from the [EC2 console](https://console.aws.amazon.com/ec2sp/v2/).
+
+Starting from the [EC2 console](https://console.aws.amazon.com/ec2sp/v2/) in the us-east-1 region, I first click on **Launch an instance** and define a name for the instance (`trainium-huggingface-demo`).
+
+<img
+  src="https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/guides/setup_aws_instance/01-name-instance.png"
+  alt="name instance"
+/>
+
+Then, I search the Amazon Marketplace for Hugging Face AMIs. Entering “Hugging Face” in the search bar for “Application and OS Images” and hitting “enter”.
+
+<img
+  src="https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/guides/setup_aws_instance/02-search-ami.png"
+  alt="search ami"
+/>
+
+This should now open the “Choose an Amazon Machine Image” view with our search. We can now navigate to “AWS Marketplace AMIs” and find the [Hugging Face Neuron Deep Learning AMI](https://aws.amazon.com/marketplace/pp/prodview-gr3e6yiscria2). Now click select.
+
+<img
+  src="https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/guides/setup_aws_instance/03-select-ami.png"
+  alt="select ami"
+/>
+
+_You will be asked to subscribe if you aren’t. The AMI is completely free of charge, and you will only pay for the EC2 compute._
+
+Then you need to define a key pair, which will be used to connect to the instance via `ssh`. You can create one in place if you don't have a key pair.
+
+<img
+  src="https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/guides/setup_aws_instance/04-select-key.png"
+  alt="select ssh key"
+/>
+
+After that, create or select a [security group](https://docs.aws.amazon.com/vpc/latest/userguide/VPC_SecurityGroups.html). Important here is that we want to allow `ssh` traffic.
+
+<img
+  src="https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/guides/setup_aws_instance/05-select-sh.png"
+  alt="select security group"
+/>
+
+You are ready to launch our instance. Therefore click on “Launch Instance” on the right side.
+
+<img
+  src="https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/guides/setup_aws_instance/06-launch-instance.png"
+  alt="select ssh key"
+/>
+
+AWS will now provision the instance using the [Hugging Face Neuron Deep Learning AMI](https://aws.amazon.com/marketplace/pp/prodview-gr3e6yiscria2). Additional configurations can be made by increasing the disk space or creating an instance profile to access other AWS services.
+
+After the instance runs, you can view and copy the public IPv4 address to `ssh` into the machine.
+
+<img
+  src="https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/guides/setup_aws_instance/07-copy-dns.png"
+  alt="select public dns"
+/>
+
+Replace the empty strings `""` in the snippet below with the IP address of your instances and the path to the key pair you created/selected when launching the instance.
+
+```bash
+PUBLIC_DNS="" # IP address
+KEY_PATH="" # local path to key pair
+
+ssh -i $KEY_PATH ubuntu@$PUBLIC_DNS
+```
+
+After you are connected, you can run `neuron-ls` to ensure you have access to the Trainium accelerators. You should see a similar output than below.
+
+```json
+ubuntu@ip-172-31-79-164:~$ neuron-ls
+instance-type: trn1.2xlarge
+instance-id: i-0570615e41700a481
++--------+--------+--------+---------+
+| NEURON | NEURON | NEURON |   PCI   |
+| DEVICE | CORES  | MEMORY |   BDF   |
++--------+--------+--------+---------+
+| 0      | 2      | 32 GB  | 00:1e.0 |
++--------+--------+--------+---------+
+```
+
+We are done! You can now start using the Trainium accelerators with Hugging Face Transformers. Check out the [Fine-tune Transformers with AWS Trainium](./fine_tune) guide to get started.
