@@ -20,16 +20,14 @@ from typing import TYPE_CHECKING, List, Optional, Union
 
 import torch
 from huggingface_hub import HfApi, HfFolder, hf_hub_download
-from transformers import (
-    AutoConfig,
-    AutoModel,
-)
+from transformers import AutoConfig, AutoModel
 
-from ..exporters import TasksManager
 from ..exporters.neuron import export
+from ..exporters.tasks import TasksManager
 from ..modeling_base import OptimizedModel
 from ..utils import DEFAULT_DUMMY_SHAPES
 from ..utils.save_utils import maybe_load_preprocessors, maybe_save_preprocessors
+from .utils import NEURON_FILE_NAME
 
 
 if TYPE_CHECKING:
@@ -37,42 +35,6 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
-
-
-_TOKENIZER_FOR_DOC = "AutoTokenizer"
-_FEATURE_EXTRACTOR_FOR_DOC = "AutoFeatureExtractor"
-NEURON_FILE_NAME = "model.neuron"
-
-NEURON_ONNX_MODEL_START_DOCSTRING = r"""
-    This model inherits from [`~neuron.modeling.NeuronModel`]. Check the superclass documentation for the generic methods the
-    library implements for all its model (such as downloading or saving)
-
-    Args:
-        config (`transformers.PretrainedConfig`): [PretrainedConfig](https://huggingface.co/docs/transformers/main_classes/configuration#transformers.PretrainedConfig) is the Model configuration class with all the parameters of the model.
-            Initializing with a config file does not load the weights associated with the model, only the
-            configuration. Check out the [`~neuron.modeling.NeuronModel.from_pretrained`] method to load the model weights.
-        model (`torch.jit._script.ScriptModule`): [torch.jit._script.ScriptModule](https://pytorch.org/docs/stable/generated/torch.jit.ScriptModule.html) is the TorchScript graph compiled by neuron(x) compiler.
-"""
-
-NEURON_TEXT_INPUTS_DOCSTRING = r"""
-    Args:
-        input_ids (`torch.Tensor` of shape `({0})`):
-            Indices of input sequence tokens in the vocabulary.
-            Indices can be obtained using [`AutoTokenizer`](https://huggingface.co/docs/transformers/autoclass_tutorial#autotokenizer).
-            See [`PreTrainedTokenizer.encode`](https://huggingface.co/docs/transformers/main_classes/tokenizer#transformers.PreTrainedTokenizerBase.encode) and
-            [`PreTrainedTokenizer.__call__`](https://huggingface.co/docs/transformers/main_classes/tokenizer#transformers.PreTrainedTokenizerBase.__call__) for details.
-            [What are input IDs?](https://huggingface.co/docs/transformers/glossary#input-ids)
-        attention_mask (`Union[torch.Tensor, None]` of shape `({0})`, defaults to `None`):
-            Mask to avoid performing attention on padding token indices. Mask values selected in `[0, 1]`:
-            - 1 for tokens that are **not masked**,
-            - 0 for tokens that are **masked**.
-            [What are attention masks?](https://huggingface.co/docs/transformers/glossary#attention-mask)
-        token_type_ids (`Union[torch.Tensor, None]` of shape `({0})`, defaults to `None`):
-            Segment token indices to indicate first and second portions of the inputs. Indices are selected in `[0, 1]`:
-            - 1 for tokens that are **sentence A**,
-            - 0 for tokens that are **sentence B**.
-            [What are token type IDs?](https://huggingface.co/docs/transformers/glossary#token-type-ids)
-"""
 
 
 class NeuronModel(OptimizedModel):
@@ -113,7 +75,7 @@ class NeuronModel(OptimizedModel):
         self.config = config
         self.model_save_dir = self._normalize_path(model_save_dir)
         self.preprocessors = preprocessors if preprocessors is not None else []
-        self.model_file_name = None
+        self.model_file_name = getattr(self.model_save_dir, "name", None)
 
         # Registers the NeuronModelForXXX classes into the transformers AutoModel classes to avoid warnings when creating
         # a pipeline https://github.com/huggingface/transformers/blob/3d3204c025b6b5de013e07dd364208e28b4d9589/src/transformers/pipelines/base.py#L940
@@ -239,6 +201,13 @@ class NeuronModel(OptimizedModel):
         disable_fast_relayout: Optional[bool] = False,
         **kwargs_shapes,
     ) -> "NeuronModel":
+        """
+        Export a vanilla Transformers model into a neuron-compiled TorchScript Module using `optimum.exporters.neuron.export`.
+
+        Arguments:
+            kwargs_shapes (`Dict`):
+                Shapes to use during inference. This argument allows to override the default shapes used during the export.
+        """
         if task is None:
             task = cls._auto_model_to_task(cls.auto_model_class)
 
@@ -302,3 +271,6 @@ class NeuronModel(OptimizedModel):
             return Path(path)
         else:
             return path
+
+    def pad_to_compiled_shapes(self):
+        pass
