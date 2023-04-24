@@ -23,6 +23,7 @@ from huggingface_hub import HfApi, HfFolder, hf_hub_download
 from transformers import AutoConfig, AutoModel
 
 from ..exporters.neuron import export
+from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..exporters.tasks import TasksManager
 from ..modeling_base import OptimizedModel
 from ..utils import DEFAULT_DUMMY_SHAPES
@@ -32,6 +33,8 @@ from .utils import NEURON_FILE_NAME
 
 if TYPE_CHECKING:
     from transformers import PretrainedConfig
+
+    from ..exporters.neuron import NeuronConfig
 
 
 logger = logging.getLogger(__name__)
@@ -67,6 +70,7 @@ class NeuronModel(OptimizedModel):
         config: "PretrainedConfig",
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
         preprocessors: Optional[List] = None,
+        neuron_config: "NeuronConfig" = None,
         **kwargs,
     ):
         super().__init__(model, config)
@@ -76,6 +80,7 @@ class NeuronModel(OptimizedModel):
         self.model_save_dir = self._normalize_path(model_save_dir)
         self.preprocessors = preprocessors if preprocessors is not None else []
         self.model_file_name = getattr(self.model_save_dir, "name", None)
+        self.neuron_config = neuron_config
 
         # Registers the NeuronModelForXXX classes into the transformers AutoModel classes to avoid warnings when creating
         # a pipeline https://github.com/huggingface/transformers/blob/3d3204c025b6b5de013e07dd364208e28b4d9589/src/transformers/pipelines/base.py#L940
@@ -124,6 +129,7 @@ class NeuronModel(OptimizedModel):
         subfolder: str = "",
         local_files_only: bool = False,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
+        neuron_config: "NeuronConfig" = None,
         **kwargs,
     ) -> "NeuronModel":
         model_path = Path(model_id)
@@ -181,6 +187,7 @@ class NeuronModel(OptimizedModel):
             config=config,
             model_save_dir=model_save_dir,
             preprocessors=preprocessors,
+            neuron_config=neuron_config,
         )
 
     @classmethod
@@ -249,7 +256,7 @@ class NeuronModel(OptimizedModel):
         config.save_pretrained(save_dir_path)
         maybe_save_preprocessors(model_id, save_dir_path, src_subfolder=subfolder)
 
-        return cls._from_pretrained(save_dir_path, config)
+        return cls._from_pretrained(save_dir_path, config, neuron_config=neuron_config)
 
     def forward(self, *args, **kwargs):
         raise NotImplementedError

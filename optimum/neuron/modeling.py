@@ -80,7 +80,7 @@ SEQUENCE_CLASSIFICATION_EXAMPLE = r"""
     >>> outputs = model(**inputs)
     >>> logits = outputs.logits
     >>> list(logits.shape)
-    [1, 2]
+    [2, 2]
     ```
 """
 
