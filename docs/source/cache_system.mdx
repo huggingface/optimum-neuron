@@ -46,22 +46,16 @@ CUSTOM_CACHE_REPO="michaelbenayoun/my_custom_cache_repo" torchrun ...
 
 If you are [logged in the Hugging Face Hub](https://huggingface.co/docs/huggingface_hub/quick-start#login) on the Trainium instance, you will then be able to fetch files both from your custom cache repo, which can be public or private, and from the official cache repo, as well as pushing your compiled files to your custom cache repo. 
 
+### Cache system flow
 
-### Downloading compiled files
-
-At each training step, the  `TrainiumTrainer` computes a `NeuronHash` at the beginning of each training step and checks the official  cache repo on the [Hugging Face Hub](https://huggingface.co/aws-neuron/optimum-neuron-cache) to see if there are compiled files associated to this hash. If that is the case, the files are downloaded directly to the local cache directory and no compilation is needed.
-
-<Tip>
-
-You can also define a custom cache repo, which can either be public or private.
-
-</Tip>
+![Cache system flow](images/cache_system_flow.jpg)
 
 
-### Pushing compiled files
+At each the beginning of each training step, the  [`TrainiumTrainer`] computes a `NeuronHash` and checks the cache repo(s) (official and custom) on the Hugging Face Hub to see if there are compiled files associated to this hash. 
+If that is the case, the files are downloaded directly to the local cache directory and no compilation is needed. Otherwise compilation is performed.
 
-Just as for downloading compiled files, the `TrainiumTrainer` will keep track of the newly created compiled files at each training step, and upload them to the Hugging Face Hub at save time or when training ends, assuming that you have writing access on the cache repo (you need to create and use a custom cache repo for that). 
-This way, you can share and reuse compiled files, saving both time and costs.
+
+Just as for downloading compiled files, the [`TrainiumTrainer`] will keep track of the newly created compilation files at each training step, and upload them to the Hugging Face Hub at save time or when training ends. This assumes that you have writing access to the cache repo, otherwise nothing will be pushed. 
 
 
 
