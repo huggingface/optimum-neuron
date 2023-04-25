@@ -1,0 +1,223 @@
+<!---
+Copyright 2023 The HuggingFace Team. All rights reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+# Export a model to Inferentia
+
+## Summary
+
+Exporting a PyTorch model to Neuron model is as simple as
+
+```bash
+optimum-cli export neuron \
+  --model bert-base-uncased \
+  --sequence-length 128 \
+  --batch_size 1 \
+  bert_neuron/  
+```
+
+Check out the help for more options:
+
+```bash
+optimum-cli export neuron --help
+```
+
+## Why compile to Neuron model?
+
+AWS provides two generations of the Inferentia accelerator built for machine learning inference with higher throughput, lower latency but lower cost: [INF2 (NeuronCore-v2)](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/inf2-arch.html) and [INF1 (NeuronCore-v1)](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/inf1-arch.html#aws-inf1-arch).  
+
+In production environments, to deploy 🤗 [Transformers](https://huggingface.co/docs/transformers/index) models on Neuron devices, you need to compile your models and export them to a serialized format before inference. Through Ahead-Of-Time (AOT) compilation with Neuron Compiler([neuronx-cc](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/release-notes/compiler/neuronx-cc/index.html) or [neuron-cc)](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/release-notes/compiler/neuron-cc/neuron-cc.html)), your models will be converted to serialized and optimized [TorchScript modules](https://pytorch.org/docs/stable/generated/torch.jit.ScriptModule.html).
+
+<Tip>
+To understand more about the compilation, here are general steps executed under the hood:
+
+<pre class="mermaid"><code>graph LR;
+    A(PyTorch Model) -->|trace| B(Compute Graph IR);
+    B -->|compile| C(NEFF Binary);
+    C -->|embed| D(TorchScript Module);</code></pre>
+
+**NEFF:** Neuron Executable File Format which is a binary executable on Neuron devices.
+</Tip>
+
+Although pre-compilation avoids overhead during the inference, traced Neuron module has some limitations:
+* Traced Neuron module will be static, which requires fixed input shapes, output shapes and data types used for the compilation. As the model won't be dynamically re-compiled, the inference will fail if any of the above conditions change. 
+  (*But these limitations could be bypass with [dynamic batching](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/frameworks/torch/torch-neuronx/api-reference-guide/inference/api-torch-neuronx-trace.html#dynamic-batching) and [bucketing](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/appnotes/torch-neuron/bucketing-app-note.html#bucketing-app-note)*).
+* Neuron models are hardware-specialized, which means:
+  *  Models traced with Neuron can no longer be executed in non-Neuron environment. 
+  *  Models compiled for INF1 (NeuronCore-v1) are not compatible with INF2 (NeuronCore-v2), and vice versa.
+
+In this guide, we'll show you how to export your models to serialized models optimized for Neuron devices.
+
+<Tip>
+🤗 Optimum provides support for the Neuron export by leveraging configuration objects.
+These configuration objects come ready made for a number of model architectures, and are designed to be easily extendable to other architectures.
+
+**To check the supported architectures, go to the [configuration reference page](../package_reference/configuration).**
+
+</Tip>
+
+## Exporting a model to Neuron using the CLI
+
+To export a 🤗 Transformers model to Neuron, you'll first need to install some extra dependencies:
+
+**INF2**
+
+```bash
+pip install optimum[neuronx]
+```
+
+**INF1**
+
+```bash
+pip install optimum[neuron]
+```
+
+The Optimum Neuron export can be used through Optimum command-line:
+
+```bash
+optimum-cli export neuron --help
+
+usage: optimum-cli export neuron [-h] -m MODEL [--task TASK] [--atol ATOL] [--cache_dir CACHE_DIR] [--trust-remote-code]
+                                 [--auto_cast AUTO_CAST] [--auto_cast_type AUTO_CAST_TYPE]
+                                 [--disable_fast_relayout DISABLE_FAST_RELAYOUT] [--batch_size BATCH_SIZE]
+                                 [--sequence_length SEQUENCE_LENGTH] [--num_choices NUM_CHOICES]
+                                 output
+
+optional arguments:
+  -h, --help            show this help message and exit
+
+Required arguments:
+  -m MODEL, --model MODEL
+                        Model ID on huggingface.co or path on disk to load model from.
+  output                Path indicating the directory where to store generated Neuron compiled TorchScript model.
+
+Optional arguments:
+  --task TASK           The task to export the model for. If not specified, the task will be auto-inferred based on the model.
+                        Available tasks depend on the model, but are among: ['conversational', 'feature-extraction', 'fill-
+                        mask', 'text-generation', 'text2text-generation', 'text-classification', 'token-classification',
+                        'multiple-choice', 'object-detection', 'question-answering', 'image-classification', 'image-
+                        segmentation', 'masked-im', 'semantic-segmentation', 'automatic-speech-recognition', 'audio-
+                        classification', 'audio-frame-classification', 'audio-xvector', 'image-to-text', 'stable-diffusion',
+                        'zero-shot-image-classification', 'zero-shot-object-detection'].
+  --atol ATOL           If specified, the absolute difference tolerance when validating the model. Otherwise, the default atol
+                        for the model will be used.
+  --cache_dir CACHE_DIR
+                        Path indicating where to store cache.
+  --trust-remote-code   Allow to use custom code for the modeling hosted in the model repository. This option should only be set
+                        for repositories you trust and in which you have read the code, as it will execute on your local machine
+                        arbitrary code present in the model repository.
+  --auto_cast AUTO_CAST
+                        Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `None`,
+                        `"matmul"` or `"all"`.
+  --auto_cast_type AUTO_CAST_TYPE
+                        The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"` or
+                        `"tf32"`.
+  --disable_fast_relayout DISABLE_FAST_RELAYOUT
+                        Whether to disable fast relayout optimization which improves performance by using the matrix multiplier
+                        for tensor transpose.
+
+Input shapes:
+  --batch_size BATCH_SIZE
+                        Batch size that the Neuron-cc compiler exported model will be able to take as input.
+  --sequence_length SEQUENCE_LENGTH
+                        Sequence length that the Neuron-cc compiler exported model will be able to take as input.
+  --num_choices NUM_CHOICES
+                        Only for the multiple-choice task. Num choices that the Neuron-cc compiler exported model will be able
+                        to take as input.
+
+```
+
+In the last section, you can see some input shape options to pass for exporting static neuron model. Default values below will be used if mandatory shape information for the task you chose is not defined:
+
+```
+    "batch_size": 2
+    "sequence_length": 16
+    "num_choices": 4
+```
+
+
+Exporting a checkpoint can be done as follows:
+
+```bash
+optimum-cli export neuron --model distilbert-base-uncased-distilled-squad distilbert_base_uncased_squad_neuron/
+```
+
+You should see the following logs which validate the model on Neuron deivces by comparing with PyTorch model on CPU:
+
+```bash
+Validating Neuron model...
+        -[✓] Neuron model output names match reference model (last_hidden_state)
+        - Validating Neuron Model output "last_hidden_state":
+                -[✓] (1, 16, 32) matches (1, 16, 32)
+                -[✓] all values close (atol: 0.0001)
+The Neuronx export succeeded and the exported model was saved at: test_bert/
+```
+
+This exports a neuron-compiled TorchScript module of the checkpoint defined by the `--model` argument.
+As you can see, the task was automatically detected. This was possible because the model was on the Hub.
+
+For local models, providing the `--task` argument is needed or it will default to the model architecture without any task specific head:
+
+```bash
+optimum-cli export neuron --model local_path --task question-answering distilbert_base_uncased_squad_neuron/
+```
+
+Note that providing the `--task` argument for a model on the Hub will disable the automatic task detection. The resulting `model.neuron` file, can then be loaded and run on Neuron devices. 
+
+## Exporting a model to Neuron using the export function
+
+You will also be able to export your models to Neuron format directly with the export function, here is an example:
+
+```python
+from pathlib import Path
+from transformers import AutoModelForMultipleChoice
+from optimum.exporters.neuron import export
+from optimum.exporters.neuron.model_configs import DistilBertNeuronConfig
+
+model_id = "distilbert-base-uncased"
+model = AutoModelForMultipleChoice.from_pretrained(model_id)
+neuron_config = DistilBertNeuronConfig(
+    config=model.config, task="multiple-choice", batch_size=2, sequence_length=18, num_choices=3
+)
+output_path = Path("test_bert/model.neuron")
+
+export(
+    model=model,
+    config=neuron_config,
+    output=output_path,
+    auto_cast="all",
+    auto_cast_type="bf16",
+)
+```
+
+
+## Selecting a task
+
+Specifying a `--task` should not be necessary in most cases when exporting from a model on the Hugging Face Hub.
+
+However, in case you need to check for a given a model architecture what tasks the Neuron export supports, we got you covered. First, you can check the list of supported tasks [here](/exporters/task_manager).
+
+For each model architecture, you can find the list of supported tasks via the [`~exporters.tasks.TasksManager`]. For example, for DistilBERT, for the Neuron export, we have:
+
+```python
+>>> from optimum.exporters.tasks import TasksManager
+>>> from optimum.exporters.neuron.model_configs import *  # Register neuron specific configs to the TasksManager
+
+>>> distilbert_tasks = list(TasksManager.get_supported_tasks_for_model_type("distilbert", "neuron").keys())
+>>> print(distilbert_tasks)
+['feature-extraction', 'fill-mask', 'multiple-choice', 'question-answering', 'text-classification', 'token-classification']
+```
+
+You can then pass one of these tasks to the `--task` argument in the `optimum-cli export neuron` command, as mentioned above.
