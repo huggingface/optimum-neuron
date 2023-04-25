@@ -69,12 +69,12 @@ ARCHITECTURES_TO_COMMON_PRETRAINED_WEIGHTS = {
     "bert": {
         "bert-base-uncased": {
             "default": {"batch_size": 16, "sequence_length": 128},
-            "token-classification": {"batch_size": 2, "sequence_length": 512},
-            "multiple-choice": {"batch_size": 2, "sequence_length": 512},
+            "token-classification": {"batch_size": 8, "sequence_length": 512},
+            "multiple-choice": {"batch_size": 8, "sequence_length": 512},
         },
         "bert-large-uncased": {
-            "default": {"batch_size": 2, "sequence_length": 128},
-            "token-classification": {"batch_size": 2, "sequence_length": 512},
+            "default": {"batch_size": 8, "sequence_length": 128},
+            "token-classification": {"batch_size": 4, "sequence_length": 512},
             "multiple-choice": {"batch_size": 2, "sequence_length": 512},
         },
     },
@@ -225,7 +225,7 @@ def run_auto_fill_cache_for_model_name(
 
     if batch_size is not None:
         if not bf16:
-            batch_size = int(batch_size / 2)
+            batch_size = min(int(batch_size / 2), 1)
         tester.TRAIN_BATCH_SIZE = batch_size
         tester.EVAL_BATCH_SIZE = batch_size
 

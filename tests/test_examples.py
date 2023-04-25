@@ -42,6 +42,8 @@ from transformers import (
 )
 from transformers.testing_utils import slow
 
+from optimum.neuron.utils.cache_utils import set_neuron_cache_path
+
 
 path_tests = Path(__file__).parent
 sys.path.insert(0, str(path_tests))
@@ -253,17 +255,32 @@ class ExampleTesterBase(TestCase):
     MULTI_PROC = os.environ.get("MULTI_PROC", "false")
     BF16 = True
 
+    @classmethod
+    def setUpClass(cls):
+        cls._create_venv()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._remove_venv()
+
     def setUp(self):
-        self._create_venv()
+        set_neuron_cache_path("/var/tmp/neuron-compile-cache")
 
     def tearDown(self):
-        self._remove_venv()
+        set_neuron_cache_path("/var/tmp/neuron-compile-cache")
+
+        cmd_line = "sudo rmmod neuron".split()
+        p = subprocess.Popen(cmd_line)
+        return_code = p.wait()
+        assert return_code == 0
+
+        cmd_line = "sudo modprobe neuron".split()
+        p = subprocess.Popen(cmd_line)
+        return_code = p.wait()
+        assert return_code == 0
 
     def get_env(self, model_type: str) -> Dict[str, str]:
         env = dict(os.environ)
-        neuron_cache = ExampleTestMeta.process_class_attribute(self.NEURON_CACHE, model_type)
-        if neuron_cache is not None:
-            env["NEURON_CC_FLAGS"] = env.get("NEURON_CC_FLAGS", "") + f" --cache_dir={neuron_cache}"
         return env
 
     def _create_command_line(
@@ -309,16 +326,16 @@ class ExampleTesterBase(TestCase):
         task_option = f"--{dataset_parameter_name} {task}" if task else " "
 
         if multi_proc == "false":
-            program = ["venv/bin/python" if self.venv_was_created else "python"]
+            program = ["venv/bin/python" if self.venv_was_created() else "python"]
         else:
             program = [
-                "venv/bin/torchrun" if self.venv_was_created else "torchrun",
+                "venv/bin/torchrun" if self.venv_was_created() else "torchrun",
                 f"--nproc_per_node={n_proc_per_node}",
             ]
 
         if is_precompilation:
             neuron_parallel_compile_path = (
-                "venv/bin/neuron_parallel_compile" if self.venv_was_created else "neuron_parallel_compile"
+                "venv/bin/neuron_parallel_compile" if self.venv_was_created() else "neuron_parallel_compile"
             )
             program = [neuron_parallel_compile_path] + program
 
@@ -361,11 +378,12 @@ class ExampleTesterBase(TestCase):
         pattern = re.compile(r"([\"\'].+?[\"\'])|\s")
         return [x for y in cmd_line for x in re.split(pattern, y) if x]
 
-    @property
-    def venv_was_created(self):
+    @classmethod
+    def venv_was_created(cls):
         return os.environ.get("USE_VENV", "true") == "true" and os.path.isdir("venv")
 
-    def _create_venv(self):
+    @classmethod
+    def _create_venv(cls):
         """
         Creates the virtual environment for the example.
         """
@@ -373,30 +391,31 @@ class ExampleTesterBase(TestCase):
             cmd_line = "python -m venv venv".split()
             p = subprocess.Popen(cmd_line)
             return_code = p.wait()
-            self.assertEqual(return_code, 0)
+            assert return_code == 0
 
             # Install pip
             cmd_line = "venv/bin/python -m ensurepip --upgrade".split()
             p = subprocess.Popen(cmd_line)
             return_code = p.wait()
-            self.assertEqual(return_code, 0)
+            assert return_code == 0
 
-    def _remove_venv(self):
+    @classmethod
+    def _remove_venv(cls):
         """
         Removes the virtual environment for the example.
         """
-        if self.venv_was_created:
+        if cls.venv_was_created():
             cmd_line = "rm -rf venv".split()
             p = subprocess.Popen(cmd_line)
             return_code = p.wait()
-            self.assertEqual(return_code, 0)
+            assert return_code == 0
 
     def _install_requirements(self, requirements_filename: Union[str, os.PathLike]):
         """
         Installs the necessary requirements to run the example if the provided file exists, otherwise does nothing.
         """
 
-        pip_name = "venv/bin/pip" if self.venv_was_created else "pip"
+        pip_name = "venv/bin/pip" if self.venv_was_created() else "pip"
 
         # Update pip
         cmd_line = f"{pip_name} install --upgrade pip".split()
@@ -448,7 +467,7 @@ class ExampleTesterBase(TestCase):
 
             env_with_updated_path = dict(os.environ, PATH=f"/home/ubuntu/.local/bin:{os.environ['PATH']}")
 
-            wandb_name = "venv/bin/wandb" if self.venv_was_created else "wandb"
+            wandb_name = "venv/bin/wandb" if self.venv_was_created() else "wandb"
             cmd_line = f"{wandb_name} login --relogin {wandb_token}".split()
             p = subprocess.Popen(cmd_line, env=env_with_updated_path)
             self.assertEqual(return_code, 0)
