@@ -20,21 +20,21 @@ The simplest way to work with AWS Trainium and Hugging Face Transformers is the 
 
 To create an EC2 Trainium instance, you can start from the console or the Marketplace. This guide will start from the [EC2 console](https://console.aws.amazon.com/ec2sp/v2/).
 
-Starting from the [EC2 console](https://console.aws.amazon.com/ec2sp/v2/) in the us-east-1 region, I first click on **Launch an instance** and define a name for the instance (`trainium-huggingface-demo`).
+Starting from the [EC2 console](https://console.aws.amazon.com/ec2sp/v2/) in the us-east-1 region, You first click on **Launch an instance** and define a name for the instance (`trainium-huggingface-demo`).
 
 <img
   src="https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/guides/setup_aws_instance/01-name-instance.png"
   alt="name instance"
 />
 
-Then, I search the Amazon Marketplace for Hugging Face AMIs. Entering “Hugging Face” in the search bar for “Application and OS Images” and hitting “enter”.
+Next, you search the Amazon Marketplace for Hugging Face AMIs. Entering “Hugging Face” in the search bar for “Application and OS Images” and hitting “enter”.
 
 <img
   src="https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/guides/setup_aws_instance/02-search-ami.png"
   alt="search ami"
 />
 
-This should now open the “Choose an Amazon Machine Image” view with our search. We can now navigate to “AWS Marketplace AMIs” and find the [Hugging Face Neuron Deep Learning AMI](https://aws.amazon.com/marketplace/pp/prodview-gr3e6yiscria2). Now click select.
+This should now open the “Choose an Amazon Machine Image” view with the search. You can now navigate to “AWS Marketplace AMIs” and find the [Hugging Face Neuron Deep Learning AMI](https://aws.amazon.com/marketplace/pp/prodview-gr3e6yiscria2) and click select.
 
 <img
   src="https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/guides/setup_aws_instance/03-select-ami.png"
@@ -50,7 +50,7 @@ Then you need to define a key pair, which will be used to connect to the instanc
   alt="select ssh key"
 />
 
-After that, create or select a [security group](https://docs.aws.amazon.com/vpc/latest/userguide/VPC_SecurityGroups.html). Important here is that we want to allow `ssh` traffic.
+After that, create or select a [security group](https://docs.aws.amazon.com/vpc/latest/userguide/VPC_SecurityGroups.html). Important you want to allow `ssh` traffic.
 
 <img
   src="https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/guides/setup_aws_instance/05-select-sh.png"
@@ -96,4 +96,4 @@ instance-id: i-0570615e41700a481
 +--------+--------+--------+---------+
 ```
 
-We are done! You can now start using the Trainium accelerators with Hugging Face Transformers. Check out the [Fine-tune Transformers with AWS Trainium](./fine_tune) guide to get started.
+You are done! You can now start using the Trainium accelerators with Hugging Face Transformers. Check out the [Fine-tune Transformers with AWS Trainium](./fine_tune) guide to get started.
