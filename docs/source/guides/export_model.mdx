@@ -21,7 +21,11 @@ limitations under the License.
 Exporting a PyTorch model to Neuron model is as simple as
 
 ```bash
-optimum-cli export neuron --model bert-base-uncased bert_neuron/
+optimum-cli export neuron \
+  --model bert-base-uncased \
+  --sequence-length 128 \
+  --batch_size 1 \
+  bert_neuron/  
 ```
 
 Check out the help for more options:
@@ -38,15 +42,13 @@ In production environments, to deploy 🤗 [Transformers](https://huggingface.co
 
 <Tip>
 To understand more about the compilation, here are general steps executed under the hood:
-</Tip>
 
-```mermaid
-graph LR
-A(PyTorch Model) -->|trace| B(Compute Graph IR)
+<pre><code class="language-mermaid">graph compilation;
+    A(PyTorch Model) -->|trace| B(Compute Graph IR)
     B -->|compile| C(NEFF Binary)
     C -->|embed| D(TorchScript Module)
-```
-<Tip>
+</code></pre>
+
 **NEFF:** Neuron Executable File Format which is a binary executable on Neuron devices.
 </Tip>
 
@@ -137,6 +139,15 @@ Input shapes:
                         to take as input.
 
 ```
+
+In the last section, you can see the input shape options to pass for exporting static neuron model. Default values below will be used if mandatory shape information is not defined:
+
+```
+    "batch_size": 2
+    "sequence_length": 16
+    "num_choices": 4
+```
+
 
 Exporting a checkpoint can be done as follows:
 
