@@ -175,21 +175,24 @@ Note that providing the `--task` argument for a model on the Hub will disable th
 
 ## Exporting a model to Neuron using the export function
 
-You will also be able to export your models to Neuron format directly with the export function, here is an example:
+You will also be able to export your models to Neuron format directly with the export function, and load it for inference. Here is an example:
 
 ```python
 from pathlib import Path
-from transformers import AutoModelForMultipleChoice
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from optimum.exporters.neuron import export
 from optimum.exporters.neuron.model_configs import DistilBertNeuronConfig
 
-model_id = "distilbert-base-uncased"
-model = AutoModelForMultipleChoice.from_pretrained(model_id)
+model_id = "distilbert-base-uncased-finetuned-sst-2-english"
+sequence = "Hello, my cats are cute."
+tokenizer = AutoTokenizer.from_pretrained(model_id)
+model = AutoModelForSequenceClassification.from_pretrained(model_id)
 neuron_config = DistilBertNeuronConfig(
-    config=model.config, task="multiple-choice", batch_size=2, sequence_length=18, num_choices=3
+    config=model.config, task="text-classification", batch_size=1, sequence_length=18,
 )
 output_path = Path("test_bert/model.neuron")
 
+# Export to Neuron model
 export(
     model=model,
     config=neuron_config,
@@ -197,6 +200,14 @@ export(
     auto_cast="all",
     auto_cast_type="bf16",
 )
+
+# Reload it for inference
+neuron_model = torch.jit.load(output_path)
+example = tokenizer.encode_plus(
+    sequence, max_length=neuron_config.sequence_length, padding="max_length", return_tensors="pt"
+)
+
+logits = neuron_model(*tuple(example.values()))
 ```
 
 
