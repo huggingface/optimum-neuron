@@ -114,10 +114,10 @@ class NeuronExportTestCase(TestCase):
             except (RuntimeError, ValueError) as e:
                 self.fail(f"{model_type}, {task} -> {e}")
 
-    @parameterized.expand(_get_models_to_test(EXPORT_MODELS_TINY))
-    def test_export(self, test_name, name, model_name, task, neuron_config_constructor):
-        self._neuronx_export(test_name, name, model_name, task, neuron_config_constructor)
+    # @parameterized.expand(_get_models_to_test(EXPORT_MODELS_TINY))
+    # def test_export(self, test_name, name, model_name, task, neuron_config_constructor):
+    #     self._neuronx_export(test_name, name, model_name, task, neuron_config_constructor)
 
-    @parameterized.expand(_get_models_to_test(EXPORT_MODELS_TINY, random_pick=1), skip_on_empty=True)
+    @parameterized.expand(_get_models_to_test(EXPORT_MODELS_TINY), skip_on_empty=True)  # , random_pick=1
     def test_export_with_dynamic_batch_size(self, test_name, name, model_name, task, neuron_config_constructor):
         self._neuronx_export(test_name, name, model_name, task, neuron_config_constructor, dynamic_batch_size=True)

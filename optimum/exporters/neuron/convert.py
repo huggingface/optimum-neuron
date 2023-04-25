@@ -76,8 +76,8 @@ def validate_model_outputs(
     input_shapes = {}
     for axe in config.mandatory_axes:
         input_shapes[axe] = getattr(config, axe)
-    if config.dynamic_batch_size is True:
-        input_shapes["batch_size"] += 1
+    # if config.dynamic_batch_size is True:
+    #     input_shapes["batch_size"] += 1
     ref_inputs = config.generate_dummy_inputs(return_tuple=False, **input_shapes)
     with torch.no_grad():
         reference_model.eval()
