@@ -16,20 +16,8 @@ limitations under the License.
 
 # Inferentia Exporter
 
-You can export a PyTorch model to Neuron compiled model with 🤗 Optimum to run inference on AWS [Inferntia 1](https://aws.amazon.com/ec2/instance-types/inf1/) 
-and [Inferentia 2](https://aws.amazon.com/ec2/instance-types/inf2/). There is an export function for each generation of the Inferentia accelerator, [`~optimum.exporters.neuron.convert.export_neuron`] 
-for INF1 and [`~optimum.exporters.onnx.convert.export_neuronx`] on INF2, but you will be able to use directly the export function [`~optimum.exporters.neuron.convert.export`], which will select the proper 
-exporting function according to the environment. Besides, you can check if the exported model's performance is valid via [`~optimum.exporters.neuron.convert.validate_model_outputs`], to compare 
+You can export a PyTorch model to Neuron compiled model with 🤗 Optimum to run inference on AWS [Inferntia 1](https://aws.amazon.com/ec2/instance-types/inf1/)
+and [Inferentia 2](https://aws.amazon.com/ec2/instance-types/inf2/). There is an export function for each generation of the Inferentia accelerator, [`~optimum.exporters.neuron.convert.export_neuron`]
+for INF1 and [`~optimum.exporters.onnx.convert.export_neuronx`] on INF2, but you will be able to use directly the export function [`~optimum.exporters.neuron.convert.export`], which will select the proper
+exporting function according to the environment. Besides, you can check if the exported model's performance is valid via [`~optimum.exporters.neuron.convert.validate_model_outputs`], to compare
 the compiled model on neuron devices to the PyTorch model on CPU.
-
-## Export functions
-
-[[autodoc]] exporters.neuron.convert.export
-
-[[autodoc]] exporters.neuron.convert.export_neuronx
-
-[[autodoc]] exporters.neuron.convert.export_neuron
-
-## Utility functions
-
-[[autodoc]] exporters.neuron.convert.validate_model_outputs
