@@ -15,6 +15,7 @@ except Exception as error:
 INSTALL_REQUIRES = [
     "transformers >= 4.28.0",
     "optimum",
+    "huggingface_hub >= 0.14.0",
 ]
 
 TESTS_REQUIRE = [
