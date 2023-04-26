@@ -3,8 +3,12 @@ name: Optimum neuron / Test INF1
 on:
   push:
     branches: [ main ]
+    paths:
+      - "optimum/**.py"
   pull_request:
     branches: [ main ]
+    paths:
+      - "optimum/**.py"
 
 jobs:
   start-runner:
