@@ -42,6 +42,7 @@ from transformers import (
 from transformers.testing_utils import slow
 
 from optimum.neuron.utils.cache_utils import set_neuron_cache_path
+from optimum.neuron.utils.testing_utils import is_trainium_test
 
 
 # Doing it this way to be able to use this file in tools.
@@ -145,6 +146,7 @@ class ExampleTestMeta(type):
         """
 
         @slow
+        @is_trainium_test
         def test(self):
             if self.EXAMPLE_NAME is None:
                 raise ValueError("An example name must be provided")
