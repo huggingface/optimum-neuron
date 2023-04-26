@@ -74,15 +74,15 @@ ARCHITECTURES_TO_COMMON_PRETRAINED_WEIGHTS = {
         },
         "bert-large-uncased": {
             "default": {"batch_size": 8, "sequence_length": 128},
-            "token-classification": {"batch_size": 4, "sequence_length": 512},
+            "token-classification": {"batch_size": 2, "sequence_length": 512},
             "multiple-choice": {"batch_size": 2, "sequence_length": 512},
         },
     },
     "camembert": {
         "camembert-base": {
             "default": {"batch_size": 16, "sequence_length": 128},
-            "token-classification": {"batch_size": 2, "sequence_length": 512},
-            "multiple-choice": {"batch_size": 2, "sequence_length": 512},
+            "token-classification": {"batch_size": 8, "sequence_length": 512},
+            "multiple-choice": {"batch_size": 8, "sequence_length": 512},
         },
         "camembert/camembert-large": {
             "default": {"batch_size": 16, "sequence_length": 128},

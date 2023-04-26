@@ -27,6 +27,8 @@ from tempfile import TemporaryDirectory
 from typing import Any, Callable, Dict, List, Optional, Set, Union
 from unittest import TestCase
 
+from huggingface_hub import HfFolder, login
+
 from transformers import (
     CONFIG_MAPPING,
     MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING,
@@ -48,6 +50,11 @@ from optimum.neuron.utils.cache_utils import set_neuron_cache_path
 path_tests = Path(__file__).parent
 sys.path.insert(0, str(path_tests))
 from utils import MODELS_TO_TEST_MAPPING  # noqa: E402
+
+TOKEN = HfFolder.get_token()
+if os.environ.get("HF_TOKEN", None) is not None:
+    TOKEN = os.environ.get("HF_TOKEN")
+login(TOKEN)
 
 
 def _get_supported_models_for_script(
@@ -179,7 +186,7 @@ class ExampleTestMeta(type):
 
             if not only_precompilation:
                 with TemporaryDirectory(dir=Path(self.EXAMPLE_DIR)) as tmp_dir:
-                    os.environ["HF_HOME"] = os.path.join(tmp_dir, "hf_home")
+
                     cmd_line = self._create_command_line(
                         example_script,
                         model_name,
@@ -258,6 +265,12 @@ class ExampleTesterBase(TestCase):
     @classmethod
     def setUpClass(cls):
         cls._create_venv()
+
+        huggingface_cli_name = "venv/bin/hugginface-cli" if cls.venv_was_created() else "huggingface-cli"
+        cmd_line = f"{huggingface_cli_name} login --token {TOKEN}".split()
+        p = subprocess.Popen(cmd_line)
+        return_code = p.wait()
+        assert return_code == 0
 
     @classmethod
     def tearDownClass(cls):
