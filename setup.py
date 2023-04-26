@@ -15,6 +15,7 @@ except Exception as error:
 INSTALL_REQUIRES = [
     "transformers >= 4.28.0",
     "optimum",
+    "huggingface_hub >= 0.14.0",
 ]
 
 TESTS_REQUIRE = [
@@ -36,7 +37,13 @@ QUALITY_REQUIRES = [
 EXTRAS_REQUIRE = {
     "tests": TESTS_REQUIRE,
     "quality": QUALITY_REQUIRES,
-    "neuron": ["neuron-cc[tensorflow]", "torch-neuron", "protobuf==3.20.2", "torchvision"],
+    "neuron": [
+        "wheel",
+        "torch-neuron==1.12.1.*",
+        "neuron-cc[tensorflow]",
+        "protobuf",
+        "torchvision",
+    ],
     "neuronx": ["neuronx-cc==2.*", "torch-neuronx", "torchvision"],
 }
 

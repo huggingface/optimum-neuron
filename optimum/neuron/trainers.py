@@ -125,7 +125,7 @@ class AugmentTrainerForTrainiumMixin:
                 f"{model.__class__.__name__} is not officially supported by optimum-neuron. Training might not work as  "
                 "expected."
             )
-        return patch_model(model)
+        return super()._wrap_model(patch_model(model), training=training, dataloader=dataloader)
 
     def get_train_dataloader(self) -> DataLoader:
         if is_precompilation():
