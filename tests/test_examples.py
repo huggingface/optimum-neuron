@@ -18,8 +18,6 @@ import json
 import os
 import re
 import subprocess
-
-# Doing it this way to be able to use this file in tools.
 import sys
 from datetime import date
 from pathlib import Path
@@ -46,6 +44,7 @@ from transformers.testing_utils import slow
 from optimum.neuron.utils.cache_utils import set_neuron_cache_path
 
 
+# Doing it this way to be able to use this file in tools.
 path_tests = Path(__file__).parent
 sys.path.insert(0, str(path_tests))
 from utils import MODELS_TO_TEST_MAPPING  # noqa: E402
@@ -170,7 +169,6 @@ class ExampleTestMeta(type):
             env = self.get_env(model_type)
             if do_precompilation:
                 with TemporaryDirectory(dir=Path(self.EXAMPLE_DIR)) as tmp_dir:
-                    os.environ["HF_HOME"] = os.path.join(tmp_dir, "hf_home")
                     cmd_line = self._create_command_line(
                         example_script,
                         model_name,
