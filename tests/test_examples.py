@@ -25,7 +25,7 @@ from tempfile import TemporaryDirectory
 from typing import Any, Callable, Dict, List, Optional, Set, Union
 from unittest import TestCase
 
-from huggingface_hub import HfFolder, login
+from huggingface_hub import HfFolder
 from transformers import (
     CONFIG_MAPPING,
     MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING,
@@ -53,7 +53,6 @@ from utils import MODELS_TO_TEST_MAPPING  # noqa: E402
 TOKEN = HfFolder.get_token()
 if os.environ.get("HF_TOKEN", None) is not None:
     TOKEN = os.environ.get("HF_TOKEN")
-login(TOKEN)
 
 
 def _get_supported_models_for_script(
