@@ -17,6 +17,7 @@ import os
 import sys
 import time
 from argparse import ArgumentParser
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Union
 
@@ -56,16 +57,16 @@ TESTER_CLASSES = {
 
 
 ARCHITECTURES_TO_COMMON_PRETRAINED_WEIGHTS = {
-    # "bart": {
-    #     "facebook/bart-base": {
-    #         "translation": {"batch_size": 8, "source_sequence_length": 512, "target_sequence_length": 512},
-    #         "summarization": {"batch_size": 8, "source_sequence_length": 200, "target_sequence_length": 1024},
-    #     },
-    #     "facebook/bart-large": {
-    #         "translation": {"batch_size": 8, "source_sequence_length": 512, "target_sequence_length": 512},
-    #         "summarization": {"batch_size": 8, "source_sequence_length": 200, "target_sequence_length": 1024},
-    #     },
-    # },
+    "bart": {
+        "facebook/bart-base": {
+            "translation": {"batch_size": 8, "source_sequence_length": 512, "target_sequence_length": 512},
+            "summarization": {"batch_size": 8, "source_sequence_length": 200, "target_sequence_length": 1024},
+        },
+        "facebook/bart-large": {
+            "translation": {"batch_size": 8, "source_sequence_length": 512, "target_sequence_length": 512},
+            "summarization": {"batch_size": 8, "source_sequence_length": 200, "target_sequence_length": 1024},
+        },
+    },
     "bert": {
         "bert-base-uncased": {
             "default": {"batch_size": 16, "sequence_length": 128},
@@ -74,8 +75,8 @@ ARCHITECTURES_TO_COMMON_PRETRAINED_WEIGHTS = {
         },
         "bert-large-uncased": {
             "default": {"batch_size": 8, "sequence_length": 128},
-            "token-classification": {"batch_size": 2, "sequence_length": 512},
-            "multiple-choice": {"batch_size": 2, "sequence_length": 512},
+            "token-classification": {"batch_size": 4, "sequence_length": 512},
+            "multiple-choice": {"batch_size": 4, "sequence_length": 512},
         },
     },
     "camembert": {
@@ -85,33 +86,33 @@ ARCHITECTURES_TO_COMMON_PRETRAINED_WEIGHTS = {
             "multiple-choice": {"batch_size": 8, "sequence_length": 512},
         },
         "camembert/camembert-large": {
-            "default": {"batch_size": 16, "sequence_length": 128},
-            "token-classification": {"batch_size": 2, "sequence_length": 512},
-            "multiple-choice": {"batch_size": 2, "sequence_length": 512},
+            "default": {"batch_size": 8, "sequence_length": 128},
+            "token-classification": {"batch_size": 4, "sequence_length": 512},
+            "multiple-choice": {"batch_size": 4, "sequence_length": 512},
         },
     },
     "distilbert": {
         "distilbert-base-uncased": {
             "default": {"batch_size": 16, "sequence_length": 128},
-            "token-classification": {"batch_size": 2, "sequence_length": 512},
-            "multiple-choice": {"batch_size": 2, "sequence_length": 512},
+            "token-classification": {"batch_size": 8, "sequence_length": 512},
+            "multiple-choice": {"batch_size": 8, "sequence_length": 512},
         },
     },
     "electra": {
         "google/electra-small-discriminator": {
             "default": {"batch_size": 16, "sequence_length": 128},
-            "token-classification": {"batch_size": 2, "sequence_length": 512},
-            "multiple-choice": {"batch_size": 2, "sequence_length": 512},
+            "token-classification": {"batch_size": 8, "sequence_length": 512},
+            "multiple-choice": {"batch_size": 8, "sequence_length": 512},
         },
         "google/electra-base-discriminator": {
             "default": {"batch_size": 16, "sequence_length": 128},
-            "token-classification": {"batch_size": 2, "sequence_length": 512},
-            "multiple-choice": {"batch_size": 2, "sequence_length": 512},
+            "token-classification": {"batch_size": 8, "sequence_length": 512},
+            "multiple-choice": {"batch_size": 8, "sequence_length": 512},
         },
         "google/electra-large-discriminator": {
             "default": {"batch_size": 16, "sequence_length": 128},
-            "token-classification": {"batch_size": 2, "sequence_length": 512},
-            "multiple-choice": {"batch_size": 2, "sequence_length": 512},
+            "token-classification": {"batch_size": 4, "sequence_length": 512},
+            "multiple-choice": {"batch_size": 4, "sequence_length": 512},
         },
     },
     "gpt2": {
@@ -127,39 +128,39 @@ ARCHITECTURES_TO_COMMON_PRETRAINED_WEIGHTS = {
             "default": {"batch_size": 16, "sequence_length": 128},
         },
     },
-    # "marian": {
-    #     "Helsinki-NLP/opus-mt-en-es": {
-    #         "translation": {"batch_size": 8, "source_sequence_length": 512, "target_sequence_length": 512},
-    #     },
-    #     "Helsinki-NLP/opus-mt-en-hi": {
-    #         "translation": {"batch_size": 8, "source_sequence_length": 512, "target_sequence_length": 512},
-    #     },
-    #     "Helsinki-NLP/opus-mt-es-en": {
-    #         "translation": {"batch_size": 8, "source_sequence_length": 512, "target_sequence_length": 512},
-    #     },
-    # },
+    "marian": {
+        "Helsinki-NLP/opus-mt-en-es": {
+            "translation": {"batch_size": 4, "source_sequence_length": 512, "target_sequence_length": 512},
+        },
+        "Helsinki-NLP/opus-mt-en-hi": {
+            "translation": {"batch_size": 4, "source_sequence_length": 512, "target_sequence_length": 512},
+        },
+        "Helsinki-NLP/opus-mt-es-en": {
+            "translation": {"batch_size": 4, "source_sequence_length": 512, "target_sequence_length": 512},
+        },
+    },
     "roberta": {
         "roberta-base": {
             "default": {"batch_size": 16, "sequence_length": 128},
-            "token-classification": {"batch_size": 2, "sequence_length": 512},
-            "multiple-choice": {"batch_size": 2, "sequence_length": 512},
+            "token-classification": {"batch_size": 8, "sequence_length": 512},
+            "multiple-choice": {"batch_size": 8, "sequence_length": 512},
         },
         "roberta-large": {
-            "default": {"batch_size": 16, "sequence_length": 128},
-            "token-classification": {"batch_size": 2, "sequence_length": 512},
-            "multiple-choice": {"batch_size": 2, "sequence_length": 512},
+            "default": {"batch_size": 8, "sequence_length": 128},
+            "token-classification": {"batch_size": 4, "sequence_length": 512},
+            "multiple-choice": {"batch_size": 4, "sequence_length": 512},
         },
     },
-    # "t5": {
-    #     "t5-small": {
-    #         "translation": {"batch_size": 8, "source_sequence_length": 512, "target_sequence_length": 512},
-    #         "summarization": {"batch_size": 8, "source_sequence_length": 200, "target_sequence_length": 512},
-    #     },
-    #     "t5-base": {
-    #         "translation": {"batch_size": 8, "source_sequence_length": 512, "target_sequence_length": 512},
-    #         "summarization": {"batch_size": 8, "source_sequence_length": 200, "target_sequence_length": 512},
-    #     },
-    # },
+    "t5": {
+        "t5-small": {
+            "translation": {"batch_size": 8, "source_sequence_length": 512, "target_sequence_length": 512},
+            "summarization": {"batch_size": 8, "source_sequence_length": 200, "target_sequence_length": 512},
+        },
+        "t5-base": {
+            "translation": {"batch_size": 4, "source_sequence_length": 512, "target_sequence_length": 512},
+            "summarization": {"batch_size": 4, "source_sequence_length": 200, "target_sequence_length": 512},
+        },
+    },
     "vit": {
         "google/vit-base-patch16-224": {"default": {"batch_size": 16}},
         "google/vit-base-patch16-224-in21k": {"default": {"batch_size": 16}},
@@ -168,13 +169,13 @@ ARCHITECTURES_TO_COMMON_PRETRAINED_WEIGHTS = {
     "xlm-roberta": {
         "xlm-roberta-base": {
             "default": {"batch_size": 16, "sequence_length": 128},
-            "token-classification": {"batch_size": 2, "sequence_length": 512},
-            "multiple-choice": {"batch_size": 2, "sequence_length": 512},
+            "token-classification": {"batch_size": 8, "sequence_length": 512},
+            "multiple-choice": {"batch_size": 8, "sequence_length": 512},
         },
         "xlm-roberta-large": {
             "default": {"batch_size": 16, "sequence_length": 128},
-            "token-classification": {"batch_size": 2, "sequence_length": 512},
-            "multiple-choice": {"batch_size": 2, "sequence_length": 512},
+            "token-classification": {"batch_size": 8, "sequence_length": 512},
+            "multiple-choice": {"batch_size": 8, "sequence_length": 512},
         },
     },
 }
@@ -268,8 +269,20 @@ def parse_args():
     return parser.parse_args()
 
 
+def open_and_append_to_file(filename: str, new_line_to_append: str):
+    with open(filename, "w+") as fp:
+        content = fp.read()
+        new_content = f"{content}\n{new_line_to_append}"
+        fp.write(new_content)
+
+
 def main():
     args = parse_args()
+
+    now = datetime.now()
+    now_str = now.strftime("%d%m%Y_%H_%M")
+    success_filename = f"success_{now_str}.txt"
+    failure_filename = f"failure_{now_str}.txt"
 
     if args.models == "all":
         models = list(ARCHITECTURES_TO_COMMON_PRETRAINED_WEIGHTS.keys())
@@ -300,31 +313,55 @@ def main():
                     shape_values_for_task = shape_values.get(task)
                     if shape_values_for_task is None:
                         shape_values_for_task = shape_values["default"]
-                    print("BF16")
-                    run_auto_fill_cache_for_model_name(
-                        model_type,
-                        model_name,
-                        shape_values_for_task,
-                        tester,
-                        method_name,
-                        args.cache_path,
-                        num_cores,
-                        True,
-                    )
+                    example = ["*" * 20]
+                    example.append(f"Model:\t{model_name}")
+                    example.append("Shapes:")
+                    for name, value in shape_values_for_task.items():
+                        example.append(f"\t{name} = {value}")
+                    example.append(f"Num cores:\t{num_cores}")
+                    example_str = ""
+                    try:
+                        start = time.time()
+                        example.append("Precision:\tBF16")
+                        example.append("*" * 20)
+                        example_str = "\n".join(example)
+                        run_auto_fill_cache_for_model_name(
+                            model_type,
+                            model_name,
+                            shape_values_for_task,
+                            tester,
+                            method_name,
+                            args.cache_path,
+                            num_cores,
+                            True,
+                        )
+                    except Exception as e:
+                        print(e)
+                        open_and_append_to_file(failure_filename, example_str)
+                    else:
+                        open_and_append_to_file(success_filename, example_str)
+
                     end = time.time()
                     print(f"Done! Duration: {end - start:.3f}.")
-                    print("Full-precision")
-                    start = time.time()
-                    run_auto_fill_cache_for_model_name(
-                        model_type,
-                        model_name,
-                        shape_values_for_task,
-                        tester,
-                        method_name,
-                        args.cache_path,
-                        num_cores,
-                        False,
-                    )
+                    try:
+                        start = time.time()
+                        example.append("Precision:\tFull-precision")
+                        example.append("*" * 20)
+                        example_str = "\n".join(example)
+                        run_auto_fill_cache_for_model_name(
+                            model_type,
+                            model_name,
+                            shape_values_for_task,
+                            tester,
+                            method_name,
+                            args.cache_path,
+                            num_cores,
+                            False,
+                        )
+                    except Exception as e:
+                        open_and_append_to_file(failure_filename, example_str)
+                    else:
+                        open_and_append_to_file(success_filename, example_str)
                     end = time.time()
                     print(f"Done! Duration: {end - start:.3f}.")
 
