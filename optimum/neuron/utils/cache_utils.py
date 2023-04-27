@@ -39,7 +39,8 @@ if TYPE_CHECKING:
 
 logger = logging.get_logger()
 
-DEFAULT_HF_HOME = f"{os.environ['HOME']}/.cache/huggingface"
+HOME = Path.home()
+DEFAULT_HF_HOME = f"{HOME}/.cache/huggingface"
 XDG_CACHE_HOME = os.environ.get("XDG_CACHE_HOME", None)
 if XDG_CACHE_HOME is not None:
     DEFAULT_HF_HOME = f"{XDG_CACHE_HOME}/huggingface"
@@ -71,19 +72,21 @@ def load_custom_cache_repo_name_from_hf_home(
 
 def set_custom_cache_repo_name_in_hf_home(repo_id: str, hf_home: str = HF_HOME):
     hf_home_cache_repo_file = f"{hf_home}/{CACHE_REPO_FILENAME}"
+    try:
+        HfApi().repo_info(repo_id, repo_type="model")
+    except Exception as e:
+        raise ValueError(
+            f"Could not save the custom Trainium cache repo to be {repo_id} because it does not exist or is private to "
+            f"you. Complete exception message: {e}."
+        )
+
     existing_custom_cache_repo = load_custom_cache_repo_name_from_hf_home(hf_home_cache_repo_file)
     if existing_custom_cache_repo is not None:
         logger.warning(
             f"A custom cache repo was already registered: {existing_custom_cache_repo}. It will be overwritten to "
-            "{repo_id}."
+            f"{repo_id}."
         )
-    try:
-        HfApi().repo_info(repo_id, repo_type="model")
-    except RepositoryNotFoundError:
-        raise ValueError(
-            f"Could not save the custom Trainium cache repo to be {repo_id} because it does not exist or is private to "
-            "you. Complete exception message: {e}."
-        )
+
     with open(hf_home_cache_repo_file, "w") as fp:
         fp.write(repo_id)
 

@@ -52,7 +52,7 @@ class CreateCustomCacheRepoCommand(BaseOptimumCLICommand):
         repo_url = create_custom_cache_repo(repo_id=self.args.name, private=self.args.public)
         public_or_private = "public" if self.args.public else "private"
         logger.info(f"Trainium cache created on the Hugging Face Hub: {repo_url.repo_id} [{public_or_private}].")
-        logger.info(f"Trainium cache name set locally to {self.args.name} in {HF_HOME_CACHE_REPO_FILE}")
+        logger.info(f"Trainium cache name set locally to {self.args.name} in {HF_HOME_CACHE_REPO_FILE}.")
 
 
 class SetCustomCacheRepoCommand(BaseOptimumCLICommand):
@@ -64,7 +64,7 @@ class SetCustomCacheRepoCommand(BaseOptimumCLICommand):
 
     def run(self):
         set_custom_cache_repo_name_in_hf_home(self.args.name)
-        logger.info(f"Trainium cache name set locally to {self.args.name} in {HF_HOME_CACHE_REPO_FILE}")
+        logger.info(f"Trainium cache name set locally to {self.args.name} in {HF_HOME_CACHE_REPO_FILE}.")
 
 
 class CustomCacheRepoCommand(BaseOptimumCLICommand):
@@ -77,6 +77,6 @@ class CustomCacheRepoCommand(BaseOptimumCLICommand):
         CommandInfo(
             name="set",
             help="Set the name of the Trainium cache repo to use locally.",
-            subcommand_class=CreateCustomCacheRepoCommand,
+            subcommand_class=SetCustomCacheRepoCommand,
         ),
     )

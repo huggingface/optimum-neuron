@@ -13,8 +13,13 @@
 # See the License for the specific language governing permissions and
 """Defines the root command line class for optimum-neuron."""
 
+from ...utils import logging
 from ..base import BaseOptimumCLICommand, CommandInfo
 from .cache import CustomCacheRepoCommand
+
+
+logger = logging.get_logger()
+logger.setLevel(logging.INFO)
 
 
 class NeuronCommand(BaseOptimumCLICommand):
