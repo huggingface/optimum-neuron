@@ -12,25 +12,5 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Import utilities."""
 
-import importlib.util
-
-
-def is_neuron_available() -> bool:
-    return importlib.util.find_spec("torch_neuron") is not None
-
-
-def is_neuronx_available() -> bool:
-    return importlib.util.find_spec("torch_neuronx") is not None
-
-
-def is_torch_xla_available() -> bool:
-    found_torch_xla = importlib.util.find_spec("torch_xla") is not None
-    import_succeeded = True
-    if found_torch_xla:
-        try:
-            pass
-        except Exception:
-            import_succeeded = False
-    return found_torch_xla and import_succeeded
+NEURON_FILE_NAME = "model.neuron"
