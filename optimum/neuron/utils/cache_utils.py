@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Un
 import huggingface_hub
 import numpy as np
 import torch
-from huggingface_hub import HfApi, HfFolder
+from huggingface_hub import HfApi, HfFolder, create_repo, RepoUrl
 from huggingface_hub.utils import HfHubHTTPError, RepositoryNotFoundError
 
 from ...utils import logging
@@ -39,16 +39,55 @@ if TYPE_CHECKING:
 
 logger = logging.get_logger()
 
+DEFAULT_HF_HOME = f"{os.environ['HOME']}/.cache/huggingface"
+XDG_CACHE_HOME = os.environ.get("XDG_CACHE_HOME", None)
+if XDG_CACHE_HOME is not None:
+    DEFAULT_HF_HOME = f"{XDG_CACHE_HOME}/huggingface"
+HF_HOME = os.environ.get("HF_HOME", DEFAULT_HF_HOME)
 
+HF_HOME_CACHE_REPO_FILE = f"{HF_HOME}/optimum_neuron_custom_cache"
+
+CACHE_REPO_NAME = "optimum-neuron-cache"
 if os.environ.get("HUGGINGFACE_CO_STAGING") == "1":
     HF_HUB_CACHE_REPOS = []
 else:
-    HF_HUB_CACHE_REPOS = ["aws-neuron/optimum-neuron-cache"]
+    HF_HUB_CACHE_REPOS = [f"aws-neuron/{CACHE_REPO_NAME}"]
 
 HASH_FILE_NAME = "pytorch_model.bin"
 NEURON_COMPILE_CACHE_NAME = "neuron-compile-cache"
 
 _IP_PATTERN = re.compile(r"ip-([0-9]{1,3}-){4}")
+
+
+def load_custom_cache_repo_name_from_hf_home() -> Optional[str]:
+    if Path(HF_HOME_CACHE_REPO_FILE).exists():
+        with open(HF_HOME_CACHE_REPO_FILE, "r") as fp:
+            return fp.read()
+    return None
+
+
+def set_custom_cache_repo_name_in_hf_home(repo_id: str):
+    existing_custom_cache_repo = load_custom_cache_repo_name_from_hf_home()
+    if existing_custom_cache_repo is not None:
+        logger.warning(
+            f"A custom cache repo was already registered: {existing_custom_cache_repo}. It will be overwritten to "
+            "{repo_id}."
+        )
+    try:
+        HfApi().repo_info(repo_id, repo_type="model")
+    except RepositoryNotFoundError as e:
+        raise ValueError(
+            f"Could not save the custom Trainium cache repo to be {repo_id} because it does not exist or is private to "
+            "you. Complete exception message: {e}."
+        )
+    with open(HF_HOME_CACHE_REPO_FILE, "w") as fp:
+        fp.write(repo_id)
+
+
+def create_custom_cache_repo(repo_id: str = CACHE_REPO_NAME, private: bool = True) -> RepoUrl:
+    repo_url = create_repo(repo_id, private=private, repo_type="model")
+    set_custom_cache_repo_name_in_hf_home(repo_url.repo_id)
+    return repo_url
 
 
 def is_private_repo(repo_id: str) -> bool:
@@ -62,10 +101,19 @@ def is_private_repo(repo_id: str) -> bool:
 
 
 def get_hf_hub_cache_repos():
-    custom_cache_repo = os.environ.get("CUSTOM_CACHE_REPO", None)
     hf_hub_repos = HF_HUB_CACHE_REPOS
-    if custom_cache_repo:
+
+    saved_custom_cache_repo = load_custom_cache_repo_name_from_hf_home()
+    if saved_custom_cache_repo is None:
+        # TODO
+        logger.warning()
+    else:
+        hf_hub_repos = [saved_custom_cache_repo] + hf_hub_repos
+
+    custom_cache_repo = os.environ.get("CUSTOM_CACHE_REPO", None)
+    if custom_cache_repo is not None:
         hf_hub_repos = [custom_cache_repo] + hf_hub_repos
+
     return hf_hub_repos
 
 

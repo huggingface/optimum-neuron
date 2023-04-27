@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2023 The HuggingFace Team. All rights reserved.
+# Copyright 2023 The HuggingFace Inc. team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,9 +11,18 @@
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
-# limitations under the License.
-"""Registers the neuron command to the Optimum CLI."""
+"""Defines the root command line class for optimum-neuron."""
 
-from ..neuron.base import NeuronCommand
+from ..base import BaseOptimumCLICommand, CommandInfo
+from .cache import CustomCacheRepoCommand
 
-REGISTER_COMMANDS = [NeuronCommand]
+
+class NeuronCommand(BaseOptimumCLICommand):
+    COMMAND = CommandInfo(name="neuron", help="Optimum Neuron CLI")
+    SUBCOMMANDS = (
+        CommandInfo(
+            name="cache",
+            help="Manage the Trainium cache.",
+            subcommand_class=CustomCacheRepoCommand,
+        ),
+    )
