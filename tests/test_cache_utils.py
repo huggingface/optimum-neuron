@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 """Tests for the cache utilities."""
 
+import logging
 import os
 import random
 from dataclasses import FrozenInstanceError
@@ -29,6 +30,7 @@ from transformers.testing_utils import USER as TRANSFORMERS_USER
 from transformers.testing_utils import is_staging_test
 
 from optimum.neuron.utils.cache_utils import (
+    CACHE_REPO_FILENAME,
     NEURON_COMPILE_CACHE_NAME,
     NeuronHash,
     download_cached_model_from_hub,
@@ -36,9 +38,11 @@ from optimum.neuron.utils.cache_utils import (
     get_neuron_cache_path,
     get_num_neuron_cores_used,
     list_files_in_neuron_cache,
+    load_custom_cache_repo_name_from_hf_home,
     path_after_folder,
     push_to_cache_on_hub,
     remove_ip_adress_from_path,
+    set_custom_cache_repo_name_in_hf_home,
     set_neuron_cache_path,
 )
 from optimum.neuron.utils.testing_utils import is_trainium_test
@@ -54,6 +58,43 @@ DUMMY_COMPILER_VERSION = "1.2.3"
 
 
 class NeuronUtilsTestCase(TestCase):
+    def test_load_custom_cache_repo_name_from_hf_home(self):
+        with TemporaryDirectory() as tmpdirname:
+            hf_home_cache_repo_file = f"{tmpdirname}/{CACHE_REPO_FILENAME}"
+            with open(hf_home_cache_repo_file, "w") as fp:
+                fp.write("blablabla")
+            self.assertEqual(load_custom_cache_repo_name_from_hf_home(hf_home_cache_repo_file), "blablabla")
+
+            bad_hf_home_cache_repo_file = f"{tmpdirname}/does_not_exist"
+            self.assertIsNone(load_custom_cache_repo_name_from_hf_home(bad_hf_home_cache_repo_file))
+
+    @is_staging_test
+    def test_set_custom_cache_repo_name_in_hf_home(self):
+        repo_name = "blablabla"
+        repo_id = f"{USER}/{repo_name}"
+        create_repo(repo_name, repo_type="model")
+
+        def remove_repo():
+            delete_repo(repo_name, repo_type="model")
+
+        with TemporaryDirectory() as tmpdirname:
+            try:
+                set_custom_cache_repo_name_in_hf_home(repo_id, hf_home=tmpdirname)
+            except ValueError as e:
+                remove_repo()
+                self.fail(str(e))
+
+            with open(f"{tmpdirname}/{CACHE_REPO_FILENAME}", "r") as fp:
+                content = fp.read()
+
+            self.assertEqual(content, repo_id, "The stored repo id must match the one specified.")
+
+            with self.assertLogs("optimum", level=logging.WARNING) as cm:
+                set_custom_cache_repo_name_in_hf_home(repo_id, hf_home=tmpdirname)
+                self.assertIn("A custom cache repo was already", cm.output[0])
+
+            delete_repo()
+
     def test_get_neuron_cache_path(self):
         os.environ["NEURON_CC_FLAGS"] = "--some --parameters --here --no-cache --other --paremeters --here"
         assert get_neuron_cache_path() is None

@@ -15,14 +15,15 @@
 
 from typing import TYPE_CHECKING
 
-from ...utils import logging
 from ...neuron.utils.cache_utils import (
     CACHE_REPO_NAME,
     HF_HOME_CACHE_REPO_FILE,
     create_custom_cache_repo,
     set_custom_cache_repo_name_in_hf_home,
 )
+from ...utils import logging
 from ..base import BaseOptimumCLICommand, CommandInfo
+
 
 if TYPE_CHECKING:
     from argparse import ArgumentParser

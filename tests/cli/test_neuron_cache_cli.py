@@ -17,11 +17,15 @@ import subprocess
 from tempfile import TemporaryDirectory
 from unittest import TestCase
 
-from huggingface_hub import HfApi, delete_repo, create_repo
+from huggingface_hub import HfApi, create_repo, delete_repo
 from huggingface_hub.utils import RepositoryNotFoundError
-from optimum.neuron.utils.cache_utils import load_custom_cache_repo_name_from_hf_home, CACHE_REPO_NAME
+from transformers.testing_utils import is_staging_test
 
-from transformers.utils.testing_utils import is_staging_test
+from optimum.neuron.utils.cache_utils import (
+    CACHE_REPO_FILENAME,
+    CACHE_REPO_NAME,
+    load_custom_cache_repo_name_from_hf_home,
+)
 
 from ..utils import USER
 
@@ -71,7 +75,7 @@ class TestNeuronCacheCLI(TestCase):
             except RepositoryNotFoundError:
                 self.fail("The repo was not created.")
 
-            hf_home_cache_repo_file = f"{tmpdirname}/optimum_neuron_custom_cache"
+            hf_home_cache_repo_file = f"{tmpdirname}/{CACHE_REPO_FILENAME}"
             self.assertEqual(
                 repo_id,
                 load_custom_cache_repo_name_from_hf_home(hf_home_cache_repo_file),
@@ -98,7 +102,7 @@ class TestNeuronCacheCLI(TestCase):
             returncode = p.wait()
             self.assertEqual(returncode, 0)
 
-            hf_home_cache_repo_file = f"{tmpdirname}/optimum_neuron_custom_cache"
+            hf_home_cache_repo_file = f"{tmpdirname}/{CACHE_REPO_FILENAME}"
             self.assertEqual(
                 self.repo_id,
                 load_custom_cache_repo_name_from_hf_home(hf_home_cache_repo_file),

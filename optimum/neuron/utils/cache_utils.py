@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Un
 import huggingface_hub
 import numpy as np
 import torch
-from huggingface_hub import HfApi, HfFolder, create_repo, RepoUrl
+from huggingface_hub import HfApi, HfFolder, RepoUrl, create_repo
 from huggingface_hub.utils import HfHubHTTPError, RepositoryNotFoundError
 
 from ...utils import logging
@@ -45,7 +45,8 @@ if XDG_CACHE_HOME is not None:
     DEFAULT_HF_HOME = f"{XDG_CACHE_HOME}/huggingface"
 HF_HOME = os.environ.get("HF_HOME", DEFAULT_HF_HOME)
 
-HF_HOME_CACHE_REPO_FILE = f"{HF_HOME}/optimum_neuron_custom_cache"
+CACHE_REPO_FILENAME = "optimum_neuron_custom_cache"
+HF_HOME_CACHE_REPO_FILE = f"{HF_HOME}/{CACHE_REPO_FILENAME}"
 
 CACHE_REPO_NAME = "optimum-neuron-cache"
 if os.environ.get("HUGGINGFACE_CO_STAGING") == "1":
@@ -68,8 +69,9 @@ def load_custom_cache_repo_name_from_hf_home(
     return None
 
 
-def set_custom_cache_repo_name_in_hf_home(repo_id: str):
-    existing_custom_cache_repo = load_custom_cache_repo_name_from_hf_home()
+def set_custom_cache_repo_name_in_hf_home(repo_id: str, hf_home: str = HF_HOME):
+    hf_home_cache_repo_file = f"{hf_home}/{CACHE_REPO_FILENAME}"
+    existing_custom_cache_repo = load_custom_cache_repo_name_from_hf_home(hf_home_cache_repo_file)
     if existing_custom_cache_repo is not None:
         logger.warning(
             f"A custom cache repo was already registered: {existing_custom_cache_repo}. It will be overwritten to "
@@ -77,12 +79,12 @@ def set_custom_cache_repo_name_in_hf_home(repo_id: str):
         )
     try:
         HfApi().repo_info(repo_id, repo_type="model")
-    except RepositoryNotFoundError as e:
+    except RepositoryNotFoundError:
         raise ValueError(
             f"Could not save the custom Trainium cache repo to be {repo_id} because it does not exist or is private to "
             "you. Complete exception message: {e}."
         )
-    with open(HF_HOME_CACHE_REPO_FILE, "w") as fp:
+    with open(hf_home_cache_repo_file, "w") as fp:
         fp.write(repo_id)
 
 

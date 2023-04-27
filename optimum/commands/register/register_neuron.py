@@ -16,4 +16,5 @@
 
 from ..neuron.base import NeuronCommand
 
+
 REGISTER_COMMANDS = [NeuronCommand]
