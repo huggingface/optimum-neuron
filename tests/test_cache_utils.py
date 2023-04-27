@@ -462,7 +462,7 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
             os.environ["CUSTOM_CACHE_REPO"] = f"{TRANSFORMERS_USER}/{repo_name}"
             with self.assertLogs("optimum", "WARNING") as cm:
                 push_to_cache_on_hub(neuron_hash, get_neuron_cache_path())
-                self.assertIn("Could not push the cached model to the repo", cm.output[0])
+                self.assertTrue(any("Could not push the cached model to the repo" in output for output in cm.output))
 
             self.set_hf_hub_token(TRANSFORMERS_TOKEN)
             delete_repo(repo_name, repo_type="model")
