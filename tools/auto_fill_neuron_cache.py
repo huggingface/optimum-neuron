@@ -358,7 +358,7 @@ def main():
                             num_cores,
                             False,
                         )
-                    except Exception as e:
+                    except Exception:
                         open_and_append_to_file(failure_filename, example_str)
                     else:
                         open_and_append_to_file(success_filename, example_str)
