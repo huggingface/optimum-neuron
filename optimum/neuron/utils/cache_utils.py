@@ -59,9 +59,11 @@ NEURON_COMPILE_CACHE_NAME = "neuron-compile-cache"
 _IP_PATTERN = re.compile(r"ip-([0-9]{1,3}-){4}")
 
 
-def load_custom_cache_repo_name_from_hf_home() -> Optional[str]:
-    if Path(HF_HOME_CACHE_REPO_FILE).exists():
-        with open(HF_HOME_CACHE_REPO_FILE, "r") as fp:
+def load_custom_cache_repo_name_from_hf_home(
+    hf_home_cache_repo_file: Union[str, Path] = HF_HOME_CACHE_REPO_FILE
+) -> Optional[str]:
+    if Path(hf_home_cache_repo_file).exists():
+        with open(hf_home_cache_repo_file, "r") as fp:
             return fp.read()
     return None
 
@@ -105,8 +107,12 @@ def get_hf_hub_cache_repos():
 
     saved_custom_cache_repo = load_custom_cache_repo_name_from_hf_home()
     if saved_custom_cache_repo is None:
-        # TODO
-        logger.warning()
+        logger.warning(
+            "No Trainium cache name is saved locally. This means that only the official Trainium cache, and "
+            "potentially a cache defined in $CUSTOM_CACHE_REPO will be used. You can create a Trainium cache repo by "
+            "running the following command: `optimum-cli neuron cache create`. If the Trainium cache already exists "
+            "you can set it by running the following command: `optimum-cli neuron cache set -n [name]`."
+        )
     else:
         hf_hub_repos = [saved_custom_cache_repo] + hf_hub_repos
 
