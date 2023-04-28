@@ -58,6 +58,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v2
+      - name: TEST
+        run: echo ${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
       - name: Install Python dependencies
         run: pip install .[tests]
       - name: Run tests on neuron cores
