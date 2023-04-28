@@ -67,6 +67,44 @@ class SetCustomCacheRepoCommand(BaseOptimumCLICommand):
         logger.info(f"Trainium cache name set locally to {self.args.name} in {HF_HOME_CACHE_REPO_FILE}.")
 
 
+class AddToCacheRepoCommand(BaseOptimumCLICommand):
+    @staticmethod
+    def parse_args(parser: "ArgumentParser"):
+        parser.add_argument(
+            "-m", "--model_name_or_path", type=str, required=True, help="The name of model or path of the model."
+
+        )
+
+        # Shapes
+        parser.add_argument("--batch_size", type=int, required=True, help="The batch size to use during the model compilation")
+
+        sequence_length_group = parser.add_mutually_exclusive_group()
+        
+        sequence_length_group.add_argument("--sequence-length", type=int, required=True, help="The sequence length of the model during compilation.")
+
+        seq2seq_sequence_length_group = sequence_length_group.add_argument_group()
+        seq2seq_sequence_length_group.add_argument("--encoder-sequence-length", type=int, required=True, help="The sequence length of the encoder part of the model during compilation.")
+        seq2seq_sequence_length_group.add_argument("--decoder-sequence-length", type=int, required=True, help="The sequence length of the decoder part of the model during compilation.")
+
+        parser.add_argument(
+            "--precision",
+            choices=["fp", "bf16"],
+            type=str,
+            required=True,
+            help="The precision to use during the model compilation.",
+
+        )
+
+        parser.add_argument(
+            "--num-cores",
+            choices=list(range(1, 33)),
+            type=int,
+            required=True,
+            help="The number of neuron cores to use during compilation.",
+
+        )
+
+
 class CustomCacheRepoCommand(BaseOptimumCLICommand):
     SUBCOMMANDS = (
         CommandInfo(
