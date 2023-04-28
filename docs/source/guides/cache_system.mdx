@@ -50,7 +50,82 @@ The repository for the public cache is `aws-neuron/optimum-neuron-cache`. This r
 1. You will not be able to push your own compiled files on this repo 
 2. It is public and you might want to use a private repo for private models
 
-To alleviate that [you can create your own private cache repository](https://huggingface.co/new) and set the environment variable `CUSTOM_CACHE_REPO`. For example, if you cache repo is called `michaelbenayoun/my_custom_cache_repo`, you just need to do:
+To alleviate that you can create your own private cache repository using the `optimum-cli` or set the environment variable `CUSTOM_CACHE_REPO`.
+
+#### Using the Optimum CLI
+
+The Optimum CLI has 2 subcommands for cache management: you can create a new cache repository that you can use as a private Trainium Model cache. The other command can be used to set the name of the Trainium cache repository, the repository needs to exists.
+
+```
+usage: optimum-cli neuron cache [-h] {create,set} ...
+
+positional arguments:
+  {create,set}
+    create      Create a model repo on the Hugging Face Hub to store Neuron X compilation files.
+    set         Set the name of the Trainium cache repo to use locally.
+
+optional arguments:
+  -h, --help    show this help message and exit
+```
+
+
+Create a new Trainium cache repository:
+
+```
+optimum-cli neuron cache create --help
+
+usage: optimum-cli neuron cache create [-h] [-n NAME] [--public]
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -n NAME, --name NAME  The name of the repo that will be used as a remote cache for the compilation files.
+  --public              If set, the created repo will be public. By default the cache repo is private.
+
+```
+
+The `-n` / `--name` option allows you to specify a name for the Trainium cache repo, if not set the default name will be used. The `--public` flag allows you to make your Trainium cache public as it will be created as a private repository by default.
+
+Example:
+
+```
+optimum-cli neuron cache create
+
+Trainium cache created on the Hugging Face Hub: michaelbenayoun/optimum-neuron-cache [private].
+Trainium cache name set locally to michaelbenayoun/optimum-neuron-cache in /home/michael/.cache/huggingface/optimum_neuron_custom_cache.
+```
+
+Set a different Trainiun cache repository:
+
+```
+optimum-cli neuron cache set
+
+usage: optimum-cli neuron cache set [-h] -n NAME
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -n NAME, --name NAME  The name of the repo that to use as remote cache.
+
+```
+
+Example:
+
+```
+optimum-cli neuron cache set -n michaelbenayoun/optimum-neuron-cache
+
+Trainium cache name set locally to michaelbenayoun/optimum-neuron-cache in /home/michael/.cache/huggingface/optimum_neuron_custom_cache
+```
+
+<Tip>
+
+The `optimum-cli neuron cache set` command is useful when working on a new instance to use your own cache.
+
+</Tip>
+
+#### Using the environment variable `CUSTOM_CACHE_REPO`
+
+Using the CLI is not always feasible, and not very practical for small testing. In this case, you can simply set the environment variable `CUSTOM_CACHE_REPO`.
+
+For example, if you cache repo is called `michaelbenayoun/my_custom_cache_repo`, you just need to do:
 
 ```bash
 CUSTOM_CACHE_REPO="michaelbenayoun/my_custom_cache_repo" torchrun ...

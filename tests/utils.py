@@ -24,9 +24,10 @@ from typing import Dict, Optional, Set, Tuple, Union
 
 import torch
 from datasets import Dataset, DatasetDict
-from huggingface_hub import CommitOperationDelete, HfApi, HfFolder, create_repo, delete_repo, login
+from huggingface_hub import CommitOperationDelete, HfApi, HfFolder, create_repo, delete_repo
 from huggingface_hub.utils import RepositoryNotFoundError
 from transformers import PretrainedConfig, PreTrainedModel
+from transformers.testing_utils import ENDPOINT_STAGING
 
 from optimum.neuron.utils.cache_utils import (
     NEURON_COMPILE_CACHE_NAME,
@@ -163,12 +164,13 @@ class StagingTestMixin:
     @classmethod
     def set_hf_hub_token(cls, token: str) -> str:
         orig_token = HfFolder.get_token()
-        login(token)
         HfFolder.save_token(token)
+        cls._env = dict(os.environ, HF_ENDPOINT=ENDPOINT_STAGING)
         return orig_token
 
     @classmethod
     def setUpClass(cls) -> None:
+        cls._staging_token = TOKEN
         cls._token = cls.set_hf_hub_token(TOKEN)
         create_repo(cls.CUSTOM_CACHE_REPO, repo_type="model", exist_ok=True)
         create_repo(cls.CUSTOM_PRIVATE_CACHE_REPO, repo_type="model", exist_ok=True, private=True)
