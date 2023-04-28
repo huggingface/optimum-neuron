@@ -27,11 +27,11 @@ from optimum.neuron.utils.cache_utils import (
     load_custom_cache_repo_name_from_hf_home,
 )
 
-from ..utils import TOKEN, USER
+from ..utils import TOKEN, USER, StagingTestMixin
 
 
 @is_staging_test
-class TestNeuronCacheCLI(TestCase):
+class TestNeuronCacheCLI(StagingTestMixin, TestCase):
     @classmethod
     def setUpClass(cls):
         login(TOKEN)
@@ -101,7 +101,7 @@ class TestNeuronCacheCLI(TestCase):
 
             create_repo(self.repo_name, repo_type="model")
 
-            command = f"optimum-cli neuron cache set {self.repo_id}".split()
+            command = f"optimum-cli neuron cache set --name {self.repo_id}".split()
             p = subprocess.Popen(command)
             returncode = p.wait()
             self.assertEqual(returncode, 0)

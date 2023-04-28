@@ -85,7 +85,8 @@ class NeuronUtilsTestCase(TestCase):
                 set_custom_cache_repo_name_in_hf_home(repo_id, hf_home=tmpdirname)
             except ValueError as e:
                 remove_repo()
-                HfFolder.save_token(orig_token)
+                if orig_token:
+                    HfFolder.save_token(orig_token)
                 self.fail(str(e))
 
             with open(f"{tmpdirname}/{CACHE_REPO_FILENAME}", "r") as fp:
@@ -98,7 +99,8 @@ class NeuronUtilsTestCase(TestCase):
                 self.assertIn("A custom cache repo was already", cm.output[0])
 
             remove_repo()
-            HfFolder.save_token(orig_token)
+            if orig_token:
+                HfFolder.save_token(orig_token)
 
     def test_get_neuron_cache_path(self):
         os.environ["NEURON_CC_FLAGS"] = "--some --parameters --here --no-cache --other --paremeters --here"
