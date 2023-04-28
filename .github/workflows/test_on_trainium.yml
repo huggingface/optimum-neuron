@@ -56,8 +56,6 @@ jobs:
     env:
       AWS_REGION: us-east-1
     steps:
-      - name: Git LFS install
-        run: git lfs install
       - name: Checkout
         uses: actions/checkout@v2
       - name: Install Python dependencies
