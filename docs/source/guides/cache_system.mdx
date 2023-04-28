@@ -54,7 +54,7 @@ To alleviate that you can create your own private cache repository using the `op
 
 #### Using the Optimum CLI
 
-The Optimum CLI related to cache management has 2 subcommands: one that allows you to create a repo that will be used as the Trainium cache, and another one simply to set the name of the custom Trainium cache to use locally if the repo already exists.
+The Optimum CLI has 2 subcommands for cache management: you can create a new cache repository that you can use as a private Trainium Model cache. The other command can be used to set the name of the Trainium cache repository, the repository needs to exists.
 
 ```
 usage: optimum-cli neuron cache [-h] {create,set} ...
@@ -69,7 +69,7 @@ optional arguments:
 ```
 
 
-To create a Trainium cache repo:
+Create a new Trainium cache repository:
 
 ```
 optimum-cli neuron cache create --help
@@ -94,7 +94,7 @@ Trainium cache created on the Hugging Face Hub: michaelbenayoun/optimum-neuron-c
 Trainium cache name set locally to michaelbenayoun/optimum-neuron-cache in /home/michael/.cache/huggingface/optimum_neuron_custom_cache.
 ```
 
-To set a Trainiun cache repo locally:
+Set a different Trainiun cache repository:
 
 ```
 optimum-cli neuron cache set
@@ -117,7 +117,7 @@ Trainium cache name set locally to michaelbenayoun/optimum-neuron-cache in /home
 
 <Tip>
 
-The `optimum-cli neuron cache set` command is useful when starting to work on a new instance. At this point, the repo already exist so it is only needed to set it locally so that Optimum Neuron can use it.
+The `optimum-cli neuron cache set` command is useful when working on a new instance to use your own cache.
 
 </Tip>
 
