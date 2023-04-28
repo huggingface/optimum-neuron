@@ -58,6 +58,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v2
+      - name: Git LFS install
+        run: git lfs install
       - name: Install Python dependencies
         run: pip install .[tests]
       - name: Run tests on neuron cores
