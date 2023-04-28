@@ -25,7 +25,7 @@ from tempfile import TemporaryDirectory
 from typing import Any, Callable, Dict, List, Optional, Set, Union
 from unittest import TestCase
 
-from huggingface_hub import HfFolder
+from huggingface_hub import HfFolder, login
 from transformers import (
     CONFIG_MAPPING,
     MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING,
@@ -266,12 +266,12 @@ class ExampleTesterBase(TestCase):
     def setUpClass(cls):
         cls._create_venv()
 
-        huggingface_cli_name = "venv/bin/hugginface-cli" if cls.venv_was_created() else "huggingface-cli"
-        cmd_line = f"{huggingface_cli_name} login --token {TOKEN}".split()
-        print(f"Running command line {cmd_line}")
-        p = subprocess.Popen(cmd_line)
-        return_code = p.wait()
-        assert return_code == 0
+        # huggingface_cli_name = "venv/bin/hugginface-cli" if cls.venv_was_created() else "huggingface-cli"
+        # cmd_line = f"{huggingface_cli_name} login --token {TOKEN}".split()
+        # p = subprocess.Popen(cmd_line)
+        # return_code = p.wait()
+        # assert return_code == 0
+        login(TOKEN)
 
     @classmethod
     def tearDownClass(cls):
