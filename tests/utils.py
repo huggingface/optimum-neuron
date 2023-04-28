@@ -170,6 +170,7 @@ class StagingTestMixin:
 
     @classmethod
     def setUpClass(cls) -> None:
+        cls._staging_token = TOKEN
         cls._token = cls.set_hf_hub_token(TOKEN)
         create_repo(cls.CUSTOM_CACHE_REPO, repo_type="model", exist_ok=True)
         create_repo(cls.CUSTOM_PRIVATE_CACHE_REPO, repo_type="model", exist_ok=True, private=True)

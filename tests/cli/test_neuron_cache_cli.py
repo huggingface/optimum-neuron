@@ -24,7 +24,6 @@ from transformers.testing_utils import is_staging_test
 from optimum.neuron.utils.cache_utils import (
     CACHE_REPO_FILENAME,
     CACHE_REPO_NAME,
-    HF_HOME,
     load_custom_cache_repo_name_from_hf_home,
 )
 
@@ -61,13 +60,18 @@ class TestNeuronCacheCLI(StagingTestMixin, TestCase):
 
             repo_id = self.default_repo_id if default_name else self.repo_id
 
-            name_str = f"--name {self.repo_name}" if not default_name else ""
-            public_str = "--public" if public else ""
-            command = f"optimum-cli neuron cache create {name_str} {public_str}".split()
             env = dict(self._env, HF_HOME=tmpdirname)
+
+            command = f"huggingface-cli login --token {self._staging_token}".split()
             p = subprocess.Popen(command, env=env)
             returncode = p.wait()
             self.assertEqual(returncode, 0)
+
+            name_str = f"--name {self.repo_name}" if not default_name else ""
+            public_str = "--public" if public else ""
+            command = f"optimum-cli neuron cache create {name_str} {public_str}".split()
+            p = subprocess.Popen(command, env=env)
+            returncode = p.wait()
 
             try:
                 info = HfApi().repo_info(repo_id, repo_type="model")
