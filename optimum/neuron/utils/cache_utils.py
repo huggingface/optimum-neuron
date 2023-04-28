@@ -15,9 +15,11 @@
 
 import hashlib
 import io
+import json
 import os
 import re
 import shutil
+import subprocess
 import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -100,7 +102,7 @@ def set_neuron_cache_path(neuron_cache_path: Union[str, Path], ignore_no_cache: 
     if isinstance(neuron_cache_path, Path):
         neuron_cache_path = neuron_cache_path.as_posix()
 
-    match_ = re.search(r"--cache_dir=([\w\/]+)", neuron_cc_flags)
+    match_ = re.search(r"--cache_dir=([\w\/-]+)", neuron_cc_flags)
     if match_:
         neuron_cc_flags = neuron_cc_flags[: match_.start(1)] + neuron_cache_path + neuron_cc_flags[match_.end(1) :]
     else:
@@ -109,7 +111,15 @@ def set_neuron_cache_path(neuron_cache_path: Union[str, Path], ignore_no_cache: 
     os.environ["NEURON_CC_FLAGS"] = neuron_cc_flags
 
 
-def get_num_neuron_cores_used():
+def get_num_neuron_cores() -> int:
+    proc = subprocess.Popen(["neuron-ls", "-j"], stdout=subprocess.PIPE)
+    stdout, _ = proc.communicate()
+    stdout = stdout.decode("utf-8")
+    json_stdout = json.loads(stdout)
+    return json_stdout[0]["nc_count"]
+
+
+def get_num_neuron_cores_used() -> int:
     return int(os.environ.get("LOCAL_WORLD_SIZE", "1"))
 
 

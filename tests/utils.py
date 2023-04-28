@@ -25,6 +25,7 @@ from typing import Dict, Optional, Set, Tuple, Union
 import torch
 from datasets import Dataset, DatasetDict
 from huggingface_hub import CommitOperationDelete, HfApi, HfFolder, create_repo, delete_repo, login
+from huggingface_hub.utils import RepositoryNotFoundError
 from transformers import PretrainedConfig, PreTrainedModel
 
 from optimum.neuron.utils.cache_utils import (
@@ -186,11 +187,14 @@ class StagingTestMixin:
         api = HfApi()
         filenames = api.list_repo_files(repo_id=repo_id)
         operations = [CommitOperationDelete(path_in_repo=filename) for filename in filenames]
-        api.create_commit(
-            repo_id=repo_id,
-            operations=operations,
-            commit_message="Cleanup the repo",
-        )
+        try:
+            api.create_commit(
+                repo_id=repo_id,
+                operations=operations,
+                commit_message="Cleanup the repo",
+            )
+        except RepositoryNotFoundError:
+            pass
 
     def tearDown(self) -> None:
         self.remove_all_files_in_repo(self.CUSTOM_CACHE_REPO)
