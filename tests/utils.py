@@ -163,7 +163,6 @@ class StagingTestMixin:
     @classmethod
     def set_hf_hub_token(cls, token: str) -> str:
         orig_token = HfFolder.get_token()
-        login(token)
         HfFolder.save_token(token)
         return orig_token
 
