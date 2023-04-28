@@ -63,7 +63,7 @@ class TestNeuronCacheCLI(StagingTestMixin, TestCase):
             name_str = f"--name {self.repo_name}" if not default_name else ""
             public_str = "--public" if public else ""
             command = f"optimum-cli neuron cache create {name_str} {public_str}".split()
-            p = subprocess.Popen(command)
+            p = subprocess.Popen(command, env=self._env)
             returncode = p.wait()
             self.assertEqual(returncode, 0)
 
@@ -98,7 +98,7 @@ class TestNeuronCacheCLI(StagingTestMixin, TestCase):
             create_repo(self.repo_name, repo_type="model")
 
             command = f"optimum-cli neuron cache set --name {self.repo_id}".split()
-            p = subprocess.Popen(command)
+            p = subprocess.Popen(command, env=self._env)
             returncode = p.wait()
             self.assertEqual(returncode, 0)
 
