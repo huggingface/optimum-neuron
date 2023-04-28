@@ -32,6 +32,7 @@ from ..utils import TOKEN, USER
 
 @is_staging_test
 class TestNeuronCacheCLI(TestCase):
+    @classmethod
     def setUpClass(cls):
         login(TOKEN)
 

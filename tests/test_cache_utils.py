@@ -23,7 +23,7 @@ from typing import List
 from unittest import TestCase
 
 import torch
-from huggingface_hub import HfApi, create_repo, delete_repo
+from huggingface_hub import HfApi, HfFolder, create_repo, delete_repo
 from transformers import BertConfig, BertModel, set_seed
 from transformers.testing_utils import TOKEN as TRANSFORMERS_TOKEN
 from transformers.testing_utils import USER as TRANSFORMERS_USER
@@ -49,7 +49,7 @@ from optimum.neuron.utils.testing_utils import is_trainium_test
 
 # Use that once optimum==1.7.4 is released.
 # from optimum.utils.testing_utils import USER
-from .utils import MyTinyModel, StagingTestMixin, get_random_string
+from .utils import TOKEN, MyTinyModel, StagingTestMixin, get_random_string
 
 
 USER = "__DUMMY_OPTIMUM_USER__"
@@ -70,6 +70,9 @@ class NeuronUtilsTestCase(TestCase):
 
     @is_staging_test
     def test_set_custom_cache_repo_name_in_hf_home(self):
+        orig_token = HfFolder.get_token()
+        HfFolder.save_token(TOKEN)
+
         repo_name = "blablabla"
         repo_id = f"{USER}/{repo_name}"
         create_repo(repo_name, repo_type="model")
@@ -82,6 +85,7 @@ class NeuronUtilsTestCase(TestCase):
                 set_custom_cache_repo_name_in_hf_home(repo_id, hf_home=tmpdirname)
             except ValueError as e:
                 remove_repo()
+                HfFolder.save_token(orig_token)
                 self.fail(str(e))
 
             with open(f"{tmpdirname}/{CACHE_REPO_FILENAME}", "r") as fp:
@@ -93,7 +97,8 @@ class NeuronUtilsTestCase(TestCase):
                 set_custom_cache_repo_name_in_hf_home(repo_id, hf_home=tmpdirname)
                 self.assertIn("A custom cache repo was already", cm.output[0])
 
-            delete_repo()
+            remove_repo()
+            HfFolder.save_token(orig_token)
 
     def test_get_neuron_cache_path(self):
         os.environ["NEURON_CC_FLAGS"] = "--some --parameters --here --no-cache --other --paremeters --here"
