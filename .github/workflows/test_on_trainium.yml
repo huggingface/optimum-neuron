@@ -56,10 +56,10 @@ jobs:
     env:
       AWS_REGION: us-east-1
     steps:
-      - name: Checkout
-        uses: actions/checkout@v2
       - name: Git LFS install
         run: git lfs install
+      - name: Checkout
+        uses: actions/checkout@v2
       - name: Install Python dependencies
         run: pip install .[tests]
       - name: Run tests on neuron cores
