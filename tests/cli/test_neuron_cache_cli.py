@@ -98,7 +98,8 @@ class TestNeuronCacheCLI(StagingTestMixin, TestCase):
             create_repo(self.repo_name, repo_type="model")
 
             command = f"optimum-cli neuron cache set --name {self.repo_id}".split()
-            p = subprocess.Popen(command, env=self._env)
+            env = dict(self._env, HF_HOME=tmpdirname)
+            p = subprocess.Popen(command, env=env)
             returncode = p.wait()
             self.assertEqual(returncode, 0)
 
