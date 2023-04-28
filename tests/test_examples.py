@@ -57,7 +57,6 @@ if os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI", None) is not None:
     TOKEN = os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI")
 
 
-
 def _get_supported_models_for_script(
     models_to_test: Dict[str, str], task_mapping: Dict[str, str], to_exclude: Optional[Set[str]] = None
 ) -> List[str]:
