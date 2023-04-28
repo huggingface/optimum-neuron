@@ -19,7 +19,7 @@ from unittest import TestCase
 
 from huggingface_hub import HfApi, create_repo, delete_repo
 from huggingface_hub.utils import RepositoryNotFoundError
-from transformers.testing_utils import ENDPOINT_STAGING, is_staging_test
+from transformers.testing_utils import is_staging_test
 
 from optimum.neuron.utils.cache_utils import (
     CACHE_REPO_FILENAME,
@@ -62,7 +62,7 @@ class TestNeuronCacheCLI(StagingTestMixin, TestCase):
 
             name_str = f"--name {self.repo_name}" if not default_name else ""
             public_str = "--public" if public else ""
-            command = f"HF_ENDPOINT='{ENDPOINT_STAGING}' optimum-cli neuron cache create {name_str} {public_str}".split()
+            command = f"optimum-cli neuron cache create {name_str} {public_str}".split()
             p = subprocess.Popen(command)
             returncode = p.wait()
             self.assertEqual(returncode, 0)
@@ -97,7 +97,7 @@ class TestNeuronCacheCLI(StagingTestMixin, TestCase):
 
             create_repo(self.repo_name, repo_type="model")
 
-            command = f"HF_ENDPOINT='{ENDPOINT_STAGING}' optimum-cli neuron cache set --name {self.repo_id}".split()
+            command = f"optimum-cli neuron cache set --name {self.repo_id}".split()
             p = subprocess.Popen(command)
             returncode = p.wait()
             self.assertEqual(returncode, 0)

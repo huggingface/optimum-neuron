@@ -27,6 +27,7 @@ from datasets import Dataset, DatasetDict
 from huggingface_hub import CommitOperationDelete, HfApi, HfFolder, create_repo, delete_repo
 from huggingface_hub.utils import RepositoryNotFoundError
 from transformers import PretrainedConfig, PreTrainedModel
+from transformers.testing_utils import ENDPOINT_STAGING
 
 from optimum.neuron.utils.cache_utils import (
     NEURON_COMPILE_CACHE_NAME,
@@ -164,6 +165,7 @@ class StagingTestMixin:
     def set_hf_hub_token(cls, token: str) -> str:
         orig_token = HfFolder.get_token()
         HfFolder.save_token(token)
+        cls._env = dict(os.environ, HF_ENDPOINT=ENDPOINT_STAGING)
         return orig_token
 
     @classmethod
