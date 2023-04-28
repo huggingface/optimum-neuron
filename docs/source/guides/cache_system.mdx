@@ -72,6 +72,8 @@ optional arguments:
 To create a Trainium cache repo:
 
 ```
+optimum-cli neuron cache create --help
+
 usage: optimum-cli neuron cache create [-h] [-n NAME] [--public]
 
 optional arguments:
@@ -81,12 +83,13 @@ optional arguments:
 
 ```
 
-The `-n` / `--name` option allows you to specify a name, if not set the default name for the Trainium cache will be used. The `--public` flag allows you to make your Trainium cache public as it will be created as a private repository by default.
+The `-n` / `--name` option allows you to specify a name for the Trainium cache repo, if not set the default name will be used. The `--public` flag allows you to make your Trainium cache public as it will be created as a private repository by default.
 
 Example:
 
 ```
 optimum-cli neuron cache create
+
 Trainium cache created on the Hugging Face Hub: michaelbenayoun/optimum-neuron-cache [private].
 Trainium cache name set locally to michaelbenayoun/optimum-neuron-cache in /home/michael/.cache/huggingface/optimum_neuron_custom_cache.
 ```
@@ -94,6 +97,8 @@ Trainium cache name set locally to michaelbenayoun/optimum-neuron-cache in /home
 To set a Trainiun cache repo locally:
 
 ```
+optimum-cli neuron cache set
+
 usage: optimum-cli neuron cache set [-h] -n NAME
 
 optional arguments:
@@ -106,6 +111,7 @@ Example:
 
 ```
 optimum-cli neuron cache set -n michaelbenayoun/optimum-neuron-cache
+
 Trainium cache name set locally to michaelbenayoun/optimum-neuron-cache in /home/michael/.cache/huggingface/optimum_neuron_custom_cache
 ```
 
