@@ -18,11 +18,19 @@ from ...neuron.utils import is_neuron_available, is_neuronx_available
 from ..export import ExportCommand
 
 
+_neuron_export_command_was_imported = False
+
 if is_neuron_available():
     from ..export.neuron import NeuronExportCommand
+
+    _neuron_export_command_was_imported = True
 
 if is_neuronx_available():
     from ..export.neuronx import NeuronxExportCommand as NeuronExportCommand  # noqa: F811
 
+    _neuron_export_command_was_imported = True
 
-REGISTER_COMMANDS = [(NeuronExportCommand, ExportCommand)]
+if _neuron_export_command_was_imported:
+    REGISTER_COMMANDS = [(NeuronExportCommand, ExportCommand)]
+else:
+    REGISTER_COMMANDS = []
