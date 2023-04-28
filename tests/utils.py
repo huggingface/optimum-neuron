@@ -24,7 +24,7 @@ from typing import Dict, Optional, Set, Tuple, Union
 
 import torch
 from datasets import Dataset, DatasetDict
-from huggingface_hub import CommitOperationDelete, HfApi, HfFolder, create_repo, delete_repo, login
+from huggingface_hub import CommitOperationDelete, HfApi, HfFolder, create_repo, delete_repo
 from huggingface_hub.utils import RepositoryNotFoundError
 from transformers import PretrainedConfig, PreTrainedModel
 
