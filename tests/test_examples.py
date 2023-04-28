@@ -268,7 +268,7 @@ class ExampleTesterBase(TestCase):
 
         huggingface_cli_name = "venv/bin/hugginface-cli" if cls.venv_was_created() else "huggingface-cli"
         cmd_line = f"{huggingface_cli_name} login --token {TOKEN}".split()
-        print("Running command line {cmd_line}")
+        print(f"Running command line {cmd_line}")
         p = subprocess.Popen(cmd_line)
         return_code = p.wait()
         assert return_code == 0
