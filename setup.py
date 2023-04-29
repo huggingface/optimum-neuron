@@ -44,7 +44,13 @@ EXTRAS_REQUIRE = {
         "protobuf",
         "torchvision",
     ],
-    "neuronx": ["neuronx-cc==2.*", "torch-neuronx", "torchvision"],
+    "neuronx": [        
+        "wheel",
+        "neuronx-cc==2.*", 
+        "torch-neuronx", 
+        "torch==1.13.*",
+        "torchvision==0.14.*",
+    ],
 }
 
 setup(
