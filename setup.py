@@ -1,8 +1,10 @@
+import os
 import re
 
 from setuptools import find_namespace_packages, setup
 
 
+os.system("export PIP_EXTRA_INDEX_URL=https://pip.repos.neuron.amazonaws.com")
 # Ensure we match the version set in optimum/neuron/version.py
 try:
     filepath = "optimum/neuron/version.py"
@@ -44,10 +46,10 @@ EXTRAS_REQUIRE = {
         "protobuf",
         "torchvision",
     ],
-    "neuronx": [        
+    "neuronx": [
         "wheel",
-        "neuronx-cc==2.*", 
-        "torch-neuronx", 
+        "neuronx-cc==2.*",
+        "torch-neuronx",
         "torch==1.13.*",
         "torchvision==0.14.*",
     ],
