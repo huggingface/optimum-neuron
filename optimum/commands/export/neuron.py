@@ -69,8 +69,8 @@ def parse_args_neuron(parser: "ArgumentParser"):
         help='The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"` or `"tf32"`.',
     )
     optional_group.add_argument(
-        "--disable_fast_relayout",
-        default=False,
+        "--disable-fast-relayout",
+        action="store_true",
         help="Whether to disable fast relayout optimization which improves performance by using the matrix multiplier for tensor transpose.",
     )
 
