@@ -77,15 +77,13 @@ def main():
     if args.atol is None:
         args.atol = neuron_config.ATOL_FOR_VALIDATION
 
-    # Saving the model config and preprocessor as this is needed sometimes.
-    model.config.save_pretrained(args.output.parent)
-    maybe_save_preprocessors(args.model, args.output.parent)
-
+    # Get compilation arguments
     auto_cast = None if args.auto_cast == "None" else args.auto_cast
-    auto_cast_type = None if args.auto_cast_type == "None" else args.auto_cast_type
+    auto_cast_type = args.auto_cast_type
     kwargs = {"auto_cast": auto_cast, "auto_cast_type": auto_cast_type}
     if hasattr(args, "disable_fast_relayout"):
         kwargs["disable_fast_relayout"] = getattr(args, "disable_fast_relayout")
+
     neuron_inputs, neuron_outputs = export(
         model=model,
         config=neuron_config,
@@ -93,6 +91,21 @@ def main():
         **kwargs,
     )
 
+    # Add input shapes during compilation to the config
+    for axe, shape in shapes.items():
+        axe = f"neuron_{axe}"
+        model.config.__setattr__(axe, shape)
+    # Add compilation args to the config
+    if auto_cast is None:
+        kwargs["auto_cast_type"] = None
+    for arg, value in kwargs.items():
+        model.config.__setattr__(arg, value)
+
+    # Saving the model config and preprocessor as this is needed sometimes.
+    model.config.save_pretrained(args.output.parent)
+    maybe_save_preprocessors(args.model, args.output.parent)
+
+    # Validate compiled model
     try:
         validate_model_outputs(
             config=neuron_config,
