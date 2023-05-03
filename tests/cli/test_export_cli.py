@@ -35,8 +35,8 @@ logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 
 _COMMOM_COMMANDS = {
-    "--auto_cast": ["None", "matmult", "all"],
-    "--auto_cast_type": ["bf16", "fp16"],  # "tf32"
+    "--auto_cast": ["none", "matmul", "all"],
+    "--auto_cast_type": ["bf16", "fp16"],  # "tf32", "mixed"
 }
 _NEURON_COMMANDS = {}
 _NEURONX_COMMANDS = {}

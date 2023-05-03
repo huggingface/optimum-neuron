@@ -60,13 +60,17 @@ def parse_args_neuron(parser: "ArgumentParser"):
     )
     optional_group.add_argument(
         "--auto_cast",
+        type=str,
         default=None,
-        help='Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `None`, `"matmul"` or `"all"`.',
+        choices=["none", "matmul", "all"],
+        help='Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `"none"`, `"matmul"` or `"all"`.',
     )
     optional_group.add_argument(
         "--auto_cast_type",
-        default=None,
-        help='The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"` or `"tf32"`.',
+        type=str,
+        default="bf16",
+        choices=["bf16", "fp16", "mixed", "tf32"],
+        help='The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"`, `"mixed"` or `"tf32"`.',
     )
     optional_group.add_argument(
         "--disable-fast-relayout",
