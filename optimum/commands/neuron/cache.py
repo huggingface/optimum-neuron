@@ -127,7 +127,7 @@ class AddToCacheRepoCommand(BaseOptimumCLICommand):
         )
 
     def run(self):
-        runner = ExampleRunner(self.model, self.task)
+        runner = ExampleRunner(self.args.model, self.args.task)
         if self.args.eval_batch_size is None:
             self.args.eval_batch_size = self.args.batch_size
         if self.args.sequence_length is not None:
@@ -137,9 +137,9 @@ class AddToCacheRepoCommand(BaseOptimumCLICommand):
                 raise ValueError("Both the encoder_sequence_length and the decoder_sequence_length must be provided.")
             sequence_length = [self.args.encoder_sequence_length, self.args.decoder_sequence_length]
         runner.run(
-            self.num_cores,
-            self.precision,
-            self.batch_size,
+            self.args.num_cores,
+            self.args.precision,
+            self.args.batch_size,
             sequence_length,
             do_eval=True,
             eval_batch_size=self.args.eval_batch_size,

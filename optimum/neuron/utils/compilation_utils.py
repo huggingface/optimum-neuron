@@ -15,6 +15,7 @@
 """Utilities to be able to perform model compilation easily."""
 
 import subprocess
+import re
 from enum import Enum
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -165,6 +166,10 @@ class ExampleRunner:
             else:
                 self.example_dir = example_dir
 
+    def split_args_and_value_in_command(self, cmd: List[str]) -> List[str]:
+        pattern = re.compile(r"([\"\'].+?[\"\'])|\s")
+        return [x for y in cmd for x in re.split(pattern, y) if x]
+    
     def run(
         self,
         num_cores: int,
@@ -257,6 +262,8 @@ class ExampleRunner:
 
         with TemporaryDirectory() as tmpdirname:
             cmd.append(f"--output_dir {tmpdirname}")
+
+            cmd = self.split_args_and_value_in_command(cmd)
 
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             stdout, stderr = proc.communicate()
