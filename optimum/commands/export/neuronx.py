@@ -62,8 +62,8 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         "--auto_cast",
         type=str,
         default=None,
-        choices=["None", "matmul", "all"],
-        help='Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `None`, `"matmul"` or `"all"`.',
+        choices=["none", "matmul", "all"],
+        help='Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `"none"`, `"matmul"` or `"all"`.',
     )
     optional_group.add_argument(
         "--auto_cast_type",
