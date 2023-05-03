@@ -60,11 +60,14 @@ def parse_args_neuronx(parser: "ArgumentParser"):
     )
     optional_group.add_argument(
         "--auto_cast",
+        type=str,
         default=None,
+        choices=["None", "matmul", "all"],
         help='Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `None`, `"matmul"` or `"all"`.',
     )
     optional_group.add_argument(
         "--auto_cast_type",
+        type=str,
         default="bf16",
         choices=["bf16", "fp16", "tf32"],
         help='The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"` or `"tf32"`.',
