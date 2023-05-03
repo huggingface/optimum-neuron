@@ -15,6 +15,7 @@
 """Utilities to be able to perform model compilation easily."""
 
 import contextlib
+import subprocess
 from tempfile import TemporaryDirectory
 import requests
 from enum import Enum
@@ -89,7 +90,7 @@ def download_example_script_from_github(task_name: str, target_directory: Path, 
 
 
 class Precision(str, Enum):
-    fp = "full-precision"
+    fp = "fp"
     bf16 = "bf16"
 
 
@@ -184,7 +185,7 @@ class ExampleRunner:
         precision: Union[str, Precision],
         train_batch_size: int, 
         sequence_length: Union[int, Tuple[int, int], List[int]],
-        do_eval: bool = True, 
+        do_eval: bool = False, 
         eval_batch_size: Optional[int] = None,
         gradient_accumulation_steps: int = 1,
         num_epochs: int = 1,
@@ -228,10 +229,11 @@ class ExampleRunner:
             cmd.append("--do_eval")
         cmd.append(f"--learning_rate {learning_rate}")
         cmd.append(f"--per_device_train_batch_size {train_batch_size}")
-        if eval_batch_size is None:
-            if do_eval:
+        if do_eval:
+            if eval_batch_size is None:
                 raise ValueError(f"eval_batch_size must be specified if do_eval=True")
-            cmd.append(f"--per_device_eval_batch_size {eval_batch_size}")
+            else:
+                cmd.append(f"--per_device_eval_batch_size {eval_batch_size}")
         cmd.append(f"--gradient_accumulation_steps {gradient_accumulation_steps}")
 
         # Logging and saving
@@ -267,5 +269,15 @@ class ExampleRunner:
             else:
                 cmd.append(f"--{name} {value}")
 
-        return "\n".join(cmd)
+        with TemporaryDirectory() as tmpdirname:
+            cmd.append(f"--output_dir {tmpdirname}")
 
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            stdout, stderr = proc.communicate()
+            stdout = stdout.decode("utf-8")
+            stderr = stderr.decode("utf-8")
+
+        tmpdir.cleanup()
+
+        return stdout, stderr
+                

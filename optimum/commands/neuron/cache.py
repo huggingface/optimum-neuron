@@ -21,6 +21,7 @@ from ...neuron.utils.cache_utils import (
     create_custom_cache_repo,
     set_custom_cache_repo_name_in_hf_home,
 )
+from ...neuron.utils.compilation_utils import ExampleRunner
 from ...utils import logging
 from ..base import BaseOptimumCLICommand, CommandInfo
 
@@ -77,15 +78,19 @@ class AddToCacheRepoCommand(BaseOptimumCLICommand):
         parser.add_argument("--task", type=str, required=True, help="The task for which the model should be compiled.")
 
         # Shapes
-        parser.add_argument("--batch-size", type=int, required=True, help="The batch size to use during the model compilation")
+        parser.add_argument("--batch_size", type=int, required=True, help="The batch size to use during the model compilation")
+
+        parser.add_argument("--eval_batch_size", type=int, default=None, help="The batch size to use during model compilation for evaluation.")
 
         sequence_length_group = parser.add_mutually_exclusive_group()
         
-        sequence_length_group.add_argument("--sequence-length", type=int, help="The sequence length of the model during compilation.")
+        sequence_length_group.add_argument("--sequence_length", type=int, help="The sequence length of the model during compilation.")
 
         seq2seq_sequence_length_group = sequence_length_group.add_argument_group()
-        seq2seq_sequence_length_group.add_argument("--encoder-sequence-length", type=int, help="The sequence length of the encoder part of the model during compilation.")
-        seq2seq_sequence_length_group.add_argument("--decoder-sequence-length", type=int, help="The sequence length of the decoder part of the model during compilation.")
+        seq2seq_sequence_length_group.add_argument("--encoder_sequence_length", type=int, help="The sequence length of the encoder part of the model during compilation.")
+        seq2seq_sequence_length_group.add_argument("--decoder_sequence_length", type=int, help="The sequence length of the decoder part of the model during compilation.")
+
+        parser.add_argument("--gradient_accumulation_steps", type=int, default=1, help="The number of gradient accumulation steps..")
 
         parser.add_argument(
             "--precision",
@@ -95,18 +100,38 @@ class AddToCacheRepoCommand(BaseOptimumCLICommand):
             help="The precision to use during the model compilation.",
 
         )
-
         parser.add_argument(
-            "--num-cores",
+            "--num_cores",
             choices=list(range(1, 33)),
             type=int,
             required=True,
             help="The number of neuron cores to use during compilation.",
 
         )
+        parser.add_argument("--max_steps", type=int, default=200, help="The maximum number of steps to run compilation for.")
 
     def run(self):
-        print(self.args)
+        runner = ExampleRunner(self.model, self.task)
+        if self.args.eval_batch_size is None:
+            self.args.eval_batch_size = self.args.batch_size
+        if self.args.sequence_length is not None:
+            sequence_length = self.args.sequence_length
+        else:
+            if self.args.encoder_sequence_length is None or self.args.decoder_sequence_length is None:
+                raise ValueError("Both the encoder_sequence_length and the decoder_sequence_length must be provided.")
+            sequence_length = [self.args.encoder_sequence_length, self.args.decoder_sequence_length]
+        runner.run(
+            self.num_cores,
+            self.precision,
+            self.batch_size,
+            sequence_length,
+            do_eval=True,
+            eval_batch_size=self.args.eval_batch_size,
+            gradient_accumulation_steps=self.args.gradient_accumulation_steps,
+            num_epochs=3, 
+            max_steps=self.args.max_steps,
+            save_steps=10,
+        )
 
 
 class CustomCacheRepoCommand(BaseOptimumCLICommand):
