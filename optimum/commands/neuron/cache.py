@@ -71,20 +71,21 @@ class AddToCacheRepoCommand(BaseOptimumCLICommand):
     @staticmethod
     def parse_args(parser: "ArgumentParser"):
         parser.add_argument(
-            "-m", "--model_name_or_path", type=str, required=True, help="The name of model or path of the model."
+            "-m", "--model", type=str, required=True, help="The name of model or path of the model."
 
         )
+        parser.add_argument("--task", type=str, required=True, help="The task for which the model should be compiled.")
 
         # Shapes
-        parser.add_argument("--batch_size", type=int, required=True, help="The batch size to use during the model compilation")
+        parser.add_argument("--batch-size", type=int, required=True, help="The batch size to use during the model compilation")
 
         sequence_length_group = parser.add_mutually_exclusive_group()
         
-        sequence_length_group.add_argument("--sequence-length", type=int, required=True, help="The sequence length of the model during compilation.")
+        sequence_length_group.add_argument("--sequence-length", type=int, help="The sequence length of the model during compilation.")
 
         seq2seq_sequence_length_group = sequence_length_group.add_argument_group()
-        seq2seq_sequence_length_group.add_argument("--encoder-sequence-length", type=int, required=True, help="The sequence length of the encoder part of the model during compilation.")
-        seq2seq_sequence_length_group.add_argument("--decoder-sequence-length", type=int, required=True, help="The sequence length of the decoder part of the model during compilation.")
+        seq2seq_sequence_length_group.add_argument("--encoder-sequence-length", type=int, help="The sequence length of the encoder part of the model during compilation.")
+        seq2seq_sequence_length_group.add_argument("--decoder-sequence-length", type=int, help="The sequence length of the decoder part of the model during compilation.")
 
         parser.add_argument(
             "--precision",
@@ -104,6 +105,9 @@ class AddToCacheRepoCommand(BaseOptimumCLICommand):
 
         )
 
+    def run(self):
+        print(self.args)
+
 
 class CustomCacheRepoCommand(BaseOptimumCLICommand):
     SUBCOMMANDS = (
@@ -116,5 +120,10 @@ class CustomCacheRepoCommand(BaseOptimumCLICommand):
             name="set",
             help="Set the name of the Trainium cache repo to use locally.",
             subcommand_class=SetCustomCacheRepoCommand,
+        ),
+        CommandInfo(
+            name="add",
+            help="Add a model to the cache of your choice.",
+            subcommand_class=AddToCacheRepoCommand,
         ),
     )
