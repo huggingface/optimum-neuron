@@ -245,9 +245,7 @@ def export_neuron(
         auto_cast (`Optional[str]`, defaults to `None`):
             Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `None`, `"matmul"` or `"all"`, you should use `None` to disable any auto-casting, use `"matmul"` to cast FP32 matrix multiplication operations, and use `"all"` to cast all FP32 operations.
         auto_cast_type (`str`, defaults to `"bf16"`):
-            The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"`, ``"mixed" or `"tf32"`.
-            `"mixed"` is only available when auto_cast is "all", it will cast operators that use Neuron Matmult engine to bf16 while
-            using fp16 for matmult-based transpose.
+            The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"`, ``"mixed" or `"tf32"`. `"mixed"` is only available when auto_cast is "matmul", it will cast operators that use Neuron Matmult engine to bf16 while using fp16 for matmult-based transpose.
         disable_fast_relayout (`bool`, defaults to `False`):
             Whether to disable fast relayout optimization which improves performance by using the matrix multiplier for tensor transpose.
 
