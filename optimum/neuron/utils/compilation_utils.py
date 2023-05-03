@@ -14,27 +14,13 @@
 # limitations under the License.
 """Utilities to be able to perform model compilation easily."""
 
-import contextlib
 import subprocess
-from tempfile import TemporaryDirectory
-import requests
 from enum import Enum
-from typing import Dict, Optional, Set, List, Union, Tuple
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from typing import List, Optional, Tuple, Union
 
-from transformers import (
-    CONFIG_MAPPING,
-    MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING,
-    MODEL_FOR_CAUSAL_LM_MAPPING,
-    MODEL_FOR_CTC_MAPPING,
-    MODEL_FOR_IMAGE_CLASSIFICATION_MAPPING,
-    MODEL_FOR_MASKED_LM_MAPPING,
-    MODEL_FOR_MULTIPLE_CHOICE_MAPPING,
-    MODEL_FOR_QUESTION_ANSWERING_MAPPING,
-    MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING,
-    MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING,
-    MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING,
-)
+import requests
 
 from ...utils import logging
 
@@ -55,19 +41,18 @@ _GH_REPO_EXAMPLE_FOLDERS = [
 ]
 
 _TASK_TO_EXAMPLE_SCRIPT = {
-        "causal-lm": "run_clm",
-        "masked-lm": "run_mlm",
-        "text-classification": "run_glue",
-        "token-classification": "run_ner",
-        "multiple-choice": "run_swag",
-        "question-answering": "run_qa",
-        "summarization": "run_summarization",
-        "translation": "run_translation",
-        "image-classification": "run_image_classification",
-        "audio-classification": "run_audio_classification",
-        "speech-recognition": "run_speech_recognition_ctc",
+    "causal-lm": "run_clm",
+    "masked-lm": "run_mlm",
+    "text-classification": "run_glue",
+    "token-classification": "run_ner",
+    "multiple-choice": "run_swag",
+    "question-answering": "run_qa",
+    "summarization": "run_summarization",
+    "translation": "run_translation",
+    "image-classification": "run_image_classification",
+    "audio-classification": "run_audio_classification",
+    "speech-recognition": "run_speech_recognition_ctc",
 }
-
 
 
 def download_example_script_from_github(task_name: str, target_directory: Path, revision: str = "main") -> Path:
@@ -85,7 +70,7 @@ def download_example_script_from_github(task_name: str, target_directory: Path, 
         was_saved = True
     if not was_saved:
         raise FileNotFoundError(f"Could not find an example script for the task {task_name} on the GitHub repo")
-    
+
     return example_script_path
 
 
@@ -159,6 +144,7 @@ class ExampleRunner:
             ],
         },
     }
+
     def __init__(self, model_name_or_path: str, task: str, example_dir: Optional[Union[str, Path]] = None):
         self.model_name_or_path = model_name_or_path
 
@@ -180,12 +166,12 @@ class ExampleRunner:
                 self.example_dir = example_dir
 
     def run(
-        self, 
+        self,
         num_cores: int,
         precision: Union[str, Precision],
-        train_batch_size: int, 
+        train_batch_size: int,
         sequence_length: Union[int, Tuple[int, int], List[int]],
-        do_eval: bool = False, 
+        do_eval: bool = False,
         eval_batch_size: Optional[int] = None,
         gradient_accumulation_steps: int = 1,
         num_epochs: int = 1,
@@ -195,7 +181,7 @@ class ExampleRunner:
         learning_rate: float = 1e-4,
     ):
         if num_cores <= 0 or num_cores > 32:
-            raise ValueError(f"The number of Neuron cores to use must be between 1 and 32.")
+            raise ValueError("The number of Neuron cores to use must be between 1 and 32.")
         if isinstance(precision, str) and not isinstance(precision, Precision):
             precision = Precision(precision)
 
@@ -231,7 +217,7 @@ class ExampleRunner:
         cmd.append(f"--per_device_train_batch_size {train_batch_size}")
         if do_eval:
             if eval_batch_size is None:
-                raise ValueError(f"eval_batch_size must be specified if do_eval=True")
+                raise ValueError("eval_batch_size must be specified if do_eval=True")
             else:
                 cmd.append(f"--per_device_eval_batch_size {eval_batch_size}")
         cmd.append(f"--gradient_accumulation_steps {gradient_accumulation_steps}")
@@ -250,11 +236,11 @@ class ExampleRunner:
         arguments = self._TASK_TO_COMMAND_ARGUMENTS[self.task]
         for name, value in arguments.items():
             if name == "set_max_length":
-                if isinstance(sequence_length, (tuple, list)): 
+                if isinstance(sequence_length, (tuple, list)):
                     raise ValueError(f"Only one sequence length needs to be specified for {self.task}.")
                 cmd.append(f"--max_seq_length {sequence_length}")
             elif name in ["set_max_source_length", "set_max_target_length"]:
-                if isinstance(sequence_length, int): 
+                if isinstance(sequence_length, int):
                     raise ValueError(
                         f"A sequence length for the encoder and for the decoder need to be specified for {self.task}, "
                         "but only one was specified here."
@@ -280,4 +266,3 @@ class ExampleRunner:
         tmpdir.cleanup()
 
         return stdout, stderr
-                
