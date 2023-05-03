@@ -78,7 +78,7 @@ def main():
         args.atol = neuron_config.ATOL_FOR_VALIDATION
 
     # Get compilation arguments
-    auto_cast = None if args.auto_cast.lower() == "none" else args.auto_cast
+    auto_cast = None if args.auto_cast == "none" else args.auto_cast
     auto_cast_type = args.auto_cast_type
     kwargs = {"auto_cast": auto_cast, "auto_cast_type": auto_cast_type}
     if hasattr(args, "disable_fast_relayout"):
