@@ -41,7 +41,7 @@ EXTRAS_REQUIRE = {
     "quality": QUALITY_REQUIRES,
     "neuron": [
         "wheel",
-        "torch-neuron==1.12.1.*",
+        "torch-neuron==1.13.1.*",
         "neuron-cc[tensorflow]",
         "protobuf",
         "torchvision",
@@ -50,7 +50,7 @@ EXTRAS_REQUIRE = {
         "wheel",
         "neuronx-cc==2.*",
         "torch-neuronx",
-        "torch==1.13.*",
+        "torch==1.13.1.*",
         "torchvision==0.14.*",
     ],
 }
