@@ -296,7 +296,7 @@ class ExampleRunner:
         num_cores: int,
         precision: Union[str, Precision],
         train_batch_size: int,
-        sequence_length: Union[int, Tuple[int, int], List[int]],
+        sequence_length: Optional[Union[int, Tuple[int, int], List[int]]] = None,
         do_eval: bool = False,
         eval_batch_size: Optional[int] = None,
         gradient_accumulation_steps: int = 1,
@@ -305,11 +305,13 @@ class ExampleRunner:
         logging_steps: int = 1,
         save_steps: int = -1,
         learning_rate: float = 1e-4,
-    ) -> Tuple[str, str]:
+    ) -> Tuple[int, str, str]:
         if num_cores <= 0 or num_cores > 32:
             raise ValueError("The number of Neuron cores to use must be between 1 and 32.")
         if isinstance(precision, str) and not isinstance(precision, Precision):
             precision = Precision(precision)
+        if sequence_length is None and self.task != "image-classification":
+            raise ValueError(f"You must provide sequence_length for task {self.task}.")
 
         self.check_user_logged_in_and_cache_repo_is_set()
 
@@ -402,4 +404,4 @@ class ExampleRunner:
 
         tmpdir.cleanup()
 
-        return stdout, stderr
+        return proc.returncode, stdout, stderr

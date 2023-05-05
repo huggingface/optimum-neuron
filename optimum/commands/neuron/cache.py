@@ -136,7 +136,7 @@ class AddToCacheRepoCommand(BaseOptimumCLICommand):
             if self.args.encoder_sequence_length is None or self.args.decoder_sequence_length is None:
                 raise ValueError("Both the encoder_sequence_length and the decoder_sequence_length must be provided.")
             sequence_length = [self.args.encoder_sequence_length, self.args.decoder_sequence_length]
-        stdout, stderr = runner.run(
+        returncode, stdout, stderr = runner.run(
             self.args.num_cores,
             self.args.precision,
             self.args.batch_size,
@@ -149,6 +149,8 @@ class AddToCacheRepoCommand(BaseOptimumCLICommand):
             save_steps=10,
         )
         # TODO: remove that.
+        print(returncode)
+        print("=" * 20)
         print(stdout)
         print("=" * 20)
         print(stderr)
