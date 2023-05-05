@@ -15,15 +15,19 @@
 """Utilities to be able to perform model compilation easily."""
 
 import subprocess
+from subprocess import PIPE
 import re
+import os
+import requests
 from enum import Enum
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import List, Optional, Tuple, Union
 
-import requests
+from huggingface_hub import HfFolder
 
 from ...utils import logging
+from .cache_utils import get_hf_hub_cache_repos, load_custom_cache_repo_name_from_hf_home, has_write_access_to_repo
 
 
 logger = logging.get_logger()
@@ -146,7 +150,7 @@ class ExampleRunner:
         },
     }
 
-    def __init__(self, model_name_or_path: str, task: str, example_dir: Optional[Union[str, Path]] = None):
+    def __init__(self, model_name_or_path: str, task: str, example_dir: Optional[Union[str, Path]] = None, use_venv: bool = True):
         self.model_name_or_path = model_name_or_path
 
         if task not in _TASK_TO_EXAMPLE_SCRIPT:
@@ -166,10 +170,127 @@ class ExampleRunner:
             else:
                 self.example_dir = example_dir
 
-    def split_args_and_value_in_command(self, cmd: List[str]) -> List[str]:
-        pattern = re.compile(r"([\"\'].+?[\"\'])|\s")
-        return [x for y in cmd for x in re.split(pattern, y) if x]
-    
+        self.use_venv = use_venv
+        self.venv_dir = TemporaryDirectory()
+        self.python_name = "python"
+        self.pip_name = "pip"
+        self.torchrun_name = "torchrun"
+        if use_venv:
+            self.create_venv(self.venv_dir.name)
+
+        self._installed_requirements = False
+
+    def create_venv(self, venv_path: str):
+        """
+        Creates the virtual environment for the example.
+        """
+        cmd_line = f"python -m venv {venv_path} --system-site-packages".split()
+        p = subprocess.Popen(cmd_line, stdout=PIPE, stderr=PIPE)
+        stdout, stderr = p.communicate()
+        if p.returncode != 0:
+            stdout = stdout.decode("utf-8")
+            stderr = stderr.decode("utf-8")
+            raise RuntimeError(
+                f"Could not create the virtual environment to run the example. Full error:\nStandard output:\n{stdout}\n"
+                f"Standard error:\n{stderr}"
+            )
+
+        # Install pip
+        cmd_line = f"{venv_path}/bin/python -m ensurepip --upgrade".split()
+        p = subprocess.Popen(cmd_line, stdout=PIPE, stderr=PIPE)
+        stdout, stderr = p.communicate()
+        if p.returncode != 0:
+            stdout = stdout.decode("utf-8")
+            stderr = stderr.decode("utf-8")
+            raise RuntimeError(
+                f"Could not create the virtual environment to run the example. Full error:\nStandard output:\n{stdout}\n"
+                f"Standard error:\n{stderr}"
+            )
+
+        self.python_name = f"{venv_path}/bin/python"
+        self.pip_name = f"{venv_path}/bin/pip"
+        self.torchrun_name = f"{venv_path}/bin/torchrun"
+
+    def maybe_remove_venv(self):
+        """
+        Removes the virtual environment for the example if it exists.
+        """
+        self.venv_dir.cleanup()
+
+
+    def install_requirements(self, requirements_filename: Union[str, Path]):
+        """
+        Installs the necessary requirements to run the example if the provided file exists, otherwise does nothing.
+        """
+        if self._installed_requirements:
+            return
+        if self.use_venv:
+            # Update pip
+            cmd_line = f"{self.pip_name} install --upgrade pip".split()
+            p = subprocess.Popen(cmd_line)
+            returncode = p.wait()
+            assert returncode == 0
+
+            # Set pip repository pointing to the Neuron repository
+            cmd_line = f"{self.pip_name} config set global.extra-index-url https://pip.repos.neuron.amazonaws.com".split()
+            p = subprocess.Popen(cmd_line)
+            returncode = p.wait()
+            assert returncode == 0
+
+            # Install wget, awscli, Neuron Compiler and Neuron Framework
+            cmd_line = f"{self.pip_name} freeze".split()
+            p = subprocess.Popen(cmd_line, stdout=PIPE)
+            cmd_line = "grep torch-neuronx".split()
+            p = subprocess.Popen(cmd_line, stdin=p.stdout, stdout=PIPE)
+            stdout, _ = p.communicate()
+            if not stdout:
+                cmd_line = f"{self.pip_name} install wget awscli neuronx-cc==2.* torch-neuronx torchvision".split()
+                p = subprocess.Popen(cmd_line)
+                returncode = p.wait()
+                assert returncode == 0
+
+        # Install requirements
+        if isinstance(requirements_filename, str):
+            requirements_filename = Path(requirements_filename)
+
+        if requirements_filename.exists():
+            cmd_line = f"{self.pip_name} install -r {requirements_filename.as_posix()}".split()
+            p = subprocess.Popen(cmd_line)
+            returncode = p.wait()
+            assert returncode == 0
+            self._installed_requirements = True
+
+        if self.use_venv or requirements_filename.exists():
+            # TODO: remove that as soon as possible.
+            cmd_line = f"{self.pip_name} install numpy==1.21.6".split()
+            p = subprocess.Popen(cmd_line)
+            returncode = p.wait()
+            assert returncode == 0
+
+    def check_user_logged_in_and_cache_repo_is_set(self):
+        token = HfFolder.get_token()
+        if not token:
+            raise RuntimeError(
+                "You need to log in the Hugging Face Hub otherwise you will not be able to push anything. "
+                "Please run the following command: huggingface-cli login"
+            )
+        saved_custom_cache_repo = load_custom_cache_repo_name_from_hf_home()
+        custom_cache_repo = os.environ.get("CUSTOM_CACHE_REPO", None)
+        if saved_custom_cache_repo is None and custom_cache_repo is None:
+            logger.warning(
+                "No custom Trainium cache repo set which means that the official Trainium cache repo will be used. If "
+                "you are not a member of the Optimum Neuron Team, this means that you will not be able to push to the "
+                "Hub. Follow the instructions here to set you custom Trainium cache: "
+                "https://huggingface.co/docs/optimum-neuron/guides/cache_system#how-to-use-a-private-trainium-model-cache" 
+            )
+
+        main_repo = get_hf_hub_cache_repos()[0]
+        has_write_access = has_write_access_to_repo(main_repo)
+        if not has_write_access:
+            raise RuntimeError(
+                f"You do not have write access to {main_repo}. Please log in and/or use a custom Tranium cache repo."
+            )
+
     def run(
         self,
         num_cores: int,
@@ -184,11 +305,13 @@ class ExampleRunner:
         logging_steps: int = 1,
         save_steps: int = -1,
         learning_rate: float = 1e-4,
-    ):
+    ) -> Tuple[str, str]:
         if num_cores <= 0 or num_cores > 32:
             raise ValueError("The number of Neuron cores to use must be between 1 and 32.")
         if isinstance(precision, str) and not isinstance(precision, Precision):
             precision = Precision(precision)
+
+        self.check_user_logged_in_and_cache_repo_is_set()
 
         tmpdir = TemporaryDirectory()
 
@@ -205,9 +328,12 @@ class ExampleRunner:
             else:
                 script_path = candidates[0]
 
+        # Installing requirements if needed.
+        self.install_requirements(script_path.parent / "requirements.txt")
+
         cmd = []
 
-        cmd.append("python" if num_cores == 1 else f"torchrun --nproc_per_node {num_cores}")
+        cmd.append(self.python_name if num_cores == 1 else f"{self.torchrun_name} --nproc_per_node {num_cores}")
         cmd.append(script_path.as_posix())
         cmd.append(f"--model_name_or_path {self.model_name_or_path}")
 
@@ -260,10 +386,14 @@ class ExampleRunner:
             else:
                 cmd.append(f"--{name} {value}")
 
+        def split_args_and_value_in_command(cmd: List[str]) -> List[str]:
+            pattern = re.compile(r"([\"\'].+?[\"\'])|\s")
+            return [x for y in cmd for x in re.split(pattern, y) if x]
+
         with TemporaryDirectory() as tmpdirname:
             cmd.append(f"--output_dir {tmpdirname}")
 
-            cmd = self.split_args_and_value_in_command(cmd)
+            cmd = split_args_and_value_in_command(cmd)
 
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             stdout, stderr = proc.communicate()
