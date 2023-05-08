@@ -1,10 +1,8 @@
-import os
 import re
 
 from setuptools import find_namespace_packages, setup
 
 
-os.environ["PIP_EXTRA_INDEX_URL"] = "https://pip.repos.neuron.amazonaws.com"
 # Ensure we match the version set in optimum/neuron/version.py
 try:
     filepath = "optimum/neuron/version.py"
@@ -84,6 +82,7 @@ setup(
     packages=find_namespace_packages(include=["optimum*"]),
     install_requires=INSTALL_REQUIRES,
     extras_require=EXTRAS_REQUIRE,
+    dependency_links=["https://pip.repos.neuron.amazonaws.com"],
     include_package_data=True,
     zip_safe=False,
     entry_points={"console_scripts": ["optimum-cli=optimum.commands.optimum_cli:main"]},
