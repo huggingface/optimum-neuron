@@ -58,6 +58,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v2
+      - name: Update pip
+        run: pip install --upgrade pip
       - name: Install Python dependencies
         run: pip install .[tests]
       - name: Print optimum Version
