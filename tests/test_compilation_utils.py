@@ -43,6 +43,15 @@ class TestExampleRunner(TestCase):
     @parameterized.expand(TO_TEST)
     def test_run_example(self, task, model_name_or_path, sequence_length):
         runner = ExampleRunner(model_name_or_path, task)
+
+        def dummy_check_user_logged_in_and_cache_repo_is_set(self):
+            pass
+
+        # Doing this to avoid having to log in. We just test on one step so it should not be an issue.
+        runner.check_user_logged_in_and_cache_repo_is_set = dummy_check_user_logged_in_and_cache_repo_is_set.__get__(
+            runner
+        )
+
         returncode, stdout, stderr = runner.run(1, "bf16", 1, sequence_length=sequence_length, max_steps=1)
         print(f"Standard output:\n{stdout}")
         print("=" * 50)
