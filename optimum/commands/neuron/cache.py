@@ -76,7 +76,7 @@ class AddToCacheRepoCommand(BaseOptimumCLICommand):
 
         # Shapes
         parser.add_argument(
-            "--batch_size", type=int, required=True, help="The batch size to use during the model compilation"
+            "--train_batch_size", type=int, required=True, help="The batch size to use during the model compilation for training."
         )
 
         parser.add_argument(
@@ -129,17 +129,22 @@ class AddToCacheRepoCommand(BaseOptimumCLICommand):
     def run(self):
         runner = ExampleRunner(self.args.model, self.args.task)
         if self.args.eval_batch_size is None:
-            self.args.eval_batch_size = self.args.batch_size
+            self.args.eval_batch_size = self.args.train_batch_size
+
         if self.args.sequence_length is not None:
             sequence_length = self.args.sequence_length
+        elif self.args.encoder_sequence_length is None and self.args.decoder_sequence_length is None:
+            raise ValueError(
+                f"You need to specify either sequence_length or encoder_sequence_length and decoder_sequence_length"
+            )
+        elif self.args.encoder_sequence_length is None or self.args.decoder_sequence_length is None:
+            raise ValueError("Both the encoder_sequence_length and the decoder_sequence_length must be provided.")
         else:
-            if self.args.encoder_sequence_length is None or self.args.decoder_sequence_length is None:
-                raise ValueError("Both the encoder_sequence_length and the decoder_sequence_length must be provided.")
             sequence_length = [self.args.encoder_sequence_length, self.args.decoder_sequence_length]
         returncode, stdout, stderr = runner.run(
             self.args.num_cores,
             self.args.precision,
-            self.args.batch_size,
+            self.args.train_batch_size,
             sequence_length,
             do_eval=True,
             eval_batch_size=self.args.eval_batch_size,

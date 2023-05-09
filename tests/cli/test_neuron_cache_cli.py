@@ -14,6 +14,7 @@
 
 import os
 import subprocess
+from subprocess import PIPE
 from tempfile import TemporaryDirectory
 from unittest import TestCase
 
@@ -115,3 +116,61 @@ class TestNeuronCacheCLI(StagingTestMixin, TestCase):
                 load_custom_cache_repo_name_from_hf_home(hf_home_cache_repo_file),
                 f"Saved local Trainium cache name should be equal to {self.repo_id}.",
             )
+
+    def test_optimum_neuron_cache_add(self):
+        # Without any sequence length, it should fail.
+        command = (
+            "optimum-cli neuron cache add -m bert-base-uncased --task text-classification --train_batch_size 16 "
+            "--precision bf16 --num_cores 2"
+        ).split()
+        p = subprocess.Popen(command, stderr=PIPE)
+        _, stderr = p.communicate()
+        stderr = stderr.decode("utf-8")
+        self.assertIn("either sequence_length or encoder_sequence and decoder_sequence_length", stderr)
+
+        # Without both encoder and decoder sequence lengths, it should fail.
+        command = (
+            "optimum-cli neuron cache add -m t5-small --task translation --train_batch_size 16 --precision bf16 "
+            "--num_cores 2 --encoder_sequence_length 512"
+        ).split()
+        p = subprocess.Popen(command, stderr=PIPE)
+        _, stderr = p.communicate()
+        stderr = stderr.decode("utf-8")
+        self.assertIn("Both the encoder_sequence and decoder_sequence_length", stderr)
+
+        # With wrong precision value, it should fail.
+        command = (
+            "optimum-cli neuron cache add -m bert-base-uncased --task text-classification --train_batch_size 1 "
+            "--precision wrong --num_cores 2 --sequence_length 128"
+        ).split()
+        p = subprocess.Popen(command)
+        returncode = p.wait()
+        self.assertNotEqual(returncode, 0)
+
+        # With wrong num_cores value, it should fail.
+        command = (
+            "optimum-cli neuron cache add -m bert-base-uncased --task text-classification --train_batch_size 1 "
+            "--precision bf16 --num_cores 999 --sequence_length 128"
+        ).split()
+        p = subprocess.Popen(command)
+        returncode = p.wait()
+        self.assertNotEqual(returncode, 0)
+
+
+        # Non seq2seq model.
+        command = (
+            "optimum-cli neuron cache add -m bert-base-uncased --task text-classification --train_batch_size 1 "
+            "--precision bf16 --num_cores 2 --sequence_length 128"
+        ).split()
+        p = subprocess.Popen(command)
+        returncode = p.wait()
+        self.assertEqual(returncode, 0)
+
+        # seq2seq model.
+        command = (
+            "optimum-cli neuron cache add -m t5-small --task translation --train_batch_size 1 --precision bf16 "
+            "--num_cores 2 --encoder_sequence_length 12 --decoder_sequence_length 12"
+        ).split()
+        p = subprocess.Popen(command)
+        returncode = p.wait()
+        self.assertEqual(returncode, 0)
