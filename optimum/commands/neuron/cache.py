@@ -141,7 +141,7 @@ class AddToCacheRepoCommand(BaseOptimumCLICommand):
             raise ValueError("Both the encoder_sequence_length and the decoder_sequence_length must be provided.")
         else:
             sequence_length = [self.args.encoder_sequence_length, self.args.decoder_sequence_length]
-         runner.run(
+        runner.run(
             self.args.num_cores,
             self.args.precision,
             self.args.train_batch_size,
