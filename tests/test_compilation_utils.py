@@ -16,7 +16,6 @@
 from unittest import TestCase
 from parameterized import parameterized
 
-from transformers.testing_utils import is_staging_test
 from optimum.neuron.utils.testing_utils import is_trainium_test
 from optimum.neuron.utils.compilation_utils import ExampleRunner
 
@@ -39,7 +38,6 @@ TO_TEST = [
 
 
 @is_trainium_test
-@is_staging_test
 class TestExampleRunner(TestCase):
 
     @parameterized.expand(TO_TEST)
