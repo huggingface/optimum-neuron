@@ -153,7 +153,7 @@ def get_hf_hub_cache_repos():
     if custom_cache_repo is not None:
         hf_hub_repos = [custom_cache_repo] + hf_hub_repos
 
-    if not has_write_access_to_repo(hf_hub_repos[0]):
+    if hf_hub_repos and not has_write_access_to_repo(hf_hub_repos[0]):
         warn_once(
             logger,
             f"You do not have write access to {hf_hub_repos[0]} so you will not be able to push any cached compilation "
