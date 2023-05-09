@@ -14,10 +14,12 @@
 """Tests for the compilation utilities."""
 
 from unittest import TestCase
+
 from parameterized import parameterized
 
-from optimum.neuron.utils.testing_utils import is_trainium_test
 from optimum.neuron.utils.compilation_utils import ExampleRunner
+from optimum.neuron.utils.testing_utils import is_trainium_test
+
 
 _TINY_BERT_MODEL_NAME = "hf-internal-testing/tiny-random-bert"
 _TINY_GPT_NEO_MODEL_NAME = "hf-internal-testing/tiny-random-GPTNeoForCausalLM"
@@ -30,7 +32,7 @@ TO_TEST = [
     ("text-classification", _TINY_BERT_MODEL_NAME, 128),
     ("token-classification", _TINY_BERT_MODEL_NAME, 384),
     ("multiple-choice", _TINY_BERT_MODEL_NAME, 384),
-    ( "question-answering", _TINY_BERT_MODEL_NAME, 384),
+    ("question-answering", _TINY_BERT_MODEL_NAME, 384),
     ("summarization", _TINY_BART_MODEL_NAME, [128, 128]),
     ("translation", _TINY_BART_MODEL_NAME, [128, 128]),
     ("image-classification", _TINY_VIT_MODEL_NAME, None),
@@ -39,7 +41,6 @@ TO_TEST = [
 
 @is_trainium_test
 class TestExampleRunner(TestCase):
-
     @parameterized.expand(TO_TEST)
     def test_run_example(self, task, model_name_or_path, sequence_length):
         runner = ExampleRunner(model_name_or_path, task)

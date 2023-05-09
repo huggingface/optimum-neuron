@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Un
 import huggingface_hub
 import numpy as np
 import torch
-from huggingface_hub import HfApi, HfFolder, RepoUrl, create_repo, CommitOperationDelete, CommitOperationAdd
+from huggingface_hub import CommitOperationAdd, CommitOperationDelete, HfApi, HfFolder, RepoUrl, create_repo
 from huggingface_hub.utils import HfHubHTTPError, RepositoryNotFoundError
 
 from ...utils import logging
@@ -111,6 +111,7 @@ def is_private_repo(repo_id: str) -> bool:
         private = True
     return private
 
+
 def has_write_access_to_repo(repo_id: str) -> bool:
     token = HfFolder.get_token()
     if (token, repo_id) in _WRITING_ACCESS_CACHE:
@@ -131,7 +132,8 @@ def has_write_access_to_repo(repo_id: str) -> bool:
 
     _WRITING_ACCESS_CACHE[(token, repo_id)] = has_access
     return has_access
-    
+
+
 def get_hf_hub_cache_repos():
     hf_hub_repos = HF_HUB_CACHE_REPOS
 
@@ -142,7 +144,7 @@ def get_hf_hub_cache_repos():
             "No Trainium cache name is saved locally. This means that only the official Trainium cache, and "
             "potentially a cache defined in $CUSTOM_CACHE_REPO will be used. You can create a Trainium cache repo by "
             "running the following command: `optimum-cli neuron cache create`. If the Trainium cache already exists "
-            "you can set it by running the following command: `optimum-cli neuron cache set -n [name]`."
+            "you can set it by running the following command: `optimum-cli neuron cache set -n [name]`.",
         )
     else:
         hf_hub_repos = [saved_custom_cache_repo] + hf_hub_repos
@@ -155,7 +157,7 @@ def get_hf_hub_cache_repos():
         warn_once(
             logger,
             f"You do not have write access to {hf_hub_repos[0]} so you will not be able to push any cached compilation "
-            "files. Please log in and/or use a custom Trainium cache."
+            "files. Please log in and/or use a custom Trainium cache.",
         )
     return hf_hub_repos
 

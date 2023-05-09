@@ -14,7 +14,6 @@
 
 import os
 import subprocess
-from subprocess import PIPE
 from tempfile import TemporaryDirectory
 from unittest import TestCase
 
@@ -156,7 +155,6 @@ class TestNeuronCacheCLI(StagingTestMixin, TestCase):
         p = subprocess.Popen(command)
         returncode = p.wait()
         self.assertNotEqual(returncode, 0)
-
 
         # Non seq2seq model.
         command = (

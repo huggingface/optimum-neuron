@@ -14,20 +14,20 @@
 # limitations under the License.
 """Utilities to be able to perform model compilation easily."""
 
-import subprocess
-from subprocess import PIPE
-import re
 import os
-import requests
+import re
+import subprocess
 from enum import Enum
 from pathlib import Path
+from subprocess import PIPE
 from tempfile import TemporaryDirectory
 from typing import List, Optional, Tuple, Union
 
+import requests
 from huggingface_hub import HfFolder
 
 from ...utils import logging
-from .cache_utils import get_hf_hub_cache_repos, load_custom_cache_repo_name_from_hf_home, has_write_access_to_repo
+from .cache_utils import get_hf_hub_cache_repos, has_write_access_to_repo, load_custom_cache_repo_name_from_hf_home
 
 
 logger = logging.get_logger()
@@ -150,7 +150,9 @@ class ExampleRunner:
         },
     }
 
-    def __init__(self, model_name_or_path: str, task: str, example_dir: Optional[Union[str, Path]] = None, use_venv: bool = True):
+    def __init__(
+        self, model_name_or_path: str, task: str, example_dir: Optional[Union[str, Path]] = None, use_venv: bool = True
+    ):
         self.model_name_or_path = model_name_or_path
 
         if task not in _TASK_TO_EXAMPLE_SCRIPT:
@@ -217,7 +219,6 @@ class ExampleRunner:
         """
         self.venv_dir.cleanup()
 
-
     def install_requirements(self, requirements_filename: Union[str, Path]):
         """
         Installs the necessary requirements to run the example if the provided file exists, otherwise does nothing.
@@ -232,7 +233,9 @@ class ExampleRunner:
             assert returncode == 0
 
             # Set pip repository pointing to the Neuron repository
-            cmd_line = f"{self.pip_name} config set global.extra-index-url https://pip.repos.neuron.amazonaws.com".split()
+            cmd_line = (
+                f"{self.pip_name} config set global.extra-index-url https://pip.repos.neuron.amazonaws.com".split()
+            )
             p = subprocess.Popen(cmd_line)
             returncode = p.wait()
             assert returncode == 0
@@ -281,7 +284,7 @@ class ExampleRunner:
                 "No custom Trainium cache repo set which means that the official Trainium cache repo will be used. If "
                 "you are not a member of the Optimum Neuron Team, this means that you will not be able to push to the "
                 "Hub. Follow the instructions here to set you custom Trainium cache: "
-                "https://huggingface.co/docs/optimum-neuron/guides/cache_system#how-to-use-a-private-trainium-model-cache" 
+                "https://huggingface.co/docs/optimum-neuron/guides/cache_system#how-to-use-a-private-trainium-model-cache"
             )
 
         main_repo = get_hf_hub_cache_repos()[0]

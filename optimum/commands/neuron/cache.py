@@ -76,7 +76,10 @@ class AddToCacheRepoCommand(BaseOptimumCLICommand):
 
         # Shapes
         parser.add_argument(
-            "--train_batch_size", type=int, required=True, help="The batch size to use during the model compilation for training."
+            "--train_batch_size",
+            type=int,
+            required=True,
+            help="The batch size to use during the model compilation for training.",
         )
 
         parser.add_argument(
@@ -135,7 +138,7 @@ class AddToCacheRepoCommand(BaseOptimumCLICommand):
             sequence_length = self.args.sequence_length
         elif self.args.encoder_sequence_length is None and self.args.decoder_sequence_length is None:
             raise ValueError(
-                f"You need to specify either sequence_length or encoder_sequence_length and decoder_sequence_length"
+                "You need to specify either sequence_length or encoder_sequence_length and decoder_sequence_length"
             )
         elif self.args.encoder_sequence_length is None or self.args.decoder_sequence_length is None:
             raise ValueError("Both the encoder_sequence_length and the decoder_sequence_length must be provided.")
@@ -153,6 +156,7 @@ class AddToCacheRepoCommand(BaseOptimumCLICommand):
             max_steps=self.args.max_steps,
             save_steps=10,
         )
+
 
 class CustomCacheRepoCommand(BaseOptimumCLICommand):
     SUBCOMMANDS = (
