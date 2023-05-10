@@ -117,6 +117,7 @@ class TestNeuronCacheCLI(StagingTestMixin, TestCase):
             )
 
     def test_optimum_neuron_cache_add(self):
+        os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_CACHE_REPO 
         # TODO: activate those later.
         # Without any sequence length, it should fail.
         # command = (
