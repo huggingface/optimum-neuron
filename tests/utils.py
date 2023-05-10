@@ -37,6 +37,8 @@ from optimum.neuron.utils.cache_utils import (
     set_neuron_cache_path,
 )
 
+from 
+
 
 # Use that once optimum==1.7.4 is released.
 # from optimum.utils.testing_utils import TOKEN, USER
@@ -172,6 +174,12 @@ class StagingTestMixin:
     def setUpClass(cls) -> None:
         cls._staging_token = TOKEN
         cls._token = cls.set_hf_hub_token(TOKEN)
+
+        # Adding a seed to avoid concurrency issues between staging tests.
+        seed = get_random_string(5)
+        cls.CUSTOM_CACHE_REPO = f"{cls.CUSTOM_CACHE_REPO}-{seed}"
+        cls.CUSTOM_PRIVATE_CACHE_REPO = f"{cls.CUSTOM_PRIVATE_CACHE_REPO}-{seed}"
+
         create_repo(cls.CUSTOM_CACHE_REPO, repo_type="model", exist_ok=True)
         create_repo(cls.CUSTOM_PRIVATE_CACHE_REPO, repo_type="model", exist_ok=True, private=True)
 

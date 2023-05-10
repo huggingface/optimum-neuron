@@ -33,8 +33,8 @@ TO_TEST = [
     ("token-classification", _TINY_BERT_MODEL_NAME, 384),
     ("multiple-choice", _TINY_BERT_MODEL_NAME, 384),
     ("question-answering", _TINY_BERT_MODEL_NAME, 384),
-    ("summarization", _TINY_BART_MODEL_NAME, [128, 128]),
-    ("translation", _TINY_BART_MODEL_NAME, [128, 128]),
+    ("summarization", _TINY_BART_MODEL_NAME, [10, 10]),
+    ("translation", _TINY_BART_MODEL_NAME, [10, 10]),
     ("image-classification", _TINY_VIT_MODEL_NAME, None),
 ]
 

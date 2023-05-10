@@ -112,6 +112,7 @@ class ExampleRunner:
             "set_max_length": True,
             "extra_command_line_arguments": [
                 "--pad_to_max_length",
+                "--ignore_mismatched_sizes",
             ],
         },
         "question-answering": {
@@ -129,6 +130,7 @@ class ExampleRunner:
             "set_max_target_length": True,
             "extra_command_line_arguments": [
                 "--pad_to_max_length",
+                "--prediction_loss_only",
             ],
         },
         "translation": {
@@ -137,7 +139,10 @@ class ExampleRunner:
             "set_max_source_length": True,
             "set_max_target_length": True,
             "extra_command_line_arguments": [
+                "--source_lang ro",
+                "--target_lang en",
                 "--pad_to_max_length",
+                "--prediction_loss_only",
             ],
         },
         "image-classification": {
