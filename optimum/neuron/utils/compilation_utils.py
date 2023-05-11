@@ -106,13 +106,13 @@ class ExampleRunner:
             "set_max_length": True,
             "extra_command_line_arguments": [
                 "--pad_to_max_length",
+                "--ignore_mismatched_sizes",
             ],
         },
         "multiple-choice": {
             "set_max_length": True,
             "extra_command_line_arguments": [
                 "--pad_to_max_length",
-                "--ignore_mismatched_sizes",
             ],
         },
         "question-answering": {
