@@ -48,12 +48,9 @@ from optimum.neuron.utils.cache_utils import (
 )
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
-# Use that once optimum==1.7.4 is released.
-# from optimum.utils.testing_utils import USER
+from optimum.utils.testing_utils import TOKEN, USER
 from .utils import TOKEN, MyTinyModel, StagingTestMixin, get_random_string
 
-
-USER = "__DUMMY_OPTIMUM_USER__"
 
 DUMMY_COMPILER_VERSION = "1.2.3"
 
@@ -158,7 +155,8 @@ class StagingNeuronUtilsTestCase(StagingTestMixin, TestCase):
         orig_token = HfFolder.get_token()
         HfFolder.save_token(TOKEN)
 
-        repo_name = "blablabla"
+        seed = get_random_string(5)
+        repo_name = f"blablabla-{seed}"
         repo_id = f"{USER}/{repo_name}"
         create_repo(repo_name, repo_type="model")
 

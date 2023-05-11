@@ -36,16 +36,7 @@ from optimum.neuron.utils.cache_utils import (
     push_to_cache_on_hub,
     set_neuron_cache_path,
 )
-
-
-# Use that once optimum==1.7.4 is released.
-# from optimum.utils.testing_utils import TOKEN, USER
-
-# Used to test the hub
-USER = "__DUMMY_OPTIMUM_USER__"
-
-# Not critical, only usable on the sandboxed CI instance.
-TOKEN = "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"
+from optimum.utils.testing_utils import TOKEN, USER
 
 
 MODELS_TO_TEST_MAPPING = {
