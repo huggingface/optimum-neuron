@@ -19,7 +19,6 @@ from unittest import TestCase
 
 from huggingface_hub import HfApi, create_repo, delete_repo
 from huggingface_hub.utils import RepositoryNotFoundError
-from optimum.neuron.utils.testing_utils import is_trainium_test
 from transformers.testing_utils import is_staging_test
 
 from optimum.neuron.utils.cache_utils import (
@@ -27,7 +26,9 @@ from optimum.neuron.utils.cache_utils import (
     CACHE_REPO_NAME,
     load_custom_cache_repo_name_from_hf_home,
 )
+from optimum.neuron.utils.testing_utils import is_trainium_test
 from optimum.utils.testing_utils import USER
+
 from ..utils import StagingTestMixin
 
 

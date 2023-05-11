@@ -34,7 +34,8 @@ from optimum.neuron.utils.cache_utils import (
     remove_ip_adress_from_path,
     set_neuron_cache_path,
 )
-from optimum.neuron.utils.testing_utils import is_trainium_test, USER
+from optimum.neuron.utils.testing_utils import is_trainium_test
+from optimum.utils.testing_utils import USER
 
 from .utils import (
     StagingTestMixin,
