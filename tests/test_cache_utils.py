@@ -49,7 +49,7 @@ from optimum.neuron.utils.cache_utils import (
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
 from optimum.utils.testing_utils import TOKEN, USER
-from .utils import TOKEN, MyTinyModel, StagingTestMixin, get_random_string
+from .utils import MyTinyModel, StagingTestMixin, get_random_string
 
 
 DUMMY_COMPILER_VERSION = "1.2.3"
