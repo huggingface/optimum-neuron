@@ -178,6 +178,7 @@ Note that providing the `--task` argument for a model on the Hub will disable th
 You will also be able to export your models to Neuron format directly with the export function, and load it for inference. Here is an example:
 
 ```python
+import torch
 from pathlib import Path
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from optimum.exporters.neuron import export
