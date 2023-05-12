@@ -13,9 +13,13 @@
 # See the License for the specific language governing permissions and
 """Tests for the compilation utilities."""
 
+import os
 from unittest import TestCase
+from optimum.neuron.utils.cache_utils import CACHE_REPO_NAME, load_custom_cache_repo_name_from_hf_home, set_custom_cache_repo_name_in_hf_home
 
 from parameterized import parameterized
+
+from huggingface_hub import HfFolder
 
 from optimum.neuron.utils.compilation_utils import ExampleRunner
 from optimum.neuron.utils.testing_utils import is_trainium_test
@@ -38,22 +42,37 @@ TO_TEST = [
     ("image-classification", _TINY_VIT_MODEL_NAME, None),
 ]
 
-
 @is_trainium_test
 class TestExampleRunner(TestCase):
+    CACHE_REPO_NAME = "optimum-internal-testing/optimum-neuron-cache-for-testing"
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._token = HfFolder.get_token()
+        cls._cache_repo_name = load_custom_cache_repo_name_from_hf_home()
+        if os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI", None) is not None:
+            TOKEN = os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI")
+            set_custom_cache_repo_name_in_hf_home(cls.CACHE_REPO_NAME)
+            HfFolder.save_token(TOKEN)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        HfFolder.save_token(cls._token)
+        if cls._cache_repo_name:
+            set_custom_cache_repo_name_in_hf_home(cls._cache_repo_name)
+
     @parameterized.expand(TO_TEST)
     def test_run_example(self, task, model_name_or_path, sequence_length):
         runner = ExampleRunner(model_name_or_path, task)
 
-        def dummy_check_user_logged_in_and_cache_repo_is_set(self):
-            pass
+        # def dummy_check_user_logged_in_and_cache_repo_is_set(self):
+        #     pass
 
-        # Doing this to avoid having to log in. We just test on one step so it should not be an issue.
-        runner.check_user_logged_in_and_cache_repo_is_set = dummy_check_user_logged_in_and_cache_repo_is_set.__get__(
-            runner
-        )
+        # # Doing this to avoid having to log in. We just test on one step so it should not be an issue.
+        # runner.check_user_logged_in_and_cache_repo_is_set = dummy_check_user_logged_in_and_cache_repo_is_set.__get__(
+        #     runner
+        # )
 
-        returncode, stdout, stderr = runner.run(1, "bf16", 1, sequence_length=sequence_length, max_steps=1)
+        returncode, stdout, stderr = runner.run(1, "bf16", 1, sequence_length=sequence_length, max_steps=10, save_steps=5)
         print(f"Standard output:\n{stdout}")
         print("=" * 50)
         print(f"Standard error:\n{stderr}")
