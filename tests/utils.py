@@ -32,8 +32,11 @@ from transformers.testing_utils import ENDPOINT_STAGING
 from optimum.neuron.utils.cache_utils import (
     NEURON_COMPILE_CACHE_NAME,
     NeuronHash,
+    delete_custom_cache_repo_name_from_hf_home,
+    load_custom_cache_repo_name_from_hf_home,
     path_after_folder,
     push_to_cache_on_hub,
+    set_custom_cache_repo_name_in_hf_home,
     set_neuron_cache_path,
 )
 from optimum.utils.testing_utils import TOKEN, USER
@@ -163,6 +166,8 @@ class StagingTestMixin:
     def setUpClass(cls) -> None:
         cls._staging_token = TOKEN
         cls._token = cls.set_hf_hub_token(TOKEN)
+        cls._custom_cache_repo_name = load_custom_cache_repo_name_from_hf_home()
+        delete_custom_cache_repo_name_from_hf_home()
 
         # Adding a seed to avoid concurrency issues between staging tests.
         seed = get_random_string(5)
@@ -181,6 +186,8 @@ class StagingTestMixin:
         delete_repo(repo_id=cls.CUSTOM_PRIVATE_CACHE_REPO, repo_type="model")
         if cls._token:
             cls.set_hf_hub_token(cls._token)
+        if cls._custom_cache_repo_name:
+            set_custom_cache_repo_name_in_hf_home(cls._custom_cache_repo_name)
 
     def remove_all_files_in_repo(self, repo_id: str):
         api = HfApi()

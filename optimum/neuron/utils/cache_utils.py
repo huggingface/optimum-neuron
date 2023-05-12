@@ -96,6 +96,10 @@ def set_custom_cache_repo_name_in_hf_home(repo_id: str, hf_home: str = HF_HOME):
         fp.write(repo_id)
 
 
+def delete_custom_cache_repo_name_from_hf_home(hf_home_cache_repo_file: str = HF_HOME_CACHE_REPO_FILE):
+    Path(hf_home_cache_repo_file).unlink(missing_ok=True)
+
+
 def create_custom_cache_repo(repo_id: str = CACHE_REPO_NAME, private: bool = True) -> RepoUrl:
     repo_url = create_repo(repo_id, private=private, repo_type="model")
     set_custom_cache_repo_name_in_hf_home(repo_url.repo_id)
