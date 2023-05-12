@@ -62,8 +62,9 @@ class TestExampleRunner(TestCase):
 
     @classmethod
     def tearDownClass(cls) -> None:
-        HfFolder.save_token(cls._token)
-        if cls._cache_repo_name:
+        if cls._token is not None:
+            HfFolder.save_token(cls._token)
+        if cls._cache_repo_name is not None:
             set_custom_cache_repo_name_in_hf_home(cls._cache_repo_name)
 
     @parameterized.expand(TO_TEST)
