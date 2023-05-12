@@ -31,7 +31,7 @@ TO_TEST = [
     ("causal-lm", _TINY_GPT_NEO_MODEL_NAME, 128),
     ("text-classification", _TINY_BERT_MODEL_NAME, 128),
     ("token-classification", _TINY_BERT_MODEL_NAME, 384),
-    ("multiple-choice", _TINY_BERT_MODEL_NAME, 384),
+    ("multiple-choice", "hf-internal-testing/tiny-random-BertForMultipleChoice", 384),
     ("question-answering", _TINY_BERT_MODEL_NAME, 384),
     ("summarization", _TINY_BART_MODEL_NAME, [10, 10]),
     ("translation", _TINY_BART_MODEL_NAME, [10, 10]),

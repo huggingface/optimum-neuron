@@ -113,6 +113,7 @@ class ExampleRunner:
             "set_max_length": True,
             "extra_command_line_arguments": [
                 "--pad_to_max_length",
+                # "--ignore_mismatched_sizes",
             ],
         },
         "question-answering": {
@@ -148,8 +149,7 @@ class ExampleRunner:
         "image-classification": {
             "dataset_name": "cifar10",
             "extra_command_line_arguments": [
-                "--remove_unused_columns",
-                "--dataloader_drop_last",
+                "--remove_unused_columns false",
                 "--ignore_mismatched_sizes",
             ],
         },
@@ -404,6 +404,8 @@ class ExampleRunner:
             cmd.append(f"--output_dir {tmpdirname}")
 
             cmd = split_args_and_value_in_command(cmd)
+
+            print(f"RUNNING COMMAND:\n{' '.join(cmd)}")
 
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             stdout, stderr = proc.communicate()
