@@ -37,6 +37,7 @@ from optimum.neuron.utils.cache_utils import (
     get_cached_model_on_the_hub,
     get_neuron_cache_path,
     get_num_neuron_cores_used,
+    has_write_access_to_repo,
     list_files_in_neuron_cache,
     load_custom_cache_repo_name_from_hf_home,
     path_after_folder,
@@ -46,13 +47,10 @@ from optimum.neuron.utils.cache_utils import (
     set_neuron_cache_path,
 )
 from optimum.neuron.utils.testing_utils import is_trainium_test
+from optimum.utils.testing_utils import TOKEN, USER
 
-# Use that once optimum==1.7.4 is released.
-# from optimum.utils.testing_utils import USER
-from .utils import TOKEN, MyTinyModel, StagingTestMixin, get_random_string
+from .utils import MyTinyModel, StagingTestMixin, get_random_string
 
-
-USER = "__DUMMY_OPTIMUM_USER__"
 
 DUMMY_COMPILER_VERSION = "1.2.3"
 
@@ -67,40 +65,6 @@ class NeuronUtilsTestCase(TestCase):
 
             bad_hf_home_cache_repo_file = f"{tmpdirname}/does_not_exist"
             self.assertIsNone(load_custom_cache_repo_name_from_hf_home(bad_hf_home_cache_repo_file))
-
-    @is_staging_test
-    def test_set_custom_cache_repo_name_in_hf_home(self):
-        orig_token = HfFolder.get_token()
-        HfFolder.save_token(TOKEN)
-
-        repo_name = "blablabla"
-        repo_id = f"{USER}/{repo_name}"
-        create_repo(repo_name, repo_type="model")
-
-        def remove_repo():
-            delete_repo(repo_name, repo_type="model")
-
-        with TemporaryDirectory() as tmpdirname:
-            try:
-                set_custom_cache_repo_name_in_hf_home(repo_id, hf_home=tmpdirname)
-            except ValueError as e:
-                remove_repo()
-                if orig_token:
-                    HfFolder.save_token(orig_token)
-                self.fail(str(e))
-
-            with open(f"{tmpdirname}/{CACHE_REPO_FILENAME}", "r") as fp:
-                content = fp.read()
-
-            self.assertEqual(content, repo_id, "The stored repo id must match the one specified.")
-
-            with self.assertLogs("optimum", level=logging.WARNING) as cm:
-                set_custom_cache_repo_name_in_hf_home(repo_id, hf_home=tmpdirname)
-                self.assertIn("A custom cache repo was already", cm.output[0])
-
-            remove_repo()
-            if orig_token:
-                HfFolder.save_token(orig_token)
 
     def test_get_neuron_cache_path(self):
         os.environ["NEURON_CC_FLAGS"] = "--some --parameters --here --no-cache --other --paremeters --here"
@@ -183,6 +147,57 @@ class NeuronUtilsTestCase(TestCase):
             self.assertSetEqual(
                 set(filenames), set(list_files_in_neuron_cache(Path(tmpdirname), only_relevant_files=True))
             )
+
+
+@is_staging_test
+class StagingNeuronUtilsTestCase(StagingTestMixin, TestCase):
+    def test_set_custom_cache_repo_name_in_hf_home(self):
+        orig_token = HfFolder.get_token()
+        HfFolder.save_token(TOKEN)
+
+        seed = get_random_string(5)
+        repo_name = f"blablabla-{seed}"
+        repo_id = f"{USER}/{repo_name}"
+        create_repo(repo_name, repo_type="model")
+
+        def remove_repo():
+            delete_repo(repo_name, repo_type="model")
+
+        with TemporaryDirectory() as tmpdirname:
+            try:
+                set_custom_cache_repo_name_in_hf_home(repo_id, hf_home=tmpdirname)
+            except ValueError as e:
+                remove_repo()
+                if orig_token:
+                    HfFolder.save_token(orig_token)
+                self.fail(str(e))
+
+            with open(f"{tmpdirname}/{CACHE_REPO_FILENAME}", "r") as fp:
+                content = fp.read()
+
+            self.assertEqual(content, repo_id, "The stored repo id must match the one specified.")
+
+            with self.assertLogs("optimum", level=logging.WARNING) as cm:
+                set_custom_cache_repo_name_in_hf_home(repo_id, hf_home=tmpdirname)
+                self.assertIn("A custom cache repo was already", cm.output[0])
+
+            remove_repo()
+            if orig_token:
+                HfFolder.save_token(orig_token)
+
+    @is_staging_test
+    def test_has_write_access_to_repo(self):
+        orig_token = HfFolder.get_token()
+        wrong_token = "random_string"
+        HfFolder.save_token(wrong_token)
+
+        self.assertFalse(has_write_access_to_repo(self.CUSTOM_CACHE_REPO))
+        self.assertFalse(has_write_access_to_repo(self.CUSTOM_PRIVATE_CACHE_REPO))
+
+        HfFolder.save_token(orig_token)
+
+        self.assertTrue(has_write_access_to_repo(self.CUSTOM_CACHE_REPO))
+        self.assertTrue(has_write_access_to_repo(self.CUSTOM_PRIVATE_CACHE_REPO))
 
 
 class NeuronHashTestCase(TestCase):

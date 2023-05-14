@@ -135,6 +135,9 @@ class AugmentTrainerForTrainiumMixin:
                 if base == GenerationMixin:
                     new_bases.append(NeuronGenerationMixin)
                     should_stop = True
+                elif base == NeuronGenerationMixin:
+                    should_stop = True
+                    new_bases.append(base)
                 else:
                     new_bases.append(base)
             cls.__bases__ = tuple(new_bases)

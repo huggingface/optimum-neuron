@@ -53,7 +53,6 @@ from utils import MODELS_TO_TEST_MAPPING  # noqa: E402
 
 TOKEN = HfFolder.get_token()
 if os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI", None) is not None:
-    print("TESSSST", os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI"))
     TOKEN = os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI")
 
 

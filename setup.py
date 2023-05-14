@@ -4,8 +4,8 @@ from setuptools import find_namespace_packages, setup
 
 
 # Ensure we match the version set in optimum/neuron/version.py
+filepath = "optimum/neuron/version.py"
 try:
-    filepath = "optimum/neuron/version.py"
     with open(filepath) as version_file:
         (__version__,) = re.findall('__version__ = "(.*)"', version_file.read())
 except Exception as error:

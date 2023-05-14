@@ -35,9 +35,9 @@ from optimum.neuron.utils.cache_utils import (
     set_neuron_cache_path,
 )
 from optimum.neuron.utils.testing_utils import is_trainium_test
+from optimum.utils.testing_utils import USER
 
 from .utils import (
-    USER,
     StagingTestMixin,
     create_dummy_dataset,
     create_dummy_text_classification_dataset,
