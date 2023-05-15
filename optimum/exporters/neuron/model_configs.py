@@ -50,11 +50,6 @@ class AlbertNeuronConfig(BertNeuronConfig):
 
 @register_in_tasks_manager("convbert", *COMMON_TEXT_TASKS)
 class ConvBertNeuronConfig(BertNeuronConfig):
-    pass
-
-
-@register_in_tasks_manager("electra", *COMMON_TEXT_TASKS)
-class ElectraNeuronConfig(BertNeuronConfig):
     @property
     def outputs(self) -> List[str]:
         if self.task == "feature-extraction":
@@ -62,23 +57,28 @@ class ElectraNeuronConfig(BertNeuronConfig):
         return self._TASK_TO_COMMON_OUTPUTS[self.task]
 
 
+@register_in_tasks_manager("electra", *COMMON_TEXT_TASKS)
+class ElectraNeuronConfig(ConvBertNeuronConfig):
+    pass
+
+
 @register_in_tasks_manager("flaubert", *COMMON_TEXT_TASKS)
-class FlaubertNeuronConfig(ElectraNeuronConfig):
+class FlaubertNeuronConfig(ConvBertNeuronConfig):
     pass
 
 
 @register_in_tasks_manager("mobilebert", *COMMON_TEXT_TASKS)
-class MobileBertNeuronConfig(BertNeuronConfig):
+class MobileBertNeuronConfig(ConvBertNeuronConfig):
     pass
 
 
 @register_in_tasks_manager("roformer", *COMMON_TEXT_TASKS)
-class RoFormerNeuronConfig(ElectraNeuronConfig):
+class RoFormerNeuronConfig(ConvBertNeuronConfig):
     pass
 
 
 @register_in_tasks_manager("xlm", *COMMON_TEXT_TASKS)
-class XLMNeuronConfig(ElectraNeuronConfig):
+class XLMNeuronConfig(ConvBertNeuronConfig):
     pass
 
 

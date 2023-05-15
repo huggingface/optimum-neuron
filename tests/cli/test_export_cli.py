@@ -91,6 +91,16 @@ def _get_commands_to_test(models_to_test):
 
         base_command = f"optimum-cli export neuron --model {model_name} --task {task}"
 
+        # mandatory shape arguments
+        model = TasksManager.get_model_from_task(task, model_name, framework="pt")
+        neuron_config_constructor = TasksManager.get_exporter_config_constructor(
+            model=model, exporter="neuron", task=task
+        )
+        for axe in neuron_config_constructor.func.get_mandatory_axes_for_task(task):
+            default_size = DEFAULT_DUMMY_SHAPES[axe]
+            base_command += f" --{axe} {default_size}"
+
+        # compilation arguments
         for extra_arg_options in product(*command_items.values()):
             extra_command = " ".join(
                 [" ".join([arg, option]) for arg, option in zip(command_items, extra_arg_options)]

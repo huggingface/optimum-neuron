@@ -81,7 +81,12 @@ class NeuronExportTestCase(TestCase):
         model = model_class.from_config(config)
         reference_model = copy.deepcopy(model)
 
-        neuron_config = neuron_config_constructor(config=model.config, task=task, batch_size=2, sequence_length=18)
+        neuron_config_constructor.func.get_mandatory_axes_for_task(task)
+        mandatory_shapes = {
+            name: DEFAULT_DUMMY_SHAPES[name]
+            for name in neuron_config_constructor.func.get_mandatory_axes_for_task(task)
+        }
+        neuron_config = neuron_config_constructor(config=model.config, task=task, **mandatory_shapes)
 
         atol = neuron_config.ATOL_FOR_VALIDATION
 
