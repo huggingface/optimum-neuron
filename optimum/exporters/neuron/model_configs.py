@@ -68,7 +68,7 @@ class FlaubertNeuronConfig(ConvBertNeuronConfig):
 
 
 @register_in_tasks_manager("mobilebert", *COMMON_TEXT_TASKS)
-class MobileBertNeuronConfig(ConvBertNeuronConfig):
+class MobileBertNeuronConfig(BertNeuronConfig):
     pass
 
 
