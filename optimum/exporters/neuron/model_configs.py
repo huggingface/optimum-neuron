@@ -48,11 +48,9 @@ class AlbertNeuronConfig(BertNeuronConfig):
     pass
 
 
-# Issue: https://github.com/aws-neuron/aws-neuron-sdk/issues/641
-# (will be fixed by the next neuron sdk release)
-# @register_in_tasks_manager("convbert", *COMMON_TEXT_TASKS)
-# class ConvBertNeuronConfig(BertNeuronConfig):
-#     pass
+@register_in_tasks_manager("convbert", *COMMON_TEXT_TASKS)
+class ConvBertNeuronConfig(BertNeuronConfig):
+    pass
 
 
 @register_in_tasks_manager("electra", *COMMON_TEXT_TASKS)

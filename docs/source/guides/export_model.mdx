@@ -209,7 +209,7 @@ logits = neuron_model(*tuple(example.values()))
 
 Specifying a `--task` should not be necessary in most cases when exporting from a model on the Hugging Face Hub.
 
-However, in case you need to check for a given a model architecture what tasks the Neuron export supports, we got you covered. First, you can check the list of supported tasks [here](/exporters/task_manager).
+However, in case you need to check for a given a model architecture what tasks the Neuron export supports, we got you covered. First, you can check the list of supported tasks [here](https://huggingface.co/docs/optimum/exporters/task_manager#pytorch).
 
 For each model architecture, you can find the list of supported tasks via the [`~exporters.tasks.TasksManager`]. For example, for DistilBERT, for the Neuron export, we have:
 

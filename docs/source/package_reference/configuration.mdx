@@ -33,3 +33,34 @@ Since many architectures share similar properties for their Neuron configuration
 2. Middle-end classes. These are aware of the modality, but multiple can exist for the same modality depending on the inputs they support.
    They specify which input generators should be used for the dummy inputs, but remain model-agnostic.
 3. Model-specific classes like the `BertNeuronConfig` mentioned above. These are the ones actually used to export models.
+
+
+## Supported architectures
+
+
+| Architecture           | Task                                 |
+|------------------------|--------------------------------------|
+| ALBERT                 | All                                  |
+| BERT                   | All                                  |
+| CamemBERT              | All                                  |
+| ConvBERT               | All                                  |
+| DeBERTa                | All                                  |
+| DeBERTa-v2             | All (INF2 only)                      |
+| DistilBERT             | All (INF2 only)                      |
+| ELECTRA                | All                                  |
+| FlauBERT               | All                                  |
+| MobileBERT             | All                                  |
+| MPNet                  | All                                  |
+| RoBERTa                | All                                  |
+| RoFormer               | All                                  |
+| XLM                    | All                                  |
+| XLM-RoBERTa            | All                                  |
+
+
+<Tip>
+
+More details for checking supported tasks [here](https://huggingface.co/docs/optimum-neuron/guides/export_model#selecting-a-task).
+
+</Tip>
+
+More architectures coming soon, stay tuned! 🚀
