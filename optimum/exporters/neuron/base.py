@@ -116,10 +116,6 @@ class NeuronConfig(ExportConfig, ABC):
         self._axes: Dict[str, int] = {}
         self.dynamic_batch_size = dynamic_batch_size
 
-        if self.dynamic_batch_size is True:
-            logger.info("Overwriting batch size to 1 for dynamic batch size support.")
-            batch_size = 1
-
         # To avoid using **kwargs.
         axes_values = {
             "batch_size": batch_size,

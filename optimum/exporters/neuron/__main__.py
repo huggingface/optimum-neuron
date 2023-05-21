@@ -17,7 +17,7 @@
 import copy
 from argparse import ArgumentParser
 
-from ...neuron.utils import is_neuron_available, is_neuronx_available
+from ...neuron.utils import is_neuron_available, is_neuronx_available, store_compilation_config
 from ...utils import logging
 from ...utils.save_utils import maybe_save_preprocessors
 from ..error_utils import AtolError, OutputMatchError, ShapeError
@@ -71,9 +71,11 @@ def main():
 
     neuron_config_constructor = TasksManager.get_exporter_config_constructor(model=model, exporter="neuron", task=task)
     # TODO: find a cleaner way to do this.
-    shapes = {name: getattr(args, name) for name in neuron_config_constructor.func.get_mandatory_axes_for_task(task)}
+    input_shapes = {
+        name: getattr(args, name) for name in neuron_config_constructor.func.get_mandatory_axes_for_task(task)
+    }
     neuron_config = neuron_config_constructor(
-        model.config, dynamic_batch_size=getattr(args, "dynamic_batch_size"), **shapes
+        model.config, dynamic_batch_size=getattr(args, "dynamic_batch_size"), **input_shapes
     )
 
     if args.atol is None:
@@ -81,27 +83,20 @@ def main():
 
     # Get compilation arguments
     auto_cast = None if args.auto_cast == "none" else args.auto_cast
-    auto_cast_type = args.auto_cast_type
-    kwargs = {"auto_cast": auto_cast, "auto_cast_type": auto_cast_type}
+    auto_cast_type = None if auto_cast is None else args.auto_cast_type
+    compiler_kwargs = {"auto_cast": auto_cast, "auto_cast_type": auto_cast_type}
     if hasattr(args, "disable_fast_relayout"):
-        kwargs["disable_fast_relayout"] = getattr(args, "disable_fast_relayout")
+        compiler_kwargs["disable_fast_relayout"] = getattr(args, "disable_fast_relayout")
 
     neuron_inputs, neuron_outputs = export(
         model=model,
         config=neuron_config,
         output=args.output,
-        **kwargs,
+        **compiler_kwargs,
     )
 
-    # Add input shapes during compilation to the config
-    for axe, shape in shapes.items():
-        axe = f"neuron_{axe}"
-        model.config.__setattr__(axe, shape)
-    # Add compilation args to the config
-    if auto_cast is None:
-        kwargs["auto_cast_type"] = None
-    for arg, value in kwargs.items():
-        model.config.__setattr__(arg, value)
+    compiler_kwargs["dynamic_batch_size"] = args.dynamic_batch_size
+    store_compilation_config(model.config, input_shapes, compiler_kwargs)
 
     # Saving the model config and preprocessor as this is needed sometimes.
     model.config.save_pretrained(args.output.parent)
