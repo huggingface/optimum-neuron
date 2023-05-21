@@ -14,7 +14,7 @@
 """Utilities related to CLI arguments."""
 
 import os
-from typing import Any, Callable, Optional, Dict, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
 from ...utils import logging
 
