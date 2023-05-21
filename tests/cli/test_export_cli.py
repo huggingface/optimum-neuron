@@ -28,15 +28,15 @@ from optimum.neuron.utils import is_neuron_available, is_neuronx_available
 from optimum.neuron.utils.testing_utils import is_inferentia_test
 from optimum.utils import DEFAULT_DUMMY_SHAPES, logging
 
-from .exporters_utils import EXPORT_MODELS_TINY
+from ..exporters.exporters_utils import EXPORT_MODELS_TINY
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 
 _COMMOM_COMMANDS = {
-    "--auto_cast": ["None", "matmult", "all"],
-    "--auto_cast_type": ["bf16", "fp16"],  # "tf32"
+    "--auto_cast": ["none", "matmul", "all"],
+    "--auto_cast_type": ["bf16", "fp16"],  # "tf32", "mixed"
 }
 _NEURON_COMMANDS = {}
 _NEURONX_COMMANDS = {}
@@ -104,7 +104,7 @@ def _get_commands_to_test(models_to_test):
 
 
 @is_inferentia_test
-class TestCLI(unittest.TestCase):
+class TestExportCLI(unittest.TestCase):
     def test_helps_no_raise(self):
         commands = [
             "optimum-cli --help",

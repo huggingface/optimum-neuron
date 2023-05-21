@@ -12,9 +12,3 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Registers the neuron command to the Optimum CLI."""
-
-from ..neuron.base import NeuronCommand
-
-
-REGISTER_COMMANDS = [NeuronCommand]

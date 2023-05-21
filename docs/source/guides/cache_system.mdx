@@ -1,19 +1,156 @@
-<!---
-Copyright 2023 The HuggingFace Team. All rights reserved.
+<!--Copyright 2023 The HuggingFace Team. All rights reserved.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+the License. You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+http://www.apache.org/licenses/LICENSE-2.0
 
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+specific language governing permissions and limitations under the License.
 -->
 
-# Trainium model cache
+# Trainium Model Cache
 
-TODO:
+The Trainium Model Cache is a remote cache for compiled Trainium models in the `neff` format. 
+It is integrated into the [`TrainiumTrainer`] class to enable loading pretrained models from the cache instead of compiling them locally. 
+This can speed up the training process by about –3x.
+
+The Trainium Model Cache is hosted on the [Hugging Face Hub](https://huggingface.co/aws-neuron/optimum-neuron-cache) and includes compiled files for all popular and supported pre-trained models `optimum-neuron`.
+
+When training a Transformers or Diffusion model with vanilla [`torch-neuronx`](https://github.com/aws-neuron/aws-neuron-samples/tree/master/torch-neuronx), the models needs to be first compiled. The compiled version is stored in a local directory, usually `/var/tmp/neuron-compile-cache`. 
+This means that every time you train a new model in a new environment, you need to recompile it, which takes a lot of time. 
+
+We created the Trainium Model Cache to solve this limitation by providing a public cache of precompiled available models and a private cache to create your private, secured, remote model cache.
+
+The Trainium Model Cache plugs into the local cache directory of the Hugging Face Hub. During training, the [`TrainiumTrainer`] will check if compilation files are available on the Hub and download them if they are found, allowing you to save both time and cost by skipping the compilation phase.
+
+## How the caching system works
+
+### Hash computation
+
+Many factors can trigger compilation among which: 
+
+- The model weights
+- The input shapes
+- The precision of the model, full-precision or bf16
+- The version of the Neuron X compiler
+- The number of Neuron cores used
+
+These parameters are used to compute a hash. This hash is then used to compare local hashes for our training session against hashes stored on the Hugging Face Hub, and act accordingly (download or push).
+
+### How to use the Trainium model cache
+
+The Public model cache will be used when your training script uses the [`TrainiumTrainer`]. There are no additional changes needed.
+
+### How to use a private Trainium model cache
+
+The repository for the public cache is `aws-neuron/optimum-neuron-cache`. This repository includes all precompiled files for commonly used models so that it is publicly available and free to use for everyone. But there are two limitations:
+
+1. You will not be able to push your own compiled files on this repo 
+2. It is public and you might want to use a private repo for private models
+
+To alleviate that you can create your own private cache repository using the `optimum-cli` or set the environment variable `CUSTOM_CACHE_REPO`.
+
+#### Using the Optimum CLI
+
+The Optimum CLI has 2 subcommands for cache management: you can create a new cache repository that you can use as a private Trainium Model cache. The other command can be used to set the name of the Trainium cache repository, the repository needs to exists.
+
+```
+usage: optimum-cli neuron cache [-h] {create,set} ...
+
+positional arguments:
+  {create,set}
+    create      Create a model repo on the Hugging Face Hub to store Neuron X compilation files.
+    set         Set the name of the Trainium cache repo to use locally.
+
+optional arguments:
+  -h, --help    show this help message and exit
+```
+
+
+Create a new Trainium cache repository:
+
+```
+optimum-cli neuron cache create --help
+
+usage: optimum-cli neuron cache create [-h] [-n NAME] [--public]
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -n NAME, --name NAME  The name of the repo that will be used as a remote cache for the compilation files.
+  --public              If set, the created repo will be public. By default the cache repo is private.
+
+```
+
+The `-n` / `--name` option allows you to specify a name for the Trainium cache repo, if not set the default name will be used. The `--public` flag allows you to make your Trainium cache public as it will be created as a private repository by default.
+
+Example:
+
+```
+optimum-cli neuron cache create
+
+Trainium cache created on the Hugging Face Hub: michaelbenayoun/optimum-neuron-cache [private].
+Trainium cache name set locally to michaelbenayoun/optimum-neuron-cache in /home/michael/.cache/huggingface/optimum_neuron_custom_cache.
+```
+
+Set a different Trainiun cache repository:
+
+```
+optimum-cli neuron cache set
+
+usage: optimum-cli neuron cache set [-h] -n NAME
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -n NAME, --name NAME  The name of the repo that to use as remote cache.
+
+```
+
+Example:
+
+```
+optimum-cli neuron cache set -n michaelbenayoun/optimum-neuron-cache
+
+Trainium cache name set locally to michaelbenayoun/optimum-neuron-cache in /home/michael/.cache/huggingface/optimum_neuron_custom_cache
+```
+
+<Tip>
+
+The `optimum-cli neuron cache set` command is useful when working on a new instance to use your own cache.
+
+</Tip>
+
+#### Using the environment variable `CUSTOM_CACHE_REPO`
+
+Using the CLI is not always feasible, and not very practical for small testing. In this case, you can simply set the environment variable `CUSTOM_CACHE_REPO`.
+
+For example, if you cache repo is called `michaelbenayoun/my_custom_cache_repo`, you just need to do:
+
+```bash
+CUSTOM_CACHE_REPO="michaelbenayoun/my_custom_cache_repo" torchrun ...
+```
+
+or:
+
+```bash
+export CUSTOM_CACHE_REPO="michaelbenayoun/my_custom_cache_repo"
+torchrun ...
+```
+
+You have to be [logged into the Hugging Face Hub](https://huggingface.co/docs/huggingface_hub/quick-start#login) to be able to push  and pull files from your private cache repository.
+
+### Cache system flow
+
+<p align="center">
+  <img alt="Cache system flow" src="https://huggingface.co/datasets/optimum/documentation-images/resolve/main/neuron/cache_system_flow.jpg">
+  <br>
+  <em style="color: grey">Cache system flow</em>
+</p>
+
+
+At each the beginning of each training step, the  [`TrainiumTrainer`] computes a `NeuronHash` and checks the cache repo(s) (official and custom) on the Hugging Face Hub to see if there are compiled files associated to this hash. 
+If that is the case, the files are downloaded directly to the local cache directory and no compilation is needed. Otherwise compilation is performed.
+
+
+Just as for downloading compiled files, the [`TrainiumTrainer`] will keep track of the newly created compilation files at each training step, and upload them to the Hugging Face Hub at save time or when training ends. This assumes that you have writing access to the cache repo, otherwise nothing will be pushed. 

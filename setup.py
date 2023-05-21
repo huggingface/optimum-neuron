@@ -4,8 +4,8 @@ from setuptools import find_namespace_packages, setup
 
 
 # Ensure we match the version set in optimum/neuron/version.py
+filepath = "optimum/neuron/version.py"
 try:
-    filepath = "optimum/neuron/version.py"
     with open(filepath) as version_file:
         (__version__,) = re.findall('__version__ = "(.*)"', version_file.read())
 except Exception as error:
@@ -14,7 +14,10 @@ except Exception as error:
 
 INSTALL_REQUIRES = [
     "transformers >= 4.28.0",
-    "optimum @ git+https://github.com/huggingface/optimum.git",
+    "optimum",
+    "huggingface_hub >= 0.14.0",
+    "numpy>1.19, <=1.21.6",
+    "protobuf<4",
 ]
 
 TESTS_REQUIRE = [
@@ -38,12 +41,18 @@ EXTRAS_REQUIRE = {
     "quality": QUALITY_REQUIRES,
     "neuron": [
         "wheel",
-        "torch-neuron==1.12.1.*",
+        "torch-neuron==1.13.1.*",
         "neuron-cc[tensorflow]",
         "protobuf",
         "torchvision",
     ],
-    "neuronx": ["neuronx-cc==2.*", "torch-neuronx", "torchvision"],
+    "neuronx": [
+        "wheel",
+        "neuronx-cc==2.*",
+        "torch-neuronx",
+        "torch==1.13.1.*",
+        "torchvision==0.14.*",
+    ],
 }
 
 setup(
@@ -75,6 +84,7 @@ setup(
     packages=find_namespace_packages(include=["optimum*"]),
     install_requires=INSTALL_REQUIRES,
     extras_require=EXTRAS_REQUIRE,
+    dependency_links=["https://pip.repos.neuron.amazonaws.com"],
     include_package_data=True,
     zip_safe=False,
     entry_points={"console_scripts": ["optimum-cli=optimum.commands.optimum_cli:main"]},

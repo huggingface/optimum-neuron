@@ -20,9 +20,10 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from torch.utils.data import DataLoader, Dataset
-from transformers import Seq2SeqTrainer, Trainer
+from transformers import GenerationMixin, Seq2SeqTrainer, Trainer
 
 from ..utils import logging
+from .generation import NeuronGenerationMixin
 from .trainer_callback import NeuronCacheCallaback
 from .utils.argument_utils import validate_arg
 from .utils.cache_utils import get_neuron_cache_path
@@ -92,6 +93,9 @@ class AugmentTrainerForTrainiumMixin:
             )
             self.add_callback(callback)
 
+        # Make the model Neuron-compatible for generation.
+        self.patch_generation_mixin_to_neuron_generation_mixin(self.model)
+
     def prepare_args_for_precompilation(self, args: "TrainingArguments"):
         if args.num_train_epochs != 1:
             logger.info("Setting the number of epochs for precompilation to 1.")
@@ -115,6 +119,29 @@ class AugmentTrainerForTrainiumMixin:
                 expected_value=True,
             )
 
+    def patch_generation_mixin_to_neuron_generation_mixin(self, model: "PreTrainedModel"):
+        """
+        Changes the vanilla `GenerationMixin` class from Transformers to `NeuronGenerationMixin` in the model's
+        inheritance. This allows to make the model Neuron-compatible for generation without much hassle.
+        """
+        to_visit = [model.__class__]
+        should_stop = False
+        while to_visit and not should_stop:
+            cls = to_visit.pop(0)
+            bases = cls.__bases__
+            new_bases = []
+            for base in bases:
+                to_visit.append(base)
+                if base == GenerationMixin:
+                    new_bases.append(NeuronGenerationMixin)
+                    should_stop = True
+                elif base == NeuronGenerationMixin:
+                    should_stop = True
+                    new_bases.append(base)
+                else:
+                    new_bases.append(base)
+            cls.__bases__ = tuple(new_bases)
+
     def _wrap_model(self, model, training=True, dataloader=None):
         logger.info(
             "Disabling DDP because it is currently not playing well with multiple workers training, for more "
@@ -125,7 +152,7 @@ class AugmentTrainerForTrainiumMixin:
                 f"{model.__class__.__name__} is not officially supported by optimum-neuron. Training might not work as  "
                 "expected."
             )
-        return patch_model(model)
+        return super()._wrap_model(patch_model(model), training=training, dataloader=dataloader)
 
     def get_train_dataloader(self) -> DataLoader:
         if is_precompilation():
