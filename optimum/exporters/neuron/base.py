@@ -19,13 +19,17 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import torch
 
-from optimum.exporters.base import ExportConfig
+from ...exporters.base import ExportConfig
+from ...utils import logging
 
 
 if TYPE_CHECKING:
     from transformers import PretrainedConfig, PreTrainedModel
 
     from optimum.utils import DummyInputGenerator
+
+
+logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 
 class MissingMandatoryAxisDimension(ValueError):
@@ -60,6 +64,8 @@ class NeuronConfig(ExportConfig, ABC):
             The model configuration.
         task (`str`, defaults to `"feature-extraction"`):
             The task the model should be exported for.
+        dynamic_batch_size (`bool`, defaults to `False`):
+            Whether the Neuron compiled model supports dynamic batch size.
 
         The rest of the arguments are used to specify the shape of the inputs the model can take.
         They are required or not depending on the model the `NeuronConfig` is designed for.
@@ -93,6 +99,7 @@ class NeuronConfig(ExportConfig, ABC):
         config: "PretrainedConfig",
         task: str,
         batch_size: int = 1,
+        dynamic_batch_size: bool = False,
         sequence_length: Optional[int] = None,
         num_choices: Optional[int] = None,
         width: Optional[int] = None,
@@ -107,6 +114,7 @@ class NeuronConfig(ExportConfig, ABC):
         self.mandatory_axes = ()
         self.task = task
         self._axes: Dict[str, int] = {}
+        self.dynamic_batch_size = dynamic_batch_size
 
         # To avoid using **kwargs.
         axes_values = {
