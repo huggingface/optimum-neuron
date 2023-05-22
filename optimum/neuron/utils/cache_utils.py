@@ -16,9 +16,11 @@
 
 import hashlib
 import io
+import json
 import os
 import re
 import shutil
+import subprocess
 import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -27,10 +29,11 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Un
 import huggingface_hub
 import numpy as np
 import torch
-from huggingface_hub import HfApi, HfFolder
+from huggingface_hub import CommitOperationAdd, CommitOperationDelete, HfApi, HfFolder, RepoUrl, create_repo
 from huggingface_hub.utils import HfHubHTTPError, RepositoryNotFoundError
 
 from ...utils import logging
+from ...utils.logging import warn_once
 from .version_utils import get_neuronxcc_version
 
 
@@ -40,16 +43,68 @@ if TYPE_CHECKING:
 
 logger = logging.get_logger()
 
+HOME = Path.home()
+DEFAULT_HF_HOME = f"{HOME}/.cache/huggingface"
+XDG_CACHE_HOME = os.environ.get("XDG_CACHE_HOME", None)
+if XDG_CACHE_HOME is not None:
+    DEFAULT_HF_HOME = f"{XDG_CACHE_HOME}/huggingface"
+HF_HOME = os.environ.get("HF_HOME", DEFAULT_HF_HOME)
 
+CACHE_REPO_FILENAME = "optimum_neuron_custom_cache"
+HF_HOME_CACHE_REPO_FILE = f"{HF_HOME}/{CACHE_REPO_FILENAME}"
+
+CACHE_REPO_NAME = "optimum-neuron-cache"
 if os.environ.get("HUGGINGFACE_CO_STAGING") == "1":
     HF_HUB_CACHE_REPOS = []
 else:
-    HF_HUB_CACHE_REPOS = ["aws-neuron/optimum-neuron-cache"]
+    HF_HUB_CACHE_REPOS = [f"aws-neuron/{CACHE_REPO_NAME}"]
 
 HASH_FILE_NAME = "pytorch_model.bin"
 NEURON_COMPILE_CACHE_NAME = "neuron-compile-cache"
 
 _IP_PATTERN = re.compile(r"ip-([0-9]{1,3}-){4}")
+
+_WRITING_ACCESS_CACHE: Dict[Tuple[str, str], bool] = {}
+
+
+def load_custom_cache_repo_name_from_hf_home(
+    hf_home_cache_repo_file: Union[str, Path] = HF_HOME_CACHE_REPO_FILE
+) -> Optional[str]:
+    if Path(hf_home_cache_repo_file).exists():
+        with open(hf_home_cache_repo_file, "r") as fp:
+            return fp.read()
+    return None
+
+
+def set_custom_cache_repo_name_in_hf_home(repo_id: str, hf_home: str = HF_HOME):
+    hf_home_cache_repo_file = f"{hf_home}/{CACHE_REPO_FILENAME}"
+    try:
+        HfApi().repo_info(repo_id, repo_type="model")
+    except Exception as e:
+        raise ValueError(
+            f"Could not save the custom Trainium cache repo to be {repo_id} because it does not exist or is private to "
+            f"you. Complete exception message: {e}."
+        )
+
+    existing_custom_cache_repo = load_custom_cache_repo_name_from_hf_home(hf_home_cache_repo_file)
+    if existing_custom_cache_repo is not None:
+        logger.warning(
+            f"A custom cache repo was already registered: {existing_custom_cache_repo}. It will be overwritten to "
+            f"{repo_id}."
+        )
+
+    with open(hf_home_cache_repo_file, "w") as fp:
+        fp.write(repo_id)
+
+
+def delete_custom_cache_repo_name_from_hf_home(hf_home_cache_repo_file: str = HF_HOME_CACHE_REPO_FILE):
+    Path(hf_home_cache_repo_file).unlink(missing_ok=True)
+
+
+def create_custom_cache_repo(repo_id: str = CACHE_REPO_NAME, private: bool = True) -> RepoUrl:
+    repo_url = create_repo(repo_id, private=private, repo_type="model")
+    set_custom_cache_repo_name_in_hf_home(repo_url.repo_id)
+    return repo_url
 
 
 def is_private_repo(repo_id: str) -> bool:
@@ -62,11 +117,53 @@ def is_private_repo(repo_id: str) -> bool:
     return private
 
 
+def has_write_access_to_repo(repo_id: str) -> bool:
+    token = HfFolder.get_token()
+    if (token, repo_id) in _WRITING_ACCESS_CACHE:
+        return _WRITING_ACCESS_CACHE[(token, repo_id)]
+
+    has_access = False
+    with tempfile.NamedTemporaryFile() as fp:
+        tmpfilename = Path(fp.name)
+        try:
+            add_file = CommitOperationAdd(tmpfilename.name, tmpfilename.as_posix())
+            HfApi().create_commit(repo_id, operations=[add_file], commit_message="Check write access")
+        except (HfHubHTTPError, RepositoryNotFoundError):
+            pass
+        else:
+            delete_file = CommitOperationDelete(tmpfilename.name)
+            HfApi().create_commit(repo_id, operations=[delete_file], commit_message="Check write access [DONE]")
+            has_access = True
+
+    _WRITING_ACCESS_CACHE[(token, repo_id)] = has_access
+    return has_access
+
+
 def get_hf_hub_cache_repos():
-    custom_cache_repo = os.environ.get("CUSTOM_CACHE_REPO", None)
     hf_hub_repos = HF_HUB_CACHE_REPOS
-    if custom_cache_repo:
+
+    saved_custom_cache_repo = load_custom_cache_repo_name_from_hf_home()
+    if saved_custom_cache_repo is None:
+        warn_once(
+            logger,
+            "No Trainium cache name is saved locally. This means that only the official Trainium cache, and "
+            "potentially a cache defined in $CUSTOM_CACHE_REPO will be used. You can create a Trainium cache repo by "
+            "running the following command: `optimum-cli neuron cache create`. If the Trainium cache already exists "
+            "you can set it by running the following command: `optimum-cli neuron cache set -n [name]`.",
+        )
+    else:
+        hf_hub_repos = [saved_custom_cache_repo] + hf_hub_repos
+
+    custom_cache_repo = os.environ.get("CUSTOM_CACHE_REPO", None)
+    if custom_cache_repo is not None:
         hf_hub_repos = [custom_cache_repo] + hf_hub_repos
+
+    if hf_hub_repos and not has_write_access_to_repo(hf_hub_repos[0]):
+        warn_once(
+            logger,
+            f"You do not have write access to {hf_hub_repos[0]} so you will not be able to push any cached compilation "
+            "files. Please log in and/or use a custom Trainium cache.",
+        )
     return hf_hub_repos
 
 
@@ -101,7 +198,7 @@ def set_neuron_cache_path(neuron_cache_path: Union[str, Path], ignore_no_cache: 
     if isinstance(neuron_cache_path, Path):
         neuron_cache_path = neuron_cache_path.as_posix()
 
-    match_ = re.search(r"--cache_dir=([\w\/]+)", neuron_cc_flags)
+    match_ = re.search(r"--cache_dir=([\w\/-]+)", neuron_cc_flags)
     if match_:
         neuron_cc_flags = neuron_cc_flags[: match_.start(1)] + neuron_cache_path + neuron_cc_flags[match_.end(1) :]
     else:
@@ -110,7 +207,15 @@ def set_neuron_cache_path(neuron_cache_path: Union[str, Path], ignore_no_cache: 
     os.environ["NEURON_CC_FLAGS"] = neuron_cc_flags
 
 
-def get_num_neuron_cores_used():
+def get_num_neuron_cores() -> int:
+    proc = subprocess.Popen(["neuron-ls", "-j"], stdout=subprocess.PIPE)
+    stdout, _ = proc.communicate()
+    stdout = stdout.decode("utf-8")
+    json_stdout = json.loads(stdout)
+    return json_stdout[0]["nc_count"]
+
+
+def get_num_neuron_cores_used() -> int:
     return int(os.environ.get("LOCAL_WORLD_SIZE", "1"))
 
 

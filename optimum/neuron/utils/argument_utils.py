@@ -90,9 +90,9 @@ def validate_arg(
 
 
 def convert_neuronx_compiler_args_to_neuron(
-    auto_cast: Optional[str] = None,
-    auto_cast_type: Optional[str] = None,
-    disable_fast_relayout: Optional[bool] = False,
+    auto_cast: Optional[str],
+    auto_cast_type: str,
+    disable_fast_relayout: bool,
 ):
     """
     Builds `compiler_args` for neuron compiler.
@@ -104,10 +104,20 @@ def convert_neuronx_compiler_args_to_neuron(
     elif auto_cast == "matmul":
         auto_cast = "matmult"
 
-    if auto_cast in ["none", "all"]:
+    if auto_cast == "none":
         compiler_args.extend(["--fast-math", auto_cast])
+    elif auto_cast == "all":
+        if auto_cast_type == "mixed":
+            raise ValueError(
+                f"For auto_cast={auto_cast}, cannot set auto_cast_type={auto_cast_type}. "
+                "Please choose among `bf16`, `fp16` and `tf32`."
+            )
+        elif auto_cast_type != "bf16":
+            compiler_args.extend(["--fast-math", f"fp32-cast-all-{auto_cast_type}"])
+        else:
+            compiler_args.extend(["--fast-math", auto_cast])
     elif auto_cast == "matmult":
-        if auto_cast_type is None:
+        if auto_cast_type == "mixed":
             compiler_args.extend(["--fast-math", "fp32-cast-matmult"])
         else:
             compiler_args.extend(["--fast-math", f"fp32-cast-matmult-{auto_cast_type}"])

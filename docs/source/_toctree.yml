@@ -26,6 +26,10 @@
   - sections:
     - local: package_reference/trainer
       title: Trainium Trainer
+    - local: package_reference/export
+      title: Inferentia Exporter
+    - local: package_reference/configuration
+      title: Configuration classes for Neuron exports
     title: Reference
   title: Optimum Neuron
   isExpanded: true
