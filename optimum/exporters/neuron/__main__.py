@@ -74,9 +74,7 @@ def main():
     input_shapes = {
         name: getattr(args, name) for name in neuron_config_constructor.func.get_mandatory_axes_for_task(task)
     }
-    neuron_config = neuron_config_constructor(
-        model.config, dynamic_batch_size=getattr(args, "dynamic_batch_size"), **input_shapes
-    )
+    neuron_config = neuron_config_constructor(model.config, **input_shapes)
 
     if args.atol is None:
         args.atol = neuron_config.ATOL_FOR_VALIDATION
@@ -84,7 +82,11 @@ def main():
     # Get compilation arguments
     auto_cast = None if args.auto_cast == "none" else args.auto_cast
     auto_cast_type = None if auto_cast is None else args.auto_cast_type
-    compiler_kwargs = {"auto_cast": auto_cast, "auto_cast_type": auto_cast_type}
+    compiler_kwargs = {
+        "auto_cast": auto_cast,
+        "auto_cast_type": auto_cast_type,
+        "dynamic_batch_size": args.dynamic_batch_size,
+    }
     if hasattr(args, "disable_fast_relayout"):
         compiler_kwargs["disable_fast_relayout"] = getattr(args, "disable_fast_relayout")
 
@@ -95,7 +97,6 @@ def main():
         **compiler_kwargs,
     )
 
-    compiler_kwargs["dynamic_batch_size"] = args.dynamic_batch_size
     store_compilation_config(model.config, input_shapes, compiler_kwargs)
 
     # Saving the model config and preprocessor as this is needed sometimes.
