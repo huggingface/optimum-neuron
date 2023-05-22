@@ -15,45 +15,28 @@
 import gc
 import os
 import shutil
-import subprocess
 import tempfile
-import time
 import unittest
-from pathlib import Path
 from typing import Dict
 
 import pytest
-import requests
 import torch
 from huggingface_hub.constants import default_cache_path
 from parameterized import parameterized
 from transformers import (
-    AutoConfig,
-    AutoFeatureExtractor,
     AutoModel,
-    AutoModelForAudioClassification,
-    AutoModelForAudioFrameClassification,
-    AutoModelForAudioXVector,
     AutoModelForCausalLM,
-    AutoModelForCTC,
-    AutoModelForImageClassification,
     AutoModelForMaskedLM,
     AutoModelForMultipleChoice,
     AutoModelForQuestionAnswering,
-    AutoModelForSemanticSegmentation,
-    AutoModelForSeq2SeqLM,
     AutoModelForSequenceClassification,
-    AutoModelForSpeechSeq2Seq,
     AutoModelForTokenClassification,
-    AutoModelForVision2Seq,
     AutoTokenizer,
-    MBartForConditionalGeneration,
     PretrainedConfig,
     set_seed,
 )
-from transformers.modeling_utils import no_init_weights
 from transformers.neuron.utils import get_preprocessor
-from transformers.testing_utils import get_gpu_count, require_torch_gpu
+from transformers.testing_utils import require_torch_gpu
 from utils_neuronruntime_tests import MODEL_NAMES, SEED
 
 from optimum.exporters import TasksManager
@@ -146,7 +129,9 @@ class NeuronModelIntegrationTest(unittest.TestCase):
         self.assertIsInstance(model.model, torch.jit._script.ScriptModule)
         self.assertIsInstance(model.config, PretrainedConfig)
 
-        model = NeuronModel.from_pretrained("fxmarty/tiny-bert-sst2-distilled-neuron-subfolder", subfolder="my_subfolder")
+        model = NeuronModel.from_pretrained(
+            "fxmarty/tiny-bert-sst2-distilled-neuron-subfolder", subfolder="my_subfolder"
+        )
         self.assertIsInstance(model.model, torch.jit._script.ScriptModule)
         self.assertIsInstance(model.config, PretrainedConfig)
 
@@ -164,7 +149,7 @@ class NeuronModelIntegrationTest(unittest.TestCase):
         if os.path.exists(dirpath) and os.path.isdir(dirpath):
             shutil.rmtree(dirpath)
         with self.assertRaises(Exception):
-            _ = NeuronModel.from_pretrained(self.TINY_NEURON_MODEL_ID, local_files_only=True)  
+            _ = NeuronModel.from_pretrained(self.TINY_NEURON_MODEL_ID, local_files_only=True)
 
     def test_load_model_from_hub_without_neuron_model(self):
         with self.assertRaises(FileNotFoundError):
@@ -212,7 +197,8 @@ class NeuronModelIntegrationTest(unittest.TestCase):
         neuron_logits = neuron_model(**inputs).logits
 
         self.assertTrue(
-            torch.allclose(pt_logits, neuron_logits, atol=1e-4), f" Maxdiff: {torch.abs(pt_logits - neuron_logits).max()}"
+            torch.allclose(pt_logits, neuron_logits, atol=1e-4),
+            f" Maxdiff: {torch.abs(pt_logits - neuron_logits).max()}",
         )
 
 
@@ -382,7 +368,9 @@ class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
             self.assertIsInstance(neuron_outputs.logits, self.TENSOR_ALIAS_TO_TYPE[input_type])
 
             # compare tensor outputs
-            self.assertTrue(torch.allclose(torch.Tensor(neuron_outputs.logits), transformers_outputs.logits, atol=1e-4))
+            self.assertTrue(
+                torch.allclose(torch.Tensor(neuron_outputs.logits), transformers_outputs.logits, atol=1e-4)
+            )
 
         gc.collect()
 
@@ -445,9 +433,9 @@ class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
         self._setup(model_args)
 
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
-        neuron_model = NeuronModelForMaskedLM.from_pretrained(self.neuron_model_dirs[model_arch], use_io_binding=False).to(
-            "cuda"
-        )
+        neuron_model = NeuronModelForMaskedLM.from_pretrained(
+            self.neuron_model_dirs[model_arch], use_io_binding=False
+        ).to("cuda")
         io_model = NeuronModelForMaskedLM.from_pretrained(self.neuron_model_dirs[model_arch], use_io_binding=True).to(
             "cuda"
         )
@@ -544,7 +532,9 @@ class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
             self.assertIsInstance(neuron_outputs.logits, self.TENSOR_ALIAS_TO_TYPE[input_type])
 
             # compare tensor outputs
-            self.assertTrue(torch.allclose(torch.Tensor(neuron_outputs.logits), transformers_outputs.logits, atol=1e-4))
+            self.assertTrue(
+                torch.allclose(torch.Tensor(neuron_outputs.logits), transformers_outputs.logits, atol=1e-4)
+            )
 
         gc.collect()
 
@@ -717,7 +707,9 @@ class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
             self.assertIsInstance(neuron_outputs.logits, self.TENSOR_ALIAS_TO_TYPE[input_type])
 
             # compare tensor outputs
-            self.assertTrue(torch.allclose(torch.Tensor(neuron_outputs.logits), transformers_outputs.logits, atol=1e-4))
+            self.assertTrue(
+                torch.allclose(torch.Tensor(neuron_outputs.logits), transformers_outputs.logits, atol=1e-4)
+            )
 
         gc.collect()
 
@@ -889,7 +881,9 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
         self._setup(model_args)
 
         model_id = MODEL_NAMES[model_arch]
-        neuron_model = NeuronModelForFeatureExtraction.from_pretrained(self.neuron_model_dirs[model_arch], provider=provider)
+        neuron_model = NeuronModelForFeatureExtraction.from_pretrained(
+            self.neuron_model_dirs[model_arch], provider=provider
+        )
         tokenizer = get_preprocessor(model_id)
         pipe = pipeline("feature-extraction", model=neuron_model, tokenizer=tokenizer, device=0)
         text = "My Name is Philipp and i live in Germany."
@@ -993,7 +987,9 @@ class NeuronModelForMultipleChoiceIntegrationTest(NeuronModelTestMixin):
             self.assertIsInstance(neuron_outputs.logits, self.TENSOR_ALIAS_TO_TYPE[input_type])
 
             # Compare tensor outputs
-            self.assertTrue(torch.allclose(torch.Tensor(neuron_outputs.logits), transformers_outputs.logits, atol=1e-4))
+            self.assertTrue(
+                torch.allclose(torch.Tensor(neuron_outputs.logits), transformers_outputs.logits, atol=1e-4)
+            )
 
         gc.collect()
 
@@ -1008,9 +1004,9 @@ class NeuronModelForMultipleChoiceIntegrationTest(NeuronModelTestMixin):
         neuron_model = NeuronModelForMultipleChoice.from_pretrained(
             self.neuron_model_dirs[model_arch], use_io_binding=False
         ).to("cuda")
-        io_model = NeuronModelForMultipleChoice.from_pretrained(self.neuron_model_dirs[model_arch], use_io_binding=True).to(
-            "cuda"
-        )
+        io_model = NeuronModelForMultipleChoice.from_pretrained(
+            self.neuron_model_dirs[model_arch], use_io_binding=True
+        ).to("cuda")
 
         tokenizer = get_preprocessor(model_id)
         num_choices = 4

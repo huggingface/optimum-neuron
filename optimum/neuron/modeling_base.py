@@ -27,9 +27,8 @@ from ..exporters.neuron import export
 from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..exporters.tasks import TasksManager
 from ..modeling_base import OptimizedModel
-from ..utils import DEFAULT_DUMMY_SHAPES
 from ..utils.save_utils import maybe_load_preprocessors, maybe_save_preprocessors
-from .utils import NEURON_FILE_NAME
+from .utils import NEURON_FILE_NAME, store_compilation_config
 
 
 if TYPE_CHECKING:
@@ -207,6 +206,7 @@ class NeuronModel(OptimizedModel):
         auto_cast: Optional[str] = None,
         auto_cast_type: Optional[str] = None,
         disable_fast_relayout: Optional[bool] = False,
+        dynamic_batch_size: bool = False,
         **kwargs_shapes,
     ) -> "NeuronModel":
         """
@@ -238,21 +238,29 @@ class NeuronModel(OptimizedModel):
         neuron_config_constructor = TasksManager.get_exporter_config_constructor(
             model=model, exporter="neuron", task=task
         )
-        input_shapes = {}
-        for input_name in DEFAULT_DUMMY_SHAPES.keys():
-            input_shapes[input_name] = (
-                kwargs_shapes[input_name] if input_name in kwargs_shapes else DEFAULT_DUMMY_SHAPES[input_name]
-            )
+        input_shapes = {
+            name: kwargs_shapes.get(name, None) or getattr(config, "neuron_" + name)
+            for name in neuron_config_constructor.func.get_mandatory_axes_for_task(task)
+        }
         neuron_config = neuron_config_constructor(model.config, **input_shapes)
+
+        # Get compilation arguments
+        auto_cast_type = None if auto_cast is None else auto_cast_type
+        compiler_kwargs = {
+            "auto_cast": auto_cast,
+            "auto_cast_type": auto_cast_type,
+            "disable_fast_relayout": disable_fast_relayout,
+            "dynamic_batch_size": dynamic_batch_size,
+        }
 
         export(
             model=model,
             config=neuron_config,
             output=save_dir_path / NEURON_FILE_NAME,
-            auto_cast=auto_cast,
-            auto_cast_type=auto_cast_type,
-            disable_fast_relayout=disable_fast_relayout,
+            **compiler_kwargs,
         )
+
+        store_compilation_config(config, input_shapes, compiler_kwargs)
 
         config.save_pretrained(save_dir_path)
         maybe_save_preprocessors(model_id, save_dir_path, src_subfolder=subfolder)
