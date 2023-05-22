@@ -13,14 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import copy
+import random
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Dict
+from typing import Dict, Optional
 from unittest import TestCase
 
 from parameterized import parameterized
 from transformers import AutoConfig
-from transformers.testing_utils import require_torch
 
 from optimum.exporters.neuron import NeuronConfig, export, validate_model_outputs
 from optimum.exporters.neuron.model_configs import *  # noqa: F403
@@ -34,7 +34,7 @@ from .exporters_utils import EXPORT_MODELS_TINY
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 
-def _get_models_to_test(export_models_dict: Dict):
+def _get_models_to_test(export_models_dict: Dict, random_pick: Optional[int] = None):
     models_to_test = []
     for model_type, model_names_tasks in export_models_dict.items():
         model_type = model_type.replace("_", "-")
@@ -64,7 +64,10 @@ def _get_models_to_test(export_models_dict: Dict):
                     (f"{model_type}_{task}", model_type, model_name, task, neuron_config_constructor)
                 )
 
-    return sorted(models_to_test)
+    if random_pick is not None:
+        return sorted(random.choices(models_to_test, k=random_pick))
+    else:
+        return sorted(models_to_test)
 
 
 @is_inferentia_test
@@ -74,14 +77,22 @@ class NeuronExportTestCase(TestCase):
     """
 
     def _neuronx_export(
-        self, test_name: str, model_type: str, model_name: str, task: str, neuron_config_constructor: "NeuronConfig"
+        self,
+        test_name: str,
+        model_type: str,
+        model_name: str,
+        task: str,
+        neuron_config_constructor: "NeuronConfig",
+        dynamic_batch_size: bool = False,
     ):
         model_class = TasksManager.get_model_class_for_task(task, framework="pt")
         config = AutoConfig.from_pretrained(model_name)
         model = model_class.from_config(config)
         reference_model = copy.deepcopy(model)
 
-        neuron_config = neuron_config_constructor(config=model.config, task=task, batch_size=2, sequence_length=18)
+        neuron_config = neuron_config_constructor(
+            config=model.config, task=task, dynamic_batch_size=dynamic_batch_size, batch_size=2, sequence_length=18
+        )
 
         atol = neuron_config.ATOL_FOR_VALIDATION
 
@@ -104,6 +115,9 @@ class NeuronExportTestCase(TestCase):
                 self.fail(f"{model_type}, {task} -> {e}")
 
     @parameterized.expand(_get_models_to_test(EXPORT_MODELS_TINY))
-    @require_torch
     def test_export(self, test_name, name, model_name, task, neuron_config_constructor):
         self._neuronx_export(test_name, name, model_name, task, neuron_config_constructor)
+
+    @parameterized.expand(_get_models_to_test(EXPORT_MODELS_TINY), skip_on_empty=True)  # , random_pick=1
+    def test_export_with_dynamic_batch_size(self, test_name, name, model_name, task, neuron_config_constructor):
+        self._neuronx_export(test_name, name, model_name, task, neuron_config_constructor, dynamic_batch_size=True)

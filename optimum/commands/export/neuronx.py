@@ -72,6 +72,11 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         choices=["bf16", "fp16", "tf32"],
         help='The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"` or `"tf32"`.',
     )
+    optional_group.add_argument(
+        "--dynamic-batch-size",
+        action="store_true",
+        help="Enable dynamic batch size for neuron compiled model. If this option is enabled, the input batch size can be a multiple of the batch size during the compilation.",
+    )
 
     input_group = parser.add_argument_group("Input shapes")
     doc_input = "that the Neuronx-cc compiler exported model will be able to take as input."
