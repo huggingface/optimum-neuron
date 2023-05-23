@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Neuron TorchScript model check and export functions."""
+"""Neuron compiled model check and export functions."""
 
 from pathlib import Path
 from typing import TYPE_CHECKING, List, Optional, Tuple
@@ -76,6 +76,8 @@ def validate_model_outputs(
     input_shapes = {}
     for axe in config.mandatory_axes:
         input_shapes[axe] = getattr(config, axe)
+    if config.dynamic_batch_size is True:
+        input_shapes["batch_size"] *= 2
     ref_inputs = config.generate_dummy_inputs(return_tuple=False, **input_shapes)
     with torch.no_grad():
         reference_model.eval()
@@ -168,7 +170,7 @@ def export_neuronx(
     auto_cast_type: str = "bf16",
 ) -> Tuple[List[str], List[str]]:
     """
-    Exports a PyTorch model to a Neuronx compiled TorchScript model.
+    Exports a PyTorch model to a serialized TorchScript module compiled by neuronx-cc compiler.
 
     Args:
         model ([`PreTrainedModel`]):
@@ -219,6 +221,10 @@ def export_neuronx(
         compiler_args = ["--auto-cast", "none"]
 
     neuron_model = neuronx.trace(checked_model, dummy_inputs_tuple, compiler_args=compiler_args)
+
+    if config.dynamic_batch_size is True:
+        neuron_model = neuronx.dynamic_batch(neuron_model)
+
     torch.jit.save(neuron_model, output)
 
     return config.inputs, config.outputs
@@ -233,7 +239,7 @@ def export_neuron(
     disable_fast_relayout: bool = False,
 ) -> Tuple[List[str], List[str]]:
     """
-    Exports a PyTorch model to a Neuron compiled TorchScript model.
+    Exports a PyTorch model to a serialized TorchScript module compiled by neuron-cc compiler.
 
     Args:
         model ([`PreTrainedModel`]):
@@ -274,7 +280,10 @@ def export_neuron(
     dummy_inputs_tuple = tuple(dummy_inputs.values())
     checked_model = config.check_model_inputs_order(model, dummy_inputs)
     compiler_args = convert_neuronx_compiler_args_to_neuron(auto_cast, auto_cast_type, disable_fast_relayout)
-    neuron_model = neuron.trace(checked_model, dummy_inputs_tuple, compiler_args=compiler_args)
+
+    neuron_model = neuron.trace(
+        checked_model, dummy_inputs_tuple, dynamic_batch_size=config.dynamic_batch_size, compiler_args=compiler_args
+    )
     neuron_model.save(output)
 
     return config.inputs, config.outputs

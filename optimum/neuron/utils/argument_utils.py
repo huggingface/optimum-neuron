@@ -14,10 +14,13 @@
 """Utilities related to CLI arguments."""
 
 import os
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
 from ...utils import logging
 
+
+if TYPE_CHECKING:
+    from transformers import PretrainedConfig
 
 logger = logging.get_logger()
 
@@ -129,3 +132,18 @@ def convert_neuronx_compiler_args_to_neuron(
         compiler_args.append("no-fast-relayout")
 
     return compiler_args
+
+
+def store_compilation_config(
+    config: "PretrainedConfig",
+    input_shapes: Dict[str, int],
+    compiler_kwargs: Dict[str, Any],
+):
+    # Add input shapes during compilation to the config
+    for axe, shape in input_shapes.items():
+        axe = f"neuron_{axe}"
+        config.__setattr__(axe, shape)
+
+    # Add compilation args to the config
+    for arg, value in compiler_kwargs.items():
+        config.__setattr__(arg, value)
