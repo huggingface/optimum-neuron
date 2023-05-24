@@ -98,7 +98,7 @@ class NeuronConfig(ExportConfig, ABC):
         self,
         config: "PretrainedConfig",
         task: str,
-        batch_size: int = None,
+        batch_size: Optional[int] = None,
         dynamic_batch_size: bool = False,
         sequence_length: Optional[int] = None,
         num_choices: Optional[int] = None,
