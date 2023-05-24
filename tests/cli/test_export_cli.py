@@ -135,7 +135,7 @@ class TestExportCLI(unittest.TestCase):
     def test_dynamic_batching(self):
         with tempfile.TemporaryDirectory() as tempdir:
             subprocess.run(
-                f"optimum-cli export neuron --dynamic-batch-size --model hf-internal-testing/tiny-random-BertModel --task text-classification {tempdir}",
+                f"optimum-cli export neuron --dynamic-batch-size --model hf-internal-testing/tiny-random-BertModel --sequence_length 16 --batch_size 1 --task text-classification {tempdir}",
                 shell=True,
                 check=True,
             )
