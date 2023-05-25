@@ -296,10 +296,10 @@ def add_in_registry(repo_id: str, neuron_hash: "NeuronHash"):
             tmpdirpath = Path(tmpdirname)
             head = HfApi().model_info(repo_id).sha
             hf_hub_download(
-                repo_id, 
-                REGISTRY_FILENAME, 
+                repo_id,
+                REGISTRY_FILENAME,
                 revision=head,
-                local_dir=tmpdirpath, 
+                local_dir=tmpdirpath,
                 local_dir_use_symlinks=False,
             )
             registry_path = tmpdirpath / REGISTRY_FILENAME
@@ -346,7 +346,9 @@ def add_in_registry(repo_id: str, neuron_hash: "NeuronHash"):
                 )
             except ValueError as e:
                 if "A commit has happened since" in str(e):
-                    logger.info("A commit has happened in cache repository since we tried to update the registry, starting again...")
+                    logger.info(
+                        "A commit has happened in cache repository since we tried to update the registry, starting again..."
+                    )
                 else:
                     raise e
             else:
