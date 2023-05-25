@@ -14,6 +14,7 @@
 # limitations under the License.
 """Tests for the cache utilities."""
 
+import json
 import logging
 import os
 import random
@@ -24,7 +25,7 @@ from typing import List
 from unittest import TestCase
 
 import torch
-from huggingface_hub import HfApi, HfFolder, create_repo, delete_repo
+from huggingface_hub import HfApi, HfFolder, create_repo, delete_repo, hf_hub_download
 from transformers import BertConfig, BertModel, set_seed
 from transformers.testing_utils import TOKEN as TRANSFORMERS_TOKEN
 from transformers.testing_utils import USER as TRANSFORMERS_USER
@@ -33,6 +34,7 @@ from transformers.testing_utils import is_staging_test
 from optimum.neuron.utils.cache_utils import (
     CACHE_REPO_FILENAME,
     NEURON_COMPILE_CACHE_NAME,
+    REGISTRY_FILENAME,
     NeuronHash,
     download_cached_model_from_hub,
     get_cached_model_on_the_hub,
@@ -491,7 +493,7 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
             delete_repo(repo_name, repo_type="model")
             self.set_hf_hub_token(orig_token)
 
-    def test_push_to_hub_registry(self):
+    def _test_push_to_hub_create_and_add_registry(self, with_model_name_or_path: bool):
         with TemporaryDirectory() as tmpdirname:
             set_neuron_cache_path(tmpdirname)
 
@@ -499,10 +501,35 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
             data_type = torch.float32
             data_type = torch.float32
             tiny_model = self.create_and_run_tiny_pretrained_model(random_num_linears=True)
+            dummy_model_path = Path(tmpdirname) / "dummy_model"
+            tiny_model.save_pretrained(dummy_model_path)
+            tiny_model.config._model_name_or_path = dummy_model_path.as_posix()
             neuron_hash = NeuronHash(tiny_model, input_shapes, data_type)
 
             os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_PRIVATE_CACHE_REPO
+            files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
+            files_in_repo = [filename for filename in files_in_repo if not filename.startswith(".")]
+            self.assertListEqual(files_in_repo, [], "Repo should be empty")
+
+            cached_files = list_files_in_neuron_cache(Path(tmpdirname) / NEURON_COMPILE_CACHE_NAME)
             push_to_cache_on_hub(neuron_hash, cached_files[0])
+            files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
+
+            self.assertIn(REGISTRY_FILENAME, files_in_repo)
+            hf_hub_download(self.CUSTOM_PRIVATE_CACHE_REPO,REGISTRY_FILENAME, force_download=True, local_dir=tmpdirname, local_dir_use_symlinks=False)
+            with open(Path(tmpdirname) / REGISTRY_FILENAME, "r") as fp:
+                registry = json.load(fp)
+            
+            neuron_compiler_version = list(registry.keys())[0]
+            model_key = list(registry[neuron_compiler_version].keys())[0]
+            expected_value = dummy_model_path.as_posix() if with_model_name_or_path else neuron_hash.compute_hash()[0]
+            self.assertEqual(model_key, expected_value)
+
+    def test_push_to_hub_create_and_add_registry_without_model_name_or_path(self):
+        return self._test_push_to_hub_create_and_add_registry(False)
+
+    def test_push_to_hub_create_and_add_registry_with_model_name_or_path(self):
+        return self._test_push_to_hub_create_and_add_registry(True)
 
     def test_download_cached_model_from_hub(self):
         os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_PRIVATE_CACHE_REPO
