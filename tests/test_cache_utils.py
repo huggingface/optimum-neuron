@@ -212,7 +212,7 @@ class NeuronHashTestCase(TestCase):
             neuron_hash.model = bert_model
 
         with self.assertRaises(FrozenInstanceError):
-            neuron_hash.input_shapes = ((2, 32), (2, 32))
+            neuron_hash.input_shapes = (("x", (2, 32)), ("y", (2, 32)))
 
         with self.assertRaises(FrozenInstanceError):
             neuron_hash.num_neuron_cores = 32
@@ -294,7 +294,7 @@ class NeuronHashTestCase(TestCase):
 
     def test_neuron_hash_folders(self):
         bert_model = BertModel(BertConfig())
-        input_shapes = ((1, 2), (2, 3))
+        input_shapes = (("x", (1, 2)), ("y", (2, 3)))
         data_type = torch.float32
         num_neuron_cores = 32
 
@@ -310,7 +310,7 @@ class NeuronHashTestCase(TestCase):
         self.assertListEqual(neuron_hash.folders, expected_folders)
 
     def test_neuron_hash_is_private(self):
-        input_shapes = ((1, 2), (2, 3))
+        input_shapes = (("x", (1, 2)), ("y", (2, 3)))
         data_type = torch.float32
 
         bert_model = BertModel(BertConfig())
@@ -338,7 +338,7 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
         with TemporaryDirectory() as tmpdirname:
             set_neuron_cache_path(tmpdirname)
 
-            input_shapes = (1,)
+            input_shapes = (("x", (1,)),)
             data_type = torch.float32
             tiny_model = self.create_and_run_tiny_pretrained_model(random_num_linears=True)
             neuron_hash = NeuronHash(tiny_model, input_shapes, data_type)
@@ -360,7 +360,7 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
         with TemporaryDirectory() as tmpdirname:
             set_neuron_cache_path(tmpdirname)
 
-            input_shapes = (1,)
+            input_shapes = (("x", (1,)),)
             data_type = torch.float32
             tiny_model = self.create_and_run_tiny_pretrained_model(random_num_linears=True)
             neuron_hash = NeuronHash(tiny_model, input_shapes, data_type)
@@ -374,7 +374,7 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
         with TemporaryDirectory() as tmpdirname:
             set_neuron_cache_path(tmpdirname)
 
-            input_shapes = (1,)
+            input_shapes = (("x", (1,)),)
             data_type = torch.float32
             tiny_model = self.create_and_run_tiny_pretrained_model(random_num_linears=True)
             neuron_hash = NeuronHash(tiny_model, input_shapes, data_type)
@@ -412,7 +412,7 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
         with TemporaryDirectory() as tmpdirname:
             set_neuron_cache_path(tmpdirname)
 
-            input_shapes = (1,)
+            input_shapes = (("x", (1,)),)
             data_type = torch.float32
             tiny_model = self.create_and_run_tiny_pretrained_model(random_num_linears=True)
             neuron_hash = NeuronHash(tiny_model, input_shapes, data_type)
@@ -461,7 +461,7 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
         with TemporaryDirectory() as tmpdirname:
             set_neuron_cache_path(tmpdirname)
 
-            input_shapes = ((1,),)
+            input_shapes = (("x", (1,)),)
             data_type = torch.float32
             tiny_model = self.create_and_run_tiny_pretrained_model(random_num_linears=True)
             tiny_model.push_to_hub("tiny-public-model")
@@ -490,6 +490,19 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
             self.set_hf_hub_token(TRANSFORMERS_TOKEN)
             delete_repo(repo_name, repo_type="model")
             self.set_hf_hub_token(orig_token)
+
+    def test_push_to_hub_registry(self):
+        with TemporaryDirectory() as tmpdirname:
+            set_neuron_cache_path(tmpdirname)
+
+            input_shapes = (("x", (1,)),)
+            data_type = torch.float32
+            data_type = torch.float32
+            tiny_model = self.create_and_run_tiny_pretrained_model(random_num_linears=True)
+            neuron_hash = NeuronHash(tiny_model, input_shapes, data_type)
+
+            os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_PRIVATE_CACHE_REPO
+            push_to_cache_on_hub(neuron_hash, cached_files[0])
 
     def test_download_cached_model_from_hub(self):
         os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_PRIVATE_CACHE_REPO

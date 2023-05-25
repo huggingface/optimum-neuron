@@ -17,7 +17,6 @@
 import hashlib
 import io
 import json
-from operator import mod
 import os
 import re
 import shutil
@@ -67,6 +66,8 @@ NEURON_COMPILE_CACHE_NAME = "neuron-compile-cache"
 _IP_PATTERN = re.compile(r"ip-([0-9]{1,3}-){4}")
 
 _WRITING_ACCESS_CACHE: Dict[Tuple[str, str], bool] = {}
+_REGISTRY_FILE_EXISTS: Dict[str, bool] = {}
+_ADDED_IN_REGISTRY: Dict[Tuple[str, "NeuronHash"], bool] = {}
 
 
 def load_custom_cache_repo_name_from_hf_home(
@@ -262,22 +263,27 @@ def create_registry_file_if_does_not_exist(repo_id: str):
         file_exists = False
     if file_exists:
         return
-    with tempfile.NamedTemporaryFile() as fp:
-        tmpfilename = Path(fp.name)
+    with tempfile.NamedTemporaryFile() as tmpfile:
+        with open(tmpfile.name, "w") as fp:
+            json.dump({}, fp)
+        tmpfilename = Path(tmpfile.name)
         add_registry_file = CommitOperationAdd(REGISTRY_FILENAME, tmpfilename.as_posix())
         HfApi().create_commit(repo_id, operations=[add_registry_file], commit_message="Create cache registry file")
 
 
 def add_in_registry(repo_id: str, neuron_hash: "NeuronHash"):
+    was_added = _ADDED_IN_REGISTRY.get((repo_id, neuron_hash), False)
+    if was_added:
+        return
     model_name_or_path = _get_model_name_or_path(neuron_hash.model.config)
     if model_name_or_path is None:
-        return
+        model_name_or_path = "null"
 
     model_hash, overall_hash = neuron_hash.compute_hash()
 
     with tempfile.TemporaryDirectory() as tmpdirname:
         tmpdirpath = Path(tmpdirname)
-        hf_hub_download(repo_id, REGISTRY_FILENAME, force_download=True, local_dir=tmpdirpath, local_dir_use_symlinks=False)
+        hf_hub_download(repo_id, REGISTRY_FILENAME, force_download=False, local_dir=tmpdirpath, local_dir_use_symlinks=False)
         registry_path = tmpdirpath / REGISTRY_FILENAME
         with open(registry_path, "r") as fp:
             registry = json.load(fp)
@@ -288,7 +294,8 @@ def add_in_registry(repo_id: str, neuron_hash: "NeuronHash"):
         registry = registry[neuron_hash.neuron_compiler_version]
 
         if model_name_or_path not in registry:
-            registry[model_name_or_path] = {"model_name_or_path": model_name_or_path, "model_hash": model_hash}
+            key = model_name_or_path if model_name_or_path != "null" else model_hash
+            registry[key] = {"model_name_or_path": model_name_or_path, "model_hash": model_hash}
         registry = registry[model_name_or_path]
 
         if "features" not in registry:
@@ -296,7 +303,7 @@ def add_in_registry(repo_id: str, neuron_hash: "NeuronHash"):
 
         exists_already = False
         for feature in registry["features"]:
-            if feature["hash"] == overall_hash:
+            if feature["neuron_hash"] == overall_hash:
                 exists_already = True
 
         if not exists_already:
@@ -306,7 +313,7 @@ def add_in_registry(repo_id: str, neuron_hash: "NeuronHash"):
                 "num_neuron_cores": neuron_hash.num_neuron_cores,
                 "neuron_hash": overall_hash,
             }
-            registry["input_shapes"].append(data)
+            registry["features"].append(data)
 
         with open(registry_path, "w") as fp:
             json.dump(orig_registry, fp)
@@ -317,7 +324,7 @@ def add_in_registry(repo_id: str, neuron_hash: "NeuronHash"):
             operations=[add_model_in_registry], 
             commit_message=f"Add {model_name_or_path} in registry for NeuronHash {overall_hash}"
         )
-
+        _ADDED_IN_REGISTRY[(repo_id, neuron_hash)] = True
 
 
 class StaticTemporaryDirectory:
@@ -354,7 +361,7 @@ class _MutableHashAttribute:
 @dataclass(frozen=True)
 class NeuronHash:
     model: "PreTrainedModel"
-    input_shapes: Tuple[Tuple[int], ...]
+    input_shapes: Tuple[Tuple[str, Tuple[int]], ...]
     data_type: torch.dtype
     num_neuron_cores: int = field(default_factory=get_num_neuron_cores_used)
     neuron_compiler_version: str = field(default_factory=get_neuronxcc_version)
@@ -552,6 +559,14 @@ def push_to_cache_on_hub(
     if cache_repo_id is None:
         cache_repo_id = get_hf_hub_cache_repos()[0]
 
+    registry_file_exists = _REGISTRY_FILE_EXISTS.get(cache_repo_id, False)
+    if not registry_file_exists:
+        try:
+            create_registry_file_if_does_not_exist(cache_repo_id)
+            _REGISTRY_FILE_EXISTS[cache_repo_id] = True
+        except HfHubHTTPError as e:
+            pass
+
     is_cache_repo_private = is_private_repo(cache_repo_id)
     if neuron_hash.is_private and not is_cache_repo_private:
         raise ValueError(
@@ -638,4 +653,11 @@ def push_to_cache_on_hub(
         except HfHubHTTPError as e:
             # TODO: create PR when no writing rights?
             logger.warning(could_not_push_message.format(cache_repo_id=cache_repo_id, error=e))
+
+    # Adding the model to the registry.
+    try:
+        add_in_registry(cache_repo_id, neuron_hash)
+    except HfHubHTTPError:
+        pass
+
     return CachedModelOnTheHub(cache_repo_id, path_in_repo)
