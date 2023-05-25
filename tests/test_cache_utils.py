@@ -516,10 +516,16 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
             files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
 
             self.assertIn(REGISTRY_FILENAME, files_in_repo)
-            hf_hub_download(self.CUSTOM_PRIVATE_CACHE_REPO,REGISTRY_FILENAME, force_download=True, local_dir=tmpdirname, local_dir_use_symlinks=False)
+            hf_hub_download(
+                self.CUSTOM_PRIVATE_CACHE_REPO,
+                REGISTRY_FILENAME,
+                force_download=True,
+                local_dir=tmpdirname,
+                local_dir_use_symlinks=False,
+            )
             with open(Path(tmpdirname) / REGISTRY_FILENAME, "r") as fp:
                 registry = json.load(fp)
-            
+
             neuron_compiler_version = list(registry.keys())[0]
             model_key = list(registry[neuron_compiler_version].keys())[0]
             expected_value = dummy_model_path.as_posix() if with_model_name_or_path else neuron_hash.compute_hash()[0]

@@ -29,8 +29,16 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Un
 import huggingface_hub
 import numpy as np
 import torch
-from huggingface_hub import CommitOperationAdd, CommitOperationDelete, HfApi, HfFolder, RepoUrl, create_repo, hf_hub_download
-from huggingface_hub.utils import HfHubHTTPError, RepositoryNotFoundError, EntryNotFoundError
+from huggingface_hub import (
+    CommitOperationAdd,
+    CommitOperationDelete,
+    HfApi,
+    HfFolder,
+    RepoUrl,
+    create_repo,
+    hf_hub_download,
+)
+from huggingface_hub.utils import EntryNotFoundError, HfHubHTTPError, RepositoryNotFoundError
 
 from ...utils import logging
 from ...utils.logging import warn_once
@@ -283,7 +291,9 @@ def add_in_registry(repo_id: str, neuron_hash: "NeuronHash"):
 
     with tempfile.TemporaryDirectory() as tmpdirname:
         tmpdirpath = Path(tmpdirname)
-        hf_hub_download(repo_id, REGISTRY_FILENAME, force_download=False, local_dir=tmpdirpath, local_dir_use_symlinks=False)
+        hf_hub_download(
+            repo_id, REGISTRY_FILENAME, force_download=False, local_dir=tmpdirpath, local_dir_use_symlinks=False
+        )
         registry_path = tmpdirpath / REGISTRY_FILENAME
         with open(registry_path, "r") as fp:
             registry = json.load(fp)
@@ -320,9 +330,9 @@ def add_in_registry(repo_id: str, neuron_hash: "NeuronHash"):
 
         add_model_in_registry = CommitOperationAdd(REGISTRY_FILENAME, registry_path.as_posix())
         HfApi().create_commit(
-            repo_id, 
-            operations=[add_model_in_registry], 
-            commit_message=f"Add {model_name_or_path} in registry for NeuronHash {overall_hash}"
+            repo_id,
+            operations=[add_model_in_registry],
+            commit_message=f"Add {model_name_or_path} in registry for NeuronHash {overall_hash}",
         )
         _ADDED_IN_REGISTRY[(repo_id, neuron_hash)] = True
 
@@ -427,7 +437,6 @@ class NeuronHash:
     @property
     def neuron_compiler_version_dir_name(self):
         return f"USER_neuroncc-{self.neuron_compiler_version}"
-
 
     @property
     def is_private(self):
@@ -564,7 +573,7 @@ def push_to_cache_on_hub(
         try:
             create_registry_file_if_does_not_exist(cache_repo_id)
             _REGISTRY_FILE_EXISTS[cache_repo_id] = True
-        except HfHubHTTPError as e:
+        except HfHubHTTPError:
             pass
 
     is_cache_repo_private = is_private_repo(cache_repo_id)

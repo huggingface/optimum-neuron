@@ -177,7 +177,9 @@ class NeuronCacheCallaback(TrainerCallback):
         try_to_fetch_cached_model: bool = False,
     ) -> NeuronHash:
         input_names = inspect.signature(model.forward).parameters.keys()
-        input_shapes = tuple((input_name, input_.shape) for input_name, input_ in inputs.items() if input_name in input_names)
+        input_shapes = tuple(
+            (input_name, input_.shape) for input_name, input_ in inputs.items() if input_name in input_names
+        )
 
         if args.fp16:
             data_type = torch.float16
