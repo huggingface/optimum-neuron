@@ -291,50 +291,67 @@ def add_in_registry(repo_id: str, neuron_hash: "NeuronHash"):
     model_hash, overall_hash = neuron_hash.compute_hash()
 
     with tempfile.TemporaryDirectory() as tmpdirname:
-        tmpdirpath = Path(tmpdirname)
-        hf_hub_download(
-            repo_id, REGISTRY_FILENAME, force_download=False, local_dir=tmpdirpath, local_dir_use_symlinks=False
-        )
-        registry_path = tmpdirpath / REGISTRY_FILENAME
-        with open(registry_path, "r") as fp:
-            registry = json.load(fp)
+        keep_going = True
+        while keep_going:
+            tmpdirpath = Path(tmpdirname)
+            head = HfApi().model_info(repo_id).sha
+            hf_hub_download(
+                repo_id, 
+                REGISTRY_FILENAME, 
+                revision=head,
+                local_dir=tmpdirpath, 
+                local_dir_use_symlinks=False,
+            )
+            registry_path = tmpdirpath / REGISTRY_FILENAME
+            with open(registry_path, "r") as fp:
+                registry = json.load(fp)
 
-        orig_registry = registry
-        if neuron_hash.neuron_compiler_version not in registry:
-            registry[neuron_hash.neuron_compiler_version] = {}
-        registry = registry[neuron_hash.neuron_compiler_version]
+            orig_registry = registry
+            if neuron_hash.neuron_compiler_version not in registry:
+                registry[neuron_hash.neuron_compiler_version] = {}
+            registry = registry[neuron_hash.neuron_compiler_version]
 
-        if model_name_or_path not in registry:
-            key = model_name_or_path if model_name_or_path != "null" else model_hash
-            registry[key] = {"model_name_or_path": model_name_or_path, "model_hash": model_hash}
-        registry = registry[model_name_or_path]
+            if model_name_or_path not in registry:
+                key = model_name_or_path if model_name_or_path != "null" else model_hash
+                registry[key] = {"model_name_or_path": model_name_or_path, "model_hash": model_hash}
+            registry = registry[model_name_or_path]
 
-        if "features" not in registry:
-            registry["features"] = []
+            if "features" not in registry:
+                registry["features"] = []
 
-        exists_already = False
-        for feature in registry["features"]:
-            if feature["neuron_hash"] == overall_hash:
-                exists_already = True
+            exists_already = False
+            for feature in registry["features"]:
+                if feature["neuron_hash"] == overall_hash:
+                    exists_already = True
 
-        if not exists_already:
-            data = {
-                "input_shapes": neuron_hash.input_shapes,
-                "precision": str(neuron_hash.data_type),
-                "num_neuron_cores": neuron_hash.num_neuron_cores,
-                "neuron_hash": overall_hash,
-            }
-            registry["features"].append(data)
+            if not exists_already:
+                data = {
+                    "input_shapes": neuron_hash.input_shapes,
+                    "precision": str(neuron_hash.data_type),
+                    "num_neuron_cores": neuron_hash.num_neuron_cores,
+                    "neuron_hash": overall_hash,
+                }
+                registry["features"].append(data)
 
-        with open(registry_path, "w") as fp:
-            json.dump(orig_registry, fp)
+            with open(registry_path, "w") as fp:
+                json.dump(orig_registry, fp)
 
-        add_model_in_registry = CommitOperationAdd(REGISTRY_FILENAME, registry_path.as_posix())
-        HfApi().create_commit(
-            repo_id,
-            operations=[add_model_in_registry],
-            commit_message=f"Add {model_name_or_path} in registry for NeuronHash {overall_hash}",
-        )
+            add_model_in_registry = CommitOperationAdd(REGISTRY_FILENAME, registry_path.as_posix())
+            try:
+                HfApi().create_commit(
+                    repo_id,
+                    operations=[add_model_in_registry],
+                    commit_message=f"Add {model_name_or_path} in registry for NeuronHash {overall_hash}",
+                    parent_commit=head,
+                )
+            except ValueError as e:
+                if "A commit has happened since" in str(e):
+                    logger.info("A commit has happened in cache repository since we tried to update the registry, starting again...")
+                else:
+                    raise e
+            else:
+                keep_going = False
+
         _ADDED_IN_REGISTRY[(repo_id, neuron_hash)] = True
 
 
