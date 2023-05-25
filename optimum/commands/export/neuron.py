@@ -88,19 +88,16 @@ def parse_args_neuron(parser: "ArgumentParser"):
     input_group.add_argument(
         "--batch_size",
         type=int,
-        default=1,
         help=f"Batch size {doc_input}",
     )
     input_group.add_argument(
         "--sequence_length",
         type=int,
-        default=16,
         help=f"Sequence length {doc_input}",
     )
     input_group.add_argument(
         "--num_choices",
         type=int,
-        default=4,
         help=f"Only for the multiple-choice task. Num choices {doc_input}",
     )
 

@@ -25,6 +25,7 @@ from transformers import AutoConfig
 from optimum.exporters.neuron import NeuronConfig, export, validate_model_outputs
 from optimum.exporters.neuron.model_configs import *  # noqa: F403
 from optimum.exporters.tasks import TasksManager
+from optimum.neuron.utils import is_neuronx_available
 from optimum.neuron.utils.testing_utils import is_inferentia_test
 from optimum.utils import DEFAULT_DUMMY_SHAPES, logging
 
@@ -90,8 +91,12 @@ class NeuronExportTestCase(TestCase):
         model = model_class.from_config(config)
         reference_model = copy.deepcopy(model)
 
+        mandatory_shapes = {
+            name: DEFAULT_DUMMY_SHAPES[name]
+            for name in neuron_config_constructor.func.get_mandatory_axes_for_task(task)
+        }
         neuron_config = neuron_config_constructor(
-            config=model.config, task=task, dynamic_batch_size=dynamic_batch_size, batch_size=2, sequence_length=18
+            config=model.config, task=task, dynamic_batch_size=dynamic_batch_size, **mandatory_shapes
         )
 
         atol = neuron_config.ATOL_FOR_VALIDATION
@@ -120,4 +125,5 @@ class NeuronExportTestCase(TestCase):
 
     @parameterized.expand(_get_models_to_test(EXPORT_MODELS_TINY), skip_on_empty=True)  # , random_pick=1
     def test_export_with_dynamic_batch_size(self, test_name, name, model_name, task, neuron_config_constructor):
-        self._neuronx_export(test_name, name, model_name, task, neuron_config_constructor, dynamic_batch_size=True)
+        if is_neuronx_available():
+            self._neuronx_export(test_name, name, model_name, task, neuron_config_constructor, dynamic_batch_size=True)
