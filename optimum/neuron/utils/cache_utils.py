@@ -63,6 +63,7 @@ HASH_FILE_NAME = "pytorch_model.bin"
 NEURON_COMPILE_CACHE_NAME = "neuron-compile-cache"
 
 _IP_PATTERN = re.compile(r"ip-([0-9]{1,3}-){4}")
+_HF_HUB_HTTP_ERROR_REQUEST_ID_PATTERN = re.compile(r"\(Request ID: Root=[\w-]+\)")
 
 _WRITING_ACCESS_CACHE: Dict[Tuple[str, str], bool] = {}
 
@@ -519,7 +520,7 @@ def push_to_cache_on_hub(
 
     could_not_push_message = (
         "Could not push the cached model to the repo {cache_repo_id}, most likely due to not having the write permission "
-        "for this repo. Exact error: {error}."
+        "for this repo. Exact error:\n{error}."
     )
     if local_cache_dir_or_file.is_dir():
         try:
@@ -546,8 +547,9 @@ def push_to_cache_on_hub(
                     repo_type="model",
                 )
         except HfHubHTTPError as e:
-            # TODO: create PR when no writing rights?
-            logger.warning(could_not_push_message.format(cache_repo_id=cache_repo_id, error=e))
+            msg = could_not_push_message.format(cache_repo_id=cache_repo_id, error=e)
+            msg = re.sub(_HF_HUB_HTTP_ERROR_REQUEST_ID_PATTERN, "", msg)
+            warn_once(logger, msg)
     else:
         try:
             with tempfile.TemporaryDirectory() as tmpdirname:
@@ -566,6 +568,7 @@ def push_to_cache_on_hub(
                     repo_type="model",
                 )
         except HfHubHTTPError as e:
-            # TODO: create PR when no writing rights?
-            logger.warning(could_not_push_message.format(cache_repo_id=cache_repo_id, error=e))
+            msg = could_not_push_message.format(cache_repo_id=cache_repo_id, error=e)
+            msg = re.sub(_HF_HUB_HTTP_ERROR_REQUEST_ID_PATTERN, "", msg)
+            warn_once(logger, msg)
     return CachedModelOnTheHub(cache_repo_id, path_in_repo)
