@@ -539,7 +539,7 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
 
     def test_download_cached_model_from_hub(self):
         set_custom_cache_repo_name_in_hf_home(self.CUSTOM_PRIVATE_CACHE_REPO)
-        neuron_hash = self.push_tiny_pretrained_model_to_hub(self.CUSTOM_PRIVATE_CACHE_REPO)
+        neuron_hash = self.push_tiny_pretrained_model_cache_to_hub(self.CUSTOM_PRIVATE_CACHE_REPO)
 
         neuron_cc_flags = os.environ["NEURON_CC_FLAGS"]
 
@@ -554,7 +554,7 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
 
     def test_download_cached_model_from_hub_with_target_directory(self):
         set_custom_cache_repo_name_in_hf_home(self.CUSTOM_PRIVATE_CACHE_REPO)
-        neuron_hash = self.push_tiny_pretrained_model_to_hub(self.CUSTOM_PRIVATE_CACHE_REPO)
+        neuron_hash = self.push_tiny_pretrained_model_cache_to_hub(self.CUSTOM_PRIVATE_CACHE_REPO)
 
         cached_model_on_the_hub = get_cached_model_on_the_hub(neuron_hash)
         if cached_model_on_the_hub is None:
@@ -585,7 +585,7 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
 
     def test_download_cached_model_from_hub_with_path_in_repo_to_path_in_target_directory(self):
         set_custom_cache_repo_name_in_hf_home(self.CUSTOM_PRIVATE_CACHE_REPO)
-        neuron_hash = self.push_tiny_pretrained_model_to_hub(self.CUSTOM_PRIVATE_CACHE_REPO)
+        neuron_hash = self.push_tiny_pretrained_model_cache_to_hub(self.CUSTOM_PRIVATE_CACHE_REPO)
 
         cached_model_on_the_hub = get_cached_model_on_the_hub(neuron_hash)
         if cached_model_on_the_hub is None:
@@ -623,7 +623,7 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
     #     os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_PRIVATE_CACHE_REPO
 
     #     with TemporaryDirectory() as tmpdirname:
-    #         neuron_hash = self._push_tiny_pretrained_model_to_hub(self.CUSTOM_PRIVATE_CACHE_REPO, cache_dir=tmpdirname)
+    #         neuron_hash = self._push_tiny_pretrained_model_cache_to_hub(self.CUSTOM_PRIVATE_CACHE_REPO, cache_dir=tmpdirname)
 
     #         with patch("huggingface_hub.snapshot_download") as mock_snapshot_download:
     #             # All the files are already there, should not download anything.
