@@ -170,9 +170,9 @@ class StagingTestMixin:
         delete_custom_cache_repo_name_from_hf_home()
 
         # Adding a seed to avoid concurrency issues between staging tests.
-        seed = get_random_string(5)
-        cls.CUSTOM_CACHE_REPO = f"{cls.CUSTOM_CACHE_REPO}-{seed}"
-        cls.CUSTOM_PRIVATE_CACHE_REPO = f"{cls.CUSTOM_PRIVATE_CACHE_REPO}-{seed}"
+        cls.seed = get_random_string(5)
+        cls.CUSTOM_CACHE_REPO = f"{cls.CUSTOM_CACHE_REPO}-{cls.seed}"
+        cls.CUSTOM_PRIVATE_CACHE_REPO = f"{cls.CUSTOM_PRIVATE_CACHE_REPO}-{cls.seed}"
 
         create_repo(cls.CUSTOM_CACHE_REPO, repo_type="model", exist_ok=True)
         create_repo(cls.CUSTOM_PRIVATE_CACHE_REPO, repo_type="model", exist_ok=True, private=True)
