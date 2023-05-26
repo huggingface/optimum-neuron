@@ -158,8 +158,7 @@ class StagingNeuronUtilsTestCase(StagingTestMixin, TestCase):
         orig_token = HfFolder.get_token()
         HfFolder.save_token(TOKEN)
 
-        seed = get_random_string(5)
-        repo_name = f"blablabla-{seed}"
+        repo_name = f"blablabla-{self.seed}"
         repo_id = f"{USER}/{repo_name}"
         create_repo(repo_name, repo_type="model")
 
@@ -501,9 +500,11 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
             data_type = torch.float32
             data_type = torch.float32
             tiny_model = self.create_and_run_tiny_pretrained_model(random_num_linears=True)
-            dummy_model_path = Path(tmpdirname) / "dummy_model"
-            tiny_model.save_pretrained(dummy_model_path)
-            tiny_model.config._model_name_or_path = dummy_model_path.as_posix()
+            model_name = f"dummy_model-{self.seed}"
+            if with_model_name_or_path:
+                tiny_model.push_to_hub(model_name)
+                model_name = f"{USER}/{model_name}"
+                tiny_model.config._model_name_or_path = model_name
             neuron_hash = NeuronHash(tiny_model, input_shapes, data_type)
 
             set_custom_cache_repo_name_in_hf_home(self.CUSTOM_PRIVATE_CACHE_REPO)
@@ -528,7 +529,7 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
 
             neuron_compiler_version = list(registry.keys())[0]
             model_key = list(registry[neuron_compiler_version].keys())[0]
-            expected_value = dummy_model_path.as_posix() if with_model_name_or_path else neuron_hash.compute_hash()[0]
+            expected_value = model_name if with_model_name_or_path else neuron_hash.compute_hash()[0]
             self.assertEqual(model_key, expected_value)
 
     def test_push_to_hub_create_and_add_registry_without_model_name_or_path(self):

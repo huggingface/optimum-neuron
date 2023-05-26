@@ -88,15 +88,16 @@ def load_custom_cache_repo_name_from_hf_home(
     return None
 
 
-def set_custom_cache_repo_name_in_hf_home(repo_id: str, hf_home: str = HF_HOME):
+def set_custom_cache_repo_name_in_hf_home(repo_id: str, hf_home: str = HF_HOME, check_repo: bool = True):
     hf_home_cache_repo_file = f"{hf_home}/{CACHE_REPO_FILENAME}"
-    try:
-        HfApi().repo_info(repo_id, repo_type="model")
-    except Exception as e:
-        raise ValueError(
-            f"Could not save the custom Trainium cache repo to be {repo_id} because it does not exist or is private to "
-            f"you. Complete exception message: {e}."
-        )
+    if check_repo:
+        try:
+            HfApi().repo_info(repo_id, repo_type="model")
+        except Exception as e:
+            raise ValueError(
+                f"Could not save the custom Trainium cache repo to be {repo_id} because it does not exist or is "
+                f"private to you. Complete exception message: {e}."
+            )
 
     existing_custom_cache_repo = load_custom_cache_repo_name_from_hf_home(hf_home_cache_repo_file)
     if existing_custom_cache_repo is not None:
@@ -261,10 +262,15 @@ def _get_model_name_or_path(config: "PretrainedConfig") -> Optional[str]:
         if attribute is not None:
             model_name_or_path = attribute
             break
+    if model_name_or_path == "":
+        model_name_or_path = None
     return model_name_or_path
 
 
 def create_registry_file_if_does_not_exist(repo_id: str):
+    was_created = _REGISTRY_FILE_EXISTS.get(repo_id, False)
+    if was_created:
+        return
     file_exists = True
     try:
         hf_hub_download(repo_id, REGISTRY_FILENAME, force_download=True)
@@ -278,6 +284,8 @@ def create_registry_file_if_does_not_exist(repo_id: str):
         tmpfilename = Path(tmpfile.name)
         add_registry_file = CommitOperationAdd(REGISTRY_FILENAME, tmpfilename.as_posix())
         HfApi().create_commit(repo_id, operations=[add_registry_file], commit_message="Create cache registry file")
+
+    _REGISTRY_FILE_EXISTS[repo_id] = True
 
 
 def add_in_registry(repo_id: str, neuron_hash: "NeuronHash"):
@@ -311,10 +319,10 @@ def add_in_registry(repo_id: str, neuron_hash: "NeuronHash"):
                 registry[neuron_hash.neuron_compiler_version] = {}
             registry = registry[neuron_hash.neuron_compiler_version]
 
+            key = model_name_or_path if model_name_or_path != "null" else model_hash
             if model_name_or_path not in registry:
-                key = model_name_or_path if model_name_or_path != "null" else model_hash
                 registry[key] = {"model_name_or_path": model_name_or_path, "model_hash": model_hash}
-            registry = registry[model_name_or_path]
+            registry = registry[key]
 
             if "features" not in registry:
                 registry["features"] = []
@@ -588,13 +596,11 @@ def push_to_cache_on_hub(
     if cache_repo_id is None:
         cache_repo_id = get_hf_hub_cache_repos()[0]
 
-    registry_file_exists = _REGISTRY_FILE_EXISTS.get(cache_repo_id, False)
-    if not registry_file_exists:
-        try:
-            create_registry_file_if_does_not_exist(cache_repo_id)
-            _REGISTRY_FILE_EXISTS[cache_repo_id] = True
-        except HfHubHTTPError:
-            pass
+    try:
+        create_registry_file_if_does_not_exist(cache_repo_id)
+        _REGISTRY_FILE_EXISTS[cache_repo_id] = True
+    except HfHubHTTPError:
+        pass
 
     is_cache_repo_private = is_private_repo(cache_repo_id)
     if neuron_hash.is_private and not is_cache_repo_private:
