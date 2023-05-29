@@ -154,6 +154,10 @@ def export(
     dynamic_batch_size: bool = False,
 ) -> Tuple[List[str], List[str]]:
     if is_neuron_available():
+        if dynamic_batch_size is True:
+            raise RuntimeError(
+                "There is currently an issue for using dynamic batching on INF1: https://github.com/aws-neuron/aws-neuron-sdk/issues/681. Will fix it soon! "
+            )
         return export_neuron(
             model, config, output, auto_cast, auto_cast_type, disable_fast_relayout, dynamic_batch_size
         )

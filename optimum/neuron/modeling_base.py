@@ -80,7 +80,10 @@ class NeuronModel(OptimizedModel):
         self.model_save_dir = self._normalize_path(model_save_dir)
         self.preprocessors = preprocessors if preprocessors is not None else []
         self.model_file_name = getattr(self.model_save_dir, "name", None)
-        self.neuron_config = neuron_config
+        self.neuron_config = (
+            NeuronModel._initialize_neuron_config(self.config) if neuron_config is None else neuron_config
+        )
+        self.input_static_shapes = NeuronModel.get_input_static_shapes(self.neuron_config)
 
         # Registers the NeuronModelForXXX classes into the transformers AutoModel classes to avoid warnings when creating
         # a pipeline https://github.com/huggingface/transformers/blob/3d3204c025b6b5de013e07dd364208e28b4d9589/src/transformers/pipelines/base.py#L940
@@ -288,18 +291,80 @@ class NeuronModel(OptimizedModel):
         else:
             return path
 
-    def pad_to_compiled_shapes(self, **inputs):
-        pass
+    @classmethod
+    def _initialize_neuron_config(cls, config: "PretrainedConfig"):
+        """
+        Build a Neuron config with an instance of the `PretrainedConfig` and the task.
+        """
+        # Fetch mandatory shapes from config
+        compile_shapes = {
+            key.replace("neuron_", ""): value
+            for (key, value) in config.to_diff_dict().items()
+            if key.startswith("neuron_")
+        }
 
-    def validate_static_shape(self, **kwargs_shapes):
-        dim_to_pad = []
-        if self.neuron_config is not None:
-            for name in kwargs_shapes.keys():
-                compiled_shape = getattr(self.neuron_config, name, None)
-                rt_shape = kwargs_shapes[name]
-                if rt_shape > compiled_shape:
-                    raise
-                elif rt_shape < compiled_shape:
-                    dim_to_pad.append(name)
+        # Neuron config constructuor
+        task = cls._auto_model_to_task(cls.auto_model_class)
+        neuron_config_constructor = TasksManager.get_exporter_config_constructor(
+            model_type=config.model_type, exporter="neuron", task=task
+        )
 
-        return dim_to_pad
+        # Build neuron config
+        return neuron_config_constructor(config, **compile_shapes)
+
+    @classmethod
+    def get_input_static_shapes(cls, neuron_config):
+        """
+        Get a dictionary of inputs with their valid static shapes.
+        """
+        axes = neuron_config._axes
+        input_static_shapes = {
+            name: value.shape
+            for name, value in neuron_config.generate_dummy_inputs(return_tuple=False, **axes).items()
+        }
+        return input_static_shapes
+
+    def _validate_static_shape(self, input_shapes, target_shapes):
+        """
+        Check if a input needs to be padded.
+        """
+        if self.neuron_config.dynamic_batch_size is True:
+            batch_size_check = input_shapes[0] % target_shapes[0] == 0
+            other_check = input_shapes[1:] == target_shapes[1:] if len(input_shapes) > 1 else True
+            return batch_size_check and other_check
+        else:
+            return input_shapes == target_shapes
+
+    def _pad_to_compiled_shape(self, inputs):
+        """
+        Pad input tensors if they are not in valid shape
+        """
+        for input_name, input_tensor in inputs.items():
+            target_shapes = self.input_static_shapes[input_name]
+            padding = ()
+            if self._validate_static_shape(input_tensor.shape, target_shapes) is True:
+                continue
+
+            # Dim 0 for the batch size
+            last_dim_to_pad = 0
+            if self.neuron_config.dynamic_batch_size is True and input_tensor.size(0) % target_shapes[0] == 0:
+                last_dim_to_pad += 1
+
+            for i in reversed(range(last_dim_to_pad, input_tensor.dim())):
+                if i == 0 and self.neuron_config.dynamic_batch_size is True:
+                    target_shape = (input_tensor.size(0) // target_shapes[0] + 1) * target_shapes[0]
+                    to_pad = target_shape - input_tensor.size(0)
+                else:
+                    to_pad = target_shapes[i] - input_tensor.size(i)
+                if to_pad < 0:
+                    extra = ", unless you set `dynamic_batch_size=True` during the compilation" if i == 0 else ""
+                    raise ValueError(
+                        f"Unable to pad {input_name} with shape: {input_tensor.shape} on dimension {i} as input shapes must be inferior"
+                        f" than the static shapes used for compilation: {target_shapes}{extra}."
+                    )
+                else:
+                    padding += (0, to_pad)
+
+            inputs[input_name] = torch.nn.functional.pad(input_tensor, padding, mode="constant", value=0)
+
+        return inputs
