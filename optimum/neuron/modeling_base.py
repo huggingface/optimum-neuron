@@ -15,6 +15,7 @@
 """NeuronModel base classe for inference on neuron devices using the same API as Transformers."""
 
 import logging
+from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, List, Optional, Union
@@ -335,9 +336,17 @@ class NeuronModel(OptimizedModel):
         else:
             return input_shapes == target_shapes
 
+    def _raise_if_invalid_padding(self, input_name, input_tensor, target_shapes, to_pad, dim):
+        if to_pad < 0:
+            extra = ", unless you set `dynamic_batch_size=True` during the compilation" if dim == 0 else ""
+            raise ValueError(
+                f"Unable to pad {input_name} with shape: {input_tensor.shape} on dimension {dim} as input shapes must be inferior"
+                f" than the static shapes used for compilation: {target_shapes}{extra}."
+            )
+
     def _pad_to_compiled_shape(self, inputs):
         """
-        Pad input tensors if they are not in valid shape
+        Pad input tensors if they are not in valid shape.
         """
         for input_name, input_tensor in inputs.items():
             target_shapes = self.input_static_shapes[input_name]
@@ -345,26 +354,40 @@ class NeuronModel(OptimizedModel):
             if self._validate_static_shape(input_tensor.shape, target_shapes) is True:
                 continue
 
-            # Dim 0 for the batch size
-            last_dim_to_pad = 0
+            # Dimensions other than 0
+            for i in reversed(range(1, input_tensor.dim())):
+                to_pad = target_shapes[i] - input_tensor.size(i)
+
+                self._raise_if_invalid_padding(input_name, input_tensor, target_shapes, to_pad, i)
+                padding += (0, to_pad)
+
+            pad_id = self.preprocessors[0].pad_token_id if self.preprocessors is not None else 0
+            input_tensor = torch.nn.functional.pad(input_tensor, padding, mode="constant", value=pad_id)
+
+            # Dimension 0 for batch size (pad_token_id can't be 0)
+            padding = (0,) * len(padding)
             if self.neuron_config.dynamic_batch_size is True and input_tensor.size(0) % target_shapes[0] == 0:
-                last_dim_to_pad += 1
+                pass
+            elif self.neuron_config.dynamic_batch_size is True:
+                target_shape = (input_tensor.size(0) // target_shapes[0] + 1) * target_shapes[0]
+                to_pad = target_shape - input_tensor.size(0)
+            else:
+                to_pad = target_shapes[0] - input_tensor.size(0)
+                self._raise_if_invalid_padding(input_name, input_tensor, target_shapes, to_pad, 0)
+            padding += (0, to_pad)
 
-            for i in reversed(range(last_dim_to_pad, input_tensor.dim())):
-                if i == 0 and self.neuron_config.dynamic_batch_size is True:
-                    target_shape = (input_tensor.size(0) // target_shapes[0] + 1) * target_shapes[0]
-                    to_pad = target_shape - input_tensor.size(0)
-                else:
-                    to_pad = target_shapes[i] - input_tensor.size(i)
-                if to_pad < 0:
-                    extra = ", unless you set `dynamic_batch_size=True` during the compilation" if i == 0 else ""
-                    raise ValueError(
-                        f"Unable to pad {input_name} with shape: {input_tensor.shape} on dimension {i} as input shapes must be inferior"
-                        f" than the static shapes used for compilation: {target_shapes}{extra}."
-                    )
-                else:
-                    padding += (0, to_pad)
-
-            inputs[input_name] = torch.nn.functional.pad(input_tensor, padding, mode="constant", value=0)
+            pad_id = 1
+            inputs[input_name] = torch.nn.functional.pad(input_tensor, padding, mode="constant", value=pad_id)
 
         return inputs
+
+    @contextmanager
+    def neuron_padding_manager(self, inputs):
+        inputs = tuple(self._pad_to_compiled_shape(inputs).values())
+        yield inputs
+
+    def remove_padded_to_batch_size(self, outputs, batch_size):
+        """
+        Remove from outputs the dummy sequences that we padded to a specific batch size.
+        """
+        return [output_tensor[:batch_size] for output_tensor in outputs]

@@ -145,7 +145,9 @@ class NeuronModelForFeatureExtraction(NeuronModel):
         if token_type_ids is not None:
             neuron_inputs["token_type_ids"] = token_type_ids
 
-        outputs = self.model(*tuple(neuron_inputs.values()))
+        with self.neuron_padding_manager(neuron_inputs) as inputs:
+            outputs = self.model(*inputs)
+            outputs = self.remove_padded_to_batch_size(outputs, batch_size=input_ids.shape[0])
 
         last_hidden_state = outputs[0]
         pooler_output = outputs[1] if len(outputs) > 1 else None
@@ -224,7 +226,9 @@ class NeuronModelForMaskedLM(NeuronModel):
         if token_type_ids is not None:
             neuron_inputs["token_type_ids"] = token_type_ids
 
-        outputs = self.model(*tuple(neuron_inputs.values()))
+        with self.neuron_padding_manager(neuron_inputs) as inputs:
+            outputs = self.model(*inputs)
+            outputs = self.remove_padded_to_batch_size(outputs, batch_size=input_ids.shape[0])
 
         logits = outputs[0]
 
@@ -302,7 +306,10 @@ class NeuronModelForQuestionAnswering(NeuronModel):
         if token_type_ids is not None:
             neuron_inputs["token_type_ids"] = token_type_ids
 
-        outputs = self.model(*tuple(neuron_inputs.values()))
+        with self.neuron_padding_manager(neuron_inputs) as inputs:
+            outputs = self.model(*inputs)
+            outputs = self.remove_padded_to_batch_size(outputs, batch_size=input_ids.shape[0])
+
         start_logits = outputs[0]
         end_logits = outputs[1]
 
@@ -395,7 +402,9 @@ class NeuronModelForSequenceClassification(NeuronModel):
         if token_type_ids is not None:
             neuron_inputs["token_type_ids"] = token_type_ids
 
-        outputs = self.model(*tuple(neuron_inputs.values()))
+        with self.neuron_padding_manager(neuron_inputs) as inputs:
+            outputs = self.model(*inputs)
+            outputs = self.remove_padded_to_batch_size(outputs, batch_size=input_ids.shape[0])
 
         logits = outputs[0]
 
@@ -474,7 +483,10 @@ class NeuronModelForTokenClassification(NeuronModel):
             neuron_inputs["token_type_ids"] = token_type_ids
 
         # run inference
-        outputs = self.model(*tuple(neuron_inputs.values()))
+        with self.neuron_padding_manager(neuron_inputs) as inputs:
+            outputs = self.model(*inputs)
+            outputs = self.remove_padded_to_batch_size(outputs, batch_size=input_ids.shape[0])
+
         logits = outputs[0]
 
         # converts output to namedtuple for pipelines post-processing
@@ -548,7 +560,10 @@ class NeuronModelForMultipleChoice(NeuronModel):
             neuron_inputs["token_type_ids"] = token_type_ids
 
         # run inference
-        outputs = self.model(*tuple(neuron_inputs.values()))
+        with self.neuron_padding_manager(neuron_inputs) as inputs:
+            outputs = self.model(*inputs)
+            outputs = self.remove_padded_to_batch_size(outputs, batch_size=input_ids.shape[0])
+
         logits = outputs[0]
 
         # converts output to namedtuple for pipelines post-processing
