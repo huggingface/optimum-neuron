@@ -14,6 +14,7 @@
 # limitations under the License.
 """Tests for the cache utilities."""
 
+import json
 import logging
 import os
 import random
@@ -24,7 +25,7 @@ from typing import List
 from unittest import TestCase
 
 import torch
-from huggingface_hub import HfApi, HfFolder, create_repo, delete_repo
+from huggingface_hub import HfApi, HfFolder, create_repo, delete_repo, hf_hub_download
 from transformers import BertConfig, BertModel, set_seed
 from transformers.testing_utils import TOKEN as TRANSFORMERS_TOKEN
 from transformers.testing_utils import USER as TRANSFORMERS_USER
@@ -33,6 +34,7 @@ from transformers.testing_utils import is_staging_test
 from optimum.neuron.utils.cache_utils import (
     CACHE_REPO_FILENAME,
     NEURON_COMPILE_CACHE_NAME,
+    REGISTRY_FILENAME,
     NeuronHash,
     download_cached_model_from_hub,
     get_cached_model_on_the_hub,
@@ -156,8 +158,7 @@ class StagingNeuronUtilsTestCase(StagingTestMixin, TestCase):
         orig_token = HfFolder.get_token()
         HfFolder.save_token(TOKEN)
 
-        seed = get_random_string(5)
-        repo_name = f"blablabla-{seed}"
+        repo_name = f"blablabla-{self.seed}"
         repo_id = f"{USER}/{repo_name}"
         create_repo(repo_name, repo_type="model")
 
@@ -212,7 +213,7 @@ class NeuronHashTestCase(TestCase):
             neuron_hash.model = bert_model
 
         with self.assertRaises(FrozenInstanceError):
-            neuron_hash.input_shapes = ((2, 32), (2, 32))
+            neuron_hash.input_shapes = (("x", (2, 32)), ("y", (2, 32)))
 
         with self.assertRaises(FrozenInstanceError):
             neuron_hash.num_neuron_cores = 32
@@ -294,7 +295,7 @@ class NeuronHashTestCase(TestCase):
 
     def test_neuron_hash_folders(self):
         bert_model = BertModel(BertConfig())
-        input_shapes = ((1, 2), (2, 3))
+        input_shapes = (("x", (1, 2)), ("y", (2, 3)))
         data_type = torch.float32
         num_neuron_cores = 32
 
@@ -310,7 +311,7 @@ class NeuronHashTestCase(TestCase):
         self.assertListEqual(neuron_hash.folders, expected_folders)
 
     def test_neuron_hash_is_private(self):
-        input_shapes = ((1, 2), (2, 3))
+        input_shapes = (("x", (1, 2)), ("y", (2, 3)))
         data_type = torch.float32
 
         bert_model = BertModel(BertConfig())
@@ -338,7 +339,7 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
         with TemporaryDirectory() as tmpdirname:
             set_neuron_cache_path(tmpdirname)
 
-            input_shapes = (1,)
+            input_shapes = (("x", (1,)),)
             data_type = torch.float32
             tiny_model = self.create_and_run_tiny_pretrained_model(random_num_linears=True)
             neuron_hash = NeuronHash(tiny_model, input_shapes, data_type)
@@ -360,21 +361,21 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
         with TemporaryDirectory() as tmpdirname:
             set_neuron_cache_path(tmpdirname)
 
-            input_shapes = (1,)
+            input_shapes = (("x", (1,)),)
             data_type = torch.float32
             tiny_model = self.create_and_run_tiny_pretrained_model(random_num_linears=True)
             neuron_hash = NeuronHash(tiny_model, input_shapes, data_type)
 
             cached_files = list_files_in_neuron_cache(Path(tmpdirname) / NEURON_COMPILE_CACHE_NAME)
 
-            os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_PRIVATE_CACHE_REPO
+            set_custom_cache_repo_name_in_hf_home(self.CUSTOM_PRIVATE_CACHE_REPO)
             push_to_cache_on_hub(neuron_hash, cached_files[0])
 
     def test_push_to_hub_overwrite_existing(self):
         with TemporaryDirectory() as tmpdirname:
             set_neuron_cache_path(tmpdirname)
 
-            input_shapes = (1,)
+            input_shapes = (("x", (1,)),)
             data_type = torch.float32
             tiny_model = self.create_and_run_tiny_pretrained_model(random_num_linears=True)
             neuron_hash = NeuronHash(tiny_model, input_shapes, data_type)
@@ -412,7 +413,7 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
         with TemporaryDirectory() as tmpdirname:
             set_neuron_cache_path(tmpdirname)
 
-            input_shapes = (1,)
+            input_shapes = (("x", (1,)),)
             data_type = torch.float32
             tiny_model = self.create_and_run_tiny_pretrained_model(random_num_linears=True)
             neuron_hash = NeuronHash(tiny_model, input_shapes, data_type)
@@ -461,11 +462,11 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
         with TemporaryDirectory() as tmpdirname:
             set_neuron_cache_path(tmpdirname)
 
-            input_shapes = ((1,),)
+            input_shapes = (("x", (1,)),)
             data_type = torch.float32
             tiny_model = self.create_and_run_tiny_pretrained_model(random_num_linears=True)
-            tiny_model.push_to_hub("tiny-public-model")
-            public_tiny_model = MyTinyModel.from_pretrained(f"{USER}/tiny-public-model")
+            tiny_model.push_to_hub(f"tiny-public-model-{self.seed}")
+            public_tiny_model = MyTinyModel.from_pretrained(f"{USER}/tiny-public-model-{self.seed}")
             neuron_hash = NeuronHash(public_tiny_model, input_shapes, data_type)
 
             public_tiny_model = public_tiny_model.to("xla")
@@ -473,16 +474,16 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
             print(public_tiny_model(input_))
 
             # This should work because we do have writing access to this repo.
-            os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_CACHE_REPO
+            set_custom_cache_repo_name_in_hf_home(self.CUSTOM_CACHE_REPO)
             push_to_cache_on_hub(neuron_hash, get_neuron_cache_path())
 
             # Creating a repo under the Transformers user.
             orig_token = self.set_hf_hub_token(TRANSFORMERS_TOKEN)
-            repo_name = "optimum-neuron-cache"
+            repo_name = f"optimum-neuron-cache-{self.seed}"
             create_repo(repo_name, repo_type="model", exist_ok=True)
             self.set_hf_hub_token(orig_token)
 
-            os.environ["CUSTOM_CACHE_REPO"] = f"{TRANSFORMERS_USER}/{repo_name}"
+            set_custom_cache_repo_name_in_hf_home(f"{TRANSFORMERS_USER}/{repo_name}")
             with self.assertLogs("optimum", "WARNING") as cm:
                 push_to_cache_on_hub(neuron_hash, get_neuron_cache_path())
                 self.assertTrue(any("Could not push the cached model to the repo" in output for output in cm.output))
@@ -491,9 +492,55 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
             delete_repo(repo_name, repo_type="model")
             self.set_hf_hub_token(orig_token)
 
+    def _test_push_to_hub_create_and_add_registry(self, with_model_name_or_path: bool):
+        with TemporaryDirectory() as tmpdirname:
+            set_neuron_cache_path(tmpdirname)
+
+            input_shapes = (("x", (1,)),)
+            data_type = torch.float32
+            data_type = torch.float32
+            tiny_model = self.create_and_run_tiny_pretrained_model(random_num_linears=True)
+            model_name = f"dummy_model-{self.seed}"
+            if with_model_name_or_path:
+                tiny_model.push_to_hub(model_name)
+                model_name = f"{USER}/{model_name}"
+                tiny_model.config._model_name_or_path = model_name
+            neuron_hash = NeuronHash(tiny_model, input_shapes, data_type)
+
+            set_custom_cache_repo_name_in_hf_home(self.CUSTOM_PRIVATE_CACHE_REPO)
+            files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
+            files_in_repo = [filename for filename in files_in_repo if not filename.startswith(".")]
+            self.assertListEqual(files_in_repo, [], "Repo should be empty")
+
+            cached_files = list_files_in_neuron_cache(Path(tmpdirname) / NEURON_COMPILE_CACHE_NAME)
+            push_to_cache_on_hub(neuron_hash, cached_files[0])
+            files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
+
+            self.assertIn(REGISTRY_FILENAME, files_in_repo)
+            hf_hub_download(
+                self.CUSTOM_PRIVATE_CACHE_REPO,
+                REGISTRY_FILENAME,
+                force_download=True,
+                local_dir=tmpdirname,
+                local_dir_use_symlinks=False,
+            )
+            with open(Path(tmpdirname) / REGISTRY_FILENAME, "r") as fp:
+                registry = json.load(fp)
+
+            neuron_compiler_version = list(registry.keys())[0]
+            model_key = list(registry[neuron_compiler_version].keys())[0]
+            expected_value = model_name if with_model_name_or_path else neuron_hash.compute_hash()[0]
+            self.assertEqual(model_key, expected_value)
+
+    def test_push_to_hub_create_and_add_registry_without_model_name_or_path(self):
+        return self._test_push_to_hub_create_and_add_registry(False)
+
+    def test_push_to_hub_create_and_add_registry_with_model_name_or_path(self):
+        return self._test_push_to_hub_create_and_add_registry(True)
+
     def test_download_cached_model_from_hub(self):
-        os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_PRIVATE_CACHE_REPO
-        neuron_hash = self.push_tiny_pretrained_model_to_hub(self.CUSTOM_PRIVATE_CACHE_REPO)
+        set_custom_cache_repo_name_in_hf_home(self.CUSTOM_PRIVATE_CACHE_REPO)
+        neuron_hash = self.push_tiny_pretrained_model_cache_to_hub(self.CUSTOM_PRIVATE_CACHE_REPO)
 
         neuron_cc_flags = os.environ["NEURON_CC_FLAGS"]
 
@@ -507,8 +554,8 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
         self.assertTrue(download_cached_model_from_hub(neuron_hash))
 
     def test_download_cached_model_from_hub_with_target_directory(self):
-        os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_PRIVATE_CACHE_REPO
-        neuron_hash = self.push_tiny_pretrained_model_to_hub(self.CUSTOM_PRIVATE_CACHE_REPO)
+        set_custom_cache_repo_name_in_hf_home(self.CUSTOM_PRIVATE_CACHE_REPO)
+        neuron_hash = self.push_tiny_pretrained_model_cache_to_hub(self.CUSTOM_PRIVATE_CACHE_REPO)
 
         cached_model_on_the_hub = get_cached_model_on_the_hub(neuron_hash)
         if cached_model_on_the_hub is None:
@@ -538,8 +585,8 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
             self.assertSetEqual(target_directory_files, repo_files)
 
     def test_download_cached_model_from_hub_with_path_in_repo_to_path_in_target_directory(self):
-        os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_PRIVATE_CACHE_REPO
-        neuron_hash = self.push_tiny_pretrained_model_to_hub(self.CUSTOM_PRIVATE_CACHE_REPO)
+        set_custom_cache_repo_name_in_hf_home(self.CUSTOM_PRIVATE_CACHE_REPO)
+        neuron_hash = self.push_tiny_pretrained_model_cache_to_hub(self.CUSTOM_PRIVATE_CACHE_REPO)
 
         cached_model_on_the_hub = get_cached_model_on_the_hub(neuron_hash)
         if cached_model_on_the_hub is None:
@@ -577,7 +624,7 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
     #     os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_PRIVATE_CACHE_REPO
 
     #     with TemporaryDirectory() as tmpdirname:
-    #         neuron_hash = self._push_tiny_pretrained_model_to_hub(self.CUSTOM_PRIVATE_CACHE_REPO, cache_dir=tmpdirname)
+    #         neuron_hash = self._push_tiny_pretrained_model_cache_to_hub(self.CUSTOM_PRIVATE_CACHE_REPO, cache_dir=tmpdirname)
 
     #         with patch("huggingface_hub.snapshot_download") as mock_snapshot_download:
     #             # All the files are already there, should not download anything.

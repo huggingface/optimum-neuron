@@ -89,7 +89,9 @@ class NeuronCacheCallaback(TrainerCallback):
         self.tmp_neuron_cache_state = list_files_in_neuron_cache(self.tmp_neuron_cache_path, only_relevant_files=True)
         self.fetch_files = set()
 
-        self.neuron_hashes: Dict[Tuple["PreTrainedModel", Tuple[Tuple[int], ...], torch.dtype], NeuronHash] = {}
+        self.neuron_hashes: Dict[
+            Tuple["PreTrainedModel", Tuple[Tuple[str, Tuple[int]], ...], torch.dtype], NeuronHash
+        ] = {}
         self.neuron_hash_to_files: Dict[NeuronHash, List[Path]] = defaultdict(list)
 
     def prepare_state(self, state: TrainerState):
@@ -177,7 +179,9 @@ class NeuronCacheCallaback(TrainerCallback):
         try_to_fetch_cached_model: bool = False,
     ) -> NeuronHash:
         input_names = inspect.signature(model.forward).parameters.keys()
-        input_shapes = tuple(tuple(value.shape) for (input_name, value) in inputs.items() if input_name in input_names)
+        input_shapes = tuple(
+            (input_name, tuple(input_.shape)) for input_name, input_ in inputs.items() if input_name in input_names
+        )
 
         if args.fp16:
             data_type = torch.float16

@@ -29,8 +29,16 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Un
 import huggingface_hub
 import numpy as np
 import torch
-from huggingface_hub import CommitOperationAdd, CommitOperationDelete, HfApi, HfFolder, RepoUrl, create_repo
-from huggingface_hub.utils import HfHubHTTPError, RepositoryNotFoundError
+from huggingface_hub import (
+    CommitOperationAdd,
+    CommitOperationDelete,
+    HfApi,
+    HfFolder,
+    RepoUrl,
+    create_repo,
+    hf_hub_download,
+)
+from huggingface_hub.utils import EntryNotFoundError, HfHubHTTPError, RepositoryNotFoundError
 
 from ...utils import logging
 from ...utils.logging import warn_once
@@ -59,13 +67,16 @@ if os.environ.get("HUGGINGFACE_CO_STAGING") == "1":
 else:
     HF_HUB_CACHE_REPOS = [f"aws-neuron/{CACHE_REPO_NAME}"]
 
-HASH_FILE_NAME = "pytorch_model.bin"
+HASH_FILENAME = "pytorch_model.bin"
+REGISTRY_FILENAME = "registry.json"
 NEURON_COMPILE_CACHE_NAME = "neuron-compile-cache"
 
 _IP_PATTERN = re.compile(r"ip-([0-9]{1,3}-){4}")
 _HF_HUB_HTTP_ERROR_REQUEST_ID_PATTERN = re.compile(r"\(Request ID: Root=[\w-]+\)")
 
 _WRITING_ACCESS_CACHE: Dict[Tuple[str, str], bool] = {}
+_REGISTRY_FILE_EXISTS: Dict[str, bool] = {}
+_ADDED_IN_REGISTRY: Dict[Tuple[str, "NeuronHash"], bool] = {}
 
 
 def load_custom_cache_repo_name_from_hf_home(
@@ -77,15 +88,16 @@ def load_custom_cache_repo_name_from_hf_home(
     return None
 
 
-def set_custom_cache_repo_name_in_hf_home(repo_id: str, hf_home: str = HF_HOME):
+def set_custom_cache_repo_name_in_hf_home(repo_id: str, hf_home: str = HF_HOME, check_repo: bool = True):
     hf_home_cache_repo_file = f"{hf_home}/{CACHE_REPO_FILENAME}"
-    try:
-        HfApi().repo_info(repo_id, repo_type="model")
-    except Exception as e:
-        raise ValueError(
-            f"Could not save the custom Trainium cache repo to be {repo_id} because it does not exist or is private to "
-            f"you. Complete exception message: {e}."
-        )
+    if check_repo:
+        try:
+            HfApi().repo_info(repo_id, repo_type="model")
+        except Exception as e:
+            raise ValueError(
+                f"Could not save the custom Trainium cache repo to be {repo_id} because it does not exist or is "
+                f"private to you. Complete exception message: {e}."
+            )
 
     existing_custom_cache_repo = load_custom_cache_repo_name_from_hf_home(hf_home_cache_repo_file)
     if existing_custom_cache_repo is not None:
@@ -242,6 +254,117 @@ def remove_ip_adress_from_path(path: Path) -> Path:
     return Path().joinpath(*(re.sub(_IP_PATTERN, "", part) for part in path.parts))
 
 
+def _get_model_name_or_path(config: "PretrainedConfig") -> Optional[str]:
+    attribute_names_to_try = ["_model_name_or_path", "_name_or_path"]
+    model_name_or_path = None
+    for name in attribute_names_to_try:
+        attribute = getattr(config, name, None)
+        if attribute is not None:
+            model_name_or_path = attribute
+            break
+    if model_name_or_path == "":
+        model_name_or_path = None
+    return model_name_or_path
+
+
+def create_registry_file_if_does_not_exist(repo_id: str):
+    was_created = _REGISTRY_FILE_EXISTS.get(repo_id, False)
+    if was_created:
+        return
+    file_exists = True
+    try:
+        hf_hub_download(repo_id, REGISTRY_FILENAME, force_download=True)
+    except EntryNotFoundError:
+        file_exists = False
+    if file_exists:
+        return
+    with tempfile.NamedTemporaryFile() as tmpfile:
+        with open(tmpfile.name, "w") as fp:
+            json.dump({}, fp)
+        tmpfilename = Path(tmpfile.name)
+        add_registry_file = CommitOperationAdd(REGISTRY_FILENAME, tmpfilename.as_posix())
+        HfApi().create_commit(repo_id, operations=[add_registry_file], commit_message="Create cache registry file")
+
+    _REGISTRY_FILE_EXISTS[repo_id] = True
+
+
+def add_in_registry(repo_id: str, neuron_hash: "NeuronHash"):
+    was_added = _ADDED_IN_REGISTRY.get((repo_id, neuron_hash), False)
+    if was_added:
+        return
+    model_name_or_path = _get_model_name_or_path(neuron_hash.model.config)
+    if model_name_or_path is None:
+        model_name_or_path = "null"
+
+    model_hash, overall_hash = neuron_hash.compute_hash()
+
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        keep_going = True
+        while keep_going:
+            tmpdirpath = Path(tmpdirname)
+            head = HfApi().model_info(repo_id).sha
+            hf_hub_download(
+                repo_id,
+                REGISTRY_FILENAME,
+                revision=head,
+                local_dir=tmpdirpath,
+                local_dir_use_symlinks=False,
+            )
+            registry_path = tmpdirpath / REGISTRY_FILENAME
+            with open(registry_path, "r") as fp:
+                registry = json.load(fp)
+
+            orig_registry = registry
+            if neuron_hash.neuron_compiler_version not in registry:
+                registry[neuron_hash.neuron_compiler_version] = {}
+            registry = registry[neuron_hash.neuron_compiler_version]
+
+            key = model_name_or_path if model_name_or_path != "null" else model_hash
+            if model_name_or_path not in registry:
+                registry[key] = {"model_name_or_path": model_name_or_path, "model_hash": model_hash}
+            registry = registry[key]
+
+            if "features" not in registry:
+                registry["features"] = []
+
+            exists_already = False
+            for feature in registry["features"]:
+                if feature["neuron_hash"] == overall_hash:
+                    exists_already = True
+
+            if not exists_already:
+                data = {
+                    "input_shapes": neuron_hash.input_shapes,
+                    "precision": str(neuron_hash.data_type),
+                    "num_neuron_cores": neuron_hash.num_neuron_cores,
+                    "neuron_hash": overall_hash,
+                }
+                registry["features"].append(data)
+
+            with open(registry_path, "w") as fp:
+                json.dump(orig_registry, fp)
+
+            add_model_in_registry = CommitOperationAdd(REGISTRY_FILENAME, registry_path.as_posix())
+            try:
+                HfApi().create_commit(
+                    repo_id,
+                    operations=[add_model_in_registry],
+                    commit_message=f"Add {model_name_or_path} in registry for NeuronHash {overall_hash}",
+                    parent_commit=head,
+                )
+            except ValueError as e:
+                if "A commit has happened since" in str(e):
+                    logger.info(
+                        "A commit has happened in cache repository since we tried to update the registry, starting again..."
+                    )
+                else:
+                    raise e
+            else:
+                keep_going = False
+
+        _ADDED_IN_REGISTRY[(repo_id, neuron_hash)] = True
+
+
 class StaticTemporaryDirectory:
     def __init__(self, dirname: Union[str, Path]):
         if isinstance(dirname, str):
@@ -276,7 +399,7 @@ class _MutableHashAttribute:
 @dataclass(frozen=True)
 class NeuronHash:
     model: "PreTrainedModel"
-    input_shapes: Tuple[Tuple[int], ...]
+    input_shapes: Tuple[Tuple[str, Tuple[int]], ...]
     data_type: torch.dtype
     num_neuron_cores: int = field(default_factory=get_num_neuron_cores_used)
     neuron_compiler_version: str = field(default_factory=get_neuronxcc_version)
@@ -343,20 +466,10 @@ class NeuronHash:
     def neuron_compiler_version_dir_name(self):
         return f"USER_neuroncc-{self.neuron_compiler_version}"
 
-    def _try_to_retrive_model_name_or_path(self, config: "PretrainedConfig") -> Optional[str]:
-        attribute_names_to_try = ["_model_name_or_path", "_name_or_path"]
-        model_name_or_path = None
-        for name in attribute_names_to_try:
-            attribute = getattr(config, name, None)
-            if attribute is not None:
-                model_name_or_path = attribute
-                break
-        return model_name_or_path
-
     @property
     def is_private(self):
         private = None
-        model_name_or_path = self._try_to_retrive_model_name_or_path(self.model.config)
+        model_name_or_path = _get_model_name_or_path(self.model.config)
         if model_name_or_path is None:
             private = True
         elif Path(model_name_or_path).exists():
@@ -483,6 +596,12 @@ def push_to_cache_on_hub(
     if cache_repo_id is None:
         cache_repo_id = get_hf_hub_cache_repos()[0]
 
+    try:
+        create_registry_file_if_does_not_exist(cache_repo_id)
+        _REGISTRY_FILE_EXISTS[cache_repo_id] = True
+    except HfHubHTTPError:
+        pass
+
     is_cache_repo_private = is_private_repo(cache_repo_id)
     if neuron_hash.is_private and not is_cache_repo_private:
         raise ValueError(
@@ -571,4 +690,11 @@ def push_to_cache_on_hub(
             msg = could_not_push_message.format(cache_repo_id=cache_repo_id, error=e)
             msg = re.sub(_HF_HUB_HTTP_ERROR_REQUEST_ID_PATTERN, "", msg)
             warn_once(logger, msg)
+
+    # Adding the model to the registry.
+    try:
+        add_in_registry(cache_repo_id, neuron_hash)
+    except HfHubHTTPError:
+        pass
+
     return CachedModelOnTheHub(cache_repo_id, path_in_repo)
