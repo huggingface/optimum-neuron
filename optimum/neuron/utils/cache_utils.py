@@ -116,6 +116,7 @@ def delete_custom_cache_repo_name_from_hf_home(hf_home_cache_repo_file: str = HF
 
 def create_custom_cache_repo(repo_id: str = CACHE_REPO_NAME, private: bool = True) -> RepoUrl:
     repo_url = create_repo(repo_id, private=private, repo_type="model")
+    create_registry_file_if_does_not_exist(repo_id)
     set_custom_cache_repo_name_in_hf_home(repo_url.repo_id)
     return repo_url
 
@@ -459,7 +460,7 @@ class _MutableHashAttribute:
 @dataclass(frozen=True)
 class NeuronHash:
     model: "PreTrainedModel"
-    input_shapes: Tuple[Tuple[str, Tuple[int]], ...]
+    input_shapes: Tuple[Tuple[str, Tuple[int, ...]], ...]
     data_type: torch.dtype
     num_neuron_cores: int = field(default_factory=get_num_neuron_cores_used)
     neuron_compiler_version: str = field(default_factory=get_neuronxcc_version)
