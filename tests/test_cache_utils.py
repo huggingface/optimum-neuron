@@ -32,11 +32,11 @@ from transformers.testing_utils import USER as TRANSFORMERS_USER
 from transformers.testing_utils import is_staging_test
 
 from optimum.neuron.utils.cache_utils import (
-    _list_in_registry_dict,
     CACHE_REPO_FILENAME,
     NEURON_COMPILE_CACHE_NAME,
     REGISTRY_FILENAME,
     NeuronHash,
+    _list_in_registry_dict,
     download_cached_model_from_hub,
     get_cached_model_on_the_hub,
     get_neuron_cache_path,
@@ -154,75 +154,64 @@ class NeuronUtilsTestCase(TestCase):
 
     def test_list_in_registry_dict(self):
         registry = {
-            "2.1.0":
-                {
-                    "model_1":  {
-                        "model_name_or_path": "model_1",
-                        "model_hash": "my model hash",
-                        "features": [
-                            {
-                                "input_shapes": [["x", [1, 2]], ["y", [2, 3]]],
-                                "precision": "torch.float32",
-                                "num_neuron_cores": 16,
-                                "neuron_hash": "neuron hash 1",
-
-                            },
-                            {
-                                "input_shapes": [["x", [3, 2]], ["y", [7, 3]]],
-                                "precision": "torch.float32",
-                                "num_neuron_cores": 8,
-                                "neuron_hash": "neuron hash 2",
-
-                            },
-                        ]
-
-                    },
-                    "model_2":  {
-                        "model_name_or_path": "null",
-                        "model_hash": "my model hash 2",
-                        "features": [
-                            {
-                                "input_shapes": [["x", [1, 2]], ["y", [2, 3]]],
-                                "precision": "torch.float16",
-                                "num_neuron_cores": 16,
-                                "neuron_hash": "neuron hash 3",
-
-                            },
-                            {
-                                "input_shapes": [["x", [3, 2]], ["y", [7, 3]]],
-                                "precision": "torch.float32",
-                                "num_neuron_cores": 8,
-                                "neuron_hash": "neuron hash 4",
-
-                            },
-                        ]
-
-                    },
+            "2.1.0": {
+                "model_1": {
+                    "model_name_or_path": "model_1",
+                    "model_hash": "my model hash",
+                    "features": [
+                        {
+                            "input_shapes": [["x", [1, 2]], ["y", [2, 3]]],
+                            "precision": "torch.float32",
+                            "num_neuron_cores": 16,
+                            "neuron_hash": "neuron hash 1",
+                        },
+                        {
+                            "input_shapes": [["x", [3, 2]], ["y", [7, 3]]],
+                            "precision": "torch.float32",
+                            "num_neuron_cores": 8,
+                            "neuron_hash": "neuron hash 2",
+                        },
+                    ],
                 },
-            "2.5.0":
-                {
-                    "model_1":  {
-                        "model_name_or_path": "model_1",
-                        "model_hash": "my model hash",
-                        "features": [
-                            {
-                                "input_shapes": [["x", [1, 2]], ["y", [2, 3]]],
-                                "precision": "torch.float32",
-                                "num_neuron_cores": 16,
-                                "neuron_hash": "neuron hash 5",
-
-                            },
-                            {
-                                "input_shapes": [["x", [3, 2]], ["y", [7, 3]]],
-                                "precision": "torch.float32",
-                                "num_neuron_cores": 8,
-                                "neuron_hash": "neuron hash 6",
-
-                            },
-                        ]
-
-                    },
-            }
+                "model_2": {
+                    "model_name_or_path": "null",
+                    "model_hash": "my model hash 2",
+                    "features": [
+                        {
+                            "input_shapes": [["x", [1, 2]], ["y", [2, 3]]],
+                            "precision": "torch.float16",
+                            "num_neuron_cores": 16,
+                            "neuron_hash": "neuron hash 3",
+                        },
+                        {
+                            "input_shapes": [["x", [3, 2]], ["y", [7, 3]]],
+                            "precision": "torch.float32",
+                            "num_neuron_cores": 8,
+                            "neuron_hash": "neuron hash 4",
+                        },
+                    ],
+                },
+            },
+            "2.5.0": {
+                "model_1": {
+                    "model_name_or_path": "model_1",
+                    "model_hash": "my model hash",
+                    "features": [
+                        {
+                            "input_shapes": [["x", [1, 2]], ["y", [2, 3]]],
+                            "precision": "torch.float32",
+                            "num_neuron_cores": 16,
+                            "neuron_hash": "neuron hash 5",
+                        },
+                        {
+                            "input_shapes": [["x", [3, 2]], ["y", [7, 3]]],
+                            "precision": "torch.float32",
+                            "num_neuron_cores": 8,
+                            "neuron_hash": "neuron hash 6",
+                        },
+                    ],
+                },
+            },
         }
 
         result = _list_in_registry_dict(registry)
