@@ -70,6 +70,7 @@ class NeuronModel(OptimizedModel):
         model: torch.jit._script.ScriptModule,
         config: "PretrainedConfig",
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
+        model_file_name: Optional[str] = None,
         preprocessors: Optional[List] = None,
         neuron_config: "NeuronConfig" = None,
         **kwargs,
@@ -80,7 +81,7 @@ class NeuronModel(OptimizedModel):
         self.config = config
         self.model_save_dir = self._normalize_path(model_save_dir)
         self.preprocessors = preprocessors if preprocessors is not None else []
-        self.model_file_name = getattr(self.model_save_dir, "name", None)
+        self.model_file_name = model_file_name or NEURON_FILE_NAME
         self.neuron_config = (
             NeuronModel._initialize_neuron_config(self.config) if neuron_config is None else neuron_config
         )
@@ -190,6 +191,7 @@ class NeuronModel(OptimizedModel):
             model=model,
             config=config,
             model_save_dir=model_save_dir,
+            model_file_name=file_name,
             preprocessors=preprocessors,
             neuron_config=neuron_config,
         )
@@ -311,7 +313,9 @@ class NeuronModel(OptimizedModel):
         )
 
         # Build neuron config
-        return neuron_config_constructor(config, **compile_shapes)
+        return neuron_config_constructor(
+            config, dynamic_batch_size=getattr(config, "dynamic_batch_size", False), **compile_shapes
+        )
 
     @classmethod
     def get_input_static_shapes(cls, neuron_config):
