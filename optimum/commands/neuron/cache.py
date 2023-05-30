@@ -164,10 +164,30 @@ class AddToCacheRepoCommand(BaseOptimumCLICommand):
 class ListRepoCommand(BaseOptimumCLICommand):
     @staticmethod
     def parse_args(parser: "ArgumentParser"):
-        # TODO: improve help
-        parser.add_argument("-n", "--name", type=str, default=None, help="The name of the repo to list. Will use the locally saved cache repo if left unspecified.")
-        parser.add_argument("-m", "--model", type=str, default=None, help="The model name or path of the model to consider. Will consider all available models if left unspecified.")
-        parser.add_argument("-v", "--version", type=str, default=None, help="The version of the Neuron X Compiler to consider. Will consider all available versions if left unspecified.")
+        parser.add_argument(
+            "-n", 
+            "--name", 
+            type=str, 
+            default=None, 
+            help="The name of the repo to list. Will use the locally saved cache repo if left unspecified."
+        )
+        parser.add_argument(
+            "-m", 
+            "--model", 
+            type=str, 
+            default=None, 
+            help="The model name or path of the model to consider. If left unspecified, will list all available models."
+        )
+        parser.add_argument(
+            "-v", 
+            "--version", 
+            type=str, 
+            default=None, 
+            help=(
+                "The version of the Neuron X Compiler to consider. Will list all available versions if left "
+                "unspecified."
+            )
+        )
 
     def run(self):
         if self.args.name is None:

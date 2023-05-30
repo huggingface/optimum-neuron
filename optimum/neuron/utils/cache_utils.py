@@ -398,7 +398,6 @@ def _list_in_registry_dict(registry: Dict[str, Any], model_name_or_path_or_hash:
             f"Precision:\t{features['precision']}",
             f"Neuron X Compiler version:\t{neuron_compiler_version}",
             f"Num of neuron cores:\t{features['num_neuron_cores']}",
-            # TODO: what happens if there is only one input?
             f"Input shapes:\n{inputs}",
         ]
         entries.append("\n".join(information))
