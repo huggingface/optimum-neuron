@@ -365,6 +365,58 @@ def add_in_registry(repo_id: str, neuron_hash: "NeuronHash"):
         _ADDED_IN_REGISTRY[(repo_id, neuron_hash)] = True
 
 
+def _list_in_registry_dict(registry: Dict[str, Any], model_name_or_path_or_hash: Optional[str] = None, neuron_compiler_version: Optional[str] = None) -> List[str]:
+    entries = []
+    if neuron_compiler_version is not None:
+        registry = registry.get(neuron_compiler_version, {})
+    else:
+        for version in registry:
+            entries += _list_in_registry_dict(
+                registry, 
+                model_name_or_path_or_hash=model_name_or_path_or_hash, 
+                neuron_compiler_version=version
+            )
+            return entries
+    
+    # model_key is either a model name or path or a model hash.
+    for model_key in registry:
+        data = registry[model_key]
+        if model_name_or_path_or_hash is not None and not (data["model_name_or_path"].startswith(model_name_or_path_or_hash) or data["model_hash"].startswith(model_name_or_path_or_hash)):
+            continue
+
+        features = data["features"][0]
+        if len(features["input_shapes"]) > 1:
+            inputs = "\n\t- ".join(f"{x[0]} => {x[1]}" for x in features["input_shapes"])
+            inputs = f"\t- {inputs}"
+        else:
+            x = features["input_shapes"]
+            inputs = f"\t- {x[0]} => {x[1]}"
+        information = [
+            f"Model name:\t{data['model_name_or_path']}",
+            f"Model hash:\t{data['model_hash']}",
+            f"Global hash:\t{features['neuron_hash']}",
+            f"Precision:\t{features['precision']}",
+            f"Neuron X Compiler version:\t{neuron_compiler_version}",
+            f"Num of neuron cores:\t{features['num_neuron_cores']}",
+            # TODO: what happens if there is only one input?
+            f"Input shapes:\n{inputs}",
+        ]
+        entries.append("\n".join(information))
+    return entries
+
+
+def list_in_registry(repo_id: str, model_name_or_path_or_hash: Optional[str] = None, neuron_compiler_version: Optional[str] = None):
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        hf_hub_download(repo_id, REGISTRY_FILENAME, local_dir=tmpdirname, local_dir_use_symlinks=False)
+        registry_filename = Path(tmpdirname) / REGISTRY_FILENAME
+        with open(registry_filename, "r") as fp:
+            registry = json.load(fp)
+
+    return _list_in_registry_dict(registry, model_name_or_path_or_hash=model_name_or_path_or_hash, neuron_compiler_version=neuron_compiler_version)
+
+
+
+
 class StaticTemporaryDirectory:
     def __init__(self, dirname: Union[str, Path]):
         if isinstance(dirname, str):

@@ -20,6 +20,8 @@ from ...neuron.utils.cache_utils import (
     CACHE_REPO_NAME,
     HF_HOME_CACHE_REPO_FILE,
     create_custom_cache_repo,
+    list_in_registry,
+    load_custom_cache_repo_name_from_hf_home,
     set_custom_cache_repo_name_in_hf_home,
 )
 from ...neuron.utils.compilation_utils import ExampleRunner
@@ -159,6 +161,32 @@ class AddToCacheRepoCommand(BaseOptimumCLICommand):
         )
 
 
+class ListRepoCommand(BaseOptimumCLICommand):
+    @staticmethod
+    def parse_args(parser: "ArgumentParser"):
+        # TODO: improve help
+        parser.add_argument("-n", "--name", type=str, default=None, help="The name of the repo to list. Will use the locally saved cache repo if left unspecified.")
+        parser.add_argument("-m", "--model", type=str, default=None, help="The model name or path of the model to consider. Will consider all available models if left unspecified.")
+        parser.add_argument("-v", "--version", type=str, default=None, help="The version of the Neuron X Compiler to consider. Will consider all available versions if left unspecified.")
+
+    def run(self):
+        if self.args.name is None:
+            custom_cache_repo_name = load_custom_cache_repo_name_from_hf_home()
+            if custom_cache_repo_name is None:
+                raise ValueError(
+                    "No custom cache repo was set locally so you need to specify a cache repo using the -n / --name option."
+                )
+            self.args.name = custom_cache_repo_name
+        
+        entries = list_in_registry(self.args.name, model_name_or_path_or_hash=self.args.model, neuron_compiler_version=self.args.version)
+        if not entries:
+            entries = ["Nothing was found."]
+        line = "\n" + "=" * 50 + "\n"
+        result = line.join(entries)
+
+        print(f"\n*** Repo id: {self.args.name} ***\n\n{result}")
+
+
 class CustomCacheRepoCommand(BaseOptimumCLICommand):
     SUBCOMMANDS = (
         CommandInfo(
@@ -175,5 +203,10 @@ class CustomCacheRepoCommand(BaseOptimumCLICommand):
             name="add",
             help="Add a model to the cache of your choice.",
             subcommand_class=AddToCacheRepoCommand,
+        ),
+        CommandInfo(
+            name="list",
+            help="List models in a cache repo.",
+            subcommand_class=ListRepoCommand,
         ),
     )
