@@ -322,9 +322,11 @@ class ExampleTesterBase(TestCase):
         multi_proc = ExampleTestMeta.process_class_attribute(self.MULTI_PROC, model_type)
 
         # Extra
-        extra_command_line_arguments = [
-            ExampleTestMeta.process_class_attribute(arg, model_type) for arg in self.EXTRA_COMMAND_LINE_ARGUMENTS
-        ]
+        extra_command_line_arguments = []
+        if self.EXTRA_COMMAND_LINE_ARGUMENTS is not None:
+            extra_command_line_arguments = [
+                ExampleTestMeta.process_class_attribute(arg, model_type) for arg in self.EXTRA_COMMAND_LINE_ARGUMENTS
+            ]
 
         do_eval = eval_is_supported and not is_precompilation
 
