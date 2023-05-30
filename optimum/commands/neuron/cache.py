@@ -165,28 +165,28 @@ class ListRepoCommand(BaseOptimumCLICommand):
     @staticmethod
     def parse_args(parser: "ArgumentParser"):
         parser.add_argument(
-            "-n", 
-            "--name", 
-            type=str, 
-            default=None, 
-            help="The name of the repo to list. Will use the locally saved cache repo if left unspecified."
+            "-n",
+            "--name",
+            type=str,
+            default=None,
+            help="The name of the repo to list. Will use the locally saved cache repo if left unspecified.",
         )
         parser.add_argument(
-            "-m", 
-            "--model", 
-            type=str, 
-            default=None, 
-            help="The model name or path of the model to consider. If left unspecified, will list all available models."
+            "-m",
+            "--model",
+            type=str,
+            default=None,
+            help="The model name or path of the model to consider. If left unspecified, will list all available models.",
         )
         parser.add_argument(
-            "-v", 
-            "--version", 
-            type=str, 
-            default=None, 
+            "-v",
+            "--version",
+            type=str,
+            default=None,
             help=(
                 "The version of the Neuron X Compiler to consider. Will list all available versions if left "
                 "unspecified."
-            )
+            ),
         )
 
     def run(self):
@@ -197,8 +197,10 @@ class ListRepoCommand(BaseOptimumCLICommand):
                     "No custom cache repo was set locally so you need to specify a cache repo using the -n / --name option."
                 )
             self.args.name = custom_cache_repo_name
-        
-        entries = list_in_registry(self.args.name, model_name_or_path_or_hash=self.args.model, neuron_compiler_version=self.args.version)
+
+        entries = list_in_registry(
+            self.args.name, model_name_or_path_or_hash=self.args.model, neuron_compiler_version=self.args.version
+        )
         if not entries:
             entries = ["Nothing was found."]
         line = "\n" + "=" * 50 + "\n"

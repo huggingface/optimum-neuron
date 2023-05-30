@@ -365,23 +365,28 @@ def add_in_registry(repo_id: str, neuron_hash: "NeuronHash"):
         _ADDED_IN_REGISTRY[(repo_id, neuron_hash)] = True
 
 
-def _list_in_registry_dict(registry: Dict[str, Any], model_name_or_path_or_hash: Optional[str] = None, neuron_compiler_version: Optional[str] = None) -> List[str]:
+def _list_in_registry_dict(
+    registry: Dict[str, Any],
+    model_name_or_path_or_hash: Optional[str] = None,
+    neuron_compiler_version: Optional[str] = None,
+) -> List[str]:
     entries = []
     if neuron_compiler_version is not None:
         registry = registry.get(neuron_compiler_version, {})
     else:
         for version in registry:
             entries += _list_in_registry_dict(
-                registry, 
-                model_name_or_path_or_hash=model_name_or_path_or_hash, 
-                neuron_compiler_version=version
+                registry, model_name_or_path_or_hash=model_name_or_path_or_hash, neuron_compiler_version=version
             )
             return entries
-    
+
     # model_key is either a model name or path or a model hash.
     for model_key in registry:
         data = registry[model_key]
-        if model_name_or_path_or_hash is not None and not (data["model_name_or_path"].startswith(model_name_or_path_or_hash) or data["model_hash"].startswith(model_name_or_path_or_hash)):
+        if model_name_or_path_or_hash is not None and not (
+            data["model_name_or_path"].startswith(model_name_or_path_or_hash)
+            or data["model_hash"].startswith(model_name_or_path_or_hash)
+        ):
             continue
 
         features = data["features"][0]
@@ -404,16 +409,20 @@ def _list_in_registry_dict(registry: Dict[str, Any], model_name_or_path_or_hash:
     return entries
 
 
-def list_in_registry(repo_id: str, model_name_or_path_or_hash: Optional[str] = None, neuron_compiler_version: Optional[str] = None):
+def list_in_registry(
+    repo_id: str, model_name_or_path_or_hash: Optional[str] = None, neuron_compiler_version: Optional[str] = None
+):
     with tempfile.TemporaryDirectory() as tmpdirname:
         hf_hub_download(repo_id, REGISTRY_FILENAME, local_dir=tmpdirname, local_dir_use_symlinks=False)
         registry_filename = Path(tmpdirname) / REGISTRY_FILENAME
         with open(registry_filename, "r") as fp:
             registry = json.load(fp)
 
-    return _list_in_registry_dict(registry, model_name_or_path_or_hash=model_name_or_path_or_hash, neuron_compiler_version=neuron_compiler_version)
-
-
+    return _list_in_registry_dict(
+        registry,
+        model_name_or_path_or_hash=model_name_or_path_or_hash,
+        neuron_compiler_version=neuron_compiler_version,
+    )
 
 
 class StaticTemporaryDirectory:
