@@ -378,7 +378,7 @@ def _list_in_registry_dict(
             entries += _list_in_registry_dict(
                 registry, model_name_or_path_or_hash=model_name_or_path_or_hash, neuron_compiler_version=version
             )
-            return entries
+        return entries
 
     # model_key is either a model name or path or a model hash.
     for model_key in registry:
@@ -389,23 +389,23 @@ def _list_in_registry_dict(
         ):
             continue
 
-        features = data["features"][0]
-        if len(features["input_shapes"]) > 1:
-            inputs = "\n\t- ".join(f"{x[0]} => {x[1]}" for x in features["input_shapes"])
-            inputs = f"\t- {inputs}"
-        else:
-            x = features["input_shapes"]
-            inputs = f"\t- {x[0]} => {x[1]}"
-        information = [
-            f"Model name:\t{data['model_name_or_path']}",
-            f"Model hash:\t{data['model_hash']}",
-            f"Global hash:\t{features['neuron_hash']}",
-            f"Precision:\t{features['precision']}",
-            f"Neuron X Compiler version:\t{neuron_compiler_version}",
-            f"Num of neuron cores:\t{features['num_neuron_cores']}",
-            f"Input shapes:\n{inputs}",
-        ]
-        entries.append("\n".join(information))
+        for features in data["features"]:
+            if len(features["input_shapes"]) > 1:
+                inputs = "\n\t- ".join(f"{x[0]} => {x[1]}" for x in features["input_shapes"])
+                inputs = f"\t- {inputs}"
+            else:
+                x = features["input_shapes"]
+                inputs = f"\t- {x[0]} => {x[1]}"
+            information = [
+                f"Model name:\t{data['model_name_or_path']}",
+                f"Model hash:\t{data['model_hash']}",
+                f"Global hash:\t{features['neuron_hash']}",
+                f"Precision:\t{features['precision']}",
+                f"Neuron X Compiler version:\t{neuron_compiler_version}",
+                f"Num of neuron cores:\t{features['num_neuron_cores']}",
+                f"Input shapes:\n{inputs}",
+            ]
+            entries.append("\n".join(information))
     return entries
 
 

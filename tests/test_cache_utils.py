@@ -32,6 +32,7 @@ from transformers.testing_utils import USER as TRANSFORMERS_USER
 from transformers.testing_utils import is_staging_test
 
 from optimum.neuron.utils.cache_utils import (
+    _list_in_registry_dict,
     CACHE_REPO_FILENAME,
     NEURON_COMPILE_CACHE_NAME,
     REGISTRY_FILENAME,
@@ -150,6 +151,101 @@ class NeuronUtilsTestCase(TestCase):
             self.assertSetEqual(
                 set(filenames), set(list_files_in_neuron_cache(Path(tmpdirname), only_relevant_files=True))
             )
+
+    def test_list_in_registry_dict(self):
+        registry = {
+            "2.1.0":
+                {
+                    "model_1":  {
+                        "model_name_or_path": "model_1",
+                        "model_hash": "my model hash",
+                        "features": [
+                            {
+                                "input_shapes": [["x", [1, 2]], ["y", [2, 3]]],
+                                "precision": "torch.float32",
+                                "num_neuron_cores": 16,
+                                "neuron_hash": "neuron hash 1",
+
+                            },
+                            {
+                                "input_shapes": [["x", [3, 2]], ["y", [7, 3]]],
+                                "precision": "torch.float32",
+                                "num_neuron_cores": 8,
+                                "neuron_hash": "neuron hash 2",
+
+                            },
+                        ]
+
+                    },
+                    "model_2":  {
+                        "model_name_or_path": "null",
+                        "model_hash": "my model hash 2",
+                        "features": [
+                            {
+                                "input_shapes": [["x", [1, 2]], ["y", [2, 3]]],
+                                "precision": "torch.float16",
+                                "num_neuron_cores": 16,
+                                "neuron_hash": "neuron hash 3",
+
+                            },
+                            {
+                                "input_shapes": [["x", [3, 2]], ["y", [7, 3]]],
+                                "precision": "torch.float32",
+                                "num_neuron_cores": 8,
+                                "neuron_hash": "neuron hash 4",
+
+                            },
+                        ]
+
+                    },
+                },
+            "2.5.0":
+                {
+                    "model_1":  {
+                        "model_name_or_path": "model_1",
+                        "model_hash": "my model hash",
+                        "features": [
+                            {
+                                "input_shapes": [["x", [1, 2]], ["y", [2, 3]]],
+                                "precision": "torch.float32",
+                                "num_neuron_cores": 16,
+                                "neuron_hash": "neuron hash 5",
+
+                            },
+                            {
+                                "input_shapes": [["x", [3, 2]], ["y", [7, 3]]],
+                                "precision": "torch.float32",
+                                "num_neuron_cores": 8,
+                                "neuron_hash": "neuron hash 6",
+
+                            },
+                        ]
+
+                    },
+            }
+        }
+
+        result = _list_in_registry_dict(registry)
+        self.assertEqual(len(result), 6)
+        self.assertTrue(result[-1].startswith("Model name:\tmodel_1"))
+
+        result = _list_in_registry_dict(registry, model_name_or_path_or_hash="model_1")
+        self.assertEqual(len(result), 4)
+        self.assertTrue(result[0].startswith("Model name:\tmodel_1"))
+
+        result = _list_in_registry_dict(registry, model_name_or_path_or_hash="my model hash 2")
+        self.assertEqual(len(result), 2)
+        self.assertTrue(result[0].startswith("Model name:\tnull"))
+
+        result = _list_in_registry_dict(registry, neuron_compiler_version="2.5.0")
+        self.assertEqual(len(result), 2)
+        self.assertTrue(result[0].startswith("Model name:\tmodel_1"))
+
+        result = _list_in_registry_dict(registry, model_name_or_path_or_hash="random bad string")
+        self.assertEqual(len(result), 0)
+
+        result = _list_in_registry_dict(registry, neuron_compiler_version="-1.2")
+        self.assertEqual(len(result), 0)
 
 
 @is_staging_test
