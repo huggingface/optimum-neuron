@@ -34,7 +34,7 @@ from transformers.trainer_utils import ShardedDDPOption
 from transformers.training_args import ParallelMode
 from transformers.utils import is_apex_available, is_sagemaker_dp_enabled, is_sagemaker_mp_enabled
 
-from ..utils import logging
+from ..utils import check_if_transformers_greater, logging
 from .accelerator import TrainiumAccelerator
 from .generation import NeuronGenerationMixin
 from .trainer_callback import NeuronCacheCallaback
@@ -116,10 +116,11 @@ class AugmentTrainerForTrainiumMixin:
         prepare_environment_for_neuron()
         super().__init__(*args, **kwargs)
 
-        self.accelerator = TrainiumAccelerator(
-            deepspeed_plugin=self.args.deepspeed_plugin,
-            gradient_accumulation_steps=self.args.gradient_accumulation_steps,
-        )
+        if check_if_transformers_greater("4.30"):
+            self.accelerator = TrainiumAccelerator(
+                deepspeed_plugin=self.args.deepspeed_plugin,
+                gradient_accumulation_steps=self.args.gradient_accumulation_steps,
+            )
 
         if self.args.local_rank <= 0:
             logger.setLevel(logging.INFO)

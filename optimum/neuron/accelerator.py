@@ -17,7 +17,11 @@
 import inspect
 from typing import TYPE_CHECKING
 
-from accelerate import AcceleratedOptimizer, AcceleratedScheduler, Accelerator, AcceleratorState
+import torch
+from accelerate import Accelerator
+from accelerate.optimizer import AcceleratedOptimizer
+from accelerate.scheduler import AcceleratedScheduler
+from accelerate.state import AcceleratorState
 from accelerate.utils import (
     DistributedType,
     DynamoBackend,
@@ -33,8 +37,6 @@ from .utils import is_neuronx_available
 
 
 if TYPE_CHECKING:
-    import torch
-
     try:
         from torch.optim.lr_scheduler import LRScheduler
     except ImportError:
@@ -102,7 +104,7 @@ class TrainiumAcceleratedScheduler(AcceleratedScheduler):
 
 
 class TrainiumAccelerator(Accelerator):
-    def prepare_optimizer(self, optimizer: "torch.optim.Optimizer", device_placement=None):
+    def prepare_optimizer(self, optimizer: torch.optim.Optimizer, device_placement=None):
         if device_placement is None:
             device_placement = self.device_placement
         optimizer = TrainiumAcceleratedOptimizer(optimizer, device_placement=device_placement, scaler=self.scaler)
