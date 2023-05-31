@@ -41,7 +41,11 @@ from transformers import (
 )
 from transformers.testing_utils import slow
 
-from optimum.neuron.utils.cache_utils import set_neuron_cache_path
+from optimum.neuron.utils.cache_utils import (
+    load_custom_cache_repo_name_from_hf_home,
+    set_custom_cache_repo_name_in_hf_home,
+    set_neuron_cache_path,
+)
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
 
@@ -54,6 +58,8 @@ from utils import MODELS_TO_TEST_MAPPING  # noqa: E402
 TOKEN = HfFolder.get_token()
 if os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI", None) is not None:
     TOKEN = os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI")
+
+CACHE_REPO_NAME = "aws-neuron/optimum-neuron-cache"
 
 
 def _get_supported_models_for_script(
@@ -255,7 +261,7 @@ class ExampleTesterBase(TestCase):
     LOGGING_STEPS = 1
     SAVE_STEPS = -1
     ONLY_PRECOMPILATION = False
-    DO_PRECOMPILATION = True
+    DO_PRECOMPILATION = False
     NEURON_CACHE = None
     MULTI_PROC = os.environ.get("MULTI_PROC", "false")
     BF16 = True
@@ -263,11 +269,18 @@ class ExampleTesterBase(TestCase):
     @classmethod
     def setUpClass(cls):
         cls._create_venv()
+        cls._orig_token = HfFolder.get_token()
+        cls._orig_cache_repo = load_custom_cache_repo_name_from_hf_home()
         HfFolder.save_token(TOKEN)
+        set_custom_cache_repo_name_in_hf_home(CACHE_REPO_NAME)
 
     @classmethod
     def tearDownClass(cls):
         cls._remove_venv()
+        if cls._orig_token is not None:
+            HfFolder.save_token(cls._orig_token)
+        if cls._orig_cache_repo is not None:
+            set_custom_cache_repo_name_in_hf_home(cls._orig_cache_repo)
 
     def setUp(self):
         set_neuron_cache_path("/var/tmp/neuron-compile-cache")
@@ -587,7 +600,7 @@ class TranslationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, exa
         "--prediction_loss_only",
     ]
     # TODO: for now it does not work for T5, enable this ASAP.
-    DO_PRECOMPILATION = {"t5": False, "default": True}
+    DO_PRECOMPILATION = {"t5": False, "default": False}
 
     def _create_command_line(
         self,
