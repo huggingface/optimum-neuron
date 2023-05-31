@@ -244,10 +244,17 @@ class NeuronModel(OptimizedModel):
         neuron_config_constructor = TasksManager.get_exporter_config_constructor(
             model=model, exporter="neuron", task=task
         )
-        input_shapes = {
-            name: kwargs_shapes.get(name, None) or getattr(config, "neuron_" + name)
-            for name in neuron_config_constructor.func.get_mandatory_axes_for_task(task)
-        }
+
+        input_shapes = {}
+        for name in neuron_config_constructor.func.get_mandatory_axes_for_task(task):
+            static_shape = kwargs_shapes.get(name, None) or getattr(config, "neuron_" + name, None)
+            if static_shape is None:
+                raise AttributeError(
+                    f"Cannot find the value of `{name}` from arguments nor the `config`. `{name}` is mandatory"
+                    " for exporting the model to the neuron format, please set the value explicitly."
+                )
+            else:
+                input_shapes[name] = static_shape
         neuron_config = neuron_config_constructor(model.config, **input_shapes)
 
         # Get compilation arguments
@@ -270,6 +277,7 @@ class NeuronModel(OptimizedModel):
 
         config.save_pretrained(save_dir_path)
         maybe_save_preprocessors(model_id, save_dir_path, src_subfolder=subfolder)
+        # cache the neuron model
 
         return cls._from_pretrained(save_dir_path, config, neuron_config=neuron_config)
 
