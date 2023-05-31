@@ -16,16 +16,13 @@
 
 from typing import TYPE_CHECKING
 
-from accelerate import Accelerator, AcceleratedOptimizer, AcceleratedScheduler
+from accelerate import AcceleratedOptimizer, AcceleratedScheduler, Accelerator, AcceleratorState
 from accelerate.utils import DistributedType
 
-from .utils import is_neuronx_available
-
-if is_neuronx_available()
-    import torch_xla.core.xla_model as xm
 
 if TYPE_CHECKING:
     import torch
+
     try:
         from torch.optim.lr_scheduler import LRScheduler
     except ImportError:
@@ -48,6 +45,7 @@ class TrainiumAcceleratedOptimizer(AcceleratedOptimizer):
                 self._is_overflow = scale_after < scale_before
             else:
                 self.optimizer.step(closure)
+
 
 class TrainiumAcceleratedScheduler(AcceleratedScheduler):
     def step(self, *args, **kwargs):

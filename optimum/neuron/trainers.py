@@ -22,11 +22,9 @@ from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import torch
-import torch_xla.core.xla_model as xm
 from packaging import version
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
-
 from transformers import GenerationMixin, Seq2SeqTrainer, Trainer
 from transformers.dependency_versions_check import dep_version_check
 from transformers.integrations import is_fairscale_available
@@ -37,9 +35,10 @@ from transformers.training_args import ParallelMode
 from transformers.utils import is_apex_available, is_sagemaker_dp_enabled, is_sagemaker_mp_enabled
 
 from ..utils import logging
+from .accelerator import TrainiumAccelerator
 from .generation import NeuronGenerationMixin
 from .trainer_callback import NeuronCacheCallaback
-from .accelerator import TrainiumAccelerator
+from .utils import is_neuronx_available
 from .utils.argument_utils import validate_arg
 from .utils.cache_utils import get_neuron_cache_path
 from .utils.training_utils import (
@@ -55,6 +54,10 @@ if TYPE_CHECKING:
 
 if is_apex_available():
     from apex import amp
+
+
+if is_neuronx_available():
+    import torch_xla.core.xla_model as xm
 
 if is_sagemaker_mp_enabled():
     import smdistributed.modelparallel.torch as smp
@@ -93,7 +96,6 @@ if os.environ.get("TORCHELASTIC_RUN_ID"):
             raise AssertionError("Failed to initialize torch.distributed process group using XLA backend.")
 
 
-
 class AugmentTrainerForTrainiumMixin:
     def __init__(self, *args, **kwargs):
         if not isinstance(self, Trainer):
@@ -117,7 +119,7 @@ class AugmentTrainerForTrainiumMixin:
 
         self.accelerator = TrainiumAccelerator(
             deepspeed_plugin=self.args.deepspeed_plugin,
-            gradient_accumulation_steps=self.args.gradient_accumulation_steps
+            gradient_accumulation_steps=self.args.gradient_accumulation_steps,
         )
 
         if self.args.local_rank <= 0:
