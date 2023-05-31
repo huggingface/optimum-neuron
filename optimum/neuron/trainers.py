@@ -55,7 +55,6 @@ if TYPE_CHECKING:
 if is_apex_available():
     from apex import amp
 
-
 if is_neuronx_available():
     import torch_xla.core.xla_model as xm
 
@@ -316,15 +315,6 @@ class AugmentTrainerForTrainiumMixin:
             # self.accelerator.ddp_handler = DistributedDataParallelKwargs(**kwargs)
 
         return model
-
-    # def _wrap_model(self, model, training=True, dataloader=None):
-    #     if not is_model_officially_supported(model):
-    #         logger.warning(
-    #             f"{model.__class__.__name__} is not officially supported by optimum-neuron. Training might not work as  "
-    #             "expected."
-    #         )
-
-    #     return super()._wrap_model(patch_model(model), training=training, dataloader=dataloader)
 
     def get_train_dataloader(self) -> DataLoader:
         if is_precompilation():
