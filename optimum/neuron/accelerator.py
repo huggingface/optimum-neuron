@@ -14,10 +14,22 @@
 # limitations under the License.
 """Defines an Acceleator class compatible with Trainium."""
 
+import inspect
 from typing import TYPE_CHECKING
 
 from accelerate import AcceleratedOptimizer, AcceleratedScheduler, Accelerator, AcceleratorState
-from accelerate.utils import DistributedType
+from accelerate.utils import (
+    DistributedType,
+    DynamoBackend,
+    convert_model,
+    convert_outputs_to_fp32,
+    has_transformer_engine_layers,
+    is_fp8_available,
+    is_torch_version,
+)
+
+from ..utils import logging
+from .utils import is_neuronx_available
 
 
 if TYPE_CHECKING:
@@ -27,6 +39,16 @@ if TYPE_CHECKING:
         from torch.optim.lr_scheduler import LRScheduler
     except ImportError:
         from torch.optim.lr_scheduler import _LRScheduler as LRScheduler
+
+if is_neuronx_available():
+    import torch_xla.distributed.xla_multiprocessing as xmp
+
+if is_fp8_available():
+    import transformer_engine.common.recipe as te_recipe
+    from transformer_engine.pytorch import fp8_autocast
+
+
+logger = logging.get_logger(__name__)
 
 
 class TrainiumAcceleratedOptimizer(AcceleratedOptimizer):
@@ -102,6 +124,119 @@ class TrainiumAccelerator(Accelerator):
         )
         self._schedulers.append(scheduler)
         return scheduler
+
+    def prepare_model(self, model: torch.nn.Module, device_placement=None):
+        if device_placement is None:
+            device_placement = self.device_placement and self.distributed_type != DistributedType.FSDP
+        self._models.append(model)
+        # We check only for models loaded with `accelerate`
+
+        # Checks if any of the child module has the attribute `hf_device_map`.
+        has_hf_device_map = False
+        for m in model.modules():
+            if hasattr(m, "hf_device_map"):
+                has_hf_device_map = True
+                break
+
+        if getattr(model, "is_loaded_in_8bit", False) and getattr(model, "hf_device_map", False):
+            model_devices = set(model.hf_device_map.values())
+            if len(model_devices) > 1:
+                raise ValueError(
+                    "You can't train a model that has been loaded in 8-bit precision on multiple devices."
+                )
+
+            current_device_index = list(model_devices)[0]
+            if torch.device(current_device_index) != self.device:
+                # if on the first device (GPU 0) we don't care
+                if (self.device.index is not None) or (current_device_index != 0):
+                    raise ValueError(
+                        "You can't train a model that has been loaded in 8-bit precision on a different device than the one "
+                        "you're training on. Make sure you loaded the model on the correct device using for example `device_map={'':torch.cuda.current_device()}"
+                        "you're training on. Make sure you loaded the model on the correct device using for example `device_map={'':torch.cuda.current_device() or device_map={'':torch.xpu.current_device()}"
+                    )
+
+            if "cpu" in model_devices or "disk" in model_devices:
+                raise ValueError(
+                    "You can't train a model that has been loaded in 8-bit precision with CPU or disk offload."
+                )
+        elif device_placement and not has_hf_device_map:
+            model = model.to(self.device)
+
+        if self.distributed_type in (DistributedType.MULTI_GPU, DistributedType.MULTI_XPU):
+            if any(p.requires_grad for p in model.parameters()):
+                kwargs = self.ddp_handler.to_kwargs() if self.ddp_handler is not None else {}
+                model = torch.nn.parallel.DistributedDataParallel(
+                    model, device_ids=[self.local_process_index], output_device=self.local_process_index, **kwargs
+                )
+        elif self.distributed_type == DistributedType.FSDP:
+            try:
+                from torch_xla.distributed.fsdp import XlaFullyShardedDataParallel as FSDP
+            except ImportError:
+                raise ImportError("Missing XLA FSDP related module; please make sure to use torch-xla >= 2.0.")
+
+            # Check if the model is already a FSDP model due to `Manual Wrapping` and if so,
+            # don't wrap it again
+            if type(model) != FSDP:
+                self.state.fsdp_plugin.set_auto_wrap_policy(model)
+                fsdp_plugin = self.state.fsdp_plugin
+                kwargs = {
+                    "sharding_strategy": fsdp_plugin.sharding_strategy,
+                    "cpu_offload": fsdp_plugin.cpu_offload,
+                    "auto_wrap_policy": fsdp_plugin.auto_wrap_policy,
+                    "backward_prefetch": fsdp_plugin.backward_prefetch,
+                    "mixed_precision": fsdp_plugin.mixed_precision_policy,
+                    "ignored_modules": fsdp_plugin.ignored_modules,
+                    "device_id": self.device,
+                }
+                signature = inspect.signature(FSDP.__init__).parameters.keys()
+                if "limit_all_gathers" in signature:
+                    kwargs["limit_all_gathers"] = fsdp_plugin.limit_all_gathers
+                if "use_orig_params" in signature:
+                    kwargs["use_orig_params"] = fsdp_plugin.use_orig_params
+                model = FSDP(model, **kwargs)
+            self._models[-1] = model
+        elif self.distributed_type == DistributedType.MULTI_CPU:
+            kwargs = self.ddp_handler.to_kwargs() if self.ddp_handler is not None else {}
+            model = torch.nn.parallel.DistributedDataParallel(model, **kwargs)
+        if self.native_amp:
+            model._original_forward = model.forward
+            if self.mixed_precision == "fp16" and is_torch_version(">=", "1.10"):
+                model.forward = torch.cuda.amp.autocast(dtype=torch.float16)(model.forward)
+            elif self.mixed_precision == "bf16" and self.distributed_type != DistributedType.TPU:
+                model.forward = torch.autocast(device_type=self.device.type, dtype=torch.bfloat16)(model.forward)
+            else:
+                model.forward = torch.cuda.amp.autocast()(model.forward)
+            model.forward = convert_outputs_to_fp32(model.forward)
+        elif self.mixed_precision == "fp8":
+            if not has_transformer_engine_layers(model):
+                with torch.no_grad():
+                    convert_model(model)
+                model._converted_to_transformer_engine = True
+            model._original_forward = model.forward
+
+            kwargs = self.fp8_recipe_handler.to_kwargs() if self.fp8_recipe_handler is not None else {}
+            if "fp8_format" in kwargs:
+                kwargs["fp8_format"] = getattr(te_recipe.Format, kwargs["fp8_format"])
+            fp8_recipe = te_recipe.DelayedScaling(**kwargs)
+            cuda_device_capacity = torch.cuda.get_device_capability()
+            fp8_enabled = cuda_device_capacity[0] >= 9 or (
+                cuda_device_capacity[0] == 8 and cuda_device_capacity[1] >= 9
+            )
+            if not fp8_enabled:
+                logger.warn(
+                    f"The current device has compute capability of {cuda_device_capacity} which is "
+                    "insufficient for FP8 mixed precision training (requires a GPU Hopper/Ada Lovelace "
+                    "or higher, compute capability of 8.9 or higher). Will use FP16 instead."
+                )
+            model.forward = fp8_autocast(enabled=fp8_enabled, fp8_recipe=fp8_recipe)(model.forward)
+        if self.distributed_type == DistributedType.TPU and self.state.fork_launched:
+            model = xmp.MpModelWrapper(model).to(self.device)
+        # torch.compile should be called last.
+        if self.state.dynamo_plugin.backend != DynamoBackend.NO:
+            if not is_torch_version(">=", "2.0"):
+                raise ValueError("Using `torch.compile` requires PyTorch 2.0 or higher.")
+            model = torch.compile(model, **self.state.dynamo_plugin.to_kwargs())
+        return model
 
     def backward(self, loss, **kwargs):
         if self.distributed_type != DistributedType.DEEPSPEED:
