@@ -14,14 +14,26 @@
 # limitations under the License.
 """Defines Trainer subclasses to perform training on AWS Trainium instances."""
 
+import functools
 import os
+import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import torch
+import torch_xla.core.xla_model as xm
+from packaging import version
+from torch import nn
 from torch.utils.data import DataLoader, Dataset
 from transformers import GenerationMixin, Seq2SeqTrainer, Trainer
+from transformers.dependency_versions_check import dep_version_check
+from transformers.integrations import is_fairscale_available
+from transformers.modeling_utils import unwrap_model
+from transformers.trainer_pt_utils import get_module_class_from_name
+from transformers.trainer_utils import ShardedDDPOption
+from transformers.training_args import ParallelMode
+from transformers.utils import is_apex_available, is_sagemaker_dp_enabled, is_sagemaker_mp_enabled
 
 from ..utils import logging
 from .generation import NeuronGenerationMixin
@@ -32,13 +44,30 @@ from .utils.training_utils import (
     FirstAndLastDataset,
     is_model_officially_supported,
     is_precompilation,
-    patch_model,
     prepare_environment_for_neuron,
 )
 
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel, TrainingArguments
+
+if is_apex_available():
+    from apex import amp
+
+if is_sagemaker_mp_enabled():
+    import smdistributed.modelparallel.torch as smp
+    from smdistributed.modelparallel import __version__ as SMP_VERSION
+
+    IS_SAGEMAKER_MP_POST_1_10 = version.parse(SMP_VERSION) >= version.parse("1.10")
+
+else:
+    IS_SAGEMAKER_MP_POST_1_10 = False
+
+if is_fairscale_available():
+    dep_version_check("fairscale")
+    from fairscale.nn.data_parallel import FullyShardedDataParallel as FullyShardedDDP
+    from fairscale.nn.data_parallel import ShardedDataParallel as ShardedDDP
+    from fairscale.nn.wrap import auto_wrap
 
 
 logger = logging.get_logger("transformers.trainer")
@@ -144,16 +173,148 @@ class AugmentTrainerForTrainiumMixin:
             cls.__bases__ = tuple(new_bases)
 
     def _wrap_model(self, model, training=True, dataloader=None):
-        logger.info(
-            "Disabling DDP because it is currently not playing well with multiple workers training, for more "
-            "information please refer to https://awsdocs-neuron.readthedocs-hosted.com/en/latest/frameworks/torch/torch-neuronx/tutorials/training/finetune_hftrainer.html#multi-worker-training"
-        )
         if not is_model_officially_supported(model):
             logger.warning(
                 f"{model.__class__.__name__} is not officially supported by optimum-neuron. Training might not work as  "
                 "expected."
             )
-        return super()._wrap_model(patch_model(model), training=training, dataloader=dataloader)
+
+        if self.args.use_ipex:
+            dtype = torch.bfloat16 if self.use_cpu_amp else torch.float32
+            model = self.ipex_optimize_model(model, training, dtype=dtype)
+
+        if is_sagemaker_mp_enabled():
+            # Wrapping the base model twice in a DistributedModel will raise an error.
+            if isinstance(self.model_wrapped, smp.model.DistributedModel):
+                return self.model_wrapped
+            return smp.DistributedModel(model, backward_passes_per_step=self.args.gradient_accumulation_steps)
+
+        # train/eval could be run multiple-times - if already wrapped, don't re-wrap it again
+        if unwrap_model(model) is not model:
+            return model
+
+        # Mixed precision training with apex (torch < 1.6)
+        if self.use_apex and training:
+            model, self.optimizer = amp.initialize(model, self.optimizer, opt_level=self.args.fp16_opt_level)
+
+        # Multi-gpu training (should be after apex fp16 initialization) / 8bit models does not support DDP
+        # if self.args.n_gpu > 1 and not getattr(model, "is_loaded_in_8bit", False):
+        #     model = nn.DataParallel(model)
+
+        if self.args.jit_mode_eval:
+            start_time = time.time()
+            model = self.torch_jit_model_eval(model, dataloader, training)
+            self.jit_compilation_time = round(time.time() - start_time, 4)
+
+        # Note: in torch.distributed mode, there's no point in wrapping the model
+        # inside a DistributedDataParallel as we'll be under `no_grad` anyways.
+        if not training:
+            return model
+
+        # Distributed training (should be after apex fp16 initialization)
+        if self.sharded_ddp is not None:
+            # Sharded DDP!
+            if self.sharded_ddp == ShardedDDPOption.SIMPLE:
+                model = ShardedDDP(model, self.optimizer)
+            else:
+                mixed_precision = self.args.fp16 or self.args.bf16
+                cpu_offload = ShardedDDPOption.OFFLOAD in self.args.sharded_ddp
+                zero_3 = self.sharded_ddp == ShardedDDPOption.ZERO_DP_3
+                # XXX: Breaking the self.model convention but I see no way around it for now.
+                if ShardedDDPOption.AUTO_WRAP in self.args.sharded_ddp:
+                    model = auto_wrap(model)
+                self.model = model = FullyShardedDDP(
+                    model,
+                    mixed_precision=mixed_precision,
+                    reshard_after_forward=zero_3,
+                    cpu_offload=cpu_offload,
+                ).to(self.args.device)
+        # Distributed training using PyTorch FSDP
+        # TODO: should we try for self.args.fsdp["xla"] or just do it?
+        elif self.fsdp is not None and self.args.fsdp_config["xla"]:
+            try:
+                from torch_xla.distributed.fsdp import XlaFullyShardedDataParallel as FSDP
+                from torch_xla.distributed.fsdp import checkpoint_module
+                from torch_xla.distributed.fsdp.wrap import (
+                    size_based_auto_wrap_policy,
+                    transformer_auto_wrap_policy,
+                )
+            except ImportError:
+                raise ImportError("Missing XLA FSDP related module; please make sure to use torch-xla >= 2.0.")
+            auto_wrap_policy = None
+            auto_wrapper_callable = None
+            if self.args.fsdp_config["fsdp_min_num_params"] > 0:
+                auto_wrap_policy = functools.partial(
+                    size_based_auto_wrap_policy, min_num_params=self.args.fsdp_config["fsdp_min_num_params"]
+                )
+            elif self.args.fsdp_config.get("fsdp_transformer_layer_cls_to_wrap", None) is not None:
+                transformer_cls_to_wrap = set()
+                for layer_class in self.args.fsdp_config["fsdp_transformer_layer_cls_to_wrap"]:
+                    transformer_cls = get_module_class_from_name(model, layer_class)
+                    if transformer_cls is None:
+                        raise Exception("Could not find the transformer layer class to wrap in the model.")
+                    else:
+                        transformer_cls_to_wrap.add(transformer_cls)
+                auto_wrap_policy = functools.partial(
+                    transformer_auto_wrap_policy,
+                    # Transformer layer class to wrap
+                    transformer_layer_cls=transformer_cls_to_wrap,
+                )
+            fsdp_kwargs = self.args.xla_fsdp_config
+            if self.args.fsdp_config["xla_fsdp_grad_ckpt"]:
+                # Apply gradient checkpointing to auto-wrapped sub-modules if specified
+                def auto_wrapper_callable(m, *args, **kwargs):
+                    return FSDP(checkpoint_module(m), *args, **kwargs)
+
+            # Wrap the base model with an outer FSDP wrapper
+            self.model = model = FSDP(
+                model,
+                auto_wrap_policy=auto_wrap_policy,
+                auto_wrapper_callable=auto_wrapper_callable,
+                **fsdp_kwargs,
+            )
+
+            # Patch `xm.optimizer_step` should not reduce gradients in this case,
+            # as FSDP does not need gradient reduction over sharded parameters.
+            def patched_optimizer_step(optimizer, barrier=False, optimizer_args={}):
+                loss = optimizer.step(**optimizer_args)
+                if barrier:
+                    xm.mark_step()
+                return loss
+
+            xm.optimizer_step = patched_optimizer_step
+        elif is_sagemaker_dp_enabled():
+            model = nn.parallel.DistributedDataParallel(
+                model, device_ids=[int(os.getenv("SMDATAPARALLEL_LOCAL_RANK"))]
+            )
+        elif self.args.parallel_mode == ParallelMode.DISTRIBUTED:
+            return model
+            # TODO: not supported for now?
+            # kwargs = {}
+            # if self.args.ddp_find_unused_parameters is not None:
+            #     kwargs["find_unused_parameters"] = self.args.ddp_find_unused_parameters
+            # elif isinstance(model, PreTrainedModel):
+            #     # find_unused_parameters breaks checkpointing as per
+            #     # https://github.com/huggingface/transformers/pull/4659#issuecomment-643356021
+            #     kwargs["find_unused_parameters"] = not model.is_gradient_checkpointing
+            # else:
+            #     kwargs["find_unused_parameters"] = True
+
+            # if self.args.ddp_bucket_cap_mb is not None:
+            #     kwargs["bucket_cap_mb"] = self.args.ddp_bucket_cap_mb
+
+            # self.accelerator.ddp_handler = DistributedDataParallelKwargs(**kwargs)
+
+        return model
+
+    # def _wrap_model(self, model, training=True, dataloader=None):
+    #     if not is_model_officially_supported(model):
+    #         logger.warning(
+    #             f"{model.__class__.__name__} is not officially supported by optimum-neuron. Training might not work as  "
+    #             "expected."
+    #         )
+
+    #     return super()._wrap_model(patch_model(model), training=training, dataloader=dataloader)
 
     def get_train_dataloader(self) -> DataLoader:
         if is_precompilation():
