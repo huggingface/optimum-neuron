@@ -36,12 +36,16 @@ from optimum.neuron.utils.cache_utils import (
     NEURON_COMPILE_CACHE_NAME,
     REGISTRY_FILENAME,
     NeuronHash,
+    _list_in_registry_dict,
+    add_in_registry,
+    create_registry_file_if_does_not_exist,
     download_cached_model_from_hub,
     get_cached_model_on_the_hub,
     get_neuron_cache_path,
     get_num_neuron_cores_used,
     has_write_access_to_repo,
     list_files_in_neuron_cache,
+    list_in_registry,
     load_custom_cache_repo_name_from_hf_home,
     path_after_folder,
     push_to_cache_on_hub,
@@ -151,6 +155,90 @@ class NeuronUtilsTestCase(TestCase):
                 set(filenames), set(list_files_in_neuron_cache(Path(tmpdirname), only_relevant_files=True))
             )
 
+    def test_list_in_registry_dict(self):
+        registry = {
+            "2.1.0": {
+                "model_1": {
+                    "model_name_or_path": "model_1",
+                    "model_hash": "my model hash",
+                    "features": [
+                        {
+                            "input_shapes": [["x", [1, 2]], ["y", [2, 3]]],
+                            "precision": "torch.float32",
+                            "num_neuron_cores": 16,
+                            "neuron_hash": "neuron hash 1",
+                        },
+                        {
+                            "input_shapes": [["x", [3, 2]], ["y", [7, 3]]],
+                            "precision": "torch.float32",
+                            "num_neuron_cores": 8,
+                            "neuron_hash": "neuron hash 2",
+                        },
+                    ],
+                },
+                "model_2": {
+                    "model_name_or_path": "null",
+                    "model_hash": "my model hash 2",
+                    "features": [
+                        {
+                            "input_shapes": [["x", [1, 2]], ["y", [2, 3]]],
+                            "precision": "torch.float16",
+                            "num_neuron_cores": 16,
+                            "neuron_hash": "neuron hash 3",
+                        },
+                        {
+                            "input_shapes": [["x", [3, 2]], ["y", [7, 3]]],
+                            "precision": "torch.float32",
+                            "num_neuron_cores": 8,
+                            "neuron_hash": "neuron hash 4",
+                        },
+                    ],
+                },
+            },
+            "2.5.0": {
+                "model_1": {
+                    "model_name_or_path": "model_1",
+                    "model_hash": "my model hash",
+                    "features": [
+                        {
+                            "input_shapes": [["x", [1, 2]], ["y", [2, 3]]],
+                            "precision": "torch.float32",
+                            "num_neuron_cores": 16,
+                            "neuron_hash": "neuron hash 5",
+                        },
+                        {
+                            "input_shapes": [["x", [3, 2]], ["y", [7, 3]]],
+                            "precision": "torch.float32",
+                            "num_neuron_cores": 8,
+                            "neuron_hash": "neuron hash 6",
+                        },
+                    ],
+                },
+            },
+        }
+
+        result = _list_in_registry_dict(registry)
+        self.assertEqual(len(result), 6)
+        self.assertTrue(result[-1].startswith("Model name:\tmodel_1"))
+
+        result = _list_in_registry_dict(registry, model_name_or_path_or_hash="model_1")
+        self.assertEqual(len(result), 4)
+        self.assertTrue(result[0].startswith("Model name:\tmodel_1"))
+
+        result = _list_in_registry_dict(registry, model_name_or_path_or_hash="my model hash 2")
+        self.assertEqual(len(result), 2)
+        self.assertTrue(result[0].startswith("Model name:\tnull"))
+
+        result = _list_in_registry_dict(registry, neuron_compiler_version="2.5.0")
+        self.assertEqual(len(result), 2)
+        self.assertTrue(result[0].startswith("Model name:\tmodel_1"))
+
+        result = _list_in_registry_dict(registry, model_name_or_path_or_hash="random bad string")
+        self.assertEqual(len(result), 0)
+
+        result = _list_in_registry_dict(registry, neuron_compiler_version="-1.2")
+        self.assertEqual(len(result), 0)
+
 
 @is_staging_test
 class StagingNeuronUtilsTestCase(StagingTestMixin, TestCase):
@@ -201,12 +289,67 @@ class StagingNeuronUtilsTestCase(StagingTestMixin, TestCase):
         self.assertTrue(has_write_access_to_repo(self.CUSTOM_CACHE_REPO))
         self.assertTrue(has_write_access_to_repo(self.CUSTOM_PRIVATE_CACHE_REPO))
 
+    @is_staging_test
+    def test_list_in_registry(self):
+        def _test_list_in_registry(use_private_cache_repo: bool):
+            if use_private_cache_repo:
+                cache_repo = self.CUSTOM_PRIVATE_CACHE_REPO
+            else:
+                cache_repo = self.CUSTOM_CACHE_REPO
+            create_registry_file_if_does_not_exist(cache_repo)
+            entries = list_in_registry(cache_repo)
+            self.assertEqual(len(entries), 0)
+
+            bert_model = BertModel(BertConfig())
+            neuron_hash = NeuronHash(
+                bert_model,
+                (("x", (4, 12)), ("y", (4, 12))),
+                torch.float32,
+                2,
+                neuron_compiler_version=DUMMY_COMPILER_VERSION,
+            )
+            add_in_registry(cache_repo, neuron_hash)
+            entries = list_in_registry(cache_repo)
+            self.assertEqual(len(entries), 1)
+
+            bert_model = BertModel(BertConfig())
+            neuron_hash = NeuronHash(
+                bert_model,
+                (("x", (4, 8)), ("y", (4, 12))),
+                torch.float32,
+                2,
+                neuron_compiler_version=DUMMY_COMPILER_VERSION,
+            )
+            add_in_registry(cache_repo, neuron_hash)
+            entries = list_in_registry(cache_repo)
+            self.assertEqual(len(entries), 2)
+
+            model_hash = neuron_hash.compute_hash()[0]
+            entries = list_in_registry(cache_repo, model_name_or_path_or_hash=model_hash)
+            self.assertEqual(len(entries), 1)
+
+            entries = list_in_registry(cache_repo, model_name_or_path_or_hash="dummy hash")
+            self.assertEqual(len(entries), 0)
+
+            entries = list_in_registry(cache_repo, neuron_compiler_version=DUMMY_COMPILER_VERSION)
+            self.assertEqual(len(entries), 2)
+
+            entries = list_in_registry(cache_repo, neuron_compiler_version="Bad version")
+            self.assertEqual(len(entries), 0)
+
+        _test_list_in_registry(False)
+        _test_list_in_registry(True)
+
 
 class NeuronHashTestCase(TestCase):
     def test_neuron_hash_is_not_mutable(self):
         bert_model = BertModel(BertConfig())
         neuron_hash = NeuronHash(
-            bert_model, ((4, 12), (4, 12)), torch.float32, 2, neuron_compiler_version=DUMMY_COMPILER_VERSION
+            bert_model,
+            (("x", (4, 12)), ("y", (4, 12))),
+            torch.float32,
+            2,
+            neuron_compiler_version=DUMMY_COMPILER_VERSION,
         )
 
         with self.assertRaises(FrozenInstanceError):
