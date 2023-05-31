@@ -26,6 +26,7 @@ import torch_xla.core.xla_model as xm
 from packaging import version
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
+
 from transformers import GenerationMixin, Seq2SeqTrainer, Trainer
 from transformers.dependency_versions_check import dep_version_check
 from transformers.integrations import is_fairscale_available
@@ -38,6 +39,7 @@ from transformers.utils import is_apex_available, is_sagemaker_dp_enabled, is_sa
 from ..utils import logging
 from .generation import NeuronGenerationMixin
 from .trainer_callback import NeuronCacheCallaback
+from .accelerator import TrainiumAccelerator
 from .utils.argument_utils import validate_arg
 from .utils.cache_utils import get_neuron_cache_path
 from .utils.training_utils import (
@@ -91,6 +93,7 @@ if os.environ.get("TORCHELASTIC_RUN_ID"):
             raise AssertionError("Failed to initialize torch.distributed process group using XLA backend.")
 
 
+
 class AugmentTrainerForTrainiumMixin:
     def __init__(self, *args, **kwargs):
         if not isinstance(self, Trainer):
@@ -111,6 +114,11 @@ class AugmentTrainerForTrainiumMixin:
 
         prepare_environment_for_neuron()
         super().__init__(*args, **kwargs)
+
+        self.accelerator = TrainiumAccelerator(
+            deepspeed_plugin=self.args.deepspeed_plugin,
+            gradient_accumulation_steps=self.args.gradient_accumulation_steps
+        )
 
         if self.args.local_rank <= 0:
             logger.setLevel(logging.INFO)
