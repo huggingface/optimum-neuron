@@ -104,6 +104,7 @@ _TMP_NEURON_CACHE_DIR: Optional[TemporaryDirectory] = None
 
 
 # Used for FSDP
+RANK_PREFIX = "rank"
 SHARD_METADATA_NAME = "shard_metadata.bin"
 
 if os.environ.get("TORCHELASTIC_RUN_ID"):
@@ -123,6 +124,10 @@ def skip_first_batches(dataloader, num_batches=0):
     else:
         dataloader = accelerate_skip_first_batches(dataloader, num_batches=num_batches)
     return dataloader
+
+
+def get_fsdp_checkpoint_path(output_dir):
+    return os.path.join(output_dir, f"{RANK_PREFIX}-{xm.get_ordinal()}-of-{xm.xrt_world_size()}.pth")
         
 
 class AugmentTrainerForTrainiumMixin:
@@ -473,7 +478,7 @@ class AugmentTrainerForTrainiumMixin:
                     "optimizer": self.optimizer.state_dict(),
                     "shard_metadata": self.model.get_shard_metadata(),
                 }
-                ckpt_path = os.path.join(output_dir, f"rank-{xm.get_ordinal()}-of-{xm.xrt_world_size()}.pth")
+                ckpt_path = get_fsdp_checkpoint_path(output_dir)
                 xm.save(ckpt, ckpt_path, master_only=False)
                 xm.rendezvous("saved_sharded_checkpoint")
                 if self.args.process_index == 0:
@@ -591,11 +596,19 @@ class AugmentTrainerForTrainiumMixin:
             if is_sagemaker_mp_enabled()
             else os.path.isfile(os.path.join(checkpoint, OPTIMIZER_NAME))
         )
+        if is_torch_tpu_available() and self.fsdp is not None:
+            checkpoint_file_exists = os.path.isfile(get_fsdp_checkpoint_path(checkpoint))
+
         if checkpoint_file_exists and os.path.isfile(os.path.join(checkpoint, SCHEDULER_NAME)):
             # Load in optimizer and scheduler states
             if is_torch_tpu_available():
-                # On TPU we have to take some extra precautions to properly load the states on the right device.
-                optimizer_state = torch.load(os.path.join(checkpoint, OPTIMIZER_NAME), map_location="cpu")
+                if self.fsdp is not None:
+                    state = torch.load(get_fsdp_checkpoint_path(checkpoint))
+                    optimizer_state = state["optimizer"]
+                else:
+                    # On TPU we have to take some extra precautions to properly load the states on the right device.
+                    optimizer_state = torch.load(os.path.join(checkpoint, OPTIMIZER_NAME), map_location="cpu")
+
                 with warnings.catch_warnings(record=True) as caught_warnings:
                     lr_scheduler_state = torch.load(os.path.join(checkpoint, SCHEDULER_NAME), map_location="cpu")
                 reissue_pt_warnings(caught_warnings)
