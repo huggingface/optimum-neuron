@@ -15,6 +15,7 @@
 """NeuronModel base classe for inference on neuron devices using the same API as Transformers."""
 
 import logging
+import shutil
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -78,20 +79,11 @@ class NeuronModel(OptimizedModel):
         super().__init__(model, config)
 
         self.model = model
-        self.config = config
-        self.model_save_dir = self._normalize_path(model_save_dir)
-        self.preprocessors = preprocessors if preprocessors is not None else []
         self.model_file_name = model_file_name or NEURON_FILE_NAME
-        self.neuron_config = (
-            NeuronModel._initialize_neuron_config(self.config) if neuron_config is None else neuron_config
-        )
+        self.config = config
+        self.neuron_config = NeuronModel._neuron_config_init(self.config) if neuron_config is None else neuron_config
         self.input_static_shapes = NeuronModel.get_input_static_shapes(self.neuron_config)
-
-        # Registers the NeuronModelForXXX classes into the transformers AutoModel classes to avoid warnings when creating
-        # a pipeline https://github.com/huggingface/transformers/blob/3d3204c025b6b5de013e07dd364208e28b4d9589/src/transformers/pipelines/base.py#L940
-        AutoConfig.register(self.model_type, AutoConfig)
-        if hasattr(self.auto_model_class, "register"):
-            self.auto_model_class.register(AutoConfig, self.__class__)
+        self._attributes_init(model_save_dir, preprocessors, **kwargs)
 
     @staticmethod
     def load_model(path: Union[str, Path]) -> torch.jit._script.ScriptModule:
@@ -117,9 +109,11 @@ class NeuronModel(OptimizedModel):
             save_directory (`Union[str, Path]`):
                 Directory where to save the model file.
         """
-        dst_path = Path(save_directory) / self.model_file_name
+        src_paths = [self.model_save_dir / self.model_file_name]
+        dst_paths = [Path(save_directory) / self.model_file_name]
 
-        torch.jit.save(self.model, dst_path)
+        for src_path, dst_path in zip(src_paths, dst_paths):
+            shutil.copyfile(src_path, dst_path)
 
     @classmethod
     def _from_pretrained(
@@ -277,9 +271,8 @@ class NeuronModel(OptimizedModel):
 
         config.save_pretrained(save_dir_path)
         maybe_save_preprocessors(model_id, save_dir_path, src_subfolder=subfolder)
-        # cache the neuron model
 
-        return cls._from_pretrained(save_dir_path, config, neuron_config=neuron_config)
+        return cls._from_pretrained(save_dir_path, config, model_save_dir=save_dir, neuron_config=neuron_config)
 
     def forward(self, *args, **kwargs):
         raise NotImplementedError
@@ -291,19 +284,34 @@ class NeuronModel(OptimizedModel):
         """
         return TasksManager.infer_task_from_model(auto_model_class)
 
-    def _normalize_path(self, path: Optional[Union[str, Path, TemporaryDirectory]] = None):
+    def _attributes_init(
+        self,
+        model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
+        preprocessors: Optional[List] = None,
+        **kwargs,
+    ):
         """
-        Convert a path to an instance of `pathlib.Path` or remain None.
+        Initializes attributes.
         """
-        if isinstance(path, TemporaryDirectory):
-            return Path(path.name)
-        elif isinstance(path, str):
-            return Path(path)
+        self._path_tempdirectory_instance = None
+        if isinstance(model_save_dir, TemporaryDirectory):
+            self._path_tempdirectory_instance = model_save_dir
+            self.model_save_dir = Path(model_save_dir.name)
+        elif isinstance(model_save_dir, str):
+            self.model_save_dir = Path(model_save_dir)
         else:
-            return path
+            self.model_save_dir = model_save_dir
+
+        self.preprocessors = preprocessors if preprocessors is not None else []
+
+        # Registers the NeuronModelForXXX classes into the transformers AutoModel classes to avoid warnings when creating
+        # a pipeline https://github.com/huggingface/transformers/blob/3d3204c025b6b5de013e07dd364208e28b4d9589/src/transformers/pipelines/base.py#L940
+        AutoConfig.register(self.model_type, AutoConfig)
+        if hasattr(self.auto_model_class, "register"):
+            self.auto_model_class.register(AutoConfig, self.__class__)
 
     @classmethod
-    def _initialize_neuron_config(cls, config: "PretrainedConfig"):
+    def _neuron_config_init(cls, config: "PretrainedConfig"):
         """
         Build a Neuron config with an instance of the `PretrainedConfig` and the task.
         """
