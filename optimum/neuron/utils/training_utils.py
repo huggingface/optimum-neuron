@@ -18,6 +18,7 @@ import contextlib
 import functools
 import importlib
 import os
+from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Callable, List, Optional, Tuple, Union
 
 import torch
@@ -255,3 +256,4 @@ def patch_transformers_for_neuron_sdk():
     Patches the Transformers library if needed to make it work with AWS Neuron.
     """
     transformers.utils.logging.set_verbosity = set_verbosity
+
