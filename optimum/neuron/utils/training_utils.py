@@ -128,13 +128,12 @@ def is_precompilation() -> bool:
 
 
 def is_model_officially_supported(model: Union["PreTrainedModel", "XlaFullyShardedDataParallel"]) -> bool:
-    if is_torch_xla_available():
-        from torch_xla.distributed.fsdp import XlaFullyShardedDataParallel
-    else:
-        RuntimeError(
+    if not is_torch_xla_available():
+        raise RuntimeError(
             "is_model_officially_supported requires torch_xla to run, please install it by running: "
             "pip install torch_xla"
         )
+    from torch_xla.distributed.fsdp import XlaFullyShardedDataParallel
     if isinstance(model, XlaFullyShardedDataParallel):
         class_name = model.module.__class__.__name__
     else:
