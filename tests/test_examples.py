@@ -59,7 +59,7 @@ TOKEN = HfFolder.get_token()
 if os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI", None) is not None:
     TOKEN = os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI")
 
-CACHE_REPO_NAME = "aws-neuron/optimum-neuron-cache"
+CACHE_REPO_NAME = "optimum-internal-testing/optimum-neuron-cache-for-testing"
 
 
 def _get_supported_models_for_script(
