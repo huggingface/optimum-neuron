@@ -24,6 +24,8 @@ import torch
 import transformers
 from torch.utils._pytree import tree_map
 from torch.utils.data import DataLoader, Dataset, IterableDataset
+
+from accelerate import skip_first_batches as accelerate_skip_first_batches
 from transformers.models.auto.modeling_auto import (
     MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING_NAMES,
     MODEL_FOR_BACKBONE_MAPPING_NAMES,
@@ -47,10 +49,14 @@ from transformers.models.auto.modeling_auto import (
 from transformers.utils.logging import set_verbosity as set_verbosity_transformers
 
 from ...utils.logging import set_verbosity as set_verbosity_optimum
+from . import is_torch_xla_available
 
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
+
+if is_torch_xla_available():
+    import torch_xla.distributed.parallel_loader as pl
 
 
 def _generate_supported_model_class_names(
@@ -255,3 +261,14 @@ def patch_transformers_for_neuron_sdk():
     Patches the Transformers library if needed to make it work with AWS Neuron.
     """
     transformers.utils.logging.set_verbosity = set_verbosity
+
+def skip_first_batches(dataloader, num_batches=0):
+    """
+    Wrapper around `accelerate.data_loader.skip_first_batches` to handle `pl.ParallelLoader` when using 
+    `torch_xla.distributed`, for XLA FSDP for instance.
+    """
+    if isinstance(dataloader, (pl.ParallelLoader, pl.PerDeviceLoader)):
+        dataloader._loader = skip_first_batches(dataloader._loader, num_batches=num_batches)
+    else:
+        dataloader = accelerate_skip_first_batches(dataloader, num_batches=num_batches)
+    return dataloader

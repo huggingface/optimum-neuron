@@ -25,8 +25,8 @@ from tempfile import TemporaryDirectory
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
+from optimum.neuron.utils.import_utils import is_torch_xla_available
 import torch
-from accelerate import skip_first_batches as accelerate_skip_first_batches
 from packaging import version
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
@@ -59,7 +59,7 @@ from ..utils import check_if_transformers_greater, logging
 from .accelerator import TrainiumAccelerator
 from .generation import NeuronGenerationMixin
 from .trainer_callback import NeuronCacheCallaback
-from .utils import is_neuronx_available
+from .utils import is_torch_xla_available
 from .utils.argument_utils import validate_arg
 from .utils.cache_utils import get_neuron_cache_path
 from .utils.training_utils import (
@@ -69,15 +69,15 @@ from .utils.training_utils import (
     is_precompilation,
     patch_model,
     prepare_environment_for_neuron,
+    skip_first_batches,
 )
 
 
 if is_apex_available():
     from apex import amp
 
-if is_neuronx_available():
+if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
-    import torch_xla.distributed.parallel_loader as pl
     from torch_xla.distributed.fsdp.state_dict_utils import consolidate_sharded_model_checkpoints
 
 if is_sagemaker_mp_enabled():
@@ -120,18 +120,6 @@ if os.environ.get("TORCHELASTIC_RUN_ID"):
         torch.distributed.init_process_group(backend="xla")
         if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
             raise AssertionError("Failed to initialize torch.distributed process group using XLA backend.")
-
-
-def skip_first_batches(dataloader, num_batches=0):
-    if isinstance(dataloader, (pl.ParallelLoader, pl.PerDeviceLoader)):
-        dataloader._loader = skip_first_batches(dataloader._loader, num_batches=num_batches)
-    else:
-        dataloader = accelerate_skip_first_batches(dataloader, num_batches=num_batches)
-    return dataloader
-
-
-def get_fsdp_checkpoint_path(output_dir):
-    return os.path.join(output_dir, f"{RANK_PREFIX}-{xm.get_ordinal()}-of-{xm.xrt_world_size()}.pth")
 
 
 class AugmentTrainerForTrainiumMixin:
@@ -224,6 +212,10 @@ class AugmentTrainerForTrainiumMixin:
                 else:
                     new_bases.append(base)
             cls.__bases__ = tuple(new_bases)
+
+    def get_fsdp_checkpoint_path(self, output_dir: str) -> str:
+        """Returns the path to the sharded checkpoint file for the current worker in an XLA FSDP setting."""
+        return os.path.join(output_dir, f"{RANK_PREFIX}-{xm.get_ordinal()}-of-{xm.xrt_world_size()}.pth")
 
     def _wrap_model(self, model, training=True, dataloader=None):
         if not is_model_officially_supported(model):
@@ -426,37 +418,38 @@ class AugmentTrainerForTrainiumMixin:
         self.trigger_on_step_middle_for_neuron_cache_callback(model)
         return super().prediction_step(model, inputs, prediction_loss_only, ignore_keys=ignore_keys)
 
+    # This overrides the original _save_tpu to actually skip saving the model there in a XLA FSDP setting.
     def _save_tpu(self, output_dir: Optional[str] = None):
-        # With FSDP we need to save everything together.
-        if self.fsdp is not None:
-            return
         output_dir = output_dir if output_dir is not None else self.args.output_dir
         logger.info(f"Saving model checkpoint to {output_dir}")
 
-        if xm.is_master_ordinal():
-            os.makedirs(output_dir, exist_ok=True)
-            torch.save(self.args, os.path.join(output_dir, TRAINING_ARGS_NAME))
+        # Not saving the model here if we are performing XLA FSDP.
+        if self.fsdp is None:
+            if xm.is_master_ordinal():
+                os.makedirs(output_dir, exist_ok=True)
+                torch.save(self.args, os.path.join(output_dir, TRAINING_ARGS_NAME))
 
-        # Save a trained model and configuration using `save_pretrained()`.
-        # They can then be reloaded using `from_pretrained()`
-        xm.rendezvous("saving_checkpoint")
-        if not isinstance(self.model, PreTrainedModel):
-            if isinstance(unwrap_model(self.model), PreTrainedModel):
-                unwrap_model(self.model).save_pretrained(
-                    output_dir,
-                    is_main_process=self.args.should_save,
-                    state_dict=self.model.state_dict(),
-                    save_function=xm.save,
-                )
+            # Save a trained model and configuration using `save_pretrained()`.
+            # They can then be reloaded using `from_pretrained()`
+            xm.rendezvous("saving_checkpoint")
+            if not isinstance(self.model, PreTrainedModel):
+                if isinstance(unwrap_model(self.model), PreTrainedModel):
+                    unwrap_model(self.model).save_pretrained(
+                        output_dir,
+                        is_main_process=self.args.should_save,
+                        state_dict=self.model.state_dict(),
+                        save_function=xm.save,
+                    )
+                else:
+                    logger.info("Trainer.model is not a `PreTrainedModel`, only saving its state dict.")
+                    state_dict = self.model.state_dict()
+                    xm.save(state_dict, os.path.join(output_dir, WEIGHTS_NAME))
             else:
-                logger.info("Trainer.model is not a `PreTrainedModel`, only saving its state dict.")
-                state_dict = self.model.state_dict()
-                xm.save(state_dict, os.path.join(output_dir, WEIGHTS_NAME))
-        else:
-            self.model.save_pretrained(output_dir, is_main_process=self.args.should_save, save_function=xm.save)
+                self.model.save_pretrained(output_dir, is_main_process=self.args.should_save, save_function=xm.save)
         if self.tokenizer is not None and self.args.should_save:
             self.tokenizer.save_pretrained(output_dir)
 
+    # This overrides the original _save_checkpoint to support saving a checkpoint in a XLA FSDP setting.
     def _save_checkpoint(self, model, trial, metrics=None):
         # In all cases, including ddp/dp/deepspeed, self.model is always a reference to the model we
         # want to save except FullyShardedDDP.
@@ -487,7 +480,7 @@ class AugmentTrainerForTrainiumMixin:
                     "optimizer": self.optimizer.state_dict(),
                     "shard_metadata": self.model.get_shard_metadata(),
                 }
-                ckpt_path = get_fsdp_checkpoint_path(output_dir)
+                ckpt_path = self.get_fsdp_checkpoint_path(output_dir)
                 xm.save(ckpt, ckpt_path, master_only=False)
                 xm.rendezvous("saved_sharded_checkpoint")
                 if self.args.process_index == 0:
@@ -592,6 +585,8 @@ class AugmentTrainerForTrainiumMixin:
         if self.args.should_save:
             self._rotate_checkpoints(use_mtime=True, output_dir=run_dir)
 
+    # This overrides the original _load_optimizer_and_scheduler to support loading a sharded optimizer state in a XLA 
+    # FSDP setting.
     def _load_optimizer_and_scheduler(self, checkpoint):
         if checkpoint is None:
             return
@@ -606,13 +601,13 @@ class AugmentTrainerForTrainiumMixin:
             else os.path.isfile(os.path.join(checkpoint, OPTIMIZER_NAME))
         )
         if is_torch_tpu_available() and self.fsdp is not None:
-            checkpoint_file_exists = os.path.isfile(get_fsdp_checkpoint_path(checkpoint))
+            checkpoint_file_exists = os.path.isfile(self.get_fsdp_checkpoint_path(checkpoint))
 
         if checkpoint_file_exists and os.path.isfile(os.path.join(checkpoint, SCHEDULER_NAME)):
             # Load in optimizer and scheduler states
             if is_torch_tpu_available():
                 if self.fsdp is not None:
-                    state = torch.load(get_fsdp_checkpoint_path(checkpoint))
+                    state = torch.load(self.get_fsdp_checkpoint_path(checkpoint))
                     optimizer_state = state["optimizer"]
                 else:
                     # On TPU we have to take some extra precautions to properly load the states on the right device.
