@@ -260,14 +260,14 @@ class NeuronModel(OptimizedModel):
             "dynamic_batch_size": dynamic_batch_size,
         }
 
-        export(
+        input_names, output_names = export(
             model=model,
             config=neuron_config,
             output=save_dir_path / NEURON_FILE_NAME,
             **compiler_kwargs,
         )
 
-        store_compilation_config(config, input_shapes, compiler_kwargs)
+        store_compilation_config(config, input_shapes, compiler_kwargs, input_names, output_names)
 
         config.save_pretrained(save_dir_path)
         maybe_save_preprocessors(model_id, save_dir_path, src_subfolder=subfolder)
@@ -303,6 +303,9 @@ class NeuronModel(OptimizedModel):
             self.model_save_dir = model_save_dir
 
         self.preprocessors = preprocessors if preprocessors is not None else []
+
+        self.input_names = getattr(self.config, "input_names", [])
+        self.output_names = getattr(self.config, "output_names", [])
 
         # Registers the NeuronModelForXXX classes into the transformers AutoModel classes to avoid warnings when creating
         # a pipeline https://github.com/huggingface/transformers/blob/3d3204c025b6b5de013e07dd364208e28b4d9589/src/transformers/pipelines/base.py#L940
@@ -381,13 +384,18 @@ class NeuronModel(OptimizedModel):
                 self._raise_if_invalid_padding(input_name, input_tensor, target_shapes, to_pad, i)
                 padding += (0, to_pad)
 
-            pad_id = self.preprocessors[0].pad_token_id if self.preprocessors is not None else 0
+            if self.preprocessors is not None and self.preprocessors[0].pad_token_id is not None and input_name=="input_ids":
+                pad_id = self.preprocessors[0].pad_token_id
+            else:
+                pad_id = 0
+
             input_tensor = torch.nn.functional.pad(input_tensor, padding, mode="constant", value=pad_id)
 
-            # Dimension 0 for batch size (pad_token_id can't be 0)
+            # Pad to batch size: dimension 0 (pad_token_id can't be 0)
             padding = (0,) * len(padding)
             if self.neuron_config.dynamic_batch_size is True and input_tensor.size(0) % target_shapes[0] == 0:
-                pass
+                inputs[input_name] = input_tensor
+                continue
             elif self.neuron_config.dynamic_batch_size is True:
                 target_shape = (input_tensor.size(0) // target_shapes[0] + 1) * target_shapes[0]
                 to_pad = target_shape - input_tensor.size(0)

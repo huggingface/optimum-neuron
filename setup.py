@@ -27,6 +27,7 @@ TESTS_REQUIRE = [
     "GitPython",
     "sentencepiece",
     "datasets",
+    "sacremoses"   
 ]
 
 QUALITY_REQUIRES = [

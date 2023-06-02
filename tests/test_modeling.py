@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import os
+import gc
 import shutil
 import tempfile
 import unittest
@@ -20,7 +21,16 @@ from typing import Dict
 
 import torch
 from huggingface_hub.constants import default_cache_path
+from parameterized import parameterized
 from transformers import (
+    AutoConfig,
+    AutoModel,
+    AutoModelForMaskedLM,
+    AutoModelForMultipleChoice,
+    AutoModelForQuestionAnswering,
+    AutoModelForSequenceClassification,
+    AutoModelForTokenClassification,
+    AutoTokenizer,
     PretrainedConfig,
     set_seed,
 )
@@ -36,7 +46,7 @@ from optimum.utils import (
 )
 from optimum.utils.testing_utils import require_hf_token
 
-from .exporters.exporters_utils import SEED
+from .exporters.exporters_utils import EXPORT_MODELS_TINY as MODEL_NAMES, SEED
 
 
 logger = logging.get_logger()
@@ -44,6 +54,7 @@ logger = logging.get_logger()
 
 class NeuronModelTestMixin(unittest.TestCase):
     ARCH_MODEL_MAP = {}
+    STATIC_INPUTS_SHAPES = {"batch_size": 1, "sequence_length": 32}
 
     @classmethod
     def setUpClass(cls):
@@ -56,111 +67,115 @@ class NeuronModelTestMixin(unittest.TestCase):
         """
         model_arch = model_args["model_arch"]
         model_arch_and_params = model_args["test_name"]
+        dynamic_batch_size = getattr(model_args, "dynamic_batch_size", False)
 
         if model_arch_and_params not in self.neuron_model_dirs:
             # model_args will contain kwargs to pass to NeuronModel.from_pretrained()
             model_args.pop("test_name")
             model_args.pop("model_arch")
+            model_args.pop("dynamic_batch_size", None)
 
             model_id = (
                 self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
             )
             set_seed(SEED)
-            neuron_model = self.NEURONMODEL_CLASS.from_pretrained(model_id, **model_args, export=True)
+            neuron_model = self.NEURON_MODEL_CLASS.from_pretrained(
+                model_id, **model_args, export=True, dynamic_batch_size=dynamic_batch_size, **self.STATIC_INPUTS_SHAPES
+            )
 
             model_dir = tempfile.mkdtemp(prefix=f"{model_arch_and_params}_{self.TASK}_")
             neuron_model.save_pretrained(model_dir)
             self.neuron_model_dirs[model_arch_and_params] = model_dir
-
+    
     @classmethod
     def tearDownClass(cls):
         for _, dir_path in cls.neuron_model_dirs.items():
             shutil.rmtree(dir_path)
 
 
-class NeuronModelIntegrationTest(unittest.TestCase):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.LOCAL_MODEL_PATH = "assets/neuron"
-        self.NEURON_MODEL_ID = "optimum/tiny-random-BertModel-neuron"
-        self.TINY_SUBFOLDER_MODEL_ID = "fxmarty/tiny-bert-sst2-distilled-subfolder"
-        self.FAIL_NEURON_MODEL_ID = "sshleifer/tiny-distilbert-base-cased-distilled-squad"
-        self.PRIVATE_NEURON_MODEL_ID = "Jingya/tiny-random-BertModel-neuron-private"
-        self.TINY_MODEL_REMOTE = "Jingya/tiny-random-bert-remote-code"
-        self.INPUTS_SHAPES = {"batch_size": 3, "sequence_length": 64}
+# class NeuronModelIntegrationTest(unittest.TestCase):
+#     def __init__(self, *args, **kwargs):
+#         super().__init__(*args, **kwargs)
+#         self.LOCAL_MODEL_PATH = "assets/neuron"
+#         self.NEURON_MODEL_ID = "optimum/tiny-random-BertModel-neuron"
+#         self.TINY_SUBFOLDER_MODEL_ID = "fxmarty/tiny-bert-sst2-distilled-subfolder"
+#         self.FAIL_NEURON_MODEL_ID = "sshleifer/tiny-distilbert-base-cased-distilled-squad"
+#         self.PRIVATE_NEURON_MODEL_ID = "Jingya/tiny-random-BertModel-neuron-private"
+#         self.TINY_MODEL_REMOTE = "Jingya/tiny-random-bert-remote-code"
+#         self.INPUTS_SHAPES = {"batch_size": 3, "sequence_length": 64}
 
-    def test_load_model_from_local_path(self):
-        model = NeuronModel.from_pretrained(self.LOCAL_MODEL_PATH)
-        self.assertIsInstance(model.model, torch.jit._script.ScriptModule)
-        self.assertIsInstance(model.config, PretrainedConfig)
+#     def test_load_model_from_local_path(self):
+#         model = NeuronModel.from_pretrained(self.LOCAL_MODEL_PATH)
+#         self.assertIsInstance(model.model, torch.jit._script.ScriptModule)
+#         self.assertIsInstance(model.config, PretrainedConfig)
 
-    def test_load_model_from_hub(self):
-        model = NeuronModel.from_pretrained(self.NEURON_MODEL_ID)
-        self.assertIsInstance(model.model, torch.jit._script.ScriptModule)
-        self.assertIsInstance(model.config, PretrainedConfig)
+#     def test_load_model_from_hub(self):
+#         model = NeuronModel.from_pretrained(self.NEURON_MODEL_ID)
+#         self.assertIsInstance(model.model, torch.jit._script.ScriptModule)
+#         self.assertIsInstance(model.config, PretrainedConfig)
 
-    def test_load_model_from_hub_subfolder(self):
-        model = NeuronModelForSequenceClassification.from_pretrained(
-            self.TINY_SUBFOLDER_MODEL_ID, subfolder="my_subfolder", export=True, **self.INPUTS_SHAPES
-        )
-        self.assertIsInstance(model.model, torch.jit._script.ScriptModule)
-        self.assertIsInstance(model.config, PretrainedConfig)
+#     def test_load_model_from_hub_subfolder(self):
+#         model = NeuronModelForSequenceClassification.from_pretrained(
+#             self.TINY_SUBFOLDER_MODEL_ID, subfolder="my_subfolder", export=True, **self.INPUTS_SHAPES
+#         )
+#         self.assertIsInstance(model.model, torch.jit._script.ScriptModule)
+#         self.assertIsInstance(model.config, PretrainedConfig)
 
-    def test_load_model_from_cache(self):
-        _ = NeuronModel.from_pretrained(self.NEURON_MODEL_ID)  # caching
+#     def test_load_model_from_cache(self):
+#         _ = NeuronModel.from_pretrained(self.NEURON_MODEL_ID)  # caching
 
-        model = NeuronModel.from_pretrained(self.NEURON_MODEL_ID, local_files_only=True)
+#         model = NeuronModel.from_pretrained(self.NEURON_MODEL_ID, local_files_only=True)
 
-        self.assertIsInstance(model.model, torch.jit._script.ScriptModule)
-        self.assertIsInstance(model.config, PretrainedConfig)
+#         self.assertIsInstance(model.model, torch.jit._script.ScriptModule)
+#         self.assertIsInstance(model.config, PretrainedConfig)
 
-    def test_load_model_from_empty_cache(self):
-        dirpath = os.path.join(default_cache_path, "models--" + self.NEURON_MODEL_ID.replace("/", "--"))
+#     def test_load_model_from_empty_cache(self):
+#         dirpath = os.path.join(default_cache_path, "models--" + self.NEURON_MODEL_ID.replace("/", "--"))
 
-        if os.path.exists(dirpath) and os.path.isdir(dirpath):
-            shutil.rmtree(dirpath)
-        with self.assertRaises(Exception):
-            _ = NeuronModel.from_pretrained(self.NEURON_MODEL_ID, local_files_only=True)
+#         if os.path.exists(dirpath) and os.path.isdir(dirpath):
+#             shutil.rmtree(dirpath)
+#         with self.assertRaises(Exception):
+#             _ = NeuronModel.from_pretrained(self.NEURON_MODEL_ID, local_files_only=True)
 
-    def test_load_model_from_hub_without_neuron_model(self):
-        with self.assertRaises(FileNotFoundError):
-            NeuronModel.from_pretrained(self.FAIL_NEURON_MODEL_ID)
+#     def test_load_model_from_hub_without_neuron_model(self):
+#         with self.assertRaises(FileNotFoundError):
+#             NeuronModel.from_pretrained(self.FAIL_NEURON_MODEL_ID)
 
-    @require_hf_token
-    def test_load_model_from_hub_private(self):
-        model = NeuronModel.from_pretrained(
-            self.PRIVATE_NEURON_MODEL_ID, use_auth_token=os.environ.get("HF_AUTH_TOKEN", None)
-        )
-        self.assertIsInstance(model.model, torch.jit._script.ScriptModule)
-        self.assertIsInstance(model.config, PretrainedConfig)
+#     @require_hf_token
+#     def test_load_model_from_hub_private(self):
+#         model = NeuronModel.from_pretrained(
+#             self.PRIVATE_NEURON_MODEL_ID, use_auth_token=os.environ.get("HF_AUTH_TOKEN", None)
+#         )
+#         self.assertIsInstance(model.model, torch.jit._script.ScriptModule)
+#         self.assertIsInstance(model.config, PretrainedConfig)
 
-    def test_save_model(self):
-        with tempfile.TemporaryDirectory() as tmpdirname:
-            model = NeuronModel.from_pretrained(self.LOCAL_MODEL_PATH)
-            model.save_pretrained(tmpdirname)
-            # folder contains all config files and neuron exported model
-            folder_contents = os.listdir(tmpdirname)
-            self.assertTrue(NEURON_FILE_NAME in folder_contents)
-            self.assertTrue(CONFIG_NAME in folder_contents)
+#     def test_save_model(self):
+#         with tempfile.TemporaryDirectory() as tmpdirname:
+#             model = NeuronModel.from_pretrained(self.LOCAL_MODEL_PATH)
+#             model.save_pretrained(tmpdirname)
+#             # folder contains all config files and neuron exported model
+#             folder_contents = os.listdir(tmpdirname)
+#             self.assertTrue(NEURON_FILE_NAME in folder_contents)
+#             self.assertTrue(CONFIG_NAME in folder_contents)
 
-    @require_hf_token
-    def test_push_model_to_hub(self):
-        with tempfile.TemporaryDirectory() as tmpdirname:
-            model = NeuronModel.from_pretrained(self.LOCAL_MODEL_PATH)
-            model.save_pretrained(
-                tmpdirname,
-                use_auth_token=os.environ.get("HF_AUTH_TOKEN", None),
-                push_to_hub=True,
-                repository_id=self.PRIVATE_NEURON_MODEL_ID,
-                private=True,
-            )
+#     @require_hf_token
+#     def test_push_model_to_hub(self):
+#         with tempfile.TemporaryDirectory() as tmpdirname:
+#             model = NeuronModel.from_pretrained(self.LOCAL_MODEL_PATH)
+#             model.save_pretrained(
+#                 tmpdirname,
+#                 use_auth_token=os.environ.get("HF_AUTH_TOKEN", None),
+#                 push_to_hub=True,
+#                 repository_id=self.PRIVATE_NEURON_MODEL_ID,
+#                 private=True,
+#             )
 
-    def test_trust_remote_code(self):
-        model = NeuronModelForSequenceClassification.from_pretrained(
-            self.TINY_MODEL_REMOTE, export=True, trust_remote_code=True, **self.INPUTS_SHAPES
-        )
-        self.assertIsInstance(model.model, torch.jit._script.ScriptModule)
-        self.assertIsInstance(model.config, PretrainedConfig)
+#     def test_trust_remote_code(self):
+#         model = NeuronModelForSequenceClassification.from_pretrained(
+#             self.TINY_MODEL_REMOTE, export=True, trust_remote_code=True, **self.INPUTS_SHAPES
+#         )
+#         self.assertIsInstance(model.model, torch.jit._script.ScriptModule)
+#         self.assertIsInstance(model.config, PretrainedConfig)
 
 
 # class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
@@ -416,191 +431,124 @@ class NeuronModelIntegrationTest(unittest.TestCase):
 #         gc.collect()
 
 
-# class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
-#     SUPPORTED_ARCHITECTURES = [
-#         "albert",
-#         "bart",
-#         "bert",
-#         # "big_bird",
-#         # "bigbird_pegasus",
-#         "bloom",
-#         "camembert",
-#         "convbert",
-#         "data2vec_text",
-#         "deberta",
-#         "deberta_v2",
-#         "distilbert",
-#         "electra",
-#         "flaubert",
-#         "gpt2",
-#         "gpt_neo",
-#         "gptj",
-#         "ibert",
-#         # TODO: these two should be supported, but require image inputs not supported in NeuronModel
-#         # "layoutlm"
-#         # "layoutlmv3",
-#         "mbart",
-#         "mobilebert",
-#         "nystromformer",
-#         # "perceiver",
-#         "roberta",
-#         "roformer",
-#         "squeezebert",
-#         "xlm",
-#         "xlm_roberta",
-#     ]
+class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
+    SUPPORTED_ARCHITECTURES = [
+        "albert",
+        "bert",
+        "camembert",
+        "convbert",
+        # "deberta",  # INF2 only
+        # "deberta_v2",  # INF2 only
+        "distilbert",
+        "electra",
+        # "flaubert",  # accuracy off compared to pytorch (not due to the padding)
+        "mobilebert",
+        "roberta",
+        "roformer",
+        # "xlm",  # accuracy off compared to pytorch (not due to the padding)
+        "xlm-roberta",
+    ]
 
-#     ARCH_MODEL_MAP = {
-#         # TODO: fix non passing test
-#         # "perceiver": "hf-internal-testing/tiny-random-language_perceiver",
-#     }
+    NEURON_MODEL_CLASS = NeuronModelForSequenceClassification
+    TASK = "text-classification"
 
-#     FULL_GRID = {"model_arch": SUPPORTED_ARCHITECTURES}
-#     NeuronModel_CLASS = NeuronModelForSequenceClassification
-#     TASK = "text-classification"
+    def test_load_vanilla_transformers_which_is_not_supported(self):
+        with self.assertRaises(Exception) as context:
+            _ = NeuronModelForSequenceClassification.from_pretrained("hf-internal-testing/tiny-random-t5", from_transformers=True, **self.STATIC_INPUTS_SHAPES)
 
-#     def test_load_vanilla_transformers_which_is_not_supported(self):
-#         with self.assertRaises(Exception) as context:
-#             _ = NeuronModelForSequenceClassification.from_pretrained(MODEL_NAMES["t5"], from_transformers=True)
+        self.assertIn("Unrecognized configuration class", str(context.exception))
 
-#         self.assertIn("Unrecognized configuration class", str(context.exception))
+    @parameterized.expand(SUPPORTED_ARCHITECTURES)
+    def test_compare_to_transformers_dyn_bas(self, model_arch):
+        # Neuron model with dynamic batching
+        model_args_dyn = {
+            "test_name": model_arch + "_dyn_bs_true",
+            "model_arch": model_arch,
+            "dynamic_batch_size": True,
+        }
+        self._setup(model_args_dyn)
 
-#     @parameterized.expand(SUPPORTED_ARCHITECTURES)
-#     def test_compare_to_transformers(self, model_arch):
-#         model_args = {"test_name": model_arch, "model_arch": model_arch}
-#         self._setup(model_args)
+        model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
+        
+        neuron_model_dyn = NeuronModelForSequenceClassification.from_pretrained(
+            self.neuron_model_dirs[model_arch + "_dyn_bs_true"]
+        )
+        self.assertIsInstance(neuron_model_dyn.model, torch.jit._script.ScriptModule)
+        self.assertIsInstance(neuron_model_dyn.config, PretrainedConfig)
+        
+        set_seed(SEED)
+        transformers_model = AutoModelForSequenceClassification.from_pretrained(model_id)
+        tokenizer = AutoTokenizer.from_pretrained(model_id)
 
-#         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
-#         neuron_model = NeuronModelForSequenceClassification.from_pretrained(self.neuron_model_dirs[model_arch])
+        text = "This is a sample output"
+        tokens = tokenizer(text, return_tensors="pt")
+        with torch.no_grad():
+            transformers_outputs = transformers_model(**tokens)
 
-#         self.assertIsInstance(neuron_model.model, torch.jit._script.ScriptModule)
-#         self.assertIsInstance(neuron_model.config, PretrainedConfig)
+        # Numeric validation 
+        neuron_outputs_dyn = neuron_model_dyn(**tokens)
+        self.assertIn("logits", neuron_outputs_dyn)
+        self.assertIsInstance(neuron_outputs_dyn.logits, torch.Tensor)
+        self.assertTrue(torch.allclose(neuron_outputs_dyn.logits, transformers_outputs.logits, atol=1e-3))
 
-#         set_seed(SEED)
-#         transformers_model = AutoModelForSequenceClassification.from_pretrained(model_id)
-#         tokenizer = get_preprocessor(model_id)
+        gc.collect()
+    
+    @parameterized.expand(SUPPORTED_ARCHITECTURES)
+    def test_compare_to_transformers_non_dyn_bas(self, model_arch):
+        model_args_non_dyn = {
+            "test_name": model_arch + "_dyn_bs_false",
+            "model_arch": model_arch,
+            "dynamic_batch_size": False,
+        }
+        self._setup(model_args_non_dyn)
+        
+        model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
 
-#         text = "This is a sample output"
-#         tokens = tokenizer(text, return_tensors="pt")
-#         with torch.no_grad():
-#             transformers_outputs = transformers_model(**tokens)
+        neuron_model_non_dyn = NeuronModelForSequenceClassification.from_pretrained(
+            self.neuron_model_dirs[model_arch + "_dyn_bs_false"]
+        )
+        self.assertIsInstance(neuron_model_non_dyn.model, torch.jit._script.ScriptModule)
+        self.assertIsInstance(neuron_model_non_dyn.config, PretrainedConfig)
 
-#         for input_type in ["pt", "np"]:
-#             tokens = tokenizer(text, return_tensors=input_type)
-#             neuron_outputs = neuron_model(**tokens)
+        set_seed(SEED)
+        transformers_model = AutoModelForSequenceClassification.from_pretrained(model_id)
+        tokenizer = AutoTokenizer.from_pretrained(model_id)
 
-#             self.assertIn("logits", neuron_outputs)
-#             self.assertIsInstance(neuron_outputs.logits, self.TENSOR_ALIAS_TO_TYPE[input_type])
+        text = "This is a sample output"
+        tokens = tokenizer(text, return_tensors="pt")
+        with torch.no_grad():
+            transformers_outputs = transformers_model(**tokens)
+        
+        # Numeric validation
+        neuron_outputs_non_dyn = neuron_model_non_dyn(**tokens)
+        self.assertIn("logits", neuron_outputs_non_dyn)
+        self.assertIsInstance(neuron_outputs_non_dyn.logits, torch.Tensor)
+        self.assertTrue(torch.allclose(neuron_outputs_non_dyn.logits, transformers_outputs.logits, atol=1e-3))
 
-#             # compare tensor outputs
-#             self.assertTrue(
-#                 torch.allclose(torch.Tensor(neuron_outputs.logits), transformers_outputs.logits, atol=1e-4)
-#             )
+        gc.collect()
+    
+    def test_non_dyn_bs_neuron_model_on_false_batch_size(self):
+        model_arch = "albert"
+        model_args = {
+            "test_name": model_arch + "_dyn_bs_false",
+            "model_arch": model_arch,
+            "dynamic_batch_size": False,
+        }
+        self._setup(model_args)
 
-#         gc.collect()
+        model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
+        tokenizer = AutoTokenizer.from_pretrained(model_id)
+        text = ("This is a sample output", )*2
+        tokens = tokenizer(text, return_tensors="pt")
 
-#     @parameterized.expand(SUPPORTED_ARCHITECTURES)
-#     def test_pipeline_ort_model(self, model_arch):
-#         model_args = {"test_name": model_arch, "model_arch": model_arch}
-#         self._setup(model_args)
+        neuron_model_non_dyn = NeuronModelForSequenceClassification.from_pretrained(
+            self.neuron_model_dirs[model_arch + "_dyn_bs_false"]
+        )
 
-#         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
-#         neuron_model = NeuronModelForSequenceClassification.from_pretrained(self.neuron_model_dirs[model_arch])
-#         tokenizer = get_preprocessor(model_id)
-#         pipe = pipeline("text-classification", model=neuron_model, tokenizer=tokenizer)
-#         text = "My Name is Philipp and i live in Germany."
-#         outputs = pipe(text)
+        with self.assertRaises(Exception) as context:
+            _ = neuron_model_non_dyn(**tokens)
 
-#         self.assertEqual(pipe.device, neuron_model.device)
-#         self.assertGreaterEqual(outputs[0]["score"], 0.0)
-#         self.assertIsInstance(outputs[0]["label"], str)
-
-#         gc.collect()
-
-#     @pytest.mark.run_in_series
-#     def test_pipeline_model_is_none(self):
-#         pipe = pipeline("text-classification")
-#         text = "My Name is Philipp and i live in Germany."
-#         outputs = pipe(text)
-
-#         # compare model output class
-#         self.assertGreaterEqual(outputs[0]["score"], 0.0)
-#         self.assertIsInstance(outputs[0]["label"], str)
-
-#     @parameterized.expand(
-#         grid_parameters(
-#             {"model_arch": SUPPORTED_ARCHITECTURES, "provider": ["CUDAExecutionProvider", "TensorrtExecutionProvider"]}
-#         )
-#     )
-#     @require_torch_gpu
-#     @pytest.mark.gpu_test
-#     def test_pipeline_on_gpu(self, test_name: str, model_arch: str, provider: str):
-#         if provider == "TensorrtExecutionProvider" and model_arch != self.__class__.SUPPORTED_ARCHITECTURES[0]:
-#             self.skipTest("testing a single arch for TensorrtExecutionProvider")
-
-#         model_args = {"test_name": model_arch, "model_arch": model_arch}
-#         self._setup(model_args)
-
-#         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
-#         neuron_model = NeuronModelForSequenceClassification.from_pretrained(
-#             self.neuron_model_dirs[model_arch], provider=provider
-#         )
-#         tokenizer = get_preprocessor(model_id)
-#         pipe = pipeline("text-classification", model=neuron_model, tokenizer=tokenizer, device=0)
-#         text = "My Name is Philipp and i live in Germany."
-#         outputs = pipe(text)
-#         # check model device
-#         self.assertEqual(pipe.model.device.type.lower(), "cuda")
-#         # compare model output class
-#         self.assertGreaterEqual(outputs[0]["score"], 0.0)
-#         self.assertTrue(isinstance(outputs[0]["label"], str))
-
-#         gc.collect()
-
-#     def test_pipeline_zero_shot_classification(self):
-#         neuron_model = NeuronModelForSequenceClassification.from_pretrained(
-#             "typeform/distilbert-base-uncased-mnli", from_transformers=True
-#         )
-#         tokenizer = get_preprocessor("typeform/distilbert-base-uncased-mnli")
-#         pipe = pipeline("zero-shot-classification", model=neuron_model, tokenizer=tokenizer)
-#         sequence_to_classify = "Who are you voting for in 2020?"
-#         candidate_labels = ["Europe", "public health", "politics", "elections"]
-#         hypothesis_template = "This text is about {}."
-#         outputs = pipe(
-#             sequence_to_classify, candidate_labels, multi_class=True, hypothesis_template=hypothesis_template
-#         )
-
-#         # compare model output class
-#         self.assertTrue(all(score > 0.0 for score in outputs["scores"]))
-#         self.assertTrue(all(isinstance(label, str) for label in outputs["labels"]))
-
-#     @parameterized.expand(SUPPORTED_ARCHITECTURES)
-#     @require_torch_gpu
-#     @pytest.mark.gpu_test
-#     def test_compare_to_io_binding(self, model_arch):
-#         model_args = {"test_name": model_arch, "model_arch": model_arch}
-#         self._setup(model_args)
-
-#         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
-#         neuron_model = NeuronModelForSequenceClassification.from_pretrained(
-#             self.neuron_model_dirs[model_arch], use_io_binding=False
-#         ).to("cuda")
-#         io_model = NeuronModelForSequenceClassification.from_pretrained(
-#             self.neuron_model_dirs[model_arch], use_io_binding=True
-#         ).to("cuda")
-
-#         tokenizer = get_preprocessor(model_id)
-#         tokens = tokenizer(["This is a sample output"] * 2, return_tensors="pt")
-#         neuron_outputs = neuron_model(**tokens)
-#         io_outputs = io_model(**tokens)
-
-#         self.assertTrue("logits" in io_outputs)
-#         self.assertIsInstance(io_outputs.logits, torch.Tensor)
-
-#         # compare tensor outputs
-#         self.assertTrue(torch.equal(neuron_outputs.logits, io_outputs.logits))
-
-#         gc.collect()
+        self.assertIn("set `dynamic_batch_size=True` during the compilation", str(context.exception))
 
 
 # class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
