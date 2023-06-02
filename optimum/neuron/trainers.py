@@ -664,6 +664,7 @@ class AugmentTrainerForTrainiumMixin:
     def _inner_training_loop(
         self, batch_size=None, args=None, resume_from_checkpoint=None, trial=None, ignore_keys_for_eval=None
     ):
+        # Patching skip_first_batches that needs to be able to handle ParallelLoader for FSDP.
         orig_skip_first_batches = transformers.trainer.skip_first_batches
         transformers.trainer.skip_first_batches = skip_first_batches
         super()._inner_training_loop(
