@@ -1,6 +1,10 @@
 name: Optimum Neuron - Test example scripts on Tranium
 
 on:
+on:
+  push:
+    branches:
+      - main
   schedule:
     # At the end of everyday
     - cron: 0 22 * * *
