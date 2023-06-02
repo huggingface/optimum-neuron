@@ -246,8 +246,8 @@ class AugmentTrainerForTrainiumMixin:
             model, self.optimizer = amp.initialize(model, self.optimizer, opt_level=self.args.fp16_opt_level)
 
         # Multi-gpu training (should be after apex fp16 initialization) / 8bit models does not support DDP
-        # if self.args.n_gpu > 1 and not getattr(model, "is_loaded_in_8bit", False):
-        #     model = nn.DataParallel(model)
+        if self.args.n_gpu > 1 and not getattr(model, "is_loaded_in_8bit", False):
+            model = nn.DataParallel(model)
 
         if self.args.jit_mode_eval:
             start_time = time.time()
@@ -337,7 +337,6 @@ class AugmentTrainerForTrainiumMixin:
             )
         elif self.args.parallel_mode == ParallelMode.DISTRIBUTED:
             return model
-            # TODO: not supported for now?
             # kwargs = {}
             # if self.args.ddp_find_unused_parameters is not None:
             #     kwargs["find_unused_parameters"] = self.args.ddp_find_unused_parameters
