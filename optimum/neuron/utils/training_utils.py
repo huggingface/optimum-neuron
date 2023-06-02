@@ -56,7 +56,6 @@ if TYPE_CHECKING:
 
 if is_torch_xla_available():
     import torch_xla.distributed.parallel_loader as pl
-    from torch_xla.distributed.fsdp import XlaFullyShardedDataParallel
 
 TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP = "4.30.0.dev0"
 
@@ -129,7 +128,9 @@ def is_precompilation() -> bool:
 
 
 def is_model_officially_supported(model: Union["PreTrainedModel", "XlaFullyShardedDataParallel"]) -> bool:
-    if not is_torch_xla_available():
+    if is_torch_xla_available():
+        from torch_xla.distributed.fsdp import XlaFullyShardedDataParallel
+    else:
         RuntimeError(
             "is_model_officially_supported requires torch_xla to run, please install it by running: "
             "pip install torch_xla"
