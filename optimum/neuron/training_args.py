@@ -32,7 +32,8 @@ from transformers.utils import (
     requires_backends,
 )
 
-from ..utils import logging
+from ..utils import logging, check_if_transformers_greater
+from .utils.training_utils import TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP
 
 
 if is_sagemaker_mp_enabled():
@@ -46,7 +47,7 @@ logger = logging.get_logger(__name__)
 
 class TrainiumTrainingArguments(TrainingArguments):
     def __post_init__(self):
-        should_set_fsdp_xla_to_true = self.fsdp_config is None
+        should_set_fsdp_xla_to_true = self.fsdp is not None and self.fsdp_config is None
         super().__post_init__()
         if should_set_fsdp_xla_to_true:
             self.fsdp_config["xla"] = True
@@ -54,6 +55,12 @@ class TrainiumTrainingArguments(TrainingArguments):
             raise ValueError(
                 "XLA FSDP is the only supported FSDP implementation by `optimum-neuron` but the provided FSDP config "
                 "specified it should not be used."
+            )
+        if self.fsdp is not None and not check_if_transformers_greater(TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP):
+            import transformers
+            raise RuntimeError(
+                "The minimal required Transformers version to perform XLA FSDP is "
+                f"{TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP} but {transformers.__version__} is installed."
             )
 
     # Needed only to specialize the warning message for FSDP.
