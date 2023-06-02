@@ -1,7 +1,6 @@
 name: Optimum Neuron - Test example scripts on Tranium
 
 on:
-on:
   push:
     branches:
       - main
