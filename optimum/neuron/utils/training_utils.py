@@ -56,6 +56,7 @@ if TYPE_CHECKING:
 
 if is_torch_xla_available():
     import torch_xla.distributed.parallel_loader as pl
+    from torch_xla.distributed.fsdp import XlaFullyShardedDataParallel
 
 TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP = "4.30.0.dev0"
 
@@ -127,8 +128,17 @@ def is_precompilation() -> bool:
     return os.environ.get("NEURON_PARALLEL_COMPILE") == "1"
 
 
-def is_model_officially_supported(model: "PreTrainedModel") -> bool:
-    return model.__class__.__name__ in _SUPPORTED_MODEL_NAMES
+def is_model_officially_supported(model: Union["PreTrainedModel", "XlaFullyShardedDataParallel"]) -> bool:
+    if not is_torch_xla_available():
+        RuntimeError(
+            "is_model_officially_supported requires torch_xla to run, please install it by running: "
+            "pip install torch_xla"
+        )
+    if isinstance(model, XlaFullyShardedDataParallel):
+        class_name = model.module.__class__.__name__
+    else:
+        class_name = model.__class__.__name__
+    return class_name in _SUPPORTED_MODEL_NAMES
 
 
 class FirstAndLastDataset(Dataset):
