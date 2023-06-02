@@ -14,6 +14,8 @@
 # limitations under the License.
 """Defines a TrainingArguments class compatible with Trainium."""
 
+import io
+import json
 import os
 import warnings
 from datetime import timedelta
@@ -48,22 +50,29 @@ logger = logging.get_logger(__name__)
 
 class TrainiumTrainingArgumentsMixin:
     def __post_init__(self):
-        should_set_fsdp_xla_to_true = self.fsdp is not None and self.fsdp_config is None
-        super().__post_init__()
-        if should_set_fsdp_xla_to_true:
-            self.fsdp_config["xla"] = True
-        elif not self.fsdp_config["xla"]:
-            raise ValueError(
-                "XLA FSDP is the only supported FSDP implementation by `optimum-neuron` but the provided FSDP config "
-                "specified it should not be used."
-            )
-        if self.fsdp is not None and not check_if_transformers_greater(TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP):
-            import transformers
+        if self.fsdp is not None:
+            if self.fsdp_config is None:
+                self.fsdp_config = {"xla": True}
+            elif isinstance(self.fsdp_config, str):
+                with io.open(self.fsdp_config, "r", encoding="utf-8") as f:
+                    self.fsdp_config = json.load(f)
 
-            raise RuntimeError(
-                "The minimal required Transformers version to perform XLA FSDP is "
-                f"{TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP} but {transformers.__version__} is installed."
-            )
+            if "xla" in self.fsdp_config and not self.fsdp_config["xla"]:
+                raise ValueError(
+                    "XLA FSDP is the only supported FSDP implementation by `optimum-neuron` but the provided FSDP "
+                    "config specified it should not be used."
+                )
+            else:
+                self.fsdp_config["xla"] = True
+
+            if not check_if_transformers_greater(TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP):
+                import transformers
+
+                raise RuntimeError(
+                    "The minimal required Transformers version to perform XLA FSDP is "
+                    f"{TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP} but {transformers.__version__} is installed."
+                )
+        super().__post_init__()
 
     # Needed only to specialize the warning message for FSDP.
     @cached_property
