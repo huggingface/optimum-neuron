@@ -15,40 +15,52 @@
 """Defines Trainer subclasses to perform training on AWS Trainium instances."""
 
 import functools
-import math
-import random
 import glob
+import sys
+import math
 import os
+import random
+import shutil
 import time
 import warnings
-import shutil
-from packaging import version
-from tqdm import tqdm
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
-from torch import nn
 import torch.distributed as dist
-from torch.utils.data import RandomSampler
+from accelerate import skip_first_batches as accelerate_skip_first_batches
+from packaging import version
+from torch import nn
+from torch.utils.data import DataLoader, Dataset, RandomSampler
 from torch.utils.data.distributed import DistributedSampler
-from torch.utils.data import DataLoader, Dataset
+from tqdm import tqdm
 from transformers import GenerationMixin, Seq2SeqTrainer, Trainer
-from transformers.dependency_versions_check import dep_version_check
-from transformers.integrations import is_fairscale_available, hp_params
-from transformers.modeling_utils import unwrap_model
-from transformers.trainer_pt_utils import get_module_class_from_name, reissue_pt_warnings, get_model_param_count
-from transformers.trainer_utils import ShardedDDPOption, PREFIX_CHECKPOINT_DIR, has_length, TrainOutput
-from transformers.training_args import ParallelMode
-from transformers.trainer_callback import TrainerState
 from transformers.debug_utils import DebugOption, DebugUnderflowOverflow
 from transformers.deepspeed import deepspeed_init, deepspeed_load_checkpoint
+from transformers.dependency_versions_check import dep_version_check
+from transformers.integrations import hp_params, is_fairscale_available
+from transformers.modeling_utils import unwrap_model
 from transformers.pytorch_utils import is_torch_less_than_1_11
-from transformers.trainer import OPTIMIZER_NAME, SCHEDULER_NAME, SCALER_NAME, TRAINER_STATE_NAME, TRAINING_ARGS_NAME, WEIGHTS_NAME
-from transformers.utils import is_apex_available, is_sagemaker_dp_enabled, is_sagemaker_mp_enabled, is_torch_tpu_available
-from accelerate import skip_first_batches as accelerate_skip_first_batches
+from transformers.trainer import (
+    OPTIMIZER_NAME,
+    SCALER_NAME,
+    SCHEDULER_NAME,
+    TRAINER_STATE_NAME,
+    TRAINING_ARGS_NAME,
+    WEIGHTS_NAME,
+)
+from transformers.trainer_callback import TrainerState
+from transformers.trainer_pt_utils import get_model_param_count, get_module_class_from_name, reissue_pt_warnings
+from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR, ShardedDDPOption, TrainOutput, has_length, HPSearchBackend
+from transformers.training_args import ParallelMode
+from transformers.utils import (
+    is_apex_available,
+    is_sagemaker_dp_enabled,
+    is_sagemaker_mp_enabled,
+    is_torch_tpu_available,
+)
 
 from ..utils import check_if_transformers_greater, logging
 from .accelerator import TrainiumAccelerator
@@ -73,8 +85,8 @@ if is_apex_available():
 
 if is_neuronx_available():
     import torch_xla.core.xla_model as xm
-    from torch_xla.distributed.fsdp.state_dict_utils import consolidate_sharded_model_checkpoints
     import torch_xla.distributed.parallel_loader as pl
+    from torch_xla.distributed.fsdp.state_dict_utils import consolidate_sharded_model_checkpoints
 
 if is_sagemaker_mp_enabled():
     import smdistributed.modelparallel.torch as smp
@@ -128,7 +140,7 @@ def skip_first_batches(dataloader, num_batches=0):
 
 def get_fsdp_checkpoint_path(output_dir):
     return os.path.join(output_dir, f"{RANK_PREFIX}-{xm.get_ordinal()}-of-{xm.xrt_world_size()}.pth")
-        
+
 
 class AugmentTrainerForTrainiumMixin:
     def __init__(self, *args, **kwargs):
@@ -446,7 +458,6 @@ class AugmentTrainerForTrainiumMixin:
             self.model.save_pretrained(output_dir, is_main_process=self.args.should_save, save_function=xm.save)
         if self.tokenizer is not None and self.args.should_save:
             self.tokenizer.save_pretrained(output_dir)
-
 
     def _save_checkpoint(self, model, trial, metrics=None):
         # In all cases, including ddp/dp/deepspeed, self.model is always a reference to the model we
