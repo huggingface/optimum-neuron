@@ -26,7 +26,6 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
-import transformers
 from accelerate import skip_first_batches as accelerate_skip_first_batches
 from packaging import version
 from torch import nn
@@ -65,8 +64,10 @@ from .utils.argument_utils import validate_arg
 from .utils.cache_utils import get_neuron_cache_path
 from .utils.training_utils import (
     FirstAndLastDataset,
+    Patcher,
     is_model_officially_supported,
     is_precompilation,
+    patch_model,
     prepare_environment_for_neuron,
 )
 
@@ -174,6 +175,10 @@ class AugmentTrainerForTrainiumMixin:
         # Make the model Neuron-compatible for generation.
         self.patch_generation_mixin_to_neuron_generation_mixin(self.model)
 
+        self.inner_training_loop_patcher = Patcher(
+            patching_specs=[("transformers.trainer.skip_first_batches", skip_first_batches)],
+        )
+
     def prepare_args_for_precompilation(self, args: "TrainingArguments"):
         if args.num_train_epochs != 1:
             logger.info("Setting the number of epochs for precompilation to 1.")
@@ -226,6 +231,8 @@ class AugmentTrainerForTrainiumMixin:
                 f"{model.__class__.__name__} is not officially supported by optimum-neuron. Training might not work as  "
                 "expected."
             )
+
+        model = patch_model(model)
 
         if self.args.use_ipex:
             dtype = torch.bfloat16 if self.use_cpu_amp else torch.float32
@@ -665,15 +672,14 @@ class AugmentTrainerForTrainiumMixin:
         self, batch_size=None, args=None, resume_from_checkpoint=None, trial=None, ignore_keys_for_eval=None
     ):
         # Patching skip_first_batches that needs to be able to handle ParallelLoader for FSDP.
-        orig_skip_first_batches = transformers.trainer.skip_first_batches
-        transformers.trainer.skip_first_batches = skip_first_batches
-        super()._inner_training_loop(
-            batch_size=batch_size,
-            resume_from_checkpoint=resume_from_checkpoint,
-            trial=trial,
-            ignore_keys_for_eval=ignore_keys_for_eval,
-        )
-        transformers.trainer.skip_first_batches = orig_skip_first_batches
+        with self.inner_training_loop_patcher:
+            super()._inner_training_loop(
+                batch_size=batch_size,
+                args=args,
+                resume_from_checkpoint=resume_from_checkpoint,
+                trial=trial,
+                ignore_keys_for_eval=ignore_keys_for_eval,
+            )
 
 
 class TrainiumTrainer(AugmentTrainerForTrainiumMixin, Trainer):
