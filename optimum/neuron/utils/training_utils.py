@@ -231,7 +231,9 @@ def patch_forward(forward_fn):
     @functools.wraps(forward_fn)
     def wrapper(*args, **kwargs):
         with patcher:
-            return forward_fn(*args, **kwargs)
+            # args[0] is self, which will be automatically passed to the function
+            # because we later bind the wrapper to the model instance.
+            return forward_fn(*args[1:], **kwargs)
 
     return wrapper
 
@@ -240,7 +242,7 @@ def patch_model(model: "PreTrainedModel") -> "PreTrainedModel":
     if hasattr(model.config, "layerdrop"):
         model.config.layerdrop = 0
     model.no_sync = lambda: contextlib.nullcontext()
-    model.forward = patch_forward(model.forward)
+    model.forward = patch_forward(model.forward).__get__(model)
     return model
 
 

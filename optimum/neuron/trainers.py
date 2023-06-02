@@ -54,8 +54,6 @@ from transformers.utils import (
     is_torch_tpu_available,
 )
 
-from optimum.neuron.utils.import_utils import is_torch_xla_available
-
 from ..utils import check_if_transformers_greater, logging
 from .accelerator import TrainiumAccelerator
 from .generation import NeuronGenerationMixin
@@ -668,13 +666,14 @@ class AugmentTrainerForTrainiumMixin:
     ):
         # Patching skip_first_batches that needs to be able to handle ParallelLoader for FSDP.
         with self.inner_training_loop_patcher:
-            super()._inner_training_loop(
+            output = super()._inner_training_loop(
                 batch_size=batch_size,
                 args=args,
                 resume_from_checkpoint=resume_from_checkpoint,
                 trial=trial,
                 ignore_keys_for_eval=ignore_keys_for_eval,
             )
+        return output
 
 
 class TrainiumTrainer(AugmentTrainerForTrainiumMixin, Trainer):
