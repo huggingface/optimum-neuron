@@ -127,13 +127,16 @@ def is_precompilation() -> bool:
     return os.environ.get("NEURON_PARALLEL_COMPILE") == "1"
 
 
-def is_model_officially_supported(model: Union["PreTrainedModel", "XlaFullyShardedDataParallel"]) -> bool:
+def is_model_officially_supported(model: "PreTrainedModel") -> bool:
+    # In theory the type annotation is not correct since we can have also a XlaFullyShardedDataParallel
+    # but let's ignore it here.
     if not is_torch_xla_available():
         raise RuntimeError(
             "is_model_officially_supported requires torch_xla to run, please install it by running: "
             "pip install torch_xla"
         )
     from torch_xla.distributed.fsdp import XlaFullyShardedDataParallel
+
     if isinstance(model, XlaFullyShardedDataParallel):
         class_name = model.module.__class__.__name__
     else:
