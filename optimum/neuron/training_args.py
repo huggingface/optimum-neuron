@@ -33,7 +33,7 @@ from transformers.utils import (
     requires_backends,
 )
 
-from ..utils import logging, check_if_transformers_greater
+from ..utils import check_if_transformers_greater, logging
 from .utils.training_utils import TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP
 
 
@@ -59,6 +59,7 @@ class TrainiumTrainingArgumentsMixin:
             )
         if self.fsdp is not None and not check_if_transformers_greater(TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP):
             import transformers
+
             raise RuntimeError(
                 "The minimal required Transformers version to perform XLA FSDP is "
                 f"{TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP} but {transformers.__version__} is installed."

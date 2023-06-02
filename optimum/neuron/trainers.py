@@ -25,7 +25,6 @@ from tempfile import TemporaryDirectory
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
-from optimum.neuron.utils.import_utils import is_torch_xla_available
 import torch
 from packaging import version
 from torch import nn
@@ -54,6 +53,8 @@ from transformers.utils import (
     is_sagemaker_mp_enabled,
     is_torch_tpu_available,
 )
+
+from optimum.neuron.utils.import_utils import is_torch_xla_available
 
 from ..utils import check_if_transformers_greater, logging
 from .accelerator import TrainiumAccelerator
@@ -585,7 +586,7 @@ class AugmentTrainerForTrainiumMixin:
         if self.args.should_save:
             self._rotate_checkpoints(use_mtime=True, output_dir=run_dir)
 
-    # This overrides the original _load_optimizer_and_scheduler to support loading a sharded optimizer state in a XLA 
+    # This overrides the original _load_optimizer_and_scheduler to support loading a sharded optimizer state in a XLA
     # FSDP setting.
     def _load_optimizer_and_scheduler(self, checkpoint):
         if checkpoint is None:

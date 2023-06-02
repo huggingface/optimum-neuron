@@ -212,13 +212,14 @@ def main():
 
                 with open(training_argument_file_path, "r") as fp:
                     file_content = fp.read()
-                training_args_cls, processed_content, import_end_index = remove_import(TRAINING_ARGUMENTS_IMPORT_PATTERN, file_content)
+                training_args_cls, processed_content, import_end_index = remove_import(
+                    TRAINING_ARGUMENTS_IMPORT_PATTERN, file_content
+                )
                 code = generate_new_import_code(AWS_CODE[training_args_cls])
                 code = f"\n{code}\n"
                 processed_content = insert_code_at_position(code, processed_content, import_end_index)
                 with open(training_argument_file_path, "w") as fp:
                     fp.write(processed_content)
-
 
             elif file_path.name == "requirements.txt":
                 with open(file_path, "r") as fp:

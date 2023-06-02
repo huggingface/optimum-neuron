@@ -27,7 +27,7 @@ _import_structure = {
 if TYPE_CHECKING:
     from .hf_argparser import TrainiumHfArgumentParser
     from .trainers import Seq2SeqTrainiumTrainer, TrainiumTrainer
-    from .training_args import TrainiumTrainingArguments, Seq2SeqTrainiumTrainingArguments
+    from .training_args import Seq2SeqTrainiumTrainingArguments, TrainiumTrainingArguments
 else:
     import sys
 
