@@ -34,13 +34,13 @@ from transformers import (
     AutoModelForSeq2SeqLM,
     AutoTokenizer,
     DataCollatorForSeq2Seq,
-    Seq2SeqTrainingArguments,
     set_seed,
 )
 from transformers.trainer_utils import EvalLoopOutput, EvalPrediction, get_last_checkpoint
 from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
 
+from optimum.neuron import Seq2SeqTrainiumTrainingArguments as Seq2SeqTrainingArguments
 from optimum.neuron import TrainiumHfArgumentParser as HfArgumentParser
 
 

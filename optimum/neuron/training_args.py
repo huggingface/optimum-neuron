@@ -21,8 +21,9 @@ from datetime import timedelta
 import torch
 from accelerate.state import AcceleratorState, PartialState
 from accelerate.utils import DistributedType
-from packing import version
+from packaging import version
 from transformers.training_args import ParallelMode, TrainingArguments
+from transformers.training_args_seq2seq import Seq2SeqTrainingArguments
 from transformers.utils import (
     cached_property,
     is_accelerate_available,
@@ -45,7 +46,7 @@ if is_sagemaker_mp_enabled():
 logger = logging.get_logger(__name__)
 
 
-class TrainiumTrainingArguments(TrainingArguments):
+class TrainiumTrainingArgumentsMixin:
     def __post_init__(self):
         should_set_fsdp_xla_to_true = self.fsdp is not None and self.fsdp_config is None
         super().__post_init__()
@@ -156,3 +157,11 @@ class TrainiumTrainingArguments(TrainingArguments):
                 if device.type == "cuda":
                     torch.cuda.set_device(device)
         return device
+
+
+class TrainiumTrainingArguments(TrainiumTrainingArgumentsMixin, TrainingArguments):
+    pass
+
+
+class Seq2SeqTrainiumTrainingArguments(TrainiumTrainingArgumentsMixin, Seq2SeqTrainingArguments):
+    pass

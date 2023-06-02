@@ -19,7 +19,7 @@ from transformers.utils import _LazyModule
 
 
 _import_structure = {
-    "hf_argparser": ["TrainiumHfArgumentParser"],
+    "hf_argparser": ["TrainiumHfArgumentParser", "Seq2SeqTrainiumTrainingArguments"],
     "trainers": ["TrainiumTrainer", "Seq2SeqTrainiumTrainer"],
     "training_args": ["TrainiumTrainingArguments"],
 }
@@ -27,7 +27,7 @@ _import_structure = {
 if TYPE_CHECKING:
     from .hf_argparser import TrainiumHfArgumentParser
     from .trainers import Seq2SeqTrainiumTrainer, TrainiumTrainer
-    from .training_args import TrainiumTrainingArguments
+    from .training_args import TrainiumTrainingArguments, Seq2SeqTrainiumTrainingArguments
 else:
     import sys
 

@@ -58,7 +58,7 @@ if TYPE_CHECKING:
 if is_torch_xla_available():
     import torch_xla.distributed.parallel_loader as pl
 
-TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP = "4.30.0"
+TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP = "4.30.0.dev0"
 
 def _generate_supported_model_class_names(
     model_type: str,
