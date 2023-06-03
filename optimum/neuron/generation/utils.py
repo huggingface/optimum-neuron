@@ -22,7 +22,9 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Un
 
 import torch
 import torch.distributed as dist
-import torch_xla.core.xla_model as xm
+from optimum.neuron.utils.import_utils import is_torch_xla_available
+if is_torch_xla_available():
+    import torch_xla.core.xla_model as xm
 from transformers import GenerationMixin
 from transformers.deepspeed import is_deepspeed_zero3_enabled
 from transformers.generation.beam_constraints import DisjunctiveConstraint, PhrasalConstraint
@@ -32,7 +34,8 @@ from transformers.generation.logits_process import (
     LogitsProcessorList,
     MinLengthLogitsProcessor,
 )
-from transformers.generation.utils import GreedySearchDecoderOnlyOutput, GreedySearchEncoderDecoderOutput
+from transformers.generation.utils import GreedySearchDecoderOnlyOutput, GreedySearchEncoderDecoderOutput,\
+    GreedySearchOutput, GenerateOutput
 from transformers.generation.stopping_criteria import (
     MaxLengthCriteria,
     MaxTimeCriteria,
@@ -46,9 +49,6 @@ if TYPE_CHECKING:
     from transformers.generation.streamers import BaseStreamer
 
 logger = logging.get_logger(__name__)
-
-GreedySearchOutput = Union[GreedySearchEncoderDecoderOutput, GreedySearchDecoderOnlyOutput]
-GenerateOutput = Union[GreedySearchOutput]
 
 
 class NeuronGenerationMixin(GenerationMixin):
@@ -752,7 +752,9 @@ class NeuronGenerationMixin(GenerationMixin):
                 next_token_logits = outputs.logits[:, -1, :]
 
             # pre-process distribution
-            next_tokens_scores = logits_processor(input_ids, next_token_logits)
+            # Move to cpu to handle arbitrary logits_processor
+            next_tokens_scores = logits_processor(input_ids[:, :seq_length].to('cpu'), next_token_logits.to('cpu'))
+            next_tokens_scores = next_tokens_scores.to(input_ids.device)
 
             # Store scores, attentions and hidden_states when required
             if return_dict_in_generate:

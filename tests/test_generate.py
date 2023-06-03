@@ -2,6 +2,7 @@ import os
 
 import numpy as np
 import pytest
+from optimum.neuron.utils.testing_utils import is_trainium_test
 from transformers import (
     AutoTokenizer,
     AutoModelForSeq2SeqLM,
@@ -37,7 +38,6 @@ def _test_greedy_decoding(model_name, device="cpu", use_cache=False, decoder_onl
     generation_config.do_sample = False
     generation_config.use_cache = use_cache
 
-
     patch_generation_mixin_to_neuron_generation_mixin(model)
     model.generation_config.pad_token_id = model.generation_config.eos_token_id
     task_prompt = "translate English to German: "
@@ -52,9 +52,8 @@ def _test_greedy_decoding(model_name, device="cpu", use_cache=False, decoder_onl
     if device == "xla":
         xm.mark_step()
     for input_str in input_strings:
-
         input_ids = tokenizer(task_prompt + input_str, return_tensors="pt", padding="max_length",
-                                      max_length=50).to(device)
+                              max_length=50).to(device)
         outputs = model.generate(
             **input_ids, max_new_tokens=20, use_cache=False, generation_config=generation_config
         )
@@ -70,6 +69,7 @@ testdata = [
 ]
 
 
+@is_trainium_test
 @pytest.mark.parametrize("model_name, use_cache, decoder_only", testdata)
 def test_greedy_decoding(model_name, use_cache, decoder_only):
     os.environ['XLA_USE_BF16'] = '0'
@@ -81,5 +81,3 @@ def test_greedy_decoding(model_name, use_cache, decoder_only):
 
     assert np.array_equal(cpu_samples, xla_neuron_samples_fp32), "XLA Neuron FP32 output doesn't match CPU only output"
     assert np.array_equal(cpu_samples, xla_neuron_samples_bf16), "XLA Neuron bf16 output doesn't match CPU only output"
-
-
