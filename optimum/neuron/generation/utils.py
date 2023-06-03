@@ -194,21 +194,23 @@ class NeuronGenerationMixin(GenerationMixin):
             if not is_encoder_decoder:
                 # update attention mask
                 if "attention_mask" in model_kwargs:
-                    attention_mask = model_kwargs["attention_mask"]
-                    model_kwargs["attention_mask"] = torch.cat(
-                        [attention_mask, attention_mask.new_ones((attention_mask.shape[0], 1))], dim=-1
+                    batch_size = model_kwargs["attention_mask"].shape[0]
+                    update_indices = torch.stack(
+                        [torch.arange(batch_size), torch.tensor(seq_length).repeat(batch_size)], dim=-1
                     )
+                    model_kwargs["attention_mask"][update_indices[:, 0], update_indices[:, 1]] =\
+                        model_kwargs["attention_mask"].new_ones((batch_size, 1))
+
             else:
                 # update decoder attention mask
                 if "decoder_attention_mask" in model_kwargs:
-                    decoder_attention_mask = model_kwargs["decoder_attention_mask"]
-                    model_kwargs["decoder_attention_mask"] = torch.cat(
-                        [
-                            decoder_attention_mask,
-                            decoder_attention_mask.new_ones((decoder_attention_mask.shape[0], 1)),
-                        ],
-                        dim=-1,
+                    batch_size = model_kwargs["decoder_attention_mask"].shape[0]
+                    update_indices = torch.stack(
+                        [torch.arange(batch_size), torch.tensor(seq_length).repeat(batch_size)], dim=-1
                     )
+                    model_kwargs["decoder_attention_mask"][update_indices[:, 0], update_indices[:, 1]] = \
+                        model_kwargs["decoder_attention_mask"].new_ones((batch_size, 1))
+
 
         return model_kwargs
 
@@ -440,15 +442,19 @@ class NeuronGenerationMixin(GenerationMixin):
         input_ids = torch.cat(
             [
                 input_ids,
-                torch.ones(
+                (torch.ones(
                     (batch_size, (generation_config.max_length - input_ids_seq_length)),
-                    dtype=torch.long,
-                    device=input_ids.device,
-                )
+                ).long().to(input_ids.device))
                 * generation_config.pad_token_id,
                 ],
             1,
         )
+        # For decoder only models, pad decoder attention mask in addition to prompts
+        if "attention_mask" in model_kwargs and model_kwargs.get("use_cache",
+                                                                 False) is False and not self.config.is_encoder_decoder:
+            model_kwargs["attention_mask"] = torch.cat([model_kwargs["attention_mask"], torch.zeros(
+                (batch_size, (generation_config.max_length - input_ids_seq_length))).long().to(
+                model_kwargs["attention_mask"].device), ], 1)
 
         # 7. determine generation mode
         is_constraint_gen_mode = (
@@ -703,10 +709,15 @@ class NeuronGenerationMixin(GenerationMixin):
             if use_cache:
                 # From max_length-sized input_ids, select first
                 # seq_length - 1 values.
-                update_indices = torch.stack(
+
+                if model_kwargs.get("past_key_values") is None:
+                    input_ids_ = input_ids[:, :seq_length]
+                else:
+                    update_indices = torch.stack(
                     [torch.arange(input_ids.size(0)), torch.tensor(seq_length - 1).repeat(input_ids.size(0))], dim=-1
                 )
-                input_ids_ = input_ids[update_indices[:, 0], update_indices[:, 1], None]
+                    input_ids_ = input_ids[update_indices[:, 0], update_indices[:, 1], None]
+
                 model_inputs = self.prepare_inputs_for_generation(input_ids_, **model_kwargs)
             else:
                 model_inputs = self.prepare_inputs_for_generation(input_ids, **model_kwargs)
