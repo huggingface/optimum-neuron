@@ -48,15 +48,8 @@ class AlbertNeuronConfig(BertNeuronConfig):
     pass
 
 
-# Issue: https://github.com/aws-neuron/aws-neuron-sdk/issues/641
-# (will be fixed by the next neuron sdk release)
-# @register_in_tasks_manager("convbert", *COMMON_TEXT_TASKS)
-# class ConvBertNeuronConfig(BertNeuronConfig):
-#     pass
-
-
-@register_in_tasks_manager("electra", *COMMON_TEXT_TASKS)
-class ElectraNeuronConfig(BertNeuronConfig):
+@register_in_tasks_manager("convbert", *COMMON_TEXT_TASKS)
+class ConvBertNeuronConfig(BertNeuronConfig):
     @property
     def outputs(self) -> List[str]:
         if self.task == "feature-extraction":
@@ -64,8 +57,13 @@ class ElectraNeuronConfig(BertNeuronConfig):
         return self._TASK_TO_COMMON_OUTPUTS[self.task]
 
 
+@register_in_tasks_manager("electra", *COMMON_TEXT_TASKS)
+class ElectraNeuronConfig(ConvBertNeuronConfig):
+    pass
+
+
 @register_in_tasks_manager("flaubert", *COMMON_TEXT_TASKS)
-class FlaubertNeuronConfig(ElectraNeuronConfig):
+class FlaubertNeuronConfig(ConvBertNeuronConfig):
     pass
 
 
@@ -75,12 +73,12 @@ class MobileBertNeuronConfig(BertNeuronConfig):
 
 
 @register_in_tasks_manager("roformer", *COMMON_TEXT_TASKS)
-class RoFormerNeuronConfig(ElectraNeuronConfig):
+class RoFormerNeuronConfig(ConvBertNeuronConfig):
     pass
 
 
 @register_in_tasks_manager("xlm", *COMMON_TEXT_TASKS)
-class XLMNeuronConfig(ElectraNeuronConfig):
+class XLMNeuronConfig(ConvBertNeuronConfig):
     pass
 
 

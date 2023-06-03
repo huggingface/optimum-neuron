@@ -53,7 +53,7 @@ class NeuronCacheCallabackTestCase(StagingTestMixin, TestCase):
         self.assertFalse(callback.neuron_hashes)
 
         callback.neuron_hash_for_model(args, model, inputs)
-        neuron_hash = callback.neuron_hashes[(model, (tuple(inputs["x"].shape),), torch.float32)]
+        neuron_hash = callback.neuron_hashes[(model, (("x", tuple(inputs["x"].shape)),), torch.float32)]
 
         same_neuron_hash = callback.neuron_hash_for_model(args, model, inputs)
 
@@ -69,7 +69,7 @@ class NeuronCacheCallabackTestCase(StagingTestMixin, TestCase):
             args = TrainingArguments(tmpdirname)
             inputs = {"x": torch.rand((8, 1)).to("xla")}
             print(model(**inputs))
-            neuron_hash = NeuronHash(model, ((8, 1),), torch.float32)
+            neuron_hash = NeuronHash(model, (("x", (8, 1)),), torch.float32)
             push_to_cache_on_hub(neuron_hash, Path(tmpdirname) / NEURON_COMPILE_CACHE_NAME)
 
         with TemporaryDirectory() as tmpdirname:

@@ -16,7 +16,7 @@ INSTALL_REQUIRES = [
     "transformers >= 4.28.0",
     "optimum",
     "huggingface_hub >= 0.14.0",
-    "numpy>1.19, <=1.21.6",
+    "numpy>=1.18.5, <=1.21.6",
     "protobuf<4",
 ]
 
@@ -42,13 +42,14 @@ EXTRAS_REQUIRE = {
     "neuron": [
         "wheel",
         "torch-neuron==1.13.1.*",
-        "neuron-cc[tensorflow]",
+        "torch==1.13.1.*",
+        "neuron-cc[tensorflow]==1.15.*",
         "protobuf",
         "torchvision",
     ],
     "neuronx": [
         "wheel",
-        "neuronx-cc==2.*",
+        "neuronx-cc==2.6.*",
         "torch-neuronx",
         "torch==1.13.1.*",
         "torchvision==0.14.*",

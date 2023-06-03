@@ -137,19 +137,12 @@ Input shapes:
 
 ```
 
-In the last section, you can see some input shape options to pass for exporting static neuron model. Default values below will be used if mandatory shape information for the task you chose is not defined:
-
-```
-  "batch_size": 2
-  "sequence_length": 16
-  "num_choices": 4
-```
-
+In the last section, you can see some input shape options to pass for exporting static neuron model, meaning that exact shape inputs should be used during the inference as given during compilation. If you are going to use variable-size inputs, you can pad your inputs to the shape used for compilation as a workaround.
 
 Exporting a checkpoint can be done as follows:
 
 ```bash
-optimum-cli export neuron --model distilbert-base-uncased-distilled-squad distilbert_base_uncased_squad_neuron/
+optimum-cli export neuron --model distilbert-base-uncased-distilled-squad --batch_size 1 --sequence_length 16 distilbert_base_uncased_squad_neuron/
 ```
 
 You should see the following logs which validate the model on Neuron deivces by comparing with PyTorch model on CPU:
@@ -168,7 +161,7 @@ This exports a neuron-compiled TorchScript module of the checkpoint defined by t
 As you can see, the task was automatically detected. This was possible because the model was on the Hub. For local models, providing the `--task` argument is needed or it will default to the model architecture without any task specific head:
 
 ```bash
-optimum-cli export neuron --model local_path --task question-answering distilbert_base_uncased_squad_neuron/
+optimum-cli export neuron --model local_path --task question-answering --batch_size 1 --sequence_length 16 distilbert_base_uncased_squad_neuron/
 ```
 
 Note that providing the `--task` argument for a model on the Hub will disable the automatic task detection. The resulting `model.neuron` file, can then be loaded and run on Neuron devices. 
@@ -216,7 +209,7 @@ logits = neuron_model(*tuple(example.values()))
 
 Specifying a `--task` should not be necessary in most cases when exporting from a model on the Hugging Face Hub.
 
-However, in case you need to check for a given a model architecture what tasks the Neuron export supports, we got you covered. First, you can check the list of supported tasks [here](/exporters/task_manager).
+However, in case you need to check for a given a model architecture what tasks the Neuron export supports, we got you covered. First, you can check the list of supported tasks [here](https://huggingface.co/docs/optimum/exporters/task_manager#pytorch).
 
 For each model architecture, you can find the list of supported tasks via the [`~exporters.tasks.TasksManager`]. For example, for DistilBERT, for the Neuron export, we have:
 
