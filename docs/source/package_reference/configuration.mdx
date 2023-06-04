@@ -33,3 +33,34 @@ Since many architectures share similar properties for their Neuron configuration
 2. Middle-end classes. These are aware of the modality, but multiple can exist for the same modality depending on the inputs they support.
    They specify which input generators should be used for the dummy inputs, but remain model-agnostic.
 3. Model-specific classes like the `BertNeuronConfig` mentioned above. These are the ones actually used to export models.
+
+
+## Supported architectures
+
+
+| Architecture           | Task                                                                                                                                          |
+|------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
+| ALBERT                 | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| BERT                   | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| CamemBERT              | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| ConvBERT               | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| DeBERTa (INF2 only)    | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| DeBERTa-v2 (INF2 only) | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| DistilBERT             | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| ELECTRA                | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| FlauBERT               | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| MobileBERT             | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| MPNet                  | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| RoBERTa                | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| RoFormer               | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| XLM                    | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| XLM-RoBERTa            | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+
+
+<Tip>
+
+More details for checking supported tasks [here](https://huggingface.co/docs/optimum-neuron/guides/export_model#selecting-a-task).
+
+</Tip>
+
+More architectures coming soon, stay tuned! 🚀
