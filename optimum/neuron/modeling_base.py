@@ -30,7 +30,7 @@ from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..exporters.tasks import TasksManager
 from ..modeling_base import OptimizedModel
 from ..utils.save_utils import maybe_load_preprocessors, maybe_save_preprocessors
-from .utils import NEURON_FILE_NAME, store_compilation_config
+from .utils import NEURON_FILE_NAME, is_neuron_available, store_compilation_config
 
 
 if TYPE_CHECKING:
@@ -249,7 +249,9 @@ class NeuronModel(OptimizedModel):
                 )
             else:
                 input_shapes[name] = static_shape
-        neuron_config = neuron_config_constructor(model.config, **input_shapes)
+        if is_neuron_available() and dynamic_batch_size is True and "batch_size" in input_shapes:
+            input_shapes["batch_size"] = 1
+        neuron_config = neuron_config_constructor(model.config, dynamic_batch_size=dynamic_batch_size, **input_shapes)
 
         # Get compilation arguments
         auto_cast_type = None if auto_cast is None else auto_cast_type
@@ -257,7 +259,6 @@ class NeuronModel(OptimizedModel):
             "auto_cast": auto_cast,
             "auto_cast_type": auto_cast_type,
             "disable_fast_relayout": disable_fast_relayout,
-            "dynamic_batch_size": dynamic_batch_size,
         }
 
         input_names, output_names = export(
@@ -267,7 +268,7 @@ class NeuronModel(OptimizedModel):
             **compiler_kwargs,
         )
 
-        store_compilation_config(config, input_shapes, compiler_kwargs, input_names, output_names)
+        store_compilation_config(config, input_shapes, compiler_kwargs, input_names, output_names, dynamic_batch_size)
 
         config.save_pretrained(save_dir_path)
         maybe_save_preprocessors(model_id, save_dir_path, src_subfolder=subfolder)

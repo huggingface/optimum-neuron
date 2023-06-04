@@ -151,18 +151,11 @@ def export(
     auto_cast: Optional[str] = None,
     auto_cast_type: str = "bf16",
     disable_fast_relayout: bool = False,
-    dynamic_batch_size: bool = False,
 ) -> Tuple[List[str], List[str]]:
     if is_neuron_available():
-        if dynamic_batch_size is True:
-            raise RuntimeError(
-                "There is currently an issue for using dynamic batching on INF1: https://github.com/aws-neuron/aws-neuron-sdk/issues/681. Will fix it soon! "
-            )
-        return export_neuron(
-            model, config, output, auto_cast, auto_cast_type, disable_fast_relayout, dynamic_batch_size
-        )
+        return export_neuron(model, config, output, auto_cast, auto_cast_type, disable_fast_relayout)
     elif is_neuronx_available():
-        return export_neuronx(model, config, output, auto_cast, auto_cast_type, dynamic_batch_size)
+        return export_neuronx(model, config, output, auto_cast, auto_cast_type)
     else:
         raise RuntimeError(
             "Cannot export the model because the neuron(x) compiler is not installed. See https://awsdocs-neuron.readthedocs-hosted.com/en/latest/frameworks/torch/torch-setup.html."
@@ -191,8 +184,6 @@ def export_neuronx(
             Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `None`, `"matmul"` or `"all"`, you should use `None` to disable any auto-casting, use `"matmul"` to cast FP32 matrix multiplication operations, and use `"all"` to cast all FP32 operations.
         auto_cast_type (`str`, defaults to `"bf16"`):
             The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"` or `"tf32"`.
-        dynamic_batch_size (`bool`, defaults to `False`):
-            Whether the Neuron compiled model supports dynamic batch size. If this option is enabled, the input batch size can be a multiple of the batch size during the compilation.
 
     Returns:
         `Tuple[List[str], List[str]]`: A tuple with an ordered list of the model's inputs, and the named inputs from
@@ -232,8 +223,7 @@ def export_neuronx(
 
     neuron_model = neuronx.trace(checked_model, dummy_inputs_tuple, compiler_args=compiler_args)
 
-    config.dynamic_batch_size = dynamic_batch_size
-    if dynamic_batch_size is True:
+    if config.dynamic_batch_size is True:
         neuron_model = neuronx.dynamic_batch(neuron_model)
 
     torch.jit.save(neuron_model, output)
@@ -248,7 +238,6 @@ def export_neuron(
     auto_cast: Optional[str] = None,
     auto_cast_type: str = "bf16",
     disable_fast_relayout: bool = False,
-    dynamic_batch_size: bool = False,
 ) -> Tuple[List[str], List[str]]:
     """
     Exports a PyTorch model to a serialized TorchScript module compiled by neuron-cc compiler.
@@ -266,8 +255,6 @@ def export_neuron(
             The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"`, ``"mixed" or `"tf32"`. `"mixed"` is only available when auto_cast is "matmul", it will cast operators that use Neuron Matmult engine to bf16 while using fp16 for matmult-based transpose.
         disable_fast_relayout (`bool`, defaults to `False`):
             Whether to disable fast relayout optimization which improves performance by using the matrix multiplier for tensor transpose.
-        dynamic_batch_size (`bool`, defaults to `False`):
-            Whether the Neuron compiled model supports dynamic batch size. If this option is enabled, the input batch size can be a multiple of the batch size during the compilation.
 
     Returns:
         `Tuple[List[str], List[str]]`: A tuple with an ordered list of the model's inputs, and the named inputs from
@@ -295,7 +282,6 @@ def export_neuron(
     checked_model = config.check_model_inputs_order(model, dummy_inputs)
     compiler_args = convert_neuronx_compiler_args_to_neuron(auto_cast, auto_cast_type, disable_fast_relayout)
 
-    config.dynamic_batch_size = dynamic_batch_size
     neuron_model = neuron.trace(
         checked_model, dummy_inputs_tuple, dynamic_batch_size=config.dynamic_batch_size, compiler_args=compiler_args
     )

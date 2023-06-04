@@ -88,8 +88,8 @@ The Optimum Neuron export can be used through Optimum command-line:
 optimum-cli export neuron --help
 
 usage: optimum-cli export neuron [-h] -m MODEL [--task TASK] [--atol ATOL] [--cache_dir CACHE_DIR] [--trust-remote-code]
-                                 [--auto_cast AUTO_CAST] [--auto_cast_type AUTO_CAST_TYPE]
-                                 [--disable_fast_relayout DISABLE_FAST_RELAYOUT] [--batch_size BATCH_SIZE]
+                                 [--auto_cast {none,matmul,all}] [--auto_cast_type {bf16,fp16,mixed,tf32}]
+                                 [--disable-fast-relayout] [--dynamic-batch-size] [--batch_size BATCH_SIZE]
                                  [--sequence_length SEQUENCE_LENGTH] [--num_choices NUM_CHOICES]
                                  output
 
@@ -116,15 +116,17 @@ Optional arguments:
   --trust-remote-code   Allow to use custom code for the modeling hosted in the model repository. This option should only be set
                         for repositories you trust and in which you have read the code, as it will execute on your local machine
                         arbitrary code present in the model repository.
-  --auto_cast AUTO_CAST
-                        Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `None`,
+  --auto_cast {none,matmul,all}
+                        Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `"none"`,
                         `"matmul"` or `"all"`.
-  --auto_cast_type AUTO_CAST_TYPE
-                        The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"` or
-                        `"tf32"`.
-  --disable_fast_relayout DISABLE_FAST_RELAYOUT
+  --auto_cast_type {bf16,fp16,mixed,tf32}
+                        The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"`,
+                        `"mixed"` or `"tf32"`.
+  --disable-fast-relayout
                         Whether to disable fast relayout optimization which improves performance by using the matrix multiplier
                         for tensor transpose.
+  --dynamic-batch-size  Enable dynamic batch size for neuron compiled model. If this option is enabled, the input batch size can
+                        be dynamic during the inference.
 
 Input shapes:
   --batch_size BATCH_SIZE
@@ -137,7 +139,7 @@ Input shapes:
 
 ```
 
-In the last section, you can see some input shape options to pass for exporting static neuron model, meaning that exact shape inputs should be used during the inference as given during compilation. If you are going to use variable-size inputs, you can pad your inputs to the shape used for compilation as a workaround.
+In the last section, you can see some input shape options to pass for exporting static neuron model, meaning that exact shape inputs should be used during the inference as given during compilation. If you are going to use variable-size inputs, you can pad your inputs to the shape used for compilation as a workaround. If you want the batch size to be dynamic, you can pass `--dynamic-batch-size` to enable dynamic batching, which means that you will be able to use inputs with difference batch size during inference.
 
 Exporting a checkpoint can be done as follows:
 
@@ -153,7 +155,7 @@ Validating Neuron model...
         - Validating Neuron Model output "last_hidden_state":
                 -[✓] (1, 16, 32) matches (1, 16, 32)
                 -[✓] all values close (atol: 0.0001)
-The Neuronx export succeeded and the exported model was saved at: test_bert/
+The Neuronx export succeeded and the exported model was saved at: distilbert_base_uncased_squad_neuron/
 ```
 
 This exports a neuron-compiled TorchScript module of the checkpoint defined by the `--model` argument.
@@ -161,7 +163,7 @@ This exports a neuron-compiled TorchScript module of the checkpoint defined by t
 As you can see, the task was automatically detected. This was possible because the model was on the Hub. For local models, providing the `--task` argument is needed or it will default to the model architecture without any task specific head:
 
 ```bash
-optimum-cli export neuron --model local_path --task question-answering --batch_size 1 --sequence_length 16 distilbert_base_uncased_squad_neuron/
+optimum-cli export neuron --model local_path --task question-answering --batch_size 1 --sequence_length 16 --dynamic-batch-size distilbert_base_uncased_squad_neuron/
 ```
 
 Note that providing the `--task` argument for a model on the Hub will disable the automatic task detection. The resulting `model.neuron` file, can then be loaded and run on Neuron devices. 
@@ -182,7 +184,7 @@ sequence = "Hello, my cats are cute."
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 model = AutoModelForSequenceClassification.from_pretrained(model_id)
 neuron_config = DistilBertNeuronConfig(
-    config=model.config, task="text-classification", batch_size=1, sequence_length=18,
+    config=model.config, task="text-classification", batch_size=1, sequence_length=18, dynamic_batch_size=True
 )
 output_path = Path("test_bert/model.neuron")
 
