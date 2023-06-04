@@ -15,7 +15,7 @@
 """Utilities related to CLI arguments."""
 
 import os
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, List
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 from ...utils import logging
 
@@ -139,8 +139,8 @@ def store_compilation_config(
     config: "PretrainedConfig",
     input_shapes: Dict[str, int],
     compiler_kwargs: Dict[str, Any],
-    input_names: List[str], 
-    output_names: List[str], 
+    input_names: List[str],
+    output_names: List[str],
     **kwargs,
 ):
     # Add input shapes during compilation to the config
@@ -151,6 +151,6 @@ def store_compilation_config(
     # Add compilation args to the config
     for arg, value in compiler_kwargs.items():
         config.__setattr__(arg, value)
-    
+
     config.__setattr__("input_names", input_names)
     config.__setattr__("output_names", output_names)

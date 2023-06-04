@@ -81,7 +81,7 @@ class NeuronModel(OptimizedModel):
         self.model = model
         self.model_file_name = model_file_name or NEURON_FILE_NAME
         self.config = config
-        self.neuron_config = NeuronModel._neuron_config_init(self.config) if neuron_config is None else neuron_config
+        self.neuron_config = self._neuron_config_init(self.config) if neuron_config is None else neuron_config
         self.input_static_shapes = NeuronModel.get_input_static_shapes(self.neuron_config)
         self._attributes_init(model_save_dir, preprocessors, **kwargs)
 
@@ -313,8 +313,7 @@ class NeuronModel(OptimizedModel):
         if hasattr(self.auto_model_class, "register"):
             self.auto_model_class.register(AutoConfig, self.__class__)
 
-    @classmethod
-    def _neuron_config_init(cls, config: "PretrainedConfig"):
+    def _neuron_config_init(self, config: "PretrainedConfig"):
         """
         Build a Neuron config with an instance of the `PretrainedConfig` and the task.
         """
@@ -326,7 +325,7 @@ class NeuronModel(OptimizedModel):
         }
 
         # Neuron config constructuor
-        task = cls._auto_model_to_task(cls.auto_model_class)
+        task = NeuronModel._auto_model_to_task(self.auto_model_class)
         neuron_config_constructor = TasksManager.get_exporter_config_constructor(
             model_type=config.model_type, exporter="neuron", task=task
         )
@@ -384,7 +383,11 @@ class NeuronModel(OptimizedModel):
                 self._raise_if_invalid_padding(input_name, input_tensor, target_shapes, to_pad, i)
                 padding += (0, to_pad)
 
-            if self.preprocessors is not None and self.preprocessors[0].pad_token_id is not None and input_name=="input_ids":
+            if (
+                self.preprocessors is not None
+                and self.preprocessors[0].pad_token_id is not None
+                and input_name == "input_ids"
+            ):
                 pad_id = self.preprocessors[0].pad_token_id
             else:
                 pad_id = 0
@@ -414,8 +417,23 @@ class NeuronModel(OptimizedModel):
         inputs = tuple(self._pad_to_compiled_shape(inputs).values())
         yield inputs
 
-    def remove_padded_to_batch_size(self, outputs, batch_size):
+    def remove_padding(self, outputs: List[torch.Tensor], dims: List[int], indices: List[int]):
         """
-        Remove from outputs the dummy sequences that we padded to a specific batch size.
+        Remove padding from output tensors.
+
+        Args:
+            outputs (`List[torch.Tensor]`):
+                List of torch tensors which are inference output.
+            dims (`List[int]`):
+                List of integers which are dimensions in which we slice a tensor.
+            indices (`List[int]`):
+                List of integers which are indices in which we slice a tensor along an axis.
         """
-        return [output_tensor[:batch_size] for output_tensor in outputs]
+        if not len(dims) == len(indices):
+            raise ValueError(f"The size of `dims`({len(dims)}) and indices`({len(indices)}) must be equal.")
+        for dim, indice in zip(dims, indices):
+            outputs = [
+                torch.index_select(output_tensor, dim, torch.LongTensor(range(indice))) for output_tensor in outputs
+            ]
+
+        return outputs

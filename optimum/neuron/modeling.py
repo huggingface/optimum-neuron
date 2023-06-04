@@ -28,7 +28,7 @@ from transformers import (
 )
 from transformers.file_utils import add_start_docstrings, add_start_docstrings_to_model_forward
 from transformers.modeling_outputs import (
-    BaseModelOutput,
+    BaseModelOutputWithPooling,
     MaskedLMOutput,
     MultipleChoiceModelOutput,
     QuestionAnsweringModelOutput,
@@ -93,20 +93,6 @@ FEATURE_EXTRACTION_EXAMPLE = r"""
     >>> list(last_hidden_state.shape)
     [2, 12, 384]
     ```
-
-    Example using `transformers.pipeline`:
-
-    ```python
-    >>> from transformers import {processor_class}, pipeline
-    >>> from optimum.neuron import {model_class}
-
-    >>> tokenizer = {processor_class}.from_pretrained("{checkpoint}")
-    >>> model = {model_class}.from_pretrained("{checkpoint}")
-    >>> neuron_extractor = pipeline("feature-extraction", model=model, tokenizer=tokenizer)
-
-    >>> text = "My name is Philipp and I live in Germany."
-    >>> pred = neuron_extractor(text)
-    ```
 """
 
 
@@ -146,18 +132,27 @@ class NeuronModelForFeatureExtraction(NeuronModel):
             neuron_inputs["token_type_ids"] = token_type_ids
 
         with self.neuron_padding_manager(neuron_inputs) as inputs:
-            outputs = self.model(*inputs)
-            outputs = self.remove_padded_to_batch_size(outputs, batch_size=input_ids.shape[0])
-
-        last_hidden_state = outputs[0]
-        pooler_output = outputs[1] if len(outputs) > 1 else None
+            outputs = self.model(
+                *inputs
+            )  # last_hidden_state: (batch_size, sequencen_len, hidden_size), pooler_output: (batch_size, hidden_size)
+            last_hidden_state = self.remove_padding(
+                [outputs[0]], dims=[0, 1], indices=[input_ids.shape[0], input_ids.shape[1]]
+            )[
+                0
+            ]  # Remove padding on batch_size(0), and sequence_length(1)
+            if len(outputs) > 1:
+                pooler_output = self.remove_padding([outputs[1]], dims=[0], indices=[input_ids.shape[0]])[
+                    0
+                ]  # Remove padding on batch_size(0)
+            else:
+                pooler_output = None
 
         # converts output to namedtuple for pipelines post-processing
-        return BaseModelOutput(last_hidden_state=last_hidden_state, pooler_output=pooler_output)
+        return BaseModelOutputWithPooling(last_hidden_state=last_hidden_state, pooler_output=pooler_output)
 
 
 MASKED_LM_EXAMPLE = r"""
-    Example of feature extraction:
+    Example of fill mask:
 
     ```python
     >>> from transformers import {processor_class}
@@ -173,20 +168,6 @@ MASKED_LM_EXAMPLE = r"""
     >>> logits = outputs.logits
     >>> list(logits.shape)
     [2, 8, 28996]
-    ```
-
-    Example using `transformers.pipeline`:
-
-    ```python
-    >>> from transformers import {processor_class}, pipeline
-    >>> from optimum.neuron import {model_class}
-
-    >>> tokenizer = {processor_class}.from_pretrained("{checkpoint}")
-    >>> model = {model_class}.from_pretrained("{checkpoint}")
-    >>> fill_masker = pipeline("fill-mask", model=model, tokenizer=tokenizer)
-
-    >>> text = "The capital of France is [MASK]."
-    >>> pred = fill_masker(text)
     ```
 """
 
@@ -227,8 +208,10 @@ class NeuronModelForMaskedLM(NeuronModel):
             neuron_inputs["token_type_ids"] = token_type_ids
 
         with self.neuron_padding_manager(neuron_inputs) as inputs:
-            outputs = self.model(*inputs)
-            outputs = self.remove_padded_to_batch_size(outputs, batch_size=input_ids.shape[0])
+            outputs = self.model(*inputs)  # shape: (batch_size, sequencen_len, vocab_size)
+            outputs = self.remove_padding(
+                outputs, dims=[0, 1], indices=[input_ids.shape[0], input_ids.shape[1]]
+            )  # Remove padding on batch_size(0), and sequence_length(1)
 
         logits = outputs[0]
 
@@ -254,19 +237,6 @@ QUESTION_ANSWERING_EXAMPLE = r"""
     >>> outputs = model(**inputs, start_positions=start_positions, end_positions=end_positions)
     >>> start_scores = outputs.start_logits
     >>> end_scores = outputs.end_logits
-    ```
-    Example using `transformers.pipeline`:
-
-    ```python
-    >>> from transformers import {processor_class}, pipeline
-    >>> from optimum.neuron import {model_class}
-
-    >>> tokenizer = {processor_class}.from_pretrained("{checkpoint}")
-    >>> model = {model_class}.from_pretrained("{checkpoint}")
-    >>> neuron_qa = pipeline("question-answering", model=model, tokenizer=tokenizer)
-
-    >>> question, text = "Who was Jim Henson?", "Jim Henson was a nice puppet"
-    >>> pred = neuron_qa(question, text)
     ```
 """
 
@@ -307,8 +277,10 @@ class NeuronModelForQuestionAnswering(NeuronModel):
             neuron_inputs["token_type_ids"] = token_type_ids
 
         with self.neuron_padding_manager(neuron_inputs) as inputs:
-            outputs = self.model(*inputs)
-            outputs = self.remove_padded_to_batch_size(outputs, batch_size=input_ids.shape[0])
+            outputs = self.model(*inputs)  # shape: [batch_size, sequence_length]
+            outputs = self.remove_padding(
+                outputs, dims=[0, 1], indices=[input_ids.shape[0], input_ids.shape[1]]
+            )  # Remove padding on batch_size(0), and sequence_length(1)
 
         start_logits = outputs[0]
         end_logits = outputs[1]
@@ -333,35 +305,6 @@ SEQUENCE_CLASSIFICATION_EXAMPLE = r"""
     >>> logits = outputs.logits
     >>> list(logits.shape)
     [2, 2]
-    ```
-
-    Example using `transformers.pipelines`:
-
-    ```python
-    >>> from transformers import {processor_class}, pipeline
-    >>> from optimum.neuron import {model_class}
-
-    >>> tokenizer = {processor_class}.from_pretrained("{checkpoint}")
-    >>> model = {model_class}.from_pretrained("{checkpoint}")
-    >>> neuron_classifier = pipeline("text-classification", model=model, tokenizer=tokenizer)
-
-    >>> text = "Hello, my cats are much cuter than your dogs"
-    >>> pred = neuron_classifier(text)
-    ```
-
-    Example using zero-shot-classification `transformers.pipelines`:
-
-    ```python
-    >>> from transformers import {processor_class}, pipeline
-    >>> from optimum.neuron import {model_class}
-
-    >>> tokenizer = {processor_class}.from_pretrained("optimum/distilbert-base-uncased-mnli")
-    >>> model = {model_class}.from_pretrained("optimum/distilbert-base-uncased-mnli")
-    >>> neuron_z0 = pipeline("zero-shot-classification", model=model, tokenizer=tokenizer)
-
-    >>> sequence_to_classify = "Who are you voting for in 2023?"
-    >>> candidate_labels = ["Europe", "public health", "politics", "elections"]
-    >>> pred = neuron_z0(sequence_to_classify, candidate_labels, multi_label=True)
     ```
 """
 
@@ -403,8 +346,10 @@ class NeuronModelForSequenceClassification(NeuronModel):
             neuron_inputs["token_type_ids"] = token_type_ids
 
         with self.neuron_padding_manager(neuron_inputs) as inputs:
-            outputs = self.model(*inputs)
-            outputs = self.remove_padded_to_batch_size(outputs, batch_size=input_ids.shape[0])
+            outputs = self.model(*inputs)  # shape: [batch_size, num_labels]
+            outputs = self.remove_padding(
+                outputs, dims=[0], indices=[input_ids.shape[0]]
+            )  # Remove padding on batch_size(0)
 
         logits = outputs[0]
 
@@ -428,20 +373,6 @@ TOKEN_CLASSIFICATION_EXAMPLE = r"""
     >>> logits = outputs.logits
     >>> list(logits.shape)
     [2, 12, 9]
-    ```
-
-    Example using `transformers.pipelines`:
-
-    ```python
-    >>> from transformers import {processor_class}, pipeline
-    >>> from optimum.neuron import {model_class}
-
-    >>> tokenizer = {processor_class}.from_pretrained("{checkpoint}")
-    >>> model = {model_class}.from_pretrained("{checkpoint}")
-    >>> neuron_ner = pipeline("token-classification", model=model, tokenizer=tokenizer)
-
-    >>> text = "My name is Philipp and I live in Germany."
-    >>> pred = neuron_ner(text)
     ```
 """
 
@@ -484,8 +415,10 @@ class NeuronModelForTokenClassification(NeuronModel):
 
         # run inference
         with self.neuron_padding_manager(neuron_inputs) as inputs:
-            outputs = self.model(*inputs)
-            outputs = self.remove_padded_to_batch_size(outputs, batch_size=input_ids.shape[0])
+            outputs = self.model(*inputs)  # shape: [batch_size, sequence_length, num_labels]
+            outputs = self.remove_padding(
+                outputs, dims=[0, 1], indices=[input_ids.shape[0], input_ids.shape[1]]
+            )  # Remove padding on batch_size(0), and sequence_length(-1)
 
         logits = outputs[0]
 
@@ -561,8 +494,10 @@ class NeuronModelForMultipleChoice(NeuronModel):
 
         # run inference
         with self.neuron_padding_manager(neuron_inputs) as inputs:
-            outputs = self.model(*inputs)
-            outputs = self.remove_padded_to_batch_size(outputs, batch_size=input_ids.shape[0])
+            outputs = self.model(*inputs)  # shape: [batch_size, num_choices]
+            outputs = self.remove_padding(
+                outputs, dims=[0, -1], indices=[input_ids.shape[0], input_ids.shape[1]]
+            )  # Remove padding on batch_size(0), and num_choices(-1)
 
         logits = outputs[0]
 
