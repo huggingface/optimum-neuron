@@ -236,7 +236,7 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
         ATOL_FOR_VALIDATION = 1e-5
         SUPPORTED_ARCHITECTURES = []
 
-    @parameterized.expand(SUPPORTED_ARCHITECTURES)
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_compare_to_transformers_dyn_bs(self, model_arch):
         # Neuron model with dynamic batching
         model_args_dyn = {
@@ -285,7 +285,7 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
 
         gc.collect()
 
-    @parameterized.expand(SUPPORTED_ARCHITECTURES)
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_compare_to_transformers_non_dyn_bs(self, model_arch):
         model_args_non_dyn = {
             "test_name": model_arch + "_dyn_bs_false",
@@ -388,7 +388,7 @@ class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
 
         self.assertIn("Unrecognized configuration class", str(context.exception))
 
-    @parameterized.expand(SUPPORTED_ARCHITECTURES)
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_compare_to_transformers_dyn_bs(self, model_arch):
         # Neuron model with dynamic batching
         model_args_dyn = {
@@ -423,7 +423,7 @@ class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
 
         gc.collect()
 
-    @parameterized.expand(SUPPORTED_ARCHITECTURES)
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_compare_to_transformers_non_dyn_bs(self, model_arch):
         model_args_non_dyn = {
             "test_name": model_arch + "_dyn_bs_false",
@@ -535,7 +535,7 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
 
         self.assertIn("Unrecognized configuration class", str(context.exception))
 
-    @parameterized.expand(SUPPORTED_ARCHITECTURES)
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_compare_to_transformers_dyn_bs(self, model_arch):
         # Neuron model with dynamic batching
         model_args_dyn = {
@@ -587,7 +587,7 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
 
         gc.collect()
 
-    @parameterized.expand(SUPPORTED_ARCHITECTURES)
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_compare_to_transformers_non_dyn_bs(self, model_arch):
         model_args_non_dyn = {
             "test_name": model_arch + "_dyn_bs_false",
@@ -714,7 +714,7 @@ class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
 
         self.assertIn("Unrecognized configuration class", str(context.exception))
 
-    @parameterized.expand(SUPPORTED_ARCHITECTURES)
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_compare_to_transformers_dyn_bs(self, model_arch):
         # Neuron model with dynamic batching
         model_args_dyn = {
@@ -751,7 +751,7 @@ class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
 
         gc.collect()
 
-    @parameterized.expand(SUPPORTED_ARCHITECTURES)
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_compare_to_transformers_non_dyn_bs(self, model_arch):
         model_args_non_dyn = {
             "test_name": model_arch + "_dyn_bs_false",
@@ -863,7 +863,7 @@ class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
 
         self.assertIn("Unrecognized configuration class", str(context.exception))
 
-    @parameterized.expand(SUPPORTED_ARCHITECTURES)
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_compare_to_transformers_dyn_bs(self, model_arch):
         # Neuron model with dynamic batching
         model_args_dyn = {
@@ -900,7 +900,7 @@ class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
 
         gc.collect()
 
-    @parameterized.expand(SUPPORTED_ARCHITECTURES)
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_compare_to_transformers_non_dyn_bs(self, model_arch):
         model_args_non_dyn = {
             "test_name": model_arch + "_dyn_bs_false",
@@ -1022,7 +1022,7 @@ class NeuronModelForMultipleChoiceIntegrationTest(NeuronModelTestMixin):
         ATOL_FOR_VALIDATION = 1e-5
         SUPPORTED_ARCHITECTURES = []
 
-    @parameterized.expand(SUPPORTED_ARCHITECTURES)
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_compare_to_transformers_dyn_bs(self, model_arch):
         # Neuron model with dynamic batching
         model_args_dyn = {
@@ -1067,7 +1067,7 @@ class NeuronModelForMultipleChoiceIntegrationTest(NeuronModelTestMixin):
 
         gc.collect()
 
-    @parameterized.expand(SUPPORTED_ARCHITECTURES)
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_compare_to_transformers_non_dyn_bas(self, model_arch):
         model_args_non_dyn = {
             "test_name": model_arch + "_dyn_bs_false",
