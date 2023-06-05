@@ -206,6 +206,7 @@ class NeuronModel(OptimizedModel):
         auto_cast: Optional[str] = None,
         auto_cast_type: Optional[str] = None,
         disable_fast_relayout: Optional[bool] = False,
+        disable_fallback: bool = False,
         dynamic_batch_size: bool = False,
         **kwargs_shapes,
     ) -> "NeuronModel":
@@ -251,6 +252,7 @@ class NeuronModel(OptimizedModel):
                 input_shapes[name] = static_shape
         if is_neuron_available() and dynamic_batch_size is True and "batch_size" in input_shapes:
             input_shapes["batch_size"] = 1
+            disable_fallback = True  # Turn off the fallback for neuron, otherwise dynamic batching will still fail
         neuron_config = neuron_config_constructor(model.config, dynamic_batch_size=dynamic_batch_size, **input_shapes)
 
         # Get compilation arguments
@@ -259,6 +261,7 @@ class NeuronModel(OptimizedModel):
             "auto_cast": auto_cast,
             "auto_cast_type": auto_cast_type,
             "disable_fast_relayout": disable_fast_relayout,
+            "disable_fallback": disable_fallback,
         }
 
         input_names, output_names = export(
