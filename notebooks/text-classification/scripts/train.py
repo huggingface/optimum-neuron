@@ -1,19 +1,18 @@
-import os
 import argparse
-import numpy as np
-from transformers import (
-    AutoModelForSequenceClassification,
-    DataCollatorForSeq2Seq,
-    AutoTokenizer,
-    set_seed,
-)
-from datasets import load_from_disk
-import torch
+import logging
+import os
+
 import evaluate
 import numpy as np
-import logging 
+from datasets import load_from_disk
 from huggingface_hub import HfFolder
-from transformers import TrainingArguments
+from transformers import (
+    AutoModelForSequenceClassification,
+    AutoTokenizer,
+    TrainingArguments,
+    set_seed,
+)
+
 from optimum.neuron import TrainiumTrainer as Trainer
 
 
@@ -22,15 +21,14 @@ logger = logging.getLogger(__name__)
 
 print(f"is precompilation: {os.environ.get('NEURON_PARALLEL_COMPILE')}")
 
+
 def parse_args():
     """Parse the arguments."""
     parser = argparse.ArgumentParser()
     # add model id and dataset path argument
     parser.add_argument("--model_id", type=str, default="bert-large-uncased", help="Model id to use for training.")
     parser.add_argument("--dataset_path", type=str, default="dataset", help="Path to the already processed dataset.")
-    parser.add_argument(
-        "--output_dir", type=str, default=None, help="Hugging Face Repository id for uploading models"
-    )
+    parser.add_argument("--output_dir", type=str, default=None, help="Hugging Face Repository id for uploading models")
     parser.add_argument(
         "--repository_id", type=str, default=None, help="Hugging Face Repository id for uploading models"
     )
@@ -55,8 +53,10 @@ def parse_args():
     args = parser.parse_known_args()
     return args
 
+
 # Metric Id
 metric = evaluate.load("f1")
+
 
 # Metric helper method
 def compute_metrics(eval_pred):
@@ -73,11 +73,11 @@ def training_function(args):
     train_dataset = load_from_disk(os.path.join(args.dataset_path, "train"))
     eval_dataset = load_from_disk(os.path.join(args.dataset_path, "eval"))
     tokenizer = AutoTokenizer.from_pretrained(args.model_id)
-    
+
     # Prepare model labels - useful for inference
     labels = train_dataset.features["labels"].names
     num_labels = len(labels)
-    label2id, id2label = dict(), dict()
+    label2id, id2label = {}, {}
     for i, label in enumerate(labels):
         label2id[label] = str(i)
         id2label[str(i)] = label
