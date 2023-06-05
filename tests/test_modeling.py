@@ -232,6 +232,9 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
             # "xlm",  # accuracy off compared to pytorch (not due to the padding)
             "xlm-roberta",
         ]
+    else:
+        ATOL_FOR_VALIDATION = 1e-5
+        SUPPORTED_ARCHITECTURES = []
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES)
     def test_compare_to_transformers_dyn_bs(self, model_arch):
@@ -373,6 +376,9 @@ class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
             # "xlm",  # accuracy off compared to pytorch (not due to the padding)
             "xlm-roberta",
         ]
+    else:
+        ATOL_FOR_VALIDATION = 1e-5
+        SUPPORTED_ARCHITECTURES = []
 
     def test_load_vanilla_transformers_which_is_not_supported(self):
         with self.assertRaises(Exception) as context:
