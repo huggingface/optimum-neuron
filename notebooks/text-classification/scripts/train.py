@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 print(f"is precompilation: {os.environ.get('NEURON_PARALLEL_COMPILE')}")
 
-def parse_arge():
+def parse_args():
     """Parse the arguments."""
     parser = argparse.ArgumentParser()
     # add model id and dataset path argument
