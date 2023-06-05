@@ -196,7 +196,7 @@ We will use `torchrun` to launch our training script on both neuron cores for di
 
 We'll use the following command to launch training:
 
-```python
+```bash
 !torchrun --nproc_per_node=2 scripts/train.py \
  --model_id bert-base-uncased \
  --dataset_path lm_dataset \
