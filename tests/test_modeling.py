@@ -102,11 +102,11 @@ class NeuronModelTestMixin(unittest.TestCase):
 @is_inferentia_test
 class NeuronModelIntegrationTest(unittest.TestCase):
     if is_neuron_available():
-        LOCAL_MODEL_PATH = "assets/neuron"
+        LOCAL_MODEL_PATH = "tests/assets/neuron"
         NEURON_MODEL_ID = "optimum/tiny_random_bert_neuron"
         PRIVATE_NEURON_MODEL_ID = "Jingya/tiny-random-BertModel-neuron-private"
     elif is_neuronx_available():
-        LOCAL_MODEL_PATH = "assets/neuronx"
+        LOCAL_MODEL_PATH = "tests/assets/neuronx"
         NEURON_MODEL_ID = "optimum/tiny_random_bert_neuronx"
         PRIVATE_NEURON_MODEL_ID = "Jingya/tiny-random-BertModel-neuronx-private"
 
@@ -517,6 +517,9 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
             # "xlm",  # accuracy off compared to pytorch (not due to the padding)
             "xlm-roberta",
         ]
+    else:
+        ATOL_FOR_VALIDATION = 1e-5
+        SUPPORTED_ARCHITECTURES = []
 
     def test_load_vanilla_transformers_which_is_not_supported(self):
         with self.assertRaises(Exception) as context:
@@ -693,6 +696,9 @@ class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
             # "xlm",  # accuracy off compared to pytorch (not due to the padding)
             "xlm-roberta",
         ]
+    else:
+        ATOL_FOR_VALIDATION = 1e-5
+        SUPPORTED_ARCHITECTURES = []
 
     def test_load_vanilla_transformers_which_is_not_supported(self):
         with self.assertRaises(Exception) as context:
@@ -839,6 +845,9 @@ class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
             # "xlm",  # accuracy off compared to pytorch (not due to the padding)
             "xlm-roberta",
         ]
+    else:
+        ATOL_FOR_VALIDATION = 1e-5
+        SUPPORTED_ARCHITECTURES = []
 
     def test_load_vanilla_transformers_which_is_not_supported(self):
         with self.assertRaises(Exception) as context:
@@ -1003,6 +1012,9 @@ class NeuronModelForMultipleChoiceIntegrationTest(NeuronModelTestMixin):
             # "xlm",  # accuracy off compared to pytorch (not due to the padding)
             # "xlm-roberta",  # Aborted (core dumped)
         ]
+    else:
+        ATOL_FOR_VALIDATION = 1e-5
+        SUPPORTED_ARCHITECTURES = []
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES)
     def test_compare_to_transformers_dyn_bs(self, model_arch):
