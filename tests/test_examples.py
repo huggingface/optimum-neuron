@@ -505,8 +505,9 @@ class ExampleTesterBase(TestCase):
 class CausalLMExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_clm"):
     TASK_NAME = "wikitext"
     DATASET_CONFIG_NAME = "wikitext-2-raw-v1"
-    NUM_EPOCHS = 3
-    TRAIN_BATCH_SIZE = 4
+    NUM_EPOCHS = 1
+    TRAIN_BATCH_SIZE = 2
+    EVAL_BATCH_SIZE = 2
     SCORE_NAME = "random_test"
     EVAL_SCORE_THRESHOLD = 35
     EVAL_SCORE_GREATER_IS_BETTER = False
@@ -515,12 +516,14 @@ class CausalLMExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, exampl
 class TextClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_glue"):
     TASK_NAME = "sst2"
     DATASET_PARAMETER_NAME = "task_name"
+    NUM_EPOCHS = 2
 
 
 class TokenClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_ner"):
     TASK_NAME = "conll2003"
     TRAIN_BATCH_SIZE = {"default": 4, "distilbert": 6}
     EVAL_BATCH_SIZE = {"default": 4, "distilbert": 6}
+    NUM_EPOCHS = 2
     EXTRA_COMMAND_LINE_ARGUMENTS = [
         "--max_seq_length 384",
     ]
@@ -530,7 +533,7 @@ class MultipleChoiceExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, 
     EVAL_SCORE_THRESHOLD = {"default": 0.75, "camembert": 0.5, "distilbert": 0.645}
     TRAIN_BATCH_SIZE = {"default": 2, "distilbert": 3}
     EVAL_BATCH_SIZE = {"default": 2, "distilbert": 3}
-    NUM_EPOCHS = 3
+    NUM_EPOCHS = 2
     EXTRA_COMMAND_LINE_ARGUMENTS = [
         "--max_seq_length 512",
     ]
@@ -539,6 +542,7 @@ class MultipleChoiceExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, 
 class QuestionAnsweringExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_qa"):
     TASK_NAME = "squad"
     SCORE_NAME = "eval_f1"
+    NUM_EPOCHS = 2
 
 
 class SummarizationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_summarization"):
@@ -599,25 +603,18 @@ class TranslationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, exa
         # "--max_target_length 512",
         "--prediction_loss_only",
     ]
-    # TODO: for now it does not work for T5, enable this ASAP.
-    DO_PRECOMPILATION = {"t5": False, "default": False}
 
     def _create_command_line(
         self,
         script: str,
         model_name: str,
+        model_type: str,
         output_dir: str,
         is_precompilation: bool = False,
-        task: Optional[str] = None,
-        dataset_config_name: Optional[str] = None,
-        do_eval: bool = True,
-        lr: float = 1e-4,
-        train_batch_size: int = 1,
-        eval_batch_size: int = 1,
-        num_epochs: int = 2,
-        gradient_accumulation_steps: int = 64,
-        extra_command_line_arguments: Optional[List[str]] = None,
     ) -> List[str]:
+        extra_command_line_arguments = [
+            ExampleTestMeta.process_class_attribute(arg, model_type) for arg in self.EXTRA_COMMAND_LINE_ARGUMENTS
+        ]
         if extra_command_line_arguments is None:
             extra_command_line_arguments = []
         if "t5" in model_name:
@@ -625,17 +622,9 @@ class TranslationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, exa
         return super()._create_command_line(
             script,
             model_name,
+            model_type,
             output_dir,
             is_precompilation=is_precompilation,
-            task=task,
-            dataset_config_name=dataset_config_name,
-            do_eval=do_eval,
-            lr=lr,
-            train_batch_size=train_batch_size,
-            eval_batch_size=eval_batch_size,
-            num_epochs=num_epochs,
-            gradient_accumulation_steps=gradient_accumulation_steps,
-            extra_command_line_arguments=extra_command_line_arguments,
         )
 
 
@@ -643,6 +632,7 @@ class ImageClassificationExampleTester(
     ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_image_classification"
 ):
     TASK_NAME = "cifar10"
+    NUM_EPOCHS = 2
     EXTRA_COMMAND_LINE_ARGUMENTS = [
         "--remove_unused_columns false",
         "--dataloader_drop_last true",
