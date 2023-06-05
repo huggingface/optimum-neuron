@@ -109,8 +109,6 @@ class NeuronModelIntegrationTest(unittest.TestCase):
         LOCAL_MODEL_PATH = "assets/neuronx"
         NEURON_MODEL_ID = "optimum/tiny_random_bert_neuronx"
         PRIVATE_NEURON_MODEL_ID = "Jingya/tiny-random-BertModel-neuronx-private"
-    else:
-        raise RuntimeError("Neither neuron nor neuronx is installed.")
 
     TINY_SUBFOLDER_MODEL_ID = "fxmarty/tiny-bert-sst2-distilled-subfolder"
     FAIL_NEURON_MODEL_ID = "sshleifer/tiny-distilbert-base-cased-distilled-squad"
@@ -234,8 +232,6 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
             # "xlm",  # accuracy off compared to pytorch (not due to the padding)
             "xlm-roberta",
         ]
-    else:
-        raise RuntimeError("Neither neuron nor neuronx is installed.")
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES)
     def test_compare_to_transformers_dyn_bs(self, model_arch):
@@ -377,8 +373,6 @@ class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
             # "xlm",  # accuracy off compared to pytorch (not due to the padding)
             "xlm-roberta",
         ]
-    else:
-        raise RuntimeError("Neither neuron nor neuronx is installed.")
 
     def test_load_vanilla_transformers_which_is_not_supported(self):
         with self.assertRaises(Exception) as context:
@@ -523,8 +517,6 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
             # "xlm",  # accuracy off compared to pytorch (not due to the padding)
             "xlm-roberta",
         ]
-    else:
-        raise RuntimeError("Neither neuron nor neuronx is installed.")
 
     def test_load_vanilla_transformers_which_is_not_supported(self):
         with self.assertRaises(Exception) as context:
@@ -701,8 +693,6 @@ class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
             # "xlm",  # accuracy off compared to pytorch (not due to the padding)
             "xlm-roberta",
         ]
-    else:
-        raise RuntimeError("Neither neuron nor neuronx is installed.")
 
     def test_load_vanilla_transformers_which_is_not_supported(self):
         with self.assertRaises(Exception) as context:
@@ -849,8 +839,6 @@ class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
             # "xlm",  # accuracy off compared to pytorch (not due to the padding)
             "xlm-roberta",
         ]
-    else:
-        raise RuntimeError("Neither neuron nor neuronx is installed.")
 
     def test_load_vanilla_transformers_which_is_not_supported(self):
         with self.assertRaises(Exception) as context:
@@ -1015,8 +1003,6 @@ class NeuronModelForMultipleChoiceIntegrationTest(NeuronModelTestMixin):
             # "xlm",  # accuracy off compared to pytorch (not due to the padding)
             # "xlm-roberta",  # Aborted (core dumped)
         ]
-    else:
-        raise RuntimeError("Neither neuron nor neuronx is installed.")
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES)
     def test_compare_to_transformers_dyn_bs(self, model_arch):
