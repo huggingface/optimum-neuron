@@ -138,7 +138,7 @@ def training_function(args):
 
 
 def main():
-    args, _ = parse_arge()
+    args, _ = parse_args()
     training_function(args)
 
 
