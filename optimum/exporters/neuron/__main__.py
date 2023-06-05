@@ -76,7 +76,6 @@ def main():
     }
     if is_neuron_available() and args.dynamic_batch_size is True and "batch_size" in input_shapes:
         input_shapes["batch_size"] = 1
-        disable_fallback = True
     neuron_config = neuron_config_constructor(model.config, dynamic_batch_size=args.dynamic_batch_size, **input_shapes)
 
     if args.atol is None:

@@ -85,7 +85,7 @@ def parse_args_neuron(parser: "ArgumentParser"):
     optional_group.add_argument(
         "--dynamic-batch-size",
         action="store_true",
-        help="Enable dynamic batch size for neuron compiled model. If this option is enabled, the input batch size can be dynamic during the inference.",
+        help="Enable dynamic batch size for neuron compiled model. If this option is enabled, the input batch size can be dynamic during the inference, but it comes with a potential tradeoff in terms of latency.",
     )
 
     input_group = parser.add_argument_group("Input shapes")

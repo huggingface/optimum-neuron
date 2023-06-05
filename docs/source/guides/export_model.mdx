@@ -139,7 +139,7 @@ Input shapes:
 
 ```
 
-In the last section, you can see some input shape options to pass for exporting static neuron model, meaning that exact shape inputs should be used during the inference as given during compilation. If you are going to use variable-size inputs, you can pad your inputs to the shape used for compilation as a workaround. If you want the batch size to be dynamic, you can pass `--dynamic-batch-size` to enable dynamic batching, which means that you will be able to use inputs with difference batch size during inference.
+In the last section, you can see some input shape options to pass for exporting static neuron model, meaning that exact shape inputs should be used during the inference as given during compilation. If you are going to use variable-size inputs, you can pad your inputs to the shape used for compilation as a workaround. If you want the batch size to be dynamic, you can pass `--dynamic-batch-size` to enable dynamic batching, which means that you will be able to use inputs with difference batch size during inference, but it comes with a potential tradeoff in terms of latency.
 
 Exporting a checkpoint can be done as follows:
 

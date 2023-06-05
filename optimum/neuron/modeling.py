@@ -36,7 +36,7 @@ from transformers.modeling_outputs import (
     TokenClassifierOutput,
 )
 
-from .modeling_base import NeuronModel
+from .modeling_base import NeuronBaseModel
 
 
 logger = logging.getLogger(__name__)
@@ -45,13 +45,13 @@ logger = logging.getLogger(__name__)
 _TOKENIZER_FOR_DOC = "AutoTokenizer"
 
 NEURON_MODEL_START_DOCSTRING = r"""
-    This model inherits from [`~neuron.modeling.NeuronModel`]. Check the superclass documentation for the generic methods the
+    This model inherits from [`~neuron.modeling.NeuronBaseModel`]. Check the superclass documentation for the generic methods the
     library implements for all its model (such as downloading or saving)
 
     Args:
         config (`transformers.PretrainedConfig`): [PretrainedConfig](https://huggingface.co/docs/transformers/main_classes/configuration#transformers.PretrainedConfig) is the Model configuration class with all the parameters of the model.
             Initializing with a config file does not load the weights associated with the model, only the
-            configuration. Check out the [`~neuron.modeling.NeuronModel.from_pretrained`] method to load the model weights.
+            configuration. Check out the [`~neuron.modeling.NeuronBaseModel.from_pretrained`] method to load the model weights.
         model (`torch.jit._script.ScriptModule`): [torch.jit._script.ScriptModule](https://pytorch.org/docs/stable/generated/torch.jit.ScriptModule.html) is the TorchScript graph compiled by neuron(x) compiler.
 """
 
@@ -102,7 +102,7 @@ FEATURE_EXTRACTION_EXAMPLE = r"""
     """,
     NEURON_MODEL_START_DOCSTRING,
 )
-class NeuronModelForFeatureExtraction(NeuronModel):
+class NeuronModelForFeatureExtraction(NeuronBaseModel):
     """
     Feature Extraction model on Neuron devices.
     """
@@ -119,8 +119,8 @@ class NeuronModelForFeatureExtraction(NeuronModel):
     )
     def forward(
         self,
-        input_ids: torch.Tensor = None,
-        attention_mask: Optional[torch.Tensor] = None,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
         token_type_ids: Optional[torch.Tensor] = None,
         **kwargs,
     ):
@@ -147,7 +147,6 @@ class NeuronModelForFeatureExtraction(NeuronModel):
             else:
                 pooler_output = None
 
-        # converts output to namedtuple for pipelines post-processing
         return BaseModelOutputWithPooling(last_hidden_state=last_hidden_state, pooler_output=pooler_output)
 
 
@@ -178,7 +177,7 @@ MASKED_LM_EXAMPLE = r"""
     """,
     NEURON_MODEL_START_DOCSTRING,
 )
-class NeuronModelForMaskedLM(NeuronModel):
+class NeuronModelForMaskedLM(NeuronBaseModel):
     """
     Masked language model for on Neuron devices.
     """
@@ -195,8 +194,8 @@ class NeuronModelForMaskedLM(NeuronModel):
     )
     def forward(
         self,
-        input_ids: torch.Tensor = None,
-        attention_mask: Optional[torch.Tensor] = None,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
         token_type_ids: Optional[torch.Tensor] = None,
         **kwargs,
     ):
@@ -215,7 +214,6 @@ class NeuronModelForMaskedLM(NeuronModel):
 
         logits = outputs[0]
 
-        # converts output to namedtuple for pipelines post-processing
         return MaskedLMOutput(logits=logits)
 
 
@@ -247,7 +245,7 @@ QUESTION_ANSWERING_EXAMPLE = r"""
     """,
     NEURON_MODEL_START_DOCSTRING,
 )
-class NeuronModelForQuestionAnswering(NeuronModel):
+class NeuronModelForQuestionAnswering(NeuronBaseModel):
     """
     Question Answering model on Neuron devices.
     """
@@ -264,8 +262,8 @@ class NeuronModelForQuestionAnswering(NeuronModel):
     )
     def forward(
         self,
-        input_ids: torch.Tensor = None,
-        attention_mask: Optional[torch.Tensor] = None,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
         token_type_ids: Optional[torch.Tensor] = None,
         **kwargs,
     ):
@@ -285,7 +283,6 @@ class NeuronModelForQuestionAnswering(NeuronModel):
         start_logits = outputs[0]
         end_logits = outputs[1]
 
-        # converts output to namedtuple for pipelines post-processing
         return QuestionAnsweringModelOutput(start_logits=start_logits, end_logits=end_logits)
 
 
@@ -316,7 +313,7 @@ SEQUENCE_CLASSIFICATION_EXAMPLE = r"""
     """,
     NEURON_MODEL_START_DOCSTRING,
 )
-class NeuronModelForSequenceClassification(NeuronModel):
+class NeuronModelForSequenceClassification(NeuronBaseModel):
     """
     Sequence Classification model on Neuron devices.
     """
@@ -334,7 +331,7 @@ class NeuronModelForSequenceClassification(NeuronModel):
     def forward(
         self,
         input_ids: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
+        attention_mask: torch.Tensor,
         token_type_ids: Optional[torch.Tensor] = None,
         **kwargs,
     ):
@@ -353,7 +350,6 @@ class NeuronModelForSequenceClassification(NeuronModel):
 
         logits = outputs[0]
 
-        # converts output to namedtuple for pipelines post-processing
         return SequenceClassifierOutput(logits=logits)
 
 
@@ -384,7 +380,7 @@ TOKEN_CLASSIFICATION_EXAMPLE = r"""
     """,
     NEURON_MODEL_START_DOCSTRING,
 )
-class NeuronModelForTokenClassification(NeuronModel):
+class NeuronModelForTokenClassification(NeuronBaseModel):
     """
     Token Classification model on Neuron devices.
     """
@@ -402,7 +398,7 @@ class NeuronModelForTokenClassification(NeuronModel):
     def forward(
         self,
         input_ids: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
+        attention_mask: torch.Tensor,
         token_type_ids: Optional[torch.Tensor] = None,
         **kwargs,
     ):
@@ -422,7 +418,6 @@ class NeuronModelForTokenClassification(NeuronModel):
 
         logits = outputs[0]
 
-        # converts output to namedtuple for pipelines post-processing
         return TokenClassifierOutput(logits=logits)
 
 
@@ -463,7 +458,7 @@ MULTIPLE_CHOICE_EXAMPLE = r"""
     """,
     NEURON_MODEL_START_DOCSTRING,
 )
-class NeuronModelForMultipleChoice(NeuronModel):
+class NeuronModelForMultipleChoice(NeuronBaseModel):
     """
     Multiple choice model on Neuron devices.
     """
@@ -481,7 +476,7 @@ class NeuronModelForMultipleChoice(NeuronModel):
     def forward(
         self,
         input_ids: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
+        attention_mask: torch.Tensor,
         token_type_ids: Optional[torch.Tensor] = None,
         **kwargs,
     ):
@@ -501,5 +496,4 @@ class NeuronModelForMultipleChoice(NeuronModel):
 
         logits = outputs[0]
 
-        # converts output to namedtuple for pipelines post-processing
         return MultipleChoiceModelOutput(logits=logits)

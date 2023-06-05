@@ -21,7 +21,7 @@ from transformers.utils import _LazyModule
 _import_structure = {
     "hf_argparser": ["TrainiumHfArgumentParser"],
     "trainers": ["TrainiumTrainer", "Seq2SeqTrainiumTrainer"],
-    "modeling_base": ["NeuronModel"],
+    "modeling_base": ["NeuronBaseModel"],
     "modeling": [
         "NeuronModelForFeatureExtraction",
         "NeuronModelForMaskedLM",
@@ -42,7 +42,7 @@ if TYPE_CHECKING:
         NeuronModelForSequenceClassification,
         NeuronModelForTokenClassification,
     )
-    from .modeling_base import NeuronModel
+    from .modeling_base import NeuronBaseModel
     from .trainers import Seq2SeqTrainiumTrainer, TrainiumTrainer
 else:
     import sys

@@ -12,14 +12,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""NeuronModel base classe for inference on neuron devices using the same API as Transformers."""
+"""NeuronBaseModel base classe for inference on neuron devices using the same API as Transformers."""
 
 import logging
 import shutil
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, List, Optional, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 import torch
 from huggingface_hub import HfApi, HfFolder, hf_hub_download
@@ -42,22 +42,22 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class NeuronModel(OptimizedModel):
+class NeuronBaseModel(OptimizedModel):
     """
     Base class running compiled and optimized models on Neuron devices.
 
-    The NeuronModel implements generic methods for interacting with the Hugging Face Hub as well as compiling vanilla
+    It implements generic methods for interacting with the Hugging Face Hub as well as compiling vanilla
     transformers models to neuron-optimized TorchScript module and export it using `optimum.exporters.neuron` toolchain.
 
     Class attributes:
         - model_type (`str`, *optional*, defaults to `"neuron_model"`) -- The name of the model type to use when
-        registering the NeuronModel classes.
+        registering the NeuronBaseModel classes.
         - auto_model_class (`Type`, *optional*, defaults to `AutoModel`) -- The "AutoModel" class to be represented by the
-        current NeuronModel class.
+        current NeuronBaseModel class.
 
     Common attributes:
         - model (`torch.jit._script.ScriptModule`) -- The loaded `ScriptModule` compiled for neuron devices.
-        - config ([`~transformers.PretrainedConfig`] -- The configuration of the model.
+        - config ([`~transformers.PretrainedConfig`]) -- The configuration of the model.
         - model_save_dir (`Path`) -- The directory where a neuron compiled model is saved.
         By default, if the loaded model is local, the directory where the original model will be used. Otherwise, the
         cache directory will be used.
@@ -73,7 +73,7 @@ class NeuronModel(OptimizedModel):
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
         model_file_name: Optional[str] = None,
         preprocessors: Optional[List] = None,
-        neuron_config: "NeuronConfig" = None,
+        neuron_config: Optional["NeuronConfig"] = None,
         **kwargs,
     ):
         super().__init__(model, config)
@@ -82,7 +82,7 @@ class NeuronModel(OptimizedModel):
         self.model_file_name = model_file_name or NEURON_FILE_NAME
         self.config = config
         self.neuron_config = self._neuron_config_init(self.config) if neuron_config is None else neuron_config
-        self.input_static_shapes = NeuronModel.get_input_static_shapes(self.neuron_config)
+        self.input_static_shapes = NeuronBaseModel.get_input_static_shapes(self.neuron_config)
         self._attributes_init(model_save_dir, preprocessors, **kwargs)
 
     @staticmethod
@@ -103,17 +103,16 @@ class NeuronModel(OptimizedModel):
     def _save_pretrained(self, save_directory: Union[str, Path]):
         """
         Saves a model and its configuration file to a directory, so that it can be re-loaded using the
-        [`~optimum.neuron.modeling_base.NeuronModel.from_pretrained`] class method.
+        [`~optimum.neuron.modeling_base.NeuronBaseModel.from_pretrained`] class method.
 
         Args:
             save_directory (`Union[str, Path]`):
                 Directory where to save the model file.
         """
-        src_paths = [self.model_save_dir / self.model_file_name]
-        dst_paths = [Path(save_directory) / self.model_file_name]
+        src_path = self.model_save_dir / self.model_file_name
+        dst_path = Path(save_directory) / self.model_file_name
 
-        for src_path, dst_path in zip(src_paths, dst_paths):
-            shutil.copyfile(src_path, dst_path)
+        shutil.copyfile(src_path, dst_path)
 
     @classmethod
     def _from_pretrained(
@@ -128,9 +127,9 @@ class NeuronModel(OptimizedModel):
         subfolder: str = "",
         local_files_only: bool = False,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
-        neuron_config: "NeuronConfig" = None,
+        neuron_config: Optional["NeuronConfig"] = None,
         **kwargs,
-    ) -> "NeuronModel":
+    ) -> "NeuronBaseModel":
         model_path = Path(model_id)
 
         if file_name is None:
@@ -157,9 +156,8 @@ class NeuronModel(OptimizedModel):
 
         preprocessors = None
         if model_path.is_dir():
-            model = NeuronModel.load_model(model_path / file_name)
+            model = NeuronBaseModel.load_model(model_path / file_name)
             new_model_save_dir = model_path
-            preprocessors = maybe_load_preprocessors(model_id)
         else:
             model_cache_path = hf_hub_download(
                 repo_id=model_id,
@@ -172,9 +170,10 @@ class NeuronModel(OptimizedModel):
                 local_files_only=local_files_only,
             )
 
-            model = NeuronModel.load_model(model_cache_path)
+            model = NeuronBaseModel.load_model(model_cache_path)
             new_model_save_dir = Path(model_cache_path).parent
-            preprocessors = maybe_load_preprocessors(model_id, subfolder=subfolder)
+
+        preprocessors = maybe_load_preprocessors(model_id, subfolder=subfolder)
 
         # model_save_dir can be provided in kwargs as a TemporaryDirectory instance, in which case we want to keep it
         # instead of the path only.
@@ -209,12 +208,12 @@ class NeuronModel(OptimizedModel):
         disable_fallback: bool = False,
         dynamic_batch_size: bool = False,
         **kwargs_shapes,
-    ) -> "NeuronModel":
+    ) -> "NeuronBaseModel":
         """
-        Export a vanilla Transformers model into a neuron-compiled TorchScript Module using `optimum.exporters.neuron.export`.
+        Exports a vanilla Transformers model into a neuron-compiled TorchScript Module using `optimum.exporters.neuron.export`.
 
-        Arguments:
-            kwargs_shapes (`Dict`):
+        Args:
+            kwargs_shapes (`Dict[str, int]`):
                 Shapes to use during inference. This argument allows to override the default shapes used during the export.
         """
         if task is None:
@@ -281,6 +280,7 @@ class NeuronModel(OptimizedModel):
     def forward(self, *args, **kwargs):
         raise NotImplementedError
 
+    # TODO: Remove it after added to Optimum main repo.
     @classmethod
     def _auto_model_to_task(cls, auto_model_class):
         """
@@ -317,9 +317,9 @@ class NeuronModel(OptimizedModel):
         if hasattr(self.auto_model_class, "register"):
             self.auto_model_class.register(AutoConfig, self.__class__)
 
-    def _neuron_config_init(self, config: "PretrainedConfig"):
+    def _neuron_config_init(self, config: "PretrainedConfig") -> "NeuronConfig":
         """
-        Build a Neuron config with an instance of the `PretrainedConfig` and the task.
+        Builds a `NeuronConfig` with an instance of the `PretrainedConfig` and the task.
         """
         # Fetch mandatory shapes from config
         compile_shapes = {
@@ -329,7 +329,7 @@ class NeuronModel(OptimizedModel):
         }
 
         # Neuron config constructuor
-        task = NeuronModel._auto_model_to_task(self.auto_model_class)
+        task = NeuronBaseModel._auto_model_to_task(self.auto_model_class)
         neuron_config_constructor = TasksManager.get_exporter_config_constructor(
             model_type=config.model_type, exporter="neuron", task=task
         )
@@ -340,9 +340,9 @@ class NeuronModel(OptimizedModel):
         )
 
     @classmethod
-    def get_input_static_shapes(cls, neuron_config):
+    def get_input_static_shapes(cls, neuron_config: "NeuronConfig") -> Dict[str, int]:
         """
-        Get a dictionary of inputs with their valid static shapes.
+        Gets a dictionary of inputs with their valid static shapes.
         """
         axes = neuron_config._axes
         input_static_shapes = {
@@ -351,9 +351,9 @@ class NeuronModel(OptimizedModel):
         }
         return input_static_shapes
 
-    def _validate_static_shape(self, input_shapes, target_shapes):
+    def _validate_static_shape(self, input_shapes: List[int], target_shapes: List[int]) -> bool:
         """
-        Check if a input needs to be padded.
+        Checks if a input needs to be padded.
         """
         if self.neuron_config.dynamic_batch_size is True:
             batch_size_check = input_shapes[0] % target_shapes[0] == 0
@@ -370,14 +370,14 @@ class NeuronModel(OptimizedModel):
                 f" than the static shapes used for compilation: {target_shapes}{extra}."
             )
 
-    def _pad_to_compiled_shape(self, inputs):
+    def _pad_to_compiled_shape(self, inputs: Dict[str, "torch.Tensor"]):
         """
-        Pad input tensors if they are not in valid shape.
+        Pads input tensors if they are not in valid shape.
         """
         for input_name, input_tensor in inputs.items():
             target_shapes = self.input_static_shapes[input_name]
             padding = ()
-            if self._validate_static_shape(input_tensor.shape, target_shapes) is True:
+            if self._validate_static_shape(input_tensor.shape, target_shapes):
                 continue
 
             # Dimensions other than 0
@@ -417,23 +417,23 @@ class NeuronModel(OptimizedModel):
         return inputs
 
     @contextmanager
-    def neuron_padding_manager(self, inputs):
+    def neuron_padding_manager(self, inputs: Dict[str, "torch.Tensor"]):
         inputs = tuple(self._pad_to_compiled_shape(inputs).values())
         yield inputs
 
-    def remove_padding(self, outputs: List[torch.Tensor], dims: List[int], indices: List[int]):
+    def remove_padding(self, outputs: List[torch.Tensor], dims: List[int], indices: List[int]) -> List[torch.Tensor]:
         """
-        Remove padding from output tensors.
+        Removes padding from output tensors.
 
         Args:
             outputs (`List[torch.Tensor]`):
                 List of torch tensors which are inference output.
             dims (`List[int]`):
-                List of integers which are dimensions in which we slice a tensor.
+                List of dimensions in which we slice a tensor.
             indices (`List[int]`):
-                List of integers which are indices in which we slice a tensor along an axis.
+                List of indices in which we slice a tensor along an axis.
         """
-        if not len(dims) == len(indices):
+        if len(dims) != len(indices):
             raise ValueError(f"The size of `dims`({len(dims)}) and indices`({len(indices)}) must be equal.")
         for dim, indice in zip(dims, indices):
             outputs = [

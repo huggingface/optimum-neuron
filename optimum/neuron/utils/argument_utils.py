@@ -155,5 +155,5 @@ def store_compilation_config(
     for arg, value in compiler_kwargs.items():
         config.__setattr__(arg, value)
 
-    config.__setattr__("input_names", input_names)
-    config.__setattr__("output_names", output_names)
+    config.input_names = input_names
+    config.output_names = output_names

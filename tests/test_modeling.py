@@ -35,7 +35,7 @@ from transformers import (
 )
 
 from optimum.neuron import (
-    NeuronModel,
+    NeuronBaseModel,
     NeuronModelForFeatureExtraction,
     NeuronModelForMaskedLM,
     NeuronModelForMultipleChoice,
@@ -76,7 +76,7 @@ class NeuronModelTestMixin(unittest.TestCase):
         dynamic_batch_size = getattr(model_args, "dynamic_batch_size", False)
 
         if model_arch_and_params not in self.neuron_model_dirs:
-            # model_args will contain kwargs to pass to NeuronModel.from_pretrained()
+            # model_args will contain kwargs to pass to NeuronBaseModel.from_pretrained()
             model_args.pop("test_name")
             model_args.pop("model_arch")
             model_args.pop("dynamic_batch_size", None)
@@ -121,12 +121,12 @@ class NeuronModelIntegrationTest(unittest.TestCase):
         super().__init__(*args, **kwargs)
 
     def test_load_model_from_local_path(self):
-        model = NeuronModel.from_pretrained(self.LOCAL_MODEL_PATH)
+        model = NeuronBaseModel.from_pretrained(self.LOCAL_MODEL_PATH)
         self.assertIsInstance(model.model, torch.jit._script.ScriptModule)
         self.assertIsInstance(model.config, PretrainedConfig)
 
     def test_load_model_from_hub(self):
-        model = NeuronModel.from_pretrained(self.NEURON_MODEL_ID)
+        model = NeuronBaseModel.from_pretrained(self.NEURON_MODEL_ID)
         self.assertIsInstance(model.model, torch.jit._script.ScriptModule)
         self.assertIsInstance(model.config, PretrainedConfig)
 
@@ -138,9 +138,9 @@ class NeuronModelIntegrationTest(unittest.TestCase):
         self.assertIsInstance(model.config, PretrainedConfig)
 
     def test_load_model_from_cache(self):
-        _ = NeuronModel.from_pretrained(self.NEURON_MODEL_ID)  # caching
+        _ = NeuronBaseModel.from_pretrained(self.NEURON_MODEL_ID)  # caching
 
-        model = NeuronModel.from_pretrained(self.NEURON_MODEL_ID, local_files_only=True)
+        model = NeuronBaseModel.from_pretrained(self.NEURON_MODEL_ID, local_files_only=True)
 
         self.assertIsInstance(model.model, torch.jit._script.ScriptModule)
         self.assertIsInstance(model.config, PretrainedConfig)
@@ -151,15 +151,15 @@ class NeuronModelIntegrationTest(unittest.TestCase):
         if os.path.exists(dirpath) and os.path.isdir(dirpath):
             shutil.rmtree(dirpath)
         with self.assertRaises(Exception):
-            _ = NeuronModel.from_pretrained(self.NEURON_MODEL_ID, local_files_only=True)
+            _ = NeuronBaseModel.from_pretrained(self.NEURON_MODEL_ID, local_files_only=True)
 
     def test_load_model_from_hub_without_neuron_model(self):
         with self.assertRaises(FileNotFoundError):
-            NeuronModel.from_pretrained(self.FAIL_NEURON_MODEL_ID)
+            NeuronBaseModel.from_pretrained(self.FAIL_NEURON_MODEL_ID)
 
     @require_hf_token
     def test_load_model_from_hub_private(self):
-        model = NeuronModel.from_pretrained(
+        model = NeuronBaseModel.from_pretrained(
             self.PRIVATE_NEURON_MODEL_ID, use_auth_token=os.environ.get("HF_AUTH_TOKEN", None)
         )
         self.assertIsInstance(model.model, torch.jit._script.ScriptModule)
@@ -167,7 +167,7 @@ class NeuronModelIntegrationTest(unittest.TestCase):
 
     def test_save_model(self):
         with tempfile.TemporaryDirectory() as tmpdirname:
-            model = NeuronModel.from_pretrained(self.LOCAL_MODEL_PATH)
+            model = NeuronBaseModel.from_pretrained(self.LOCAL_MODEL_PATH)
             model.save_pretrained(tmpdirname)
             # folder contains all config files and neuron exported model
             folder_contents = os.listdir(tmpdirname)
@@ -177,7 +177,7 @@ class NeuronModelIntegrationTest(unittest.TestCase):
     @require_hf_token
     def test_push_model_to_hub(self):
         with tempfile.TemporaryDirectory() as tmpdirname:
-            model = NeuronModel.from_pretrained(self.LOCAL_MODEL_PATH)
+            model = NeuronBaseModel.from_pretrained(self.LOCAL_MODEL_PATH)
             model.save_pretrained(
                 tmpdirname,
                 use_auth_token=os.environ.get("HF_AUTH_TOKEN", None),
