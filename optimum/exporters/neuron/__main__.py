@@ -87,6 +87,8 @@ def main():
     compiler_kwargs = {"auto_cast": auto_cast, "auto_cast_type": auto_cast_type}
     if hasattr(args, "disable_fast_relayout"):
         compiler_kwargs["disable_fast_relayout"] = getattr(args, "disable_fast_relayout")
+    if hasattr(args, "disable_fallback"):
+        compiler_kwargs["disable_fallback"] = getattr(args, "disable_fallback")
 
     neuron_inputs, neuron_outputs = export(
         model=model,

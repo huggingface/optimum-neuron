@@ -78,6 +78,11 @@ def parse_args_neuron(parser: "ArgumentParser"):
         help="Whether to disable fast relayout optimization which improves performance by using the matrix multiplier for tensor transpose.",
     )
     optional_group.add_argument(
+        "--disable-fallback",
+        action="store_true",
+        help="Whether to disable CPU partitioning to force operations to Neuron. Defaults to `False`, as without fallback, there could be some compilation failures or performance problems.",
+    )
+    optional_group.add_argument(
         "--dynamic-batch-size",
         action="store_true",
         help="Enable dynamic batch size for neuron compiled model. If this option is enabled, the input batch size can be dynamic during the inference.",

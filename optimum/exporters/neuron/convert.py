@@ -151,9 +151,10 @@ def export(
     auto_cast: Optional[str] = None,
     auto_cast_type: str = "bf16",
     disable_fast_relayout: bool = False,
+    disable_fallback: bool = False,
 ) -> Tuple[List[str], List[str]]:
     if is_neuron_available():
-        return export_neuron(model, config, output, auto_cast, auto_cast_type, disable_fast_relayout)
+        return export_neuron(model, config, output, auto_cast, auto_cast_type, disable_fast_relayout, disable_fallback)
     elif is_neuronx_available():
         return export_neuronx(model, config, output, auto_cast, auto_cast_type)
     else:
@@ -238,6 +239,7 @@ def export_neuron(
     auto_cast: Optional[str] = None,
     auto_cast_type: str = "bf16",
     disable_fast_relayout: bool = False,
+    disable_fallback: bool = False,
 ) -> Tuple[List[str], List[str]]:
     """
     Exports a PyTorch model to a serialized TorchScript module compiled by neuron-cc compiler.
@@ -255,6 +257,8 @@ def export_neuron(
             The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"`, ``"mixed" or `"tf32"`. `"mixed"` is only available when auto_cast is "matmul", it will cast operators that use Neuron Matmult engine to bf16 while using fp16 for matmult-based transpose.
         disable_fast_relayout (`bool`, defaults to `False`):
             Whether to disable fast relayout optimization which improves performance by using the matrix multiplier for tensor transpose.
+        disable_fallback (`bool`, defaults to `False`):
+            Whether to disable CPU partitioning to force operations to Neuron. Defaults to `False`, as without fallback, there could be some compilation failures or performance problems.
 
     Returns:
         `Tuple[List[str], List[str]]`: A tuple with an ordered list of the model's inputs, and the named inputs from
@@ -283,7 +287,11 @@ def export_neuron(
     compiler_args = convert_neuronx_compiler_args_to_neuron(auto_cast, auto_cast_type, disable_fast_relayout)
 
     neuron_model = neuron.trace(
-        checked_model, dummy_inputs_tuple, dynamic_batch_size=config.dynamic_batch_size, compiler_args=compiler_args
+        checked_model,
+        dummy_inputs_tuple,
+        dynamic_batch_size=config.dynamic_batch_size,
+        compiler_args=compiler_args,
+        fallback=not disable_fallback,
     )
     torch.jit.save(neuron_model, output)
 
