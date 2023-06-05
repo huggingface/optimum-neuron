@@ -962,23 +962,6 @@ class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
 
 @is_inferentia_test
 class NeuronModelForMultipleChoiceIntegrationTest(NeuronModelTestMixin):
-    SUPPORTED_ARCHITECTURES = [
-        "albert",
-        "bert",
-        "camembert",
-        # "convbert",  # accuracy off compared to pytorch: atol=1e-2
-        # "deberta",  # INF2 only
-        # "deberta_v2",  # INF2 only
-        "distilbert",
-        "electra",
-        # "flaubert",  # accuracy off compared to pytorch (not due to the padding)
-        "mobilebert",
-        "roberta",
-        # "roformer",  # accuracy off compared to pytorch: atol=1e-1
-        # "xlm",  # accuracy off compared to pytorch (not due to the padding)
-        # "xlm-roberta",  # Aborted (core dumped)
-    ]
-
     NEURON_MODEL_CLASS = NeuronModelForMultipleChoice
     TASK = "multiple-choice"
     STATIC_INPUTS_SHAPES = {"batch_size": 1, "num_choices": 4, "sequence_length": 128}
