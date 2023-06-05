@@ -17,36 +17,39 @@
 import copy
 import inspect
 import warnings
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 
 import torch
 import torch.distributed as dist
+
 from optimum.neuron.utils.import_utils import is_torch_xla_available
+
+
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
 from transformers import GenerationMixin
-from transformers.deepspeed import is_deepspeed_zero3_enabled
-from transformers.generation.beam_constraints import DisjunctiveConstraint, PhrasalConstraint
-from transformers.generation.beam_search import BeamSearchScorer, ConstrainedBeamSearchScorer
 from transformers.generation.configuration_utils import GenerationConfig
 from transformers.generation.logits_process import (
     LogitsProcessorList,
-    MinLengthLogitsProcessor,
 )
-from transformers.generation.utils import GreedySearchDecoderOnlyOutput, GreedySearchEncoderDecoderOutput,\
-    GreedySearchOutput, GenerateOutput
 from transformers.generation.stopping_criteria import (
     MaxLengthCriteria,
     MaxTimeCriteria,
     StoppingCriteriaList,
     validate_stopping_criteria,
 )
+from transformers.generation.utils import (
+    GenerateOutput,
+    GreedySearchDecoderOnlyOutput,
+    GreedySearchEncoderDecoderOutput,
+    GreedySearchOutput,
+)
 from transformers.utils import ModelOutput, logging
 
+
 if TYPE_CHECKING:
-    from transformers.modeling_utils import PreTrainedModel
     from transformers.generation.streamers import BaseStreamer
+    from transformers.modeling_utils import PreTrainedModel
 
 logger = logging.get_logger(__name__)
 
@@ -76,15 +79,15 @@ class NeuronGenerationMixin(GenerationMixin):
     """
 
     def _update_model_kwargs_for_xla_generation(
-            self,
-            outputs: ModelOutput,
-            model_kwargs: Dict[str, Any],
-            batch_size: int,
-            is_encoder_decoder: bool = False,
-            standardize_cache_format: bool = False,
-            max_length: Optional[int] = None,
-            seq_length: Optional[int] = None,
-            use_cache: bool = True,
+        self,
+        outputs: ModelOutput,
+        model_kwargs: Dict[str, Any],
+        batch_size: int,
+        is_encoder_decoder: bool = False,
+        standardize_cache_format: bool = False,
+        max_length: Optional[int] = None,
+        seq_length: Optional[int] = None,
+        use_cache: bool = True,
     ) -> Dict[str, Any]:
         def _initialize_attention(model_kwargs, num_padding_values, is_encoder_decoder):
             """Initializes the appropriate attention mask -- encoder-decoder models use `decoder_attention_mask`"""
@@ -123,7 +126,7 @@ class NeuronGenerationMixin(GenerationMixin):
             attention_mask = model_kwargs.pop(attention_mask_name)
             attention_mask_update_slice = torch.ones(
                 (batch_size, 1), dtype=attention_mask.dtype, device=attention_mask.device
-             )
+            )
             attention_mask = torch.cat([attention_mask[:, 1:], attention_mask_update_slice], dim=-1)
             mask = {attention_mask_name: attention_mask}
             return mask
@@ -198,8 +201,9 @@ class NeuronGenerationMixin(GenerationMixin):
                     update_indices = torch.stack(
                         [torch.arange(batch_size), torch.tensor(seq_length).repeat(batch_size)], dim=-1
                     )
-                    model_kwargs["attention_mask"][update_indices[:, 0], update_indices[:, 1]] =\
-                        model_kwargs["attention_mask"].new_ones((batch_size, 1))
+                    model_kwargs["attention_mask"][update_indices[:, 0], update_indices[:, 1]] = model_kwargs[
+                        "attention_mask"
+                    ].new_ones((batch_size, 1))
 
             else:
                 # update decoder attention mask
@@ -208,24 +212,24 @@ class NeuronGenerationMixin(GenerationMixin):
                     update_indices = torch.stack(
                         [torch.arange(batch_size), torch.tensor(seq_length).repeat(batch_size)], dim=-1
                     )
-                    model_kwargs["decoder_attention_mask"][update_indices[:, 0], update_indices[:, 1]] = \
-                        model_kwargs["decoder_attention_mask"].new_ones((batch_size, 1))
-
+                    model_kwargs["decoder_attention_mask"][update_indices[:, 0], update_indices[:, 1]] = model_kwargs[
+                        "decoder_attention_mask"
+                    ].new_ones((batch_size, 1))
 
         return model_kwargs
 
     @torch.no_grad()
     def generate(
-            self,
-            inputs: Optional[torch.Tensor] = None,
-            generation_config: Optional[GenerationConfig] = None,
-            logits_processor: Optional[LogitsProcessorList] = None,
-            stopping_criteria: Optional[StoppingCriteriaList] = None,
-            prefix_allowed_tokens_fn: Optional[Callable[[int, torch.Tensor], List[int]]] = None,
-            synced_gpus: Optional[bool] = None,
-            assistant_model: Optional["PreTrainedModel"] = None,
-            streamer: Optional["BaseStreamer"] = None,
-            **kwargs,
+        self,
+        inputs: Optional[torch.Tensor] = None,
+        generation_config: Optional[GenerationConfig] = None,
+        logits_processor: Optional[LogitsProcessorList] = None,
+        stopping_criteria: Optional[StoppingCriteriaList] = None,
+        prefix_allowed_tokens_fn: Optional[Callable[[int, torch.Tensor], List[int]]] = None,
+        synced_gpus: Optional[bool] = None,
+        assistant_model: Optional["PreTrainedModel"] = None,
+        streamer: Optional["BaseStreamer"] = None,
+        **kwargs,
     ) -> Union[GenerateOutput, torch.LongTensor]:
         r"""
 
@@ -374,8 +378,8 @@ class NeuronGenerationMixin(GenerationMixin):
         # decoder-only models should use left-padding for generation
         if not self.config.is_encoder_decoder:
             if (
-                    generation_config.pad_token_id is not None
-                    and torch.sum(inputs_tensor[:, -1] == generation_config.pad_token_id) > 0
+                generation_config.pad_token_id is not None
+                and torch.sum(inputs_tensor[:, -1] == generation_config.pad_token_id) > 0
             ):
                 logger.warning(
                     "A decoder-only architecture is being used, but right-padding was detected! For correct "
@@ -442,40 +446,53 @@ class NeuronGenerationMixin(GenerationMixin):
         input_ids = torch.cat(
             [
                 input_ids,
-                (torch.ones(
-                    (batch_size, (generation_config.max_length - input_ids_seq_length)),
-                ).long().to(input_ids.device))
+                (
+                    torch.ones(
+                        (batch_size, (generation_config.max_length - input_ids_seq_length)),
+                    )
+                    .long()
+                    .to(input_ids.device)
+                )
                 * generation_config.pad_token_id,
-                ],
+            ],
             1,
         )
         # For decoder only models, pad decoder attention mask in addition to prompts
-        if "attention_mask" in model_kwargs and model_kwargs.get("use_cache",
-                                                                 False) is False and not self.config.is_encoder_decoder:
-            model_kwargs["attention_mask"] = torch.cat([model_kwargs["attention_mask"], torch.zeros(
-                (batch_size, (generation_config.max_length - input_ids_seq_length))).long().to(
-                model_kwargs["attention_mask"].device), ], 1)
+        if (
+            "attention_mask" in model_kwargs
+            and model_kwargs.get("use_cache", False) is False
+            and not self.config.is_encoder_decoder
+        ):
+            model_kwargs["attention_mask"] = torch.cat(
+                [
+                    model_kwargs["attention_mask"],
+                    torch.zeros((batch_size, (generation_config.max_length - input_ids_seq_length)))
+                    .long()
+                    .to(model_kwargs["attention_mask"].device),
+                ],
+                1,
+            )
 
         # 7. determine generation mode
         is_constraint_gen_mode = (
-                generation_config.constraints is not None or generation_config.force_words_ids is not None
+            generation_config.constraints is not None or generation_config.force_words_ids is not None
         )
 
         is_contrastive_search_gen_mode = (
-                (generation_config.num_beams == 1)
-                and generation_config.top_k is not None
-                and generation_config.top_k > 1
-                and generation_config.do_sample is False
-                and generation_config.penalty_alpha is not None
-                and generation_config.penalty_alpha > 0
+            (generation_config.num_beams == 1)
+            and generation_config.top_k is not None
+            and generation_config.top_k > 1
+            and generation_config.do_sample is False
+            and generation_config.penalty_alpha is not None
+            and generation_config.penalty_alpha > 0
         )
 
         is_greedy_gen_mode = (
-                (generation_config.num_beams == 1)
-                and (generation_config.num_beam_groups == 1)
-                and generation_config.do_sample is False
-                and not is_constraint_gen_mode
-                and not is_contrastive_search_gen_mode
+            (generation_config.num_beams == 1)
+            and (generation_config.num_beam_groups == 1)
+            and generation_config.do_sample is False
+            and not is_constraint_gen_mode
+            and not is_contrastive_search_gen_mode
         )
 
         if generation_config.num_beam_groups > generation_config.num_beams:
@@ -537,21 +554,21 @@ class NeuronGenerationMixin(GenerationMixin):
             raise ValueError("Only greedy search is supported on Neuron.")
 
     def greedy_search(
-            self,
-            input_ids: torch.LongTensor,
-            logits_processor: Optional[LogitsProcessorList] = None,
-            stopping_criteria: Optional[StoppingCriteriaList] = None,
-            max_length: Optional[int] = None,
-            pad_token_id: Optional[int] = None,
-            eos_token_id: Optional[Union[int, List[int]]] = None,
-            output_attentions: Optional[bool] = None,
-            output_hidden_states: Optional[bool] = None,
-            output_scores: Optional[bool] = None,
-            return_dict_in_generate: Optional[bool] = None,
-            synced_gpus: bool = False,
-            seq_length: Optional[int] = int,
-            streamer: Optional["BaseStreamer"] = None,
-            **model_kwargs,
+        self,
+        input_ids: torch.LongTensor,
+        logits_processor: Optional[LogitsProcessorList] = None,
+        stopping_criteria: Optional[StoppingCriteriaList] = None,
+        max_length: Optional[int] = None,
+        pad_token_id: Optional[int] = None,
+        eos_token_id: Optional[Union[int, List[int]]] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        output_scores: Optional[bool] = None,
+        return_dict_in_generate: Optional[bool] = None,
+        synced_gpus: bool = False,
+        seq_length: Optional[int] = int,
+        streamer: Optional["BaseStreamer"] = None,
+        **model_kwargs,
     ) -> Union[GreedySearchOutput, torch.LongTensor]:
         r"""
         Generates sequences of token ids for models with a language modeling head using **greedy decoding** and can be
@@ -714,8 +731,9 @@ class NeuronGenerationMixin(GenerationMixin):
                     input_ids_ = input_ids[:, :seq_length]
                 else:
                     update_indices = torch.stack(
-                    [torch.arange(input_ids.size(0)), torch.tensor(seq_length - 1).repeat(input_ids.size(0))], dim=-1
-                )
+                        [torch.arange(input_ids.size(0)), torch.tensor(seq_length - 1).repeat(input_ids.size(0))],
+                        dim=-1,
+                    )
                     input_ids_ = input_ids[update_indices[:, 0], update_indices[:, 1], None]
 
                 model_inputs = self.prepare_inputs_for_generation(input_ids_, **model_kwargs)
@@ -753,7 +771,7 @@ class NeuronGenerationMixin(GenerationMixin):
 
             # pre-process distribution
             # Move to cpu to handle arbitrary logits_processor
-            next_tokens_scores = logits_processor(input_ids[:, :seq_length].to('cpu'), next_token_logits.to('cpu'))
+            next_tokens_scores = logits_processor(input_ids[:, :seq_length].to("cpu"), next_token_logits.to("cpu"))
             next_tokens_scores = next_tokens_scores.to(input_ids.device)
 
             # Store scores, attentions and hidden_states when required
@@ -863,4 +881,3 @@ class NeuronGenerationMixin(GenerationMixin):
                 )
         else:
             return input_ids
-
