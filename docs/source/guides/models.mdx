@@ -19,10 +19,6 @@ limitations under the License.
 *The APIs presented in the following documentation are relevant for the inference on [inf2](https://aws.amazon.com/ec2/instance-types/inf2/), 
 [trn1](https://aws.amazon.com/ec2/instance-types/trn1/) and [inf1](https://aws.amazon.com/ec2/instance-types/inf1/).*
 
-[🤗 Optimum-neuron](https://github.com/huggingface/optimum-neuron) is a utility package to ease the use of accelerators like AWS Inferentia2, 
-Trainium1 and Inferentia1. With Neuron models APIs, you will be able to run inference on neuron devices with the same experience as 
-[🤗 Transformers](https://huggingface.co/docs/transformers/index).
-
 `NeuronModelForXXX` classes help to load models from the [Hugging Face Hub](hf.co/models) and compile them to a serialized format optimized for 
 neuron devices. You will then be able to load the model and run inference with the acceleration powered by AWS Neuron devices.
 
