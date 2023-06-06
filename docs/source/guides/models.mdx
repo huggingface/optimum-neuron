@@ -44,8 +44,8 @@ from transformers import AutoTokenizer
 # Compile your model during the first time
 +input_shapes = {"batch_size": 1, "sequence_length": 64}
 +model = NeuronModelForSequenceClassification.from_pretrained(
-...     "distilbert-base-uncased-finetuned-sst-2-english", export=True, **input_shapes
-... ) 
++    "distilbert-base-uncased-finetuned-sst-2-english", export=True, **input_shapes
++) 
 
 tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased-finetuned-sst-2-english")
 inputs = tokenizer("Hamilton is considered to be the best musical of human history.", return_tensors="pt")
@@ -84,14 +84,13 @@ Be careful, the input shapes used for compilation should be inferior than the si
 
 <Tip>
 
-- What if real input sizes are smaller than compilation input shapes?
+- What if input sizes are smaller than compilation input shapes?
 
-No worries, `NeuronModelForXXX` class will pad your inputs to an eligible shape. 
-
-Besides you can set `dynamic_batch_size=True` in the `from_pretrained` method to enable dynamic batching, which means that your inputs can have variable batch size.
+No worries, `NeuronModelForXXX` class will pad your inputs to an eligible shape. Besides you can set `dynamic_batch_size=True` in the `from_pretrained` method to enable dynamic batching, which means that your inputs can have variable batch size.
 
 
-*Just keep in mind: dynamicity and padding comes with not only flexibility but also performance drop. Fair enough!*
+
+*(Just keep in mind: dynamicity and padding comes with not only flexibility but also performance drop. Fair enough!)*
 
 </Tip>
 
