@@ -52,7 +52,7 @@ class NeuronBaseModel(OptimizedModel):
     Class attributes:
         - model_type (`str`, *optional*, defaults to `"neuron_model"`) -- The name of the model type to use when
         registering the NeuronBaseModel classes.
-        - auto_model_class (`Type`, *optional*, defaults to `AutoModel`) -- The "AutoModel" class to be represented by the
+        - auto_model_class (`Type`, *optional*, defaults to `AutoModel`) -- The `AutoModel` class to be represented by the
         current NeuronBaseModel class.
 
     Common attributes:

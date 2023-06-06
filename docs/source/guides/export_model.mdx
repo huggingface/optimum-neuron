@@ -124,9 +124,9 @@ Optional arguments:
                         `"mixed"` or `"tf32"`.
   --disable-fast-relayout
                         Whether to disable fast relayout optimization which improves performance by using the matrix multiplier
-                        for tensor transpose.
+                        for tensor transpose. (INF1 only)
   --disable-fallback    Whether to disable CPU partitioning to force operations to Neuron. Defaults to `False`, as without
-                        fallback, there could be some compilation failures or performance problems.
+                        fallback, there could be some compilation failures or performance problems. (INF1 only)
   --dynamic-batch-size  Enable dynamic batch size for neuron compiled model. If this option is enabled, the input batch size can
                         be dynamic during the inference, but it comes with a potential tradeoff in terms of latency.
 
