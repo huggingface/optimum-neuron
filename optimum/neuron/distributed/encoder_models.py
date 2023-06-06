@@ -81,9 +81,10 @@ class BertParallelSelfOutput(ParallelSelfOutput, BertSelfOutput):
     pass
 
 
-class BertParallelModel(ParallelModel):
-    def parallelize(self, model: "PreTrainedModel", tp_size: int) -> "PreTrainedModel":
-        with self.saved_model_in_temporary_directory(model) as model_path:
+class BertParallelizer(ParallelModel):
+    @classmethod
+    def parallelize(cls, model: "PreTrainedModel") -> "PreTrainedModel":
+        with cls.saved_model_in_temporary_directory(model) as model_path:
             for layer in model.bert.encoder.layer:
                 layer.attention.self = BertParallelSelfAttention(model.config)
                 layer.attention.output = BertParallelSelfOutput(model.config)
