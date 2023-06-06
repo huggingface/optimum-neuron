@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Base class related to `neuronx-distributed` to perform parallelism."""
+"""Base class related to `neuronx_distributed` to perform parallelism."""
 
 import contextlib
 from abc import ABC, abstractclassmethod
@@ -24,6 +24,7 @@ import torch
 from transformers.utils import WEIGHTS_NAME
 
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
+from .utils import TENSOR_PARALLEL_SHARDS_DIR_NAME
 
 
 if is_neuronx_distributed_available():
@@ -84,7 +85,22 @@ class Parallelizer(ABC):
         raise NotImplementedError
 
     @classmethod
+    def was_parallelized(cls, model: "PreTrainedModel") -> bool:
+        parallel_layers = (
+            neuronx_distributed.parallel_layers.ParallelEmbedding,
+            neuronx_distributed.parallel_layers.ColumnParallelLinear,
+            neuronx_distributed.parallel_layers.RowParallelLinear,
+        )
+        return any(isinstance(mod, parallel_layers) for mod in model.modules())
+
+    @classmethod
+    def _check_model_was_parallelized(cls, model: "PreTrainedModel"):
+        if not cls.was_parallelized(model):
+            raise ValueError("The model needs to be parallelized first.")
+
+    @classmethod
     def save_model_checkpoint_as_regular(cls, model: "PreTrainedModel", output_dir: Union[str, Path]):
+        cls._check_model_was_parallelized(model)
         data_parallel_rank = neuronx_distributed.parallel_state.get_data_parallel_rank()
         tensor_parallel_rank = neuronx_distributed.parallel_state.get_tensor_parallel_rank()
 
@@ -118,6 +134,7 @@ class Parallelizer(ABC):
 
     @classmethod
     def save_model_checkpoint_as_sharded(cls, model: "PreTrainedModel", output_dir: Union[str, Path]):
+        cls._check_model_was_parallelized(model)
         data_parallel_rank = neuronx_distributed.parallel_state.get_data_parallel_rank()
         if data_parallel_rank != 0:
             return
@@ -125,7 +142,7 @@ class Parallelizer(ABC):
         if not isinstance(output_dir, Path):
             output_dir = Path(output_dir)
 
-        output_path = output_dir / "tensor_parallel_shards"
+        output_path = output_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME
         neuronx_distributed.parallel_layers.save(model.state_dict(), output_path.as_posix())
 
     @classmethod
@@ -138,3 +155,28 @@ class Parallelizer(ABC):
             cls.save_model_checkpoint(model, output_dir)
         if as_sharded:
             cls.save_model_checkpoint_as_sharded(model, output_dir)
+
+    @classmethod
+    def load_model_regular_checkpoint(cls, model: "PreTrainedModel", load_dir: Union[str, Path]):
+        raise NotImplementedError("This requires being able to deparallelize the model.")
+
+    @classmethod
+    def load_model_sharded_checkpoint(cls, model: "PreTrainedModel", load_dir: Union[str, Path]):
+        cls._check_model_was_parallelized(model)
+        if not isinstance(load_dir, Path):
+            load_dir = Path(load_dir)
+        neuronx_distributed.parallel_layers.load(
+            load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME, model=model, model_key="", sharded=True
+        )
+
+    @classmethod
+    def load_model_checkpoint(cls, model: "PreTrainedModel", load_dir: Union[str, Path]):
+        if not isinstance(load_dir, Path):
+            load_dir = Path(load_dir)
+
+        if (load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME).is_dir():
+            cls.load_model_sharded_checkpoint(model, load_dir)
+        elif (load_dir / WEIGHTS_NAME).is_file():
+            cls.load_model_regular_checkpoint(model, load_dir)
+        else:
+            raise FileNotFoundError(f"Could not find a checkpoint file under {load_dir.as_posix()}.")
