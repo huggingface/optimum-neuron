@@ -24,8 +24,10 @@ from torch.utils.data import DataLoader, Dataset
 from transformers import GenerationMixin, Seq2SeqTrainer, Trainer
 
 from ..utils import logging
+from .distributed import ParallelizersManager
 from .generation import NeuronGenerationMixin
 from .trainer_callback import NeuronCacheCallaback
+from .utils import is_neuronx_distributed_available
 from .utils.argument_utils import validate_arg
 from .utils.cache_utils import get_neuron_cache_path
 from .utils.training_utils import (
@@ -96,6 +98,16 @@ class AugmentTrainerForTrainiumMixin:
 
         # Make the model Neuron-compatible for generation.
         self.patch_generation_mixin_to_neuron_generation_mixin(self.model)
+
+        # TODO: remove that once we have merged the FSDP PR and can rebase.
+        # This will allow to use training_args and add a tensor_parallel_size argument.
+        self.parallelizer = None
+        if is_neuronx_distributed_available():
+            import neuronx_distributed
+
+            neuronx_distributed.parallel_layers.parallel_state.initialize_model_parallel(tensor_model_parallel_size=2)
+            self.parallelizer = ParallelizersManager.parallelizer_for_model(self.model)
+            self.model = self.parallelizer.parallelize(self.model)
 
     def prepare_args_for_precompilation(self, args: "TrainingArguments"):
         if args.num_train_epochs != 1:

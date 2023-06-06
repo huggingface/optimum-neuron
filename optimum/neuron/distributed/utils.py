@@ -14,5 +14,50 @@
 # limitations under the License.
 """Utilities for performing parallelism with `neuronx_distributed`"""
 
+from typing import Literal, Union
+
+import torch
+
+from ..utils import is_neuronx_distributed_available
+
+
+if is_neuronx_distributed_available():
+    from neuronx_distributed.parallel_layers import layers
+    from neuronx_distributed.parallel_layers.parallel_state import (
+        get_tensor_model_parallel_rank,
+    )
 
 TENSOR_PARALLEL_SHARDS_DIR_NAME = "tensor_parallel_shards"
+
+
+def linear_to_parallel_linear(
+    linear_layer: "torch.nn.Linear",
+    axis: Union[Literal["row"], Literal["column"]],
+    input_is_parallel: bool = False,
+    gather_output: bool = True,
+):
+    if axis not in ["row", "column"]:
+        raise ValueError(f'axis must either be "row" or "column", but {axis} was given here.')
+
+    kwargs = {}
+    if axis == "row":
+        parallel_linear_class = layers.RowParallelLinear
+        kwargs["input_is_parallel"] = input_is_parallel
+    else:
+        parallel_linear_class = layers.ColumnParallelLinear
+        kwargs["gather_output"] = gather_output
+
+    parallel_linear_layer = parallel_linear_class(linear_layer.in_features, linear_layer.out_features, **kwargs)
+
+    tp_rank = get_tensor_model_parallel_rank()
+    row_size, col_size = parallel_linear_layer.weight.shape
+
+    with torch.no_grad():
+        # TODO: what about the bias?
+        if axis == "row":
+            parallel_linear_layer.weight.copy_(linear_layer.weight[:, tp_rank * col_size : (tp_rank + 1) * col_size])
+        else:
+            parallel_linear_layer.weight.copy_(linear_layer.weight[tp_rank * row_size : (tp_rank + 1) * row_size, :])
+
+    parallel_linear_layer.to(linear_layer.weight.device)
+    return parallel_linear_layer

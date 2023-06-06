@@ -70,9 +70,10 @@ class Parallelizer(ABC):
     @contextlib.contextmanager
     def saved_model_in_temporary_directory(cls, model: "PreTrainedModel"):
         tmpdir = TemporaryDirectory()
-        model.save_pretrained(tmpdir.name)
+        path = Path(tmpdir.name) / "pytorch_model.bin"
+        torch.save({"model": model.state_dict()}, path.as_posix())
         try:
-            yield Path(tmpdir.name) / "pytorch_model.bin"
+            yield path
         finally:
             tmpdir.cleanup()
 
@@ -143,7 +144,7 @@ class Parallelizer(ABC):
             output_dir = Path(output_dir)
 
         output_path = output_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME
-        neuronx_distributed.parallel_layers.save(model.state_dict(), output_path.as_posix())
+        neuronx_distributed.parallel_layers.save({"model": model.state_dict()}, output_path.as_posix())
 
     @classmethod
     def save_model_checkpoint(
@@ -165,9 +166,7 @@ class Parallelizer(ABC):
         cls._check_model_was_parallelized(model)
         if not isinstance(load_dir, Path):
             load_dir = Path(load_dir)
-        neuronx_distributed.parallel_layers.load(
-            load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME, model=model, model_key="", sharded=True
-        )
+        neuronx_distributed.parallel_layers.load(load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME, model=model, sharded=True)
 
     @classmethod
     def load_model_checkpoint(cls, model: "PreTrainedModel", load_dir: Union[str, Path]):
