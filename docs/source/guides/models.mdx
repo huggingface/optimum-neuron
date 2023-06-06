@@ -43,15 +43,15 @@ from transformers import AutoTokenizer
 
 # Compile your model during the first time
 +input_shapes = {"batch_size": 1, "sequence_length": 64}
-+model = NeuronModelForSequenceClassification.from_pretrained("distilbert-base-uncased-finetuned-sst-2-english", export=True, **input_shapes) 
++model = NeuronModelForSequenceClassification.from_pretrained(
+...     "distilbert-base-uncased-finetuned-sst-2-english", export=True, **input_shapes
+... ) 
 
 tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased-finetuned-sst-2-english")
 inputs = tokenizer("Hamilton is considered to be the best musical of human history.", return_tensors="pt")
 
 logits = model(**inputs).logits
-predicted_class_id = logits.argmax().item()
-model.config.id2label[predicted_class_id]
-
+print(model.config.id2label[logits.argmax().item()])
 # 'POSITIVE'
 ```
 
@@ -69,26 +69,29 @@ with the following code:
 # Infer the task name if you don't know
 >>> task = TasksManager.infer_task_from_model(model)  # 'text-classification'
 
->>> neuron_config_constructor = TasksManager.get_exporter_config_constructor(model=model, exporter="neuron", task='text-classification')
+>>> neuron_config_constructor = TasksManager.get_exporter_config_constructor(
+...     model=model, exporter="neuron", task='text-classification'
+... )
 >>> print(neuron_config_constructor.func.get_mandatory_axes_for_task(task))
-
 # ('batch_size', 'sequence_length') 
 ```
 
 <Tip>
 
-Be careful, __the input shapes used for compilation should be inferior than the size of inputs that you will feed into the model during the inference.__ 
+Be careful, the input shapes used for compilation should be inferior than the size of inputs that you will feed into the model during the inference.
 
 </Tip>
 
 <Tip>
 
-__What if real input sizes are smaller than compilation input shapes?__
+- What if real input sizes are smaller than compilation input shapes?
 
-No worries, `NeuronModelForXXX` class will pad your inputs to an eligible shape. And you can set `dynamic_batch_size=True` in the `from_pretrained`
-method to enable dynamic batching, which means that your inputs can have variable batch size.
+No worries, `NeuronModelForXXX` class will pad your inputs to an eligible shape. 
 
-*Just one thing to keep in mind: dynamicity and padding comes with not only flexibility but also performance drop. Fair enough!*
+Besides you can set `dynamic_batch_size=True` in the `from_pretrained` method to enable dynamic batching, which means that your inputs can have variable batch size.
+
+
+*Just keep in mind: dynamicity and padding comes with not only flexibility but also performance drop. Fair enough!*
 
 </Tip>
 
@@ -97,18 +100,18 @@ Once your model is compiled, you can save it either on your local or in the [Hug
 ```python
 >>> from optimum.neuron import NeuronModelForSequenceClassification
 
->>> # Load the model from the hub and export it to the Neuron optimized format
+# Load the model from the hub and export it to the Neuron optimized format
 >>> input_shapes = {"batch_size": 1, "sequence_length": 64}
 >>> model = NeuronModelForSequenceClassification.from_pretrained(
 ...     "distilbert-base-uncased-finetuned-sst-2-english", export=True, **input_shapes
 ... )
 
->>> # Save the compiled model
+# Save the compiled model
 >>> model.save_pretrained("a_local_path_for_compiled_neuron_model")
 
 # Push the onnx model to HF Hub
 >>> model.push_to_hub(  # doctest: +SKIP
-...   "a_local_path_for_compiled_neuron_model", repository_id="my-neuron-repo", use_auth_token=True
+...     "a_local_path_for_compiled_neuron_model", repository_id="my-neuron-repo", use_auth_token=True
 ... )
 ```
 
