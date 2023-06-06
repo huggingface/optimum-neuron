@@ -89,7 +89,7 @@ optimum-cli export neuron --help
 
 usage: optimum-cli export neuron [-h] -m MODEL [--task TASK] [--atol ATOL] [--cache_dir CACHE_DIR] [--trust-remote-code]
                                  [--auto_cast {none,matmul,all}] [--auto_cast_type {bf16,fp16,mixed,tf32}]
-                                 [--disable-fast-relayout] [--dynamic-batch-size] [--batch_size BATCH_SIZE]
+                                 [--disable-fast-relayout] [--disable-fallback] [--dynamic-batch-size] [--batch_size BATCH_SIZE]
                                  [--sequence_length SEQUENCE_LENGTH] [--num_choices NUM_CHOICES]
                                  output
 
@@ -125,8 +125,10 @@ Optional arguments:
   --disable-fast-relayout
                         Whether to disable fast relayout optimization which improves performance by using the matrix multiplier
                         for tensor transpose.
+  --disable-fallback    Whether to disable CPU partitioning to force operations to Neuron. Defaults to `False`, as without
+                        fallback, there could be some compilation failures or performance problems.
   --dynamic-batch-size  Enable dynamic batch size for neuron compiled model. If this option is enabled, the input batch size can
-                        be dynamic during the inference.
+                        be dynamic during the inference, but it comes with a potential tradeoff in terms of latency.
 
 Input shapes:
   --batch_size BATCH_SIZE
@@ -168,42 +170,34 @@ optimum-cli export neuron --model local_path --task question-answering --batch_s
 
 Note that providing the `--task` argument for a model on the Hub will disable the automatic task detection. The resulting `model.neuron` file, can then be loaded and run on Neuron devices. 
 
-## Exporting a model to Neuron using the export function
+## Exporting a model to Neuron using `NeuronModelForXXX` APIs
 
-You will also be able to export your models to Neuron format directly with the export function, and load it for inference. Here is an example:
+You will also be able to export your models to Neuron format with `optimum.neuron.NeuronModelForXXX` model classes. Here is an example:
 
 ```python
-import torch
-from pathlib import Path
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
-from optimum.exporters.neuron import export
-from optimum.exporters.neuron.model_configs import DistilBertNeuronConfig
+from optimum.neuron import NeuronModelForSequenceClassification
 
-model_id = "distilbert-base-uncased-finetuned-sst-2-english"
-sequence = "Hello, my cats are cute."
-tokenizer = AutoTokenizer.from_pretrained(model_id)
-model = AutoModelForSequenceClassification.from_pretrained(model_id)
-neuron_config = DistilBertNeuronConfig(
-    config=model.config, task="text-classification", batch_size=1, sequence_length=18, dynamic_batch_size=True
-)
-output_path = Path("test_bert/model.neuron")
+input_shapes = {"batch_size": 1, "sequence_length": 64}
+model = NeuronModelForSequenceClassification.from_pretrained("distilbert-base-uncased-finetuned-sst-2-english", export=True, **input_shapes) 
 
-# Export to Neuron model
-export(
-    model=model,
-    config=neuron_config,
-    output=output_path,
-    auto_cast="all",
-    auto_cast_type="bf16",
-)
+# Save the model
+model.save_pretrained("./distilbert-base-uncased-finetuned-sst-2-english_neuron/")
+```
 
-# Reload it for inference
-neuron_model = torch.jit.load(output_path)
-example = tokenizer.encode_plus(
-    sequence, max_length=neuron_config.sequence_length, padding="max_length", return_tensors="pt"
-)
+And the exported model can be used for inference directly with the `NeuronModelForXXX` class:
 
-logits = neuron_model(*tuple(example.values()))
+```python
+from transformers import AutoTokenizer
+from optimum.neuron import NeuronModelForSequenceClassification
+
+tokenizer = AutoTokenizer.from_pretrained("./distilbert-base-uncased-finetuned-sst-2-english_neuron/")
+model = NeuronModelForSequenceClassification.from_pretrained("./distilbert-base-uncased-finetuned-sst-2-english_neuron/")
+
+inputs = tokenizer("Hamilton is considered to be the best musical of human history.", return_tensors="pt")
+logits = model(**inputs).logits
+model.config.id2label[logits.argmax().item()]
+
+# 'POSITIVE'
 ```
 
 
