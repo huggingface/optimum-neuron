@@ -217,7 +217,7 @@ class NeuronBaseModel(OptimizedModel):
                 Shapes to use during inference. This argument allows to override the default shapes used during the export.
         """
         if task is None:
-            task = cls._auto_model_to_task(cls.auto_model_class)
+            task = TasksManager.infer_task_from_model(cls.auto_model_class)
 
         save_dir = TemporaryDirectory()
         save_dir_path = Path(save_dir.name)
@@ -280,14 +280,6 @@ class NeuronBaseModel(OptimizedModel):
     def forward(self, *args, **kwargs):
         raise NotImplementedError
 
-    # TODO: Remove it after added to Optimum main repo.
-    @classmethod
-    def _auto_model_to_task(cls, auto_model_class):
-        """
-        Get the task corresponding to a class (for example AutoModelForXXX in transformers).
-        """
-        return TasksManager.infer_task_from_model(auto_model_class)
-
     def _attributes_init(
         self,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
@@ -329,7 +321,7 @@ class NeuronBaseModel(OptimizedModel):
         }
 
         # Neuron config constructuor
-        task = NeuronBaseModel._auto_model_to_task(self.auto_model_class)
+        task = TasksManager.infer_task_from_model(self.auto_model_class)
         neuron_config_constructor = TasksManager.get_exporter_config_constructor(
             model_type=config.model_type, exporter="neuron", task=task
         )

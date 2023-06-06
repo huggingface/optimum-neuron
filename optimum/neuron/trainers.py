@@ -26,7 +26,6 @@ from transformers import GenerationMixin, Seq2SeqTrainer, Trainer
 from ..utils import logging
 from .generation import NeuronGenerationMixin
 from .trainer_callback import NeuronCacheCallaback
-from .utils.argument_utils import validate_arg
 from .utils.cache_utils import get_neuron_cache_path
 from .utils.training_utils import (
     FirstAndLastDataset,
@@ -62,6 +61,30 @@ if os.environ.get("TORCHELASTIC_RUN_ID"):
             raise AssertionError("Failed to initialize torch.distributed process group using XLA backend.")
 
 
+def patch_generation_mixin_to_neuron_generation_mixin(model: "PreTrainedModel"):
+    """
+    Changes the vanilla `GenerationMixin` class from Transformers to `NeuronGenerationMixin` in the model's
+    inheritance. This allows to make the model Neuron-compatible for generation without much hassle.
+    """
+    to_visit = [model.__class__]
+    should_stop = False
+    while to_visit and not should_stop:
+        cls = to_visit.pop(0)
+        bases = cls.__bases__
+        new_bases = []
+        for base in bases:
+            to_visit.append(base)
+            if base == GenerationMixin:
+                new_bases.append(NeuronGenerationMixin)
+                should_stop = True
+            elif base == NeuronGenerationMixin:
+                should_stop = True
+                new_bases.append(base)
+            else:
+                new_bases.append(base)
+        cls.__bases__ = tuple(new_bases)
+
+
 class AugmentTrainerForTrainiumMixin:
     def __init__(self, *args, **kwargs):
         if not isinstance(self, Trainer):
@@ -95,7 +118,7 @@ class AugmentTrainerForTrainiumMixin:
             self.add_callback(callback)
 
         # Make the model Neuron-compatible for generation.
-        self.patch_generation_mixin_to_neuron_generation_mixin(self.model)
+        patch_generation_mixin_to_neuron_generation_mixin(self.model)
 
     def prepare_args_for_precompilation(self, args: "TrainingArguments"):
         if args.num_train_epochs != 1:
@@ -112,36 +135,7 @@ class AugmentTrainerForTrainiumMixin:
             args.do_predict = False
 
     def validate_args(self, args: "TrainingArguments"):
-        if isinstance(self, Seq2SeqTrainer):
-            validate_arg(
-                args,
-                "prediction_loss_only",
-                "prediction_loss_only=False is not supported for now because it requires generation.",
-                expected_value=True,
-            )
-
-    def patch_generation_mixin_to_neuron_generation_mixin(self, model: "PreTrainedModel"):
-        """
-        Changes the vanilla `GenerationMixin` class from Transformers to `NeuronGenerationMixin` in the model's
-        inheritance. This allows to make the model Neuron-compatible for generation without much hassle.
-        """
-        to_visit = [model.__class__]
-        should_stop = False
-        while to_visit and not should_stop:
-            cls = to_visit.pop(0)
-            bases = cls.__bases__
-            new_bases = []
-            for base in bases:
-                to_visit.append(base)
-                if base == GenerationMixin:
-                    new_bases.append(NeuronGenerationMixin)
-                    should_stop = True
-                elif base == NeuronGenerationMixin:
-                    should_stop = True
-                    new_bases.append(base)
-                else:
-                    new_bases.append(base)
-            cls.__bases__ = tuple(new_bases)
+        pass
 
     def _wrap_model(self, model, training=True, dataloader=None):
         logger.info(

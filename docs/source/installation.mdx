@@ -15,6 +15,14 @@ specific language governing permissions and limitations under the License.
 Our recommendation is to use the [Hugging Face Neuron Deep Learning AMI](https://aws.amazon.com/marketplace/pp/prodview-gr3e6yiscria2) (DLAMI). The DLAMI comes with all required libraries pre-packaged for you, including the Optimum Neuron , Neuron Drivers, Transformers, Datasets, and Accelerate.
 But it can also be installed using `pip` as follows:
 
+## Installing `optimum-neuron` for AWS Trainium (`trn1`) or AWS inferentia2 (`inf2`)
+
+```bash
+python -m pip install optimum[neuronx]
+```
+
+## Installing `optimum-neuron` for AWS inferentia (`inf1`)
+
 ```bash
 python -m pip install optimum[neuron]
 ```
