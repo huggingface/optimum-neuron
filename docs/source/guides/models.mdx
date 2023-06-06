@@ -23,17 +23,17 @@ limitations under the License.
 Trainium1 and Inferentia1. With Neuron models APIs, you will be able to run inference on neuron devices with the same experience as 
 [🤗 Transformers](https://huggingface.co/docs/transformers/index).
 
-`NeuronModelForXXX` classes help to models from the [Hugging Face Hub](hf.co/models) to a serialized format optimized for neuron devices. You will
-then be able to load the model and run inference with the acceleration powered by AWS Neuron devices.
+`NeuronModelForXXX` classes help to load models from the [Hugging Face Hub](hf.co/models) and compile them to a serialized format optimized for 
+neuron devices. You will then be able to load the model and run inference with the acceleration powered by AWS Neuron devices.
 
 ## Switching from Transformers to Optimum
 
 The `optimum.neuron.NeuronModelForXXX` model classes are APIs compatible with Hugging Face Transformers models. This means seamless integration 
 with Hugging Face's ecosystem. You can just replace your `AutoModelForXXX` class with the corresponding `NeuronModelForXXX` class in `optimum.neuron`.
 
-If you already use Transformers, you will be able to reuse your code just by replacing the model classes:
+If you already use Transformers, you will be able to reuse your code just by replacing model classes:
 
-```python
+```diff
 from transformers import AutoTokenizer
 -from transformers import AutoModelForSequenceClassification
 +from optimum.neuron import NeuronModelForSequenceClassification
@@ -42,7 +42,7 @@ from transformers import AutoTokenizer
 -model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-uncased-finetuned-sst-2-english") 
 
 # Compile your model during the first time
-input_shapes = {"batch_size": 1, "sequence_length": 64}
++input_shapes = {"batch_size": 1, "sequence_length": 64}
 +model = NeuronModelForSequenceClassification.from_pretrained("distilbert-base-uncased-finetuned-sst-2-english", export=True, **input_shapes) 
 
 tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased-finetuned-sst-2-english")
@@ -55,35 +55,40 @@ model.config.id2label[predicted_class_id]
 # 'POSITIVE'
 ```
 
-As shown above, when you use `NeuronModelForXXX` for the first time, you will need to set `export=True` to compile your model from PyTorch to a neuron-compatible model.
-`input_shapes` are mandatory static shape information that you need to send to the neuron compiler. Want to know what shapes are mandatory for your model? Check it out 
+As shown above, when you use `NeuronModelForXXX` for the first time, you will need to set `export=True` to compile your model from PyTorch to a neuron-compatible format.
+
+`input_shapes` are mandatory static shape information that you need to send to the neuron compiler. Wondering what shapes are mandatory for your model? Check it out 
 with the following code:
 
 ```python
-from transformers import AutoModelForSequenceClassification
-from optimum.exporters import TasksManager
+>>> from transformers import AutoModelForSequenceClassification
+>>> from optimum.exporters import TasksManager
 
-model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-uncased-finetuned-sst-2-english")
+>>> model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-uncased-finetuned-sst-2-english")
 
 # Infer the task name if you don't know
-task = TasksManager.infer_task_from_model(model)  # 'text-classification'
+>>> task = TasksManager.infer_task_from_model(model)  # 'text-classification'
 
-neuron_config_constructor = TasksManager.get_exporter_config_constructor(model=model, exporter="neuron", task='text-classification')
-neuron_config_constructor.func.get_mandatory_axes_for_task(task)
+>>> neuron_config_constructor = TasksManager.get_exporter_config_constructor(model=model, exporter="neuron", task='text-classification')
+>>> print(neuron_config_constructor.func.get_mandatory_axes_for_task(task))
 
 # ('batch_size', 'sequence_length') 
 ```
 
 <Tip>
 
-Be careful, the input shapes used for compilation should be inferior than the size of inputs that you will feed into the model during the inference. 
+Be careful, __the input shapes used for compilation should be inferior than the size of inputs that you will feed into the model during the inference.__ 
 
-What if the real input sizes are smaller than compilation input shapes?
+</Tip>
+
+<Tip>
+
+__What if real input sizes are smaller than compilation input shapes?__
 
 No worries, `NeuronModelForXXX` class will pad your inputs to an eligible shape. And you can set `dynamic_batch_size=True` in the `from_pretrained`
 method to enable dynamic batching, which means that your inputs can have variable batch size.
 
-(Just one thing to keep in mind: dynamicity and padding comes with not only flexibility but also performance drop. Fair enough!)
+*Just one thing to keep in mind: dynamicity and padding comes with not only flexibility but also performance drop. Fair enough!*
 
 </Tip>
 
@@ -108,7 +113,8 @@ Once your model is compiled, you can save it either on your local or in the [Hug
 ```
 
 And the next time when you want to run inference, just load your compiled model which will save you the compilation time:
-``python
+
+```python
 >>> from optimum.neuron import NeuronModelForSequenceClassification
 >>> model = NeuronModelForSequenceClassification.from_pretrained("my-neuron-repo")
 ```
@@ -116,4 +122,4 @@ And the next time when you want to run inference, just load your compiled model 
 As you see, there is no need to precise shape information and compilation arguments used during the compilation as they are 
 saved in a `config.json` file, and will be restored automatically by `NeuronModelForXXX` class.
 
-Happy inference with neuron! 🚀
+Happy inference with Neuron! 🚀

@@ -175,29 +175,28 @@ Note that providing the `--task` argument for a model on the Hub will disable th
 You will also be able to export your models to Neuron format with `optimum.neuron.NeuronModelForXXX` model classes. Here is an example:
 
 ```python
-from optimum.neuron import NeuronModelForSequenceClassification
+>>> from optimum.neuron import NeuronModelForSequenceClassification
 
-input_shapes = {"batch_size": 1, "sequence_length": 64}
-model = NeuronModelForSequenceClassification.from_pretrained("distilbert-base-uncased-finetuned-sst-2-english", export=True, **input_shapes) 
+>>> input_shapes = {"batch_size": 1, "sequence_length": 64}  # mandatory shapes
+>>> model = NeuronModelForSequenceClassification.from_pretrained("distilbert-base-uncased-finetuned-sst-2-english", export=True, **input_shapes) 
 
 # Save the model
-model.save_pretrained("./distilbert-base-uncased-finetuned-sst-2-english_neuron/")
+>>> model.save_pretrained("./distilbert-base-uncased-finetuned-sst-2-english_neuron/")
 ```
 
 And the exported model can be used for inference directly with the `NeuronModelForXXX` class:
 
 ```python
-from transformers import AutoTokenizer
-from optimum.neuron import NeuronModelForSequenceClassification
+>>> from transformers import AutoTokenizer
+>>> from optimum.neuron import NeuronModelForSequenceClassification
 
-tokenizer = AutoTokenizer.from_pretrained("./distilbert-base-uncased-finetuned-sst-2-english_neuron/")
-model = NeuronModelForSequenceClassification.from_pretrained("./distilbert-base-uncased-finetuned-sst-2-english_neuron/")
+>>> tokenizer = AutoTokenizer.from_pretrained("./distilbert-base-uncased-finetuned-sst-2-english_neuron/")
+>>> model = NeuronModelForSequenceClassification.from_pretrained("./distilbert-base-uncased-finetuned-sst-2-english_neuron/")
 
-inputs = tokenizer("Hamilton is considered to be the best musical of human history.", return_tensors="pt")
-logits = model(**inputs).logits
-model.config.id2label[logits.argmax().item()]
-
-# 'POSITIVE'
+>>> inputs = tokenizer("Hamilton is considered to be the best musical of human history.", return_tensors="pt")
+>>> logits = model(**inputs).logits
+>>> print(model.config.id2label[logits.argmax().item()])
+'POSITIVE'
 ```
 
 
