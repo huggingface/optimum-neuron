@@ -15,7 +15,7 @@
 """Utilities related to CLI arguments."""
 
 import os
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 from ...utils import logging
 
@@ -139,12 +139,21 @@ def store_compilation_config(
     config: "PretrainedConfig",
     input_shapes: Dict[str, int],
     compiler_kwargs: Dict[str, Any],
+    input_names: List[str],
+    output_names: List[str],
+    dynamic_batch_size: bool,
+    **kwargs,
 ):
     # Add input shapes during compilation to the config
     for axe, shape in input_shapes.items():
         axe = f"neuron_{axe}"
         config.__setattr__(axe, shape)
 
+    config.__setattr__("dynamic_batch_size", dynamic_batch_size)
+
     # Add compilation args to the config
     for arg, value in compiler_kwargs.items():
         config.__setattr__(arg, value)
+
+    config.input_names = input_names
+    config.output_names = output_names

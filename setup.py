@@ -20,14 +20,7 @@ INSTALL_REQUIRES = [
     "protobuf<4",
 ]
 
-TESTS_REQUIRE = [
-    "pytest",
-    "psutil",
-    "parameterized",
-    "GitPython",
-    "sentencepiece",
-    "datasets",
-]
+TESTS_REQUIRE = ["pytest", "psutil", "parameterized", "GitPython", "sentencepiece", "datasets", "sacremoses"]
 
 QUALITY_REQUIRES = [
     "black",
