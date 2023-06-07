@@ -46,7 +46,7 @@ from transformers.generation.utils import (
     GreedySearchOutput,
     BeamSearchDecoderOnlyOutput,
     BeamSearchEncoderDecoderOutput,
-    BeamSearchOutput
+    BeamSearchOutput,
 )
 from transformers.utils import ModelOutput, logging
 
@@ -192,7 +192,7 @@ class NeuronGenerationMixin(GenerationMixin):
             model_kwargs.update(mask)
             model_kwargs["past_key_values"] = tuple(new_past)
         else:
-            model_kwargs['past_key_values'] = None
+            model_kwargs["past_key_values"] = None
             if "token_type_ids" in model_kwargs:
                 token_type_ids = model_kwargs["token_type_ids"]
                 model_kwargs["token_type_ids"] = torch.cat(
@@ -236,11 +236,15 @@ class NeuronGenerationMixin(GenerationMixin):
             for key in dict_to_expand:
                 if dict_to_expand[key] is not None and isinstance(dict_to_expand[key], torch.Tensor):
                     if len(dict_to_expand[key].shape) == 2:
-                        dict_to_expand[key] = dict_to_expand[key].repeat(1, expand_size).view(-1, dict_to_expand[key].shape[1])
+                        dict_to_expand[key] = (
+                            dict_to_expand[key].repeat(1, expand_size).view(-1, dict_to_expand[key].shape[1])
+                        )
                     elif len(dict_to_expand[key].shape) <= 1:
                         dict_to_expand[key] = dict_to_expand[key].repeat(expand_size)
                     else:
-                        dict_to_expand[key] = torch.concat([tensor.unsqueeze(0).repeat(expand_size,1,1) for tensor in dict_to_expand[key]])
+                        dict_to_expand[key] = torch.concat(
+                            [tensor.unsqueeze(0).repeat(expand_size, 1, 1) for tensor in dict_to_expand[key]]
+                        )
             return dict_to_expand
 
         if input_ids is not None:
@@ -270,7 +274,7 @@ class NeuronGenerationMixin(GenerationMixin):
         output_scores: Optional[bool] = None,
         return_dict_in_generate: Optional[bool] = None,
         synced_gpus: Optional[bool] = False,
-        seq_length: Optional[int] = int,
+        seq_length: Optional[int] = None,
         **model_kwargs,
     ) -> Union[BeamSearchOutput, torch.LongTensor]:
         r"""
@@ -441,8 +445,8 @@ class NeuronGenerationMixin(GenerationMixin):
 
         # initialise score of first beam with 0 and the rest with -1e9. This makes sure that only tokens
         # of the first beam are considered to avoid sampling the exact same tokens across all beams.
-        #beam_scores = torch.zeros((batch_size, num_beams), dtype=torch.float, device=input_ids.device)
-        beam_scores_device = 'cpu'
+        # beam_scores = torch.zeros((batch_size, num_beams), dtype=torch.float, device=input_ids.device)
+        beam_scores_device = "cpu"
         beam_scores = torch.zeros((batch_size, num_beams), dtype=torch.float, device=beam_scores_device)
         beam_scores[:, 1:] = -1e9
         beam_scores = beam_scores.view((batch_size * num_beams,))
@@ -460,11 +464,12 @@ class NeuronGenerationMixin(GenerationMixin):
                     break
 
             # prepare model inputs
-            if model_kwargs['use_cache']:
-                # From max_length-sized input_ids, select first 
+            if model_kwargs["use_cache"]:
+                # From max_length-sized input_ids, select first
                 # cur_len - 1 values.
                 update_indices = torch.stack(
-                    [torch.arange(input_ids.size(0)), torch.tensor(cur_len - 1).repeat(input_ids.size(0))], dim=-1)
+                    [torch.arange(input_ids.size(0)), torch.tensor(cur_len - 1).repeat(input_ids.size(0))], dim=-1
+                )
                 input_ids_ = input_ids[update_indices[:, 0], update_indices[:, 1], None]
                 model_inputs = self.prepare_inputs_for_generation(input_ids_, **model_kwargs)
             else:
@@ -481,12 +486,19 @@ class NeuronGenerationMixin(GenerationMixin):
                 cur_len = cur_len + 1
                 continue  # don't waste resources running the code we don't need
 
-
-            if not model_kwargs['use_cache']:
-                one_hot = torch.cat([torch.tensor([0]).repeat(1, cur_len - 1),
-                                     torch.tensor([1]).repeat(1, 1),
-                                     torch.tensor([0]).repeat(1, input_ids.size(1) - cur_len)], dim=1) \
-                    .to(device=outputs.logits.device).float()
+            if not model_kwargs["use_cache"]:
+                one_hot = (
+                    torch.cat(
+                        [
+                            torch.tensor([0]).repeat(1, cur_len - 1),
+                            torch.tensor([1]).repeat(1, 1),
+                            torch.tensor([0]).repeat(1, input_ids.size(1) - cur_len),
+                        ],
+                        dim=1,
+                    )
+                    .to(device=outputs.logits.device)
+                    .float()
+                )
                 next_token_logits = torch.matmul(one_hot, outputs.logits)
                 next_token_logits = next_token_logits.squeeze(1)
             else:
@@ -507,8 +519,8 @@ class NeuronGenerationMixin(GenerationMixin):
 
             # We don't want to change every single logit processor, so
             # we peform this processing on CPU.
-            input_ids_ = input_ids.to('cpu')[:, :cur_len]
-            next_token_scores_ = next_token_scores.to('cpu')
+            input_ids_ = input_ids.to("cpu")[:, :cur_len]
+            next_token_scores_ = next_token_scores.to("cpu")
             next_token_scores_processed = logits_processor(input_ids_, next_token_scores_)
 
             next_token_scores = next_token_scores_processed + beam_scores[:, None].expand_as(next_token_scores)
@@ -546,10 +558,10 @@ class NeuronGenerationMixin(GenerationMixin):
 
             # stateless
             beam_outputs = beam_scorer.process(
-                input_ids.to('cpu')[:, :cur_len],
-                next_token_scores.to('cpu'),
-                next_tokens.to('cpu'),
-                next_indices.to('cpu'),
+                input_ids.to("cpu")[:, :cur_len],
+                next_token_scores.to("cpu"),
+                next_tokens.to("cpu"),
+                next_indices.to("cpu"),
                 pad_token_id=pad_token_id,
                 eos_token_id=eos_token_id,
                 beam_indices=beam_indices,
@@ -559,12 +571,12 @@ class NeuronGenerationMixin(GenerationMixin):
             beam_next_tokens = beam_outputs["next_beam_tokens"]
             beam_idx = beam_outputs["next_beam_indices"]
 
-            update_indices = torch.stack([torch.arange(batch_beam_size),
-                                        torch.tensor(cur_len - 1).repeat(batch_beam_size)],
-                                        dim=-1)
-            update_indices_2 = torch.stack([torch.arange(batch_beam_size),
-                                            torch.tensor(cur_len).repeat(batch_beam_size)],
-                                            dim=-1)
+            update_indices = torch.stack(
+                [torch.arange(batch_beam_size), torch.tensor(cur_len - 1).repeat(batch_beam_size)], dim=-1
+            )
+            update_indices_2 = torch.stack(
+                [torch.arange(batch_beam_size), torch.tensor(cur_len).repeat(batch_beam_size)], dim=-1
+            )
             # First select beam_indices
             device = input_ids.device
             beam_idx_device = beam_idx.to(device=input_ids.device)
@@ -572,12 +584,17 @@ class NeuronGenerationMixin(GenerationMixin):
 
             # Then append new tokens
             input_ids[update_indices_2[:, 0], update_indices_2[:, 1], None] = beam_next_tokens.unsqueeze(-1).to(device)
-            input_ids = input_ids * 1 # Hack to materialize tensor
+            input_ids = input_ids * 1  # Hack to materialize tensor
 
             # update generated ids, model inputs, and length for next step
             model_kwargs = self._update_model_kwargs_for_xla_generation(
-                outputs, model_kwargs, batch_size=batch_beam_size, is_encoder_decoder=self.config.is_encoder_decoder,
-                max_length=stopping_criteria.max_length, seq_length=cur_len, use_cache=model_kwargs['use_cache'],
+                outputs,
+                model_kwargs,
+                batch_size=batch_beam_size,
+                is_encoder_decoder=self.config.is_encoder_decoder,
+                max_length=stopping_criteria.max_length,
+                seq_length=cur_len,
+                use_cache=model_kwargs["use_cache"],
             )
             if model_kwargs["past_key_values"] is not None:
                 model_kwargs["past_key_values"] = self._reorder_cache(model_kwargs["past_key_values"], beam_idx)
@@ -603,11 +620,12 @@ class NeuronGenerationMixin(GenerationMixin):
             else:
                 # Other cases will be handled on CPU
                 batch_size, _ = input_ids.shape
-                input_ids_cpu = input_ids.to('cpu')
-                mask = torch.cat([torch.ones(batch_size, cur_len),
-                                torch.zeros(batch_size, input_ids.shape[1] - cur_len)], dim=1).bool()
+                input_ids_cpu = input_ids.to("cpu")
+                mask = torch.cat(
+                    [torch.ones(batch_size, cur_len), torch.zeros(batch_size, input_ids.shape[1] - cur_len)], dim=1
+                ).bool()
                 input_ids_cpu = torch.masked_select(input_ids_cpu, mask).reshape((batch_size, cur_len))
-                scores_cpu = scores.to('cpu') if torch.is_tensor(scores) else scores
+                scores_cpu = scores.to("cpu") if torch.is_tensor(scores) else scores
                 stop_criterion_2 = stopping_criteria(input_ids_cpu, scores_cpu)
 
             if stop_criterion_1 or stop_criterion_2:
@@ -617,10 +635,10 @@ class NeuronGenerationMixin(GenerationMixin):
                     this_peer_finished = True
 
         sequence_outputs = beam_scorer.finalize(
-            input_ids.to('cpu'),
-            beam_scores.to('cpu'),
-            next_tokens.to('cpu'),
-            next_indices.to('cpu'),
+            input_ids.to("cpu"),
+            beam_scores.to("cpu"),
+            next_tokens.to("cpu"),
+            next_indices.to("cpu"),
             pad_token_id=pad_token_id,
             eos_token_id=eos_token_id,
             max_length=stopping_criteria.max_length,
@@ -1008,7 +1026,7 @@ class NeuronGenerationMixin(GenerationMixin):
             beam_scorer = BeamSearchScorer(
                 batch_size=batch_size,
                 num_beams=generation_config.num_beams,
-                device='cpu',
+                device="cpu",
                 length_penalty=generation_config.length_penalty,
                 do_early_stopping=generation_config.early_stopping,
                 num_beam_hyps_to_keep=generation_config.num_return_sequences,

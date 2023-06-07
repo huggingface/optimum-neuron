@@ -14,10 +14,13 @@ from optimum.neuron.trainers import patch_generation_mixin_to_neuron_generation_
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
 
-def _test_generative_decoding(model_name, device="cpu", use_cache=False,
-                              decoder_only=False,
-                              generation_config_update={'num_beams': 1,
-                                                        'do_sample': False}):
+def _test_generative_decoding(
+    model_name,
+    device="cpu",
+    use_cache=False,
+    decoder_only=False,
+    generation_config_update={"num_beams": 1, "do_sample": False},
+):
     if device == "xla":
         import torch_xla.core.xla_model as xm
 
@@ -73,9 +76,8 @@ greedy_testdata = [
     ("t5-small", False, False),
 ]
 
-beam_search_testdata = [
-    ("facebook/bart-base", False, False)
-]
+beam_search_testdata = [("facebook/bart-base", False, False)]
+
 
 @is_trainium_test
 @pytest.mark.parametrize("model_name, use_cache, decoder_only", greedy_testdata)
@@ -90,27 +92,25 @@ def test_greedy_decoding(model_name, use_cache, decoder_only):
     assert np.array_equal(cpu_samples, xla_neuron_samples_fp32), "XLA Neuron FP32 output doesn't match CPU only output"
     assert np.array_equal(cpu_samples, xla_neuron_samples_bf16), "XLA Neuron bf16 output doesn't match CPU only output"
 
+
 @is_trainium_test
 @pytest.mark.parametrize("model_name, use_cache, decoder_only", beam_search_testdata)
 def test_beam_search_decoding(model_name, use_cache, decoder_only):
-    os.environ['NEURON_CC_FLAGS'] = '--model-type=transformer --enable-saturate-infinity'
-    config_update = {'num_beams': 4, 'min_length': 21, 'max_length': 21}
+    os.environ["NEURON_CC_FLAGS"] = "--model-type=transformer --enable-saturate-infinity"
+    config_update = {"num_beams": 4, "min_length": 21, "max_length": 21}
 
     os.environ["XLA_USE_BF16"] = "0"
-    xla_neuron_samples_fp32 = _test_generative_decoding(model_name=model_name,
-                                                        device="xla",
-                                                        decoder_only=decoder_only,
-                                                        generation_config_update=config_update)
+    xla_neuron_samples_fp32 = _test_generative_decoding(
+        model_name=model_name, device="xla", decoder_only=decoder_only, generation_config_update=config_update
+    )
     os.environ["XLA_USE_BF16"] = "1"
-    xla_neuron_samples_bf16 = _test_generative_decoding(model_name=model_name,
-                                                        device="xla",
-                                                        decoder_only=decoder_only,
-                                                        generation_config_update=config_update)
+    xla_neuron_samples_bf16 = _test_generative_decoding(
+        model_name=model_name, device="xla", decoder_only=decoder_only, generation_config_update=config_update
+    )
 
-    cpu_samples = _test_generative_decoding(model_name=model_name,
-                                            device="cpu",
-                                            decoder_only=decoder_only,
-                                            generation_config_update=config_update)
+    cpu_samples = _test_generative_decoding(
+        model_name=model_name, device="cpu", decoder_only=decoder_only, generation_config_update=config_update
+    )
 
     assert np.array_equal(cpu_samples, xla_neuron_samples_fp32), "XLA Neuron FP32 output doesn't match CPU only output"
     assert np.array_equal(cpu_samples, xla_neuron_samples_bf16), "XLA Neuron bf16 output doesn't match CPU only output"
