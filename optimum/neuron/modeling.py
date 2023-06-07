@@ -51,7 +51,7 @@ NEURON_MODEL_START_DOCSTRING = r"""
     Args:
         config (`transformers.PretrainedConfig`): [PretrainedConfig](https://huggingface.co/docs/transformers/main_classes/configuration#transformers.PretrainedConfig) is the Model configuration class with all the parameters of the model.
             Initializing with a config file does not load the weights associated with the model, only the
-            configuration. Check out the [`~neuron.modeling.NeuronBaseModel.from_pretrained`] method to load the model weights.
+            configuration. Check out the [`optimum.neuron.modeling.NeuronBaseModel.from_pretrained`] method to load the model weights.
         model (`torch.jit._script.ScriptModule`): [torch.jit._script.ScriptModule](https://pytorch.org/docs/stable/generated/torch.jit.ScriptModule.html) is the TorchScript graph compiled by neuron(x) compiler.
 """
 
@@ -78,6 +78,7 @@ NEURON_TEXT_INPUTS_DOCSTRING = r"""
 
 FEATURE_EXTRACTION_EXAMPLE = r"""
     Example of feature extraction:
+    *(Following model is compiled with neuronx compiler and can only be run on INF2. Replace "neuronx" with "neuron" if you are using INF1.)*
 
     ```python
     >>> from transformers import {processor_class}
@@ -86,12 +87,12 @@ FEATURE_EXTRACTION_EXAMPLE = r"""
     >>> tokenizer = {processor_class}.from_pretrained("{checkpoint}")
     >>> model = {model_class}.from_pretrained("{checkpoint}")
 
-    >>> inputs = tokenizer("My name is Philipp and I live in Germany.", return_tensors="pt")
+    >>> inputs = tokenizer("Dear Evan Hansen is the winner of six Tony Awards.", return_tensors="pt")
 
     >>> outputs = model(**inputs)
     >>> last_hidden_state = outputs.last_hidden_state
     >>> list(last_hidden_state.shape)
-    [2, 12, 384]
+    [1, 13, 384]
     ```
 """
 
@@ -114,7 +115,7 @@ class NeuronModelForFeatureExtraction(NeuronBaseModel):
         + FEATURE_EXTRACTION_EXAMPLE.format(
             processor_class=_TOKENIZER_FOR_DOC,
             model_class="NeuronModelForFeatureExtraction",
-            checkpoint="optimum/all-MiniLM-L6-v2",
+            checkpoint="optimum/all-MiniLM-L6-v2-neuronx",
         )
     )
     def forward(
@@ -152,6 +153,7 @@ class NeuronModelForFeatureExtraction(NeuronBaseModel):
 
 MASKED_LM_EXAMPLE = r"""
     Example of fill mask:
+    *(Following model is compiled with neuronx compiler and can only be run on INF2. Replace "neuronx" with "neuron" if you are using INF1.)*
 
     ```python
     >>> from transformers import {processor_class}
@@ -161,12 +163,12 @@ MASKED_LM_EXAMPLE = r"""
     >>> tokenizer = {processor_class}.from_pretrained("{checkpoint}")
     >>> model = {model_class}.from_pretrained("{checkpoint}")
 
-    >>> inputs = tokenizer("The capital of France is [MASK].", return_tensors="pt")
+    >>> inputs = tokenizer("This [MASK] Agreement is between General Motors and John Murray.", return_tensors="pt")
 
     >>> outputs = model(**inputs)
     >>> logits = outputs.logits
     >>> list(logits.shape)
-    [2, 8, 28996]
+    [1, 13, 30522]
     ```
 """
 
@@ -189,7 +191,7 @@ class NeuronModelForMaskedLM(NeuronBaseModel):
         + MASKED_LM_EXAMPLE.format(
             processor_class=_TOKENIZER_FOR_DOC,
             model_class="NeuronModelForMaskedLM",
-            checkpoint="optimum/bert-base-uncased-for-fill-mask",
+            checkpoint="optimum/legal-bert-base-uncased-neuronx",
         )
     )
     def forward(
@@ -219,18 +221,20 @@ class NeuronModelForMaskedLM(NeuronBaseModel):
 
 QUESTION_ANSWERING_EXAMPLE = r"""
     Example of question answering:
+    *(Following model is compiled with neuronx compiler and can only be run on INF2.)*
 
     ```python
+    >>> import torch
     >>> from transformers import {processor_class}
     >>> from optimum.neuron import {model_class}
 
     >>> tokenizer = {processor_class}.from_pretrained("{checkpoint}")
     >>> model = {model_class}.from_pretrained("{checkpoint}")
 
-    >>> question, text = "Who was Jim Henson?", "Jim Henson was a nice puppet"
+    >>> question, text = "Are there wheelchair spaces in the theatres?", "Yes, we have reserved wheelchair spaces with a good view."
     >>> inputs = tokenizer(question, text, return_tensors="pt")
     >>> start_positions = torch.tensor([1])
-    >>> end_positions = torch.tensor([3])
+    >>> end_positions = torch.tensor([12])
 
     >>> outputs = model(**inputs, start_positions=start_positions, end_positions=end_positions)
     >>> start_scores = outputs.start_logits
@@ -257,7 +261,7 @@ class NeuronModelForQuestionAnswering(NeuronBaseModel):
         + QUESTION_ANSWERING_EXAMPLE.format(
             processor_class=_TOKENIZER_FOR_DOC,
             model_class="NeuronModelForQuestionAnswering",
-            checkpoint="optimum/roberta-base-squad2",
+            checkpoint="optimum/roberta-base-squad2-neuronx",
         )
     )
     def forward(
@@ -288,6 +292,7 @@ class NeuronModelForQuestionAnswering(NeuronBaseModel):
 
 SEQUENCE_CLASSIFICATION_EXAMPLE = r"""
     Example of single-label classification:
+    *(Following model is compiled with neuronx compiler and can only be run on INF2.)*
 
     ```python
     >>> from transformers import {processor_class}
@@ -296,12 +301,12 @@ SEQUENCE_CLASSIFICATION_EXAMPLE = r"""
     >>> tokenizer = {processor_class}.from_pretrained("{checkpoint}")
     >>> model = {model_class}.from_pretrained("{checkpoint}")
 
-    >>> inputs = tokenizer("Hello, my cats are much cuter than your dogs", return_tensors="pt")
+    >>> inputs = tokenizer("Hamilton is considered to be the best musical of human history.", return_tensors="pt")
 
     >>> outputs = model(**inputs)
     >>> logits = outputs.logits
     >>> list(logits.shape)
-    [2, 2]
+    [1, 2]
     ```
 """
 
@@ -325,7 +330,7 @@ class NeuronModelForSequenceClassification(NeuronBaseModel):
         + SEQUENCE_CLASSIFICATION_EXAMPLE.format(
             processor_class=_TOKENIZER_FOR_DOC,
             model_class="NeuronModelForSequenceClassification",
-            checkpoint="optimum/distilbert-base-uncased-finetuned-sst-2-english",
+            checkpoint="optimum/distilbert-base-uncased-finetuned-sst-2-english-neuronx",
         )
     )
     def forward(
@@ -355,6 +360,7 @@ class NeuronModelForSequenceClassification(NeuronBaseModel):
 
 TOKEN_CLASSIFICATION_EXAMPLE = r"""
     Example of token classification:
+    *(Following model is compiled with neuronx compiler and can only be run on INF2.)*
 
     ```python
     >>> from transformers import {processor_class}
@@ -363,12 +369,12 @@ TOKEN_CLASSIFICATION_EXAMPLE = r"""
     >>> tokenizer = {processor_class}.from_pretrained("{checkpoint}")
     >>> model = {model_class}.from_pretrained("{checkpoint}")
 
-    >>> inputs = tokenizer("My name is Philipp and I live in Germany.", return_tensors="pt")
+    >>> inputs = tokenizer("Lin-Manuel Miranda is an American songwriter, actor, singer, filmmaker, and playwright.", return_tensors="pt")
 
     >>> outputs = model(**inputs)
     >>> logits = outputs.logits
     >>> list(logits.shape)
-    [2, 12, 9]
+    [1, 20, 9]
     ```
 """
 
@@ -392,7 +398,7 @@ class NeuronModelForTokenClassification(NeuronBaseModel):
         + TOKEN_CLASSIFICATION_EXAMPLE.format(
             processor_class=_TOKENIZER_FOR_DOC,
             model_class="NeuronModelForTokenClassification",
-            checkpoint="optimum/bert-base-NER",
+            checkpoint="optimum/bert-base-NER-neuronx",
         )
     )
     def forward(
@@ -423,6 +429,7 @@ class NeuronModelForTokenClassification(NeuronBaseModel):
 
 MULTIPLE_CHOICE_EXAMPLE = r"""
     Example of mutliple choice:
+    *(Following model is compiled with neuronx compiler and can only be run on INF2.)*
 
     ```python
     >>> from transformers import {processor_class}
@@ -447,6 +454,8 @@ MULTIPLE_CHOICE_EXAMPLE = r"""
     >>> inputs = dict(inputs.convert_to_tensors(tensor_type="pt"))
     >>> outputs = model(**inputs)
     >>> logits = outputs.logits
+    >>> logits.shape
+    [1, 4]
     ```
 """
 
@@ -466,11 +475,11 @@ class NeuronModelForMultipleChoice(NeuronBaseModel):
     auto_model_class = AutoModelForMultipleChoice
 
     @add_start_docstrings_to_model_forward(
-        NEURON_TEXT_INPUTS_DOCSTRING.format("batch_size, sequence_length")
+        NEURON_TEXT_INPUTS_DOCSTRING.format("batch_size, num_choices, sequence_length")
         + MULTIPLE_CHOICE_EXAMPLE.format(
             processor_class=_TOKENIZER_FOR_DOC,
             model_class="NeuronModelForMultipleChoice",
-            checkpoint="ehdwns1516/bert-base-uncased_SWAG",
+            checkpoint="optimum/bert-base-uncased_SWAG-neuronx",
         )
     )
     def forward(

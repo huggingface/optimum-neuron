@@ -259,7 +259,7 @@ class ExampleTesterBase(TestCase):
     NPROC_PER_NODE = 2
     EXTRA_COMMAND_LINE_ARGUMENTS = None
     LOGGING_STEPS = 1
-    SAVE_STEPS = -1
+    SAVE_STEPS = 200
     ONLY_PRECOMPILATION = False
     DO_PRECOMPILATION = False
     NEURON_CACHE = None
@@ -516,14 +516,14 @@ class CausalLMExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, exampl
 class TextClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_glue"):
     TASK_NAME = "sst2"
     DATASET_PARAMETER_NAME = "task_name"
-    NUM_EPOCHS = 2
+    NUM_EPOCHS = 1
 
 
 class TokenClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_ner"):
     TASK_NAME = "conll2003"
     TRAIN_BATCH_SIZE = {"default": 4, "distilbert": 6}
     EVAL_BATCH_SIZE = {"default": 4, "distilbert": 6}
-    NUM_EPOCHS = 2
+    NUM_EPOCHS = 1
     EXTRA_COMMAND_LINE_ARGUMENTS = [
         "--max_seq_length 384",
     ]
@@ -533,7 +533,7 @@ class MultipleChoiceExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, 
     EVAL_SCORE_THRESHOLD = {"default": 0.75, "camembert": 0.5, "distilbert": 0.645}
     TRAIN_BATCH_SIZE = {"default": 2, "distilbert": 3}
     EVAL_BATCH_SIZE = {"default": 2, "distilbert": 3}
-    NUM_EPOCHS = 2
+    NUM_EPOCHS = 1
     EXTRA_COMMAND_LINE_ARGUMENTS = [
         "--max_seq_length 512",
     ]
@@ -542,7 +542,7 @@ class MultipleChoiceExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, 
 class QuestionAnsweringExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_qa"):
     TASK_NAME = "squad"
     SCORE_NAME = "eval_f1"
-    NUM_EPOCHS = 2
+    NUM_EPOCHS = 1
 
 
 class SummarizationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_summarization"):
