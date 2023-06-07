@@ -15,16 +15,28 @@
 """Defines an Acceleator class compatible with Trainium."""
 
 import inspect
-from typing import TYPE_CHECKING
+import os
+from typing import TYPE_CHECKING, List, Optional, Union
 
 import torch
 from accelerate import Accelerator
 from accelerate.optimizer import AcceleratedOptimizer
 from accelerate.scheduler import AcceleratedScheduler
 from accelerate.state import AcceleratorState
+from accelerate.tracking import GeneralTracker
 from accelerate.utils import (
+    DeepSpeedPlugin,
     DistributedType,
     DynamoBackend,
+    FullyShardedDataParallelPlugin,
+    GradientAccumulationPlugin,
+    IntelPyTorchExtensionPlugin,
+    KwargsHandler,
+    LoggerType,
+    MegatronLMPlugin,
+    PrecisionType,
+    ProjectConfiguration,
+    RNGType,
     convert_model,
     convert_outputs_to_fp32,
     has_transformer_engine_layers,
@@ -104,6 +116,67 @@ class TrainiumAcceleratedScheduler(AcceleratedScheduler):
 
 
 class TrainiumAccelerator(Accelerator):
+    def __init__(
+        self,
+        device_placement: bool = True,
+        split_batches: bool = False,
+        mixed_precision: Optional[Union[PrecisionType, str]] = None,
+        gradient_accumulation_steps: int = 1,
+        cpu: bool = False,
+        deepspeed_plugin: Optional[DeepSpeedPlugin] = None,
+        fsdp_plugin: Optional[FullyShardedDataParallelPlugin] = None,
+        megatron_lm_plugin: Optional[MegatronLMPlugin] = None,
+        ipex_plugin: Optional[IntelPyTorchExtensionPlugin] = None,
+        rng_types: Optional[List[Union[str, RNGType]]] = None,
+        log_with: Optional[
+            Union[str, LoggerType, GeneralTracker, List[Union[str, LoggerType, GeneralTracker]]]
+        ] = None,
+        project_dir: Optional[Union[str, os.PathLike]] = None,
+        project_config: Optional[ProjectConfiguration] = None,
+        logging_dir: Optional[Union[str, os.PathLike]] = None,
+        gradient_accumulation_plugin: Optional[GradientAccumulationPlugin] = None,
+        dispatch_batches: Optional[bool] = None,
+        even_batches: bool = True,
+        step_scheduler_with_optimizer: bool = True,
+        kwargs_handlers: Optional[List[KwargsHandler]] = None,
+        dynamo_backend: Optional[Union[DynamoBackend, str]] = None,
+    ):
+        # There is a check for gradient_accumulation_steps to be equal to 1 when
+        # DistributedType == DistributedType.TPU, so we change that for initialization
+        # and restore it back afterwards.
+        num_steps = 1
+        if gradient_accumulation_plugin is not None:
+            num_steps = gradient_accumulation_plugin.num_steps
+            gradient_accumulation_plugin.num_steps = 1
+        elif gradient_accumulation_steps != 1:
+            num_steps = gradient_accumulation_steps
+            gradient_accumulation_steps = 1
+
+        super().__init__(
+            device_placement=device_placement,
+            split_batches=split_batches,
+            mixed_precision=mixed_precision,
+            gradient_accumulation_steps=gradient_accumulation_steps,
+            cpu=cpu,
+            deepspeed_plugin=deepspeed_plugin,
+            fsdp_plugin=fsdp_plugin,
+            megatron_lm_plugin=megatron_lm_plugin,
+            ipex_plugin=ipex_plugin,
+            rng_types=rng_types,
+            log_with=log_with,
+            project_dir=project_dir,
+            project_config=project_config,
+            logging_dir=logging_dir,
+            gradient_accumulation_plugin=gradient_accumulation_plugin,
+            dispatch_batches=dispatch_batches,
+            even_batches=even_batches,
+            step_scheduler_with_optimizer=step_scheduler_with_optimizer,
+            kwargs_handlers=kwargs_handlers,
+            dynamo_backend=dynamo_backend,
+        )
+        if num_steps != 1:
+            self.gradient_accumulation_steps = num_steps
+
     def prepare_optimizer(self, optimizer: torch.optim.Optimizer, device_placement=None):
         if device_placement is None:
             device_placement = self.device_placement
@@ -164,7 +237,11 @@ class TrainiumAccelerator(Accelerator):
         elif device_placement and not has_hf_device_map:
             model = model.to(self.device)
 
-        if self.distributed_type in (DistributedType.MULTI_GPU, DistributedType.MULTI_XPU):
+        distributed_types = [DistributedType.MULTI_GPU]
+        if hasattr(DistributedType, "MULTI_XPU"):
+            distributed_types.append(DistributedType.MULTI_XPU)
+
+        if self.distributed_type in distributed_types:
             if any(p.requires_grad for p in model.parameters()):
                 kwargs = self.ddp_handler.to_kwargs() if self.ddp_handler is not None else {}
                 model = torch.nn.parallel.DistributedDataParallel(

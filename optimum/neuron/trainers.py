@@ -62,6 +62,7 @@ from .utils import is_torch_xla_available
 from .utils.argument_utils import validate_arg
 from .utils.cache_utils import get_neuron_cache_path
 from .utils.training_utils import (
+    TRANSFORMERS_MIN_VERSION_USE_ACCELERATE,
     FirstAndLastDataset,
     Patcher,
     is_model_officially_supported,
@@ -139,14 +140,13 @@ class AugmentTrainerForTrainiumMixin:
         if is_precompilation():
             self.prepare_args_for_precompilation(training_args)
 
+        if check_if_transformers_greater(TRANSFORMERS_MIN_VERSION_USE_ACCELERATE):
+            import transformers
+
+            transformers.trainer.Accelerator = TrainiumAccelerator
+
         prepare_environment_for_neuron()
         super().__init__(*args, **kwargs)
-
-        if check_if_transformers_greater("4.30"):
-            self.accelerator = TrainiumAccelerator(
-                deepspeed_plugin=self.args.deepspeed_plugin,
-                gradient_accumulation_steps=self.args.gradient_accumulation_steps,
-            )
 
         if self.args.local_rank <= 0:
             logger.setLevel(logging.INFO)
