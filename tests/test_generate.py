@@ -72,16 +72,21 @@ def _test_generative_decoding(
 
 
 greedy_testdata = [
-    ("t5-small", True, False),
-    ("t5-small", False, False),
+    ("t5-small", True, False, ""),
+    ("t5-small", False, False, ""),
 ]
 
-beam_search_testdata = [("facebook/bart-base", False, False)]
+beam_search_testdata = [
+    ("facebook/bart-base", False, False, "--model-type=transformer --enable-saturate-infinity"),
+    ("t5-small", False, False, "--model-type=transformer"),
+    ("t5-small", True, False, "--model-type=transformer"),
+]
 
 
 @is_trainium_test
-@pytest.mark.parametrize("model_name, use_cache, decoder_only", greedy_testdata)
-def test_greedy_decoding(model_name, use_cache, decoder_only):
+@pytest.mark.parametrize("model_name, use_cache, decoder_only, compiler_flags", greedy_testdata)
+def test_greedy_decoding(model_name, use_cache, decoder_only, compiler_flags):
+    os.environ["NEURON_CC_FLAGS"] = compiler_flags
     os.environ["XLA_USE_BF16"] = "0"
     xla_neuron_samples_fp32 = _test_generative_decoding(model_name=model_name, device="xla", decoder_only=decoder_only)
     os.environ["XLA_USE_BF16"] = "1"
@@ -94,9 +99,9 @@ def test_greedy_decoding(model_name, use_cache, decoder_only):
 
 
 @is_trainium_test
-@pytest.mark.parametrize("model_name, use_cache, decoder_only", beam_search_testdata)
-def test_beam_search_decoding(model_name, use_cache, decoder_only):
-    os.environ["NEURON_CC_FLAGS"] = "--model-type=transformer --enable-saturate-infinity"
+@pytest.mark.parametrize("model_name, use_cache, decoder_only, compiler_flags", beam_search_testdata)
+def test_beam_search_decoding(model_name, use_cache, decoder_only, compiler_flags):
+    os.environ["NEURON_CC_FLAGS"] = compiler_flags
     config_update = {"num_beams": 4, "min_length": 21, "max_length": 21}
 
     os.environ["XLA_USE_BF16"] = "0"
