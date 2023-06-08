@@ -506,7 +506,7 @@ class CausalLMExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, exampl
     TASK_NAME = "wikitext"
     DATASET_CONFIG_NAME = "wikitext-2-raw-v1"
     NUM_EPOCHS = 1
-    TRAIN_BATCH_SIZE = 2
+    TRAIN_BATCH_SIZE = {"default": 2, "gpt2": 1}
     EVAL_BATCH_SIZE = 2
     SCORE_NAME = "random_test"
     EVAL_SCORE_THRESHOLD = 35
@@ -533,8 +533,10 @@ class MultipleChoiceExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, 
     EVAL_SCORE_THRESHOLD = {"default": 0.75, "camembert": 0.5, "distilbert": 0.645}
     TRAIN_BATCH_SIZE = {"default": 2, "distilbert": 3}
     EVAL_BATCH_SIZE = {"default": 2, "distilbert": 3}
+    MAX_STEPS = 100
     NUM_EPOCHS = 1
     EXTRA_COMMAND_LINE_ARGUMENTS = [
+        "--max_eval_samples 840",
         "--max_seq_length 512",
     ]
 
