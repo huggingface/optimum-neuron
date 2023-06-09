@@ -76,11 +76,17 @@ testdata = [
 @pytest.mark.parametrize("model_name, use_cache, decoder_only", testdata)
 def test_greedy_decoding(model_name, use_cache, decoder_only):
     os.environ["XLA_USE_BF16"] = "0"
-    xla_neuron_samples_fp32 = _test_greedy_decoding(model_name=model_name, device="xla", decoder_only=decoder_only)
+    xla_neuron_samples_fp32 = _test_greedy_decoding(
+        model_name=model_name, device="xla", use_cache=use_cache, decoder_only=decoder_only
+    )
     os.environ["XLA_USE_BF16"] = "1"
-    xla_neuron_samples_bf16 = _test_greedy_decoding(model_name=model_name, device="xla", decoder_only=decoder_only)
+    xla_neuron_samples_bf16 = _test_greedy_decoding(
+        model_name=model_name, device="xla", use_cache=use_cache, decoder_only=decoder_only
+    )
 
-    cpu_samples = _test_greedy_decoding(model_name=model_name, device="cpu", decoder_only=decoder_only)
+    cpu_samples = _test_greedy_decoding(
+        model_name=model_name, device="cpu", use_cache=use_cache, decoder_only=decoder_only
+    )
 
     assert np.array_equal(cpu_samples, xla_neuron_samples_fp32), "XLA Neuron FP32 output doesn't match CPU only output"
     assert np.array_equal(cpu_samples, xla_neuron_samples_bf16), "XLA Neuron bf16 output doesn't match CPU only output"
