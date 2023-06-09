@@ -88,13 +88,13 @@ class AugmentTrainerForTrainiumMixin:
         if self.args.local_rank <= 0:
             logger.setLevel(logging.INFO)
 
-        if not is_precompilation():
-            callback = NeuronCacheCallaback(
-                tmp_neuron_cache=_TMP_NEURON_CACHE_DIR,
-                original_neuron_cache_path=_ORIGINAL_NEURON_CACHE_PATH,
-                only_do_fetching=self.args.local_rank > 0,
-            )
-            self.add_callback(callback)
+        # if not is_precompilation():
+        #     callback = NeuronCacheCallaback(
+        #         tmp_neuron_cache=_TMP_NEURON_CACHE_DIR,
+        #         original_neuron_cache_path=_ORIGINAL_NEURON_CACHE_PATH,
+        #         only_do_fetching=self.args.local_rank > 0,
+        #     )
+        #     self.add_callback(callback)
 
         # Make the model Neuron-compatible for generation.
         self.patch_generation_mixin_to_neuron_generation_mixin(self.model)
