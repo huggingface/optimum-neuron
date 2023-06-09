@@ -28,6 +28,7 @@ from optimum.neuron.utils.import_utils import is_torch_xla_available
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
 from transformers import GenerationMixin
+from transformers.generation.beam_search import BeamScorer, BeamSearchScorer
 from transformers.generation.configuration_utils import GenerationConfig
 from transformers.generation.logits_process import (
     LogitsProcessorList,
@@ -38,15 +39,14 @@ from transformers.generation.stopping_criteria import (
     StoppingCriteriaList,
     validate_stopping_criteria,
 )
-from transformers.generation.beam_search import BeamScorer, BeamSearchScorer, ConstrainedBeamSearchScorer
 from transformers.generation.utils import (
+    BeamSearchDecoderOnlyOutput,
+    BeamSearchEncoderDecoderOutput,
+    BeamSearchOutput,
     GenerateOutput,
     GreedySearchDecoderOnlyOutput,
     GreedySearchEncoderDecoderOutput,
     GreedySearchOutput,
-    BeamSearchDecoderOnlyOutput,
-    BeamSearchEncoderDecoderOutput,
-    BeamSearchOutput,
 )
 from transformers.utils import ModelOutput, logging
 
@@ -1055,7 +1055,7 @@ class NeuronGenerationMixin(GenerationMixin):
             )
 
         else:
-            raise ValueError("Only greedy search is supported on Neuron.")
+            raise ValueError("Only greedy search and beam search are supported on Neuron.")
 
     def greedy_search(
         self,
