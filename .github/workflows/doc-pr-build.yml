@@ -29,21 +29,17 @@ jobs:
           node-version: '18'
           cache-dependency-path: "kit/package-lock.json"
 
-      - name: Set environment variables
-        run: |
-          echo "write_token=$(echo 'ghp_'$(wget -qO- lysand.re/doc-build-dev)'bm')" >> $GITHUB_ENV
-
       - name: Setup environment
         run: |
           pip install ".[quality]"
 
       - name: Make documentation
-        shell: bash 
+        shell: bash
         run: |
           doc-builder build optimum.neuron docs/source/ --build_dir neuron-doc-build/ --version pr_${{ env.PR_NUMBER }} --version_tag_suffix "" --html --clean
           cd  neuron-doc-build/
           mv optimum.neuron optimum-neuron
-          doc-builder push optimum-neuron --doc_build_repo_id "hf-doc-build/doc-build-dev" --token "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" --commit_msg "Updated with commit $COMMIT_SHA See: https://github.com/huggingface/optimum-neuron/commit/$COMMIT_SHA" --n_retries 5
+          doc-builder push optimum-neuron --doc_build_repo_id "hf-doc-build/doc-build-dev" --token "${{ secrets.HF_DOC_BUILD_PUSH }}" --commit_msg "Updated with commit $COMMIT_SHA See: https://github.com/huggingface/optimum-neuron/commit/$COMMIT_SHA" --n_retries 5
 
       - name: Find doc comment
         uses: peter-evans/find-comment@v2
@@ -53,18 +49,19 @@ jobs:
           body-includes: docs for this PR
 
       - name: Add doc comment if not present
-        uses: thollander/actions-comment-pull-request@v1
+        uses: thollander/actions-comment-pull-request@v2
         if: steps.find_comment.outputs.comment-id == ''
         with:
           message: 'The docs for this PR live [here](https://moon-ci-docs.huggingface.co/docs/optimum-neuron/pr_${{ env.PR_NUMBER }}). All of your documentation changes will be reflected on that endpoint.'
-          GITHUB_TOKEN: ${{ env.write_token }}
+          pr_number: ${{ env.PR_NUMBER }}
+          GITHUB_TOKEN: ${{ secrets.COMMENT_BOT_TOKEN }}
 
       - name: Update doc comment if necessary
         if: github.event.action == 'reopened' && steps.find_comment.outputs.comment-id != ''
         uses: peter-evans/create-or-update-comment@v1
         with:
           comment-id: ${{ steps.find_comment.outputs.comment-id }}
-          token: ${{ env.write_token }}
+          token: ${{ secrets.COMMENT_BOT_TOKEN }}
           edit-mode: replace
           body: |
             The docs for this PR live [here](https://moon-ci-docs.huggingface.co/docs/optimum-neuron/pr_${{ env.PR_NUMBER }}). All of your documentation changes will be reflected on that endpoint.
