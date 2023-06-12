@@ -64,7 +64,7 @@ jobs:
         run: sudo apt update; sudo apt install -y python3.8-venv
       - name: Run example tests 
         run: |
-          HF_TOKEN_OPTIMUM_NEURON_CI=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} USE_VENV="false" RUN_SLOW=1 pytest -m "is_trainium_test" tests/test_examples.py -s
+          HF_TOKEN_OPTIMUM_NEURON_CI=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} USE_VENV="false" RUN_SLOW=1 pytest -m "is_trainium_test" tests/test_examples.py -v
   stop-runner:
     name: Stop self-hosted EC2 runner
     needs:
