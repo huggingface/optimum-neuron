@@ -51,6 +51,7 @@ logger = logging.get_logger(__name__)
 class TrainiumTrainingArgumentsMixin:
     def __post_init__(self):
         if self.fsdp is not None:
+            raise RuntimeError("FSDP is not supported yet in optimum-neuron.")
             if self.fsdp_config is None:
                 self.fsdp_config = {"xla": True}
             elif isinstance(self.fsdp_config, str):
