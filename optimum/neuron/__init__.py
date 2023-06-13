@@ -19,9 +19,9 @@ from transformers.utils import _LazyModule
 
 
 _import_structure = {
-    "hf_argparser": ["TrainiumHfArgumentParser", "Seq2SeqTrainiumTrainingArguments"],
+    "hf_argparser": ["TrainiumHfArgumentParser"],
     "trainers": ["TrainiumTrainer", "Seq2SeqTrainiumTrainer"],
-    "training_args": ["TrainiumTrainingArguments"],
+    "training_args": ["TrainiumTrainingArguments", "Seq2SeqTrainiumTrainingArguments"],
     "modeling_base": ["NeuronBaseModel"],
     "modeling": [
         "NeuronModelForFeatureExtraction",
