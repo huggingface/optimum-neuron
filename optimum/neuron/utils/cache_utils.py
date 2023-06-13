@@ -116,6 +116,7 @@ def delete_custom_cache_repo_name_from_hf_home(hf_home_cache_repo_file: str = HF
 
 def create_custom_cache_repo(repo_id: str = CACHE_REPO_NAME, private: bool = True) -> RepoUrl:
     repo_url = create_repo(repo_id, private=private, repo_type="model")
+    create_registry_file_if_does_not_exist(repo_id)
     set_custom_cache_repo_name_in_hf_home(repo_url.repo_id)
     return repo_url
 
@@ -365,6 +366,66 @@ def add_in_registry(repo_id: str, neuron_hash: "NeuronHash"):
         _ADDED_IN_REGISTRY[(repo_id, neuron_hash)] = True
 
 
+def _list_in_registry_dict(
+    registry: Dict[str, Any],
+    model_name_or_path_or_hash: Optional[str] = None,
+    neuron_compiler_version: Optional[str] = None,
+) -> List[str]:
+    entries = []
+    if neuron_compiler_version is not None:
+        registry = registry.get(neuron_compiler_version, {})
+    else:
+        for version in registry:
+            entries += _list_in_registry_dict(
+                registry, model_name_or_path_or_hash=model_name_or_path_or_hash, neuron_compiler_version=version
+            )
+        return entries
+
+    # model_key is either a model name or path or a model hash.
+    for model_key in registry:
+        data = registry[model_key]
+        if model_name_or_path_or_hash is not None and not (
+            data["model_name_or_path"].startswith(model_name_or_path_or_hash)
+            or data["model_hash"].startswith(model_name_or_path_or_hash)
+        ):
+            continue
+
+        for features in data["features"]:
+            if len(features["input_shapes"]) > 1:
+                inputs = "\n\t- ".join(f"{x[0]} => {x[1]}" for x in features["input_shapes"])
+                inputs = f"\t- {inputs}"
+            else:
+                x = features["input_shapes"]
+                inputs = f"\t- {x[0]} => {x[1]}"
+            information = [
+                f"Model name:\t{data['model_name_or_path']}",
+                f"Model hash:\t{data['model_hash']}",
+                f"Global hash:\t{features['neuron_hash']}",
+                f"Precision:\t{features['precision']}",
+                f"Neuron X Compiler version:\t{neuron_compiler_version}",
+                f"Num of neuron cores:\t{features['num_neuron_cores']}",
+                f"Input shapes:\n{inputs}",
+            ]
+            entries.append("\n".join(information))
+    return entries
+
+
+def list_in_registry(
+    repo_id: str, model_name_or_path_or_hash: Optional[str] = None, neuron_compiler_version: Optional[str] = None
+):
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        hf_hub_download(repo_id, REGISTRY_FILENAME, local_dir=tmpdirname, local_dir_use_symlinks=False)
+        registry_filename = Path(tmpdirname) / REGISTRY_FILENAME
+        with open(registry_filename, "r") as fp:
+            registry = json.load(fp)
+
+    return _list_in_registry_dict(
+        registry,
+        model_name_or_path_or_hash=model_name_or_path_or_hash,
+        neuron_compiler_version=neuron_compiler_version,
+    )
+
+
 class StaticTemporaryDirectory:
     def __init__(self, dirname: Union[str, Path]):
         if isinstance(dirname, str):
@@ -399,7 +460,7 @@ class _MutableHashAttribute:
 @dataclass(frozen=True)
 class NeuronHash:
     model: "PreTrainedModel"
-    input_shapes: Tuple[Tuple[str, Tuple[int]], ...]
+    input_shapes: Tuple[Tuple[str, Tuple[int, ...]], ...]
     data_type: torch.dtype
     num_neuron_cores: int = field(default_factory=get_num_neuron_cores_used)
     neuron_compiler_version: str = field(default_factory=get_neuronxcc_version)

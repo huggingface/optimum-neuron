@@ -22,10 +22,28 @@ _import_structure = {
     "hf_argparser": ["TrainiumHfArgumentParser", "Seq2SeqTrainiumTrainingArguments"],
     "trainers": ["TrainiumTrainer", "Seq2SeqTrainiumTrainer"],
     "training_args": ["TrainiumTrainingArguments"],
+    "modeling_base": ["NeuronBaseModel"],
+    "modeling": [
+        "NeuronModelForFeatureExtraction",
+        "NeuronModelForMaskedLM",
+        "NeuronModelForQuestionAnswering",
+        "NeuronModelForSequenceClassification",
+        "NeuronModelForTokenClassification",
+        "NeuronModelForMultipleChoice",
+    ],
 }
 
 if TYPE_CHECKING:
     from .hf_argparser import TrainiumHfArgumentParser
+    from .modeling import (
+        NeuronModelForFeatureExtraction,
+        NeuronModelForMaskedLM,
+        NeuronModelForMultipleChoice,
+        NeuronModelForQuestionAnswering,
+        NeuronModelForSequenceClassification,
+        NeuronModelForTokenClassification,
+    )
+    from .modeling_base import NeuronBaseModel
     from .trainers import Seq2SeqTrainiumTrainer, TrainiumTrainer
     from .training_args import Seq2SeqTrainiumTrainingArguments, TrainiumTrainingArguments
 else:
