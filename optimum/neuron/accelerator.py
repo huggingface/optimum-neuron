@@ -125,7 +125,7 @@ class TrainiumAccelerator(Accelerator):
         deepspeed_plugin: Optional[DeepSpeedPlugin] = None,
         fsdp_plugin: Optional[FullyShardedDataParallelPlugin] = None,
         megatron_lm_plugin: Optional[MegatronLMPlugin] = None,
-        ipex_plugin: Optional["IntelPyTorchExtensionPlugin"] = None,
+        ipex_plugin=None,
         rng_types: Optional[List[Union[str, RNGType]]] = None,
         log_with: Optional[
             Union[str, LoggerType, GeneralTracker, List[Union[str, LoggerType, GeneralTracker]]]
