@@ -42,8 +42,8 @@ jobs:
         run: |
           cd  neuron-doc-build/
           mv optimum.neuron optimum-neuron
-          echo ${{ inputs.commit_sha }} > ./commit_sha
-          echo ${{ inputs.pr_number }} > ./pr_number
+          echo ${{ env.COMMIT_SHA }} > ./commit_sha
+          echo ${{ env.PR_NUMBER }} > ./pr_number
 
       - uses: actions/upload-artifact@v3
         with:
