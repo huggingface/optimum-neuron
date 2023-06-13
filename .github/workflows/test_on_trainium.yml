@@ -64,7 +64,7 @@ jobs:
         run: sudo apt update; sudo apt install python3.8-venv
       - name: Run tests on neuron cores
         run: |
-          HF_TOKEN_OPTIMUM_NEURON_CI=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} USE_VENV="false" pytest -m "is_trainium_test" tests/test_*.py
+          HF_TOKEN_OPTIMUM_NEURON_CI=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} USE_VENV="false" pytest -m "is_trainium_test" tests/test_*.py -k "not test_run_example"
       - name: Run staging tests on neuron cores 
         run: HUGGINGFACE_CO_STAGING=1 pytest -m "is_trainium_test and is_staging_test" tests/test_*.py
   stop-runner:

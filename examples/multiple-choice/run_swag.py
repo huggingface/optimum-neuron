@@ -34,7 +34,6 @@ from transformers import (
     AutoConfig,
     AutoModelForMultipleChoice,
     AutoTokenizer,
-    TrainingArguments,
     default_data_collator,
     set_seed,
 )
@@ -44,6 +43,7 @@ from transformers.utils import PaddingStrategy, check_min_version, send_example_
 
 from optimum.neuron import TrainiumHfArgumentParser as HfArgumentParser
 from optimum.neuron import TrainiumTrainer as Trainer
+from optimum.neuron import TrainiumTrainingArguments as TrainingArguments
 
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.

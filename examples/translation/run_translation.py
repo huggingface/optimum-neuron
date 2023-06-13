@@ -39,7 +39,6 @@ from transformers import (
     MBart50TokenizerFast,
     MBartTokenizer,
     MBartTokenizerFast,
-    Seq2SeqTrainingArguments,
     default_data_collator,
     set_seed,
 )
@@ -48,6 +47,7 @@ from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
 
 from optimum.neuron import Seq2SeqTrainiumTrainer as Seq2SeqTrainer
+from optimum.neuron import Seq2SeqTrainiumTrainingArguments as Seq2SeqTrainingArguments
 from optimum.neuron import TrainiumHfArgumentParser as HfArgumentParser
 
 

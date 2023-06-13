@@ -15,7 +15,7 @@
 
 from .argument_utils import convert_neuronx_compiler_args_to_neuron, store_compilation_config
 from .constant import NEURON_FILE_NAME
-from .import_utils import is_neuron_available, is_neuronx_available
+from .import_utils import is_neuron_available, is_neuronx_available, is_torch_xla_available
 from .training_utils import (
     FirstAndLastDataset,
     Patcher,

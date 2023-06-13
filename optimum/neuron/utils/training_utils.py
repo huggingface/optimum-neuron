@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Callable, List, Optional, Tuple, Union
 
 import torch
 import transformers
+from accelerate import skip_first_batches as accelerate_skip_first_batches
 from torch.utils._pytree import tree_map
 from torch.utils.data import DataLoader, Dataset, IterableDataset
 from transformers.models.auto.modeling_auto import (
@@ -47,10 +48,17 @@ from transformers.models.auto.modeling_auto import (
 from transformers.utils.logging import set_verbosity as set_verbosity_transformers
 
 from ...utils.logging import set_verbosity as set_verbosity_optimum
+from . import is_torch_xla_available
 
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
+
+if is_torch_xla_available():
+    import torch_xla.distributed.parallel_loader as pl
+
+TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP = "4.30.0.dev0"
+TRANSFORMERS_MIN_VERSION_USE_ACCELERATE = "4.30.0.dev0"
 
 
 def _generate_supported_model_class_names(
@@ -121,7 +129,20 @@ def is_precompilation() -> bool:
 
 
 def is_model_officially_supported(model: "PreTrainedModel") -> bool:
-    return model.__class__.__name__ in _SUPPORTED_MODEL_NAMES
+    # In theory the type annotation is not correct since we can have also a XlaFullyShardedDataParallel
+    # but let's ignore it here.
+    if not is_torch_xla_available():
+        raise RuntimeError(
+            "is_model_officially_supported requires torch_xla to run, please install it by running: "
+            "pip install torch_xla"
+        )
+    from torch_xla.distributed.fsdp import XlaFullyShardedDataParallel
+
+    if isinstance(model, XlaFullyShardedDataParallel):
+        class_name = model.module.__class__.__name__
+    else:
+        class_name = model.__class__.__name__
+    return class_name in _SUPPORTED_MODEL_NAMES
 
 
 class FirstAndLastDataset(Dataset):
@@ -224,7 +245,9 @@ def patch_forward(forward_fn):
     @functools.wraps(forward_fn)
     def wrapper(*args, **kwargs):
         with patcher:
-            return forward_fn(*args, **kwargs)
+            # args[0] is self, which will be automatically passed to the function
+            # because we later bind the wrapper to the model instance.
+            return forward_fn(*args[1:], **kwargs)
 
     return wrapper
 
@@ -233,7 +256,7 @@ def patch_model(model: "PreTrainedModel") -> "PreTrainedModel":
     if hasattr(model.config, "layerdrop"):
         model.config.layerdrop = 0
     model.no_sync = lambda: contextlib.nullcontext()
-    model.forward = patch_forward(model.forward)
+    model.forward = patch_forward(model.forward).__get__(model)
     return model
 
 
@@ -255,3 +278,15 @@ def patch_transformers_for_neuron_sdk():
     Patches the Transformers library if needed to make it work with AWS Neuron.
     """
     transformers.utils.logging.set_verbosity = set_verbosity
+
+
+def skip_first_batches(dataloader, num_batches=0):
+    """
+    Wrapper around `accelerate.data_loader.skip_first_batches` to handle `pl.ParallelLoader` when using
+    `torch_xla.distributed`, for XLA FSDP for instance.
+    """
+    if isinstance(dataloader, (pl.ParallelLoader, pl.PerDeviceLoader)):
+        dataloader._loader = skip_first_batches(dataloader._loader, num_batches=num_batches)
+    else:
+        dataloader = accelerate_skip_first_batches(dataloader, num_batches=num_batches)
+    return dataloader

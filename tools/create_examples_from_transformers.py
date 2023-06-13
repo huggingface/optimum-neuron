@@ -51,10 +51,14 @@ IMPORT_PATTERN = r"from transformers import \(?[\w\s,_]*?([\t ]*({class_pattern}
 # )
 
 TRAINER_IMPORT_PATTERN = re.compile(IMPORT_PATTERN.format(class_pattern="(Seq2Seq)?Trainer"))
-# HF_ARGUMENT_PARSER_IMPORT_PATTERN = re.compile(IMPORT_PATTERN.format(class_pattern="HfArgumentParser"))
-HF_ARGUMENT_PARSER_IMPORT_PATTERN = re.compile(
-    r"from transformers import \(?[\w\s,_]*?([\t ]*(HfArgumentParser),?\n?)((?!from)[\w\s,_])*\)?"
-)
+HF_ARGUMENT_PARSER_IMPORT_PATTERN = re.compile(IMPORT_PATTERN.format(class_pattern="HfArgumentParser"))
+TRAINING_ARGUMENTS_IMPORT_PATTERN = re.compile(IMPORT_PATTERN.format(class_pattern="(Seq2Seq)?TrainingArguments"))
+# HF_ARGUMENT_PARSER_IMPORT_PATTERN = re.compile(
+#     r"from transformers import \(?[\w\s,_]*?([\t ]*(HfArgumentParser),?\n?)((?!from)[\w\s,_])*\)?"
+# )
+# TRAINING_ARGUMENTS_IMPORT_PATTERN = re.compile(
+#     r"from transformers import \(?[\w\s,_]*?([\t ]*(TrainingArguments),?\n?)((?!from)[\w\s,_])*\)?"
+# )
 
 
 TORCH_REQUIREMENT_PATTERN = re.compile(r"torch[\w\s]*([<>=!]=?\s*[\d\.]+)?\n")
@@ -64,6 +68,8 @@ AWS_CODE = {
     "Trainer": "TrainiumTrainer as Trainer",
     "Seq2SeqTrainer": "Seq2SeqTrainiumTrainer as Seq2SeqTrainer",
     "HfArgumentParser": "TrainiumHfArgumentParser as HfArgumentParser",
+    "TrainingArguments": "TrainiumTrainingArguments as TrainingArguments",
+    "Seq2SeqTrainingArguments": "Seq2SeqTrainiumTrainingArguments as Seq2SeqTrainingArguments",
 }
 
 
@@ -183,6 +189,7 @@ def main():
                 else:
                     trainer_file_path = file_path
                 hf_argument_file_path = file_path
+                training_argument_file_path = file_path
 
                 print(f"Processing {file_path}")
                 with open(trainer_file_path, "r") as fp:
@@ -201,6 +208,17 @@ def main():
                 code = f"\n{code}\n"
                 processed_content = insert_code_at_position(code, processed_content, import_end_index)
                 with open(hf_argument_file_path, "w") as fp:
+                    fp.write(processed_content)
+
+                with open(training_argument_file_path, "r") as fp:
+                    file_content = fp.read()
+                training_args_cls, processed_content, import_end_index = remove_import(
+                    TRAINING_ARGUMENTS_IMPORT_PATTERN, file_content
+                )
+                code = generate_new_import_code(AWS_CODE[training_args_cls])
+                code = f"\n{code}\n"
+                processed_content = insert_code_at_position(code, processed_content, import_end_index)
+                with open(training_argument_file_path, "w") as fp:
                     fp.write(processed_content)
 
             elif file_path.name == "requirements.txt":
