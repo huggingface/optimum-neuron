@@ -59,7 +59,6 @@ from .accelerator import TrainiumAccelerator
 from .generation import NeuronGenerationMixin
 from .trainer_callback import NeuronCacheCallaback
 from .utils import is_torch_xla_available
-from .utils.argument_utils import validate_arg
 from .utils.cache_utils import get_neuron_cache_path
 from .utils.training_utils import (
     TRANSFORMERS_MIN_VERSION_USE_ACCELERATE,
