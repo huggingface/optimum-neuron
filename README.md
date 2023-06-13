@@ -87,7 +87,7 @@ trainer = Trainer(
 
 ### Documentation
 
-Check out [the documentation of Optimum Neuron](https://huggingface.co/docs/optimum/**neuron**/index) for more advanced usage.
+Check out [the documentation of Optimum Neuron](https://huggingface.co/docs/optimum-neuron/index) for more advanced usage.
 
 <!---
 
