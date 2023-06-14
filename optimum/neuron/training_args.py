@@ -21,7 +21,6 @@ import warnings
 from datetime import timedelta
 
 import torch
-from accelerate.state import AcceleratorState, PartialState
 from accelerate.utils import DistributedType
 from packaging import version
 from transformers.training_args import ParallelMode, TrainingArguments
@@ -37,6 +36,7 @@ from transformers.utils import (
 
 from ..utils import check_if_transformers_greater, logging
 from .utils.training_utils import TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP
+from .accelerate import NeuronPartialState, NeuronAcceleratorState
 
 
 if is_sagemaker_mp_enabled():
@@ -79,15 +79,15 @@ class TrainiumTrainingArgumentsMixin:
     def _setup_devices(self) -> "torch.device":
         requires_backends(self, ["torch"])
         logger.info("PyTorch: setting up devices")
-        AcceleratorState._reset_state()
-        PartialState._reset_state()
+        NeuronAcceleratorState._reset_state()
+        NeuronPartialState._reset_state()
         if not is_sagemaker_mp_enabled() and not is_accelerate_available(check_partial_state=True):
             raise ImportError(
                 "Using the `Trainer` with `PyTorch` requires `accelerate>=0.19.0`: Please run `pip install transformers[torch]` or `pip install accelerate -U`"
             )
         self.distributed_state = None
         if self.no_cuda:
-            self.distributed_state = PartialState(cpu=True, backend=self.ddp_backend)
+            self.distributed_state = NeuronPartialState(cpu=True, backend=self.ddp_backend)
             self._n_gpu = 0
         elif is_sagemaker_mp_enabled():
             local_rank = smp.local_rank()
@@ -95,16 +95,16 @@ class TrainiumTrainingArgumentsMixin:
             self._n_gpu = 1
             torch.cuda.set_device(device)
         elif is_sagemaker_dp_enabled():
-            self.distributed_state = PartialState(_use_sagemaker_dp=True)
+            self.distributed_state = NeuronPartialState(_use_sagemaker_dp=True)
             self._n_gpu = 1
         elif self.deepspeed:
             # Need to do similar for Accelerator init
             os.environ["ACCELERATE_USE_DEEPSPEED"] = "true"
-            self.distributed_state = PartialState(timeout=timedelta(seconds=self.ddp_timeout))
+            self.distributed_state = NeuronPartialState(timeout=timedelta(seconds=self.ddp_timeout))
             del os.environ["ACCELERATE_USE_DEEPSPEED"]
             self._n_gpu = 1
         else:
-            self.distributed_state = PartialState(backend=self.ddp_backend)
+            self.distributed_state = NeuronPartialState(backend=self.ddp_backend)
             self._n_gpu = 1
         if not is_sagemaker_mp_enabled():
             device = self.distributed_state.device

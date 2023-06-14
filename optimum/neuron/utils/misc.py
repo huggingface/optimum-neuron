@@ -12,6 +12,21 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Utilities of various sorts."""
 
-from .accelerator import NeuronAccelerator
-from .state import NeuronAcceleratorState, NeuronPartialState
+import inspect
+from typing import Callable, Tuple, Any, Dict
+
+
+def args_and_kwargs_to_kwargs(f: Callable, args: Tuple[Any, ...], kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    TODO
+    """
+    sig = inspect.signature(f)
+    param_names = [p for p in sig.parameters]
+    result = dict(zip(param_names, args))
+    result.update(kwargs)
+    return result
+
+    
+

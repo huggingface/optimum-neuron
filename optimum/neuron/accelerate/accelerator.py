@@ -167,7 +167,7 @@ class NeuronAccelerator(Accelerator):
             deepspeed_plugin=deepspeed_plugin,
             fsdp_plugin=fsdp_plugin,
             megatron_lm_plugin=megatron_lm_plugin,
-            ipex_plugin=ipex_plugin,
+            # ipex_plugin=ipex_plugin,
             rng_types=rng_types,
             log_with=log_with,
             project_dir=project_dir,
