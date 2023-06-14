@@ -51,7 +51,7 @@ logger = logging.get_logger(__name__)
 
 class TrainiumTrainingArgumentsMixin:
     def __post_init__(self):
-        if self.fsdp is not None:
+        if self.fsdp != "":
             if self.fsdp_config is None:
                 self.fsdp_config = {"xla": True}
             elif isinstance(self.fsdp_config, str):

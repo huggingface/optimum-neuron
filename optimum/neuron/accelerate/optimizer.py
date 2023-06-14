@@ -16,21 +16,29 @@
 
 from accelerate.optimizer import AcceleratedOptimizer
 from accelerate.utils import DistributedType
+from optimum.neuron import accelerate
 
 from ..utils import is_torch_xla_available
+from .utils.dataclasses import NeuronDistributedType
 
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
-
+    import accelerate
+    accelerate.optimizer.xm = xm
 
 class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
+
+    # TODO: might be needed to override this soon.
+    def load_state_dict(self, state_dict):
+        return super().load_state_dict(state_dict)
+
     def step(self, closure=None):
         if self.gradient_state.sync_gradients:
             if self.accelerator_state.distributed_type is DistributedType.TPU:
                 optimizer_args = {"closure": closure} if closure is not None else {}
                 xm.optimizer_step(self.optimizer, optimizer_args=optimizer_args)
-            elif self.accelerator_state.distributed_type is DistributedType.XLA_FSDP:
+            elif self.accelerator_state.distributed_type is NeuronDistributedType.XLA_FSDP:
                 self.optimizer.step(closure)
             elif self.scaler is not None:
                 scale_before = self.scaler.get_scale()

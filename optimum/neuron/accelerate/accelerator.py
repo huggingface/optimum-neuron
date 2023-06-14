@@ -71,27 +71,6 @@ if is_fp8_available():
 logger = logging.get_logger(__name__)
 
 
-class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
-    def step(self, closure=None):
-        if self.gradient_state.sync_gradients:
-            if self.accelerator_state.distributed_type == DistributedType.TPU:
-                # optimizer_args = {"closure": closure} if closure is not None else {}
-                # xm.optimizer_step(self.optimizer, optimizer_args=optimizer_args)
-                self.optimizer.step(closure)
-            elif self.scaler is not None:
-                scale_before = self.scaler.get_scale()
-                self.scaler.step(self.optimizer, closure)
-                self.scaler.update()
-                scale_after = self.scaler.get_scale()
-                # If we reduced the loss scale, it means the optimizer step was skipped because of gradient overflow.
-                self._is_overflow = scale_after < scale_before
-            else:
-                self.optimizer.step(closure)
-
-
-
-
-
 class NeuronAccelerator(Accelerator):
 
     @patch_within_function(("accelerate.accelerator.AcceleratorState", NeuronAcceleratorState))
@@ -117,6 +96,7 @@ class NeuronAccelerator(Accelerator):
 
         if num_steps != 1:
             self.gradient_accumulation_steps = num_steps
+        print("DistributedType", self.distributed_type)
 
     @patch_within_function(("accelerate.accelerator.AcceleratedOptimizer", NeuronAcceleratedOptimizer))
     def prepare_optimizer(self, optimizer: torch.optim.Optimizer, device_placement=None):
@@ -206,6 +186,14 @@ class NeuronAccelerator(Accelerator):
             loss.backward(**kwargs)
 
     def backward(self, loss, **kwargs):
+        if self.distributed_type != DistributedType.DEEPSPEED:
+            loss = loss / self.gradient_accumulation_steps
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:
-            return self.prepare_model_for_xla_fsdp(loss, **kwargs)
-        return super().backward(loss, **kwargs)
+            self.backward_for_xla_fsdp(loss, **kwargs)
+        elif self.scaler is not None:
+            self.scaler.scale(loss).backward(**kwargs)
+        else:
+         # Providing **kwargs causes "Unsupported XLA type 10"
+         loss.backward(**kwargs)
+        
+
