@@ -49,6 +49,7 @@ from transformers.utils.logging import set_verbosity as set_verbosity_transforme
 
 from ...utils.logging import set_verbosity as set_verbosity_optimum
 from . import is_torch_xla_available
+from .misc import Patcher
 
 
 if TYPE_CHECKING:
@@ -222,24 +223,9 @@ def patched_finfo(dtype):
     return orig_finfo(dtype)
 
 
-class Patcher:
-    def __init__(self, patching_specs: Optional[List[Tuple[str, Callable]]] = None):
-        self.patching_specs = []
-        for orig, patch in patching_specs or []:
-            module_qualified_name, attribute_name = orig.rsplit(".", maxsplit=1)
-            module = importlib.import_module(module_qualified_name)
-            self.patching_specs.append((module, attribute_name, getattr(module, attribute_name), patch))
-
-    def __enter__(self):
-        for module, attribute_name, _, patch in self.patching_specs:
-            setattr(module, attribute_name, patch)
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        for module, attribute_name, _, patch in self.patching_specs:
-            setattr(module, attribute_name, patch)
-
 
 def patch_forward(forward_fn):
+    # TODO: refactor this with misc utilities.
     patcher = Patcher(patching_specs=[("torch.finfo", patched_finfo)])
 
     @functools.wraps(forward_fn)

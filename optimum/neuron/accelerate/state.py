@@ -224,7 +224,6 @@ class NeuronAcceleratorState(AcceleratorState):
             PartialState(cpu, **kwargs)
         self.__dict__.update(PartialState._shared_state)
         self._check_initialized(mixed_precision, cpu)
-        import pdb; pdb.set_trace()
         if not self.initialized:
             self.deepspeed_plugin = None
             self.ipex_plugin = None
@@ -253,10 +252,10 @@ class NeuronAcceleratorState(AcceleratorState):
                         os.environ["XLA_USE_BF16"] = str(1)
                         os.environ["XLA_DOWNCAST_BF16"] = str(0)
                         self.downcast_bfloat = False
-                print("LOL")
                 if os.environ.get("ACCELERATE_USE_FSDP", "false") == "true":
                     self.distributed_type = NeuronDistributedType.XLA_FSDP
                     if self._mixed_precision != "no":
+                        # TODO: do we need that?
                         fsdp_plugin.set_mixed_precision(self._mixed_precision)
                     self.fsdp_plugin = fsdp_plugin
             elif os.environ.get("ACCELERATE_USE_DEEPSPEED", "false") == "true" and not cpu:

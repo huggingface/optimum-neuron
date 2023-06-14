@@ -36,6 +36,7 @@ from transformers.utils import (
 
 from ..utils import check_if_transformers_greater, logging
 from .utils.training_utils import TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP
+from .utils import is_torch_xla_available
 from .accelerate import NeuronPartialState, NeuronAcceleratorState
 
 
@@ -64,6 +65,8 @@ class TrainiumTrainingArgumentsMixin:
                 )
             else:
                 self.fsdp_config["xla"] = True
+
+            os.environ["ACCELERATE_USE_FSDP"] = "true"
 
             if not check_if_transformers_greater(TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP):
                 import transformers
@@ -119,7 +122,7 @@ class TrainiumTrainingArgumentsMixin:
                 "parallel_mode != ParallelMode.TPU. "
                 "In order to use Torch DDP / XLA FSDP, launch your script with `python -m torch.distributed.launch"
             )
-        if is_torch_tpu_available():
+        if is_torch_xla_available():
             device = self.distributed_state.device
             self._n_gpu = 0
         elif is_sagemaker_dp_enabled() or is_sagemaker_mp_enabled():
