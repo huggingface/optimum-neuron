@@ -55,7 +55,7 @@ from transformers.utils import (
 )
 
 from ..utils import check_if_transformers_greater, logging
-from .accelerator import TrainiumAccelerator
+from .accelerate import NeuronAccelerator
 from .generation import NeuronGenerationMixin
 from .trainer_callback import NeuronCacheCallaback
 from .utils import is_torch_xla_available
@@ -166,7 +166,7 @@ class AugmentTrainerForTrainiumMixin:
         if check_if_transformers_greater(TRANSFORMERS_MIN_VERSION_USE_ACCELERATE):
             import transformers
 
-            transformers.trainer.Accelerator = TrainiumAccelerator
+            transformers.trainer.Accelerator = NeuronAccelerator
 
         prepare_environment_for_neuron()
         super().__init__(*args, **kwargs)
@@ -205,6 +205,33 @@ class AugmentTrainerForTrainiumMixin:
 
     def validate_args(self, args: "TrainingArguments"):
         pass
+
+    def create_accelerator_and_postprocess(self):
+        # create accelerator object
+        self.accelerator = TrainiumAccelerator(
+            deepspeed_plugin=self.args.deepspeed_plugin,
+            gradient_accumulation_steps=self.args.gradient_accumulation_steps,
+        )
+
+        # deepspeed and accelerate flags covering both trainer args and accelerate launcher
+        self.is_deepspeed_enabled = getattr(self.accelerator.state, "deepspeed_plugin", None) is not None
+        self.is_fsdp_enabled = getattr(self.accelerator.state, "fsdp_plugin", None) is not None
+
+        # post accelerator creation setup
+        if self.is_fsdp_enabled:
+            fsdp_plugin = self.accelerator.state.fsdp_plugin
+            fsdp_plugin.limit_all_gathers = self.args.fsdp_config.get("limit_all_gathers", False)
+            fsdp_plugin.use_orig_params = self.args.fsdp_config.get("use_orig_params", False)
+
+        if self.is_deepspeed_enabled:
+            if getattr(self.args, "hf_deepspeed_config", None) is None:
+                from transformers.deepspeed import HfTrainerDeepSpeedConfig
+
+                ds_plugin = self.accelerator.state.deepspeed_plugin
+
+                ds_plugin.hf_ds_config = HfTrainerDeepSpeedConfig(ds_plugin.hf_ds_config.config)
+                ds_plugin.deepspeed_config = ds_plugin.hf_ds_config.config
+                ds_plugin.hf_ds_config.trainer_config_process(self.args)
 
     def get_fsdp_checkpoint_path(self, output_dir: str) -> str:
         """Returns the path to the sharded checkpoint file for the current worker in an XLA FSDP setting."""
@@ -345,39 +372,6 @@ class AugmentTrainerForTrainiumMixin:
             # self.accelerator.ddp_handler = DistributedDataParallelKwargs(**kwargs)
 
         return model
-
-    def get_train_dataloader(self) -> DataLoader:
-        if is_precompilation():
-            return DataLoader(
-                FirstAndLastDataset(
-                    super().get_train_dataloader(),
-                    gradient_accumulation_steps=self.args.gradient_accumulation_steps,
-                    world_size=self.args.world_size,
-                ),
-                batch_size=None,
-            )
-        return super().get_train_dataloader()
-
-    def get_eval_dataloader(self, eval_dataset: Optional[Dataset] = None) -> DataLoader:
-        if is_precompilation():
-            return DataLoader(
-                FirstAndLastDataset(
-                    super().get_eval_dataloader(eval_dataset=eval_dataset), world_size=self.args.world_size
-                ),
-                batch_size=None,
-            )
-        return super().get_eval_dataloader(eval_dataset=eval_dataset)
-
-    def get_test_dataloader(self, test_dataset: Dataset) -> DataLoader:
-        if is_precompilation():
-            return DataLoader(
-                FirstAndLastDataset(
-                    super().get_test_dataloader(test_dataset),
-                    world_size=self.args.world_size,
-                ),
-                batch_size=None,
-            )
-        return super().get_test_dataloader(test_dataset)
 
     # TODO: make this cleaner.
     def trigger_on_step_middle_for_neuron_cache_callback(self, model: "PreTrainedModel"):

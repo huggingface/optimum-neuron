@@ -12,17 +12,19 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Defines an Acceleator class compatible with Trainium."""
+"""Custom Accelerator classes for Neuron."""
 
 import inspect
 import os
 from typing import TYPE_CHECKING, List, Optional, Union
+from optimum.neuron.accelerate.state import NeuronAcceleratorState
 
 import torch
+import accelerate
 from accelerate import Accelerator
 from accelerate.optimizer import AcceleratedOptimizer
 from accelerate.scheduler import AcceleratedScheduler
-from accelerate.state import AcceleratorState
+# from accelerate.state import AcceleratorState
 from accelerate.tracking import GeneralTracker
 from accelerate.utils import (
     DeepSpeedPlugin,
@@ -43,8 +45,9 @@ from accelerate.utils import (
     is_torch_version,
 )
 
-from ..utils import logging
-from .utils import is_neuronx_available
+from ...utils import logging
+from ..utils import is_neuronx_available
+from .state import NeuronAcceleratorState
 
 
 if TYPE_CHECKING:
@@ -64,7 +67,7 @@ if is_fp8_available():
 logger = logging.get_logger(__name__)
 
 
-class TrainiumAcceleratedOptimizer(AcceleratedOptimizer):
+class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
     def step(self, closure=None):
         if self.gradient_state.sync_gradients:
             if self.accelerator_state.distributed_type == DistributedType.TPU:
@@ -82,7 +85,7 @@ class TrainiumAcceleratedOptimizer(AcceleratedOptimizer):
                 self.optimizer.step(closure)
 
 
-class TrainiumAcceleratedScheduler(AcceleratedScheduler):
+class NeuronAcceleratedScheduler(AcceleratedScheduler):
     def step(self, *args, **kwargs):
         if not self.step_with_optimizer:
             # No link between scheduler and optimizer -> just step
@@ -104,7 +107,7 @@ class TrainiumAcceleratedScheduler(AcceleratedScheduler):
         else:
             # Otherwise the training dataloader batch size was multiplied by `num_processes`, so we need to do
             # num_processes steps per training step
-            num_processes = AcceleratorState().num_processes
+            num_processes = NeuronAcceleratorState().num_processes
             for _ in range(num_processes):
                 # Special case when using OneCycle and `drop_last` was not used
                 if hasattr(self.scheduler, "total_steps"):
@@ -114,7 +117,8 @@ class TrainiumAcceleratedScheduler(AcceleratedScheduler):
                     self.scheduler.step(*args, **kwargs)
 
 
-class TrainiumAccelerator(Accelerator):
+
+class NeuronAccelerator(Accelerator):
     def __init__(
         self,
         device_placement: bool = True,
@@ -140,6 +144,9 @@ class TrainiumAccelerator(Accelerator):
         kwargs_handlers: Optional[List[KwargsHandler]] = None,
         dynamo_backend: Optional[Union[DynamoBackend, str]] = None,
     ):
+        accelerate.accelerator.AcceleratorState = NeuronAcceleratorState
+        # TODO: restore it back afterwards.
+
         # There is a check for gradient_accumulation_steps to be equal to 1 when
         # DistributedType == DistributedType.TPU, so we change that for initialization
         # and restore it back afterwards.
@@ -176,10 +183,15 @@ class TrainiumAccelerator(Accelerator):
         if num_steps != 1:
             self.gradient_accumulation_steps = num_steps
 
+        print("Distributed type", self.distributed_type)
+        from accelerate.accelerator import AcceleratorState
+        print("AcceleratorState", AcceleratorState)
+
+
     def prepare_optimizer(self, optimizer: torch.optim.Optimizer, device_placement=None):
         if device_placement is None:
             device_placement = self.device_placement
-        optimizer = TrainiumAcceleratedOptimizer(optimizer, device_placement=device_placement, scaler=self.scaler)
+        optimizer = NeuronAcceleratedOptimizer(optimizer, device_placement=device_placement, scaler=self.scaler)
         self._optimizers.append(optimizer)
         return optimizer
 
@@ -190,7 +202,7 @@ class TrainiumAccelerator(Accelerator):
             if getattr(scheduler, "optimizer", None) == opt.optimizer:
                 optimizer = opt
                 break
-        scheduler = TrainiumAcceleratedScheduler(
+        scheduler = NeuronAcceleratedScheduler(
             scheduler,
             optimizer,
             step_with_optimizer=self.step_scheduler_with_optimizer,
@@ -251,6 +263,8 @@ class TrainiumAccelerator(Accelerator):
                 from torch_xla.distributed.fsdp import XlaFullyShardedDataParallel as FSDP
             except ImportError:
                 raise ImportError("Missing XLA FSDP related module; please make sure to use torch-xla >= 2.0.")
+
+            import pdb; pdb.set_trace()
 
             # Check if the model is already a FSDP model due to `Manual Wrapping` and if so,
             # don't wrap it again
