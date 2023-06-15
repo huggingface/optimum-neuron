@@ -36,7 +36,7 @@ optimum-cli export neuron --help
 
 ## Why compile to Neuron model?
 
-AWS provides two generations of the Inferentia accelerator built for machine learning inference with higher throughput, lower latency but lower cost: [INF2 (NeuronCore-v2)](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/inf2-arch.html) and [INF1 (NeuronCore-v1)](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/inf1-arch.html#aws-inf1-arch).  
+AWS provides two generations of the Inferentia accelerator built for machine learning inference with higher throughput, lower latency but lower cost: [inf2 (NeuronCore-v2)](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/inf2-arch.html) and [inf1 (NeuronCore-v1)](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/inf1-arch.html#aws-inf1-arch).  
 
 In production environments, to deploy 🤗 [Transformers](https://huggingface.co/docs/transformers/index) models on Neuron devices, you need to compile your models and export them to a serialized format before inference. Through Ahead-Of-Time (AOT) compilation with Neuron Compiler( [neuronx-cc](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/release-notes/compiler/neuronx-cc/index.html) or [neuron-cc](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/release-notes/compiler/neuron-cc/neuron-cc.html) ), your models will be converted to serialized and optimized [TorchScript modules](https://pytorch.org/docs/stable/generated/torch.jit.ScriptModule.html).
 
@@ -53,7 +53,7 @@ Although pre-compilation avoids overhead during the inference, traced Neuron mod
   (*But these limitations could be bypass with [dynamic batching](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/frameworks/torch/torch-neuronx/api-reference-guide/inference/api-torch-neuronx-trace.html#dynamic-batching) and [bucketing](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/appnotes/torch-neuron/bucketing-app-note.html#bucketing-app-note)*).
 * Neuron models are hardware-specialized, which means:
   *  Models traced with Neuron can no longer be executed in non-Neuron environment. 
-  *  Models compiled for INF1 (NeuronCore-v1) are not compatible with INF2 (NeuronCore-v2), and vice versa.
+  *  Models compiled for inf1 (NeuronCore-v1) are not compatible with inf2 (NeuronCore-v2), and vice versa.
 
 In this guide, we'll show you how to export your models to serialized models optimized for Neuron devices.
 
@@ -70,13 +70,13 @@ These configuration objects come ready made for a number of model architectures,
 
 To export a 🤗 Transformers model to Neuron, you'll first need to install some extra dependencies:
 
-**For INF2**
+**For Inf2**
 
 ```bash
 pip install optimum[neuronx]
 ```
 
-**For INF1**
+**For Inf1**
 
 ```bash
 pip install optimum[neuron]
@@ -88,8 +88,8 @@ The Optimum Neuron export can be used through Optimum command-line:
 optimum-cli export neuron --help
 
 usage: optimum-cli export neuron [-h] -m MODEL [--task TASK] [--atol ATOL] [--cache_dir CACHE_DIR] [--trust-remote-code]
-                                 [--auto_cast AUTO_CAST] [--auto_cast_type AUTO_CAST_TYPE]
-                                 [--disable_fast_relayout DISABLE_FAST_RELAYOUT] [--batch_size BATCH_SIZE]
+                                 [--auto_cast {none,matmul,all}] [--auto_cast_type {bf16,fp16,mixed,tf32}]
+                                 [--disable-fast-relayout] [--disable-fallback] [--dynamic-batch-size] [--batch_size BATCH_SIZE]
                                  [--sequence_length SEQUENCE_LENGTH] [--num_choices NUM_CHOICES]
                                  output
 
@@ -116,15 +116,19 @@ Optional arguments:
   --trust-remote-code   Allow to use custom code for the modeling hosted in the model repository. This option should only be set
                         for repositories you trust and in which you have read the code, as it will execute on your local machine
                         arbitrary code present in the model repository.
-  --auto_cast AUTO_CAST
-                        Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `None`,
+  --auto_cast {none,matmul,all}
+                        Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `"none"`,
                         `"matmul"` or `"all"`.
-  --auto_cast_type AUTO_CAST_TYPE
-                        The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"` or
-                        `"tf32"`.
-  --disable_fast_relayout DISABLE_FAST_RELAYOUT
+  --auto_cast_type {bf16,fp16,mixed,tf32}
+                        The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"`,
+                        `"mixed"` or `"tf32"`.
+  --disable-fast-relayout
                         Whether to disable fast relayout optimization which improves performance by using the matrix multiplier
-                        for tensor transpose.
+                        for tensor transpose. (inf1 only)
+  --disable-fallback    Whether to disable CPU partitioning to force operations to Neuron. Defaults to `False`, as without
+                        fallback, there could be some compilation failures or performance problems. (inf1 only)
+  --dynamic-batch-size  Enable dynamic batch size for neuron compiled model. If this option is enabled, the input batch size can
+                        be dynamic during the inference, but it comes with a potential tradeoff in terms of latency.
 
 Input shapes:
   --batch_size BATCH_SIZE
@@ -137,7 +141,7 @@ Input shapes:
 
 ```
 
-In the last section, you can see some input shape options to pass for exporting static neuron model, meaning that exact shape inputs should be used during the inference as given during compilation. If you are going to use variable-size inputs, you can pad your inputs to the shape used for compilation as a workaround.
+In the last section, you can see some input shape options to pass for exporting static neuron model, meaning that exact shape inputs should be used during the inference as given during compilation. If you are going to use variable-size inputs, you can pad your inputs to the shape used for compilation as a workaround. If you want the batch size to be dynamic, you can pass `--dynamic-batch-size` to enable dynamic batching, which means that you will be able to use inputs with difference batch size during inference, but it comes with a potential tradeoff in terms of latency.
 
 Exporting a checkpoint can be done as follows:
 
@@ -153,7 +157,7 @@ Validating Neuron model...
         - Validating Neuron Model output "last_hidden_state":
                 -[✓] (1, 16, 32) matches (1, 16, 32)
                 -[✓] all values close (atol: 0.0001)
-The Neuronx export succeeded and the exported model was saved at: test_bert/
+The Neuronx export succeeded and the exported model was saved at: distilbert_base_uncased_squad_neuron/
 ```
 
 This exports a neuron-compiled TorchScript module of the checkpoint defined by the `--model` argument.
@@ -161,47 +165,40 @@ This exports a neuron-compiled TorchScript module of the checkpoint defined by t
 As you can see, the task was automatically detected. This was possible because the model was on the Hub. For local models, providing the `--task` argument is needed or it will default to the model architecture without any task specific head:
 
 ```bash
-optimum-cli export neuron --model local_path --task question-answering --batch_size 1 --sequence_length 16 distilbert_base_uncased_squad_neuron/
+optimum-cli export neuron --model local_path --task question-answering --batch_size 1 --sequence_length 16 --dynamic-batch-size distilbert_base_uncased_squad_neuron/
 ```
 
 Note that providing the `--task` argument for a model on the Hub will disable the automatic task detection. The resulting `model.neuron` file, can then be loaded and run on Neuron devices. 
 
-## Exporting a model to Neuron using the export function
+## Exporting a model to Neuron using `NeuronModelForXXX` APIs
 
-You will also be able to export your models to Neuron format directly with the export function, and load it for inference. Here is an example:
+You will also be able to export your models to Neuron format with `optimum.neuron.NeuronModelForXXX` model classes. Here is an example:
 
 ```python
-import torch
-from pathlib import Path
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
-from optimum.exporters.neuron import export
-from optimum.exporters.neuron.model_configs import DistilBertNeuronConfig
+>>> from optimum.neuron import NeuronModelForSequenceClassification
 
-model_id = "distilbert-base-uncased-finetuned-sst-2-english"
-sequence = "Hello, my cats are cute."
-tokenizer = AutoTokenizer.from_pretrained(model_id)
-model = AutoModelForSequenceClassification.from_pretrained(model_id)
-neuron_config = DistilBertNeuronConfig(
-    config=model.config, task="text-classification", batch_size=1, sequence_length=18,
-)
-output_path = Path("test_bert/model.neuron")
+>>> input_shapes = {"batch_size": 1, "sequence_length": 64}  # mandatory shapes
+>>> model = NeuronModelForSequenceClassification.from_pretrained(
+...   "distilbert-base-uncased-finetuned-sst-2-english", export=True, **input_shapes
+... ) 
 
-# Export to Neuron model
-export(
-    model=model,
-    config=neuron_config,
-    output=output_path,
-    auto_cast="all",
-    auto_cast_type="bf16",
-)
+# Save the model
+>>> model.save_pretrained("./distilbert-base-uncased-finetuned-sst-2-english_neuron/")
+```
 
-# Reload it for inference
-neuron_model = torch.jit.load(output_path)
-example = tokenizer.encode_plus(
-    sequence, max_length=neuron_config.sequence_length, padding="max_length", return_tensors="pt"
-)
+And the exported model can be used for inference directly with the `NeuronModelForXXX` class:
 
-logits = neuron_model(*tuple(example.values()))
+```python
+>>> from transformers import AutoTokenizer
+>>> from optimum.neuron import NeuronModelForSequenceClassification
+
+>>> tokenizer = AutoTokenizer.from_pretrained("./distilbert-base-uncased-finetuned-sst-2-english_neuron/")
+>>> model = NeuronModelForSequenceClassification.from_pretrained("./distilbert-base-uncased-finetuned-sst-2-english_neuron/")
+
+>>> inputs = tokenizer("Hamilton is considered to be the best musical of human history.", return_tensors="pt")
+>>> logits = model(**inputs).logits
+>>> print(model.config.id2label[logits.argmax().item()])
+'POSITIVE'
 ```
 
 

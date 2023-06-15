@@ -14,20 +14,14 @@ except Exception as error:
 
 INSTALL_REQUIRES = [
     "transformers >= 4.28.0",
+    "accelerate >= 0.16",
     "optimum",
     "huggingface_hub >= 0.14.0",
     "numpy>=1.18.5, <=1.21.6",
     "protobuf<4",
 ]
 
-TESTS_REQUIRE = [
-    "pytest",
-    "psutil",
-    "parameterized",
-    "GitPython",
-    "sentencepiece",
-    "datasets",
-]
+TESTS_REQUIRE = ["pytest", "psutil", "parameterized", "GitPython", "sentencepiece", "datasets", "sacremoses"]
 
 QUALITY_REQUIRES = [
     "black",

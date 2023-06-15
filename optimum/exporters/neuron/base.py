@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 import torch
 
 from ...exporters.base import ExportConfig
+from ...neuron.utils import is_neuron_available
 from ...utils import logging
 
 
@@ -115,6 +116,10 @@ class NeuronConfig(ExportConfig, ABC):
         self.task = task
         self._axes: Dict[str, int] = {}
         self.dynamic_batch_size = dynamic_batch_size
+
+        if self.dynamic_batch_size is True and is_neuron_available():
+            logger.info("Overwriting batch size to 1 for neuron dynamic batch size support.")
+            batch_size = 1
 
         # To avoid using **kwargs.
         axes_values = {

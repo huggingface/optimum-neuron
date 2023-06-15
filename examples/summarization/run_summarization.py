@@ -40,7 +40,6 @@ from transformers import (
     MBart50TokenizerFast,
     MBartTokenizer,
     MBartTokenizerFast,
-    Seq2SeqTrainingArguments,
     set_seed,
 )
 from transformers.trainer_utils import get_last_checkpoint
@@ -48,6 +47,7 @@ from transformers.utils import check_min_version, is_offline_mode, send_example_
 from transformers.utils.versions import require_version
 
 from optimum.neuron import Seq2SeqTrainiumTrainer as Seq2SeqTrainer
+from optimum.neuron import Seq2SeqTrainiumTrainingArguments as Seq2SeqTrainingArguments
 from optimum.neuron import TrainiumHfArgumentParser as HfArgumentParser
 
 
