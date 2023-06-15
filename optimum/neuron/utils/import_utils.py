@@ -34,3 +34,7 @@ def is_torch_xla_available() -> bool:
         except Exception:
             import_succeeded = False
     return found_torch_xla and import_succeeded
+
+
+def is_neuronx_distributed_available() -> bool:
+    return importlib.util.find_spec("neuronx_distributed") is not None
