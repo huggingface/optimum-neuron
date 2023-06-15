@@ -34,11 +34,11 @@ from accelerate.utils import (
     parse_choice_from_env,
     parse_flag_from_env,
 )
-from accelerate.utils.dataclasses import SageMakerDistributedType
+from accelerate.utils.dataclasses import FullyShardedDataParallelPlugin, SageMakerDistributedType
 
 from ..utils import is_torch_xla_available
-
 from .utils import NeuronDistributedType
+from .utils.dataclasses import NeuronFullyShardedDataParallelPlugin
 
 
 if is_torch_xla_available():
@@ -183,7 +183,13 @@ class NeuronPartialState(PartialState):
                     self.device = torch.device("cpu") if cpu else self.default_device
 
         self.fork_launched = parse_flag_from_env("FORK_LAUNCHED", 0)
-    pass
+
+
+    def wait_for_everyone(self):
+        if self.distributed_type is NeuronDistributedType.XLA_FSDP:
+            xm.rendezvous("accelerate.utils.wait_for_everyone")
+        else:
+            super().wait_for_everyone()
 
 class NeuronAcceleratorState(AcceleratorState):
     """
@@ -257,7 +263,10 @@ class NeuronAcceleratorState(AcceleratorState):
                     if self._mixed_precision != "no":
                         # TODO: do we need that?
                         fsdp_plugin.set_mixed_precision(self._mixed_precision)
+                    if isinstance(fsdp_plugin, FullyShardedDataParallelPlugin) and not isinstance(fsdp_plugin, NeuronFullyShardedDataParallelPlugin):
+                        fsdp_plugin.__class__ = NeuronFullyShardedDataParallelPlugin
                     self.fsdp_plugin = fsdp_plugin
+                    print("FSDP PLUGIN", self.fsdp_plugin)
             elif os.environ.get("ACCELERATE_USE_DEEPSPEED", "false") == "true" and not cpu:
                 self.deepspeed_plugin = deepspeed_plugin
             elif self.distributed_type == DistributedType.MULTI_GPU:

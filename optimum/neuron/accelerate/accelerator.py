@@ -15,16 +15,17 @@
 """Custom Accelerator class for Neuron."""
 
 import inspect
+import re
+import shutil
 import os
 from typing import TYPE_CHECKING, List, Optional, Union
-from optimum.neuron.accelerate.state import NeuronAcceleratorState
-from optimum.neuron.accelerate.utils.dataclasses import NeuronDistributedType
 
 import torch
-import accelerate
+
 from accelerate import Accelerator
 from accelerate.optimizer import AcceleratedOptimizer
 from accelerate.scheduler import AcceleratedScheduler
+from accelerate.checkpointing import save_accelerator_state, save_custom_state
 # from accelerate.state import AcceleratorState
 from accelerate.tracking import GeneralTracker
 from accelerate.utils import (
@@ -47,11 +48,12 @@ from accelerate.utils import (
 )
 
 from ...utils import logging
-from ..utils import is_neuronx_available
+from ..utils import is_neuronx_available, is_torch_xla_available
 from ..utils.misc import args_and_kwargs_to_kwargs_only, patch_within_function
 from .state import NeuronAcceleratorState
 from .scheduler import NeuronAcceleratedScheduler
 from .optimizer import NeuronAcceleratedOptimizer
+from .utils.dataclasses import NeuronFullyShardedDataParallelPlugin, NeuronDistributedType
 
 
 if TYPE_CHECKING:
@@ -60,7 +62,8 @@ if TYPE_CHECKING:
     except ImportError:
         from torch.optim.lr_scheduler import _LRScheduler as LRScheduler
 
-if is_neuronx_available():
+if is_torch_xla_available():
+    import torch_xla.core.xla_model as xm
     import torch_xla.distributed.xla_multiprocessing as xmp
 
 if is_fp8_available():
@@ -71,6 +74,7 @@ if is_fp8_available():
 logger = logging.get_logger(__name__)
 
 
+# TODO: should we do a XLAFSDPNeuronAccelerator instead?
 class NeuronAccelerator(Accelerator):
 
     @patch_within_function(("accelerate.accelerator.AcceleratorState", NeuronAcceleratorState))
@@ -92,11 +96,21 @@ class NeuronAccelerator(Accelerator):
         full_kwargs["gradient_accumulation_plugin"] = gradient_accumulation_plugin
         full_kwargs["gradient_accumulation_steps"] = gradient_accumulation_steps
 
+        fsdp_plugin = full_kwargs["fsdp_plugin"]
+        if os.environ.get("ACCELERATE_USE_FSDP", "false") == "true":
+            if fsdp_plugin is None:
+                fsdp_plugin = NeuronFullyShardedDataParallelPlugin()
+
         super().__init__(**full_kwargs)
+
+        # TODO: not needed in theory. 
+        # if isinstance(fsdp_plugin, FullyShardedDataParallelPlugin) and not isinstance(fsdp_plugin, NeuronFullyShardedDataParallelPlugin):
+        #     fsdp_plugin.__class__ = NeuronFullyShardedDataParallelPlugin
 
         if num_steps != 1:
             self.gradient_accumulation_steps = num_steps
-        print("DistributedType", self.distributed_type)
+
+        print("Distributed Type", self.distributed_type)
 
     @patch_within_function(("accelerate.accelerator.AcceleratedOptimizer", NeuronAcceleratedOptimizer))
     def prepare_optimizer(self, optimizer: torch.optim.Optimizer, device_placement=None):
@@ -195,5 +209,92 @@ class NeuronAccelerator(Accelerator):
         else:
          # Providing **kwargs causes "Unsupported XLA type 10"
          loss.backward(**kwargs)
+
+    def clip_grad_norm_for_xla_fsdp(self, parameters, max_norm, norm_type=2):
+        self.unscale_gradients()
+        parameters = [p for p in parameters]
+        for model in self._models:
+            if parameters == [p for p in model.parameters()]:
+                return model.clip_grad_norm_(max_norm, norm_type)
+
+    def clip_grad_norm_(self, parameters, max_norm, norm_type=2):
+        if self.distributed_type is NeuronDistributedType.XLA_FSDP:
+            return self.clip_grad_norm_for_xla_fsdp(parameters, max_norm, norm_type=norm_type)
+        return super().clip_grad_norm_(self, parameters, max_norm, norm_type=norm_type)
         
+    def clip_grad_value_(self, parameters, clip_value):
+        if self.distributed_type is NeuronDistributedType.XLA_FSDP:
+            raise Exception("XLA FSDP  does not support `clip_grad_value_`. Use `clip_grad_norm_` instead.")
+        return super().clip_grad_value_(parameters, clip_value)
+
+    
+    def save_state_for_xla_fsdp(self, output_dir: Optional[str] = None, **save_model_func_kwargs):
+        if self.project_configuration.automatic_checkpoint_naming:
+            output_dir = os.path.join(self.project_dir, "checkpoints")
+
+        if output_dir is None:
+            raise ValueError(f"An `output_dir` must be specified.")
+
+        os.makedirs(output_dir, exist_ok=True)
+        if self.project_configuration.automatic_checkpoint_naming:
+            folders = [os.path.join(output_dir, folder) for folder in os.listdir(output_dir)]
+            if self.project_configuration.total_limit is not None and (
+                len(folders) + 1 > self.project_configuration.total_limit
+            ):
+
+                def _inner(folder):
+                    return list(map(int, re.findall(r"[\/]?([0-9]+)(?=[^\/]*$)", folder)))[0]
+
+                folders.sort(key=_inner)
+                logger.warning(
+                    f"Deleting {len(folders) + 1 - self.project_configuration.total_limit} checkpoints to make room for new checkpoint."
+                )
+                for folder in folders[: len(folders) + 1 - self.project_configuration.total_limit]:
+                    shutil.rmtree(folder)
+            output_dir = os.path.join(output_dir, f"checkpoint_{self.save_iteration}")
+            if os.path.exists(output_dir):
+                raise ValueError(
+                    f"Checkpoint directory {output_dir} ({self.save_iteration}) already exists. Please manually override `self.save_iteration` with what iteration to start with."
+                )
+        os.makedirs(output_dir, exist_ok=True)
+        logger.info(f"Saving current state to {output_dir}")
+
+        # Finish running the previous step before checkpointing
+        xm.mark_step()
+
+        # Save the models taking care of FSDP and DeepSpeed nuances
+        weights = []
+        for i, model in enumerate(self._models):
+            logger.info("Saving FSDP model")
+            self.state.fsdp_plugin.save_model(self, model, output_dir, i)
+            logger.info(f"FSDP Model saved to output dir {output_dir}")
+
+        # Save the optimizers taking care of FSDP and DeepSpeed nuances
+        optimizers = []
+        for i, opt in enumerate(self._optimizers):
+            logger.info("Saving FSDP Optimizer")
+            self.state.fsdp_plugin.save_optimizer(self, opt, self._models[i], output_dir, i)
+            logger.info(f"FSDP Optimizer saved to output dir {output_dir}")
+
+        # Save the lr schedulers taking care of DeepSpeed nuances
+        schedulers = self._schedulers
+
+        # Call model loading hooks that might have been registered with
+        # accelerator.register_model_state_hook
+        for hook in self._save_model_state_pre_hook.values():
+            hook(self._models, weights, output_dir)
+
+        save_location = save_accelerator_state(
+            output_dir, weights, optimizers, schedulers, self.state.process_index, self.scaler
+        )
+        for i, obj in enumerate(self._custom_objects):
+            save_custom_state(obj, output_dir, i)
+        self.project_configuration.iteration += 1
+        return save_location
+
+
+    def save_state(self, output_dir: Optional[str] = None, **save_model_func_kwargs):
+        if self.distributed_type is NeuronDistributedType.XLA_FSDP:
+            return self.save_state_for_xla_fsdp(output_dir=output_dir, **save_model_func_kwargs)
+        return super().save_state(output_dir=output_dir, **save_model_func_kwargs)
 

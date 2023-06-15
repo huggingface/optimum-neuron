@@ -84,7 +84,7 @@ class TrainiumTrainingArgumentsMixin:
         logger.info("PyTorch: setting up devices")
         NeuronAcceleratorState._reset_state()
         NeuronPartialState._reset_state()
-        if not is_sagemaker_mp_enabled() and not is_accelerate_available(check_partial_state=True):
+        if not is_sagemaker_mp_enabled() and not is_accelerate_available(min_version="0.20.0"):
             raise ImportError(
                 "Using the `Trainer` with `PyTorch` requires `accelerate>=0.19.0`: Please run `pip install transformers[torch]` or `pip install accelerate -U`"
             )

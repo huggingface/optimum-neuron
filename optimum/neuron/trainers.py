@@ -208,7 +208,7 @@ class AugmentTrainerForTrainiumMixin:
 
     def create_accelerator_and_postprocess(self):
         # create accelerator object
-        self.accelerator = TrainiumAccelerator(
+        self.accelerator = NeuronAccelerator(
             deepspeed_plugin=self.args.deepspeed_plugin,
             gradient_accumulation_steps=self.args.gradient_accumulation_steps,
         )
