@@ -17,8 +17,6 @@
 from accelerate.optimizer import AcceleratedOptimizer
 from accelerate.utils import DistributedType
 
-from optimum.neuron import accelerate
-
 from ..utils import is_torch_xla_available
 from .utils.dataclasses import NeuronDistributedType
 
