@@ -16,6 +16,7 @@
 
 from accelerate.optimizer import AcceleratedOptimizer
 from accelerate.utils import DistributedType
+
 from optimum.neuron import accelerate
 
 from ..utils import is_torch_xla_available
@@ -23,12 +24,13 @@ from .utils.dataclasses import NeuronDistributedType
 
 
 if is_torch_xla_available():
-    import torch_xla.core.xla_model as xm
     import accelerate
+    import torch_xla.core.xla_model as xm
+
     accelerate.optimizer.xm = xm
 
-class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
 
+class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
     # TODO: might be needed to override this soon.
     def load_state_dict(self, state_dict):
         return super().load_state_dict(state_dict)

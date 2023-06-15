@@ -15,45 +15,28 @@
 """Custom Accelerator class for Neuron."""
 
 import inspect
+import os
 import re
 import shutil
-import os
-from typing import TYPE_CHECKING, List, Optional, Union
+from typing import TYPE_CHECKING, Optional
 
 import torch
-
 from accelerate import Accelerator
-from accelerate.optimizer import AcceleratedOptimizer
-from accelerate.scheduler import AcceleratedScheduler
 from accelerate.checkpointing import save_accelerator_state, save_custom_state
+
 # from accelerate.state import AcceleratorState
-from accelerate.tracking import GeneralTracker
 from accelerate.utils import (
-    DeepSpeedPlugin,
     DistributedType,
-    DynamoBackend,
-    FullyShardedDataParallelPlugin,
-    GradientAccumulationPlugin,
-    KwargsHandler,
-    LoggerType,
-    MegatronLMPlugin,
-    PrecisionType,
-    ProjectConfiguration,
-    RNGType,
-    convert_model,
-    convert_outputs_to_fp32,
-    has_transformer_engine_layers,
     is_fp8_available,
-    is_torch_version,
 )
 
 from ...utils import logging
-from ..utils import is_neuronx_available, is_torch_xla_available
+from ..utils import is_torch_xla_available
 from ..utils.misc import args_and_kwargs_to_kwargs_only, patch_within_function
-from .state import NeuronAcceleratorState
-from .scheduler import NeuronAcceleratedScheduler
 from .optimizer import NeuronAcceleratedOptimizer
-from .utils.dataclasses import NeuronFullyShardedDataParallelPlugin, NeuronDistributedType
+from .scheduler import NeuronAcceleratedScheduler
+from .state import NeuronAcceleratorState
+from .utils.dataclasses import NeuronDistributedType, NeuronFullyShardedDataParallelPlugin
 
 
 if TYPE_CHECKING:
@@ -64,11 +47,9 @@ if TYPE_CHECKING:
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
-    import torch_xla.distributed.xla_multiprocessing as xmp
 
 if is_fp8_available():
-    import transformer_engine.common.recipe as te_recipe
-    from transformer_engine.pytorch import fp8_autocast
+    pass
 
 
 logger = logging.get_logger(__name__)
@@ -76,10 +57,11 @@ logger = logging.get_logger(__name__)
 
 # TODO: should we do a XLAFSDPNeuronAccelerator instead?
 class NeuronAccelerator(Accelerator):
-
     @patch_within_function(("accelerate.accelerator.AcceleratorState", NeuronAcceleratorState))
     def __init__(self, *args, **kwargs):
-        full_kwargs = args_and_kwargs_to_kwargs_only(super().__init__, args=args, kwargs=kwargs, include_default_values=True)
+        full_kwargs = args_and_kwargs_to_kwargs_only(
+            super().__init__, args=args, kwargs=kwargs, include_default_values=True
+        )
 
         # There is a check for gradient_accumulation_steps to be equal to 1 when
         # DistributedType == DistributedType.TPU, so we change that for initialization
@@ -103,7 +85,7 @@ class NeuronAccelerator(Accelerator):
 
         super().__init__(**full_kwargs)
 
-        # TODO: not needed in theory. 
+        # TODO: not needed in theory.
         # if isinstance(fsdp_plugin, FullyShardedDataParallelPlugin) and not isinstance(fsdp_plugin, NeuronFullyShardedDataParallelPlugin):
         #     fsdp_plugin.__class__ = NeuronFullyShardedDataParallelPlugin
 
@@ -161,7 +143,7 @@ class NeuronAccelerator(Accelerator):
             from torch_xla.distributed.fsdp import XlaFullyShardedDataParallel as FSDP
         except ImportError:
             raise ImportError("Missing XLA FSDP related module; please make sure to use torch-xla >= 2.0.")
-        
+
         # Check if the model is already a FSDP model due to `Manual Wrapping` and if so,
         # don't wrap it again
         # TODO: validate which arguments work for XLA FSDP.
@@ -192,7 +174,6 @@ class NeuronAccelerator(Accelerator):
             return self.prepare_model_for_xla_fsdp(model, device_placement=device_placement)
         return super().prepare_model(model, device_placement=device_placement)
 
-
     def backward_for_xla_fsdp(self, loss, **kwargs):
         if self.scaler is not None:
             self.scaler.scale(loss).backward(**kwargs)
@@ -207,33 +188,32 @@ class NeuronAccelerator(Accelerator):
         elif self.scaler is not None:
             self.scaler.scale(loss).backward(**kwargs)
         else:
-         # Providing **kwargs causes "Unsupported XLA type 10"
-         loss.backward(**kwargs)
+            # Providing **kwargs causes "Unsupported XLA type 10"
+            loss.backward(**kwargs)
 
     def clip_grad_norm_for_xla_fsdp(self, parameters, max_norm, norm_type=2):
         self.unscale_gradients()
-        parameters = [p for p in parameters]
+        parameters = list(parameters)
         for model in self._models:
-            if parameters == [p for p in model.parameters()]:
+            if parameters == list(model.parameters()):
                 return model.clip_grad_norm_(max_norm, norm_type)
 
     def clip_grad_norm_(self, parameters, max_norm, norm_type=2):
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:
             return self.clip_grad_norm_for_xla_fsdp(parameters, max_norm, norm_type=norm_type)
         return super().clip_grad_norm_(self, parameters, max_norm, norm_type=norm_type)
-        
+
     def clip_grad_value_(self, parameters, clip_value):
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:
             raise Exception("XLA FSDP  does not support `clip_grad_value_`. Use `clip_grad_norm_` instead.")
         return super().clip_grad_value_(parameters, clip_value)
 
-    
     def save_state_for_xla_fsdp(self, output_dir: Optional[str] = None, **save_model_func_kwargs):
         if self.project_configuration.automatic_checkpoint_naming:
             output_dir = os.path.join(self.project_dir, "checkpoints")
 
         if output_dir is None:
-            raise ValueError(f"An `output_dir` must be specified.")
+            raise ValueError("An `output_dir` must be specified.")
 
         os.makedirs(output_dir, exist_ok=True)
         if self.project_configuration.automatic_checkpoint_naming:
@@ -292,9 +272,7 @@ class NeuronAccelerator(Accelerator):
         self.project_configuration.iteration += 1
         return save_location
 
-
     def save_state(self, output_dir: Optional[str] = None, **save_model_func_kwargs):
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:
             return self.save_state_for_xla_fsdp(output_dir=output_dir, **save_model_func_kwargs)
         return super().save_state(output_dir=output_dir, **save_model_func_kwargs)
-

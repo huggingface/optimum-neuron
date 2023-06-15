@@ -14,17 +14,16 @@
 # limitations under the License.
 """ """
 
+import enum
 import os
 from dataclasses import dataclass
-import enum
 
 import torch
-
-from accelerate.utils.dataclasses import FullyShardedDataParallelPlugin
 from accelerate.utils.constants import MODEL_NAME, OPTIMIZER_NAME
-
+from accelerate.utils.dataclasses import FullyShardedDataParallelPlugin
 
 from ...utils import is_torch_xla_available
+
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
@@ -63,7 +62,6 @@ class NeuronFullyShardedDataParallelPlugin(FullyShardedDataParallelPlugin):
     # TODO: redefine the post init to do checks on which option is supported.
 
     def save_model(self, accelerator, model, output_dir, model_index=0):
-        from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
         from torch.distributed.fsdp.fully_sharded_data_parallel import StateDictType
 
         state_dict = {"model": model.state_dict(), "shard_metadata": model.get_shard_metadata()}
@@ -93,6 +91,7 @@ class NeuronFullyShardedDataParallelPlugin(FullyShardedDataParallelPlugin):
 
     def load_model(self, accelerator, model, input_dir, model_index=0):
         from torch.distributed.fsdp.fully_sharded_data_parallel import StateDictType
+
         accelerator.wait_for_everyone()
         if self.state_dict_type == StateDictType.FULL_STATE_DICT:
             raise ValueError("Only sharded model weights can be loaded with XLA FSDP.")

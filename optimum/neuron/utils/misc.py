@@ -14,22 +14,27 @@
 # limitations under the License.
 """Utilities of various sorts."""
 
-import inspect
-import importlib
 import functools
-from typing import Callable, Tuple, Any, Dict, Optional, List, Union
+import importlib
+import inspect
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 
-def args_and_kwargs_to_kwargs_only(f: Callable, args: Optional[Tuple[Any, ...]] = None, kwargs: Optional[Dict[str, Any]] = None, include_default_values: bool = False) -> Dict[str, Any]:
+def args_and_kwargs_to_kwargs_only(
+    f: Callable,
+    args: Optional[Tuple[Any, ...]] = None,
+    kwargs: Optional[Dict[str, Any]] = None,
+    include_default_values: bool = False,
+) -> Dict[str, Any]:
     """
     TODO
     """
     if args is None:
-        args = tuple()
+        args = ()
     if kwargs is None:
         kwargs = {}
     sig = inspect.signature(f)
-    param_names = [p for p in sig.parameters]
+    param_names = list(sig.parameters)
     result = dict(zip(param_names, args))
     result.update(kwargs)
     if include_default_values:
@@ -57,14 +62,12 @@ class Patcher:
 
 
 def patch_within_function(patching_specs: Union[List[Tuple[str, Any]], Tuple[str, Any]]):
-
     if isinstance(patching_specs, tuple) and len(patching_specs) == 2:
         patching_specs = [patching_specs]
 
     patcher = Patcher(patching_specs)
 
     def decorator(func):
-
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             with patcher:

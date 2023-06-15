@@ -28,7 +28,6 @@ import numpy as np
 import torch
 from packaging import version
 from torch import nn
-from torch.utils.data import DataLoader, Dataset
 from transformers import GenerationMixin, PreTrainedModel, Seq2SeqTrainer, Trainer, TrainingArguments
 from transformers.dependency_versions_check import dep_version_check
 from transformers.integrations import is_fairscale_available
@@ -62,7 +61,6 @@ from .utils import is_torch_xla_available
 from .utils.cache_utils import get_neuron_cache_path
 from .utils.training_utils import (
     TRANSFORMERS_MIN_VERSION_USE_ACCELERATE,
-    FirstAndLastDataset,
     Patcher,
     is_model_officially_supported,
     is_precompilation,

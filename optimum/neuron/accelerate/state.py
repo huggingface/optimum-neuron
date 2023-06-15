@@ -17,19 +17,15 @@
 import os
 
 import torch
-
 from accelerate.state import AcceleratorState, PartialState, ThreadLocalSharedDict
 from accelerate.utils import (
-    DynamoBackend,
     DistributedType,
-    GradientAccumulationPlugin,
+    DynamoBackend,
     get_ccl_version,
     get_int_from_env,
     is_ccl_available,
     is_deepspeed_available,
     is_fp8_available,
-    is_mps_available,
-    is_tpu_available,
     is_xpu_available,
     parse_choice_from_env,
     parse_flag_from_env,
@@ -46,6 +42,7 @@ if is_torch_xla_available():
 
 
 SharedDict = ThreadLocalSharedDict
+
 
 class NeuronPartialState(PartialState):
     def __init__(self, cpu: bool = False, **kwargs):
@@ -184,12 +181,12 @@ class NeuronPartialState(PartialState):
 
         self.fork_launched = parse_flag_from_env("FORK_LAUNCHED", 0)
 
-
     def wait_for_everyone(self):
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:
             xm.rendezvous("accelerate.utils.wait_for_everyone")
         else:
             super().wait_for_everyone()
+
 
 class NeuronAcceleratorState(AcceleratorState):
     """
@@ -263,7 +260,9 @@ class NeuronAcceleratorState(AcceleratorState):
                     if self._mixed_precision != "no":
                         # TODO: do we need that?
                         fsdp_plugin.set_mixed_precision(self._mixed_precision)
-                    if isinstance(fsdp_plugin, FullyShardedDataParallelPlugin) and not isinstance(fsdp_plugin, NeuronFullyShardedDataParallelPlugin):
+                    if isinstance(fsdp_plugin, FullyShardedDataParallelPlugin) and not isinstance(
+                        fsdp_plugin, NeuronFullyShardedDataParallelPlugin
+                    ):
                         fsdp_plugin.__class__ = NeuronFullyShardedDataParallelPlugin
                     self.fsdp_plugin = fsdp_plugin
                     print("FSDP PLUGIN", self.fsdp_plugin)

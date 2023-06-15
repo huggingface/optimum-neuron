@@ -30,14 +30,13 @@ from transformers.utils import (
     is_accelerate_available,
     is_sagemaker_dp_enabled,
     is_sagemaker_mp_enabled,
-    is_torch_tpu_available,
     requires_backends,
 )
 
 from ..utils import check_if_transformers_greater, logging
-from .utils.training_utils import TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP
+from .accelerate import NeuronAcceleratorState, NeuronPartialState
 from .utils import is_torch_xla_available
-from .accelerate import NeuronPartialState, NeuronAcceleratorState
+from .utils.training_utils import TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP
 
 
 if is_sagemaker_mp_enabled():

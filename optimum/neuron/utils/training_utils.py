@@ -16,9 +16,8 @@
 
 import contextlib
 import functools
-import importlib
 import os
-from typing import TYPE_CHECKING, Callable, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, List, Optional, Union
 
 import torch
 import transformers
@@ -221,7 +220,6 @@ def patched_finfo(dtype):
     if dtype is torch.float32:
         return orig_finfo(torch.bfloat16)
     return orig_finfo(dtype)
-
 
 
 def patch_forward(forward_fn):
