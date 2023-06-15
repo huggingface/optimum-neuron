@@ -21,10 +21,10 @@ from typing import TYPE_CHECKING, List, Optional, Union
 
 import torch
 import transformers
-from transformers import GenerationMixin
 from accelerate import skip_first_batches as accelerate_skip_first_batches
 from torch.utils._pytree import tree_map
 from torch.utils.data import DataLoader, Dataset, IterableDataset
+from transformers import GenerationMixin
 from transformers.models.auto.modeling_auto import (
     MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING_NAMES,
     MODEL_FOR_BACKBONE_MAPPING_NAMES,
@@ -49,8 +49,7 @@ from transformers.utils.logging import set_verbosity as set_verbosity_transforme
 
 from ...utils.logging import set_verbosity as set_verbosity_optimum
 from ..generation import NeuronGenerationMixin
-from . import is_torch_xla_available
-from . import Patcher
+from . import Patcher, is_torch_xla_available
 
 
 if TYPE_CHECKING:

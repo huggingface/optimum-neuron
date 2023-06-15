@@ -45,10 +45,10 @@ from .utils.cache_utils import get_neuron_cache_path
 from .utils.training_utils import (
     TRANSFORMERS_MIN_VERSION_USE_ACCELERATE,
     is_precompilation,
+    patch_generation_mixin_to_neuron_generation_mixin,
     patch_model,
     prepare_environment_for_neuron,
     skip_first_batches,
-    patch_generation_mixin_to_neuron_generation_mixin,
 )
 
 
@@ -87,7 +87,6 @@ if os.environ.get("TORCHELASTIC_RUN_ID"):
         torch.distributed.init_process_group(backend="xla")
         if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
             raise AssertionError("Failed to initialize torch.distributed process group using XLA backend.")
-
 
 
 class AugmentTrainerForTrainiumMixin:

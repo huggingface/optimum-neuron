@@ -16,7 +16,8 @@
 
 import functools
 import importlib
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, List, Optional, Tuple, Union
+
 
 class Patcher:
     def __init__(self, patching_specs: Optional[List[Tuple[str, Any]]] = None):

@@ -14,10 +14,8 @@
 # limitations under the License.
 """Utilities of various sorts."""
 
-import functools
-import importlib
 import inspect
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Optional, Tuple
 
 
 def args_and_kwargs_to_kwargs_only(
@@ -42,5 +40,3 @@ def args_and_kwargs_to_kwargs_only(
             if param.default != inspect.Parameter.empty:
                 result[param.name] = param.default
     return result
-
-
