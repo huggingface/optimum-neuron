@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, List, Optional, Union
 
 import torch
 import transformers
+from transformers import GenerationMixin
 from accelerate import skip_first_batches as accelerate_skip_first_batches
 from torch.utils._pytree import tree_map
 from torch.utils.data import DataLoader, Dataset, IterableDataset
@@ -47,8 +48,9 @@ from transformers.models.auto.modeling_auto import (
 from transformers.utils.logging import set_verbosity as set_verbosity_transformers
 
 from ...utils.logging import set_verbosity as set_verbosity_optimum
+from ..generation import NeuronGenerationMixin
 from . import is_torch_xla_available
-from .misc import Patcher
+from . import Patcher
 
 
 if TYPE_CHECKING:
@@ -223,7 +225,6 @@ def patched_finfo(dtype):
 
 
 def patch_forward(forward_fn):
-    # TODO: refactor this with misc utilities.
     patcher = Patcher(patching_specs=[("torch.finfo", patched_finfo)])
 
     @functools.wraps(forward_fn)
@@ -242,6 +243,30 @@ def patch_model(model: "PreTrainedModel") -> "PreTrainedModel":
     model.no_sync = lambda: contextlib.nullcontext()
     model.forward = patch_forward(model.forward).__get__(model)
     return model
+
+
+def patch_generation_mixin_to_neuron_generation_mixin(model: "PreTrainedModel"):
+    """
+    Changes the vanilla `GenerationMixin` class from Transformers to `NeuronGenerationMixin` in the model's
+    inheritance. This allows to make the model Neuron-compatible for generation without much hassle.
+    """
+    to_visit = [model.__class__]
+    should_stop = False
+    while to_visit and not should_stop:
+        cls = to_visit.pop(0)
+        bases = cls.__bases__
+        new_bases = []
+        for base in bases:
+            to_visit.append(base)
+            if base == GenerationMixin:
+                new_bases.append(NeuronGenerationMixin)
+                should_stop = True
+            elif base == NeuronGenerationMixin:
+                should_stop = True
+                new_bases.append(base)
+            else:
+                new_bases.append(base)
+        cls.__bases__ = tuple(new_bases)
 
 
 def prepare_environment_for_neuron():

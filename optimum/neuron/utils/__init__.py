@@ -18,7 +18,6 @@ from .constant import NEURON_FILE_NAME
 from .import_utils import is_neuron_available, is_neuronx_available, is_torch_xla_available
 from .training_utils import (
     FirstAndLastDataset,
-    Patcher,
     is_model_officially_supported,
     is_precompilation,
     patch_forward,
@@ -27,3 +26,4 @@ from .training_utils import (
     patched_finfo,
     prepare_environment_for_neuron,
 )
+from .patching import Patcher, patch_within_function

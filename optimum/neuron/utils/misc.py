@@ -44,35 +44,3 @@ def args_and_kwargs_to_kwargs_only(
     return result
 
 
-class Patcher:
-    def __init__(self, patching_specs: Optional[List[Tuple[str, Any]]] = None):
-        self.patching_specs = []
-        for orig, patch in patching_specs or []:
-            module_qualified_name, attribute_name = orig.rsplit(".", maxsplit=1)
-            module = importlib.import_module(module_qualified_name)
-            self.patching_specs.append((module, attribute_name, getattr(module, attribute_name), patch))
-
-    def __enter__(self):
-        for module, attribute_name, _, patch in self.patching_specs:
-            setattr(module, attribute_name, patch)
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        for module, attribute_name, _, patch in self.patching_specs:
-            setattr(module, attribute_name, patch)
-
-
-def patch_within_function(patching_specs: Union[List[Tuple[str, Any]], Tuple[str, Any]]):
-    if isinstance(patching_specs, tuple) and len(patching_specs) == 2:
-        patching_specs = [patching_specs]
-
-    patcher = Patcher(patching_specs)
-
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            with patcher:
-                return func(*args, **kwargs)
-
-        return wrapper
-
-    return decorator

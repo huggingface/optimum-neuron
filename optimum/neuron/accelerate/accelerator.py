@@ -31,8 +31,8 @@ from accelerate.utils import (
 )
 
 from ...utils import logging
-from ..utils import is_torch_xla_available
-from ..utils.misc import args_and_kwargs_to_kwargs_only, patch_within_function
+from ..utils import is_torch_xla_available, patch_within_function
+from ..utils.misc import args_and_kwargs_to_kwargs_only
 from .optimizer import NeuronAcceleratedOptimizer
 from .scheduler import NeuronAcceleratedScheduler
 from .state import NeuronAcceleratorState

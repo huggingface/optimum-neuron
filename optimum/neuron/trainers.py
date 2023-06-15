@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import torch
 from packaging import version
-from transformers import GenerationMixin, PreTrainedModel, Seq2SeqTrainer, Trainer, TrainingArguments
+from transformers import PreTrainedModel, Seq2SeqTrainer, Trainer, TrainingArguments
 from transformers.dependency_versions_check import dep_version_check
 from transformers.integrations import is_fairscale_available
 from transformers.trainer import (
@@ -34,32 +34,23 @@ from transformers.trainer import (
     TRAINER_STATE_NAME,
 )
 from transformers.trainer_pt_utils import reissue_pt_warnings
-from transformers.trainer_utils import (
-    PREFIX_CHECKPOINT_DIR,
-)
-from transformers.utils import (
-    is_apex_available,
-    is_sagemaker_mp_enabled,
-)
+from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
+from transformers.utils import is_sagemaker_mp_enabled
 
 from ..utils import check_if_transformers_greater, logging
 from .accelerate import NeuronAccelerator
-from .generation import NeuronGenerationMixin
 from .trainer_callback import NeuronCacheCallaback
-from .utils import is_torch_xla_available
+from .utils import is_torch_xla_available, patch_within_function
 from .utils.cache_utils import get_neuron_cache_path
-from .utils.misc import patch_within_function
 from .utils.training_utils import (
     TRANSFORMERS_MIN_VERSION_USE_ACCELERATE,
     is_precompilation,
     patch_model,
     prepare_environment_for_neuron,
     skip_first_batches,
+    patch_generation_mixin_to_neuron_generation_mixin,
 )
 
-
-if is_apex_available():
-    pass
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
@@ -87,10 +78,6 @@ _ORIGINAL_NEURON_CACHE_PATH: Optional[Path] = None
 _TMP_NEURON_CACHE_DIR: Optional[TemporaryDirectory] = None
 
 
-# Used for FSDP
-RANK_PREFIX = "rank"
-SHARD_METADATA_NAME = "shard_metadata.bin"
-
 if os.environ.get("TORCHELASTIC_RUN_ID"):
     import torch_xla.distributed.xla_backend as xbn
 
@@ -101,29 +88,6 @@ if os.environ.get("TORCHELASTIC_RUN_ID"):
         if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
             raise AssertionError("Failed to initialize torch.distributed process group using XLA backend.")
 
-
-def patch_generation_mixin_to_neuron_generation_mixin(model: "PreTrainedModel"):
-    """
-    Changes the vanilla `GenerationMixin` class from Transformers to `NeuronGenerationMixin` in the model's
-    inheritance. This allows to make the model Neuron-compatible for generation without much hassle.
-    """
-    to_visit = [model.__class__]
-    should_stop = False
-    while to_visit and not should_stop:
-        cls = to_visit.pop(0)
-        bases = cls.__bases__
-        new_bases = []
-        for base in bases:
-            to_visit.append(base)
-            if base == GenerationMixin:
-                new_bases.append(NeuronGenerationMixin)
-                should_stop = True
-            elif base == NeuronGenerationMixin:
-                should_stop = True
-                new_bases.append(base)
-            else:
-                new_bases.append(base)
-        cls.__bases__ = tuple(new_bases)
 
 
 class AugmentTrainerForTrainiumMixin:
@@ -183,36 +147,9 @@ class AugmentTrainerForTrainiumMixin:
     def validate_args(self, args: "TrainingArguments"):
         pass
 
+    @patch_within_function(("transformers.trainer.Accelerator", NeuronAccelerator))
     def create_accelerator_and_postprocess(self):
-        # create accelerator object
-        self.accelerator = NeuronAccelerator(
-            deepspeed_plugin=self.args.deepspeed_plugin,
-            gradient_accumulation_steps=self.args.gradient_accumulation_steps,
-        )
-
-        # deepspeed and accelerate flags covering both trainer args and accelerate launcher
-        self.is_deepspeed_enabled = getattr(self.accelerator.state, "deepspeed_plugin", None) is not None
-        self.is_fsdp_enabled = getattr(self.accelerator.state, "fsdp_plugin", None) is not None
-
-        # post accelerator creation setup
-        if self.is_fsdp_enabled:
-            fsdp_plugin = self.accelerator.state.fsdp_plugin
-            fsdp_plugin.limit_all_gathers = self.args.fsdp_config.get("limit_all_gathers", False)
-            fsdp_plugin.use_orig_params = self.args.fsdp_config.get("use_orig_params", False)
-
-        if self.is_deepspeed_enabled:
-            if getattr(self.args, "hf_deepspeed_config", None) is None:
-                from transformers.deepspeed import HfTrainerDeepSpeedConfig
-
-                ds_plugin = self.accelerator.state.deepspeed_plugin
-
-                ds_plugin.hf_ds_config = HfTrainerDeepSpeedConfig(ds_plugin.hf_ds_config.config)
-                ds_plugin.deepspeed_config = ds_plugin.hf_ds_config.config
-                ds_plugin.hf_ds_config.trainer_config_process(self.args)
-
-    def get_fsdp_checkpoint_path(self, output_dir: str) -> str:
-        """Returns the path to the sharded checkpoint file for the current worker in an XLA FSDP setting."""
-        return os.path.join(output_dir, f"{RANK_PREFIX}-{xm.get_ordinal()}-of-{xm.xrt_world_size()}.pth")
+        return super().create_accelerator_and_postprocess()
 
     def _wrap_model(self, model, training=True, dataloader=None):
         return super()._wrap_model(patch_model(model), training=training, dataloader=dataloader)
