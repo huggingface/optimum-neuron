@@ -117,7 +117,8 @@ class NeuronFullyShardedDataParallelPlugin(FullyShardedDataParallelPlugin):
 
         optim_state = FSDP.full_optim_state_dict(model, optimizer, optim_input=optim_input)
         optim_state = {"optimizer": optimizer.state_dict(), "shard_metadata": model.get_shard_metadata()}
-        xm.save(optim_state, f"{OPTIMIZER_NAME}_rank{accelerator.process_index}.bin")
+        optimizer_path = os.path.join(output_dir, f"{OPTIMIZER_NAME}_rank{accelerator.process_index}.bin")
+        xm.save(optim_state, optimizer_path)
         xm.rendezvous("saved sharded optimizer checkpoint")
 
         # TODO: save the full optimizer state if possible.
@@ -145,5 +146,7 @@ class NeuronFullyShardedDataParallelPlugin(FullyShardedDataParallelPlugin):
         # # called from all ranks, though only rank0 has a valid param for full_osd
         # sharded_osd = FSDP.scatter_full_optim_state_dict(full_osd, model)
         # optimizer.load_state_dict(sharded_osd)
-        optim_state = torch.load(f"{OPTIMIZER_NAME}_rank{accelerator.process_index}.bin")
+        optimizer_path = os.path.join(input_dir, f"{OPTIMIZER_NAME}_rank{accelerator.process_index}.bin")
+        optim_state = torch.load(optimizer_path)
+        xm.send_cpu_data_to_device(optim_state, accelerator.device)
         optimizer.load_state_dict(optim_state["optimizer"])
