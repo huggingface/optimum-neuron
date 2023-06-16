@@ -146,7 +146,7 @@ class AugmentTrainerForTrainiumMixin:
     def validate_args(self, args: "TrainingArguments"):
         pass
 
-    @patch_within_function(("transformers.trainer.Accelerator", NeuronAccelerator))
+    @patch_within_function(("transformers.trainer.Accelerator", NeuronAccelerator), ignore_missing_attributes=True)
     def create_accelerator_and_postprocess(self):
         return super().create_accelerator_and_postprocess()
 
