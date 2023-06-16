@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-""" """
+"""Custom dataclasses for Neuron."""
 
 import enum
 import os
@@ -36,24 +36,25 @@ class NeuronDistributedType(str, enum.Enum):
 
     Values:
 
-        - **NO** -- Not a distributed environment, just a single process.
-        - **MULTI_CPU** -- Distributed on multiple CPU nodes.
-        - **MULTI_GPU** -- Distributed on multiple GPUs.
-        - **MULTI_XPU** -- Distributed on multiple XPUs.
-        - **DEEPSPEED** -- Using DeepSpeed.
-        - **TPU** -- Distributed on TPUs.
+        # - **NO** -- Not a distributed environment, just a single process.
+        # - **MULTI_CPU** -- Distributed on multiple CPU nodes.
+        # - **MULTI_GPU** -- Distributed on multiple GPUs.
+        # - **MULTI_XPU** -- Distributed on multiple XPUs.
+        # - **DEEPSPEED** -- Using DeepSpeed.
+        # - **TPU** -- Distributed on TPUs.
+        - **XLA_FSDP** -- Fully Shareded Data Parallelism on Neuron cores using `torch_xla`.
     """
 
-    # Subclassing str as well as Enum allows the `DistributedType` to be JSON-serializable out of the box.
-    NO = "NO"
-    MULTI_CPU = "MULTI_CPU"
-    MULTI_GPU = "MULTI_GPU"
-    MULTI_XPU = "MULTI_XPU"
-    DEEPSPEED = "DEEPSPEED"
-    FSDP = "FSDP"
-    TPU = "TPU"
-    MPS = "MPS"  # here for backward compatibility. Remove in v0.18.0
-    MEGATRON_LM = "MEGATRON_LM"
+    # Su# bclassing str as well as Enum allows the `DistributedType` to be JSON-serializable out of the box.
+    # NO#  = "NO"
+    # MU# LTI_CPU = "MULTI_CPU"
+    # MU# LTI_GPU = "MULTI_GPU"
+    # MU# LTI_XPU = "MULTI_XPU"
+    # DE# EPSPEED = "DEEPSPEED"
+    # FS# DP = "FSDP"
+    # TP# U = "TPU"
+    # MPS = "MPS"  # here for backward compatibility. Remove in v0.18.0
+    # MEGATRON_LM = "MEGATRON_LM"
     XLA_FSDP = "XLA_FSDP"
 
 

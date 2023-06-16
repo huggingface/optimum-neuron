@@ -36,7 +36,7 @@ from ..utils.misc import args_and_kwargs_to_kwargs_only
 from .optimizer import NeuronAcceleratedOptimizer
 from .scheduler import NeuronAcceleratedScheduler
 from .state import NeuronAcceleratorState
-from .utils.dataclasses import NeuronDistributedType, NeuronFullyShardedDataParallelPlugin
+from .utils import NeuronDistributedType, NeuronFullyShardedDataParallelPlugin
 
 
 if TYPE_CHECKING:

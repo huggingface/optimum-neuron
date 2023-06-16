@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-""" """
+"""Custom PartialState and AcceleratorState for Neuron."""
 
 import os
 
@@ -33,8 +33,7 @@ from accelerate.utils import (
 from accelerate.utils.dataclasses import FullyShardedDataParallelPlugin, SageMakerDistributedType
 
 from ..utils import is_torch_xla_available
-from .utils import NeuronDistributedType
-from .utils.dataclasses import NeuronFullyShardedDataParallelPlugin
+from .utils import NeuronDistributedType, NeuronFullyShardedDataParallelPlugin
 
 
 if is_torch_xla_available():
