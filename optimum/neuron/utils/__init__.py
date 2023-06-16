@@ -26,8 +26,6 @@ from .training_utils import (
     FirstAndLastDataset,
     is_model_officially_supported,
     is_precompilation,
-    patch_forward,
-    patch_model,
     patch_transformers_for_neuron_sdk,
     patched_finfo,
     prepare_environment_for_neuron,
