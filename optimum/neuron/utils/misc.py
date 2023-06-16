@@ -25,7 +25,7 @@ def args_and_kwargs_to_kwargs_only(
     include_default_values: bool = False,
 ) -> Dict[str, Any]:
     """
-    Takes a function `f`, the `args` and `kwargs` provided to the function call, and returns the save arguments in the 
+    Takes a function `f`, the `args` and `kwargs` provided to the function call, and returns the save arguments in the
     keyword arguments format.
 
     Args:

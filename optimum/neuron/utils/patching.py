@@ -23,7 +23,10 @@ class Patcher:
     """
     Context manager that patches attributes of a module under its scope and restores everything after exit.
     """
-    def __init__(self, patching_specs: Optional[List[Tuple[str, Any]]] = None, ignore_missing_attributes: bool = False):
+
+    def __init__(
+        self, patching_specs: Optional[List[Tuple[str, Any]]] = None, ignore_missing_attributes: bool = False
+    ):
         self.patching_specs = []
         for orig, patch in patching_specs or []:
             module_qualified_name, attribute_name = orig.rsplit(".", maxsplit=1)
