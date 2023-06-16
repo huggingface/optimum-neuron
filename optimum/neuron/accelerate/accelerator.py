@@ -201,7 +201,7 @@ class NeuronAccelerator(Accelerator):
     def clip_grad_norm_(self, parameters, max_norm, norm_type=2):
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:
             return self.clip_grad_norm_for_xla_fsdp(parameters, max_norm, norm_type=norm_type)
-        return super().clip_grad_norm_(self, parameters, max_norm, norm_type=norm_type)
+        return super().clip_grad_norm_(parameters, max_norm, norm_type=norm_type)
 
     def clip_grad_value_(self, parameters, clip_value):
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:

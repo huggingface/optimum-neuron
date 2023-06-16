@@ -295,6 +295,7 @@ class AugmentTrainerForTrainiumMixin:
     ):
         return super()._inner_training_loop(
             batch_size=batch_size,
+            args=args,
             resume_from_checkpoint=resume_from_checkpoint,
             trial=trial,
             ignore_keys_for_eval=ignore_keys_for_eval,
