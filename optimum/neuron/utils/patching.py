@@ -17,6 +17,7 @@
 import functools
 import importlib
 import inspect
+import sys
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple, Union
 
@@ -77,13 +78,14 @@ class Patcher(BasePatcher):
         for orig, patch in patching_specs or []:
             module_qualified_name, attribute_name = orig.rsplit(".", maxsplit=1)
             module = importlib.import_module(module_qualified_name)
-            if ignore_missing_attributes:
-                attribute = getattr(module, attribute_name, None)
-            else:
+            module_has_attr = hasattr(module, attribute_name)
+            if module_has_attr:
                 attribute = getattr(module, attribute_name)
+            elif ignore_missing_attributes and not isinstance(patch, DynamicPatch):
+                attribute = None
+            else:
+                raise ValueError("Cannot ignore missing attribute with a DynamicPatch.")
             if isinstance(patch, DynamicPatch):
-                if ignore_missing_attributes:
-                    raise ValueError("Cannot ignore missing attribute with a DynamicPatch.")
                 patch = patch(attribute)
             proccessed_patching_specs.append((module, attribute_name, attribute, patch))
         return proccessed_patching_specs
@@ -101,39 +103,61 @@ class ModelPatcher(BasePatcher):
     ):
         proccessed_patching_specs = []
         for model, attribute_qualified_name, patch in patching_specs or []:
-            module_names, attribute_name = attribute_qualified_name.rsplit(".", maxsplit=1)
+            module_names = attribute_qualified_name.split(".")
+            attribute_name = module_names.pop(-1)
             module = model
             for name in module_names:
                 module = getattr(module, name)
-            if ignore_missing_attributes:
-                attribute = getattr(module, attribute_name, None)
-            else:
+
+            module_has_attr = hasattr(module, attribute_name)
+            if module_has_attr:
                 attribute = getattr(module, attribute_name)
+            elif ignore_missing_attributes and not isinstance(patch, DynamicPatch):
+                attribute = None
+            else:
+                raise ValueError("Cannot ignore missing attribute with a DynamicPatch.")
+
             if isinstance(patch, DynamicPatch):
-                if ignore_missing_attributes:
-                    raise ValueError("Cannot ignore missing attribute with a DynamicPatch.")
                 patch = patch(attribute)
+
             if inspect.ismethod(attribute):
                 patch = patch.__get__(model)
+
             proccessed_patching_specs.append((module, attribute_name, attribute, patch))
+
         return proccessed_patching_specs
 
 
-def patch_within_function(patching_specs: Union[List[Tuple[str, Any]], Tuple[str, Any]]):
+def patch_within_function(
+    patching_specs: Union[List[Tuple[str, Any]], Tuple[str, Any]], ignore_missing_attributes: bool = False
+):
     """
     Patches attributes of a module during the lifetime of the function.
     """
     if isinstance(patching_specs, tuple) and len(patching_specs) == 2:
         patching_specs = [patching_specs]
 
-    patcher = Patcher(patching_specs)
+    patcher = Patcher(patching_specs, ignore_missing_attributes=ignore_missing_attributes)
 
     def decorator(func):
+        is_bound = hasattr(func, "__self__")
+
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             with patcher:
+                if is_bound:
+                    args = args[1:]
                 return func(*args, **kwargs)
 
         return wrapper
 
     return decorator
+
+
+@functools.lru_cache()
+def patch_everywhere(attribute_name: str, patch: Any, module_name_prefix: Optional[str] = None):
+    for name, module in sys.modules.items():
+        if module_name_prefix is not None and not name.startswith(module_name_prefix):
+            continue
+        if hasattr(module, attribute_name):
+            setattr(module, attribute_name, patch)

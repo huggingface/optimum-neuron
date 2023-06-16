@@ -14,3 +14,4 @@
 # limitations under the License.
 
 from .dataclasses import NeuronDistributedType, NeuronFullyShardedDataParallelPlugin
+from .misc import patch_accelerate_is_tpu_available

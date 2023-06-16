@@ -264,7 +264,6 @@ class NeuronAcceleratorState(AcceleratorState):
                     ):
                         fsdp_plugin.__class__ = NeuronFullyShardedDataParallelPlugin
                     self.fsdp_plugin = fsdp_plugin
-                    print("FSDP PLUGIN", self.fsdp_plugin)
             elif os.environ.get("ACCELERATE_USE_DEEPSPEED", "false") == "true" and not cpu:
                 self.deepspeed_plugin = deepspeed_plugin
             elif self.distributed_type == DistributedType.MULTI_GPU:

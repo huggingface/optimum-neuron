@@ -14,6 +14,7 @@
 # limitations under the License.
 """Defines Trainer subclasses to perform training on AWS Trainium instances."""
 
+import contextlib
 import glob
 import os
 import random
@@ -40,13 +41,13 @@ from transformers.utils import is_sagemaker_mp_enabled
 from ..utils import check_if_transformers_greater, logging
 from .accelerate import NeuronAccelerator
 from .trainer_callback import NeuronCacheCallaback
-from .utils import ModelPatcher, is_torch_xla_available, patch_within_function
+from .utils import DynamicPatch, ModelPatcher, is_torch_xla_available, patch_within_function
 from .utils.cache_utils import get_neuron_cache_path
 from .utils.training_utils import (
-    MODEL_PATCHING_SPECS,
     TRANSFORMERS_MIN_VERSION_USE_ACCELERATE,
     is_precompilation,
     patch_generation_mixin_to_neuron_generation_mixin,
+    patched_finfo,
     prepare_environment_for_neuron,
     skip_first_batches,
 )
@@ -76,6 +77,16 @@ if KEEP_HF_HUB_PROGRESS_BARS is None:
 # Used for torch.distributed.
 _ORIGINAL_NEURON_CACHE_PATH: Optional[Path] = None
 _TMP_NEURON_CACHE_DIR: Optional[TemporaryDirectory] = None
+
+
+MODEL_PATCHING_SPECS = [
+    ("config.layerdrop", 0),
+    ("no_sync", lambda: contextlib.nullcontext()),
+    (
+        "forward",
+        DynamicPatch(patch_within_function(("torch.finfo", patched_finfo))),
+    ),
+]
 
 
 if os.environ.get("TORCHELASTIC_RUN_ID"):
@@ -114,6 +125,10 @@ class AugmentTrainerForTrainiumMixin:
 
         prepare_environment_for_neuron()
         super().__init__(*args, **kwargs)
+
+        # That's the case for Transformers < 4.30.0
+        if not hasattr(self, "is_fsdp_enabled"):
+            self.is_fsdp_enabled = False
 
         if self.args.local_rank <= 0:
             logger.setLevel(logging.INFO)
@@ -155,7 +170,7 @@ class AugmentTrainerForTrainiumMixin:
         for spec in MODEL_PATCHING_SPECS:
             patching_specs.append((model,) + spec)
 
-        with ModelPatcher(patching_specs):
+        with ModelPatcher(patching_specs, ignore_missing_attributes=True):
             return super()._wrap_model(model, training=training, dataloader=dataloader)
 
     # TODO: make this cleaner.

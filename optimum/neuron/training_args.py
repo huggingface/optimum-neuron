@@ -27,7 +27,6 @@ from transformers.training_args import ParallelMode, TrainingArguments
 from transformers.training_args_seq2seq import Seq2SeqTrainingArguments
 from transformers.utils import (
     cached_property,
-    is_accelerate_available,
     is_sagemaker_dp_enabled,
     is_sagemaker_mp_enabled,
     requires_backends,
@@ -35,7 +34,8 @@ from transformers.utils import (
 
 from ..utils import check_if_transformers_greater, logging
 from .accelerate import NeuronAcceleratorState, NeuronPartialState
-from .utils import is_torch_xla_available
+from .accelerate.utils import patch_accelerate_is_tpu_available
+from .utils import is_accelerate_available, is_torch_xla_available
 from .utils.training_utils import TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP
 
 
@@ -50,6 +50,9 @@ logger = logging.get_logger(__name__)
 
 class TrainiumTrainingArgumentsMixin:
     def __post_init__(self):
+        # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
+        patch_accelerate_is_tpu_available()
+
         if self.fsdp != "":
             if self.fsdp_config is None:
                 self.fsdp_config = {"xla": True}
@@ -83,9 +86,10 @@ class TrainiumTrainingArgumentsMixin:
         logger.info("PyTorch: setting up devices")
         NeuronAcceleratorState._reset_state()
         NeuronPartialState._reset_state()
-        if not is_sagemaker_mp_enabled() and not is_accelerate_available(min_version="0.20.0"):
+        if not is_sagemaker_mp_enabled() and not is_accelerate_available():
             raise ImportError(
-                "Using the `Trainer` with `PyTorch` requires `accelerate>=0.19.0`: Please run `pip install transformers[torch]` or `pip install accelerate -U`"
+                "Using the `Trainer` with `PyTorch` requires `accelerate>=0.20.1`: Please run `pip install "
+                "transformers[torch]` or `pip install accelerate -U`"
             )
         self.distributed_state = None
         if self.no_cuda:

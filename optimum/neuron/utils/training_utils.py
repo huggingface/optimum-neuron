@@ -14,7 +14,6 @@
 # limitations under the License.
 """Training utilities"""
 
-import contextlib
 import os
 from typing import TYPE_CHECKING, List, Optional, Union
 
@@ -48,7 +47,7 @@ from transformers.utils.logging import set_verbosity as set_verbosity_transforme
 
 from ...utils.logging import set_verbosity as set_verbosity_optimum
 from ..generation import NeuronGenerationMixin
-from . import DynamicPatch, is_torch_xla_available, patch_within_function
+from . import is_torch_xla_available
 
 
 if TYPE_CHECKING:
@@ -241,16 +240,6 @@ def patched_finfo(dtype):
 #     model.no_sync =
 #     model.forward = patch_forward(model.forward).__get__(model)
 #     return model
-
-
-MODEL_PATCHING_SPECS = [
-    ("config.layerdrop", 0),
-    ("no_sync", lambda: contextlib.nullcontext()),
-    (
-        "forward",
-        DynamicPatch(patch_within_function(("torch.finfo", patched_finfo))),
-    ),
-]
 
 
 def patch_generation_mixin_to_neuron_generation_mixin(model: "PreTrainedModel"):

@@ -36,7 +36,7 @@ from ..utils.misc import args_and_kwargs_to_kwargs_only
 from .optimizer import NeuronAcceleratedOptimizer
 from .scheduler import NeuronAcceleratedScheduler
 from .state import NeuronAcceleratorState
-from .utils import NeuronDistributedType, NeuronFullyShardedDataParallelPlugin
+from .utils import NeuronDistributedType, NeuronFullyShardedDataParallelPlugin, patch_accelerate_is_tpu_available
 
 
 if TYPE_CHECKING:
@@ -59,6 +59,9 @@ logger = logging.get_logger(__name__)
 class NeuronAccelerator(Accelerator):
     @patch_within_function(("accelerate.accelerator.AcceleratorState", NeuronAcceleratorState))
     def __init__(self, *args, **kwargs):
+        # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
+        patch_accelerate_is_tpu_available()
+
         full_kwargs = args_and_kwargs_to_kwargs_only(
             super().__init__, args=args, kwargs=kwargs, include_default_values=True
         )
