@@ -21,7 +21,7 @@ from .import_utils import (
     is_neuronx_distributed_available,
     is_torch_xla_available,
 )
-from .patching import Patcher, patch_within_function
+from .patching import DynamicPatch, ModelPatcher, Patcher, patch_within_function
 from .training_utils import (
     FirstAndLastDataset,
     is_model_officially_supported,

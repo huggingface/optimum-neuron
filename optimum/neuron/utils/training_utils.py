@@ -15,7 +15,6 @@
 """Training utilities"""
 
 import contextlib
-import functools
 import os
 from typing import TYPE_CHECKING, List, Optional, Union
 
@@ -49,7 +48,7 @@ from transformers.utils.logging import set_verbosity as set_verbosity_transforme
 
 from ...utils.logging import set_verbosity as set_verbosity_optimum
 from ..generation import NeuronGenerationMixin
-from . import Patcher, is_torch_xla_available
+from . import DynamicPatch, is_torch_xla_available, patch_within_function
 
 
 if TYPE_CHECKING:
@@ -223,25 +222,35 @@ def patched_finfo(dtype):
     return orig_finfo(dtype)
 
 
-def patch_forward(forward_fn):
-    patcher = Patcher(patching_specs=[("torch.finfo", patched_finfo)])
+# def patch_forward(forward_fn):
+#     patcher = Patcher(patching_specs=[("torch.finfo", patched_finfo)])
+#
+#     @functools.wraps(forward_fn)
+#     def wrapper(*args, **kwargs):
+#         with patcher:
+#             # args[0] is self, which will be automatically passed to the function
+#             # because we later bind the wrapper to the model instance.
+#             return forward_fn(*args[1:], **kwargs)
+#
+#     return wrapper
+#
+#
+# def patch_model(model: "PreTrainedModel") -> "PreTrainedModel":
+#     if hasattr(model.config, "layerdrop"):
+#         model.config.layerdrop = 0
+#     model.no_sync =
+#     model.forward = patch_forward(model.forward).__get__(model)
+#     return model
 
-    @functools.wraps(forward_fn)
-    def wrapper(*args, **kwargs):
-        with patcher:
-            # args[0] is self, which will be automatically passed to the function
-            # because we later bind the wrapper to the model instance.
-            return forward_fn(*args[1:], **kwargs)
 
-    return wrapper
-
-
-def patch_model(model: "PreTrainedModel") -> "PreTrainedModel":
-    if hasattr(model.config, "layerdrop"):
-        model.config.layerdrop = 0
-    model.no_sync = lambda: contextlib.nullcontext()
-    model.forward = patch_forward(model.forward).__get__(model)
-    return model
+MODEL_PATCHING_SPECS = [
+    ("config.layerdrop", 0),
+    ("no_sync", lambda: contextlib.nullcontext()),
+    (
+        "forward",
+        DynamicPatch(patch_within_function(("torch.finfo", patched_finfo))),
+    ),
+]
 
 
 def patch_generation_mixin_to_neuron_generation_mixin(model: "PreTrainedModel"):

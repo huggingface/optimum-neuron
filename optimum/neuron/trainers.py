@@ -40,13 +40,13 @@ from transformers.utils import is_sagemaker_mp_enabled
 from ..utils import check_if_transformers_greater, logging
 from .accelerate import NeuronAccelerator
 from .trainer_callback import NeuronCacheCallaback
-from .utils import is_torch_xla_available, patch_within_function
+from .utils import ModelPatcher, is_torch_xla_available, patch_within_function
 from .utils.cache_utils import get_neuron_cache_path
 from .utils.training_utils import (
+    MODEL_PATCHING_SPECS,
     TRANSFORMERS_MIN_VERSION_USE_ACCELERATE,
     is_precompilation,
     patch_generation_mixin_to_neuron_generation_mixin,
-    patch_model,
     prepare_environment_for_neuron,
     skip_first_batches,
 )
@@ -151,7 +151,12 @@ class AugmentTrainerForTrainiumMixin:
         return super().create_accelerator_and_postprocess()
 
     def _wrap_model(self, model, training=True, dataloader=None):
-        return super()._wrap_model(patch_model(model), training=training, dataloader=dataloader)
+        patching_specs = []
+        for spec in MODEL_PATCHING_SPECS:
+            patching_specs.append((model,) + spec)
+
+        with ModelPatcher(patching_specs):
+            return super()._wrap_model(model, training=training, dataloader=dataloader)
 
     # TODO: make this cleaner.
     def trigger_on_step_middle_for_neuron_cache_callback(self, model: "PreTrainedModel"):

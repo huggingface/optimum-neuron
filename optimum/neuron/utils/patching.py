@@ -16,26 +16,32 @@
 
 import functools
 import importlib
-from typing import Any, List, Optional, Tuple, Union
+import inspect
+from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple, Union
 
 
-class Patcher:
+if TYPE_CHECKING:
+    from transformers import PreTrainedModel
+
+
+class BasePatcher(ABC):
     """
-    Context manager that patches attributes of a module under its scope and restores everything after exit.
+    Base abstract class providing the core features for efficient context manager based patching.
     """
 
     def __init__(
-        self, patching_specs: Optional[List[Tuple[str, Any]]] = None, ignore_missing_attributes: bool = False
+        self, patching_specs: Optional[List[Tuple[Any, ...]]] = None, ignore_missing_attributes: bool = False
     ):
-        self.patching_specs = []
-        for orig, patch in patching_specs or []:
-            module_qualified_name, attribute_name = orig.rsplit(".", maxsplit=1)
-            module = importlib.import_module(module_qualified_name)
-            if ignore_missing_attributes:
-                attribute = getattr(module, attribute_name, None)
-            else:
-                attribute = getattr(module, attribute_name)
-            self.patching_specs.append((module, attribute_name, attribute, patch))
+        self.patching_specs = self.process_patching_specs(
+            patching_specs, ignore_missing_attributes=ignore_missing_attributes
+        )
+
+    @abstractmethod
+    def process_patching_specs(
+        self, patching_specs: Optional[List[Tuple[Any, Any]]] = None, ignore_missing_attributes: bool = False
+    ) -> List[Tuple[Any, str, Any, Any]]:
+        pass
 
     def __enter__(self):
         for module, attribute_name, _, patch in self.patching_specs:
@@ -44,6 +50,73 @@ class Patcher:
     def __exit__(self, exc_type, exc_value, traceback):
         for module, attribute_name, _, patch in self.patching_specs:
             setattr(module, attribute_name, patch)
+
+
+class DynamicPatch:
+    """
+    Wrapper around a patch function.
+    When patching needs to be dynamic with the attribute this can be used.
+    """
+
+    def __init__(self, patch_function: Callable[[Any], Any]):
+        self.patch_function = patch_function
+
+    def __call__(self, attribute: Any) -> Any:
+        return self.patch_function(attribute)
+
+
+class Patcher(BasePatcher):
+    """
+    Context manager that patches attributes of a module under its scope and restores everything after exit.
+    """
+
+    def process_patching_specs(
+        self, patching_specs: Optional[List[Tuple[str, Any]]] = None, ignore_missing_attributes: bool = False
+    ):
+        proccessed_patching_specs = []
+        for orig, patch in patching_specs or []:
+            module_qualified_name, attribute_name = orig.rsplit(".", maxsplit=1)
+            module = importlib.import_module(module_qualified_name)
+            if ignore_missing_attributes:
+                attribute = getattr(module, attribute_name, None)
+            else:
+                attribute = getattr(module, attribute_name)
+            if isinstance(patch, DynamicPatch):
+                if ignore_missing_attributes:
+                    raise ValueError("Cannot ignore missing attribute with a DynamicPatch.")
+                patch = patch(attribute)
+            proccessed_patching_specs.append((module, attribute_name, attribute, patch))
+        return proccessed_patching_specs
+
+
+class ModelPatcher(BasePatcher):
+    """
+    Context manager that patches attributes of a model under its scope and restores everything after exit.
+    """
+
+    def process_patching_specs(
+        self,
+        patching_specs: Optional[List[Tuple["PreTrainedModel", str, Any]]] = None,
+        ignore_missing_attributes: bool = False,
+    ):
+        proccessed_patching_specs = []
+        for model, attribute_qualified_name, patch in patching_specs or []:
+            module_names, attribute_name = attribute_qualified_name.rsplit(".", maxsplit=1)
+            module = model
+            for name in module_names:
+                module = getattr(module, name)
+            if ignore_missing_attributes:
+                attribute = getattr(module, attribute_name, None)
+            else:
+                attribute = getattr(module, attribute_name)
+            if isinstance(patch, DynamicPatch):
+                if ignore_missing_attributes:
+                    raise ValueError("Cannot ignore missing attribute with a DynamicPatch.")
+                patch = patch(attribute)
+            if inspect.ismethod(attribute):
+                patch = patch.__get__(model)
+            proccessed_patching_specs.append((module, attribute_name, attribute, patch))
+        return proccessed_patching_specs
 
 
 def patch_within_function(patching_specs: Union[List[Tuple[str, Any]], Tuple[str, Any]]):
