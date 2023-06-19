@@ -31,6 +31,11 @@ _import_structure = {
         "NeuronModelForTokenClassification",
         "NeuronModelForMultipleChoice",
     ],
+    "accelerate": [
+        "NeuronAccelerator",
+        "NeuronAcceleratorState",
+        "NeuronPartialState",
+    ]
 }
 
 if TYPE_CHECKING:
@@ -46,6 +51,7 @@ if TYPE_CHECKING:
     from .modeling_base import NeuronBaseModel
     from .trainers import Seq2SeqTrainiumTrainer, TrainiumTrainer
     from .training_args import Seq2SeqTrainiumTrainingArguments, TrainiumTrainingArguments
+    from .accelerate import NeuronAccelerator, NeuronAcceleratorState, NeuronPartialState
 else:
     import sys
 

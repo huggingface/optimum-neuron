@@ -34,7 +34,7 @@ from transformers.trainer import (
     SCHEDULER_NAME,
     TRAINER_STATE_NAME,
 )
-from transformers.trainer_pt_utils import reissue_pt_warnings
+from transformers.trainer_pt_utils import reissue_pt_warnings, atleast_1d
 from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
 from transformers.utils import is_sagemaker_mp_enabled
 
@@ -204,6 +204,31 @@ class AugmentTrainerForTrainiumMixin:
         self.trigger_on_step_middle_for_neuron_cache_callback(model)
         return super().prediction_step(model, inputs, prediction_loss_only, ignore_keys=ignore_keys)
 
+    def _nested_gather_for_xla_fsdp(self, tensors, name=None):
+        # if isinstance(tensors, (list, tuple)):
+        #     return type(tensors)(self._nested_gather_for_xla_fsdp(t, f"{name}_{i}") for i, t in enumerate(tensors))
+        # if isinstance(tensors, dict):
+        #     return type(tensors)(
+        #         {k: self._nested_gather_for_xla_fsdp(t, f"{name}_{i}") for i, (k, t) in enumerate(tensors.items())}
+        #     )
+
+        # tensors = atleast_1d(tensors)
+        # return xm.mesh_reduce(name, tensors, torch.cat)
+        if isinstance(tensors, (tuple, list)):
+            return type(tensors)(self._nested_gather_for_xla_fsdp(t) for t in tensors)
+        elif isinstance(tensors, dict):
+            return type(tensors)({k: self._nested_gather_for_xla_fsdp(t) for k, t in tensors.items()})
+        tensors = atleast_1d(tensors)
+        output = [tensors.clone() for _ in range(self.args.world_size)]
+        for idx, t in enumerate(output):
+             output[idx] = xm.all_gather(t, 0)
+        return torch.cat(output, dim=0)
+
+    def _nested_gather(self, tensors, name=None):
+        if self.is_fsdp_enabled:
+            return self._nested_gather_for_xla_fsdp(tensors, name="nested_gather_for_xla_fsdp")
+        return super()._nested_gather(tensors, name=name)
+
     def _save_checkpoint_for_xla_fsdp(self, model, trial, metrics=None):
         if not self.is_fsdp_enabled:
             # TODO: handle this case better?
@@ -217,12 +242,13 @@ class AugmentTrainerForTrainiumMixin:
 
         run_dir = self._get_output_dir(trial=trial)
         output_dir = os.path.join(run_dir, checkpoint_folder)
+        os.makedirs(output_dir, exist_ok=True)
 
         # Save model
         self.accelerator.state.fsdp_plugin.save_model(self.accelerator, self.model, output_dir)
 
         # Save optimizer
-        self.accelerator.state.fsdp_plugin.save_optimizer(self.accelerator, self.optimizer, self.model.output_dir)
+        self.accelerator.state.fsdp_plugin.save_optimizer(self.accelerator, self.optimizer, self.model, output_dir)
 
         # Save scheduler
         with warnings.catch_warnings(record=True):

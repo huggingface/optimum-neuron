@@ -29,6 +29,7 @@ from accelerate.utils import (
     is_xpu_available,
     parse_choice_from_env,
     parse_flag_from_env,
+    is_ipex_available,
 )
 from accelerate.utils.dataclasses import FullyShardedDataParallelPlugin, SageMakerDistributedType
 
@@ -215,7 +216,6 @@ class NeuronAcceleratorState(AcceleratorState):
         deepspeed_plugin=None,
         fsdp_plugin=None,
         megatron_lm_plugin=None,
-        ipex_plugin=None,
         _from_accelerator: bool = False,
         **kwargs,
     ):
@@ -277,14 +277,11 @@ class NeuronAcceleratorState(AcceleratorState):
                     megatron_lm_plugin.set_mixed_precision(self._mixed_precision)
                     self.megatron_lm_plugin = megatron_lm_plugin
             elif self.distributed_type in [DistributedType.MULTI_CPU, DistributedType.MULTI_XPU, DistributedType.NO]:
-                if (
-                    self.device.type == "cpu"
-                    or (self.device.type == "xpu" and is_xpu_available())
-                    and ipex_plugin is not None
-                ):
-                    self.ipex_plugin = ipex_plugin
-                    if self.ipex_plugin is not None:
-                        self.ipex_plugin.set_mixed_precision(mixed_precision)
+                if is_ipex_available():
+                    "check if user disables it explicitly"
+                    self.use_ipex = parse_flag_from_env("ACCELERATE_USE_IPEX", default=True)
+                else:
+                    self.use_ipex = False
             if (
                 self.dynamo_plugin.backend != DynamoBackend.NO
                 and self._mixed_precision == "no"

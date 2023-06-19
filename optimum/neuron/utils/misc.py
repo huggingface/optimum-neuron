@@ -52,6 +52,8 @@ def args_and_kwargs_to_kwargs_only(
     result.update(kwargs)
     if include_default_values:
         for param in sig.parameters.values():
+            if param.name in result:
+                continue
             if param.default != inspect.Parameter.empty:
                 result[param.name] = param.default
     return result

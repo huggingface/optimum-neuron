@@ -49,3 +49,10 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
                 self._is_overflow = scale_after < scale_before
             else:
                 self.optimizer.step(closure)
+
+    def __getstate__(self):
+        return {
+            'defaults': self.defaults,
+            'state': self.state,
+            'param_groups': self.param_groups,
+        }

@@ -28,6 +28,7 @@ from ...utils import is_torch_xla_available
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
     from torch_xla.distributed.fsdp.state_dict_utils import consolidate_sharded_model_checkpoints
+    from torch_xla.distributed.fsdp import XlaFullyShardedDataParallel as FSDP
 
 
 class NeuronDistributedType(str, enum.Enum):
@@ -61,23 +62,20 @@ class NeuronDistributedType(str, enum.Enum):
 @dataclass
 class NeuronFullyShardedDataParallelPlugin(FullyShardedDataParallelPlugin):
     # TODO: redefine the post init to do checks on which option is supported.
-
     def save_model(self, accelerator, model, output_dir, model_index=0):
         from torch.distributed.fsdp.fully_sharded_data_parallel import StateDictType
 
         state_dict = {"model": model.state_dict(), "shard_metadata": model.get_shard_metadata()}
         weights_name = (
-            f"{MODEL_NAME}_rank{accelerator.process_index}.bin"
+            f"{MODEL_NAME}_rank{accelerator.process_index}.pth"
             if model_index == 0
-            else f"{MODEL_NAME}_{model_index}_rank{accelerator.process_index}.bin"
+            else f"{MODEL_NAME}_{model_index}_rank{accelerator.process_index}.pth"
         )
         output_model_file = os.path.join(output_dir, weights_name)
-        print(f"Saving model to {output_model_file}")
-        xm.save(state_dict, output_model_file)
+        xm.save(state_dict, output_model_file, master_only=False)
         xm.rendezvous("saved sharded model checkpoint")
-        print(f"Model saved to {output_model_file}")
 
-        if self.state_dict_type == StateDictType.FULL_STATE_DICT:
+        if self.state_dict_type == StateDictType.FULL_STATE_DICT and accelerator.process_index == 0:
             weights_name = f"{MODEL_NAME}.bin" if model_index == 0 else f"{MODEL_NAME}_{model_index}.bin"
             output_model_file = os.path.join(output_dir, weights_name)
             if accelerator.process_index == 0:
@@ -85,9 +83,7 @@ class NeuronFullyShardedDataParallelPlugin(FullyShardedDataParallelPlugin):
                     f"{output_dir}/{MODEL_NAME}_rank",
                     save_model=False,
                 )
-                print(f"Saving model to {output_model_file}")
-                # TODO: test this.
-                torch.save(full_state_dict["model"], output_model_file)
+                torch.save(full_state_dict, output_model_file)
                 print(f"Model saved to {output_model_file}")
 
     def load_model(self, accelerator, model, input_dir, model_index=0):
@@ -95,31 +91,31 @@ class NeuronFullyShardedDataParallelPlugin(FullyShardedDataParallelPlugin):
 
         accelerator.wait_for_everyone()
         if self.state_dict_type == StateDictType.FULL_STATE_DICT:
-            raise ValueError("Only sharded model weights can be loaded with XLA FSDP.")
-            # weights_name = f"{MODEL_NAME}.bin" if model_index == 0 else f"{MODEL_NAME}_{model_index}.bin"
-            # input_model_file = os.path.join(input_dir, weights_name)
-            # accelerator.print(f"Loading model from {input_model_file}")
-            # state_dict = torch.load(input_model_file)
-            # accelerator.print(f"Model loaded from {input_model_file}")
+            if type(model) is FSDP:
+                raise ValueError("Only sharded model weights can be loaded with XLA FSDP.")
+            if accelerator.process_index == 0:
+                weights_name = f"{MODEL_NAME}.bin" if model_index == 0 else f"{MODEL_NAME}_{model_index}.bin"
+                input_model_file = os.path.join(input_dir, weights_name)
+                accelerator.print(f"Loading model from {input_model_file}")
+                state_dict = torch.load(input_model_file)
+                accelerator.print(f"Model loaded from {input_model_file}")
+                load_result = model.load_state_dict(state_dict, False)
         else:
             weights_name = (
-                f"{MODEL_NAME}_rank{accelerator.process_index}.bin"
+                f"{MODEL_NAME}_rank{accelerator.process_index}.pth"
                 if model_index == 0
-                else f"{MODEL_NAME}_{model_index}_rank{accelerator.process_index}.bin"
+                else f"{MODEL_NAME}_{model_index}_rank{accelerator.process_index}.pth"
             )
             input_model_file = os.path.join(input_dir, weights_name)
-            print(f"Loading model from {input_model_file}")
             state_dict = torch.load(input_model_file)
-            print(f"Model loaded from {input_model_file}")
-            model.load_state_dict(state_dict["model"])
+            load_result =  model.load_state_dict(state_dict["model"], False)
 
     def save_optimizer(self, accelerator, optimizer, model, output_dir, optimizer_index=0, optim_input=None):
-        from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
-
-        optim_state = FSDP.full_optim_state_dict(model, optimizer, optim_input=optim_input)
+        # from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
+        # optim_state = FSDP.full_optim_state_dict(model, optimizer, optim_input=optim_input)
         optim_state = {"optimizer": optimizer.state_dict(), "shard_metadata": model.get_shard_metadata()}
         optimizer_path = os.path.join(output_dir, f"{OPTIMIZER_NAME}_rank{accelerator.process_index}.bin")
-        xm.save(optim_state, optimizer_path)
+        xm.save(optim_state, optimizer_path, master_only=False)
         xm.rendezvous("saved sharded optimizer checkpoint")
 
         # TODO: save the full optimizer state if possible.
