@@ -15,14 +15,15 @@
 """Neuron compiled model check and export functions."""
 
 from pathlib import Path
-from typing import TYPE_CHECKING, List, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
 
 from ...exporters.error_utils import OutputMatchError, ShapeError
 from ...neuron.utils import convert_neuronx_compiler_args_to_neuron, is_neuron_available, is_neuronx_available
-from ...utils import logging
+from ...utils import logging, is_diffusers_available
+    
 
 
 if TYPE_CHECKING:
@@ -36,13 +37,16 @@ if is_neuron_available():
 if is_neuronx_available():
     import torch_neuronx as neuronx  # noqa: F811
 
+if is_diffusers_available():
+    from diffusers import ModelMixin
+
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 
 def validate_model_outputs(
     config: "NeuronConfig",
-    reference_model: "PreTrainedModel",
+    reference_model: Union["PreTrainedModel", "ModelMixin"],
     neuron_model_path: Path,
     neuron_named_outputs: List[str],
     atol: Optional[float] = None,
@@ -53,7 +57,7 @@ def validate_model_outputs(
     Args:
         config ([`~optimum.neuron.exporter.NeuronConfig`]:
             The configuration used to export the model.
-        reference_model ([`~PreTrainedModel`]):
+        reference_model ([`Union["PreTrainedModel", "ModelMixin"]`]):
             The model used for the export.
         neuron_model_path (`Path`):
             The path to the exported model.
@@ -95,8 +99,8 @@ def validate_model_outputs(
         raise OutputMatchError(
             "Neuron model output names do not match reference model output names.\n"
             f"Reference model output names: {ref_output_names_set}\n"
-            f"Neuron model output names: {neuron_output_names_set}"
-            f"Difference: {neuron_output_names_set.difference(neuron_output_names_set)}"
+            f"Neuron model output names: {neuron_output_names_set}\n"
+            f"Difference: {neuron_output_names_set.difference(ref_output_names_set)}"
         )
     else:
         neuron_output_names = ", ".join(neuron_output_names_set)
@@ -192,8 +196,9 @@ def export_neuronx(
     """
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    model.config.return_dict = True
-    model.config.torchscript = True
+    if hasattr(model, "config"):
+        model.config.return_dict = True
+        model.config.torchscript = True
     model.eval()
 
     # Check if we need to override certain configuration item
@@ -266,8 +271,9 @@ def export_neuron(
     """
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    model.config.return_dict = True
-    model.config.torchscript = True
+    if hasattr(model, "config"):
+        model.config.return_dict = True
+        model.config.torchscript = True
     model.eval()
 
     # Check if we need to override certain configuration item

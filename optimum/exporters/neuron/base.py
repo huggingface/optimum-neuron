@@ -257,6 +257,7 @@ class NeuronConfig(ExportConfig, ABC):
         self,
         model: "PreTrainedModel",
         dummy_inputs: Dict[str, torch.Tensor],
+        forward_with_tuple: bool = False,
     ):
         """
         Checks if inputs order of the model's forward pass correspond to the generated dummy inputs to ensure the dummy inputs tuple used for
@@ -277,6 +278,10 @@ class NeuronConfig(ExportConfig, ABC):
                     )
 
                 ordered_inputs = dict(zip(self.input_names, input))
-                return self.model(**ordered_inputs)
+
+                if forward_with_tuple is True:
+                    return self.model(*ordered_inputs.values())
+                else:
+                    return self.model(**ordered_inputs)
 
         return ModelWrapper(model, list(dummy_inputs.keys()))
