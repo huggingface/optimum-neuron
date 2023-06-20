@@ -221,27 +221,6 @@ def patched_finfo(dtype):
     return orig_finfo(dtype)
 
 
-# def patch_forward(forward_fn):
-#     patcher = Patcher(patching_specs=[("torch.finfo", patched_finfo)])
-#
-#     @functools.wraps(forward_fn)
-#     def wrapper(*args, **kwargs):
-#         with patcher:
-#             # args[0] is self, which will be automatically passed to the function
-#             # because we later bind the wrapper to the model instance.
-#             return forward_fn(*args[1:], **kwargs)
-#
-#     return wrapper
-#
-#
-# def patch_model(model: "PreTrainedModel") -> "PreTrainedModel":
-#     if hasattr(model.config, "layerdrop"):
-#         model.config.layerdrop = 0
-#     model.no_sync =
-#     model.forward = patch_forward(model.forward).__get__(model)
-#     return model
-
-
 def patch_generation_mixin_to_neuron_generation_mixin(model: "PreTrainedModel"):
     """
     Changes the vanilla `GenerationMixin` class from Transformers to `NeuronGenerationMixin` in the model's

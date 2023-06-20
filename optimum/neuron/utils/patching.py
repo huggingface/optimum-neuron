@@ -56,7 +56,7 @@ class BasePatcher(ABC):
 class DynamicPatch:
     """
     Wrapper around a patch function.
-    When patching needs to be dynamic with the attribute this can be used.
+    This can be used when the patch to apply is a function of the attribute it patches.
     """
 
     def __init__(self, patch_function: Callable[[Any], Any]):
@@ -132,7 +132,16 @@ def patch_within_function(
     patching_specs: Union[List[Tuple[str, Any]], Tuple[str, Any]], ignore_missing_attributes: bool = False
 ):
     """
-    Patches attributes of a module during the lifetime of the function.
+    Decorator that patches attributes of a module during the lifetime of the decorated function.
+
+    Args:
+        patching_specs (`Union[List[Tuple[str, Any]], Tuple[str, Any]]`):
+            The specifications of what to patch.
+        ignore_missing_attributes (`bool`, defaults to `False`):
+            Whether or not the patch should fail if the attribute to patch does not exist.
+
+    Returns:
+        `Callable`: A patched version of the function.
     """
     if isinstance(patching_specs, tuple) and len(patching_specs) == 2:
         patching_specs = [patching_specs]
@@ -156,6 +165,17 @@ def patch_within_function(
 
 @functools.lru_cache()
 def patch_everywhere(attribute_name: str, patch: Any, module_name_prefix: Optional[str] = None):
+    """
+    Finds all occurences of `attribute_name` in the loaded modules and patches them with `patch`.
+
+    Args:
+        attribute_name (`str`):
+            The name of attribute to patch.
+        patch (`Any`):
+            The patch for the attribute.
+        module_name_prefix (`Optional[str]`, defaults to `None`):
+            If set, only module names starting with this prefix will be considered for patching.
+    """
     for name, module in sys.modules.items():
         if module_name_prefix is not None and not name.startswith(module_name_prefix):
             continue
