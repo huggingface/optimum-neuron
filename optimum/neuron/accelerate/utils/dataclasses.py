@@ -27,8 +27,8 @@ from ...utils import is_torch_xla_available
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
-    from torch_xla.distributed.fsdp.state_dict_utils import consolidate_sharded_model_checkpoints
     from torch_xla.distributed.fsdp import XlaFullyShardedDataParallel as FSDP
+    from torch_xla.distributed.fsdp.state_dict_utils import consolidate_sharded_model_checkpoints
 
 
 class NeuronDistributedType(str, enum.Enum):
@@ -99,7 +99,7 @@ class NeuronFullyShardedDataParallelPlugin(FullyShardedDataParallelPlugin):
                 accelerator.print(f"Loading model from {input_model_file}")
                 state_dict = torch.load(input_model_file)
                 accelerator.print(f"Model loaded from {input_model_file}")
-                load_result = model.load_state_dict(state_dict, False)
+                model.load_state_dict(state_dict, False)
         else:
             weights_name = (
                 f"{MODEL_NAME}_rank{accelerator.process_index}.pth"
@@ -108,7 +108,7 @@ class NeuronFullyShardedDataParallelPlugin(FullyShardedDataParallelPlugin):
             )
             input_model_file = os.path.join(input_dir, weights_name)
             state_dict = torch.load(input_model_file)
-            load_result =  model.load_state_dict(state_dict["model"], False)
+            model.load_state_dict(state_dict["model"], False)
 
     def save_optimizer(self, accelerator, optimizer, model, output_dir, optimizer_index=0, optim_input=None):
         # from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP

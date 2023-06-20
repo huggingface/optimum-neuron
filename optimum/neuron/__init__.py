@@ -35,10 +35,11 @@ _import_structure = {
         "NeuronAccelerator",
         "NeuronAcceleratorState",
         "NeuronPartialState",
-    ]
+    ],
 }
 
 if TYPE_CHECKING:
+    from .accelerate import NeuronAccelerator, NeuronAcceleratorState, NeuronPartialState
     from .hf_argparser import TrainiumHfArgumentParser
     from .modeling import (
         NeuronModelForFeatureExtraction,
@@ -51,7 +52,6 @@ if TYPE_CHECKING:
     from .modeling_base import NeuronBaseModel
     from .trainers import Seq2SeqTrainiumTrainer, TrainiumTrainer
     from .training_args import Seq2SeqTrainiumTrainingArguments, TrainiumTrainingArguments
-    from .accelerate import NeuronAccelerator, NeuronAcceleratorState, NeuronPartialState
 else:
     import sys
 

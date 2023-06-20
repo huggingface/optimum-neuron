@@ -34,7 +34,7 @@ from transformers.trainer import (
     SCHEDULER_NAME,
     TRAINER_STATE_NAME,
 )
-from transformers.trainer_pt_utils import reissue_pt_warnings, atleast_1d
+from transformers.trainer_pt_utils import reissue_pt_warnings
 from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
 from transformers.utils import is_sagemaker_mp_enabled
 
@@ -130,6 +130,9 @@ class AugmentTrainerForTrainiumMixin:
         if not hasattr(self, "is_fsdp_enabled"):
             self.is_fsdp_enabled = False
 
+        if self.is_fsdp_enabled and self.args.do_eval:
+            raise ValueError("Evaluation is not supported with XLA FSDP yet.")
+
         if self.args.local_rank <= 0:
             logger.setLevel(logging.INFO)
 
@@ -204,30 +207,32 @@ class AugmentTrainerForTrainiumMixin:
         self.trigger_on_step_middle_for_neuron_cache_callback(model)
         return super().prediction_step(model, inputs, prediction_loss_only, ignore_keys=ignore_keys)
 
-    def _nested_gather_for_xla_fsdp(self, tensors, name=None):
-        # if isinstance(tensors, (list, tuple)):
-        #     return type(tensors)(self._nested_gather_for_xla_fsdp(t, f"{name}_{i}") for i, t in enumerate(tensors))
-        # if isinstance(tensors, dict):
-        #     return type(tensors)(
-        #         {k: self._nested_gather_for_xla_fsdp(t, f"{name}_{i}") for i, (k, t) in enumerate(tensors.items())}
-        #     )
+    # def _nested_gather_for_xla_fsdp(self, tensors, name=None):
+    #     # if isinstance(tensors, (list, tuple)):
+    #     #     return type(tensors)(self._nested_gather_for_xla_fsdp(t, f"{name}_{i}") for i, t in enumerate(tensors))
+    #     # if isinstance(tensors, dict):
+    #     #     return type(tensors)(
+    #     #         {k: self._nested_gather_for_xla_fsdp(t, f"{name}_{i}") for i, (k, t) in enumerate(tensors.items())}
+    #     #     )
 
-        # tensors = atleast_1d(tensors)
-        # return xm.mesh_reduce(name, tensors, torch.cat)
-        if isinstance(tensors, (tuple, list)):
-            return type(tensors)(self._nested_gather_for_xla_fsdp(t) for t in tensors)
-        elif isinstance(tensors, dict):
-            return type(tensors)({k: self._nested_gather_for_xla_fsdp(t) for k, t in tensors.items()})
-        tensors = atleast_1d(tensors)
-        output = [tensors.clone() for _ in range(self.args.world_size)]
-        for idx, t in enumerate(output):
-             output[idx] = xm.all_gather(t, 0)
-        return torch.cat(output, dim=0)
+    #     # tensors = atleast_1d(tensors)
+    #     # return xm.mesh_reduce(name, tensors, torch.cat)
+    #     if isinstance(tensors, (tuple, list)):
+    #         return type(tensors)(self._nested_gather_for_xla_fsdp(t) for t in tensors)
+    #     elif isinstance(tensors, dict):
+    #         return type(tensors)({k: self._nested_gather_for_xla_fsdp(t) for k, t in tensors.items()})
+    #     tensors = atleast_1d(tensors)
+    #     # result = torch.empty((self.args.world_size,), device=self.args.device, dtype=tensors.dtype)
+    #     # print("tensors", tensors)
+    #     # print("result", result)
+    #     result = xm.all_gather(tensors, dim=0)
+    #     # print("gathered result", result)
+    #     return result
 
-    def _nested_gather(self, tensors, name=None):
-        if self.is_fsdp_enabled:
-            return self._nested_gather_for_xla_fsdp(tensors, name="nested_gather_for_xla_fsdp")
-        return super()._nested_gather(tensors, name=name)
+    # def _nested_gather(self, tensors, name=None):
+    #     if self.is_fsdp_enabled:
+    #         return self._nested_gather_for_xla_fsdp(tensors, name="nested_gather_for_xla_fsdp")
+    #     return super()._nested_gather(tensors, name=name)
 
     def _save_checkpoint_for_xla_fsdp(self, model, trial, metrics=None):
         if not self.is_fsdp_enabled:
