@@ -171,7 +171,7 @@ def test_patch_model():
         patching_specs.append((bert_model,) + spec)
 
     with ModelPatcher(patching_specs, ignore_missing_attributes=True):
-        assert getattr(bert_model.config, "layerdrop", None) is None
+        assert getattr(bert_model.config, "layerdrop", None) == 0
         # Checking that the context manager exists.
         with bert_model.no_sync():
             pass
