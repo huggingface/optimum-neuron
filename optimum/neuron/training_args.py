@@ -21,21 +21,21 @@ import warnings
 from datetime import timedelta
 
 import torch
-from accelerate.state import AcceleratorState, PartialState
 from accelerate.utils import DistributedType
 from packaging import version
 from transformers.training_args import ParallelMode, TrainingArguments
 from transformers.training_args_seq2seq import Seq2SeqTrainingArguments
 from transformers.utils import (
     cached_property,
-    is_accelerate_available,
     is_sagemaker_dp_enabled,
     is_sagemaker_mp_enabled,
-    is_torch_tpu_available,
     requires_backends,
 )
 
 from ..utils import check_if_transformers_greater, logging
+from .accelerate import NeuronAcceleratorState, NeuronPartialState
+from .accelerate.utils import patch_accelerate_is_tpu_available
+from .utils import is_accelerate_available, is_torch_xla_available
 from .utils.training_utils import TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP
 
 
@@ -50,8 +50,10 @@ logger = logging.get_logger(__name__)
 
 class TrainiumTrainingArgumentsMixin:
     def __post_init__(self):
-        if self.fsdp is not None:
-            raise RuntimeError("FSDP is not supported yet in optimum-neuron.")
+        # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
+        patch_accelerate_is_tpu_available()
+
+        if self.fsdp != "":
             if self.fsdp_config is None:
                 self.fsdp_config = {"xla": True}
             elif isinstance(self.fsdp_config, str):
@@ -65,6 +67,8 @@ class TrainiumTrainingArgumentsMixin:
                 )
             else:
                 self.fsdp_config["xla"] = True
+
+            os.environ["ACCELERATE_USE_FSDP"] = "true"
 
             if not check_if_transformers_greater(TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP):
                 import transformers
@@ -80,15 +84,16 @@ class TrainiumTrainingArgumentsMixin:
     def _setup_devices(self) -> "torch.device":
         requires_backends(self, ["torch"])
         logger.info("PyTorch: setting up devices")
-        AcceleratorState._reset_state()
-        PartialState._reset_state()
-        if not is_sagemaker_mp_enabled() and not is_accelerate_available(check_partial_state=True):
+        NeuronAcceleratorState._reset_state()
+        NeuronPartialState._reset_state()
+        if not is_sagemaker_mp_enabled() and not is_accelerate_available():
             raise ImportError(
-                "Using the `Trainer` with `PyTorch` requires `accelerate>=0.19.0`: Please run `pip install transformers[torch]` or `pip install accelerate -U`"
+                "Using the `Trainer` with `PyTorch` requires `accelerate>=0.20.1`: Please run `pip install "
+                "transformers[torch]` or `pip install accelerate -U`"
             )
         self.distributed_state = None
         if self.no_cuda:
-            self.distributed_state = PartialState(cpu=True, backend=self.ddp_backend)
+            self.distributed_state = NeuronPartialState(cpu=True, backend=self.ddp_backend)
             self._n_gpu = 0
         elif is_sagemaker_mp_enabled():
             local_rank = smp.local_rank()
@@ -96,16 +101,16 @@ class TrainiumTrainingArgumentsMixin:
             self._n_gpu = 1
             torch.cuda.set_device(device)
         elif is_sagemaker_dp_enabled():
-            self.distributed_state = PartialState(_use_sagemaker_dp=True)
+            self.distributed_state = NeuronPartialState(_use_sagemaker_dp=True)
             self._n_gpu = 1
         elif self.deepspeed:
             # Need to do similar for Accelerator init
             os.environ["ACCELERATE_USE_DEEPSPEED"] = "true"
-            self.distributed_state = PartialState(timeout=timedelta(seconds=self.ddp_timeout))
+            self.distributed_state = NeuronPartialState(timeout=timedelta(seconds=self.ddp_timeout))
             del os.environ["ACCELERATE_USE_DEEPSPEED"]
             self._n_gpu = 1
         else:
-            self.distributed_state = PartialState(backend=self.ddp_backend)
+            self.distributed_state = NeuronPartialState(backend=self.ddp_backend)
             self._n_gpu = 1
         if not is_sagemaker_mp_enabled():
             device = self.distributed_state.device
@@ -120,7 +125,7 @@ class TrainiumTrainingArgumentsMixin:
                 "parallel_mode != ParallelMode.TPU. "
                 "In order to use Torch DDP / XLA FSDP, launch your script with `python -m torch.distributed.launch"
             )
-        if is_torch_tpu_available():
+        if is_torch_xla_available():
             device = self.distributed_state.device
             self._n_gpu = 0
         elif is_sagemaker_dp_enabled() or is_sagemaker_mp_enabled():

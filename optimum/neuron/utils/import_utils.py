@@ -15,6 +15,12 @@
 """Import utilities."""
 
 import importlib.util
+from typing import Optional
+
+from packaging import version
+
+
+MIN_ACCELERATE_VERSION = "0.20.1"
 
 
 def is_neuron_available() -> bool:
@@ -38,3 +44,16 @@ def is_torch_xla_available() -> bool:
 
 def is_neuronx_distributed_available() -> bool:
     return importlib.util.find_spec("neuronx_distributed") is not None
+
+
+def is_accelerate_available(min_version: Optional[str] = MIN_ACCELERATE_VERSION) -> bool:
+    _accelerate_available = importlib.util.find_spec("accelerate") is not None
+    if min_version is not None:
+        if _accelerate_available:
+            import accelerate
+
+            _accelerate_version = accelerate.__version__
+            return version.parse(_accelerate_version) >= version.parse(min_version)
+        else:
+            return False
+    return _accelerate_available

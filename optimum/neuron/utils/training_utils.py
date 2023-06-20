@@ -14,17 +14,15 @@
 # limitations under the License.
 """Training utilities"""
 
-import contextlib
-import functools
-import importlib
 import os
-from typing import TYPE_CHECKING, Callable, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, List, Optional, Union
 
 import torch
 import transformers
 from accelerate import skip_first_batches as accelerate_skip_first_batches
 from torch.utils._pytree import tree_map
 from torch.utils.data import DataLoader, Dataset, IterableDataset
+from transformers import GenerationMixin
 from transformers.models.auto.modeling_auto import (
     MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING_NAMES,
     MODEL_FOR_BACKBONE_MAPPING_NAMES,
@@ -48,6 +46,7 @@ from transformers.models.auto.modeling_auto import (
 from transformers.utils.logging import set_verbosity as set_verbosity_transformers
 
 from ...utils.logging import set_verbosity as set_verbosity_optimum
+from ..generation import NeuronGenerationMixin
 from . import is_torch_xla_available
 
 
@@ -222,42 +221,28 @@ def patched_finfo(dtype):
     return orig_finfo(dtype)
 
 
-class Patcher:
-    def __init__(self, patching_specs: Optional[List[Tuple[str, Callable]]] = None):
-        self.patching_specs = []
-        for orig, patch in patching_specs or []:
-            module_qualified_name, attribute_name = orig.rsplit(".", maxsplit=1)
-            module = importlib.import_module(module_qualified_name)
-            self.patching_specs.append((module, attribute_name, getattr(module, attribute_name), patch))
-
-    def __enter__(self):
-        for module, attribute_name, _, patch in self.patching_specs:
-            setattr(module, attribute_name, patch)
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        for module, attribute_name, _, patch in self.patching_specs:
-            setattr(module, attribute_name, patch)
-
-
-def patch_forward(forward_fn):
-    patcher = Patcher(patching_specs=[("torch.finfo", patched_finfo)])
-
-    @functools.wraps(forward_fn)
-    def wrapper(*args, **kwargs):
-        with patcher:
-            # args[0] is self, which will be automatically passed to the function
-            # because we later bind the wrapper to the model instance.
-            return forward_fn(*args[1:], **kwargs)
-
-    return wrapper
-
-
-def patch_model(model: "PreTrainedModel") -> "PreTrainedModel":
-    if hasattr(model.config, "layerdrop"):
-        model.config.layerdrop = 0
-    model.no_sync = lambda: contextlib.nullcontext()
-    model.forward = patch_forward(model.forward).__get__(model)
-    return model
+def patch_generation_mixin_to_neuron_generation_mixin(model: "PreTrainedModel"):
+    """
+    Changes the vanilla `GenerationMixin` class from Transformers to `NeuronGenerationMixin` in the model's
+    inheritance. This allows to make the model Neuron-compatible for generation without much hassle.
+    """
+    to_visit = [model.__class__]
+    should_stop = False
+    while to_visit and not should_stop:
+        cls = to_visit.pop(0)
+        bases = cls.__bases__
+        new_bases = []
+        for base in bases:
+            to_visit.append(base)
+            if base == GenerationMixin:
+                new_bases.append(NeuronGenerationMixin)
+                should_stop = True
+            elif base == NeuronGenerationMixin:
+                should_stop = True
+                new_bases.append(base)
+            else:
+                new_bases.append(base)
+        cls.__bases__ = tuple(new_bases)
 
 
 def prepare_environment_for_neuron():

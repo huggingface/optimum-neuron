@@ -31,9 +31,15 @@ _import_structure = {
         "NeuronModelForTokenClassification",
         "NeuronModelForMultipleChoice",
     ],
+    "accelerate": [
+        "NeuronAccelerator",
+        "NeuronAcceleratorState",
+        "NeuronPartialState",
+    ],
 }
 
 if TYPE_CHECKING:
+    from .accelerate import NeuronAccelerator, NeuronAcceleratorState, NeuronPartialState
     from .hf_argparser import TrainiumHfArgumentParser
     from .modeling import (
         NeuronModelForFeatureExtraction,
