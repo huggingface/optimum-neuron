@@ -21,10 +21,10 @@ import torch
 from torch.utils.data import DataLoader, Dataset, IterableDataset
 from transformers import BertConfig, BertForSequenceClassification, PreTrainedModel, Wav2Vec2Config, Wav2Vec2Model
 
+from optimum.neuron.trainers import MODEL_PATCHING_SPECS
+from optimum.neuron.utils import ModelPatcher
 from optimum.neuron.utils.testing_utils import is_trainium_test
 from optimum.neuron.utils.training_utils import FirstAndLastDataset, is_model_officially_supported
-from optimum.neuron.utils import ModelPatcher
-from optimum.neuron.trainers import MODEL_PATCHING_SPECS
 
 
 @is_trainium_test

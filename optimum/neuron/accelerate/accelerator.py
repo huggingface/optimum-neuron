@@ -88,14 +88,8 @@ class NeuronAccelerator(Accelerator):
 
         super().__init__(**full_kwargs)
 
-        # TODO: not needed in theory.
-        # if isinstance(fsdp_plugin, FullyShardedDataParallelPlugin) and not isinstance(fsdp_plugin, NeuronFullyShardedDataParallelPlugin):
-        #     fsdp_plugin.__class__ = NeuronFullyShardedDataParallelPlugin
-
         if num_steps != 1:
             self.gradient_accumulation_steps = num_steps
-
-        print("Distributed Type", self.distributed_type)
 
     @patch_within_function(("accelerate.accelerator.AcceleratedOptimizer", NeuronAcceleratedOptimizer))
     def prepare_optimizer(self, optimizer: torch.optim.Optimizer, device_placement=None):
