@@ -247,6 +247,31 @@ class VaeDecoderNeuronConfig(VisionNeuronConfig):
         return super().check_model_inputs_order(model=model, dummy_inputs=dummy_inputs, forward_with_tuple=True)
 
 
+@register_in_tasks_manager("conv2d", *["semantic-segmentation"])
+class Conv2dNeuronConfig(VisionNeuronConfig):
+    ATOL_FOR_VALIDATION = 1e-3
+
+    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
+        num_channels="latent_channels",
+        allow_new=True,
+    )
+
+    @property
+    def inputs(self) -> List[str]:
+        return ["latent_sample"]
+
+    @property
+    def outputs(self) -> List[str]:
+        return ["sample"]
+    
+    def check_model_inputs_order(self,
+        model: torch.nn.Module,
+        dummy_inputs: Dict[str, torch.Tensor],
+        **kwargs,
+    ):
+        return super().check_model_inputs_order(model=model, dummy_inputs=dummy_inputs, forward_with_tuple=True)
+
+
 @register_in_tasks_manager("unet", *["semantic-segmentation"])
 class UNetNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
