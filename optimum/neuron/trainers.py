@@ -29,12 +29,13 @@ from packaging import version
 from transformers import PreTrainedModel, Seq2SeqTrainer, Trainer, TrainingArguments
 from transformers.dependency_versions_check import dep_version_check
 from transformers.integrations import is_fairscale_available
+from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
 from transformers.trainer import (
     OPTIMIZER_NAME,
     SCHEDULER_NAME,
     TRAINER_STATE_NAME,
 )
-from transformers.trainer_pt_utils import reissue_pt_warnings
+from transformers.trainer_pt_utils import get_parameter_names, reissue_pt_warnings
 from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
 from transformers.utils import is_sagemaker_mp_enabled
 
@@ -164,9 +165,73 @@ class AugmentTrainerForTrainiumMixin:
     def validate_args(self, args: "TrainingArguments"):
         pass
 
-    @patch_within_function(("transformers.trainer.Accelerator", NeuronAccelerator), ignore_missing_attributes=True)
+    def _create_optimizer_for_zero_stage_1(self):
+        opt_model = self.model_wrapped if is_sagemaker_mp_enabled() else self.model
+        from torch.nn.parallel import DistributedDataParallel as DDP
+
+        opt_model = DDP(opt_model)
+
+        if self.optimizer is None:
+            decay_parameters = get_parameter_names(opt_model, ALL_LAYERNORM_LAYERS)
+            decay_parameters = [name for name in decay_parameters if "bias" not in name]
+            optimizer_grouped_parameters = [
+                {
+                    "params": [
+                        p for n, p in opt_model.named_parameters() if (n in decay_parameters and p.requires_grad)
+                    ],
+                    "weight_decay": self.args.weight_decay,
+                },
+                {
+                    "params": [
+                        p for n, p in opt_model.named_parameters() if (n not in decay_parameters and p.requires_grad)
+                    ],
+                    "weight_decay": 0.0,
+                },
+            ]
+
+            optimizer_cls, optimizer_kwargs = Trainer.get_optimizer_cls_and_kwargs(self.args)
+            from torch_xla.distributed.zero_redundancy_optimizer import ZeroRedundancyOptimizer
+
+            optimizer = ZeroRedundancyOptimizer(optimizer_grouped_parameters, optimizer_cls, **optimizer_kwargs)
+            self.optimizer = optimizer
+        else:
+            # TODO: should we prepare the optimizer here?
+            pass
+
+        return self.optimizer
+
+    def create_optimizer(self):
+        if self.args.zero_stage_1:
+            return self._create_optimizer_for_zero_stage_1()
+        return super().create_optimizer()
+
     def create_accelerator_and_postprocess(self):
-        return super().create_accelerator_and_postprocess()
+        # create accelerator object
+        self.accelerator = NeuronAccelerator(
+            deepspeed_plugin=self.args.deepspeed_plugin,
+            gradient_accumulation_steps=self.args.gradient_accumulation_steps,
+            zero_stage_1=self.args.zero_stage_1,
+        )
+
+        # deepspeed and accelerate flags covering both trainer args and accelerate launcher
+        self.is_deepspeed_enabled = getattr(self.accelerator.state, "deepspeed_plugin", None) is not None
+        self.is_fsdp_enabled = getattr(self.accelerator.state, "fsdp_plugin", None) is not None
+
+        # post accelerator creation setup
+        if self.is_fsdp_enabled:
+            fsdp_plugin = self.accelerator.state.fsdp_plugin
+            fsdp_plugin.limit_all_gathers = self.args.fsdp_config.get("limit_all_gathers", False)
+            fsdp_plugin.use_orig_params = self.args.fsdp_config.get("use_orig_params", False)
+
+        if self.is_deepspeed_enabled:
+            if getattr(self.args, "hf_deepspeed_config", None) is None:
+                from transformers.deepspeed import HfTrainerDeepSpeedConfig
+
+                ds_plugin = self.accelerator.state.deepspeed_plugin
+
+                ds_plugin.hf_ds_config = HfTrainerDeepSpeedConfig(ds_plugin.hf_ds_config.config)
+                ds_plugin.deepspeed_config = ds_plugin.hf_ds_config.config
+                ds_plugin.hf_ds_config.trainer_config_process(self.args)
 
     def _wrap_model(self, model, training=True, dataloader=None):
         patching_specs = []

@@ -47,6 +47,7 @@ if TYPE_CHECKING:
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
+    from torch_xla.distributed.zero_redundancy_optimizer import ZeroRedundancyOptimizer
 
 if is_fp8_available():
     pass
@@ -58,9 +59,16 @@ logger = logging.get_logger(__name__)
 # TODO: should we do a XLAFSDPNeuronAccelerator instead?
 class NeuronAccelerator(Accelerator):
     @patch_within_function(("accelerate.accelerator.AcceleratorState", NeuronAcceleratorState))
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, zero_stage_1: bool = False, **kwargs):
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
         patch_accelerate_is_tpu_available()
+
+        if os.environ.get("ACCELERATE_USE_XLA_ZERO_STAGE_1", "false") == "true":
+            zero_stage_1 = True
+        elif zero_stage_1:
+            os.environ["ACCELERATE_USE_XLA_ZERO_STAGE_1"] = "true"
+
+        self.zero_stage_1 = zero_stage_1
 
         full_kwargs = args_and_kwargs_to_kwargs_only(
             super().__init__, args=args, kwargs=kwargs, include_default_values=True
@@ -85,21 +93,55 @@ class NeuronAccelerator(Accelerator):
         if os.environ.get("ACCELERATE_USE_FSDP", "false") == "true":
             if fsdp_plugin is None:
                 fsdp_plugin = NeuronFullyShardedDataParallelPlugin()
+            elif not isinstance(fsdp_plugin, NeuronFullyShardedDataParallelPlugin):
+                raise ValueError(
+                    "The fsdp_plugin must be an instance of NeuronFullyShardedDataParallelPlugin to use XLA FSDP with "
+                    f"the NeuronAccelerator, but an instance of {type(fsdp_plugin)} was given here."
+                )
 
         super().__init__(**full_kwargs)
+
+        if fsdp_plugin and self.zero_stage_1:
+            raise ValueError("Either enable XLA ZeRO Stage 1 or XLA FSDP but not both.")
+
+        elif self.process_index == -1 and self.zero_stage_1:
+            raise ValueError("XLA ZeRO Stage 1 can only be enabled in a distributed training setting.")
 
         if num_steps != 1:
             self.gradient_accumulation_steps = num_steps
 
+    def _prepare_optimizer_for_zero_stage_1(self, optimizer: torch.optim.Optimizer, device_placement=None):
+        if isinstance(optimizer, ZeroRedundancyOptimizer):
+            print("SKIPPING")
+            return optimizer
+        print("MDR")
+        mixed_precision_to_dtype = {
+            "no": torch.float32,
+            "bf16": torch.bfloat16,
+        }
+        optimizer_dtype = mixed_precision_to_dtype.get(self.state.mixed_precision, None)
+        if optimizer_dtype is None:
+            raise ValueError(f"The precision {self.state.mixed_precision} is not supported for ZeRO Stage 1")
+        zero_optimizer = ZeroRedundancyOptimizer(
+            optimizer.param_groups,
+            optimizer.__class__,
+            optimizer_dtype=optimizer_dtype,
+        )
+        del optimizer
+        return zero_optimizer
+
     @patch_within_function(("accelerate.accelerator.AcceleratedOptimizer", NeuronAcceleratedOptimizer))
     def prepare_optimizer(self, optimizer: torch.optim.Optimizer, device_placement=None):
+        if self.zero_stage_1:
+            optimizer = self._prepare_optimizer_for_zero_stage_1(optimizer, device_placement=device_placement)
+            return optimizer
         return super().prepare_optimizer(optimizer, device_placement=device_placement)
 
     @patch_within_function(("accelerate.accelerator.AcceleratedScheduler", NeuronAcceleratedScheduler))
     def prepare_scheduler(self, scheduler: "LRScheduler"):
         return super().prepare_scheduler(scheduler)
 
-    def prepare_model_for_xla_fsdp(self, model: torch.nn.Module, device_placement=None):
+    def _prepare_model_for_xla_fsdp(self, model: torch.nn.Module, device_placement=None):
         if device_placement is None:
             device_placement = self.device_placement
         self._models.append(model)
@@ -168,10 +210,10 @@ class NeuronAccelerator(Accelerator):
 
     def prepare_model(self, model: torch.nn.Module, device_placement=None):
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:
-            return self.prepare_model_for_xla_fsdp(model, device_placement=device_placement)
+            return self._prepare_model_for_xla_fsdp(model, device_placement=device_placement)
         return super().prepare_model(model, device_placement=device_placement)
 
-    def backward_for_xla_fsdp(self, loss, **kwargs):
+    def _backward_for_xla_fsdp(self, loss, **kwargs):
         if self.scaler is not None:
             self.scaler.scale(loss).backward(**kwargs)
         else:
@@ -181,14 +223,14 @@ class NeuronAccelerator(Accelerator):
         if self.distributed_type != DistributedType.DEEPSPEED:
             loss = loss / self.gradient_accumulation_steps
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:
-            self.backward_for_xla_fsdp(loss, **kwargs)
+            self._backward_for_xla_fsdp(loss, **kwargs)
         elif self.scaler is not None:
             self.scaler.scale(loss).backward(**kwargs)
         else:
             # Providing **kwargs causes "Unsupported XLA type 10"
             loss.backward(**kwargs)
 
-    def clip_grad_norm_for_xla_fsdp(self, parameters, max_norm, norm_type=2):
+    def _clip_grad_norm_for_xla_fsdp(self, parameters, max_norm, norm_type=2):
         self.unscale_gradients()
         parameters = list(parameters)
         for model in self._models:
@@ -197,7 +239,7 @@ class NeuronAccelerator(Accelerator):
 
     def clip_grad_norm_(self, parameters, max_norm, norm_type=2):
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:
-            return self.clip_grad_norm_for_xla_fsdp(parameters, max_norm, norm_type=norm_type)
+            return self._clip_grad_norm_for_xla_fsdp(parameters, max_norm, norm_type=norm_type)
         return super().clip_grad_norm_(parameters, max_norm, norm_type=norm_type)
 
     def clip_grad_value_(self, parameters, clip_value):
@@ -205,7 +247,7 @@ class NeuronAccelerator(Accelerator):
             raise Exception("XLA FSDP  does not support `clip_grad_value_`. Use `clip_grad_norm_` instead.")
         return super().clip_grad_value_(parameters, clip_value)
 
-    def save_state_for_xla_fsdp(self, output_dir: Optional[str] = None, **save_model_func_kwargs):
+    def _save_state_for_xla_fsdp(self, output_dir: Optional[str] = None, **save_model_func_kwargs):
         if self.project_configuration.automatic_checkpoint_naming:
             output_dir = os.path.join(self.project_dir, "checkpoints")
 
@@ -271,5 +313,5 @@ class NeuronAccelerator(Accelerator):
 
     def save_state(self, output_dir: Optional[str] = None, **save_model_func_kwargs):
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:
-            return self.save_state_for_xla_fsdp(output_dir=output_dir, **save_model_func_kwargs)
+            return self._save_state_for_xla_fsdp(output_dir=output_dir, **save_model_func_kwargs)
         return super().save_state(output_dir=output_dir, **save_model_func_kwargs)
