@@ -58,10 +58,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v2
-      - name: Install Python dependencies
-        run: pip install .[tests]
       - name: Install python3.8-venv
         run: sudo apt update; sudo apt install -y python3.8-venv
+      - name: Install Python dependencies
+        run: pip install .[tests]
       - name: Run tests on neuron cores
         run: |
           HF_TOKEN_OPTIMUM_NEURON_CI=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} USE_VENV="false" pytest -m "is_trainium_test" tests/test_*.py -k "not test_run_example"
