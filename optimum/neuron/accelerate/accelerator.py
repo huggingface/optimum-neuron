@@ -27,11 +27,12 @@ from accelerate.checkpointing import save_accelerator_state, save_custom_state
 # from accelerate.state import AcceleratorState
 from accelerate.utils import (
     DistributedType,
-    is_fp8_available,
 )
 
+from optimum.neuron.accelerate.utils.dataclasses import TensorParallelismPlugin
+
 from ...utils import logging
-from ..utils import is_torch_xla_available, patch_within_function
+from ..utils import is_neuronx_distributed_available, is_torch_xla_available, patch_within_function
 from ..utils.misc import args_and_kwargs_to_kwargs_only
 from .optimizer import NeuronAcceleratedOptimizer
 from .scheduler import NeuronAcceleratedScheduler
@@ -48,8 +49,8 @@ if TYPE_CHECKING:
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
 
-if is_fp8_available():
-    pass
+if is_neuronx_distributed_available():
+    from neuronx_distributed import parallel_state
 
 
 logger = logging.get_logger(__name__)
@@ -58,7 +59,7 @@ logger = logging.get_logger(__name__)
 # TODO: should we do a XLAFSDPNeuronAccelerator instead?
 class NeuronAccelerator(Accelerator):
     @patch_within_function(("accelerate.accelerator.AcceleratorState", NeuronAcceleratorState))
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, tp_plugin: Optional[TensorParallelismPlugin] = None, **kwargs):
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
         patch_accelerate_is_tpu_available()
 
@@ -88,8 +89,34 @@ class NeuronAccelerator(Accelerator):
 
         super().__init__(**full_kwargs)
 
+        if fsdp_plugin is not None and tp_plugin is not None:
+            raise ValueError("It is not possible to both use neuronx_distributed Tensor Parallelism and XLA FSDP.")
+
+        # TODO: all of this should be done in the AcceleratorState.
+        if tp_plugin is not None and tp_plugin.should_parallelize:
+            os.environ["ACCELERATE_USE_NEURONX_DISTRIBUTED_TP"] = "true"
+            parallel_state.initialize_model_parallel(tensor_model_parallel_size=tp_plugin.tensor_parallel_size)
+            self.state.distributed_type = NeuronDistributedType.TENSOR_PARALLELISM
+        self.tp_plugin = tp_plugin
+
         if num_steps != 1:
             self.gradient_accumulation_steps = num_steps
+
+    def _prepare_data_loader_for_tp(self, data_loader: torch.utils.data.DataLoader):
+        from torch.utils.data.distributed import DistributedSampler
+
+        sampler = DistributedSampler(
+            data_loader.dataset,
+            num_replicas=parallel_state.get_data_parallel_world_size(),
+            rank=parallel_state.get_data_parallel_rank(),
+        )
+        data_loader.sampler = sampler
+        return data_loader
+
+    def prepare_data_loader(self, data_loader: torch.utils.data.DataLoader, device_placement=None):
+        if self.tensor_parallel_size > 1:
+            return self._prepare_data_loader_for_tp(data_loader)
+        return super().prepare_data_loader(data_loader, device_placement=device_placement)
 
     @patch_within_function(("accelerate.accelerator.AcceleratedOptimizer", NeuronAcceleratedOptimizer))
     def prepare_optimizer(self, optimizer: torch.optim.Optimizer, device_placement=None):
@@ -166,9 +193,19 @@ class NeuronAccelerator(Accelerator):
 
         return model
 
+    def _prepare_model_for_tensor_parallelism(self, model: "PreTrainedModel"):
+        model = self.tp_plugin.parallelize_model(model)
+        parallel_layers.move_model_to_device(model, self.device)
+        return model
+
     def prepare_model(self, model: torch.nn.Module, device_placement=None):
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:
             return self.prepare_model_for_xla_fsdp(model, device_placement=device_placement)
+        elif self.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
+            import pdb
+
+            pdb.set_trace()
+            return self._prepare_data_loader_for_tp(model)
         return super().prepare_model(model, device_placement=device_placement)
 
     def backward_for_xla_fsdp(self, loss, **kwargs):

@@ -17,11 +17,13 @@
 import enum
 import os
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import torch
 from accelerate.utils.constants import MODEL_NAME, OPTIMIZER_NAME
 from accelerate.utils.dataclasses import FullyShardedDataParallelPlugin
 
+from ...distributed import ParallelizersManager
 from ...utils import is_torch_xla_available
 
 
@@ -29,6 +31,9 @@ if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
     from torch_xla.distributed.fsdp import XlaFullyShardedDataParallel as FSDP
     from torch_xla.distributed.fsdp.state_dict_utils import consolidate_sharded_model_checkpoints
+
+if TYPE_CHECKING:
+    from transformers import PreTrainedModel
 
 
 class NeuronDistributedType(str, enum.Enum):
@@ -40,6 +45,7 @@ class NeuronDistributedType(str, enum.Enum):
     """
 
     XLA_FSDP = "XLA_FSDP"
+    TENSOR_PARALLELISM = "TENSOR_PARALLELISM"
 
 
 @dataclass
@@ -130,3 +136,20 @@ class NeuronFullyShardedDataParallelPlugin(FullyShardedDataParallelPlugin):
         optim_state = torch.load(optimizer_path)
         xm.send_cpu_data_to_device(optim_state, accelerator.device)
         optimizer.load_state_dict(optim_state["optimizer"])
+
+
+@dataclass
+class TensorParallelismPlugin:
+    tensor_parallel_size: int = 1
+
+    def __post_init__(self):
+        if self.tensor_parallel_size < 1:
+            raise ValueError(f"The tensor parallel size must be >= 1, but {self.tensor_parallel_size} was given here.")
+
+    @property
+    def should_parallelize(self):
+        return self.tensor_parallel_size > 1
+
+    def parallelize_model(self, model: "PreTrainedModel") -> "PreTrainedModel":
+        parallelizer = ParallelizersManager.parallelizer_for_model(model)
+        return parallelizer.parallelize(model)
