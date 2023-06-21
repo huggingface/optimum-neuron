@@ -22,16 +22,14 @@ from functools import partial
 from typing import TYPE_CHECKING, Optional
 
 import torch
-from transformers import PreTrainedModel
 from accelerate import Accelerator
 from accelerate.checkpointing import save_accelerator_state, save_custom_state
-
 from accelerate.utils import DistributedType
 
 from optimum.neuron.accelerate.utils.dataclasses import TensorParallelismPlugin
 
 from ...utils import logging
-from ..utils import is_neuronx_distributed_available, is_torch_xla_available, patch_within_function, Patcher
+from ..utils import Patcher, is_neuronx_distributed_available, is_torch_xla_available, patch_within_function
 from ..utils.misc import args_and_kwargs_to_kwargs_only
 from .optimizer import NeuronAcceleratedOptimizer
 from .scheduler import NeuronAcceleratedScheduler
@@ -105,7 +103,7 @@ class NeuronAccelerator(Accelerator):
 
         if num_steps != 1:
             self.gradient_accumulation_steps = num_steps
-        
+
     def _prepare_data_loader_for_tp(self, data_loader: torch.utils.data.DataLoader):
         from torch.utils.data.distributed import DistributedSampler
 
@@ -130,7 +128,9 @@ class NeuronAccelerator(Accelerator):
     def prepare_scheduler(self, scheduler: "LRScheduler"):
         return super().prepare_scheduler(scheduler)
 
-    def prepare_model_for_xla_fsdp(self, model: torch.nn.Module, device_placement: Optional[bool] = None, evaluation_mode: bool = False):
+    def prepare_model_for_xla_fsdp(
+        self, model: torch.nn.Module, device_placement: Optional[bool] = None, evaluation_mode: bool = False
+    ):
         if device_placement is None:
             device_placement = self.device_placement
         self._models.append(model)
@@ -198,17 +198,25 @@ class NeuronAccelerator(Accelerator):
 
         return model
 
-    def _prepare_model_for_tp(self, model: torch.nn.Module, device_placement: Optional[bool] = None, evaluation_mode: bool = False):
+    def _prepare_model_for_tp(
+        self, model: torch.nn.Module, device_placement: Optional[bool] = None, evaluation_mode: bool = False
+    ):
         if not evaluation_mode:
             model = self.state.tp_plugin.parallelize_model(model)
             parallel_layers.move_model_to_device(model, self.device)
         return super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
 
-    def prepare_model(self, model: torch.nn.Module, device_placement: Optional[bool] = None, evaluation_mode: bool = False):
+    def prepare_model(
+        self, model: torch.nn.Module, device_placement: Optional[bool] = None, evaluation_mode: bool = False
+    ):
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:
-            return self.prepare_model_for_xla_fsdp(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
+            return self.prepare_model_for_xla_fsdp(
+                model, device_placement=device_placement, evaluation_mode=evaluation_mode
+            )
         elif self.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
-            return self._prepare_model_for_tp(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
+            return self._prepare_model_for_tp(
+                model, device_placement=device_placement, evaluation_mode=evaluation_mode
+            )
         return super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
 
     def backward_for_xla_fsdp(self, loss, **kwargs):

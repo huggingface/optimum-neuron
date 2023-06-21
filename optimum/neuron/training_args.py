@@ -35,7 +35,7 @@ from transformers.utils import (
 
 from ..utils import check_if_transformers_greater, logging
 from .accelerate import NeuronAcceleratorState, NeuronPartialState
-from .accelerate.utils import patch_accelerate_is_tpu_available, TensorParallelismPlugin
+from .accelerate.utils import TensorParallelismPlugin, patch_accelerate_is_tpu_available
 from .utils import is_accelerate_available, is_torch_xla_available
 from .utils.training_utils import TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP
 
@@ -50,7 +50,6 @@ logger = logging.get_logger(__name__)
 
 
 class TrainiumTrainingArgumentsMixin:
-
     def __post_init__(self):
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
         patch_accelerate_is_tpu_available()

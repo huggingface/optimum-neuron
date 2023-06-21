@@ -40,7 +40,6 @@ from transformers.utils import is_sagemaker_mp_enabled
 
 from ..utils import check_if_transformers_greater, logging
 from .accelerate import NeuronAccelerator
-from .accelerate.utils import TensorParallelismPlugin
 from .trainer_callback import NeuronCacheCallaback
 from .utils import DynamicPatch, ModelPatcher, is_torch_xla_available, patch_within_function
 from .utils.cache_utils import get_neuron_cache_path
@@ -138,7 +137,7 @@ class AugmentTrainerForTrainiumMixin:
             logger.setLevel(logging.INFO)
 
         if not is_precompilation():
-            callback = NeuronCacheCallaback(
+            NeuronCacheCallaback(
                 tmp_neuron_cache=_TMP_NEURON_CACHE_DIR,
                 original_neuron_cache_path=_ORIGINAL_NEURON_CACHE_PATH,
                 only_do_fetching=self.args.local_rank > 0,

@@ -34,7 +34,7 @@ from accelerate.utils import (
 from accelerate.utils.dataclasses import FullyShardedDataParallelPlugin, SageMakerDistributedType
 
 from ...utils import logging
-from ..utils import is_torch_xla_available, is_neuronx_distributed_available
+from ..utils import is_neuronx_distributed_available, is_torch_xla_available
 from .utils import NeuronDistributedType, NeuronFullyShardedDataParallelPlugin
 
 
@@ -274,7 +274,9 @@ class NeuronAcceleratorState(AcceleratorState):
                             "TensorParallelismPlugin was provided."
                         )
                     if tp_plugin.should_parallelize:
-                        parallel_state.initialize_model_parallel(tensor_model_parallel_size=tp_plugin.tensor_parallel_size)
+                        parallel_state.initialize_model_parallel(
+                            tensor_model_parallel_size=tp_plugin.tensor_parallel_size
+                        )
                         self.distributed_type = NeuronDistributedType.TENSOR_PARALLELISM
                     else:
                         logger.warning(

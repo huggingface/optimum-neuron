@@ -15,7 +15,7 @@
 """Factory class mapping model architectures to their Parallelizer class."""
 
 import importlib
-from typing import Type, Union, Dict
+from typing import Dict, Type, Union
 
 from transformers import PreTrainedModel
 
@@ -26,7 +26,10 @@ from .base import Parallelizer
 
 _PARALLELIZER_CLASSES_MODULE_NAMES = ["encoder_models", "decoder_models"]
 
-def parallelizer_classes_resolver(model_type_to_parallelizer_class_name: Dict[str, str]) -> Dict[str, Type[Parallelizer]]:
+
+def parallelizer_classes_resolver(
+    model_type_to_parallelizer_class_name: Dict[str, str]
+) -> Dict[str, Type[Parallelizer]]:
     modules = []
     for module_name in _PARALLELIZER_CLASSES_MODULE_NAMES:
         package_name = __name__.rsplit(".", maxsplit=1)[0]
@@ -48,11 +51,13 @@ def parallelizer_classes_resolver(model_type_to_parallelizer_class_name: Dict[st
 
 
 class ParallelizersManager:
-    _MODEL_TYPE_TO_PARALLEL_MODEL_CLASS = parallelizer_classes_resolver({
-        "bert": "BertParallelizer",
-        "roberta": "RobertaParallelizer",
-        "gpt_neo": "GPTNeoParallelizer",
-    })
+    _MODEL_TYPE_TO_PARALLEL_MODEL_CLASS = parallelizer_classes_resolver(
+        {
+            "bert": "BertParallelizer",
+            "roberta": "RobertaParallelizer",
+            "gpt_neo": "GPTNeoParallelizer",
+        }
+    )
 
     @classmethod
     def _get_model_type(cls, model_type_or_model: Union[str, PreTrainedModel]) -> str:

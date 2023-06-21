@@ -16,11 +16,8 @@
 
 from typing import TYPE_CHECKING, Optional, Type
 
-from transformers.models.bert.modeling_bert import BertSelfAttention, BertSelfOutput
-
 from ...utils import NormalizedConfigManager
 from ..utils import is_neuronx_distributed_available
-from .base import Parallelizer
 from .utils import linear_to_parallel_linear
 
 
@@ -28,7 +25,7 @@ if is_neuronx_distributed_available():
     from neuronx_distributed.parallel_layers import parallel_state
 
 if TYPE_CHECKING:
-    from transformers import PretrainedConfig, PreTrainedModel
+    from transformers import PretrainedConfig
 
 
 class ParallelSelfAttention:
@@ -79,4 +76,3 @@ class ParallelSelfOutput:
             self.OUTPUT_PROJECTION_NAME,
             linear_to_parallel_linear(getattr(self, self.OUTPUT_PROJECTION_NAME), "row", input_is_parallel=True),
         )
-

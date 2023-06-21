@@ -14,23 +14,20 @@
 # limitations under the License.
 """Classes related to `neuronx-distributed` to perform parallelism."""
 
-from typing import TYPE_CHECKING, Optional, Type
+from typing import TYPE_CHECKING
 
 from transformers.models.bert.modeling_bert import BertSelfAttention, BertSelfOutput
 
-from ...utils import NormalizedConfigManager
 from ..utils import is_neuronx_distributed_available
 from .base import Parallelizer
-from .utils import linear_to_parallel_linear
 from .parallel_layers import ParallelSelfAttention, ParallelSelfOutput
 
 
 if is_neuronx_distributed_available():
-    from neuronx_distributed.parallel_layers import parallel_state
+    pass
 
 if TYPE_CHECKING:
-    from transformers import PretrainedConfig, PreTrainedModel
-
+    from transformers import PreTrainedModel
 
 
 class BertParallelSelfAttention(ParallelSelfAttention, BertSelfAttention):
@@ -49,12 +46,14 @@ class BertParallelizer(Parallelizer):
             layer.attention.output = BertParallelSelfOutput(model.config)
         return model
 
+
 class RobertaParallelSelfAttention(BertParallelSelfAttention):
     pass
 
 
 class RobertaParallelSelfOutput(BertParallelSelfOutput):
     pass
+
 
 class RobertaParallelizer(Parallelizer):
     @classmethod

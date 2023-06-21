@@ -18,8 +18,9 @@ from typing import TYPE_CHECKING
 
 from transformers.models.gpt_neo.modeling_gpt_neo import GPTNeoSelfAttention
 
-from .parallel_layers import ParallelSelfAttention
 from .base import Parallelizer
+from .parallel_layers import ParallelSelfAttention
+
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
@@ -33,11 +34,9 @@ class GPTNeoParallelSelfAttention(ParallelSelfAttention, GPTNeoSelfAttention):
     ALL_HEAD_SIZE_NAME = "embed_dim"
 
 
-
 class GPTNeoParallelizer(Parallelizer):
     @classmethod
     def parallelize(cls, model: "PreTrainedModel") -> "PreTrainedModel":
         for block in model.transformer.h:
             block.attn.attention = GPTNeoParallelSelfAttention(model.config)
         return model
-
