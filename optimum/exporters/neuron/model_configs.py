@@ -308,3 +308,4 @@ class UNetNeuronConfig(VisionNeuronConfig):
             return tuple(dummy_inputs.values())
         else:
             return dummy_inputs
+    

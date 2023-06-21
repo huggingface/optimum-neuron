@@ -21,14 +21,18 @@ import numpy as np
 import torch
 
 from ...exporters.error_utils import OutputMatchError, ShapeError
-from ...neuron.utils import convert_neuronx_compiler_args_to_neuron, is_neuron_available, is_neuronx_available
+from ...neuron.utils import (
+    convert_neuronx_compiler_args_to_neuron, 
+    get_attention_scores,
+    is_neuron_available, 
+    is_neuronx_available,
+)
 from ...utils import logging, is_diffusers_available
     
 
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
-
     from .base import NeuronConfig
 
 if is_neuron_available():
@@ -38,7 +42,7 @@ if is_neuronx_available():
     import torch_neuronx as neuronx  # noqa: F811
 
 if is_diffusers_available():
-    from diffusers import ModelMixin
+    from diffusers import ModelMixin   
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
@@ -173,7 +177,6 @@ def export_neuronx(
     output: Path,
     auto_cast: Optional[str] = None,
     auto_cast_type: str = "bf16",
-    dynamic_batch_size: bool = False,
 ) -> Tuple[List[str], List[str]]:
     """
     Exports a PyTorch model to a serialized TorchScript module compiled by neuronx-cc compiler.
@@ -226,6 +229,13 @@ def export_neuronx(
         compiler_args.extend(["--auto-cast-type", auto_cast_type])
     else:
         compiler_args = ["--auto-cast", "none"]
+    
+    # diffusers specific
+    if "unet" in config._config._class_name.lower():
+        from diffusers.models.attention_processor import Attention
+
+        compiler_args.extend(["--model-type", "unet-inference"])
+        Attention.get_attention_scores = get_attention_scores
 
     neuron_model = neuronx.trace(checked_model, dummy_inputs_tuple, compiler_args=compiler_args)
 
