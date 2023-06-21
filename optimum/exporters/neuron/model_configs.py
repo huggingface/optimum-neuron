@@ -301,6 +301,7 @@ class UNetNeuronConfig(VisionNeuronConfig):
 
     def generate_dummy_inputs(self, return_tuple: bool = False, **kwargs):
         dummy_inputs = super().generate_dummy_inputs(**kwargs)
+        dummy_inputs["timestep"] = dummy_inputs["timestep"].float()
         dummy_inputs["encoder_hidden_states"] = dummy_inputs["encoder_hidden_states"][0]
 
         if return_tuple is True:
