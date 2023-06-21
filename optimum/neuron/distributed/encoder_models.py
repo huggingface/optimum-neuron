@@ -58,7 +58,7 @@ class ParallelSelfAttention:
         setattr(
             self,
             self.ALL_HEAD_SIZE_NAME,
-            all_head_size / parallel_state.get_tensor_model_parallel_size(),
+            all_head_size // parallel_state.get_tensor_model_parallel_size(),
         )
 
 

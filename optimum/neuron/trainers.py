@@ -143,7 +143,8 @@ class AugmentTrainerForTrainiumMixin:
                 original_neuron_cache_path=_ORIGINAL_NEURON_CACHE_PATH,
                 only_do_fetching=self.args.local_rank > 0,
             )
-            self.add_callback(callback)
+            # TODO: re-enable.
+            # self.add_callback(callback)
 
         # Make the model Neuron-compatible for generation.
         patch_generation_mixin_to_neuron_generation_mixin(self.model)
@@ -170,7 +171,7 @@ class AugmentTrainerForTrainiumMixin:
         self.accelerator = NeuronAccelerator(
             deepspeed_plugin=self.args.deepspeed_plugin,
             gradient_accumulation_steps=self.args.gradient_accumulation_steps,
-            tp_plugin=TensorParallelismPlugin(self.args.tensor_parallel_size),
+            tp_plugin=self.args.tp_plugin,
         )
 
         # deepspeed and accelerate flags covering both trainer args and accelerate launcher

@@ -18,21 +18,20 @@ import inspect
 import os
 import re
 import shutil
+from functools import partial
 from typing import TYPE_CHECKING, Optional
 
 import torch
+from transformers import PreTrainedModel
 from accelerate import Accelerator
 from accelerate.checkpointing import save_accelerator_state, save_custom_state
 
-# from accelerate.state import AcceleratorState
-from accelerate.utils import (
-    DistributedType,
-)
+from accelerate.utils import DistributedType
 
 from optimum.neuron.accelerate.utils.dataclasses import TensorParallelismPlugin
 
 from ...utils import logging
-from ..utils import is_neuronx_distributed_available, is_torch_xla_available, patch_within_function
+from ..utils import is_neuronx_distributed_available, is_torch_xla_available, patch_within_function, Patcher
 from ..utils.misc import args_and_kwargs_to_kwargs_only
 from .optimizer import NeuronAcceleratedOptimizer
 from .scheduler import NeuronAcceleratedScheduler
@@ -50,7 +49,7 @@ if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
 
 if is_neuronx_distributed_available():
-    from neuronx_distributed import parallel_state
+    from neuronx_distributed import parallel_layers
 
 
 logger = logging.get_logger(__name__)
@@ -58,7 +57,7 @@ logger = logging.get_logger(__name__)
 
 # TODO: should we do a XLAFSDPNeuronAccelerator instead?
 class NeuronAccelerator(Accelerator):
-    @patch_within_function(("accelerate.accelerator.AcceleratorState", NeuronAcceleratorState))
+    # @patch_within_function(("accelerate.accelerator.AcceleratorState", NeuronAcceleratorState))
     def __init__(self, *args, tp_plugin: Optional[TensorParallelismPlugin] = None, **kwargs):
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
         patch_accelerate_is_tpu_available()
@@ -83,32 +82,37 @@ class NeuronAccelerator(Accelerator):
         full_kwargs["gradient_accumulation_steps"] = gradient_accumulation_steps
 
         fsdp_plugin = full_kwargs["fsdp_plugin"]
-        if os.environ.get("ACCELERATE_USE_FSDP", "false") == "true":
-            if fsdp_plugin is None:
-                fsdp_plugin = NeuronFullyShardedDataParallelPlugin()
+        if fsdp_plugin is None and os.environ.get("ACCELERATE_USE_FSDP", "false") == "true":
+            fsdp_plugin = NeuronFullyShardedDataParallelPlugin()
 
-        super().__init__(**full_kwargs)
+        use_neuronx_distributed_tp = os.environ.get("ACCELERATE_USE_NEURONX_DISTRIBUTED_TP", "false")
+        if tp_plugin is None:
+            if use_neuronx_distributed_tp == "false":
+                tp_size = 1
+            else:
+                tp_size = int(use_neuronx_distributed_tp)
+            tp_plugin = TensorParallelismPlugin(tensor_parallel_size=tp_size)
+
+        if tp_plugin.should_parallelize:
+            os.environ["ACCELERATE_USE_NEURONX_DISTRIBUTED_TP"] = "true"
+
+        patched_accelerator_state = partial(NeuronAcceleratorState, tp_plugin=tp_plugin)
+        with Patcher([("accelerate.accelerator.AcceleratorState", patched_accelerator_state)]):
+            super().__init__(**full_kwargs)
 
         if fsdp_plugin is not None and tp_plugin is not None:
             raise ValueError("It is not possible to both use neuronx_distributed Tensor Parallelism and XLA FSDP.")
 
-        # TODO: all of this should be done in the AcceleratorState.
-        if tp_plugin is not None and tp_plugin.should_parallelize:
-            os.environ["ACCELERATE_USE_NEURONX_DISTRIBUTED_TP"] = "true"
-            parallel_state.initialize_model_parallel(tensor_model_parallel_size=tp_plugin.tensor_parallel_size)
-            self.state.distributed_type = NeuronDistributedType.TENSOR_PARALLELISM
-        self.tp_plugin = tp_plugin
-
         if num_steps != 1:
             self.gradient_accumulation_steps = num_steps
-
+        
     def _prepare_data_loader_for_tp(self, data_loader: torch.utils.data.DataLoader):
         from torch.utils.data.distributed import DistributedSampler
 
         sampler = DistributedSampler(
             data_loader.dataset,
-            num_replicas=parallel_state.get_data_parallel_world_size(),
-            rank=parallel_state.get_data_parallel_rank(),
+            num_replicas=parallel_layers.parallel_state.get_data_parallel_world_size(),
+            rank=parallel_layers.parallel_state.get_data_parallel_rank(),
         )
         data_loader.sampler = sampler
         return data_loader
@@ -126,7 +130,7 @@ class NeuronAccelerator(Accelerator):
     def prepare_scheduler(self, scheduler: "LRScheduler"):
         return super().prepare_scheduler(scheduler)
 
-    def prepare_model_for_xla_fsdp(self, model: torch.nn.Module, device_placement=None):
+    def prepare_model_for_xla_fsdp(self, model: torch.nn.Module, device_placement: Optional[bool] = None, evaluation_mode: bool = False):
         if device_placement is None:
             device_placement = self.device_placement
         self._models.append(model)
@@ -168,45 +172,44 @@ class NeuronAccelerator(Accelerator):
         except ImportError:
             raise ImportError("Missing XLA FSDP related module; please make sure to use torch-xla >= 2.0.")
 
-        # Check if the model is already a FSDP model due to `Manual Wrapping` and if so,
-        # don't wrap it again
-        # TODO: validate which arguments work for XLA FSDP.
-        if type(model) != FSDP:
-            self.state.fsdp_plugin.set_auto_wrap_policy(model)
-            fsdp_plugin = self.state.fsdp_plugin
-            kwargs = {
-                "sharding_strategy": fsdp_plugin.sharding_strategy,
-                "cpu_offload": fsdp_plugin.cpu_offload,
-                "auto_wrap_policy": fsdp_plugin.auto_wrap_policy,
-                "backward_prefetch": fsdp_plugin.backward_prefetch,
-                "mixed_precision": fsdp_plugin.mixed_precision_policy,
-                "ignored_modules": fsdp_plugin.ignored_modules,
-                "device_id": self.device,
-            }
-            signature = inspect.signature(FSDP.__init__).parameters.keys()
-            if "limit_all_gathers" in signature:
-                kwargs["limit_all_gathers"] = fsdp_plugin.limit_all_gathers
-            if "use_orig_params" in signature:
-                kwargs["use_orig_params"] = fsdp_plugin.use_orig_params
-            model = FSDP(model, **kwargs)
+        if not evaluation_mode:
+            # Check if the model is already a FSDP model due to `Manual Wrapping` and if so,
+            # don't wrap it again
+            # TODO: validate which arguments work for XLA FSDP.
+            if type(model) != FSDP:
+                self.state.fsdp_plugin.set_auto_wrap_policy(model)
+                fsdp_plugin = self.state.fsdp_plugin
+                kwargs = {
+                    "sharding_strategy": fsdp_plugin.sharding_strategy,
+                    "cpu_offload": fsdp_plugin.cpu_offload,
+                    "auto_wrap_policy": fsdp_plugin.auto_wrap_policy,
+                    "backward_prefetch": fsdp_plugin.backward_prefetch,
+                    "mixed_precision": fsdp_plugin.mixed_precision_policy,
+                    "ignored_modules": fsdp_plugin.ignored_modules,
+                    "device_id": self.device,
+                }
+                signature = inspect.signature(FSDP.__init__).parameters.keys()
+                if "limit_all_gathers" in signature:
+                    kwargs["limit_all_gathers"] = fsdp_plugin.limit_all_gathers
+                if "use_orig_params" in signature:
+                    kwargs["use_orig_params"] = fsdp_plugin.use_orig_params
+                model = FSDP(model, **kwargs)
         self._models[-1] = model
 
         return model
 
-    def _prepare_model_for_tensor_parallelism(self, model: "PreTrainedModel"):
-        model = self.tp_plugin.parallelize_model(model)
-        parallel_layers.move_model_to_device(model, self.device)
-        return model
+    def _prepare_model_for_tp(self, model: torch.nn.Module, device_placement: Optional[bool] = None, evaluation_mode: bool = False):
+        if not evaluation_mode:
+            model = self.state.tp_plugin.parallelize_model(model)
+            parallel_layers.move_model_to_device(model, self.device)
+        return super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
 
-    def prepare_model(self, model: torch.nn.Module, device_placement=None):
+    def prepare_model(self, model: torch.nn.Module, device_placement: Optional[bool] = None, evaluation_mode: bool = False):
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:
-            return self.prepare_model_for_xla_fsdp(model, device_placement=device_placement)
+            return self.prepare_model_for_xla_fsdp(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
         elif self.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
-            import pdb
-
-            pdb.set_trace()
-            return self._prepare_data_loader_for_tp(model)
-        return super().prepare_model(model, device_placement=device_placement)
+            return self._prepare_model_for_tp(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
+        return super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
 
     def backward_for_xla_fsdp(self, loss, **kwargs):
         if self.scaler is not None:
@@ -232,9 +235,18 @@ class NeuronAccelerator(Accelerator):
             if parameters == list(model.parameters()):
                 return model.clip_grad_norm_(max_norm, norm_type)
 
+    def _clip_grad_norm_for_tp(self, parameters, max_norm, norm_type=2):
+        self.unscale_gradients()
+        parameters = list(parameters)
+        for model in self._models:
+            if parameters == list(model.parameters()):
+                return parallel_layers.clip_grad_norm(parameters, max_norm, norm_type=norm_type)
+
     def clip_grad_norm_(self, parameters, max_norm, norm_type=2):
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:
             return self.clip_grad_norm_for_xla_fsdp(parameters, max_norm, norm_type=norm_type)
+        elif self.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
+            return self._clip_grad_norm_for_tp(parameters, max_norm, norm_type=2)
         return super().clip_grad_norm_(parameters, max_norm, norm_type=norm_type)
 
     def clip_grad_value_(self, parameters, clip_value):

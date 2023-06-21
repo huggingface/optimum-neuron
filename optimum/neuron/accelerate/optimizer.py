@@ -28,7 +28,7 @@ if is_torch_xla_available():
     accelerate.optimizer.xm = xm
 
 if is_neuronx_distributed_available():
-    from neuronx_distributed import parallel_state
+    from neuronx_distributed.parallel_layers import parallel_state
 
 
 class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
