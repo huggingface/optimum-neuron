@@ -54,6 +54,8 @@ class TrainiumTrainingArgumentsMixin:
         patch_accelerate_is_tpu_available()
 
         if self.fsdp != "":
+            # Disabling FSDP until next release because it is still very experimental and not validated.
+            raise RuntimeError("FSDP is not supported yet.")
             if self.fsdp_config is None:
                 self.fsdp_config = {"xla": True}
             elif isinstance(self.fsdp_config, str):
