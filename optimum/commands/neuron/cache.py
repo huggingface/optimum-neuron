@@ -129,11 +129,14 @@ class AddToCacheRepoCommand(BaseOptimumCLICommand):
             help="The number of neuron cores to use during compilation.",
         )
         parser.add_argument(
+            "--example_dir", type=str, default=None, help="Path to where the example scripts are stored."
+        )
+        parser.add_argument(
             "--max_steps", type=int, default=200, help="The maximum number of steps to run compilation for."
         )
 
     def run(self):
-        runner = ExampleRunner(self.args.model, self.args.task)
+        runner = ExampleRunner(self.args.model, self.args.task, example_dir=self.args.example_dir)
         if self.args.eval_batch_size is None:
             self.args.eval_batch_size = self.args.train_batch_size
 
