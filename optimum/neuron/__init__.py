@@ -36,6 +36,7 @@ _import_structure = {
         "NeuronAcceleratorState",
         "NeuronPartialState",
     ],
+    "pipelines": ["pipeline"],
 }
 
 if TYPE_CHECKING:
@@ -50,6 +51,7 @@ if TYPE_CHECKING:
         NeuronModelForTokenClassification,
     )
     from .modeling_base import NeuronBaseModel
+    from .pipelines import pipeline
     from .trainers import Seq2SeqTrainiumTrainer, TrainiumTrainer
     from .training_args import Seq2SeqTrainiumTrainingArguments, TrainiumTrainingArguments
 else:

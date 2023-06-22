@@ -33,6 +33,7 @@ from transformers import (
     PretrainedConfig,
     set_seed,
 )
+from transformers.onnx.utils import get_preprocessor
 
 from optimum.neuron import (
     NeuronBaseModel,
@@ -42,6 +43,7 @@ from optimum.neuron import (
     NeuronModelForQuestionAnswering,
     NeuronModelForSequenceClassification,
     NeuronModelForTokenClassification,
+    pipeline,
 )
 from optimum.neuron.utils import NEURON_FILE_NAME, is_neuron_available, is_neuronx_available
 from optimum.neuron.utils.testing_utils import is_inferentia_test
@@ -335,6 +337,22 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
 
         gc.collect()
 
+    @parameterized.expand(SUPPORTED_ARCHITECTURES)
+    def test_pipeline_model(self, model_arch):
+        model_args = {"test_name": model_arch, "model_arch": model_arch}
+        self._setup(model_args)
+
+        model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
+        neuron_model = NeuronModelForSequenceClassification.from_pretrained(self.neuron_model_dirs[model_arch])
+        tokenizer = get_preprocessor(model_id)
+        pipe = pipeline(self.TASK, model=neuron_model, tokenizer=tokenizer)
+        text = "My Name is Philipp and i live in Germany."
+        outputs = pipe(text)
+
+        self.assertTrue(all(all(isinstance(item, float) for item in row) for row in outputs[0]))
+
+        gc.collect()
+
 
 @is_inferentia_test
 class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
@@ -481,6 +499,24 @@ class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
             _ = neuron_model_non_dyn(**tokens)
 
         self.assertIn("set `dynamic_batch_size=True` during the compilation", str(context.exception))
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES)
+    def test_pipeline_model(self, model_arch):
+        model_args = {"test_name": model_arch, "model_arch": model_arch}
+        self._setup(model_args)
+
+        model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
+        neuron_model = NeuronModelForSequenceClassification.from_pretrained(self.neuron_model_dirs[model_arch])
+        tokenizer = get_preprocessor(model_id)
+        MASK_TOKEN = tokenizer.mask_token
+        pipe = pipeline(self.TASK, model=neuron_model, tokenizer=tokenizer)
+        text = f"The capital of France is {MASK_TOKEN}."
+        outputs = pipe(text)
+
+        self.assertGreaterEqual(outputs[0]["score"], 0.0)
+        self.assertTrue(isinstance(outputs[0]["token_str"], str))
+
+        gc.collect()
 
 
 @is_inferentia_test
@@ -661,6 +697,24 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
 
         self.assertIn("set `dynamic_batch_size=True` during the compilation", str(context.exception))
 
+    @parameterized.expand(SUPPORTED_ARCHITECTURES)
+    def test_pipeline_model(self, model_arch):
+        model_args = {"test_name": model_arch, "model_arch": model_arch}
+        self._setup(model_args)
+
+        model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
+        neuron_model = NeuronModelForSequenceClassification.from_pretrained(self.neuron_model_dirs[model_arch])
+        tokenizer = get_preprocessor(model_id)
+        pipe = pipeline(self.TASK, model=neuron_model, tokenizer=tokenizer)
+        question = "Whats my name?"
+        context = "My Name is Philipp and I live in Nuremberg."
+        outputs = pipe(question, context)
+
+        self.assertGreaterEqual(outputs["score"], 0.0)
+        self.assertIsInstance(outputs["answer"], str)
+
+        gc.collect()
+
 
 @is_inferentia_test
 class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
@@ -810,6 +864,23 @@ class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
 
         self.assertIn("set `dynamic_batch_size=True` during the compilation", str(context.exception))
 
+    @parameterized.expand(SUPPORTED_ARCHITECTURES)
+    def test_pipeline_model(self, model_arch):
+        model_args = {"test_name": model_arch, "model_arch": model_arch}
+        self._setup(model_args)
+
+        model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
+        neuron_model = NeuronModelForSequenceClassification.from_pretrained(self.neuron_model_dirs[model_arch])
+        tokenizer = get_preprocessor(model_id)
+        pipe = pipeline(self.TASK, model=neuron_model, tokenizer=tokenizer)
+        text = "My Name is Philipp and i live in Germany."
+        outputs = pipe(text)
+
+        self.assertGreaterEqual(outputs[0]["score"], 0.0)
+        self.assertIsInstance(outputs[0]["label"], str)
+
+        gc.collect()
+
 
 @is_inferentia_test
 class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
@@ -958,6 +1029,22 @@ class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
             _ = neuron_model_non_dyn(**tokens)
 
         self.assertIn("set `dynamic_batch_size=True` during the compilation", str(context.exception))
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES)
+    def test_pipeline_model(self, model_arch):
+        model_args = {"test_name": model_arch, "model_arch": model_arch}
+        self._setup(model_args)
+
+        model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
+        neuron_model = NeuronModelForSequenceClassification.from_pretrained(self.neuron_model_dirs[model_arch])
+        tokenizer = get_preprocessor(model_id)
+        pipe = pipeline(self.TASK, model=neuron_model, tokenizer=tokenizer)
+        text = "My Name is Philipp and i live in Germany."
+        outputs = pipe(text)
+
+        self.assertTrue(all(item["score"] > 0.0 for item in outputs))
+
+        gc.collect()
 
 
 @is_inferentia_test
