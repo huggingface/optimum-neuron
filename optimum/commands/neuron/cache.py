@@ -62,9 +62,7 @@ class CreateCustomCacheRepoCommand(BaseOptimumCLICommand):
 class SetCustomCacheRepoCommand(BaseOptimumCLICommand):
     @staticmethod
     def parse_args(parser: "ArgumentParser"):
-        parser.add_argument(
-            "-n", "--name", type=str, required=True, help="The name of the repo that to use as remote cache."
-        )
+        parser.add_argument("name", type=str, help="The name of the repo to use as remote cache.")
 
     def run(self):
         set_custom_cache_repo_name_in_hf_home(self.args.name)
@@ -165,9 +163,9 @@ class ListRepoCommand(BaseOptimumCLICommand):
     @staticmethod
     def parse_args(parser: "ArgumentParser"):
         parser.add_argument(
-            "-n",
-            "--name",
+            "name",
             type=str,
+            nargs="?",
             default=None,
             help="The name of the repo to list. Will use the locally saved cache repo if left unspecified.",
         )
@@ -193,9 +191,7 @@ class ListRepoCommand(BaseOptimumCLICommand):
         if self.args.name is None:
             custom_cache_repo_name = load_custom_cache_repo_name_from_hf_home()
             if custom_cache_repo_name is None:
-                raise ValueError(
-                    "No custom cache repo was set locally so you need to specify a cache repo using the -n / --name option."
-                )
+                raise ValueError("No custom cache repo was set locally so you need to specify a cache repo name.")
             self.args.name = custom_cache_repo_name
 
         entries = list_in_registry(
