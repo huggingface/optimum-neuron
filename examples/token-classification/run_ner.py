@@ -37,7 +37,6 @@ from transformers import (
     DataCollatorForTokenClassification,
     PretrainedConfig,
     PreTrainedTokenizerFast,
-    TrainingArguments,
     set_seed,
 )
 from transformers.trainer_utils import get_last_checkpoint
@@ -46,6 +45,7 @@ from transformers.utils.versions import require_version
 
 from optimum.neuron import TrainiumHfArgumentParser as HfArgumentParser
 from optimum.neuron import TrainiumTrainer as Trainer
+from optimum.neuron import TrainiumTrainingArguments as TrainingArguments
 
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.

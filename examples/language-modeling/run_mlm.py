@@ -40,7 +40,6 @@ from transformers import (
     AutoModelForMaskedLM,
     AutoTokenizer,
     DataCollatorForLanguageModeling,
-    TrainingArguments,
     is_torch_tpu_available,
     set_seed,
 )
@@ -50,6 +49,7 @@ from transformers.utils.versions import require_version
 
 from optimum.neuron import TrainiumHfArgumentParser as HfArgumentParser
 from optimum.neuron import TrainiumTrainer as Trainer
+from optimum.neuron import TrainiumTrainingArguments as TrainingArguments
 
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.

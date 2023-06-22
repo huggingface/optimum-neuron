@@ -172,7 +172,21 @@ def get_hf_hub_cache_repos():
     if custom_cache_repo is not None:
         hf_hub_repos = [custom_cache_repo] + hf_hub_repos
 
-    if hf_hub_repos and not has_write_access_to_repo(hf_hub_repos[0]):
+    # TODO: this is a quick fix.
+    # Cache utils should not be aware of the multiprocessing side of things.
+    # The issue here is that `has_write_access_to_repo` actually pushes stuff to the HF Hub.
+    # Pushing stuff to the HF Hub should be limited to the `push_to_cache_on_hub` function,
+    # making it easier for higher-level abstractions using the cache utils to reason on which
+    # parts should only run on the master process and which parts should run on everyone.
+    from . import is_torch_xla_available
+
+    process_index = 0
+    if is_torch_xla_available():
+        import torch_xla.core.xla_model as xm
+
+        process_index = xm.get_ordinal()
+
+    if process_index == 0 and hf_hub_repos and not has_write_access_to_repo(hf_hub_repos[0]):
         warn_once(
             logger,
             f"You do not have write access to {hf_hub_repos[0]} so you will not be able to push any cached compilation "

@@ -12,22 +12,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Utilities of various sorts related to accelerate with Neuron."""
 
-from .argument_utils import convert_neuronx_compiler_args_to_neuron, store_compilation_config
-from .constant import NEURON_FILE_NAME
-from .import_utils import (
-    is_accelerate_available,
-    is_neuron_available,
-    is_neuronx_available,
-    is_neuronx_distributed_available,
-    is_torch_xla_available,
-)
-from .patching import DynamicPatch, ModelPatcher, Patcher, patch_everywhere, patch_within_function
-from .training_utils import (
-    FirstAndLastDataset,
-    is_model_officially_supported,
-    is_precompilation,
-    patch_transformers_for_neuron_sdk,
-    patched_finfo,
-    prepare_environment_for_neuron,
-)
+from ...utils import is_torch_xla_available, patch_everywhere
+
+
+def is_tpu_available(check_device=True):
+    """
+    Fake `is_tpu_available` that returns `is_torch_xla_available` to patch `accelerate`.
+    """
+    return is_torch_xla_available()
+
+
+def patch_accelerate_is_tpu_available():
+    patch_everywhere("is_tpu_available", is_tpu_available, module_name_prefix="accelerate")

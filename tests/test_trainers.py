@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import copy
+import json
 import os
 import random
 import subprocess
@@ -49,7 +50,7 @@ from .utils import (
 
 @is_trainium_test
 @is_staging_test
-class TrainiumTrainerTestCase(StagingTestMixin, TestCase):
+class StagingTrainiumTrainerTestCase(StagingTestMixin, TestCase):
     def test_train_and_eval(self):
         os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_PRIVATE_CACHE_REPO
 
@@ -307,3 +308,118 @@ class TrainiumTrainerTestCase(StagingTestMixin, TestCase):
             )
 
         self.remove_model_and_dataset_on_staging_hub(dataset_name, model_name)
+
+
+@is_trainium_test
+class TrainiumTrainerTestCase(TestCase):
+    def _test_training_with_fsdp_mode(self, fsdp_mode: str):
+        model_name = "prajjwal1/bert-tiny"
+        task_name = "sst2"
+
+        with TemporaryDirectory() as tmpdirname:
+            set_neuron_cache_path(tmpdirname)
+            output_1 = Path(tmpdirname) / "out_1"
+            fsdp_cmd = [
+                "torchrun",
+                "--nproc_per_node=2",
+                "examples/text-classification/run_glue.py",
+                f"--model_name_or_path={model_name}",
+                f"--task_name={task_name}",
+                "--per_device_train_batch_size=16",
+                "--per_device_eval_batch_size=16",
+                f"--output_dir={output_1}",
+                "--save_strategy=steps",
+                "--save_steps=10",
+                "--max_steps=100",
+                "--do_train",
+                # "--do_eval",
+                "--bf16",
+                f"--fsdp={fsdp_mode}",
+            ]
+
+            proc = subprocess.Popen(fsdp_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            stdout, stderr = proc.communicate()
+
+            checkpoint = output_1 / "checkpoint-50"
+            output_2 = Path(tmpdirname) / "out_2"
+
+            resume_fsdp_cmd = [
+                "torchrun",
+                "--nproc_per_node=2",
+                "examples/text-classification/run_glue.py",
+                f"--model_name_or_path={model_name}",
+                f"--task_name={task_name}",
+                "--per_device_train_batch_size=16",
+                "--per_device_eval_batch_size=16",
+                f"--output_dir={output_2}",
+                "--save_strategy=steps",
+                "--save_steps=10",
+                "--max_steps=100",
+                "--do_train",
+                # "--do_eval",
+                "--bf16",
+                f"--resume_from_checkpoint={checkpoint}",
+                f"--fsdp={fsdp_mode}",
+            ]
+
+            proc = subprocess.Popen(resume_fsdp_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            stdout, stderr = proc.communicate()
+
+            training_fsdp_metrics = {}
+            with open(output_1 / "all_results.json") as fp:
+                training_fsdp_metrics = json.load(fp)
+
+            resume_training_fsdp_metrics = {}
+            with open(output_2 / "all_results.json") as fp:
+                resume_training_fsdp_metrics = json.load(fp)
+
+            print(training_fsdp_metrics)
+            print(resume_training_fsdp_metrics)
+            # self.assertEqual(training_fsdp_metrics["eval_loss"], resume_training_fsdp_metrics["eval_loss"])
+            # self.assertEqual(training_fsdp_metrics["eval_accuracy"], resume_training_fsdp_metrics["eval_accuracy"])
+
+            output_3 = Path(tmpdirname) / "out_3"
+
+            cmd = [
+                "torchrun",
+                "--nproc_per_node=2",
+                "examples/text-classification/run_glue.py",
+                f"--model_name_or_path={model_name}",
+                f"--task_name={task_name}",
+                "--per_device_train_batch_size=16",
+                "--per_device_eval_batch_size=16",
+                f"--output_dir={output_3}",
+                "--save_strategy=steps",
+                "--save_steps=10",
+                "--max_steps=100",
+                "--do_train",
+                # "--do_eval",
+                "--bf16",
+                f"--fsdp={fsdp_mode}",
+            ]
+
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            stdout, stderr = proc.communicate()
+
+            regular_training_metrics = {}
+            with open(output_3 / "all_results.json") as fp:
+                regular_training_metrics = json.load(fp)
+
+            self.assertEqual(training_fsdp_metrics["train_loss"], regular_training_metrics["train_loss"])
+            # self.assertEqual(training_fsdp_metrics["eval_loss"], regular_training_metrics["eval_loss"])
+            # self.assertEqual(training_fsdp_metrics["eval_accuracy"], regular_training_metrics["eval_accuracy"])
+
+    def test_training_with_fsdp_full_shard(self):
+        return self._test_training_with_fsdp_mode("full_shard")
+
+    # def test_training_with_fsdp_shard_grad_op(self):
+    #     return self._test_training_with_fsdp_mode("shard_grad_op")
+
+    def test_training_with_fsdp_no_shard(self):
+        return self._test_training_with_fsdp_mode("no_shard")
+
+    # def test_training_with_fsdp_offload(self):
+    #     return self._test_training_with_fsdp_mode("offload")
+
+    # def test_training_with_fsdp_auto_wrap(self):
+    #     return self._test_training_with_fsdp_mode("auto_wrap")
