@@ -1090,225 +1090,229 @@ class NeuronGenerationMixin(GenerationMixin):
             )
             self.forward = general_forward
 
-        if is_contrastive_search_gen_mode:
-            if generation_config.num_return_sequences > 1:
-                raise ValueError(
-                    "num_return_sequences has to be 1 when doing contrastive search, "
-                    f"but is {generation_config.num_return_sequences}."
-                )
-            if not model_kwargs["use_cache"]:
-                raise ValueError("Contrastive search requires `use_cache=True`")
-
-            return self.contrastive_search(
-                input_ids,
-                top_k=generation_config.top_k,
-                penalty_alpha=generation_config.penalty_alpha,
-                logits_processor=logits_processor,
-                stopping_criteria=stopping_criteria,
-                pad_token_id=generation_config.pad_token_id,
-                eos_token_id=generation_config.eos_token_id,
-                output_scores=generation_config.output_scores,
-                return_dict_in_generate=generation_config.return_dict_in_generate,
-                synced_gpus=synced_gpus,
-                streamer=streamer,
-                **model_kwargs,
-            )
-        elif is_sample_gen_mode:
-            # 11. prepare logits warper
-            logits_warper = self._get_logits_warper(generation_config)
-
-            # 12. expand input_ids with `num_return_sequences` additional sequences per batch
-            input_ids, model_kwargs = self._expand_inputs_for_generation(
-                input_ids=input_ids,
-                expand_size=generation_config.num_return_sequences,
-                is_encoder_decoder=self.config.is_encoder_decoder,
-                **model_kwargs,
-            )
-
-            # 13. run sample
-            return self.sample(
-                input_ids,
-                logits_processor=logits_processor,
-                logits_warper=logits_warper,
-                stopping_criteria=stopping_criteria,
-                pad_token_id=generation_config.pad_token_id,
-                eos_token_id=generation_config.eos_token_id,
-                output_scores=generation_config.output_scores,
-                return_dict_in_generate=generation_config.return_dict_in_generate,
-                synced_gpus=synced_gpus,
-                streamer=streamer,
-                **model_kwargs,
-            )
-        elif is_beam_sample_gen_mode:
-            # 11. prepare logits warper
-            logits_warper = self._get_logits_warper(generation_config)
-
-            if stopping_criteria.max_length is None:
-                raise ValueError("`max_length` needs to be a stopping_criteria for now.")
-            # 12. prepare beam search scorer
-            beam_scorer = BeamSearchScorer(
-                batch_size=batch_size * generation_config.num_return_sequences,
-                num_beams=generation_config.num_beams,
-                device=inputs_tensor.device,
-                length_penalty=generation_config.length_penalty,
-                do_early_stopping=generation_config.early_stopping,
-                max_length=generation_config.max_length,
-            )
-
-            # 13. interleave input_ids with `num_beams` additional sequences per batch
-            input_ids, model_kwargs = self._expand_inputs_for_generation(
-                input_ids=input_ids,
-                expand_size=generation_config.num_beams * generation_config.num_return_sequences,
-                is_encoder_decoder=self.config.is_encoder_decoder,
-                **model_kwargs,
-            )
-
-            # 14. run beam sample
-            return self.beam_sample(
-                input_ids,
-                beam_scorer,
-                logits_processor=logits_processor,
-                logits_warper=logits_warper,
-                stopping_criteria=stopping_criteria,
-                pad_token_id=generation_config.pad_token_id,
-                eos_token_id=generation_config.eos_token_id,
-                output_scores=generation_config.output_scores,
-                return_dict_in_generate=generation_config.return_dict_in_generate,
-                synced_gpus=synced_gpus,
-                **model_kwargs,
-            )
-        elif is_group_beam_gen_mode:
-            if generation_config.num_return_sequences > generation_config.num_beams:
-                raise ValueError("`num_return_sequences` has to be smaller or equal to `num_beams`.")
-
-            if generation_config.num_beams % generation_config.num_beam_groups != 0:
-                raise ValueError("`num_beams` should be divisible by `num_beam_groups` for group beam search.")
-
-            if stopping_criteria.max_length is None:
-                raise ValueError("`max_length` needs to be a stopping_criteria for now.")
-
-            has_default_typical_p = kwargs.get("typical_p") is None and generation_config.typical_p == 1.0
-            if not has_default_typical_p:
-                raise ValueError("Decoder argument `typical_p` is not supported with beam groups.")
-
-            # 11. prepare beam search scorer
-            beam_scorer = BeamSearchScorer(
-                batch_size=batch_size,
-                num_beams=generation_config.num_beams,
-                device=inputs_tensor.device,
-                length_penalty=generation_config.length_penalty,
-                do_early_stopping=generation_config.early_stopping,
-                num_beam_hyps_to_keep=generation_config.num_return_sequences,
-                num_beam_groups=generation_config.num_beam_groups,
-                max_length=generation_config.max_length,
-            )
-            # 12. interleave input_ids with `num_beams` additional sequences per batch
-            input_ids, model_kwargs = self._expand_inputs_for_generation(
-                input_ids=input_ids,
-                expand_size=generation_config.num_beams,
-                is_encoder_decoder=self.config.is_encoder_decoder,
-                **model_kwargs,
-            )
-            # 13. run beam search
-            return self.group_beam_search(
-                input_ids,
-                beam_scorer,
-                logits_processor=logits_processor,
-                stopping_criteria=stopping_criteria,
-                pad_token_id=generation_config.pad_token_id,
-                eos_token_id=generation_config.eos_token_id,
-                output_scores=generation_config.output_scores,
-                return_dict_in_generate=generation_config.return_dict_in_generate,
-                synced_gpus=synced_gpus,
-                **model_kwargs,
-            )
-        elif is_constraint_gen_mode:
-            if generation_config.num_return_sequences > generation_config.num_beams:
-                raise ValueError("`num_return_sequences` has to be smaller or equal to `num_beams`.")
-
-            if stopping_criteria.max_length is None:
-                raise ValueError("`max_length` needs to be a stopping_criteria for now.")
-
-            if generation_config.num_beams <= 1:
-                raise ValueError("`num_beams` needs to be greater than 1 for constrained generation.")
-
-            if generation_config.do_sample:
-                raise ValueError("`do_sample` needs to be false for constrained generation.")
-
-            if generation_config.num_beam_groups is not None and generation_config.num_beam_groups > 1:
-                raise ValueError("`num_beam_groups` not supported yet for constrained generation.")
-
-            final_constraints = []
-            if generation_config.constraints is not None:
-                final_constraints = generation_config.constraints
-
-            if generation_config.force_words_ids is not None:
-
-                def typeerror():
+            if is_contrastive_search_gen_mode:
+                if generation_config.num_return_sequences > 1:
                     raise ValueError(
-                        "`force_words_ids` has to either be a `List[List[List[int]]]` or `List[List[int]]`"
-                        f"of positive integers, but is {generation_config.force_words_ids}."
+                        "num_return_sequences has to be 1 when doing contrastive search, "
+                        f"but is {generation_config.num_return_sequences}."
                     )
+                if not model_kwargs["use_cache"]:
+                    raise ValueError("Contrastive search requires `use_cache=True`")
 
-                if (
-                    not isinstance(generation_config.force_words_ids, list)
-                    or len(generation_config.force_words_ids) == 0
-                ):
-                    typeerror()
+                return self.contrastive_search(
+                    input_ids,
+                    top_k=generation_config.top_k,
+                    penalty_alpha=generation_config.penalty_alpha,
+                    logits_processor=logits_processor,
+                    stopping_criteria=stopping_criteria,
+                    pad_token_id=generation_config.pad_token_id,
+                    eos_token_id=generation_config.eos_token_id,
+                    output_scores=generation_config.output_scores,
+                    return_dict_in_generate=generation_config.return_dict_in_generate,
+                    synced_gpus=synced_gpus,
+                    streamer=streamer,
+                    **model_kwargs,
+                )
 
-                for word_ids in generation_config.force_words_ids:
-                    if isinstance(word_ids[0], list):
-                        if not isinstance(word_ids, list) or len(word_ids) == 0:
-                            typeerror()
-                        if any(not isinstance(token_ids, list) for token_ids in word_ids):
-                            typeerror()
-                        if any(
-                            any((not isinstance(token_id, int) or token_id < 0) for token_id in token_ids)
-                            for token_ids in word_ids
-                        ):
-                            typeerror()
+            elif is_sample_gen_mode:
+                # 11. prepare logits warper
+                logits_warper = self._get_logits_warper(generation_config)
 
-                        constraint = DisjunctiveConstraint(word_ids)
-                    else:
-                        if not isinstance(word_ids, list) or len(word_ids) == 0:
-                            typeerror()
-                        if any((not isinstance(token_id, int) or token_id < 0) for token_id in word_ids):
-                            typeerror()
+                # 12. expand input_ids with `num_return_sequences` additional sequences per batch
+                input_ids, model_kwargs = self._expand_inputs_for_generation(
+                    input_ids=input_ids,
+                    expand_size=generation_config.num_return_sequences,
+                    is_encoder_decoder=self.config.is_encoder_decoder,
+                    **model_kwargs,
+                )
 
-                        constraint = PhrasalConstraint(word_ids)
-                    final_constraints.append(constraint)
+                # 13. run sample
+                return self.sample(
+                    input_ids,
+                    logits_processor=logits_processor,
+                    logits_warper=logits_warper,
+                    stopping_criteria=stopping_criteria,
+                    pad_token_id=generation_config.pad_token_id,
+                    eos_token_id=generation_config.eos_token_id,
+                    output_scores=generation_config.output_scores,
+                    return_dict_in_generate=generation_config.return_dict_in_generate,
+                    synced_gpus=synced_gpus,
+                    streamer=streamer,
+                    **model_kwargs,
+                )
 
-            # 11. prepare beam search scorer
-            constrained_beam_scorer = ConstrainedBeamSearchScorer(
-                constraints=final_constraints,
-                batch_size=batch_size,
-                num_beams=generation_config.num_beams,
-                device=inputs_tensor.device,
-                length_penalty=generation_config.length_penalty,
-                do_early_stopping=generation_config.early_stopping,
-                num_beam_hyps_to_keep=generation_config.num_return_sequences,
-                max_length=generation_config.max_length,
-            )
-            # 12. interleave input_ids with `num_beams` additional sequences per batch
-            input_ids, model_kwargs = self._expand_inputs_for_generation(
-                input_ids=input_ids,
-                expand_size=generation_config.num_beams,
-                is_encoder_decoder=self.config.is_encoder_decoder,
-                **model_kwargs,
-            )
-            # 13. run beam search
-            return self.constrained_beam_search(
-                input_ids,
-                constrained_beam_scorer=constrained_beam_scorer,
-                logits_processor=logits_processor,
-                stopping_criteria=stopping_criteria,
-                pad_token_id=generation_config.pad_token_id,
-                eos_token_id=generation_config.eos_token_id,
-                output_scores=generation_config.output_scores,
-                return_dict_in_generate=generation_config.return_dict_in_generate,
-                synced_gpus=synced_gpus,
-                **model_kwargs,
-            )
+            elif is_beam_sample_gen_mode:
+                # 11. prepare logits warper
+                logits_warper = self._get_logits_warper(generation_config)
+
+                if stopping_criteria.max_length is None:
+                    raise ValueError("`max_length` needs to be a stopping_criteria for now.")
+                # 12. prepare beam search scorer
+                beam_scorer = BeamSearchScorer(
+                    batch_size=batch_size * generation_config.num_return_sequences,
+                    num_beams=generation_config.num_beams,
+                    device=inputs_tensor.device,
+                    length_penalty=generation_config.length_penalty,
+                    do_early_stopping=generation_config.early_stopping,
+                    max_length=generation_config.max_length,
+                )
+
+                # 13. interleave input_ids with `num_beams` additional sequences per batch
+                input_ids, model_kwargs = self._expand_inputs_for_generation(
+                    input_ids=input_ids,
+                    expand_size=generation_config.num_beams * generation_config.num_return_sequences,
+                    is_encoder_decoder=self.config.is_encoder_decoder,
+                    **model_kwargs,
+                )
+
+                # 14. run beam sample
+                return self.beam_sample(
+                    input_ids,
+                    beam_scorer,
+                    logits_processor=logits_processor,
+                    logits_warper=logits_warper,
+                    stopping_criteria=stopping_criteria,
+                    pad_token_id=generation_config.pad_token_id,
+                    eos_token_id=generation_config.eos_token_id,
+                    output_scores=generation_config.output_scores,
+                    return_dict_in_generate=generation_config.return_dict_in_generate,
+                    synced_gpus=synced_gpus,
+                    **model_kwargs,
+                )
+
+            elif is_group_beam_gen_mode:
+                if generation_config.num_return_sequences > generation_config.num_beams:
+                    raise ValueError("`num_return_sequences` has to be smaller or equal to `num_beams`.")
+
+                if generation_config.num_beams % generation_config.num_beam_groups != 0:
+                    raise ValueError("`num_beams` should be divisible by `num_beam_groups` for group beam search.")
+
+                if stopping_criteria.max_length is None:
+                    raise ValueError("`max_length` needs to be a stopping_criteria for now.")
+
+                has_default_typical_p = kwargs.get("typical_p") is None and generation_config.typical_p == 1.0
+                if not has_default_typical_p:
+                    raise ValueError("Decoder argument `typical_p` is not supported with beam groups.")
+
+                # 11. prepare beam search scorer
+                beam_scorer = BeamSearchScorer(
+                    batch_size=batch_size,
+                    num_beams=generation_config.num_beams,
+                    device=inputs_tensor.device,
+                    length_penalty=generation_config.length_penalty,
+                    do_early_stopping=generation_config.early_stopping,
+                    num_beam_hyps_to_keep=generation_config.num_return_sequences,
+                    num_beam_groups=generation_config.num_beam_groups,
+                    max_length=generation_config.max_length,
+                )
+                # 12. interleave input_ids with `num_beams` additional sequences per batch
+                input_ids, model_kwargs = self._expand_inputs_for_generation(
+                    input_ids=input_ids,
+                    expand_size=generation_config.num_beams,
+                    is_encoder_decoder=self.config.is_encoder_decoder,
+                    **model_kwargs,
+                )
+                # 13. run beam search
+                return self.group_beam_search(
+                    input_ids,
+                    beam_scorer,
+                    logits_processor=logits_processor,
+                    stopping_criteria=stopping_criteria,
+                    pad_token_id=generation_config.pad_token_id,
+                    eos_token_id=generation_config.eos_token_id,
+                    output_scores=generation_config.output_scores,
+                    return_dict_in_generate=generation_config.return_dict_in_generate,
+                    synced_gpus=synced_gpus,
+                    **model_kwargs,
+                )
+
+            elif is_constraint_gen_mode:
+                if generation_config.num_return_sequences > generation_config.num_beams:
+                    raise ValueError("`num_return_sequences` has to be smaller or equal to `num_beams`.")
+
+                if stopping_criteria.max_length is None:
+                    raise ValueError("`max_length` needs to be a stopping_criteria for now.")
+
+                if generation_config.num_beams <= 1:
+                    raise ValueError("`num_beams` needs to be greater than 1 for constrained generation.")
+
+                if generation_config.do_sample:
+                    raise ValueError("`do_sample` needs to be false for constrained generation.")
+
+                if generation_config.num_beam_groups is not None and generation_config.num_beam_groups > 1:
+                    raise ValueError("`num_beam_groups` not supported yet for constrained generation.")
+
+                final_constraints = []
+                if generation_config.constraints is not None:
+                    final_constraints = generation_config.constraints
+
+                if generation_config.force_words_ids is not None:
+
+                    def typeerror():
+                        raise ValueError(
+                            "`force_words_ids` has to either be a `List[List[List[int]]]` or `List[List[int]]`"
+                            f"of positive integers, but is {generation_config.force_words_ids}."
+                        )
+
+                    if (
+                        not isinstance(generation_config.force_words_ids, list)
+                        or len(generation_config.force_words_ids) == 0
+                    ):
+                        typeerror()
+
+                    for word_ids in generation_config.force_words_ids:
+                        if isinstance(word_ids[0], list):
+                            if not isinstance(word_ids, list) or len(word_ids) == 0:
+                                typeerror()
+                            if any(not isinstance(token_ids, list) for token_ids in word_ids):
+                                typeerror()
+                            if any(
+                                any((not isinstance(token_id, int) or token_id < 0) for token_id in token_ids)
+                                for token_ids in word_ids
+                            ):
+                                typeerror()
+
+                            constraint = DisjunctiveConstraint(word_ids)
+                        else:
+                            if not isinstance(word_ids, list) or len(word_ids) == 0:
+                                typeerror()
+                            if any((not isinstance(token_id, int) or token_id < 0) for token_id in word_ids):
+                                typeerror()
+
+                            constraint = PhrasalConstraint(word_ids)
+                        final_constraints.append(constraint)
+
+                # 11. prepare beam search scorer
+                constrained_beam_scorer = ConstrainedBeamSearchScorer(
+                    constraints=final_constraints,
+                    batch_size=batch_size,
+                    num_beams=generation_config.num_beams,
+                    device=inputs_tensor.device,
+                    length_penalty=generation_config.length_penalty,
+                    do_early_stopping=generation_config.early_stopping,
+                    num_beam_hyps_to_keep=generation_config.num_return_sequences,
+                    max_length=generation_config.max_length,
+                )
+                # 12. interleave input_ids with `num_beams` additional sequences per batch
+                input_ids, model_kwargs = self._expand_inputs_for_generation(
+                    input_ids=input_ids,
+                    expand_size=generation_config.num_beams,
+                    is_encoder_decoder=self.config.is_encoder_decoder,
+                    **model_kwargs,
+                )
+                # 13. run beam search
+                return self.constrained_beam_search(
+                    input_ids,
+                    constrained_beam_scorer=constrained_beam_scorer,
+                    logits_processor=logits_processor,
+                    stopping_criteria=stopping_criteria,
+                    pad_token_id=generation_config.pad_token_id,
+                    eos_token_id=generation_config.eos_token_id,
+                    output_scores=generation_config.output_scores,
+                    return_dict_in_generate=generation_config.return_dict_in_generate,
+                    synced_gpus=synced_gpus,
+                    **model_kwargs,
+                )
 
     def greedy_search(
         self,
