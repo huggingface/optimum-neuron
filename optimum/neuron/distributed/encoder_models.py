@@ -42,8 +42,8 @@ class BertParallelizer(Parallelizer):
     @classmethod
     def parallelize(cls, model: "PreTrainedModel") -> "PreTrainedModel":
         for layer in model.bert.encoder.layer:
-            layer.attention.self = BertParallelSelfAttention(model.config)
-            layer.attention.output = BertParallelSelfOutput(model.config)
+            layer.attention.self = BertParallelSelfAttention.transform(layer.attention.self, model.config)
+            layer.attention.output = BertParallelSelfOutput.transform(layer.attention.output, model.config)
         return model
 
 
@@ -59,6 +59,6 @@ class RobertaParallelizer(Parallelizer):
     @classmethod
     def parallelize(cls, model: "PreTrainedModel") -> "PreTrainedModel":
         for layer in model.roberta.encoder.layer:
-            layer.attention.self = RobertaParallelSelfAttention(model.config)
-            layer.attention.output = RobertaParallelSelfOutput(model.config)
+            layer.attention.self = RobertaParallelSelfAttention.transform(layer.attention.self, model.config)
+            layer.attention.output = RobertaParallelSelfOutput.transform(layer.attention.output, model.config)
         return model

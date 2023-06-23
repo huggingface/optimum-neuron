@@ -14,6 +14,7 @@
 # limitations under the License.
 """Classes related to parallel versions of common blocks in Transformers models."""
 
+from abc import ABC, abstractclassmethod
 from typing import TYPE_CHECKING, Optional, Type
 
 from ...utils import NormalizedConfigManager
@@ -25,54 +26,78 @@ if is_neuronx_distributed_available():
     from neuronx_distributed.parallel_layers import parallel_state
 
 if TYPE_CHECKING:
+    import torch
     from transformers import PretrainedConfig
 
 
-class ParallelSelfAttention:
+class ParallelLayer(ABC):
+
+    @abstractclassmethod
+    def transform(cls, layer: "torch.nn.Module", config: "PretrainedConfig") -> "torch.nn.Module":
+        pass
+         
+
+
+class ParallelSelfAttention(ParallelLayer):
     QUERIES_NAME = "query"
     KEYS_NAME = "key"
     VALUES_NAME = "value"
     OUTPUT_PROJECTION_NAME: Optional[str] = None
+    NUM_ATTENTION_HEADS_NAME: Optional[str] = None
     # TODO: add this in NormalizedConfig
-    ALL_HEAD_SIZE_NAME = "all_head_size"
+    ALL_HEAD_SIZE_NAME: Optional[str] = None # "all_head_size"
 
-    def __init__(self, config: "PretrainedConfig", position_embedding_type: Optional[Type] = None):
-        super().__init__(config, position_embedding_type)
-        self.normalized_config = NormalizedConfigManager.get_normalized_config_class(config.model_type)(config)
-        all_head_size = getattr(self, self.ALL_HEAD_SIZE_NAME)
-        for name in [self.QUERIES_NAME, self.KEYS_NAME, self.VALUES_NAME]:
+    @classmethod
+    def transform(cls, layer: "torch.nn.Module", config: "PretrainedConfig") -> "torch.nn.Module":
+        normalized_config = NormalizedConfigManager.get_normalized_config_class(config.model_type)(config)
+        for name in [cls.QUERIES_NAME, cls.KEYS_NAME, cls.VALUES_NAME]:
             setattr(
-                self,
+                layer,
                 name,
-                linear_to_parallel_linear(getattr(self, name), "column", gather_output=False),
+                linear_to_parallel_linear(getattr(layer, name), "column", gather_output=False),
             )
-        if self.OUTPUT_PROJECTION_NAME is not None:
+        if cls.OUTPUT_PROJECTION_NAME is not None:
             setattr(
-                self,
-                self.OUTPUT_PROJECTION_NAME,
-                linear_to_parallel_linear(getattr(self, self.OUTPUT_PROJECTION_NAME), "row", input_is_parallel=True),
+                layer,
+                cls.OUTPUT_PROJECTION_NAME,
+                linear_to_parallel_linear(getattr(layer, cls.OUTPUT_PROJECTION_NAME), "row", input_is_parallel=True),
             )
-        num_attention_heads_name = self.normalized_config.NUM_ATTENTION_HEADS
+
+        if cls.NUM_ATTENTION_HEADS_NAME is None:
+            num_attention_heads_name = normalized_config.NUM_ATTENTION_HEADS
+        else:
+            num_attention_heads_name = cls.NUM_ATTENTION_HEADS_NAME
+
+        if not hasattr(layer, num_attention_heads_name):
+            raise AttributeError(f"The {type(layer)} layer has not attribute {num_attention_heads_name}.")
+
+        if cls.ALL_HEAD_SIZE_NAME is None:
+            all_head_size_name = normalized_config.ALL_HEAD_SIZE_NAME
+        else:
+            all_head_size_name = cls.ALL_HEAD_SIZE_NAME
+
+        if not hasattr(layer, all_head_size_name):
+            raise AttributeError(f"The {type(layer)} layer has not attribute {all_head_size_name}.")
+
         setattr(
-            self,
+            layer,
             num_attention_heads_name,
-            self.normalized_config.num_attention_heads // parallel_state.get_tensor_model_parallel_size(),
+            normalized_config.num_attention_heads // parallel_state.get_tensor_model_parallel_size(),
         )
         setattr(
-            self,
-            self.ALL_HEAD_SIZE_NAME,
-            all_head_size // parallel_state.get_tensor_model_parallel_size(),
+            layer,
+            all_head_size_name,
+            getattr(layer, all_head_size_name) // parallel_state.get_tensor_model_parallel_size(),
         )
+        return layer
 
-
-class ParallelSelfOutput:
+class ParallelSelfOutput(ParallelLayer):
     OUTPUT_PROJECTION_NAME = "dense"
 
-    def __init__(self, config: "PretrainedConfig"):
-        super().__init__(config)
-        self.normalized_config = NormalizedConfigManager.get_normalized_config_class(config.model_type)(config)
+    @classmethod
+    def transform(cls, layer: "torch.nn.Module", config: "PretrainedConfig") -> "torch.nn.Module":
         setattr(
-            self,
-            self.OUTPUT_PROJECTION_NAME,
-            linear_to_parallel_linear(getattr(self, self.OUTPUT_PROJECTION_NAME), "row", input_is_parallel=True),
+            layer,
+            cls.OUTPUT_PROJECTION_NAME,
+            linear_to_parallel_linear(getattr(layer, cls.OUTPUT_PROJECTION_NAME), "row", input_is_parallel=True),
         )

@@ -56,6 +56,7 @@ class ParallelizersManager:
             "bert": "BertParallelizer",
             "roberta": "RobertaParallelizer",
             "gpt_neo": "GPTNeoParallelizer",
+            "llama": "LlamaParallelizer",
         }
     )
 
@@ -75,7 +76,7 @@ class ParallelizersManager:
     @classmethod
     def parallelizer_for_model(cls, model_type_or_model: Union[str, PreTrainedModel]) -> Type[Parallelizer]:
         model_type = cls._get_model_type(model_type_or_model)
-        if not is_model_officially_supported(model_type_or_model):
+        if not cls.is_model_supported(model_type_or_model):
             supported_models = ", ".join(cls._MODEL_TYPE_TO_PARALLEL_MODEL_CLASS.keys())
             raise NotImplementedError(
                 f"{model_type} is not supported for parallelization, supported models: {supported_models}"

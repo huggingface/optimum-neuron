@@ -176,6 +176,9 @@ class TrainiumTrainingArgumentsMixin:
                     torch.cuda.set_device(device)
         return device
 
+    @property
+    def place_model_on_device(self):
+        return not self.tp_plugin.should_parallelize and super().place_model_on_device
 
 @dataclass
 class TrainiumTrainingArguments(TrainiumTrainingArgumentsMixin, TrainingArguments):
