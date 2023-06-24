@@ -225,7 +225,7 @@ class ExampleTesterBase(TestCase):
         EXAMPLE_DIR (`Union[str, Path]`) -- The directory containing the examples.
         EXAMPLE_NAME (`Optional[str]`) -- The name of the example script without the file extension, e.g. run_qa, run_glue, etc.
         TASK_NAME (`str`) -- The name of the dataset to use.
-        EVAL_IS_SUPPORTED (`bool`) -- Whether evaluation is currently supported on AWS Tranium.
+        EVAL_IS_SUPPORTED (`bool`) -- Whether evaluation is currently supported on AWS Trainium.
             If True, the example will run evaluation, otherwise it will be skipped.
         EVAL_SCORE_THRESHOLD (`float`) -- The score threshold from which training is assumed to have worked.
         SCORE_NAME (`str`) -- The name of the metric to use for checking that the example ran successfully.

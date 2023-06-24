@@ -216,11 +216,11 @@ class AugmentTrainerForTrainiumMixin:
 
 class TrainiumTrainer(AugmentTrainerForTrainiumMixin, Trainer):
     """
-    Trainer that is suited for performing training on AWS Tranium instances.
+    Trainer that is suited for performing training on AWS Trainium instances.
     """
 
 
 class Seq2SeqTrainiumTrainer(AugmentTrainerForTrainiumMixin, Seq2SeqTrainer):
     """
-    Seq2SeqTrainer that is suited for performing training on AWS Tranium instances.
+    Seq2SeqTrainer that is suited for performing training on AWS Trainium instances.
     """

@@ -109,7 +109,7 @@ raw_dataset['train'][random_id]
 # {'text': 'i feel isolated and alone in my trade', 'label': 0}
 ```
 
-We must convert our "Natural Language" to token IDs to train our model. This is done by a Tokenizer, which tokenizes the inputs (including converting the tokens to their corresponding IDs in the pre-trained vocabulary). if you want to learn more about this, out [chapter 6](https://huggingface.co/course/chapter6/1?fw=pt) of the [Hugging Face Course](https://huggingface.co/course/chapter1/1).
+We must convert our "Natural Language" to token IDs to train our model. This is done by a Tokenizer, which tokenizes the inputs (including converting the tokens to their corresponding IDs in the pre-trained vocabulary). If you want to learn more about this, check out [chapter 6](https://huggingface.co/course/chapter6/1?fw=pt) of the [Hugging Face Course](https://huggingface.co/course/chapter1/1).
 
 Our Neuron Accelerator expects a fixed shape of inputs. We need to truncate or pad all samples to the same length.
 
@@ -124,7 +124,7 @@ tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 # Tokenize helper function
 def tokenize(batch):
-    return tokenizer(batch['text'], padding='max_length', truncation=True,return_tensors="pt")
+    return tokenizer(batch['text'], padding='max_length', truncation=True, return_tensors="pt")
 
 # Tokenize dataset
 raw_dataset =  raw_dataset.rename_column("label", "labels") # to match Trainer
@@ -132,15 +132,15 @@ tokenized_dataset = raw_dataset.map(tokenize, batched=True, remove_columns=["tex
 tokenized_dataset = tokenized_dataset.with_format("torch")
 
 # save dataset to disk
-tokenized_dataset["train"].save_to_disk(os.path.join(save_dataset_path,"train"))
-tokenized_dataset["test"].save_to_disk(os.path.join(save_dataset_path,"eval"))
+tokenized_dataset["train"].save_to_disk(os.path.join(save_dataset_path, "train"))
+tokenized_dataset["test"].save_to_disk(os.path.join(save_dataset_path, "eval"))
 ```
 
 ## 3. Fine-tune BERT using Hugging Face Transformers
 
 Normally you would use the [Trainer](https://huggingface.co/docs/transformers/v4.19.4/en/main_classes/trainer#transformers.Trainer) and [TrainingArguments](https://huggingface.co/docs/transformers/v4.19.4/en/main_classes/trainer#transformers.TrainingArguments) to fine-tune PyTorch-based transformer models.
 
-But together with AWS, we have developed a `TrainiumTrainer` to improve performance, robustness, and safety when training on Trainium instances. The `TrainiumTrainer` also comes with a [model cache](https://www.notion.so/Getting-started-with-AWS-Trainium-and-Hugging-Face-Transformers-8428c72556194aed9c393de101229dcf), which allows us to use precompiled models and configuration from Hugging Face Hub to skip the compilation step, which would be needed at the beginning of training. This can reduce the training time by ~3x.
+But together with AWS, we have developed a `TrainiumTrainer` to improve performance, robustness, and safety when training on Trainium instances. The `TrainiumTrainer` also comes with a [model cache](https://www.notion.so/Getting-started-with-AWS-Trainium-and-Hugging-Face-Transformers-8428c72556194aed9c393de101229dcf), which allows us to use precompiled models and configuration from the Hugging Face Hub to skip the compilation step that would otherwise be needed at the beginning of training. This can reduce the training time by ~3x.
 
 The `TrainiumTrainer` is part of the `optimum-neuron` library and can be used as a 1-to-1 replacement for the `Trainer`. You only have to adjust the import in your training script.
 
@@ -149,7 +149,7 @@ The `TrainiumTrainer` is part of the `optimum-neuron` library and can be used as
 + from optimum.neuron import TrainiumTrainer as Trainer
 ```
 
-We prepared a simple [train.py](https://github.com/philschmid/aws-neuron-samples/blob/main/training/scripts/train.py) training script based on the ["Getting started with Pytorch 2.0 and Hugging Face Transformers”](https://www.philschmid.de/getting-started-pytorch-2-0-transformers#3-fine-tune--evaluate-bert-model-with-the-hugging-face-trainer) blog post with the `TrainiumTrainier`. Below is an excerpt
+We prepared a simple [train.py](https://github.com/philschmid/aws-neuron-samples/blob/main/training/scripts/train.py) training script based on the ["Getting started with Pytorch 2.0 and Hugging Face Transformers”](https://www.philschmid.de/getting-started-pytorch-2-0-transformers#3-fine-tune--evaluate-bert-model-with-the-hugging-face-trainer) blog post with the `TrainiumTrainier`. Below is an excerpt:
 
 ```python
 from transformers import TrainingArguments
@@ -208,7 +208,7 @@ We'll use the following command to launch training:
 
 _**Note**: If you see bad, bad accuracy, you might want to deactivate `bf16` for now._
 
-After 9 minutes the training was completed and achieved an excellent f1 score of `0.914`.
+After 9 minutes the training was completed and achieved an excellent f1 score of `0.914`:
 
 ```bash
 ***** train metrics *****

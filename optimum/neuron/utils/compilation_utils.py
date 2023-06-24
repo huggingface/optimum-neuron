@@ -295,7 +295,7 @@ class ExampleRunner:
         has_write_access = has_write_access_to_repo(main_repo)
         if not has_write_access:
             raise RuntimeError(
-                f"You do not have write access to {main_repo}. Please log in and/or use a custom Tranium cache repo."
+                f"You do not have write access to {main_repo}. Please log in and/or use a custom Trainium cache repo."
             )
 
     def run(

@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Customizes the HfArgumentParser to add checks for AWS Tranium instances."""
+"""Customizes the HfArgumentParser to add checks for AWS Trainium instances."""
 
 from transformers import HfArgumentParser
 

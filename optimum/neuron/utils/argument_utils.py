@@ -37,7 +37,7 @@ def validate_arg(
     expected_value: Optional[Any] = None,
 ):
     """
-    Checks that the argument called `arg_name` in `args` has a value matching what is expected for AWS Tranium
+    Checks that the argument called `arg_name` in `args` has a value matching what is expected for AWS Trainium
     to work well. By default it will patch invalid argument values if the environment variable
     `OPTIMUM_DISABLE_ARGUMENT_PATCH` is left to `"0"` (by default) and an expected value is provided.
 
@@ -87,7 +87,7 @@ def validate_arg(
         else:
             raise_error_msg = (
                 "Aborting training. To disable automatic failure when an argument value is inferred to be wrong for "
-                "Tranium, set the environment variable OPTIMUM_DISABLE_STRICT_MODE to 1."
+                "Trainium, set the environment variable OPTIMUM_DISABLE_STRICT_MODE to 1."
             )
             raise ValueError(f"{error_msg}\n{raise_error_msg}")
 

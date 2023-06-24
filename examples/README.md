@@ -7,13 +7,13 @@ The following example scripts have been taken from the [official 🤗 Transforme
 + from optimum.neuron import TrainiumTrainer as Trainer
 ```
 
-While this is not *mandatory*, using the `TraniumTrainer` over the regular `Trainer` offers some advantages:
+While this is not *mandatory*, using the `TrainiumTrainer` over the regular `Trainer` offers some advantages:
 
 - Sanity checks are done preventing you to provide training argument values that do not behave well with Trainium. This can be disabled by setting the environment variable `DISABLE_STRICT_MODE=false`.
 
 - Some modifications are performed during the precompilation phase that can help avoiding recompilation during training.
 
-- Some models will not work out of the box, and the `TraniumTrainer` takes care of patching them accordingly, at least for the supported models.
+- Some models will not work out of the box, and the `TrainiumTrainer` takes care of patching them accordingly, at least for the supported models.
 
 
 That being said, you can use those examples exactly as you would use the official examples from the 🤗 Transformers library.
