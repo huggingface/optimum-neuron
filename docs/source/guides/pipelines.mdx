@@ -23,7 +23,7 @@ for accelerated inference on a variety of tasks such as text classification, que
 
 You can also use the
 [pipeline()](https://huggingface.co/docs/transformers/main/en/main_classes/pipelines#pipelines) function from
-Transformers and provide your Optimum model class.
+Transformers and provide your NeurModel model class.
 
 </Tip>
 
@@ -52,7 +52,7 @@ The [`~pipelines.pipeline`] function automatically loads a default model and tok
 2. Pass your input text/image to the [`~pipelines.pipeline`] function:
 
 ```python
->>> classifier("I like you. I love you.")  # doctest: +IGNORE_RESULT
+>>> classifier("I like you. I love you.")
 [{'label': 'POSITIVE', 'score': 0.9998838901519775}]
 ```
 

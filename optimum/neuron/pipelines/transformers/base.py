@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Pipelines running different backends."""
+"""Pipelines running different Neuron Accelerators."""
 
 import logging
 from typing import Any, Dict, Optional, Union
@@ -88,8 +88,8 @@ def load_pipeline(
     tokenizer,
     feature_extractor,
     load_feature_extractor,
-    SUPPORTED_TASKS,
-    input_shapes=None,
+    supported_tasks,
+    input_shapes={},
     export=False,
     subfolder: str = "",
     use_auth_token: Optional[Union[bool, str]] = None,
@@ -103,15 +103,15 @@ def load_pipeline(
 
     # loads default model
     if model is None:
-        model_id = SUPPORTED_TASKS[targeted_task]["default"]
+        model_id = supported_tasks[targeted_task]["default"]
         if input_shapes is None:
             input_shapes = {"batch_size": 1, "sequence_length": 128}
             logger.warning(f"No input shapes provided, using default shapes, {input_shapes}")
-        model = SUPPORTED_TASKS[targeted_task]["class"][0].from_pretrained(model_id, export=True, **input_shapes)
+        model = supported_tasks[targeted_task]["class"][0].from_pretrained(model_id, export=True, **input_shapes)
     # loads model from model id and converts it to neuronx optionally
     elif isinstance(model, str):
         model_id = model
-        neuronx_model_class = SUPPORTED_TASKS[targeted_task]["class"][0]
+        neuronx_model_class = supported_tasks[targeted_task]["class"][0]
         model = neuronx_model_class.from_pretrained(model, export=export, **model_kwargs, **input_shapes)
     # uses neuron model
     elif isinstance(model, NeuronBaseModel):
@@ -122,7 +122,7 @@ def load_pipeline(
                     break
             if tokenizer is None:
                 raise ValueError(
-                    "Could not automatically find a tokenizer for the NeuronBaseModel, you must pass a tokenizer explictly"
+                    "Could not automatically find a tokenizer for the NeuronBaseModel, you must pass a tokenizer explicitly"
                 )
         if feature_extractor is None and load_feature_extractor:
             for preprocessor in model.preprocessors:
@@ -131,13 +131,13 @@ def load_pipeline(
                     break
             if feature_extractor is None:
                 raise ValueError(
-                    "Could not automatically find a feature extractor for the ORTModel, you must pass a "
+                    "Could not automatically find a feature extractor for the NeuronModel, you must pass a "
                     "feature_extractor explictly"
                 )
         model_id = None
     else:
         raise ValueError(
-            f"""Model {model} is not supported. Please provide a valid model either as string or NeuroModel.
+            f"""Model {model} is not supported. Please provide a valid model either as string or NeuronModel.
             You can also provide non model then a default one will be used"""
         )
     return model, model_id, tokenizer, feature_extractor
@@ -145,7 +145,7 @@ def load_pipeline(
 
 def pipeline(
     task: str = None,
-    model: Optional[Any] = None,
+    model: Optional[Union[str, NeuronBaseModel]] = None,
     tokenizer: Optional[Union[str, PreTrainedTokenizer]] = None,
     feature_extractor: Optional[Union[str, PreTrainedFeatureExtractor]] = None,
     use_fast: bool = True,
@@ -157,7 +157,7 @@ def pipeline(
     *model_kwargs,
     **kwargs,
 ) -> Pipeline:
-    if task not in list(NEURONX_SUPPORTED_TASKS.keys()):
+    if task not in NEURONX_SUPPORTED_TASKS:
         raise ValueError(
             f"Task {task} is not supported for the optimum neuron pipeline. Supported tasks are {list(NEURONX_SUPPORTED_TASKS.keys())}"
         )
