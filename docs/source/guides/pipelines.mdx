@@ -69,7 +69,7 @@ To be able to load the model with the Neuron Runtime, the export to neuron needs
 to be supported for the considered architecture.
 
 You can check the list of supported architectures
-[here](TODO).
+[here](../package_reference/configuration#supported-architectures).
 
 </Tip>
 
@@ -112,8 +112,8 @@ For example, here is how you can load the [`~neuron.NeuronModelForQuestionAnswer
 
 ### Defining Input Shapes 
 
-NeuronModels currently require static `input_shapes` to run inference. If you are not providing input shapes when providing the `export=True` parameter, the default input shapes will be used. 
-Below is an example on how to specifc the input shapes for the sequence length and batch size. 
+NeuronModels currently require static `input_shapes` to run inference. The default input shapes will be used if you are not providing input shapes when providing the `export=True` parameter. 
+Below is an example of how to specify the input shapes for the sequence length and batch size. 
 
 ```python
 >>> from optimum.neuron.pipelines import pipeline
@@ -124,4 +124,3 @@ Below is an example on how to specifc the input shapes for the sequence length a
 
 >>> pred = clt(context)
 ```
-
