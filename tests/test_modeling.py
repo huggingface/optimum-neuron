@@ -337,7 +337,7 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
 
         gc.collect()
 
-    @parameterized.expand(SUPPORTED_ARCHITECTURES)
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_pipeline_model(self, model_arch):
         model_args = {"test_name": model_arch, "model_arch": model_arch}
         self._setup(model_args)
@@ -500,7 +500,7 @@ class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
 
         self.assertIn("set `dynamic_batch_size=True` during the compilation", str(context.exception))
 
-    @parameterized.expand(SUPPORTED_ARCHITECTURES)
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_pipeline_model(self, model_arch):
         model_args = {"test_name": model_arch, "model_arch": model_arch}
         self._setup(model_args)
@@ -697,7 +697,7 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
 
         self.assertIn("set `dynamic_batch_size=True` during the compilation", str(context.exception))
 
-    @parameterized.expand(SUPPORTED_ARCHITECTURES)
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_pipeline_model(self, model_arch):
         model_args = {"test_name": model_arch, "model_arch": model_arch}
         self._setup(model_args)
@@ -864,7 +864,7 @@ class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
 
         self.assertIn("set `dynamic_batch_size=True` during the compilation", str(context.exception))
 
-    @parameterized.expand(SUPPORTED_ARCHITECTURES)
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_pipeline_model(self, model_arch):
         model_args = {"test_name": model_arch, "model_arch": model_arch}
         self._setup(model_args)
@@ -1030,7 +1030,7 @@ class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
 
         self.assertIn("set `dynamic_batch_size=True` during the compilation", str(context.exception))
 
-    @parameterized.expand(SUPPORTED_ARCHITECTURES)
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_pipeline_model(self, model_arch):
         model_args = {"test_name": model_arch, "model_arch": model_arch}
         self._setup(model_args)
