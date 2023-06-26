@@ -15,7 +15,7 @@
 """Neuron compiled model check and export functions."""
 
 from pathlib import Path
-from typing import TYPE_CHECKING, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, List, Optional, Tuple, Union, Dict, Any
 
 import numpy as np
 import torch
@@ -42,11 +42,15 @@ if is_neuronx_available():
     import torch_neuronx as neuronx  # noqa: F811
 
 if is_diffusers_available():
-    from diffusers import ModelMixin   
+    from diffusers import ModelMixin
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
+
+def validate_models_outputs():
+    # Placeholder 
+    pass
 
 def validate_model_outputs(
     config: "NeuronConfig",
@@ -152,6 +156,58 @@ def validate_model_outputs(
         )
 
 
+def export_models(
+    models_and_neuron_configs: Dict[
+        str, Tuple[Union["PreTrainedModel", "ModelMixin", torch.nn.Module], "NeuronConfig"]
+    ],
+    output_dir: Path,
+    output_file_names: Optional[List[str]]=None,
+    compiler_kwargs: Optional[Dict[str, Any]]=dict(),
+) -> Tuple[List[List[str]], List[List[str]]]:
+    """
+    Exports a Pytorch model with multiple component models to separate files.
+
+    Args:
+        models_and_neuron_configs (`Dict[str, Tuple[Union["PreTrainedModel", "ModelMixin", torch.nn.Module], `NeuronConfig`]]):
+            A dictionnary containing the models to export and their corresponding neuron configs.
+        output_dir (`Path`):
+            Output directory to store the exported Neuron models.
+        output_file_names (`Optional[List[str]]`, defaults to `None`):
+            The names to use for the exported Neuron files. The order must be the same as the order of submodels in the ordered dict `models_and_neuron_configs`.
+            If None, will use the keys from `models_and_neuron_configs` as names.
+        compiler_kwargs (`Optional[Dict[str, Any]]`, defaults to `None`):
+            Arguments to pass to the Neuron(x) compiler for exporting Neuron models.  
+    Returns:
+        `Tuple[List[List[str]], List[List[str]]]`: A tuple with an ordered list of the model's inputs, and the named
+        outputs from the Neuron configuration.
+    """
+    outputs = []
+
+    if output_file_names is not None and len(output_file_names) != len(models_and_neuron_configs):
+        raise ValueError(
+            f"Provided {len(output_file_names)} custom names for the export of {len(models_and_neuron_configs)} models. Please provide the same number of names as models to export."
+        )
+
+    for i, model_name in enumerate(models_and_neuron_configs.keys()):
+        submodel, sub_neuron_config = models_and_neuron_configs[model_name]
+        output_file_name = output_file_names[i] if output_file_names is not None else Path(model_name + ".neuron")
+
+        output_path = output_dir / output_file_name
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        outputs.append(
+            export(
+                model=submodel,
+                config=sub_neuron_config,
+                output=output_path,
+                **compiler_kwargs,
+            )
+        )
+
+    outputs = list(map(list, zip(*outputs)))
+    return outputs
+
+
 def export(
     model: "PreTrainedModel",
     config: "NeuronConfig",
@@ -231,7 +287,7 @@ def export_neuronx(
         compiler_args = ["--auto-cast", "none"]
     
     # diffusers specific
-    if "unet" in config._config._class_name.lower():
+    if hasattr(config._config, "_class_name") and "unet" in config._config._class_name.lower():
         from diffusers.models.attention_processor import Attention
 
         compiler_args.extend(["--model-type", "unet-inference"])

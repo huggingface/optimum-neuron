@@ -21,6 +21,7 @@ from .import_utils import (
     is_neuronx_distributed_available,
     is_torch_xla_available,
 )
+from .optimization_utils import get_attention_scores
 from .training_utils import (
     FirstAndLastDataset,
     Patcher,
