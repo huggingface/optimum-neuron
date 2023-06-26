@@ -16,8 +16,6 @@
 
 from typing import TYPE_CHECKING
 
-from transformers.models.gpt_neo.modeling_gpt_neo import GPTNeoSelfAttention
-
 from .base import Parallelizer
 from .parallel_layers import ParallelSelfAttention
 from .utils import embedding_to_parallel_embedding
@@ -40,7 +38,7 @@ class GPTNeoParallelizer(Parallelizer):
     def parallelize(cls, model: "PreTrainedModel") -> "PreTrainedModel":
         model.transformer.wte = embedding_to_parallel_embedding(model.transformer.wte)
         for block in model.transformer.h:
-            block.attn.attention = GPTNeoParallelSelfAttention.transform(block.attn.attention, block.attn.attention, model.config)
+            block.attn.attention = GPTNeoParallelSelfAttention.transform(block.attn.attention, model.config)
         return model
 
 
@@ -52,11 +50,13 @@ class LlamaParallelSelfAttention(ParallelSelfAttention):
     NUM_ATTENTION_HEADS_NAME = "num_heads"
     ALL_HEAD_SIZE_NAME = "hidden_size"
 
+
 class LlamaParallelizer(Parallelizer):
     @classmethod
     def parallelize(cls, model: "PreTrainedModel") -> "PreTrainedModel":
-        model.model.embed_tokens, model.lm_head = embedding_to_parallel_embedding(model.model.embed_tokens, lm_head_layer=model.lm_head)
+        model.model.embed_tokens, model.lm_head = embedding_to_parallel_embedding(
+            model.model.embed_tokens, lm_head_layer=model.lm_head
+        )
         for layer in model.model.layers:
             layer.self_attn = LlamaParallelSelfAttention.transform(layer.self_attn, model.config)
         return model
-            

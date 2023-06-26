@@ -15,7 +15,7 @@
 """Classes related to parallel versions of common blocks in Transformers models."""
 
 from abc import ABC, abstractclassmethod
-from typing import TYPE_CHECKING, Optional, Type
+from typing import TYPE_CHECKING, Optional
 
 from ...utils import NormalizedConfigManager
 from ..utils import is_neuronx_distributed_available
@@ -31,11 +31,9 @@ if TYPE_CHECKING:
 
 
 class ParallelLayer(ABC):
-
     @abstractclassmethod
     def transform(cls, layer: "torch.nn.Module", config: "PretrainedConfig") -> "torch.nn.Module":
         pass
-         
 
 
 class ParallelSelfAttention(ParallelLayer):
@@ -45,7 +43,7 @@ class ParallelSelfAttention(ParallelLayer):
     OUTPUT_PROJECTION_NAME: Optional[str] = None
     NUM_ATTENTION_HEADS_NAME: Optional[str] = None
     # TODO: add this in NormalizedConfig
-    ALL_HEAD_SIZE_NAME: Optional[str] = None # "all_head_size"
+    ALL_HEAD_SIZE_NAME: Optional[str] = None  # "all_head_size"
 
     @classmethod
     def transform(cls, layer: "torch.nn.Module", config: "PretrainedConfig") -> "torch.nn.Module":
@@ -90,6 +88,7 @@ class ParallelSelfAttention(ParallelLayer):
             getattr(layer, all_head_size_name) // parallel_state.get_tensor_model_parallel_size(),
         )
         return layer
+
 
 class ParallelSelfOutput(ParallelLayer):
     OUTPUT_PROJECTION_NAME = "dense"

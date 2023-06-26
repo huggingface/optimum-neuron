@@ -180,6 +180,7 @@ class TrainiumTrainingArgumentsMixin:
     def place_model_on_device(self):
         return not self.tp_plugin.should_parallelize and super().place_model_on_device
 
+
 @dataclass
 class TrainiumTrainingArguments(TrainiumTrainingArgumentsMixin, TrainingArguments):
     tensor_parallel_size: int = field(

@@ -39,7 +39,7 @@ from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
 from transformers.utils import is_sagemaker_mp_enabled
 
 from ..utils import check_if_transformers_greater, logging
-from .accelerate import NeuronAccelerator
+from .accelerate import NeuronAccelerator, NeuronDistributedType
 from .trainer_callback import NeuronCacheCallaback
 from .utils import DynamicPatch, ModelPatcher, is_torch_xla_available, patch_within_function
 from .utils.cache_utils import get_neuron_cache_path
@@ -259,8 +259,8 @@ class AugmentTrainerForTrainiumMixin:
     #         return self._nested_gather_for_xla_fsdp(tensors, name="nested_gather_for_xla_fsdp")
     #     return super()._nested_gather(tensors, name=name)
 
-    def _save_checkpoint_for_xla_fsdp(self, model, trial, metrics=None):
-        if not self.is_fsdp_enabled:
+    def _save_checkpoint_with_accelerator(self, model, trial, metrics=None):
+        if self.accelerator.distributed_type is NeuronDistributedType.XLA_FSDP and not self.is_fsdp_enabled:
             # TODO: handle this case better?
             # Do we want to fail here? Can we save anyway?
             raise RuntimeError("Cannot save checkpoint if FSDP is not enabled.")
@@ -274,15 +274,17 @@ class AugmentTrainerForTrainiumMixin:
         output_dir = os.path.join(run_dir, checkpoint_folder)
         os.makedirs(output_dir, exist_ok=True)
 
-        # Save model
-        self.accelerator.state.fsdp_plugin.save_model(self.accelerator, self.model, output_dir)
+        self.accelerator.save_state(output_dir)
 
-        # Save optimizer
-        self.accelerator.state.fsdp_plugin.save_optimizer(self.accelerator, self.optimizer, self.model, output_dir)
+        # # Save model
+        # self.accelerator.state.fsdp_plugin.save_model(self.accelerator, self.model, output_dir)
 
-        # Save scheduler
-        with warnings.catch_warnings(record=True):
-            xm.save(self.lr_scheduler.state_dict(), os.path.join(output_dir, SCHEDULER_NAME))
+        # # Save optimizer
+        # self.accelerator.state.fsdp_plugin.save_optimizer(self.accelerator, self.optimizer, self.model, output_dir)
+
+        # # Save scheduler
+        # with warnings.catch_warnings(record=True):
+        #     xm.save(self.lr_scheduler.state_dict(), os.path.join(output_dir, SCHEDULER_NAME))
 
         # Save scaler
         # TODO: is grad scaling supported with TORCH XLA?
@@ -337,9 +339,24 @@ class AugmentTrainerForTrainiumMixin:
             self._rotate_checkpoints(use_mtime=True, output_dir=run_dir)
 
     def _save_checkpoint(self, model, trial, metrics=None):
-        if self.fsdp or self.is_fsdp_enabled:
-            return self._save_checkpoint_for_xla_fsdp(model, trial, metrics=metrics)
+        # if self.fsdp or self.is_fsdp_enabled:
+        if check_if_transformers_greater("4.30.0") and self.accelerator.distributed_type in [
+            NeuronDistributedType.XLA_FSDP,
+            NeuronDistributedType.TENSOR_PARALLELISM,
+        ]:
+            # return self._save_checkpoint_for_xla_fsdp(model, trial, metrics=metrics)
+            return self._save_checkpoint_with_accelerator(model, trial, metrics=metrics)
         return super()._save_checkpoint(model, trial, metrics=metrics)
+
+    def save_model(self, output_dir: Optional[str] = None, _internal_call: bool = False):
+        if check_if_transformers_greater("4.30.0") and self.accelerator.distributed_type in [
+            NeuronDistributedType.XLA_FSDP,
+            NeuronDistributedType.TENSOR_PARALLELISM,
+        ]:
+            self.accelerator.v
+            # TODO:
+
+        return super().save_model(output_dir=output_dir, _internal_call=_internal_call)
 
     def _load_optimizer_and_scheduler_for_xla_fsdp(self, checkpoint):
         if checkpoint is None:

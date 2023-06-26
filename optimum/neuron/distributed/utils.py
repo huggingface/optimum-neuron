@@ -14,7 +14,7 @@
 # limitations under the License.
 """Utilities for performing parallelism with `neuronx_distributed`"""
 
-from typing import Literal, Union, Optional
+from typing import Literal, Optional, Union
 
 import torch
 
@@ -28,7 +28,9 @@ if is_neuronx_distributed_available():
 TENSOR_PARALLEL_SHARDS_DIR_NAME = "tensor_parallel_shards"
 
 
-def embedding_to_parallel_embedding(embedding_layer: "torch.nn.Embedding", lm_head_layer: Optional["torch.nn.Linear"] = None):
+def embedding_to_parallel_embedding(
+    embedding_layer: "torch.nn.Embedding", lm_head_layer: Optional["torch.nn.Linear"] = None
+):
     parallel_embedding_layer = layers.ParallelEmbedding(
         embedding_layer.num_embeddings,
         embedding_layer.embedding_dim,
@@ -43,7 +45,7 @@ def embedding_to_parallel_embedding(embedding_layer: "torch.nn.Embedding", lm_he
         is_tied = id(embedding_layer.weight.data) == id(lm_head_layer.weight.data)
 
     with torch.no_grad():
-        parallel_embedding_layer.weight.copy_(embedding_layer.weight[tp_rank * row_size: (tp_rank + 1) * row_size, :])
+        parallel_embedding_layer.weight.copy_(embedding_layer.weight[tp_rank * row_size : (tp_rank + 1) * row_size, :])
         if lm_head_layer is not None:
             parallel_lm_head_layer = linear_to_parallel_linear(
                 lm_head_layer,
@@ -52,7 +54,6 @@ def embedding_to_parallel_embedding(embedding_layer: "torch.nn.Embedding", lm_he
             )
             if is_tied:
                 parallel_lm_head_layer.weight = parallel_embedding_layer.weight
-
 
     del embedding_layer.weight
 

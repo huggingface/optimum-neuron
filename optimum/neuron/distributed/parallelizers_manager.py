@@ -19,8 +19,6 @@ from typing import Dict, Type, Union
 
 from transformers import PreTrainedModel
 
-from optimum.neuron.utils.training_utils import is_model_officially_supported
-
 from .base import Parallelizer
 
 

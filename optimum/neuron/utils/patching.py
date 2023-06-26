@@ -83,8 +83,13 @@ class Patcher(BasePatcher):
                 attribute = getattr(module, attribute_name)
             elif ignore_missing_attributes and not isinstance(patch, DynamicPatch):
                 attribute = None
-            else:
+            elif isinstance(patch, DynamicPatch):
                 raise ValueError("Cannot ignore missing attribute with a DynamicPatch.")
+            else:
+                raise AttributeError(
+                    f"Attribute {attribute_name} does not exist in {module}, set `ignore_missing_attributes=True` "
+                    "to allow not failing when an attribute does not exist."
+                )
             if isinstance(patch, DynamicPatch):
                 patch = patch(attribute)
             proccessed_patching_specs.append((module, attribute_name, attribute, patch))

@@ -18,29 +18,34 @@ import inspect
 import os
 import re
 import shutil
-from pathlib import Path
 from functools import partial
-from typing import TYPE_CHECKING, Optional, Callable, Any, Union
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Callable, Optional, Union
 
 import torch
-from torch.utils.data.distributed import DistributedSampler
 from accelerate import Accelerator
 from accelerate.checkpointing import save_accelerator_state, save_custom_state
 from accelerate.utils import DistributedType
-
-from optimum.neuron.accelerate.utils.dataclasses import TensorParallelismPlugin
+from torch.utils.data.distributed import DistributedSampler
 
 from ...utils import logging
+from ..distributed import ParallelizersManager
 from ..utils import Patcher, is_neuronx_distributed_available, is_torch_xla_available, patch_within_function
 from ..utils.misc import args_and_kwargs_to_kwargs_only
 from .optimizer import NeuronAcceleratedOptimizer
 from .scheduler import NeuronAcceleratedScheduler
 from .state import NeuronAcceleratorState
-from .utils import NeuronDistributedType, NeuronFullyShardedDataParallelPlugin, patch_accelerate_is_tpu_available
+from .utils import (
+    NeuronDistributedType,
+    NeuronFullyShardedDataParallelPlugin,
+    TensorParallelismPlugin,
+    patch_accelerate_is_tpu_available,
+)
 
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
+
     try:
         from torch.optim.lr_scheduler import LRScheduler
     except ImportError:
@@ -48,6 +53,8 @@ if TYPE_CHECKING:
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
+else:
+    xm = None
 
 if is_neuronx_distributed_available():
     from neuronx_distributed import parallel_layers
@@ -267,8 +274,15 @@ class NeuronAccelerator(Accelerator):
             raise Exception("XLA FSDP  does not support `clip_grad_value_`. Use `clip_grad_norm_` instead.")
         return super().clip_grad_value_(parameters, clip_value)
 
-
-    def _custom_save_state(self, save_model_func: Callable[["Accelerator", "PreTrainedModel", Union[str, Path], int], Any], save_optimizer_func: Callable[["Accelerator", "torch.optim.Optimizer", "PreTrainedModel", Union[str, Path], int], Any], output_dir: Optional[str] = None, **save_model_func_kwargs: Any) -> str:
+    def _custom_save_state(
+        self,
+        save_model_func: Callable[["Accelerator", "PreTrainedModel", Union[str, Path], int], Any],
+        save_optimizer_func: Callable[
+            ["Accelerator", "torch.optim.Optimizer", "PreTrainedModel", Union[str, Path], int], Any
+        ],
+        output_dir: Optional[str] = None,
+        **save_model_func_kwargs: Any,
+    ) -> str:
         if self.project_configuration.automatic_checkpoint_naming:
             output_dir = os.path.join(self.project_dir, "checkpoints")
 
@@ -329,7 +343,6 @@ class NeuronAccelerator(Accelerator):
         return save_location
 
     def save_state_for_xla_fsdp(self, output_dir: Optional[str] = None, **save_model_func_kwargs):
-        
         def save_model_func(accelelerator, model, output_dir, i):
             logger.info("Saving FSDP model")
             self.state.fsdp_plugin.save_model(accelelerator, model, output_dir, i)
@@ -340,9 +353,28 @@ class NeuronAccelerator(Accelerator):
             self.state.fsdp_plugin.save_optimizer(accelerator, optimizer, model, output_dir, i)
             logger.info(f"FSDP Optimizer saved to output dir {output_dir}")
 
-        return self._custom_save_state(save_model_func, save_optimizer_func, output_dir=output_dir, **save_model_func_kwargs)
+        return self._custom_save_state(
+            save_model_func, save_optimizer_func, output_dir=output_dir, **save_model_func_kwargs
+        )
 
+    def save_state_for_tp(self, output_dir: Optional[str] = None, **save_model_func_kwargs):
+        def save_model_func(accelelerator, model, output_dir, i):
+            return
+
+        def save_optimizer_func(accelerator, optimizer, model, output_dir, i):
+            logger.info("Saving TP model and optimizer")
+            parallelizer = ParallelizersManager.parallelizer_for_model(model)
+            parallelizer.save_model_checkpoint(model, output_dir, as_regular=False, optimizer=optimizer)
+            logger.info(f"TP model and optimizer saved to output dir {output_dir}")
+
+        return self._custom_save_state(
+            save_model_func, save_optimizer_func, output_dir=output_dir, **save_model_func_kwargs
+        )
+
+    @patch_within_function(("accelerate.checkpointing.xm", xm), ignore_missing_attributes=True)
     def save_state(self, output_dir: Optional[str] = None, **save_model_func_kwargs) -> str:
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:
             return self.save_state_for_xla_fsdp(output_dir=output_dir, **save_model_func_kwargs)
+        elif self.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
+            return self.save_state_for_tp(output_dir=output_dir, **save_model_func_kwargs)
         return super().save_state(output_dir=output_dir, **save_model_func_kwargs)
