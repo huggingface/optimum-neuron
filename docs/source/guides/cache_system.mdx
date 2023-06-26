@@ -177,13 +177,13 @@ usage: optimum-cli neuron cache add [-h] -m MODEL --task TASK --train_batch_size
 
 When running this command a small training session will be run and the resulting compilation files will be pushed.
 
-<Warning>
+<Tip warning={true}>
 Make sure that the Trainium cache repo to use is set up locally, this can be done by running the `optimum-cli neuron cache set` command. 
 You also need to make sure that you are logged in to the Hugging Face Hub and that you have the writing rights for the specified cache repo,
 this can be done via the `huggingface-cli login` command.
 
 If at least one of those requirements is not met, the command will fail.
-</Warning>
+</Tip>
 
 
 Example:
