@@ -162,10 +162,6 @@ def pipeline(
             f"Task {task} is not supported for the optimum neuron pipeline. Supported tasks are {list(NEURONX_SUPPORTED_TASKS.keys())}"
         )
 
-    if input_shapes is None and export:
-        input_shapes = {"batch_size": 1, "sequence_length": 128}
-        logger.warning(f"No input shapes provided, using default shapes, {input_shapes}")
-
     # copied from transformers.pipelines.__init__.py
     hub_kwargs = {
         "revision": revision,
@@ -178,6 +174,19 @@ def pipeline(
     if config is None and isinstance(model, str):
         config = AutoConfig.from_pretrained(model, _from_pipeline=task, **hub_kwargs, **kwargs)
         hub_kwargs["_commit_hash"] = config._commit_hash
+
+    # check if config contains neuron batch size and sequence length
+    if hasattr(config, "neuron_batch_size") and hasattr(config, "neuron_sequence_length"):
+        if input_shapes is not None:
+            logger.warning("Input shapes will be overwritten by config values")
+        input_shapes = {}
+        input_shapes["batch_size"] = config.neuron_batch_size
+        input_shapes["sequence_length"] = config.neuron_sequence_length
+
+    # check if input shapes are provided and if not use default ones
+    if input_shapes is None and export:
+        input_shapes = {"batch_size": 1, "sequence_length": 128}
+        logger.warning(f"No input shapes provided, using default shapes, {input_shapes}")
 
     no_feature_extractor_tasks = set()
     no_tokenizer_tasks = set()
