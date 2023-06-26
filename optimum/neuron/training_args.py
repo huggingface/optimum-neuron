@@ -84,6 +84,9 @@ class TrainiumTrainingArgumentsMixin:
     # Needed only to specialize the warning message for FSDP.
     @cached_property
     def _setup_devices(self) -> "torch.device":
+        if not check_if_transformers_greater("4.30.0"):
+            return super()._setup_devices
+
         requires_backends(self, ["torch"])
         logger.info("PyTorch: setting up devices")
         NeuronAcceleratorState._reset_state()
