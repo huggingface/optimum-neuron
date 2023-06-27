@@ -31,6 +31,7 @@ _import_structure = {
         "NeuronModelForTokenClassification",
         "NeuronModelForMultipleChoice",
     ],
+    "modeling_decoder": ["NeuronDecoderModel"],
     "accelerate": [
         "NeuronAccelerator",
         "NeuronAcceleratorState",
@@ -51,6 +52,7 @@ if TYPE_CHECKING:
         NeuronModelForTokenClassification,
     )
     from .modeling_base import NeuronBaseModel
+    from .modeling_decoder import NeuronDecoderModel
     from .pipelines import pipeline
     from .trainers import NeuronTrainer, Seq2SeqNeuronTrainer
     from .training_args import NeuronTrainingArguments, Seq2SeqNeuronTrainingArguments

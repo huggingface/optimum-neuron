@@ -1,0 +1,123 @@
+# coding=utf-8
+# Copyright 2023 The HuggingFace Inc. team. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""Base class for text-generation model architectures on neuron devices."""
+
+import logging
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from typing import TYPE_CHECKING, Optional, Union
+
+import torch
+
+from ..exporters.neuron.model_configs import *  # noqa: F403
+from ..exporters.tasks import TasksManager
+from ..modeling_base import OptimizedModel
+from .utils import is_transformers_neuronx_available
+
+
+if is_transformers_neuronx_available():
+    from transformers_neuronx.module import PretrainedModel as NeuronxPretrainedModel
+    from transformers_neuronx.module import save_pretrained_split
+
+
+if TYPE_CHECKING:
+    from transformers import PretrainedConfig
+
+
+logger = logging.getLogger(__name__)
+
+
+def get_exporter(config, task):
+    return TasksManager.get_exporter_config_constructor(model_type=config.model_type, exporter="neuron", task=task)()
+
+
+class NeuronDecoderModel(OptimizedModel):
+    """
+    Base class to convert and run pre-trained transformers decoder models on Neuron devices.
+
+    It implements the methods to convert a pre-trained transformers decoder model into a Neuron transformer model by:
+    - transferring the checkpoint weights of the original into an optimized neuron graph,
+    - compiling the resulting graph using the Neuron compiler.
+
+    Common attributes:
+        - model (`torch.nn.Module`) -- The decoder model with a graph optimized for neuron devices.
+        - config ([`~transformers.PretrainedConfig`]) -- The configuration of the original model.
+    """
+
+    def __init__(self, model: torch.nn.Module, config: "PretrainedConfig"):
+        if not is_transformers_neuronx_available() or not isinstance(model, NeuronxPretrainedModel):
+            raise ValueError("The source model must be a transformers_neuronx.PreTrainedModel.")
+
+        super().__init__(model, config)
+
+    @classmethod
+    def _from_transformers(
+        cls,
+        model_id: str,
+        config: "PretrainedConfig",
+        use_auth_token: Optional[Union[bool, str]] = None,
+        revision: Optional[str] = None,
+        force_download: bool = False,
+        cache_dir: Optional[str] = None,
+        subfolder: str = "",
+        local_files_only: bool = False,
+        trust_remote_code: bool = False,
+        task: Optional[str] = None,
+        **kwargs,
+    ) -> "NeuronDecoderModel":
+        if not is_transformers_neuronx_available():
+            raise ModuleNotFoundError("The transformers_neuronx package is required to export the model.")
+
+        if task is None:
+            task = TasksManager.infer_task_from_model(cls.auto_model_class)
+
+        # Instantiate the exporter for the specified configuration and task
+        exporter = get_exporter(config, task)
+
+        # Split kwargs between model and neuron args
+        model_kwargs, neuron_kwargs = exporter.split_kwargs(**kwargs)
+
+        # Instantiate the transformers model checkpoint
+        model = TasksManager.get_model_from_task(
+            task=task,
+            model_name_or_path=model_id,
+            subfolder=subfolder,
+            revision=revision,
+            framework="pt",
+            cache_dir=cache_dir,
+            use_auth_token=use_auth_token,
+            local_files_only=local_files_only,
+            force_download=force_download,
+            trust_remote_code=trust_remote_code,
+            **model_kwargs,
+        )
+
+        # Save the model checkpoint in a temporary directory
+        checkpoint_dir = TemporaryDirectory()
+        save_pretrained_split(model, checkpoint_dir.name)
+
+        # Instantiate the optimized Neuron model from the transformers checkpoint
+        neuronx_model = exporter.neuronx_class.from_pretrained(checkpoint_dir.name, **neuron_kwargs)
+
+        # Compile the model
+        neuronx_model.to_neuron()
+
+        return cls(neuronx_model, config)
+
+    def forward(self, *args, **kwargs):
+        raise NotImplementedError()
+
+    def _save_pretrained(self, save_directory: Union[str, Path]):
+        raise NotImplementedError()
