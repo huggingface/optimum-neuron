@@ -707,7 +707,7 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
         tokenizer = get_preprocessor(model_id)
         pipe = pipeline(self.TASK, model=neuron_model, tokenizer=tokenizer)
         question = "Whats my name?"
-        context = "My Name is Philipp and I live in Nuremberg."
+        context = "My Name is Philipp."
         outputs = pipe(question, context)
 
         self.assertGreaterEqual(outputs["score"], 0.0)
@@ -873,7 +873,7 @@ class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
         neuron_model = NeuronModelForSequenceClassification.from_pretrained(self.neuron_model_dirs[model_arch])
         tokenizer = get_preprocessor(model_id)
         pipe = pipeline(self.TASK, model=neuron_model, tokenizer=tokenizer)
-        text = "My Name is Philipp and i live in Germany."
+        text = "I like you."
         outputs = pipe(text)
 
         self.assertGreaterEqual(outputs[0]["score"], 0.0)
