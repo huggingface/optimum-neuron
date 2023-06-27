@@ -346,7 +346,7 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
         neuron_model = NeuronModelForSequenceClassification.from_pretrained(self.neuron_model_dirs[model_arch])
         tokenizer = get_preprocessor(model_id)
         pipe = pipeline(self.TASK, model=neuron_model, tokenizer=tokenizer)
-        text = "My Name is Philipp and i live in Germany."
+        text = "My Name is Philipp."
         outputs = pipe(text)
 
         self.assertTrue(all(all(isinstance(item, float) for item in row) for row in outputs[0]))
@@ -703,7 +703,7 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
         self._setup(model_args)
 
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
-        neuron_model = NeuronModelForSequenceClassification.from_pretrained(self.neuron_model_dirs[model_arch])
+        neuron_model = NeuronModelForQuestionAnswering.from_pretrained(self.neuron_model_dirs[model_arch])
         tokenizer = get_preprocessor(model_id)
         pipe = pipeline(self.TASK, model=neuron_model, tokenizer=tokenizer)
         question = "Whats my name?"
@@ -1036,10 +1036,10 @@ class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
         self._setup(model_args)
 
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
-        neuron_model = NeuronModelForSequenceClassification.from_pretrained(self.neuron_model_dirs[model_arch])
+        neuron_model = NeuronModelForTokenClassification.from_pretrained(self.neuron_model_dirs[model_arch])
         tokenizer = get_preprocessor(model_id)
         pipe = pipeline(self.TASK, model=neuron_model, tokenizer=tokenizer)
-        text = "My Name is Philipp and i live in Germany."
+        text = "My Name is Philipp."
         outputs = pipe(text)
 
         self.assertTrue(all(item["score"] > 0.0 for item in outputs))
