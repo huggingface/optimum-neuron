@@ -24,6 +24,8 @@
       title: Export a model to Inferentia
     - local: guides/models
       title: Neuron models for inference 
+    - local: guides/pipelines
+      title: Inference pipelines with AWS Neuron
     title: How-To Guides
   - sections:
     - local: package_reference/trainer
