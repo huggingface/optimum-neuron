@@ -219,8 +219,6 @@ class NeuronAccelerator(Accelerator):
     def prepare_model(
         self, model: torch.nn.Module, device_placement: Optional[bool] = None, evaluation_mode: bool = False
     ):
-        print("Device placement", device_placement)
-        print("Device", print(list(model.parameters())[0].device))
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:
             return self.prepare_model_for_xla_fsdp(
                 model, device_placement=device_placement, evaluation_mode=evaluation_mode

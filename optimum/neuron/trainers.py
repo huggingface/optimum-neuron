@@ -40,6 +40,7 @@ from transformers.utils import is_sagemaker_mp_enabled
 
 from ..utils import check_if_transformers_greater, logging
 from .accelerate import NeuronAccelerator, NeuronDistributedType
+from .distributed import ParallelizersManager
 from .trainer_callback import NeuronCacheCallaback
 from .utils import DynamicPatch, ModelPatcher, is_torch_xla_available, patch_within_function
 from .utils.cache_utils import get_neuron_cache_path
@@ -137,13 +138,13 @@ class AugmentTrainerForTrainiumMixin:
             logger.setLevel(logging.INFO)
 
         if not is_precompilation():
-            NeuronCacheCallaback(
+            callback = NeuronCacheCallaback(
                 tmp_neuron_cache=_TMP_NEURON_CACHE_DIR,
                 original_neuron_cache_path=_ORIGINAL_NEURON_CACHE_PATH,
                 only_do_fetching=self.args.local_rank > 0,
             )
             # TODO: re-enable.
-            # self.add_callback(callback)
+            self.add_callback(callback)
 
         # Make the model Neuron-compatible for generation.
         patch_generation_mixin_to_neuron_generation_mixin(self.model)
@@ -349,14 +350,15 @@ class AugmentTrainerForTrainiumMixin:
         return super()._save_checkpoint(model, trial, metrics=metrics)
 
     def save_model(self, output_dir: Optional[str] = None, _internal_call: bool = False):
-        if check_if_transformers_greater("4.30.0") and self.accelerator.distributed_type in [
-            NeuronDistributedType.XLA_FSDP,
-            NeuronDistributedType.TENSOR_PARALLELISM,
-        ]:
-            self.accelerator.v
-            # TODO:
-
-        return super().save_model(output_dir=output_dir, _internal_call=_internal_call)
+        if output_dir is None:
+            output_dir = self.args.output_dir
+        if self.accelerator.distributed_type is NeuronDistributedType.XLA_FSDP:
+            self.accelerator.state.fsdp_plugin.save_model(self.accelerator, self.model, output_dir, 0)
+        elif self.accelerator.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
+            parallelizer = ParallelizersManager.parallelizer_for_model(self.model)
+            parallelizer.save_model_checkpoint(self.model, output_dir, as_regular=False)
+        else:
+            return super().save_model(output_dir=output_dir, _internal_call=_internal_call)
 
     def _load_optimizer_and_scheduler_for_xla_fsdp(self, checkpoint):
         if checkpoint is None:

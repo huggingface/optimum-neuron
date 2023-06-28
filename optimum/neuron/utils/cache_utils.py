@@ -79,6 +79,9 @@ _REGISTRY_FILE_EXISTS: Dict[str, bool] = {}
 _ADDED_IN_REGISTRY: Dict[Tuple[str, "NeuronHash"], bool] = {}
 
 
+_NEW_CACHE_NAMING_CONVENTION_NEURONXCC_VERSION = "2.7.0.40+f7c6cf2a3"
+
+
 def load_custom_cache_repo_name_from_hf_home(
     hf_home_cache_repo_file: Union[str, Path] = HF_HOME_CACHE_REPO_FILE
 ) -> Optional[str]:
@@ -208,6 +211,12 @@ def get_neuron_cache_path() -> Optional[Path]:
         else:
             path = Path("/var/tmp")
 
+        # TODO: is that correct?
+        # neuronxcc_version = get_neuronxcc_version()
+        # if version.parse(neuronxcc_version) < version.parse(_NEW_CACHE_NAMING_CONVENTION_NEURONXCC_VERSION):
+        #     path = path / NEURON_COMPILE_CACHE_NAME
+
+        # return path
         return path / NEURON_COMPILE_CACHE_NAME
 
 
