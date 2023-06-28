@@ -142,8 +142,14 @@ def store_compilation_config(
     input_names: List[str],
     output_names: List[str],
     dynamic_batch_size: bool,
+    neuron_compiler: str,
+    neuron_compiler_version: str,
     **kwargs,
 ):
+    # Add neuron version to the config, so it can be checked at load time
+    config.neuron_compiler = neuron_compiler
+    config.neuron_compiler_version = neuron_compiler_version
+
     # Add input shapes during compilation to the config
     for axe, shape in input_shapes.items():
         axe = f"neuron_{axe}"

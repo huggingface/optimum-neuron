@@ -31,7 +31,9 @@ from ..exporters.tasks import TasksManager
 from ..modeling_base import OptimizedModel
 from ..utils.save_utils import maybe_load_preprocessors, maybe_save_preprocessors
 from .utils import NEURON_FILE_NAME, is_neuron_available, store_compilation_config
-
+from .utils.version_utils import get_neuronxcc_version, get_neuroncc_version
+from .utils.import_utils import is_neuronx_available
+from packaging import version
 
 if TYPE_CHECKING:
     from transformers import PretrainedConfig
@@ -154,6 +156,16 @@ class NeuronBaseModel(OptimizedModel):
             else:
                 file_name = neuron_files[0].name
 
+        # check compiler compatability of saved model vs system installation
+        # Vagrantly assumes that the user won't try to load an xcc on a cc machine (and vise/versa)
+        if hasattr(config, "neuron_compiler") and hasattr(config, "neuron_compiler_version"):
+            min_version = get_neuronxcc_version() if config.neuron_compiler == "neuronx-cc" else get_neuroncc_version()
+            if version.parse(config.neuron_compiler_version) > version.parse(min_version):
+                raise RuntimeError(
+                    f"Pretrained model {min_version} is newer than current compiler {config.neuron_compiler_version},"
+                    " which may cause runtime incompatabilities"
+                )
+
         preprocessors = None
         if model_path.is_dir():
             model = NeuronBaseModel.load_model(model_path / file_name)
@@ -271,7 +283,15 @@ class NeuronBaseModel(OptimizedModel):
             **compiler_kwargs,
         )
 
-        store_compilation_config(config, input_shapes, compiler_kwargs, input_names, output_names, dynamic_batch_size)
+        # This logic is a bit of a reacharound, using the same logic as in `export()` to determine the cc version
+        if is_neuronx_available():
+            neuron_compiler = "neuronx-cc"
+            neuron_compiler_version = get_neuronxcc_version()
+        else:
+            neuron_compiler = "neuron-cc"
+            neuron_compiler_version = get_neuroncc_version()
+        store_compilation_config(config, input_shapes, compiler_kwargs, input_names, output_names, dynamic_batch_size,
+                neuron_compiler, neuron_compiler_version)
 
         config.save_pretrained(save_dir_path)
         maybe_save_preprocessors(model_id, save_dir_path, src_subfolder=subfolder)
@@ -318,7 +338,7 @@ class NeuronBaseModel(OptimizedModel):
         compile_shapes = {
             key.replace("neuron_", ""): value
             for (key, value) in config.to_diff_dict().items()
-            if key.startswith("neuron_")
+            if key.startswith("neuron_") and not key.startswith("neuron_compiler") # <-- TODO: is there a better way?
         }
 
         # Neuron config constructuor

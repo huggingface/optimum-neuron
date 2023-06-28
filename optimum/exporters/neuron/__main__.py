@@ -18,6 +18,7 @@ import copy
 from argparse import ArgumentParser
 
 from ...neuron.utils import is_neuron_available, is_neuronx_available, store_compilation_config
+from ...neuron.utils.version_utils import get_neuronxcc_version, get_neuroncc_version
 from ...utils import logging
 from ...utils.save_utils import maybe_save_preprocessors
 from ..error_utils import AtolError, OutputMatchError, ShapeError
@@ -28,13 +29,15 @@ from .model_configs import *  # noqa: F403
 
 if is_neuron_available():
     from ...commands.export.neuron import parse_args_neuron
-
     NEURON_COMPILER = "Neuron"
+    NEURON_COMPILER_TYPE = "neuron-cc"
+    NEURON_COMPILER_VERSION = get_neuroncc_version()
 
 if is_neuronx_available():
     from ...commands.export.neuronx import parse_args_neuronx as parse_args_neuron  # noqa: F811
-
     NEURON_COMPILER = "Neuronx"
+    NEURON_COMPILER_TYPE = "neuronx-cc"
+    NEURON_COMPILER_VERSION = get_neuronxcc_version()
 
 
 logger = logging.get_logger()
@@ -99,7 +102,8 @@ def main():
 
     # For torch_neuron, batch_size must be equal to 1 when dynamic batching is on.
     store_compilation_config(
-        model.config, input_shapes, compiler_kwargs, neuron_inputs, neuron_outputs, args.dynamic_batch_size
+        model.config, input_shapes, compiler_kwargs, neuron_inputs, neuron_outputs, args.dynamic_batch_size,
+        NEURON_COMPILER_TYPE, NEURON_COMPILER_VERSION
     )
 
     # Saving the model config and preprocessor as this is needed sometimes.
