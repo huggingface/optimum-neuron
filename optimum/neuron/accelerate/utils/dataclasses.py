@@ -17,7 +17,7 @@
 import enum
 import os
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Dict, Tuple, Union
 
 import torch
 from accelerate.utils.constants import MODEL_NAME, OPTIMIZER_NAME
@@ -150,6 +150,15 @@ class TensorParallelismPlugin:
     def should_parallelize(self):
         return self.tensor_parallel_size > 1
 
-    def parallelize_model(self, model: "PreTrainedModel") -> "PreTrainedModel":
+    def parallelize_model(
+        self, model: "PreTrainedModel", return_orig_to_parallel: bool = False
+    ) -> Union["PreTrainedModel", Tuple["PreTrainedModel", Dict[int, "torch.nn.Parameter"]]]:
+        orig_to_parallel = {}
         parallelizer = ParallelizersManager.parallelizer_for_model(model)
-        return parallelizer.parallelize(model)
+        parallelized_model = parallelizer.parallelize(
+            model, orig_to_parallel=orig_to_parallel if return_orig_to_parallel else None
+        )
+        if return_orig_to_parallel:
+            return parallelized_model, orig_to_parallel
+        else:
+            return parallelized_model

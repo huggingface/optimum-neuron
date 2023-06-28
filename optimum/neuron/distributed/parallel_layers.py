@@ -15,7 +15,7 @@
 """Classes related to parallel versions of common blocks in Transformers models."""
 
 from abc import ABC, abstractclassmethod
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Dict, Optional
 
 from ...utils import NormalizedConfigManager
 from ..utils import is_neuronx_distributed_available
@@ -32,7 +32,12 @@ if TYPE_CHECKING:
 
 class ParallelLayer(ABC):
     @abstractclassmethod
-    def transform(cls, layer: "torch.nn.Module", config: "PretrainedConfig") -> "torch.nn.Module":
+    def transform(
+        cls,
+        layer: "torch.nn.Module",
+        config: "PretrainedConfig",
+        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+    ) -> "torch.nn.Module":
         pass
 
 
@@ -46,19 +51,30 @@ class ParallelSelfAttention(ParallelLayer):
     ALL_HEAD_SIZE_NAME: Optional[str] = None  # "all_head_size"
 
     @classmethod
-    def transform(cls, layer: "torch.nn.Module", config: "PretrainedConfig") -> "torch.nn.Module":
+    def transform(
+        cls,
+        layer: "torch.nn.Module",
+        config: "PretrainedConfig",
+        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+    ) -> "torch.nn.Module":
         normalized_config = NormalizedConfigManager.get_normalized_config_class(config.model_type)(config)
+
         for name in [cls.QUERIES_NAME, cls.KEYS_NAME, cls.VALUES_NAME]:
-            setattr(
-                layer,
-                name,
-                linear_to_parallel_linear(getattr(layer, name), "column", gather_output=False),
+            parallel_linear = linear_to_parallel_linear(
+                getattr(layer, name), "column", gather_output=False, orig_to_parallel=orig_to_parallel
             )
+            setattr(layer, name, parallel_linear)
+
         if cls.OUTPUT_PROJECTION_NAME is not None:
             setattr(
                 layer,
                 cls.OUTPUT_PROJECTION_NAME,
-                linear_to_parallel_linear(getattr(layer, cls.OUTPUT_PROJECTION_NAME), "row", input_is_parallel=True),
+                linear_to_parallel_linear(
+                    getattr(layer, cls.OUTPUT_PROJECTION_NAME),
+                    "row",
+                    input_is_parallel=True,
+                    orig_to_parallel=orig_to_parallel,
+                ),
             )
 
         if cls.NUM_ATTENTION_HEADS_NAME is None:
@@ -94,9 +110,20 @@ class ParallelSelfOutput(ParallelLayer):
     OUTPUT_PROJECTION_NAME = "dense"
 
     @classmethod
-    def transform(cls, layer: "torch.nn.Module", config: "PretrainedConfig") -> "torch.nn.Module":
+    def transform(
+        cls,
+        layer: "torch.nn.Module",
+        config: "PretrainedConfig",
+        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+    ) -> "torch.nn.Module":
         setattr(
             layer,
             cls.OUTPUT_PROJECTION_NAME,
-            linear_to_parallel_linear(getattr(layer, cls.OUTPUT_PROJECTION_NAME), "row", input_is_parallel=True),
+            linear_to_parallel_linear(
+                getattr(layer, cls.OUTPUT_PROJECTION_NAME),
+                "row",
+                input_is_parallel=True,
+                orig_to_parallel=orig_to_parallel,
+            ),
         )
+        return layer

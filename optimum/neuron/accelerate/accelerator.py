@@ -100,6 +100,7 @@ class NeuronAccelerator(Accelerator):
             else:
                 tp_size = int(use_neuronx_distributed_tp)
             tp_plugin = TensorParallelismPlugin(tensor_parallel_size=tp_size)
+        self._model_to_orig_to_parallel = {}
 
         if tp_plugin.should_parallelize:
             os.environ["ACCELERATE_USE_NEURONX_DISTRIBUTED_TP"] = "true"
@@ -128,8 +129,20 @@ class NeuronAccelerator(Accelerator):
             return self._prepare_data_loader_for_tp(data_loader)
         return super().prepare_data_loader(data_loader, device_placement=device_placement)
 
+    def _prepare_optimizer_for_tp(self, optimizer: torch.optim.Optimizer, device_placement=None):
+        for param_group in optimizer.param_groups:
+            params = param_group["params"]
+            for idx in range(len(params)):
+                for orig_to_parallel in self._model_to_orig_to_parallel.values():
+                    if id(params[idx]) in orig_to_parallel:
+                        params[idx] = orig_to_parallel[id(params[idx])]
+
+        return super().prepare_optimizer(optimizer, device_placement=device_placement)
+
     @patch_within_function(("accelerate.accelerator.AcceleratedOptimizer", NeuronAcceleratedOptimizer))
     def prepare_optimizer(self, optimizer: torch.optim.Optimizer, device_placement=None):
+        if self.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
+            return self._prepare_optimizer_for_tp(optimizer, device_placement=device_placement)
         return super().prepare_optimizer(optimizer, device_placement=device_placement)
 
     @patch_within_function(("accelerate.accelerator.AcceleratedScheduler", NeuronAcceleratedScheduler))
@@ -210,7 +223,8 @@ class NeuronAccelerator(Accelerator):
         self, model: torch.nn.Module, device_placement: Optional[bool] = None, evaluation_mode: bool = False
     ):
         if not evaluation_mode:
-            model = self.state.tp_plugin.parallelize_model(model)
+            model, orig_to_parallel = self.state.tp_plugin.parallelize_model(model, return_orig_to_parallel=True)
+            self._model_to_orig_to_parallel[id(model)] = orig_to_parallel
             if device_placement:
                 parallel_layers.move_model_to_device(model, self.device)
                 device_placement = False

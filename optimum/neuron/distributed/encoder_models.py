@@ -14,9 +14,7 @@
 # limitations under the License.
 """Classes related to `neuronx-distributed` to perform parallelism."""
 
-from typing import TYPE_CHECKING
-
-from transformers.models.bert.modeling_bert import BertSelfAttention, BertSelfOutput
+from typing import TYPE_CHECKING, Dict, Optional
 
 from ..utils import is_neuronx_distributed_available
 from .base import Parallelizer
@@ -27,23 +25,30 @@ if is_neuronx_distributed_available():
     pass
 
 if TYPE_CHECKING:
+    import torch
     from transformers import PreTrainedModel
 
 
-class BertParallelSelfAttention(ParallelSelfAttention, BertSelfAttention):
-    pass
+class BertParallelSelfAttention(ParallelSelfAttention):
+    ALL_HEAD_SIZE_NAME = "all_head_size"
 
 
-class BertParallelSelfOutput(ParallelSelfOutput, BertSelfOutput):
+class BertParallelSelfOutput(ParallelSelfOutput):
     pass
 
 
 class BertParallelizer(Parallelizer):
     @classmethod
-    def parallelize(cls, model: "PreTrainedModel") -> "PreTrainedModel":
+    def parallelize(
+        cls, model: "PreTrainedModel", orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None
+    ) -> "PreTrainedModel":
         for layer in model.bert.encoder.layer:
-            layer.attention.self = BertParallelSelfAttention.transform(layer.attention.self, model.config)
-            layer.attention.output = BertParallelSelfOutput.transform(layer.attention.output, model.config)
+            layer.attention.self = BertParallelSelfAttention.transform(
+                layer.attention.self, model.config, orig_to_parallel=orig_to_parallel
+            )
+            layer.attention.output = BertParallelSelfOutput.transform(
+                layer.attention.output, model.config, orig_to_parallel=orig_to_parallel
+            )
         return model
 
 
@@ -57,8 +62,14 @@ class RobertaParallelSelfOutput(BertParallelSelfOutput):
 
 class RobertaParallelizer(Parallelizer):
     @classmethod
-    def parallelize(cls, model: "PreTrainedModel") -> "PreTrainedModel":
+    def parallelize(
+        cls, model: "PreTrainedModel", orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None
+    ) -> "PreTrainedModel":
         for layer in model.roberta.encoder.layer:
-            layer.attention.self = RobertaParallelSelfAttention.transform(layer.attention.self, model.config)
-            layer.attention.output = RobertaParallelSelfOutput.transform(layer.attention.output, model.config)
+            layer.attention.self = RobertaParallelSelfAttention.transform(
+                layer.attention.self, model.config, orig_to_parallel=orig_to_parallel
+            )
+            layer.attention.output = RobertaParallelSelfOutput.transform(
+                layer.attention.output, model.config, orig_to_parallel=orig_to_parallel
+            )
         return model
