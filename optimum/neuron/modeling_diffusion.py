@@ -14,18 +14,28 @@
 # limitations under the License.
 """NeuroStableDiffusionPipeline class for inference of diffusion models on neuron devices."""
 from abc import abstractmethod
+import shutil
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional, Union, List
 
 import torch
 from diffusers import DDIMScheduler, LMSDiscreteScheduler, PNDMScheduler, StableDiffusionPipeline
 from transformers import CLIPFeatureExtractor, CLIPTokenizer
 
-from optimum.pipelines.diffusers.pipeline_stable_diffusion import StableDiffusionPipelineMixin
+from ..pipelines.diffusers.pipeline_stable_diffusion import StableDiffusionPipelineMixin
+from ..utils import (
+    DIFFUSION_MODEL_TEXT_ENCODER_SUBFOLDER,
+    DIFFUSION_MODEL_UNET_SUBFOLDER,
+    DIFFUSION_MODEL_VAE_DECODER_SUBFOLDER,
+)
 
 from ..exporters.neuron import NeuronConfig
 from .modeling_base import NeuronBaseModel
+from .utils import NEURON_FILE_NAME
+
+
+DIFFUSION_MODEL_VAE_POST_QUANT_CONV_SUBFOLDER = ""
 
 
 class NeuronStableDiffusionPipeline(NeuronBaseModel, StableDiffusionPipelineMixin):
@@ -35,23 +45,28 @@ class NeuronStableDiffusionPipeline(NeuronBaseModel, StableDiffusionPipelineMixi
 
     def __init__(
         self,
-        vae_decoder: torch.jit._script.ScriptModule,
         text_encoder: torch.jit._script.ScriptModule,
+        vae_decoder: torch.jit._script.ScriptModule,
         unet: torch.jit._script.ScriptModule,
+        vae_post_quant_conv: torch.jit._script.ScriptModule,
         config: Dict[str, Any],
         tokenizer: CLIPTokenizer,
         scheduler: Union[DDIMScheduler, PNDMScheduler, LMSDiscreteScheduler],
         feature_extractor: Optional[CLIPFeatureExtractor] = None,
+        neuron_config: Optional[List["NeuronConfig"]] = None,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
+        model_file_paths: Optional[List[str, Path, TemporaryDirectory]] = None,
     ):
         """
         Args:
-            vae_decoder (`torch.jit._script.ScriptModule`):
-                The TorchScript module associated to the VAE decoder.
             text_encoder (`torch.jit._script.ScriptModule`):
-                The TorchScript module associated to the text encoder.
+                The Neuron TorchScript module associated to the text encoder.
+            vae_decoder (`torch.jit._script.ScriptModule`):
+                The Neuron TorchScript module associated to the VAE decoder.
             unet (`torch.jit._script.ScriptModule`):
-                The TorchScript module associated to the U-NET.
+                The Neuron TorchScript module associated to the U-NET.
+            vae_post_quant_conv (`torch.jit._script.ScriptModule`):
+                The Neuron TorchScript module associated to the VAE post quant convolutional layer.
             config (`Dict[str, Any]`):
                 A config dictionary from which the model components will be instantiated. Make sure to only load
                 configuration files of compatible classes.
@@ -62,20 +77,26 @@ class NeuronStableDiffusionPipeline(NeuronBaseModel, StableDiffusionPipelineMixi
                 A scheduler to be used in combination with the U-NET component to denoise the encoded image latents.
             feature_extractor (`Optional[CLIPFeatureExtractor]`, defaults to `None`):
                 A model extracting features from generated images to be used as inputs for the `safety_checker`
-            model_save_dir (`Optional[str]`, defaults to `None`):
-                The directory under which the model exported to ONNX was saved.
+            neuron_config  (Optional["NeuronConfig"], defaults to `None`):
+                A list of Neuron configurations.
+            model_save_dir (`Optional[Union[str, Path, TemporaryDirectory]]`, defaults to `None`):
+                The directory under which the exported Neuron models were saved.
         """
-        self.shared_attributes_init(
-            vae_decoder,
-            model_save_dir=model_save_dir,
-        )
+
         self._internal_dict = config
-        self.vae_decoder = ORTModelVaeDecoder(vae_decoder_session, self)
-        self.vae_decoder_model_path = Path(vae_decoder_session._model_path)
-        self.text_encoder = ORTModelTextEncoder(text_encoder_session, self)
-        self.text_encoder_model_path = Path(text_encoder_session._model_path)
-        self.unet = ORTModelUnet(unet_session, self)
-        self.unet_model_path = Path(unet_session._model_path)
+        self.neuron_config = self._neuron_config_init(self.config) if neuron_config is None else neuron_config
+
+        self.text_encoder = NeuronModelTextEncoder(text_encoder, self)
+        self.vae_decoder = NeuronModelVaeDecoder(vae_decoder, self)
+        self.unet = NeuronModelUnet(unet, self)
+        self.vae_post_quant_conv = NeuronModelUnet(vae_post_quant_conv, self)
+
+        self.text_encoder_model_path = Path(model_file_paths[0]) 
+        self.vae_decoder_model_path = Path(model_file_paths[1])      
+        self.unet_model_path = Path(model_file_paths[2])
+        self.vae_post_quant_conv_model_path = Path(model_file_paths[3])  
+
+
         self.tokenizer = tokenizer
         self.scheduler = scheduler
         self.feature_extractor = feature_extractor
@@ -84,11 +105,45 @@ class NeuronStableDiffusionPipeline(NeuronBaseModel, StableDiffusionPipelineMixi
             DIFFUSION_MODEL_TEXT_ENCODER_SUBFOLDER: self.text_encoder,
             DIFFUSION_MODEL_UNET_SUBFOLDER: self.unet,
             DIFFUSION_MODEL_VAE_DECODER_SUBFOLDER: self.vae_decoder,
+            DIFFUSION_MODEL_VAE_POST_QUANT_CONV_SUBFOLDER: self.vae_post_quant_conv,
         }
         for name in sub_models.keys():
             self._internal_dict[name] = ("optimum", sub_models[name].__class__.__name__)
         self._internal_dict.pop("vae", None)
+    
 
+    def _save_pretrained(
+        self,
+        save_directory: Union[str, Path],
+        text_encoder_file_name: str = NEURON_FILE_NAME,
+        vae_decoder_file_name: str = NEURON_FILE_NAME,
+        unet_file_name: str = NEURON_FILE_NAME,
+        vae_post_quant_conv_file_name: str = NEURON_FILE_NAME,
+        **kwargs,
+    ):
+        """
+        Saves the model to the serialized format optimized for Neuron devices.
+        """
+        save_directory = Path(save_directory)
+        src_to_dst_path = {
+            self.text_encoder_model_path: save_directory / DIFFUSION_MODEL_TEXT_ENCODER_SUBFOLDER / text_encoder_file_name,
+            self.vae_decoder_model_path: save_directory / DIFFUSION_MODEL_VAE_DECODER_SUBFOLDER / vae_decoder_file_name,
+            self.unet_model_path: save_directory / DIFFUSION_MODEL_UNET_SUBFOLDER / unet_file_name,
+            self.vae_post_quant_conv_model_path: save_directory / DIFFUSION_MODEL_VAE_POST_QUANT_CONV_SUBFOLDER / vae_post_quant_conv_file_name,
+        }
+
+        src_paths = list(src_to_dst_path.keys())
+        dst_paths = list(src_to_dst_path.values())
+
+        for src_path, dst_path in zip(src_paths, dst_paths):
+            dst_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src_path, dst_path)
+
+        self.tokenizer.save_pretrained(save_directory.joinpath("tokenizer"))
+        self.scheduler.save_pretrained(save_directory.joinpath("scheduler"))
+        if self.feature_extractor is not None:
+            self.feature_extractor.save_pretrained(save_directory.joinpath("feature_extractor"))   
+        
 
 class NeuronDiffusionModelPart:
     """
@@ -160,5 +215,19 @@ class NeuronModelUnet(NeuronDiffusionModelPart):
             "timestep": timestep,
             "encoder_hidden_states": encoder_hidden_states,
         }
+        outputs = self.model(*inputs)
+        return outputs
+
+class NeuronModelVaePostQuantConv(NeuronDiffusionModelPart):
+    def __init__(
+        self,
+        model: torch.jit._script.ScriptModule,
+        parent_model: NeuronBaseModel,
+        neuron_config: Optional[Dict[str, str]] = None,
+    ):
+        super().__init__(model, parent_model, neuron_config, "vae_decoder")
+
+    def forward(self, latent_sample: torch.Tensor):
+        inputs = (latent_sample,)
         outputs = self.model(*inputs)
         return outputs
