@@ -18,11 +18,10 @@ configurations.
 """
 
 from ...utils import (
+    DummyBboxInputGenerator,
     DummyTextInputGenerator,
     DummyVisionInputGenerator,
-    DummyBboxInputGenerator,
-    logging, 
-    is_diffusers_available,
+    logging,
 )
 from .base import NeuronConfig
 

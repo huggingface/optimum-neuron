@@ -14,13 +14,14 @@
 # limitations under the License.
 """Entry point to the optimum.exporters.neuron command line."""
 
-import copy
-from pathlib import Path
 import argparse
+import copy
 from argparse import ArgumentParser
-from typing import TYPE_CHECKING, List, Optional, Tuple, Union, Any
+from pathlib import Path
+from typing import Any, Dict, Optional, Union
 
 from requests.exceptions import ConnectionError as RequestsConnectionError
+
 from ...neuron.utils import is_neuron_available, is_neuronx_available, store_compilation_config
 from ...utils import logging
 from ...utils.save_utils import maybe_save_preprocessors
@@ -60,15 +61,17 @@ def infer_task_and_input_shapes(args: argparse.Namespace):
             raise RequestsConnectionError(
                 f"The task could not be automatically inferred as this is available only for models hosted on the Hugging Face Hub. Please provide the argument --task with the relevant task from {', '.join(TasksManager.get_all_tasks())}. Detailed error: {e}"
             )
-    
+
     # infer input shapes
-    neuron_config_constructor = TasksManager.get_exporter_config_constructor(model=args.model, exporter="neuron", task=task)
+    neuron_config_constructor = TasksManager.get_exporter_config_constructor(
+        model=args.model, exporter="neuron", task=task
+    )
     input_shapes = {
         name: getattr(args, name) for name in neuron_config_constructor.func.get_mandatory_axes_for_task(task)
     }
 
     # infer compiler kwargs
-    auto_cast = None if auto_cast == "none" else args.auto_cast
+    auto_cast = None if args.auto_cast == "none" else args.auto_cast
     auto_cast_type = None if auto_cast is None else args.auto_cast_type
     compiler_kwargs = {"auto_cast": auto_cast, "auto_cast_type": auto_cast_type}
     if hasattr(args, "disable_fast_relayout"):
@@ -78,12 +81,13 @@ def infer_task_and_input_shapes(args: argparse.Namespace):
 
     return task, compiler_kwargs, input_shapes
 
+
 def main_export(
     model_name_or_path: str,
     output: Union[str, Path],
     compiler_kwargs: Dict[str, Any],
     task: str = "auto",
-    dynamic_batch_size: bool = False,  
+    dynamic_batch_size: bool = False,
     atol: Optional[float] = None,
     cache_dir: Optional[str] = None,
     trust_remote_code: bool = False,
@@ -98,16 +102,16 @@ def main_export(
 
     if not output.parent.exists():
         output.parent.mkdir(parents=True)
-    
+
     model = TasksManager.get_model_from_task(
-        task, 
-        model_name_or_path, 
+        task,
+        model_name_or_path,
         subfolder=subfolder,
         revision=revision,
         cache_dir=cache_dir,
         use_auth_token=use_auth_token,
         trust_remote_code=trust_remote_code,
-        framework="pt", 
+        framework="pt",
     )
     ref_model = copy.deepcopy(model)
 
@@ -118,7 +122,7 @@ def main_export(
 
     if atol is None:
         atol = neuron_config.ATOL_FOR_VALIDATION
-    
+
     neuron_inputs, neuron_outputs = export(
         model=model,
         config=neuron_config,
@@ -168,6 +172,7 @@ def main_export(
                 f"{output.parent.as_posix()}"
             )
 
+
 def main():
     parser = ArgumentParser(f"Hugging Face Optimum {NEURON_COMPILER} exporter")
 
@@ -177,7 +182,7 @@ def main():
     args = parser.parse_args()
 
     task, compiler_kwargs, input_shapes = infer_task_and_input_shapes(args)
-    
+
     main_export(
         model_name_or_path=args.model,
         output=args.output,

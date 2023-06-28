@@ -258,7 +258,7 @@ class NeuronConfig(ExportConfig, ABC):
         model: "PreTrainedModel",
         dummy_inputs: Dict[str, torch.Tensor],
         forward_with_tuple: bool = False,
-        eligible_outputs: Optional[List[Union[str, int]]] = None, 
+        eligible_outputs: Optional[List[Union[str, int]]] = None,
     ):
         """
         Checks if inputs order of the model's forward pass correspond to the generated dummy inputs to ensure the dummy inputs tuple used for
@@ -284,15 +284,17 @@ class NeuronConfig(ExportConfig, ABC):
                     outputs = self.model(*ordered_inputs.values())
                 else:
                     outputs = self.model(**ordered_inputs)
-                
+
                 if isinstance(outputs, Dict) and eligible_outputs is not None:
                     outputs = {name: outputs[name] for name in outputs.keys() & eligible_outputs}
-                
+
                 if isinstance(outputs, tuple) and eligible_outputs is not None:
                     if not all(isinstance(x, int) for x in eligible_outputs):
-                        raise ValueError("To extract outputs from a tuple, `eligible_outputs` must be a list of integers only.")
+                        raise ValueError(
+                            "To extract outputs from a tuple, `eligible_outputs` must be a list of integers only."
+                        )
                     outputs = [outputs[i] for i in eligible_outputs]
-                
+
                 return outputs
 
         return ModelWrapper(model, list(dummy_inputs.keys()))

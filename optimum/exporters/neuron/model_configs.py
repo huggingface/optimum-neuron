@@ -15,21 +15,24 @@
 """Model specific Neuron configurations."""
 
 
-from typing import List, Dict, TYPE_CHECKING
+from typing import TYPE_CHECKING, Dict, List
+
 import torch
+
 from ...utils import (
-    NormalizedConfigManager, 
-    NormalizedConfig, 
-    NormalizedTextAndVisionConfig,
-    DummyVisionInputGenerator,
-    DummyTimestepInputGenerator,
     DummySeq2SeqDecoderTextInputGenerator,
+    DummyTimestepInputGenerator,
+    DummyVisionInputGenerator,
+    NormalizedConfig,
+    NormalizedConfigManager,
+    NormalizedTextAndVisionConfig,
+    is_diffusers_available,
 )
 from ..tasks import TasksManager
 from .config import (
-    TextEncoderNeuronConfig, 
-    VisionNeuronConfig, 
     TextAndVisionNeuronConfig,
+    TextEncoderNeuronConfig,
+    VisionNeuronConfig,
 )
 
 
@@ -201,7 +204,7 @@ class CLIPTextNeuronConfig(TextEncoderNeuronConfig):
             return tuple(dummy_inputs.values())
         else:
             return dummy_inputs
-    
+
     def check_model_inputs_order(self, model, dummy_inputs, forward_with_tuple=False):
         return super().check_model_inputs_order(model, dummy_inputs, forward_with_tuple, eligible_outputs=[0])
 
@@ -241,8 +244,9 @@ class VaeDecoderNeuronConfig(VisionNeuronConfig):
     @property
     def outputs(self) -> List[str]:
         return ["sample"]
-    
-    def check_model_inputs_order(self,
+
+    def check_model_inputs_order(
+        self,
         model: "VaeDecoder",
         dummy_inputs: Dict[str, torch.Tensor],
         **kwargs,
@@ -266,8 +270,9 @@ class Conv2dNeuronConfig(VisionNeuronConfig):
     @property
     def outputs(self) -> List[str]:
         return ["sample"]
-    
-    def check_model_inputs_order(self,
+
+    def check_model_inputs_order(
+        self,
         model: torch.nn.Module,
         dummy_inputs: Dict[str, torch.Tensor],
         **kwargs,
@@ -301,7 +306,6 @@ class UNetNeuronConfig(VisionNeuronConfig):
     def outputs(self) -> List[str]:
         return ["sample"]
 
-
     def generate_dummy_inputs(self, return_tuple: bool = False, **kwargs):
         dummy_inputs = super().generate_dummy_inputs(**kwargs)
         dummy_inputs["timestep"] = dummy_inputs["timestep"].float()
@@ -311,4 +315,3 @@ class UNetNeuronConfig(VisionNeuronConfig):
             return tuple(dummy_inputs.values())
         else:
             return dummy_inputs
-    

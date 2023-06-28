@@ -15,24 +15,24 @@
 """Neuron compiled model check and export functions."""
 
 from pathlib import Path
-from typing import TYPE_CHECKING, List, Optional, Tuple, Union, Dict, Any
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
 
 from ...exporters.error_utils import OutputMatchError, ShapeError
 from ...neuron.utils import (
-    convert_neuronx_compiler_args_to_neuron, 
+    convert_neuronx_compiler_args_to_neuron,
     get_attention_scores,
-    is_neuron_available, 
+    is_neuron_available,
     is_neuronx_available,
 )
-from ...utils import logging, is_diffusers_available
-    
+from ...utils import is_diffusers_available, logging
 
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
+
     from .base import NeuronConfig
 
 if is_neuron_available():
@@ -81,12 +81,12 @@ def validate_models_outputs(
         raise ValueError(
             f"Invalid number of Neuron named outputs. Required {len(models_and_neuron_configs.keys())}, Provided {len(neuron_named_outputs)}"
         )
-    
+
     if neuron_named_outputs is not None and len(neuron_named_outputs) != len(models_and_neuron_configs):
         raise ValueError(
             f"Provided custom names {neuron_files_subpaths} for the validation of {len(models_and_neuron_configs)} models. Please provide the same number of Neuron file names as models to export."
         )
-    
+
     exceptions = []  # run all validations before raising
     neuron_paths = []
     for i, model_name in enumerate(models_and_neuron_configs.keys()):
@@ -152,7 +152,7 @@ def validate_model_outputs(
         input_shapes[axe] = getattr(config, axe)
     if config.dynamic_batch_size is True:
         input_shapes["batch_size"] *= 2
-     
+
     # Reference outputs
     with torch.no_grad():
         reference_model.eval()
@@ -165,22 +165,22 @@ def validate_model_outputs(
         else:
             ref_outputs = reference_model(**ref_inputs)
             neuron_inputs = tuple(ref_inputs.values())
-    
+
     # Neuron outputs
     neuron_model = torch.jit.load(neuron_model_path)
     neuron_outputs = neuron_model(*neuron_inputs)
     if isinstance(neuron_outputs, Dict):
         neuron_outputs = tuple(neuron_outputs.values())
     elif isinstance(neuron_outputs, torch.Tensor):
-        neuron_outputs = (neuron_outputs, )
+        neuron_outputs = (neuron_outputs,)
 
     # Check if we have a subset of the keys into neuron_outputs against ref_outputs
     neuron_output_names_set = set(neuron_named_outputs)
     neuron_output_names_list = sorted(neuron_output_names_set, key=neuron_named_outputs.index)
-    
+
     # case for transformers
     if isinstance(ref_outputs, Dict):
-        ref_output_names_set  = set(ref_outputs.keys())
+        ref_output_names_set = set(ref_outputs.keys())
         if not neuron_output_names_set.issubset(ref_output_names_set):
             raise OutputMatchError(
                 "Neuron model output names do not match reference model output names.\n"
@@ -193,9 +193,9 @@ def validate_model_outputs(
             logger.info(f"\t-[✓] Neuron model output names match reference model ({neuron_output_names})")
     # folowing are cases for diffusers
     elif isinstance(ref_outputs, torch.Tensor):
-        ref_outputs = {neuron_named_outputs[0]:ref_outputs}
+        ref_outputs = {neuron_named_outputs[0]: ref_outputs}
     elif isinstance(ref_outputs, tuple):
-        ref_outputs = {name: value for name, value in zip(neuron_named_outputs, ref_outputs)}
+        ref_outputs = dict(zip(neuron_named_outputs, ref_outputs))
 
     # Check if the number of outputs matches the number of output names
     if len(neuron_output_names_set) != len(neuron_outputs):
@@ -244,8 +244,8 @@ def export_models(
         str, Tuple[Union["PreTrainedModel", "ModelMixin", torch.nn.Module], "NeuronConfig"]
     ],
     output_dir: Path,
-    output_file_names: Optional[List[str]]=None,
-    compiler_kwargs: Optional[Dict[str, Any]]=dict(),
+    output_file_names: Optional[List[str]] = None,
+    compiler_kwargs: Optional[Dict[str, Any]] = {},
 ) -> Tuple[List[List[str]], List[List[str]]]:
     """
     Exports a Pytorch model with multiple component models to separate files.
@@ -259,7 +259,7 @@ def export_models(
             The names to use for the exported Neuron files. The order must be the same as the order of submodels in the ordered dict `models_and_neuron_configs`.
             If None, will use the keys from `models_and_neuron_configs` as names.
         compiler_kwargs (`Optional[Dict[str, Any]]`, defaults to `None`):
-            Arguments to pass to the Neuron(x) compiler for exporting Neuron models.  
+            Arguments to pass to the Neuron(x) compiler for exporting Neuron models.
     Returns:
         `Tuple[List[List[str]], List[List[str]]]`: A tuple with an ordered list of the model's inputs, and the named
         outputs from the Neuron configuration.
@@ -368,7 +368,7 @@ def export_neuronx(
         compiler_args.extend(["--auto-cast-type", auto_cast_type])
     else:
         compiler_args = ["--auto-cast", "none"]
-    
+
     # diffusers specific
     if hasattr(config._config, "_class_name") and "unet" in config._config._class_name.lower():
         from diffusers.models.attention_processor import Attention

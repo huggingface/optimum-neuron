@@ -16,42 +16,37 @@
 
 import torch
 
+
 # Optimized attention for unet
-def get_attention_scores(self, query, key, attn_mask):       
+def get_attention_scores(self, query, key, attn_mask):
     dtype = query.dtype
 
     if self.upcast_attention:
         query = query.float()
         key = key.float()
-    
+
     def _custom_badbmm(a, b):
         bmm = torch.bmm(a, b)
         scaled = bmm * 0.125
         return scaled
 
     # Check for square matmuls
-    if(query.size() == key.size()):
-        attention_scores = _custom_badbmm(
-            key,
-            query.transpose(-1, -2)
-        )
+    if query.size() == key.size():
+        attention_scores = _custom_badbmm(key, query.transpose(-1, -2))
 
         if self.upcast_softmax:
             attention_scores = attention_scores.float()
 
-        attention_probs = attention_scores.softmax(dim=1).permute(0,2,1)
+        attention_probs = attention_scores.softmax(dim=1).permute(0, 2, 1)
         attention_probs = attention_probs.to(dtype)
 
     else:
-        attention_scores = _custom_badbmm(
-            query,
-            key.transpose(-1, -2)
-        )
+        attention_scores = _custom_badbmm(query, key.transpose(-1, -2))
 
         if self.upcast_softmax:
             attention_scores = attention_scores.float()
 
         attention_probs = attention_scores.softmax(dim=-1)
         attention_probs = attention_probs.to(dtype)
-        
+
     return attention_probs
