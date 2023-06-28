@@ -30,6 +30,7 @@ from ...utils import (
 )
 from ..tasks import TasksManager
 from .config import (
+    DecoderNeuronConfig,
     TextAndVisionNeuronConfig,
     TextEncoderNeuronConfig,
     VisionNeuronConfig,
@@ -315,3 +316,9 @@ class UNetNeuronConfig(VisionNeuronConfig):
             return tuple(dummy_inputs.values())
         else:
             return dummy_inputs
+
+
+@register_in_tasks_manager("gpt2", "text-generation")
+class GPT2NeuronConfig(DecoderNeuronConfig):
+    NEURONX_MODULE = "transformers_neuronx.gpt2.model"
+    NEURONX_CLASS = "GPT2ForSampling"
