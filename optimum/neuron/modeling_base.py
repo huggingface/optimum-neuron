@@ -252,6 +252,7 @@ class NeuronBaseModel(OptimizedModel):
         if is_neuron_available() and dynamic_batch_size is True and "batch_size" in input_shapes:
             input_shapes["batch_size"] = 1
             disable_fallback = True  # Turn off the fallback for neuron, otherwise dynamic batching will still fail
+
         neuron_config = neuron_config_constructor(model.config, dynamic_batch_size=dynamic_batch_size, **input_shapes)
 
         # Get compilation arguments

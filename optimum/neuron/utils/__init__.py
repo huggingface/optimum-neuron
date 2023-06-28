@@ -16,19 +16,18 @@
 from .argument_utils import convert_neuronx_compiler_args_to_neuron, store_compilation_config
 from .constant import NEURON_FILE_NAME
 from .import_utils import (
+    is_accelerate_available,
     is_neuron_available,
     is_neuronx_available,
     is_neuronx_distributed_available,
     is_torch_xla_available,
 )
 from .optimization_utils import get_attention_scores
+from .patching import DynamicPatch, ModelPatcher, Patcher, patch_everywhere, patch_within_function
 from .training_utils import (
     FirstAndLastDataset,
-    Patcher,
     is_model_officially_supported,
     is_precompilation,
-    patch_forward,
-    patch_model,
     patch_transformers_for_neuron_sdk,
     patched_finfo,
     prepare_environment_for_neuron,

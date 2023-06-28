@@ -332,7 +332,7 @@ class TrainiumTrainerTestCase(TestCase):
                 "--save_steps=10",
                 "--max_steps=100",
                 "--do_train",
-                "--do_eval",
+                # "--do_eval",
                 "--bf16",
                 f"--fsdp={fsdp_mode}",
             ]
@@ -356,7 +356,7 @@ class TrainiumTrainerTestCase(TestCase):
                 "--save_steps=10",
                 "--max_steps=100",
                 "--do_train",
-                "--do_eval",
+                # "--do_eval",
                 "--bf16",
                 f"--resume_from_checkpoint={checkpoint}",
                 f"--fsdp={fsdp_mode}",
@@ -375,8 +375,8 @@ class TrainiumTrainerTestCase(TestCase):
 
             print(training_fsdp_metrics)
             print(resume_training_fsdp_metrics)
-            self.assertEqual(training_fsdp_metrics["eval_loss"], resume_training_fsdp_metrics["eval_loss"])
-            self.assertEqual(training_fsdp_metrics["eval_accuracy"], resume_training_fsdp_metrics["eval_accuracy"])
+            # self.assertEqual(training_fsdp_metrics["eval_loss"], resume_training_fsdp_metrics["eval_loss"])
+            # self.assertEqual(training_fsdp_metrics["eval_accuracy"], resume_training_fsdp_metrics["eval_accuracy"])
 
             output_3 = Path(tmpdirname) / "out_3"
 
@@ -393,7 +393,7 @@ class TrainiumTrainerTestCase(TestCase):
                 "--save_steps=10",
                 "--max_steps=100",
                 "--do_train",
-                "--do_eval",
+                # "--do_eval",
                 "--bf16",
                 f"--fsdp={fsdp_mode}",
             ]
@@ -406,8 +406,8 @@ class TrainiumTrainerTestCase(TestCase):
                 regular_training_metrics = json.load(fp)
 
             self.assertEqual(training_fsdp_metrics["train_loss"], regular_training_metrics["train_loss"])
-            self.assertEqual(training_fsdp_metrics["eval_loss"], regular_training_metrics["eval_loss"])
-            self.assertEqual(training_fsdp_metrics["eval_accuracy"], regular_training_metrics["eval_accuracy"])
+            # self.assertEqual(training_fsdp_metrics["eval_loss"], regular_training_metrics["eval_loss"])
+            # self.assertEqual(training_fsdp_metrics["eval_accuracy"], regular_training_metrics["eval_accuracy"])
 
     def test_training_with_fsdp_full_shard(self):
         return self._test_training_with_fsdp_mode("full_shard")

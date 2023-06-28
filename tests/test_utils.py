@@ -21,8 +21,10 @@ import torch
 from torch.utils.data import DataLoader, Dataset, IterableDataset
 from transformers import BertConfig, BertForSequenceClassification, PreTrainedModel, Wav2Vec2Config, Wav2Vec2Model
 
+from optimum.neuron.trainers import MODEL_PATCHING_SPECS
+from optimum.neuron.utils import ModelPatcher
 from optimum.neuron.utils.testing_utils import is_trainium_test
-from optimum.neuron.utils.training_utils import FirstAndLastDataset, is_model_officially_supported, patch_model
+from optimum.neuron.utils.training_utils import FirstAndLastDataset, is_model_officially_supported
 
 
 @is_trainium_test
@@ -164,20 +166,26 @@ class FirstAndLastDatasetTest(TestCase):
 
 def test_patch_model():
     bert_model = BertForSequenceClassification(BertConfig())
-    patch_model(bert_model)
-    assert getattr(bert_model.config, "layerdrop", None) is None
+    patching_specs = []
+    for spec in MODEL_PATCHING_SPECS:
+        patching_specs.append((bert_model,) + spec)
 
-    # Checking that the context manager exists.
-    with bert_model.no_sync():
-        pass
+    with ModelPatcher(patching_specs, ignore_missing_attributes=True):
+        assert getattr(bert_model.config, "layerdrop", None) == 0
+        # Checking that the context manager exists.
+        with bert_model.no_sync():
+            pass
 
     wav2vec2_model = Wav2Vec2Model(Wav2Vec2Config())
     assert (
         wav2vec2_model.config.layerdrop > 0
     ), "Default Wav2vec2Config layerdrop value is already 0 so the test will not check anything."
-    patch_model(wav2vec2_model)
-    assert wav2vec2_model.config.layerdrop == 0, "layerdrop was not patched properly."
+    patching_specs = []
+    for spec in MODEL_PATCHING_SPECS:
+        patching_specs.append((wav2vec2_model,) + spec)
+    with ModelPatcher(patching_specs, ignore_missing_attributes=True):
+        assert wav2vec2_model.config.layerdrop == 0, "layerdrop was not patched properly."
 
-    # Checking that the context manager exists.
-    with wav2vec2_model.no_sync():
-        pass
+        # Checking that the context manager exists.
+        with wav2vec2_model.no_sync():
+            pass
