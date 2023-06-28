@@ -191,7 +191,7 @@ class CLIPTextNeuronConfig(TextEncoderNeuronConfig):
 
     @property
     def outputs(self) -> List[str]:
-        return ["last_hidden_state", "pooler_output"]
+        return ["last_hidden_state"]
 
     def generate_dummy_inputs(self, return_tuple: bool = False, **kwargs):
         dummy_inputs = super().generate_dummy_inputs(**kwargs)
@@ -201,6 +201,9 @@ class CLIPTextNeuronConfig(TextEncoderNeuronConfig):
             return tuple(dummy_inputs.values())
         else:
             return dummy_inputs
+    
+    def check_model_inputs_order(self, model, dummy_inputs, forward_with_tuple=False):
+        return super().check_model_inputs_order(model, dummy_inputs, forward_with_tuple, eligible_outputs=[0])
 
 
 @register_in_tasks_manager("vae-encoder", *["semantic-segmentation"])

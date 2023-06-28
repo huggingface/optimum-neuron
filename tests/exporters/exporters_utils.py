@@ -32,4 +32,8 @@ EXPORT_MODELS_TINY = {
     "xlm-roberta": "hf-internal-testing/tiny-xlm-roberta",
 }
 
+STABLE_DIFFUSION_MODELS_TINY = {
+    ("hf-internal-testing/tiny-stable-diffusion-torch"),
+}
+
 SEED = 42

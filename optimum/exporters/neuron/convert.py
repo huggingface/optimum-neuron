@@ -48,9 +48,71 @@ if is_diffusers_available():
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 
-def validate_models_outputs():
-    # Placeholder 
-    pass
+def validate_models_outputs(
+    models_and_neuron_configs: Dict[
+        str, Tuple[Union["PreTrainedModel", "ModelMixin", torch.nn.Module], "NeuronConfig"]
+    ],
+    neuron_named_outputs: List[List[str]],
+    output_dir: Path,
+    atol: Optional[float] = None,
+    neuron_files_subpaths: Optional[List[str]] = None,
+):
+    """
+    Validates the export of several models, by checking that the outputs from both the reference and the exported model match.
+    The following method validates the Neuron models exported using the `export_models` method.
+
+    Args:
+        models_and_neuron_configs (`Dict[str, Tuple[Union[`PreTrainedModel`, `ModelMixin`, `torch.nn.Module`], `NeuronConfig`]]):
+            A dictionnary containing the models to export and their corresponding neuron configs.
+        neuron_named_outputs (`List[List[str]]`):
+            The names of the outputs to check.
+        output_dir (`Path`):
+            Output directory where the exported Neuron models are stored.
+        atol (`Optional[float]`, defaults to `None`):
+            The absolute tolerance in terms of outputs difference between the reference and the exported model.
+        neuron_files_subpaths (`Optional[List[str]]`, defaults to `None`):
+            The relative paths from `output_dir` to the Neuron files to do validation on. The order must be the same as the order of submodels
+            in the ordered dict `models_and_neuron_configs`. If None, will use the keys from the `models_and_neuron_configs` as names.
+
+    Raises:
+        ValueError: If the outputs shapes or values do not match between the reference and the exported model.
+    """
+    if len(neuron_named_outputs) != len(models_and_neuron_configs.keys()):
+        raise ValueError(
+            f"Invalid number of Neuron named outputs. Required {len(models_and_neuron_configs.keys())}, Provided {len(neuron_named_outputs)}"
+        )
+    
+    if neuron_named_outputs is not None and len(neuron_named_outputs) != len(models_and_neuron_configs):
+        raise ValueError(
+            f"Provided custom names {neuron_files_subpaths} for the validation of {len(models_and_neuron_configs)} models. Please provide the same number of Neuron file names as models to export."
+        )
+    
+    exceptions = []  # run all validations before raising
+    neuron_paths = []
+    for i, model_name in enumerate(models_and_neuron_configs.keys()):
+        submodel, sub_neuron_config = models_and_neuron_configs[model_name]
+        neuron_model_path = (
+            output_dir.joinpath(neuron_files_subpaths[i])
+            if neuron_files_subpaths is not None
+            else output_dir.joinpath(model_name + ".neuron")
+        )
+        neuron_paths.append(neuron_model_path)
+        try:
+            validate_model_outputs(
+                config=sub_neuron_config,
+                reference_model=submodel,
+                neuron_model_path=neuron_model_path,
+                neuron_named_outputs=neuron_named_outputs[i],
+                atol=atol,
+            )
+        except Exception as e:
+            exceptions.append(e)
+
+    if len(exceptions) != 0:
+        for i, exception in enumerate(exceptions[:-1]):
+            logger.error(f"Validation {i} for the model {neuron_paths[i].as_posix()} raised: {exception}")
+        raise exceptions[-1]
+
 
 def validate_model_outputs(
     config: "NeuronConfig",
@@ -90,29 +152,50 @@ def validate_model_outputs(
         input_shapes[axe] = getattr(config, axe)
     if config.dynamic_batch_size is True:
         input_shapes["batch_size"] *= 2
-    ref_inputs = config.generate_dummy_inputs(return_tuple=False, **input_shapes)
+     
+    # Reference outputs
     with torch.no_grad():
         reference_model.eval()
-        ref_outputs = reference_model(**ref_inputs)
-
-    neuron_inputs = tuple(ref_inputs.values())
+        ref_inputs = config.generate_dummy_inputs(return_tuple=False, **input_shapes)
+        if hasattr(config._config, "_class_name") and "AutoencoderKL" in config._config._class_name:
+            # VAE components for stable diffusion
+            ref_inputs = tuple(ref_inputs.values())
+            ref_outputs = reference_model(*ref_inputs)
+            neuron_inputs = ref_inputs
+        else:
+            ref_outputs = reference_model(**ref_inputs)
+            neuron_inputs = tuple(ref_inputs.values())
+    
+    # Neuron outputs
     neuron_model = torch.jit.load(neuron_model_path)
     neuron_outputs = neuron_model(*neuron_inputs)
+    if isinstance(neuron_outputs, Dict):
+        neuron_outputs = tuple(neuron_outputs.values())
+    elif isinstance(neuron_outputs, torch.Tensor):
+        neuron_outputs = (neuron_outputs, )
 
     # Check if we have a subset of the keys into neuron_outputs against ref_outputs
-    ref_output_names_set, neuron_output_names_set = set(ref_outputs.keys()), set(neuron_named_outputs)
+    neuron_output_names_set = set(neuron_named_outputs)
     neuron_output_names_list = sorted(neuron_output_names_set, key=neuron_named_outputs.index)
-
-    if not neuron_output_names_set.issubset(ref_output_names_set):
-        raise OutputMatchError(
-            "Neuron model output names do not match reference model output names.\n"
-            f"Reference model output names: {ref_output_names_set}\n"
-            f"Neuron model output names: {neuron_output_names_set}\n"
-            f"Difference: {neuron_output_names_set.difference(ref_output_names_set)}"
-        )
-    else:
-        neuron_output_names = ", ".join(neuron_output_names_set)
-        logger.info(f"\t-[✓] Neuron model output names match reference model ({neuron_output_names})")
+    
+    # case for transformers
+    if isinstance(ref_outputs, Dict):
+        ref_output_names_set  = set(ref_outputs.keys())
+        if not neuron_output_names_set.issubset(ref_output_names_set):
+            raise OutputMatchError(
+                "Neuron model output names do not match reference model output names.\n"
+                f"Reference model output names: {ref_output_names_set}\n"
+                f"Neuron model output names: {neuron_output_names_set}\n"
+                f"Difference: {neuron_output_names_set.difference(ref_output_names_set)}"
+            )
+        else:
+            neuron_output_names = ", ".join(neuron_output_names_set)
+            logger.info(f"\t-[✓] Neuron model output names match reference model ({neuron_output_names})")
+    # folowing are cases for diffusers
+    elif isinstance(ref_outputs, torch.Tensor):
+        ref_outputs = {neuron_named_outputs[0]:ref_outputs}
+    elif isinstance(ref_outputs, tuple):
+        ref_outputs = {name: value for name, value in zip(neuron_named_outputs, ref_outputs)}
 
     # Check if the number of outputs matches the number of output names
     if len(neuron_output_names_set) != len(neuron_outputs):

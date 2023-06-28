@@ -12,25 +12,39 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import gc
 import copy
 import random
 from pathlib import Path
-from tempfile import NamedTemporaryFile
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import Dict, Optional
 from unittest import TestCase
 
 from parameterized import parameterized
-from transformers import AutoConfig
+from transformers import AutoConfig, set_seed
+from transformers.testing_utils import require_vision
 
-from optimum.exporters.neuron import NeuronConfig, export, validate_model_outputs
+from optimum.exporters.neuron import (
+    NeuronConfig, 
+    export, 
+    export_models, 
+    validate_model_outputs,
+    validate_models_outputs, 
+    get_stable_diffusion_models_for_export,
+)
 from optimum.exporters.neuron.model_configs import *  # noqa: F403
 from optimum.exporters.tasks import TasksManager
 from optimum.neuron.utils import is_neuronx_available
 from optimum.neuron.utils.testing_utils import is_inferentia_test
-from optimum.utils import DEFAULT_DUMMY_SHAPES, logging
+from optimum.utils import DEFAULT_DUMMY_SHAPES, logging, is_diffusers_available
+from optimum.utils.testing_utils import require_diffusers
 
-from .exporters_utils import EXPORT_MODELS_TINY
+from .exporters_utils import EXPORT_MODELS_TINY, STABLE_DIFFUSION_MODELS_TINY
 
+if is_diffusers_available():
+    from diffusers import StableDiffusionPipeline
+
+SEED = 42
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -127,3 +141,41 @@ class NeuronExportTestCase(TestCase):
     def test_export_with_dynamic_batch_size(self, test_name, name, model_name, task, neuron_config_constructor):
         if is_neuronx_available():
             self._neuronx_export(test_name, name, model_name, task, neuron_config_constructor, dynamic_batch_size=True)
+    
+    @parameterized.expand(STABLE_DIFFUSION_MODELS_TINY)
+    @require_vision
+    @require_diffusers
+    def test_export_for_stable_diffusion_models(self, model_name):
+        set_seed(SEED)
+
+        pipeline = StableDiffusionPipeline.from_pretrained(model_name)
+        output_model_names = [
+            "text_encoder/model.neuron",
+            "unet/model.neuron",
+            "vae_decoder/model.neuron",
+            "vae_conv/model.neuron",
+        ]
+        text_encoder_input_shapes = {"batch_size": 2, "sequence_length": 18}
+        vae_decoder_input_shapes = unet_input_shapes = vae_post_quant_conv_input_shapes = {"batch_size": 2, "num_channels": 4, "height": 64, "width": 64}
+        models_and_neuron_configs = get_stable_diffusion_models_for_export(
+            pipeline,
+            text_encoder_input_shapes,
+            vae_decoder_input_shapes,
+            unet_input_shapes,
+            vae_post_quant_conv_input_shapes,
+            dynamic_batch_size=True,
+        )
+
+        with TemporaryDirectory() as tmpdirname:
+            _, neuron_outputs = export_models(
+                models_and_neuron_configs=models_and_neuron_configs,
+                output_dir=Path(tmpdirname),
+                output_file_names=output_model_names,
+            )
+            validate_models_outputs(
+                models_and_neuron_configs=models_and_neuron_configs,
+                neuron_named_outputs=neuron_outputs,
+                output_dir=Path(tmpdirname),
+                neuron_files_subpaths=output_model_names,
+            )
+
