@@ -15,11 +15,13 @@
 """NeuronModelForXXX classes for inference on neuron devices using the same API as Transformers."""
 
 import logging
+import warnings
 from typing import Optional
 
 import torch
 from transformers import (
     AutoModel,
+    AutoModelForCausalLM,
     AutoModelForMaskedLM,
     AutoModelForMultipleChoice,
     AutoModelForQuestionAnswering,
@@ -27,6 +29,7 @@ from transformers import (
     AutoModelForTokenClassification,
 )
 from transformers.file_utils import add_start_docstrings, add_start_docstrings_to_model_forward
+from transformers.generation import GenerationMixin
 from transformers.modeling_outputs import (
     BaseModelOutputWithPooling,
     MaskedLMOutput,
@@ -35,8 +38,10 @@ from transformers.modeling_outputs import (
     SequenceClassifierOutput,
     TokenClassifierOutput,
 )
+from transformers.utils import ModelOutput
 
 from .modeling_base import NeuronBaseModel
+from .modeling_decoder import NeuronDecoderModel
 
 
 logger = logging.getLogger(__name__)
@@ -506,3 +511,119 @@ class NeuronModelForMultipleChoice(NeuronBaseModel):
         logits = outputs[0]
 
         return MultipleChoiceModelOutput(logits=logits)
+
+
+NEURON_CAUSALLM_MODEL_DOCSTRING = r"""
+    Args:
+        input_ids (`torch.LongTensor`):
+            Indices of decoder input sequence tokens in the vocabulary of shape `(batch_size, sequence_length)`.
+        cache_ids (`torch.LongTensor`): The indices at which the cached key and value for the current inputs need to be stored.
+        start_ids (`torch.LongTensor`): The indices of the first tokens to be processed, deduced form the attention masks.
+"""
+
+TEXT_GENERATION_EXAMPLE = r"""
+    Example of text generation:
+
+    ```python
+    >>> from transformers import {processor_class}
+    >>> from optimum.neuron import {model_class}
+    >>> import torch
+
+    >>> tokenizer = {processor_class}.from_pretrained("{checkpoint}")
+    >>> model = {model_class}.from_pretrained("{checkpoint}", export=True)
+
+    >>> inputs = tokenizer("My favorite moment of the day is", return_tensors="pt")
+
+    >>> gen_tokens = model.generate(**inputs, do_sample=True, temperature=0.9, min_length=20, max_length=20)
+    >>> tokenizer.batch_decode(gen_tokens)  # doctest: +IGNORE_RESULT
+    ```
+"""
+
+
+@add_start_docstrings(
+    r"""
+    This is a generic Neuron model class that will be instantiated as one of the model classes of the
+    library (with a causal language modeling head) when created with the from_pretrained() class method.
+    """
+)
+class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
+    """
+    Neuron model with a causal language modeling head for inference on Neuron devices.
+    """
+
+    auto_model_class = AutoModelForCausalLM
+    main_input_name = "input_ids"
+
+    def __init__(self, model, config, generation_config):
+        super().__init__(model, config, generation_config)
+        self.cur_len = 0
+
+    def reset_generation(self):
+        self.cur_len = 0
+
+    @add_start_docstrings_to_model_forward(
+        NEURON_CAUSALLM_MODEL_DOCSTRING
+        + TEXT_GENERATION_EXAMPLE.format(
+            processor_class="AutoTokenizer",
+            model_class="NeuronModelForCausalLM",
+            checkpoint="gpt2",
+        )
+    )
+    def forward(
+        self,
+        input_ids,
+        cache_ids,
+        start_ids=None,
+        output_hidden_states=False,
+        output_attentions=False,
+        attention_mask=None,
+        return_dict=False,
+    ):
+        if output_hidden_states or output_attentions or attention_mask is not None:
+            warnings.warn(
+                "Warning: These arguments are not used by forward(): \
+                (output_hidden_states, output_attentions, attention_mask)"
+            )
+        # Evaluate the output logits, storing the current key and values at the indices specified by cache_ids
+        out_logits = self.model.forward(input_ids, cache_ids, start_ids)
+        out_logits = out_logits[:, None, :]
+        # Since we are using a static cache, we don't need to return past keys and values
+        if return_dict:
+            return ModelOutput([("logits", out_logits)])
+        return (out_logits,)
+
+    def prepare_inputs_for_generation(self, input_ids, past_key_values=None, **kwargs):
+        # Sanity check
+        if past_key_values is not None:
+            raise ValueError("This model does not support dynamic key, value cache.")
+        # convert attention_mask to start_ids
+        attention_mask = None
+        start_ids = None
+        if "attention_mask" in kwargs:
+            attention_mask = kwargs["attention_mask"]
+
+        if attention_mask is not None:
+            _, start_ids = attention_mask.max(axis=1)
+
+        if self.cur_len > 0:
+            # Only pass the last tokens of each sample
+            input_ids = input_ids[:, -1:]
+            # Specifiy the single index at which the new keys and values need to be stored
+            cache_ids = torch.as_tensor([self.cur_len], dtype=torch.int32)
+        else:
+            # All tokens will be processed: initialize the cached with all intermediate keys and values
+            cache_ids = torch.arange(input_ids.shape[-1], dtype=torch.int32)
+
+        # Increment the current cache index
+        self.cur_len += input_ids.shape[-1]
+        model_inputs = {
+            "input_ids": input_ids,
+            "cache_ids": cache_ids,
+            "start_ids": start_ids,
+        }
+
+        return model_inputs
+
+    def can_generate(self):
+        """Returns True to validate the check that the model using `GenerationMixin.generate()` can indeed generate."""
+        return True

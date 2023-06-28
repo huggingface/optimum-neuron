@@ -20,6 +20,7 @@ from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Optional, Union
 
 import torch
+from transformers import GenerationConfig
 
 from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..exporters.tasks import TasksManager
@@ -54,13 +55,20 @@ class NeuronDecoderModel(OptimizedModel):
     Common attributes:
         - model (`torch.nn.Module`) -- The decoder model with a graph optimized for neuron devices.
         - config ([`~transformers.PretrainedConfig`]) -- The configuration of the original model.
+        - generation_config ([`~transformers.GenerationConfig`]) -- The generation configuration used by default when calling `generate()`.
     """
 
-    def __init__(self, model: torch.nn.Module, config: "PretrainedConfig"):
+    def __init__(
+        self, model: torch.nn.Module, config: "PretrainedConfig", generation_config: Optional[GenerationConfig] = None
+    ):
         if not is_transformers_neuronx_available() or not isinstance(model, NeuronxPretrainedModel):
             raise ValueError("The source model must be a transformers_neuronx.PreTrainedModel.")
 
         super().__init__(model, config)
+        self.device = torch.device("cpu")
+        if generation_config is None:
+            generation_config = GenerationConfig.from_model_config(config)
+        self.generation_config = generation_config
 
     @classmethod
     def _from_transformers(
@@ -114,7 +122,14 @@ class NeuronDecoderModel(OptimizedModel):
         # Compile the model
         neuronx_model.to_neuron()
 
-        return cls(neuronx_model, config)
+        # Try to reload the generation config (if any)
+        generation_config = None
+        try:
+            generation_config = GenerationConfig.from_pretrained(checkpoint_dir.name)
+        except OSError:
+            logger.info("Generation config file not found, using a generation config created from the model config.")
+
+        return cls(neuronx_model, config, generation_config)
 
     def forward(self, *args, **kwargs):
         raise NotImplementedError()
