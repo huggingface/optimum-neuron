@@ -28,7 +28,7 @@ from ..exporters.neuron import NeuronConfig
 from .modeling_base import NeuronBaseModel
 
 
-class NeuroStableDiffusionPipeline(NeuronBaseModel, StableDiffusionPipelineMixin):
+class NeuronStableDiffusionPipeline(NeuronBaseModel, StableDiffusionPipelineMixin):
     auto_model_class = StableDiffusionPipeline
     main_input_name = "input_ids"
     config_name = "model_index.json"
