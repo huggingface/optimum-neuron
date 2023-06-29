@@ -156,8 +156,7 @@ class NeuronBaseModel(OptimizedModel):
             else:
                 file_name = neuron_files[0].name
 
-        # check compiler compatability of saved model vs system installation
-        # Vagrantly assumes that the user won't try to load an xcc on a cc machine (and vise/versa)
+        # Check compiler compatibility(compiler type and version) of the saved model vs. system.
         if hasattr(config, "neuron_compiler") and hasattr(config, "neuron_compiler_version"):
             min_version = get_neuronxcc_version() if config.neuron_compiler == "neuronx-cc" else get_neuroncc_version()
             if version.parse(config.neuron_compiler_version) > version.parse(min_version):
