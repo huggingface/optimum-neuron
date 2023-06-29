@@ -554,8 +554,8 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
     auto_model_class = AutoModelForCausalLM
     main_input_name = "input_ids"
 
-    def __init__(self, model, config, generation_config):
-        super().__init__(model, config, generation_config)
+    def __init__(self, model, config, model_path, generation_config):
+        super().__init__(model, config, model_path, generation_config)
         self.cur_len = 0
 
     def reset_generation(self):

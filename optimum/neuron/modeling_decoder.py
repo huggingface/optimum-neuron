@@ -16,6 +16,7 @@
 
 import logging
 import os
+import shutil
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Optional, Union
@@ -59,17 +60,25 @@ class NeuronDecoderModel(OptimizedModel):
         - generation_config ([`~transformers.GenerationConfig`]) -- The generation configuration used by default when calling `generate()`.
     """
 
+    CHECKPOINT_DIR = "checkpoint"
+    COMPILED_DIR = "compiled"
+
     def __init__(
-        self, model: torch.nn.Module, config: "PretrainedConfig", generation_config: Optional[GenerationConfig] = None
+        self,
+        model: torch.nn.Module,
+        config: "PretrainedConfig",
+        model_path: Union[str, Path, TemporaryDirectory],
+        generation_config: Optional[GenerationConfig] = None,
     ):
         if not is_transformers_neuronx_available() or not isinstance(model, NeuronxPretrainedModel):
             raise ValueError("The source model must be a transformers_neuronx.PreTrainedModel.")
 
         super().__init__(model, config)
-        self.device = torch.device("cpu")
+        self.model_path = model_path
         if generation_config is None:
             generation_config = GenerationConfig.from_model_config(config)
         self.generation_config = generation_config
+        self.device = torch.device("cpu")
 
     @classmethod
     def _from_transformers(
@@ -117,24 +126,93 @@ class NeuronDecoderModel(OptimizedModel):
         checkpoint_dir = TemporaryDirectory()
         save_pretrained_split(model, checkpoint_dir.name)
 
-        # Instantiate the optimized Neuron model from the transformers checkpoint
-        neuronx_model = exporter.neuronx_class.from_pretrained(checkpoint_dir.name, **neuron_kwargs)
+        # Update the config
+        config.neuron = {"task": task, "neuron_kwargs": neuron_kwargs}
 
-        # Compile the model
+        return cls._from_pretrained(checkpoint_dir, config)
+
+    @classmethod
+    def _get_neuron_paths(cls, model_dir):
+        if isinstance(model_dir, TemporaryDirectory):
+            # Convert the model directory to a path
+            model_path = model_dir.name
+            # We are in the middle of an export: the checkpoint is in the temporary model directory
+            checkpoint_path = model_path
+            # There are no compiled artifacts yet
+            compiled_path = None
+        else:
+            model_path = model_dir
+            # The model has already been exported, the checkpoint is in a subdirectory
+            checkpoint_path = os.path.join(model_path, cls.CHECKPOINT_DIR)
+            # So are the compiled artifacts
+            compiled_path = os.path.join(model_path, cls.COMPILED_DIR)
+        return model_path, checkpoint_path, compiled_path
+
+    @classmethod
+    def _from_pretrained(
+        cls, model_id: Union[str, Path, TemporaryDirectory], config: "PretrainedConfig", **kwargs
+    ) -> "NeuronDecoderModel":
+        # Verify we are actually trying to load a neuron model
+        neuron_config = getattr(config, "neuron", None)
+        if neuron_config is None:
+            raise ValueError(
+                "The specified directory does not contain a neuron model. "
+                "Please convert your model to neuron format by passing export=True."
+            )
+
+        # Evaluate the configuration passed during export
+        task = neuron_config["task"]
+        neuron_kwargs = neuron_config["neuron_kwargs"]
+
+        # Instantiate the exporter
+        exporter = get_exporter(config, task)
+
+        # Evaluate the path to the checkpoint and compiled directories
+        model_path, checkpoint_path, compiled_path = cls._get_neuron_paths(model_id)
+
+        # Instantiate the optimized neuronx model from the original model checkpoint
+        neuronx_model = exporter.neuronx_class.from_pretrained(checkpoint_path, **neuron_kwargs)
+
+        if compiled_path is not None:
+            # Specify the path where compiled artifacts are stored before conversion
+            neuronx_model._load_compiled_artifacts(compiled_path)
+
+        # Compile the Neuron model (if present compiled artifacts will be reloaded instead of compiled)
         os.environ["NEURON_CC_FLAGS"] = "--model-type=transformer-inference"
         neuronx_model.to_neuron()
 
         # Try to reload the generation config (if any)
         generation_config = None
         try:
-            generation_config = GenerationConfig.from_pretrained(checkpoint_dir.name)
+            generation_config = GenerationConfig.from_pretrained(model_path)
         except OSError:
             logger.info("Generation config file not found, using a generation config created from the model config.")
 
-        return cls(neuronx_model, config, generation_config)
+        return cls(neuronx_model, config, model_id, generation_config)
 
     def forward(self, *args, **kwargs):
         raise NotImplementedError()
 
     def _save_pretrained(self, save_directory: Union[str, Path]):
-        raise NotImplementedError()
+        # Evaluate the path to the source checkpoint and compiled directories
+        _, src_chkpt_path, src_compiled_path = self._get_neuron_paths(self.model_path)
+
+        # Evaluate the path to the destination checkpoint and compiled directories
+        _, dst_chkpt_path, dst_compiled_path = self._get_neuron_paths(save_directory)
+
+        # Copy the model checkpoint
+        shutil.copytree(src_chkpt_path, dst_chkpt_path)
+
+        if src_compiled_path is None:
+            # The compiled model has never been serialized: do it now
+            self.model._save_compiled_artifacts(dst_compiled_path)
+        else:
+            # Copy the compiled model artifacts
+            shutil.copytree(src_compiled_path, dst_compiled_path)
+
+        if isinstance(self.model_path, TemporaryDirectory):
+            # let temporary directory go out-of-scope to release disk space
+            self.model_path = save_directory
+
+        # Save generation config (the model config is already saved by the caller)
+        self.generation_config.save_pretrained(save_directory)
