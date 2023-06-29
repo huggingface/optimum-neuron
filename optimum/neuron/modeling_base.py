@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 import torch
 from huggingface_hub import HfApi, HfFolder, hf_hub_download
+from packaging import version
 from transformers import AutoConfig, AutoModel
 
 from ..exporters.neuron import export
@@ -31,9 +32,9 @@ from ..exporters.tasks import TasksManager
 from ..modeling_base import OptimizedModel
 from ..utils.save_utils import maybe_load_preprocessors, maybe_save_preprocessors
 from .utils import NEURON_FILE_NAME, is_neuron_available, store_compilation_config
-from .utils.version_utils import get_neuronxcc_version, get_neuroncc_version
 from .utils.import_utils import is_neuronx_available
-from packaging import version
+from .utils.version_utils import get_neuroncc_version, get_neuronxcc_version
+
 
 if TYPE_CHECKING:
     from transformers import PretrainedConfig
@@ -157,12 +158,25 @@ class NeuronBaseModel(OptimizedModel):
                 file_name = neuron_files[0].name
 
         # Check compiler compatibility(compiler type and version) of the saved model vs. system.
-        if hasattr(config, "neuron_compiler") and hasattr(config, "neuron_compiler_version"):
-            min_version = get_neuronxcc_version() if config.neuron_compiler == "neuronx-cc" else get_neuroncc_version()
+        if hasattr(config, "neuron_compiler"):
+            if config.neuron_compiler == "neuron-cc":
+                if not is_neuron_available():
+                    raise RuntimeError(
+                        f"Pretrained model was compiled for {config.neuron_compiler}, but {config.neuron_compiler} is not installed."
+                    )
+                min_version = get_neuroncc_version()
+            elif config.neuron_compiler == "neuronx-cc":
+                if not is_neuronx_available():
+                    raise RuntimeError(
+                        f"Pretrained model was compiled for {config.neuron_compiler}, but {config.neuron_compiler} is not installed."
+                    )
+                min_version = get_neuronxcc_version()
+            else:
+                raise RuntimeError(f"Pretrained model compiler type {config.neuron_compiler} not recognized.")
             if version.parse(config.neuron_compiler_version) > version.parse(min_version):
                 raise RuntimeError(
-                    f"Pretrained model {min_version} is newer than current compiler {config.neuron_compiler_version},"
-                    " which may cause runtime incompatabilities"
+                    f"Pretrained model ({config.neuron_compiler}={min_version}) is newer than current compiler ({config.neuron_compiler}={config.neuron_compiler_version}),"
+                    " which may cause runtime incompatabilities."
                 )
 
         preprocessors = None
@@ -289,8 +303,16 @@ class NeuronBaseModel(OptimizedModel):
         else:
             neuron_compiler = "neuron-cc"
             neuron_compiler_version = get_neuroncc_version()
-        store_compilation_config(config, input_shapes, compiler_kwargs, input_names, output_names, dynamic_batch_size,
-                neuron_compiler, neuron_compiler_version)
+        store_compilation_config(
+            config,
+            input_shapes,
+            compiler_kwargs,
+            input_names,
+            output_names,
+            dynamic_batch_size,
+            neuron_compiler,
+            neuron_compiler_version,
+        )
 
         config.save_pretrained(save_dir_path)
         maybe_save_preprocessors(model_id, save_dir_path, src_subfolder=subfolder)
@@ -337,7 +359,7 @@ class NeuronBaseModel(OptimizedModel):
         compile_shapes = {
             key.replace("neuron_", ""): value
             for (key, value) in config.to_diff_dict().items()
-            if key.startswith("neuron_") and not key.startswith("neuron_compiler") # <-- TODO: is there a better way?
+            if key.startswith("neuron_") and not key.startswith("neuron_compiler")  # <-- TODO: is there a better way?
         }
 
         # Neuron config constructuor

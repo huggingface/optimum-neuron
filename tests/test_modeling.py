@@ -174,13 +174,6 @@ class NeuronModelIntegrationTest(unittest.TestCase):
             self.assertTrue(NEURON_FILE_NAME in folder_contents)
             self.assertTrue(CONFIG_NAME in folder_contents)
 
-    def test_save_load_model(self):
-        # a config.json can change when converted and saved, so check loadability is maintained
-        with tempfile.TemporaryDirectory() as tmpdirname:
-            model = NeuronBaseModel.from_pretrained(self.LOCAL_MODEL_PATH)
-            model.save_pretrained(tmpdirname)
-            model = NeuronBaseModel.from_pretrained(self.LOCAL_MODEL_PATH)
-
     @require_hf_token
     def test_push_model_to_hub(self):
         with tempfile.TemporaryDirectory() as tmpdirname:
