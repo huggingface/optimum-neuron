@@ -14,6 +14,7 @@
 # limitations under the License.
 """Entry point to the optimum.exporters.neuron command line."""
 
+import inspect
 import argparse
 import copy
 from argparse import ArgumentParser
@@ -29,6 +30,10 @@ from ..error_utils import AtolError, OutputMatchError, ShapeError
 from ..tasks import TasksManager
 from .convert import export, validate_model_outputs
 from .model_configs import *  # noqa: F403
+from .utils import (
+    get_stable_diffusion_models_for_export, 
+    build_stable_diffusion_components_mandatory_shapes,
+)
 
 
 if is_neuron_available():
@@ -46,12 +51,23 @@ logger = logging.get_logger()
 logger.setLevel(logging.INFO)
 
 
-def infer_task_and_input_shapes(args: argparse.Namespace):
-    # Infer the task
-    task = args.task
+def infer_compiler_kwargs(args: argparse.Namespace):
+    # infer compiler kwargs
+    auto_cast = None if args.auto_cast == "none" else args.auto_cast
+    auto_cast_type = None if auto_cast is None else args.auto_cast_type
+    compiler_kwargs = {"auto_cast": auto_cast, "auto_cast_type": auto_cast_type}
+    if hasattr(args, "disable_fast_relayout"):
+        compiler_kwargs["disable_fast_relayout"] = getattr(args, "disable_fast_relayout")
+    if hasattr(args, "disable_fallback"):
+        compiler_kwargs["disable_fallback"] = getattr(args, "disable_fallback")
+    
+    return compiler_kwargs
+
+
+def infer_task(task: str, model_name_or_path: str):
     if task == "auto":
         try:
-            task = TasksManager.infer_task_from_model(args.model)
+            task = TasksManager.infer_task_from_model(model_name_or_path)
         except KeyError as e:
             raise KeyError(
                 "The task could not be automatically inferred. Please provide the argument --task with the task "
@@ -61,25 +77,27 @@ def infer_task_and_input_shapes(args: argparse.Namespace):
             raise RequestsConnectionError(
                 f"The task could not be automatically inferred as this is available only for models hosted on the Hugging Face Hub. Please provide the argument --task with the relevant task from {', '.join(TasksManager.get_all_tasks())}. Detailed error: {e}"
             )
+    return task
 
-    # infer input shapes
-    neuron_config_constructor = TasksManager.get_exporter_config_constructor(
-        model=args.model, exporter="neuron", task=task
-    )
-    input_shapes = {
-        name: getattr(args, name) for name in neuron_config_constructor.func.get_mandatory_axes_for_task(task)
-    }
 
-    # infer compiler kwargs
-    auto_cast = None if args.auto_cast == "none" else args.auto_cast
-    auto_cast_type = None if auto_cast is None else args.auto_cast_type
-    compiler_kwargs = {"auto_cast": auto_cast, "auto_cast_type": auto_cast_type}
-    if hasattr(args, "disable_fast_relayout"):
-        compiler_kwargs["disable_fast_relayout"] = getattr(args, "disable_fast_relayout")
-    if hasattr(args, "disable_fallback"):
-        compiler_kwargs["disable_fallback"] = getattr(args, "disable_fallback")
+def normalize_input_shapes(task: str, args: argparse.Namespace):
 
-    return task, compiler_kwargs, input_shapes
+    # get input shapes
+    if task=="stable-diffusion":
+        mandatory_shapes = {name: getattr(args, name) for name in getattr(inspect.getfullargspec(build_stable_diffusion_components_mandatory_shapes), "args")}
+        input_shapes = build_stable_diffusion_components_mandatory_shapes(**mandatory_shapes)
+    else:
+        model = TasksManager.get_model_from_task(
+            task, args.model, framework="pt", cache_dir=args.cache_dir, trust_remote_code=args.trust_remote_code
+        )
+        neuron_config_constructor = TasksManager.get_exporter_config_constructor(
+            model=model, exporter="neuron", task=task
+        )
+        del model
+        mandatory_axes = neuron_config_constructor.func.get_mandatory_axes_for_task(task)
+        input_shapes = {name: getattr(args, name) for name in mandatory_axes}
+
+    return input_shapes
 
 
 def main_export(
@@ -94,6 +112,7 @@ def main_export(
     subfolder: str = "",
     revision: str = "main",
     force_download: bool = False,
+    local_files_only: bool = False,
     use_auth_token: Optional[Union[bool, str]] = None,
     do_validation: bool = True,
     **input_shapes,
@@ -110,10 +129,11 @@ def main_export(
         revision=revision,
         cache_dir=cache_dir,
         use_auth_token=use_auth_token,
+        local_files_only=local_files_only,
+        force_download=force_download,
         trust_remote_code=trust_remote_code,
         framework="pt",
     )
-    ref_model = copy.deepcopy(model)
 
     neuron_config_constructor = TasksManager.get_exporter_config_constructor(model=model, exporter="neuron", task=task)
     if is_neuron_available() and dynamic_batch_size is True and "batch_size" in input_shapes:
@@ -142,6 +162,7 @@ def main_export(
     # Validate compiled model
     if do_validation is True:
         try:
+            ref_model = copy.deepcopy(model)
             validate_model_outputs(
                 config=neuron_config,
                 reference_model=ref_model,
@@ -180,8 +201,10 @@ def main():
 
     # Retrieve CLI arguments
     args = parser.parse_args()
-
-    task, compiler_kwargs, input_shapes = infer_task_and_input_shapes(args)
+    
+    task = infer_task(args.task, args.model)
+    compiler_kwargs= infer_compiler_kwargs(args)
+    input_shapes = normalize_input_shapes(task, args)
 
     main_export(
         model_name_or_path=args.model,

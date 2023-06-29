@@ -118,3 +118,28 @@ def get_stable_diffusion_models_for_export(
     del pipeline
 
     return models_for_export
+
+
+def build_stable_diffusion_components_mandatory_shapes(
+    batch_size: Optional[int] = None,
+    sequence_length: Optional[int] = None,
+    num_channels: Optional[int] = None,
+    height: Optional[int] = None,
+    width: Optional[int] = None,
+):
+    text_encoder_input_shapes = {"batch_size": batch_size, "sequence_length": sequence_length}
+    vae_decoder_input_shapes = unet_input_shapes = vae_post_quant_conv_input_shapes = {
+        "batch_size": batch_size,
+        "num_channels": num_channels,
+        "height": height,
+        "width": width,
+    }
+    
+    components_shapes = {
+        "text_encoder_input_shapes": text_encoder_input_shapes,
+        "vae_decoder_input_shapes": vae_decoder_input_shapes,
+        "unet_input_shapes": unet_input_shapes,
+        "vae_post_quant_conv_input_shapes": vae_post_quant_conv_input_shapes, 
+    }
+
+    return components_shapes
