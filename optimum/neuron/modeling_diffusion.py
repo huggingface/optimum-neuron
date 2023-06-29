@@ -142,7 +142,56 @@ class NeuronStableDiffusionPipeline(NeuronBaseModel, StableDiffusionPipelineMixi
         self.tokenizer.save_pretrained(save_directory.joinpath("tokenizer"))
         self.scheduler.save_pretrained(save_directory.joinpath("scheduler"))
         if self.feature_extractor is not None:
-            self.feature_extractor.save_pretrained(save_directory.joinpath("feature_extractor"))   
+            self.feature_extractor.save_pretrained(save_directory.joinpath("feature_extractor"))
+
+    @classmethod
+    def _from_pretrained(
+        cls,
+        model_id: Union[str, Path],
+        config: Dict[str, Any],
+        use_auth_token: Optional[Union[bool, str]] = None,
+        revision: Optional[str] = None,
+        cache_dir: Optional[str] = None,
+        text_encoder_file_name: Optional[str] = None,
+        vae_decoder_file_name: Optional[str] = None,
+        unet_file_name: Optional[str] = None,
+        vae_post_quant_conv_file_name: Optional[str] = None,
+        local_files_only: bool = False,
+        model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
+        **kwargs,
+    ):
+        model_id = str(model_id)
+    
+    @classmethod
+    def _from_transformers(
+        cls,
+        model_id: str,
+        config: Optional[str] = None,
+        use_auth_token: Optional[Union[bool, str]] = None,
+        revision: str = "main",
+        force_download: bool = True,
+        cache_dir: Optional[str] = None,
+        subfolder: str = "",
+        local_files_only: bool = False,
+        trust_remote_code: bool = False,
+        task: Optional[str] = None,
+    ) -> "NeuronStableDiffusionPipeline":
+        if task is None:
+            task = cls._auto_model_to_task(cls.auto_model_class)
+
+        save_dir = TemporaryDirectory()
+        save_dir_path = Path(save_dir.name)
+    
+
+    def __call__(self, *args, **kwargs):
+        return StableDiffusionPipelineMixin.__call__(self, *args, **kwargs)
+
+    @classmethod
+    def _load_config(cls, config_name_or_path: Union[str, os.PathLike], **kwargs):
+        return cls.load_config(config_name_or_path, **kwargs)
+
+    def _save_config(self, save_directory):
+        self.save_config(save_directory)
         
 
 class NeuronDiffusionModelPart:
