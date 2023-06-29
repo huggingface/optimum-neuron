@@ -15,6 +15,7 @@
 """Base class for text-generation model architectures on neuron devices."""
 
 import logging
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Optional, Union
@@ -120,6 +121,7 @@ class NeuronDecoderModel(OptimizedModel):
         neuronx_model = exporter.neuronx_class.from_pretrained(checkpoint_dir.name, **neuron_kwargs)
 
         # Compile the model
+        os.environ["NEURON_CC_FLAGS"] = "--model-type=transformer-inference"
         neuronx_model.to_neuron()
 
         # Try to reload the generation config (if any)
