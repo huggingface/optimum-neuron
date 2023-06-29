@@ -160,24 +160,24 @@ class NeuronBaseModel(OptimizedModel):
         # Check compiler compatibility(compiler type and version) of the saved model vs. system.
         if hasattr(config, "neuron_compiler"):
             if config.neuron_compiler == "neuron-cc":
-                if not is_neuron_available():
-                    raise RuntimeError(
-                        f"Pretrained model was compiled for {config.neuron_compiler}, but {config.neuron_compiler} is not installed."
-                    )
-                min_version = get_neuroncc_version()
+                compiler_available_fn = is_neuron_available
+                installed_compiler_version_fn = get_neuroncc_version
             elif config.neuron_compiler == "neuronx-cc":
-                if not is_neuronx_available():
-                    raise RuntimeError(
-                        f"Pretrained model was compiled for {config.neuron_compiler}, but {config.neuron_compiler} is not installed."
-                    )
-                min_version = get_neuronxcc_version()
+                compiler_available_fn = is_neuronx_available
+                installed_compiler_version_fn = get_neuronxcc_version
             else:
                 raise RuntimeError(f"Pretrained model compiler type {config.neuron_compiler} not recognized.")
-            if version.parse(config.neuron_compiler_version) > version.parse(min_version):
+
+            if not compiler_available_fn():
                 raise RuntimeError(
-                    f"Pretrained model ({config.neuron_compiler}={min_version}) is newer than current compiler ({config.neuron_compiler}={config.neuron_compiler_version}),"
-                    " which may cause runtime incompatabilities."
+                    f"Pretrained model was compiled for {config.neuron_compiler}, but {config.neuron_compiler} is not installed."
                 )
+                if hasattr(config, "neuron_compiler_version"):
+                    if version.parse(config.neuron_compiler_version) > version.parse(installed_compiler_version_fn()):
+                        raise RuntimeError(
+                            f"Pretrained model ({config.neuron_compiler}={installed_compiler_version_fn()}) is newer than current compiler ({config.neuron_compiler}={config.neuron_compiler_version}),"
+                            " which may cause runtime incompatabilities."
+                        )
 
         preprocessors = None
         if model_path.is_dir():
