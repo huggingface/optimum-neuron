@@ -51,7 +51,7 @@ logger = logging.get_logger()
 logger.setLevel(logging.INFO)
 
 
-def infer_compiler_kwargs(args: argparse.Namespace):
+def infer_compiler_kwargs(args: argparse.Namespace) -> Dict[str, Any]:
     # infer compiler kwargs
     auto_cast = None if args.auto_cast == "none" else args.auto_cast
     auto_cast_type = None if auto_cast is None else args.auto_cast_type
