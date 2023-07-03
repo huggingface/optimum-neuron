@@ -64,7 +64,7 @@ def infer_compiler_kwargs(args: argparse.Namespace):
     return compiler_kwargs
 
 
-def infer_task(task: str, model_name_or_path: str):
+def infer_task(task: str, model_name_or_path: str) -> str:
     if task == "auto":
         try:
             task = TasksManager.infer_task_from_model(model_name_or_path)
