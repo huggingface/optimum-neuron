@@ -182,7 +182,7 @@ def validate_model_outputs(
     # Neuron outputs
     neuron_model = torch.jit.load(neuron_model_path)
     neuron_outputs = neuron_model(*neuron_inputs)
-    if isinstance(neuron_outputs, Dict):
+    if isinstance(neuron_outputs, dict):
         neuron_outputs = tuple(neuron_outputs.values())
     elif isinstance(neuron_outputs, torch.Tensor):
         neuron_outputs = (neuron_outputs,)
