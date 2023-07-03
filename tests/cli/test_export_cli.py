@@ -139,3 +139,11 @@ class TestExportCLI(unittest.TestCase):
                 shell=True,
                 check=True,
             )
+
+    def test_stable_diffusion(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            subprocess.run(
+                f"optimum-cli export neuron --model hf-internal-testing/tiny-stable-diffusion-torch --task stable-diffusion --batch_size 1 --num_channels 4 --height 64 --width 64 --sequence_length 18 {tempdir}",
+                shell=True,
+                check=True,
+            )
