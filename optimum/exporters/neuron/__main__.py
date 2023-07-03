@@ -14,25 +14,24 @@
 # limitations under the License.
 """Entry point to the optimum.exporters.neuron command line."""
 
-import inspect
 import argparse
-import copy
+import inspect
 from argparse import ArgumentParser
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
 from requests.exceptions import ConnectionError as RequestsConnectionError
 
-from ...neuron.utils import is_neuron_available, is_neuronx_available, store_compilation_config
+from ...neuron.utils import is_neuron_available, is_neuronx_available
 from ...utils import logging
 from ...utils.save_utils import maybe_save_preprocessors
 from ..error_utils import AtolError, OutputMatchError, ShapeError
 from ..tasks import TasksManager
-from .convert import export, validate_model_outputs
+from .convert import export_models, validate_models_outputs
 from .model_configs import *  # noqa: F403
 from .utils import (
-    get_stable_diffusion_models_for_export, 
     build_stable_diffusion_components_mandatory_shapes,
+    get_stable_diffusion_models_for_export,
 )
 
 
@@ -60,7 +59,7 @@ def infer_compiler_kwargs(args: argparse.Namespace):
         compiler_kwargs["disable_fast_relayout"] = getattr(args, "disable_fast_relayout")
     if hasattr(args, "disable_fallback"):
         compiler_kwargs["disable_fallback"] = getattr(args, "disable_fallback")
-    
+
     return compiler_kwargs
 
 
@@ -81,10 +80,12 @@ def infer_task(task: str, model_name_or_path: str):
 
 
 def normalize_input_shapes(task: str, args: argparse.Namespace):
-
     # get input shapes
-    if task=="stable-diffusion":
-        mandatory_shapes = {name: getattr(args, name) for name in getattr(inspect.getfullargspec(build_stable_diffusion_components_mandatory_shapes), "args")}
+    if task == "stable-diffusion":
+        mandatory_shapes = {
+            name: getattr(args, name, None)
+            for name in getattr(inspect.getfullargspec(build_stable_diffusion_components_mandatory_shapes), "args")
+        }
         input_shapes = build_stable_diffusion_components_mandatory_shapes(**mandatory_shapes)
     else:
         model = TasksManager.get_model_from_task(
@@ -117,8 +118,7 @@ def main_export(
     do_validation: bool = True,
     **input_shapes,
 ):
-    output = output.joinpath("model.neuron")
-
+    output = Path(output)
     if not output.parent.exists():
         output.parent.mkdir(parents=True)
 
@@ -134,41 +134,61 @@ def main_export(
         trust_remote_code=trust_remote_code,
         framework="pt",
     )
+    configs = {}
 
-    neuron_config_constructor = TasksManager.get_exporter_config_constructor(model=model, exporter="neuron", task=task)
-    if is_neuron_available() and dynamic_batch_size is True and "batch_size" in input_shapes:
-        input_shapes["batch_size"] = 1
-    neuron_config = neuron_config_constructor(model.config, dynamic_batch_size=dynamic_batch_size, **input_shapes)
+    if task != "stable-diffusion":
+        neuron_config_constructor = TasksManager.get_exporter_config_constructor(
+            model=model, exporter="neuron", task=task
+        )
+        if is_neuron_available() and dynamic_batch_size is True and "batch_size" in input_shapes:
+            input_shapes["batch_size"] = 1
+        neuron_config = neuron_config_constructor(model.config, dynamic_batch_size=dynamic_batch_size, **input_shapes)
+        if atol is None:
+            atol = neuron_config.ATOL_FOR_VALIDATION
+        output_model_names = ["model.neuron"]
+        models_and_neuron_configs = {"model": (model, neuron_config)}
+        maybe_save_preprocessors(model, output.parent)
 
-    if atol is None:
-        atol = neuron_config.ATOL_FOR_VALIDATION
+    if task == "stable-diffusion":
+        if not is_neuronx_available():
+            raise RuntimeError("Stable diffusion is not supported by inf1.")
+        output_model_names = [
+            "text_encoder/model.neuron",
+            "vae/decoder.neuron",
+            "unet/model.neuron",
+            "vae/post_quant_conv.neuron",
+        ]
+        models_and_neuron_configs = get_stable_diffusion_models_for_export(
+            model,
+            dynamic_batch_size=dynamic_batch_size,
+            **input_shapes,
+        )
+        configs["vae_decoder"] = configs["vae_conv"] = model.vae.config
+        # Saving the model config and preprocessor as this is needed sometimes.
+        model.tokenizer.save_pretrained(output.joinpath("tokenizer"))
+        model.scheduler.save_pretrained(output.joinpath("scheduler"))
+        if model.feature_extractor is not None:
+            model.feature_extractor.save_pretrained(output.joinpath("feature_extractor"))
+        # Save SD pipeline model index
+        model.save_config(output)
 
-    neuron_inputs, neuron_outputs = export(
-        model=model,
-        config=neuron_config,
-        output=output,
-        **compiler_kwargs,
+    neuron_inputs, neuron_outputs = export_models(
+        models_and_neuron_configs=models_and_neuron_configs,
+        output_dir=output,
+        output_file_names=output_model_names,
+        compiler_kwargs=compiler_kwargs,
+        configs=configs,
     )
-
-    # For torch_neuron, batch_size must be equal to 1 when dynamic batching is on.
-    store_compilation_config(
-        model.config, input_shapes, compiler_kwargs, neuron_inputs, neuron_outputs, dynamic_batch_size
-    )
-
-    # Saving the model config and preprocessor as this is needed sometimes.
-    model.config.save_pretrained(output.parent)
-    maybe_save_preprocessors(model, output.parent)
 
     # Validate compiled model
     if do_validation is True:
         try:
-            ref_model = copy.deepcopy(model)
-            validate_model_outputs(
-                config=neuron_config,
-                reference_model=ref_model,
-                neuron_model_path=output,
-                neuron_named_outputs=neuron_config.outputs,
+            validate_models_outputs(
+                models_and_neuron_configs=models_and_neuron_configs,
+                neuron_named_outputs=neuron_outputs,
+                output_dir=output,
                 atol=atol,
+                neuron_files_subpaths=output_model_names,
             )
 
             logger.info(
@@ -201,9 +221,9 @@ def main():
 
     # Retrieve CLI arguments
     args = parser.parse_args()
-    
+
     task = infer_task(args.task, args.model)
-    compiler_kwargs= infer_compiler_kwargs(args)
+    compiler_kwargs = infer_compiler_kwargs(args)
     input_shapes = normalize_input_shapes(task, args)
 
     main_export(

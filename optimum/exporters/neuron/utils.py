@@ -52,6 +52,16 @@ def get_stable_diffusion_models_for_export(
     Args:
         pipeline ([`StableDiffusionPipeline`]):
             The model to export.
+        text_encoder_input_shapes (`Dict[str, int]`):
+            Static shapes used for compiling text encoder.
+        vae_decoder_input_shapes (`Dict[str, int]`):
+            Static shapes used for compiling vae decoder.
+        unet_input_shapes (`Dict[str, int]`):
+            Static shapes used for compiling unet.
+        vae_post_quant_conv_input_shapes (`Dict[str, int]`):
+            Static shapes used for compiling vae post quant convolution layer.
+        dynamic_batch_size (`bool`, defaults to `False`):
+            Whether the Neuron compiled model supports dynamic batch size.
 
     Returns:
         `Dict[str, Tuple[Union[`PreTrainedModel`, `ModelMixin`], `NeuronConfig`]: A Dict containing the model and
@@ -102,7 +112,7 @@ def get_stable_diffusion_models_for_export(
     )
     models_for_export["unet"] = (unet, unet_neuron_config)
 
-    # VAE Decoder
+    # VAE post quant conv
     post_quant_conv = copy.deepcopy(pipeline.vae.post_quant_conv)
     post_quant_conv_neuron_config_constructor = TasksManager.get_exporter_config_constructor(
         model=post_quant_conv, exporter="neuron", task="semantic-segmentation", model_type="conv2d"
@@ -126,6 +136,7 @@ def build_stable_diffusion_components_mandatory_shapes(
     num_channels: Optional[int] = None,
     height: Optional[int] = None,
     width: Optional[int] = None,
+    **kwargs,
 ):
     text_encoder_input_shapes = {"batch_size": batch_size, "sequence_length": sequence_length}
     vae_decoder_input_shapes = unet_input_shapes = vae_post_quant_conv_input_shapes = {
@@ -134,12 +145,12 @@ def build_stable_diffusion_components_mandatory_shapes(
         "height": height,
         "width": width,
     }
-    
+
     components_shapes = {
         "text_encoder_input_shapes": text_encoder_input_shapes,
         "vae_decoder_input_shapes": vae_decoder_input_shapes,
         "unet_input_shapes": unet_input_shapes,
-        "vae_post_quant_conv_input_shapes": vae_post_quant_conv_input_shapes, 
+        "vae_post_quant_conv_input_shapes": vae_post_quant_conv_input_shapes,
     }
 
     return components_shapes

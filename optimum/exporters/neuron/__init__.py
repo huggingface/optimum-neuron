@@ -15,4 +15,4 @@
 
 from .base import NeuronConfig
 from .convert import export, export_models, validate_model_outputs, validate_models_outputs
-from .utils import get_stable_diffusion_models_for_export, build_stable_diffusion_components_mandatory_shapes
+from .utils import build_stable_diffusion_components_mandatory_shapes, get_stable_diffusion_models_for_export

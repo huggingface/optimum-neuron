@@ -15,7 +15,8 @@
 """Utilities related to CLI arguments."""
 
 import os
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+from collections import OrderedDict
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 
 from ...utils import logging
 
@@ -136,7 +137,7 @@ def convert_neuronx_compiler_args_to_neuron(
 
 
 def store_compilation_config(
-    config: "PretrainedConfig",
+    config: Union["PretrainedConfig", OrderedDict],
     input_shapes: Dict[str, int],
     compiler_kwargs: Dict[str, Any],
     input_names: List[str],
@@ -144,16 +145,21 @@ def store_compilation_config(
     dynamic_batch_size: bool,
     **kwargs,
 ):
+    if isinstance(config, OrderedDict):
+        update_func = getattr(config, "__setitem__")
+    else:
+        update_func = getattr(config, "__setattr__")
+
     # Add input shapes during compilation to the config
     for axe, shape in input_shapes.items():
         axe = f"neuron_{axe}"
-        config.__setattr__(axe, shape)
+        update_func(axe, shape)
 
-    config.__setattr__("dynamic_batch_size", dynamic_batch_size)
+    update_func("dynamic_batch_size", dynamic_batch_size)
 
     # Add compilation args to the config
     for arg, value in compiler_kwargs.items():
-        config.__setattr__(arg, value)
+        update_func(arg, value)
 
     config.input_names = input_names
     config.output_names = output_names

@@ -14,11 +14,14 @@
 # limitations under the License.
 """Neuron compiled model check and export functions."""
 
+import copy
+from collections import OrderedDict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
+from transformers import PretrainedConfig
 
 from ...exporters.error_utils import OutputMatchError, ShapeError
 from ...neuron.utils import (
@@ -26,6 +29,7 @@ from ...neuron.utils import (
     get_attention_scores,
     is_neuron_available,
     is_neuronx_available,
+    store_compilation_config,
 )
 from ...utils import is_diffusers_available, logging
 
@@ -43,6 +47,7 @@ if is_neuronx_available():
 
 if is_diffusers_available():
     from diffusers import ModelMixin
+    from diffusers.configuration_utils import FrozenDict
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
@@ -91,6 +96,7 @@ def validate_models_outputs(
     neuron_paths = []
     for i, model_name in enumerate(models_and_neuron_configs.keys()):
         submodel, sub_neuron_config = models_and_neuron_configs[model_name]
+        ref_submodel = copy.deepcopy(submodel)
         neuron_model_path = (
             output_dir.joinpath(neuron_files_subpaths[i])
             if neuron_files_subpaths is not None
@@ -100,7 +106,7 @@ def validate_models_outputs(
         try:
             validate_model_outputs(
                 config=sub_neuron_config,
-                reference_model=submodel,
+                reference_model=ref_submodel,
                 neuron_model_path=neuron_model_path,
                 neuron_named_outputs=neuron_named_outputs[i],
                 atol=atol,
@@ -246,6 +252,7 @@ def export_models(
     output_dir: Path,
     output_file_names: Optional[List[str]] = None,
     compiler_kwargs: Optional[Dict[str, Any]] = {},
+    configs: Optional[Dict[str, Any]] = {},
 ) -> Tuple[List[List[str]], List[List[str]]]:
     """
     Exports a Pytorch model with multiple component models to separate files.
@@ -260,6 +267,8 @@ def export_models(
             If None, will use the keys from `models_and_neuron_configs` as names.
         compiler_kwargs (`Optional[Dict[str, Any]]`, defaults to `None`):
             Arguments to pass to the Neuron(x) compiler for exporting Neuron models.
+        configs (`Optional[Dict[str, Any]]`, defaults to `None`):
+            A list of pretrained model configs.
     Returns:
         `Tuple[List[List[str]], List[List[str]]]`: A tuple with an ordered list of the model's inputs, and the named
         outputs from the Neuron configuration.
@@ -271,6 +280,7 @@ def export_models(
             f"Provided {len(output_file_names)} custom names for the export of {len(models_and_neuron_configs)} models. Please provide the same number of names as models to export."
         )
 
+    failed_models = []
     for i, model_name in enumerate(models_and_neuron_configs.keys()):
         submodel, sub_neuron_config = models_and_neuron_configs[model_name]
         output_file_name = output_file_names[i] if output_file_names is not None else Path(model_name + ".neuron")
@@ -278,14 +288,46 @@ def export_models(
         output_path = output_dir / output_file_name
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        outputs.append(
-            export(
+        try:
+            neuron_inputs, neuron_outputs = export(
                 model=submodel,
                 config=sub_neuron_config,
                 output=output_path,
                 **compiler_kwargs,
             )
-        )
+            outputs.append((neuron_inputs, neuron_outputs))
+            # Add neuron specific configs to model components' original config
+            if hasattr(submodel, "config"):
+                model_config = submodel.config
+            elif configs and (model_name in configs.keys()):
+                model_config = configs[model_name]
+                if isinstance(model_config, FrozenDict):
+                    model_config = OrderedDict(model_config)
+                    model_config = PretrainedConfig.from_dict(model_config)
+            else:
+                raise AttributeError("Cannot find model's configuration, please pass it with `configs`.")
+
+            store_compilation_config(
+                config=model_config,
+                input_shapes=sub_neuron_config.input_shapes,
+                compiler_kwargs=compiler_kwargs,
+                input_names=neuron_inputs,
+                output_names=neuron_outputs,
+                dynamic_batch_size=sub_neuron_config.dynamic_batch_size,
+            )
+            model_config.save_pretrained(output_path.parent)
+        except Exception as e:
+            failed_models.append((i, model_name))
+            output_path.parent.rmdir()
+            logger.error(
+                f"An error occured when trying to trace {model_name} with the error message: {e}.\n"
+                f"The export is failed and {model_name} neuron model won't be stored."
+            )
+
+    # remove models failed to export
+    for i, model_name in failed_models:
+        output_file_names.pop(i)
+        models_and_neuron_configs.pop(model_name)
 
     outputs = list(map(list, zip(*outputs)))
     return outputs
@@ -382,6 +424,7 @@ def export_neuronx(
         neuron_model = neuronx.dynamic_batch(neuron_model)
 
     torch.jit.save(neuron_model, output)
+    del neuron_model
 
     return config.inputs, config.outputs
 
@@ -449,5 +492,6 @@ def export_neuron(
         fallback=not disable_fallback,
     )
     torch.jit.save(neuron_model, output)
+    del neuron_model
 
     return config.inputs, config.outputs
