@@ -289,7 +289,7 @@ class NeuronConfig(ExportConfig, ABC):
                 else:
                     outputs = self.model(**ordered_inputs)
 
-                if isinstance(outputs, Dict) and eligible_outputs is not None:
+                if isinstance(outputs, dict) and eligible_outputs is not None:
                     outputs = {name: outputs[name] for name in outputs.keys() & eligible_outputs}
 
                 if isinstance(outputs, tuple) and eligible_outputs is not None:
