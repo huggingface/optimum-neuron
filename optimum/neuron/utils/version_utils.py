@@ -21,3 +21,11 @@ def get_neuronxcc_version() -> str:
     except ImportError:
         raise ValueError("NeuronX Compiler python package is not installed.")
     return neuronxcc.__version__
+
+
+def get_neuroncc_version() -> str:
+    try:
+        import neuroncc
+    except ImportError:
+        raise ValueError("Neuron Compiler python package is not installed.")
+    return neuroncc.__version__

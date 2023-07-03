@@ -31,6 +31,7 @@ from ...neuron.utils import (
     is_neuronx_available,
     store_compilation_config,
 )
+from ...neuron.utils.version_utils import get_neuroncc_version, get_neuronxcc_version
 from ...utils import is_diffusers_available, logging
 
 
@@ -42,8 +43,14 @@ if TYPE_CHECKING:
 if is_neuron_available():
     import torch.neuron as neuron  # noqa: F811
 
+    NEURON_COMPILER_TYPE = "neuron-cc"
+    NEURON_COMPILER_VERSION = get_neuroncc_version()
+
 if is_neuronx_available():
     import torch_neuronx as neuronx  # noqa: F811
+
+    NEURON_COMPILER_TYPE = "neuronx-cc"
+    NEURON_COMPILER_VERSION = get_neuronxcc_version()
 
 if is_diffusers_available():
     from diffusers import ModelMixin
@@ -314,6 +321,8 @@ def export_models(
                 input_names=neuron_inputs,
                 output_names=neuron_outputs,
                 dynamic_batch_size=sub_neuron_config.dynamic_batch_size,
+                neuron_compiler=NEURON_COMPILER_TYPE,
+                neuron_compiler_version=NEURON_COMPILER_VERSION,
             )
             model_config.save_pretrained(output_path.parent)
         except Exception as e:
