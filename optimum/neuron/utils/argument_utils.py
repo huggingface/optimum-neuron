@@ -148,9 +148,9 @@ def store_compilation_config(
     **kwargs,
 ):
     if isinstance(config, OrderedDict):
-        update_func = getattr(config, "__setitem__")
+        update_func = config.__setitem__
     else:
-        update_func = getattr(config, "__setattr__")
+        update_func = config.__setattr__
 
     # Add neuron version to the config, so it can be checked at load time
     update_func("neuron_compiler", neuron_compiler)
