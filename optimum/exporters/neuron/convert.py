@@ -191,8 +191,7 @@ def validate_model_outputs(
     neuron_output_names_set = set(neuron_named_outputs)
     neuron_output_names_list = sorted(neuron_output_names_set, key=neuron_named_outputs.index)
 
-    # case for transformers
-    if isinstance(ref_outputs, Dict):
+    if isinstance(ref_outputs, dict):
         ref_output_names_set = set(ref_outputs.keys())
         if not neuron_output_names_set.issubset(ref_output_names_set):
             raise OutputMatchError(
