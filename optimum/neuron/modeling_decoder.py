@@ -163,13 +163,10 @@ class NeuronDecoderModel(OptimizedModel):
         task = neuron_config["task"]
         neuron_kwargs = neuron_config["neuron_kwargs"]
 
-        # Instantiate the exporter
         exporter = get_exporter(config, task)
 
-        # Evaluate the path to the checkpoint and compiled directories
         model_path, checkpoint_path, compiled_path = cls._get_neuron_paths(model_id)
 
-        # Instantiate the optimized neuronx model from the original model checkpoint
         neuronx_model = exporter.neuronx_class.from_pretrained(checkpoint_path, **neuron_kwargs)
 
         if compiled_path is not None:
@@ -193,25 +190,19 @@ class NeuronDecoderModel(OptimizedModel):
         raise NotImplementedError()
 
     def _save_pretrained(self, save_directory: Union[str, Path]):
-        # Evaluate the path to the source checkpoint and compiled directories
         _, src_chkpt_path, src_compiled_path = self._get_neuron_paths(self.model_path)
-
-        # Evaluate the path to the destination checkpoint and compiled directories
         _, dst_chkpt_path, dst_compiled_path = self._get_neuron_paths(save_directory)
 
-        # Copy the model checkpoint
         shutil.copytree(src_chkpt_path, dst_chkpt_path)
 
         if src_compiled_path is None:
             # The compiled model has never been serialized: do it now
             self.model._save_compiled_artifacts(dst_compiled_path)
         else:
-            # Copy the compiled model artifacts
             shutil.copytree(src_compiled_path, dst_compiled_path)
 
         if isinstance(self.model_path, TemporaryDirectory):
             # Let temporary directory go out-of-scope to release disk space
             self.model_path = save_directory
 
-        # Save generation config (the model config is already saved by the caller)
         self.generation_config.save_pretrained(save_directory)
