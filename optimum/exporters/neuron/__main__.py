@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
 from requests.exceptions import ConnectionError as RequestsConnectionError
+from transformers import AutoConfig
 
 from ...neuron.utils import is_neuron_available, is_neuronx_available
 from ...utils import logging
@@ -88,13 +89,11 @@ def normalize_input_shapes(task: str, args: argparse.Namespace) -> Dict[str, int
         }
         input_shapes = build_stable_diffusion_components_mandatory_shapes(**mandatory_shapes)
     else:
-        model = TasksManager.get_model_from_task(
-            task, args.model, framework="pt", cache_dir=args.cache_dir, trust_remote_code=args.trust_remote_code
-        )
+        config = AutoConfig.from_pretrained(args.model)
+        model_type = config.model_type.replace("_", "-")
         neuron_config_constructor = TasksManager.get_exporter_config_constructor(
-            model=model, exporter="neuron", task=task
+            model_type=model_type, exporter="neuron", task=task
         )
-        del model
         mandatory_axes = neuron_config_constructor.func.get_mandatory_axes_for_task(task)
         input_shapes = {name: getattr(args, name) for name in mandatory_axes}
 
