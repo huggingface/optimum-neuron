@@ -17,8 +17,8 @@
 import torch
 
 
-# Optimized attention for unet
 def get_attention_scores(self, query, key, attn_mask):
+    """Optimized attention for UNET."""
     dtype = query.dtype
 
     if self.upcast_attention:
