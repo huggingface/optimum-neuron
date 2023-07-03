@@ -16,14 +16,10 @@
 
 from typing import TYPE_CHECKING, Dict, Optional
 
-from ..utils import is_neuronx_distributed_available
 from .base import Parallelizer
 from .parallel_layers import ParallelSelfAttention, ParallelSelfOutput
 from .utils import embedding_to_parallel_embedding
 
-
-if is_neuronx_distributed_available():
-    pass
 
 if TYPE_CHECKING:
     import torch

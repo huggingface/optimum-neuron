@@ -277,16 +277,6 @@ class AugmentTrainerForTrainiumMixin:
 
         self.accelerator.save_state(output_dir)
 
-        # # Save model
-        # self.accelerator.state.fsdp_plugin.save_model(self.accelerator, self.model, output_dir)
-
-        # # Save optimizer
-        # self.accelerator.state.fsdp_plugin.save_optimizer(self.accelerator, self.optimizer, self.model, output_dir)
-
-        # # Save scheduler
-        # with warnings.catch_warnings(record=True):
-        #     xm.save(self.lr_scheduler.state_dict(), os.path.join(output_dir, SCHEDULER_NAME))
-
         # Save scaler
         # TODO: is grad scaling supported with TORCH XLA?
         # reissue_pt_warnings(caught_warnings)
@@ -345,7 +335,6 @@ class AugmentTrainerForTrainiumMixin:
             NeuronDistributedType.XLA_FSDP,
             NeuronDistributedType.TENSOR_PARALLELISM,
         ]:
-            # return self._save_checkpoint_for_xla_fsdp(model, trial, metrics=metrics)
             return self._save_checkpoint_with_accelerator(model, trial, metrics=metrics)
         return super()._save_checkpoint(model, trial, metrics=metrics)
 

@@ -145,7 +145,7 @@ class NeuronAccelerator(Accelerator):
         return super().prepare_optimizer(new_optimizer, device_placement=device_placement)
 
     @patch_within_function(("accelerate.accelerator.AcceleratedOptimizer", NeuronAcceleratedOptimizer))
-    def prepare_optimizer(self, optimizer: torch.optim.Optimizer, device_placement=None):
+    def prepare_optimizer(self, optimizer: torch.optim.Optimizer, device_placement: Optional[bool] = None):
         if self.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
             return self._prepare_optimizer_for_tp(optimizer, device_placement=device_placement)
         return super().prepare_optimizer(optimizer, device_placement=device_placement)
@@ -275,7 +275,7 @@ class NeuronAccelerator(Accelerator):
             if parameters == list(model.parameters()):
                 return model.clip_grad_norm_(max_norm, norm_type)
 
-    def _clip_grad_norm_for_tp(self, parameters, max_norm, norm_type=2):
+    def _clip_grad_norm_for_tp(self, parameters, max_norm, norm_type: int = 2):
         self.unscale_gradients()
         parameters = list(parameters)
         for model in self._models:
