@@ -19,7 +19,7 @@ import os
 import shutil
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Optional, Tuple, Union
 
 import torch
 from transformers import GenerationConfig
@@ -132,9 +132,8 @@ class NeuronDecoderModel(OptimizedModel):
         return cls._from_pretrained(checkpoint_dir, config)
 
     @classmethod
-    def _get_neuron_paths(cls, model_dir):
+    def _get_neuron_paths(cls, model_dir: Union[str, Path, TemporaryDirectory]) -> Tuple[str, str, str]:
         if isinstance(model_dir, TemporaryDirectory):
-            # Convert the model directory to a path
             model_path = model_dir.name
             # We are in the middle of an export: the checkpoint is in the temporary model directory
             checkpoint_path = model_path
@@ -211,7 +210,7 @@ class NeuronDecoderModel(OptimizedModel):
             shutil.copytree(src_compiled_path, dst_compiled_path)
 
         if isinstance(self.model_path, TemporaryDirectory):
-            # let temporary directory go out-of-scope to release disk space
+            # Let temporary directory go out-of-scope to release disk space
             self.model_path = save_directory
 
         # Save generation config (the model config is already saved by the caller)
