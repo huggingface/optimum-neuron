@@ -81,7 +81,6 @@ def infer_task(task: str, model_name_or_path: str) -> str:
 
 
 def normalize_input_shapes(task: str, args: argparse.Namespace) -> Dict[str, int]:
-    # get input shapes
     if task == "stable-diffusion":
         mandatory_shapes = {
             name: getattr(args, name, None)
