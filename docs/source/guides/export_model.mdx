@@ -170,7 +170,7 @@ optimum-cli export neuron --model local_path --task question-answering --batch_s
 
 Note that providing the `--task` argument for a model on the Hub will disable the automatic task detection. The resulting `model.neuron` file, can then be loaded and run on Neuron devices. 
 
-## Exporting a model to Neuron using `NeuronModelForXXX` APIs
+## Exporting a model to Neuron via NeuronModel
 
 You will also be able to export your models to Neuron format with `optimum.neuron.NeuronModelForXXX` model classes. Here is an example:
 
@@ -201,6 +201,29 @@ And the exported model can be used for inference directly with the `NeuronModelF
 'POSITIVE'
 ```
 
+## Exporting stable diffusion to neuron
+
+With Optimum CLI you will be able to compile components in Stable Diffusion pipeline to gain acceleration on neuron devices during the inference.
+
+So far, we support the export of following components in the pipeline:
+
+* CLIP text encoder
+* VAE decoder
+* UNet
+* VAE_post_quant_conv
+
+<Tip>
+
+"These blocks are chosen because they represent the bulk of the compute in the pipeline, and performance benchmarking has shown that running them on Neuron yields significant performance benefit."
+
+</Tip>
+
+Exporting a stable diffusion checkpoint can be done as follows:
+
+```bash
+optimum-cli export neuron --model hf-internal-testing/tiny-stable-diffusion-torch --task stable-diffusion --batch_size 1 --num_channels 4 --height 64 --width 64 --sequence_length 32 sd_neuron/
+
+```
 
 ## Selecting a task
 
