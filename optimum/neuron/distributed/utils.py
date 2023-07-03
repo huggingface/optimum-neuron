@@ -63,7 +63,9 @@ def embedding_to_parallel_embedding(
 
     del embedding_layer.weight
 
-    return parallel_embedding_layer if lm_head_layer is None else parallel_embedding_layer, parallel_lm_head_layer
+    if lm_head_layer is None:
+        return parallel_embedding_layer
+    return parallel_embedding_layer, parallel_lm_head_layer
 
 
 def linear_to_parallel_linear(
@@ -95,8 +97,13 @@ def linear_to_parallel_linear(
     with torch.no_grad():
         if axis == "row":
             parallel_linear_layer.weight.copy_(linear_layer.weight[:, tp_rank * col_size : (tp_rank + 1) * col_size])
+            if linear_layer.bias is not None:
+                parallel_linear_layer.bias.copy_(linear_layer.bias)
+                if orig_to_parallel is not None:
+                    orig_to_parallel[id(linear_layer.bias)] = parallel_linear_layer.bias
         else:
             parallel_linear_layer.weight.copy_(linear_layer.weight[tp_rank * row_size : (tp_rank + 1) * row_size, :])
+            print(parallel_linear_layer.weight)
             if linear_layer.bias is not None:
                 parallel_linear_layer.bias.copy_(linear_layer.bias[tp_rank * row_size : (tp_rank + 1) * row_size])
                 if orig_to_parallel is not None:
@@ -105,6 +112,4 @@ def linear_to_parallel_linear(
     if orig_to_parallel is not None:
         orig_to_parallel[id(linear_layer.weight)] = parallel_linear_layer.weight
 
-    del linear_layer.weight
-    del linear_layer.bias
     return parallel_linear_layer

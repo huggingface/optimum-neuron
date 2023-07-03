@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Dict, Optional
 from ..utils import is_neuronx_distributed_available
 from .base import Parallelizer
 from .parallel_layers import ParallelSelfAttention, ParallelSelfOutput
+from .utils import embedding_to_parallel_embedding
 
 
 if is_neuronx_distributed_available():
@@ -42,6 +43,7 @@ class BertParallelizer(Parallelizer):
     def parallelize(
         cls, model: "PreTrainedModel", orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None
     ) -> "PreTrainedModel":
+        model.bert.embeddings.word_embeddings = embedding_to_parallel_embedding(model.bert.embeddings.word_embeddings)
         for layer in model.bert.encoder.layer:
             layer.attention.self = BertParallelSelfAttention.transform(
                 layer.attention.self, model.config, orig_to_parallel=orig_to_parallel

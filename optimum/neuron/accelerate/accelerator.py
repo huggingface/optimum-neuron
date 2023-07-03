@@ -100,7 +100,7 @@ class NeuronAccelerator(Accelerator):
             else:
                 tp_size = int(use_neuronx_distributed_tp)
             tp_plugin = TensorParallelismPlugin(tensor_parallel_size=tp_size)
-        self._model_to_orig_to_parallel = {}
+        self._model_cpu_parameters_to_xla = {}
 
         if tp_plugin.should_parallelize:
             os.environ["ACCELERATE_USE_NEURONX_DISTRIBUTED_TP"] = "true"
@@ -126,18 +126,23 @@ class NeuronAccelerator(Accelerator):
 
     def prepare_data_loader(self, data_loader: torch.utils.data.DataLoader, device_placement: Optional[bool] = None):
         if self.tensor_parallel_size > 1:
-            return self._prepare_data_loader_for_tp(data_loader)
+            data_loader = self._prepare_data_loader_for_tp(data_loader)
         return super().prepare_data_loader(data_loader, device_placement=device_placement)
 
     def _prepare_optimizer_for_tp(self, optimizer: torch.optim.Optimizer, device_placement=None):
+        new_groups = []
         for param_group in optimizer.param_groups:
+            new_params = []
             params = param_group["params"]
             for idx in range(len(params)):
-                for orig_to_parallel in self._model_to_orig_to_parallel.values():
-                    if id(params[idx]) in orig_to_parallel:
-                        params[idx] = orig_to_parallel[id(params[idx])]
+                for cpu_to_xla in self._model_cpu_parameters_to_xla.values():
+                    new_params.append(cpu_to_xla[id(params[idx])])
+            new_group = {k: v for k, v in param_group.items() if k != "params"}
+            new_group["params"] = new_params
+            new_groups.append(new_group)
 
-        return super().prepare_optimizer(optimizer, device_placement=device_placement)
+        new_optimizer = optimizer.__class__(new_groups)
+        return super().prepare_optimizer(new_optimizer, device_placement=device_placement)
 
     @patch_within_function(("accelerate.accelerator.AcceleratedOptimizer", NeuronAcceleratedOptimizer))
     def prepare_optimizer(self, optimizer: torch.optim.Optimizer, device_placement=None):
@@ -223,11 +228,12 @@ class NeuronAccelerator(Accelerator):
         self, model: torch.nn.Module, device_placement: Optional[bool] = None, evaluation_mode: bool = False
     ):
         if not evaluation_mode:
+            cpu_ids = [id(v) for v in model.parameters()]
             model, orig_to_parallel = self.state.tp_plugin.parallelize_model(model, return_orig_to_parallel=True)
-            self._model_to_orig_to_parallel[id(model)] = orig_to_parallel
-            if device_placement:
-                parallel_layers.move_model_to_device(model, self.device)
-                device_placement = False
+            parallel_layers.move_model_to_device(model, self.device)
+            self._model_cpu_parameters_to_xla[id(model)] = dict(zip(cpu_ids, model.parameters()))
+            model.tie_weights()
+            device_placement = False
         return super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
 
     def prepare_model(
@@ -252,6 +258,8 @@ class NeuronAccelerator(Accelerator):
     def backward(self, loss, **kwargs):
         if self.distributed_type != DistributedType.DEEPSPEED:
             loss = loss / self.gradient_accumulation_steps
+        if self.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
+            loss = loss / parallel_layers.parallel_state.get_data_parallel_size()
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:
             self.backward_for_xla_fsdp(loss, **kwargs)
         elif self.scaler is not None:
@@ -278,7 +286,7 @@ class NeuronAccelerator(Accelerator):
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:
             return self.clip_grad_norm_for_xla_fsdp(parameters, max_norm, norm_type=norm_type)
         elif self.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
-            return self._clip_grad_norm_for_tp(parameters, max_norm, norm_type=2)
+            return self._clip_grad_norm_for_tp(parameters, max_norm, norm_type=norm_type)
         return super().clip_grad_norm_(parameters, max_norm, norm_type=norm_type)
 
     def clip_grad_value_(self, parameters, clip_value):
