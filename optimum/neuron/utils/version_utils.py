@@ -15,8 +15,10 @@
 """Version utilities."""
 from typing import Optional
 
+
 _neuronxcc_version: Optional[str] = None
 _neuroncc_version: Optional[str] = None
+
 
 def get_neuronxcc_version() -> str:
     global _neuronxcc_version
@@ -26,7 +28,7 @@ def get_neuronxcc_version() -> str:
         import neuronxcc
     except ImportError:
         raise ValueError("NeuronX Compiler python package is not installed.")
-    _neuronxcc_version =  neuronxcc.__version__
+    _neuronxcc_version = neuronxcc.__version__
     return _neuronxcc_version
 
 
