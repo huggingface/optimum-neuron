@@ -23,6 +23,7 @@ import shutil
 import subprocess
 import tempfile
 from dataclasses import asdict, dataclass, field
+from packaging import version
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 
@@ -78,9 +79,18 @@ _WRITING_ACCESS_CACHE: Dict[Tuple[str, str], bool] = {}
 _REGISTRY_FILE_EXISTS: Dict[str, bool] = {}
 _ADDED_IN_REGISTRY: Dict[Tuple[str, "NeuronHash"], bool] = {}
 
-
 _NEW_CACHE_NAMING_CONVENTION_NEURONXCC_VERSION = "2.7.0.40+f7c6cf2a3"
 
+def follows_new_cache_naming_convention(neuronxcc_version: Optional[str] = None) -> bool:
+    """
+    The ways the cache is handled differs starting from `_NEW_CACHE_NAMING_CONVENTION_NEURONXCC_VERSION`.
+    This helper functions returns `True` if `neuronxcc_version` follows the new way the cache is handled and `False` 
+    otherwise.
+    """
+    if neuronxcc_version is None:
+        neuronxcc_version = get_neuronxcc_version()
+    neuronxcc_version = version.parse(neuronxcc_version)
+    return neuronxcc_version >= version.parse(_NEW_CACHE_NAMING_CONVENTION_NEURONXCC_VERSION)
 
 def load_custom_cache_repo_name_from_hf_home(
     hf_home_cache_repo_file: Union[str, Path] = HF_HOME_CACHE_REPO_FILE
@@ -212,12 +222,10 @@ def get_neuron_cache_path() -> Optional[Path]:
             path = Path("/var/tmp")
 
         # TODO: is that correct?
-        # neuronxcc_version = get_neuronxcc_version()
-        # if version.parse(neuronxcc_version) < version.parse(_NEW_CACHE_NAMING_CONVENTION_NEURONXCC_VERSION):
-        #     path = path / NEURON_COMPILE_CACHE_NAME
+        if not follows_new_cache_naming_convention():
+            path = path / NEURON_COMPILE_CACHE_NAME
 
-        # return path
-        return path / NEURON_COMPILE_CACHE_NAME
+        return path
 
 
 def set_neuron_cache_path(neuron_cache_path: Union[str, Path], ignore_no_cache: bool = False):
@@ -272,7 +280,6 @@ def path_after_folder(path: Path, folder: Union[str, Path], include_folder: bool
         index = len(path.parts)
     index = index + 1 if not include_folder else index
     return Path("").joinpath(*path.parts[index:])
-
 
 def remove_ip_adress_from_path(path: Path) -> Path:
     return Path().joinpath(*(re.sub(_IP_PATTERN, "", part) for part in path.parts))
@@ -484,6 +491,11 @@ class _MutableHashAttribute:
     def __hash__(self):
         return hash(f"{self.model_hash}_{self.overall_hash}")
 
+@dataclass
+class _HashAttribute:
+    pass
+
+
 
 @dataclass(frozen=True)
 class NeuronHash:
@@ -553,6 +565,8 @@ class NeuronHash:
 
     @property
     def neuron_compiler_version_dir_name(self):
+        if follows_new_cache_naming_convention():
+            return f"neuronxcc-{self.neuron_compiler_version}"
         return f"USER_neuroncc-{self.neuron_compiler_version}"
 
     @property
