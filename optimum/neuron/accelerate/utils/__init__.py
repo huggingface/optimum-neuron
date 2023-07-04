@@ -13,5 +13,5 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .dataclasses import NeuronDistributedType, NeuronFullyShardedDataParallelPlugin
+from .dataclasses import NeuronDistributedType, NeuronFullyShardedDataParallelPlugin, TensorParallelismPlugin
 from .misc import patch_accelerate_is_tpu_available

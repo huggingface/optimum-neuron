@@ -18,17 +18,19 @@ import contextlib
 from abc import ABC, abstractclassmethod
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, Optional, Union
 
 import torch
 from transformers.utils import WEIGHTS_NAME
 
+from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
 from .utils import TENSOR_PARALLEL_SHARDS_DIR_NAME
 
 
 if is_neuronx_distributed_available():
     import neuronx_distributed
+    from neuronx_distributed import parallel_layers
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
@@ -36,6 +38,9 @@ if is_torch_xla_available():
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
+
+
+logger = logging.get_logger()
 
 
 class SavedModelInTemporaryDirectory:
@@ -87,12 +92,12 @@ class Parallelizer(ABC):
 
     @classmethod
     def was_parallelized(cls, model: "PreTrainedModel") -> bool:
-        parallel_layers = (
-            neuronx_distributed.parallel_layers.ParallelEmbedding,
-            neuronx_distributed.parallel_layers.ColumnParallelLinear,
-            neuronx_distributed.parallel_layers.RowParallelLinear,
+        parallel_layer_classes = (
+            parallel_layers.ParallelEmbedding,
+            parallel_layers.ColumnParallelLinear,
+            parallel_layers.RowParallelLinear,
         )
-        return any(isinstance(mod, parallel_layers) for mod in model.modules())
+        return any(isinstance(mod, parallel_layer_classes) for mod in model.modules())
 
     @classmethod
     def _check_model_was_parallelized(cls, model: "PreTrainedModel"):
@@ -100,16 +105,26 @@ class Parallelizer(ABC):
             raise ValueError("The model needs to be parallelized first.")
 
     @classmethod
-    def save_model_checkpoint_as_regular(cls, model: "PreTrainedModel", output_dir: Union[str, Path]):
+    def save_model_checkpoint_as_regular(
+        cls,
+        model: "PreTrainedModel",
+        output_dir: Union[str, Path],
+        optimizer: Optional["torch.optim.Optimizer"] = None,
+    ):
         cls._check_model_was_parallelized(model)
-        data_parallel_rank = neuronx_distributed.parallel_state.get_data_parallel_rank()
-        tensor_parallel_rank = neuronx_distributed.parallel_state.get_tensor_parallel_rank()
+        data_parallel_rank = parallel_layers.parallel_state.get_data_parallel_rank()
+        tensor_parallel_rank = parallel_layers.parallel_state.get_tensor_parallel_rank()
 
         if data_parallel_rank != 0:
             return
 
         if not isinstance(output_dir, Path):
             output_dir = Path(output_dir)
+
+        if optimizer is not None:
+            logger.warning(
+                "Saving the optimizer state as a regular file under the tensor parallel setting is not supported yet."
+            )
 
         state_dict = {}
         for name, param in model.named_parameters():
@@ -134,28 +149,38 @@ class Parallelizer(ABC):
         xm.rendevous("saving regular checkpoint")
 
     @classmethod
-    def save_model_checkpoint_as_sharded(cls, model: "PreTrainedModel", output_dir: Union[str, Path]):
+    def save_model_checkpoint_as_sharded(
+        cls,
+        model: "PreTrainedModel",
+        output_dir: Union[str, Path],
+        optimizer: Optional["torch.optim.Optimizer"] = None,
+    ):
         cls._check_model_was_parallelized(model)
-        data_parallel_rank = neuronx_distributed.parallel_state.get_data_parallel_rank()
-        if data_parallel_rank != 0:
-            return
-
         if not isinstance(output_dir, Path):
             output_dir = Path(output_dir)
 
+        state_dict = {"model": model.state_dict()}
+        if optimizer is not None:
+            state_dict["optimizer_state_dict"] = optimizer.state_dict()
+
         output_path = output_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME
-        neuronx_distributed.parallel_layers.save({"model": model.state_dict()}, output_path.as_posix())
+        parallel_layers.save(state_dict, output_path.as_posix())
 
     @classmethod
     def save_model_checkpoint(
-        cls, model: "PreTrainedModel", output_dir: Union[str, Path], as_regular: bool = True, as_sharded: bool = True
+        cls,
+        model: "PreTrainedModel",
+        output_dir: Union[str, Path],
+        as_regular: bool = False,
+        as_sharded: bool = True,
+        optimizer: Optional["torch.optim.Optimizer"] = None,
     ):
         if not as_regular and not as_sharded:
             raise ValueError("At least as_regular or as_sharded must be True.")
         if as_regular:
-            cls.save_model_checkpoint(model, output_dir)
+            cls.save_model_checkpoint_as_regular(model, output_dir, optimizer=optimizer)
         if as_sharded:
-            cls.save_model_checkpoint_as_sharded(model, output_dir)
+            cls.save_model_checkpoint_as_sharded(model, output_dir, optimizer=optimizer)
 
     @classmethod
     def load_model_regular_checkpoint(cls, model: "PreTrainedModel", load_dir: Union[str, Path]):
@@ -166,7 +191,7 @@ class Parallelizer(ABC):
         cls._check_model_was_parallelized(model)
         if not isinstance(load_dir, Path):
             load_dir = Path(load_dir)
-        neuronx_distributed.parallel_layers.load(load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME, model=model, sharded=True)
+        parallel_layers.load(load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME, model=model, sharded=True)
 
     @classmethod
     def load_model_checkpoint(cls, model: "PreTrainedModel", load_dir: Union[str, Path]):

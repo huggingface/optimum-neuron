@@ -13,24 +13,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """NeuroStableDiffusionPipeline class for inference of diffusion models on neuron devices."""
-from abc import abstractmethod
+
+import os
 import shutil
+from abc import abstractmethod
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any, Dict, Optional, Union, List
+from typing import Any, Dict, List, Optional, Union
 
 import torch
 from diffusers import DDIMScheduler, LMSDiscreteScheduler, PNDMScheduler, StableDiffusionPipeline
 from transformers import CLIPFeatureExtractor, CLIPTokenizer
 
+from ..exporters.neuron import NeuronConfig
 from ..pipelines.diffusers.pipeline_stable_diffusion import StableDiffusionPipelineMixin
 from ..utils import (
     DIFFUSION_MODEL_TEXT_ENCODER_SUBFOLDER,
     DIFFUSION_MODEL_UNET_SUBFOLDER,
     DIFFUSION_MODEL_VAE_DECODER_SUBFOLDER,
 )
-
-from ..exporters.neuron import NeuronConfig
 from .modeling_base import NeuronBaseModel
 from .utils import NEURON_FILE_NAME
 
@@ -91,11 +92,10 @@ class NeuronStableDiffusionPipeline(NeuronBaseModel, StableDiffusionPipelineMixi
         self.unet = NeuronModelUnet(unet, self)
         self.vae_post_quant_conv = NeuronModelUnet(vae_post_quant_conv, self)
 
-        self.text_encoder_model_path = Path(model_file_paths[0]) 
-        self.vae_decoder_model_path = Path(model_file_paths[1])      
+        self.text_encoder_model_path = Path(model_file_paths[0])
+        self.vae_decoder_model_path = Path(model_file_paths[1])
         self.unet_model_path = Path(model_file_paths[2])
-        self.vae_post_quant_conv_model_path = Path(model_file_paths[3])  
-
+        self.vae_post_quant_conv_model_path = Path(model_file_paths[3])
 
         self.tokenizer = tokenizer
         self.scheduler = scheduler
@@ -110,7 +110,6 @@ class NeuronStableDiffusionPipeline(NeuronBaseModel, StableDiffusionPipelineMixi
         for name in sub_models.keys():
             self._internal_dict[name] = ("optimum", sub_models[name].__class__.__name__)
         self._internal_dict.pop("vae", None)
-    
 
     def _save_pretrained(
         self,
@@ -126,10 +125,16 @@ class NeuronStableDiffusionPipeline(NeuronBaseModel, StableDiffusionPipelineMixi
         """
         save_directory = Path(save_directory)
         src_to_dst_path = {
-            self.text_encoder_model_path: save_directory / DIFFUSION_MODEL_TEXT_ENCODER_SUBFOLDER / text_encoder_file_name,
-            self.vae_decoder_model_path: save_directory / DIFFUSION_MODEL_VAE_DECODER_SUBFOLDER / vae_decoder_file_name,
+            self.text_encoder_model_path: save_directory
+            / DIFFUSION_MODEL_TEXT_ENCODER_SUBFOLDER
+            / text_encoder_file_name,
+            self.vae_decoder_model_path: save_directory
+            / DIFFUSION_MODEL_VAE_DECODER_SUBFOLDER
+            / vae_decoder_file_name,
             self.unet_model_path: save_directory / DIFFUSION_MODEL_UNET_SUBFOLDER / unet_file_name,
-            self.vae_post_quant_conv_model_path: save_directory / DIFFUSION_MODEL_VAE_POST_QUANT_CONV_SUBFOLDER / vae_post_quant_conv_file_name,
+            self.vae_post_quant_conv_model_path: save_directory
+            / DIFFUSION_MODEL_VAE_POST_QUANT_CONV_SUBFOLDER
+            / vae_post_quant_conv_file_name,
         }
 
         src_paths = list(src_to_dst_path.keys())
@@ -161,7 +166,7 @@ class NeuronStableDiffusionPipeline(NeuronBaseModel, StableDiffusionPipelineMixi
         **kwargs,
     ):
         model_id = str(model_id)
-    
+
     @classmethod
     def _from_transformers(
         cls,
@@ -180,8 +185,7 @@ class NeuronStableDiffusionPipeline(NeuronBaseModel, StableDiffusionPipelineMixi
             task = cls._auto_model_to_task(cls.auto_model_class)
 
         save_dir = TemporaryDirectory()
-        save_dir_path = Path(save_dir.name)
-    
+        Path(save_dir.name)
 
     def __call__(self, *args, **kwargs):
         return StableDiffusionPipelineMixin.__call__(self, *args, **kwargs)
@@ -192,7 +196,7 @@ class NeuronStableDiffusionPipeline(NeuronBaseModel, StableDiffusionPipelineMixi
 
     def _save_config(self, save_directory):
         self.save_config(save_directory)
-        
+
 
 class NeuronDiffusionModelPart:
     """
@@ -266,6 +270,7 @@ class NeuronModelUnet(NeuronDiffusionModelPart):
         }
         outputs = self.model(*inputs)
         return outputs
+
 
 class NeuronModelVaePostQuantConv(NeuronDiffusionModelPart):
     def __init__(
