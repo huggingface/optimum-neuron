@@ -307,11 +307,12 @@ def export_models(
                 model_config = submodel.config
             elif configs and (model_name in configs.keys()):
                 model_config = configs[model_name]
-                if isinstance(model_config, FrozenDict):
-                    model_config = OrderedDict(model_config)
-                    model_config = PretrainedConfig.from_dict(model_config)
             else:
                 raise AttributeError("Cannot find model's configuration, please pass it with `configs`.")
+
+            if is_diffusers_available() and isinstance(model_config, FrozenDict):
+                model_config = OrderedDict(model_config)
+                model_config = PretrainedConfig.from_dict(model_config)
 
             store_compilation_config(
                 config=model_config,

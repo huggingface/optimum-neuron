@@ -125,8 +125,6 @@ def get_stable_diffusion_models_for_export(
     )
     models_for_export["vae_conv"] = (post_quant_conv, post_quant_conv_neuron_config)
 
-    del pipeline
-
     return models_for_export
 
 

@@ -150,7 +150,7 @@ def main_export(
 
     if task == "stable-diffusion":
         if not is_neuronx_available():
-            raise RuntimeError("Stable diffusion is not supported by inf1.")
+            raise RuntimeError("Stable diffusion needs neuronx-cc support which is not installed. ")
         output_model_names = [
             "text_encoder/model.neuron",
             "vae/decoder.neuron",
@@ -178,6 +178,8 @@ def main_export(
         compiler_kwargs=compiler_kwargs,
         configs=configs,
     )
+
+    del model
 
     # Validate compiled model
     if do_validation is True:
