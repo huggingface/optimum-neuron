@@ -63,6 +63,7 @@ from .utils import MyTinyModel, StagingTestMixin, get_random_string
 DUMMY_COMPILER_VERSION = "1.2.3"
 
 
+@is_trainium_test
 class NeuronUtilsTestCase(TestCase):
     def test_load_custom_cache_repo_name_from_hf_home(self):
         with TemporaryDirectory() as tmpdirname:
