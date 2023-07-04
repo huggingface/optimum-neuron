@@ -18,6 +18,7 @@ import io
 import json
 import os
 import warnings
+from dataclasses import dataclass, field
 from datetime import timedelta
 
 import torch
@@ -34,7 +35,7 @@ from transformers.utils import (
 
 from ..utils import check_if_transformers_greater, logging
 from .accelerate import NeuronAcceleratorState, NeuronPartialState
-from .accelerate.utils import patch_accelerate_is_tpu_available
+from .accelerate.utils import TensorParallelismPlugin, patch_accelerate_is_tpu_available
 from .utils import is_accelerate_available, is_torch_xla_available
 from .utils.training_utils import TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP
 
@@ -79,6 +80,7 @@ class TrainiumTrainingArgumentsMixin:
                     "The minimal required Transformers version to perform XLA FSDP is "
                     f"{TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP} but {transformers.__version__} is installed."
                 )
+        self.tp_plugin = TensorParallelismPlugin(self.tensor_parallel_size)
         super().__post_init__()
 
     # Needed only to specialize the warning message for FSDP.
@@ -179,10 +181,20 @@ class TrainiumTrainingArgumentsMixin:
                     torch.cuda.set_device(device)
         return device
 
+    @property
+    def place_model_on_device(self):
+        return not self.tp_plugin.should_parallelize and super().place_model_on_device
 
+
+@dataclass
 class TrainiumTrainingArguments(TrainiumTrainingArgumentsMixin, TrainingArguments):
-    pass
+    tensor_parallel_size: int = field(
+        default=1, metadata={"help": "The number of replicas the model will be sharded on."}
+    )
 
 
+@dataclass
 class Seq2SeqTrainiumTrainingArguments(TrainiumTrainingArgumentsMixin, Seq2SeqTrainingArguments):
-    pass
+    tensor_parallel_size: int = field(
+        default=1, metadata={"help": "The number of replicas the model will be sharded on."}
+    )

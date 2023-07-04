@@ -17,7 +17,7 @@
 from accelerate.optimizer import AcceleratedOptimizer
 from accelerate.utils import DistributedType
 
-from ..utils import is_torch_xla_available
+from ..utils import is_neuronx_distributed_available, is_torch_xla_available
 from .utils.dataclasses import NeuronDistributedType
 
 
@@ -26,6 +26,9 @@ if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
 
     accelerate.optimizer.xm = xm
+
+if is_neuronx_distributed_available():
+    from neuronx_distributed.parallel_layers import parallel_state
 
 
 class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
@@ -40,6 +43,12 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
                 xm.optimizer_step(self.optimizer, optimizer_args=optimizer_args)
             elif self.accelerator_state.distributed_type is NeuronDistributedType.XLA_FSDP:
                 self.optimizer.step(closure)
+            elif self.accelerator_state.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
+                xm.optimizer_step(self.optimizer, groups=parallel_state.get_data_parallel_group(as_list=True))
+                # xm.reduce_gradients(self.optimizer, groups=parallel_state.get_data_parallel_group(as_list=True))
+                # parameters = [p for group in self.optimizer.param_groups for p in group["params"]]
+                # parallel_layers.clip_grad_norm(parameters, 1.0, norm_type=2)
+                # self.optimizer.step()
             elif self.scaler is not None:
                 scale_before = self.scaler.get_scale()
                 self.scaler.step(self.optimizer, closure)
