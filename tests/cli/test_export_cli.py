@@ -133,9 +133,52 @@ class TestExportCLI(unittest.TestCase):
             subprocess.run(command, shell=True, check=True)
 
     def test_dynamic_batching(self):
+        model_id = "hf-internal-testing/tiny-random-BertModel"
         with tempfile.TemporaryDirectory() as tempdir:
             subprocess.run(
-                f"optimum-cli export neuron --dynamic-batch-size --model hf-internal-testing/tiny-random-BertModel --sequence_length 16 --batch_size 1 --task text-classification {tempdir}",
-                shell=True,
+                [
+                    "optimum-cli",
+                    "export",
+                    "neuron",
+                    "--dynamic-batch-size",
+                    "--model",
+                    model_id,
+                    "--sequence_length",
+                    "16",
+                    "--batch_size",
+                    "1",
+                    "--task",
+                    "text-classification",
+                    str(tempdir),
+                ],
+                shell=False,
+                check=True,
+            )
+
+    def test_stable_diffusion(self):
+        model_id = "hf-internal-testing/tiny-stable-diffusion-torch"
+        with tempfile.TemporaryDirectory() as tempdir:
+            subprocess.run(
+                [
+                    "optimum-cli",
+                    "export",
+                    "neuron",
+                    "--model",
+                    model_id,
+                    "--task",
+                    "stable-diffusion",
+                    "--batch_size",
+                    "1",
+                    "--sequence_length",
+                    "16",
+                    "--num_channels",
+                    "4",
+                    "--height",
+                    "64",
+                    "--width",
+                    "64",
+                    str(tempdir),
+                ],
+                shell=False,
                 check=True,
             )

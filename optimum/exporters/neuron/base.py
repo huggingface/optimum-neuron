@@ -133,8 +133,12 @@ class NeuronConfig(ExportConfig, ABC):
             "nb_max_frames": nb_max_frames,
             "audio_sequence_length": audio_sequence_length,
         }
+        input_shapes = {}
         for name, value in axes_values.items():
+            if value is not None:
+                input_shapes[name] = value
             setattr(self, name, value)
+        setattr(self, "input_shapes", input_shapes)
 
     @classmethod
     def get_mandatory_axes_for_task(cls, task: str) -> Tuple[str]:
@@ -257,6 +261,8 @@ class NeuronConfig(ExportConfig, ABC):
         self,
         model: "PreTrainedModel",
         dummy_inputs: Dict[str, torch.Tensor],
+        forward_with_tuple: bool = False,
+        eligible_outputs: Optional[List[Union[str, int]]] = None,
     ):
         """
         Checks if inputs order of the model's forward pass correspond to the generated dummy inputs to ensure the dummy inputs tuple used for
@@ -277,6 +283,22 @@ class NeuronConfig(ExportConfig, ABC):
                     )
 
                 ordered_inputs = dict(zip(self.input_names, input))
-                return self.model(**ordered_inputs)
+
+                if forward_with_tuple is True:
+                    outputs = self.model(*ordered_inputs.values())
+                else:
+                    outputs = self.model(**ordered_inputs)
+
+                if isinstance(outputs, dict) and eligible_outputs is not None:
+                    outputs = {name: outputs[name] for name in outputs.keys() & eligible_outputs}
+
+                if isinstance(outputs, tuple) and eligible_outputs is not None:
+                    if not all(isinstance(x, int) for x in eligible_outputs):
+                        raise ValueError(
+                            "To extract outputs from a tuple, `eligible_outputs` must be a list of integers only."
+                        )
+                    outputs = [outputs[i] for i in eligible_outputs]
+
+                return outputs
 
         return ModelWrapper(model, list(dummy_inputs.keys()))
