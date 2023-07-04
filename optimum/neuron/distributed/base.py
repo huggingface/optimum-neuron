@@ -18,7 +18,7 @@ import contextlib
 from abc import ABC, abstractclassmethod
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Dict, Optional, Union
+from typing import TYPE_CHECKING, Optional, Union
 
 import torch
 from transformers.utils import WEIGHTS_NAME
@@ -83,9 +83,7 @@ class Parallelizer(ABC):
             tmpdir.cleanup()
 
     @abstractclassmethod
-    def parallelize(
-        cls, model: "PreTrainedModel", return_original_to_transformed_mapping: bool = False
-    ) -> Union["PreTrainedModel", Union["PreTrainedModel", Dict[int, "torch.nn.Parameter"]]]:
+    def parallelize(cls, model: "PreTrainedModel") -> "PreTrainedModel":
         pass
 
     @classmethod

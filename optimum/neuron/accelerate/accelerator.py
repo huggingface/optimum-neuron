@@ -366,12 +366,12 @@ class NeuronAccelerator(Accelerator):
         def save_model_func(accelelerator, model, output_dir, i):
             logger.info("Saving FSDP model")
             self.state.fsdp_plugin.save_model(accelelerator, model, output_dir, i)
-            logger.info(f"FSDP Model saved to output dir {output_dir}")
+            logger.info(f"FSDP Model saved to the directory {output_dir}")
 
         def save_optimizer_func(accelerator, optimizer, model, output_dir, i):
             logger.info("Saving FSDP Optimizer")
             self.state.fsdp_plugin.save_optimizer(accelerator, optimizer, model, output_dir, i)
-            logger.info(f"FSDP Optimizer saved to output dir {output_dir}")
+            logger.info(f"FSDP Optimizer saved to the directory {output_dir}")
 
         return self._custom_save_state(
             save_model_func, save_optimizer_func, output_dir=output_dir, **save_model_func_kwargs
@@ -385,7 +385,7 @@ class NeuronAccelerator(Accelerator):
             logger.info("Saving TP model and optimizer")
             parallelizer = ParallelizersManager.parallelizer_for_model(model)
             parallelizer.save_model_checkpoint(model, output_dir, as_regular=False, optimizer=optimizer)
-            logger.info(f"TP model and optimizer saved to output dir {output_dir}")
+            logger.info(f"TP model and optimizer saved to the directory {output_dir}")
 
         return self._custom_save_state(
             save_model_func, save_optimizer_func, output_dir=output_dir, **save_model_func_kwargs
