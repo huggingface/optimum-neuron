@@ -21,7 +21,7 @@ import time
 from transformers import is_torch_tpu_available
 from transformers.trainer_utils import PredictionOutput, speed_metrics
 
-from optimum.neuron import TrainiumTrainer as Trainer
+from optimum.neuron import NeuronTrainer as Trainer
 
 
 if is_torch_tpu_available(check_device=False):

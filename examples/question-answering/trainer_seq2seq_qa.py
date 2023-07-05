@@ -23,7 +23,7 @@ from torch.utils.data import Dataset
 from transformers import is_torch_tpu_available
 from transformers.trainer_utils import PredictionOutput, speed_metrics
 
-from optimum.neuron import Seq2SeqTrainiumTrainer as Seq2SeqTrainer
+from optimum.neuron import Seq2SeqNeuronTrainer as Seq2SeqTrainer
 
 
 if is_torch_tpu_available(check_device=False):
