@@ -21,11 +21,21 @@
     - local: guides/fine_tune
       title: Fine-tune Transformers with AWS Trainium
     - local: guides/export_model
-      title: Export a model to Inferentia 
+      title: Export a model to Inferentia
+    - local: guides/models
+      title: Neuron models for inference 
+    - local: guides/pipelines
+      title: Inference pipelines with AWS Neuron
     title: How-To Guides
   - sections:
     - local: package_reference/trainer
       title: Trainium Trainer
+    - local: package_reference/export
+      title: Inferentia Exporter
+    - local: package_reference/configuration
+      title: Configuration classes for Neuron exports
+    - local: package_reference/modeling
+      title: Neuron Models
     title: Reference
   title: Optimum Neuron
   isExpanded: true

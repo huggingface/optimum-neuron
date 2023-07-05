@@ -12,16 +12,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Registers the neuron command to the Optimum CLI."""
 
-from ...neuron.utils import is_neuron_available, is_neuronx_available
-from ..export import ExportCommand
-
-
-if is_neuron_available():
-    from ..export.neuron import NeuronExportCommand
-
-if is_neuronx_available():
-    from ..export.neuronx import NeuronxExportCommand as NeuronExportCommand  # noqa: F811
+from ..neuron.base import NeuronCommand
 
 
-REGISTER_COMMANDS = [(NeuronExportCommand, ExportCommand)]
+REGISTER_COMMANDS = [NeuronCommand]

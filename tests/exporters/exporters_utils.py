@@ -18,12 +18,12 @@ EXPORT_MODELS_TINY = {
     "albert": "hf-internal-testing/tiny-random-AlbertModel",
     "bert": "hf-internal-testing/tiny-random-BertModel",
     "camembert": "hf-internal-testing/tiny-random-camembert",
-    # "convbert": "hf-internal-testing/tiny-random-ConvBertModel",  # Failed for INF2
+    "convbert": "hf-internal-testing/tiny-random-ConvBertModel",
     # "deberta": "hf-internal-testing/tiny-random-DebertaModel",  # Failed for INF1: 'XSoftmax'
     # "deberta-v2": "hf-internal-testing/tiny-random-DebertaV2Model",  # Failed for INF1: 'XSoftmax'
     "distilbert": "hf-internal-testing/tiny-random-DistilBertModel",
     "electra": "hf-internal-testing/tiny-random-ElectraModel",
-    "flaubert": "hf-internal-testing/tiny-random-flaubert",
+    "flaubert": "flaubert/flaubert_small_cased",
     "mobilebert": "hf-internal-testing/tiny-random-MobileBertModel",
     "mpnet": "hf-internal-testing/tiny-random-MPNetModel",
     "roberta": "hf-internal-testing/tiny-random-RobertaModel",
@@ -31,3 +31,9 @@ EXPORT_MODELS_TINY = {
     "xlm": "hf-internal-testing/tiny-random-XLMModel",
     "xlm-roberta": "hf-internal-testing/tiny-xlm-roberta",
 }
+
+STABLE_DIFFUSION_MODELS_TINY = {
+    ("hf-internal-testing/tiny-stable-diffusion-torch"),
+}
+
+SEED = 42

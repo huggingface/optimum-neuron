@@ -60,18 +60,32 @@ def parse_args_neuron(parser: "ArgumentParser"):
     )
     optional_group.add_argument(
         "--auto_cast",
+        type=str,
         default=None,
-        help='Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `None`, `"matmul"` or `"all"`.',
+        choices=["none", "matmul", "all"],
+        help='Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `"none"`, `"matmul"` or `"all"`.',
     )
     optional_group.add_argument(
         "--auto_cast_type",
-        default=None,
-        help='The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"` or `"tf32"`.',
+        type=str,
+        default="bf16",
+        choices=["bf16", "fp16", "mixed", "tf32"],
+        help='The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"`, `"mixed"` or `"tf32"`.',
     )
     optional_group.add_argument(
-        "--disable_fast_relayout",
-        default=False,
+        "--disable-fast-relayout",
+        action="store_true",
         help="Whether to disable fast relayout optimization which improves performance by using the matrix multiplier for tensor transpose.",
+    )
+    optional_group.add_argument(
+        "--disable-fallback",
+        action="store_true",
+        help="Whether to disable CPU partitioning to force operations to Neuron. Defaults to `False`, as without fallback, there could be some compilation failures or performance problems.",
+    )
+    optional_group.add_argument(
+        "--dynamic-batch-size",
+        action="store_true",
+        help="Enable dynamic batch size for neuron compiled model. If this option is enabled, the input batch size can be dynamic during the inference, but it comes with a potential tradeoff in terms of latency.",
     )
 
     input_group = parser.add_argument_group("Input shapes")
@@ -79,19 +93,16 @@ def parse_args_neuron(parser: "ArgumentParser"):
     input_group.add_argument(
         "--batch_size",
         type=int,
-        default=1,
         help=f"Batch size {doc_input}",
     )
     input_group.add_argument(
         "--sequence_length",
         type=int,
-        default=16,
         help=f"Sequence length {doc_input}",
     )
     input_group.add_argument(
         "--num_choices",
         type=int,
-        default=4,
         help=f"Only for the multiple-choice task. Num choices {doc_input}",
     )
 

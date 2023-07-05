@@ -24,26 +24,24 @@ from typing import Dict, Optional, Set, Tuple, Union
 
 import torch
 from datasets import Dataset, DatasetDict
-from huggingface_hub import CommitOperationDelete, HfApi, HfFolder, create_repo, delete_repo, login
+from huggingface_hub import CommitOperationDelete, HfApi, HfFolder, create_repo, delete_repo
+from huggingface_hub.utils import RepositoryNotFoundError
 from transformers import PretrainedConfig, PreTrainedModel
+from transformers.testing_utils import ENDPOINT_STAGING
 
 from optimum.neuron.utils.cache_utils import (
+    _ADDED_IN_REGISTRY,
+    _REGISTRY_FILE_EXISTS,
     NEURON_COMPILE_CACHE_NAME,
     NeuronHash,
+    delete_custom_cache_repo_name_from_hf_home,
+    load_custom_cache_repo_name_from_hf_home,
     path_after_folder,
     push_to_cache_on_hub,
+    set_custom_cache_repo_name_in_hf_home,
     set_neuron_cache_path,
 )
-
-
-# Use that once optimum==1.7.4 is released.
-# from optimum.utils.testing_utils import TOKEN, USER
-
-# Used to test the hub
-USER = "__DUMMY_OPTIMUM_USER__"
-
-# Not critical, only usable on the sandboxed CI instance.
-TOKEN = "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"
+from optimum.utils.testing_utils import TOKEN, USER
 
 
 MODELS_TO_TEST_MAPPING = {
@@ -162,13 +160,22 @@ class StagingTestMixin:
     @classmethod
     def set_hf_hub_token(cls, token: str) -> str:
         orig_token = HfFolder.get_token()
-        login(token)
         HfFolder.save_token(token)
+        cls._env = dict(os.environ, HF_ENDPOINT=ENDPOINT_STAGING)
         return orig_token
 
     @classmethod
     def setUpClass(cls) -> None:
+        cls._staging_token = TOKEN
         cls._token = cls.set_hf_hub_token(TOKEN)
+        cls._custom_cache_repo_name = load_custom_cache_repo_name_from_hf_home()
+        delete_custom_cache_repo_name_from_hf_home()
+
+        # Adding a seed to avoid concurrency issues between staging tests.
+        cls.seed = get_random_string(5)
+        cls.CUSTOM_CACHE_REPO = f"{cls.CUSTOM_CACHE_REPO}-{cls.seed}"
+        cls.CUSTOM_PRIVATE_CACHE_REPO = f"{cls.CUSTOM_PRIVATE_CACHE_REPO}-{cls.seed}"
+
         create_repo(cls.CUSTOM_CACHE_REPO, repo_type="model", exist_ok=True)
         create_repo(cls.CUSTOM_PRIVATE_CACHE_REPO, repo_type="model", exist_ok=True, private=True)
 
@@ -181,20 +188,33 @@ class StagingTestMixin:
         delete_repo(repo_id=cls.CUSTOM_PRIVATE_CACHE_REPO, repo_type="model")
         if cls._token:
             cls.set_hf_hub_token(cls._token)
+        if cls._custom_cache_repo_name:
+            set_custom_cache_repo_name_in_hf_home(cls._custom_cache_repo_name, check_repo=False)
 
     def remove_all_files_in_repo(self, repo_id: str):
         api = HfApi()
         filenames = api.list_repo_files(repo_id=repo_id)
         operations = [CommitOperationDelete(path_in_repo=filename) for filename in filenames]
-        api.create_commit(
-            repo_id=repo_id,
-            operations=operations,
-            commit_message="Cleanup the repo",
-        )
+        try:
+            api.create_commit(
+                repo_id=repo_id,
+                operations=operations,
+                commit_message="Cleanup the repo",
+            )
+        except RepositoryNotFoundError:
+            pass
 
     def tearDown(self) -> None:
         self.remove_all_files_in_repo(self.CUSTOM_CACHE_REPO)
         self.remove_all_files_in_repo(self.CUSTOM_PRIVATE_CACHE_REPO)
+
+        keys = list(_REGISTRY_FILE_EXISTS.keys())
+        for key in keys:
+            _REGISTRY_FILE_EXISTS.pop(key)
+
+        keys = list(_ADDED_IN_REGISTRY.keys())
+        for key in keys:
+            _ADDED_IN_REGISTRY.pop(key)
 
     def create_tiny_pretrained_model(self, num_linears: int = 1, random_num_linears: bool = False):
         return create_tiny_pretrained_model(
@@ -210,16 +230,16 @@ class StagingTestMixin:
         print(tiny_model(random_input))
         return tiny_model
 
-    def push_tiny_pretrained_model_to_hub(
+    def push_tiny_pretrained_model_cache_to_hub(
         self, repo_id: str, cache_dir: Optional[Union[str, Path]] = None
     ) -> NeuronHash:
         neuron_hash = None
-        orig_repo_id = os.environ.get("CUSTOM_CACHE_REPO", "")
-        os.environ["CUSTOM_CACHE_REPO"] = repo_id
+        orig_repo_id = load_custom_cache_repo_name_from_hf_home()
+        set_custom_cache_repo_name_in_hf_home(repo_id)
         with TemporaryDirectory() as tmpdirname:
             set_neuron_cache_path(tmpdirname)
 
-            input_shapes = (1,)
+            input_shapes = (("x", (1,)),)
             data_type = torch.float32
             tiny_model = self.create_and_run_tiny_pretrained_model(random_num_linears=True)
             neuron_hash = NeuronHash(tiny_model, input_shapes, data_type)
@@ -238,5 +258,6 @@ class StagingTestMixin:
                         shutil.copytree(
                             file_or_dir, cache_dir / path_after_folder(file_or_dir, NEURON_COMPILE_CACHE_NAME)
                         )
-        os.environ["CUSTOM_CACHE_REPO"] = orig_repo_id
+        if orig_repo_id is not None:
+            set_custom_cache_repo_name_in_hf_home(orig_repo_id)
         return neuron_hash
