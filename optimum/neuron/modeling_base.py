@@ -172,12 +172,12 @@ class NeuronBaseModel(OptimizedModel):
                 raise RuntimeError(
                     f"Pretrained model was compiled for {config.neuron_compiler}, but {config.neuron_compiler} is not installed."
                 )
-                if hasattr(config, "neuron_compiler_version"):
-                    if version.parse(config.neuron_compiler_version) > version.parse(installed_compiler_version_fn()):
-                        raise RuntimeError(
-                            f"Pretrained model ({config.neuron_compiler}={installed_compiler_version_fn()}) is newer than current compiler ({config.neuron_compiler}={config.neuron_compiler_version}),"
-                            " which may cause runtime incompatabilities."
-                        )
+            if hasattr(config, "neuron_compiler_version"):
+                if version.parse(config.neuron_compiler_version) > version.parse(installed_compiler_version_fn()):
+                    raise RuntimeError(
+                        f"Pretrained model ({config.neuron_compiler}={installed_compiler_version_fn()}) is newer than current compiler ({config.neuron_compiler}={config.neuron_compiler_version}),"
+                        " which may cause runtime incompatabilities."
+                    )
 
         preprocessors = None
         if model_path.is_dir():
