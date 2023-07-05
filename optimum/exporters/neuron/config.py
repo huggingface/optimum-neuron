@@ -67,7 +67,7 @@ class DecoderNeuronConfig(ExportConfig):
     NEURONX_MODULE = None
     NEURONX_CLASS = None
 
-    def __init__(self, task, **kwargs):
+    def __init__(self, task):
         if not is_transformers_neuronx_available():
             raise ModuleNotFoundError("The transformers-neuronx package is required.")
         module = importlib.import_module(self.NEURONX_MODULE)
