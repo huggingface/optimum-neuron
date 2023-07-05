@@ -12,14 +12,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Customizes the HfArgumentParser to add checks for AWS Tranium instances."""
+"""Customizes the HfArgumentParser to add checks for AWS Neuron instances."""
 
 from transformers import HfArgumentParser
 
 from .utils.argument_utils import validate_arg
 
 
-class TrainiumHfArgumentParser(HfArgumentParser):
+class NeuronHfArgumentParser(HfArgumentParser):
     def validate_args(self, args):
         validate_arg(
             args,
