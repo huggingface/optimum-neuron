@@ -95,7 +95,7 @@ class TestNeuronCacheCLI(StagingTestMixin, TestCase):
             self.assertEqual(
                 repo_id,
                 load_custom_cache_repo_name_from_hf_home(hf_home_cache_repo_file),
-                f"Saved local Trainium cache name should be equal to {repo_id}.",
+                f"Saved local Neuron cache name should be equal to {repo_id}.",
             )
 
     def test_optimum_neuron_cache_create_with_default_name(self):
@@ -123,7 +123,7 @@ class TestNeuronCacheCLI(StagingTestMixin, TestCase):
             self.assertEqual(
                 self.repo_id,
                 load_custom_cache_repo_name_from_hf_home(hf_home_cache_repo_file),
-                f"Saved local Trainium cache name should be equal to {self.repo_id}.",
+                f"Saved local Neuron cache name should be equal to {self.repo_id}.",
             )
 
     def test_optimum_neuron_cache_add(self):
