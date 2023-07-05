@@ -110,7 +110,7 @@ def set_custom_cache_repo_name_in_hf_home(repo_id: str, hf_home: str = HF_HOME, 
             HfApi().repo_info(repo_id, repo_type="model")
         except Exception as e:
             raise ValueError(
-                f"Could not save the custom Trainium cache repo to be {repo_id} because it does not exist or is "
+                f"Could not save the custom Neuron cache repo to be {repo_id} because it does not exist or is "
                 f"private to you. Complete exception message: {e}."
             )
 
@@ -175,9 +175,9 @@ def get_hf_hub_cache_repos():
     if saved_custom_cache_repo is None:
         warn_once(
             logger,
-            "No Trainium cache name is saved locally. This means that only the official Trainium cache, and "
-            "potentially a cache defined in $CUSTOM_CACHE_REPO will be used. You can create a Trainium cache repo by "
-            "running the following command: `optimum-cli neuron cache create`. If the Trainium cache already exists "
+            "No Neuron cache name is saved locally. This means that only the official Neuron cache, and "
+            "potentially a cache defined in $CUSTOM_CACHE_REPO will be used. You can create a Neuron cache repo by "
+            "running the following command: `optimum-cli neuron cache create`. If the Neuron cache already exists "
             "you can set it by running the following command: `optimum-cli neuron cache set -n [name]`.",
         )
     else:
@@ -205,7 +205,7 @@ def get_hf_hub_cache_repos():
         warn_once(
             logger,
             f"You do not have write access to {hf_hub_repos[0]} so you will not be able to push any cached compilation "
-            "files. Please log in and/or use a custom Trainium cache.",
+            "files. Please log in and/or use a custom Neuron cache.",
         )
     return hf_hub_repos
 

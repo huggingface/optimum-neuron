@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Defines the command line related to dealing with the Trainium cache repo."""
+"""Defines the command line related to dealing with the Neuron cache repo."""
 
 from typing import TYPE_CHECKING
 
@@ -55,8 +55,8 @@ class CreateCustomCacheRepoCommand(BaseOptimumCLICommand):
     def run(self):
         repo_url = create_custom_cache_repo(repo_id=self.args.name, private=not self.args.public)
         public_or_private = "public" if self.args.public else "private"
-        logger.info(f"Trainium cache created on the Hugging Face Hub: {repo_url.repo_id} [{public_or_private}].")
-        logger.info(f"Trainium cache name set locally to {repo_url.repo_id} in {HF_HOME_CACHE_REPO_FILE}.")
+        logger.info(f"Neuron cache created on the Hugging Face Hub: {repo_url.repo_id} [{public_or_private}].")
+        logger.info(f"Neuron cache name set locally to {repo_url.repo_id} in {HF_HOME_CACHE_REPO_FILE}.")
 
 
 class SetCustomCacheRepoCommand(BaseOptimumCLICommand):
@@ -66,7 +66,7 @@ class SetCustomCacheRepoCommand(BaseOptimumCLICommand):
 
     def run(self):
         set_custom_cache_repo_name_in_hf_home(self.args.name)
-        logger.info(f"Trainium cache name set locally to {self.args.name} in {HF_HOME_CACHE_REPO_FILE}.")
+        logger.info(f"Neuron cache name set locally to {self.args.name} in {HF_HOME_CACHE_REPO_FILE}.")
 
 
 class AddToCacheRepoCommand(BaseOptimumCLICommand):
@@ -217,7 +217,7 @@ class CustomCacheRepoCommand(BaseOptimumCLICommand):
         ),
         CommandInfo(
             name="set",
-            help="Set the name of the Trainium cache repo to use locally.",
+            help="Set the name of the Neuron cache repo to use locally.",
             subcommand_class=SetCustomCacheRepoCommand,
         ),
         CommandInfo(
