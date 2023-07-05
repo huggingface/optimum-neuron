@@ -92,6 +92,17 @@ def test_model_from_path(neuron_model_path):
     _check_neuron_model(model)
 
 
+def _test_model_generation(model, tokenizer, batch_size, max_length, **gen_kwargs):
+    prompt_text = "Hello, I'm a language model,"
+    prompts = [prompt_text for _ in range(batch_size)]
+    tokens = tokenizer(prompts, return_tensors="pt")
+    model.reset_generation()
+    with torch.inference_mode():
+        sample_output = model.generate(**tokens, max_length=max_length, **gen_kwargs)
+        assert sample_output.shape[0] == batch_size
+        assert sample_output.shape[1] == max_length
+
+
 @is_inferentia_test
 @requires_neuronx
 @pytest.mark.parametrize(
@@ -100,13 +111,13 @@ def test_model_from_path(neuron_model_path):
 def test_model_generation(neuron_model_path, gen_kwargs):
     model = NeuronModelForCausalLM.from_pretrained(neuron_model_path)
     tokenizer = AutoTokenizer.from_pretrained(neuron_model_path)
-    neuron_config = getattr(model.config, "neuron", None)
-    batch_size = neuron_config["neuron_kwargs"]["batch_size"]
-    seq_length = neuron_config["neuron_kwargs"]["n_positions"]
-    prompt_text = "Hello, I'm a language model,"
-    prompts = [prompt_text for _ in range(batch_size)]
-    tokens = tokenizer(prompts, return_tensors="pt")
-    with torch.inference_mode():
-        sample_output = model.generate(**tokens, max_length=seq_length, **gen_kwargs)
-        assert sample_output.shape[0] == batch_size
-        assert sample_output.shape[1] == seq_length
+    # Using static model parameters
+    _test_model_generation(model, tokenizer, model.batch_size, model.max_length, **gen_kwargs)
+    # Using a lower max length
+    _test_model_generation(model, tokenizer, model.batch_size, model.max_length // 2, **gen_kwargs)
+    # Using an incompatible batch_size
+    with pytest.raises(ValueError, match="The specified batch_size"):
+        _test_model_generation(model, tokenizer, model.batch_size + 1, model.max_length, **gen_kwargs)
+    # Using an incompatible generation length
+    with pytest.raises(ValueError, match="The current sequence length"):
+        _test_model_generation(model, tokenizer, model.batch_size, model.max_length * 2, **gen_kwargs)

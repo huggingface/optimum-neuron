@@ -557,6 +557,14 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
     def __init__(self, model, config, model_path, generation_config):
         super().__init__(model, config, model_path, generation_config)
         self.cur_len = 0
+        neuron_config = getattr(config, "neuron", None)
+        if neuron_config is None:
+            raise ValueError(
+                "The specified directory does not contain a neuron model. "
+                "Please convert your model to neuron format by passing export=True."
+            )
+        self.batch_size = neuron_config["neuron_kwargs"]["batch_size"]
+        self.max_length = neuron_config["neuron_kwargs"]["n_positions"]
 
     def reset_generation(self):
         self.cur_len = 0
@@ -593,9 +601,18 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
         return (out_logits,)
 
     def prepare_inputs_for_generation(self, input_ids, past_key_values=None, **kwargs):
-        # Sanity check
+        # Sanity checks
         if past_key_values is not None:
             raise ValueError("This model does not support dynamic key, value cache.")
+        batch_size, sequence_length = input_ids.shape
+        if batch_size != self.batch_size:
+            raise ValueError(
+                f"The specified batch_size ({batch_size}) does not match the model static batch size ({self.batch_size})"
+            )
+        if sequence_length > self.max_length:
+            raise ValueError(
+                f"The current sequence length ({sequence_length}) exceeds the model static sequence length ({self.max_length})"
+            )
         # convert attention_mask to start_ids
         attention_mask = None
         start_ids = None
