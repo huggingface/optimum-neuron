@@ -41,9 +41,9 @@ from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import PaddingStrategy, check_min_version, send_example_telemetry
 
-from optimum.neuron import TrainiumHfArgumentParser as HfArgumentParser
-from optimum.neuron import TrainiumTrainer as Trainer
-from optimum.neuron import TrainiumTrainingArguments as TrainingArguments
+from optimum.neuron import NeuronHfArgumentParser as HfArgumentParser
+from optimum.neuron import NeuronTrainer as Trainer
+from optimum.neuron import NeuronTrainingArguments as TrainingArguments
 
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.

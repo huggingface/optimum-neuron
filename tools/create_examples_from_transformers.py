@@ -65,11 +65,11 @@ TORCH_REQUIREMENT_PATTERN = re.compile(r"torch[\w\s]*([<>=!]=?\s*[\d\.]+)?\n")
 
 
 AWS_CODE = {
-    "Trainer": "TrainiumTrainer as Trainer",
-    "Seq2SeqTrainer": "Seq2SeqTrainiumTrainer as Seq2SeqTrainer",
-    "HfArgumentParser": "TrainiumHfArgumentParser as HfArgumentParser",
-    "TrainingArguments": "TrainiumTrainingArguments as TrainingArguments",
-    "Seq2SeqTrainingArguments": "Seq2SeqTrainiumTrainingArguments as Seq2SeqTrainingArguments",
+    "Trainer": "NeuronTrainer as Trainer",
+    "Seq2SeqTrainer": "Seq2SeqNeuronTrainer as Seq2SeqTrainer",
+    "HfArgumentParser": "NeuronHfArgumentParser as HfArgumentParser",
+    "TrainingArguments": "NeuronTrainingArguments as TrainingArguments",
+    "Seq2SeqTrainingArguments": "Seq2SeqNeuronTrainingArguments as Seq2SeqTrainingArguments",
 }
 
 

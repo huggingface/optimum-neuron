@@ -17,7 +17,7 @@
     - local: guides/setup_aws_instance
       title: Set up AWS Trainium instance            
     - local: guides/cache_system
-      title: Trainium model cache
+      title: Neuron model cache
     - local: guides/fine_tune
       title: Fine-tune Transformers with AWS Trainium
     - local: guides/export_model
@@ -29,7 +29,7 @@
     title: How-To Guides
   - sections:
     - local: package_reference/trainer
-      title: Trainium Trainer
+      title: Neuron Trainer
     - local: package_reference/export
       title: Inferentia Exporter
     - local: package_reference/configuration
