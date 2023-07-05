@@ -56,7 +56,6 @@ jobs:
         run: |
           sudo apt remove aws-neuronx-dkms -y
           sudo apt remove aws-neuronx-tools -y
-          sudo apt remove aws-neuronx-collectives -y
           sudo apt remove aws-neuronx-runtime-lib -y
           . /etc/os-release
           sudo tee /etc/apt/sources.list.d/neuron.list > /dev/null <<EOF
