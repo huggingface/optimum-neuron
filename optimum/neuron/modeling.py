@@ -594,7 +594,7 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
         output_hidden_states: bool = False,
         output_attentions: bool = False,
         attention_mask: torch.Tensor = None,
-        return_dict: bool = False,
+        return_dict: bool = True,
     ):
         if output_hidden_states or output_attentions or attention_mask is not None:
             warnings.warn(
