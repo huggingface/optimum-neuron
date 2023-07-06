@@ -28,6 +28,7 @@ from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..exporters.tasks import TasksManager
 from ..modeling_base import OptimizedModel
 from .utils import is_transformers_neuronx_available
+from .utils.version_utils import check_compiler_compatibility, get_neuronxcc_version
 
 
 if is_transformers_neuronx_available():
@@ -135,6 +136,8 @@ class NeuronDecoderModel(OptimizedModel):
             "num_cores": num_cores,
             "auto_cast_type": auto_cast_type,
             "neuron_kwargs": neuron_kwargs,
+            "compiler_type": "neuronx-cc",
+            "compiler_version": get_neuronxcc_version(),
         }
 
         return cls._from_pretrained(checkpoint_dir, config)
@@ -173,6 +176,8 @@ class NeuronDecoderModel(OptimizedModel):
         num_cores = neuron_config["num_cores"]
         auto_cast_type = neuron_config["auto_cast_type"]
         neuron_kwargs = neuron_config["neuron_kwargs"]
+
+        check_compiler_compatibility(neuron_config["compiler_type"], neuron_config["compiler_version"])
 
         exporter = get_exporter(config, task)
 
