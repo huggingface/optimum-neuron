@@ -557,14 +557,8 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
     def __init__(self, model, config, model_path, generation_config):
         super().__init__(model, config, model_path, generation_config)
         self.cur_len = 0
-        neuron_config = getattr(config, "neuron", None)
-        if neuron_config is None:
-            raise ValueError(
-                "The specified directory does not contain a neuron model. "
-                "Please convert your model to neuron format by passing export=True."
-            )
-        self.batch_size = neuron_config["neuron_kwargs"]["batch_size"]
-        self.max_length = neuron_config["neuron_kwargs"]["n_positions"]
+        self.batch_size = model.config.batch_size
+        self.max_length = model.config.n_positions
 
     def reset_generation(self):
         self.cur_len = 0

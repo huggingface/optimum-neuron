@@ -53,36 +53,32 @@ def neuron_model_path(model_id):
     yield model_path
 
 
-def _check_neuron_model(neuron_model, batch_size=None, seq_length=None, tp_degree=None, amp=None):
+def _check_neuron_model(neuron_model, batch_size=None, num_cores=None, auto_cast_type=None):
     neuron_config = getattr(neuron_model.config, "neuron", None)
     assert neuron_config
-    neuron_kwargs = neuron_config.get("neuron_kwargs", None)
-    assert neuron_kwargs
     if batch_size:
-        assert neuron_kwargs["batch_size"] == batch_size
-    if seq_length:
-        assert neuron_kwargs["n_positions"] == seq_length
-    if tp_degree:
-        assert neuron_kwargs["tp_degree"] == tp_degree
-    if amp:
-        assert neuron_kwargs["amp"] == amp
+        assert neuron_config["batch_size"] == batch_size
+    if num_cores:
+        assert neuron_config["num_cores"] == num_cores
+    if auto_cast_type:
+        assert neuron_config["auto_cast_type"] == auto_cast_type
 
 
 @is_inferentia_test
 @requires_neuronx
 @pytest.mark.parametrize(
-    "batch_size, seq_length, tp_degree, amp",
+    "batch_size, num_cores, auto_cast_type",
     [
-        pytest.param(1, 128, 2, "f32", marks=pytest.mark.skip(reason="Does not work with batch_size 1")),
-        [2, 128, 2, "f32"],
-        [2, 32, 2, "bf16"],
+        pytest.param(1, 2, "f32", marks=pytest.mark.skip(reason="Does not work with batch_size 1")),
+        [2, 2, "f32"],
+        [2, 2, "bf16"],
     ],
 )
-def test_model_from_hub(model_id, batch_size, seq_length, tp_degree, amp):
+def test_model_from_hub(model_id, batch_size, num_cores, auto_cast_type):
     model = NeuronModelForCausalLM.from_pretrained(
-        model_id, export=True, batch_size=batch_size, n_positions=seq_length, tp_degree=tp_degree, amp=amp
+        model_id, export=True, batch_size=batch_size, num_cores=num_cores, auto_cast_type=auto_cast_type
     )
-    _check_neuron_model(model, batch_size, seq_length, tp_degree, amp)
+    _check_neuron_model(model, batch_size, num_cores, auto_cast_type)
 
 
 @is_inferentia_test

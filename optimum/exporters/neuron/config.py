@@ -63,7 +63,7 @@ class DecoderNeuronConfig(ExportConfig):
     Handles decoder architectures.
     """
 
-    NEURONX_ARGS = {"batch_size": 1, "n_positions": 128, "tp_degree": 2, "amp": "f32"}
+    NEURONX_ARGS = {}
     NEURONX_MODULE = None
     NEURONX_CLASS = None
 

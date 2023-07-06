@@ -93,6 +93,9 @@ class NeuronDecoderModel(OptimizedModel):
         local_files_only: bool = False,
         trust_remote_code: bool = False,
         task: Optional[str] = None,
+        batch_size: Optional[int] = 1,
+        num_cores: Optional[int] = 2,
+        auto_cast_type: Optional[str] = "f32",
         **kwargs,
     ) -> "NeuronDecoderModel":
         if not is_transformers_neuronx_available():
@@ -127,7 +130,13 @@ class NeuronDecoderModel(OptimizedModel):
         save_pretrained_split(model, checkpoint_dir.name)
 
         # Update the config
-        config.neuron = {"task": task, "neuron_kwargs": neuron_kwargs}
+        config.neuron = {
+            "task": task,
+            "batch_size": batch_size,
+            "num_cores": num_cores,
+            "auto_cast_type": auto_cast_type,
+            "neuron_kwargs": neuron_kwargs,
+        }
 
         return cls._from_pretrained(checkpoint_dir, config)
 
@@ -161,13 +170,18 @@ class NeuronDecoderModel(OptimizedModel):
 
         # Evaluate the configuration passed during export
         task = neuron_config["task"]
+        batch_size = neuron_config["batch_size"]
+        num_cores = neuron_config["num_cores"]
+        auto_cast_type = neuron_config["auto_cast_type"]
         neuron_kwargs = neuron_config["neuron_kwargs"]
 
         exporter = get_exporter(config, task)
 
         model_path, checkpoint_path, compiled_path = cls._get_neuron_paths(model_id)
 
-        neuronx_model = exporter.neuronx_class.from_pretrained(checkpoint_path, **neuron_kwargs)
+        neuronx_model = exporter.neuronx_class.from_pretrained(
+            checkpoint_path, batch_size=batch_size, tp_degree=num_cores, amp=auto_cast_type, **neuron_kwargs
+        )
 
         if compiled_path is not None:
             # Specify the path where compiled artifacts are stored before conversion

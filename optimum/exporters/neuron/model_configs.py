@@ -320,5 +320,6 @@ class UNetNeuronConfig(VisionNeuronConfig):
 
 @register_in_tasks_manager("gpt2", "text-generation")
 class GPT2NeuronConfig(DecoderNeuronConfig):
+    NEURONX_ARGS = {"n_positions": 128}
     NEURONX_MODULE = "transformers_neuronx.gpt2.model"
     NEURONX_CLASS = "GPT2ForSampling"
