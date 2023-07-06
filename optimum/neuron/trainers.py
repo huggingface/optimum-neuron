@@ -21,7 +21,7 @@ import random
 import warnings
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -234,6 +234,23 @@ class AugmentTrainerForTrainiumMixin:
                     "eval_dataloader": self.callback_handler.eval_dataloader,
                 }
                 callback.on_step_middle(self.args, self.state, self.control, **kwargs)
+
+    def _prepare_data_loader_with_accelerator(
+        self, get_dataloader_method: Callable[["Trainer"], torch.utils.data.DataLoader]
+    ):
+        data_loader = get_dataloader_method()
+        if not check_if_transformers_greater("4.31.0"):
+            data_loader = self.accelerator.prepare_data_loader(data_loader)
+        return data_loader
+
+    def get_train_dataloader(self) -> torch.utils.data.DataLoader:
+        return self._prepare_data_loader_with_accelerator(super().get_train_dataloader())
+
+    def get_eval_dataloader(self) -> torch.utils.data.DataLoader:
+        return self._prepare_data_loader_with_accelerator(super().get_eval_dataloader())
+
+    def get_test_dataloader(self) -> torch.utils.data.DataLoader:
+        return self._prepare_data_loader_with_accelerator(super().get_test_dataloader())
 
     def compute_loss(self, model, inputs, return_outputs: bool = False):
         self.state.last_inputs = inputs

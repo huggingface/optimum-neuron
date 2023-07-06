@@ -26,6 +26,7 @@ import torch
 from accelerate import Accelerator
 from accelerate.checkpointing import save_accelerator_state, save_custom_state
 from accelerate.utils import DistributedType
+from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
 from ...utils import logging
@@ -115,7 +116,7 @@ class NeuronAccelerator(Accelerator):
         if num_steps != 1:
             self.gradient_accumulation_steps = num_steps
 
-    def _prepare_data_loader_for_tp(self, data_loader: torch.utils.data.DataLoader):
+    def _prepare_data_loader_for_tp(self, data_loader: DataLoader) -> DataLoader:
         # TODO: make it more robust, similar to the prepare_data_loader function in `accelerate`.
         if isinstance(data_loader.sampler, DistributedSampler):
             return data_loader
@@ -124,7 +125,7 @@ class NeuronAccelerator(Accelerator):
             num_replicas=parallel_layers.parallel_state.get_data_parallel_size(),
             rank=parallel_layers.parallel_state.get_data_parallel_rank(),
         )
-        return torch.utils.data.DataLoader(
+        data_loader_for_tp = DataLoader(
             data_loader.dataset,
             batch_size=data_loader.batch_size,
             sampler=sampler,
@@ -133,10 +134,12 @@ class NeuronAccelerator(Accelerator):
             pin_memory=data_loader.pin_memory,
             drop_last=data_loader.drop_last,
         )
+        data_loader_for_tp._is_accelerate_prepared = True
+        return data_loader_for_tp
 
-    def prepare_data_loader(self, data_loader: torch.utils.data.DataLoader, device_placement: Optional[bool] = None):
+    def prepare_data_loader(self, data_loader: DataLoader, device_placement: Optional[bool] = None):
         if self.state.tp_plugin.tensor_parallel_size > 1:
-            return self._prepare_data_loader_for_tp(data_loader)
+            data_loader = self._prepare_data_loader_for_tp(data_loader)
         return super().prepare_data_loader(data_loader, device_placement=device_placement)
 
     def _prepare_optimizer_for_tp(self, optimizer: torch.optim.Optimizer, device_placement=None):
