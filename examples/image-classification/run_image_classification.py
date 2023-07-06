@@ -45,9 +45,9 @@ from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
 
-from optimum.neuron import TrainiumHfArgumentParser as HfArgumentParser
-from optimum.neuron import TrainiumTrainer as Trainer
-from optimum.neuron import TrainiumTrainingArguments as TrainingArguments
+from optimum.neuron import NeuronHfArgumentParser as HfArgumentParser
+from optimum.neuron import NeuronTrainer as Trainer
+from optimum.neuron import NeuronTrainingArguments as TrainingArguments
 
 
 """ Fine-tuning a 🤗 Transformers model for image classification"""

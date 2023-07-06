@@ -158,30 +158,29 @@ class NeuronBaseModel(OptimizedModel):
                 file_name = neuron_files[0].name
 
         # Check compiler compatibility(compiler type and version) of the saved model vs. system.
-        if hasattr(config, "neuron"):
-            if "compiler_type" in config.neuron:
-                compiler_type = config.neuron.get("compiler_type")
-                if compiler_type == "neuron-cc":
-                    compiler_available_fn = is_neuron_available
-                    installed_compiler_version_fn = get_neuroncc_version
-                elif compiler_type == "neuronx-cc":
-                    compiler_available_fn = is_neuronx_available
-                    installed_compiler_version_fn = get_neuronxcc_version
-                else:
-                    raise RuntimeError(f"Pretrained model compiler type {compiler_type} not recognized.")
+        if hasattr(config, "neuron") and "compiler_type" in config.neuron:
+            compiler_type = config.neuron.get("compiler_type")
+            if compiler_type == "neuron-cc":
+                compiler_available_fn = is_neuron_available
+                installed_compiler_version_fn = get_neuroncc_version
+            elif compiler_type == "neuronx-cc":
+                compiler_available_fn = is_neuronx_available
+                installed_compiler_version_fn = get_neuronxcc_version
+            else:
+                raise RuntimeError(f"Pretrained model compiler type {compiler_type} not recognized.")
 
-                if not compiler_available_fn():
+            if not compiler_available_fn():
+                raise RuntimeError(
+                    f"Pretrained model was compiled for {compiler_type}, but {compiler_type} is not installed."
+                )
+
+            if "compiler_version" in config.neuron:
+                model_compiler_version = config.neuron.get("compiler_version")
+                if version.parse(model_compiler_version) > version.parse(installed_compiler_version_fn()):
                     raise RuntimeError(
-                        f"Pretrained model was compiled for {compiler_type}, but {compiler_type} is not installed."
+                        f"Pretrained model is compiled with {compiler_type}({model_compiler_version}) newer than current compiler ({installed_compiler_version_fn()}),"
+                        " which may cause runtime incompatabilities."
                     )
-
-                if "compiler_version" in config.neuron:
-                    model_compiler_version = config.neuron.get("compiler_version")
-                    if version.parse(model_compiler_version) > version.parse(installed_compiler_version_fn()):
-                        raise RuntimeError(
-                            f"Pretrained model is compiled with {compiler_type}({model_compiler_version}) newer than current compiler ({installed_compiler_version_fn()}),"
-                            " which may cause runtime incompatabilities."
-                        )
 
         preprocessors = None
         if model_path.is_dir():
@@ -288,9 +287,9 @@ class NeuronBaseModel(OptimizedModel):
         else:
             compiler_type = "neuron-cc"
             compiler_version = get_neuroncc_version()
-        
+
         neuron_config = neuron_config_constructor(
-            model.config, 
+            model.config,
             dynamic_batch_size=dynamic_batch_size,
             compiler_type=compiler_type,
             compiler_version=compiler_version,
@@ -312,7 +311,7 @@ class NeuronBaseModel(OptimizedModel):
             output=save_dir_path / NEURON_FILE_NAME,
             **compiler_kwargs,
         )
-        
+
         store_compilation_config(
             config,
             input_shapes,
@@ -366,17 +365,22 @@ class NeuronBaseModel(OptimizedModel):
         Builds a `NeuronConfig` with an instance of the `PretrainedConfig` and the task.
         """
         if not hasattr(config, "neuron"):
-            logger.warning("Unable to identify neuron configuration with the keyword `neuron`, make sure that your config file contains necessary information")
+            logger.warning(
+                "Unable to identify neuron configuration with the keyword `neuron`, make sure that your config file contains necessary information"
+            )
             return
-        
+
         neuron_configs = config.neuron
         # Fetch compiler information
         compiler_type = neuron_configs.get("compiler_type")
         compiler_version = neuron_configs.get("compiler_version")
 
-
         # Fetch mandatory shapes from config
-        compile_shapes = {key.replace("static", ""): value for (key, value) in config.to_diff_dict().items() if key.startswith("static_")}
+        compile_shapes = {
+            key.replace("static", ""): value
+            for (key, value) in config.to_diff_dict().items()
+            if key.startswith("static_")
+        }
 
         # Neuron config constructuor
         task = TasksManager.infer_task_from_model(self.auto_model_class)
@@ -384,12 +388,11 @@ class NeuronBaseModel(OptimizedModel):
             model_type=config.model_type, exporter="neuron", task=task
         )
 
-        # Build neuron config
         return neuron_config_constructor(
-            config, 
-            dynamic_batch_size=getattr(config, "dynamic_batch_size", False), 
-            compiler_type=compiler_type, 
-            compiler_version=compiler_version, 
+            config,
+            dynamic_batch_size=getattr(config, "dynamic_batch_size", False),
+            compiler_type=compiler_type,
+            compiler_version=compiler_version,
             **compile_shapes,
         )
 

@@ -44,8 +44,8 @@ from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
 from utils_qa import postprocess_qa_predictions
 
-from optimum.neuron import TrainiumHfArgumentParser as HfArgumentParser
-from optimum.neuron import TrainiumTrainingArguments as TrainingArguments
+from optimum.neuron import NeuronHfArgumentParser as HfArgumentParser
+from optimum.neuron import NeuronTrainingArguments as TrainingArguments
 
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.

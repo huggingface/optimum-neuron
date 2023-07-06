@@ -148,7 +148,6 @@ class NeuronConfig(ExportConfig, ABC):
         setattr(self, "compiler_type", compiler_type)
         setattr(self, "compiler_version", compiler_version)
 
-
     @classmethod
     def get_mandatory_axes_for_task(cls, task: str) -> Tuple[str]:
         axes = []
