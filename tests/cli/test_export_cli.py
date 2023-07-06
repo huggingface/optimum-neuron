@@ -149,7 +149,7 @@ class TestExportCLI(unittest.TestCase):
                     "1",
                     "--task",
                     "text-classification",
-                    str(tempdir),
+                    tempdir,
                 ],
                 shell=False,
                 check=True,
