@@ -23,7 +23,6 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 import torch
 from huggingface_hub import HfApi, HfFolder, hf_hub_download
-from packaging import version
 from transformers import AutoConfig, AutoModel
 
 from ..exporters.neuron import export
@@ -33,7 +32,7 @@ from ..modeling_base import OptimizedModel
 from ..utils.save_utils import maybe_load_preprocessors, maybe_save_preprocessors
 from .utils import NEURON_FILE_NAME, is_neuron_available, store_compilation_config
 from .utils.import_utils import is_neuronx_available
-from .utils.version_utils import get_neuroncc_version, get_neuronxcc_version
+from .utils.version_utils import check_compiler_compatibility, get_neuroncc_version, get_neuronxcc_version
 
 
 if TYPE_CHECKING:
@@ -159,28 +158,9 @@ class NeuronBaseModel(OptimizedModel):
 
         # Check compiler compatibility(compiler type and version) of the saved model vs. system.
         if hasattr(config, "neuron") and "compiler_type" in config.neuron:
-            compiler_type = config.neuron.get("compiler_type")
-            if compiler_type == "neuron-cc":
-                compiler_available_fn = is_neuron_available
-                installed_compiler_version_fn = get_neuroncc_version
-            elif compiler_type == "neuronx-cc":
-                compiler_available_fn = is_neuronx_available
-                installed_compiler_version_fn = get_neuronxcc_version
-            else:
-                raise RuntimeError(f"Pretrained model compiler type {compiler_type} not recognized.")
-
-            if not compiler_available_fn():
-                raise RuntimeError(
-                    f"Pretrained model was compiled for {compiler_type}, but {compiler_type} is not installed."
-                )
-
-            if "compiler_version" in config.neuron:
-                model_compiler_version = config.neuron.get("compiler_version")
-                if version.parse(model_compiler_version) > version.parse(installed_compiler_version_fn()):
-                    raise RuntimeError(
-                        f"Pretrained model is compiled with {compiler_type}({model_compiler_version}) newer than current compiler ({installed_compiler_version_fn()}),"
-                        " which may cause runtime incompatabilities."
-                    )
+            model_compiler_type = config.neuron.get("compiler_type")
+            model_compiler_version = config.neuron.get("compiler_version")
+            check_compiler_compatibility(model_compiler_type, model_compiler_version)
 
         preprocessors = None
         if model_path.is_dir():

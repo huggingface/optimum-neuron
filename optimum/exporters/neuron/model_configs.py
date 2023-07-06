@@ -32,6 +32,7 @@ from ..tasks import TasksManager
 from .config import (
     TextAndVisionNeuronConfig,
     TextEncoderNeuronConfig,
+    TextNeuronDecoderConfig,
     VisionNeuronConfig,
 )
 
@@ -315,3 +316,9 @@ class UNetNeuronConfig(VisionNeuronConfig):
             return tuple(dummy_inputs.values())
         else:
             return dummy_inputs
+
+
+@register_in_tasks_manager("gpt2", "text-generation")
+class GPT2NeuronConfig(TextNeuronDecoderConfig):
+    NEURONX_ARGS = {"n_positions": 128}
+    NEURONX_CLASS = "gpt2.model.GPT2ForSampling"

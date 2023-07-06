@@ -30,12 +30,14 @@ _import_structure = {
         "NeuronModelForSequenceClassification",
         "NeuronModelForTokenClassification",
         "NeuronModelForMultipleChoice",
+        "NeuronModelForCausalLM",
     ],
     "modeling_diffusion":[
         "NeuronStableDiffusionPipeline",
         "NeuronStableDiffusionImg2ImgPipeline",
         "NeuronStableDiffusionInpaintPipeline",
     ],
+    "modeling_decoder": ["NeuronDecoderModel"],
     "accelerate": [
         "NeuronAccelerator",
         "NeuronAcceleratorState",
@@ -52,6 +54,7 @@ if TYPE_CHECKING:
     from .training_args import NeuronTrainingArguments, Seq2SeqNeuronTrainingArguments
     from .modeling_base import NeuronBaseModel
     from .modeling import (
+        NeuronModelForCausalLM,
         NeuronModelForFeatureExtraction,
         NeuronModelForMaskedLM,
         NeuronModelForMultipleChoice,
@@ -64,6 +67,7 @@ if TYPE_CHECKING:
         NeuronStableDiffusionImg2ImgPipeline,
         NeuronStableDiffusionInpaintPipeline,
     )
+    from .modeling_decoder import NeuronDecoderModel
     from .accelerate import NeuronAccelerator, NeuronAcceleratorState, NeuronPartialState
     from .pipelines import pipeline
     
