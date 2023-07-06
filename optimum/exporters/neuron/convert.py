@@ -321,8 +321,8 @@ def export_models(
                 input_names=neuron_inputs,
                 output_names=neuron_outputs,
                 dynamic_batch_size=sub_neuron_config.dynamic_batch_size,
-                neuron_compiler=NEURON_COMPILER_TYPE,
-                neuron_compiler_version=NEURON_COMPILER_VERSION,
+                compiler_type=NEURON_COMPILER_TYPE,
+                compiler_version=NEURON_COMPILER_VERSION,
             )
             model_config.save_pretrained(output_path.parent)
         except Exception as e:

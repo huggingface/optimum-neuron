@@ -177,7 +177,7 @@ class TestExportCLI(unittest.TestCase):
                     "64",
                     "--width",
                     "64",
-                    str(tempdir),
+                    tempdir,
                 ],
                 shell=False,
                 check=True,
