@@ -158,9 +158,9 @@ def store_compilation_config(
     neuron_configs["compiler_version"] = compiler_version
 
     # Add input shapes during compilation to the config
-    for axe, shape in input_shapes.items():
-        axe = f"static_{axe}"
-        neuron_configs[axe] = shape
+    for axis, shape in input_shapes.items():
+        axis = f"static_{axis}"
+        neuron_configs[axis] = shape
 
     neuron_configs["dynamic_batch_size"] = dynamic_batch_size
 

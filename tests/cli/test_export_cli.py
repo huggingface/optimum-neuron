@@ -96,9 +96,9 @@ def _get_commands_to_test(models_to_test):
         neuron_config_constructor = TasksManager.get_exporter_config_constructor(
             model=model, exporter="neuron", task=task
         )
-        for axe in neuron_config_constructor.func.get_mandatory_axes_for_task(task):
-            default_size = DEFAULT_DUMMY_SHAPES[axe]
-            base_command += f" --{axe} {default_size}"
+        for axis in neuron_config_constructor.func.get_mandatory_axes_for_task(task):
+            default_size = DEFAULT_DUMMY_SHAPES[axis]
+            base_command += f" --{axis} {default_size}"
 
         # compilation arguments
         for extra_arg_options in product(*command_items.values()):

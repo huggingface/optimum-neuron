@@ -161,8 +161,8 @@ def validate_model_outputs(
             atol = config.ATOL_FOR_VALIDATION
 
     input_shapes = {}
-    for axe in config.mandatory_axes:
-        input_shapes[axe] = getattr(config, axe)
+    for axis in config.mandatory_axes:
+        input_shapes[axis] = getattr(config, axis)
     if config.dynamic_batch_size is True:
         input_shapes["batch_size"] *= 2
 
@@ -402,8 +402,8 @@ def export_neuronx(
             setattr(model.config, override_config_key, override_config_value)
 
     input_shapes = {}
-    for axe in config.mandatory_axes:
-        input_shapes[axe] = getattr(config, axe)
+    for axis in config.mandatory_axes:
+        input_shapes[axis] = getattr(config, axis)
 
     dummy_inputs = config.generate_dummy_inputs(**input_shapes)
     dummy_inputs_tuple = tuple(dummy_inputs.values())
@@ -485,8 +485,8 @@ def export_neuron(
             setattr(model.config, override_config_key, override_config_value)
 
     input_shapes = {}
-    for axe in config.mandatory_axes:
-        input_shapes[axe] = getattr(config, axe)
+    for axis in config.mandatory_axes:
+        input_shapes[axis] = getattr(config, axis)
 
     dummy_inputs = config.generate_dummy_inputs(**input_shapes)
     dummy_inputs_tuple = tuple(dummy_inputs.values())
