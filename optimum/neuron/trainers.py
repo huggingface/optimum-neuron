@@ -21,11 +21,12 @@ import random
 import warnings
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
 from packaging import version
+from torch.utils.data import DataLoader
 from transformers import PreTrainedModel, Seq2SeqTrainer, Trainer, TrainingArguments
 from transformers.dependency_versions_check import dep_version_check
 from transformers.integrations import is_fairscale_available
@@ -235,21 +236,18 @@ class AugmentTrainerForTrainiumMixin:
                 }
                 callback.on_step_middle(self.args, self.state, self.control, **kwargs)
 
-    def _prepare_data_loader_with_accelerator(
-        self, get_dataloader_method: Callable[["Trainer"], torch.utils.data.DataLoader]
-    ):
-        data_loader = get_dataloader_method()
+    def _prepare_data_loader_with_accelerator(self, data_loader: DataLoader):
         if not check_if_transformers_greater("4.31.0"):
             data_loader = self.accelerator.prepare_data_loader(data_loader)
         return data_loader
 
-    def get_train_dataloader(self) -> torch.utils.data.DataLoader:
+    def get_train_dataloader(self) -> DataLoader:
         return self._prepare_data_loader_with_accelerator(super().get_train_dataloader())
 
-    def get_eval_dataloader(self) -> torch.utils.data.DataLoader:
+    def get_eval_dataloader(self) -> DataLoader:
         return self._prepare_data_loader_with_accelerator(super().get_eval_dataloader())
 
-    def get_test_dataloader(self) -> torch.utils.data.DataLoader:
+    def get_test_dataloader(self) -> DataLoader:
         return self._prepare_data_loader_with_accelerator(super().get_test_dataloader())
 
     def compute_loss(self, model, inputs, return_outputs: bool = False):

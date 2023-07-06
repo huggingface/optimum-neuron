@@ -17,13 +17,13 @@
 from typing import TYPE_CHECKING, Dict, Optional
 
 from .base import Parallelizer
-from .parallel_layers import ParallelSelfAttention
-from .utils import embedding_to_parallel_embedding
+from .parallel_layers import ParallelMLP, ParallelSelfAttention
+from .utils import embedding_to_parallel_embedding, linear_to_parallel_linear
 
 
 if TYPE_CHECKING:
     import torch
-    from transformers import PreTrainedModel
+    from transformers import PretrainedConfig, PreTrainedModel
 
 
 class GPTNeoParallelSelfAttention(ParallelSelfAttention):
@@ -58,6 +58,33 @@ class LlamaParallelSelfAttention(ParallelSelfAttention):
     ALL_HEAD_SIZE_NAME = "hidden_size"
 
 
+class LLamaParallelMLP(ParallelMLP):
+    FIRST_LINEAR_NAME = "up_proj"
+    SECOND_LINEAR_NAME = "down_proj"
+
+    @classmethod
+    def transform(
+        cls,
+        layer: "torch.nn.Module",
+        config: "PretrainedConfig",
+        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+    ) -> "torch.nn.Module":
+        # TODO: Make it smart by merging the gate and the up_proj.
+        # WARNING: be careful of the interleaved outputs when doing TP!
+        layer = super().transform(layer, config, orig_to_parallel=orig_to_parallel)
+        setattr(
+            layer.mlp,
+            "gate_proj",
+            linear_to_parallel_linear(
+                getattr(layer, "gate_proj"),
+                "column",
+                gather_output=False,
+                orig_to_parallel=orig_to_parallel,
+            ),
+        )
+        return layer
+
+
 class LlamaParallelizer(Parallelizer):
     @classmethod
     def parallelize(
@@ -70,4 +97,5 @@ class LlamaParallelizer(Parallelizer):
             layer.self_attn = LlamaParallelSelfAttention.transform(
                 layer.self_attn, model.config, orig_to_parallel=orig_to_parallel
             )
+            layer.mlp = LLamaParallelMLP.transform(layer.mlp, model.config, orig_to_parallel)
         return model

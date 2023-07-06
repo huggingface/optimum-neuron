@@ -15,7 +15,7 @@
 """Classes related to parallel versions of common blocks in Transformers models."""
 
 from abc import ABC, abstractclassmethod
-from typing import TYPE_CHECKING, Dict, Optional
+from typing import TYPE_CHECKING, Dict, Optional, Tuple
 
 from ...utils import NormalizedConfigManager
 from ..utils import is_neuronx_distributed_available
@@ -126,4 +126,52 @@ class ParallelSelfOutput(ParallelLayer):
                 orig_to_parallel=orig_to_parallel,
             ),
         )
+        return layer
+
+
+class ParallelMLP(ParallelLayer):
+    FIRST_LINEAR_NAME: Optional[str] = None
+    SECOND_LINEAR_NAME: Optional[str] = None
+
+    @classmethod
+    def _get_module_and_attribute_name(
+        cls, layer: "torch.nn.Module", fully_qualified_linear_name: str
+    ) -> Tuple["torch.nn.Module", str]:
+        split = fully_qualified_linear_name.rsplit(".", maxsplit=1)
+        if len(split) == 1:
+            module = layer
+            attribute_name = split[0]
+        else:
+            module = layer.get_submodule(split[0])
+            attribute_name = split[1]
+        return module, attribute_name
+
+    @classmethod
+    def transform(
+        cls,
+        layer: "torch.nn.Module",
+        config: "PretrainedConfig",
+        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+    ) -> "torch.nn.Module":
+        if cls.FIRST_LINEAR_NAME is None or cls.SECOND_LINEAR_NAME is None:
+            raise ValueError("Both `FIRST_LINEAR_NAME` and `SECOND_LINEAR_NAME` class attributes must be set.")
+
+        module, attribute_name = cls._get_module_and_attribute_name(layer, cls.FIRST_LINEAR_NAME)
+        setattr(
+            module,
+            attribute_name,
+            linear_to_parallel_linear(
+                getattr(module, attribute_name), "column", gather_output=False, orig_to_parallel=orig_to_parallel
+            ),
+        )
+
+        module, attribute_name = cls._get_module_and_attribute_name(layer, cls.SECOND_LINEAR_NAME)
+        setattr(
+            module,
+            attribute_name,
+            linear_to_parallel_linear(
+                getattr(module, attribute_name), "row", input_is_parallel=True, orig_to_parallel=orig_to_parallel
+            ),
+        )
+
         return layer
