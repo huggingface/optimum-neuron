@@ -23,7 +23,7 @@ from ...utils import (
     DummyVisionInputGenerator,
     logging,
 )
-from .base import NeuronConfig
+from .base import NeuronConfig, NeuronDecoderConfig
 
 
 logger = logging.get_logger(__name__)
@@ -53,3 +53,11 @@ class TextAndVisionNeuronConfig(NeuronConfig):
     """
 
     DUMMY_INPUT_GENERATOR_CLASSES = (DummyTextInputGenerator, DummyVisionInputGenerator, DummyBboxInputGenerator)
+
+
+class TextNeuronDecoderConfig(NeuronDecoderConfig):
+    """
+    Handles text decoder architectures.
+    """
+
+    pass

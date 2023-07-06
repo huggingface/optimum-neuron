@@ -30,7 +30,9 @@ _import_structure = {
         "NeuronModelForSequenceClassification",
         "NeuronModelForTokenClassification",
         "NeuronModelForMultipleChoice",
+        "NeuronModelForCausalLM",
     ],
+    "modeling_decoder": ["NeuronDecoderModel"],
     "accelerate": [
         "NeuronAccelerator",
         "NeuronAcceleratorState",
@@ -43,6 +45,7 @@ if TYPE_CHECKING:
     from .accelerate import NeuronAccelerator, NeuronAcceleratorState, NeuronPartialState
     from .hf_argparser import NeuronHfArgumentParser
     from .modeling import (
+        NeuronModelForCausalLM,
         NeuronModelForFeatureExtraction,
         NeuronModelForMaskedLM,
         NeuronModelForMultipleChoice,
@@ -51,6 +54,7 @@ if TYPE_CHECKING:
         NeuronModelForTokenClassification,
     )
     from .modeling_base import NeuronBaseModel
+    from .modeling_decoder import NeuronDecoderModel
     from .pipelines import pipeline
     from .trainers import NeuronTrainer, Seq2SeqNeuronTrainer
     from .training_args import NeuronTrainingArguments, Seq2SeqNeuronTrainingArguments

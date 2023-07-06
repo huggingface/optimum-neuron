@@ -46,6 +46,10 @@ def is_neuronx_distributed_available() -> bool:
     return importlib.util.find_spec("neuronx_distributed") is not None
 
 
+def is_transformers_neuronx_available() -> bool:
+    return importlib.util.find_spec("transformers_neuronx") is not None
+
+
 def is_accelerate_available(min_version: Optional[str] = MIN_ACCELERATE_VERSION) -> bool:
     _accelerate_available = importlib.util.find_spec("accelerate") is not None
     if min_version is not None:

@@ -14,13 +14,15 @@
 # limitations under the License.
 """Neuron configuration base classes."""
 
+import copy
+import importlib
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import torch
 
 from ...exporters.base import ExportConfig
-from ...neuron.utils import is_neuron_available
+from ...neuron.utils import is_neuron_available, is_transformers_neuronx_available
 from ...utils import logging
 
 
@@ -310,3 +312,56 @@ class NeuronConfig(ExportConfig, ABC):
                 return outputs
 
         return ModelWrapper(model, list(dummy_inputs.keys()))
+
+
+class NeuronDecoderConfig(ExportConfig):
+    """
+    Base class for configuring the export of Neuron Decoder models
+
+    Class attributes:
+
+    - NEURONX_CLASS (`str`) -- the name of the transformers-neuronx class to instantiate for the model.
+    It is a full class name defined relatively to the transformers-neuronx module, e.g. `gpt2.model.GPT2ForSampling`
+    [`~optimum.utils.DummyInputGenerator`] specifying how to create dummy inputs.
+    - NEURONX_ARGS (`Dict[str, Any]`) -- a dictionary mapping optional arguments to be passed when instantiating the
+    transformers-neuronx model class to their default values.
+
+    The NEURONX_CLASS must always be defined in each model configuration.
+    The NEURONX_ARGS dict is required only if the transformers-neuronx model class needs specific parameters to
+     be specified. By default it is empty.
+
+    Args:
+        task (`str`): The task the model should be exported for.
+    """
+
+    NEURONX_CLASS = None
+    NEURONX_ARGS = {}
+
+    def __init__(self, task):
+        if not is_transformers_neuronx_available():
+            raise ModuleNotFoundError(
+                "The mandatory transformers-neuronx package is missing. Please install optimum[neuronx]."
+            )
+        module_name, class_name = self.NEURONX_CLASS.rsplit(".", maxsplit=1)
+        module = importlib.import_module(f"transformers_neuronx.{module_name}")
+        self._neuronx_class = getattr(module, class_name, None)
+        if self._neuronx_class is None:
+            raise ImportError(f"{class_name} not found in {module_name}. Please check transformers-neuronx version.")
+
+    def split_kwargs(self, **kwargs):
+        """Splits between kwargs that need to be passed when loading the transformers model
+        and those that need to be passed to the neuron optimizer.
+        """
+        model_kwargs = copy.deepcopy(kwargs)
+        neuron_kwargs = {}
+        for arg, default in self.NEURONX_ARGS.items():
+            if arg in model_kwargs:
+                neuron_kwargs[arg] = model_kwargs[arg]
+                model_kwargs.pop(arg)
+            else:
+                neuron_kwargs[arg] = default
+        return model_kwargs, neuron_kwargs
+
+    @property
+    def neuronx_class(self):
+        return self._neuronx_class

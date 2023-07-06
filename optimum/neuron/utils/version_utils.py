@@ -15,6 +15,10 @@
 """Version utilities."""
 from typing import Optional
 
+from packaging import version
+
+from .import_utils import is_neuron_available, is_neuronx_available
+
 
 _neuronxcc_version: Optional[str] = None
 _neuroncc_version: Optional[str] = None
@@ -42,3 +46,23 @@ def get_neuroncc_version() -> str:
         raise ValueError("Neuron Compiler python package is not installed.")
     _neuroncc_version = neuroncc.__version__
     return _neuroncc_version
+
+
+def check_compiler_compatibility(compiler_type: str, compiler_version: str):
+    if compiler_type == "neuron-cc":
+        compiler_available_fn = is_neuron_available
+        installed_compiler_version_fn = get_neuroncc_version
+    elif compiler_type == "neuronx-cc":
+        compiler_available_fn = is_neuronx_available
+        installed_compiler_version_fn = get_neuronxcc_version
+    else:
+        raise RuntimeError(f"Pretrained model compiler type {compiler_type} not recognized.")
+
+    if not compiler_available_fn():
+        raise RuntimeError(f"Pretrained model was compiled for {compiler_type}, but {compiler_type} is not installed.")
+
+    if version.parse(compiler_version) > version.parse(installed_compiler_version_fn()):
+        raise RuntimeError(
+            f"Pretrained model is compiled with {compiler_type}({compiler_version}) newer than current compiler ({installed_compiler_version_fn()}),"
+            " which may cause runtime incompatibilities."
+        )
