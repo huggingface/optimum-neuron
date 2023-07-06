@@ -31,6 +31,11 @@ _import_structure = {
         "NeuronModelForTokenClassification",
         "NeuronModelForMultipleChoice",
     ],
+    "modeling_diffusion":[
+        "NeuronStableDiffusionPipeline",
+        "NeuronStableDiffusionImg2ImgPipeline",
+        "NeuronStableDiffusionInpaintPipeline",
+    ],
     "accelerate": [
         "NeuronAccelerator",
         "NeuronAcceleratorState",
@@ -40,8 +45,12 @@ _import_structure = {
 }
 
 if TYPE_CHECKING:
-    from .accelerate import NeuronAccelerator, NeuronAcceleratorState, NeuronPartialState
+    
+    
     from .hf_argparser import NeuronHfArgumentParser
+    from .trainers import NeuronTrainer, Seq2SeqNeuronTrainer
+    from .training_args import NeuronTrainingArguments, Seq2SeqNeuronTrainingArguments
+    from .modeling_base import NeuronBaseModel
     from .modeling import (
         NeuronModelForFeatureExtraction,
         NeuronModelForMaskedLM,
@@ -50,10 +59,14 @@ if TYPE_CHECKING:
         NeuronModelForSequenceClassification,
         NeuronModelForTokenClassification,
     )
-    from .modeling_base import NeuronBaseModel
+    from .modeling_diffusion import (
+        NeuronStableDiffusionPipeline,
+        NeuronStableDiffusionImg2ImgPipeline,
+        NeuronStableDiffusionInpaintPipeline,
+    )
+    from .accelerate import NeuronAccelerator, NeuronAcceleratorState, NeuronPartialState
     from .pipelines import pipeline
-    from .trainers import NeuronTrainer, Seq2SeqNeuronTrainer
-    from .training_args import NeuronTrainingArguments, Seq2SeqNeuronTrainingArguments
+    
 else:
     import sys
 

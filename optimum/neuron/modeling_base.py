@@ -269,7 +269,7 @@ class NeuronBaseModel(OptimizedModel):
 
         input_shapes = {}
         for name in neuron_config_constructor.func.get_mandatory_axes_for_task(task):
-            static_shape = kwargs_shapes.get(name, None) or getattr(config, "neuron_" + name, None)
+            static_shape = kwargs_shapes.get(name, None) or config.neuron.get("static_" + name, None)
             if static_shape is None:
                 raise AttributeError(
                     f"Cannot find the value of `{name}` from arguments nor the `config`. `{name}` is mandatory"

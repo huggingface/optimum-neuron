@@ -25,8 +25,10 @@ import torch
 from diffusers import DDIMScheduler, LMSDiscreteScheduler, PNDMScheduler, StableDiffusionPipeline
 from transformers import CLIPFeatureExtractor, CLIPTokenizer
 
-from ..exporters.neuron import NeuronConfig
+from ..exporters.neuron import NeuronConfig, main_export, normalize_input_shapes
 from ..pipelines.diffusers.pipeline_stable_diffusion import StableDiffusionPipelineMixin
+from ..pipelines.diffusers.pipeline_stable_diffusion_img2img import StableDiffusionImg2ImgPipelineMixin
+from ..pipelines.diffusers.pipeline_stable_diffusion_inpaint import StableDiffusionInpaintPipelineMixin
 from ..utils import (
     DIFFUSION_MODEL_TEXT_ENCODER_SUBFOLDER,
     DIFFUSION_MODEL_UNET_SUBFOLDER,
@@ -39,10 +41,12 @@ from .utils import NEURON_FILE_NAME
 DIFFUSION_MODEL_VAE_POST_QUANT_CONV_SUBFOLDER = ""
 
 
-class NeuronStableDiffusionPipeline(NeuronBaseModel, StableDiffusionPipelineMixin):
+class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
     auto_model_class = StableDiffusionPipeline
     main_input_name = "input_ids"
+    base_model_prefix = "neuron_model"
     config_name = "model_index.json"
+    sub_component_config_name = "config.json"
 
     def __init__(
         self,
@@ -54,7 +58,7 @@ class NeuronStableDiffusionPipeline(NeuronBaseModel, StableDiffusionPipelineMixi
         tokenizer: CLIPTokenizer,
         scheduler: Union[DDIMScheduler, PNDMScheduler, LMSDiscreteScheduler],
         feature_extractor: Optional[CLIPFeatureExtractor] = None,
-        neuron_config: Optional[List["NeuronConfig"]] = None,
+        neuron_configs: Optional[Dict[str, "NeuronConfig"]] = None,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
         model_file_paths: Optional[List[str, Path, TemporaryDirectory]] = None,
     ):
@@ -85,7 +89,8 @@ class NeuronStableDiffusionPipeline(NeuronBaseModel, StableDiffusionPipelineMixi
         """
 
         self._internal_dict = config
-        self.neuron_config = self._neuron_config_init(self.config) if neuron_config is None else neuron_config
+        if neuron_configs is None:
+            self.neuron_configs = self._neuron_config_init(self.config) if neuron_configs is None else neuron_configs
 
         self.text_encoder = NeuronModelTextEncoder(text_encoder, self)
         self.vae_decoder = NeuronModelVaeDecoder(vae_decoder, self)
@@ -171,7 +176,7 @@ class NeuronStableDiffusionPipeline(NeuronBaseModel, StableDiffusionPipelineMixi
     def _from_transformers(
         cls,
         model_id: str,
-        config: Optional[str] = None,
+        config: Dict[str, Any],
         use_auth_token: Optional[Union[bool, str]] = None,
         revision: str = "main",
         force_download: bool = True,
@@ -180,12 +185,54 @@ class NeuronStableDiffusionPipeline(NeuronBaseModel, StableDiffusionPipelineMixi
         local_files_only: bool = False,
         trust_remote_code: bool = False,
         task: Optional[str] = None,
-    ) -> "NeuronStableDiffusionPipeline":
+        auto_cast: Optional[str] = None,
+        auto_cast_type: Optional[str] = None,
+        disable_fast_relayout: Optional[bool] = False,
+        disable_fallback: bool = False,
+        dynamic_batch_size: bool = False,
+        **kwargs_shapes,
+    ) -> "NeuronStableDiffusionPipelineBase":
         if task is None:
             task = cls._auto_model_to_task(cls.auto_model_class)
+        
+        # mandatory shapes
+        input_shapes = normalize_input_shapes(task, kwargs_shapes)
+
+        # Get compilation arguments
+        auto_cast_type = None if auto_cast is None else auto_cast_type
+        compiler_kwargs = {
+            "auto_cast": auto_cast,
+            "auto_cast_type": auto_cast_type,
+            "disable_fast_relayout": disable_fast_relayout,
+            "disable_fallback": disable_fallback,
+        }
 
         save_dir = TemporaryDirectory()
-        Path(save_dir.name)
+        save_dir_path = Path(save_dir.name)
+
+        main_export(
+            model_name_or_path=model_id,
+            output=save_dir_path,
+            compiler_kwargs=compiler_kwargs,
+            task=task,
+            dynamic_batch_size=dynamic_batch_size,
+            cache_dir=cache_dir,
+            trust_remote_code=trust_remote_code,
+            subfolder=subfolder,
+            revision=revision,
+            force_download=force_download,
+            local_files_only=local_files_only,
+            use_auth_token=use_auth_token,
+            do_validation=False,
+            **input_shapes,
+        )
+
+        return cls._from_pretrained(
+            save_dir_path,
+            config=config,
+            model_save_dir=save_dir,
+        )
+        return cls._from_pretrained(save_dir_path, config=config, model_save_dir=save_dir, neuron_config=neuron_config)
 
     def __call__(self, *args, **kwargs):
         return StableDiffusionPipelineMixin.__call__(self, *args, **kwargs)
@@ -198,7 +245,7 @@ class NeuronStableDiffusionPipeline(NeuronBaseModel, StableDiffusionPipelineMixi
         self.save_config(save_directory)
 
 
-class NeuronDiffusionModelPart:
+class _NeuronDiffusionModelPart:
     """
     For multi-file Neuron models, represents a part of the model.
     """
@@ -223,7 +270,7 @@ class NeuronDiffusionModelPart:
         return self.forward(*args, **kwargs)
 
 
-class NeuronModelTextEncoder(NeuronDiffusionModelPart):
+class NeuronModelTextEncoder(_NeuronDiffusionModelPart):
     def __init__(
         self,
         model: torch.jit._script.ScriptModule,
@@ -238,7 +285,7 @@ class NeuronModelTextEncoder(NeuronDiffusionModelPart):
         return outputs
 
 
-class NeuronModelVaeDecoder(NeuronDiffusionModelPart):
+class NeuronModelVaeDecoder(_NeuronDiffusionModelPart):
     def __init__(
         self,
         model: torch.jit._script.ScriptModule,
@@ -253,7 +300,7 @@ class NeuronModelVaeDecoder(NeuronDiffusionModelPart):
         return outputs
 
 
-class NeuronModelUnet(NeuronDiffusionModelPart):
+class NeuronModelUnet(_NeuronDiffusionModelPart):
     def __init__(
         self,
         model: torch.jit._script.ScriptModule,
@@ -272,7 +319,7 @@ class NeuronModelUnet(NeuronDiffusionModelPart):
         return outputs
 
 
-class NeuronModelVaePostQuantConv(NeuronDiffusionModelPart):
+class NeuronModelVaePostQuantConv(_NeuronDiffusionModelPart):
     def __init__(
         self,
         model: torch.jit._script.ScriptModule,
@@ -285,3 +332,17 @@ class NeuronModelVaePostQuantConv(NeuronDiffusionModelPart):
         inputs = (latent_sample,)
         outputs = self.model(*inputs)
         return outputs
+    
+class NeuronStableDiffusionPipeline(NeuronStableDiffusionPipelineBase, StableDiffusionPipelineMixin):
+    def __call__(self, *args, **kwargs):
+        return StableDiffusionPipelineMixin.__call__(self, *args, **kwargs)
+
+
+class NeuronStableDiffusionImg2ImgPipeline(NeuronStableDiffusionPipelineBase, StableDiffusionImg2ImgPipelineMixin):
+    def __call__(self, *args, **kwargs):
+        return StableDiffusionImg2ImgPipelineMixin.__call__(self, *args, **kwargs)
+
+
+class NeuronStableDiffusionInpaintPipeline(NeuronStableDiffusionPipelineBase, StableDiffusionInpaintPipelineMixin):
+    def __call__(self, *args, **kwargs):
+        return StableDiffusionInpaintPipelineMixin.__call__(self, *args, **kwargs)

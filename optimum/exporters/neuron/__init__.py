@@ -16,3 +16,4 @@
 from .base import NeuronConfig
 from .convert import export, export_models, validate_model_outputs, validate_models_outputs
 from .utils import build_stable_diffusion_components_mandatory_shapes, get_stable_diffusion_models_for_export
+from .__main__ import main_export, normalize_input_shapes
