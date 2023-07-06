@@ -357,8 +357,8 @@ class NeuronBaseModel(OptimizedModel):
 
         # Fetch mandatory shapes from config
         compile_shapes = {
-            key.replace("static", ""): value
-            for (key, value) in config.to_diff_dict().items()
+            key.replace("static_", ""): value
+            for (key, value) in config.to_diff_dict().get("neuron").items()
             if key.startswith("static_")
         }
 
