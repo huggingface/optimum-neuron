@@ -16,7 +16,7 @@
 
 import logging
 import warnings
-from typing import Optional
+from typing import TYPE_CHECKING, Dict, Optional, Union
 
 import torch
 from transformers import (
@@ -42,6 +42,13 @@ from transformers.utils import ModelOutput
 
 from .modeling_base import NeuronBaseModel
 from .modeling_decoder import NeuronDecoderModel
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
+
+    from transformers import GenerationConfig, PretrainedConfig
 
 
 logger = logging.getLogger(__name__)
@@ -554,11 +561,19 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
     auto_model_class = AutoModelForCausalLM
     main_input_name = "input_ids"
 
-    def __init__(self, model, config, model_path, generation_config):
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        config: "PretrainedConfig",
+        model_path: Union[str, "Path", "TemporaryDirectory"],
+        generation_config: Optional["GenerationConfig"] = None,
+    ):
         super().__init__(model, config, model_path, generation_config)
         self.cur_len = 0
         self.batch_size = model.config.batch_size
         self.max_length = model.config.n_positions
+        # The generate method from GenerationMixin expects the device attribute to be set
+        self.device = torch.device("cpu")
 
     def reset_generation(self):
         self.cur_len = 0
@@ -573,13 +588,13 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
     )
     def forward(
         self,
-        input_ids,
-        cache_ids,
-        start_ids=None,
-        output_hidden_states=False,
-        output_attentions=False,
-        attention_mask=None,
-        return_dict=False,
+        input_ids: torch.Tensor,
+        cache_ids: torch.Tensor,
+        start_ids: torch.Tensor = None,
+        output_hidden_states: bool = False,
+        output_attentions: bool = False,
+        attention_mask: torch.Tensor = None,
+        return_dict: bool = False,
     ):
         if output_hidden_states or output_attentions or attention_mask is not None:
             warnings.warn(
@@ -594,9 +609,9 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
             return ModelOutput([("logits", out_logits)])
         return (out_logits,)
 
-    def prepare_inputs_for_generation(self, input_ids, past_key_values=None, **kwargs):
+    def prepare_inputs_for_generation(self, input_ids: torch.Tensor, **kwargs) -> Dict[str, torch.Tensor]:
         # Sanity checks
-        if past_key_values is not None:
+        if kwargs.get("past_key_values", None) is not None:
             raise ValueError("This model does not support dynamic key, value cache.")
         batch_size, sequence_length = input_ids.shape
         if batch_size != self.batch_size:
@@ -635,6 +650,6 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
 
         return model_inputs
 
-    def can_generate(self):
-        """Returns True to validate the check that the model using `GenerationMixin.generate()` can indeed generate."""
+    def can_generate(self) -> bool:
+        """Returns True to validate the check made in `GenerationMixin.generate()`."""
         return True

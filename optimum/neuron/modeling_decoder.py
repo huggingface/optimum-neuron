@@ -78,7 +78,6 @@ class NeuronDecoderModel(OptimizedModel):
         if generation_config is None:
             generation_config = GenerationConfig.from_model_config(config)
         self.generation_config = generation_config
-        self.device = torch.device("cpu")
 
     @classmethod
     def _from_transformers(
