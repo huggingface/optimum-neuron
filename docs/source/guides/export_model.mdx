@@ -201,7 +201,7 @@ And the exported model can be used for inference directly with the `NeuronModelF
 'POSITIVE'
 ```
 
-## Exporting stable diffusion to neuron
+## Exporting Stable Diffusion to Neuron
 
 With the Optimum CLI you can compile components in the Stable Diffusion pipeline to gain acceleration on neuron devices during the inference.
 
@@ -218,7 +218,20 @@ So far, we support the export of following components in the pipeline:
 
 </Tip>
 
-Exporting a stable diffusion checkpoint can be done as follows:
+Exporting a stable diffusion checkpoint can be done using the CLI:
+
+```bash
+optimum-cli export neuron --model stabilityai/stable-diffusion-2-1-base \
+  --task stable-diffusion \
+  --batch_size 1 \
+  --num_channels 4 \
+  --height 64 \
+  --width 64 \
+  --sequence_length 32 \
+  sd_neuron/
+```
+
+Or with `export_models()`:
 
 ```python
 >>> from pathlib import Path
@@ -256,13 +269,6 @@ Exporting a stable diffusion checkpoint can be done as follows:
 ...     compiler_kwargs={"auto_cast": None},
 ...     configs={"vae_decoder": pipe.vae.config, "vae_conv": pipe.vae.config},
 ... )
-```
-
-or using the CLI:
-
-```bash
-optimum-cli export neuron --model stabilityai/stable-diffusion-2-1-base --task stable-diffusion --batch_size 1 --num_channels 4 --height 64 --width 64 --sequence_length 32 sd_neuron/
-
 ```
 
 ## Selecting a task
