@@ -280,7 +280,10 @@ class NeuronAccelerator(Accelerator):
         parameters = list(parameters)
         for model in self._models:
             if parameters == list(model.parameters()):
-                return parallel_layers.clip_grad_norm(parameters, max_norm, norm_type=norm_type)
+                for opt in self._optimizers:
+                    # Under this setting, the gradient clipping will be deferred to the optimizer step.
+                    # It will happen after the gradients have been reduced and before the optimizer step.
+                    return opt.prepare_clip_grad_norm(parameters, max_norm, norm_type=norm_type)
 
     def clip_grad_norm_(self, parameters, max_norm, norm_type=2):
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:
