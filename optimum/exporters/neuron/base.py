@@ -99,6 +99,8 @@ class NeuronConfig(ExportConfig, ABC):
         self,
         config: "PretrainedConfig",
         task: str,
+        compiler_type: Optional[str] = None,
+        compiler_version: Optional[str] = None,
         batch_size: Optional[int] = None,
         dynamic_batch_size: bool = False,
         sequence_length: Optional[int] = None,
@@ -143,6 +145,8 @@ class NeuronConfig(ExportConfig, ABC):
                 input_shapes[name] = value
             setattr(self, name, value)
         setattr(self, "input_shapes", input_shapes)
+        setattr(self, "compiler_type", compiler_type)
+        setattr(self, "compiler_version", compiler_version)
 
     @classmethod
     def get_mandatory_axes_for_task(cls, task: str) -> Tuple[str]:
