@@ -42,7 +42,13 @@ from ..utils import check_if_transformers_greater, logging
 from .accelerate import NeuronAccelerator, NeuronDistributedType
 from .distributed import ParallelizersManager
 from .trainer_callback import NeuronCacheCallaback
-from .utils import DynamicPatch, ModelPatcher, is_torch_xla_available, patch_within_function
+from .utils import (
+    DynamicPatch,
+    ModelPatcher,
+    is_neuronx_distributed_available,
+    is_torch_xla_available,
+    patch_within_function,
+)
 from .utils.cache_utils import get_neuron_cache_path
 from .utils.training_utils import (
     TRANSFORMERS_MIN_VERSION_USE_ACCELERATE,
@@ -138,13 +144,25 @@ class AugmentTrainerForTrainiumMixin:
             logger.setLevel(logging.INFO)
 
         if not is_precompilation():
-            callback = NeuronCacheCallaback(
-                tmp_neuron_cache=_TMP_NEURON_CACHE_DIR,
-                original_neuron_cache_path=_ORIGINAL_NEURON_CACHE_PATH,
-                only_do_fetching=self.args.local_rank > 0,
-            )
-            # TODO: re-enable.
-            self.add_callback(callback)
+            should_create_callback = True
+
+            if is_neuronx_distributed_available():
+                from neuronx_distributed.parallel_layers.parallel_state import (
+                    get_tensor_model_parallel_rank,
+                    model_parallel_is_initialized,
+                )
+
+                if model_parallel_is_initialized() and get_tensor_model_parallel_rank() > 0:
+                    should_create_callback = False
+
+            should_create_callback = True
+            if should_create_callback:
+                callback = NeuronCacheCallaback(
+                    tmp_neuron_cache=_TMP_NEURON_CACHE_DIR,
+                    original_neuron_cache_path=_ORIGINAL_NEURON_CACHE_PATH,
+                    only_do_fetching=self.args.local_rank > 0,
+                )
+                self.add_callback(callback)
 
         # Make the model Neuron-compatible for generation.
         patch_generation_mixin_to_neuron_generation_mixin(self.model)

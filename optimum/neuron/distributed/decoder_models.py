@@ -14,7 +14,7 @@
 # limitations under the License.
 """Classes related to `neuronx-distributed` to perform parallelism."""
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Dict, Optional
 
 from .base import Parallelizer
 from .parallel_layers import ParallelSelfAttention
@@ -22,6 +22,7 @@ from .utils import embedding_to_parallel_embedding
 
 
 if TYPE_CHECKING:
+    import torch
     from transformers import PreTrainedModel
 
 
@@ -35,10 +36,16 @@ class GPTNeoParallelSelfAttention(ParallelSelfAttention):
 
 class GPTNeoParallelizer(Parallelizer):
     @classmethod
-    def parallelize(cls, model: "PreTrainedModel") -> "PreTrainedModel":
-        model.transformer.wte = embedding_to_parallel_embedding(model.transformer.wte)
+    def parallelize(
+        cls, model: "PreTrainedModel", orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]]
+    ) -> "PreTrainedModel":
+        model.transformer.wte, model.lm_head = embedding_to_parallel_embedding(
+            model.transformer.wte, lm_head=model.lm_head, orig_to_parallel=orig_to_parallel
+        )
         for block in model.transformer.h:
-            block.attn.attention = GPTNeoParallelSelfAttention.transform(block.attn.attention, model.config)
+            block.attn.attention = GPTNeoParallelSelfAttention.transform(
+                block.attn.attention, model.config, orig_to_parallel=orig_to_parallel
+            )
         return model
 
 
@@ -53,10 +60,14 @@ class LlamaParallelSelfAttention(ParallelSelfAttention):
 
 class LlamaParallelizer(Parallelizer):
     @classmethod
-    def parallelize(cls, model: "PreTrainedModel") -> "PreTrainedModel":
+    def parallelize(
+        cls, model: "PreTrainedModel", orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]]
+    ) -> "PreTrainedModel":
         model.model.embed_tokens, model.lm_head = embedding_to_parallel_embedding(
-            model.model.embed_tokens, lm_head_layer=model.lm_head
+            model.model.embed_tokens, lm_head_layer=model.lm_head, orig_to_parallel=orig_to_parallel
         )
         for layer in model.model.layers:
-            layer.self_attn = LlamaParallelSelfAttention.transform(layer.self_attn, model.config)
+            layer.self_attn = LlamaParallelSelfAttention.transform(
+                layer.self_attn, model.config, orig_to_parallel=orig_to_parallel
+            )
         return model

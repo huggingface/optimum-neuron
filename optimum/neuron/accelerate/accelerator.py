@@ -116,17 +116,27 @@ class NeuronAccelerator(Accelerator):
             self.gradient_accumulation_steps = num_steps
 
     def _prepare_data_loader_for_tp(self, data_loader: torch.utils.data.DataLoader):
+        # TODO: make it more robust, similar to the prepare_data_loader function in `accelerate`.
+        if isinstance(data_loader.sampler, DistributedSampler):
+            return data_loader
         sampler = DistributedSampler(
             data_loader.dataset,
-            num_replicas=parallel_layers.parallel_state.get_data_parallel_world_size(),
+            num_replicas=parallel_layers.parallel_state.get_data_parallel_size(),
             rank=parallel_layers.parallel_state.get_data_parallel_rank(),
         )
-        data_loader.sampler = sampler
-        return data_loader
+        return torch.utils.data.DataLoader(
+            data_loader.dataset,
+            batch_size=data_loader.batch_size,
+            sampler=sampler,
+            num_workers=data_loader.num_workers,
+            collate_fn=data_loader.collate_fn,
+            pin_memory=data_loader.pin_memory,
+            drop_last=data_loader.drop_last,
+        )
 
     def prepare_data_loader(self, data_loader: torch.utils.data.DataLoader, device_placement: Optional[bool] = None):
-        if self.tensor_parallel_size > 1:
-            data_loader = self._prepare_data_loader_for_tp(data_loader)
+        if self.state.tp_plugin.tensor_parallel_size > 1:
+            return self._prepare_data_loader_for_tp(data_loader)
         return super().prepare_data_loader(data_loader, device_placement=device_placement)
 
     def _prepare_optimizer_for_tp(self, optimizer: torch.optim.Optimizer, device_placement=None):

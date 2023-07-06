@@ -103,7 +103,6 @@ def linear_to_parallel_linear(
                     orig_to_parallel[id(linear_layer.bias)] = parallel_linear_layer.bias
         else:
             parallel_linear_layer.weight.copy_(linear_layer.weight[tp_rank * row_size : (tp_rank + 1) * row_size, :])
-            print(parallel_linear_layer.weight)
             if linear_layer.bias is not None:
                 parallel_linear_layer.bias.copy_(linear_layer.bias[tp_rank * row_size : (tp_rank + 1) * row_size])
                 if orig_to_parallel is not None:
