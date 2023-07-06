@@ -143,29 +143,33 @@ def store_compilation_config(
     input_names: List[str],
     output_names: List[str],
     dynamic_batch_size: bool,
-    neuron_compiler: str,
-    neuron_compiler_version: str,
+    compiler_type: str,
+    compiler_version: str,
     **kwargs,
 ):
     if isinstance(config, OrderedDict):
         update_func = config.__setitem__
     else:
         update_func = config.__setattr__
+    neuron_configs = {}
 
     # Add neuron version to the config, so it can be checked at load time
-    update_func("neuron_compiler", neuron_compiler)
-    update_func("neuron_compiler_version", neuron_compiler_version)
+    neuron_configs["compiler_type"] = compiler_type
+    neuron_configs["compiler_version"] = compiler_version
 
     # Add input shapes during compilation to the config
     for axe, shape in input_shapes.items():
-        axe = f"neuron_{axe}"
-        update_func(axe, shape)
+        axe = f"static_{axe}"
+        neuron_configs[axe] = shape
 
-    update_func("dynamic_batch_size", dynamic_batch_size)
+    neuron_configs["dynamic_batch_size"] = dynamic_batch_size
 
     # Add compilation args to the config
     for arg, value in compiler_kwargs.items():
-        update_func(arg, value)
+        neuron_configs[arg] = value
 
-    config.input_names = input_names
-    config.output_names = output_names
+    neuron_configs["input_names"] = input_names
+    neuron_configs["output_names"] = output_names
+
+    update_func("neuron", neuron_configs)
+
