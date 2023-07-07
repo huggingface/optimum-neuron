@@ -14,11 +14,17 @@
 # limitations under the License.
 """Utilities for performing parallelism with `neuronx_distributed`"""
 
+import contextlib
+import functools
+import os
+from pathlib import Path
 from typing import Dict, Literal, Optional, Tuple, Union
 
 import torch
+from transformers import PretrainedConfig
 
-from ..utils import is_neuronx_distributed_available
+from ..utils import DynamicPatch, Patcher, is_neuronx_distributed_available
+from ..utils.misc import download_checkpoints_in_cache
 
 
 if is_neuronx_distributed_available():
@@ -112,3 +118,117 @@ def linear_to_parallel_linear(
         orig_to_parallel[id(linear_layer.weight)] = parallel_linear_layer.weight
 
     return parallel_linear_layer
+
+
+@classmethod
+def from_pretrained_for_tp(
+    cls,
+    pretrained_model_name_or_path: Optional[Union[str, os.PathLike]],
+    *model_args,
+    config: Optional[Union[PretrainedConfig, str, os.PathLike]] = None,
+    cache_dir: Optional[Union[str, os.PathLike]] = None,
+    ignore_mismatched_sizes: bool = False,
+    force_download: bool = False,
+    local_files_only: bool = False,
+    token: Optional[Union[str, bool]] = None,
+    revision: str = "main",
+    use_safetensors: bool = None,
+    **kwargs,
+):
+    kwargs.pop("state_dict", None)
+    kwargs.pop("from_tf", False)
+    kwargs.pop("from_flax", False)
+    resume_download = kwargs.pop("resume_download", False)
+    proxies = kwargs.pop("proxies", None)
+    kwargs.pop("output_loading_info", False)
+    kwargs.pop("use_auth_token", None)
+    kwargs.pop("trust_remote_code", None)
+    _ = kwargs.pop("mirror", None)
+    from_pipeline = kwargs.pop("_from_pipeline", None)
+    from_auto_class = kwargs.pop("_from_auto", False)
+    _fast_init = kwargs.pop("_fast_init", True)
+    kwargs.pop("torch_dtype", None)
+    kwargs.pop("low_cpu_mem_usage", None)
+    kwargs.pop("device_map", None)
+    kwargs.pop("max_memory", None)
+    kwargs.pop("offload_folder", None)
+    kwargs.pop("offload_state_dict", False)
+    kwargs.pop("load_in_8bit", False)
+    kwargs.pop("load_in_4bit", False)
+    kwargs.pop("quantization_config", None)
+    subfolder = kwargs.pop("subfolder", "")
+    kwargs.pop("_commit_hash", None)
+    kwargs.pop("variant", None)
+
+    filenames, sharded_metadata = download_checkpoints_in_cache(
+        pretrained_model_name_or_path,
+        cache_dir=cache_dir,
+        force_download=force_download,
+        local_files_only=local_files_only,
+        token=token,
+        revision=revision,
+        use_safetensors=use_safetensors,
+        convert_to_safetensors=True,
+        **kwargs,
+    )
+
+    if not isinstance(config, PretrainedConfig):
+        config_path = config if config is not None else pretrained_model_name_or_path
+        config, model_kwargs = cls.config_class.from_pretrained(
+            config_path,
+            cache_dir=cache_dir,
+            return_unused_kwargs=True,
+            force_download=force_download,
+            resume_download=resume_download,
+            proxies=proxies,
+            local_files_only=local_files_only,
+            token=token,
+            revision=revision,
+            subfolder=subfolder,
+            _from_auto=from_auto_class,
+            _from_pipeline=from_pipeline,
+            **kwargs,
+        )
+    else:
+        model_kwargs = kwargs
+
+    model = cls(config, *model_args, **model_kwargs)
+
+    if sharded_metadata:
+        filenames = list(map(Path, filenames))
+        safetensors_filename_to_full_filename = {path.name: path for path in filenames}
+        weight_map = sharded_metadata["weight_map"]
+        for weight_name, safetensors_filename in sharded_metadata.items():
+            weight_map[weight_name] = safetensors_filename_to_full_filename[safetensors_filename]
+    else:
+        filename = Path(filenames)
+        weight_map = {name: filename for name, _ in model.named_parameters()}
+
+    model._weight_map = weight_map
+
+    return model
+
+
+@contextlib.contextmanager
+def prepare_for_tp():
+    def meta_init(init_fn):
+        @functools.wraps(init_fn)
+        def wrapper(*args, **kwargs):
+            kwargs["device"] = kwargs.pop("device", torch.device("meta"))
+            return init_fn(*args, **kwargs)
+
+        return wrapper
+
+    meta_init_patch = DynamicPatch(meta_init)
+
+    patching_specs = [
+        ("torch.nn.Embedding.__init__", meta_init_patch),
+        ("torch.nn.Linear.__init__", meta_init_patch),
+        ("transformers.modeling_utils.PreTrainedModel.from_pretrained", from_pretrained_for_tp),
+    ]
+    patcher = Patcher(patching_specs=patching_specs)
+    with patcher:
+        try:
+            yield
+        finally:
+            print("DONE")

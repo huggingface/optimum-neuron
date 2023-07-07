@@ -73,7 +73,7 @@ class LLamaParallelMLP(ParallelMLP):
         # WARNING: be careful of the interleaved outputs when doing TP!
         layer = super().transform(layer, config, orig_to_parallel=orig_to_parallel)
         setattr(
-            layer.mlp,
+            layer,
             "gate_proj",
             linear_to_parallel_linear(
                 getattr(layer, "gate_proj"),
@@ -97,5 +97,6 @@ class LlamaParallelizer(Parallelizer):
             layer.self_attn = LlamaParallelSelfAttention.transform(
                 layer.self_attn, model.config, orig_to_parallel=orig_to_parallel
             )
+            print(type(layer))
             layer.mlp = LLamaParallelMLP.transform(layer.mlp, model.config, orig_to_parallel)
         return model
