@@ -34,9 +34,10 @@ from transformers.utils import (
     download_url,
     has_file,
     is_remote_url,
-    is_safetensors_available,
 )
 from transformers.utils.hub import get_checkpoint_shard_files
+
+from .require_utils import requires_safetensors
 
 
 def args_and_kwargs_to_kwargs_only(
@@ -80,7 +81,8 @@ def args_and_kwargs_to_kwargs_only(
     return result
 
 
-def _original_filename_to_safetensors_filename(filename: str):
+def _original_filename_to_safetensors_filename(filename: str) -> str:
+    """Transforms the filename for any kind of checkpoint to a safetensors equivalent."""
     name, extension = filename.rsplit(".", maxsplit=1)
     pattern = rf"{name}(-[0-9]*-of-[0-9]*)?\.{extension}"
     match_ = re.match(pattern, filename)
@@ -92,14 +94,23 @@ def _original_filename_to_safetensors_filename(filename: str):
     return f"{safetensor_filename}{index_out_of_total_str}.{safetensor_extension}"
 
 
-def convert_checkpoints_to_safetensors(
+@requires_safetensors
+def convert_checkpoint_to_safetensors(
     weight_file: Union[str, Path], output_dir: Optional[Union[str, Path]] = None
 ) -> Path:
-    if not is_safetensors_available():
-        raise ModuleNotFoundError(
-            "Converting a checkpoint to safetensors requires the safetensors package. You can install it by running: "
-            "pip install safetensors"
-        )
+    """
+    Converts a PyTorch model checkpoint to a `safetensors` model checkpoint.
+
+    Args:
+        weight_file (`Union[str, Path]`):
+            The path to the PyTorch model checkpoint.
+        output_dir (`Optional[Union[str, Path]]`, defaults to `None`):
+            The output directory where the `safetensors` checkpoint will be saved.
+            If left unspecified, the parent directory of the PyTorch checkpoint will be used.
+
+    Returns:
+        `Path`: The path to the `safetensors` checkpoint.
+    """
     from safetensors.torch import save_file
 
     if not isinstance(weight_file, Path):
@@ -116,7 +127,6 @@ def convert_checkpoints_to_safetensors(
     safetensors_path = output_dir / safetensors_filename
     data_pointers = set()
     for k, v in checkpoint.items():
-        print("dtype", v.dtype)
         if id(v.data) in data_pointers:
             v = v.clone()
         checkpoint[k] = v.contiguous()
@@ -129,18 +139,22 @@ def convert_checkpoints_to_safetensors(
 
 def download_checkpoints_in_cache(
     pretrained_model_name_or_path: Optional[Union[str, os.PathLike]],
-    *model_args,
-    # config: Optional[Union["PretrainedConfig", str, os.PathLike]] = None,
     cache_dir: Optional[Union[str, os.PathLike]] = None,
-    ignore_mismatched_sizes: bool = False,
     force_download: bool = False,
     local_files_only: bool = False,
     token: Optional[Union[str, bool]] = None,
     revision: str = "main",
-    use_safetensors: bool = None,
+    use_safetensors: Optional[bool] = None,
     convert_to_safetensors: bool = False,
     **kwargs,
 ):
+    """
+    Downloads checkpoint to the cache or returns the path to the already downloaded files.
+
+    Note: This is a transformed version of `transformers.PreTrainedModel.from_pretrained` where only the part about
+    downloading checkpoints has been kept. At the end of the function a custom part has been added handling the
+    conversion to safetensors if needed.
+    """
     kwargs.pop("state_dict", None)
     from_tf = kwargs.pop("from_tf", False)
     from_flax = kwargs.pop("from_flax", False)
@@ -152,7 +166,6 @@ def download_checkpoints_in_cache(
     _ = kwargs.pop("mirror", None)
     from_pipeline = kwargs.pop("_from_pipeline", None)
     from_auto_class = kwargs.pop("_from_auto", False)
-    _fast_init = kwargs.pop("_fast_init", True)
     kwargs.pop("torch_dtype", None)
     kwargs.pop("low_cpu_mem_usage", None)
     kwargs.pop("device_map", None)
@@ -295,7 +308,10 @@ def download_checkpoints_in_cache(
                         is_sharded = True
                     elif use_safetensors:
                         raise EnvironmentError(
-                            f" {_add_variant(SAFE_WEIGHTS_NAME, variant)} or {_add_variant(SAFE_WEIGHTS_INDEX_NAME, variant)} and thus cannot be loaded with `safetensors`. Please make sure that the model has been saved with `safe_serialization=True` or do not set `use_safetensors=True`."
+                            f" {_add_variant(SAFE_WEIGHTS_NAME, variant)} or "
+                            f"{_add_variant(SAFE_WEIGHTS_INDEX_NAME, variant)} and thus cannot be loaded with "
+                            "`safetensors`. Please make sure that the model has been saved with "
+                            "`safe_serialization=True` or do not set `use_safetensors=True`."
                         )
                     else:
                         # This repo has no safetensors file of any kind, we switch to PyTorch.
@@ -360,11 +376,6 @@ def download_checkpoints_in_cache(
                     f" {TF2_WEIGHTS_NAME}, {TF_WEIGHTS_NAME} or {FLAX_WEIGHTS_NAME}."
                 )
 
-        # if is_local:
-        #     logger.info(f"loading weights file {archive_file}")
-        #     resolved_archive_file = archive_file
-        # else:
-        #     logger.info(f"loading weights file {filename} from cache at {resolved_archive_file}")
     else:
         resolved_archive_file = None
 
@@ -387,7 +398,6 @@ def download_checkpoints_in_cache(
         )
 
     # TODO: this whole bulk is not very optimized, improve it once the tests are written.
-    print("file", resolved_archive_file)
     if convert_to_safetensors:
         maybe_to_convert = resolved_archive_file
         if not isinstance(maybe_to_convert, list):
@@ -399,7 +409,7 @@ def download_checkpoints_in_cache(
             if filename.suffix == ".safetensors":
                 filenames_to_safetensors_filenames[filename.name] = filename
             elif filename.suffix == ".bin":
-                output_path = convert_checkpoints_to_safetensors(filename)
+                output_path = convert_checkpoint_to_safetensors(filename)
                 filenames_to_safetensors_filenames[filename.name] = output_path
             else:
                 raise ValueError("Only PyTorch and safetensors files are supported.")

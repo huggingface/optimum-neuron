@@ -23,10 +23,10 @@ from typing import Dict, Literal, Optional, Tuple, Union
 
 import torch
 from transformers import PretrainedConfig
-from transformers.utils import is_safetensors_available
 
 from ..utils import DynamicPatch, Patcher, is_neuronx_distributed_available
 from ..utils.misc import download_checkpoints_in_cache
+from ..utils.require_utils import requires_safetensors
 
 
 if is_neuronx_distributed_available():
@@ -38,21 +38,42 @@ TENSOR_PARALLEL_SHARDS_DIR_NAME = "tensor_parallel_shards"
 
 @dataclass
 class WeightInformation:
+    """
+    Describes the information about the weight of a parameter.
+
+    Attributes:
+        - filename (`Union[str, Path]`) -- The name of the `safetensors` checkpoint file containing the weights of the
+        parameter.
+        - qualified_name (`str`) -- The fully qualified name of the parameter in the model hierarchy.
+        - device (`torch.device`) -- The device to put the weight on, defaults to `torch.device("cpu")` if left
+        unspecified.
+    """
+
     filename: Union[str, Path]
     qualified_name: str
     device: Optional[torch.device] = None
 
 
+@requires_safetensors
 def load_tensor_for_weight(
     weight_info: WeightInformation, tensor_slices: Optional[Tuple[Optional[Tuple[int, ...]], ...]] = None
 ) -> torch.Tensor:
-    # TODO: find a better solution since it's going to be called a lot.
-    if not is_safetensors_available():
-        raise ModuleNotFoundError(
-            "Loading a tensor for a given weight only requires the `safetensors` package. You can install it by "
-            "running: pip install safetensors."
-        )
+    """
+    Loads potentially sliced weights from a `safetensors` checkpoint.
 
+    Args:
+        weight_info (`WeightInformation`):
+            The information about the weight, this is used to know where to load the weight from.
+        tensor_slices (`Optional[Tuple[Optional[Tuple[int, ...]]]]`, defaults to `None`):
+            If specified it will be interpreted as the slices to load from the saved weight, it must be a tuple of either:
+                1. A tuple of up to three ints: they will be used to compute a slice.
+                2. None: it will be interpreted as taking the whole dimension.
+            Example:
+                t = torch.rand(4, 3, 2) with tensor_slices = ((2, 3), None, (1,)) will result in t[2:3, :, :1].
+
+    Returns:
+        `torch.Tensor`: The loaded tensor.
+    """
     from safetensors import safe_open
 
     device = weight_info.device if weight_info.device is not torch.device("cpu") else None
@@ -294,19 +315,12 @@ def from_pretrained_for_tp(
     model = cls(config, *model_args, **model_kwargs)
 
     if sharded_metadata:
-        # filenames = list(map(Path, filenames))
-        # safetensors_filename_to_full_filename = {path.name: path for path in filenames}
         weight_map = sharded_metadata["weight_map"]
-        # for weight_name, safetensors_filename in weight_map.items():
-        # print("weight_name", weight_name, "safetensors", safetensors_filename)
-        # print("keys", safetensors_filename_to_full_filename.keys())
-        # weight_map[weight_name] = safetensors_filename_to_full_filename[safetensors_filename]
     else:
         filename = Path(filenames)
         # TODO: manage the safetensor check dependency.
         from safetensors import safe_open
 
-        print("filename", filename)
         with safe_open(filename, framework="pt", device="cpu") as fp:
             weight_map = {weight_name: filename for weight_name in fp.keys()}
 

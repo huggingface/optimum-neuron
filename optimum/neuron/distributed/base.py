@@ -92,7 +92,7 @@ class Parallelizer(ABC):
     def parallelize(
         cls, model: "PreTrainedModel", orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None
     ) -> "PreTrainedModel":
-        model = cls._parallelize(model)
+        model = cls._parallelize(model, orig_to_parallel=orig_to_parallel)
         weight_map = getattr(model, "_weight_map", None)
         with torch.no_grad():
             modules_to_initialize = []
