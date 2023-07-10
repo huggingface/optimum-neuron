@@ -21,7 +21,14 @@ from ...utils import (
     is_diffusers_available,
     logging,
 )
+from ...neuron.utils import (
+    DIFFUSION_MODEL_TEXT_ENCODER_SUBFOLDER,
+    DIFFUSION_MODEL_VAE_DECODER_SUBFOLDER,
+    DIFFUSION_MODEL_UNET_SUBFOLDER,
+    DIFFUSION_MODEL_VAE_POST_QUANT_CONV_SUBFOLDER,
+)
 from ..tasks import TasksManager
+from transformers import PretrainedConfig
 
 
 logger = logging.get_logger()
@@ -33,6 +40,20 @@ if TYPE_CHECKING:
 
     if is_diffusers_available():
         from diffusers import ModelMixin, StableDiffusionPipeline
+
+
+class DiffusersPretrainedConfig(PretrainedConfig):
+    
+    # override to update `model_type`
+    def to_dict(self):
+        """
+        Serializes this instance to a Python dictionary.
+
+        Returns:
+            :obj:`Dict[str, any]`: Dictionary of all the attributes that make up this configuration instance,
+        """
+        output = copy.deepcopy(self.__dict__)
+        return output
 
 
 def get_stable_diffusion_models_for_export(
@@ -80,7 +101,7 @@ def get_stable_diffusion_models_for_export(
         dynamic_batch_size=dynamic_batch_size,
         **text_encoder_input_shapes,
     )
-    models_for_export["text_encoder"] = (text_encoder, text_encoder_neuron_config)
+    models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_SUBFOLDER] = (text_encoder, text_encoder_neuron_config)
 
     # VAE Decoder
     vae_config = pipeline.vae.config
@@ -97,7 +118,7 @@ def get_stable_diffusion_models_for_export(
         dynamic_batch_size=dynamic_batch_size,
         **vae_decoder_input_shapes,
     )
-    models_for_export["vae_decoder"] = (vae_decoder, vae_decoder_neuron_config)
+    models_for_export[DIFFUSION_MODEL_VAE_DECODER_SUBFOLDER] = (vae_decoder, vae_decoder_neuron_config)
 
     # U-NET
     unet = copy.deepcopy(pipeline.unet)
@@ -110,7 +131,7 @@ def get_stable_diffusion_models_for_export(
         dynamic_batch_size=dynamic_batch_size,
         **unet_input_shapes,
     )
-    models_for_export["unet"] = (unet, unet_neuron_config)
+    models_for_export[DIFFUSION_MODEL_UNET_SUBFOLDER] = (unet, unet_neuron_config)
 
     # VAE post quant conv
     post_quant_conv = copy.deepcopy(pipeline.vae.post_quant_conv)
@@ -123,7 +144,7 @@ def get_stable_diffusion_models_for_export(
         dynamic_batch_size=dynamic_batch_size,
         **vae_post_quant_conv_input_shapes,
     )
-    models_for_export["vae_conv"] = (post_quant_conv, post_quant_conv_neuron_config)
+    models_for_export[DIFFUSION_MODEL_VAE_POST_QUANT_CONV_SUBFOLDER] = (post_quant_conv, post_quant_conv_neuron_config)
 
     return models_for_export
 

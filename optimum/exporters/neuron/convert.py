@@ -33,6 +33,7 @@ from ...neuron.utils import (
 )
 from ...neuron.utils.version_utils import get_neuroncc_version, get_neuronxcc_version
 from ...utils import is_diffusers_available, logging
+from .utils import DiffusersPretrainedConfig
 
 
 if TYPE_CHECKING:
@@ -312,7 +313,7 @@ def export_models(
 
             if is_diffusers_available() and isinstance(model_config, FrozenDict):
                 model_config = OrderedDict(model_config)
-                model_config = PretrainedConfig.from_dict(model_config)
+                model_config = DiffusersPretrainedConfig.from_dict(model_config)
 
             store_compilation_config(
                 config=model_config,
@@ -323,7 +324,10 @@ def export_models(
                 dynamic_batch_size=sub_neuron_config.dynamic_batch_size,
                 compiler_type=NEURON_COMPILER_TYPE,
                 compiler_version=NEURON_COMPILER_VERSION,
+                model_type=getattr(sub_neuron_config, "model_type", None),
             )
+            if isinstance(model_config, PretrainedConfig):
+                model_config = DiffusersPretrainedConfig.from_dict(model_config.__dict__)           
             model_config.save_pretrained(output_path.parent)
         except Exception as e:
             failed_models.append((i, model_name))

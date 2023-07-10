@@ -14,6 +14,7 @@
 # limitations under the License.
 """Entry point to the optimum.exporters.neuron command line."""
 
+import os
 import argparse
 import inspect
 from argparse import ArgumentParser
@@ -23,7 +24,15 @@ from typing import Any, Dict, Optional, Union
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from transformers import AutoConfig
 
-from ...neuron.utils import is_neuron_available, is_neuronx_available
+from ...neuron.utils import (
+    is_neuron_available, 
+    is_neuronx_available,
+    NEURON_FILE_NAME, 
+    DIFFUSION_MODEL_TEXT_ENCODER_SUBFOLDER,
+    DIFFUSION_MODEL_VAE_DECODER_SUBFOLDER,
+    DIFFUSION_MODEL_UNET_SUBFOLDER,
+    DIFFUSION_MODEL_VAE_POST_QUANT_CONV_SUBFOLDER,
+)
 from ...utils import logging
 from ...utils.save_utils import maybe_save_preprocessors
 from ..error_utils import AtolError, OutputMatchError, ShapeError
@@ -83,11 +92,14 @@ def infer_task(task: str, model_name_or_path: str) -> str:
 
 def normalize_input_shapes(task: str, args: argparse.Namespace) -> Dict[str, int]:
     if task == "stable-diffusion":
-        mandatory_shapes = {
-            name: getattr(args, name, None)
-            for name in getattr(inspect.getfullargspec(build_stable_diffusion_components_mandatory_shapes), "args")
-        }
-        input_shapes = build_stable_diffusion_components_mandatory_shapes(**mandatory_shapes)
+        args = vars(args) if isinstance(args, argparse.Namespace) else args
+        mandatory_axes = set(getattr(inspect.getfullargspec(build_stable_diffusion_components_mandatory_shapes), "args"))
+        if not mandatory_axes.issubset(set(args.keys())):
+            raise AttributeError(
+                f"Shape of {mandatory_axes} are mandatory for neuron compilation, while {mandatory_axes.difference(args.keys())} are not given."
+            )
+        mandatory_shapes = {name: args[name] for name in mandatory_axes}
+        input_shapes = build_stable_diffusion_components_mandatory_shapes(**mandatory_shapes)        
     else:
         config = AutoConfig.from_pretrained(args.model)
         model_type = config.model_type.replace("_", "-")
@@ -152,17 +164,17 @@ def main_export(
         if not is_neuronx_available():
             raise RuntimeError("Stable diffusion needs neuronx-cc support which is not installed. ")
         output_model_names = [
-            "text_encoder/model.neuron",
-            "vae/decoder.neuron",
-            "unet/model.neuron",
-            "vae/post_quant_conv.neuron",
+            os.path.join(DIFFUSION_MODEL_TEXT_ENCODER_SUBFOLDER, NEURON_FILE_NAME),
+            os.path.join(DIFFUSION_MODEL_VAE_DECODER_SUBFOLDER, NEURON_FILE_NAME),
+            os.path.join(DIFFUSION_MODEL_UNET_SUBFOLDER, NEURON_FILE_NAME),
+            os.path.join(DIFFUSION_MODEL_VAE_POST_QUANT_CONV_SUBFOLDER, NEURON_FILE_NAME),
         ]
         models_and_neuron_configs = get_stable_diffusion_models_for_export(
             model,
             dynamic_batch_size=dynamic_batch_size,
             **input_shapes,
         )
-        configs["vae_decoder"] = configs["vae_conv"] = model.vae.config
+        configs[DIFFUSION_MODEL_VAE_DECODER_SUBFOLDER] = configs[DIFFUSION_MODEL_VAE_POST_QUANT_CONV_SUBFOLDER] = model.vae.config
         # Saving the model config and preprocessor as this is needed sometimes.
         model.tokenizer.save_pretrained(output.joinpath("tokenizer"))
         model.scheduler.save_pretrained(output.joinpath("scheduler"))
@@ -171,7 +183,7 @@ def main_export(
         # Save SD pipeline model index
         model.save_config(output)
 
-    neuron_inputs, neuron_outputs = export_models(
+    _, neuron_outputs = export_models(
         models_and_neuron_configs=models_and_neuron_configs,
         output_dir=output,
         output_file_names=output_model_names,

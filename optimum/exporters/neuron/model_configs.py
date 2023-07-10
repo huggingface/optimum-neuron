@@ -179,9 +179,10 @@ class CLIPNeuronConfig(TextAndVisionNeuronConfig):
         return ["logits_per_image", "logits_per_text", "text_embeds", "image_embeds"]
 
 
-@register_in_tasks_manager("clip-text-model", *["feature-extraction"])
+@register_in_tasks_manager("clip-text-model", *["stable-diffusion", "feature-extraction"])
 class CLIPTextNeuronConfig(TextEncoderNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
+    model_type = "clip-text-model"
 
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
         vocab_size="vocab_size",
@@ -213,6 +214,7 @@ class CLIPTextNeuronConfig(TextEncoderNeuronConfig):
 @register_in_tasks_manager("vae-encoder", *["semantic-segmentation"])
 class VaeEncoderNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-2
+    model_type = "vae-encoder"
 
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
         num_channels="in_channels",
@@ -232,6 +234,7 @@ class VaeEncoderNeuronConfig(VisionNeuronConfig):
 @register_in_tasks_manager("vae-decoder", *["semantic-segmentation"])
 class VaeDecoderNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
+    model_type = "vae-decoder"
 
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
         num_channels="latent_channels",
@@ -258,6 +261,7 @@ class VaeDecoderNeuronConfig(VisionNeuronConfig):
 @register_in_tasks_manager("conv2d", *["semantic-segmentation"])
 class Conv2dNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
+    model_type = "conv2d"
 
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
         num_channels="latent_channels",
@@ -284,6 +288,7 @@ class Conv2dNeuronConfig(VisionNeuronConfig):
 @register_in_tasks_manager("unet", *["semantic-segmentation"])
 class UNetNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
+    model_type = "unet"
 
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
         image_size="sample_size",

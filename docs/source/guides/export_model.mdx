@@ -218,7 +218,7 @@ So far, we support the export of following components in the pipeline:
 
 </Tip>
 
-Exporting a stable diffusion checkpoint can be done using the CLI:
+Exporting a stable diffusion checkpoint can be done using the CLI (`diffusers >= 0.15.0`):
 
 ```bash
 optimum-cli export neuron --model stabilityai/stable-diffusion-2-1-base \
@@ -229,46 +229,6 @@ optimum-cli export neuron --model stabilityai/stable-diffusion-2-1-base \
   --width 64 \
   --sequence_length 32 \
   sd_neuron/
-```
-
-Or with `export_models()`:
-
-```python
->>> from pathlib import Path
->>> from diffusers import StableDiffusionPipeline
->>> from optimum.exporters.neuron.model_configs import *
->>> from optimum.exporters.neuron import (
-...     get_stable_diffusion_models_for_export,
-...     build_stable_diffusion_components_mandatory_shapes,
-...     export_models,
-... )
-
-
->>> model_id = "stabilityai/stable-diffusion-2-1-base"
->>> pipe = StableDiffusionPipeline.from_pretrained(model_id)
->>> output_model_names = [
-...     "text_encoder/model.neuron",
-...     "vae/decoder.neuron",
-...     "unet/model.neuron",
-...     "vae/post_quant_conv.neuron",
-... ]
-
->>> input_shapes = build_stable_diffusion_components_mandatory_shapes(
-...     **{"batch_size": 2, "sequence_length": 18, "num_channels": 4, "height": 64, "width": 64}
-... )
->>> models_and_neuron_configs = get_stable_diffusion_models_for_export(
-...     pipe,
-...     dynamic_batch_size=False,
-...     **input_shapes,
-... )
-
->>> neuron_inputs, neuron_outputs = export_models(
-...     models_and_neuron_configs=models_and_neuron_configs,
-...     output_dir=Path("sd_neuron"),
-...     output_file_names=output_model_names,
-...     compiler_kwargs={"auto_cast": None},
-...     configs={"vae_decoder": pipe.vae.config, "vae_conv": pipe.vae.config},
-... )
 ```
 
 ## Selecting a task

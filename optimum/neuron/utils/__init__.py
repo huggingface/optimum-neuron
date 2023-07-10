@@ -14,7 +14,13 @@
 # limitations under the License.
 
 from .argument_utils import convert_neuronx_compiler_args_to_neuron, store_compilation_config
-from .constant import NEURON_FILE_NAME
+from .constant import (
+    NEURON_FILE_NAME, 
+    DIFFUSION_MODEL_TEXT_ENCODER_SUBFOLDER,
+    DIFFUSION_MODEL_VAE_DECODER_SUBFOLDER,
+    DIFFUSION_MODEL_UNET_SUBFOLDER,
+    DIFFUSION_MODEL_VAE_POST_QUANT_CONV_SUBFOLDER,
+)
 from .import_utils import (
     is_accelerate_available,
     is_neuron_available,
