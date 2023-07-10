@@ -303,7 +303,12 @@ def from_pretrained_for_tp(
         # weight_map[weight_name] = safetensors_filename_to_full_filename[safetensors_filename]
     else:
         filename = Path(filenames)
-        weight_map = {weight_name: filename for weight_name, _ in model.named_parameters()}
+        # TODO: manage the safetensor check dependency.
+        from safetensors import safe_open
+
+        print("filename", filename)
+        with safe_open(filename, framework="pt", device="cpu") as fp:
+            weight_map = {weight_name: filename for weight_name in fp.keys()}
 
     model._weight_map = weight_map
 
@@ -311,7 +316,7 @@ def from_pretrained_for_tp(
 
 
 @contextlib.contextmanager
-def prepare_for_tp():
+def lazy_load_for_parallelism(tensor_parallel_size: int = 1):
     def meta_init(init_fn):
         @functools.wraps(init_fn)
         def wrapper(*args, **kwargs):
@@ -327,9 +332,14 @@ def prepare_for_tp():
         ("torch.nn.Linear.__init__", meta_init_patch),
         ("transformers.modeling_utils.PreTrainedModel.from_pretrained", from_pretrained_for_tp),
     ]
-    patcher = Patcher(patching_specs=patching_specs)
+    if tensor_parallel_size > 1:
+        patcher = Patcher(patching_specs=patching_specs)
+        print("INSIDE")
+    else:
+        patcher = contextlib.nullcontext()
     with patcher:
         try:
             yield
         finally:
+            print("OUTSIDE")
             pass

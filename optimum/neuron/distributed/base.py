@@ -18,14 +18,14 @@ import contextlib
 from abc import ABC, abstractclassmethod
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Dict, Optional, Union
 
 import torch
 from transformers.utils import WEIGHTS_NAME
 
 from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
-from .utils import TENSOR_PARALLEL_SHARDS_DIR_NAME
+from .utils import TENSOR_PARALLEL_SHARDS_DIR_NAME, WeightInformation, load_tensor_for_weight
 
 
 if is_neuronx_distributed_available():
@@ -83,8 +83,52 @@ class Parallelizer(ABC):
             tmpdir.cleanup()
 
     @abstractclassmethod
-    def parallelize(cls, model: "PreTrainedModel") -> "PreTrainedModel":
+    def _parallelize(
+        cls, model: "PreTrainedModel", orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None
+    ) -> "PreTrainedModel":
         pass
+
+    @classmethod
+    def parallelize(
+        cls, model: "PreTrainedModel", orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None
+    ) -> "PreTrainedModel":
+        model = cls._parallelize(model)
+        weight_map = getattr(model, "_weight_map", None)
+        with torch.no_grad():
+            modules_to_initialize = []
+            for name, parameter in model.named_parameters():
+                # This must be either a torch.nn.Embedding or a torch.nn.Linear since those are the only
+                # classes that we initialize on the `meta` device.
+                if parameter.device == torch.device("meta"):
+                    if weight_map is None:
+                        raise ValueError(
+                            f"The parameter called {name} of the model is on the `meta` device and no weight map is "
+                            "attached to the model to load the proper weights from file."
+                        )
+                    split = name.rsplit(".", maxsplit=1)
+                    if len(split) == 1:
+                        module = model
+                        attribute_name = split[0]
+                    else:
+                        module = model.get_submodule(split[0])
+                        attribute_name = split[1]
+                    try:
+                        weight_info = WeightInformation(weight_map[name], name)
+                        setattr(module, attribute_name, torch.nn.Parameter(load_tensor_for_weight(weight_info)))
+                    except KeyError:
+                        # This means that there is no information about where to find the weights for this parameter.
+                        setattr(
+                            module,
+                            attribute_name,
+                            torch.nn.Parameter(torch.empty_like(getattr(module, attribute_name), device="cpu")),
+                        )
+                        modules_to_initialize.append(module)
+                for mod in modules_to_initialize:
+                    # This module has not pre-trained weights, it must be fine-tuned, we initialize it with the
+                    # `reset_parameters()` method.
+                    mod.reset_parameters()
+
+        return model
 
     @classmethod
     def deparallelize(cls, model: "PreTrainedModel") -> "PreTrainedModel":

@@ -36,7 +36,7 @@ class GPTNeoParallelSelfAttention(ParallelSelfAttention):
 
 class GPTNeoParallelizer(Parallelizer):
     @classmethod
-    def parallelize(
+    def _parallelize(
         cls, model: "PreTrainedModel", orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]]
     ) -> "PreTrainedModel":
         model.transformer.wte, model.lm_head = embedding_to_parallel_embedding(
@@ -87,16 +87,13 @@ class LLamaParallelMLP(ParallelMLP):
 
 class LlamaParallelizer(Parallelizer):
     @classmethod
-    def parallelize(
+    def _parallelize(
         cls, model: "PreTrainedModel", orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]]
     ) -> "PreTrainedModel":
         model.model.embed_tokens, model.lm_head = embedding_to_parallel_embedding(
             model.model.embed_tokens, lm_head_layer=model.lm_head, orig_to_parallel=orig_to_parallel
         )
         for layer in model.model.layers:
-            layer.self_attn = LlamaParallelSelfAttention.transform(
-                layer.self_attn, model.config, orig_to_parallel=orig_to_parallel
-            )
-            print(type(layer))
-            layer.mlp = LLamaParallelMLP.transform(layer.mlp, model.config, orig_to_parallel)
+            layer.self_attn = LlamaParallelSelfAttention.transform(model, layer.self_attn)
+            layer.mlp = LLamaParallelMLP.transform(model, layer)
         return model

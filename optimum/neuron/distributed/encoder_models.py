@@ -35,15 +35,15 @@ class BertParallelSelfOutput(ParallelSelfOutput):
 
 class BertParallelizer(Parallelizer):
     @classmethod
-    def parallelize(
+    def _parallelize(
         cls, model: "PreTrainedModel", orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None
     ) -> "PreTrainedModel":
         for layer in model.bert.encoder.layer:
             layer.attention.self = BertParallelSelfAttention.transform(
-                layer.attention.self, model.config, orig_to_parallel=orig_to_parallel
+                model, layer.attention.self, orig_to_parallel=orig_to_parallel
             )
             layer.attention.output = BertParallelSelfOutput.transform(
-                layer.attention.output, model.config, orig_to_parallel=orig_to_parallel
+                model, layer.attention.output, orig_to_parallel=orig_to_parallel
             )
         return model
 
@@ -58,14 +58,14 @@ class RobertaParallelSelfOutput(BertParallelSelfOutput):
 
 class RobertaParallelizer(Parallelizer):
     @classmethod
-    def parallelize(
+    def _parallelize(
         cls, model: "PreTrainedModel", orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None
     ) -> "PreTrainedModel":
         for layer in model.roberta.encoder.layer:
             layer.attention.self = RobertaParallelSelfAttention.transform(
-                layer.attention.self, model.config, orig_to_parallel=orig_to_parallel
+                model, layer.attention.self, orig_to_parallel=orig_to_parallel
             )
             layer.attention.output = RobertaParallelSelfOutput.transform(
-                layer.attention.output, model.config, orig_to_parallel=orig_to_parallel
+                model, layer.attention.output, orig_to_parallel=orig_to_parallel
             )
         return model

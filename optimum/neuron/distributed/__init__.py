@@ -15,3 +15,4 @@
 
 from .base import Parallelizer
 from .parallelizers_manager import ParallelizersManager
+from .utils import lazy_load_for_parallelism

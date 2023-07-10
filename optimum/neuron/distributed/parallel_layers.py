@@ -76,18 +76,23 @@ class ParallelSelfAttention(ParallelLayer):
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
-        layer_qualified_name: str,
         orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
     ) -> "torch.nn.Module":
         weight_map = getattr(model, "_weight_map", None)
         config = model.config
         normalized_config = NormalizedConfigManager.get_normalized_config_class(config.model_type)(config)
 
+        if weight_map is not None:
+            layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
+            layer_qualified_name = layer_to_fully_qualified_name[id(layer)]
+        else:
+            layer_qualified_name = ""
+
         for name in [cls.QUERIES_NAME, cls.KEYS_NAME, cls.VALUES_NAME]:
             linear_layer_weight_info, linear_layer_bias_weight_info = None, None
             if weight_map is not None:
                 linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
-                    model, f"{layer_qualified_name}.{name}"
+                    weight_map, f"{layer_qualified_name}.{name}"
                 )
             parallel_linear = linear_to_parallel_linear(
                 getattr(layer, name),
@@ -103,7 +108,7 @@ class ParallelSelfAttention(ParallelLayer):
             linear_layer_weight_info, linear_layer_bias_weight_info = None, None
             if weight_map is not None:
                 linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
-                    model, f"{layer_qualified_name}.{cls.OUTPUT_PROJECTION_NAME}"
+                    weight_map, f"{layer_qualified_name}.{cls.OUTPUT_PROJECTION_NAME}"
                 )
             setattr(
                 layer,
@@ -155,14 +160,16 @@ class ParallelSelfOutput(ParallelLayer):
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
-        layer_qualified_name: str,
         orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
     ) -> "torch.nn.Module":
         weight_map = getattr(model, "_weight_map", None)
+
         linear_layer_weight_info, linear_layer_bias_weight_info = None, None
         if weight_map is not None:
+            layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
+            layer_qualified_name = layer_to_fully_qualified_name[id(layer)]
             linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
-                model, f"{layer_qualified_name}.{cls.OUTPUT_PROJECTION_NAME}"
+                weight_map, f"{layer_qualified_name}.{cls.OUTPUT_PROJECTION_NAME}"
             )
 
         setattr(
@@ -202,7 +209,6 @@ class ParallelMLP(ParallelLayer):
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
-        layer_qualified_name: str,
         orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
     ) -> "torch.nn.Module":
         if cls.FIRST_LINEAR_NAME is None or cls.SECOND_LINEAR_NAME is None:
@@ -211,9 +217,12 @@ class ParallelMLP(ParallelLayer):
         weight_map = getattr(model, "_weight_map", None)
 
         linear_layer_weight_info, linear_layer_bias_weight_info = None, None
+        layer_qualified_name = ""
         if weight_map is not None:
+            layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
+            layer_qualified_name = layer_to_fully_qualified_name[id(layer)]
             linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
-                model, f"{layer_qualified_name}.{cls.FIRST_LINEAR_NAME}"
+                weight_map, f"{layer_qualified_name}.{cls.FIRST_LINEAR_NAME}"
             )
 
         module, attribute_name = cls._get_module_and_attribute_name(layer, cls.FIRST_LINEAR_NAME)

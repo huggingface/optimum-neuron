@@ -114,10 +114,14 @@ def convert_checkpoints_to_safetensors(
     checkpoint = torch.load(weight_file)
     safetensors_filename = _original_filename_to_safetensors_filename(weight_file.name)
     safetensors_path = output_dir / safetensors_filename
+    data_pointers = set()
     for k, v in checkpoint.items():
-        # TODO: remove
+        print("dtype", v.dtype)
+        if id(v.data) in data_pointers:
+            v = v.clone()
         checkpoint[k] = v.contiguous()
-        # print(f"{k} => {type(v)}, {v.is_contiguous()}, {v.stride()}")
+        data_pointers.add(id(v.data))
+    # TODO: save in the blobs instead than here.
     save_file(checkpoint, safetensors_path)
     del checkpoint
     return safetensors_path
@@ -382,6 +386,8 @@ def download_checkpoints_in_cache(
             _commit_hash=commit_hash,
         )
 
+    # TODO: this whole bulk is not very optimized, improve it once the tests are written.
+    print("file", resolved_archive_file)
     if convert_to_safetensors:
         maybe_to_convert = resolved_archive_file
         if not isinstance(maybe_to_convert, list):
@@ -402,5 +408,12 @@ def download_checkpoints_in_cache(
             weight_map = sharded_metadata["weight_map"]
             for weight_name, torch_filename in weight_map.items():
                 weight_map[weight_name] = filenames_to_safetensors_filenames[torch_filename]
+
+        if isinstance(resolved_archive_file, list):
+            resolved_archive_file = [
+                filenames_to_safetensors_filenames[Path(filename).name] for filename in resolved_archive_file
+            ]
+        else:
+            resolved_archive_file = filenames_to_safetensors_filenames[Path(resolved_archive_file).name]
 
     return resolved_archive_file, sharded_metadata
