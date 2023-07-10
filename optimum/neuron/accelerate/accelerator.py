@@ -138,8 +138,11 @@ class NeuronAccelerator(Accelerator):
         return data_loader_for_tp
 
     def prepare_data_loader(self, data_loader: DataLoader, device_placement: Optional[bool] = None):
-        if self.state.tp_plugin.tensor_parallel_size > 1:
+        if self.state.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
             data_loader = self._prepare_data_loader_for_tp(data_loader)
+        else:
+            # TODO: fix that.
+            return data_loader
         return super().prepare_data_loader(data_loader, device_placement=device_placement)
 
     def _prepare_optimizer_for_tp(self, optimizer: torch.optim.Optimizer, device_placement=None):
@@ -244,8 +247,8 @@ class NeuronAccelerator(Accelerator):
             cpu_ids = [id(v) for v in model.parameters()]
             model, orig_to_parallel = self.state.tp_plugin.parallelize_model(model, return_orig_to_parallel=True)
             parallel_layers.move_model_to_device(model, self.device)
-            self._model_cpu_parameters_to_xla[id(model)] = dict(zip(cpu_ids, model.parameters()))
             model.tie_weights()
+            self._model_cpu_parameters_to_xla[id(model)] = dict(zip(cpu_ids, model.parameters()))
             device_placement = False
         return super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
 
@@ -272,7 +275,8 @@ class NeuronAccelerator(Accelerator):
         if self.distributed_type != DistributedType.DEEPSPEED:
             loss = loss / self.gradient_accumulation_steps
         if self.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
-            loss = loss / parallel_layers.parallel_state.get_data_parallel_size()
+            pass
+            # loss = loss / parallel_layers.parallel_state.get_data_parallel_size()
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:
             self.backward_for_xla_fsdp(loss, **kwargs)
         elif self.scaler is not None:

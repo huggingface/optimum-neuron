@@ -241,14 +241,14 @@ class AugmentTrainerForTrainiumMixin:
             data_loader = self.accelerator.prepare_data_loader(data_loader)
         return data_loader
 
-    def get_train_dataloader(self) -> DataLoader:
-        return self._prepare_data_loader_with_accelerator(super().get_train_dataloader())
+    def get_train_dataloader(self, *args, **kwargs) -> DataLoader:
+        return self._prepare_data_loader_with_accelerator(super().get_train_dataloader(*args, **kwargs))
 
-    def get_eval_dataloader(self) -> DataLoader:
-        return self._prepare_data_loader_with_accelerator(super().get_eval_dataloader())
+    def get_eval_dataloader(self, *args, **kwargs) -> DataLoader:
+        return self._prepare_data_loader_with_accelerator(super().get_eval_dataloader(*args, **kwargs))
 
-    def get_test_dataloader(self) -> DataLoader:
-        return self._prepare_data_loader_with_accelerator(super().get_test_dataloader())
+    def get_test_dataloader(self, *args, **kwargs) -> DataLoader:
+        return self._prepare_data_loader_with_accelerator(super().get_test_dataloader(*args, **kwargs))
 
     def compute_loss(self, model, inputs, return_outputs: bool = False):
         self.state.last_inputs = inputs
