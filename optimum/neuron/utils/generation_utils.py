@@ -20,8 +20,8 @@ from typing import Any, Callable, Dict
 import torch
 from transformers import GenerationConfig
 
-from optimum.neuron.utils.import_utils import is_torch_xla_available
-from optimum.neuron.utils.misc import args_and_kwargs_to_kwargs_only
+from .import_utils import is_torch_xla_available
+from .misc import args_and_kwargs_to_kwargs_only
 
 
 if is_torch_xla_available():
