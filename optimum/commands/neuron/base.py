@@ -28,7 +28,7 @@ class NeuronCommand(BaseOptimumCLICommand):
     SUBCOMMANDS = (
         CommandInfo(
             name="cache",
-            help="Manage the Trainium cache.",
+            help="Manage the Neuron cache.",
             subcommand_class=CustomCacheRepoCommand,
         ),
     )

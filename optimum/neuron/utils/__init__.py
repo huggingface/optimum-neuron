@@ -21,7 +21,9 @@ from .import_utils import (
     is_neuronx_available,
     is_neuronx_distributed_available,
     is_torch_xla_available,
+    is_transformers_neuronx_available,
 )
+from .optimization_utils import get_attention_scores
 from .patching import DynamicPatch, ModelPatcher, Patcher, patch_everywhere, patch_within_function
 from .training_utils import (
     FirstAndLastDataset,

@@ -95,6 +95,21 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         type=int,
         help=f"Only for the multiple-choice task. Num choices {doc_input}",
     )
+    input_group.add_argument(
+        "--num_channels",
+        type=int,
+        help=f"Image tasks only. Number of channels {doc_input}",
+    )
+    input_group.add_argument(
+        "--width",
+        type=int,
+        help=f"Image tasks only. Width {doc_input}",
+    )
+    input_group.add_argument(
+        "--height",
+        type=int,
+        help=f"Image tasks only. Height {doc_input}",
+    )
 
 
 class NeuronxExportCommand(BaseOptimumCLICommand):

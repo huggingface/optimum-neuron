@@ -15,11 +15,31 @@
 """Model specific Neuron configurations."""
 
 
-from typing import List
+from typing import TYPE_CHECKING, Dict, List
 
-from ...utils.normalized_config import NormalizedConfigManager
+import torch
+
+from ...utils import (
+    DummySeq2SeqDecoderTextInputGenerator,
+    DummyTimestepInputGenerator,
+    DummyVisionInputGenerator,
+    NormalizedConfig,
+    NormalizedConfigManager,
+    NormalizedTextAndVisionConfig,
+    is_diffusers_available,
+)
 from ..tasks import TasksManager
-from .config import TextEncoderNeuronConfig
+from .config import (
+    TextAndVisionNeuronConfig,
+    TextEncoderNeuronConfig,
+    TextNeuronDecoderConfig,
+    VisionNeuronConfig,
+)
+
+
+if TYPE_CHECKING:
+    if is_diffusers_available():
+        from diffusers.models.vae import Decoder as VaeDecoder
 
 
 COMMON_TEXT_TASKS = [
@@ -139,3 +159,166 @@ class DebertaNeuronConfig(BertNeuronConfig):
 @register_in_tasks_manager("deberta-v2", *COMMON_TEXT_TASKS)
 class DebertaV2NeuronConfig(DebertaNeuronConfig):
     pass
+
+
+class CLIPNormalizedConfig(NormalizedTextAndVisionConfig):
+    TEXT_CONFIG = "text_config"
+    VISION_CONFIG = "vision_config"
+
+
+@register_in_tasks_manager("clip", *["feature-extraction", "zero-shot-image-classification"])
+class CLIPNeuronConfig(TextAndVisionNeuronConfig):
+    NORMALIZED_CONFIG_CLASS = CLIPNormalizedConfig
+
+    @property
+    def inputs(self) -> List[str]:
+        return ["input_ids", "pixel_values", "attention_mask"]
+
+    @property
+    def outputs(self) -> List[str]:
+        return ["logits_per_image", "logits_per_text", "text_embeds", "image_embeds"]
+
+
+@register_in_tasks_manager("clip-text-model", *["feature-extraction"])
+class CLIPTextNeuronConfig(TextEncoderNeuronConfig):
+    ATOL_FOR_VALIDATION = 1e-3
+
+    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
+        vocab_size="vocab_size",
+        sequence_length="max_position_embeddings",
+        allow_new=True,
+    )
+
+    @property
+    def inputs(self) -> List[str]:
+        return ["input_ids"]
+
+    @property
+    def outputs(self) -> List[str]:
+        return ["last_hidden_state"]
+
+    def generate_dummy_inputs(self, return_tuple: bool = False, **kwargs):
+        dummy_inputs = super().generate_dummy_inputs(**kwargs)
+        dummy_inputs["input_ids"] = dummy_inputs["input_ids"].to(dtype=torch.int32)
+
+        if return_tuple is True:
+            return tuple(dummy_inputs.values())
+        else:
+            return dummy_inputs
+
+    def check_model_inputs_order(self, model, dummy_inputs, forward_with_tuple=False):
+        return super().check_model_inputs_order(model, dummy_inputs, forward_with_tuple, eligible_outputs=[0])
+
+
+@register_in_tasks_manager("vae-encoder", *["semantic-segmentation"])
+class VaeEncoderNeuronConfig(VisionNeuronConfig):
+    ATOL_FOR_VALIDATION = 1e-2
+
+    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
+        num_channels="in_channels",
+        image_size="sample_size",
+        allow_new=True,
+    )
+
+    @property
+    def inputs(self) -> List[str]:
+        return ["sample"]
+
+    @property
+    def outputs(self) -> List[str]:
+        return ["latent_sample"]
+
+
+@register_in_tasks_manager("vae-decoder", *["semantic-segmentation"])
+class VaeDecoderNeuronConfig(VisionNeuronConfig):
+    ATOL_FOR_VALIDATION = 1e-3
+
+    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
+        num_channels="latent_channels",
+        allow_new=True,
+    )
+
+    @property
+    def inputs(self) -> List[str]:
+        return ["latent_sample"]
+
+    @property
+    def outputs(self) -> List[str]:
+        return ["sample"]
+
+    def check_model_inputs_order(
+        self,
+        model: "VaeDecoder",
+        dummy_inputs: Dict[str, torch.Tensor],
+        **kwargs,
+    ):
+        return super().check_model_inputs_order(model=model, dummy_inputs=dummy_inputs, forward_with_tuple=True)
+
+
+@register_in_tasks_manager("conv2d", *["semantic-segmentation"])
+class Conv2dNeuronConfig(VisionNeuronConfig):
+    ATOL_FOR_VALIDATION = 1e-3
+
+    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
+        num_channels="latent_channels",
+        allow_new=True,
+    )
+
+    @property
+    def inputs(self) -> List[str]:
+        return ["latent_sample"]
+
+    @property
+    def outputs(self) -> List[str]:
+        return ["sample"]
+
+    def check_model_inputs_order(
+        self,
+        model: torch.nn.Module,
+        dummy_inputs: Dict[str, torch.Tensor],
+        **kwargs,
+    ):
+        return super().check_model_inputs_order(model=model, dummy_inputs=dummy_inputs, forward_with_tuple=True)
+
+
+@register_in_tasks_manager("unet", *["semantic-segmentation"])
+class UNetNeuronConfig(VisionNeuronConfig):
+    ATOL_FOR_VALIDATION = 1e-3
+
+    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
+        image_size="sample_size",
+        num_channels="in_channels",
+        hidden_size="cross_attention_dim",
+        vocab_size="norm_num_groups",
+        allow_new=True,
+    )
+
+    DUMMY_INPUT_GENERATOR_CLASSES = (
+        DummyVisionInputGenerator,
+        DummyTimestepInputGenerator,
+        DummySeq2SeqDecoderTextInputGenerator,
+    )
+
+    @property
+    def inputs(self) -> List[str]:
+        return ["sample", "timestep", "encoder_hidden_states"]
+
+    @property
+    def outputs(self) -> List[str]:
+        return ["sample"]
+
+    def generate_dummy_inputs(self, return_tuple: bool = False, **kwargs):
+        dummy_inputs = super().generate_dummy_inputs(**kwargs)
+        dummy_inputs["timestep"] = dummy_inputs["timestep"].float()
+        dummy_inputs["encoder_hidden_states"] = dummy_inputs["encoder_hidden_states"][0]
+
+        if return_tuple is True:
+            return tuple(dummy_inputs.values())
+        else:
+            return dummy_inputs
+
+
+@register_in_tasks_manager("gpt2", "text-generation")
+class GPT2NeuronConfig(TextNeuronDecoderConfig):
+    NEURONX_ARGS = {"n_positions": 128}
+    NEURONX_CLASS = "gpt2.model.GPT2ForSampling"

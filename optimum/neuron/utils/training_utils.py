@@ -108,7 +108,7 @@ _SUPPORTED_MODEL_TYPES = [
     "distilbert",
     "electra",
     "gpt-2",
-    "gpt-neo",
+    "gpt_neo",
     "marian",
     "roberta",
     "t5",

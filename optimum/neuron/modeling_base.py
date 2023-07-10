@@ -31,6 +31,8 @@ from ..exporters.tasks import TasksManager
 from ..modeling_base import OptimizedModel
 from ..utils.save_utils import maybe_load_preprocessors, maybe_save_preprocessors
 from .utils import NEURON_FILE_NAME, is_neuron_available, store_compilation_config
+from .utils.import_utils import is_neuronx_available
+from .utils.version_utils import check_compiler_compatibility, get_neuroncc_version, get_neuronxcc_version
 
 
 if TYPE_CHECKING:
@@ -154,6 +156,12 @@ class NeuronBaseModel(OptimizedModel):
             else:
                 file_name = neuron_files[0].name
 
+        # Check compiler compatibility(compiler type and version) of the saved model vs. system.
+        if hasattr(config, "neuron") and "compiler_type" in config.neuron:
+            model_compiler_type = config.neuron.get("compiler_type")
+            model_compiler_version = config.neuron.get("compiler_version")
+            check_compiler_compatibility(model_compiler_type, model_compiler_version)
+
         preprocessors = None
         if model_path.is_dir():
             model = NeuronBaseModel.load_model(model_path / file_name)
@@ -252,7 +260,21 @@ class NeuronBaseModel(OptimizedModel):
         if is_neuron_available() and dynamic_batch_size is True and "batch_size" in input_shapes:
             input_shapes["batch_size"] = 1
             disable_fallback = True  # Turn off the fallback for neuron, otherwise dynamic batching will still fail
-        neuron_config = neuron_config_constructor(model.config, dynamic_batch_size=dynamic_batch_size, **input_shapes)
+
+        if is_neuronx_available():
+            compiler_type = "neuronx-cc"
+            compiler_version = get_neuronxcc_version()
+        else:
+            compiler_type = "neuron-cc"
+            compiler_version = get_neuroncc_version()
+
+        neuron_config = neuron_config_constructor(
+            model.config,
+            dynamic_batch_size=dynamic_batch_size,
+            compiler_type=compiler_type,
+            compiler_version=compiler_version,
+            **input_shapes,
+        )
 
         # Get compilation arguments
         auto_cast_type = None if auto_cast is None else auto_cast_type
@@ -270,7 +292,16 @@ class NeuronBaseModel(OptimizedModel):
             **compiler_kwargs,
         )
 
-        store_compilation_config(config, input_shapes, compiler_kwargs, input_names, output_names, dynamic_batch_size)
+        store_compilation_config(
+            config,
+            input_shapes,
+            compiler_kwargs,
+            input_names,
+            output_names,
+            dynamic_batch_size,
+            compiler_type,
+            compiler_version,
+        )
 
         config.save_pretrained(save_dir_path)
         maybe_save_preprocessors(model_id, save_dir_path, src_subfolder=subfolder)
@@ -313,11 +344,22 @@ class NeuronBaseModel(OptimizedModel):
         """
         Builds a `NeuronConfig` with an instance of the `PretrainedConfig` and the task.
         """
+        if not hasattr(config, "neuron"):
+            logger.warning(
+                "Unable to identify neuron configuration with the keyword `neuron`, make sure that your config file contains necessary information"
+            )
+            return
+
+        neuron_configs = config.neuron
+        # Fetch compiler information
+        compiler_type = neuron_configs.get("compiler_type")
+        compiler_version = neuron_configs.get("compiler_version")
+
         # Fetch mandatory shapes from config
         compile_shapes = {
-            key.replace("neuron_", ""): value
+            key.replace("static", ""): value
             for (key, value) in config.to_diff_dict().items()
-            if key.startswith("neuron_")
+            if key.startswith("static_")
         }
 
         # Neuron config constructuor
@@ -326,9 +368,12 @@ class NeuronBaseModel(OptimizedModel):
             model_type=config.model_type, exporter="neuron", task=task
         )
 
-        # Build neuron config
         return neuron_config_constructor(
-            config, dynamic_batch_size=getattr(config, "dynamic_batch_size", False), **compile_shapes
+            config,
+            dynamic_batch_size=getattr(config, "dynamic_batch_size", False),
+            compiler_type=compiler_type,
+            compiler_version=compiler_version,
+            **compile_shapes,
         )
 
     @classmethod

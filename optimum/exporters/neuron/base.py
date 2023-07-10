@@ -14,13 +14,15 @@
 # limitations under the License.
 """Neuron configuration base classes."""
 
+import copy
+import importlib
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import torch
 
 from ...exporters.base import ExportConfig
-from ...neuron.utils import is_neuron_available
+from ...neuron.utils import is_neuron_available, is_transformers_neuronx_available
 from ...utils import logging
 
 
@@ -99,6 +101,8 @@ class NeuronConfig(ExportConfig, ABC):
         self,
         config: "PretrainedConfig",
         task: str,
+        compiler_type: Optional[str] = None,
+        compiler_version: Optional[str] = None,
         batch_size: Optional[int] = None,
         dynamic_batch_size: bool = False,
         sequence_length: Optional[int] = None,
@@ -109,6 +113,8 @@ class NeuronConfig(ExportConfig, ABC):
         feature_size: Optional[int] = None,
         nb_max_frames: Optional[int] = None,
         audio_sequence_length: Optional[int] = None,
+        point_batch_size: Optional[int] = None,
+        nb_points_per_image: Optional[int] = None,
     ):
         self._config = config
         self._normalized_config = self.NORMALIZED_CONFIG_CLASS(self._config)
@@ -132,9 +138,17 @@ class NeuronConfig(ExportConfig, ABC):
             "feature_size": feature_size,
             "nb_max_frames": nb_max_frames,
             "audio_sequence_length": audio_sequence_length,
+            "point_batch_size": point_batch_size,
+            "nb_points_per_image": nb_points_per_image,
         }
+        input_shapes = {}
         for name, value in axes_values.items():
+            if value is not None:
+                input_shapes[name] = value
             setattr(self, name, value)
+        setattr(self, "input_shapes", input_shapes)
+        setattr(self, "compiler_type", compiler_type)
+        setattr(self, "compiler_version", compiler_version)
 
     @classmethod
     def get_mandatory_axes_for_task(cls, task: str) -> Tuple[str]:
@@ -257,6 +271,8 @@ class NeuronConfig(ExportConfig, ABC):
         self,
         model: "PreTrainedModel",
         dummy_inputs: Dict[str, torch.Tensor],
+        forward_with_tuple: bool = False,
+        eligible_outputs: Optional[List[Union[str, int]]] = None,
     ):
         """
         Checks if inputs order of the model's forward pass correspond to the generated dummy inputs to ensure the dummy inputs tuple used for
@@ -277,6 +293,75 @@ class NeuronConfig(ExportConfig, ABC):
                     )
 
                 ordered_inputs = dict(zip(self.input_names, input))
-                return self.model(**ordered_inputs)
+
+                if forward_with_tuple is True:
+                    outputs = self.model(*ordered_inputs.values())
+                else:
+                    outputs = self.model(**ordered_inputs)
+
+                if isinstance(outputs, dict) and eligible_outputs is not None:
+                    outputs = {name: outputs[name] for name in outputs.keys() & eligible_outputs}
+
+                if isinstance(outputs, tuple) and eligible_outputs is not None:
+                    if not all(isinstance(x, int) for x in eligible_outputs):
+                        raise ValueError(
+                            "To extract outputs from a tuple, `eligible_outputs` must be a list of integers only."
+                        )
+                    outputs = [outputs[i] for i in eligible_outputs]
+
+                return outputs
 
         return ModelWrapper(model, list(dummy_inputs.keys()))
+
+
+class NeuronDecoderConfig(ExportConfig):
+    """
+    Base class for configuring the export of Neuron Decoder models
+
+    Class attributes:
+
+    - NEURONX_CLASS (`str`) -- the name of the transformers-neuronx class to instantiate for the model.
+    It is a full class name defined relatively to the transformers-neuronx module, e.g. `gpt2.model.GPT2ForSampling`
+    [`~optimum.utils.DummyInputGenerator`] specifying how to create dummy inputs.
+    - NEURONX_ARGS (`Dict[str, Any]`) -- a dictionary mapping optional arguments to be passed when instantiating the
+    transformers-neuronx model class to their default values.
+
+    The NEURONX_CLASS must always be defined in each model configuration.
+    The NEURONX_ARGS dict is required only if the transformers-neuronx model class needs specific parameters to
+     be specified. By default it is empty.
+
+    Args:
+        task (`str`): The task the model should be exported for.
+    """
+
+    NEURONX_CLASS = None
+    NEURONX_ARGS = {}
+
+    def __init__(self, task):
+        if not is_transformers_neuronx_available():
+            raise ModuleNotFoundError(
+                "The mandatory transformers-neuronx package is missing. Please install optimum[neuronx]."
+            )
+        module_name, class_name = self.NEURONX_CLASS.rsplit(".", maxsplit=1)
+        module = importlib.import_module(f"transformers_neuronx.{module_name}")
+        self._neuronx_class = getattr(module, class_name, None)
+        if self._neuronx_class is None:
+            raise ImportError(f"{class_name} not found in {module_name}. Please check transformers-neuronx version.")
+
+    def split_kwargs(self, **kwargs):
+        """Splits between kwargs that need to be passed when loading the transformers model
+        and those that need to be passed to the neuron optimizer.
+        """
+        model_kwargs = copy.deepcopy(kwargs)
+        neuron_kwargs = {}
+        for arg, default in self.NEURONX_ARGS.items():
+            if arg in model_kwargs:
+                neuron_kwargs[arg] = model_kwargs[arg]
+                model_kwargs.pop(arg)
+            else:
+                neuron_kwargs[arg] = default
+        return model_kwargs, neuron_kwargs
+
+    @property
+    def neuronx_class(self):
+        return self._neuronx_class

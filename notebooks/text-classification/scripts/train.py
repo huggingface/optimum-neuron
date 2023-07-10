@@ -13,7 +13,7 @@ from transformers import (
     set_seed,
 )
 
-from optimum.neuron import TrainiumTrainer as Trainer
+from optimum.neuron import NeuronTrainer as Trainer
 
 
 logger = logging.getLogger(__name__)

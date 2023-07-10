@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Defines custom Trainer callbacks specific to AWS Trainium instances."""
+"""Defines custom Trainer callbacks specific to AWS Neuron instances."""
 
 import inspect
 import json
@@ -32,6 +32,7 @@ from .utils.cache_utils import (
     NEURON_COMPILE_CACHE_NAME,
     NeuronHash,
     download_cached_model_from_hub,
+    follows_new_cache_naming_convention,
     get_neuron_cache_path,
     list_files_in_neuron_cache,
     path_after_folder,
@@ -119,8 +120,8 @@ class NeuronCacheCallaback(TrainerCallback):
         return cache_stats
 
     @classmethod
-    def _insert_in_cache_stats(cls, cache_stats: Dict[str, Dict[str, Any]], path: Path):
-        path_in_cache = path_after_folder(path, NEURON_COMPILE_CACHE_NAME)
+    def _insert_in_cache_stats(cls, cache_stats: Dict[str, Dict[str, Any]], path: Path, cache_path: Path):
+        path_in_cache = path_after_folder(path, cache_path.name)
         cache_key = path_in_cache.parts[0]
         item = cache_stats.get(cache_key, {})
         if path.parent.as_posix() in item:
@@ -132,7 +133,7 @@ class NeuronCacheCallaback(TrainerCallback):
     def _update_cache_stats(cls, neuron_cache_path: Path):
         cache_stats = cls._load_cache_stats(neuron_cache_path)
         for path in list_files_in_neuron_cache(neuron_cache_path):
-            cls._insert_in_cache_stats(cache_stats, path)
+            cls._insert_in_cache_stats(cache_stats, path, neuron_cache_path)
         with open(neuron_cache_path / "cache_stats.json", "w") as fp:
             json.dump(cache_stats, fp)
 
@@ -145,8 +146,13 @@ class NeuronCacheCallaback(TrainerCallback):
         else:
             neuron_cache_files = []
 
-        set_neuron_cache_path(tmp_neuron_cache_path)
-        tmp_neuron_cache_path = tmp_neuron_cache_path / NEURON_COMPILE_CACHE_NAME
+        if follows_new_cache_naming_convention():
+            tmp_neuron_cache_path = tmp_neuron_cache_path / NEURON_COMPILE_CACHE_NAME
+            set_neuron_cache_path(tmp_neuron_cache_path)
+        else:
+            set_neuron_cache_path(tmp_neuron_cache_path)
+            tmp_neuron_cache_path = tmp_neuron_cache_path / NEURON_COMPILE_CACHE_NAME
+
         tmp_neuron_cache_path.mkdir()
 
         cache_stats_exists = False
@@ -158,12 +164,12 @@ class NeuronCacheCallaback(TrainerCallback):
         for cache_file in neuron_cache_files:
             if cache_file.name == "cache_stats.json":
                 continue
-            path_in_neuron_cache = path_after_folder(cache_file, NEURON_COMPILE_CACHE_NAME)
+            path_in_neuron_cache = path_after_folder(cache_file, neuron_cache_path.name)
             tmp_cache_file = tmp_neuron_cache_path / path_in_neuron_cache
             tmp_cache_file.parent.mkdir(parents=True, exist_ok=True)
             tmp_cache_file.symlink_to(cache_file)
 
-            cls._insert_in_cache_stats(cache_stats, cache_file)
+            cls._insert_in_cache_stats(cache_stats, cache_file, neuron_cache_path)
 
         if not cache_stats_exists:
             with open(tmp_neuron_cache_path / "cache_stats.json", "w") as fp:
@@ -199,8 +205,8 @@ class NeuronCacheCallaback(TrainerCallback):
                 self.try_to_fetch_cached_model(neuron_hash)
         return neuron_hash
 
-    def full_path_to_path_in_cache(self, path: Path):
-        return path_after_folder(path, NEURON_COMPILE_CACHE_NAME)
+    def full_path_to_path_in_temporary_cache(self, path: Path):
+        return path_after_folder(path, self.tmp_neuron_cache_path.name)
 
     def try_to_fetch_cached_model(self, neuron_hash: NeuronHash) -> bool:
         # TODO: needs to be called ONLY when absolutely needed.
@@ -223,7 +229,7 @@ class NeuronCacheCallaback(TrainerCallback):
             self.tmp_neuron_cache_state += diff
             if self.use_neuron_cache:
                 for path in diff:
-                    path_in_cache = self.full_path_to_path_in_cache(path)
+                    path_in_cache = self.full_path_to_path_in_temporary_cache(path)
                     path_in_original_cache = self.neuron_cache_path / path_in_cache
                     path_in_original_cache.parent.mkdir(parents=True, exist_ok=True)
                     if path_in_original_cache.exists():
@@ -244,12 +250,15 @@ class NeuronCacheCallaback(TrainerCallback):
         for neuron_hash, files in self.neuron_hash_to_files.items():
 
             def local_path_to_path_in_repo(path):
-                return path_after_folder(path, f"USER_neuroncc-{neuron_hash.neuron_compiler_version}")
+                if follows_new_cache_naming_convention():
+                    return path_after_folder(path, f"neuronxcc-{neuron_hash.neuron_compiler_version}")
+                else:
+                    return path_after_folder(path, f"USER_neuroncc-{neuron_hash.neuron_compiler_version}")
 
             for path in files:
                 push_to_cache_on_hub(neuron_hash, path, local_path_to_path_in_repo=local_path_to_path_in_repo)
                 if self.use_neuron_cache:
-                    path_in_cache = self.full_path_to_path_in_cache(path)
+                    path_in_cache = self.full_path_to_path_in_temporary_cache(path)
                     target_file = self.neuron_cache_path / path_in_cache
                     target_file.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy(path, self.neuron_cache_path / path_in_cache)
