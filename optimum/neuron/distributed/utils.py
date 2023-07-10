@@ -17,11 +17,13 @@
 import contextlib
 import functools
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Literal, Optional, Tuple, Union
 
 import torch
 from transformers import PretrainedConfig
+from transformers.utils import is_safetensors_available
 
 from ..utils import DynamicPatch, Patcher, is_neuronx_distributed_available
 from ..utils.misc import download_checkpoints_in_cache
@@ -34,9 +36,43 @@ if is_neuronx_distributed_available():
 TENSOR_PARALLEL_SHARDS_DIR_NAME = "tensor_parallel_shards"
 
 
+@dataclass
+class WeightInformation:
+    filename: Union[str, Path]
+    qualified_name: str
+    device: Optional[torch.device] = None
+
+
+def load_tensor_for_weight(
+    weight_info: WeightInformation, tensor_slices: Optional[Tuple[Optional[Tuple[int, ...]], ...]] = None
+) -> torch.Tensor:
+    # TODO: find a better solution since it's going to be called a lot.
+    if not is_safetensors_available():
+        raise ModuleNotFoundError(
+            "Loading a tensor for a given weight only requires the `safetensors` package. You can install it by "
+            "running: pip install safetensors."
+        )
+
+    from safetensors import safe_open
+
+    device = weight_info.device if weight_info.device is not torch.device("cpu") else None
+    with safe_open(weight_info.filename, framework="pt", device=device) as fp:
+        if tensor_slices is None:
+            tensor = fp.get_tensor(weight_info.qualified_name)
+        else:
+            tensor_slice = fp.get_slice(weight_info.qualified_name)
+            slices = [slice(*slice_) if slice_ is not None else slice(None, None, None) for slice_ in tensor_slices]
+            tensor = tensor_slice[slices]
+
+    return tensor
+
+
 def embedding_to_parallel_embedding(
     embedding_layer: "torch.nn.Embedding",
     lm_head_layer: Optional["torch.nn.Linear"] = None,
+    embedding_weight_info: Optional[WeightInformation] = None,
+    lm_head_weight_info: Optional[WeightInformation] = None,
+    lm_head_bias_weight_info: Optional[WeightInformation] = None,
     orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
 ) -> Union["layers.ParallelEmbedding", Tuple["layers.ParallelEmbedding", "layers.ColumnParallelLinear"]]:
     parallel_embedding_layer = layers.ParallelEmbedding(
@@ -52,17 +88,33 @@ def embedding_to_parallel_embedding(
     if lm_head_layer is not None:
         is_tied = id(embedding_layer.weight.data) == id(lm_head_layer.weight.data)
 
+    embedding_weight_to_tie = parallel_embedding_layer.weight if is_tied else None
+
     with torch.no_grad():
-        parallel_embedding_layer.weight.copy_(embedding_layer.weight[tp_rank * row_size : (tp_rank + 1) * row_size, :])
+        if embedding_weight_info is not None:
+            weight_data = load_tensor_for_weight(
+                embedding_weight_info,
+                tensor_slices=(
+                    (tp_rank * row_size, (tp_rank + 1) * row_size),
+                    None,
+                ),
+            )
+            parallel_embedding_layer.weight.data = weight_data
+        else:
+            parallel_embedding_layer.weight.copy_(
+                embedding_layer.weight[tp_rank * row_size : (tp_rank + 1) * row_size, :]
+            )
+
         if lm_head_layer is not None:
             parallel_lm_head_layer = linear_to_parallel_linear(
                 lm_head_layer,
                 "column",
+                linear_layer_weight_info=lm_head_weight_info,
+                linear_layer_bias_weight_info=lm_head_bias_weight_info,
+                embedding_weight_to_tie=embedding_weight_to_tie,
                 gather_output=True,
                 orig_to_parallel=orig_to_parallel if not is_tied else None,
             )
-            if is_tied:
-                parallel_lm_head_layer.weight = parallel_embedding_layer.weight
 
     if orig_to_parallel:
         orig_to_parallel[id(embedding_layer.weight)] = parallel_embedding_layer.weight
@@ -71,6 +123,7 @@ def embedding_to_parallel_embedding(
 
     if lm_head_layer is None:
         return parallel_embedding_layer
+
     return parallel_embedding_layer, parallel_lm_head_layer
 
 
@@ -79,6 +132,9 @@ def linear_to_parallel_linear(
     axis: Union[Literal["row"], Literal["column"]],
     input_is_parallel: bool = False,
     gather_output: bool = True,
+    linear_layer_weight_info: Optional[WeightInformation] = None,
+    linear_layer_bias_weight_info: Optional[WeightInformation] = None,
+    embedding_weight_to_tie: Optional["torch.nn.Parameter"] = None,
     orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
 ) -> Union["layers.RowParallelLinear", "layers.ColumnParallelLinear"]:
     if axis not in ["row", "column"]:
@@ -102,15 +158,58 @@ def linear_to_parallel_linear(
 
     with torch.no_grad():
         if axis == "row":
-            parallel_linear_layer.weight.copy_(linear_layer.weight[:, tp_rank * col_size : (tp_rank + 1) * col_size])
+            if embedding_weight_to_tie is not None:
+                parallel_linear_layer.weight = embedding_weight_to_tie
+            elif linear_layer_weight_info is not None:
+                weight_data = load_tensor_for_weight(
+                    linear_layer_weight_info,
+                    tensor_slices=(
+                        None,
+                        (tp_rank * col_size, (tp_rank + 1) * col_size),
+                    ),
+                )
+                parallel_linear_layer.weight.data = weight_data
+            else:
+                parallel_linear_layer.weight.copy_(
+                    linear_layer.weight[:, tp_rank * col_size : (tp_rank + 1) * col_size]
+                )
+
             if linear_layer.bias is not None:
-                parallel_linear_layer.bias.copy_(linear_layer.bias)
+                if linear_layer_bias_weight_info is not None:
+                    bias_weight_data = load_tensor_for_weight(linear_layer_bias_weight_info)
+                    parallel_linear_layer.bias.data = bias_weight_data
+                else:
+                    parallel_linear_layer.bias.copy_(linear_layer.bias)
+
                 if orig_to_parallel is not None:
                     orig_to_parallel[id(linear_layer.bias)] = parallel_linear_layer.bias
         else:
-            parallel_linear_layer.weight.copy_(linear_layer.weight[tp_rank * row_size : (tp_rank + 1) * row_size, :])
+            if embedding_weight_to_tie is not None:
+                parallel_linear_layer.weight = embedding_weight_to_tie
+            elif linear_layer_weight_info is not None:
+                weight_data = load_tensor_for_weight(
+                    linear_layer_weight_info,
+                    tensor_slices=(
+                        (tp_rank * row_size, (tp_rank + 1) * row_size),
+                        None,
+                    ),
+                )
+                parallel_linear_layer.weight.data = weight_data
+
+            else:
+                parallel_linear_layer.weight.copy_(
+                    linear_layer.weight[tp_rank * row_size : (tp_rank + 1) * row_size, :]
+                )
+
             if linear_layer.bias is not None:
-                parallel_linear_layer.bias.copy_(linear_layer.bias[tp_rank * row_size : (tp_rank + 1) * row_size])
+                if linear_layer_bias_weight_info is not None:
+                    bias_weight_data = load_tensor_for_weight(
+                        linear_layer_bias_weight_info,
+                        tensor_slices=((tp_rank * row_size, (tp_rank + 1) * row_size),),
+                    )
+                else:
+                    parallel_linear_layer.bias.copy_(linear_layer.bias[tp_rank * row_size : (tp_rank + 1) * row_size])
+
                 if orig_to_parallel is not None:
                     orig_to_parallel[id(linear_layer.bias)] = parallel_linear_layer.bias
 
@@ -195,14 +294,16 @@ def from_pretrained_for_tp(
     model = cls(config, *model_args, **model_kwargs)
 
     if sharded_metadata:
-        filenames = list(map(Path, filenames))
-        safetensors_filename_to_full_filename = {path.name: path for path in filenames}
+        # filenames = list(map(Path, filenames))
+        # safetensors_filename_to_full_filename = {path.name: path for path in filenames}
         weight_map = sharded_metadata["weight_map"]
-        for weight_name, safetensors_filename in sharded_metadata.items():
-            weight_map[weight_name] = safetensors_filename_to_full_filename[safetensors_filename]
+        # for weight_name, safetensors_filename in weight_map.items():
+        # print("weight_name", weight_name, "safetensors", safetensors_filename)
+        # print("keys", safetensors_filename_to_full_filename.keys())
+        # weight_map[weight_name] = safetensors_filename_to_full_filename[safetensors_filename]
     else:
         filename = Path(filenames)
-        weight_map = {name: filename for name, _ in model.named_parameters()}
+        weight_map = {weight_name: filename for weight_name, _ in model.named_parameters()}
 
     model._weight_map = weight_map
 
@@ -231,4 +332,4 @@ def prepare_for_tp():
         try:
             yield
         finally:
-            print("DONE")
+            pass

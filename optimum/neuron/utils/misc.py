@@ -193,31 +193,23 @@ def download_checkpoints_in_cache(
                 os.path.join(pretrained_model_name_or_path, subfolder, _add_variant(SAFE_WEIGHTS_NAME, variant))
             ):
                 # Load from a safetensors checkpoint
-                os.path.join(
-                    pretrained_model_name_or_path, subfolder, _add_variant(SAFE_WEIGHTS_NAME, variant)
-                )
+                os.path.join(pretrained_model_name_or_path, subfolder, _add_variant(SAFE_WEIGHTS_NAME, variant))
             elif use_safetensors is not False and os.path.isfile(
                 os.path.join(pretrained_model_name_or_path, subfolder, _add_variant(SAFE_WEIGHTS_INDEX_NAME, variant))
             ):
                 # Load from a sharded safetensors checkpoint
-                os.path.join(
-                    pretrained_model_name_or_path, subfolder, _add_variant(SAFE_WEIGHTS_INDEX_NAME, variant)
-                )
+                os.path.join(pretrained_model_name_or_path, subfolder, _add_variant(SAFE_WEIGHTS_INDEX_NAME, variant))
                 is_sharded = True
             elif os.path.isfile(
                 os.path.join(pretrained_model_name_or_path, subfolder, _add_variant(WEIGHTS_NAME, variant))
             ):
                 # Load from a PyTorch checkpoint
-                os.path.join(
-                    pretrained_model_name_or_path, subfolder, _add_variant(WEIGHTS_NAME, variant)
-                )
+                os.path.join(pretrained_model_name_or_path, subfolder, _add_variant(WEIGHTS_NAME, variant))
             elif os.path.isfile(
                 os.path.join(pretrained_model_name_or_path, subfolder, _add_variant(WEIGHTS_INDEX_NAME, variant))
             ):
                 # Load from a sharded PyTorch checkpoint
-                os.path.join(
-                    pretrained_model_name_or_path, subfolder, _add_variant(WEIGHTS_INDEX_NAME, variant)
-                )
+                os.path.join(pretrained_model_name_or_path, subfolder, _add_variant(WEIGHTS_INDEX_NAME, variant))
                 is_sharded = True
             # At this stage we don't have a weight file so we will raise an error.
             elif os.path.isfile(
@@ -395,15 +387,20 @@ def download_checkpoints_in_cache(
         if not isinstance(maybe_to_convert, list):
             maybe_to_convert = [maybe_to_convert]
 
-        torch_filenames_to_safetensors_filenames = {}
+        filenames_to_safetensors_filenames = {}
         for filename in maybe_to_convert:
-            if filename.endswith(".bin"):
+            filename = Path(filename)
+            if filename.suffix == ".safetensors":
+                filenames_to_safetensors_filenames[filename.name] = filename
+            elif filename.suffix == ".bin":
                 output_path = convert_checkpoints_to_safetensors(filename)
-                torch_filenames_to_safetensors_filenames[Path(filename).name] = output_path.name
+                filenames_to_safetensors_filenames[filename.name] = output_path
+            else:
+                raise ValueError("Only PyTorch and safetensors files are supported.")
 
         if sharded_metadata is not None:
             weight_map = sharded_metadata["weight_map"]
             for weight_name, torch_filename in weight_map.items():
-                weight_map[weight_name] = torch_filenames_to_safetensors_filenames[torch_filename]
+                weight_map[weight_name] = filenames_to_safetensors_filenames[torch_filename]
 
     return resolved_archive_file, sharded_metadata
