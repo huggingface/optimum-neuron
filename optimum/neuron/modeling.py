@@ -29,7 +29,14 @@ from transformers import (
     AutoModelForTokenClassification,
 )
 from transformers.file_utils import add_start_docstrings, add_start_docstrings_to_model_forward
-from transformers.generation import GenerationMixin, LogitsProcessorList, SampleDecoderOnlyOutput, StoppingCriteriaList
+from transformers.generation import (
+    GenerationMixin,
+    LogitsProcessorList,
+    LogitsWarper,
+    SampleDecoderOnlyOutput,
+    StoppingCriteriaList,
+    TopKLogitsWarper,
+)
 from transformers.modeling_outputs import (
     BaseModelOutputWithPooling,
     MaskedLMOutput,
@@ -654,6 +661,18 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
         """Returns True to validate the check made in `GenerationMixin.generate()`."""
         return True
 
+    class FastTopKLogitsWarper(LogitsWarper):
+        r"""Return [batch_size, top_k] scores and indices instead of [batch_size, vocab_size] scores"""
+
+        def __init__(self, top_k: int, filter_value: float):
+            self.top_k = top_k
+            self.filter_value = filter_value
+
+        def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
+            top_k = min(self.top_k, scores.size(-1))  # Safety check
+            # Remove all tokens with a probability less than the last token of the top-k
+            return torch.topk(scores, top_k)
+
     # Adapted from transformers.generation.utils.GenerationMixin.sample
     def sample(
         self,
@@ -792,7 +811,16 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
                 UserWarning,
             )
             stopping_criteria = self.validate_stopping_criteria(stopping_criteria, max_length)
-        logits_warper = logits_warper if logits_warper is not None else LogitsProcessorList()
+        fast_topk = False
+        if logits_warper is None:
+            logits_warper = LogitsProcessorList()
+        else:
+            last_warper = logits_warper[-1]
+            fast_topk = isinstance(last_warper, TopKLogitsWarper)
+            if fast_topk:
+                # Replace the last warping operation by a faster alternative
+                logits_warper[-1] = self.FastTopKLogitsWarper(last_warper.top_k, last_warper.filter_value)
+
         pad_token_id = pad_token_id if pad_token_id is not None else self.generation_config.pad_token_id
         eos_token_id = eos_token_id if eos_token_id is not None else self.generation_config.eos_token_id
         if isinstance(eos_token_id, int):
@@ -837,12 +865,22 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
 
             # pre-process distribution
             next_token_scores = logits_processor(input_ids, next_token_logits)
-            next_token_scores = logits_warper(input_ids, next_token_scores)
+            if fast_topk:
+                # Get [batch_size, top_k] scores and indices instead of [batch_size, vocab_size] scores
+                next_token_scores, next_token_indices = logits_warper(input_ids, next_token_scores)
+            else:
+                next_token_scores = logits_warper(input_ids, next_token_scores)
 
             # Store scores, attentions and hidden_states when required
             if return_dict_in_generate:
                 if output_scores:
-                    scores += (next_token_scores,)
+                    if fast_topk:
+                        # Expand the [batch_size, top_k] scores to [batch_size, vocab_size]
+                        expanded_scores = torch.full(next_token_logits.shape, last_warper.filter_value)
+                        expanded_scores.scatter(1, next_token_indices, next_token_scores)
+                        scores += (expanded_scores,)
+                    else:
+                        scores += (next_token_scores,)
                 if output_attentions:
                     decoder_attentions += (
                         (outputs.decoder_attentions,) if self.config.is_encoder_decoder else (outputs.attentions,)
@@ -859,7 +897,11 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
 
             # sample
             probs = torch.nn.functional.softmax(next_token_scores, dim=-1)
-            next_tokens = torch.multinomial(probs, num_samples=1).squeeze(1)
+            next_tokens = torch.multinomial(probs, num_samples=1)
+            if fast_topk:
+                # Convert the topk relative tokens to actual vocabulary tokens
+                next_tokens = torch.gather(next_token_indices, 1, next_tokens)
+            next_tokens = next_tokens.squeeze(1)
 
             # finished sentences should have their next token be a padding token
             if eos_token_id is not None:
