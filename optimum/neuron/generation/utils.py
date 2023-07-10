@@ -1080,7 +1080,9 @@ class NeuronGenerationMixin(GenerationMixin):
             )
 
         else:
-            # 10.a go into not optimized generation modes
+            # 10.a go into not optimized generation modes. We can't handle KV cache in this case.
+            assert model_kwargs['use_cache'] == False, "`use_cache` is currently not supported for this sampling method."
+
             general_device = "cpu"
             input_ids = input_ids.to(general_device)
             inputs_tensor = inputs_tensor.to(general_device)
