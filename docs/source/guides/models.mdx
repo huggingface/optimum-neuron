@@ -129,6 +129,12 @@ if the export cannot done with CLI, maybe add a snippet on how to export all nec
 
 ## Inference of Stable Diffusion Models
 
+Optimum extends 🤗`Diffusers` to support inference on Neuron. To get started, make sure you have installed Diffusers:
+
+```bash
+pip install diffusers >= 0.17.0
+```
+
 You can also accelerate the inference of stable diffusion on neuronx devices (inf / trn1). There are three components which need to be exported to `.neuron` format to boost the performance:
 
 * Text encoder
