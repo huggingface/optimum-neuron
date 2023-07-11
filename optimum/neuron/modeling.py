@@ -662,7 +662,7 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
         return True
 
     class FastTopKLogitsWarper(LogitsWarper):
-        r"""Return [batch_size, top_k] scores and indices instead of [batch_size, vocab_size] scores"""
+        r"""Returns [batch_size, top_k] scores and indices instead of [batch_size, vocab_size] scores"""
 
         def __init__(self, top_k: int, filter_value: float):
             self.top_k = top_k
@@ -692,16 +692,12 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
         **model_kwargs,
     ) -> Union[SampleDecoderOnlyOutput, torch.LongTensor]:
         r"""
-        Generates sequences of token ids for models with a language modeling head using **multinomial sampling** and
+        This is a simplified version of the transformers `GenerationMixin.sample()` method that is optimized for neuron inference.
+
+        It generates sequences of token ids for models with a language modeling head using **multinomial sampling** and
         can be used for text-decoder, text-to-text, speech-to-text, and vision-to-text models.
 
-        <Tip warning={true}>
-
-        In most cases, you do not need to call [`~generation.GenerationMixin.sample`] directly. Use generate() instead.
-        For an overview of generation strategies and code examples, check the [following
-        guide](../generation_strategies).
-
-        </Tip>
+        Please refer to https://huggingface.co/docs/transformers/en/main_classes/text_generation#transformers.GenerationMixin.sample.
 
         Parameters:
             input_ids (`torch.LongTensor` of shape `(batch_size, sequence_length)`):
@@ -746,57 +742,6 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
             `return_dict_in_generate=True` or a [`~generation.SampleEncoderDecoderOutput`] if
             `model.config.is_encoder_decoder=True`.
 
-        Examples:
-
-        ```python
-        >>> from transformers import (
-        ...     AutoTokenizer,
-        ...     AutoModelForCausalLM,
-        ...     LogitsProcessorList,
-        ...     MinLengthLogitsProcessor,
-        ...     TopKLogitsWarper,
-        ...     TemperatureLogitsWarper,
-        ...     StoppingCriteriaList,
-        ...     MaxLengthCriteria,
-        ... )
-        >>> import torch
-
-        >>> tokenizer = AutoTokenizer.from_pretrained("gpt2")
-        >>> model = NeuronModelForCausalLM.from_pretrained("gpt2")
-
-        >>> # set pad_token_id to eos_token_id because GPT2 does not have a EOS token
-        >>> model.config.pad_token_id = model.config.eos_token_id
-        >>> model.generation_config.pad_token_id = model.config.eos_token_id
-
-        >>> input_prompt = "Today is a beautiful day, and"
-        >>> input_ids = tokenizer(input_prompt, return_tensors="pt").input_ids
-
-        >>> # instantiate logits processors
-        >>> logits_processor = LogitsProcessorList(
-        ...     [
-        ...         MinLengthLogitsProcessor(15, eos_token_id=model.generation_config.eos_token_id),
-        ...     ]
-        ... )
-        >>> # instantiate logits processors
-        >>> logits_warper = LogitsProcessorList(
-        ...     [
-        ...         TopKLogitsWarper(50),
-        ...         TemperatureLogitsWarper(0.7),
-        ...     ]
-        ... )
-
-        >>> stopping_criteria = StoppingCriteriaList([MaxLengthCriteria(max_length=20)])
-
-        >>> torch.manual_seed(0)  # doctest: +IGNORE_RESULT
-        >>> outputs = model.sample(
-        ...     input_ids,
-        ...     logits_processor=logits_processor,
-        ...     logits_warper=logits_warper,
-        ...     stopping_criteria=stopping_criteria,
-        ... )
-
-        >>> tokenizer.batch_decode(outputs, skip_special_tokens=True)
-        ['Today is a beautiful day, and we must do everything possible to make it a day of celebration.']
         ```"""
         # We don't support all parameters
         if synced_gpus:
@@ -811,6 +756,7 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
                 UserWarning,
             )
             stopping_criteria = self.validate_stopping_criteria(stopping_criteria, max_length)
+        # Modifications to the original algorithm are all conditioned by the fast_topk boolean
         fast_topk = False
         if logits_warper is None:
             logits_warper = LogitsProcessorList()
