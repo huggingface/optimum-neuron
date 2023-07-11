@@ -41,7 +41,7 @@ from transformers.utils import is_sagemaker_mp_enabled
 
 from ..utils import check_if_transformers_greater, logging
 from .accelerate import NeuronAccelerator, NeuronDistributedType
-from .distributed import ParallelizersManager
+from .distributed import Parallelizer, ParallelizersManager
 from .trainer_callback import NeuronCacheCallaback
 from .utils import (
     DynamicPatch,
@@ -168,6 +168,13 @@ class AugmentTrainerForTrainiumMixin:
         # Make the model Neuron-compatible for generation.
         patch_generation_mixin_to_neuron_generation_mixin(self.model)
 
+    @property
+    def tp_enabled(self):
+        return (
+            check_if_transformers_greater("4.30.0")
+            and self.accelerator.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM
+        )
+
     def prepare_args_for_precompilation(self, args: "TrainingArguments"):
         if args.num_train_epochs != 1:
             logger.info("Setting the number of epochs for precompilation to 1.")
@@ -241,6 +248,11 @@ class AugmentTrainerForTrainiumMixin:
             data_loader = self.accelerator.prepare_data_loader(data_loader)
         return data_loader
 
+    def _get_train_sampler(self) -> Optional[torch.utils.data.Sampler]:
+        if self.tp_enabled:
+            return None
+        return super()._get_train_sampler()
+
     def get_train_dataloader(self, *args, **kwargs) -> DataLoader:
         return self._prepare_data_loader_with_accelerator(super().get_train_dataloader(*args, **kwargs))
 
@@ -249,6 +261,13 @@ class AugmentTrainerForTrainiumMixin:
 
     def get_test_dataloader(self, *args, **kwargs) -> DataLoader:
         return self._prepare_data_loader_with_accelerator(super().get_test_dataloader(*args, **kwargs))
+
+    @staticmethod
+    def get_optimizer_cls_and_kwargs(args: TrainingArguments) -> Tuple[Any, Any]:
+        optimizer_cls, optimizer_kwargs = super().get_optimizer_cls_and_kwargs()
+        if check_if_transformers_greater("4.30.0") and args.tp_plugin.should_parallelize:
+            optimizer_cls = Parallelizer.make_optimizer_constructor_lazy_for_tp(optimizer_cls)
+        return optimizer_cls, optimizer_kwargs
 
     def compute_loss(self, model, inputs, return_outputs: bool = False):
         self.state.last_inputs = inputs

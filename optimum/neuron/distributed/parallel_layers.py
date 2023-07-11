@@ -193,14 +193,16 @@ class ParallelMLP(ParallelLayer):
 
     @classmethod
     def _get_module_and_attribute_name(
-        cls, layer: "torch.nn.Module", fully_qualified_linear_name: str
+        cls,
+        model: "PreTrainedModel",
+        fully_qualified_name: str,
     ) -> Tuple["torch.nn.Module", str]:
-        split = fully_qualified_linear_name.rsplit(".", maxsplit=1)
+        split = fully_qualified_name.rsplit(".", maxsplit=1)
         if len(split) == 1:
-            module = layer
+            module = model
             attribute_name = split[0]
         else:
-            module = layer.get_submodule(split[0])
+            module = model.get_submodule(split[0])
             attribute_name = split[1]
         return module, attribute_name
 
@@ -214,18 +216,17 @@ class ParallelMLP(ParallelLayer):
         if cls.FIRST_LINEAR_NAME is None or cls.SECOND_LINEAR_NAME is None:
             raise ValueError("Both `FIRST_LINEAR_NAME` and `SECOND_LINEAR_NAME` class attributes must be set.")
 
+        layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
         weight_map = getattr(model, "_weight_map", None)
 
         linear_layer_weight_info, linear_layer_bias_weight_info = None, None
-        layer_qualified_name = ""
+        module, attribute_name = cls._get_module_and_attribute_name(layer, cls.FIRST_LINEAR_NAME)
         if weight_map is not None:
-            layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
-            layer_qualified_name = layer_to_fully_qualified_name[id(layer)]
+            layer_qualified_name = layer_to_fully_qualified_name[id(module)]
             linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
-                weight_map, f"{layer_qualified_name}.{cls.FIRST_LINEAR_NAME}"
+                weight_map, f"{layer_qualified_name}.{attribute_name}"
             )
 
-        module, attribute_name = cls._get_module_and_attribute_name(layer, cls.FIRST_LINEAR_NAME)
         setattr(
             module,
             attribute_name,
@@ -240,11 +241,11 @@ class ParallelMLP(ParallelLayer):
         )
 
         module, attribute_name = cls._get_module_and_attribute_name(layer, cls.SECOND_LINEAR_NAME)
-
         linear_layer_weight_info, linear_layer_bias_weight_info = None, None
         if weight_map is not None:
+            layer_qualified_name = layer_to_fully_qualified_name[id(module)]
             linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
-                model, f"{layer_qualified_name}.{cls.SECOND_LINEAR_NAME}"
+                weight_map, f"{layer_qualified_name}.{attribute_name}"
             )
 
         setattr(

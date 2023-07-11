@@ -18,7 +18,7 @@ import contextlib
 from abc import ABC, abstractclassmethod
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Dict, Optional, Union
+from typing import TYPE_CHECKING, Dict, Optional, Type, Union
 
 import torch
 from transformers.utils import WEIGHTS_NAME
@@ -93,7 +93,7 @@ class Parallelizer(ABC):
         cls, model: "PreTrainedModel", orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None
     ) -> "PreTrainedModel":
         model = cls._parallelize(model, orig_to_parallel=orig_to_parallel)
-        weight_map = getattr(model, "_weight_map", None)
+        weight_map = getattr(model, "_weight_map", {})
         with torch.no_grad():
             modules_to_initialize = []
             for name, parameter in model.named_parameters():
@@ -147,6 +147,38 @@ class Parallelizer(ABC):
     def _check_model_was_parallelized(cls, model: "PreTrainedModel"):
         if not cls.was_parallelized(model):
             raise ValueError("The model needs to be parallelized first.")
+
+    @classmethod
+    def make_optimizer_constructor_lazy_for_tp(cls, optimizer_cls: Type["torch.optim.Optimizer"]):
+        def optimizer_constructor(*args, **kwargs):
+            optimizer_with_no_parameters = optimizer_cls([], *args[1:], **kwargs)
+            optimizer_with_no_parameters._args_to_recreate = (args, kwargs)
+            return optimizer_with_no_parameters
+
+        return optimizer_constructor
+
+    @classmethod
+    def optimizer_for_tp(
+        cls, optimizer: "torch.optim.Optimizer", orig_param_to_parallel_param_on_xla: Dict[int, "torch.nn.Parameters"]
+    ) -> "torch.optim.Optimizer":
+        if hasattr(optimizer, "_args_to_recreate"):
+            args, kwargs = optimizer._args_to_recreate
+            parameters = args[0]
+            parallel_parameters = []
+            for param in parameters:
+                if isinstance(param, dict):
+                    new_param = {k: v for k, v in param.items() if k != "params"}
+                    params = []
+                    for p in param["params"]:
+                        params.append(orig_param_to_parallel_param_on_xla[id(p)])
+                    new_param["params"] = params
+                else:
+                    new_param = []
+                    for p in param:
+                        new_param.append(orig_param_to_parallel_param_on_xla[id(p)])
+                parallel_parameters.append(new_param)
+            optimizer = optimizer.__class__(parallel_parameters, *args[1:], **kwargs)
+        return optimizer
 
     @classmethod
     def save_model_checkpoint_as_regular(

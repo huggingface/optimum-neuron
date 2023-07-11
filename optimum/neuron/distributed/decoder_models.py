@@ -18,12 +18,12 @@ from typing import TYPE_CHECKING, Dict, Optional
 
 from .base import Parallelizer
 from .parallel_layers import ParallelMLP, ParallelSelfAttention
-from .utils import embedding_to_parallel_embedding, linear_to_parallel_linear
+from .utils import WeightInformation, embedding_to_parallel_embedding, linear_to_parallel_linear
 
 
 if TYPE_CHECKING:
     import torch
-    from transformers import PretrainedConfig, PreTrainedModel
+    from transformers import PreTrainedModel
 
 
 class GPTNeoParallelSelfAttention(ParallelSelfAttention):
@@ -65,20 +65,35 @@ class LLamaParallelMLP(ParallelMLP):
     @classmethod
     def transform(
         cls,
+        model: "PreTrainedModel",
         layer: "torch.nn.Module",
-        config: "PretrainedConfig",
         orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
     ) -> "torch.nn.Module":
         # TODO: Make it smart by merging the gate and the up_proj.
         # WARNING: be careful of the interleaved outputs when doing TP!
-        layer = super().transform(layer, config, orig_to_parallel=orig_to_parallel)
+        layer = super().transform(model, layer, orig_to_parallel=orig_to_parallel)
+
+        weight_map = getattr(model, "_weight_map", None)
+
+        module, attribute_name = cls._get_module_and_attribute_name(layer, "gate_proj")
+        linear_layer_weight_info, linear_layer_bias_weight_info = None, None
+        layer_qualified_name = ""
+        if weight_map is not None:
+            layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
+            layer_qualified_name = layer_to_fully_qualified_name[id(layer)]
+            linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
+                weight_map, f"{layer_qualified_name}.{attribute_name}"
+            )
+
         setattr(
-            layer,
-            "gate_proj",
+            module,
+            attribute_name,
             linear_to_parallel_linear(
-                getattr(layer, "gate_proj"),
+                getattr(module, attribute_name),
                 "column",
                 gather_output=False,
+                linear_layer_weight_info=linear_layer_weight_info,
+                linear_layer_bias_weight_info=linear_layer_bias_weight_info,
                 orig_to_parallel=orig_to_parallel,
             ),
         )
@@ -90,10 +105,27 @@ class LlamaParallelizer(Parallelizer):
     def _parallelize(
         cls, model: "PreTrainedModel", orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]]
     ) -> "PreTrainedModel":
+        embedding_weight_info = None
+        lm_head_weight_info = None
+        lm_head_bias_weight_info = None
+        weight_map = getattr(model, "_weight_map", None)
+        if weight_map is not None:
+            embedding_weight_info = WeightInformation(
+                weight_map["model.embed_tokens.weight"], "model.embed_tokens.weight"
+            )
+            lm_head_weight_info = WeightInformation(weight_map["lm_head.weight"], "lm_head.weight")
+            if "lm_head.bias" in weight_map:
+                lm_head_bias_weight_info = WeightInformation(weight_map["lm_head.bias"], "lm_head.bias")
+
         model.model.embed_tokens, model.lm_head = embedding_to_parallel_embedding(
-            model.model.embed_tokens, lm_head_layer=model.lm_head, orig_to_parallel=orig_to_parallel
+            model.model.embed_tokens,
+            lm_head_layer=model.lm_head,
+            embedding_weight_info=embedding_weight_info,
+            lm_head_weight_info=lm_head_weight_info,
+            lm_head_bias_weight_info=lm_head_bias_weight_info,
+            orig_to_parallel=orig_to_parallel,
         )
         for layer in model.model.layers:
             layer.self_attn = LlamaParallelSelfAttention.transform(model, layer.self_attn)
-            layer.mlp = LLamaParallelMLP.transform(model, layer)
+            layer.mlp = LLamaParallelMLP.transform(model, layer.mlp)
         return model

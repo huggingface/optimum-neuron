@@ -24,10 +24,13 @@ from typing import Dict, Literal, Optional, Tuple, Union
 import torch
 from transformers import PretrainedConfig
 
-from ..utils import DynamicPatch, Patcher, is_neuronx_distributed_available
+from ..utils import DynamicPatch, Patcher, is_neuronx_distributed_available, is_torch_xla_available
 from ..utils.misc import download_checkpoints_in_cache
 from ..utils.require_utils import requires_safetensors
 
+
+if is_torch_xla_available():
+    import torch_xla.core.xla_model as xm
 
 if is_neuronx_distributed_available():
     from neuronx_distributed.parallel_layers import layers
@@ -291,6 +294,8 @@ def from_pretrained_for_tp(
         convert_to_safetensors=True,
         **kwargs,
     )
+
+    xm.rendezvous("waiting after download and conversion")
 
     if not isinstance(config, PretrainedConfig):
         config_path = config if config is not None else pretrained_model_name_or_path

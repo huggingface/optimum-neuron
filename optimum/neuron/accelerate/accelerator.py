@@ -14,6 +14,7 @@
 # limitations under the License.
 """Custom Accelerator class for Neuron."""
 
+import collections
 import inspect
 import os
 import re
@@ -30,7 +31,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
 from ...utils import logging
-from ..distributed import ParallelizersManager
+from ..distributed import Parallelizer, ParallelizersManager
 from ..utils import Patcher, is_neuronx_distributed_available, is_torch_xla_available, patch_within_function
 from ..utils.misc import args_and_kwargs_to_kwargs_only
 from .optimizer import NeuronAcceleratedOptimizer
@@ -146,24 +147,27 @@ class NeuronAccelerator(Accelerator):
         return super().prepare_data_loader(data_loader, device_placement=device_placement)
 
     def _prepare_optimizer_for_tp(self, optimizer: torch.optim.Optimizer, device_placement=None):
-        new_groups = []
-        for param_group in optimizer.param_groups:
-            new_params = []
-            params = param_group["params"]
-            for idx in range(len(params)):
-                for cpu_to_xla in self._model_cpu_parameters_to_xla.values():
-                    new_params.append(cpu_to_xla[id(params[idx])])
-            new_group = {k: v for k, v in param_group.items() if k != "params"}
-            new_group["params"] = new_params
-            new_groups.append(new_group)
+        # new_groups = []
+        # for param_group in optimizer.param_groups:
+        #     new_params = []
+        #     params = param_group["params"]
+        #     for idx in range(len(params)):
+        #         for cpu_to_xla in self._model_cpu_parameters_to_xla.values():
+        #             new_params.append(cpu_to_xla[id(params[idx])])
+        #     new_group = {k: v for k, v in param_group.items() if k != "params"}
+        #     new_group["params"] = new_params
+        #     new_groups.append(new_group)
 
-        new_optimizer = optimizer.__class__(new_groups)
-        return super().prepare_optimizer(new_optimizer, device_placement=device_placement)
+        # new_optimizer = optimizer.__class__(new_groups)
+        optimizer = Parallelizer.optimizer_for_tp(
+            optimizer, collections.ChainMap(*self._model_cpu_parameters_to_xla.values())
+        )
+        return optimizer
 
     @patch_within_function(("accelerate.accelerator.AcceleratedOptimizer", NeuronAcceleratedOptimizer))
     def prepare_optimizer(self, optimizer: torch.optim.Optimizer, device_placement: Optional[bool] = None):
         if self.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
-            return self._prepare_optimizer_for_tp(optimizer, device_placement=device_placement)
+            optimizer = self._prepare_optimizer_for_tp(optimizer, device_placement=device_placement)
         return super().prepare_optimizer(optimizer, device_placement=device_placement)
 
     @patch_within_function(("accelerate.accelerator.AcceleratedScheduler", NeuronAcceleratedScheduler))

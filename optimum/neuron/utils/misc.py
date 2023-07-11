@@ -37,7 +37,11 @@ from transformers.utils import (
 )
 from transformers.utils.hub import get_checkpoint_shard_files
 
+from ...utils import logging
 from .require_utils import requires_safetensors
+
+
+logger = logging.get_logger()
 
 
 def args_and_kwargs_to_kwargs_only(
@@ -96,7 +100,9 @@ def _original_filename_to_safetensors_filename(filename: str) -> str:
 
 @requires_safetensors
 def convert_checkpoint_to_safetensors(
-    weight_file: Union[str, Path], output_dir: Optional[Union[str, Path]] = None
+    weight_file: Union[str, Path],
+    output_dir: Optional[Union[str, Path]] = None,
+    log: bool = False,
 ) -> Path:
     """
     Converts a PyTorch model checkpoint to a `safetensors` model checkpoint.
@@ -107,6 +113,9 @@ def convert_checkpoint_to_safetensors(
         output_dir (`Optional[Union[str, Path]]`, defaults to `None`):
             The output directory where the `safetensors` checkpoint will be saved.
             If left unspecified, the parent directory of the PyTorch checkpoint will be used.
+        log (`bool`, defaults to `False`):
+            Whether or not the function should log which file it is converting.
+
 
     Returns:
         `Path`: The path to the `safetensors` checkpoint.
@@ -119,21 +128,34 @@ def convert_checkpoint_to_safetensors(
     if output_dir is None:
         output_dir = weight_file.parent
 
+    if not isinstance(output_dir, Path):
+        output_dir = Path(output_dir)
+
     if weight_file.suffix != ".bin":
         raise ValueError("Can only convert PyTorch checkpoints to safetensors.")
 
-    checkpoint = torch.load(weight_file)
     safetensors_filename = _original_filename_to_safetensors_filename(weight_file.name)
     safetensors_path = output_dir / safetensors_filename
-    data_pointers = set()
-    for k, v in checkpoint.items():
-        if id(v.data) in data_pointers:
-            v = v.clone()
-        checkpoint[k] = v.contiguous()
-        data_pointers.add(id(v.data))
-    # TODO: save in the blobs instead than here.
-    save_file(checkpoint, safetensors_path)
-    del checkpoint
+
+    already_exists = safetensors_path.is_file()
+    print("safetensors_path", safetensors_path, safetensors_path.exists(), safetensors_path.is_file())
+    is_distributed = torch.distributed.is_initialized()
+    is_main_process = is_distributed and torch.distributed.get_rank() > 0
+
+    # Only one worker will load the checkpoint (potentially huge) and perform the conversion.
+    if not already_exists and (not is_distributed or is_main_process):
+        print("HERE", already_exists, is_distributed, is_main_process)
+        logger.info(f"Converting {weight_file} to safetensors")
+        checkpoint = torch.load(weight_file)
+        data_pointers = set()
+        for k, v in checkpoint.items():
+            if id(v.data) in data_pointers:
+                v = v.clone()
+            checkpoint[k] = v.contiguous()
+            data_pointers.add(id(v.data))
+        save_file(checkpoint, safetensors_path)
+        del checkpoint
+
     return safetensors_path
 
 
