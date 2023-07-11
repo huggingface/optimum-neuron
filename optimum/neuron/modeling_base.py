@@ -347,7 +347,8 @@ class NeuronBaseModel(OptimizedModel):
         if hasattr(self.auto_model_class, "register"):
             self.auto_model_class.register(AutoConfig, self.__class__)
 
-    def _neuron_config_init(self, config: "PretrainedConfig") -> "NeuronConfig":
+    @classmethod
+    def _neuron_config_init(cls, config: "PretrainedConfig") -> "NeuronConfig":
         """
         Builds a `NeuronConfig` with an instance of the `PretrainedConfig` and the task.
         """
@@ -370,7 +371,7 @@ class NeuronBaseModel(OptimizedModel):
         }
 
         # Neuron config constructuor
-        task = TasksManager.infer_task_from_model(self.auto_model_class)
+        task = TasksManager.infer_task_from_model(cls.auto_model_class)
         neuron_config_constructor = TasksManager.get_exporter_config_constructor(
             model_type=config.model_type, exporter="neuron", task=task
         )

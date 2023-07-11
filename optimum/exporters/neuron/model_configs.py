@@ -211,7 +211,7 @@ class CLIPTextNeuronConfig(TextEncoderNeuronConfig):
         return super().check_model_inputs_order(model, dummy_inputs, forward_with_tuple, eligible_outputs=[0])
 
 
-@register_in_tasks_manager("vae-encoder", *["semantic-segmentation"])
+@register_in_tasks_manager("vae-encoder", *["stable-diffusion", "semantic-segmentation"])
 class VaeEncoderNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-2
     model_type = "vae-encoder"
@@ -231,7 +231,7 @@ class VaeEncoderNeuronConfig(VisionNeuronConfig):
         return ["latent_sample"]
 
 
-@register_in_tasks_manager("vae-decoder", *["semantic-segmentation"])
+@register_in_tasks_manager("vae-decoder", *["stable-diffusion", "semantic-segmentation"])
 class VaeDecoderNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
     model_type = "vae-decoder"
@@ -257,35 +257,7 @@ class VaeDecoderNeuronConfig(VisionNeuronConfig):
     ):
         return super().check_model_inputs_order(model=model, dummy_inputs=dummy_inputs, forward_with_tuple=True)
 
-
-@register_in_tasks_manager("conv2d", *["semantic-segmentation"])
-class Conv2dNeuronConfig(VisionNeuronConfig):
-    ATOL_FOR_VALIDATION = 1e-3
-    model_type = "conv2d"
-
-    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
-        num_channels="latent_channels",
-        allow_new=True,
-    )
-
-    @property
-    def inputs(self) -> List[str]:
-        return ["latent_sample"]
-
-    @property
-    def outputs(self) -> List[str]:
-        return ["sample"]
-
-    def check_model_inputs_order(
-        self,
-        model: torch.nn.Module,
-        dummy_inputs: Dict[str, torch.Tensor],
-        **kwargs,
-    ):
-        return super().check_model_inputs_order(model=model, dummy_inputs=dummy_inputs, forward_with_tuple=True)
-
-
-@register_in_tasks_manager("unet", *["semantic-segmentation"])
+@register_in_tasks_manager("unet", *["stable-diffusion", "semantic-segmentation"])
 class UNetNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
     model_type = "unet"

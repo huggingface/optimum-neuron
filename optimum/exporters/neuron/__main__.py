@@ -28,10 +28,10 @@ from ...neuron.utils import (
     is_neuron_available, 
     is_neuronx_available,
     NEURON_FILE_NAME, 
-    DIFFUSION_MODEL_TEXT_ENCODER_SUBFOLDER,
-    DIFFUSION_MODEL_VAE_DECODER_SUBFOLDER,
-    DIFFUSION_MODEL_UNET_SUBFOLDER,
-    DIFFUSION_MODEL_VAE_POST_QUANT_CONV_SUBFOLDER,
+    DIFFUSION_MODEL_TEXT_ENCODER_NAME,
+    DIFFUSION_MODEL_UNET_NAME,
+    DIFFUSION_MODEL_VAE_ENCODER_NAME,
+    DIFFUSION_MODEL_VAE_DECODER_NAME,
 )
 from ...utils import logging
 from ...utils.save_utils import maybe_save_preprocessors
@@ -145,14 +145,11 @@ def main_export(
         trust_remote_code=trust_remote_code,
         framework="pt",
     )
-    configs = {}
 
     if task != "stable-diffusion":
         neuron_config_constructor = TasksManager.get_exporter_config_constructor(
             model=model, exporter="neuron", task=task
         )
-        if is_neuron_available() and dynamic_batch_size is True and "batch_size" in input_shapes:
-            input_shapes["batch_size"] = 1
         neuron_config = neuron_config_constructor(model.config, dynamic_batch_size=dynamic_batch_size, **input_shapes)
         if atol is None:
             atol = neuron_config.ATOL_FOR_VALIDATION
@@ -161,20 +158,19 @@ def main_export(
         maybe_save_preprocessors(model, output.parent)
 
     if task == "stable-diffusion":
-        if not is_neuronx_available():
-            raise RuntimeError("Stable diffusion needs neuronx-cc support which is not installed. ")
-        output_model_names = [
-            os.path.join(DIFFUSION_MODEL_TEXT_ENCODER_SUBFOLDER, NEURON_FILE_NAME),
-            os.path.join(DIFFUSION_MODEL_VAE_DECODER_SUBFOLDER, NEURON_FILE_NAME),
-            os.path.join(DIFFUSION_MODEL_UNET_SUBFOLDER, NEURON_FILE_NAME),
-            os.path.join(DIFFUSION_MODEL_VAE_POST_QUANT_CONV_SUBFOLDER, NEURON_FILE_NAME),
-        ]
+        if is_neuron_available():
+            raise RuntimeError("Stable diffusion export is not supported by neuron-cc on inf1, please use neuronx-cc on either inf2/trn1 instead.")
+        output_model_names = {
+            DIFFUSION_MODEL_TEXT_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_TEXT_ENCODER_NAME, NEURON_FILE_NAME),
+            DIFFUSION_MODEL_UNET_NAME: os.path.join(DIFFUSION_MODEL_UNET_NAME, NEURON_FILE_NAME),
+            DIFFUSION_MODEL_VAE_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_ENCODER_NAME, NEURON_FILE_NAME),
+            DIFFUSION_MODEL_VAE_DECODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_DECODER_NAME, NEURON_FILE_NAME),
+        }
         models_and_neuron_configs = get_stable_diffusion_models_for_export(
             model,
             dynamic_batch_size=dynamic_batch_size,
             **input_shapes,
         )
-        configs[DIFFUSION_MODEL_VAE_DECODER_SUBFOLDER] = configs[DIFFUSION_MODEL_VAE_POST_QUANT_CONV_SUBFOLDER] = model.vae.config
         # Saving the model config and preprocessor as this is needed sometimes.
         model.tokenizer.save_pretrained(output.joinpath("tokenizer"))
         model.scheduler.save_pretrained(output.joinpath("scheduler"))
@@ -188,7 +184,6 @@ def main_export(
         output_dir=output,
         output_file_names=output_model_names,
         compiler_kwargs=compiler_kwargs,
-        configs=configs,
     )
 
     del model

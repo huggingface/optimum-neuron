@@ -26,7 +26,6 @@ from transformers import PretrainedConfig
 from ...exporters.error_utils import OutputMatchError, ShapeError
 from ...neuron.utils import (
     convert_neuronx_compiler_args_to_neuron,
-    get_attention_scores,
     is_neuron_available,
     is_neuronx_available,
     store_compilation_config,
@@ -257,7 +256,7 @@ def export_models(
         str, Tuple[Union["PreTrainedModel", "ModelMixin", torch.nn.Module], "NeuronConfig"]
     ],
     output_dir: Path,
-    output_file_names: Optional[List[str]] = None,
+    output_file_names: Optional[Dict[str, str]] = None,
     compiler_kwargs: Optional[Dict[str, Any]] = {},
     configs: Optional[Dict[str, Any]] = {},
 ) -> Tuple[List[List[str]], List[List[str]]]:
@@ -290,7 +289,7 @@ def export_models(
     failed_models = []
     for i, model_name in enumerate(models_and_neuron_configs.keys()):
         submodel, sub_neuron_config = models_and_neuron_configs[model_name]
-        output_file_name = output_file_names[i] if output_file_names is not None else Path(model_name + ".neuron")
+        output_file_name = output_file_names[model_name] if output_file_names is not None else Path(model_name + ".neuron")
 
         output_path = output_dir / output_file_name
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -426,10 +425,7 @@ def export_neuronx(
 
     # diffusers specific
     if hasattr(config._config, "_class_name") and "unet" in config._config._class_name.lower():
-        from diffusers.models.attention_processor import Attention
-
         compiler_args.extend(["--model-type", "unet-inference"])
-        Attention.get_attention_scores = get_attention_scores
 
     neuron_model = neuronx.trace(checked_model, dummy_inputs_tuple, compiler_args=compiler_args)
 
