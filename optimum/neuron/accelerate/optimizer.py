@@ -59,12 +59,10 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
     def prepare_clip_grad_norm(self, parameters, max_norm, norm_type=2):
         # Deferring the clipping to later since gradients need to be reduced first when performing tensor parallelism.
         # TODO: find a better way to make sure we are using the right parameters for the right optimizer.
-        parameter_ids = {id(p) for p in parameters}
-        if (
-            self.accelerator_state.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM
-            and parameter_ids == self.parameter_ids
-        ):
-            self.clip_grad_norm_to_perform = {"max_norm": max_norm, "norm_type": norm_type}
+        if self.accelerator_state.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
+            parameter_ids = {id(p) for p in parameters}
+            if parameter_ids == self.parameter_ids:
+                self.clip_grad_norm_to_perform = {"max_norm": max_norm, "norm_type": norm_type}
         else:
             raise RuntimeError("The AcceleratedOptimizer handles grad clipping only for tensor parallelism.")
 

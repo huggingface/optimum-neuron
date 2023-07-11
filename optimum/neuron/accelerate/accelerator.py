@@ -147,18 +147,6 @@ class NeuronAccelerator(Accelerator):
         return super().prepare_data_loader(data_loader, device_placement=device_placement)
 
     def _prepare_optimizer_for_tp(self, optimizer: torch.optim.Optimizer, device_placement=None):
-        # new_groups = []
-        # for param_group in optimizer.param_groups:
-        #     new_params = []
-        #     params = param_group["params"]
-        #     for idx in range(len(params)):
-        #         for cpu_to_xla in self._model_cpu_parameters_to_xla.values():
-        #             new_params.append(cpu_to_xla[id(params[idx])])
-        #     new_group = {k: v for k, v in param_group.items() if k != "params"}
-        #     new_group["params"] = new_params
-        #     new_groups.append(new_group)
-
-        # new_optimizer = optimizer.__class__(new_groups)
         optimizer = Parallelizer.optimizer_for_tp(
             optimizer, collections.ChainMap(*self._model_cpu_parameters_to_xla.values())
         )
@@ -250,8 +238,11 @@ class NeuronAccelerator(Accelerator):
         if not evaluation_mode:
             cpu_ids = [id(v) for v in model.parameters()]
             model, orig_to_parallel = self.state.tp_plugin.parallelize_model(model, return_orig_to_parallel=True)
-            parallel_layers.move_model_to_device(model, self.device)
+            model = model.to(torch.float32)
             model.tie_weights()
+            parallel_layers.move_model_to_device(model, self.device)
+            for n, p in model.named_parameters():
+                print(f"{n} => {p.dtype}")
             self._model_cpu_parameters_to_xla[id(model)] = dict(zip(cpu_ids, model.parameters()))
             device_placement = False
         return super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)

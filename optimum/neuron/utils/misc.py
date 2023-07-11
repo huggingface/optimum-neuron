@@ -138,13 +138,11 @@ def convert_checkpoint_to_safetensors(
     safetensors_path = output_dir / safetensors_filename
 
     already_exists = safetensors_path.is_file()
-    print("safetensors_path", safetensors_path, safetensors_path.exists(), safetensors_path.is_file())
     is_distributed = torch.distributed.is_initialized()
     is_main_process = is_distributed and torch.distributed.get_rank() > 0
 
     # Only one worker will load the checkpoint (potentially huge) and perform the conversion.
     if not already_exists and (not is_distributed or is_main_process):
-        print("HERE", already_exists, is_distributed, is_main_process)
         logger.info(f"Converting {weight_file} to safetensors")
         checkpoint = torch.load(weight_file)
         data_pointers = set()
@@ -431,7 +429,7 @@ def download_checkpoints_in_cache(
             if filename.suffix == ".safetensors":
                 filenames_to_safetensors_filenames[filename.name] = filename
             elif filename.suffix == ".bin":
-                output_path = convert_checkpoint_to_safetensors(filename)
+                output_path = convert_checkpoint_to_safetensors(filename, log=True)
                 filenames_to_safetensors_filenames[filename.name] = output_path
             else:
                 raise ValueError("Only PyTorch and safetensors files are supported.")

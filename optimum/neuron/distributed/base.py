@@ -18,7 +18,7 @@ import contextlib
 from abc import ABC, abstractclassmethod
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Dict, Optional, Type, Union
+from typing import TYPE_CHECKING, Dict, Mapping, Optional, Type, Union
 
 import torch
 from transformers.utils import WEIGHTS_NAME
@@ -151,7 +151,7 @@ class Parallelizer(ABC):
     @classmethod
     def make_optimizer_constructor_lazy_for_tp(cls, optimizer_cls: Type["torch.optim.Optimizer"]):
         def optimizer_constructor(*args, **kwargs):
-            optimizer_with_no_parameters = optimizer_cls([], *args[1:], **kwargs)
+            optimizer_with_no_parameters = optimizer_cls([torch.nn.Parameter(torch.empty(1))], *args[1:], **kwargs)
             optimizer_with_no_parameters._args_to_recreate = (args, kwargs)
             return optimizer_with_no_parameters
 
@@ -159,7 +159,9 @@ class Parallelizer(ABC):
 
     @classmethod
     def optimizer_for_tp(
-        cls, optimizer: "torch.optim.Optimizer", orig_param_to_parallel_param_on_xla: Dict[int, "torch.nn.Parameters"]
+        cls,
+        optimizer: "torch.optim.Optimizer",
+        orig_param_to_parallel_param_on_xla: Mapping[int, "torch.nn.Parameters"],
     ) -> "torch.optim.Optimizer":
         if hasattr(optimizer, "_args_to_recreate"):
             args, kwargs = optimizer._args_to_recreate
@@ -178,6 +180,24 @@ class Parallelizer(ABC):
                         new_param.append(orig_param_to_parallel_param_on_xla[id(p)])
                 parallel_parameters.append(new_param)
             optimizer = optimizer.__class__(parallel_parameters, *args[1:], **kwargs)
+        else:
+            need_to_create_new_optimizer = False
+            new_groups = []
+            for param_group in optimizer.param_groups:
+                new_params = []
+                params = param_group["params"]
+                for idx in range(len(params)):
+                    param_on_xla = orig_param_to_parallel_param_on_xla[id(params[idx])]
+                    if params[idx] != param_on_xla:
+                        need_to_create_new_optimizer = True
+                    new_params.append(param_on_xla)
+                new_group = {k: v for k, v in param_group.items() if k != "params"}
+                new_group["params"] = new_params
+                new_groups.append(new_group)
+
+            if need_to_create_new_optimizer:
+                optimizer = optimizer.__class__(new_groups)
+
         return optimizer
 
     @classmethod

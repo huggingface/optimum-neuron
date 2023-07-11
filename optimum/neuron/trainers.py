@@ -53,6 +53,7 @@ from .utils import (
 from .utils.cache_utils import get_neuron_cache_path
 from .utils.training_utils import (
     TRANSFORMERS_MIN_VERSION_USE_ACCELERATE,
+    get_model_param_count,
     is_precompilation,
     patch_generation_mixin_to_neuron_generation_mixin,
     patched_finfo,
@@ -106,6 +107,8 @@ if os.environ.get("TORCHELASTIC_RUN_ID"):
         torch.distributed.init_process_group(backend="xla")
         if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
             raise AssertionError("Failed to initialize torch.distributed process group using XLA backend.")
+
+transformers_get_optimizer_cls_and_kwargs = Trainer.get_optimizer_cls_and_kwargs
 
 
 class AugmentTrainerForTrainiumMixin:
@@ -264,10 +267,14 @@ class AugmentTrainerForTrainiumMixin:
 
     @staticmethod
     def get_optimizer_cls_and_kwargs(args: TrainingArguments) -> Tuple[Any, Any]:
-        optimizer_cls, optimizer_kwargs = super().get_optimizer_cls_and_kwargs()
+        optimizer_cls, optimizer_kwargs = transformers_get_optimizer_cls_and_kwargs(args)
         if check_if_transformers_greater("4.30.0") and args.tp_plugin.should_parallelize:
             optimizer_cls = Parallelizer.make_optimizer_constructor_lazy_for_tp(optimizer_cls)
         return optimizer_cls, optimizer_kwargs
+
+    @patch_within_function(("transformers.Trainer.get_optimizer_cls_and_kwargs", get_optimizer_cls_and_kwargs))
+    def create_optimizer(self):
+        return super().create_optimizer()
 
     def compute_loss(self, model, inputs, return_outputs: bool = False):
         self.state.last_inputs = inputs
@@ -284,6 +291,18 @@ class AugmentTrainerForTrainiumMixin:
         self.state.last_inputs = inputs
         self.trigger_on_step_middle_for_neuron_cache_callback(model)
         return super().prediction_step(model, inputs, prediction_loss_only, ignore_keys=ignore_keys)
+
+    @patch_within_function(("transformers.trainer.get_model_param_count", get_model_param_count))
+    def _inner_training_loop(
+        self, batch_size=None, args=None, resume_from_checkpoint=None, trial=None, ignore_keys_for_eval=None
+    ):
+        return super()._inner_training_loop(
+            batch_size=batch_size,
+            args=args,
+            resume_from_checkpoint=resume_from_checkpoint,
+            trial=trial,
+            ignore_keys_for_eval=ignore_keys_for_eval,
+        )
 
     # def _nested_gather_for_xla_fsdp(self, tensors, name=None):
     #     # if isinstance(tensors, (list, tuple)):

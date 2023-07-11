@@ -43,6 +43,7 @@ from transformers.models.auto.modeling_auto import (
     MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING_NAMES,
     MODEL_MAPPING_NAMES,
 )
+from transformers.trainer_pt_utils import get_model_param_count as transformers_get_model_param_count
 from transformers.utils.logging import set_verbosity as set_verbosity_transformers
 
 from ...utils.logging import set_verbosity as set_verbosity_optimum
@@ -275,3 +276,9 @@ def skip_first_batches(dataloader, num_batches=0):
     else:
         dataloader = accelerate_skip_first_batches(dataloader, num_batches=num_batches)
     return dataloader
+
+
+def get_model_param_count(model, trainable_only=False):
+    """Wrapper around `transformers.trainer_pt_utils.get_model_param_count` to handle tensor parallelism."""
+    # TODO: make it work for TP
+    return transformers_get_model_param_count(model, trainable_only=trainable_only)
