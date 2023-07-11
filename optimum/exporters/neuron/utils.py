@@ -21,18 +21,18 @@ import torch
 from packaging import version
 from transformers import PretrainedConfig
 
+from ...neuron.utils import (
+    DIFFUSION_MODEL_TEXT_ENCODER_NAME,
+    DIFFUSION_MODEL_UNET_NAME,
+    DIFFUSION_MODEL_VAE_DECODER_NAME,
+    DIFFUSION_MODEL_VAE_ENCODER_NAME,
+    get_attention_scores,
+)
 from ...utils import (
     DIFFUSERS_MINIMUM_VERSION,
     check_if_diffusers_greater,
     is_diffusers_available,
     logging,
-)
-from ...neuron.utils import (
-    DIFFUSION_MODEL_TEXT_ENCODER_NAME,
-    DIFFUSION_MODEL_UNET_NAME,
-    DIFFUSION_MODEL_VAE_ENCODER_NAME,
-    DIFFUSION_MODEL_VAE_DECODER_NAME,
-    get_attention_scores,
 )
 from ...utils.import_utils import _diffusers_version
 from ..tasks import TasksManager
@@ -68,7 +68,6 @@ if TYPE_CHECKING:
 
 
 class DiffusersPretrainedConfig(PretrainedConfig):
-    
     # override to update `model_type`
     def to_dict(self):
         """
@@ -90,8 +89,15 @@ def build_stable_diffusion_components_mandatory_shapes(
     **kwargs,
 ):
     text_encoder_input_shapes = {"batch_size": batch_size, "sequence_length": sequence_length}
-    vae_encoder_input_shapes = vae_decoder_input_shapes = unet_input_shapes = {
+    vae_encoder_input_shapes = vae_decoder_input_shapes = {
         "batch_size": batch_size,
+        "num_channels": num_channels,
+        "height": height,
+        "width": width,
+    }
+    unet_input_shapes = {
+        "batch_size": batch_size,
+        "sequence_length": sequence_length,
         "num_channels": num_channels,
         "height": height,
         "width": width,
@@ -131,7 +137,7 @@ def get_stable_diffusion_models_for_export(
         vae_encoder_input_shapes (`Dict[str, int]`):
             Static shapes used for compiling vae encoder.
         vae_decoder_input_shapes (`Dict[str, int]`):
-            Static shapes used for compiling vae decoder.   
+            Static shapes used for compiling vae decoder.
         dynamic_batch_size (`bool`, defaults to `False`):
             Whether the Neuron compiled model supports dynamic batch size.
 

@@ -289,7 +289,9 @@ def export_models(
     failed_models = []
     for i, model_name in enumerate(models_and_neuron_configs.keys()):
         submodel, sub_neuron_config = models_and_neuron_configs[model_name]
-        output_file_name = output_file_names[model_name] if output_file_names is not None else Path(model_name + ".neuron")
+        output_file_name = (
+            output_file_names[model_name] if output_file_names is not None else Path(model_name + ".neuron")
+        )
 
         output_path = output_dir / output_file_name
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -326,7 +328,7 @@ def export_models(
                 model_type=getattr(sub_neuron_config, "model_type", None),
             )
             if isinstance(model_config, PretrainedConfig):
-                model_config = DiffusersPretrainedConfig.from_dict(model_config.__dict__)           
+                model_config = DiffusersPretrainedConfig.from_dict(model_config.__dict__)
             model_config.save_pretrained(output_path.parent)
         except Exception as e:
             failed_models.append((i, model_name))

@@ -257,9 +257,11 @@ class VaeDecoderNeuronConfig(VisionNeuronConfig):
     ):
         return super().check_model_inputs_order(model=model, dummy_inputs=dummy_inputs, forward_with_tuple=True)
 
+
 @register_in_tasks_manager("unet", *["stable-diffusion", "semantic-segmentation"])
 class UNetNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
+    MANDATORY_AXES = ("batch_size", "sequence_length", "num_channels", "width", "height")
     model_type = "unet"
 
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(

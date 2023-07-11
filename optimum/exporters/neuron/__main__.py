@@ -14,9 +14,9 @@
 # limitations under the License.
 """Entry point to the optimum.exporters.neuron command line."""
 
-import os
 import argparse
 import inspect
+import os
 from argparse import ArgumentParser
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
@@ -25,13 +25,13 @@ from requests.exceptions import ConnectionError as RequestsConnectionError
 from transformers import AutoConfig
 
 from ...neuron.utils import (
-    is_neuron_available, 
-    is_neuronx_available,
-    NEURON_FILE_NAME, 
     DIFFUSION_MODEL_TEXT_ENCODER_NAME,
     DIFFUSION_MODEL_UNET_NAME,
-    DIFFUSION_MODEL_VAE_ENCODER_NAME,
     DIFFUSION_MODEL_VAE_DECODER_NAME,
+    DIFFUSION_MODEL_VAE_ENCODER_NAME,
+    NEURON_FILE_NAME,
+    is_neuron_available,
+    is_neuronx_available,
 )
 from ...utils import logging
 from ...utils.save_utils import maybe_save_preprocessors
@@ -93,13 +93,17 @@ def infer_task(task: str, model_name_or_path: str) -> str:
 def normalize_input_shapes(task: str, args: argparse.Namespace) -> Dict[str, int]:
     if task == "stable-diffusion":
         args = vars(args) if isinstance(args, argparse.Namespace) else args
-        mandatory_axes = set(getattr(inspect.getfullargspec(build_stable_diffusion_components_mandatory_shapes), "args"))
+        mandatory_axes = set(
+            getattr(inspect.getfullargspec(build_stable_diffusion_components_mandatory_shapes), "args")
+        )
+        # Remove `sequence_length` as diffusers will pad it to the max anyway, need to discuss with diffusers team if it's feasible to remove padding.
+        mandatory_axes.remove("sequence_length")
         if not mandatory_axes.issubset(set(args.keys())):
             raise AttributeError(
                 f"Shape of {mandatory_axes} are mandatory for neuron compilation, while {mandatory_axes.difference(args.keys())} are not given."
             )
         mandatory_shapes = {name: args[name] for name in mandatory_axes}
-        input_shapes = build_stable_diffusion_components_mandatory_shapes(**mandatory_shapes)        
+        input_shapes = build_stable_diffusion_components_mandatory_shapes(**mandatory_shapes)
     else:
         config = AutoConfig.from_pretrained(args.model)
         model_type = config.model_type.replace("_", "-")
@@ -159,13 +163,20 @@ def main_export(
 
     if task == "stable-diffusion":
         if is_neuron_available():
-            raise RuntimeError("Stable diffusion export is not supported by neuron-cc on inf1, please use neuronx-cc on either inf2/trn1 instead.")
+            raise RuntimeError(
+                "Stable diffusion export is not supported by neuron-cc on inf1, please use neuronx-cc on either inf2/trn1 instead."
+            )
         output_model_names = {
             DIFFUSION_MODEL_TEXT_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_TEXT_ENCODER_NAME, NEURON_FILE_NAME),
             DIFFUSION_MODEL_UNET_NAME: os.path.join(DIFFUSION_MODEL_UNET_NAME, NEURON_FILE_NAME),
             DIFFUSION_MODEL_VAE_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_ENCODER_NAME, NEURON_FILE_NAME),
             DIFFUSION_MODEL_VAE_DECODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_DECODER_NAME, NEURON_FILE_NAME),
         }
+        # Fetch `model_max_length` as `sequence_length` as diffusers will pad it to the max anyway.
+        sequence_length = model.tokenizer.model_max_length
+        for shapes_info in input_shapes.values():
+            if "sequence_length" in shapes_info:
+                shapes_info["sequence_length"] = sequence_length
         models_and_neuron_configs = get_stable_diffusion_models_for_export(
             model,
             dynamic_batch_size=dynamic_batch_size,
