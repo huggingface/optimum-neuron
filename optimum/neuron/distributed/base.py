@@ -344,6 +344,7 @@ class Parallelizer(ABC):
         if get_data_parallel_rank() == 0 and get_tensor_model_parallel_rank() == 0:
             if output_path.is_dir():
                 shutil.rmtree(output_path, ignore_errors=True)
+            output_path.mkdir()
         xm.rendezvous("waiting before saving")
         parallel_layers.save(state_dict, output_path.as_posix())
 
