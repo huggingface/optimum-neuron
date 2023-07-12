@@ -113,6 +113,33 @@ def embedding_to_parallel_embedding(
     orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
     device: Optional["torch.device"] = None,
 ) -> Union["layers.ParallelEmbedding", Tuple["layers.ParallelEmbedding", "layers.ColumnParallelLinear"]]:
+    """
+    Helper function that creates a `neuronx_distributed.parallel_layers.layers.ParallelEmbedding` from a regular
+    `torch.nn.Embedding`.
+
+    It can also handle the case where the embedding layer is tied to a linear layer.
+
+    Args:
+        embedding_layer (`torch.nn.Embedding`):
+            The embedding layer to parallelize.
+        lm_head_layer (`Optional[torch.nn.Linear]`, defaults to `None`):
+            If specified, the linear layer tied to the embedding.
+        embedding_weight_info (`Optional[WeightInformation]`, defaults to `None`):
+            Information about which checkpoint file the embedding weights are stored in.
+        lm_head_weight_info (`Optional[WeightInformation]`, defaults to `None`):
+            Information about which checkpoint file the tied linear projection weights are stored in.
+        lm_head_bias_weight_info (`Optional[WeightInformation]`, defaults to `None`):
+            Information about which checkpoint file the tied linear projection bias is stored in.
+        orig_to_parallel (`Optional[Dict[int, torch.nn.Parameter]]`, defaults to `None`):
+            A dictionary to fill. It maps a former parameter id to its parallel version.
+            It might be deprecated soon.
+        device (`Optional[torch.device]`, defaults to `None`):
+            The device where the new parallel layer should be put.
+
+    Returns:
+        `Union[ParallelEmbedding, Tuple[ParallelEmbedding", ColumnParallelLinear]]`: The parallel embedding and the
+        parallel linear projection if specified.
+    """
     device = device if device is not None else torch.device("cpu")
 
     for weight_info in [embedding_weight_info, lm_head_weight_info, lm_head_bias_weight_info]:
@@ -185,6 +212,36 @@ def linear_to_parallel_linear(
     orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
     device: Optional["torch.device"] = None,
 ) -> Union["layers.RowParallelLinear", "layers.ColumnParallelLinear"]:
+    """
+    Helper function that creates a `neuronx_distributed.parallel_layers.layers.RowParallelLinear` or a
+    `neuronx_distributed.parallel_layers.layers.ColumnParallelLinear` from a regular `torch.nn.Linear`.
+
+    Args:
+        linear_layer (`torch.nn.Embedding`):
+            The linear layer to parallelize.
+        axis (`Union[Literal["row"], Literal["column"]]`):
+            Either to create a `RowParallelLinear` or a `ColumnParallelLinear`.
+        input_is_parallel (`bool`, defaults to `False`):
+            Only relevant when `axis="row"`. It means that resulting `RowParallelLinear` must expect a parallelized
+            input.
+        gather_output (`bool`, defaults to `True`):
+            Only relevant when `axis="column"`. It means that the resulting `ColumnParallelLinear` will gather the
+            output after its forward. It allows to get a non-parallelized output from a `ColumnParallelLinear` layer.
+        linear_layer_weight_info (`Optional[torch.nn.Linear]`, defaults to `None`):
+            Information about which checkpoint file the linear layer weights are stored in.
+        linear_layer_bias_weight_info (`Optional[WeightInformation]`, defaults to `None`):
+            Information about which checkpoint file the linear layer bias is stored in.
+        embedding_weight_to_tie (`Optional[torch.nn.Parameter]`, defaults to `None`):
+            If specified, will tie the linear layer weights to it.
+        orig_to_parallel (`Optional[Dict[int, torch.nn.Parameter]]`, defaults to `None`):
+            A dictionary to fill. It maps a former parameter id to its parallel version.
+            It might be deprecated soon.
+        device (`Optional[torch.device]`, defaults to `None`):
+            The device where the new parallel layer should be put.
+
+    Returns:
+        `Union[RowParallelLinear, ColumnParallelLinear]`: The parallel linear layer.
+    """
     if axis not in ["row", "column"]:
         raise ValueError(f'axis must either be "row" or "column", but {axis} was given here.')
 
@@ -286,9 +343,15 @@ def from_pretrained_for_tp(
     local_files_only: bool = False,
     token: Optional[Union[str, bool]] = None,
     revision: str = "main",
-    use_safetensors: bool = None,
+    use_safetensors: bool = False,
     **kwargs,
 ):
+    """
+    Custom `from_pretrained()` method for tensor parallelism.
+    It will download the weights and create the model but not load the weights in the model. Instead it will create a
+    weight map, which maps each parameter name to the `safetensors` checkpoint file storing its weights and attach
+    this map to the model instance under the `_weight_map` attribute.
+    """
     kwargs.pop("state_dict", None)
     kwargs.pop("from_tf", False)
     kwargs.pop("from_flax", False)
@@ -297,10 +360,10 @@ def from_pretrained_for_tp(
     kwargs.pop("output_loading_info", False)
     kwargs.pop("use_auth_token", None)
     kwargs.pop("trust_remote_code", None)
-    _ = kwargs.pop("mirror", None)
+    kwargs.pop("mirror", None)
     from_pipeline = kwargs.pop("_from_pipeline", None)
     from_auto_class = kwargs.pop("_from_auto", False)
-    _fast_init = kwargs.pop("_fast_init", True)
+    kwargs.pop("_fast_init", True)
     kwargs.pop("torch_dtype", None)
     kwargs.pop("low_cpu_mem_usage", None)
     kwargs.pop("device_map", None)
@@ -367,6 +430,20 @@ def from_pretrained_for_tp(
 
 @contextlib.contextmanager
 def lazy_load_for_parallelism(tensor_parallel_size: int = 1):
+    """
+    Context manager that makes the loading of a model lazy for model parallelism:
+
+        - Every `torch.nn.Linear` is put on the `torch.device("meta")` device, meaning that it takes no memory to
+        instantiate.
+        - Every `torch.nn.Embedding` is also put on the `torch.device("meta")` device.
+        - No state dict is actually loaded, instead a weight map is created and attached to the model. For more
+        information, read the [`optimum.neuron.distributed.utils.from_pretrained_for_tp`] docstring.
+
+    Args:
+        tensor_parallel_size (`int`, defaults to 1):
+            The parallel size considered for tensor parallel size. If set to 1, no lazy loading is performed.
+    """
+
     def meta_init(init_fn):
         @functools.wraps(init_fn)
         def wrapper(*args, **kwargs):
@@ -384,12 +461,10 @@ def lazy_load_for_parallelism(tensor_parallel_size: int = 1):
     ]
     if tensor_parallel_size > 1:
         patcher = Patcher(patching_specs=patching_specs)
-        print("INSIDE")
     else:
         patcher = contextlib.nullcontext()
     with patcher:
         try:
             yield
         finally:
-            print("OUTSIDE")
             pass

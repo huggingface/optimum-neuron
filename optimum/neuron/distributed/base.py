@@ -57,6 +57,10 @@ class SavedModelInTemporaryDirectory:
 
 
 class Parallelizer(ABC):
+    """
+    Base abstract class that handles model parallelism.
+    """
+
     def __init__(self):
         self._validate_required_libaries_are_available()
 
@@ -89,7 +93,22 @@ class Parallelizer(ABC):
         orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
         device: Optional["torch.device"] = None,
     ) -> "PreTrainedModel":
-        pass
+        """
+        Parallelizes the model by transforming regular layer into their parallel counterparts.
+        Each concrete class must implement it.
+
+        Args:
+            model (`PreTrainedModel`):
+                The model to parallelize.
+            orig_to_parallel (`Optional[Dict[int, torch.nn.Parameter]]`, defaults to `None`):
+                A dictionary to fill. It maps a former parameter id to its parallel version.
+                It might be deprecated soon.
+            device (`Optional[torch.device]`, defaults to `None`):
+                The device where the new parallel layers should be put.
+
+        Returns:
+            `PreTrainedModel`: The parallelized model.
+        """
 
     @classmethod
     def parallelize(
@@ -98,6 +117,25 @@ class Parallelizer(ABC):
         orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
         device: Optional["torch.device"] = None,
     ) -> "PreTrainedModel":
+        """
+        Parallelizes the model by transforming regular layer into their parallel counterparts using
+        `cls._parallelize()`.
+
+        It also makes sure that each parameter has loaded its weights or has been initialized if there is no pre-trained
+        weights associated to it.
+
+        Args:
+            model (`PreTrainedModel`):
+                The model to parallelize.
+            orig_to_parallel (`Optional[Dict[int, torch.nn.Parameter]]`, defaults to `None`):
+                A dictionary to fill. It maps a former parameter id to its parallel version.
+                It might be deprecated soon.
+            device (`Optional[torch.device]`, defaults to `None`):
+                The device where the new parallel layers should be put.
+
+        Returns:
+            `PreTrainedModel`: The parallelized model.
+        """
         model = cls._parallelize(model, orig_to_parallel=orig_to_parallel, device=device)
         weight_map = getattr(model, "_weight_map", {})
         with torch.no_grad():
@@ -158,6 +196,12 @@ class Parallelizer(ABC):
 
     @classmethod
     def make_optimizer_constructor_lazy_for_tp(cls, optimizer_cls: Type["torch.optim.Optimizer"]):
+        """
+        Transforms an optimizer constructor (optimizer class) to make it lazy by not initializing the parameters.
+        This makes the optimizer lightweight and usable to create a "real" optimizer once the model has been
+        parallelized.
+        """
+
         def optimizer_constructor(*args, **kwargs):
             optimizer_with_no_parameters = optimizer_cls([torch.nn.Parameter(torch.empty(1))], *args[1:], **kwargs)
             optimizer_with_no_parameters._args_to_recreate = (args, kwargs)
@@ -169,8 +213,28 @@ class Parallelizer(ABC):
     def optimizer_for_tp(
         cls,
         optimizer: "torch.optim.Optimizer",
-        orig_param_to_parallel_param_on_xla: Mapping[int, "torch.nn.Parameters"],
+        orig_param_to_parallel_param_on_xla: Mapping[int, "torch.nn.Parameter"],
     ) -> "torch.optim.Optimizer":
+        """
+        Creates an optimizer ready for a parallelized model from an existing optimizer.
+
+        There are two cases:
+            1. The optimizer has been created via a lazy constructor from
+            [`Parallelizer.make_optimizer_constructor_lazy_for_tp`], it which case the exactly intended optimizer is
+            created for tensor parallelism.
+            2. The optimizer was created with a regular constructor. In this case the optimizer for tensor parallelism
+            is created as close as possible to what was intended but that is not guaranteed.
+
+        Args:
+            optimizer (`torch.optim.Optimizer`):
+                The original optimizer.
+            orig_param_to_parallel_param_on_xla (`Mapping[int, torch.nn.Parameter]`):
+                A mapping (e.g. dict-like) that maps the id of a parameter in `optimizer` to the id of its
+                parallelized counterpart on an XLA device.
+
+        Returns:
+            `torch.optim.Optimizer`: The tensor parallelism ready optimizer.
+        """
         if hasattr(optimizer, "_args_to_recreate"):
             args, kwargs = optimizer._args_to_recreate
             parameters = args[0]
@@ -272,6 +336,8 @@ class Parallelizer(ABC):
             state_dict["optimizer_state_dict"] = optimizer.state_dict()
 
         output_path = output_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME
+        if output_path.is_dir():
+            output_path.rmdir()
         parallel_layers.save(state_dict, output_path.as_posix())
 
     @classmethod

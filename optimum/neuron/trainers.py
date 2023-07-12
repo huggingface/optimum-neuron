@@ -148,9 +148,7 @@ class AugmentTrainerForTrainiumMixin:
             logger.setLevel(logging.INFO)
 
         if not is_precompilation():
-            should_create_callback = True
             push = self.args.local_rank == 0
-            # TODO: make it so that only rank 0 fetches.
             fetch = self.args.local_rank == 0
 
             if is_neuronx_distributed_available():
@@ -163,15 +161,13 @@ class AugmentTrainerForTrainiumMixin:
                     push = get_data_parallel_size() == 0
                     fetch = get_data_parallel_size() == 0
 
-            if should_create_callback:
-                callback = NeuronCacheCallaback(
-                    tmp_neuron_cache=_TMP_NEURON_CACHE_DIR,
-                    original_neuron_cache_path=_ORIGINAL_NEURON_CACHE_PATH,
-                    # only_do_fetching=self.args.local_rank > 0,
-                    fetch=fetch,
-                    push=push,
-                )
-                self.add_callback(callback)
+            callback = NeuronCacheCallaback(
+                tmp_neuron_cache=_TMP_NEURON_CACHE_DIR,
+                original_neuron_cache_path=_ORIGINAL_NEURON_CACHE_PATH,
+                fetch=fetch,
+                push=push,
+            )
+            self.add_callback(callback)
 
         # Make the model Neuron-compatible for generation.
         patch_generation_mixin_to_neuron_generation_mixin(self.model)

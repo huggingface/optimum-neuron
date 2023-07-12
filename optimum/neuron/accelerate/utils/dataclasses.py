@@ -143,8 +143,6 @@ class TensorParallelismPlugin:
     tensor_parallel_size: int = 1
 
     def __post_init__(self):
-        # if self.tensor_parallel_size > 1:
-        #     raise NotImplementedError("Tensor Parallelism is not supported yet.")
         if self.tensor_parallel_size < 1:
             raise ValueError(f"The tensor parallel size must be >= 1, but {self.tensor_parallel_size} was given here.")
 

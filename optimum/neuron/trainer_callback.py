@@ -290,7 +290,7 @@ class NeuronCacheCallaback(TrainerCallback):
         Event called at the end of a training step. If using gradient accumulation, one training step might take
         several inputs.
         """
-        if self.push:  # not self.only_do_fetching:
+        if self.push:
             model = kwargs["model"]
             state = self.prepare_state(state)
             neuron_hash = self.neuron_hash_for_model(args, model, state.last_inputs, try_to_fetch_cached_model=True)
@@ -307,7 +307,7 @@ class NeuronCacheCallaback(TrainerCallback):
         """
         Event called after a checkpoint save.
         """
-        if self.push:  # not self.only_do_fetching:
+        if self.push:
             self.synchronize_temporary_neuron_cache()
 
     def on_train_end(self, args: "TrainingArguments", state: TrainerState, control: "TrainerControl", **kwargs):

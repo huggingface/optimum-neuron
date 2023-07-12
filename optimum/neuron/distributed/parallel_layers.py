@@ -67,7 +67,20 @@ class ParallelLayer(ABC):
         orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
         device: Optional["torch.device"] = None,
     ) -> "torch.nn.Module":
-        pass
+        """
+        Transforms a layer to its parallel counterpart.
+
+        Args:
+            layer (`torch.nn.Module`):
+                The layer to transform.
+            config (`PretrainedConfig`):
+                The config of the model.
+            orig_to_parallel (`Optional[Dict[int, torch.nn.Parameter]]`, defaults to `None`):
+                A dictionary to fill. It maps a former parameter id to its parallel version.
+                It might be deprecated soon.
+            device (`Optional[torch.device]`, defaults to `None`):
+                The device where the new parallel layer should be put.
+        """
 
 
 class ParallelSelfAttention(ParallelLayer):

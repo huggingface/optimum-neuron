@@ -37,14 +37,16 @@ class GPTNeoParallelSelfAttention(ParallelSelfAttention):
 class GPTNeoParallelizer(Parallelizer):
     @classmethod
     def _parallelize(
-        cls, model: "PreTrainedModel", orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]]
+        cls,
+        model: "PreTrainedModel",
+        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]],
+        device: Optional["torch.device"] = None,
     ) -> "PreTrainedModel":
-        model.transformer.wte, model.lm_head = embedding_to_parallel_embedding(
-            model.transformer.wte, lm_head=model.lm_head, orig_to_parallel=orig_to_parallel
-        )
         for block in model.transformer.h:
             block.attn.attention = GPTNeoParallelSelfAttention.transform(
-                block.attn.attention, model.config, orig_to_parallel=orig_to_parallel
+                model,
+                block.attn.attention,
+                device=device,
             )
         return model
 

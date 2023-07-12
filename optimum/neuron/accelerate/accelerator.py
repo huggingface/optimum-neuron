@@ -268,15 +268,11 @@ class NeuronAccelerator(Accelerator):
     def backward(self, loss, **kwargs):
         if self.distributed_type != DistributedType.DEEPSPEED:
             loss = loss / self.gradient_accumulation_steps
-        if self.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
-            pass
-            # loss = loss / parallel_layers.parallel_state.get_data_parallel_size()
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:
             self.backward_for_xla_fsdp(loss, **kwargs)
         elif self.scaler is not None:
             self.scaler.scale(loss).backward(**kwargs)
         else:
-            # Providing **kwargs causes "Unsupported XLA type 10"
             loss.backward(**kwargs)
 
     def clip_grad_norm_for_xla_fsdp(self, parameters, max_norm, norm_type: int = 2):
