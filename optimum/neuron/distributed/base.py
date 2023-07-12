@@ -144,7 +144,6 @@ class Parallelizer(ABC):
                 # This must be either a torch.nn.Embedding or a torch.nn.Linear since those are the only
                 # classes that we initialize on the `meta` device.
                 if parameter.device == torch.device("meta"):
-                    print(parameter)
                     if weight_map is None:
                         raise ValueError(
                             f"The parameter called {name} of the model is on the `meta` device and no weight map is "
@@ -318,7 +317,7 @@ class Parallelizer(ABC):
         if should_save:
             output_path = output_dir / WEIGHTS_NAME
             torch.save(model_state_dict["model"], output_path.as_posix())
-        xm.rendevous("saving regular checkpoint")
+        xm.rendezvous("saving regular checkpoint")
 
     @classmethod
     def save_model_checkpoint_as_sharded(
@@ -336,8 +335,11 @@ class Parallelizer(ABC):
             state_dict["optimizer_state_dict"] = optimizer.state_dict()
 
         output_path = output_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME
-        if output_path.is_dir():
-            output_path.rmdir()
+        from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_rank, get_data_parallel_rank
+        if get_data_parallel_rank() == 0 and get_tensor_model_parallel_rank() == 0:
+            if output_path.is_dir():
+                output_path.rmdir()
+        xm.rendezvous("waiting before saving")
         parallel_layers.save(state_dict, output_path.as_posix())
 
     @classmethod
