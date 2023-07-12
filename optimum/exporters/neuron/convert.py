@@ -67,7 +67,7 @@ def validate_models_outputs(
     neuron_named_outputs: List[List[str]],
     output_dir: Path,
     atol: Optional[float] = None,
-    neuron_files_subpaths: Optional[List[str]] = None,
+    neuron_files_subpaths: Optional[Dict[str, str]] = None,
 ):
     """
     Validates the export of several models, by checking that the outputs from both the reference and the exported model match.
@@ -105,7 +105,7 @@ def validate_models_outputs(
         submodel, sub_neuron_config = models_and_neuron_configs[model_name]
         ref_submodel = copy.deepcopy(submodel)
         neuron_model_path = (
-            output_dir.joinpath(neuron_files_subpaths[i])
+            output_dir.joinpath(neuron_files_subpaths[model_name])
             if neuron_files_subpaths is not None
             else output_dir.joinpath(model_name + ".neuron")
         )
