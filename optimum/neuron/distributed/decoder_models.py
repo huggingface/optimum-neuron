@@ -68,10 +68,11 @@ class LLamaParallelMLP(ParallelMLP):
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
         orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+        device: Optional["torch.device"] = None,
     ) -> "torch.nn.Module":
         # TODO: Make it smart by merging the gate and the up_proj.
         # WARNING: be careful of the interleaved outputs when doing TP!
-        layer = super().transform(model, layer, orig_to_parallel=orig_to_parallel)
+        layer = super().transform(model, layer, orig_to_parallel=orig_to_parallel, device=device)
 
         weight_map = getattr(model, "_weight_map", None)
 
@@ -82,7 +83,9 @@ class LLamaParallelMLP(ParallelMLP):
             layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
             layer_qualified_name = layer_to_fully_qualified_name[id(layer)]
             linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
-                weight_map, f"{layer_qualified_name}.{attribute_name}"
+                weight_map,
+                f"{layer_qualified_name}.{attribute_name}",
+                device=device,
             )
 
         setattr(
@@ -95,6 +98,7 @@ class LLamaParallelMLP(ParallelMLP):
                 linear_layer_weight_info=linear_layer_weight_info,
                 linear_layer_bias_weight_info=linear_layer_bias_weight_info,
                 orig_to_parallel=orig_to_parallel,
+                device=device,
             ),
         )
         return layer
@@ -103,7 +107,10 @@ class LLamaParallelMLP(ParallelMLP):
 class LlamaParallelizer(Parallelizer):
     @classmethod
     def _parallelize(
-        cls, model: "PreTrainedModel", orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]]
+        cls,
+        model: "PreTrainedModel",
+        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]],
+        device: Optional["torch.device"] = None,
     ) -> "PreTrainedModel":
         embedding_weight_info = None
         lm_head_weight_info = None
@@ -111,11 +118,13 @@ class LlamaParallelizer(Parallelizer):
         weight_map = getattr(model, "_weight_map", None)
         if weight_map is not None:
             embedding_weight_info = WeightInformation(
-                weight_map["model.embed_tokens.weight"], "model.embed_tokens.weight"
+                weight_map["model.embed_tokens.weight"],
+                "model.embed_tokens.weight",
+                device=device,
             )
-            lm_head_weight_info = WeightInformation(weight_map["lm_head.weight"], "lm_head.weight")
+            lm_head_weight_info = WeightInformation(weight_map["lm_head.weight"], "lm_head.weight", device=device)
             if "lm_head.bias" in weight_map:
-                lm_head_bias_weight_info = WeightInformation(weight_map["lm_head.bias"], "lm_head.bias")
+                lm_head_bias_weight_info = WeightInformation(weight_map["lm_head.bias"], "lm_head.bias", device=device)
 
         model.model.embed_tokens, model.lm_head = embedding_to_parallel_embedding(
             model.model.embed_tokens,
@@ -124,8 +133,9 @@ class LlamaParallelizer(Parallelizer):
             lm_head_weight_info=lm_head_weight_info,
             lm_head_bias_weight_info=lm_head_bias_weight_info,
             orig_to_parallel=orig_to_parallel,
+            device=device,
         )
         for layer in model.model.layers:
-            layer.self_attn = LlamaParallelSelfAttention.transform(model, layer.self_attn)
-            layer.mlp = LLamaParallelMLP.transform(model, layer.mlp)
+            layer.self_attn = LlamaParallelSelfAttention.transform(model, layer.self_attn, device=device)
+            layer.mlp = LLamaParallelMLP.transform(model, layer.mlp, device=device)
         return model

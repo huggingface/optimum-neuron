@@ -581,10 +581,13 @@ class NeuronHash:
         return hash_dict
 
     def state_dict_to_bytes(self, state_dict: Dict[str, torch.Tensor]) -> bytes:
+        cast_to_mapping = {
+            torch.bfloat16: torch.float16,
+        }
         bytes_to_join = []
         for name, tensor in state_dict.items():
             memfile = io.BytesIO()
-            np.save(memfile, tensor.cpu().numpy())
+            np.save(memfile, tensor.to(cast_to_mapping.get(tensor.dtype, tensor.dtype)).cpu().numpy())
             bytes_to_join.append(name.encode("utf-8"))
             bytes_to_join.append(memfile.getvalue())
         return b"".join(bytes_to_join)

@@ -56,6 +56,10 @@ class WeightInformation:
     qualified_name: str
     device: Optional[torch.device] = None
 
+    def __post_init__(self):
+        if self.device is None:
+            self.device = torch.device("cpu")
+
 
 @requires_safetensors
 def load_tensor_for_weight(
@@ -79,7 +83,8 @@ def load_tensor_for_weight(
     """
     from safetensors import safe_open
 
-    device = weight_info.device if weight_info.device is not torch.device("cpu") else None
+    # device = weight_info.device if weight_info.device is not torch.device("cpu") else None
+    device = str(weight_info.device)
     with safe_open(weight_info.filename, framework="pt", device=device) as fp:
         if tensor_slices is None:
             tensor = fp.get_tensor(weight_info.qualified_name)
@@ -91,6 +96,14 @@ def load_tensor_for_weight(
     return tensor
 
 
+def _validate_weight_info_device_matches_specified_device(device: "torch.device", weight_info: WeightInformation):
+    if device != weight_info.device:
+        raise ValueError(
+            f"The specfified device must match the device in the `WeightInformation` but got {device} and "
+            f"{weight_info.device}, the `WeightInformation` object is: {weight_info}."
+        )
+
+
 def embedding_to_parallel_embedding(
     embedding_layer: "torch.nn.Embedding",
     lm_head_layer: Optional["torch.nn.Linear"] = None,
@@ -98,11 +111,20 @@ def embedding_to_parallel_embedding(
     lm_head_weight_info: Optional[WeightInformation] = None,
     lm_head_bias_weight_info: Optional[WeightInformation] = None,
     orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+    device: Optional["torch.device"] = None,
 ) -> Union["layers.ParallelEmbedding", Tuple["layers.ParallelEmbedding", "layers.ColumnParallelLinear"]]:
+    device = device if device is not None else torch.device("cpu")
+
+    for weight_info in [embedding_weight_info, lm_head_weight_info, lm_head_bias_weight_info]:
+        if weight_info is None:
+            continue
+        _validate_weight_info_device_matches_specified_device(device, weight_info)
+
     parallel_embedding_layer = layers.ParallelEmbedding(
         embedding_layer.num_embeddings,
         embedding_layer.embedding_dim,
         dtype=embedding_layer.weight.dtype,
+        device=device,
     )
 
     tp_rank = get_tensor_model_parallel_rank()
@@ -138,6 +160,7 @@ def embedding_to_parallel_embedding(
                 embedding_weight_to_tie=embedding_weight_to_tie,
                 gather_output=True,
                 orig_to_parallel=orig_to_parallel if not is_tied else None,
+                device=device,
             )
 
     if orig_to_parallel:
@@ -160,9 +183,16 @@ def linear_to_parallel_linear(
     linear_layer_bias_weight_info: Optional[WeightInformation] = None,
     embedding_weight_to_tie: Optional["torch.nn.Parameter"] = None,
     orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+    device: Optional["torch.device"] = None,
 ) -> Union["layers.RowParallelLinear", "layers.ColumnParallelLinear"]:
     if axis not in ["row", "column"]:
         raise ValueError(f'axis must either be "row" or "column", but {axis} was given here.')
+
+    device = device if device is not None else torch.device("cpu")
+    for weight_info in [linear_layer_weight_info, linear_layer_bias_weight_info]:
+        if weight_info is None:
+            continue
+        _validate_weight_info_device_matches_specified_device(device, weight_info)
 
     kwargs = {}
     if axis == "row":
@@ -174,6 +204,7 @@ def linear_to_parallel_linear(
 
     kwargs["dtype"] = linear_layer.weight.dtype
     kwargs["bias"] = linear_layer.bias is not None
+    kwargs["device"] = device
 
     parallel_linear_layer = parallel_linear_class(linear_layer.in_features, linear_layer.out_features, **kwargs)
 

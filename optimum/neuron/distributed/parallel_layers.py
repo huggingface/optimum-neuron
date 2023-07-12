@@ -34,18 +34,25 @@ if TYPE_CHECKING:
 class ParallelLayer(ABC):
     @classmethod
     def _get_linear_weight_info(
-        cls, weight_map: Dict[str, Path], linear_layer_qualified_name: str
+        cls,
+        weight_map: Dict[str, Path],
+        linear_layer_qualified_name: str,
+        device: Optional["torch.device"] = None,
     ) -> Tuple[WeightInformation, Optional[WeightInformation]]:
         linear_layer_weight_qualified_name = f"{linear_layer_qualified_name}.weight"
         linear_layer_weight_info = WeightInformation(
-            weight_map[linear_layer_weight_qualified_name], linear_layer_weight_qualified_name
+            weight_map[linear_layer_weight_qualified_name],
+            linear_layer_weight_qualified_name,
+            device=device,
         )
 
         linear_layer_bias_qualified_name = f"{linear_layer_qualified_name}.bias"
         linear_layer_bias_filename = weight_map.get(linear_layer_bias_qualified_name, None)
         if linear_layer_bias_filename is not None:
             linear_layer_bias_weight_info = WeightInformation(
-                linear_layer_bias_filename, linear_layer_bias_qualified_name
+                linear_layer_bias_filename,
+                linear_layer_bias_qualified_name,
+                device=device,
             )
         else:
             linear_layer_bias_weight_info = None
@@ -58,6 +65,7 @@ class ParallelLayer(ABC):
         layer: "torch.nn.Module",
         config: "PretrainedConfig",
         orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+        device: Optional["torch.device"] = None,
     ) -> "torch.nn.Module":
         pass
 
@@ -77,6 +85,7 @@ class ParallelSelfAttention(ParallelLayer):
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
         orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+        device: Optional["torch.device"] = None,
     ) -> "torch.nn.Module":
         weight_map = getattr(model, "_weight_map", None)
         config = model.config
@@ -92,7 +101,9 @@ class ParallelSelfAttention(ParallelLayer):
             linear_layer_weight_info, linear_layer_bias_weight_info = None, None
             if weight_map is not None:
                 linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
-                    weight_map, f"{layer_qualified_name}.{name}"
+                    weight_map,
+                    f"{layer_qualified_name}.{name}",
+                    device=device,
                 )
             parallel_linear = linear_to_parallel_linear(
                 getattr(layer, name),
@@ -101,6 +112,7 @@ class ParallelSelfAttention(ParallelLayer):
                 linear_layer_weight_info=linear_layer_weight_info,
                 linear_layer_bias_weight_info=linear_layer_bias_weight_info,
                 orig_to_parallel=orig_to_parallel,
+                device=device,
             )
             setattr(layer, name, parallel_linear)
 
@@ -108,7 +120,9 @@ class ParallelSelfAttention(ParallelLayer):
             linear_layer_weight_info, linear_layer_bias_weight_info = None, None
             if weight_map is not None:
                 linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
-                    weight_map, f"{layer_qualified_name}.{cls.OUTPUT_PROJECTION_NAME}"
+                    weight_map,
+                    f"{layer_qualified_name}.{cls.OUTPUT_PROJECTION_NAME}",
+                    device=device,
                 )
             setattr(
                 layer,
@@ -120,6 +134,7 @@ class ParallelSelfAttention(ParallelLayer):
                     linear_layer_weight_info=linear_layer_weight_info,
                     linear_layer_bias_weight_info=linear_layer_bias_weight_info,
                     orig_to_parallel=orig_to_parallel,
+                    device=device,
                 ),
             )
 
@@ -161,6 +176,7 @@ class ParallelSelfOutput(ParallelLayer):
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
         orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+        device: Optional["torch.device"] = None,
     ) -> "torch.nn.Module":
         weight_map = getattr(model, "_weight_map", None)
 
@@ -169,7 +185,9 @@ class ParallelSelfOutput(ParallelLayer):
             layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
             layer_qualified_name = layer_to_fully_qualified_name[id(layer)]
             linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
-                weight_map, f"{layer_qualified_name}.{cls.OUTPUT_PROJECTION_NAME}"
+                weight_map,
+                f"{layer_qualified_name}.{cls.OUTPUT_PROJECTION_NAME}",
+                device=device,
             )
 
         setattr(
@@ -182,6 +200,7 @@ class ParallelSelfOutput(ParallelLayer):
                 linear_layer_weight_info=linear_layer_weight_info,
                 linear_layer_bias_weight_info=linear_layer_bias_weight_info,
                 orig_to_parallel=orig_to_parallel,
+                device=device,
             ),
         )
         return layer
@@ -212,6 +231,7 @@ class ParallelMLP(ParallelLayer):
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
         orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+        device: Optional["torch.device"] = None,
     ) -> "torch.nn.Module":
         if cls.FIRST_LINEAR_NAME is None or cls.SECOND_LINEAR_NAME is None:
             raise ValueError("Both `FIRST_LINEAR_NAME` and `SECOND_LINEAR_NAME` class attributes must be set.")
@@ -224,7 +244,9 @@ class ParallelMLP(ParallelLayer):
         if weight_map is not None:
             layer_qualified_name = layer_to_fully_qualified_name[id(module)]
             linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
-                weight_map, f"{layer_qualified_name}.{attribute_name}"
+                weight_map,
+                f"{layer_qualified_name}.{attribute_name}",
+                device=device,
             )
 
         setattr(
@@ -237,6 +259,7 @@ class ParallelMLP(ParallelLayer):
                 linear_layer_weight_info=linear_layer_weight_info,
                 linear_layer_bias_weight_info=linear_layer_bias_weight_info,
                 orig_to_parallel=orig_to_parallel,
+                device=device,
             ),
         )
 
@@ -245,7 +268,9 @@ class ParallelMLP(ParallelLayer):
         if weight_map is not None:
             layer_qualified_name = layer_to_fully_qualified_name[id(module)]
             linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
-                weight_map, f"{layer_qualified_name}.{attribute_name}"
+                weight_map,
+                f"{layer_qualified_name}.{attribute_name}",
+                device=device,
             )
 
         setattr(
@@ -258,6 +283,7 @@ class ParallelMLP(ParallelLayer):
                 linear_layer_weight_info=linear_layer_weight_info,
                 linear_layer_bias_weight_info=linear_layer_bias_weight_info,
                 orig_to_parallel=orig_to_parallel,
+                device=device,
             ),
         )
 

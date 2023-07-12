@@ -84,15 +84,21 @@ class Parallelizer(ABC):
 
     @abstractclassmethod
     def _parallelize(
-        cls, model: "PreTrainedModel", orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None
+        cls,
+        model: "PreTrainedModel",
+        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+        device: Optional["torch.device"] = None,
     ) -> "PreTrainedModel":
         pass
 
     @classmethod
     def parallelize(
-        cls, model: "PreTrainedModel", orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None
+        cls,
+        model: "PreTrainedModel",
+        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+        device: Optional["torch.device"] = None,
     ) -> "PreTrainedModel":
-        model = cls._parallelize(model, orig_to_parallel=orig_to_parallel)
+        model = cls._parallelize(model, orig_to_parallel=orig_to_parallel, device=device)
         weight_map = getattr(model, "_weight_map", {})
         with torch.no_grad():
             modules_to_initialize = []
@@ -100,6 +106,7 @@ class Parallelizer(ABC):
                 # This must be either a torch.nn.Embedding or a torch.nn.Linear since those are the only
                 # classes that we initialize on the `meta` device.
                 if parameter.device == torch.device("meta"):
+                    print(parameter)
                     if weight_map is None:
                         raise ValueError(
                             f"The parameter called {name} of the model is on the `meta` device and no weight map is "
@@ -113,14 +120,15 @@ class Parallelizer(ABC):
                         module = model.get_submodule(split[0])
                         attribute_name = split[1]
                     try:
-                        weight_info = WeightInformation(weight_map[name], name)
+                        weight_info = WeightInformation(weight_map[name], name, device=device)
                         setattr(module, attribute_name, torch.nn.Parameter(load_tensor_for_weight(weight_info)))
                     except KeyError:
                         # This means that there is no information about where to find the weights for this parameter.
+                        device = torch.device("cpu") if device is None else device
                         setattr(
                             module,
                             attribute_name,
-                            torch.nn.Parameter(torch.empty_like(getattr(module, attribute_name), device="cpu")),
+                            torch.nn.Parameter(torch.empty_like(getattr(module, attribute_name), device=device)),
                         )
                         modules_to_initialize.append(module)
                 for mod in modules_to_initialize:
@@ -179,7 +187,8 @@ class Parallelizer(ABC):
                     for p in param:
                         new_param.append(orig_param_to_parallel_param_on_xla[id(p)])
                 parallel_parameters.append(new_param)
-            optimizer = optimizer.__class__(parallel_parameters, *args[1:], **kwargs)
+            optimizer_for_tp = optimizer.__class__(parallel_parameters, *args[1:], **kwargs)
+            del optimizer
         else:
             need_to_create_new_optimizer = False
             new_groups = []
@@ -196,9 +205,12 @@ class Parallelizer(ABC):
                 new_groups.append(new_group)
 
             if need_to_create_new_optimizer:
-                optimizer = optimizer.__class__(new_groups)
+                optimizer_for_tp = optimizer.__class__(new_groups)
+                del optimizer
+            else:
+                optimizer_for_tp = optimizer
 
-        return optimizer
+        return optimizer_for_tp
 
     @classmethod
     def save_model_checkpoint_as_regular(

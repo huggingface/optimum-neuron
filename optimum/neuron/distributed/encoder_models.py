@@ -36,14 +36,23 @@ class BertParallelSelfOutput(ParallelSelfOutput):
 class BertParallelizer(Parallelizer):
     @classmethod
     def _parallelize(
-        cls, model: "PreTrainedModel", orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None
+        cls,
+        model: "PreTrainedModel",
+        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]],
+        device: Optional["torch.device"] = None,
     ) -> "PreTrainedModel":
         for layer in model.bert.encoder.layer:
             layer.attention.self = BertParallelSelfAttention.transform(
-                model, layer.attention.self, orig_to_parallel=orig_to_parallel
+                model,
+                layer.attention.self,
+                orig_to_parallel=orig_to_parallel,
+                device=device,
             )
             layer.attention.output = BertParallelSelfOutput.transform(
-                model, layer.attention.output, orig_to_parallel=orig_to_parallel
+                model,
+                layer.attention.output,
+                orig_to_parallel=orig_to_parallel,
+                device=device,
             )
         return model
 
@@ -59,13 +68,22 @@ class RobertaParallelSelfOutput(BertParallelSelfOutput):
 class RobertaParallelizer(Parallelizer):
     @classmethod
     def _parallelize(
-        cls, model: "PreTrainedModel", orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None
+        cls,
+        model: "PreTrainedModel",
+        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]],
+        device: Optional["torch.device"] = None,
     ) -> "PreTrainedModel":
         for layer in model.roberta.encoder.layer:
             layer.attention.self = RobertaParallelSelfAttention.transform(
-                model, layer.attention.self, orig_to_parallel=orig_to_parallel
+                model,
+                layer.attention.self,
+                orig_to_parallel=orig_to_parallel,
+                device=device,
             )
             layer.attention.output = RobertaParallelSelfOutput.transform(
-                model, layer.attention.output, orig_to_parallel=orig_to_parallel
+                model,
+                layer.attention.output,
+                orig_to_parallel=orig_to_parallel,
+                device=device,
             )
         return model

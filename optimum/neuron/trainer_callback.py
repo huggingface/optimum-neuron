@@ -28,6 +28,7 @@ import torch
 from transformers import TrainerCallback, TrainerState
 
 from ..utils import logging
+from .utils import is_torch_xla_available
 from .utils.cache_utils import (
     NEURON_COMPILE_CACHE_NAME,
     NeuronHash,
@@ -43,6 +44,10 @@ from .utils.cache_utils import (
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel, TrainerControl, TrainingArguments
+
+
+if is_torch_xla_available():
+    import torch_xla.core.xla_model as xm
 
 logger = logging.get_logger(__name__)
 
@@ -68,10 +73,14 @@ class NeuronCacheCallaback(TrainerCallback):
         self,
         tmp_neuron_cache: Optional[TemporaryDirectory] = None,
         original_neuron_cache_path: Optional[Path] = None,
-        only_do_fetching: bool = False,
+        fetch: bool = True,
+        push: bool = True,
+        wait_for_everyone_on_fetch: bool = True,
     ):
         super().__init__()
-        self.only_do_fetching = only_do_fetching
+        self.fetch = fetch
+        self.push = push
+        self.wait_for_everyone_on_fetch = wait_for_everyone_on_fetch
 
         # Real Neuron compile cache if it exists.
         if original_neuron_cache_path is None:
@@ -270,15 +279,18 @@ class NeuronCacheCallaback(TrainerCallback):
             self.neuron_hash_to_files[neuron_hash] = []
 
     def on_step_middle(self, args: "TrainingArguments", state: TrainerState, control: "TrainerControl", **kwargs):
-        model = kwargs["model"]
-        self.neuron_hash_for_model(args, model, state.last_inputs, try_to_fetch_cached_model=True)
+        if self.fetch:
+            model = kwargs["model"]
+            self.neuron_hash_for_model(args, model, state.last_inputs, try_to_fetch_cached_model=True)
+        if self.wait_for_everyone_on_fetch:
+            xm.rendezvous("wait for fetching")
 
     def on_step_end(self, args: "TrainingArguments", state: "TrainerState", control: "TrainerControl", **kwargs):
         """
         Event called at the end of a training step. If using gradient accumulation, one training step might take
         several inputs.
         """
-        if not self.only_do_fetching:
+        if self.push:  # not self.only_do_fetching:
             model = kwargs["model"]
             state = self.prepare_state(state)
             neuron_hash = self.neuron_hash_for_model(args, model, state.last_inputs, try_to_fetch_cached_model=True)
@@ -295,7 +307,7 @@ class NeuronCacheCallaback(TrainerCallback):
         """
         Event called after a checkpoint save.
         """
-        if not self.only_do_fetching:
+        if self.push:  # not self.only_do_fetching:
             self.synchronize_temporary_neuron_cache()
 
     def on_train_end(self, args: "TrainingArguments", state: TrainerState, control: "TrainerControl", **kwargs):

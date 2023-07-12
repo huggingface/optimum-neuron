@@ -237,12 +237,11 @@ class NeuronAccelerator(Accelerator):
     ):
         if not evaluation_mode:
             cpu_ids = [id(v) for v in model.parameters()]
-            model, orig_to_parallel = self.state.tp_plugin.parallelize_model(model, return_orig_to_parallel=True)
-            model = model.to(torch.float32)
-            model.tie_weights()
+            # TODO: enable self.device (if needed).
+            model = self.state.tp_plugin.parallelize_model(model, return_orig_to_parallel=False, device=None)
+            model.to(torch.float32)
             parallel_layers.move_model_to_device(model, self.device)
-            for n, p in model.named_parameters():
-                print(f"{n} => {p.dtype}")
+            model.tie_weights()
             self._model_cpu_parameters_to_xla[id(model)] = dict(zip(cpu_ids, model.parameters()))
             device_placement = False
         return super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)

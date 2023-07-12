@@ -149,22 +149,27 @@ class AugmentTrainerForTrainiumMixin:
 
         if not is_precompilation():
             should_create_callback = True
+            push = self.args.local_rank == 0
+            # TODO: make it so that only rank 0 fetches.
+            fetch = self.args.local_rank == 0
 
             if is_neuronx_distributed_available():
                 from neuronx_distributed.parallel_layers.parallel_state import (
-                    get_tensor_model_parallel_rank,
+                    get_data_parallel_size,
                     model_parallel_is_initialized,
                 )
 
-                if model_parallel_is_initialized() and get_tensor_model_parallel_rank() > 0:
-                    should_create_callback = False
+                if model_parallel_is_initialized():
+                    push = get_data_parallel_size() == 0
+                    fetch = get_data_parallel_size() == 0
 
-            should_create_callback = True
             if should_create_callback:
                 callback = NeuronCacheCallaback(
                     tmp_neuron_cache=_TMP_NEURON_CACHE_DIR,
                     original_neuron_cache_path=_ORIGINAL_NEURON_CACHE_PATH,
-                    only_do_fetching=self.args.local_rank > 0,
+                    # only_do_fetching=self.args.local_rank > 0,
+                    fetch=fetch,
+                    push=push,
                 )
                 self.add_callback(callback)
 
