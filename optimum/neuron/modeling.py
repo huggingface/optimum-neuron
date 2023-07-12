@@ -742,7 +742,7 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
             `return_dict_in_generate=True` or a [`~generation.SampleEncoderDecoderOutput`] if
             `model.config.is_encoder_decoder=True`.
 
-        ```"""
+        """
         # We don't support all parameters
         if synced_gpus:
             raise ValueError("Neuron models cannot run on GPUs.")
