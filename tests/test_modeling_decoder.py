@@ -26,7 +26,7 @@ from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neur
 from optimum.utils import logging
 from optimum.utils.testing_utils import TOKEN, USER
 
-from .exporters.exporters_utils import EXPORT_MODELS_TINY as MODEL_NAMES
+from .exporters.exporters_utils import EXPORT_MODELS_TINY
 
 
 logger = logging.get_logger()
@@ -35,20 +35,20 @@ logger = logging.get_logger()
 DECODER_MODEL_ARCHITECTURES = ["gpt2"]
 
 
-@pytest.fixture(scope="module", params=[MODEL_NAMES[model_arch] for model_arch in DECODER_MODEL_ARCHITECTURES])
-def model_id(request):
+@pytest.fixture(scope="module", params=[EXPORT_MODELS_TINY[model_arch] for model_arch in DECODER_MODEL_ARCHITECTURES])
+def export_model_id(request):
     return request.param
 
 
 @pytest.fixture(scope="module")
-def neuron_model_path(model_id):
+def neuron_model_path(export_model_id):
     # For now we need to use a batch_size of 2 because it fails with batch_size == 1
-    model = NeuronModelForCausalLM.from_pretrained(model_id, export=True, batch_size=2)
+    model = NeuronModelForCausalLM.from_pretrained(export_model_id, export=True, batch_size=2)
     model_dir = TemporaryDirectory()
     model_path = model_dir.name
     model.save_pretrained(model_path)
     del model
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    tokenizer = AutoTokenizer.from_pretrained(export_model_id)
     tokenizer.save_pretrained(model_path)
     del tokenizer
     # Yield instead of returning to keep a reference to the temporary directory.
@@ -58,8 +58,8 @@ def neuron_model_path(model_id):
 
 
 @pytest.fixture(scope="module")
-def neuron_repo_id(model_id):
-    model_name = model_id.split("/")[-1]
+def neuron_push_id(export_model_id):
+    model_name = export_model_id.split("/")[-1]
     repo_id = f"{USER}/{model_name}-neuronx"
     return repo_id
 
@@ -85,9 +85,9 @@ def _check_neuron_model(neuron_model, batch_size=None, num_cores=None, auto_cast
         [2, 2, "bf16"],
     ],
 )
-def test_model_from_hub(model_id, batch_size, num_cores, auto_cast_type):
+def test_model_export(export_model_id, batch_size, num_cores, auto_cast_type):
     model = NeuronModelForCausalLM.from_pretrained(
-        model_id, export=True, batch_size=batch_size, num_cores=num_cores, auto_cast_type=auto_cast_type
+        export_model_id, export=True, batch_size=batch_size, num_cores=num_cores, auto_cast_type=auto_cast_type
     )
     _check_neuron_model(model, batch_size, num_cores, auto_cast_type)
 
@@ -96,6 +96,13 @@ def test_model_from_hub(model_id, batch_size, num_cores, auto_cast_type):
 @requires_neuronx
 def test_model_from_path(neuron_model_path):
     model = NeuronModelForCausalLM.from_pretrained(neuron_model_path)
+    _check_neuron_model(model)
+
+
+@is_inferentia_test
+@requires_neuronx
+def test_model_from_hub():
+    model = NeuronModelForCausalLM.from_pretrained("dacorvo/tiny-random-gpt2-neuronx")
     _check_neuron_model(model)
 
 
@@ -132,12 +139,12 @@ def test_model_generation(neuron_model_path, gen_kwargs):
 
 @is_inferentia_test
 @requires_neuronx
-def test_push_to_hub(neuron_model_path, neuron_repo_id):
+def test_push_to_hub(neuron_model_path, neuron_push_id):
     model = NeuronModelForCausalLM.from_pretrained(neuron_model_path)
-    model.push_to_hub(neuron_model_path, neuron_repo_id, use_auth_token=TOKEN, endpoint=ENDPOINT_STAGING)
+    model.push_to_hub(neuron_model_path, neuron_push_id, use_auth_token=TOKEN, endpoint=ENDPOINT_STAGING)
     api = HfApi(endpoint=ENDPOINT_STAGING, token=TOKEN)
     try:
-        hub_files_info = api.list_files_info(neuron_repo_id)
+        hub_files_info = api.list_files_info(neuron_push_id)
         hub_files_path = [info.rfilename for info in hub_files_info]
         for path, _, files in os.walk(neuron_model_path):
             for name in files:
@@ -145,4 +152,4 @@ def test_push_to_hub(neuron_model_path, neuron_repo_id):
                 hub_file_path = os.path.relpath(local_file_path, neuron_model_path)
                 assert hub_file_path in hub_files_path
     finally:
-        api.delete_repo(neuron_repo_id)
+        api.delete_repo(neuron_push_id)

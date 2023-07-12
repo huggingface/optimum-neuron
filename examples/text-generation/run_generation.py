@@ -1,15 +1,15 @@
 import argparse
-import os
 import time
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from optimum.neuron import NeuronModelForCausalLM
 
 
 def load_llm_optimum(model_id_or_path, batch_size, seq_length, num_cores, auto_cast_type):
-    export = not os.path.isdir(model_id_or_path)
+    config = AutoConfig.from_pretrained(model_id_or_path)
+    export = getattr(config, "neuron", None) is None
 
     # Load and convert the Hub model to Neuron format
     return NeuronModelForCausalLM.from_pretrained(
