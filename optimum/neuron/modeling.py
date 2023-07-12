@@ -662,7 +662,7 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
         return True
 
     class FastTopKLogitsWarper(LogitsWarper):
-        r"""Returns [batch_size, top_k] scores and indices instead of [batch_size, vocab_size] scores"""
+        r"""Returns [batch_size, top_k] scores and indices instead of [batch_size, vocab_size] scores."""
 
         def __init__(self, top_k: int, filter_value: float):
             self.top_k = top_k
@@ -699,7 +699,7 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
 
         Please refer to https://huggingface.co/docs/transformers/en/main_classes/text_generation#transformers.GenerationMixin.sample.
 
-        Parameters:
+        Args:
             input_ids (`torch.LongTensor` of shape `(batch_size, sequence_length)`):
                 The sequence used as a prompt for the generation.
             logits_processor (`LogitsProcessorList`, *optional*):
@@ -742,7 +742,7 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
             `return_dict_in_generate=True` or a [`~generation.SampleEncoderDecoderOutput`] if
             `model.config.is_encoder_decoder=True`.
 
-        ```"""
+        """
         # We don't support all parameters
         if synced_gpus:
             raise ValueError("Neuron models cannot run on GPUs.")
