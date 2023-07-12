@@ -23,7 +23,6 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 import torch
 from huggingface_hub import HfApi, HfFolder, hf_hub_download
-from packaging import version
 from transformers import AutoConfig, AutoModel
 
 from ..exporters.neuron import export
@@ -33,7 +32,7 @@ from ..modeling_base import OptimizedModel
 from ..utils.save_utils import maybe_load_preprocessors, maybe_save_preprocessors
 from .utils import NEURON_FILE_NAME, is_neuron_available, store_compilation_config
 from .utils.import_utils import is_neuronx_available
-from .utils.version_utils import get_neuroncc_version, get_neuronxcc_version
+from .utils.version_utils import check_compiler_compatibility, get_neuroncc_version, get_neuronxcc_version
 
 
 if TYPE_CHECKING:
@@ -158,26 +157,10 @@ class NeuronBaseModel(OptimizedModel):
                 file_name = neuron_files[0].name
 
         # Check compiler compatibility(compiler type and version) of the saved model vs. system.
-        if hasattr(config, "neuron_compiler"):
-            if config.neuron_compiler == "neuron-cc":
-                compiler_available_fn = is_neuron_available
-                installed_compiler_version_fn = get_neuroncc_version
-            elif config.neuron_compiler == "neuronx-cc":
-                compiler_available_fn = is_neuronx_available
-                installed_compiler_version_fn = get_neuronxcc_version
-            else:
-                raise RuntimeError(f"Pretrained model compiler type {config.neuron_compiler} not recognized.")
-
-            if not compiler_available_fn():
-                raise RuntimeError(
-                    f"Pretrained model was compiled for {config.neuron_compiler}, but {config.neuron_compiler} is not installed."
-                )
-            if hasattr(config, "neuron_compiler_version"):
-                if version.parse(config.neuron_compiler_version) > version.parse(installed_compiler_version_fn()):
-                    raise RuntimeError(
-                        f"Pretrained model ({config.neuron_compiler}={installed_compiler_version_fn()}) is newer than current compiler ({config.neuron_compiler}={config.neuron_compiler_version}),"
-                        " which may cause runtime incompatabilities."
-                    )
+        if hasattr(config, "neuron") and "compiler_type" in config.neuron:
+            model_compiler_type = config.neuron.get("compiler_type")
+            model_compiler_version = config.neuron.get("compiler_version")
+            check_compiler_compatibility(model_compiler_type, model_compiler_version)
 
         preprocessors = None
         if model_path.is_dir():
@@ -278,7 +261,20 @@ class NeuronBaseModel(OptimizedModel):
             input_shapes["batch_size"] = 1
             disable_fallback = True  # Turn off the fallback for neuron, otherwise dynamic batching will still fail
 
-        neuron_config = neuron_config_constructor(model.config, dynamic_batch_size=dynamic_batch_size, **input_shapes)
+        if is_neuronx_available():
+            compiler_type = "neuronx-cc"
+            compiler_version = get_neuronxcc_version()
+        else:
+            compiler_type = "neuron-cc"
+            compiler_version = get_neuroncc_version()
+
+        neuron_config = neuron_config_constructor(
+            model.config,
+            dynamic_batch_size=dynamic_batch_size,
+            compiler_type=compiler_type,
+            compiler_version=compiler_version,
+            **input_shapes,
+        )
 
         # Get compilation arguments
         auto_cast_type = None if auto_cast is None else auto_cast_type
@@ -296,13 +292,6 @@ class NeuronBaseModel(OptimizedModel):
             **compiler_kwargs,
         )
 
-        # This logic is a bit of a reacharound, using the same logic as in `export()` to determine the cc version
-        if is_neuronx_available():
-            neuron_compiler = "neuronx-cc"
-            neuron_compiler_version = get_neuronxcc_version()
-        else:
-            neuron_compiler = "neuron-cc"
-            neuron_compiler_version = get_neuroncc_version()
         store_compilation_config(
             config,
             input_shapes,
@@ -310,8 +299,8 @@ class NeuronBaseModel(OptimizedModel):
             input_names,
             output_names,
             dynamic_batch_size,
-            neuron_compiler,
-            neuron_compiler_version,
+            compiler_type,
+            compiler_version,
         )
 
         config.save_pretrained(save_dir_path)
@@ -355,11 +344,22 @@ class NeuronBaseModel(OptimizedModel):
         """
         Builds a `NeuronConfig` with an instance of the `PretrainedConfig` and the task.
         """
+        if not hasattr(config, "neuron"):
+            logger.warning(
+                "Unable to identify neuron configuration with the keyword `neuron`, make sure that your config file contains necessary information"
+            )
+            return
+
+        neuron_configs = config.neuron
+        # Fetch compiler information
+        compiler_type = neuron_configs.get("compiler_type")
+        compiler_version = neuron_configs.get("compiler_version")
+
         # Fetch mandatory shapes from config
         compile_shapes = {
-            key.replace("neuron_", ""): value
+            key.replace("static", ""): value
             for (key, value) in config.to_diff_dict().items()
-            if key.startswith("neuron_") and not key.startswith("neuron_compiler")  # <-- TODO: is there a better way?
+            if key.startswith("static_")
         }
 
         # Neuron config constructuor
@@ -368,9 +368,12 @@ class NeuronBaseModel(OptimizedModel):
             model_type=config.model_type, exporter="neuron", task=task
         )
 
-        # Build neuron config
         return neuron_config_constructor(
-            config, dynamic_batch_size=getattr(config, "dynamic_batch_size", False), **compile_shapes
+            config,
+            dynamic_batch_size=getattr(config, "dynamic_batch_size", False),
+            compiler_type=compiler_type,
+            compiler_version=compiler_version,
+            **compile_shapes,
         )
 
     @classmethod

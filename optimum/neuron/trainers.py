@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Defines Trainer subclasses to perform training on AWS Trainium instances."""
+"""Defines Trainer subclasses to perform training on AWS Neuron instances."""
 
 import contextlib
 import glob
@@ -111,7 +111,7 @@ if os.environ.get("TORCHELASTIC_RUN_ID"):
 transformers_get_optimizer_cls_and_kwargs = Trainer.get_optimizer_cls_and_kwargs
 
 
-class AugmentTrainerForTrainiumMixin:
+class AugmentTrainerForNeuronMixin:
     def __init__(self, *args, **kwargs):
         if not isinstance(self, Trainer):
             raise TypeError(f"{self.__class__.__name__} can only be mixed with Trainer subclasses.")
@@ -458,13 +458,13 @@ class AugmentTrainerForTrainiumMixin:
         )
 
 
-class TrainiumTrainer(AugmentTrainerForTrainiumMixin, Trainer):
+class NeuronTrainer(AugmentTrainerForNeuronMixin, Trainer):
     """
     Trainer that is suited for performing training on AWS Tranium instances.
     """
 
 
-class Seq2SeqTrainiumTrainer(AugmentTrainerForTrainiumMixin, Seq2SeqTrainer):
+class Seq2SeqNeuronTrainer(AugmentTrainerForNeuronMixin, Seq2SeqTrainer):
     """
     Seq2SeqTrainer that is suited for performing training on AWS Tranium instances.
     """

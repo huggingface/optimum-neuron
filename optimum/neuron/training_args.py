@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Defines a TrainingArguments class compatible with Trainium."""
+"""Defines a TrainingArguments class compatible with Neuron."""
 
 import io
 import json
@@ -49,7 +49,7 @@ if is_sagemaker_mp_enabled():
 logger = logging.get_logger(__name__)
 
 
-class TrainiumTrainingArgumentsMixin:
+class NeuronTrainingArgumentsMixin:
     def __post_init__(self):
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
         patch_accelerate_is_tpu_available()
@@ -194,14 +194,14 @@ class TrainiumTrainingArgumentsMixin:
 
 
 @dataclass
-class TrainiumTrainingArguments(TrainiumTrainingArgumentsMixin, TrainingArguments):
+class NeuronTrainingArguments(NeuronTrainingArgumentsMixin, TrainingArguments):
     tensor_parallel_size: int = field(
         default=1, metadata={"help": "The number of replicas the model will be sharded on."}
     )
 
 
 @dataclass
-class Seq2SeqTrainiumTrainingArguments(TrainiumTrainingArgumentsMixin, Seq2SeqTrainingArguments):
+class Seq2SeqNeuronTrainingArguments(NeuronTrainingArgumentsMixin, Seq2SeqTrainingArguments):
     tensor_parallel_size: int = field(
         default=1, metadata={"help": "The number of replicas the model will be sharded on."}
     )
