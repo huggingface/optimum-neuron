@@ -22,6 +22,7 @@ from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Optional, Tuple, Union
 
 import torch
+from huggingface_hub import HfApi, HfFolder
 from transformers import GenerationConfig
 
 from ..exporters.neuron.model_configs import *  # noqa: F403
@@ -224,3 +225,45 @@ class NeuronDecoderModel(OptimizedModel):
             self.model_path = save_directory
 
         self.generation_config.save_pretrained(save_directory)
+
+    def push_to_hub(
+        self,
+        save_directory: str,
+        repository_id: str,
+        private: Optional[bool] = None,
+        use_auth_token: Union[bool, str] = True,
+        endpoint: Optional[str] = None,
+    ) -> str:
+        if isinstance(use_auth_token, str):
+            huggingface_token = use_auth_token
+        elif use_auth_token:
+            huggingface_token = HfFolder.get_token()
+        else:
+            raise ValueError("You need to provide `use_auth_token` to be able to push to the hub")
+        api = HfApi(endpoint=endpoint)
+
+        user = api.whoami(huggingface_token)
+        self.git_config_username_and_email(git_email=user["email"], git_user=user["fullname"])
+
+        api.create_repo(
+            token=huggingface_token,
+            repo_id=repository_id,
+            exist_ok=True,
+            private=private,
+        )
+        for path, subdirs, files in os.walk(save_directory):
+            for name in files:
+                local_file_path = os.path.join(path, name)
+                hub_file_path = os.path.relpath(local_file_path, save_directory)
+                # FIXME: when huggingface_hub fixes the return of upload_file
+                try:
+                    api.upload_file(
+                        token=huggingface_token,
+                        repo_id=f"{repository_id}",
+                        path_or_fileobj=os.path.join(os.getcwd(), local_file_path),
+                        path_in_repo=hub_file_path,
+                    )
+                except KeyError:
+                    pass
+                except NameError:
+                    pass

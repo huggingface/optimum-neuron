@@ -12,15 +12,19 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import os
 from tempfile import TemporaryDirectory
 
 import pytest
 import torch
+from huggingface_hub import HfApi
 from transformers import AutoTokenizer
+from transformers.testing_utils import ENDPOINT_STAGING
 
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 from optimum.utils import logging
+from optimum.utils.testing_utils import TOKEN, USER
 
 from .exporters.exporters_utils import EXPORT_MODELS_TINY as MODEL_NAMES
 
@@ -51,6 +55,13 @@ def neuron_model_path(model_id):
     # It will go out of scope and be released only once all tests needing the fixture
     # have been completed.
     yield model_path
+
+
+@pytest.fixture(scope="module")
+def neuron_repo_id(model_id):
+    model_name = model_id.split("/")[-1]
+    repo_id = f"{USER}/{model_name}-neuronx"
+    return repo_id
 
 
 def _check_neuron_model(neuron_model, batch_size=None, num_cores=None, auto_cast_type=None):
@@ -117,3 +128,21 @@ def test_model_generation(neuron_model_path, gen_kwargs):
     # Using an incompatible generation length
     with pytest.raises(ValueError, match="The current sequence length"):
         _test_model_generation(model, tokenizer, model.batch_size, model.max_length * 2, **gen_kwargs)
+
+
+@is_inferentia_test
+@requires_neuronx
+def test_push_to_hub(neuron_model_path, neuron_repo_id):
+    model = NeuronModelForCausalLM.from_pretrained(neuron_model_path)
+    model.push_to_hub(neuron_model_path, neuron_repo_id, use_auth_token=TOKEN, endpoint=ENDPOINT_STAGING)
+    api = HfApi(endpoint=ENDPOINT_STAGING, token=TOKEN)
+    try:
+        hub_files_info = api.list_files_info(neuron_repo_id)
+        hub_files_path = [info.rfilename for info in hub_files_info]
+        for path, _, files in os.walk(neuron_model_path):
+            for name in files:
+                local_file_path = os.path.join(path, name)
+                hub_file_path = os.path.relpath(local_file_path, neuron_model_path)
+                assert hub_file_path in hub_files_path
+    finally:
+        api.delete_repo(neuron_repo_id)
