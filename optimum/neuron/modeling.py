@@ -527,7 +527,19 @@ class NeuronModelForMultipleChoice(NeuronBaseModel):
         return MultipleChoiceModelOutput(logits=logits)
 
 
-NEURON_CAUSALLM_MODEL_DOCSTRING = r"""
+NEURON_CAUSALLM_MODEL_START_DOCSTRING = r"""
+    This model inherits from [`~neuron.modeling.NeuronDecoderModel`]. Check the superclass documentation for the generic methods the
+    library implements for all its model (such as downloading or saving)
+
+    Args:
+        model (`torch.nn.Module`): [torch.nn.Module](https://pytorch.org/docs/stable/generated/torch.nn.Module.html) is the neuron decoder graph.
+        config (`transformers.PretrainedConfig`): [PretrainedConfig](https://huggingface.co/docs/transformers/main_classes/configuration#transformers.PretrainedConfig) is the Model configuration class with all the parameters of the model.
+        model_path (`Path`): The directory where the compiled artifacts for the model are stored.
+            It can be a temporary directory if the model has never been saved locally before.
+        generation_config (`transformers.GenerationConfig`): [GenerationConfig](https://huggingface.co/docs/transformers/main_classes/text_generation#transformers.GenerationConfig) holds the configuration for the model generation task.
+"""
+
+NEURON_CAUSALLM_MODEL_FORWARD_DOCSTRING = r"""
     Args:
         input_ids (`torch.LongTensor`):
             Indices of decoder input sequence tokens in the vocabulary of shape `(batch_size, sequence_length)`.
@@ -556,15 +568,11 @@ TEXT_GENERATION_EXAMPLE = r"""
 
 @add_start_docstrings(
     r"""
-    This is a generic Neuron model class that will be instantiated as one of the model classes of the
-    library (with a causal language modeling head) when created with the from_pretrained() class method.
-    """
+    Neuron model with a causal language modeling head for inference on Neuron devices.
+    """,
+    NEURON_CAUSALLM_MODEL_START_DOCSTRING,
 )
 class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
-    """
-    Neuron model with a causal language modeling head for inference on Neuron devices.
-    """
-
     auto_model_class = AutoModelForCausalLM
     main_input_name = "input_ids"
 
@@ -586,7 +594,7 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
         self.cur_len = 0
 
     @add_start_docstrings_to_model_forward(
-        NEURON_CAUSALLM_MODEL_DOCSTRING
+        NEURON_CAUSALLM_MODEL_FORWARD_DOCSTRING
         + TEXT_GENERATION_EXAMPLE.format(
             processor_class="AutoTokenizer",
             model_class="NeuronModelForCausalLM",
@@ -742,7 +750,7 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
             `return_dict_in_generate=True` or a [`~generation.SampleEncoderDecoderOutput`] if
             `model.config.is_encoder_decoder=True`.
 
-        ```"""
+        """
         # We don't support all parameters
         if synced_gpus:
             raise ValueError("Neuron models cannot run on GPUs.")
