@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 import torch
 import torch_neuronx
 from diffusers import DDIMScheduler, LMSDiscreteScheduler, PNDMScheduler, StableDiffusionPipeline
+from diffusers.image_processor import VaeImageProcessor
 from diffusers.schedulers.scheduling_utils import SCHEDULER_CONFIG_NAME
 from diffusers.utils import CONFIG_NAME
 from huggingface_hub import snapshot_download
@@ -33,10 +34,8 @@ from transformers import CLIPFeatureExtractor, CLIPTokenizer, PretrainedConfig
 
 from ..exporters.neuron import DiffusersPretrainedConfig, main_export, normalize_input_shapes
 from ..exporters.neuron.model_configs import *  # noqa: F403
-from ..pipelines.diffusers.pipeline_stable_diffusion import StableDiffusionPipelineMixin
-from ..pipelines.diffusers.pipeline_stable_diffusion_img2img import StableDiffusionImg2ImgPipelineMixin
-from ..pipelines.diffusers.pipeline_stable_diffusion_inpaint import StableDiffusionInpaintPipelineMixin
 from .modeling_base import NeuronBaseModel
+from .pipelines.diffusers.pipeline_stable_diffusion import StableDiffusionPipelineMixin
 from .utils import (
     DIFFUSION_MODEL_TEXT_ENCODER_NAME,
     DIFFUSION_MODEL_UNET_NAME,
@@ -94,7 +93,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 A scheduler to be used in combination with the U-NET component to denoise the encoded image latents.
             feature_extractor (`Optional[CLIPFeatureExtractor]`, defaults to `None`):
                 A model extracting features from generated images to be used as inputs for the `safety_checker`
-            neuron_config  (Optional["NeuronConfig"], defaults to `None`):
+            neuron_configs  (Optional["NeuronConfig"], defaults to `None`):
                 A list of Neuron configurations.
             model_save_dir (`Optional[Union[str, Path, TemporaryDirectory]]`, defaults to `None`):
                 The directory under which the exported Neuron models were saved.
@@ -145,12 +144,14 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         self._attributes_init(model_save_dir)
         self.model_and_config_save_paths = model_and_config_save_paths if model_and_config_save_paths else None
 
-        if "block_out_channels" in self.vae_decoder.config:
+        if hasattr(self.vae_decoder.config, "block_out_channels"):
             self.vae_scale_factor = 2 ** (
-                len(self.vae_decoder.config["block_out_channels"]) - 1
-            )  # not working for tiny, maybe for normal?
+                len(self.vae_decoder.config.block_out_channels) - 1
+            )  # not working for tiny, need to remove `block_out_channels` in `config.json`.
         else:
             self.vae_scale_factor = 8
+        
+        self.image_processor = VaeImageProcessor(vae_scale_factor=self.vae_scale_factor)
 
     def _save_pretrained(
         self,
@@ -380,9 +381,6 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             model_save_dir=save_dir,
         )
 
-    def __call__(self, *args, **kwargs):
-        return StableDiffusionPipelineMixin.__call__(self, *args, **kwargs)
-
     @classmethod
     def _load_config(cls, config_name_or_path: Union[str, os.PathLike], **kwargs):
         return cls.load_config(config_name_or_path, **kwargs)
@@ -407,7 +405,7 @@ class _NeuronDiffusionModelPart(NeuronBaseModel):
     ):
         self.model = model
         self.parent_model = parent_model
-        self.config = config.to_dict() if isinstance(config, DiffusersPretrainedConfig) else config
+        self.config = config
         self.neuron_config = neuron_config
         self.model_type = model_type
         self.device = device
@@ -431,8 +429,6 @@ class NeuronModelTextEncoder(_NeuronDiffusionModelPart):
         super().__init__(model, parent_model, config, neuron_config, DIFFUSION_MODEL_TEXT_ENCODER_NAME)
 
     def forward(self, input_ids: torch.Tensor):
-        # TODO: Remove after supporting torch tensor in `optimum.pipeline_stable_diffusion.StableDiffusionPipelineMixin`
-        input_ids = torch.from_numpy(input_ids)
 
         inputs = (input_ids,)
         outputs = self.model(*inputs)
@@ -450,13 +446,8 @@ class NeuronModelUnet(_NeuronDiffusionModelPart):
         super().__init__(model, parent_model, config, neuron_config, DIFFUSION_MODEL_UNET_NAME)
         if hasattr(self.model, "device"):
             self.device = self.model.device
-        self.input_dtype = {}  # dummy to pass the pipeline in optimum
 
     def forward(self, sample: torch.Tensor, timestep: torch.Tensor, encoder_hidden_states: torch.Tensor):
-        # TODO: Remove after supporting torch tensor in `optimum.pipeline_stable_diffusion.StableDiffusionPipelineMixin`
-        sample = torch.from_numpy(sample)
-        timestep = torch.from_numpy(timestep)
-        encoder_hidden_states = torch.from_numpy(encoder_hidden_states)
 
         timestep = timestep.float().expand((sample.shape[0],))
         inputs = {
@@ -466,8 +457,7 @@ class NeuronModelUnet(_NeuronDiffusionModelPart):
         }
         outputs = self.model(*tuple(inputs.values()))
 
-        # TODO: remove after supporting tensor
-        return tuple(output.numpy() for output in outputs.values())
+        return tuple(output for output in outputs.values())
 
 
 class NeuronModelVaeEncoder(_NeuronDiffusionModelPart):
@@ -481,14 +471,11 @@ class NeuronModelVaeEncoder(_NeuronDiffusionModelPart):
         super().__init__(model, parent_model, config, neuron_config, DIFFUSION_MODEL_VAE_ENCODER_NAME)
 
     def forward(self, sample: torch.Tensor):
-        # TODO: Remove after supporting torch tensor in `optimum.pipeline_stable_diffusion.StableDiffusionPipelineMixin`
-        sample = torch.from_numpy(sample)
 
         inputs = (sample,)
         outputs = self.model(*inputs)
 
-        # TODO: remove after supporting tensor
-        return tuple(output.numpy() for output in outputs.values())
+        return tuple(output for output in outputs.values())
 
 
 class NeuronModelVaeDecoder(_NeuronDiffusionModelPart):
@@ -502,26 +489,13 @@ class NeuronModelVaeDecoder(_NeuronDiffusionModelPart):
         super().__init__(model, parent_model, config, neuron_config, DIFFUSION_MODEL_VAE_DECODER_NAME)
 
     def forward(self, latent_sample: torch.Tensor):
-        # TODO: Remove after supporting torch tensor in `optimum.pipeline_stable_diffusion.StableDiffusionPipelineMixin`
-        latent_sample = torch.from_numpy(latent_sample)
 
         inputs = (latent_sample,)
         outputs = self.model(*inputs)
 
-        # TODO: remove after supporting tensor
-        return tuple(output.numpy() for output in outputs.values())
+        return tuple(output for output in outputs.values())
 
 
 class NeuronStableDiffusionPipeline(NeuronStableDiffusionPipelineBase, StableDiffusionPipelineMixin):
     def __call__(self, *args, **kwargs):
         return StableDiffusionPipelineMixin.__call__(self, *args, **kwargs)
-
-
-class NeuronStableDiffusionImg2ImgPipeline(NeuronStableDiffusionPipelineBase, StableDiffusionImg2ImgPipelineMixin):
-    def __call__(self, *args, **kwargs):
-        return StableDiffusionImg2ImgPipelineMixin.__call__(self, *args, **kwargs)
-
-
-class NeuronStableDiffusionInpaintPipeline(NeuronStableDiffusionPipelineBase, StableDiffusionInpaintPipelineMixin):
-    def __call__(self, *args, **kwargs):
-        return StableDiffusionInpaintPipelineMixin.__call__(self, *args, **kwargs)

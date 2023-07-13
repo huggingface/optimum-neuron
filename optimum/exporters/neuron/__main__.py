@@ -96,7 +96,7 @@ def normalize_input_shapes(task: str, args: argparse.Namespace) -> Dict[str, int
         mandatory_axes = set(
             getattr(inspect.getfullargspec(build_stable_diffusion_components_mandatory_shapes), "args")
         )
-        # Remove `sequence_length` as diffusers will pad it to the max anyway, need to discuss with diffusers team if it's feasible to remove padding.
+        # Remove `sequence_length` as diffusers will pad it to the max anyway.
         mandatory_axes.remove("sequence_length")
         if not mandatory_axes.issubset(set(args.keys())):
             raise AttributeError(
@@ -172,7 +172,7 @@ def main_export(
             DIFFUSION_MODEL_VAE_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_ENCODER_NAME, NEURON_FILE_NAME),
             DIFFUSION_MODEL_VAE_DECODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_DECODER_NAME, NEURON_FILE_NAME),
         }
-        # Fetch `model_max_length` as `sequence_length` as diffusers will pad it to the max anyway.
+        # TODO: `diffusers` uses `model_max_length` as `sequence_length`, should we let it be customizable for Neuron?
         sequence_length = model.tokenizer.model_max_length
         for shapes_info in input_shapes.values():
             if "sequence_length" in shapes_info:
@@ -187,7 +187,6 @@ def main_export(
         model.scheduler.save_pretrained(output.joinpath("scheduler"))
         if model.feature_extractor is not None:
             model.feature_extractor.save_pretrained(output.joinpath("feature_extractor"))
-        # Save SD pipeline model index
         model.save_config(output)
 
     _, neuron_outputs = export_models(
