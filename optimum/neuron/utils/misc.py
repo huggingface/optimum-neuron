@@ -87,8 +87,8 @@ def args_and_kwargs_to_kwargs_only(
 
 def _original_filename_to_safetensors_filename(filename: str) -> str:
     """Transforms the filename for any kind of checkpoint to a safetensors equivalent."""
-    name, extension = filename.rsplit(".", maxsplit=1)
-    pattern = rf"{name}(-[0-9]*-of-[0-9]*)?\.{extension}"
+    _, extension = filename.rsplit(".", maxsplit=1)
+    pattern = rf"\w+(-[0-9]*-of-[0-9]*)?\.{extension}"
     match_ = re.match(pattern, filename)
     if not match_:
         raise ValueError(f"Could not convert {filename} to a safetensor filename.")
@@ -139,11 +139,12 @@ def convert_checkpoint_to_safetensors(
 
     already_exists = safetensors_path.is_file()
     is_distributed = torch.distributed.is_initialized()
-    is_main_process = is_distributed and torch.distributed.get_rank() > 0
+    is_main_process = is_distributed and torch.distributed.get_rank() == 0
 
     # Only one worker will load the checkpoint (potentially huge) and perform the conversion.
     if not already_exists and (not is_distributed or is_main_process):
-        logger.info(f"Converting {weight_file} to safetensors")
+        if log:
+            logger.info(f"Converting {weight_file} to safetensors")
         checkpoint = torch.load(weight_file)
         data_pointers = set()
         for k, v in checkpoint.items():
