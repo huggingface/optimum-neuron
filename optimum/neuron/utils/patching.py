@@ -77,7 +77,18 @@ class Patcher(BasePatcher):
         proccessed_patching_specs = []
         for orig, patch in patching_specs or []:
             module_qualified_name, attribute_name = orig.rsplit(".", maxsplit=1)
-            module = importlib.import_module(module_qualified_name)
+            try:
+                module = importlib.import_module(module_qualified_name)
+            except ModuleNotFoundError as e:
+                module_qualified_name, module_attribute_containing_attribute_name = module_qualified_name.rsplit(
+                    ".", maxsplit=1
+                )
+                module = importlib.import_module(module_qualified_name)
+                try:
+                    module = getattr(module, module_attribute_containing_attribute_name)
+                except AttributeError:
+                    raise e
+
             module_has_attr = hasattr(module, attribute_name)
             if module_has_attr:
                 attribute = getattr(module, attribute_name)

@@ -12,7 +12,21 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Utilities to handle the several optional requirement packages."""
 
-from .base import Parallelizer
-from .parallelizers_manager import ParallelizersManager
-from .utils import lazy_load_for_parallelism
+import functools
+
+from transformers.utils import is_safetensors_available
+
+
+def requires_safetensors(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        if not is_safetensors_available():
+            raise ModuleNotFoundError(
+                f"{func.__name__} requires the `safetensors` package. You can install it by running: pip install "
+                "safetensors"
+            )
+        return func(*args, **kwargs)
+
+    return wrapper

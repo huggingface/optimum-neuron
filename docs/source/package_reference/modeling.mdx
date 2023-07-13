@@ -16,13 +16,20 @@ limitations under the License.
 
 # Models
 
-## Generic model class
-
-The following `NeuronBaseModel` class is available for instantiating a base Neuron model without a specific head.
+## Generic model classes
 
 ### NeuronBaseModel
 
+The `NeuronBaseModel` class is available for instantiating a base Neuron model without a specific head.
+It is used as the base class for all tasks but text generation.
+
 [[autodoc]] modeling_base.NeuronBaseModel
+
+### NeuronDecoderModel
+
+The `NeuronDecoderModel` class is the base class for text generation models.
+
+[[autodoc]] modeling_decoder.NeuronDecoderModel
 
 ## Natural Language Processing
 
