@@ -150,7 +150,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             )  # not working for tiny, need to remove `block_out_channels` in `config.json`.
         else:
             self.vae_scale_factor = 8
-        
+
         self.image_processor = VaeImageProcessor(vae_scale_factor=self.vae_scale_factor)
 
     def _save_pretrained(
@@ -389,7 +389,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         self.save_config(save_directory)
 
 
-class _NeuronDiffusionModelPart(NeuronBaseModel):
+class _NeuronDiffusionModelPart:
     """
     For multi-file Neuron models, represents a part of the model.
     """
@@ -429,7 +429,6 @@ class NeuronModelTextEncoder(_NeuronDiffusionModelPart):
         super().__init__(model, parent_model, config, neuron_config, DIFFUSION_MODEL_TEXT_ENCODER_NAME)
 
     def forward(self, input_ids: torch.Tensor):
-
         inputs = (input_ids,)
         outputs = self.model(*inputs)
         return outputs
@@ -448,7 +447,6 @@ class NeuronModelUnet(_NeuronDiffusionModelPart):
             self.device = self.model.device
 
     def forward(self, sample: torch.Tensor, timestep: torch.Tensor, encoder_hidden_states: torch.Tensor):
-
         timestep = timestep.float().expand((sample.shape[0],))
         inputs = {
             "sample": sample,
@@ -471,7 +469,6 @@ class NeuronModelVaeEncoder(_NeuronDiffusionModelPart):
         super().__init__(model, parent_model, config, neuron_config, DIFFUSION_MODEL_VAE_ENCODER_NAME)
 
     def forward(self, sample: torch.Tensor):
-
         inputs = (sample,)
         outputs = self.model(*inputs)
 
@@ -489,7 +486,6 @@ class NeuronModelVaeDecoder(_NeuronDiffusionModelPart):
         super().__init__(model, parent_model, config, neuron_config, DIFFUSION_MODEL_VAE_DECODER_NAME)
 
     def forward(self, latent_sample: torch.Tensor):
-
         inputs = (latent_sample,)
         outputs = self.model(*inputs)
 

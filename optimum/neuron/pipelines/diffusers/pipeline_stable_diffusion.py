@@ -14,9 +14,8 @@
 # limitations under the License.
 """Override some diffusers API for NeuroStableDiffusionPipeline"""
 
-import inspect
 import logging
-from typing import Callable, List, Optional, Union, Dict, Any
+from typing import Any, Callable, Dict, List, Optional, Union
 
 import torch
 from diffusers import StableDiffusionPipeline
@@ -41,7 +40,6 @@ class StableDiffusionPipelineMixin(StableDiffusionPipeline):
         negative_prompt_embeds: Optional[torch.FloatTensor] = None,
         lora_scale: Optional[float] = None,
     ):
-        
         if lora_scale is not None and isinstance(self, LoraLoaderMixin):
             self._lora_scale = lora_scale
 
@@ -53,7 +51,7 @@ class StableDiffusionPipelineMixin(StableDiffusionPipeline):
             batch_size = prompt_embeds.shape[0]
 
         if prompt_embeds is None:
-            # textual inversion: procecss multi-vector tokens if necessary
+            # textual inversion: process multi-vector tokens if necessary
             if isinstance(self, TextualInversionLoaderMixin):
                 prompt = self.maybe_convert_prompt(prompt, self.tokenizer)
 
@@ -77,11 +75,6 @@ class StableDiffusionPipelineMixin(StableDiffusionPipeline):
                     "The following part of your input was truncated because CLIP can only handle sequences up to"
                     f" {self.tokenizer.model_max_length} tokens: {removed_text}"
                 )
-
-            if hasattr(self.text_encoder.config, "use_attention_mask") and self.text_encoder.config.use_attention_mask:
-                attention_mask = text_inputs.attention_mask.to(device)
-            else:
-                attention_mask = None
 
             # [Modified] Input and its dtype constraints
             prompt_embeds = self.text_encoder(input_ids=text_input_ids.to(torch.int32))
@@ -113,7 +106,7 @@ class StableDiffusionPipelineMixin(StableDiffusionPipeline):
             else:
                 uncond_tokens = negative_prompt
 
-            # textual inversion: procecss multi-vector tokens if necessary
+            # textual inversion: process multi-vector tokens if necessary
             if isinstance(self, TextualInversionLoaderMixin):
                 uncond_tokens = self.maybe_convert_prompt(uncond_tokens, self.tokenizer)
 
@@ -142,7 +135,7 @@ class StableDiffusionPipelineMixin(StableDiffusionPipeline):
             prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds])
 
         return prompt_embeds
-    
+
     # Adapted from https://github.com/huggingface/diffusers/blob/v0.18.2/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L566
     def __call__(
         self,
