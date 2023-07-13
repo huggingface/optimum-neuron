@@ -76,11 +76,13 @@ class NeuronCacheCallaback(TrainerCallback):
         fetch: bool = True,
         push: bool = True,
         wait_for_everyone_on_fetch: bool = True,
+        wait_for_everyone_on_push: bool = True,
     ):
         super().__init__()
         self.fetch = fetch
         self.push = push
         self.wait_for_everyone_on_fetch = wait_for_everyone_on_fetch
+        self.wait_for_everyone_on_push = wait_for_everyone_on_push
 
         # Real Neuron compile cache if it exists.
         if original_neuron_cache_path is None:
@@ -272,6 +274,9 @@ class NeuronCacheCallaback(TrainerCallback):
                     target_file.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy(path, self.neuron_cache_path / path_in_cache)
 
+            if self.wait_for_everyone_on_push:
+                xm.rendezvous("wait for everyone after pushing")
+
         if self.use_neuron_cache:
             self._update_cache_stats(self.neuron_cache_path)
 
@@ -283,7 +288,7 @@ class NeuronCacheCallaback(TrainerCallback):
             model = kwargs["model"]
             self.neuron_hash_for_model(args, model, state.last_inputs, try_to_fetch_cached_model=True)
         if self.wait_for_everyone_on_fetch:
-            xm.rendezvous("wait for fetching")
+            xm.rendezvous("wait for everyone after fetching")
 
     def on_step_end(self, args: "TrainingArguments", state: "TrainerState", control: "TrainerControl", **kwargs):
         """
