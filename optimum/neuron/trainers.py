@@ -26,6 +26,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import torch
 from packaging import version
+from torch.utils.data import DataLoader
 from transformers import PreTrainedModel, Seq2SeqTrainer, Trainer, TrainingArguments
 from transformers.dependency_versions_check import dep_version_check
 from transformers.integrations import is_fairscale_available
@@ -40,12 +41,19 @@ from transformers.utils import is_sagemaker_mp_enabled
 
 from ..utils import check_if_transformers_greater, logging
 from .accelerate import NeuronAccelerator, NeuronDistributedType
-from .distributed import ParallelizersManager
+from .distributed import Parallelizer, ParallelizersManager
 from .trainer_callback import NeuronCacheCallaback
-from .utils import DynamicPatch, ModelPatcher, is_torch_xla_available, patch_within_function
+from .utils import (
+    DynamicPatch,
+    ModelPatcher,
+    is_neuronx_distributed_available,
+    is_torch_xla_available,
+    patch_within_function,
+)
 from .utils.cache_utils import get_neuron_cache_path
 from .utils.training_utils import (
     TRANSFORMERS_MIN_VERSION_USE_ACCELERATE,
+    get_model_param_count,
     is_precompilation,
     patch_generation_mixin_to_neuron_generation_mixin,
     patched_finfo,
@@ -100,6 +108,8 @@ if os.environ.get("TORCHELASTIC_RUN_ID"):
         if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
             raise AssertionError("Failed to initialize torch.distributed process group using XLA backend.")
 
+transformers_get_optimizer_cls_and_kwargs = Trainer.get_optimizer_cls_and_kwargs
+
 
 class AugmentTrainerForNeuronMixin:
     def __init__(self, *args, **kwargs):
@@ -138,16 +148,36 @@ class AugmentTrainerForNeuronMixin:
             logger.setLevel(logging.INFO)
 
         if not is_precompilation():
+            push = self.args.local_rank == 0
+            fetch = self.args.local_rank == 0
+
+            if is_neuronx_distributed_available():
+                from neuronx_distributed.parallel_layers.parallel_state import (
+                    get_data_parallel_size,
+                    model_parallel_is_initialized,
+                )
+
+                if model_parallel_is_initialized():
+                    push = get_data_parallel_size() == 0
+                    fetch = get_data_parallel_size() == 0
+
             callback = NeuronCacheCallaback(
                 tmp_neuron_cache=_TMP_NEURON_CACHE_DIR,
                 original_neuron_cache_path=_ORIGINAL_NEURON_CACHE_PATH,
-                only_do_fetching=self.args.local_rank > 0,
+                fetch=fetch,
+                push=push,
             )
-            # TODO: re-enable.
             self.add_callback(callback)
 
         # Make the model Neuron-compatible for generation.
         patch_generation_mixin_to_neuron_generation_mixin(self.model)
+
+    @property
+    def tp_enabled(self):
+        return (
+            check_if_transformers_greater("4.30.0")
+            and self.accelerator.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM
+        )
 
     def prepare_args_for_precompilation(self, args: "TrainingArguments"):
         if args.num_train_epochs != 1:
@@ -217,6 +247,36 @@ class AugmentTrainerForNeuronMixin:
                 }
                 callback.on_step_middle(self.args, self.state, self.control, **kwargs)
 
+    def _prepare_data_loader_with_accelerator(self, data_loader: DataLoader):
+        if not check_if_transformers_greater("4.31.0"):
+            data_loader = self.accelerator.prepare_data_loader(data_loader)
+        return data_loader
+
+    def _get_train_sampler(self) -> Optional[torch.utils.data.Sampler]:
+        if self.tp_enabled:
+            return None
+        return super()._get_train_sampler()
+
+    def get_train_dataloader(self, *args, **kwargs) -> DataLoader:
+        return self._prepare_data_loader_with_accelerator(super().get_train_dataloader(*args, **kwargs))
+
+    def get_eval_dataloader(self, *args, **kwargs) -> DataLoader:
+        return self._prepare_data_loader_with_accelerator(super().get_eval_dataloader(*args, **kwargs))
+
+    def get_test_dataloader(self, *args, **kwargs) -> DataLoader:
+        return self._prepare_data_loader_with_accelerator(super().get_test_dataloader(*args, **kwargs))
+
+    @staticmethod
+    def get_optimizer_cls_and_kwargs(args: TrainingArguments) -> Tuple[Any, Any]:
+        optimizer_cls, optimizer_kwargs = transformers_get_optimizer_cls_and_kwargs(args)
+        if check_if_transformers_greater("4.30.0") and args.tp_plugin.should_parallelize:
+            optimizer_cls = Parallelizer.make_optimizer_constructor_lazy_for_tp(optimizer_cls)
+        return optimizer_cls, optimizer_kwargs
+
+    @patch_within_function(("transformers.Trainer.get_optimizer_cls_and_kwargs", get_optimizer_cls_and_kwargs))
+    def create_optimizer(self):
+        return super().create_optimizer()
+
     def compute_loss(self, model, inputs, return_outputs: bool = False):
         self.state.last_inputs = inputs
         self.trigger_on_step_middle_for_neuron_cache_callback(model)
@@ -232,6 +292,18 @@ class AugmentTrainerForNeuronMixin:
         self.state.last_inputs = inputs
         self.trigger_on_step_middle_for_neuron_cache_callback(model)
         return super().prediction_step(model, inputs, prediction_loss_only, ignore_keys=ignore_keys)
+
+    @patch_within_function(("transformers.trainer.get_model_param_count", get_model_param_count))
+    def _inner_training_loop(
+        self, batch_size=None, args=None, resume_from_checkpoint=None, trial=None, ignore_keys_for_eval=None
+    ):
+        return super()._inner_training_loop(
+            batch_size=batch_size,
+            args=args,
+            resume_from_checkpoint=resume_from_checkpoint,
+            trial=trial,
+            ignore_keys_for_eval=ignore_keys_for_eval,
+        )
 
     # def _nested_gather_for_xla_fsdp(self, tensors, name=None):
     #     # if isinstance(tensors, (list, tuple)):
