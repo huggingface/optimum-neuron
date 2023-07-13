@@ -135,8 +135,9 @@ pip install diffusers >= 0.17.0
 You can also accelerate the inference of stable diffusion on neuronx devices (inf / trn1). There are three components which need to be exported to `.neuron` format to boost the performance:
 
 * Text encoder
-* U-NET
-* VAE Decoder
+* U-Net
+* VAE encoder
+* VAE decoder
 
 The export can be done either with the CLI or with `NeuronStableDiffusionPipeline` API. Here is an example of exporting stable diffusion components with `NeuronStableDiffusionPipeline`:
 
@@ -159,11 +160,14 @@ The export can be done either with the CLI or with `NeuronStableDiffusionPipelin
 Now generate an image with a prompt on neuron:
 
 ```python
->>> prompt = "sailing ship in storm by Leonardo da Vinci"
+>>> prompt = "a photo of an astronaut riding a horse on mars"
 >>> image = stable_diffusion(prompt).images[0]
 ```
 
--- TODO: add an sd generated image example. 
+<img
+  src="https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/guides/models/01-sd-image.png"
+  alt="search ami"
+/>
 
 
 Happy inference with Neuron! 🚀

@@ -208,8 +208,9 @@ With the Optimum CLI you can compile components in the Stable Diffusion pipeline
 So far, we support the export of following components in the pipeline:
 
 * CLIP text encoder
+* U-Net
+* VAE encoder
 * VAE decoder
-* UNet
 
 <Tip>
 
@@ -217,7 +218,7 @@ So far, we support the export of following components in the pipeline:
 
 </Tip>
 
-Exporting a stable diffusion checkpoint can be done using the CLI (`diffusers >= 0.15.0`):
+Exporting a stable diffusion checkpoint can be done using the CLI:
 
 ```bash
 optimum-cli export neuron --model stabilityai/stable-diffusion-2-1-base \

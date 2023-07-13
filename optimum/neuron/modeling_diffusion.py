@@ -77,12 +77,12 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         Args:
             text_encoder (`torch.jit._script.ScriptModule`):
                 The Neuron TorchScript module associated to the text encoder.
-            vae_decoder (`torch.jit._script.ScriptModule`):
-                The Neuron TorchScript module associated to the VAE decoder.
             unet (`torch.jit._script.ScriptModule`):
                 The Neuron TorchScript module associated to the U-NET.
-            vae_post_quant_conv (`torch.jit._script.ScriptModule`):
-                The Neuron TorchScript module associated to the VAE post quant convolutional layer.
+            vae_encoder (`torch.jit._script.ScriptModule`):
+                The Neuron TorchScript module associated to the VAE encoder.
+            vae_decoder (`torch.jit._script.ScriptModule`):
+                The Neuron TorchScript module associated to the VAE decoder.
             config (`Dict[str, Any]`):
                 A config dictionary from which the model components will be instantiated. Make sure to only load
                 configuration files of compatible classes.
@@ -93,7 +93,9 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 A scheduler to be used in combination with the U-NET component to denoise the encoded image latents.
             feature_extractor (`Optional[CLIPFeatureExtractor]`, defaults to `None`):
                 A model extracting features from generated images to be used as inputs for the `safety_checker`
-            neuron_configs  (Optional["NeuronConfig"], defaults to `None`):
+            configs (Optional[Dict[str, "PretrainedConfig"]], defaults to `None`):
+                A dictionary configurations for components of the pipeline.
+            neuron_configs (Optional["NeuronConfig"], defaults to `None`):
                 A list of Neuron configurations.
             model_save_dir (`Optional[Union[str, Path, TemporaryDirectory]]`, defaults to `None`):
                 The directory under which the exported Neuron models were saved.
@@ -147,7 +149,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         if hasattr(self.vae_decoder.config, "block_out_channels"):
             self.vae_scale_factor = 2 ** (
                 len(self.vae_decoder.config.block_out_channels) - 1
-            )  # not working for tiny, need to remove `block_out_channels` in `config.json`.
+            )  # not working for tiny test models, need to remove `block_out_channels` in `config.json`.
         else:
             self.vae_scale_factor = 8
 
