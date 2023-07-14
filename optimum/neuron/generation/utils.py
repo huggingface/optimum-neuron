@@ -1275,7 +1275,7 @@ class NeuronGenerationMixin(GenerationMixin):
 
             # pre-process distribution
             # Move to cpu to handle arbitrary logits_processor
-            next_tokens_scores = logits_processor(input_ids[:, :seq_length].to("cpu"), next_token_logits.to("cpu"))
+            next_tokens_scores = logits_processor(input_ids.to("cpu")[:, :seq_length], next_token_logits.to("cpu"))
             next_tokens_scores = next_tokens_scores.to(input_ids.device)
 
             # Store scores, attentions and hidden_states when required
