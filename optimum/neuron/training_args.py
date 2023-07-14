@@ -185,6 +185,13 @@ class NeuronTrainingArgumentsMixin:
     def place_model_on_device(self):
         return not self.tp_plugin.should_parallelize and super().place_model_on_device
 
+    @property
+    def world_size(self):
+        divisor = 1
+        if self.tp_plugin.should_parallelize:
+            divisor = self.tp_plugin.tensor_parallel_size
+        return super().world_size // divisor
+
 
 @dataclass
 class NeuronTrainingArguments(NeuronTrainingArgumentsMixin, TrainingArguments):

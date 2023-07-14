@@ -45,6 +45,7 @@ from transformers.utils.versions import require_version
 from optimum.neuron import NeuronHfArgumentParser as HfArgumentParser
 from optimum.neuron import NeuronTrainer as Trainer
 from optimum.neuron import NeuronTrainingArguments as TrainingArguments
+from optimum.neuron.distributed import lazy_load_for_parallelism
 
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
@@ -366,15 +367,16 @@ def main():
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
     )
-    model = AutoModelForSequenceClassification.from_pretrained(
-        model_args.model_name_or_path,
-        from_tf=bool(".ckpt" in model_args.model_name_or_path),
-        config=config,
-        cache_dir=model_args.cache_dir,
-        revision=model_args.model_revision,
-        use_auth_token=True if model_args.use_auth_token else None,
-        ignore_mismatched_sizes=model_args.ignore_mismatched_sizes,
-    )
+    with lazy_load_for_parallelism(tensor_parallel_size=training_args.tensor_parallel_size):
+        model = AutoModelForSequenceClassification.from_pretrained(
+            model_args.model_name_or_path,
+            from_tf=bool(".ckpt" in model_args.model_name_or_path),
+            config=config,
+            cache_dir=model_args.cache_dir,
+            revision=model_args.model_revision,
+            use_auth_token=True if model_args.use_auth_token else None,
+            ignore_mismatched_sizes=model_args.ignore_mismatched_sizes,
+        )
 
     # Preprocessing the raw_datasets
     if data_args.task_name is not None:

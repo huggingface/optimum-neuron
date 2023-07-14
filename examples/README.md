@@ -1,6 +1,21 @@
-# 🤗 Transformers example scripts on AWS Trainium with Optimum Neuron
+# 🤗 Transformers example scripts on AWS Trainium/Inferentia with Optimum Neuron
 
-The following example scripts have been taken from the [official 🤗 Transformers example directory](https://github.com/huggingface/transformers/tree/main/examples/pytorch) and adapted to use the `NeuronTrainer`:
+Most of the following example scripts have been taken from the [official 🤗 Transformers example directory](https://github.com/huggingface/transformers/tree/main/examples/pytorch).
+
+## Training
+
+The training scripts for the following tasks have been adapted to use the `NeuronTrainer`:
+
+- image-classification,
+- language-modeling,
+- multiple-choice,
+- question-answering,
+- summarization,
+- text-classification,
+- token-classification,
+- translation.
+
+The required change is as simple as:
 
 ```diff
 - from transformers import Trainer
@@ -18,3 +33,9 @@ While this is not *mandatory*, using the `NeuronTrainer` over the regular `Train
 
 That being said, you can use those examples exactly as you would use the official examples from the 🤗 Transformers library.
 Feel free to check there if you have any usage related questions!
+
+## Inference
+
+The inference scripts for the following tasks have been adapted to use Neuron models:
+
+- text-generation.

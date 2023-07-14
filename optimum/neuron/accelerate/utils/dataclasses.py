@@ -17,7 +17,7 @@
 import enum
 import os
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Dict, Tuple, Union
+from typing import TYPE_CHECKING, Dict, Optional, Tuple, Union
 
 import torch
 from accelerate.utils.constants import MODEL_NAME, OPTIMIZER_NAME
@@ -143,8 +143,6 @@ class TensorParallelismPlugin:
     tensor_parallel_size: int = 1
 
     def __post_init__(self):
-        if self.tensor_parallel_size > 1:
-            raise NotImplementedError("Tensor Parallelism is not supported yet.")
         if self.tensor_parallel_size < 1:
             raise ValueError(f"The tensor parallel size must be >= 1, but {self.tensor_parallel_size} was given here.")
 
@@ -153,12 +151,17 @@ class TensorParallelismPlugin:
         return self.tensor_parallel_size > 1
 
     def parallelize_model(
-        self, model: "PreTrainedModel", return_orig_to_parallel: bool = False
+        self,
+        model: "PreTrainedModel",
+        return_orig_to_parallel: bool = False,
+        device: Optional["torch.device"] = None,
     ) -> Union["PreTrainedModel", Tuple["PreTrainedModel", Dict[int, "torch.nn.Parameter"]]]:
-        orig_to_parallel = {}
+        orig_to_parallel = {} if return_orig_to_parallel else None
         parallelizer = ParallelizersManager.parallelizer_for_model(model)
         parallelized_model = parallelizer.parallelize(
-            model, orig_to_parallel=orig_to_parallel if return_orig_to_parallel else None
+            model,
+            orig_to_parallel=orig_to_parallel,
+            device=device,
         )
         if return_orig_to_parallel:
             return parallelized_model, orig_to_parallel
