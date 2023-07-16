@@ -24,15 +24,12 @@ from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import torch
-from diffusers import DDIMScheduler, LMSDiscreteScheduler, PNDMScheduler, StableDiffusionPipeline
-from diffusers.image_processor import VaeImageProcessor
-from diffusers.schedulers.scheduling_utils import SCHEDULER_CONFIG_NAME
-from diffusers.utils import CONFIG_NAME
 from huggingface_hub import snapshot_download
 from transformers import CLIPFeatureExtractor, CLIPTokenizer, PretrainedConfig
 
 from ..exporters.neuron import DiffusersPretrainedConfig, main_export, normalize_input_shapes
 from ..exporters.neuron.model_configs import *  # noqa: F403
+from ..utils import is_diffusers_available
 from .modeling_base import NeuronBaseModel
 from .pipelines.diffusers.pipeline_stable_diffusion import StableDiffusionPipelineMixin
 from .utils import (
@@ -43,6 +40,13 @@ from .utils import (
     NEURON_FILE_NAME,
     is_neuronx_available,
 )
+
+
+if is_diffusers_available():
+    from diffusers import DDIMScheduler, LMSDiscreteScheduler, PNDMScheduler, StableDiffusionPipeline
+    from diffusers.image_processor import VaeImageProcessor
+    from diffusers.schedulers.scheduling_utils import SCHEDULER_CONFIG_NAME
+    from diffusers.utils import CONFIG_NAME
 
 
 if is_neuronx_available():
