@@ -21,7 +21,16 @@ INSTALL_REQUIRES = [
     "protobuf<4",
 ]
 
-TESTS_REQUIRE = ["pytest", "psutil", "parameterized", "GitPython", "sentencepiece", "datasets", "sacremoses"]
+TESTS_REQUIRE = [
+    "pytest",
+    "psutil",
+    "parameterized",
+    "GitPython",
+    "sentencepiece",
+    "datasets",
+    "sacremoses",
+    "diffusers>=0.17.0",
+]
 
 QUALITY_REQUIRES = [
     "black",
@@ -49,6 +58,7 @@ EXTRAS_REQUIRE = {
         "torch==1.13.1.*",
         "torchvision==0.14.*",
     ],
+    "diffusers": ["diffusers"],
 }
 
 setup(

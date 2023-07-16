@@ -42,15 +42,16 @@ from .utils import (
 )
 
 
+if is_neuronx_available():
+    import torch_neuronx
+
+    
 if is_diffusers_available():
     from diffusers import DDIMScheduler, LMSDiscreteScheduler, PNDMScheduler, StableDiffusionPipeline
     from diffusers.image_processor import VaeImageProcessor
     from diffusers.schedulers.scheduling_utils import SCHEDULER_CONFIG_NAME
     from diffusers.utils import CONFIG_NAME
 
-
-if is_neuronx_available():
-    import torch_neuronx
 
 if TYPE_CHECKING:
     from ..exporters.neuron import NeuronConfig
