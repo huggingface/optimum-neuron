@@ -46,7 +46,7 @@ jobs:
 
       - name: Setup environment
         run: |
-          pip install ".[quality, neuronx]"
+          pip install ".[quality]"
 
       - name: Make documentation
         shell: bash

@@ -24,7 +24,6 @@ from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import torch
-import torch_neuronx
 from diffusers import DDIMScheduler, LMSDiscreteScheduler, PNDMScheduler, StableDiffusionPipeline
 from diffusers.image_processor import VaeImageProcessor
 from diffusers.schedulers.scheduling_utils import SCHEDULER_CONFIG_NAME
@@ -42,8 +41,12 @@ from .utils import (
     DIFFUSION_MODEL_VAE_DECODER_NAME,
     DIFFUSION_MODEL_VAE_ENCODER_NAME,
     NEURON_FILE_NAME,
+    is_neuronx_available,
 )
 
+
+if is_neuronx_available():
+    import torch_neuronx
 
 if TYPE_CHECKING:
     from ..exporters.neuron import NeuronConfig
