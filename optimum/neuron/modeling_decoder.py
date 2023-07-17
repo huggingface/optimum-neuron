@@ -22,6 +22,7 @@ from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Optional, Tuple, Union
 
 import torch
+from huggingface_hub import HfApi, HfFolder, snapshot_download
 from transformers import GenerationConfig
 
 from ..exporters.neuron.model_configs import *  # noqa: F403
@@ -143,7 +144,9 @@ class NeuronDecoderModel(OptimizedModel):
         return cls._from_pretrained(checkpoint_dir, config)
 
     @classmethod
-    def _get_neuron_paths(cls, model_dir: Union[str, Path, TemporaryDirectory]) -> Tuple[str, str, str]:
+    def _get_neuron_paths(
+        cls, model_dir: Union[str, Path, TemporaryDirectory], token: Optional[str] = None
+    ) -> Tuple[str, str, str]:
         if isinstance(model_dir, TemporaryDirectory):
             model_path = model_dir.name
             # We are in the middle of an export: the checkpoint is in the temporary model directory
@@ -151,8 +154,13 @@ class NeuronDecoderModel(OptimizedModel):
             # There are no compiled artifacts yet
             compiled_path = None
         else:
-            model_path = model_dir
-            # The model has already been exported, the checkpoint is in a subdirectory
+            # The model has already been exported
+            if os.path.isdir(model_dir):
+                model_path = model_dir
+            else:
+                # Download the neuron model from the Hub
+                model_path = snapshot_download(model_dir, token=token)
+            # The checkpoint is in a subdirectory
             checkpoint_path = os.path.join(model_path, cls.CHECKPOINT_DIR)
             # So are the compiled artifacts
             compiled_path = os.path.join(model_path, cls.COMPILED_DIR)
@@ -160,7 +168,11 @@ class NeuronDecoderModel(OptimizedModel):
 
     @classmethod
     def _from_pretrained(
-        cls, model_id: Union[str, Path, TemporaryDirectory], config: "PretrainedConfig", **kwargs
+        cls,
+        model_id: Union[str, Path, TemporaryDirectory],
+        config: "PretrainedConfig",
+        use_auth_token: Optional[str] = None,
+        **kwargs,
     ) -> "NeuronDecoderModel":
         # Verify we are actually trying to load a neuron model
         neuron_config = getattr(config, "neuron", None)
@@ -181,7 +193,7 @@ class NeuronDecoderModel(OptimizedModel):
 
         exporter = get_exporter(config, task)
 
-        model_path, checkpoint_path, compiled_path = cls._get_neuron_paths(model_id)
+        model_path, checkpoint_path, compiled_path = cls._get_neuron_paths(model_id, use_auth_token)
 
         neuronx_model = exporter.neuronx_class.from_pretrained(
             checkpoint_path, batch_size=batch_size, tp_degree=num_cores, amp=auto_cast_type, **neuron_kwargs
@@ -224,3 +236,39 @@ class NeuronDecoderModel(OptimizedModel):
             self.model_path = save_directory
 
         self.generation_config.save_pretrained(save_directory)
+
+    def push_to_hub(
+        self,
+        save_directory: str,
+        repository_id: str,
+        private: Optional[bool] = None,
+        use_auth_token: Union[bool, str] = True,
+        endpoint: Optional[str] = None,
+    ) -> str:
+        if isinstance(use_auth_token, str):
+            huggingface_token = use_auth_token
+        elif use_auth_token:
+            huggingface_token = HfFolder.get_token()
+        else:
+            raise ValueError("You need to provide `use_auth_token` to be able to push to the hub")
+        api = HfApi(endpoint=endpoint)
+
+        user = api.whoami(huggingface_token)
+        self.git_config_username_and_email(git_email=user["email"], git_user=user["fullname"])
+
+        api.create_repo(
+            token=huggingface_token,
+            repo_id=repository_id,
+            exist_ok=True,
+            private=private,
+        )
+        for path, subdirs, files in os.walk(save_directory):
+            for name in files:
+                local_file_path = os.path.join(path, name)
+                hub_file_path = os.path.relpath(local_file_path, save_directory)
+                api.upload_file(
+                    token=huggingface_token,
+                    repo_id=repository_id,
+                    path_or_fileobj=os.path.join(os.getcwd(), local_file_path),
+                    path_in_repo=hub_file_path,
+                )
