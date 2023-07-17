@@ -74,7 +74,7 @@ class DiffusersPretrainedConfig(PretrainedConfig):
         Serializes this instance to a Python dictionary.
 
         Returns:
-            :obj:`Dict[str, any]`: Dictionary of all the attributes that make up this configuration instance,
+            :obj:`Dict[str, any]`: Dictionary of all the attributes that make up this configuration instance.
         """
         output = copy.deepcopy(self.__dict__)
         return output
