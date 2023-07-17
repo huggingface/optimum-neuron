@@ -27,7 +27,7 @@ import torch
 from huggingface_hub import snapshot_download
 from transformers import CLIPFeatureExtractor, CLIPTokenizer, PretrainedConfig
 
-from ..exporters.neuron import DiffusersPretrainedConfig, main_export, normalize_input_shapes
+from ..exporters.neuron import DiffusersPretrainedConfig, main_export, normalize_stable_diffusion_input_shapes
 from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..utils import is_diffusers_available
 from .modeling_base import NeuronBaseModel
@@ -348,13 +348,14 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         disable_fast_relayout: Optional[bool] = False,
         disable_fallback: bool = False,
         dynamic_batch_size: bool = False,
+        device_ids: Optional[List[int]] = None,
         **kwargs_shapes,
     ) -> "NeuronStableDiffusionPipelineBase":
         if task is None:
             task = cls._auto_model_to_task(cls.auto_model_class)
 
         # mandatory shapes
-        input_shapes = normalize_input_shapes(task, kwargs_shapes)
+        input_shapes = normalize_stable_diffusion_input_shapes(task, kwargs_shapes)
 
         # Get compilation arguments
         auto_cast_type = None if auto_cast is None else auto_cast_type
@@ -389,6 +390,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             model_id=save_dir_path,
             config=config,
             model_save_dir=save_dir,
+            device_ids=device_ids,
         )
 
     @classmethod

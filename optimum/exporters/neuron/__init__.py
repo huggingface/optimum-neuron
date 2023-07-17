@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .__main__ import main_export, normalize_input_shapes
+from .__main__ import main_export, normalize_input_shapes, normalize_stable_diffusion_input_shapes
 from .base import NeuronConfig
 from .convert import export, export_models, validate_model_outputs, validate_models_outputs
 from .utils import (
