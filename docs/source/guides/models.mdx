@@ -16,15 +16,15 @@ limitations under the License.
 
 # Neuron Model Inference
 
-*The APIs presented in the following documentation are relevant for the inference on [inf2](https://aws.amazon.com/ec2/instance-types/inf2/), 
+*The APIs presented in the following documentation are relevant for the inference on [inf2](https://aws.amazon.com/ec2/instance-types/inf2/),
 [trn1](https://aws.amazon.com/ec2/instance-types/trn1/) and [inf1](https://aws.amazon.com/ec2/instance-types/inf1/).*
 
-`NeuronModelForXXX` classes help to load models from the [Hugging Face Hub](hf.co/models) and compile them to a serialized format optimized for 
+`NeuronModelForXXX` classes help to load models from the [Hugging Face Hub](hf.co/models) and compile them to a serialized format optimized for
 neuron devices. You will then be able to load the model and run inference with the acceleration powered by AWS Neuron devices.
 
 ## Switching from Transformers to Optimum
 
-The `optimum.neuron.NeuronModelForXXX` model classes are APIs compatible with Hugging Face Transformers models. This means seamless integration 
+The `optimum.neuron.NeuronModelForXXX` model classes are APIs compatible with Hugging Face Transformers models. This means seamless integration
 with Hugging Face's ecosystem. You can just replace your `AutoModelForXXX` class with the corresponding `NeuronModelForXXX` class in `optimum.neuron`.
 
 If you already use Transformers, you will be able to reuse your code just by replacing model classes:
@@ -35,13 +35,55 @@ from transformers import AutoTokenizer
 +from optimum.neuron import NeuronModelForSequenceClassification
 
 # PyTorch checkpoint
--model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-uncased-finetuned-sst-2-english") 
+-model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-uncased-finetuned-sst-2-english")
+
++model = NeuronModelForSequenceClassification.from_pretrained("distilbert-base-uncased-finetuned-sst-2-english",
++                                                             export=True, **neuron_kwargs)
+```
+
+As shown above, when you use `NeuronModelForXXX` for the first time, you will need to set `export=True` to compile your model from PyTorch to a neuron-compatible format.
+
+You will also need to pass Neuron specific parameters to configure the export. Each model architecture has its own set of parameters, as detailed in the next paragraphs.
+
+Once your model has been exported, you can save it either on your local or in the [Hugging Face Model Hub](https://hf.co/models):
+
+```python
+# Save the neuron model
+>>> model.save_pretrained("a_local_path_for_compiled_neuron_model")
+
+# Push the neuron model to HF Hub
+>>> model.push_to_hub(  # doctest: +SKIP
+...     "a_local_path_for_compiled_neuron_model", repository_id="my-neuron-repo", use_auth_token=True
+... )
+```
+
+And the next time when you want to run inference, just load your compiled model which will save you the compilation time:
+
+```python
+>>> from optimum.neuron import NeuronModelForSequenceClassification
+>>> model = NeuronModelForSequenceClassification.from_pretrained("my-neuron-repo")
+```
+
+As you see, there is no need to pass the neuron arguments used during the export as they are
+saved in a `config.json` file, and will be restored automatically by `NeuronModelForXXX` class.
+
+## Export and inference of Discriminative NLP models
+
+As explained in the previous paragraph, you will need only a few modifications to your Transformers code to export and run NLP models:
+
+```diff
+from transformers import AutoTokenizer
+-from transformers import AutoModelForSequenceClassification
++from optimum.neuron import NeuronModelForSequenceClassification
+
+# PyTorch checkpoint
+-model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-uncased-finetuned-sst-2-english")
 
 # Compile your model during the first time
 +input_shapes = {"batch_size": 1, "sequence_length": 64}
 +model = NeuronModelForSequenceClassification.from_pretrained(
 +    "distilbert-base-uncased-finetuned-sst-2-english", export=True, **input_shapes
-+) 
++)
 
 tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased-finetuned-sst-2-english")
 inputs = tokenizer("Hamilton is considered to be the best musical of human history.", return_tensors="pt")
@@ -51,9 +93,7 @@ print(model.config.id2label[logits.argmax().item()])
 # 'POSITIVE'
 ```
 
-As shown above, when you use `NeuronModelForXXX` for the first time, you will need to set `export=True` to compile your model from PyTorch to a neuron-compatible format.
-
-`input_shapes` are mandatory static shape information that you need to send to the neuron compiler. Wondering what shapes are mandatory for your model? Check it out 
+`input_shapes` are mandatory static shape information that you need to send to the neuron compiler. Wondering what shapes are mandatory for your model? Check it out
 with the following code:
 
 ```python
@@ -69,7 +109,7 @@ with the following code:
 ...     model=model, exporter="neuron", task='text-classification'
 ... )
 >>> print(neuron_config_constructor.func.get_mandatory_axes_for_task(task))
-# ('batch_size', 'sequence_length') 
+# ('batch_size', 'sequence_length')
 ```
 
 <Tip>
@@ -89,37 +129,6 @@ No worries, `NeuronModelForXXX` class will pad your inputs to an eligible shape.
 *(Just keep in mind: dynamicity and padding comes with not only flexibility but also performance drop. Fair enough!)*
 
 </Tip>
-
-Once your model is compiled, you can save it either on your local or in the [Hugging Face Model Hub](https://hf.co/models):
-
-```python
->>> from optimum.neuron import NeuronModelForSequenceClassification
-
-# Load the model from the hub and export it to the Neuron optimized format
->>> input_shapes = {"batch_size": 1, "sequence_length": 64}
->>> model = NeuronModelForSequenceClassification.from_pretrained(
-...     "distilbert-base-uncased-finetuned-sst-2-english", export=True, **input_shapes
-... )
-
-# Save the compiled model
->>> model.save_pretrained("a_local_path_for_compiled_neuron_model")
-
-# Push the onnx model to HF Hub
->>> model.push_to_hub(  # doctest: +SKIP
-...     "a_local_path_for_compiled_neuron_model", repository_id="my-neuron-repo", use_auth_token=True
-... )
-```
-
-And the next time when you want to run inference, just load your compiled model which will save you the compilation time:
-
-```python
->>> from optimum.neuron import NeuronModelForSequenceClassification
->>> model = NeuronModelForSequenceClassification.from_pretrained("my-neuron-repo")
-```
-
-As you see, there is no need to precise shape information and compilation arguments used during the compilation as they are 
-saved in a `config.json` file, and will be restored automatically by `NeuronModelForXXX` class.
-
 
 ## Inference of Stable Diffusion Models
 
