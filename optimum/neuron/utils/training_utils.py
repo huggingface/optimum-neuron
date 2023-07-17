@@ -231,6 +231,8 @@ def patch_generation_mixin_to_neuron_generation_mixin(model: "PreTrainedModel"):
     should_stop = False
     while to_visit and not should_stop:
         cls = to_visit.pop(0)
+        if cls is object:
+            continue
         bases = cls.__bases__
         new_bases = []
         for base in bases:
