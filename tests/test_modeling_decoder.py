@@ -110,7 +110,6 @@ def _test_model_generation(model, tokenizer, batch_size, length, **gen_kwargs):
     prompt_text = "Hello, I'm a language model,"
     prompts = [prompt_text for _ in range(batch_size)]
     tokens = tokenizer(prompts, return_tensors="pt")
-    model.reset_generation()
     with torch.inference_mode():
         sample_output = model.generate(**tokens, min_length=length, max_length=length, **gen_kwargs)
         assert sample_output.shape[0] == batch_size
