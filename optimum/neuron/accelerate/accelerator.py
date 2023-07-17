@@ -32,6 +32,7 @@ from torch.utils.data.distributed import DistributedSampler
 
 from ...utils import logging
 from ..distributed import Parallelizer, ParallelizersManager
+from ..distributed.utils import ZeroRedundancyOptimizerCompatibleWithTensorParallelism
 from ..utils import Patcher, is_neuronx_distributed_available, is_torch_xla_available, patch_within_function
 from ..utils.misc import args_and_kwargs_to_kwargs_only
 from .optimizer import NeuronAcceleratedOptimizer
@@ -163,9 +164,17 @@ class NeuronAccelerator(Accelerator):
         return super().prepare_data_loader(data_loader, device_placement=device_placement)
 
     def _prepare_optimizer_for_tp(self, optimizer: torch.optim.Optimizer, device_placement=None):
-        optimizer = Parallelizer.optimizer_for_tp(
-            optimizer, collections.ChainMap(*self._model_cpu_parameters_to_xla.values())
-        )
+        cpu_parameters_to_xla = collections.ChainMap(*self._model_cpu_parameters_to_xla.values())
+        if not self.zero_1:
+            optimizer = Parallelizer.optimizer_for_tp(optimizer, cpu_parameters_to_xla)
+        else:
+            xla_parameters, _ = Parallelizer.optimizer_cpu_params_to_xla_params(optimizer, cpu_parameters_to_xla)
+            if hasattr(optimizer, "_args_to_recreate"):
+                args, kwargs = optimizer._args_to_recreate
+                args = (xla_parameters,) + args[1:]
+                optimizer._args_to_recreate = (args, kwargs)
+            else:
+                optimizer.param_groups = xla_parameters
         return optimizer
 
     def _prepare_optimizer_for_zero_1(self, optimizer: torch.optim.Optimizer, device_placement=None):
@@ -177,17 +186,23 @@ class NeuronAccelerator(Accelerator):
         if optimizer_dtype is None:
             raise ValueError(f"The precision {self.state.mixed_precision} is not supported for ZeRO Stage 1")
 
+        zero_redundancy_optimizer_class = (
+            ZeroRedundancyOptimizerCompatibleWithTensorParallelism
+            if self.state.tp_plugin.should_parallelize
+            else ZeroRedundancyOptimizer
+        )
+
         if hasattr(optimizer, "_args_to_recreate"):
             args, kwargs = optimizer._args_to_recreate
             params = args[0]
             defaults = args_and_kwargs_to_kwargs_only(optimizer.__class__, args[1:], kwargs)
 
-            zero_1_optimizer = ZeroRedundancyOptimizer(
-                params, 
-                optimizer.__class__, 
+            zero_1_optimizer = zero_redundancy_optimizer_class(
+                params,
+                optimizer.__class__,
                 optimizer_dtype=optimizer_dtype,
-                grad_clipping=True, # TODO: handle this case.
-                max_norm=None, # TODO: handle this case.
+                grad_clipping=True,  # TODO: handle this case.
+                max_norm=None,  # TODO: handle this case.
                 pin_layout=False,
                 **defaults,
             )
@@ -198,12 +213,12 @@ class NeuronAccelerator(Accelerator):
                 "using ZeRO 1 it is recommended to create the ZeroRedundancyOptimizer yourself to avoid this kind of "
                 "issues."
             )
-            zero_1_optimizer = ZeroRedundancyOptimizer(
-                optimizer.param_groups, 
-                optimizer.__class__, 
+            zero_1_optimizer = zero_redundancy_optimizer_class(
+                optimizer.param_groups,
+                optimizer.__class__,
                 optimizer_dtype=optimizer_dtype,
-                grad_clipping=True, # TODO: handle this case.
-                max_norm=None, # TODO: handle this case.
+                grad_clipping=True,  # TODO: handle this case.
+                max_norm=None,  # TODO: handle this case.
                 pin_layout=False,
             )
         return zero_1_optimizer

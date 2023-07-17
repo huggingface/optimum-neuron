@@ -70,6 +70,7 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
     def step(self, closure=None):
         if self.gradient_state.sync_gradients:
             if isinstance(self.optimizer, ZeroRedundancyOptimizer):
+                optimizer_args = {"closure": closure} if closure is not None else {}
                 self.optimizer.step(closure)
             elif self.accelerator_state.distributed_type is DistributedType.TPU:
                 optimizer_args = {"closure": closure} if closure is not None else {}

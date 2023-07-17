@@ -274,7 +274,6 @@ class NeuronCacheCallaback(TrainerCallback):
                     target_file.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy(path, self.neuron_cache_path / path_in_cache)
 
-
         if self.use_neuron_cache:
             self._update_cache_stats(self.neuron_cache_path)
 

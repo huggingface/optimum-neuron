@@ -19,7 +19,7 @@ import functools
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Literal, Optional, Tuple, Union, Type
+from typing import Any, Dict, Iterator, Literal, Optional, Tuple, Type, Union
 
 import torch
 from transformers import PretrainedConfig
@@ -31,10 +31,18 @@ from ..utils.require_utils import requires_safetensors
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
+    from torch_xla.distributed.zero_redundancy_optimizer import ZeroRedundancyOptimizer
+
 
 if is_neuronx_distributed_available():
     from neuronx_distributed.parallel_layers import layers
-    from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_rank
+    from neuronx_distributed.parallel_layers.parallel_state import (
+        get_data_parallel_group,
+        get_data_parallel_rank,
+        get_data_parallel_size,
+        get_tensor_model_parallel_rank,
+        model_parallel_is_initialized,
+    )
 
 TENSOR_PARALLEL_SHARDS_DIR_NAME = "tensor_parallel_shards"
 
@@ -483,3 +491,49 @@ def make_optimizer_constructor_lazy(optimizer_cls: Type["torch.optim.Optimizer"]
         return optimizer_with_no_parameters
 
     return optimizer_constructor
+
+
+class ZeroRedundancyOptimizerCompatibleWithTensorParallelism(ZeroRedundancyOptimizer):
+    def __init__(
+        self,
+        params: Iterator[torch.Tensor],
+        optimizer_class: Type[torch.optim.Optimizer],
+        optimizer_dtype: Optional[Any] = None,
+        grad_clipping: bool = True,
+        max_norm: Optional[float] = None,
+        pin_layout: bool = True,
+        **defaults: Any,
+    ):
+        if not is_neuronx_distributed_available() or not model_parallel_is_initialized():
+            return super().__init__(
+                params,
+                optimizer_class,
+                optimizer_dtype=optimizer_dtype,
+                grad_clipping=grad_clipping,
+                max_norm=max_norm,
+                pin_layout=pin_layout,
+                **defaults,
+            )
+
+        self.params = list(params)
+        super(ZeroRedundancyOptimizer, self).__init__(self.params, defaults)
+
+        if isinstance(self.params[0], dict):
+            self.params = [p for pg in self.params for p in pg["params"]]
+
+        self.device = self.params[0].device
+
+        self.rank = get_data_parallel_rank()
+        self.world_size = get_data_parallel_size()
+        self.cc_op_groups = get_data_parallel_group(as_list=True)
+
+        self.optimizer_dtype = optimizer_dtype if optimizer_dtype is not None else torch.float32
+        self.grad_clipping = grad_clipping
+        self.max_norm = max_norm if max_norm is not None else 1.0
+        self.pin_layout = pin_layout
+
+        # Shard parameters for use in optimizer
+        self.sharded_params = []
+        self._shard_parameters()
+        # Optimizer initialization
+        self.base_optimizer = optimizer_class(iter(self.sharded_params), **defaults)
