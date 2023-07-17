@@ -83,7 +83,8 @@ class DiffusersPretrainedConfig(PretrainedConfig):
 def build_stable_diffusion_components_mandatory_shapes(
     batch_size: Optional[int] = None,
     sequence_length: Optional[int] = None,
-    num_channels: Optional[int] = None,
+    unet_num_channels: Optional[int] = None,
+    vae_num_channels: Optional[int] = None,
     height: Optional[int] = None,
     width: Optional[int] = None,
     **kwargs,
@@ -91,14 +92,14 @@ def build_stable_diffusion_components_mandatory_shapes(
     text_encoder_input_shapes = {"batch_size": batch_size, "sequence_length": sequence_length}
     vae_encoder_input_shapes = vae_decoder_input_shapes = {
         "batch_size": batch_size,
-        "num_channels": num_channels,
+        "num_channels": vae_num_channels,
         "height": height,
         "width": width,
     }
     unet_input_shapes = {
         "batch_size": batch_size,
         "sequence_length": sequence_length,
-        "num_channels": num_channels,
+        "num_channels": unet_num_channels,
         "height": height,
         "width": width,
     }

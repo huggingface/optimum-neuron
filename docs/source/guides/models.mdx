@@ -120,9 +120,6 @@ And the next time when you want to run inference, just load your compiled model 
 As you see, there is no need to precise shape information and compilation arguments used during the compilation as they are 
 saved in a `config.json` file, and will be restored automatically by `NeuronModelForXXX` class.
 
-## Export and Inference of Generative Models
-
-Coming soon!
 
 ## Inference of Stable Diffusion Models
 
@@ -132,7 +129,7 @@ Optimum extends 🤗`Diffusers` to support inference on Neuron. To get started, 
 pip install diffusers >= 0.17.0
 ```
 
-You can also accelerate the inference of stable diffusion on neuronx devices (inf / trn1). There are three components which need to be exported to `.neuron` format to boost the performance:
+You can also accelerate the inference of stable diffusion on neuronx devices (inf2 / trn1). Here below are components which need to be exported to `.neuron` format to boost the performance:
 
 * Text encoder
 * U-Net
@@ -145,7 +142,7 @@ The export can be done either with the CLI or with `NeuronStableDiffusionPipelin
 >>> from optimum.neuron import NeuronStableDiffusionPipeline
 
 >>> model_id = "runwayml/stable-diffusion-v1-5"
->>> input_shapes = {"batch_size": 2, "num_channels": 4, "height": 64, "width": 64}
+>>> input_shapes = {"batch_size": 1, "height": 64, "width": 64}
 
 >>> stable_diffusion = NeuronStableDiffusionPipeline.from_pretrained(model_id, export=True, **input_shapes)
 
