@@ -266,15 +266,9 @@ class NeuronDecoderModel(OptimizedModel):
             for name in files:
                 local_file_path = os.path.join(path, name)
                 hub_file_path = os.path.relpath(local_file_path, save_directory)
-                # FIXME: when huggingface_hub fixes the return of upload_file
-                try:
-                    api.upload_file(
-                        token=huggingface_token,
-                        repo_id=f"{repository_id}",
-                        path_or_fileobj=os.path.join(os.getcwd(), local_file_path),
-                        path_in_repo=hub_file_path,
-                    )
-                except KeyError:
-                    pass
-                except NameError:
-                    pass
+                api.upload_file(
+                    token=huggingface_token,
+                    repo_id=repository_id,
+                    path_or_fileobj=os.path.join(os.getcwd(), local_file_path),
+                    path_in_repo=hub_file_path,
+                )
