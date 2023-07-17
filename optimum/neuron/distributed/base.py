@@ -270,46 +270,6 @@ class Parallelizer(ABC):
         else:
             optimizer_for_tp = optimizer
         return optimizer_for_tp
-        # if hasattr(optimizer, "_args_to_recreate"):
-        #     args, kwargs = optimizer._args_to_recreate
-        #     parameters = args[0]
-        #     parallel_parameters = []
-        #     for param in parameters:
-        #         if isinstance(param, dict):
-        #             new_param = {k: v for k, v in param.items() if k != "params"}
-        #             params = []
-        #             for p in param["params"]:
-        #                 params.append(orig_param_to_parallel_param_on_xla[id(p)])
-        #             new_param["params"] = params
-        #         else:
-        #             new_param = []
-        #             for p in param:
-        #                 new_param.append(orig_param_to_parallel_param_on_xla[id(p)])
-        #         parallel_parameters.append(new_param)
-        #     optimizer_for_tp = optimizer.__class__(parallel_parameters, *args[1:], **kwargs)
-        #     del optimizer
-        # else:
-        #     need_to_create_new_optimizer = False
-        #     new_groups = []
-        #     for param_group in optimizer.param_groups:
-        #         new_params = []
-        #         params = param_group["params"]
-        #         for idx in range(len(params)):
-        #             param_on_xla = orig_param_to_parallel_param_on_xla[id(params[idx])]
-        #             if params[idx] != param_on_xla:
-        #                 need_to_create_new_optimizer = True
-        #             new_params.append(param_on_xla)
-        #         new_group = {k: v for k, v in param_group.items() if k != "params"}
-        #         new_group["params"] = new_params
-        #         new_groups.append(new_group)
-
-        #     if need_to_create_new_optimizer:
-        #         optimizer_for_tp = optimizer.__class__(new_groups)
-        #         del optimizer
-        #     else:
-        #         optimizer_for_tp = optimizer
-
-        # return optimizer_for_tp
 
     @classmethod
     def save_model_checkpoint_as_regular(
