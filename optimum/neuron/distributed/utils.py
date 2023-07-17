@@ -19,7 +19,7 @@ import functools
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Literal, Optional, Tuple, Union
+from typing import Dict, Literal, Optional, Tuple, Union, Type
 
 import torch
 from transformers import PretrainedConfig
@@ -468,3 +468,18 @@ def lazy_load_for_parallelism(tensor_parallel_size: int = 1):
             yield
         finally:
             pass
+
+
+def make_optimizer_constructor_lazy(optimizer_cls: Type["torch.optim.Optimizer"]):
+    """
+    Transforms an optimizer constructor (optimizer class) to make it lazy by not initializing the parameters.
+    This makes the optimizer lightweight and usable to create a "real" optimizer once the model has been
+    parallelized.
+    """
+
+    def optimizer_constructor(*args, **kwargs):
+        optimizer_with_no_parameters = optimizer_cls([torch.nn.Parameter(torch.empty(1))], *args[1:], **kwargs)
+        optimizer_with_no_parameters._args_to_recreate = (args, kwargs)
+        return optimizer_with_no_parameters
+
+    return optimizer_constructor

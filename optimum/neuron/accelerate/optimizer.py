@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 if is_torch_xla_available():
     import accelerate
     import torch_xla.core.xla_model as xm
+    from torch_xla.distributed.zero_redundancy_optimizer import ZeroRedundancyOptimizer
 
     accelerate.optimizer.xm = xm
 
@@ -68,7 +69,9 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
 
     def step(self, closure=None):
         if self.gradient_state.sync_gradients:
-            if self.accelerator_state.distributed_type is DistributedType.TPU:
+            if isinstance(self.optimizer, ZeroRedundancyOptimizer):
+                self.optimizer.step(closure)
+            elif self.accelerator_state.distributed_type is DistributedType.TPU:
                 optimizer_args = {"closure": closure} if closure is not None else {}
                 xm.optimizer_step(self.optimizer, optimizer_args=optimizer_args)
             elif self.accelerator_state.distributed_type is NeuronDistributedType.XLA_FSDP:

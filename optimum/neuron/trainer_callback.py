@@ -274,8 +274,6 @@ class NeuronCacheCallaback(TrainerCallback):
                     target_file.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy(path, self.neuron_cache_path / path_in_cache)
 
-            if self.wait_for_everyone_on_push:
-                xm.rendezvous("wait for everyone after pushing")
 
         if self.use_neuron_cache:
             self._update_cache_stats(self.neuron_cache_path)
@@ -314,6 +312,8 @@ class NeuronCacheCallaback(TrainerCallback):
         """
         if self.push:
             self.synchronize_temporary_neuron_cache()
+        if self.wait_for_everyone_on_push:
+            xm.rendezvous("wait for everyone after pushing")
 
     def on_train_end(self, args: "TrainingArguments", state: TrainerState, control: "TrainerControl", **kwargs):
         """

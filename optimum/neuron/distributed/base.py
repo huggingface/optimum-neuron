@@ -195,21 +195,6 @@ class Parallelizer(ABC):
             raise ValueError("The model needs to be parallelized first.")
 
     @classmethod
-    def make_optimizer_constructor_lazy_for_tp(cls, optimizer_cls: Type["torch.optim.Optimizer"]):
-        """
-        Transforms an optimizer constructor (optimizer class) to make it lazy by not initializing the parameters.
-        This makes the optimizer lightweight and usable to create a "real" optimizer once the model has been
-        parallelized.
-        """
-
-        def optimizer_constructor(*args, **kwargs):
-            optimizer_with_no_parameters = optimizer_cls([torch.nn.Parameter(torch.empty(1))], *args[1:], **kwargs)
-            optimizer_with_no_parameters._args_to_recreate = (args, kwargs)
-            return optimizer_with_no_parameters
-
-        return optimizer_constructor
-
-    @classmethod
     def optimizer_for_tp(
         cls,
         optimizer: "torch.optim.Optimizer",
@@ -220,7 +205,7 @@ class Parallelizer(ABC):
 
         There are two cases:
             1. The optimizer has been created via a lazy constructor from
-            [`Parallelizer.make_optimizer_constructor_lazy_for_tp`], it which case the exactly intended optimizer is
+            [`optimum.neuron.distributed.utils.make_optimizer_constructor_lazy`], it which case the exactly intended optimizer is
             created for tensor parallelism.
             2. The optimizer was created with a regular constructor. In this case the optimizer for tensor parallelism
             is created as close as possible to what was intended but that is not guaranteed.
