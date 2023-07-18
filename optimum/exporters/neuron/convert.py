@@ -26,13 +26,13 @@ from transformers import PretrainedConfig
 from ...exporters.error_utils import OutputMatchError, ShapeError
 from ...neuron.utils import (
     convert_neuronx_compiler_args_to_neuron,
-    get_attention_scores,
     is_neuron_available,
     is_neuronx_available,
     store_compilation_config,
 )
 from ...neuron.utils.version_utils import get_neuroncc_version, get_neuronxcc_version
 from ...utils import is_diffusers_available, logging
+from .utils import DiffusersPretrainedConfig
 
 
 if TYPE_CHECKING:
@@ -67,7 +67,7 @@ def validate_models_outputs(
     neuron_named_outputs: List[List[str]],
     output_dir: Path,
     atol: Optional[float] = None,
-    neuron_files_subpaths: Optional[List[str]] = None,
+    neuron_files_subpaths: Optional[Dict[str, str]] = None,
 ):
     """
     Validates the export of several models, by checking that the outputs from both the reference and the exported model match.
@@ -105,7 +105,7 @@ def validate_models_outputs(
         submodel, sub_neuron_config = models_and_neuron_configs[model_name]
         ref_submodel = copy.deepcopy(submodel)
         neuron_model_path = (
-            output_dir.joinpath(neuron_files_subpaths[i])
+            output_dir.joinpath(neuron_files_subpaths[model_name])
             if neuron_files_subpaths is not None
             else output_dir.joinpath(model_name + ".neuron")
         )
@@ -256,7 +256,7 @@ def export_models(
         str, Tuple[Union["PreTrainedModel", "ModelMixin", torch.nn.Module], "NeuronConfig"]
     ],
     output_dir: Path,
-    output_file_names: Optional[List[str]] = None,
+    output_file_names: Optional[Dict[str, str]] = None,
     compiler_kwargs: Optional[Dict[str, Any]] = {},
     configs: Optional[Dict[str, Any]] = {},
 ) -> Tuple[List[List[str]], List[List[str]]]:
@@ -289,7 +289,9 @@ def export_models(
     failed_models = []
     for i, model_name in enumerate(models_and_neuron_configs.keys()):
         submodel, sub_neuron_config = models_and_neuron_configs[model_name]
-        output_file_name = output_file_names[i] if output_file_names is not None else Path(model_name + ".neuron")
+        output_file_name = (
+            output_file_names[model_name] if output_file_names is not None else Path(model_name + ".neuron")
+        )
 
         output_path = output_dir / output_file_name
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -312,7 +314,7 @@ def export_models(
 
             if is_diffusers_available() and isinstance(model_config, FrozenDict):
                 model_config = OrderedDict(model_config)
-                model_config = PretrainedConfig.from_dict(model_config)
+                model_config = DiffusersPretrainedConfig.from_dict(model_config)
 
             store_compilation_config(
                 config=model_config,
@@ -323,7 +325,10 @@ def export_models(
                 dynamic_batch_size=sub_neuron_config.dynamic_batch_size,
                 compiler_type=NEURON_COMPILER_TYPE,
                 compiler_version=NEURON_COMPILER_VERSION,
+                model_type=getattr(sub_neuron_config, "MODEL_TYPE", None),
             )
+            if isinstance(model_config, PretrainedConfig):
+                model_config = DiffusersPretrainedConfig.from_dict(model_config.__dict__)
             model_config.save_pretrained(output_path.parent)
         except Exception as e:
             failed_models.append((i, model_name))
@@ -422,10 +427,7 @@ def export_neuronx(
 
     # diffusers specific
     if hasattr(config._config, "_class_name") and "unet" in config._config._class_name.lower():
-        from diffusers.models.attention_processor import Attention
-
         compiler_args.extend(["--model-type", "unet-inference"])
-        Attention.get_attention_scores = get_attention_scores
 
     neuron_model = neuronx.trace(checked_model, dummy_inputs_tuple, compiler_args=compiler_args)
 

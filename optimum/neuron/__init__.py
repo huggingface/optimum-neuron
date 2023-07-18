@@ -32,6 +32,11 @@ _import_structure = {
         "NeuronModelForMultipleChoice",
         "NeuronModelForCausalLM",
     ],
+    "modeling_diffusion": [
+        "NeuronStableDiffusionPipeline",
+        "NeuronStableDiffusionImg2ImgPipeline",
+        "NeuronStableDiffusionInpaintPipeline",
+    ],
     "modeling_decoder": ["NeuronDecoderModel"],
     "accelerate": [
         "NeuronAccelerator",
@@ -55,9 +60,15 @@ if TYPE_CHECKING:
     )
     from .modeling_base import NeuronBaseModel
     from .modeling_decoder import NeuronDecoderModel
+    from .modeling_diffusion import (
+        NeuronStableDiffusionImg2ImgPipeline,
+        NeuronStableDiffusionInpaintPipeline,
+        NeuronStableDiffusionPipeline,
+    )
     from .pipelines import pipeline
     from .trainers import NeuronTrainer, Seq2SeqNeuronTrainer
     from .training_args import NeuronTrainingArguments, Seq2SeqNeuronTrainingArguments
+
 else:
     import sys
 

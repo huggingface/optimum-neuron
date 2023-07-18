@@ -120,4 +120,51 @@ And the next time when you want to run inference, just load your compiled model 
 As you see, there is no need to precise shape information and compilation arguments used during the compilation as they are 
 saved in a `config.json` file, and will be restored automatically by `NeuronModelForXXX` class.
 
+
+## Inference of Stable Diffusion Models
+
+Optimum extends 🤗`Diffusers` to support inference on Neuron. To get started, make sure you have installed Diffusers:
+
+```bash
+pip install diffusers >= 0.17.0
+```
+
+You can also accelerate the inference of stable diffusion on neuronx devices (inf / trn1). There are three components which need to be exported to the `.neuron` format to boost the performance:
+
+* Text encoder
+* U-Net
+* VAE encoder
+* VAE decoder
+
+The export can be done either with the CLI or with `NeuronStableDiffusionPipeline` API. Here is an example of exporting stable diffusion components with `NeuronStableDiffusionPipeline`:
+
+```python
+>>> from optimum.neuron import NeuronStableDiffusionPipeline
+
+>>> model_id = "runwayml/stable-diffusion-v1-5"
+>>> input_shapes = {"batch_size": 1, "height": 64, "width": 64}
+
+>>> stable_diffusion = NeuronStableDiffusionPipeline.from_pretrained(model_id, export=True, **input_shapes)
+
+# Save locally or upload to the HuggingFace Hub
+>>> save_directory = "sd_neuron/"
+>>> stable_diffusion.save_pretrained(save_directory)
+>>> stable_diffusion.push_to_hub(
+...     save_directory, repository_id="my-neuron-repo", use_auth_token=True
+... )
+```
+
+Now generate an image with a prompt on neuron:
+
+```python
+>>> prompt = "a photo of an astronaut riding a horse on mars"
+>>> image = stable_diffusion(prompt).images[0]
+```
+
+<img
+  src="https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/guides/models/01-sd-image.png"
+  alt="search ami"
+/>
+
+
 Happy inference with Neuron! 🚀

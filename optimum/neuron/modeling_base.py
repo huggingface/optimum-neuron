@@ -249,7 +249,7 @@ class NeuronBaseModel(OptimizedModel):
 
         input_shapes = {}
         for name in neuron_config_constructor.func.get_mandatory_axes_for_task(task):
-            static_shape = kwargs_shapes.get(name, None) or getattr(config, "neuron_" + name, None)
+            static_shape = kwargs_shapes.get(name, None) or config.neuron.get("static_" + name, None)
             if static_shape is None:
                 raise AttributeError(
                     f"Cannot find the value of `{name}` from arguments nor the `config`. `{name}` is mandatory"
@@ -340,7 +340,8 @@ class NeuronBaseModel(OptimizedModel):
         if hasattr(self.auto_model_class, "register"):
             self.auto_model_class.register(AutoConfig, self.__class__)
 
-    def _neuron_config_init(self, config: "PretrainedConfig") -> "NeuronConfig":
+    @classmethod
+    def _neuron_config_init(cls, config: "PretrainedConfig") -> "NeuronConfig":
         """
         Builds a `NeuronConfig` with an instance of the `PretrainedConfig` and the task.
         """
@@ -357,13 +358,13 @@ class NeuronBaseModel(OptimizedModel):
 
         # Fetch mandatory shapes from config
         compile_shapes = {
-            key.replace("static", ""): value
-            for (key, value) in config.to_diff_dict().items()
+            key.replace("static_", ""): value
+            for (key, value) in config.to_diff_dict().get("neuron").items()
             if key.startswith("static_")
         }
 
         # Neuron config constructuor
-        task = TasksManager.infer_task_from_model(self.auto_model_class)
+        task = TasksManager.infer_task_from_model(cls.auto_model_class)
         neuron_config_constructor = TasksManager.get_exporter_config_constructor(
             model_type=config.model_type, exporter="neuron", task=task
         )

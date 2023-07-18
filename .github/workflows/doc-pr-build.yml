@@ -31,7 +31,7 @@ jobs:
 
       - name: Setup environment
         run: |
-          pip install ".[quality]"
+          pip install ".[quality, diffusers]"
 
       - name: Make documentation
         shell: bash

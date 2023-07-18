@@ -15,3 +15,7 @@
 """Constants used as default values."""
 
 NEURON_FILE_NAME = "model.neuron"
+DIFFUSION_MODEL_TEXT_ENCODER_NAME = "text_encoder"
+DIFFUSION_MODEL_UNET_NAME = "unet"
+DIFFUSION_MODEL_VAE_ENCODER_NAME = "vae_encoder"
+DIFFUSION_MODEL_VAE_DECODER_NAME = "vae_decoder"

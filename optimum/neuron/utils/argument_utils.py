@@ -145,6 +145,7 @@ def store_compilation_config(
     dynamic_batch_size: bool,
     compiler_type: str,
     compiler_version: str,
+    model_type: Optional[str] = None,
     **kwargs,
 ):
     if isinstance(config, OrderedDict):
@@ -172,3 +173,12 @@ def store_compilation_config(
     config_args["output_names"] = output_names
 
     update_func("neuron", config_args)
+
+    if hasattr(config, "_diffusers_version"):
+        import diffusers
+
+        update_func("_diffusers_version", diffusers.__version__)
+
+    model_type = getattr(config, "model_type", None) or model_type
+    model_type = str(model_type).replace("_", "-")
+    update_func("model_type", model_type)
