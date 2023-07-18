@@ -132,7 +132,41 @@ No worries, `NeuronModelForXXX` class will pad your inputs to an eligible shape.
 
 ## Export and inference of Generative NLP models
 
-As explained in the previous paragraph, you will need only a few modifications to your Transformers code to export and run NLP models:
+As explained before, you will need only a few modifications to your Transformers code to export and run NLP models:
+
+### Configuring the export of a generative model
+
+There are three main parameters that can be passed to the `from_pretrained()` method to configure how a transformers checkpoint is exported to
+a neuron optimized model:
+
+- `batch_size` is the number of input sequences that the model will accept. Defaults to 1,
+- `num_cores` is the number of neuron cores used when instantiating the model. Each neuron core has 16 Gb of memory, which means that
+bigger models need to be split on multiple cores. Defaults to 1,
+- `auto_cast_type` specifies the format to encode the weights. It can be one of `f32` (`float32`), `f16` (`float16`) or `bf16` (`bfloat16`). Defaults to `f32`.
+
+```diff
+from transformers import AutoTokenizer
+-from transformers import AutoModelForCausalLM
++from optimum.neuron import NeuronModelForCausalLM
+
+# Instantiate and convert to Neuron a PyTorch checkpoint
+-model = AutoModelForCausalLM.from_pretrained("gpt2")
++model = NeuronModelForCausalLM.from_pretrained("gpt2",
++                                               export=True,
++                                               batch_size=16,
++                                               num_cores=1,
++                                               auto_cast_type='f32')
+```
+
+As explained before, these parameters can only be configured during export. This means in particular that
+the `batch_size` of the inputs during inference should be equal to the `batch_size` used for exporting the model.
+
+Each model architecture may also support specific additional parameters for advanced configuration.
+Please refer to the [transformers-neuronx](https://github.com/aws-neuron/transformers-neuronx) documentation.
+
+### Text generation inference
+
+As with the original transformers models, use `generate()` instead of `forward()` to generate text sequences.
 
 ```diff
 from transformers import AutoTokenizer
@@ -158,24 +192,6 @@ with torch.inference_mode():
     outputs = [tokenizer.decode(tok) for tok in sample_output]
     print(outputs)
 ```
-
-### Configuring the export of a generative model
-
-There are three main parameters that can be passed to the `from_pretrained()` method to configure how a transformers checkpoint is exported to
-a neuron optimized model:
-
-- `batch_size` is the number of input sequences that the model will accept,
-- `num_cores` is the number of neuron cores used when instantiating the model. Each neuron core has 16 Gb of memory, which means that
-bigger models need to be split on multiple cores,
-- `auto_cast_type` specifies the format to encode the weights. It can be one of `f32` (`float32`), `f16` (`float16`) or `bf16` (`bfloat16`).
-
-As explained before, these parameters can only be configured during export. This means in particular that
-the `batch_size` of the inputs during inference should be equal to the `batch_size` used for exporting the model.
-
-If not specified, these parameters will take default values.
-
-Each model architecture may also support specific additional parameters for advanced configuration.
-Please refer to the [transformers-neuronx](https://github.com/aws-neuron/transformers-neuronx) documentation.
 
 ## Inference of Stable Diffusion Models
 
