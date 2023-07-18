@@ -14,50 +14,30 @@
 # limitations under the License.
 """Utilities to handle the several optional requirement packages."""
 
-from typing import Callable, Any
 import functools
+from typing import Any, Callable
 
 from transformers.utils import is_safetensors_available
+
 from . import is_neuronx_distributed_available, is_torch_xla_available
 
 
-def _create_requires_function(availability_function: Callable[[], bool], package_name: str) -> Callable[..., Any]: 
+def _create_requires_function(availability_function: Callable[[], bool], package_name: str) -> Callable[..., Any]:
     def require_func(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            if not is_safetensors_available():
+            if not availability_function():
                 raise ModuleNotFoundError(
-                    f"{func.__name__} requires the `safetensors` package. You can install it by running: pip install "
-                    "safetensors"
+                    f"{func.__name__} requires the `{package_name}` package. You can install it by running: pip "
+                    f"install {package_name}"
                 )
             return func(*args, **kwargs)
 
         return wrapper
+
     return require_func
 
-def requires_safetensors(func):
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        if not is_safetensors_available():
-            raise ModuleNotFoundError(
-                f"{func.__name__} requires the `safetensors` package. You can install it by running: pip install "
-                "safetensors"
-            )
-        return func(*args, **kwargs)
 
-    return wrapper
-
-
+requires_safetensors = _create_requires_function(is_safetensors_available, "safetensors")
 requires_torch_xla = _create_requires_function(is_torch_xla_available, "torch_xla")
-
-# def requires_torch_xla(func):
-#     @functools.wraps(func)
-#     def wrapper(*args, **kwargs):
-#         if not is_torch_xla_available():
-#             raise ModuleNotFoundError(
-#                 f"{func.__name__} requires the `torch_xla` package. You can install it by running: pip install "
-#                 "torch_xla"
-#             )
-#         return func(*args, **kwargs)
-# 
-#     return wrapper
+requires_neuronx_distributed = _create_requires_function(is_neuronx_distributed_available, "neuronx_distributed")
