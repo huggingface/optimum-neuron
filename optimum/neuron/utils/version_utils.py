@@ -66,3 +66,15 @@ def check_compiler_compatibility(compiler_type: str, compiler_version: str):
             f"Pretrained model is compiled with {compiler_type}({compiler_version}) newer than current compiler ({installed_compiler_version_fn()}),"
             " which may cause runtime incompatibilities."
         )
+
+
+def check_compiler_compatibility_for_stable_diffusion():
+    if not is_neuronx_available():
+        raise RuntimeError(
+            "Stable diffusion models are supported only on neuronx devices (inf2 / trn1), but neuronx-cc is not installed."
+        )
+    installed_compiler_version = get_neuronxcc_version()
+    if version.parse(installed_compiler_version) < version.parse("2.6"):
+        raise RuntimeError(
+            f"Stable diffusion models are supported from neuronx-cc 2.6, but you have {installed_compiler_version}, please upgrade it."
+        )

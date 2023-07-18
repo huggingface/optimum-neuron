@@ -325,7 +325,7 @@ def export_models(
                 dynamic_batch_size=sub_neuron_config.dynamic_batch_size,
                 compiler_type=NEURON_COMPILER_TYPE,
                 compiler_version=NEURON_COMPILER_VERSION,
-                model_type=getattr(sub_neuron_config, "model_type", None),
+                model_type=getattr(sub_neuron_config, "MODEL_TYPE", None),
             )
             if isinstance(model_config, PretrainedConfig):
                 model_config = DiffusersPretrainedConfig.from_dict(model_config.__dict__)

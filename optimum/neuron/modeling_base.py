@@ -87,13 +87,6 @@ class NeuronBaseModel(OptimizedModel):
         self.input_static_shapes = NeuronBaseModel.get_input_static_shapes(self.neuron_config)
         self._attributes_init(model_save_dir, preprocessors, **kwargs)
 
-    @classmethod
-    def _auto_model_to_task(cls, auto_model_class):
-        """
-        Get the task corresponding to a class (for example AutoModelForXXX in transformers).
-        """
-        return TasksManager.infer_task_from_model(auto_model_class)
-
     @staticmethod
     def load_model(path: Union[str, Path]) -> torch.jit._script.ScriptModule:
         """

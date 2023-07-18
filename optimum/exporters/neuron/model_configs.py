@@ -182,7 +182,7 @@ class CLIPNeuronConfig(TextAndVisionNeuronConfig):
 @register_in_tasks_manager("clip-text-model", *["stable-diffusion", "feature-extraction"])
 class CLIPTextNeuronConfig(TextEncoderNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
-    model_type = "clip-text-model"
+    MODEL_TYPE = "clip-text-model"
 
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
         vocab_size="vocab_size",
@@ -214,7 +214,7 @@ class CLIPTextNeuronConfig(TextEncoderNeuronConfig):
 @register_in_tasks_manager("vae-encoder", *["stable-diffusion", "semantic-segmentation"])
 class VaeEncoderNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-2
-    model_type = "vae-encoder"
+    MODEL_TYPE = "vae-encoder"
 
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
         num_channels="in_channels",
@@ -234,7 +234,7 @@ class VaeEncoderNeuronConfig(VisionNeuronConfig):
 @register_in_tasks_manager("vae-decoder", *["stable-diffusion", "semantic-segmentation"])
 class VaeDecoderNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
-    model_type = "vae-decoder"
+    MODEL_TYPE = "vae-decoder"
 
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
         num_channels="latent_channels",
@@ -262,7 +262,7 @@ class VaeDecoderNeuronConfig(VisionNeuronConfig):
 class UNetNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
     MANDATORY_AXES = ("batch_size", "sequence_length", "num_channels", "width", "height")
-    model_type = "unet"
+    MODEL_TYPE = "unet"
 
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
         image_size="sample_size",

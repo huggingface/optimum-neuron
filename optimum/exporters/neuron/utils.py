@@ -87,7 +87,6 @@ def build_stable_diffusion_components_mandatory_shapes(
     vae_num_channels: Optional[int] = None,
     height: Optional[int] = None,
     width: Optional[int] = None,
-    **kwargs,
 ):
     text_encoder_input_shapes = {"batch_size": batch_size, "sequence_length": sequence_length}
     vae_encoder_input_shapes = vae_decoder_input_shapes = {

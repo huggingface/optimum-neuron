@@ -29,6 +29,7 @@ from transformers import CLIPFeatureExtractor, CLIPTokenizer, PretrainedConfig
 
 from ..exporters.neuron import DiffusersPretrainedConfig, main_export, normalize_stable_diffusion_input_shapes
 from ..exporters.neuron.model_configs import *  # noqa: F403
+from ..exporters.tasks import TasksManager
 from ..utils import is_diffusers_available
 from .modeling_base import NeuronBaseModel
 from .pipelines.diffusers.pipeline_stable_diffusion import StableDiffusionPipelineMixin
@@ -170,7 +171,6 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         unet_file_name: str = NEURON_FILE_NAME,
         vae_encoder_file_name: str = NEURON_FILE_NAME,
         vae_decoder_file_name: str = NEURON_FILE_NAME,
-        **kwargs,
     ):
         """
         Saves the model to the serialized format optimized for Neuron devices.
@@ -227,7 +227,6 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         local_files_only: bool = False,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
         device_ids: Optional[List[int]] = None,
-        **kwargs,
     ):
         model_id = str(model_id)
         sub_models_to_load, _, _ = cls.extract_init_dict(config)
@@ -352,7 +351,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         **kwargs_shapes,
     ) -> "NeuronStableDiffusionPipelineBase":
         if task is None:
-            task = cls._auto_model_to_task(cls.auto_model_class)
+            task = TasksManager.infer_task_from_model(cls.auto_model_class)
 
         # mandatory shapes
         input_shapes = normalize_stable_diffusion_input_shapes(task, kwargs_shapes)

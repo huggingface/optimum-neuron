@@ -78,6 +78,7 @@ class NeuronConfig(ExportConfig, ABC):
     DUMMY_INPUT_GENERATOR_CLASSES = ()
     ATOL_FOR_VALIDATION: Union[float, Dict[str, float]] = 1e-5
     MANDATORY_AXES = ()
+    MODEL_TYPE = None
 
     _TASK_TO_COMMON_OUTPUTS = {
         "feature-extraction": ["last_hidden_state", "pooler_output"],

@@ -33,6 +33,7 @@ from ...neuron.utils import (
     is_neuron_available,
     is_neuronx_available,
 )
+from ...neuron.utils.version_utils import check_compiler_compatibility_for_stable_diffusion
 from ...utils import logging
 from ...utils.save_utils import maybe_save_preprocessors
 from ..error_utils import AtolError, OutputMatchError, ShapeError
@@ -98,7 +99,6 @@ def normalize_input_shapes(task: str, args: argparse.Namespace) -> Dict[str, int
     )
     mandatory_axes = neuron_config_constructor.func.get_mandatory_axes_for_task(task)
     input_shapes = {name: getattr(args, name) for name in mandatory_axes}
-
     return input_shapes
 
 
@@ -162,6 +162,7 @@ def main_export(
         maybe_save_preprocessors(model, output.parent)
 
     if task == "stable-diffusion":
+        check_compiler_compatibility_for_stable_diffusion()
         if is_neuron_available():
             raise RuntimeError(
                 "Stable diffusion export is not supported by neuron-cc on inf1, please use neuronx-cc on either inf2/trn1 instead."
