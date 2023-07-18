@@ -201,8 +201,6 @@ class NeuronAccelerator(Accelerator):
                 params,
                 optimizer.__class__,
                 optimizer_dtype=optimizer_dtype,
-                grad_clipping=True,  # TODO: handle this case.
-                max_norm=None,  # TODO: handle this case.
                 pin_layout=False,
                 **defaults,
             )
@@ -217,8 +215,6 @@ class NeuronAccelerator(Accelerator):
                 optimizer.param_groups,
                 optimizer.__class__,
                 optimizer_dtype=optimizer_dtype,
-                grad_clipping=True,  # TODO: handle this case.
-                max_norm=None,  # TODO: handle this case.
                 pin_layout=False,
             )
         return zero_1_optimizer
@@ -355,7 +351,7 @@ class NeuronAccelerator(Accelerator):
             if parameters == list(model.parameters()):
                 return model.clip_grad_norm_(max_norm, norm_type)
 
-    def _clip_grad_norm_for_tp(self, parameters, max_norm, norm_type: int = 2):
+    def _prepare_clip_grad_norm(self, parameters, max_norm, norm_type: int = 2):
         self.unscale_gradients()
         parameters = list(parameters)
         for model in self._models:
@@ -368,8 +364,8 @@ class NeuronAccelerator(Accelerator):
     def clip_grad_norm_(self, parameters, max_norm, norm_type=2):
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:
             return self.clip_grad_norm_for_xla_fsdp(parameters, max_norm, norm_type=norm_type)
-        elif self.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
-            return self._clip_grad_norm_for_tp(parameters, max_norm, norm_type=norm_type)
+        elif self.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM or self.zero_1:
+            return self._prepare_clip_grad_norm(parameters, max_norm, norm_type=norm_type)
         return super().clip_grad_norm_(parameters, max_norm, norm_type=norm_type)
 
     def clip_grad_value_(self, parameters, clip_value):
