@@ -21,7 +21,7 @@ from transformers.utils import is_safetensors_available
 from . import is_neuronx_distributed_available, is_torch_xla_available
 
 
-def _create_requires_function(availability_function: Callable[[], bool], package_name: str) -> Callable[..., Any], 
+def _create_requires_function(availability_function: Callable[[], bool], package_name: str) -> Callable[..., Any]: 
     def require_func(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
