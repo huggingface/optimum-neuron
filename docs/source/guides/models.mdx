@@ -69,7 +69,7 @@ saved in a `config.json` file, and will be restored automatically by `NeuronMode
 
 ## Export and inference of Discriminative NLP models
 
-As explained in the previous paragraph, you will need only a few modifications to your Transformers code to export and run NLP models:
+As explained in the previous section, you will need only few modifications to your Transformers code to export and run NLP models:
 
 ```diff
 from transformers import AutoTokenizer
@@ -170,7 +170,7 @@ bigger models need to be split on multiple cores,
 - `auto_cast_type` specifies the format to encode the weights. It can be one of `f32` (`float32`), `f16` (`float16`) or `bf16` (`bfloat16`).
 
 As explained before, these parameters can only be configured during export. This means in particular that
-the `batch_size` of the inputs during inference cannot be changed once the model has been exported.
+the `batch_size` of the inputs during inference should be equal to the `batch_size` used for exporting the model.
 
 If not specified, these parameters will take default values.
 
