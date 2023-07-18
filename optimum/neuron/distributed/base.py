@@ -17,17 +17,17 @@
 import contextlib
 import shutil
 from abc import ABC, abstractclassmethod
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Mapping, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple, Union
 
 import torch
 from transformers.utils import WEIGHTS_NAME
 
 from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
-from .utils import TENSOR_PARALLEL_SHARDS_DIR_NAME, WeightInformation, load_tensor_for_weight
+from .utils import TENSOR_PARALLEL_SHARDS_DIR_NAME, ParameterMetadata, WeightInformation, load_tensor_for_weight
 
 
 if is_neuronx_distributed_available():
@@ -56,25 +56,6 @@ class SavedModelInTemporaryDirectory:
 
     def __exit__(self, *exc):
         self.tmpdir.cleanup()
-
-
-@dataclass
-class ParameterMetadata:
-    kind: Literal["tied", "sharded"]
-    partition_dim: Optional[int] = None
-
-    def __post_init__(self):
-        if self.kind == "tied":
-            if self.partition_dim is None:
-                raise ValueError("ParameterMetadata.partion_dim must be specified when the parameter is sharded.")
-
-    @property
-    def is_tied(self):
-        return self.kind == "tied"
-
-    @property
-    def is_sharded(self):
-        return self.kind == "sharded"
 
 
 class Parallelizer(ABC):
@@ -294,7 +275,7 @@ class Parallelizer(ABC):
     @classmethod
     def _get_parameters_tp_metadata(cls, named_parameters: Dict[str, "torch.nn.Parameter"]):
         tp_metadata = {}
-        for name, param in named_parameters:
+        for name, param in named_parameters.items():
             if getattr(param, "tensor_model_parallel", False):
                 param_metadata = ParameterMetadata(
                     "sharded",
@@ -362,7 +343,7 @@ class Parallelizer(ABC):
 
         state_dict = {"model": model.state_dict()}
         state_dict["sharded_metadata"] = {
-            k: asdict(v) for k, v in cls._get_parameters_tp_metadata(model.named_parameters())
+            k: asdict(v) for k, v in cls._get_parameters_tp_metadata(dict(model.named_parameters())).items()
         }
 
         if optimizer is not None:

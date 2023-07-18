@@ -14,5 +14,9 @@
 # limitations under the License.
 
 from .base import Parallelizer
+from .checkpointing import (
+    consolidate_tensor_parallel_checkpoints,
+    consolidate_tensor_parallel_checkpoints_to_unified_checkpoint,
+)
 from .parallelizers_manager import ParallelizersManager
 from .utils import lazy_load_for_parallelism
