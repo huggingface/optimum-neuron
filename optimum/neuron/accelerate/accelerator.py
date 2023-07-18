@@ -32,6 +32,7 @@ from torch.utils.data.distributed import DistributedSampler
 
 from ...utils import logging
 from ..distributed import Parallelizer, ParallelizersManager
+from ..distributed.utils import ZeroRedundancyOptimizerCompatibleWithTensorParallelism
 from ..utils import Patcher, is_neuronx_distributed_available, is_torch_xla_available, patch_within_function
 from ..utils.misc import args_and_kwargs_to_kwargs_only
 from .optimizer import NeuronAcceleratedOptimizer
@@ -55,6 +56,7 @@ if TYPE_CHECKING:
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
+    from torch_xla.distributed.zero_redundancy_optimizer import ZeroRedundancyOptimizer
 else:
     xm = None
 
@@ -68,7 +70,7 @@ logger = logging.get_logger(__name__)
 # TODO: should we do a XLAFSDPNeuronAccelerator instead?
 class NeuronAccelerator(Accelerator):
     # @patch_within_function(("accelerate.accelerator.AcceleratorState", NeuronAcceleratorState))
-    def __init__(self, *args, tp_plugin: Optional[TensorParallelismPlugin] = None, **kwargs):
+    def __init__(self, *args, tp_plugin: Optional[TensorParallelismPlugin] = None, zero_1: bool = False, **kwargs):
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
         patch_accelerate_is_tpu_available()
 
@@ -92,8 +94,15 @@ class NeuronAccelerator(Accelerator):
         full_kwargs["gradient_accumulation_steps"] = gradient_accumulation_steps
 
         fsdp_plugin = full_kwargs["fsdp_plugin"]
-        if fsdp_plugin is None and os.environ.get("ACCELERATE_USE_FSDP", "false") == "true":
-            fsdp_plugin = NeuronFullyShardedDataParallelPlugin()
+        if fsdp_plugin is None:
+            if os.environ.get("ACCELERATE_USE_FSDP", "false") == "true":
+                fsdp_plugin = NeuronFullyShardedDataParallelPlugin()
+        elif not isinstance(fsdp_plugin, NeuronFullyShardedDataParallelPlugin):
+            raise ValueError(
+                "The fsdp_plugin must be an instance of NeuronFullyShardedDataParallelPlugin to use XLA FSDP with "
+                f"the NeuronAccelerator, but an instance of {type(fsdp_plugin)} was given here."
+            )
+        self.fsdp_plugin = fsdp_plugin
 
         use_neuronx_distributed_tp = os.environ.get("ACCELERATE_USE_NEURONX_DISTRIBUTED_TP", "false")
         if tp_plugin is None:
@@ -110,6 +119,14 @@ class NeuronAccelerator(Accelerator):
         patched_accelerator_state = partial(NeuronAcceleratorState, tp_plugin=tp_plugin)
         with Patcher([("accelerate.accelerator.AcceleratorState", patched_accelerator_state)]):
             super().__init__(**full_kwargs)
+
+        self.zero_1 = zero_1
+
+        if self.fsdp_plugin is not None and self.zero_1:
+            raise ValueError("Either enable XLA ZeRO Stage 1 or XLA FSDP but not both.")
+
+        if self.process_index == -1 and self.zero_1:
+            raise ValueError("XLA ZeRO Stage 1 can only be enabled in a distributed training setting.")
 
         if fsdp_plugin is not None and tp_plugin is not None:
             raise ValueError("It is not possible to both use neuronx_distributed Tensor Parallelism and XLA FSDP.")
@@ -147,15 +164,67 @@ class NeuronAccelerator(Accelerator):
         return super().prepare_data_loader(data_loader, device_placement=device_placement)
 
     def _prepare_optimizer_for_tp(self, optimizer: torch.optim.Optimizer, device_placement=None):
-        optimizer = Parallelizer.optimizer_for_tp(
-            optimizer, collections.ChainMap(*self._model_cpu_parameters_to_xla.values())
-        )
+        cpu_parameters_to_xla = collections.ChainMap(*self._model_cpu_parameters_to_xla.values())
+        if not self.zero_1:
+            optimizer = Parallelizer.optimizer_for_tp(optimizer, cpu_parameters_to_xla)
+        else:
+            xla_parameters, _ = Parallelizer.optimizer_cpu_params_to_xla_params(optimizer, cpu_parameters_to_xla)
+            if hasattr(optimizer, "_args_to_recreate"):
+                args, kwargs = optimizer._args_to_recreate
+                args = (xla_parameters,) + args[1:]
+                optimizer._args_to_recreate = (args, kwargs)
+            else:
+                optimizer.param_groups = xla_parameters
         return optimizer
+
+    def _prepare_optimizer_for_zero_1(self, optimizer: torch.optim.Optimizer, device_placement=None):
+        mixed_precision_to_dtype = {
+            "no": torch.float32,
+            "bf16": torch.bfloat16,
+        }
+        optimizer_dtype = mixed_precision_to_dtype.get(self.state.mixed_precision, None)
+        if optimizer_dtype is None:
+            raise ValueError(f"The precision {self.state.mixed_precision} is not supported for ZeRO Stage 1")
+
+        zero_redundancy_optimizer_class = (
+            ZeroRedundancyOptimizerCompatibleWithTensorParallelism
+            if self.state.tp_plugin.should_parallelize
+            else ZeroRedundancyOptimizer
+        )
+
+        if hasattr(optimizer, "_args_to_recreate"):
+            args, kwargs = optimizer._args_to_recreate
+            params = args[0]
+            defaults = args_and_kwargs_to_kwargs_only(optimizer.__class__, args[1:], kwargs)
+
+            zero_1_optimizer = zero_redundancy_optimizer_class(
+                params,
+                optimizer.__class__,
+                optimizer_dtype=optimizer_dtype,
+                pin_layout=False,
+                **defaults,
+            )
+            del optimizer
+        else:
+            logger.warning(
+                f"Creating a ZeroRedundancyOptimizer from {optimizer}, this might change some default values. When "
+                "using ZeRO 1 it is recommended to create the ZeroRedundancyOptimizer yourself to avoid this kind of "
+                "issues."
+            )
+            zero_1_optimizer = zero_redundancy_optimizer_class(
+                optimizer.param_groups,
+                optimizer.__class__,
+                optimizer_dtype=optimizer_dtype,
+                pin_layout=False,
+            )
+        return zero_1_optimizer
 
     @patch_within_function(("accelerate.accelerator.AcceleratedOptimizer", NeuronAcceleratedOptimizer))
     def prepare_optimizer(self, optimizer: torch.optim.Optimizer, device_placement: Optional[bool] = None):
         if self.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
             optimizer = self._prepare_optimizer_for_tp(optimizer, device_placement=device_placement)
+        if self.zero_1:
+            optimizer = self._prepare_optimizer_for_zero_1(optimizer, device_placement=device_placement)
         return super().prepare_optimizer(optimizer, device_placement=device_placement)
 
     @patch_within_function(("accelerate.accelerator.AcceleratedScheduler", NeuronAcceleratedScheduler))
@@ -282,7 +351,7 @@ class NeuronAccelerator(Accelerator):
             if parameters == list(model.parameters()):
                 return model.clip_grad_norm_(max_norm, norm_type)
 
-    def _clip_grad_norm_for_tp(self, parameters, max_norm, norm_type: int = 2):
+    def _prepare_clip_grad_norm(self, parameters, max_norm, norm_type: int = 2):
         self.unscale_gradients()
         parameters = list(parameters)
         for model in self._models:
@@ -295,8 +364,8 @@ class NeuronAccelerator(Accelerator):
     def clip_grad_norm_(self, parameters, max_norm, norm_type=2):
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:
             return self.clip_grad_norm_for_xla_fsdp(parameters, max_norm, norm_type=norm_type)
-        elif self.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
-            return self._clip_grad_norm_for_tp(parameters, max_norm, norm_type=norm_type)
+        elif self.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM or self.zero_1:
+            return self._prepare_clip_grad_norm(parameters, max_norm, norm_type=norm_type)
         return super().clip_grad_norm_(parameters, max_norm, norm_type=norm_type)
 
     def clip_grad_value_(self, parameters, clip_value):

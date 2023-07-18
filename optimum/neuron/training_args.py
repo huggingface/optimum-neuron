@@ -49,7 +49,13 @@ if is_sagemaker_mp_enabled():
 logger = logging.get_logger(__name__)
 
 
+@dataclass
 class NeuronTrainingArgumentsMixin:
+    zero_1: bool = field(default=False, metadata={"help": "Whether to use  ZeRO Stage 1 Optimization."})
+    tensor_parallel_size: int = field(
+        default=1, metadata={"help": "The number of replicas the model will be sharded on."}
+    )
+
     def __post_init__(self):
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
         patch_accelerate_is_tpu_available()
@@ -195,13 +201,9 @@ class NeuronTrainingArgumentsMixin:
 
 @dataclass
 class NeuronTrainingArguments(NeuronTrainingArgumentsMixin, TrainingArguments):
-    tensor_parallel_size: int = field(
-        default=1, metadata={"help": "The number of replicas the model will be sharded on."}
-    )
+    pass
 
 
 @dataclass
 class Seq2SeqNeuronTrainingArguments(NeuronTrainingArgumentsMixin, Seq2SeqTrainingArguments):
-    tensor_parallel_size: int = field(
-        default=1, metadata={"help": "The number of replicas the model will be sharded on."}
-    )
+    pass

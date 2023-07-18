@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 if is_torch_xla_available():
     import accelerate
     import torch_xla.core.xla_model as xm
+    from torch_xla.distributed.zero_redundancy_optimizer import ZeroRedundancyOptimizer
 
     accelerate.optimizer.xm = xm
 
@@ -57,18 +58,23 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
         return super().load_state_dict(state_dict)
 
     def prepare_clip_grad_norm(self, parameters, max_norm, norm_type=2):
-        # Deferring the clipping to later since gradients need to be reduced first when performing tensor parallelism.
-        # TODO: find a better way to make sure we are using the right parameters for the right optimizer.
-        if self.accelerator_state.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
-            parameter_ids = {id(p) for p in parameters}
-            if parameter_ids == self.parameter_ids:
-                self.clip_grad_norm_to_perform = {"max_norm": max_norm, "norm_type": norm_type}
-        else:
-            raise RuntimeError("The AcceleratedOptimizer handles grad clipping only for tensor parallelism.")
+        parameter_ids = {id(p) for p in parameters}
+        if parameter_ids == self.parameter_ids:
+            self.clip_grad_norm_to_perform = {"max_norm": max_norm, "norm_type": norm_type}
 
     def step(self, closure=None):
         if self.gradient_state.sync_gradients:
-            if self.accelerator_state.distributed_type is DistributedType.TPU:
+            if isinstance(self.optimizer, ZeroRedundancyOptimizer):
+                if self.clip_grad_norm_to_perform is not None:
+                    # `ZeroRedundancyOptimizer` does not allow to pass a norm type, it could be done but postponing for
+                    # now.
+                    self.optimizer.grad_clipping = True
+                    self.optimizer.max_norm = self.clip_grad_norm_to_perform["max_norm"]
+                else:
+                    self.optimizer.grad_clipping = False
+                optimizer_args = {"closure": closure} if closure is not None else {}
+                self.optimizer.step(closure)
+            elif self.accelerator_state.distributed_type is DistributedType.TPU:
                 optimizer_args = {"closure": closure} if closure is not None else {}
                 xm.optimizer_step(self.optimizer, optimizer_args=optimizer_args)
             elif self.accelerator_state.distributed_type is NeuronDistributedType.XLA_FSDP:

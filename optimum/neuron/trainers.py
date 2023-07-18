@@ -41,7 +41,8 @@ from transformers.utils import is_sagemaker_mp_enabled
 
 from ..utils import check_if_transformers_greater, logging
 from .accelerate import NeuronAccelerator, NeuronDistributedType
-from .distributed import Parallelizer, ParallelizersManager
+from .distributed import ParallelizersManager
+from .distributed.utils import make_optimizer_constructor_lazy
 from .trainer_callback import NeuronCacheCallaback
 from .utils import (
     DynamicPatch,
@@ -202,6 +203,7 @@ class AugmentTrainerForNeuronMixin:
             deepspeed_plugin=self.args.deepspeed_plugin,
             gradient_accumulation_steps=self.args.gradient_accumulation_steps,
             tp_plugin=self.args.tp_plugin,
+            zero_1=self.args.zero_1,
         )
 
         # deepspeed and accelerate flags covering both trainer args and accelerate launcher
@@ -269,8 +271,9 @@ class AugmentTrainerForNeuronMixin:
     @staticmethod
     def get_optimizer_cls_and_kwargs(args: TrainingArguments) -> Tuple[Any, Any]:
         optimizer_cls, optimizer_kwargs = transformers_get_optimizer_cls_and_kwargs(args)
-        if check_if_transformers_greater("4.30.0") and args.tp_plugin.should_parallelize:
-            optimizer_cls = Parallelizer.make_optimizer_constructor_lazy_for_tp(optimizer_cls)
+        lazy_load = args.tp_plugin.should_parallelize or args.zero_1
+        if check_if_transformers_greater("4.30.0") and lazy_load:
+            optimizer_cls = make_optimizer_constructor_lazy(optimizer_cls)
         return optimizer_cls, optimizer_kwargs
 
     @patch_within_function(("transformers.Trainer.get_optimizer_cls_and_kwargs", get_optimizer_cls_and_kwargs))
@@ -402,7 +405,6 @@ class AugmentTrainerForNeuronMixin:
             self._rotate_checkpoints(use_mtime=True, output_dir=run_dir)
 
     def _save_checkpoint(self, model, trial, metrics=None):
-        # if self.fsdp or self.is_fsdp_enabled:
         if check_if_transformers_greater("4.30.0") and self.accelerator.distributed_type in [
             NeuronDistributedType.XLA_FSDP,
             NeuronDistributedType.TENSOR_PARALLELISM,
