@@ -26,12 +26,14 @@ from transformers import PretrainedConfig
 
 from ..utils import DynamicPatch, Patcher, is_neuronx_distributed_available, is_torch_xla_available
 from ..utils.misc import download_checkpoints_in_cache
-from ..utils.require_utils import requires_safetensors
+from ..utils.require_utils import requires_safetensors, requires_torch_xla
 
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
     from torch_xla.distributed.zero_redundancy_optimizer import ZeroRedundancyOptimizer
+else:
+    ZeroRedundancyOptimizer = object
 
 
 if is_neuronx_distributed_available():
@@ -493,6 +495,7 @@ def make_optimizer_constructor_lazy(optimizer_cls: Type["torch.optim.Optimizer"]
     return optimizer_constructor
 
 
+@requires_torch_xla
 class ZeroRedundancyOptimizerCompatibleWithTensorParallelism(ZeroRedundancyOptimizer):
     def __init__(
         self,
