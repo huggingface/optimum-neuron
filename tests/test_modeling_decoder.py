@@ -106,15 +106,14 @@ def test_model_from_hub():
     _check_neuron_model(model)
 
 
-def _test_model_generation(model, tokenizer, batch_size, max_length, **gen_kwargs):
+def _test_model_generation(model, tokenizer, batch_size, length, **gen_kwargs):
     prompt_text = "Hello, I'm a language model,"
     prompts = [prompt_text for _ in range(batch_size)]
     tokens = tokenizer(prompts, return_tensors="pt")
-    model.reset_generation()
     with torch.inference_mode():
-        sample_output = model.generate(**tokens, max_length=max_length, **gen_kwargs)
+        sample_output = model.generate(**tokens, min_length=length, max_length=length, **gen_kwargs)
         assert sample_output.shape[0] == batch_size
-        assert sample_output.shape[1] == max_length
+        assert sample_output.shape[1] == length
 
 
 @is_inferentia_test

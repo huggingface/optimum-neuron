@@ -14,7 +14,6 @@
 # limitations under the License.
 """Neuron configuration base classes."""
 
-import copy
 import importlib
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
@@ -324,19 +323,19 @@ class NeuronDecoderConfig(ExportConfig):
     - NEURONX_CLASS (`str`) -- the name of the transformers-neuronx class to instantiate for the model.
     It is a full class name defined relatively to the transformers-neuronx module, e.g. `gpt2.model.GPT2ForSampling`
     [`~optimum.utils.DummyInputGenerator`] specifying how to create dummy inputs.
-    - NEURONX_ARGS (`Dict[str, Any]`) -- a dictionary mapping optional arguments to be passed when instantiating the
-    transformers-neuronx model class to their default values.
+    - NEURONX_ARGS (`List[str]`) -- a list of optional arguments to be passed when instantiating the transformers-neuronx
+    model class.
 
     The NEURONX_CLASS must always be defined in each model configuration.
-    The NEURONX_ARGS dict is required only if the transformers-neuronx model class needs specific parameters to
-     be specified. By default it is empty.
+    The NEURONX_ARGS list is required only to identify specific parameters passed to the pre_trained method that must not be
+     passed to the transformers checkpoint model during export, but only to the transformers-neuronx model. By default it is empty.
 
     Args:
         task (`str`): The task the model should be exported for.
     """
 
     NEURONX_CLASS = None
-    NEURONX_ARGS = {}
+    NEURONX_ARGS = []
 
     def __init__(self, task):
         if not is_transformers_neuronx_available():
@@ -350,17 +349,16 @@ class NeuronDecoderConfig(ExportConfig):
             raise ImportError(f"{class_name} not found in {module_name}. Please check transformers-neuronx version.")
 
     def split_kwargs(self, **kwargs):
-        """Splits between kwargs that need to be passed when loading the transformers model
+        """Splits between kwargs that need to be passed when loading the transformers model during export
         and those that need to be passed to the neuron optimizer.
         """
-        model_kwargs = copy.deepcopy(kwargs)
+        model_kwargs = {}
         neuron_kwargs = {}
-        for arg, default in self.NEURONX_ARGS.items():
-            if arg in model_kwargs:
-                neuron_kwargs[arg] = model_kwargs[arg]
-                model_kwargs.pop(arg)
+        for arg, value in kwargs.items():
+            if arg in self.NEURONX_ARGS:
+                neuron_kwargs[arg] = value
             else:
-                neuron_kwargs[arg] = default
+                model_kwargs[arg] = value
         return model_kwargs, neuron_kwargs
 
     @property

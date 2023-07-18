@@ -802,6 +802,9 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
         # keep track of which sequences are already finished
         unfinished_sequences = torch.ones(input_ids.shape[0], dtype=torch.long, device=input_ids.device)
 
+        # This is specific to Neuron models
+        self.reset_generation()
+
         # auto-regressive generation
         while True:
             # prepare model inputs
