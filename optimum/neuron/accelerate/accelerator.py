@@ -56,7 +56,6 @@ if TYPE_CHECKING:
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
-    from torch_xla.distributed.zero_redundancy_optimizer import ZeroRedundancyOptimizer
 else:
     xm = None
 
@@ -186,18 +185,12 @@ class NeuronAccelerator(Accelerator):
         if optimizer_dtype is None:
             raise ValueError(f"The precision {self.state.mixed_precision} is not supported for ZeRO Stage 1")
 
-        zero_redundancy_optimizer_class = (
-            ZeroRedundancyOptimizerCompatibleWithTensorParallelism
-            if self.state.tp_plugin.should_parallelize
-            else ZeroRedundancyOptimizer
-        )
-
         if hasattr(optimizer, "_args_to_recreate"):
             args, kwargs = optimizer._args_to_recreate
             params = args[0]
             defaults = args_and_kwargs_to_kwargs_only(optimizer.__class__, args[1:], kwargs)
 
-            zero_1_optimizer = zero_redundancy_optimizer_class(
+            zero_1_optimizer = ZeroRedundancyOptimizerCompatibleWithTensorParallelism(
                 params,
                 optimizer.__class__,
                 optimizer_dtype=optimizer_dtype,
@@ -211,7 +204,7 @@ class NeuronAccelerator(Accelerator):
                 "using ZeRO 1 it is recommended to create the ZeroRedundancyOptimizer yourself to avoid this kind of "
                 "issues."
             )
-            zero_1_optimizer = zero_redundancy_optimizer_class(
+            zero_1_optimizer = ZeroRedundancyOptimizerCompatibleWithTensorParallelism(
                 optimizer.param_groups,
                 optimizer.__class__,
                 optimizer_dtype=optimizer_dtype,

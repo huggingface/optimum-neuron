@@ -102,6 +102,8 @@ def load_tensor_for_weight(
             tensor_slice = fp.get_slice(weight_info.qualified_name)
             slices = [slice(*slice_) if slice_ is not None else slice(None, None, None) for slice_ in tensor_slices]
             tensor = tensor_slice[slices]
+            # This is needed to make sure tensor.numel() == tensor.storage().size().
+            tensor = torch.empty_like(tensor).copy_(tensor)
 
     return tensor
 
@@ -540,3 +542,22 @@ class ZeroRedundancyOptimizerCompatibleWithTensorParallelism(ZeroRedundancyOptim
         self._shard_parameters()
         # Optimizer initialization
         self.base_optimizer = optimizer_class(iter(self.sharded_params), **defaults)
+
+
+@dataclass
+class ParameterMetadata:
+    kind: Literal["tied", "sharded"]
+    partition_dim: Optional[int] = None
+
+    def __post_init__(self):
+        if self.kind == "sharded":
+            if self.partition_dim is None:
+                raise ValueError("ParameterMetadata.partion_dim must be specified when the parameter is sharded.")
+
+    @property
+    def is_tied(self):
+        return self.kind == "tied"
+
+    @property
+    def is_sharded(self):
+        return self.kind == "sharded"

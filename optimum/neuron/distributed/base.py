@@ -17,6 +17,7 @@
 import contextlib
 import shutil
 from abc import ABC, abstractclassmethod
+from dataclasses import asdict
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple, Union
@@ -26,7 +27,7 @@ from transformers.utils import WEIGHTS_NAME
 
 from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
-from .utils import TENSOR_PARALLEL_SHARDS_DIR_NAME, WeightInformation, load_tensor_for_weight
+from .utils import TENSOR_PARALLEL_SHARDS_DIR_NAME, ParameterMetadata, WeightInformation, load_tensor_for_weight
 
 
 if is_neuronx_distributed_available():
@@ -173,7 +174,6 @@ class Parallelizer(ABC):
                     # This module has not pre-trained weights, it must be fine-tuned, we initialize it with the
                     # `reset_parameters()` method.
                     mod.reset_parameters()
-
         return model
 
     @classmethod
@@ -272,6 +272,20 @@ class Parallelizer(ABC):
         return optimizer_for_tp
 
     @classmethod
+    def _get_parameters_tp_metadata(cls, named_parameters: Dict[str, "torch.nn.Parameter"]):
+        tp_metadata = {}
+        for name, param in named_parameters.items():
+            if getattr(param, "tensor_model_parallel", False):
+                param_metadata = ParameterMetadata(
+                    "sharded",
+                    partition_dim=param.partition_dim,
+                )
+            else:
+                param_metadata = ParameterMetadata("tied")
+            tp_metadata[name] = param_metadata
+        return tp_metadata
+
+    @classmethod
     def save_model_checkpoint_as_regular(
         cls,
         model: "PreTrainedModel",
@@ -327,7 +341,12 @@ class Parallelizer(ABC):
             output_dir = Path(output_dir)
 
         state_dict = {"model": model.state_dict()}
+        state_dict["sharded_metadata"] = {
+            k: asdict(v) for k, v in cls._get_parameters_tp_metadata(dict(model.named_parameters())).items()
+        }
+
         if optimizer is not None:
+            # TODO: have metadata working for the optimizer.
             state_dict["optimizer_state_dict"] = optimizer.state_dict()
 
         output_path = output_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME

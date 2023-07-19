@@ -34,6 +34,7 @@ from transformers.trainer import (
     OPTIMIZER_NAME,
     SCHEDULER_NAME,
     TRAINER_STATE_NAME,
+    TRAINING_ARGS_NAME,
 )
 from transformers.trainer_pt_utils import reissue_pt_warnings
 from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
@@ -349,6 +350,16 @@ class AugmentTrainerForNeuronMixin:
         run_dir = self._get_output_dir(trial=trial)
         output_dir = os.path.join(run_dir, checkpoint_folder)
         os.makedirs(output_dir, exist_ok=True)
+
+        if xm.is_master_ordinal():
+            os.makedirs(output_dir, exist_ok=True)
+            torch.save(self.args, os.path.join(output_dir, TRAINING_ARGS_NAME))
+
+        if self.tokenizer is not None and self.args.should_save:
+            self.tokenizer.save_pretrained(output_dir)
+
+        if isinstance(self.model, PreTrainedModel):
+            self.model.config.save_pretrained(output_dir)
 
         self.accelerator.save_state(output_dir)
 
