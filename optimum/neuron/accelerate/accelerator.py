@@ -56,7 +56,6 @@ if TYPE_CHECKING:
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
-    from torch_xla.distributed.zero_redundancy_optimizer import ZeroRedundancyOptimizer
 else:
     xm = None
 
