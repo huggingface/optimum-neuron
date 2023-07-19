@@ -227,6 +227,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         local_files_only: bool = False,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
         device_ids: Optional[List[int]] = None,
+        **kwargs,  # To share kwargs only available for `_from_transformers`
     ):
         model_id = str(model_id)
         sub_models_to_load, _, _ = cls.extract_init_dict(config)

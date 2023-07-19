@@ -179,14 +179,14 @@ class CLIPNeuronConfig(TextAndVisionNeuronConfig):
         return ["logits_per_image", "logits_per_text", "text_embeds", "image_embeds"]
 
 
-@register_in_tasks_manager("clip-text-model", *["stable-diffusion", "feature-extraction"])
-class CLIPTextNeuronConfig(TextEncoderNeuronConfig):
+@register_in_tasks_manager("clip-text-model", *["feature-extraction"])
+class CLIPTextWithProjectionNeuronConfig(TextEncoderNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
-    MODEL_TYPE = "clip-text-model"
 
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
         vocab_size="vocab_size",
         sequence_length="max_position_embeddings",
+        num_layers="num_hidden_layers",
         allow_new=True,
     )
 
@@ -196,11 +196,32 @@ class CLIPTextNeuronConfig(TextEncoderNeuronConfig):
 
     @property
     def outputs(self) -> List[str]:
-        return ["last_hidden_state"]
+        common_outputs = ["text_embeds", "last_hidden_state"]
+
+        if self._normalized_config.output_hidden_states:
+            for i in range(self._normalized_config.num_layers + 1):
+                common_outputs.append(f"hidden_states.{i}")
+
+        return common_outputs
+
+
+@register_in_tasks_manager("clip-text-model", *["stable-diffusion", "feature-extraction"])
+class CLIPTextNeuronConfig(CLIPTextWithProjectionNeuronConfig):
+    MODEL_TYPE = "clip-text-model"
+
+    @property
+    def outputs(self) -> List[str]:
+        common_outputs = ["last_hidden_state", "pooler_output"]
+
+        if self._normalized_config.output_hidden_states:
+            for i in range(self._normalized_config.num_layers + 1):
+                common_outputs.append(f"hidden_states.{i}")
+
+        return common_outputs
 
     def generate_dummy_inputs(self, return_tuple: bool = False, **kwargs):
         dummy_inputs = super().generate_dummy_inputs(**kwargs)
-        dummy_inputs["input_ids"] = dummy_inputs["input_ids"].to(dtype=torch.int32)
+        dummy_inputs["input_ids"] = dummy_inputs["input_ids"]
 
         if return_tuple is True:
             return tuple(dummy_inputs.values())
@@ -209,6 +230,52 @@ class CLIPTextNeuronConfig(TextEncoderNeuronConfig):
 
     def check_model_inputs_order(self, model, dummy_inputs, forward_with_tuple=False):
         return super().check_model_inputs_order(model, dummy_inputs, forward_with_tuple, eligible_outputs=[0])
+
+
+@register_in_tasks_manager("unet", *["stable-diffusion", "semantic-segmentation"])
+class UNetNeuronConfig(VisionNeuronConfig):
+    ATOL_FOR_VALIDATION = 1e-3
+    MANDATORY_AXES = ("batch_size", "sequence_length", "num_channels", "width", "height")
+    MODEL_TYPE = "unet"
+
+    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
+        image_size="sample_size",
+        num_channels="in_channels",
+        hidden_size="cross_attention_dim",
+        vocab_size="norm_num_groups",
+        allow_new=True,
+    )
+
+    DUMMY_INPUT_GENERATOR_CLASSES = (
+        DummyVisionInputGenerator,
+        DummyTimestepInputGenerator,
+        DummySeq2SeqDecoderTextInputGenerator,
+    )
+
+    @property
+    def inputs(self) -> List[str]:
+        common_inputs = ["sample", "timestep", "encoder_hidden_states"]
+
+        # TODO : add text_image, image and image_embeds
+        if getattr(self._normalized_config, "addition_embed_type", None) == "text_time":
+            common_inputs.append("text_embeds")
+            common_inputs.append("time_ids")
+
+        return common_inputs
+
+    @property
+    def outputs(self) -> List[str]:
+        return ["sample"]
+
+    def generate_dummy_inputs(self, return_tuple: bool = False, **kwargs):
+        dummy_inputs = super().generate_dummy_inputs(**kwargs)
+        dummy_inputs["timestep"] = dummy_inputs["timestep"].float()
+        dummy_inputs["encoder_hidden_states"] = dummy_inputs["encoder_hidden_states"][0]
+
+        if return_tuple is True:
+            return tuple(dummy_inputs.values())
+        else:
+            return dummy_inputs
 
 
 @register_in_tasks_manager("vae-encoder", *["stable-diffusion", "semantic-segmentation"])
@@ -256,45 +323,6 @@ class VaeDecoderNeuronConfig(VisionNeuronConfig):
         **kwargs,
     ):
         return super().check_model_inputs_order(model=model, dummy_inputs=dummy_inputs, forward_with_tuple=True)
-
-
-@register_in_tasks_manager("unet", *["stable-diffusion", "semantic-segmentation"])
-class UNetNeuronConfig(VisionNeuronConfig):
-    ATOL_FOR_VALIDATION = 1e-3
-    MANDATORY_AXES = ("batch_size", "sequence_length", "num_channels", "width", "height")
-    MODEL_TYPE = "unet"
-
-    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
-        image_size="sample_size",
-        num_channels="in_channels",
-        hidden_size="cross_attention_dim",
-        vocab_size="norm_num_groups",
-        allow_new=True,
-    )
-
-    DUMMY_INPUT_GENERATOR_CLASSES = (
-        DummyVisionInputGenerator,
-        DummyTimestepInputGenerator,
-        DummySeq2SeqDecoderTextInputGenerator,
-    )
-
-    @property
-    def inputs(self) -> List[str]:
-        return ["sample", "timestep", "encoder_hidden_states"]
-
-    @property
-    def outputs(self) -> List[str]:
-        return ["sample"]
-
-    def generate_dummy_inputs(self, return_tuple: bool = False, **kwargs):
-        dummy_inputs = super().generate_dummy_inputs(**kwargs)
-        dummy_inputs["timestep"] = dummy_inputs["timestep"].float()
-        dummy_inputs["encoder_hidden_states"] = dummy_inputs["encoder_hidden_states"][0]
-
-        if return_tuple is True:
-            return tuple(dummy_inputs.values())
-        else:
-            return dummy_inputs
 
 
 @register_in_tasks_manager("gpt2", "text-generation")
