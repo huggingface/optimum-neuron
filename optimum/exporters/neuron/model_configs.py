@@ -191,11 +191,11 @@ class CLIPTextWithProjectionNeuronConfig(TextEncoderNeuronConfig):
     )
 
     @property
-    def inputs(self) -> Dict[str, Dict[int, str]]:
+    def inputs(self) -> List[str]:
         return ["input_ids"]
 
     @property
-    def outputs(self) -> Dict[str, Dict[int, str]]:
+    def outputs(self) -> List[str]:
         common_outputs = ["text_embeds", "last_hidden_state"]
 
         if self._normalized_config.output_hidden_states:
@@ -221,7 +221,7 @@ class CLIPTextNeuronConfig(CLIPTextWithProjectionNeuronConfig):
 
     def generate_dummy_inputs(self, return_tuple: bool = False, **kwargs):
         dummy_inputs = super().generate_dummy_inputs(**kwargs)
-        dummy_inputs["input_ids"] = dummy_inputs["input_ids"]  # .to(dtype=torch.int32)
+        dummy_inputs["input_ids"] = dummy_inputs["input_ids"]
 
         if return_tuple is True:
             return tuple(dummy_inputs.values())
