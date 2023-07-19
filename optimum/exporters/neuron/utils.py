@@ -215,12 +215,20 @@ def _get_submodels_for_export_stable_diffusion(
     Returns the components of a Stable Diffusion model.
     """
     models_for_export = {}
+    projection_dim = pipeline.text_encoder.config.projection_dim
 
     # Text encoder
-    models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_NAME] = copy.deepcopy(pipeline.text_encoder)
+    if pipeline.text_encoder is not None:
+        models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_NAME] = copy.deepcopy(pipeline.text_encoder)
 
     # U-NET
-    Attention.get_attention_scores = get_attention_scores  # Replace original cross-attention module with custom cross-attention module for better performance
+    pipeline.unet.set_attn_processor(AttnProcessor())
+    pipeline.unet.config.text_encoder_projection_dim = projection_dim
+    # The U-NET time_ids inputs shapes depends on the value of `requires_aesthetics_score`
+    # https://github.com/huggingface/diffusers/blob/v0.18.2/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl_img2img.py#L571
+    pipeline.unet.config.requires_aesthetics_score = getattr(pipeline.config, "requires_aesthetics_score", False)
+    # Replace original cross-attention module with custom cross-attention module for better performance
+    Attention.get_attention_scores = get_attention_scores
     models_for_export["unet"] = copy.deepcopy(pipeline.unet)
 
     # VAE Encoder
