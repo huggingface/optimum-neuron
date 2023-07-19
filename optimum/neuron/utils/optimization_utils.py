@@ -15,6 +15,7 @@
 """Optimization utilities."""
 
 import torch
+from packaging import version
 
 from .version_utils import get_neuronxcc_version
 
@@ -22,6 +23,7 @@ from .version_utils import get_neuronxcc_version
 def get_attention_scores(self, query, key, attn_mask):
     """Optimized attention for UNET."""
     dtype = query.dtype
+    compiler_version = get_neuronxcc_version()
 
     if self.upcast_attention:
         query = query.float()
@@ -39,13 +41,11 @@ def get_attention_scores(self, query, key, attn_mask):
         if self.upcast_softmax:
             attention_scores = attention_scores.float()
 
-        if get_neuronxcc_version() < version.parse("2.6"):
-            attention_probs = torch.nn.functional.softmax(attention_scores, dim=1).permute(
-                0, 2, 1
-            )
+        if version.parse(compiler_version) < version.parse("2.7"):
+            attention_probs = torch.nn.functional.softmax(attention_scores, dim=1).permute(0, 2, 1)
         else:
             attention_probs = attention_scores.softmax(dim=1).permute(0, 2, 1)
-        
+
         attention_probs = attention_probs.to(dtype)
 
     else:
@@ -54,13 +54,11 @@ def get_attention_scores(self, query, key, attn_mask):
         if self.upcast_softmax:
             attention_scores = attention_scores.float()
 
-        if get_neuronxcc_version() < version.parse("2.6"):
-            attention_probs = torch.nn.functional.softmax(
-                attention_scores, dim=-1
-            )
+        if version.parse(compiler_version) < version.parse("2.7"):
+            attention_probs = torch.nn.functional.softmax(attention_scores, dim=-1)
         else:
             attention_probs = attention_scores.softmax(dim=-1)
-        
+
         attention_probs = attention_probs.to(dtype)
 
     return attention_probs
