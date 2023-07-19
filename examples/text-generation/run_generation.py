@@ -7,7 +7,7 @@ from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from optimum.neuron import NeuronModelForCausalLM
 
 
-def load_llm_optimum(model_id_or_path, batch_size, seq_length, num_cores, auto_cast_type):
+def load_llm_optimum(model_id_or_path, batch_size, num_cores, auto_cast_type):
     config = AutoConfig.from_pretrained(model_id_or_path)
     export = getattr(config, "neuron", None) is None
 
@@ -18,7 +18,6 @@ def load_llm_optimum(model_id_or_path, batch_size, seq_length, num_cores, auto_c
         low_cpu_mem_usage=True,
         # These are parameters required for the conversion
         batch_size=batch_size,
-        n_positions=seq_length,
         num_cores=num_cores,
         auto_cast_type=auto_cast_type,
     )
@@ -68,7 +67,7 @@ if __name__ == "__main__":
     parser.add_argument("--compare", action="store_true", help="Compare with the genuine transformers model on CPU.")
     args = parser.parse_args()
     # Load llm model and tokenizer
-    model = load_llm_optimum(args.model, args.batch_size, args.length, args.num_cores, args.auto_cast_type)
+    model = load_llm_optimum(args.model, args.batch_size, args.num_cores, args.auto_cast_type)
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     # We need to replicate the text if batch_size is not 1
     prompts = [args.prompt for _ in range(args.batch_size)]
