@@ -102,6 +102,8 @@ def load_tensor_for_weight(
             tensor_slice = fp.get_slice(weight_info.qualified_name)
             slices = [slice(*slice_) if slice_ is not None else slice(None, None, None) for slice_ in tensor_slices]
             tensor = tensor_slice[slices]
+            # This is needed to make sure tensor.numel() == tensor.storage().size().
+            tensor = torch.empty_like(tensor).copy_(tensor)
 
     return tensor
 

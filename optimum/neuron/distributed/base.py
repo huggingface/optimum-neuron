@@ -174,7 +174,6 @@ class Parallelizer(ABC):
                     # This module has not pre-trained weights, it must be fine-tuned, we initialize it with the
                     # `reset_parameters()` method.
                     mod.reset_parameters()
-
         return model
 
     @classmethod

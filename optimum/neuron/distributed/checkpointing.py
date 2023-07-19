@@ -90,9 +90,8 @@ def consolidate_tensor_parallel_checkpoints_to_unified_checkpoint(
     shards, index = shard_checkpoint(
         state_dict, weights_name=SAFE_WEIGHTS_NAME if save_format == "safetensors" else WEIGHTS_NAME
     )
-    print(len(shards))
     for shard_file, shard in shards.items():
-        if save_format == "saftensors":
+        if save_format == "safetensors":
             save_file(shard, output_dir / shard_file, metadata={"format": "pt"})
         else:
             torch.save(shard, output_dir / shard_file)
