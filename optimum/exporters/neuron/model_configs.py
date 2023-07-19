@@ -221,7 +221,7 @@ class CLIPTextNeuronConfig(CLIPTextWithProjectionNeuronConfig):
 
     def generate_dummy_inputs(self, return_tuple: bool = False, **kwargs):
         dummy_inputs = super().generate_dummy_inputs(**kwargs)
-        dummy_inputs["input_ids"] = dummy_inputs["input_ids"].to(dtype=torch.int32)
+        dummy_inputs["input_ids"] = dummy_inputs["input_ids"]  # .to(dtype=torch.int32)
 
         if return_tuple is True:
             return tuple(dummy_inputs.values())

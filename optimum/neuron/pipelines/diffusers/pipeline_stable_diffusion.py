@@ -77,7 +77,7 @@ class StableDiffusionPipelineMixin(StableDiffusionPipeline):
                 )
 
             # [Modified] Input and its dtype constraints
-            prompt_embeds = self.text_encoder(input_ids=text_input_ids.to(torch.int32))
+            prompt_embeds = self.text_encoder(input_ids=text_input_ids)
             prompt_embeds = prompt_embeds[0]
 
         bs_embed, seq_len, _ = prompt_embeds.shape
@@ -119,7 +119,7 @@ class StableDiffusionPipelineMixin(StableDiffusionPipeline):
                 return_tensors="pt",
             )
 
-            negative_prompt_embeds = self.text_encoder(uncond_input.input_ids.to(torch.int32))
+            negative_prompt_embeds = self.text_encoder(uncond_input.input_ids)
             negative_prompt_embeds = negative_prompt_embeds[0]
 
         if do_classifier_free_guidance:
