@@ -93,7 +93,6 @@ def load_tensor_for_weight(
     """
     from safetensors import safe_open
 
-    # device = weight_info.device if weight_info.device is not torch.device("cpu") else None
     device = str(weight_info.device)
     with safe_open(weight_info.filename, framework="pt", device=device) as fp:
         if tensor_slices is None:
@@ -101,7 +100,7 @@ def load_tensor_for_weight(
         else:
             tensor_slice = fp.get_slice(weight_info.qualified_name)
             slices = [slice(*slice_) if slice_ is not None else slice(None, None, None) for slice_ in tensor_slices]
-            tensor = tensor_slice[slices]
+            tensor = tensor_slice[slices].contiguous()
             # This is needed to make sure tensor.numel() == tensor.storage().size().
             tensor = torch.empty_like(tensor).copy_(tensor)
 

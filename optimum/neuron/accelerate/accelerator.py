@@ -301,7 +301,10 @@ class NeuronAccelerator(Accelerator):
             cpu_ids = [id(v) for v in model.parameters()]
             # TODO: enable self.device (if needed).
             model = self.state.tp_plugin.parallelize_model(model, return_orig_to_parallel=False, device=None)
-            model.to(torch.float32)
+            if os.environ.get("XLA_USE_BF16", "0") == "1":
+                model.to(torch.bfloat16)
+            else:
+                model.to(torch.float32)
             parallel_layers.move_model_to_device(model, self.device)
             model.tie_weights()
             self._model_cpu_parameters_to_xla[id(model)] = dict(zip(cpu_ids, model.parameters()))

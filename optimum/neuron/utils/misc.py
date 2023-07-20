@@ -218,36 +218,44 @@ def download_checkpoints_in_cache(
                 os.path.join(pretrained_model_name_or_path, subfolder, TF_WEIGHTS_NAME + ".index")
             ):
                 # Load from a TF 1.0 checkpoint in priority if from_tf
-                os.path.join(pretrained_model_name_or_path, subfolder, TF_WEIGHTS_NAME + ".index")
+                archive_file = os.path.join(pretrained_model_name_or_path, subfolder, TF_WEIGHTS_NAME + ".index")
             elif from_tf and os.path.isfile(os.path.join(pretrained_model_name_or_path, subfolder, TF2_WEIGHTS_NAME)):
                 # Load from a TF 2.0 checkpoint in priority if from_tf
-                os.path.join(pretrained_model_name_or_path, subfolder, TF2_WEIGHTS_NAME)
+                archive_file = os.path.join(pretrained_model_name_or_path, subfolder, TF2_WEIGHTS_NAME)
             elif from_flax and os.path.isfile(
                 os.path.join(pretrained_model_name_or_path, subfolder, FLAX_WEIGHTS_NAME)
             ):
                 # Load from a Flax checkpoint in priority if from_flax
-                os.path.join(pretrained_model_name_or_path, subfolder, FLAX_WEIGHTS_NAME)
+                archive_file = os.path.join(pretrained_model_name_or_path, subfolder, FLAX_WEIGHTS_NAME)
             elif use_safetensors is not False and os.path.isfile(
                 os.path.join(pretrained_model_name_or_path, subfolder, _add_variant(SAFE_WEIGHTS_NAME, variant))
             ):
                 # Load from a safetensors checkpoint
-                os.path.join(pretrained_model_name_or_path, subfolder, _add_variant(SAFE_WEIGHTS_NAME, variant))
+                archive_file = os.path.join(
+                    pretrained_model_name_or_path, subfolder, _add_variant(SAFE_WEIGHTS_NAME, variant)
+                )
             elif use_safetensors is not False and os.path.isfile(
                 os.path.join(pretrained_model_name_or_path, subfolder, _add_variant(SAFE_WEIGHTS_INDEX_NAME, variant))
             ):
                 # Load from a sharded safetensors checkpoint
-                os.path.join(pretrained_model_name_or_path, subfolder, _add_variant(SAFE_WEIGHTS_INDEX_NAME, variant))
+                archive_file = os.path.join(
+                    pretrained_model_name_or_path, subfolder, _add_variant(SAFE_WEIGHTS_INDEX_NAME, variant)
+                )
                 is_sharded = True
             elif os.path.isfile(
                 os.path.join(pretrained_model_name_or_path, subfolder, _add_variant(WEIGHTS_NAME, variant))
             ):
                 # Load from a PyTorch checkpoint
-                os.path.join(pretrained_model_name_or_path, subfolder, _add_variant(WEIGHTS_NAME, variant))
+                archive_file = os.path.join(
+                    pretrained_model_name_or_path, subfolder, _add_variant(WEIGHTS_NAME, variant)
+                )
             elif os.path.isfile(
                 os.path.join(pretrained_model_name_or_path, subfolder, _add_variant(WEIGHTS_INDEX_NAME, variant))
             ):
                 # Load from a sharded PyTorch checkpoint
-                os.path.join(pretrained_model_name_or_path, subfolder, _add_variant(WEIGHTS_INDEX_NAME, variant))
+                archive_file = os.path.join(
+                    pretrained_model_name_or_path, subfolder, _add_variant(WEIGHTS_INDEX_NAME, variant)
+                )
                 is_sharded = True
             # At this stage we don't have a weight file so we will raise an error.
             elif os.path.isfile(
@@ -276,6 +284,7 @@ def download_checkpoints_in_cache(
                     f" {pretrained_model_name_or_path}."
                 )
         elif os.path.isfile(os.path.join(subfolder, pretrained_model_name_or_path)):
+            archive_file = pretrained_model_name_or_path
             is_local = True
         elif os.path.isfile(os.path.join(subfolder, pretrained_model_name_or_path + ".index")):
             if not from_tf:
@@ -283,7 +292,7 @@ def download_checkpoints_in_cache(
                     f"We found a TensorFlow checkpoint at {pretrained_model_name_or_path + '.index'}, please set "
                     "from_tf to True to load from this checkpoint."
                 )
-            os.path.join(subfolder, pretrained_model_name_or_path + ".index")
+            archive_file = os.path.join(subfolder, pretrained_model_name_or_path + ".index")
             is_local = True
         elif is_remote_url(pretrained_model_name_or_path):
             filename = pretrained_model_name_or_path
@@ -397,6 +406,8 @@ def download_checkpoints_in_cache(
                     f" {TF2_WEIGHTS_NAME}, {TF_WEIGHTS_NAME} or {FLAX_WEIGHTS_NAME}."
                 )
 
+        if is_local:
+            resolved_archive_file = archive_file
     else:
         resolved_archive_file = None
 

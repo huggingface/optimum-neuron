@@ -30,6 +30,7 @@ TESTS_REQUIRE = [
     "datasets",
     "sacremoses",
     "diffusers>=0.17.0",
+    "safetensors",
 ]
 
 QUALITY_REQUIRES = [
@@ -57,6 +58,7 @@ EXTRAS_REQUIRE = {
         "transformers-neuronx",
         "torch==1.13.1.*",
         "torchvision==0.14.*",
+        "neuronx_distributed",
     ],
     "diffusers": ["diffusers"],
 }

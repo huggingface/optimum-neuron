@@ -44,7 +44,7 @@ from ..utils import check_if_transformers_greater, logging
 from .accelerate import NeuronAccelerator, NeuronDistributedType
 from .distributed import ParallelizersManager
 from .distributed.utils import make_optimizer_constructor_lazy
-from .trainer_callback import NeuronCacheCallaback
+from .trainer_callback import NeuronCacheCallback
 from .utils import (
     DynamicPatch,
     ModelPatcher,
@@ -105,7 +105,8 @@ if os.environ.get("TORCHELASTIC_RUN_ID"):
 
     if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
         _ORIGINAL_NEURON_CACHE_PATH = get_neuron_cache_path()
-        _TMP_NEURON_CACHE_DIR = NeuronCacheCallaback.create_temporary_neuron_cache(get_neuron_cache_path())
+        if not is_precompilation():
+            _TMP_NEURON_CACHE_DIR = NeuronCacheCallback.create_temporary_neuron_cache(get_neuron_cache_path())
         torch.distributed.init_process_group(backend="xla")
         if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
             raise AssertionError("Failed to initialize torch.distributed process group using XLA backend.")
@@ -150,20 +151,20 @@ class AugmentTrainerForNeuronMixin:
             logger.setLevel(logging.INFO)
 
         if not is_precompilation():
-            push = self.args.local_rank == 0
-            fetch = self.args.local_rank == 0
+            push = self.args.local_rank <= 0
+            fetch = self.args.local_rank <= 0
 
             if is_neuronx_distributed_available():
                 from neuronx_distributed.parallel_layers.parallel_state import (
-                    get_data_parallel_size,
                     model_parallel_is_initialized,
                 )
 
                 if model_parallel_is_initialized():
-                    push = get_data_parallel_size() == 0
-                    fetch = get_data_parallel_size() == 0
+                    pass
+                    # push = get_data_parallel_rank() == 0
+                    # fetch = get_data_parallel_rank() == 0
 
-            callback = NeuronCacheCallaback(
+            callback = NeuronCacheCallback(
                 tmp_neuron_cache=_TMP_NEURON_CACHE_DIR,
                 original_neuron_cache_path=_ORIGINAL_NEURON_CACHE_PATH,
                 fetch=fetch,
@@ -238,7 +239,7 @@ class AugmentTrainerForNeuronMixin:
     # TODO: make this cleaner.
     def trigger_on_step_middle_for_neuron_cache_callback(self, model: "PreTrainedModel"):
         for callback in self.callback_handler.callbacks:
-            if isinstance(callback, NeuronCacheCallaback):
+            if isinstance(callback, NeuronCacheCallback):
                 # kwargs might not have everything expected (like metrics) but all we need is here.
                 kwargs = {
                     "model": model,

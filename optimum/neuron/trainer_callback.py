@@ -68,7 +68,7 @@ class NeuronTrainerState(TrainerState):
         return neuron_trainer_state
 
 
-class NeuronCacheCallaback(TrainerCallback):
+class NeuronCacheCallback(TrainerCallback):
     def __init__(
         self,
         tmp_neuron_cache: Optional[TemporaryDirectory] = None,
@@ -207,10 +207,12 @@ class NeuronCacheCallaback(TrainerCallback):
         else:
             data_type = torch.float32
 
-        key = (model, input_shapes, data_type)
+        key_args = (model, input_shapes, data_type)
+        key_kwargs = {"tensor_parallel_size": args.tensor_parallel_size}
+        key = key_args + tuple(key_kwargs.values())
         neuron_hash = self.neuron_hashes.get(key, None)
         if neuron_hash is None:
-            neuron_hash = NeuronHash(*key)
+            neuron_hash = NeuronHash(*key_args, **key_kwargs)
             self.neuron_hashes[key] = neuron_hash
             if try_to_fetch_cached_model:
                 self.try_to_fetch_cached_model(neuron_hash)
