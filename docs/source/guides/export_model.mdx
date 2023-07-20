@@ -224,9 +224,8 @@ Exporting a stable diffusion checkpoint can be done using the CLI:
 optimum-cli export neuron --model stabilityai/stable-diffusion-2-1-base \
   --task stable-diffusion \
   --batch_size 1 \
-  --num_channels 4 \
-  --height 64 \
-  --width 64 \
+  --height 512 \  # height in pixels of generated image, eg. 512, 768
+  --width 512 \  # width in pixels of generated image, eg. 512, 768
   sd_neuron/
 ```
 

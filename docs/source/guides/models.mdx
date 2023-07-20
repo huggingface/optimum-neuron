@@ -214,7 +214,7 @@ The export can be done either with the CLI or with `NeuronStableDiffusionPipelin
 >>> from optimum.neuron import NeuronStableDiffusionPipeline
 
 >>> model_id = "runwayml/stable-diffusion-v1-5"
->>> input_shapes = {"batch_size": 1, "height": 64, "width": 64}
+>>> input_shapes = {"batch_size": 1, "height": 512, "width": 512}  
 
 >>> stable_diffusion = NeuronStableDiffusionPipeline.from_pretrained(model_id, export=True, **input_shapes)
 
