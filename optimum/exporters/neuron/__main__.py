@@ -19,7 +19,7 @@ import inspect
 import os
 from argparse import ArgumentParser
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, Optional, Union
 
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from transformers import AutoConfig
@@ -34,7 +34,7 @@ from ...neuron.utils import (
     is_neuronx_available,
 )
 from ...neuron.utils.version_utils import check_compiler_compatibility_for_stable_diffusion
-from ...utils import logging
+from ...utils import logging, is_diffusers_available
 from ...utils.save_utils import maybe_save_preprocessors
 from ..error_utils import AtolError, OutputMatchError, ShapeError
 from ..tasks import TasksManager
@@ -56,6 +56,11 @@ if is_neuronx_available():
     from ...commands.export.neuronx import parse_args_neuronx as parse_args_neuron  # noqa: F811
 
     NEURON_COMPILER = "Neuronx"
+
+
+if TYPE_CHECKING:
+    if is_diffusers_available():
+        from diffusers import StableDiffusionPipeline
 
 
 logger = logging.get_logger()
@@ -102,7 +107,10 @@ def normalize_input_shapes(task: str, args: argparse.Namespace) -> Dict[str, int
     return input_shapes
 
 
-def normalize_stable_diffusion_input_shapes(task: str, args: argparse.Namespace) -> Dict[str, int]:
+def normalize_stable_diffusion_input_shapes(
+    task: str,
+    args: argparse.Namespace,
+) -> Dict[str, Dict[str, int]]:
     args = vars(args) if isinstance(args, argparse.Namespace) else args
     mandatory_axes = set(getattr(inspect.getfullargspec(build_stable_diffusion_components_mandatory_shapes), "args"))
     # Remove `sequence_length` as diffusers will pad it to the max and remove number of channels .
@@ -114,6 +122,29 @@ def normalize_stable_diffusion_input_shapes(task: str, args: argparse.Namespace)
     mandatory_shapes = {name: args[name] for name in mandatory_axes}
     input_shapes = build_stable_diffusion_components_mandatory_shapes(**mandatory_shapes)
     return input_shapes
+
+
+def infer_stable_diffusion_shapes_from_diffusers(
+    input_shapes: Dict[str, Dict[str, int]],
+    model: "StableDiffusionPipeline",
+):
+    sequence_length = model.tokenizer.model_max_length
+    unet_num_channels = model.unet.config.in_channels
+    vae_num_channels = model.vae.config.latent_channels
+    vae_scale_factor = 2 ** (len(model.vae.config.block_out_channels) - 1) or 8
+    height = input_shapes["unet_input_shapes"]["height"] // vae_scale_factor
+    width = input_shapes["unet_input_shapes"]["width"] // vae_scale_factor
+
+    input_shapes["text_encoder_input_shapes"].update({"sequence_length": sequence_length})
+    input_shapes["unet_input_shapes"].update(
+        {"sequence_length": sequence_length, "num_channels": unet_num_channels, "height": height, "width": width}
+    )
+    input_shapes["vae_encoder_input_shapes"].update(
+        {"num_channels": vae_num_channels, "height": height, "width": width}
+    )
+    input_shapes["vae_decoder_input_shapes"].update(
+        {"num_channels": vae_num_channels, "height": height, "width": width}
+    )
 
 
 def main_export(
@@ -173,19 +204,7 @@ def main_export(
             DIFFUSION_MODEL_VAE_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_ENCODER_NAME, NEURON_FILE_NAME),
             DIFFUSION_MODEL_VAE_DECODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_DECODER_NAME, NEURON_FILE_NAME),
         }
-        # TODO: `diffusers` uses `model_max_length` as `sequence_length`, should we let it be customizable for Neuron?
-        sequence_length = model.tokenizer.model_max_length
-        unet_num_channels = model.unet.config.in_channels
-        vae_num_channels = model.vae.config.latent_channels
-        input_shapes["text_encoder_input_shapes"].update({"sequence_length": sequence_length})
-        input_shapes["unet_input_shapes"].update(
-            {"sequence_length": sequence_length, "num_channels": unet_num_channels}
-        )
-        input_shapes["vae_decoder_input_shapes"].update({"num_channels": vae_num_channels})
-        input_shapes["vae_decoder_input_shapes"].update({"num_channels": vae_num_channels})
-        for shapes_info in input_shapes.values():
-            if "sequence_length" in shapes_info:
-                shapes_info["sequence_length"] = sequence_length
+        infer_stable_diffusion_shapes_from_diffusers(input_shapes, model)
 
         models_and_neuron_configs = get_stable_diffusion_models_for_export(
             model,
