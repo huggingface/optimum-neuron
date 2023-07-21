@@ -48,7 +48,6 @@ from .trainer_callback import NeuronCacheCallback
 from .utils import (
     DynamicPatch,
     ModelPatcher,
-    is_neuronx_distributed_available,
     is_torch_xla_available,
     patch_within_function,
 )
@@ -154,21 +153,13 @@ class AugmentTrainerForNeuronMixin:
             push = self.args.local_rank <= 0
             fetch = self.args.local_rank <= 0
 
-            if is_neuronx_distributed_available():
-                from neuronx_distributed.parallel_layers.parallel_state import (
-                    model_parallel_is_initialized,
-                )
-
-                if model_parallel_is_initialized():
-                    pass
-                    # push = get_data_parallel_rank() == 0
-                    # fetch = get_data_parallel_rank() == 0
-
             callback = NeuronCacheCallback(
                 tmp_neuron_cache=_TMP_NEURON_CACHE_DIR,
                 original_neuron_cache_path=_ORIGINAL_NEURON_CACHE_PATH,
                 fetch=fetch,
                 push=push,
+                wait_for_everyone_on_fetch=False,
+                wait_for_everyone_on_push=True,
             )
             self.add_callback(callback)
 

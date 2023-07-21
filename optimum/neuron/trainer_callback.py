@@ -81,8 +81,8 @@ class NeuronCacheCallback(TrainerCallback):
         super().__init__()
         self.fetch = fetch
         self.push = push
-        self.wait_for_everyone_on_fetch = wait_for_everyone_on_fetch
-        self.wait_for_everyone_on_push = wait_for_everyone_on_push
+        self.wait_for_everyone_on_fetch = is_torch_xla_available() and wait_for_everyone_on_fetch
+        self.wait_for_everyone_on_push = is_torch_xla_available() and wait_for_everyone_on_push
 
         # Real Neuron compile cache if it exists.
         if original_neuron_cache_path is None:

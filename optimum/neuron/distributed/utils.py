@@ -170,7 +170,7 @@ def embedding_to_parallel_embedding(
 
     is_tied = False
     if lm_head_layer is not None:
-        is_tied = id(embedding_layer.weight.data) == id(lm_head_layer.weight.data)
+        is_tied = id(embedding_layer.weight) == id(lm_head_layer.weight)
 
     embedding_weight_to_tie = parallel_embedding_layer.weight if is_tied else None
 
@@ -275,7 +275,6 @@ def linear_to_parallel_linear(
     kwargs["device"] = device
 
     parallel_linear_layer = parallel_linear_class(linear_layer.in_features, linear_layer.out_features, **kwargs)
-
     tp_rank = get_tensor_model_parallel_rank()
     row_size, col_size = parallel_linear_layer.weight.shape
 
@@ -326,12 +325,23 @@ def linear_to_parallel_linear(
 
             if linear_layer.bias is not None:
                 if linear_layer_bias_weight_info is not None:
+                    if gather_output:
+                        tensor_slices = (None,)
+                    else:
+                        tensor_slices= (tp_rank * row_size, (tp_rank + 1) * row_size,)                        
                     bias_weight_data = load_tensor_for_weight(
                         linear_layer_bias_weight_info,
-                        tensor_slices=((tp_rank * row_size, (tp_rank + 1) * row_size),),
+                        tensor_slices=tensor_slices,
                     )
+                    parallel_linear_layer.bias.data = bias_weight_data
+
                 else:
-                    parallel_linear_layer.bias.copy_(linear_layer.bias[tp_rank * row_size : (tp_rank + 1) * row_size])
+                    if gather_output:
+                        parallel_linear_layer.bias.copy_(linear_layer.bias)
+                    else:
+                        parallel_linear_layer.bias.copy_(
+                            linear_layer.bias[tp_rank * row_size : (tp_rank + 1) * row_size]
+                        )
 
                 if orig_to_parallel is not None:
                     orig_to_parallel[id(linear_layer.bias)] = parallel_linear_layer.bias
