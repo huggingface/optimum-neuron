@@ -518,20 +518,37 @@ class _UnspecifiedHashAttribute:
         return constructor
 
     def check_requirements_are_met(self, neuron_compiler_version: str):
+        if self.should_be_inserted_in_hash_dict(neuron_compiler_version) and self.default is None:
+            raise ValueError("A default value must be specified.")
+        # from ..version import __version__
+
+        # optimum_neuron_requirement = True
+        # if self.min_optimum_neuron_version is not None:
+        #     if version.parse(__version__) >= version.parse(self.min_optimum_neuron_version):
+        #         optimum_neuron_requirement = self.default is not None
+
+        # neuron_compiler_requirement = True
+        # if self.min_neuron_compiler_version is not None:
+        #     if version.parse(neuron_compiler_version) >= version.parse(self.min_neuron_compiler_version):
+        #         neuron_compiler_requirement = self.default is not None
+
+        # if not optimum_neuron_requirement or not neuron_compiler_requirement:
+        #     raise ValueError("A default value must be specified.")
+
+    def should_be_inserted_in_hash_dict(self, neuron_compiler_version: str) -> bool:
         from ..version import __version__
 
-        optimum_neuron_requirement = True
+        optimum_neuron_requirement = False
         if self.min_optimum_neuron_version is not None:
-            if version.parse(__version__) >= version.parse(self.min_optimum_neuron_version):
-                optimum_neuron_requirement = self.default is not None
+            optimum_neuron_requirement = version.parse(__version__) >= version.parse(self.min_optimum_neuron_version)
 
-        neuron_compiler_requirement = True
+        neuron_compiler_requirement = False
         if self.min_neuron_compiler_version is not None:
-            if version.parse(neuron_compiler_version) >= version.parse(self.min_neuron_compiler_version):
-                neuron_compiler_requirement = self.default is not None
+            neuron_compiler_requirement = version.parse(neuron_compiler_version) >= version.parse(
+                self.min_neuron_compiler_version
+            )
 
-        if not optimum_neuron_requirement or not neuron_compiler_requirement:
-            raise ValueError("A default value must be specified.")
+        return optimum_neuron_requirement or neuron_compiler_requirement
 
 
 @dataclass(frozen=True)
@@ -561,9 +578,8 @@ class NeuronHash:
         """
         Inserts `attribute` in `hash_dict` only if it is a specified attribute or if it has a default value.
         """
-        if isinstance(attribute, _UnspecifiedHashAttribute):
-            if attribute.default is not None:
-                hash_dict[attribute_name] = attribute
+        if isinstance(attribute, _UnspecifiedHashAttribute) and attribute.should_be_inserted_in_hash_dict:
+            hash_dict[attribute_name] = attribute.default
         else:
             hash_dict[attribute_name] = attribute
 

@@ -15,7 +15,7 @@
 """Factory class mapping model architectures to their Parallelizer class."""
 
 import importlib
-from typing import Dict, Type, Union
+from typing import Dict, List, Type, Union
 
 from transformers import PreTrainedModel
 
@@ -57,6 +57,10 @@ class ParallelizersManager:
             "llama": "LlamaParallelizer",
         }
     )
+
+    @classmethod
+    def get_supported_model_types(cls) -> List[str]:
+        return list(cls._MODEL_TYPE_TO_PARALLEL_MODEL_CLASS.keys())
 
     @classmethod
     def _get_model_type(cls, model_type_or_model: Union[str, PreTrainedModel]) -> str:

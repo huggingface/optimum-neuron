@@ -253,7 +253,9 @@ def prepare_environment_for_neuron():
     Prepares the system environment for Transformers models training on AWS Neuron.
     """
     # Set compiler flag to compile for transformer model type
-    os.environ["NEURON_CC_FLAGS"] = os.environ.get("NEURON_CC_FLAGS", "") + " --model-type=transformer"
+    os.environ["NEURON_CC_FLAGS"] = (
+        os.environ.get("NEURON_CC_FLAGS", "") + " --model-type=transformer --enable-experimental-O1"
+    )
 
 
 def set_verbosity(verbosity: int):
