@@ -16,14 +16,19 @@
 
 import copy
 import unittest
-from typing import Literal, Union
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Literal, Union
 
 import torch
 from safetensors.torch import save_file
 
-from optimum.neuron.distributed.utils import WeightInformation, embedding_to_parallel_embedding, linear_to_parallel_linear, load_tensor_for_weight
+from optimum.neuron.distributed.utils import (
+    WeightInformation,
+    embedding_to_parallel_embedding,
+    linear_to_parallel_linear,
+    load_tensor_for_weight,
+)
 from optimum.neuron.utils.patching import patch_everywhere
 
 
@@ -174,11 +179,20 @@ class ParallelUtilsTestCase(unittest.TestCase):
     def test_embedding_to_parallel_embedding_with_weight_info(self):
         self._test_embedding_to_parallel_embedding(True)
 
-
-    def _test_linear_to_parallel_linear(self, with_weight_info: bool, use_bias: bool, axis: Union[Literal["row"], Literal["column"]], input_is_parallel: bool, gather_output: bool):
+    def _test_linear_to_parallel_linear(
+        self,
+        with_weight_info: bool,
+        use_bias: bool,
+        axis: Union[Literal["row"], Literal["column"]],
+        input_is_parallel: bool,
+        gather_output: bool,
+    ):
         shard_size = 23
         vocab_size = shard_size * self.tp_size  # We need to be a multiple of self.TP_SIZE.
-        linear = torch.nn.Linear(300, vocab_size, bias=use_bias)
+        if axis == "row":
+            linear = torch.nn.Linear(vocab_size, 300, bias=use_bias)
+        else:
+            linear = torch.nn.Linear(300, vocab_size, bias=use_bias)
 
         with TemporaryDirectory() as tmpdirname:
             tmpdir = Path(tmpdirname)
@@ -196,17 +210,56 @@ class ParallelUtilsTestCase(unittest.TestCase):
                 linear_bias_weight_info = WeightInformation(weight_filename, "linear_bias_weight")
             else:
                 linear_weight = linear.weight
-                linear_bias_weight = linear.bias if use_bias else torch.zeros(1)
+                linear_bias_weight = linear.bias if use_bias else None
                 linear_weight_info = None
                 linear_bias_weight_info = None
 
             for tp_rank in range(self.TP_SIZE):
-                parallel_linear = linear_to_parallel_linear(copy.deepcopy(linear), axis=axis, input_is_parallel=input_is_parallel, gather_output=gather_output, linear_layer_weight_info=linear_weight_info, linear_layer_bias_weight_info=linear_bias_weight_info)
+                self.tp_rank = tp_rank
+                parallel_linear = linear_to_parallel_linear(
+                    copy.deepcopy(linear),
+                    axis=axis,
+                    input_is_parallel=input_is_parallel,
+                    gather_output=gather_output,
+                    linear_layer_weight_info=linear_weight_info,
+                    linear_layer_bias_weight_info=linear_bias_weight_info,
+                )
                 if axis == "row":
-                    weight = linear_weight[:, tp_rank * shard_size: (tp_rank + 1) * shard_size]
-                    bias = linear_bias_weight if use_bias else torch.zero(1)
+                    weight = linear_weight[:, tp_rank * shard_size : (tp_rank + 1) * shard_size]
+                    bias = linear_bias_weight if use_bias else None
                 else:
-                    weight = linear_weight[tp_rank * shard_size: (tp_rank + 1) * shard_size, :]
-                    bias = linear_bias_weight[tp_rank * shard_size: (tp_rank + 1) * shard_size] if use_bias else torch.zero(1)
+                    weight = linear_weight[tp_rank * shard_size : (tp_rank + 1) * shard_size, :]
+                    if gather_output:
+                        bias = linear_bias_weight
+                    else:
+                        bias = (
+                            linear_bias_weight[tp_rank * shard_size : (tp_rank + 1) * shard_size] if use_bias else None
+                        )
                 torch.testing.assert_close(parallel_linear.weight, weight)
                 torch.testing.assert_close(parallel_linear.bias, bias)
+                assert id(parallel_linear.weight) != id(weight)
+                if use_bias:
+                    assert id(parallel_linear.bias) != id(bias)
+
+    def _test_linear_to_parallel_linear_in_series(self, with_weight_info: bool):
+        ### Row
+        # No bias, no input parallel
+        self._test_linear_to_parallel_linear(with_weight_info, False, "row", False, False)
+        # bias, no input parallel
+        self._test_linear_to_parallel_linear(with_weight_info, True, "row", False, False)
+        # bias, input_parallel
+        self._test_linear_to_parallel_linear(with_weight_info, True, "row", True, False)
+
+        ### Column
+        # No bias, no gather output
+        self._test_linear_to_parallel_linear(with_weight_info, False, "column", False, False)
+        # bias, no gather output
+        self._test_linear_to_parallel_linear(with_weight_info, True, "column", False, False)
+        # bias, gather output
+        self._test_linear_to_parallel_linear(with_weight_info, True, "column", False, True)
+
+    def test_linear_to_parallel_linear_without_weight_info(self):
+        self._test_linear_to_parallel_linear_in_series(False)
+
+    def test_linear_to_parallel_linear_with_weight_info(self):
+        self._test_linear_to_parallel_linear_in_series(True)

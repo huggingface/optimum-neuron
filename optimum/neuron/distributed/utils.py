@@ -328,7 +328,12 @@ def linear_to_parallel_linear(
                     if gather_output:
                         tensor_slices = (None,)
                     else:
-                        tensor_slices= (tp_rank * row_size, (tp_rank + 1) * row_size,)                        
+                        tensor_slices = (
+                            (
+                                tp_rank * row_size,
+                                (tp_rank + 1) * row_size,
+                            ),
+                        )
                     bias_weight_data = load_tensor_for_weight(
                         linear_layer_bias_weight_info,
                         tensor_slices=tensor_slices,
