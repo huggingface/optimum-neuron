@@ -364,6 +364,7 @@ def from_pretrained_for_tp(
     *model_args,
     config: Optional[Union[PretrainedConfig, str, os.PathLike]] = None,
     cache_dir: Optional[Union[str, os.PathLike]] = None,
+    # TODO: `ignore_mismatched_sizes` is not used in the function, figure out if it leads to a bug.
     ignore_mismatched_sizes: bool = False,
     force_download: bool = False,
     local_files_only: bool = False,
