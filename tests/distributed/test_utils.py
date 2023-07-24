@@ -31,6 +31,8 @@ from optimum.neuron.distributed.utils import (
 )
 from optimum.neuron.utils.patching import patch_everywhere
 
+from ..test_utils import is_trainium_test
+
 
 def test_load_tensor_for_weight():
     with TemporaryDirectory() as tmpdirname:
@@ -59,6 +61,7 @@ def test_load_tensor_for_weight():
         assert loaded_sliced_t1.numel() == loaded_sliced_t1.storage().size()
 
 
+@is_trainium_test
 class ParallelUtilsTestCase(unittest.TestCase):
     TP_GROUP = 0
     TP_SIZE = 8
