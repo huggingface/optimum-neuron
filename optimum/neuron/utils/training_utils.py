@@ -43,6 +43,7 @@ from transformers.models.auto.modeling_auto import (
     MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING_NAMES,
     MODEL_MAPPING_NAMES,
 )
+from transformers.trainer_pt_utils import get_model_param_count as transformers_get_model_param_count
 from transformers.utils.logging import set_verbosity as set_verbosity_transformers
 
 from ...utils.logging import set_verbosity as set_verbosity_optimum
@@ -108,7 +109,7 @@ _SUPPORTED_MODEL_TYPES = [
     "distilbert",
     "electra",
     "gpt-2",
-    "gpt-neo",
+    "gpt_neo",
     "marian",
     "roberta",
     "t5",
@@ -230,6 +231,8 @@ def patch_generation_mixin_to_neuron_generation_mixin(model: "PreTrainedModel"):
     should_stop = False
     while to_visit and not should_stop:
         cls = to_visit.pop(0)
+        if cls is object:
+            continue
         bases = cls.__bases__
         new_bases = []
         for base in bases:
@@ -250,7 +253,9 @@ def prepare_environment_for_neuron():
     Prepares the system environment for Transformers models training on AWS Neuron.
     """
     # Set compiler flag to compile for transformer model type
-    os.environ["NEURON_CC_FLAGS"] = os.environ.get("NEURON_CC_FLAGS", "") + " --model-type=transformer"
+    os.environ["NEURON_CC_FLAGS"] = (
+        os.environ.get("NEURON_CC_FLAGS", "") + " --model-type=transformer --enable-experimental-O1"
+    )
 
 
 def set_verbosity(verbosity: int):
@@ -275,3 +280,9 @@ def skip_first_batches(dataloader, num_batches=0):
     else:
         dataloader = accelerate_skip_first_batches(dataloader, num_batches=num_batches)
     return dataloader
+
+
+def get_model_param_count(model, trainable_only=False):
+    """Wrapper around `transformers.trainer_pt_utils.get_model_param_count` to handle tensor parallelism."""
+    # TODO: make it work for TP
+    return transformers_get_model_param_count(model, trainable_only=trainable_only)

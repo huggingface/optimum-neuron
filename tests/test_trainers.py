@@ -29,7 +29,7 @@ from huggingface_hub.utils import RepositoryNotFoundError
 from transformers import BertConfig, BertModel, BertTokenizer, TrainingArguments
 from transformers.testing_utils import is_staging_test
 
-from optimum.neuron.trainers import TrainiumTrainer
+from optimum.neuron.trainers import NeuronTrainer
 from optimum.neuron.utils.cache_utils import (
     get_neuron_cache_path,
     list_files_in_neuron_cache,
@@ -50,7 +50,7 @@ from .utils import (
 
 @is_trainium_test
 @is_staging_test
-class StagingTrainiumTrainerTestCase(StagingTestMixin, TestCase):
+class StagingNeuronTrainerTestCase(StagingTestMixin, TestCase):
     def test_train_and_eval(self):
         os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_PRIVATE_CACHE_REPO
 
@@ -86,7 +86,7 @@ class StagingTrainiumTrainerTestCase(StagingTestMixin, TestCase):
                 save_steps=10,
                 num_train_epochs=2,
             )
-            trainer = TrainiumTrainer(
+            trainer = NeuronTrainer(
                 model,
                 args,
                 train_dataset=dummy_train_dataset,
@@ -122,7 +122,7 @@ class StagingTrainiumTrainerTestCase(StagingTestMixin, TestCase):
                 save_steps=10,
                 num_train_epochs=2,
             )
-            trainer = TrainiumTrainer(
+            trainer = NeuronTrainer(
                 clone,
                 args,
                 train_dataset=dummy_train_dataset,
@@ -311,7 +311,7 @@ class StagingTrainiumTrainerTestCase(StagingTestMixin, TestCase):
 
 
 @is_trainium_test
-class TrainiumTrainerTestCase(TestCase):
+class NeuronTrainerTestCase(TestCase):
     def _test_training_with_fsdp_mode(self, fsdp_mode: str):
         model_name = "prajjwal1/bert-tiny"
         task_name = "sst2"

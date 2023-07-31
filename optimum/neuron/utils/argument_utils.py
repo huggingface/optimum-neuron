@@ -15,7 +15,8 @@
 """Utilities related to CLI arguments."""
 
 import os
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+from collections import OrderedDict
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 
 from ...utils import logging
 
@@ -136,24 +137,48 @@ def convert_neuronx_compiler_args_to_neuron(
 
 
 def store_compilation_config(
-    config: "PretrainedConfig",
+    config: Union["PretrainedConfig", OrderedDict],
     input_shapes: Dict[str, int],
     compiler_kwargs: Dict[str, Any],
     input_names: List[str],
     output_names: List[str],
     dynamic_batch_size: bool,
+    compiler_type: str,
+    compiler_version: str,
+    model_type: Optional[str] = None,
     **kwargs,
 ):
-    # Add input shapes during compilation to the config
-    for axe, shape in input_shapes.items():
-        axe = f"neuron_{axe}"
-        config.__setattr__(axe, shape)
+    if isinstance(config, OrderedDict):
+        update_func = config.__setitem__
+    else:
+        update_func = config.__setattr__
+    config_args = {}
 
-    config.__setattr__("dynamic_batch_size", dynamic_batch_size)
+    # Add neuron version to the config, so it can be checked at load time
+    config_args["compiler_type"] = compiler_type
+    config_args["compiler_version"] = compiler_version
+
+    # Add input shapes during compilation to the config
+    for axis, shape in input_shapes.items():
+        axis = f"static_{axis}"
+        config_args[axis] = shape
+
+    config_args["dynamic_batch_size"] = dynamic_batch_size
 
     # Add compilation args to the config
     for arg, value in compiler_kwargs.items():
-        config.__setattr__(arg, value)
+        config_args[arg] = value
 
-    config.input_names = input_names
-    config.output_names = output_names
+    config_args["input_names"] = input_names
+    config_args["output_names"] = output_names
+
+    update_func("neuron", config_args)
+
+    if hasattr(config, "_diffusers_version"):
+        import diffusers
+
+        update_func("_diffusers_version", diffusers.__version__)
+
+    model_type = getattr(config, "model_type", None) or model_type
+    model_type = str(model_type).replace("_", "-")
+    update_func("model_type", model_type)

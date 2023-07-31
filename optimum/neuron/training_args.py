@@ -12,12 +12,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Defines a TrainingArguments class compatible with Trainium."""
+"""Defines a TrainingArguments class compatible with Neuron."""
 
 import io
 import json
 import os
 import warnings
+from dataclasses import dataclass, field
 from datetime import timedelta
 
 import torch
@@ -34,7 +35,7 @@ from transformers.utils import (
 
 from ..utils import check_if_transformers_greater, logging
 from .accelerate import NeuronAcceleratorState, NeuronPartialState
-from .accelerate.utils import patch_accelerate_is_tpu_available
+from .accelerate.utils import TensorParallelismPlugin, patch_accelerate_is_tpu_available
 from .utils import is_accelerate_available, is_torch_xla_available
 from .utils.training_utils import TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP
 
@@ -48,12 +49,20 @@ if is_sagemaker_mp_enabled():
 logger = logging.get_logger(__name__)
 
 
-class TrainiumTrainingArgumentsMixin:
+@dataclass
+class NeuronTrainingArgumentsMixin:
+    zero_1: bool = field(default=False, metadata={"help": "Whether to use  ZeRO Stage 1 Optimization."})
+    tensor_parallel_size: int = field(
+        default=1, metadata={"help": "The number of replicas the model will be sharded on."}
+    )
+
     def __post_init__(self):
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
         patch_accelerate_is_tpu_available()
 
         if self.fsdp != "":
+            # Disabling FSDP until next release because it is still very experimental and not validated.
+            raise RuntimeError("FSDP is not supported yet.")
             if self.fsdp_config is None:
                 self.fsdp_config = {"xla": True}
             elif isinstance(self.fsdp_config, str):
@@ -77,11 +86,15 @@ class TrainiumTrainingArgumentsMixin:
                     "The minimal required Transformers version to perform XLA FSDP is "
                     f"{TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP} but {transformers.__version__} is installed."
                 )
+        self.tp_plugin = TensorParallelismPlugin(self.tensor_parallel_size)
         super().__post_init__()
 
     # Needed only to specialize the warning message for FSDP.
     @cached_property
     def _setup_devices(self) -> "torch.device":
+        if not check_if_transformers_greater("4.30.0"):
+            return super()._setup_devices
+
         requires_backends(self, ["torch"])
         logger.info("PyTorch: setting up devices")
         NeuronAcceleratorState._reset_state()
@@ -174,10 +187,23 @@ class TrainiumTrainingArgumentsMixin:
                     torch.cuda.set_device(device)
         return device
 
+    @property
+    def place_model_on_device(self):
+        return not self.tp_plugin.should_parallelize and super().place_model_on_device
 
-class TrainiumTrainingArguments(TrainiumTrainingArgumentsMixin, TrainingArguments):
+    @property
+    def world_size(self):
+        divisor = 1
+        if self.tp_plugin.should_parallelize:
+            divisor = self.tp_plugin.tensor_parallel_size
+        return super().world_size // divisor
+
+
+@dataclass
+class NeuronTrainingArguments(NeuronTrainingArgumentsMixin, TrainingArguments):
     pass
 
 
-class Seq2SeqTrainiumTrainingArguments(TrainiumTrainingArgumentsMixin, Seq2SeqTrainingArguments):
+@dataclass
+class Seq2SeqNeuronTrainingArguments(NeuronTrainingArgumentsMixin, Seq2SeqTrainingArguments):
     pass

@@ -285,9 +285,9 @@ class ExampleRunner:
         custom_cache_repo = os.environ.get("CUSTOM_CACHE_REPO", None)
         if saved_custom_cache_repo is None and custom_cache_repo is None:
             logger.warning(
-                "No custom Trainium cache repo set which means that the official Trainium cache repo will be used. If "
+                "No custom Neuron cache repo set which means that the official Neuron cache repo will be used. If "
                 "you are not a member of the Optimum Neuron Team, this means that you will not be able to push to the "
-                "Hub. Follow the instructions here to set you custom Trainium cache: "
+                "Hub. Follow the instructions here to set you custom Neuron cache: "
                 "https://huggingface.co/docs/optimum-neuron/guides/cache_system#how-to-use-a-private-trainium-model-cache"
             )
 

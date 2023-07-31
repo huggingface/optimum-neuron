@@ -77,14 +77,30 @@ class Patcher(BasePatcher):
         proccessed_patching_specs = []
         for orig, patch in patching_specs or []:
             module_qualified_name, attribute_name = orig.rsplit(".", maxsplit=1)
-            module = importlib.import_module(module_qualified_name)
+            try:
+                module = importlib.import_module(module_qualified_name)
+            except ModuleNotFoundError as e:
+                module_qualified_name, module_attribute_containing_attribute_name = module_qualified_name.rsplit(
+                    ".", maxsplit=1
+                )
+                module = importlib.import_module(module_qualified_name)
+                try:
+                    module = getattr(module, module_attribute_containing_attribute_name)
+                except AttributeError:
+                    raise e
+
             module_has_attr = hasattr(module, attribute_name)
             if module_has_attr:
                 attribute = getattr(module, attribute_name)
             elif ignore_missing_attributes and not isinstance(patch, DynamicPatch):
                 attribute = None
-            else:
+            elif isinstance(patch, DynamicPatch):
                 raise ValueError("Cannot ignore missing attribute with a DynamicPatch.")
+            else:
+                raise AttributeError(
+                    f"Attribute {attribute_name} does not exist in {module}, set `ignore_missing_attributes=True` "
+                    "to allow not failing when an attribute does not exist."
+                )
             if isinstance(patch, DynamicPatch):
                 patch = patch(attribute)
             proccessed_patching_specs.append((module, attribute_name, attribute, patch))
@@ -114,8 +130,13 @@ class ModelPatcher(BasePatcher):
                 attribute = getattr(module, attribute_name)
             elif ignore_missing_attributes and not isinstance(patch, DynamicPatch):
                 attribute = None
-            else:
+            elif isinstance(patch, DynamicPatch):
                 raise ValueError("Cannot ignore missing attribute with a DynamicPatch.")
+            else:
+                raise AttributeError(
+                    f"Attribute {attribute_name} does not exist in {module}, set `ignore_missing_attributes=True` "
+                    "to allow not failing when an attribute does not exist."
+                )
 
             if isinstance(patch, DynamicPatch):
                 patch = patch(attribute)

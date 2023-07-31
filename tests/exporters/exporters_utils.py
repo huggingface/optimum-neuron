@@ -24,12 +24,17 @@ EXPORT_MODELS_TINY = {
     "distilbert": "hf-internal-testing/tiny-random-DistilBertModel",
     "electra": "hf-internal-testing/tiny-random-ElectraModel",
     "flaubert": "flaubert/flaubert_small_cased",
+    "gpt2": "hf-internal-testing/tiny-random-gpt2",
     "mobilebert": "hf-internal-testing/tiny-random-MobileBertModel",
     "mpnet": "hf-internal-testing/tiny-random-MPNetModel",
     "roberta": "hf-internal-testing/tiny-random-RobertaModel",
     "roformer": "hf-internal-testing/tiny-random-RoFormerModel",
     "xlm": "hf-internal-testing/tiny-random-XLMModel",
     "xlm-roberta": "hf-internal-testing/tiny-xlm-roberta",
+}
+
+STABLE_DIFFUSION_MODELS_TINY = {
+    ("hf-internal-testing/tiny-stable-diffusion-torch"),
 }
 
 SEED = 42

@@ -23,7 +23,7 @@ from huggingface_hub import HfApi
 from transformers import TrainingArguments
 from transformers.testing_utils import is_staging_test
 
-from optimum.neuron.trainers import NeuronCacheCallaback
+from optimum.neuron.trainers import NeuronCacheCallback
 from optimum.neuron.utils.cache_utils import (
     NEURON_COMPILE_CACHE_NAME,
     NeuronHash,
@@ -38,7 +38,7 @@ from .utils import StagingTestMixin
 
 @is_trainium_test
 @is_staging_test
-class NeuronCacheCallabackTestCase(StagingTestMixin, TestCase):
+class NeuronCacheCallbackTestCase(StagingTestMixin, TestCase):
     def test_neuron_hash_for_model(self):
         with TemporaryDirectory() as tmpdirname:
             args = TrainingArguments(tmpdirname)
@@ -47,7 +47,7 @@ class NeuronCacheCallabackTestCase(StagingTestMixin, TestCase):
             "x": torch.rand((1,)),
         }
 
-        callback = NeuronCacheCallaback()
+        callback = NeuronCacheCallback()
 
         # We first check that no hashes is in the hash cache already.
         self.assertFalse(callback.neuron_hashes)
@@ -74,7 +74,7 @@ class NeuronCacheCallabackTestCase(StagingTestMixin, TestCase):
 
         with TemporaryDirectory() as tmpdirname:
             set_neuron_cache_path(tmpdirname)
-            callback = NeuronCacheCallaback()
+            callback = NeuronCacheCallback()
             args = TrainingArguments(tmpdirname)
             inputs = {"x": torch.rand((24, 1))}
             neuron_hash = callback.neuron_hash_for_model(args, model, inputs)
@@ -109,7 +109,7 @@ class NeuronCacheCallabackTestCase(StagingTestMixin, TestCase):
     def test_synchronize_temporary_neuron_cache_state(self):
         with TemporaryDirectory() as tmpdirname:
             set_neuron_cache_path(tmpdirname)
-            callback = NeuronCacheCallaback()
+            callback = NeuronCacheCallback()
 
             diff = callback.synchronize_temporary_neuron_cache_state()
             self.assertListEqual(diff, [], "The diff should be empty.")
@@ -133,7 +133,7 @@ class NeuronCacheCallabackTestCase(StagingTestMixin, TestCase):
         with TemporaryDirectory() as tmpdirname:
             set_neuron_cache_path(tmpdirname)
             args = TrainingArguments(tmpdirname)
-            callback = NeuronCacheCallaback()
+            callback = NeuronCacheCallback()
 
             callback.synchronize_temporary_neuron_cache()
             files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)

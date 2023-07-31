@@ -15,20 +15,24 @@
 """Base class related to `neuronx_distributed` to perform parallelism."""
 
 import contextlib
+import shutil
 from abc import ABC, abstractclassmethod
+from dataclasses import asdict
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple, Union
 
 import torch
 from transformers.utils import WEIGHTS_NAME
 
+from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
-from .utils import TENSOR_PARALLEL_SHARDS_DIR_NAME
+from .utils import TENSOR_PARALLEL_SHARDS_DIR_NAME, ParameterMetadata, WeightInformation, load_tensor_for_weight
 
 
 if is_neuronx_distributed_available():
     import neuronx_distributed
+    from neuronx_distributed import parallel_layers
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
@@ -36,6 +40,9 @@ if is_torch_xla_available():
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
+
+
+logger = logging.get_logger()
 
 
 class SavedModelInTemporaryDirectory:
@@ -52,6 +59,10 @@ class SavedModelInTemporaryDirectory:
 
 
 class Parallelizer(ABC):
+    """
+    Base abstract class that handles model parallelism.
+    """
+
     def __init__(self):
         self._validate_required_libaries_are_available()
 
@@ -78,8 +89,92 @@ class Parallelizer(ABC):
             tmpdir.cleanup()
 
     @abstractclassmethod
-    def parallelize(cls, model: "PreTrainedModel") -> "PreTrainedModel":
-        pass
+    def _parallelize(
+        cls,
+        model: "PreTrainedModel",
+        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+        device: Optional["torch.device"] = None,
+    ) -> "PreTrainedModel":
+        """
+        Parallelizes the model by transforming regular layer into their parallel counterparts.
+        Each concrete class must implement it.
+
+        Args:
+            model (`PreTrainedModel`):
+                The model to parallelize.
+            orig_to_parallel (`Optional[Dict[int, torch.nn.Parameter]]`, defaults to `None`):
+                A dictionary to fill. It maps a former parameter id to its parallel version.
+                It might be deprecated soon.
+            device (`Optional[torch.device]`, defaults to `None`):
+                The device where the new parallel layers should be put.
+
+        Returns:
+            `PreTrainedModel`: The parallelized model.
+        """
+
+    @classmethod
+    def parallelize(
+        cls,
+        model: "PreTrainedModel",
+        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+        device: Optional["torch.device"] = None,
+    ) -> "PreTrainedModel":
+        """
+        Parallelizes the model by transforming regular layer into their parallel counterparts using
+        `cls._parallelize()`.
+
+        It also makes sure that each parameter has loaded its weights or has been initialized if there is no pre-trained
+        weights associated to it.
+
+        Args:
+            model (`PreTrainedModel`):
+                The model to parallelize.
+            orig_to_parallel (`Optional[Dict[int, torch.nn.Parameter]]`, defaults to `None`):
+                A dictionary to fill. It maps a former parameter id to its parallel version.
+                It might be deprecated soon.
+            device (`Optional[torch.device]`, defaults to `None`):
+                The device where the new parallel layers should be put.
+
+        Returns:
+            `PreTrainedModel`: The parallelized model.
+        """
+        model = cls._parallelize(model, orig_to_parallel=orig_to_parallel, device=device)
+        weight_map = getattr(model, "_weight_map", {})
+        with torch.no_grad():
+            modules_to_initialize = []
+            for name, parameter in model.named_parameters():
+                # This must be either a torch.nn.Embedding or a torch.nn.Linear since those are the only
+                # classes that we initialize on the `meta` device.
+                if parameter.device == torch.device("meta"):
+                    if weight_map is None:
+                        raise ValueError(
+                            f"The parameter called {name} of the model is on the `meta` device and no weight map is "
+                            "attached to the model to load the proper weights from file."
+                        )
+                    split = name.rsplit(".", maxsplit=1)
+                    if len(split) == 1:
+                        module = model
+                        attribute_name = split[0]
+                    else:
+                        module = model.get_submodule(split[0])
+                        attribute_name = split[1]
+                    try:
+                        weight_info = WeightInformation(weight_map[name], name, device=device)
+                        setattr(module, attribute_name, torch.nn.Parameter(load_tensor_for_weight(weight_info)))
+                    except KeyError:
+                        # This means that there is no information about where to find the weights for this parameter.
+                        device = torch.device("cpu") if device is None else device
+                        setattr(
+                            module,
+                            attribute_name,
+                            torch.nn.Parameter(torch.empty_like(getattr(module, attribute_name), device=device)),
+                        )
+                        modules_to_initialize.append(module)
+                for mod in modules_to_initialize:
+                    # This module has not pre-trained weights, it must be fine-tuned, we initialize it with the
+                    # `reset_parameters()` method.
+                    mod.reset_parameters()
+        return model
 
     @classmethod
     def deparallelize(cls, model: "PreTrainedModel") -> "PreTrainedModel":
@@ -87,12 +182,12 @@ class Parallelizer(ABC):
 
     @classmethod
     def was_parallelized(cls, model: "PreTrainedModel") -> bool:
-        parallel_layers = (
-            neuronx_distributed.parallel_layers.ParallelEmbedding,
-            neuronx_distributed.parallel_layers.ColumnParallelLinear,
-            neuronx_distributed.parallel_layers.RowParallelLinear,
+        parallel_layer_classes = (
+            parallel_layers.ParallelEmbedding,
+            parallel_layers.ColumnParallelLinear,
+            parallel_layers.RowParallelLinear,
         )
-        return any(isinstance(mod, parallel_layers) for mod in model.modules())
+        return any(isinstance(mod, parallel_layer_classes) for mod in model.modules())
 
     @classmethod
     def _check_model_was_parallelized(cls, model: "PreTrainedModel"):
@@ -100,16 +195,117 @@ class Parallelizer(ABC):
             raise ValueError("The model needs to be parallelized first.")
 
     @classmethod
-    def save_model_checkpoint_as_regular(cls, model: "PreTrainedModel", output_dir: Union[str, Path]):
+    def optimizer_cpu_params_to_xla_params(
+        cls,
+        optimizer: "torch.optim.Optimizer",
+        orig_param_to_parallel_param_on_xla: Mapping[int, "torch.nn.Parameter"],
+    ) -> Tuple[List[Dict[str, Any]], bool]:
+        parameters_on_xla = []
+        need_to_create_new_optimizer = False
+        if hasattr(optimizer, "_args_to_recreate"):
+            args, _ = optimizer._args_to_recreate
+            parameters = args[0]
+            for param in parameters:
+                if isinstance(param, dict):
+                    new_param = {k: v for k, v in param.items() if k != "params"}
+                    params = []
+                    for p in param["params"]:
+                        params.append(orig_param_to_parallel_param_on_xla[id(p)])
+                    new_param["params"] = params
+                else:
+                    new_param = []
+                    for p in param:
+                        new_param.append(orig_param_to_parallel_param_on_xla[id(p)])
+                parameters_on_xla.append(new_param)
+        else:
+            for param_group in optimizer.param_groups:
+                new_params = []
+                params = param_group["params"]
+                for idx in range(len(params)):
+                    param_on_xla = orig_param_to_parallel_param_on_xla[id(params[idx])]
+                    if params[idx] != param_on_xla:
+                        need_to_create_new_optimizer = True
+                    new_params.append(param_on_xla)
+                new_group = {k: v for k, v in param_group.items() if k != "params"}
+                new_group["params"] = new_params
+                parameters_on_xla.append(new_group)
+        return parameters_on_xla, need_to_create_new_optimizer
+
+    @classmethod
+    def optimizer_for_tp(
+        cls,
+        optimizer: "torch.optim.Optimizer",
+        orig_param_to_parallel_param_on_xla: Mapping[int, "torch.nn.Parameter"],
+    ) -> "torch.optim.Optimizer":
+        """
+        Creates an optimizer ready for a parallelized model from an existing optimizer.
+
+        There are two cases:
+            1. The optimizer has been created via a lazy constructor from
+            [`optimum.neuron.distributed.utils.make_optimizer_constructor_lazy`], it which case the exactly intended optimizer is
+            created for tensor parallelism.
+            2. The optimizer was created with a regular constructor. In this case the optimizer for tensor parallelism
+            is created as close as possible to what was intended but that is not guaranteed.
+
+        Args:
+            optimizer (`torch.optim.Optimizer`):
+                The original optimizer.
+            orig_param_to_parallel_param_on_xla (`Mapping[int, torch.nn.Parameter]`):
+                A mapping (e.g. dict-like) that maps the id of a parameter in `optimizer` to the id of its
+                parallelized counterpart on an XLA device.
+
+        Returns:
+            `torch.optim.Optimizer`: The tensor parallelism ready optimizer.
+        """
+        parallel_parameters, need_to_create_new_optimizer = cls.optimizer_cpu_params_to_xla_params(
+            optimizer, orig_param_to_parallel_param_on_xla
+        )
+        if hasattr(optimizer, "_args_to_recreate"):
+            args, kwargs = optimizer._args_to_recreate
+            optimizer_for_tp = optimizer.__class__(parallel_parameters, *args[1:], **kwargs)
+            del optimizer
+        elif need_to_create_new_optimizer:
+            optimizer_for_tp = optimizer.__class__(parallel_parameters)
+            del optimizer
+        else:
+            optimizer_for_tp = optimizer
+        return optimizer_for_tp
+
+    @classmethod
+    def _get_parameters_tp_metadata(cls, named_parameters: Dict[str, "torch.nn.Parameter"]):
+        tp_metadata = {}
+        for name, param in named_parameters.items():
+            if getattr(param, "tensor_model_parallel", False):
+                param_metadata = ParameterMetadata(
+                    "sharded",
+                    partition_dim=param.partition_dim,
+                )
+            else:
+                param_metadata = ParameterMetadata("tied")
+            tp_metadata[name] = param_metadata
+        return tp_metadata
+
+    @classmethod
+    def save_model_checkpoint_as_regular(
+        cls,
+        model: "PreTrainedModel",
+        output_dir: Union[str, Path],
+        optimizer: Optional["torch.optim.Optimizer"] = None,
+    ):
         cls._check_model_was_parallelized(model)
-        data_parallel_rank = neuronx_distributed.parallel_state.get_data_parallel_rank()
-        tensor_parallel_rank = neuronx_distributed.parallel_state.get_tensor_parallel_rank()
+        data_parallel_rank = parallel_layers.parallel_state.get_data_parallel_rank()
+        tensor_parallel_rank = parallel_layers.parallel_state.get_tensor_parallel_rank()
 
         if data_parallel_rank != 0:
             return
 
         if not isinstance(output_dir, Path):
             output_dir = Path(output_dir)
+
+        if optimizer is not None:
+            logger.warning(
+                "Saving the optimizer state as a regular file under the tensor parallel setting is not supported yet."
+            )
 
         state_dict = {}
         for name, param in model.named_parameters():
@@ -131,31 +327,56 @@ class Parallelizer(ABC):
         if should_save:
             output_path = output_dir / WEIGHTS_NAME
             torch.save(model_state_dict["model"], output_path.as_posix())
-        xm.rendevous("saving regular checkpoint")
+        xm.rendezvous("saving regular checkpoint")
 
     @classmethod
-    def save_model_checkpoint_as_sharded(cls, model: "PreTrainedModel", output_dir: Union[str, Path]):
+    def save_model_checkpoint_as_sharded(
+        cls,
+        model: "PreTrainedModel",
+        output_dir: Union[str, Path],
+        optimizer: Optional["torch.optim.Optimizer"] = None,
+    ):
         cls._check_model_was_parallelized(model)
-        data_parallel_rank = neuronx_distributed.parallel_state.get_data_parallel_rank()
-        if data_parallel_rank != 0:
-            return
-
         if not isinstance(output_dir, Path):
             output_dir = Path(output_dir)
 
+        state_dict = {"model": model.state_dict()}
+        state_dict["sharded_metadata"] = {
+            k: asdict(v) for k, v in cls._get_parameters_tp_metadata(dict(model.named_parameters())).items()
+        }
+
+        if optimizer is not None:
+            # TODO: have metadata working for the optimizer.
+            state_dict["optimizer_state_dict"] = optimizer.state_dict()
+
         output_path = output_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME
-        neuronx_distributed.parallel_layers.save({"model": model.state_dict()}, output_path.as_posix())
+        from neuronx_distributed.parallel_layers.parallel_state import (
+            get_data_parallel_rank,
+            get_tensor_model_parallel_rank,
+        )
+
+        if get_data_parallel_rank() == 0 and get_tensor_model_parallel_rank() == 0:
+            if output_path.is_dir():
+                shutil.rmtree(output_path, ignore_errors=True)
+            output_path.mkdir()
+        xm.rendezvous("waiting before saving")
+        parallel_layers.save(state_dict, output_path.as_posix())
 
     @classmethod
     def save_model_checkpoint(
-        cls, model: "PreTrainedModel", output_dir: Union[str, Path], as_regular: bool = True, as_sharded: bool = True
+        cls,
+        model: "PreTrainedModel",
+        output_dir: Union[str, Path],
+        as_regular: bool = False,
+        as_sharded: bool = True,
+        optimizer: Optional["torch.optim.Optimizer"] = None,
     ):
         if not as_regular and not as_sharded:
             raise ValueError("At least as_regular or as_sharded must be True.")
         if as_regular:
-            cls.save_model_checkpoint(model, output_dir)
+            cls.save_model_checkpoint_as_regular(model, output_dir, optimizer=optimizer)
         if as_sharded:
-            cls.save_model_checkpoint_as_sharded(model, output_dir)
+            cls.save_model_checkpoint_as_sharded(model, output_dir, optimizer=optimizer)
 
     @classmethod
     def load_model_regular_checkpoint(cls, model: "PreTrainedModel", load_dir: Union[str, Path]):
@@ -166,7 +387,7 @@ class Parallelizer(ABC):
         cls._check_model_was_parallelized(model)
         if not isinstance(load_dir, Path):
             load_dir = Path(load_dir)
-        neuronx_distributed.parallel_layers.load(load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME, model=model, sharded=True)
+        parallel_layers.load(load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME, model=model, sharded=True)
 
     @classmethod
     def load_model_checkpoint(cls, model: "PreTrainedModel", load_dir: Union[str, Path]):

@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Defines Trainer subclasses to perform training on AWS Trainium instances."""
+"""Defines Trainer subclasses to perform training on AWS Neuron instances."""
 
 import contextlib
 import glob
@@ -26,6 +26,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import torch
 from packaging import version
+from torch.utils.data import DataLoader
 from transformers import PreTrainedModel, Seq2SeqTrainer, Trainer, TrainingArguments
 from transformers.dependency_versions_check import dep_version_check
 from transformers.integrations import is_fairscale_available
@@ -33,18 +34,27 @@ from transformers.trainer import (
     OPTIMIZER_NAME,
     SCHEDULER_NAME,
     TRAINER_STATE_NAME,
+    TRAINING_ARGS_NAME,
 )
 from transformers.trainer_pt_utils import reissue_pt_warnings
 from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
 from transformers.utils import is_sagemaker_mp_enabled
 
 from ..utils import check_if_transformers_greater, logging
-from .accelerate import NeuronAccelerator
-from .trainer_callback import NeuronCacheCallaback
-from .utils import DynamicPatch, ModelPatcher, is_torch_xla_available, patch_within_function
+from .accelerate import NeuronAccelerator, NeuronDistributedType
+from .distributed import ParallelizersManager
+from .distributed.utils import make_optimizer_constructor_lazy
+from .trainer_callback import NeuronCacheCallback
+from .utils import (
+    DynamicPatch,
+    ModelPatcher,
+    is_torch_xla_available,
+    patch_within_function,
+)
 from .utils.cache_utils import get_neuron_cache_path
 from .utils.training_utils import (
     TRANSFORMERS_MIN_VERSION_USE_ACCELERATE,
+    get_model_param_count,
     is_precompilation,
     patch_generation_mixin_to_neuron_generation_mixin,
     patched_finfo,
@@ -94,13 +104,16 @@ if os.environ.get("TORCHELASTIC_RUN_ID"):
 
     if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
         _ORIGINAL_NEURON_CACHE_PATH = get_neuron_cache_path()
-        _TMP_NEURON_CACHE_DIR = NeuronCacheCallaback.create_temporary_neuron_cache(get_neuron_cache_path())
+        if not is_precompilation():
+            _TMP_NEURON_CACHE_DIR = NeuronCacheCallback.create_temporary_neuron_cache(get_neuron_cache_path())
         torch.distributed.init_process_group(backend="xla")
         if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
             raise AssertionError("Failed to initialize torch.distributed process group using XLA backend.")
 
+transformers_get_optimizer_cls_and_kwargs = Trainer.get_optimizer_cls_and_kwargs
 
-class AugmentTrainerForTrainiumMixin:
+
+class AugmentTrainerForNeuronMixin:
     def __init__(self, *args, **kwargs):
         if not isinstance(self, Trainer):
             raise TypeError(f"{self.__class__.__name__} can only be mixed with Trainer subclasses.")
@@ -137,15 +150,28 @@ class AugmentTrainerForTrainiumMixin:
             logger.setLevel(logging.INFO)
 
         if not is_precompilation():
-            callback = NeuronCacheCallaback(
+            push = self.args.local_rank <= 0
+            fetch = self.args.local_rank <= 0
+
+            callback = NeuronCacheCallback(
                 tmp_neuron_cache=_TMP_NEURON_CACHE_DIR,
                 original_neuron_cache_path=_ORIGINAL_NEURON_CACHE_PATH,
-                only_do_fetching=self.args.local_rank > 0,
+                fetch=fetch,
+                push=push,
+                wait_for_everyone_on_fetch=False,
+                wait_for_everyone_on_push=True,
             )
             self.add_callback(callback)
 
         # Make the model Neuron-compatible for generation.
         patch_generation_mixin_to_neuron_generation_mixin(self.model)
+
+    @property
+    def tp_enabled(self):
+        return (
+            check_if_transformers_greater("4.30.0")
+            and self.accelerator.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM
+        )
 
     def prepare_args_for_precompilation(self, args: "TrainingArguments"):
         if args.num_train_epochs != 1:
@@ -164,9 +190,34 @@ class AugmentTrainerForTrainiumMixin:
     def validate_args(self, args: "TrainingArguments"):
         pass
 
-    @patch_within_function(("transformers.trainer.Accelerator", NeuronAccelerator), ignore_missing_attributes=True)
     def create_accelerator_and_postprocess(self):
-        return super().create_accelerator_and_postprocess()
+        # create accelerator object
+        self.accelerator = NeuronAccelerator(
+            deepspeed_plugin=self.args.deepspeed_plugin,
+            gradient_accumulation_steps=self.args.gradient_accumulation_steps,
+            tp_plugin=self.args.tp_plugin,
+            zero_1=self.args.zero_1,
+        )
+
+        # deepspeed and accelerate flags covering both trainer args and accelerate launcher
+        self.is_deepspeed_enabled = getattr(self.accelerator.state, "deepspeed_plugin", None) is not None
+        self.is_fsdp_enabled = getattr(self.accelerator.state, "fsdp_plugin", None) is not None
+
+        # post accelerator creation setup
+        if self.is_fsdp_enabled:
+            fsdp_plugin = self.accelerator.state.fsdp_plugin
+            fsdp_plugin.limit_all_gathers = self.args.fsdp_config.get("limit_all_gathers", False)
+            fsdp_plugin.use_orig_params = self.args.fsdp_config.get("use_orig_params", False)
+
+        if self.is_deepspeed_enabled:
+            if getattr(self.args, "hf_deepspeed_config", None) is None:
+                from transformers.deepspeed import HfTrainerDeepSpeedConfig
+
+                ds_plugin = self.accelerator.state.deepspeed_plugin
+
+                ds_plugin.hf_ds_config = HfTrainerDeepSpeedConfig(ds_plugin.hf_ds_config.config)
+                ds_plugin.deepspeed_config = ds_plugin.hf_ds_config.config
+                ds_plugin.hf_ds_config.trainer_config_process(self.args)
 
     def _wrap_model(self, model, training=True, dataloader=None):
         patching_specs = []
@@ -179,7 +230,7 @@ class AugmentTrainerForTrainiumMixin:
     # TODO: make this cleaner.
     def trigger_on_step_middle_for_neuron_cache_callback(self, model: "PreTrainedModel"):
         for callback in self.callback_handler.callbacks:
-            if isinstance(callback, NeuronCacheCallaback):
+            if isinstance(callback, NeuronCacheCallback):
                 # kwargs might not have everything expected (like metrics) but all we need is here.
                 kwargs = {
                     "model": model,
@@ -190,6 +241,37 @@ class AugmentTrainerForTrainiumMixin:
                     "eval_dataloader": self.callback_handler.eval_dataloader,
                 }
                 callback.on_step_middle(self.args, self.state, self.control, **kwargs)
+
+    def _prepare_data_loader_with_accelerator(self, data_loader: DataLoader):
+        if not check_if_transformers_greater("4.31.0"):
+            data_loader = self.accelerator.prepare_data_loader(data_loader)
+        return data_loader
+
+    def _get_train_sampler(self) -> Optional[torch.utils.data.Sampler]:
+        if self.tp_enabled:
+            return None
+        return super()._get_train_sampler()
+
+    def get_train_dataloader(self, *args, **kwargs) -> DataLoader:
+        return self._prepare_data_loader_with_accelerator(super().get_train_dataloader(*args, **kwargs))
+
+    def get_eval_dataloader(self, *args, **kwargs) -> DataLoader:
+        return self._prepare_data_loader_with_accelerator(super().get_eval_dataloader(*args, **kwargs))
+
+    def get_test_dataloader(self, *args, **kwargs) -> DataLoader:
+        return self._prepare_data_loader_with_accelerator(super().get_test_dataloader(*args, **kwargs))
+
+    @staticmethod
+    def get_optimizer_cls_and_kwargs(args: TrainingArguments) -> Tuple[Any, Any]:
+        optimizer_cls, optimizer_kwargs = transformers_get_optimizer_cls_and_kwargs(args)
+        lazy_load = args.tp_plugin.should_parallelize or args.zero_1
+        if check_if_transformers_greater("4.30.0") and lazy_load:
+            optimizer_cls = make_optimizer_constructor_lazy(optimizer_cls)
+        return optimizer_cls, optimizer_kwargs
+
+    @patch_within_function(("transformers.Trainer.get_optimizer_cls_and_kwargs", get_optimizer_cls_and_kwargs))
+    def create_optimizer(self):
+        return super().create_optimizer()
 
     def compute_loss(self, model, inputs, return_outputs: bool = False):
         self.state.last_inputs = inputs
@@ -206,6 +288,18 @@ class AugmentTrainerForTrainiumMixin:
         self.state.last_inputs = inputs
         self.trigger_on_step_middle_for_neuron_cache_callback(model)
         return super().prediction_step(model, inputs, prediction_loss_only, ignore_keys=ignore_keys)
+
+    @patch_within_function(("transformers.trainer.get_model_param_count", get_model_param_count))
+    def _inner_training_loop(
+        self, batch_size=None, args=None, resume_from_checkpoint=None, trial=None, ignore_keys_for_eval=None
+    ):
+        return super()._inner_training_loop(
+            batch_size=batch_size,
+            args=args,
+            resume_from_checkpoint=resume_from_checkpoint,
+            trial=trial,
+            ignore_keys_for_eval=ignore_keys_for_eval,
+        )
 
     # def _nested_gather_for_xla_fsdp(self, tensors, name=None):
     #     # if isinstance(tensors, (list, tuple)):
@@ -234,8 +328,8 @@ class AugmentTrainerForTrainiumMixin:
     #         return self._nested_gather_for_xla_fsdp(tensors, name="nested_gather_for_xla_fsdp")
     #     return super()._nested_gather(tensors, name=name)
 
-    def _save_checkpoint_for_xla_fsdp(self, model, trial, metrics=None):
-        if not self.is_fsdp_enabled:
+    def _save_checkpoint_with_accelerator(self, model, trial, metrics=None):
+        if self.accelerator.distributed_type is NeuronDistributedType.XLA_FSDP and not self.is_fsdp_enabled:
             # TODO: handle this case better?
             # Do we want to fail here? Can we save anyway?
             raise RuntimeError("Cannot save checkpoint if FSDP is not enabled.")
@@ -249,15 +343,17 @@ class AugmentTrainerForTrainiumMixin:
         output_dir = os.path.join(run_dir, checkpoint_folder)
         os.makedirs(output_dir, exist_ok=True)
 
-        # Save model
-        self.accelerator.state.fsdp_plugin.save_model(self.accelerator, self.model, output_dir)
+        if xm.is_master_ordinal():
+            os.makedirs(output_dir, exist_ok=True)
+            torch.save(self.args, os.path.join(output_dir, TRAINING_ARGS_NAME))
 
-        # Save optimizer
-        self.accelerator.state.fsdp_plugin.save_optimizer(self.accelerator, self.optimizer, self.model, output_dir)
+        if self.tokenizer is not None and self.args.should_save:
+            self.tokenizer.save_pretrained(output_dir)
 
-        # Save scheduler
-        with warnings.catch_warnings(record=True):
-            xm.save(self.lr_scheduler.state_dict(), os.path.join(output_dir, SCHEDULER_NAME))
+        if isinstance(self.model, PreTrainedModel):
+            self.model.config.save_pretrained(output_dir)
+
+        self.accelerator.save_state(output_dir)
 
         # Save scaler
         # TODO: is grad scaling supported with TORCH XLA?
@@ -312,9 +408,23 @@ class AugmentTrainerForTrainiumMixin:
             self._rotate_checkpoints(use_mtime=True, output_dir=run_dir)
 
     def _save_checkpoint(self, model, trial, metrics=None):
-        if self.fsdp or self.is_fsdp_enabled:
-            return self._save_checkpoint_for_xla_fsdp(model, trial, metrics=metrics)
+        if check_if_transformers_greater("4.30.0") and self.accelerator.distributed_type in [
+            NeuronDistributedType.XLA_FSDP,
+            NeuronDistributedType.TENSOR_PARALLELISM,
+        ]:
+            return self._save_checkpoint_with_accelerator(model, trial, metrics=metrics)
         return super()._save_checkpoint(model, trial, metrics=metrics)
+
+    def save_model(self, output_dir: Optional[str] = None, _internal_call: bool = False):
+        if output_dir is None:
+            output_dir = self.args.output_dir
+        if self.accelerator.distributed_type is NeuronDistributedType.XLA_FSDP:
+            self.accelerator.state.fsdp_plugin.save_model(self.accelerator, self.model, output_dir, 0)
+        elif self.accelerator.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
+            parallelizer = ParallelizersManager.parallelizer_for_model(self.model)
+            parallelizer.save_model_checkpoint(self.model, output_dir, as_regular=False)
+        else:
+            return super().save_model(output_dir=output_dir, _internal_call=_internal_call)
 
     def _load_optimizer_and_scheduler_for_xla_fsdp(self, checkpoint):
         if checkpoint is None:
@@ -353,13 +463,13 @@ class AugmentTrainerForTrainiumMixin:
         )
 
 
-class TrainiumTrainer(AugmentTrainerForTrainiumMixin, Trainer):
+class NeuronTrainer(AugmentTrainerForNeuronMixin, Trainer):
     """
     Trainer that is suited for performing training on AWS Tranium instances.
     """
 
 
-class Seq2SeqTrainiumTrainer(AugmentTrainerForTrainiumMixin, Seq2SeqTrainer):
+class Seq2SeqNeuronTrainer(AugmentTrainerForNeuronMixin, Seq2SeqTrainer):
     """
     Seq2SeqTrainer that is suited for performing training on AWS Tranium instances.
     """

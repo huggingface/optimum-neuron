@@ -19,9 +19,9 @@ from transformers.utils import _LazyModule
 
 
 _import_structure = {
-    "hf_argparser": ["TrainiumHfArgumentParser"],
-    "trainers": ["TrainiumTrainer", "Seq2SeqTrainiumTrainer"],
-    "training_args": ["TrainiumTrainingArguments", "Seq2SeqTrainiumTrainingArguments"],
+    "hf_argparser": ["NeuronHfArgumentParser"],
+    "trainers": ["NeuronTrainer", "Seq2SeqNeuronTrainer"],
+    "training_args": ["NeuronTrainingArguments", "Seq2SeqNeuronTrainingArguments"],
     "modeling_base": ["NeuronBaseModel"],
     "modeling": [
         "NeuronModelForFeatureExtraction",
@@ -30,18 +30,27 @@ _import_structure = {
         "NeuronModelForSequenceClassification",
         "NeuronModelForTokenClassification",
         "NeuronModelForMultipleChoice",
+        "NeuronModelForCausalLM",
     ],
+    "modeling_diffusion": [
+        "NeuronStableDiffusionPipeline",
+        "NeuronStableDiffusionImg2ImgPipeline",
+        "NeuronStableDiffusionInpaintPipeline",
+    ],
+    "modeling_decoder": ["NeuronDecoderModel"],
     "accelerate": [
         "NeuronAccelerator",
         "NeuronAcceleratorState",
         "NeuronPartialState",
     ],
+    "pipelines": ["pipeline"],
 }
 
 if TYPE_CHECKING:
     from .accelerate import NeuronAccelerator, NeuronAcceleratorState, NeuronPartialState
-    from .hf_argparser import TrainiumHfArgumentParser
+    from .hf_argparser import NeuronHfArgumentParser
     from .modeling import (
+        NeuronModelForCausalLM,
         NeuronModelForFeatureExtraction,
         NeuronModelForMaskedLM,
         NeuronModelForMultipleChoice,
@@ -50,8 +59,16 @@ if TYPE_CHECKING:
         NeuronModelForTokenClassification,
     )
     from .modeling_base import NeuronBaseModel
-    from .trainers import Seq2SeqTrainiumTrainer, TrainiumTrainer
-    from .training_args import Seq2SeqTrainiumTrainingArguments, TrainiumTrainingArguments
+    from .modeling_decoder import NeuronDecoderModel
+    from .modeling_diffusion import (
+        NeuronStableDiffusionImg2ImgPipeline,
+        NeuronStableDiffusionInpaintPipeline,
+        NeuronStableDiffusionPipeline,
+    )
+    from .pipelines import pipeline
+    from .trainers import NeuronTrainer, Seq2SeqNeuronTrainer
+    from .training_args import NeuronTrainingArguments, Seq2SeqNeuronTrainingArguments
+
 else:
     import sys
 

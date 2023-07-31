@@ -17,6 +17,7 @@
 from ...utils import logging
 from ..base import BaseOptimumCLICommand, CommandInfo
 from .cache import CustomCacheRepoCommand
+from .subcommands import ConsolidateCommand
 
 
 logger = logging.get_logger()
@@ -28,7 +29,12 @@ class NeuronCommand(BaseOptimumCLICommand):
     SUBCOMMANDS = (
         CommandInfo(
             name="cache",
-            help="Manage the Trainium cache.",
+            help="Manage the Neuron cache.",
             subcommand_class=CustomCacheRepoCommand,
+        ),
+        CommandInfo(
+            name="consolidate",
+            help="Consolidate checkpoints that were produced during a parallel training setting.",
+            subcommand_class=ConsolidateCommand,
         ),
     )

@@ -17,17 +17,19 @@
     - local: guides/setup_aws_instance
       title: Set up AWS Trainium instance            
     - local: guides/cache_system
-      title: Trainium model cache
+      title: Neuron model cache
     - local: guides/fine_tune
       title: Fine-tune Transformers with AWS Trainium
     - local: guides/export_model
       title: Export a model to Inferentia
     - local: guides/models
       title: Neuron models for inference 
+    - local: guides/pipelines
+      title: Inference pipelines with AWS Neuron
     title: How-To Guides
   - sections:
     - local: package_reference/trainer
-      title: Trainium Trainer
+      title: Neuron Trainer
     - local: package_reference/export
       title: Inferentia Exporter
     - local: package_reference/configuration

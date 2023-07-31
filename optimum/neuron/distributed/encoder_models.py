@@ -14,86 +14,76 @@
 # limitations under the License.
 """Classes related to `neuronx-distributed` to perform parallelism."""
 
-from typing import TYPE_CHECKING, Optional, Type
+from typing import TYPE_CHECKING, Dict, Optional
 
-from transformers.models.bert.modeling_bert import BertSelfAttention, BertSelfOutput
-
-from ...utils import NormalizedConfigManager
-from ..utils import is_neuronx_distributed_available
 from .base import Parallelizer
-from .utils import linear_to_parallel_linear
+from .parallel_layers import ParallelSelfAttention, ParallelSelfOutput
 
-
-if is_neuronx_distributed_available():
-    from neuronx_distributed.parallel_layers import parallel_state
 
 if TYPE_CHECKING:
-    from transformers import PretrainedConfig, PreTrainedModel
+    import torch
+    from transformers import PreTrainedModel
 
 
-class ParallelSelfAttention:
-    QUERY_NAME = "query"
-    KEY_NAME = "key"
-    VALUE_NAME = "value"
+class BertParallelSelfAttention(ParallelSelfAttention):
     ALL_HEAD_SIZE_NAME = "all_head_size"
 
-    def __init__(self, config: "PretrainedConfig", position_embedding_type: Optional[Type] = None):
-        super().__init__(config, position_embedding_type)
-        self.normalized_config = NormalizedConfigManager.get_normalized_config_class(config.model_type)(config)
-        all_head_size = getattr(self, self.ALL_HEAD_SIZE_NAME)
-        for name in [self.QUERY_NAME, self.KEY_NAME, self.VALUE_NAME]:
-            setattr(
-                self,
-                name,
-                linear_to_parallel_linear(getattr(self, name), "column", gather_output=False),
-                # layers.ColumnParallelLinear(self.normalized_config.hidden_size, all_head_size, gather_output=False),
-            )
 
-        num_attention_heads_name = self.normalized_config.NUM_ATTENTION_HEADS
-        setattr(
-            self,
-            num_attention_heads_name,
-            self.normalized_config.num_attention_heads // parallel_state.get_tensor_model_parallel_size(),
-        )
-        setattr(
-            self,
-            self.ALL_HEAD_SIZE_NAME,
-            all_head_size / parallel_state.get_tensor_model_parallel_size(),
-        )
-
-
-class ParallelSelfOutput:
-    DENSE_NAME = "dense"
-
-    def __init__(self, config: "PretrainedConfig"):
-        super().__init__(config)
-        self.normalized_config = NormalizedConfigManager.get_normalized_config_class(config.model_type)(config)
-        setattr(
-            self,
-            self.DENSE_NAME,
-            linear_to_parallel_linear(getattr(self, self.DENSE_NAME), "row", input_is_parallel=True),
-            # layers.RowParallelLinear(config.hidden_size, config.hidden_size, input_is_parallel=True),
-        )
-
-
-class BertParallelSelfAttention(ParallelSelfAttention, BertSelfAttention):
-    pass
-
-
-class BertParallelSelfOutput(ParallelSelfOutput, BertSelfOutput):
+class BertParallelSelfOutput(ParallelSelfOutput):
     pass
 
 
 class BertParallelizer(Parallelizer):
     @classmethod
-    def parallelize(cls, model: "PreTrainedModel") -> "PreTrainedModel":
-        device = next(model.parameters()).device
+    def _parallelize(
+        cls,
+        model: "PreTrainedModel",
+        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]],
+        device: Optional["torch.device"] = None,
+    ) -> "PreTrainedModel":
         for layer in model.bert.encoder.layer:
-            layer.attention.self = BertParallelSelfAttention(model.config)
-            layer.attention.output = BertParallelSelfOutput(model.config)
-        model.to(device)
-        # neuronx_distributed.parallel_layers.load(model_path.as_posix(), model, sharded=False)
+            layer.attention.self = BertParallelSelfAttention.transform(
+                model,
+                layer.attention.self,
+                orig_to_parallel=orig_to_parallel,
+                device=device,
+            )
+            layer.attention.output = BertParallelSelfOutput.transform(
+                model,
+                layer.attention.output,
+                orig_to_parallel=orig_to_parallel,
+                device=device,
+            )
+        return model
 
-        devices = [f"{name} => {p.device}" for name, p in model.named_parameters()]
-        print("\n".join(devices))
+
+class RobertaParallelSelfAttention(BertParallelSelfAttention):
+    pass
+
+
+class RobertaParallelSelfOutput(BertParallelSelfOutput):
+    pass
+
+
+class RobertaParallelizer(Parallelizer):
+    @classmethod
+    def _parallelize(
+        cls,
+        model: "PreTrainedModel",
+        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]],
+        device: Optional["torch.device"] = None,
+    ) -> "PreTrainedModel":
+        for layer in model.roberta.encoder.layer:
+            layer.attention.self = RobertaParallelSelfAttention.transform(
+                model,
+                layer.attention.self,
+                orig_to_parallel=orig_to_parallel,
+                device=device,
+            )
+            layer.attention.output = RobertaParallelSelfOutput.transform(
+                model,
+                layer.attention.output,
+                orig_to_parallel=orig_to_parallel,
+                device=device,
+            )
         return model

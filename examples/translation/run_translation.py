@@ -46,9 +46,9 @@ from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
 
-from optimum.neuron import Seq2SeqTrainiumTrainer as Seq2SeqTrainer
-from optimum.neuron import Seq2SeqTrainiumTrainingArguments as Seq2SeqTrainingArguments
-from optimum.neuron import TrainiumHfArgumentParser as HfArgumentParser
+from optimum.neuron import NeuronHfArgumentParser as HfArgumentParser
+from optimum.neuron import Seq2SeqNeuronTrainer as Seq2SeqTrainer
+from optimum.neuron import Seq2SeqNeuronTrainingArguments as Seq2SeqTrainingArguments
 
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.

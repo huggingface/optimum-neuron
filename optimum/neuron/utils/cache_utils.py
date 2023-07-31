@@ -39,6 +39,7 @@ from huggingface_hub import (
     hf_hub_download,
 )
 from huggingface_hub.utils import EntryNotFoundError, HfHubHTTPError, RepositoryNotFoundError
+from packaging import version
 
 from ...utils import logging
 from ...utils.logging import warn_once
@@ -78,6 +79,20 @@ _WRITING_ACCESS_CACHE: Dict[Tuple[str, str], bool] = {}
 _REGISTRY_FILE_EXISTS: Dict[str, bool] = {}
 _ADDED_IN_REGISTRY: Dict[Tuple[str, "NeuronHash"], bool] = {}
 
+_NEW_CACHE_NAMING_CONVENTION_NEURONXCC_VERSION = "2.7.0.40+f7c6cf2a3"
+
+
+def follows_new_cache_naming_convention(neuronxcc_version: Optional[str] = None) -> bool:
+    """
+    The ways the cache is handled differs starting from `_NEW_CACHE_NAMING_CONVENTION_NEURONXCC_VERSION`.
+    This helper functions returns `True` if `neuronxcc_version` follows the new way the cache is handled and `False`
+    otherwise.
+    """
+    if neuronxcc_version is None:
+        neuronxcc_version = get_neuronxcc_version()
+    neuronxcc_version = version.parse(neuronxcc_version)
+    return neuronxcc_version >= version.parse(_NEW_CACHE_NAMING_CONVENTION_NEURONXCC_VERSION)
+
 
 def load_custom_cache_repo_name_from_hf_home(
     hf_home_cache_repo_file: Union[str, Path] = HF_HOME_CACHE_REPO_FILE
@@ -95,7 +110,7 @@ def set_custom_cache_repo_name_in_hf_home(repo_id: str, hf_home: str = HF_HOME, 
             HfApi().repo_info(repo_id, repo_type="model")
         except Exception as e:
             raise ValueError(
-                f"Could not save the custom Trainium cache repo to be {repo_id} because it does not exist or is "
+                f"Could not save the custom Neuron cache repo to be {repo_id} because it does not exist or is "
                 f"private to you. Complete exception message: {e}."
             )
 
@@ -140,12 +155,12 @@ def has_write_access_to_repo(repo_id: str) -> bool:
     with tempfile.NamedTemporaryFile() as fp:
         tmpfilename = Path(fp.name)
         try:
-            add_file = CommitOperationAdd(tmpfilename.name, tmpfilename.as_posix())
+            add_file = CommitOperationAdd(f"write_access_test/{tmpfilename.name}", tmpfilename.as_posix())
             HfApi().create_commit(repo_id, operations=[add_file], commit_message="Check write access")
         except (HfHubHTTPError, RepositoryNotFoundError):
             pass
         else:
-            delete_file = CommitOperationDelete(tmpfilename.name)
+            delete_file = CommitOperationDelete(f"write_access_test/{tmpfilename.name}")
             HfApi().create_commit(repo_id, operations=[delete_file], commit_message="Check write access [DONE]")
             has_access = True
 
@@ -160,9 +175,9 @@ def get_hf_hub_cache_repos():
     if saved_custom_cache_repo is None:
         warn_once(
             logger,
-            "No Trainium cache name is saved locally. This means that only the official Trainium cache, and "
-            "potentially a cache defined in $CUSTOM_CACHE_REPO will be used. You can create a Trainium cache repo by "
-            "running the following command: `optimum-cli neuron cache create`. If the Trainium cache already exists "
+            "No Neuron cache name is saved locally. This means that only the official Neuron cache, and "
+            "potentially a cache defined in $CUSTOM_CACHE_REPO will be used. You can create a Neuron cache repo by "
+            "running the following command: `optimum-cli neuron cache create`. If the Neuron cache already exists "
             "you can set it by running the following command: `optimum-cli neuron cache set -n [name]`.",
         )
     else:
@@ -190,7 +205,7 @@ def get_hf_hub_cache_repos():
         warn_once(
             logger,
             f"You do not have write access to {hf_hub_repos[0]} so you will not be able to push any cached compilation "
-            "files. Please log in and/or use a custom Trainium cache.",
+            "files. Please log in and/or use a custom Neuron cache.",
         )
     return hf_hub_repos
 
@@ -208,7 +223,11 @@ def get_neuron_cache_path() -> Optional[Path]:
         else:
             path = Path("/var/tmp")
 
-        return path / NEURON_COMPILE_CACHE_NAME
+        # TODO: is that correct?
+        if not follows_new_cache_naming_convention():
+            path = path / NEURON_COMPILE_CACHE_NAME
+
+        return path
 
 
 def set_neuron_cache_path(neuron_cache_path: Union[str, Path], ignore_no_cache: bool = False):
@@ -389,11 +408,14 @@ def _list_in_registry_dict(
     if neuron_compiler_version is not None:
         registry = registry.get(neuron_compiler_version, {})
     else:
-        for version in registry:
+        for version_ in registry:
             entries += _list_in_registry_dict(
-                registry, model_name_or_path_or_hash=model_name_or_path_or_hash, neuron_compiler_version=version
+                registry, model_name_or_path_or_hash=model_name_or_path_or_hash, neuron_compiler_version=version_
             )
         return entries
+
+    def validate_features_input_shapes(input_shapes: Tuple[Tuple[str, Tuple[int, ...]], ...]) -> bool:
+        return len(input_shapes) > 0 and all(len(entry) == 2 for entry in input_shapes)
 
     # model_key is either a model name or path or a model hash.
     for model_key in registry:
@@ -405,11 +427,13 @@ def _list_in_registry_dict(
             continue
 
         for features in data["features"]:
+            if not validate_features_input_shapes(features["input_shapes"]):
+                continue
             if len(features["input_shapes"]) > 1:
                 inputs = "\n\t- ".join(f"{x[0]} => {x[1]}" for x in features["input_shapes"])
                 inputs = f"\t- {inputs}"
             else:
-                x = features["input_shapes"]
+                x = features["input_shapes"][0]
                 inputs = f"\t- {x[0]} => {x[1]}"
             information = [
                 f"Model name:\t{data['model_name_or_path']}",
@@ -472,16 +496,92 @@ class _MutableHashAttribute:
 
 
 @dataclass(frozen=True)
+class _UnspecifiedHashAttribute:
+    min_optimum_neuron_version: Optional[str] = None
+    min_neuron_compiler_version: Optional[str] = None
+    default: Optional[Any] = None
+
+    @classmethod
+    def with_args(
+        cls,
+        min_optimum_neuron_version: Optional[str] = None,
+        min_neuron_compiler_version: Optional[str] = None,
+        default: Optional[Any] = None,
+    ) -> Callable[[], "_UnspecifiedHashAttribute"]:
+        def constructor():
+            return cls(
+                min_optimum_neuron_version=min_optimum_neuron_version,
+                min_neuron_compiler_version=min_neuron_compiler_version,
+                default=default,
+            )
+
+        return constructor
+
+    def check_requirements_are_met(self, neuron_compiler_version: str):
+        if self.should_be_inserted_in_hash_dict(neuron_compiler_version) and self.default is None:
+            raise ValueError("A default value must be specified.")
+        # from ..version import __version__
+
+        # optimum_neuron_requirement = True
+        # if self.min_optimum_neuron_version is not None:
+        #     if version.parse(__version__) >= version.parse(self.min_optimum_neuron_version):
+        #         optimum_neuron_requirement = self.default is not None
+
+        # neuron_compiler_requirement = True
+        # if self.min_neuron_compiler_version is not None:
+        #     if version.parse(neuron_compiler_version) >= version.parse(self.min_neuron_compiler_version):
+        #         neuron_compiler_requirement = self.default is not None
+
+        # if not optimum_neuron_requirement or not neuron_compiler_requirement:
+        #     raise ValueError("A default value must be specified.")
+
+    def should_be_inserted_in_hash_dict(self, neuron_compiler_version: str) -> bool:
+        from ..version import __version__
+
+        optimum_neuron_requirement = False
+        if self.min_optimum_neuron_version is not None:
+            optimum_neuron_requirement = version.parse(__version__) >= version.parse(self.min_optimum_neuron_version)
+
+        neuron_compiler_requirement = False
+        if self.min_neuron_compiler_version is not None:
+            neuron_compiler_requirement = version.parse(neuron_compiler_version) >= version.parse(
+                self.min_neuron_compiler_version
+            )
+
+        return optimum_neuron_requirement or neuron_compiler_requirement
+
+
+@dataclass(frozen=True)
 class NeuronHash:
     model: "PreTrainedModel"
     input_shapes: Tuple[Tuple[str, Tuple[int, ...]], ...]
     data_type: torch.dtype
     num_neuron_cores: int = field(default_factory=get_num_neuron_cores_used)
     neuron_compiler_version: str = field(default_factory=get_neuronxcc_version)
+    fsdp: Union[int, _UnspecifiedHashAttribute] = field(
+        default_factory=_UnspecifiedHashAttribute.with_args(min_optimum_neuron_version="0.0.8", default=False)
+    )
+    tensor_parallel_size: Union[int, _UnspecifiedHashAttribute] = field(
+        default_factory=_UnspecifiedHashAttribute.with_args(min_optimum_neuron_version="0.0.8", default=1)
+    )
     _hash: _MutableHashAttribute = field(default_factory=_MutableHashAttribute)
 
     def __post_init__(self):
+        for attr in self.__dict__.values():
+            if isinstance(attr, _UnspecifiedHashAttribute):
+                attr.check_requirements_are_met(self.neuron_compiler_version)
         self.compute_hash()
+
+    def _insert_potential_unspecified_hash_attribute(
+        self, attribute_name: str, attribute: Any, hash_dict: Dict[str, Any]
+    ):
+        """
+        Inserts `attribute` in `hash_dict` only if it is a specified attribute or if it has a default value.
+        """
+        if isinstance(attribute, _UnspecifiedHashAttribute) and attribute.should_be_inserted_in_hash_dict:
+            hash_dict[attribute_name] = attribute.default
+        else:
+            hash_dict[attribute_name] = attribute
 
     @property
     def hash_dict(self) -> Dict[str, Any]:
@@ -490,13 +590,20 @@ class NeuronHash:
         hash_dict["_model_class"] = self.model.__class__
         hash_dict["_is_model_training"] = self.model.training
         hash_dict.pop("_hash")
+
+        self._insert_potential_unspecified_hash_attribute("tensor_parallel_size", self.tensor_parallel_size, hash_dict)
+        self._insert_potential_unspecified_hash_attribute("fsdp", self.fsdp, hash_dict)
+
         return hash_dict
 
     def state_dict_to_bytes(self, state_dict: Dict[str, torch.Tensor]) -> bytes:
+        cast_to_mapping = {
+            torch.bfloat16: torch.float16,
+        }
         bytes_to_join = []
         for name, tensor in state_dict.items():
             memfile = io.BytesIO()
-            np.save(memfile, tensor.cpu().numpy())
+            np.save(memfile, tensor.to(cast_to_mapping.get(tensor.dtype, tensor.dtype)).cpu().numpy())
             bytes_to_join.append(name.encode("utf-8"))
             bytes_to_join.append(memfile.getvalue())
         return b"".join(bytes_to_join)
@@ -539,6 +646,8 @@ class NeuronHash:
 
     @property
     def neuron_compiler_version_dir_name(self):
+        if follows_new_cache_naming_convention():
+            return f"neuronxcc-{self.neuron_compiler_version}"
         return f"USER_neuroncc-{self.neuron_compiler_version}"
 
     @property
