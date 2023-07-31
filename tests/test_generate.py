@@ -9,10 +9,6 @@ from optimum.neuron.trainers import patch_generation_mixin_to_neuron_generation_
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
 
-def _get_tokenizer(model_name):
-    return AutoTokenizer.from_pretrained(model_name)
-
-
 def _test_generative_decoding(
     model_name,
     device="cpu",
@@ -30,7 +26,7 @@ def _test_generative_decoding(
         device = "cpu"
 
     if tokenizer is None:
-        tokenizer = _get_tokenizer(model_name)
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
 
     model = (
         AutoModelForCausalLM.from_pretrained(model_name).to(device)
@@ -138,7 +134,7 @@ def test_constrained_decoding(model_name, use_cache, decoder_only, compiler_flag
     config_update = {"num_beams": 4, "min_length": 21, "max_length": 21}
 
     # Create a phrasal constraint
-    tokenizer = _get_tokenizer(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
     constraints = [PhrasalConstraint(tokenizer("Sie", add_special_tokens=False).input_ids)]
 
     os.environ["XLA_USE_BF16"] = "0"
