@@ -16,12 +16,12 @@ limitations under the License.
 
 # Configuration classes for Neuron exports
 
-Exporting a PyTorch model to neuron compiled model involves specifying:
+Exporting a PyTorch model to a Neuron compiled model involves specifying:
 
 1. The input names.
 2. The output names.
-3. Dummy inputs used to trace the model. This is needed for Neuron-Compiler to record the computational graph and convert it to TorchScript module.
-4. Compilation arguments used to control the trade-off between hardware efficiency(latency, throughput) and accuracy.
+3. The dummy inputs used to trace the model. This is needed by the Neuron Compiler to record the computational graph and convert it to a TorchScript module.
+4. The compilation arguments used to control the trade-off between hardware efficiency (latency, throughput) and accuracy.
 
 Depending on the choice of model and task, we represent the data above with _configuration classes_. Each configuration class is associated with
 a specific model architecture, and follows the naming convention `ArchitectureNameNeuronConfig`. For instance, the configuration which specifies the Neuron
@@ -56,6 +56,7 @@ Since many architectures share similar properties for their Neuron configuration
 | RoFormer               | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
 | XLM                    | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
 | XLM-RoBERTa            | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| Stable Diffusion       | N/A                                                                                                                                           |
 
 
 <Tip>

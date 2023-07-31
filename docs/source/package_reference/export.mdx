@@ -16,8 +16,75 @@ limitations under the License.
 
 # Inferentia Exporter
 
-You can export a PyTorch model to Neuron compiled model with 🤗 Optimum to run inference on AWS [Inferntia 1](https://aws.amazon.com/ec2/instance-types/inf1/)
-and [Inferentia 2](https://aws.amazon.com/ec2/instance-types/inf2/). There is an export function for each generation of the Inferentia accelerator, [`~optimum.exporters.neuron.convert.export_neuron`]
+You can export a PyTorch model to Neuron with 🤗 Optimum to run inference on AWS [Inferntia 1](https://aws.amazon.com/ec2/instance-types/inf1/)
+and [Inferentia 2](https://aws.amazon.com/ec2/instance-types/inf2/). 
+
+## Export functions
+
+There is an export function for each generation of the Inferentia accelerator, [`~optimum.exporters.neuron.convert.export_neuron`]
 for INF1 and [`~optimum.exporters.onnx.convert.export_neuronx`] on INF2, but you will be able to use directly the export function [`~optimum.exporters.neuron.convert.export`], which will select the proper
-exporting function according to the environment. Besides, you can check if the exported model's performance is valid via [`~optimum.exporters.neuron.convert.validate_model_outputs`], to compare
-the compiled model on neuron devices to the PyTorch model on CPU.
+exporting function according to the environment. 
+
+Besides, you can check if the exported model is valid via [`~optimum.exporters.neuron.convert.validate_model_outputs`], which compares
+the compiled model on Neuron devices's output to the PyTorch model on CPU's output.
+
+[[autodoc]] exporters.convert.export_neuron
+
+[[autodoc]] exporters.convert.export_neuronx
+
+[[autodoc]] exporters.convert.export
+
+[[autodoc]] exporters.convert.validate_model_outputs
+
+## Configuration classes for Neuron exports
+
+Exporting a PyTorch model to a Neuron compiled model involves specifying:
+
+1. The input names.
+2. The output names.
+3. The dummy inputs used to trace the model. This is needed by the Neuron Compiler to record the computational graph and convert it to a TorchScript module.
+4. The compilation arguments used to control the trade-off between hardware efficiency (latency, throughput) and accuracy.
+
+Depending on the choice of model and task, we represent the data above with _configuration classes_. Each configuration class is associated with
+a specific model architecture, and follows the naming convention `ArchitectureNameNeuronConfig`. For instance, the configuration which specifies the Neuron
+export of BERT models is `BertNeuronConfig`.
+
+Since many architectures share similar properties for their Neuron configuration, 🤗 Optimum adopts a 3-level class hierarchy:
+
+1. Abstract and generic base classes. These handle all the fundamental features, while being agnostic to the modality (text, image, audio, etc).
+2. Middle-end classes. These are aware of the modality, but multiple can exist for the same modality depending on the inputs they support.
+   They specify which input generators should be used for the dummy inputs, but remain model-agnostic.
+3. Model-specific classes like the `BertNeuronConfig` mentioned above. These are the ones actually used to export models.
+
+
+## Supported architectures
+
+
+| Architecture           | Task                                                                                                                                          |
+|------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
+| ALBERT                 | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| BERT                   | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| CamemBERT              | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| ConvBERT               | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| DeBERTa (INF2 only)    | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| DeBERTa-v2 (INF2 only) | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| DistilBERT             | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| ELECTRA                | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| FlauBERT               | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| GPT2                   | text-generation                                                                                                                               |
+| MobileBERT             | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| MPNet                  | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| RoBERTa                | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| RoFormer               | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| XLM                    | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| XLM-RoBERTa            | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| Stable Diffusion       | N/A                                                                                                                                           |
+
+
+<Tip>
+
+More details for checking supported tasks [here](https://huggingface.co/docs/optimum-neuron/guides/export_model#selecting-a-task).
+
+</Tip>
+
+More architectures coming soon, stay tuned! 🚀

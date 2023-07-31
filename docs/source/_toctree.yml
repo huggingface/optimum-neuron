@@ -31,7 +31,7 @@
     - local: package_reference/trainer
       title: Neuron Trainer
     - local: package_reference/export
-      title: Inferentia Exporter
+      title: Neuron Exporter
     - local: package_reference/configuration
       title: Configuration classes for Neuron exports
     - local: package_reference/modeling
