@@ -42,7 +42,6 @@ class BertParallelizer(Parallelizer):
         device: Optional["torch.device"] = None,
     ) -> "PreTrainedModel":
         for layer in model.bert.encoder.layer:
-            continue
             layer.attention.self = BertParallelSelfAttention.transform(
                 model,
                 layer.attention.self,

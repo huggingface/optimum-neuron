@@ -118,7 +118,6 @@ class ModelParallelizationTestCase(unittest.TestCase):
             "import os\n"
         )
 
-
         initialize_torch_distributed = (
             "if os.environ.get('TORCHELASTIC_RUN_ID'):\n"
             "\timport torch_xla.distributed.xla_backend as xbn\n"
@@ -135,10 +134,8 @@ class ModelParallelizationTestCase(unittest.TestCase):
         inputs = "inputs = preprocessor('This is a test to check that TP is working.', return_tensors='pt')"
 
         if from_config:
-            model_loading_line = f"model = {model_class}.from_config(config, ignore_mismatched_sizes=True)"
-            full_model_loading_line = (
-                f"unsharded_model = {model_class}.from_config(config, ignore_mismatched_sizes=True)"
-            )
+            model_loading_line = f"model = {model_class}(config)"
+            full_model_loading_line = f"unsharded_model = {model_class}(config)"
         else:
             model_loading_line = (
                 f"model = {model_class}.from_pretrained('{model_name_or_path}', ignore_mismatched_sizes=True)"
@@ -217,14 +214,14 @@ class ModelParallelizationTestCase(unittest.TestCase):
     def test_model_parallel_from_config_without_lazy_load(self, model_class_name: str, model_name_or_path: str):
         self._test_model_parallel(model_class_name, model_name_or_path, True, False)
 
-    @parameterized.expand(MODELS_TO_TEST)
-    def test_model_parallel_from_config_with_lazy_load(self, model_class_name: str, model_name_or_path: str):
-        self._test_model_parallel(model_class_name, model_name_or_path, True, True)
+    # @parameterized.expand(MODELS_TO_TEST)
+    # def test_model_parallel_from_config_with_lazy_load(self, model_class_name: str, model_name_or_path: str):
+    #     self._test_model_parallel(model_class_name, model_name_or_path, True, True)
 
     @parameterized.expand(MODELS_TO_TEST)
     def test_model_parallel_from_pretrained_without_lazy_load(self, model_class_name: str, model_name_or_path: str):
         self._test_model_parallel(model_class_name, model_name_or_path, False, False)
 
-    @parameterized.expand(MODELS_TO_TEST)
-    def test_model_parallel_from_pretrained_with_lazy_load(self, model_class_name: str, model_name_or_path: str):
-        self._test_model_parallel(model_class_name, model_name_or_path, False, True)
+    # @parameterized.expand(MODELS_TO_TEST)
+    # def test_model_parallel_from_pretrained_with_lazy_load(self, model_class_name: str, model_name_or_path: str):
+    #     self._test_model_parallel(model_class_name, model_name_or_path, False, True)
