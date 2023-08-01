@@ -121,6 +121,14 @@ class ParallelEmbedding(ParallelLayer):
         orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
         device: Optional["torch.device"] = None,
     ) -> "torch.nn.Module":
+        if cls.LM_HEAD_NAME is not None:
+            parent_lm_head_module, parent_lm_head_attribute_name = cls._get_module_and_attribute_name(
+                layer, cls.LM_HEAD_NAME
+            )
+            model_has_lm_head = hasattr(parent_lm_head_module, parent_lm_head_attribute_name)
+        else:
+            model_has_lm_head = False
+
         embedding_weight_info = None
         lm_head_weight_info = None
         lm_head_bias_weight_info = None
@@ -137,7 +145,7 @@ class ParallelEmbedding(ParallelLayer):
                 embedding_weight_name,
                 device=device,
             )
-            if cls.LM_HEAD_NAME is not None:
+            if model_has_lm_head:
                 if layer_qualified_name:
                     lm_head_weight_name = f"{layer_qualified_name}.{cls.LM_HEAD_NAME}.weight"
                     lm_head_bias_weight_name = f"{layer_qualified_name}.{cls.LM_HEAD_NAME}.bias"
@@ -154,7 +162,7 @@ class ParallelEmbedding(ParallelLayer):
 
         parallel_layers = embedding_to_parallel_embedding(
             layer.get_submodule(cls.EMBEDDING_NAME),
-            lm_head_layer=layer.get_submodule(cls.LM_HEAD_NAME) if cls.LM_HEAD_NAME is not None else None,
+            lm_head_layer=layer.get_submodule(cls.LM_HEAD_NAME) if model_has_lm_head else None,
             embedding_weight_info=embedding_weight_info,
             lm_head_weight_info=lm_head_weight_info,
             lm_head_bias_weight_info=lm_head_bias_weight_info,
@@ -164,13 +172,12 @@ class ParallelEmbedding(ParallelLayer):
         parent_embedding_module, embedding_attribute_name = cls._get_module_and_attribute_name(
             layer, cls.EMBEDDING_NAME
         )
-        if cls.LM_HEAD_NAME is not None:
+        if model_has_lm_head:
             setattr(parent_embedding_module, embedding_attribute_name, parallel_layers[0])
-            module, attribute_name = cls._get_module_and_attribute_name(layer, cls.LM_HEAD_NAME)
-            setattr(module, attribute_name, parallel_layers[1])
+            setattr(parent_lm_head_module, parent_lm_head_attribute_name, parallel_layers[1])
         else:
             setattr(parent_embedding_module, embedding_attribute_name, parallel_layers)
-        return parallel_layers
+        return layer
 
 
 class ParallelSelfAttention(ParallelLayer):

@@ -91,7 +91,7 @@ MODEL_TYPES_TO_TEST = [
     ("bert", "hf-internal-testing/tiny-random-bert"),
     ("roberta", "hf-internal-testing/tiny-random-roberta"),
     ("gpt_neo", "hf-internal-testing/tiny-random-GPTNeoModel"),
-    ("llama", "HuggingFaceM4/tiny-random-LlamaForCausalLM"),
+    ("llama", "fxmarty/tiny-llama-fast-tokenizer"),
 ]
 
 MODELS_TO_TEST = []
@@ -116,6 +116,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
             "from optimum.neuron.distributed import ParallelizersManager, lazy_load_for_parallelism\n"
             "import neuronx_distributed\n"
             "import os\n"
+            "from inspect import signature\n"
         )
 
         initialize_torch_distributed = (
@@ -159,6 +160,8 @@ class ModelParallelizationTestCase(unittest.TestCase):
             "unsharded_model = unsharded_model.to('xla')\n"
             "parallel_model = parallel_model.to('xla')\n"
             "xla_inputs = {k: v.to('xla') for k, v in inputs.items()}\n"
+            "sig = signature(parallel_model.forward)\n"
+            "xla_inputs = {k: v for k, v in xla_inputs.items() if k in sig.parameters}\n"
             "model_outputs = unsharded_model(**xla_inputs, return_dict=True)\n"
             "parallel_model_outputs = parallel_model(**xla_inputs, return_dict=True)\n"
             "for name, t in parallel_model_outputs.items():\n"
