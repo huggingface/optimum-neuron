@@ -26,7 +26,7 @@ from transformers import PretrainedConfig
 
 from ..utils import DynamicPatch, Patcher, is_neuronx_distributed_available, is_torch_xla_available
 from ..utils.misc import download_checkpoints_in_cache
-from ..utils.require_utils import requires_safetensors, requires_torch_xla
+from ..utils.require_utils import requires_neuronx_distributed, requires_safetensors, requires_torch_xla
 
 
 if is_torch_xla_available():
@@ -38,13 +38,6 @@ else:
 
 if is_neuronx_distributed_available():
     from neuronx_distributed.parallel_layers import layers
-    from neuronx_distributed.parallel_layers.parallel_state import (
-        get_data_parallel_group,
-        get_data_parallel_rank,
-        get_data_parallel_size,
-        get_tensor_model_parallel_rank,
-        model_parallel_is_initialized,
-    )
 
 TENSOR_PARALLEL_SHARDS_DIR_NAME = "tensor_parallel_shards"
 
@@ -115,6 +108,7 @@ def _validate_weight_info_device_matches_specified_device(device: "torch.device"
         )
 
 
+@requires_neuronx_distributed
 def embedding_to_parallel_embedding(
     embedding_layer: "torch.nn.Embedding",
     lm_head_layer: Optional["torch.nn.Linear"] = None,
@@ -151,6 +145,11 @@ def embedding_to_parallel_embedding(
         `Union[ParallelEmbedding, Tuple[ParallelEmbedding", ColumnParallelLinear]]`: The parallel embedding and the
         parallel linear projection if specified.
     """
+    from neuronx_distributed.parallel_layers import layers
+    from neuronx_distributed.parallel_layers.parallel_state import (
+        get_tensor_model_parallel_rank,
+    )
+
     device = device if device is not None else torch.device("cpu")
 
     for weight_info in [embedding_weight_info, lm_head_weight_info, lm_head_bias_weight_info]:
@@ -212,6 +211,7 @@ def embedding_to_parallel_embedding(
     return parallel_embedding_layer, parallel_lm_head_layer
 
 
+@requires_neuronx_distributed
 def linear_to_parallel_linear(
     linear_layer: "torch.nn.Linear",
     axis: Union[Literal["row"], Literal["column"]],
@@ -253,6 +253,11 @@ def linear_to_parallel_linear(
     Returns:
         `Union[RowParallelLinear, ColumnParallelLinear]`: The parallel linear layer.
     """
+    from neuronx_distributed.parallel_layers import layers
+    from neuronx_distributed.parallel_layers.parallel_state import (
+        get_tensor_model_parallel_rank,
+    )
+
     if axis not in ["row", "column"]:
         raise ValueError(f'axis must either be "row" or "column", but {axis} was given here.')
 
@@ -513,6 +518,7 @@ def make_optimizer_constructor_lazy(optimizer_cls: Type["torch.optim.Optimizer"]
 
 
 @requires_torch_xla
+@requires_neuronx_distributed
 class ZeroRedundancyOptimizerCompatibleWithTensorParallelism(ZeroRedundancyOptimizer):
     def __init__(
         self,
@@ -524,6 +530,13 @@ class ZeroRedundancyOptimizerCompatibleWithTensorParallelism(ZeroRedundancyOptim
         pin_layout: bool = True,
         **defaults: Any,
     ):
+        from neuronx_distributed.parallel_layers.parallel_state import (
+            get_data_parallel_group,
+            get_data_parallel_rank,
+            get_data_parallel_size,
+            model_parallel_is_initialized,
+        )
+
         if not is_neuronx_distributed_available() or not model_parallel_is_initialized():
             return super().__init__(
                 params,
