@@ -92,6 +92,7 @@ MODEL_TYPES_TO_TEST = [
     ("roberta", "hf-internal-testing/tiny-random-roberta"),
     ("gpt_neo", "hf-internal-testing/tiny-random-GPTNeoModel"),
     ("llama", "fxmarty/tiny-llama-fast-tokenizer"),
+    ("t5", "patrickvonplaten/t5-tiny-random"),
 ]
 
 MODELS_TO_TEST = []
@@ -161,12 +162,17 @@ class ModelParallelizationTestCase(unittest.TestCase):
             "parallel_model = parallel_model.to('xla')\n"
             "xla_inputs = {k: v.to('xla') for k, v in inputs.items()}\n"
             "sig = signature(parallel_model.forward)\n"
+            "if unsharded_model.config.is_encoder_decoder:\n"
+            "    decoder_xla_inputs = {f'decoder_{k}': v for k, v in xla_inputs.items()}\n"
+            "    xla_inputs.update(decoder_xla_inputs)\n"
             "xla_inputs = {k: v for k, v in xla_inputs.items() if k in sig.parameters}\n"
+            "print(parallel_model)\n"
             "model_outputs = unsharded_model(**xla_inputs, return_dict=True)\n"
             "parallel_model_outputs = parallel_model(**xla_inputs, return_dict=True)\n"
             "for name, t in parallel_model_outputs.items():\n"
             "   if not isinstance(t, torch.Tensor):\n"
             "       continue\n"
+            "   print(t, model_outputs[name])\n"
             "   torch.testing.assert_close(t, model_outputs[name])\n"
             "print('This is a success')\n"
         )
@@ -210,8 +216,9 @@ class ModelParallelizationTestCase(unittest.TestCase):
             stderr = stderr.decode("utf-8")
 
             full_output = f"Standard output:\n{stdout}\nStandard error:\n{stderr}"
+            print(full_output)
 
-            assert "This is a success" in stdout, full_output
+            assert "This is a success" in stdout
 
     @parameterized.expand(MODELS_TO_TEST)
     def test_model_parallel_from_config_without_lazy_load(self, model_class_name: str, model_name_or_path: str):
