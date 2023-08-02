@@ -40,6 +40,8 @@ from transformers.models.auto.modeling_auto import (
     MODEL_FOR_ZERO_SHOT_IMAGE_CLASSIFICATION_MAPPING_NAMES,
 )
 
+from ..test_utils import is_trainium_test
+
 
 if TYPE_CHECKING:
     from transformers import PretrainedConfig
@@ -101,6 +103,7 @@ for model_type, model_name_or_path in MODEL_TYPES_TO_TEST:
         MODELS_TO_TEST.append((model_class_name, model_name_or_path))
 
 
+@is_trainium_test
 class ModelParallelizationTestCase(unittest.TestCase):
     def get_parallel_test_python_file_content(
         self,
