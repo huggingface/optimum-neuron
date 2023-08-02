@@ -71,7 +71,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         self,
         text_encoder: torch.jit._script.ScriptModule,
         unet: torch.jit._script.ScriptModule,
-        vae_encoder: torch.jit._script.ScriptModule,
+        # vae_encoder: torch.jit._script.ScriptModule,
         vae_decoder: torch.jit._script.ScriptModule,
         config: Dict[str, Any],
         tokenizer: CLIPTokenizer,
@@ -125,12 +125,12 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         self.unet = NeuronModelUnet(
             unet, self, self.configs[DIFFUSION_MODEL_UNET_NAME], self.neuron_configs[DIFFUSION_MODEL_UNET_NAME]
         )
-        self.vae_encoder = NeuronModelVaeEncoder(
-            vae_encoder,
-            self,
-            self.configs[DIFFUSION_MODEL_VAE_ENCODER_NAME],
-            self.neuron_configs[DIFFUSION_MODEL_VAE_ENCODER_NAME],
-        )
+        # self.vae_encoder = NeuronModelVaeEncoder(
+        #     vae_encoder,
+        #     self,
+        #     self.configs[DIFFUSION_MODEL_VAE_ENCODER_NAME],
+        #     self.neuron_configs[DIFFUSION_MODEL_VAE_ENCODER_NAME],
+        # )
         self.vae_decoder = NeuronModelVaeDecoder(
             vae_decoder,
             self,
@@ -145,7 +145,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         sub_models = {
             DIFFUSION_MODEL_TEXT_ENCODER_NAME: self.text_encoder,
             DIFFUSION_MODEL_UNET_NAME: self.unet,
-            DIFFUSION_MODEL_VAE_ENCODER_NAME: self.vae_encoder,
+            # DIFFUSION_MODEL_VAE_ENCODER_NAME: self.vae_encoder,
             DIFFUSION_MODEL_VAE_DECODER_NAME: self.vae_decoder,
         }
         for name in sub_models.keys():
@@ -282,10 +282,10 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 new_model_save_dir / DIFFUSION_MODEL_UNET_NAME / unet_file_name,
                 new_model_save_dir / DIFFUSION_MODEL_UNET_NAME / cls.sub_component_config_name,
             ),
-            "vae_encoder": (
-                new_model_save_dir / DIFFUSION_MODEL_VAE_ENCODER_NAME / vae_encoder_file_name,
-                new_model_save_dir / DIFFUSION_MODEL_VAE_ENCODER_NAME / cls.sub_component_config_name,
-            ),
+            # "vae_encoder": (
+            #     new_model_save_dir / DIFFUSION_MODEL_VAE_ENCODER_NAME / vae_encoder_file_name,
+            #     new_model_save_dir / DIFFUSION_MODEL_VAE_ENCODER_NAME / cls.sub_component_config_name,
+            # ),
             "vae_decoder": (
                 new_model_save_dir / DIFFUSION_MODEL_VAE_DECODER_NAME / vae_decoder_file_name,
                 new_model_save_dir / DIFFUSION_MODEL_VAE_DECODER_NAME / cls.sub_component_config_name,
@@ -309,7 +309,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             )
         else:
             unet = cls.load_model(model_and_config_save_paths["unet"][0])
-        vae_encoder = cls.load_model(model_and_config_save_paths["vae_encoder"][0])
+        # vae_encoder = cls.load_model(model_and_config_save_paths["vae_encoder"][0])
         vae_decoder = cls.load_model(model_and_config_save_paths["vae_decoder"][0])
 
         if model_save_dir is None:
@@ -318,7 +318,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         return cls(
             text_encoder=text_encoder,
             unet=unet,
-            vae_encoder=vae_encoder,
+            # vae_encoder=vae_encoder,
             vae_decoder=vae_decoder,
             config=config,
             tokenizer=sub_models["tokenizer"],

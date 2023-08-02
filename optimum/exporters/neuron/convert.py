@@ -340,7 +340,7 @@ def export_models(
 
     # remove models failed to export
     for i, model_name in failed_models:
-        output_file_names.pop(i)
+        output_file_names.pop(model_name)
         models_and_neuron_configs.pop(model_name)
 
     outputs = list(map(list, zip(*outputs)))
@@ -426,8 +426,10 @@ def export_neuronx(
         compiler_args = ["--auto-cast", "none"]
 
     # diffusers specific
-    if hasattr(config._config, "_class_name") and "unet" in config._config._class_name.lower():
-        compiler_args.extend(["--model-type", "unet-inference"])
+    if hasattr(config._config, "_class_name"):
+        if "unet" in config._config._class_name.lower():
+            compiler_args.extend(["--model-type=unet-inference"])
+        compiler_args.extend(["--enable-fast-loading-neuron-binaries"])
 
     neuron_model = neuronx.trace(checked_model, dummy_inputs_tuple, compiler_args=compiler_args)
 

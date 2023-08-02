@@ -37,7 +37,7 @@ def get_attention_scores(self, query, key, attn_mask):
         if self.upcast_softmax:
             attention_scores = attention_scores.float()
 
-        # attention_probs = attention_scores.softmax(dim=1).permute(0, 2, 1)
+        # attention_probs = attention_scores.softmax(dim=1).permute(0,2,1)
         attention_probs = torch.nn.functional.softmax(attention_scores, dim=1).permute(
             0, 2, 1
         )  # workaround, to replace after neuronx-cc 2.12 release

@@ -130,8 +130,10 @@ def infer_stable_diffusion_shapes_from_diffusers(
 ):
     sequence_length = model.tokenizer.model_max_length
     unet_num_channels = model.unet.config.in_channels
-    vae_num_channels = model.vae.config.latent_channels
-    vae_scale_factor = 2 ** (len(model.vae.config.block_out_channels) - 1) or 8
+    vae_encoder_num_channels = model.vae.config.in_channels
+    vae_decoder_num_channels = model.vae.config.latent_channels
+    # vae_scale_factor = 2 ** (len(model.vae.config.block_out_channels) - 1) or 8
+    vae_scale_factor = 8
     height = input_shapes["unet_input_shapes"]["height"] // vae_scale_factor
     width = input_shapes["unet_input_shapes"]["width"] // vae_scale_factor
 
@@ -140,10 +142,10 @@ def infer_stable_diffusion_shapes_from_diffusers(
         {"sequence_length": sequence_length, "num_channels": unet_num_channels, "height": height, "width": width}
     )
     input_shapes["vae_encoder_input_shapes"].update(
-        {"num_channels": vae_num_channels, "height": height, "width": width}
+        {"num_channels": vae_encoder_num_channels, "height": height, "width": width}
     )
     input_shapes["vae_decoder_input_shapes"].update(
-        {"num_channels": vae_num_channels, "height": height, "width": width}
+        {"num_channels": vae_decoder_num_channels, "height": height, "width": width}
     )
 
 
