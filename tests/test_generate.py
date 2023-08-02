@@ -14,10 +14,16 @@ def _test_generative_decoding(
     device="cpu",
     use_cache=False,
     decoder_only=False,
-    generation_config_update={"num_beams": 1, "do_sample": False},
+    generation_config_update=None,
     tokenizer=None,
-    gen_kwargs={},
+    gen_kwargs=None,
 ):
+    if generation_config_update is None:
+        generation_config_update = {"num_beams": 1, "do_sample": False}
+
+    if gen_kwargs is None:
+        gen_kwargs = {}
+
     if device == "xla":
         import torch_xla.core.xla_model as xm
 
