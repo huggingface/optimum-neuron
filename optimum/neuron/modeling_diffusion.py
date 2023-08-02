@@ -115,6 +115,9 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         self._internal_dict = config
         self.configs = configs
         self.neuron_configs = neuron_configs
+        self.dynamic_batch_size = all(
+            neuron_config._config.neuron["dynamic_batch_size"] for neuron_config in self.neuron_configs.values()
+        )
 
         self.text_encoder = NeuronModelTextEncoder(
             text_encoder,
