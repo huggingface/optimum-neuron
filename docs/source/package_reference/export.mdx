@@ -26,8 +26,9 @@ for INF1 and [`~optimum.exporters.onnx.convert.export_neuronx`] on INF2, but you
 exporting function according to the environment. 
 
 Besides, you can check if the exported model is valid via [`~optimum.exporters.neuron.convert.validate_model_outputs`], which compares
-the compiled model on Neuron devices's output to the PyTorch model on CPU's output.
+the compiled model's output on Neuron devices to the PyTorch model's output on CPU.
 
+<!--- Add this when it is supported.
 [[autodoc]] exporters.convert.export_neuron
 
 [[autodoc]] exporters.convert.export_neuronx
@@ -35,6 +36,7 @@ the compiled model on Neuron devices's output to the PyTorch model on CPU's outp
 [[autodoc]] exporters.convert.export
 
 [[autodoc]] exporters.convert.validate_model_outputs
+-->
 
 ## Configuration classes for Neuron exports
 
