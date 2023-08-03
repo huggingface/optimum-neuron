@@ -196,10 +196,7 @@ class StableDiffusionPipelineMixin(StableDiffusionPipeline):
         # here `guidance_scale` is defined analog to the guidance weight `w` of equation (2)
         # of the Imagen paper: https://arxiv.org/pdf/2205.11487.pdf . `guidance_scale = 1`
         # corresponds to doing no classifier free guidance.
-        if guidance_scale > 1.0 and self.dynamic_batch_size:
-            do_classifier_free_guidance = True
-        else:
-            do_classifier_free_guidance = False
+        do_classifier_free_guidance = guidance_scale > 1.0 and self.dynamic_batch_size
 
         # 3. Encode input prompt
         text_encoder_lora_scale = (
