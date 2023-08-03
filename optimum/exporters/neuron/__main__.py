@@ -132,8 +132,7 @@ def infer_stable_diffusion_shapes_from_diffusers(
     unet_num_channels = model.unet.config.in_channels
     vae_encoder_num_channels = model.vae.config.in_channels
     vae_decoder_num_channels = model.vae.config.latent_channels
-    # vae_scale_factor = 2 ** (len(model.vae.config.block_out_channels) - 1) or 8
-    vae_scale_factor = 8
+    vae_scale_factor = 2 ** (len(model.vae.config.block_out_channels) - 1) or 8
     height = input_shapes["unet_input_shapes"]["height"] // vae_scale_factor
     width = input_shapes["unet_input_shapes"]["width"] // vae_scale_factor
 
