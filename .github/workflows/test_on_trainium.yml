@@ -66,9 +66,9 @@ jobs:
         run: pip install .[tests]
       - name: Run tests on neuron cores
         run: |
-          HF_TOKEN_OPTIMUM_NEURON_CI=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} USE_VENV="false" pytest -m "is_trainium_test" tests/test_*.py -k "not test_run_example"
+          HF_TOKEN_OPTIMUM_NEURON_CI=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} USE_VENV="false" pytest -m "is_trainium_test" tests -k "not test_run_example"
       - name: Run staging tests on neuron cores 
-        run: HUGGINGFACE_CO_STAGING=1 pytest -m "is_trainium_test and is_staging_test" tests/test_*.py
+        run: HUGGINGFACE_CO_STAGING=1 pytest -m "is_trainium_test and is_staging_test" tests
   stop-runner:
     name: Stop self-hosted EC2 runner
     needs:
