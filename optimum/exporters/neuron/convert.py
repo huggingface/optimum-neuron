@@ -426,7 +426,7 @@ def export_neuronx(
         compiler_args = ["--auto-cast", "none"]
 
     # diffusers specific
-    prepare_stable_diffusion_compilation(config, compiler_args)
+    compiler_args = add_stable_diffusion_compiler_args(config, compiler_args)
 
     neuron_model = neuronx.trace(checked_model, dummy_inputs_tuple, compiler_args=compiler_args)
 
@@ -434,7 +434,7 @@ def export_neuronx(
         neuron_model = neuronx.dynamic_batch(neuron_model)
 
     # diffusers specific
-    improve_stable_diffusion_loading(config, neuron_model)
+    async_stable_diffusion_loading(config, neuron_model)
 
     torch.jit.save(neuron_model, output)
     del neuron_model
@@ -442,7 +442,7 @@ def export_neuronx(
     return config.inputs, config.outputs
 
 
-def prepare_stable_diffusion_compilation(config, compiler_args):
+def add_stable_diffusion_compiler_args(config, compiler_args):
     if hasattr(config._config, "_name_or_path"):
         sd_components = ["text_encoder", "unet", "vae", "vae_encoder", "vae_decoder"]
         if any(component in config._config._name_or_path.lower() for component in sd_components):
@@ -450,9 +450,10 @@ def prepare_stable_diffusion_compilation(config, compiler_args):
         # unet
         if "unet" in config._config._name_or_path.lower():
             compiler_args.extend(["--model-type=unet-inference"])
+    return compiler_args
 
 
-def improve_stable_diffusion_loading(config, neuron_model):
+def async_stable_diffusion_loading(config, neuron_model):
     if hasattr(config._config, "_name_or_path"):
         sd_components = ["text_encoder", "unet", "vae", "vae_encoder", "vae_decoder"]
         if any(component in config._config._name_or_path.lower() for component in sd_components):
