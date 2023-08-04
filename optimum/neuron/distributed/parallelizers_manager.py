@@ -22,7 +22,7 @@ from transformers import PreTrainedModel
 from .base import Parallelizer
 
 
-_PARALLELIZER_CLASSES_MODULE_NAMES = ["encoder_models", "decoder_models"]
+_PARALLELIZER_CLASSES_MODULE_NAMES = ["encoder_models", "decoder_models", "encoder_decoder_models"]
 
 
 def parallelizer_classes_resolver(
@@ -55,6 +55,7 @@ class ParallelizersManager:
             "roberta": "RobertaParallelizer",
             "gpt_neo": "GPTNeoParallelizer",
             "llama": "LlamaParallelizer",
+            "t5": "T5Parallelizer",
         }
     )
 

@@ -150,7 +150,8 @@ def convert_checkpoint_to_safetensors(
         for k, v in checkpoint.items():
             if id(v.data) in data_pointers:
                 v = v.clone()
-            checkpoint[k] = v.contiguous()
+            v = v.contiguous()
+            checkpoint[k] = v
             data_pointers.add(id(v.data))
         save_file(checkpoint, safetensors_path)
         del checkpoint

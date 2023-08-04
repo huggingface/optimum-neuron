@@ -62,13 +62,15 @@ jobs:
         uses: actions/checkout@v2
       # - name: Install python3.8-venv
       #   run: sudo apt update; sudo apt install -y python3.8-venv
+      - name: Set pip repository pointing to the Neuron repository
+        run: pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
       - name: Install Python dependencies
-        run: pip install .[tests]
+        run: pip install .[tests,neuronx]
       - name: Run tests on neuron cores
         run: |
-          HF_TOKEN_OPTIMUM_NEURON_CI=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} USE_VENV="false" pytest -m "is_trainium_test" tests/test_*.py -k "not test_run_example"
+          HF_TOKEN_OPTIMUM_NEURON_CI=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} USE_VENV="false" pytest -m "is_trainium_test" tests -k "not test_run_example"
       - name: Run staging tests on neuron cores 
-        run: HUGGINGFACE_CO_STAGING=1 pytest -m "is_trainium_test and is_staging_test" tests/test_*.py
+        run: HUGGINGFACE_CO_STAGING=1 pytest -m "is_trainium_test and is_staging_test" tests
   stop-runner:
     name: Stop self-hosted EC2 runner
     needs:

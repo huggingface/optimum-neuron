@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Dict, Optional, Tuple
 
 from ...utils import NormalizedConfigManager
 from ..utils import is_neuronx_distributed_available
-from .utils import WeightInformation, linear_to_parallel_linear
+from .utils import WeightInformation, embedding_to_parallel_embedding, linear_to_parallel_linear
 
 
 if is_neuronx_distributed_available():
@@ -32,6 +32,21 @@ if TYPE_CHECKING:
 
 
 class ParallelLayer(ABC):
+    @classmethod
+    def _get_module_and_attribute_name(
+        cls,
+        module: "torch.nn.Module",
+        fully_qualified_name: str,
+    ) -> Tuple["torch.nn.Module", str]:
+        split = fully_qualified_name.rsplit(".", maxsplit=1)
+        if len(split) == 1:
+            leaf_module = module
+            attribute_name = split[0]
+        else:
+            leaf_module = module.get_submodule(split[0])
+            attribute_name = split[1]
+        return leaf_module, attribute_name
+
     @classmethod
     def _get_linear_weight_info(
         cls,
@@ -83,7 +98,109 @@ class ParallelLayer(ABC):
         """
 
 
+class ParallelEmbedding(ParallelLayer):
+    """
+    Transforms an Embedding layer into a ParallelEmbedding layer, also takes care of parallelizing a potential tied LM
+    head.
+
+    Attributes:
+        EMBEDDING_NAME (`str`, defaults to `"embedding"`):
+            The qualified name of the embedding layer.
+        LM_HEAD_NAME (`Optional[str]`, defaults to `None`):
+            The qualified name of the LM head tied to the embedding layer (if any).
+    """
+
+    EMBEDDING_NAME: str = "embedding"
+    LM_HEAD_NAME: Optional[str] = None
+
+    @classmethod
+    def transform(
+        cls,
+        model: "PreTrainedModel",
+        layer: "torch.nn.Module",
+        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+        device: Optional["torch.device"] = None,
+    ) -> "torch.nn.Module":
+        if cls.LM_HEAD_NAME is not None:
+            parent_lm_head_module, parent_lm_head_attribute_name = cls._get_module_and_attribute_name(
+                layer, cls.LM_HEAD_NAME
+            )
+            model_has_lm_head = hasattr(parent_lm_head_module, parent_lm_head_attribute_name)
+        else:
+            model_has_lm_head = False
+
+        embedding_weight_info = None
+        lm_head_weight_info = None
+        lm_head_bias_weight_info = None
+        weight_map = getattr(model, "_weight_map", None)
+        if weight_map is not None:
+            layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
+            layer_qualified_name = layer_to_fully_qualified_name[id(layer)]
+            if layer_qualified_name:
+                embedding_weight_name = f"{layer_qualified_name}.{cls.EMBEDDING_NAME}.weight"
+            else:
+                embedding_weight_name = f"{cls.EMBEDDING_NAME}.weight"
+            embedding_weight_info = WeightInformation(
+                weight_map[embedding_weight_name],
+                embedding_weight_name,
+                device=device,
+            )
+            if model_has_lm_head:
+                if layer_qualified_name:
+                    lm_head_weight_name = f"{layer_qualified_name}.{cls.LM_HEAD_NAME}.weight"
+                    lm_head_bias_weight_name = f"{layer_qualified_name}.{cls.LM_HEAD_NAME}.bias"
+                else:
+                    lm_head_weight_name = f"{cls.LM_HEAD_NAME}.weight"
+                    lm_head_bias_weight_name = f"{cls.LM_HEAD_NAME}.bias"
+                lm_head_weight_info = WeightInformation(
+                    weight_map[lm_head_weight_name], lm_head_weight_name, device=device
+                )
+                if lm_head_bias_weight_name in weight_map:
+                    lm_head_bias_weight_info = WeightInformation(
+                        weight_map[lm_head_bias_weight_name], lm_head_bias_weight_name, device=device
+                    )
+
+        parallel_layers = embedding_to_parallel_embedding(
+            layer.get_submodule(cls.EMBEDDING_NAME),
+            lm_head_layer=layer.get_submodule(cls.LM_HEAD_NAME) if model_has_lm_head else None,
+            embedding_weight_info=embedding_weight_info,
+            lm_head_weight_info=lm_head_weight_info,
+            lm_head_bias_weight_info=lm_head_bias_weight_info,
+            orig_to_parallel=orig_to_parallel,
+            device=device,
+        )
+        parent_embedding_module, embedding_attribute_name = cls._get_module_and_attribute_name(
+            layer, cls.EMBEDDING_NAME
+        )
+        if model_has_lm_head:
+            setattr(parent_embedding_module, embedding_attribute_name, parallel_layers[0])
+            setattr(parent_lm_head_module, parent_lm_head_attribute_name, parallel_layers[1])
+        else:
+            setattr(parent_embedding_module, embedding_attribute_name, parallel_layers)
+        return layer
+
+
 class ParallelSelfAttention(ParallelLayer):
+    """
+    Transforms a Self-Attention layer into a Parallel Self-Attention layer.
+
+    Attributes:
+        QUERIES_NAME (`str`, defaults to `"query"`):
+            The qualified name of the queries layer in the Self-Attention module.
+        KEYS_NAME (`str`, defaults to `"key"`):
+            The qualified name of the keys layer in the Self-Attention module.
+        VALUES_NAME (`str`, defaults to `"value"`):
+            The qualified name of the values layer in the Self-Attention module.
+        OUTPUT_PROJECTION_NAME (`Optional[str]`, defaults to `None`):
+            The qualified name of the output projection layer in the Self-Attention module.
+        NUM_ATTENTION_HEADS_NAME (`Optional[str]`, defaults to `None`):
+            The name of the attribute in the layer specifying the number of attention heads.
+            If left unspecified, the attribute will be fetched by using the NormalizedConfig associated to the model.
+        ALL_HEAD_SIZE_NAME (`Optional[str]`, defaults to `None`):
+            The name of the attribute in the layer specifying the hidden dimension of each attention head.
+            If left unspecified, the attribute will be fetched by using the NormalizedConfig associated to the model.
+    """
+
     QUERIES_NAME = "query"
     KEYS_NAME = "key"
     VALUES_NAME = "value"
@@ -181,6 +298,14 @@ class ParallelSelfAttention(ParallelLayer):
 
 
 class ParallelSelfOutput(ParallelLayer):
+    """
+    Transforms the output projection of the Self-Attention mechanism into a parallel version of it.
+
+    Attributes:
+        OUTPUT_PROJECTION_NAME (`str`, defaults to `"dense"`):
+            The name of the projection layer in the module containing it.
+    """
+
     OUTPUT_PROJECTION_NAME = "dense"
 
     @classmethod
@@ -220,23 +345,18 @@ class ParallelSelfOutput(ParallelLayer):
 
 
 class ParallelMLP(ParallelLayer):
+    """
+    Transforms a MLP into a Parallel MLP.
+
+    Attributes:
+        FIRST_LINEAR_NAME (`Optional[str]`, defaults to `None`):
+            The qualified name of the first linear projection in the module.
+        SECOND_LINEAR_NAME (`Optional[str]`, defaults to `None`):
+            The qualified name of the second linear projection in the module.
+    """
+
     FIRST_LINEAR_NAME: Optional[str] = None
     SECOND_LINEAR_NAME: Optional[str] = None
-
-    @classmethod
-    def _get_module_and_attribute_name(
-        cls,
-        model: "PreTrainedModel",
-        fully_qualified_name: str,
-    ) -> Tuple["torch.nn.Module", str]:
-        split = fully_qualified_name.rsplit(".", maxsplit=1)
-        if len(split) == 1:
-            module = model
-            attribute_name = split[0]
-        else:
-            module = model.get_submodule(split[0])
-            attribute_name = split[1]
-        return module, attribute_name
 
     @classmethod
     def transform(

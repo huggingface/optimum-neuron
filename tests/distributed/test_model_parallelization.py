@@ -14,9 +14,12 @@
 # limitations under the License.
 """Tests validating that models can be parallelized correctly."""
 
+import subprocess
 import unittest
+from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, List, Optional, Type, Union
 
+from parameterized import parameterized
 from transformers.models.auto.modeling_auto import (
     MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING_NAMES,
     MODEL_FOR_BACKBONE_MAPPING_NAMES,
@@ -26,7 +29,6 @@ from transformers.models.auto.modeling_auto import (
     MODEL_FOR_IMAGE_CLASSIFICATION_MAPPING_NAMES,
     MODEL_FOR_MASKED_IMAGE_MODELING_MAPPING_NAMES,
     MODEL_FOR_MASKED_LM_MAPPING_NAMES,
-    MODEL_FOR_MULTIPLE_CHOICE_MAPPING_NAMES,
     MODEL_FOR_NEXT_SENTENCE_PREDICTION_MAPPING_NAMES,
     MODEL_FOR_PRETRAINING_MAPPING_NAMES,
     MODEL_FOR_QUESTION_ANSWERING_MAPPING_NAMES,
@@ -37,6 +39,8 @@ from transformers.models.auto.modeling_auto import (
     MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING_NAMES,
     MODEL_FOR_ZERO_SHOT_IMAGE_CLASSIFICATION_MAPPING_NAMES,
 )
+
+from ..test_utils import is_trainium_test
 
 
 if TYPE_CHECKING:
@@ -56,7 +60,8 @@ def _generate_supported_model_class_names(
         "causal-lm": MODEL_FOR_CAUSAL_LM_MAPPING_NAMES,
         "seq2seq-lm": MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING_NAMES,
         "speech-seq2seq": MODEL_FOR_SPEECH_SEQ_2_SEQ_MAPPING_NAMES,
-        "multiple-choice": MODEL_FOR_MULTIPLE_CHOICE_MAPPING_NAMES,
+        # Those architectures are more painful to deal with because the input is different.
+        # "multiple-choice": MODEL_FOR_MULTIPLE_CHOICE_MAPPING_NAMES,
         "document-question-answering": MODEL_FOR_DOCUMENT_QUESTION_ANSWERING_MAPPING_NAMES,
         "question-answering": MODEL_FOR_QUESTION_ANSWERING_MAPPING_NAMES,
         "sequence-classification": MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING_NAMES,
@@ -88,7 +93,8 @@ MODEL_TYPES_TO_TEST = [
     ("bert", "hf-internal-testing/tiny-random-bert"),
     ("roberta", "hf-internal-testing/tiny-random-roberta"),
     ("gpt_neo", "hf-internal-testing/tiny-random-GPTNeoModel"),
-    ("llama", "HuggingFaceM4/tiny-random-LlamaForCausalLM"),
+    ("llama", "fxmarty/tiny-llama-fast-tokenizer"),
+    ("t5", "patrickvonplaten/t5-tiny-random"),
 ]
 
 MODELS_TO_TEST = []
@@ -97,6 +103,7 @@ for model_type, model_name_or_path in MODEL_TYPES_TO_TEST:
         MODELS_TO_TEST.append((model_class_name, model_name_or_path))
 
 
+@is_trainium_test
 class ModelParallelizationTestCase(unittest.TestCase):
     def get_parallel_test_python_file_content(
         self,
@@ -109,9 +116,11 @@ class ModelParallelizationTestCase(unittest.TestCase):
         model_import = f"from transformers import AutoConfig, AutoTokenizer, {model_class}"
         other_imports = (
             "import torch\n"
+            "from transformers.trainer_utils import set_seed\n"
             "from optimum.neuron.distributed import ParallelizersManager, lazy_load_for_parallelism\n"
             "import neuronx_distributed\n"
             "import os\n"
+            "from inspect import signature\n"
         )
 
         initialize_torch_distributed = (
@@ -123,16 +132,20 @@ class ModelParallelizationTestCase(unittest.TestCase):
 
         initialize_tp = f"neuronx_distributed.parallel_layers.parallel_state.initialize_model_parallel(tensor_model_parallel_size={tp_size})"
 
+        set_seed = "set_seed(42)"
+
         config_loading = f"config = AutoConfig.from_pretrained('{model_name_or_path}')"
         preprocessor_loading = f"preprocessor = AutoTokenizer.from_pretrained('{model_name_or_path}')"
         inputs = "inputs = preprocessor('This is a test to check that TP is working.', return_tensors='pt')"
 
         if from_config:
             model_loading_line = f"model = {model_class}(config)"
-            full_model_loading_line = f"full_model = {model_class}(config)"
+            full_model_loading_line = f"unsharded_model = {model_class}(config)"
         else:
-            model_loading_line = f"model = {model_class}.from_pretrained('{model_name_or_path}')"
-            full_model_loading_line = f"full_model = {model_class}.from_pretrained('{model_name_or_path}')"
+            model_loading_line = (
+                f"model = {model_class}.from_pretrained('{model_name_or_path}', ignore_mismatched_sizes=True)"
+            )
+            full_model_loading_line = f"unsharded_model = {model_class}.from_pretrained('{model_name_or_path}', ignore_mismatched_sizes=True)"
 
         if lazy_load:
             model_loading_block = (
@@ -141,15 +154,30 @@ class ModelParallelizationTestCase(unittest.TestCase):
         else:
             model_loading_block = model_loading_line
 
+        model_to_eval_mode = "model = model.eval()\nunsharded_model = unsharded_model.eval()"
+
         parallel_model_loading = (
             "parallel_model = ParallelizersManager.parallelizer_for_model(model).parallelize(model)"
         )
 
         inference = (
-            "full_model_outputs = full_model(**inputs, return_dict=True)\n"
-            "parallel_model_outputs = parallel_model(**inputs, return_dict=True)\n"
-            "for name, t in full_model_outputs.items():\n"
-            "   torch.testing.assert_close(t, parallel_model_outputs[name])"
+            "unsharded_model = unsharded_model.to('xla')\n"
+            "parallel_model = parallel_model.to('xla')\n"
+            "xla_inputs = {k: v.to('xla') for k, v in inputs.items()}\n"
+            "sig = signature(parallel_model.forward)\n"
+            "if unsharded_model.config.is_encoder_decoder:\n"
+            "    decoder_xla_inputs = {f'decoder_{k}': v for k, v in xla_inputs.items()}\n"
+            "    xla_inputs.update(decoder_xla_inputs)\n"
+            "xla_inputs = {k: v for k, v in xla_inputs.items() if k in sig.parameters}\n"
+            "print(parallel_model)\n"
+            "model_outputs = unsharded_model(**xla_inputs, return_dict=True)\n"
+            "parallel_model_outputs = parallel_model(**xla_inputs, return_dict=True)\n"
+            "for name, t in parallel_model_outputs.items():\n"
+            "   if not isinstance(t, torch.Tensor):\n"
+            "       continue\n"
+            "   print(t, model_outputs[name])\n"
+            "   torch.testing.assert_close(t, model_outputs[name])\n"
+            "print('This is a success')\n"
         )
 
         return "\n".join(
@@ -161,26 +189,49 @@ class ModelParallelizationTestCase(unittest.TestCase):
                 config_loading,
                 preprocessor_loading,
                 inputs,
+                set_seed,
                 full_model_loading_line,
+                set_seed,
                 model_loading_block,
+                model_to_eval_mode,
                 parallel_model_loading,
                 inference,
             ]
         )
 
-    # TODO: enable that when continuing to write tests.
+    def _test_model_parallel(
+        self, model_class_name: str, model_name_or_path: str, from_config: bool, with_lazy_load: bool
+    ):
+        python_code = self.get_parallel_test_python_file_content(
+            model_class_name, model_name_or_path, from_config, 2, with_lazy_load
+        )
+
+        with TemporaryDirectory() as tmpdirname:
+            with open(f"{tmpdirname}/code.py", "w") as fp:
+                fp.write(python_code)
+
+            cmd = ["torchrun", "--nproc_per_node=2", f"{tmpdirname}/code.py"]
+
+            p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            stdout, stderr = p.communicate()
+
+            stdout = stdout.decode("utf-8")
+            stderr = stderr.decode("utf-8")
+
+            full_output = f"Standard output:\n{stdout}\nStandard error:\n{stderr}"
+            print(full_output)
+
+            assert "This is a success" in stdout
+
+    @parameterized.expand(MODELS_TO_TEST)
+    def test_model_parallel_from_config_without_lazy_load(self, model_class_name: str, model_name_or_path: str):
+        self._test_model_parallel(model_class_name, model_name_or_path, True, False)
+
+    @parameterized.expand(MODELS_TO_TEST)
+    def test_model_parallel_from_pretrained_without_lazy_load(self, model_class_name: str, model_name_or_path: str):
+        self._test_model_parallel(model_class_name, model_name_or_path, False, False)
+
+    # TODO: enable that.
     # @parameterized.expand(MODELS_TO_TEST)
-    # def test_model_parallel(self, model_class_name: str, model_name_or_path: str):
-    #     python_code = self.get_parallel_test_python_file_content(model_class_name, model_name_or_path, False, 2, False)
-
-    #     with TemporaryDirectory() as tmpdirname:
-    #         with open(f"{tmpdirname}/code.py", "w") as fp:
-    #             fp.write(python_code)
-
-    #         cmd = ["torchrun", "--nproc_per_node=2", f"{tmpdirname}/code.py"]
-
-    #         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    #         stdout, stderr = p.communicate()
-    #         print(stdout.decode("utf-8"))
-    #         print("\n" * 10)
-    #         print(stderr.decode("utf-8"))
+    # def test_model_parallel_from_pretrained_with_lazy_load(self, model_class_name: str, model_name_or_path: str):
+    #     self._test_model_parallel(model_class_name, model_name_or_path, False, True)

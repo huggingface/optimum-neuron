@@ -17,13 +17,18 @@
 from typing import TYPE_CHECKING, Dict, Optional
 
 from .base import Parallelizer
-from .parallel_layers import ParallelMLP, ParallelSelfAttention
-from .utils import WeightInformation, embedding_to_parallel_embedding, linear_to_parallel_linear
+from .parallel_layers import ParallelEmbedding, ParallelMLP, ParallelSelfAttention
+from .utils import linear_to_parallel_linear
 
 
 if TYPE_CHECKING:
     import torch
     from transformers import PreTrainedModel
+
+
+class GPTNeoParallelEmbedding(ParallelEmbedding):
+    EMBEDDING_NAME = "transformer.wte"
+    LM_HEAD_NAME = "lm_head"
 
 
 class GPTNeoParallelSelfAttention(ParallelSelfAttention):
@@ -34,6 +39,11 @@ class GPTNeoParallelSelfAttention(ParallelSelfAttention):
     ALL_HEAD_SIZE_NAME = "embed_dim"
 
 
+class GPTNeoParallelMLP(ParallelMLP):
+    FIRST_LINEAR_NAME = "c_fc"
+    SECOND_LINEAR_NAME = "c_proj"
+
+
 class GPTNeoParallelizer(Parallelizer):
     @classmethod
     def _parallelize(
@@ -42,13 +52,20 @@ class GPTNeoParallelizer(Parallelizer):
         orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]],
         device: Optional["torch.device"] = None,
     ) -> "PreTrainedModel":
+        model = GPTNeoParallelEmbedding.transform(model, model, device=device)
         for block in model.transformer.h:
             block.attn.attention = GPTNeoParallelSelfAttention.transform(
                 model,
                 block.attn.attention,
                 device=device,
             )
+            block.mlp = GPTNeoParallelMLP.transform(model, block.mlp, device=device)
         return model
+
+
+class LlamaParallelEmbedding(ParallelEmbedding):
+    EMBEDDING_NAME = "model.embed_tokens"
+    LM_HEAD_NAME = "lm_head"
 
 
 class LlamaParallelSelfAttention(ParallelSelfAttention):
@@ -114,29 +131,7 @@ class LlamaParallelizer(Parallelizer):
         orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]],
         device: Optional["torch.device"] = None,
     ) -> "PreTrainedModel":
-        embedding_weight_info = None
-        lm_head_weight_info = None
-        lm_head_bias_weight_info = None
-        weight_map = getattr(model, "_weight_map", None)
-        if weight_map is not None:
-            embedding_weight_info = WeightInformation(
-                weight_map["model.embed_tokens.weight"],
-                "model.embed_tokens.weight",
-                device=device,
-            )
-            lm_head_weight_info = WeightInformation(weight_map["lm_head.weight"], "lm_head.weight", device=device)
-            if "lm_head.bias" in weight_map:
-                lm_head_bias_weight_info = WeightInformation(weight_map["lm_head.bias"], "lm_head.bias", device=device)
-
-        model.model.embed_tokens, model.lm_head = embedding_to_parallel_embedding(
-            model.model.embed_tokens,
-            lm_head_layer=model.lm_head,
-            embedding_weight_info=embedding_weight_info,
-            lm_head_weight_info=lm_head_weight_info,
-            lm_head_bias_weight_info=lm_head_bias_weight_info,
-            orig_to_parallel=orig_to_parallel,
-            device=device,
-        )
+        model = LlamaParallelEmbedding.transform(model, model, device=device)
         for layer in model.model.layers:
             layer.self_attn = LlamaParallelSelfAttention.transform(model, layer.self_attn, device=device)
             layer.mlp = LLamaParallelMLP.transform(model, layer.mlp, device=device)
