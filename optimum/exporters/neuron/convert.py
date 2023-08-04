@@ -340,7 +340,7 @@ def export_models(
 
     # remove models failed to export
     for i, model_name in failed_models:
-        output_file_names.pop(i)
+        output_file_names.pop(model_name)
         models_and_neuron_configs.pop(model_name)
 
     outputs = list(map(list, zip(*outputs)))
@@ -426,18 +426,41 @@ def export_neuronx(
         compiler_args = ["--auto-cast", "none"]
 
     # diffusers specific
-    if hasattr(config._config, "_class_name") and "unet" in config._config._class_name.lower():
-        compiler_args.extend(["--model-type", "unet-inference"])
+    compiler_args = add_stable_diffusion_compiler_args(config, compiler_args)
 
     neuron_model = neuronx.trace(checked_model, dummy_inputs_tuple, compiler_args=compiler_args)
 
     if config.dynamic_batch_size is True:
         neuron_model = neuronx.dynamic_batch(neuron_model)
 
+    # diffusers specific
+    async_stable_diffusion_loading(config, neuron_model)
+
     torch.jit.save(neuron_model, output)
     del neuron_model
 
     return config.inputs, config.outputs
+
+
+def add_stable_diffusion_compiler_args(config, compiler_args):
+    if hasattr(config._config, "_name_or_path"):
+        sd_components = ["text_encoder", "unet", "vae", "vae_encoder", "vae_decoder"]
+        if any(component in config._config._name_or_path.lower() for component in sd_components):
+            compiler_args.extend(["--enable-fast-loading-neuron-binaries"])
+        # unet
+        if "unet" in config._config._name_or_path.lower():
+            compiler_args.extend(["--model-type=unet-inference"])
+    return compiler_args
+
+
+def async_stable_diffusion_loading(config, neuron_model):
+    if hasattr(config._config, "_name_or_path"):
+        sd_components = ["text_encoder", "unet", "vae", "vae_encoder", "vae_decoder"]
+        if any(component in config._config._name_or_path.lower() for component in sd_components):
+            neuronx.async_load(neuron_model)
+        # unet
+        if "unet" in config._config._name_or_path.lower():
+            neuronx.lazy_load(neuron_model)
 
 
 def export_neuron(

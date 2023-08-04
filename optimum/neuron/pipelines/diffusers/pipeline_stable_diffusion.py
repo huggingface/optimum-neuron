@@ -22,6 +22,7 @@ from diffusers import StableDiffusionPipeline
 from diffusers.loaders import LoraLoaderMixin, TextualInversionLoaderMixin
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import rescale_noise_cfg
+from diffusers.utils import randn_tensor
 
 
 logger = logging.getLogger(__name__)
@@ -32,7 +33,6 @@ class StableDiffusionPipelineMixin(StableDiffusionPipeline):
     def _encode_prompt(
         self,
         prompt,
-        device,
         num_images_per_prompt,
         do_classifier_free_guidance,
         negative_prompt=None,
@@ -136,6 +136,24 @@ class StableDiffusionPipelineMixin(StableDiffusionPipeline):
 
         return prompt_embeds
 
+    # Adapted from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.StableDiffusionPipeline.prepare_latents
+    def prepare_latents(self, batch_size, num_channels_latents, height, width, dtype, generator, latents=None):
+        shape = (batch_size, num_channels_latents, height // self.vae_scale_factor, width // self.vae_scale_factor)
+        if isinstance(generator, list) and len(generator) != batch_size:
+            raise ValueError(
+                f"You have passed a list of generators of length {len(generator)}, but requested an effective batch"
+                f" size of {batch_size}. Make sure the batch size matches the length of the generators."
+            )
+
+        if latents is None:
+            latents = randn_tensor(shape, generator=generator, dtype=dtype)
+        elif latents.shape != shape:
+            raise ValueError(f"Unexpected latents shape, got {latents.shape}, expected {shape}")
+
+        # scale the initial noise by the standard deviation required by the scheduler
+        latents = latents * self.scheduler.init_noise_sigma
+        return latents
+
     # Adapted from https://github.com/huggingface/diffusers/blob/v0.18.2/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L566
     def __call__(
         self,
@@ -175,11 +193,10 @@ class StableDiffusionPipelineMixin(StableDiffusionPipeline):
         else:
             batch_size = prompt_embeds.shape[0]
 
-        device = self._execution_device
         # here `guidance_scale` is defined analog to the guidance weight `w` of equation (2)
         # of the Imagen paper: https://arxiv.org/pdf/2205.11487.pdf . `guidance_scale = 1`
         # corresponds to doing no classifier free guidance.
-        do_classifier_free_guidance = guidance_scale > 1.0
+        do_classifier_free_guidance = guidance_scale > 1.0 and self.dynamic_batch_size
 
         # 3. Encode input prompt
         text_encoder_lora_scale = (
@@ -187,7 +204,6 @@ class StableDiffusionPipelineMixin(StableDiffusionPipeline):
         )
         prompt_embeds = self._encode_prompt(
             prompt,
-            device,
             num_images_per_prompt,
             do_classifier_free_guidance,
             negative_prompt,
@@ -197,7 +213,7 @@ class StableDiffusionPipelineMixin(StableDiffusionPipeline):
         )
 
         # 4. Prepare timesteps
-        self.scheduler.set_timesteps(num_inference_steps, device=device)
+        self.scheduler.set_timesteps(num_inference_steps)
         timesteps = self.scheduler.timesteps
 
         # 5. Prepare latent variables
@@ -208,7 +224,6 @@ class StableDiffusionPipelineMixin(StableDiffusionPipeline):
             height,
             width,
             prompt_embeds.dtype,
-            device,
             generator,
             latents,
         )
@@ -253,7 +268,7 @@ class StableDiffusionPipelineMixin(StableDiffusionPipeline):
         if not output_type == "latent":
             # [Modified] Replace with pre-compiled
             image = self.vae_decoder(latents / getattr(self.vae_decoder.config, "scaling_factor", 0.18215))[0]
-            image, has_nsfw_concept = self.run_safety_checker(image, device, prompt_embeds.dtype)
+            image, has_nsfw_concept = self.run_safety_checker(image, prompt_embeds.dtype)
         else:
             image = latents
             has_nsfw_concept = None
@@ -273,3 +288,17 @@ class StableDiffusionPipelineMixin(StableDiffusionPipeline):
             return (image, has_nsfw_concept)
 
         return StableDiffusionPipelineOutput(images=image, nsfw_content_detected=has_nsfw_concept)
+
+    def run_safety_checker(self, image, dtype):
+        if self.safety_checker is None:
+            has_nsfw_concept = None
+        else:
+            if torch.is_tensor(image):
+                feature_extractor_input = self.image_processor.postprocess(image, output_type="pil")
+            else:
+                feature_extractor_input = self.image_processor.numpy_to_pil(image)
+            safety_checker_input = self.feature_extractor(feature_extractor_input, return_tensors="pt")
+            image, has_nsfw_concept = self.safety_checker(
+                images=image, clip_input=safety_checker_input.pixel_values.to(dtype)
+            )
+        return image, has_nsfw_concept
