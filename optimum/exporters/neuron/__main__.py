@@ -108,13 +108,17 @@ def normalize_input_shapes(task: str, args: argparse.Namespace) -> Dict[str, int
 
 
 def normalize_stable_diffusion_input_shapes(
-    task: str,
     args: argparse.Namespace,
 ) -> Dict[str, Dict[str, int]]:
     args = vars(args) if isinstance(args, argparse.Namespace) else args
     mandatory_axes = set(getattr(inspect.getfullargspec(build_stable_diffusion_components_mandatory_shapes), "args"))
     # Remove `sequence_length` as diffusers will pad it to the max and remove number of channels .
-    mandatory_axes = mandatory_axes - {"sequence_length", "unet_num_channels", "vae_num_channels"}
+    mandatory_axes = mandatory_axes - {
+        "sequence_length",
+        "unet_num_channels",
+        "vae_encoder_num_channels",
+        "vae_decoder_num_channels",
+    }
     if not mandatory_axes.issubset(set(args.keys())):
         raise AttributeError(
             f"Shape of {mandatory_axes} are mandatory for neuron compilation, while {mandatory_axes.difference(args.keys())} are not given."
@@ -274,7 +278,7 @@ def main():
     compiler_kwargs = infer_compiler_kwargs(args)
 
     if task == "stable-diffusion":
-        input_shapes = normalize_stable_diffusion_input_shapes(task, args)
+        input_shapes = normalize_stable_diffusion_input_shapes(args)
     else:
         input_shapes = normalize_input_shapes(task, args)
 
