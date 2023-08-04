@@ -78,6 +78,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         tokenizer: CLIPTokenizer,
         scheduler: Union[DDIMScheduler, PNDMScheduler, LMSDiscreteScheduler],
         feature_extractor: Optional[CLIPFeatureExtractor] = None,
+        device_ids: Optional[List[int]] = [],
         configs: Optional[Dict[str, "PretrainedConfig"]] = None,
         neuron_configs: Optional[Dict[str, "NeuronConfig"]] = None,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
@@ -103,6 +104,8 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 A scheduler to be used in combination with the U-NET component to denoise the encoded image latents.
             feature_extractor (`Optional[CLIPFeatureExtractor]`, defaults to `None`):
                 A model extracting features from generated images to be used as inputs for the `safety_checker`
+            device_ids (Optional[List[int]], defaults to `[]`):
+                A list of integers that specify the NeuronCores to use for parallelization
             configs (Optional[Dict[str, "PretrainedConfig"]], defaults to `None`):
                 A dictionary configurations for components of the pipeline.
             neuron_configs (Optional["NeuronConfig"], defaults to `None`):
@@ -114,6 +117,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         """
 
         self._internal_dict = config
+        self.device_ids = device_ids
         self.configs = configs
         self.neuron_configs = neuron_configs
         self.dynamic_batch_size = all(
@@ -332,6 +336,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             tokenizer=sub_models["tokenizer"],
             scheduler=sub_models["scheduler"],
             feature_extractor=sub_models.pop("feature_extractor", None),
+            device_ids=device_ids,
             configs=configs,
             neuron_configs=neuron_configs,
             model_save_dir=model_save_dir,
