@@ -368,7 +368,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             task = TasksManager.infer_task_from_model(cls.auto_model_class)
 
         # mandatory shapes
-        input_shapes = normalize_stable_diffusion_input_shapes(task, kwargs_shapes)
+        input_shapes = normalize_stable_diffusion_input_shapes(kwargs_shapes)
 
         # Get compilation arguments
         auto_cast_type = None if auto_cast is None else auto_cast_type
