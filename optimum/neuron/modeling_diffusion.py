@@ -235,7 +235,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         vae_decoder_file_name: Optional[str] = NEURON_FILE_NAME,
         local_files_only: bool = False,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
-        device_ids: Optional[List[int]] = None,
+        device_ids: Optional[List[int]] = [],
         **kwargs,  # To share kwargs only available for `_from_transformers`
     ):
         model_id = str(model_id)
@@ -361,7 +361,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         disable_fast_relayout: Optional[bool] = False,
         disable_fallback: bool = False,
         dynamic_batch_size: bool = False,
-        device_ids: Optional[List[int]] = None,
+        device_ids: Optional[List[int]] = [],
         **kwargs_shapes,
     ) -> "NeuronStableDiffusionPipelineBase":
         if task is None:
