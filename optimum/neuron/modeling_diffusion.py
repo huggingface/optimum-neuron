@@ -359,7 +359,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         disable_fast_relayout: Optional[bool] = False,
         disable_fallback: bool = False,
         dynamic_batch_size: bool = False,
-        device_ids: Optional[List[int]] = None,
+        device_ids: Optional[List[int]] = [],
         **kwargs_shapes,
     ) -> "NeuronStableDiffusionPipelineBase":
         if task is None:
