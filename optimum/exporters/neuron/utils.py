@@ -15,6 +15,7 @@
 """Utility functions for neuron export."""
 
 import copy
+import os
 from typing import TYPE_CHECKING, Dict, Optional, Tuple, Union
 
 import torch
@@ -28,7 +29,6 @@ from ...neuron.utils import (
     DIFFUSION_MODEL_VAE_ENCODER_NAME,
     get_attention_scores,
 )
-from ...neuron.utils.version_utils import get_neuronxcc_version
 from ...utils import (
     DIFFUSERS_MINIMUM_VERSION,
     check_if_diffusers_greater,
@@ -236,11 +236,11 @@ def _get_submodels_for_export_stable_diffusion(
     # https://github.com/huggingface/diffusers/blob/v0.18.2/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl_img2img.py#L571
     pipeline.unet.config.requires_aesthetics_score = getattr(pipeline.config, "requires_aesthetics_score", False)
 
-    compiler_version = get_neuronxcc_version()
-    if version.parse(compiler_version) < version.parse("2.7"):
-        # Replace original cross-attention module with custom cross-attention module for better performance
-        # the optimized function is not working so far for `neuronx-cc >= 2.7`
-        Attention.get_attention_scores = get_attention_scores
+    # Replace original cross-attention module with custom cross-attention module for better performance
+    if not os.environ.get("NEURON_FUSE_SOFTMAX") == "1":
+        os.environ["NEURON_FUSE_SOFTMAX"] = "1"
+
+    Attention.get_attention_scores = get_attention_scores
     models_for_export["unet"] = copy.deepcopy(pipeline.unet)
 
     # VAE Encoder
