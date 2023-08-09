@@ -237,10 +237,15 @@ def _get_submodels_for_export_stable_diffusion(
     pipeline.unet.config.requires_aesthetics_score = getattr(pipeline.config, "requires_aesthetics_score", False)
 
     # Replace original cross-attention module with custom cross-attention module for better performance
-    if not os.environ.get("NEURON_FUSE_SOFTMAX") == "1":
-        os.environ["NEURON_FUSE_SOFTMAX"] = "1"
-
-    Attention.get_attention_scores = get_attention_scores
+    # For applying optimized attention score, we need to set env variable  `NEURON_FUSE_SOFTMAX=1`
+    if os.environ.get("NEURON_FUSE_SOFTMAX") == "1":
+        Attention.get_attention_scores = get_attention_scores
+    else:
+        logger.warning(
+            "We are not applying optimized attention score computation, which will harm the latency."
+            " If you want better performance, please set the environment variable with `export NEURON_FUSE_SOFTMAX=1`"
+            " and recompile the unet model again."
+        )
     models_for_export["unet"] = copy.deepcopy(pipeline.unet)
 
     # VAE Encoder
