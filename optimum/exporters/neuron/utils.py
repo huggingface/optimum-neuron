@@ -242,9 +242,8 @@ def _get_submodels_for_export_stable_diffusion(
         Attention.get_attention_scores = get_attention_scores
     else:
         logger.warning(
-            "We are not applying optimized attention score computation, which will harm the latency."
-            " If you want better performance, please set the environment variable with `export NEURON_FUSE_SOFTMAX=1`"
-            " and recompile the unet model again."
+            "You are not applying optimized attention score computation. If you want better performance, please"
+            " set the environment variable with `export NEURON_FUSE_SOFTMAX=1` and recompile the unet model."
         )
     models_for_export["unet"] = copy.deepcopy(pipeline.unet)
 
