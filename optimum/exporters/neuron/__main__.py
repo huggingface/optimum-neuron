@@ -244,8 +244,7 @@ def main_export(
             )
 
             logger.info(
-                f"The {NEURON_COMPILER} export succeeded and the exported model was saved at: "
-                f"{output.parent.as_posix()}"
+                f"The {NEURON_COMPILER} export succeeded and the exported model was saved at: " f"{output.as_posix()}"
             )
         except ShapeError as e:
             raise e
