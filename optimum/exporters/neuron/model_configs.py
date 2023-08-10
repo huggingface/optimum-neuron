@@ -268,6 +268,13 @@ class UNetNeuronConfig(VisionNeuronConfig):
         return ["sample"]
 
     def generate_dummy_inputs(self, return_tuple: bool = False, **kwargs):
+        # For neuron, we use static shape for compiling the unet. Unlike `optimum`, we use the given `height` and `width` instead of the `sample_size`.
+        if self.height == self.width:
+            self._normalized_config.image_size = self.height
+        else:
+            raise ValueError(
+                "You need to input the same value for `self.height({self.height})` and `self.width({self.width})`."
+            )
         dummy_inputs = super().generate_dummy_inputs(**kwargs)
         dummy_inputs["timestep"] = dummy_inputs["timestep"].float()
         dummy_inputs["encoder_hidden_states"] = dummy_inputs["encoder_hidden_states"][0]
