@@ -46,15 +46,15 @@ from optimum.neuron import (
     pipeline,
 )
 from optimum.neuron.utils import NEURON_FILE_NAME, is_neuron_available, is_neuronx_available
-from optimum.neuron.utils.testing_utils import is_inferentia_test
+from optimum.neuron.utils.testing_utils import is_inf1_test, is_inf2_test
 from optimum.utils import (
     CONFIG_NAME,
     logging,
 )
 from optimum.utils.testing_utils import require_hf_token
 
-from .exporters.exporters_utils import EXPORT_MODELS_TINY as MODEL_NAMES
-from .exporters.exporters_utils import SEED
+from ..exporters.exporters_utils import EXPORT_MODELS_TINY as MODEL_NAMES
+from ..exporters.exporters_utils import SEED
 
 
 logger = logging.get_logger()
@@ -101,7 +101,8 @@ class NeuronModelTestMixin(unittest.TestCase):
             shutil.rmtree(dir_path)
 
 
-@is_inferentia_test
+@is_inf1_test
+@is_inf2_test
 class NeuronModelIntegrationTest(unittest.TestCase):
     if is_neuron_available():
         LOCAL_MODEL_PATH = "tests/assets/neuron"
@@ -194,7 +195,8 @@ class NeuronModelIntegrationTest(unittest.TestCase):
         self.assertIsInstance(model.config, PretrainedConfig)
 
 
-@is_inferentia_test
+@is_inf1_test
+@is_inf2_test
 class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronModelForFeatureExtraction
     TASK = "feature-extraction"
@@ -354,7 +356,8 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
         gc.collect()
 
 
-@is_inferentia_test
+@is_inf1_test
+@is_inf2_test
 class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronModelForMaskedLM
     TASK = "fill-mask"
@@ -519,7 +522,8 @@ class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
         gc.collect()
 
 
-@is_inferentia_test
+@is_inf1_test
+@is_inf2_test
 class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronModelForQuestionAnswering
     TASK = "question-answering"
@@ -716,7 +720,8 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
         gc.collect()
 
 
-@is_inferentia_test
+@is_inf1_test
+@is_inf2_test
 class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronModelForSequenceClassification
     TASK = "text-classification"
@@ -882,7 +887,8 @@ class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
         gc.collect()
 
 
-@is_inferentia_test
+@is_inf1_test
+@is_inf2_test
 class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronModelForTokenClassification
     TASK = "token-classification"
@@ -1047,7 +1053,8 @@ class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
         gc.collect()
 
 
-@is_inferentia_test
+@is_inf1_test
+@is_inf2_test
 class NeuronModelForMultipleChoiceIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronModelForMultipleChoice
     TASK = "multiple-choice"

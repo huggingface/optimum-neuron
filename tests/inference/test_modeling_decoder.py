@@ -22,11 +22,11 @@ from transformers import AutoTokenizer
 from transformers.testing_utils import ENDPOINT_STAGING
 
 from optimum.neuron import NeuronModelForCausalLM
-from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
+from optimum.neuron.utils.testing_utils import is_inf2_test
 from optimum.utils import logging
 from optimum.utils.testing_utils import TOKEN, USER
 
-from .exporters.exporters_utils import EXPORT_MODELS_TINY
+from ..exporters.exporters_utils import EXPORT_MODELS_TINY
 
 
 logger = logging.get_logger()
@@ -75,8 +75,7 @@ def _check_neuron_model(neuron_model, batch_size=None, num_cores=None, auto_cast
         assert neuron_config["auto_cast_type"] == auto_cast_type
 
 
-@is_inferentia_test
-@requires_neuronx
+@is_inf2_test
 @pytest.mark.parametrize(
     "batch_size, num_cores, auto_cast_type",
     [
@@ -92,15 +91,13 @@ def test_model_export(export_model_id, batch_size, num_cores, auto_cast_type):
     _check_neuron_model(model, batch_size, num_cores, auto_cast_type)
 
 
-@is_inferentia_test
-@requires_neuronx
+@is_inf2_test
 def test_model_from_path(neuron_model_path):
     model = NeuronModelForCausalLM.from_pretrained(neuron_model_path)
     _check_neuron_model(model)
 
 
-@is_inferentia_test
-@requires_neuronx
+@is_inf2_test
 def test_model_from_hub():
     model = NeuronModelForCausalLM.from_pretrained("dacorvo/tiny-random-gpt2-neuronx")
     _check_neuron_model(model)
@@ -116,8 +113,7 @@ def _test_model_generation(model, tokenizer, batch_size, length, **gen_kwargs):
         assert sample_output.shape[1] == length
 
 
-@is_inferentia_test
-@requires_neuronx
+@is_inf2_test
 @pytest.mark.parametrize(
     "gen_kwargs", [{"do_sample": True}, {"do_sample": True, "temperature": 0.7}], ids=["sample", "sample-with-temp"]
 )
@@ -136,8 +132,7 @@ def test_model_generation(neuron_model_path, gen_kwargs):
         _test_model_generation(model, tokenizer, model.batch_size, model.max_length * 2, **gen_kwargs)
 
 
-@is_inferentia_test
-@requires_neuronx
+@is_inf2_test
 def test_push_to_hub(neuron_model_path, neuron_push_id):
     model = NeuronModelForCausalLM.from_pretrained(neuron_model_path)
     model.push_to_hub(neuron_model_path, neuron_push_id, use_auth_token=TOKEN, endpoint=ENDPOINT_STAGING)

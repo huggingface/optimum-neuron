@@ -25,7 +25,7 @@ from parameterized import parameterized
 from optimum.exporters.neuron.model_configs import *  # noqa: F403
 from optimum.exporters.tasks import TasksManager
 from optimum.neuron.utils import is_neuron_available, is_neuronx_available
-from optimum.neuron.utils.testing_utils import is_inferentia_test
+from optimum.neuron.utils.testing_utils import is_inf1_test, is_inf2_test
 from optimum.utils import DEFAULT_DUMMY_SHAPES, logging
 
 from ..exporters.exporters_utils import EXPORT_MODELS_TINY
@@ -113,8 +113,9 @@ def _get_commands_to_test(models_to_test):
     return sorted(commands_to_test)
 
 
-@is_inferentia_test
 class TestExportCLI(unittest.TestCase):
+    @is_inf1_test
+    @is_inf2_test
     def test_helps_no_raise(self):
         commands = [
             "optimum-cli --help",
@@ -125,6 +126,8 @@ class TestExportCLI(unittest.TestCase):
         for command in commands:
             subprocess.run(command, shell=True, check=True)
 
+    @is_inf1_test
+    @is_inf2_test
     @parameterized.expand(_get_commands_to_test(_get_models_to_test(EXPORT_MODELS_TINY)), skip_on_empty=True)
     def test_export_commands(self, test_name, command_content):
         with tempfile.TemporaryDirectory() as tempdir:
@@ -132,6 +135,7 @@ class TestExportCLI(unittest.TestCase):
 
             subprocess.run(command, shell=True, check=True)
 
+    @is_inf2_test
     def test_dynamic_batching(self):
         model_id = "hf-internal-testing/tiny-random-BertModel"
         with tempfile.TemporaryDirectory() as tempdir:
@@ -155,6 +159,7 @@ class TestExportCLI(unittest.TestCase):
                 check=True,
             )
 
+    @is_inf2_test
     def test_stable_diffusion(self):
         model_id = "hf-internal-testing/tiny-stable-diffusion-torch"
         with tempfile.TemporaryDirectory() as tempdir:
@@ -169,10 +174,6 @@ class TestExportCLI(unittest.TestCase):
                     "stable-diffusion",
                     "--batch_size",
                     "1",
-                    "--sequence_length",
-                    "16",
-                    "--num_channels",
-                    "4",
                     "--height",
                     "64",
                     "--width",
