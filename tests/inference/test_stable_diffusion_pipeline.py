@@ -16,13 +16,10 @@ import unittest
 
 from parameterized import parameterized
 
-from optimum.neuron import (
-    NeuronStableDiffusionPipeline,
-)
+from optimum.neuron import NeuronStableDiffusionPipeline
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
-from optimum.utils import (
-    logging,
-)
+from optimum.utils import logging
+from optimum.utils.testing_utils import require_diffusers
 
 
 logger = logging.get_logger()
