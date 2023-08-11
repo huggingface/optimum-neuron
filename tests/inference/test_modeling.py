@@ -52,9 +52,7 @@ from optimum.utils import (
 )
 from optimum.utils.testing_utils import require_hf_token
 
-from ..exporters.exporters_utils import EXPORT_MODELS_TINY as MODEL_NAMES
-from ..exporters.exporters_utils import SEED
-from .inference_test_utils import NeuronModelTestMixin
+from .inference_utils import MODEL_NAMES, SEED, NeuronModelTestMixin
 
 
 logger = logging.get_logger()

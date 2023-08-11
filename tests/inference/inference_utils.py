@@ -20,8 +20,29 @@ from typing import Dict
 
 from transformers import set_seed
 
-from ..exporters.exporters_utils import EXPORT_MODELS_TINY as MODEL_NAMES
-from ..exporters.exporters_utils import SEED
+
+SEED = 42
+
+
+MODEL_NAMES = {
+    "albert": "hf-internal-testing/tiny-random-AlbertModel",
+    "bert": "hf-internal-testing/tiny-random-BertModel",
+    "camembert": "hf-internal-testing/tiny-random-camembert",
+    "convbert": "hf-internal-testing/tiny-random-ConvBertModel",
+    # "deberta": "hf-internal-testing/tiny-random-DebertaModel",  # Failed for INF1: 'XSoftmax'
+    # "deberta-v2": "hf-internal-testing/tiny-random-DebertaV2Model",  # Failed for INF1: 'XSoftmax'
+    "distilbert": "hf-internal-testing/tiny-random-DistilBertModel",
+    "electra": "hf-internal-testing/tiny-random-ElectraModel",
+    "flaubert": "flaubert/flaubert_small_cased",
+    "gpt2": "hf-internal-testing/tiny-random-gpt2",
+    "mobilebert": "hf-internal-testing/tiny-random-MobileBertModel",
+    "mpnet": "hf-internal-testing/tiny-random-MPNetModel",
+    "roberta": "hf-internal-testing/tiny-random-RobertaModel",
+    "roformer": "hf-internal-testing/tiny-random-RoFormerModel",
+    "stable-diffusion": "hf-internal-testing/tiny-stable-diffusion-torch",
+    "xlm": "hf-internal-testing/tiny-random-XLMModel",
+    "xlm-roberta": "hf-internal-testing/tiny-xlm-roberta",
+}
 
 
 class NeuronModelTestMixin(unittest.TestCase):

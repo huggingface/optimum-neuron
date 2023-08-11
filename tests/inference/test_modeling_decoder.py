@@ -26,7 +26,7 @@ from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neur
 from optimum.utils import logging
 from optimum.utils.testing_utils import TOKEN, USER
 
-from ..exporters.exporters_utils import EXPORT_MODELS_TINY
+from .inference_utils import MODEL_NAMES
 
 
 logger = logging.get_logger()
@@ -35,7 +35,7 @@ logger = logging.get_logger()
 DECODER_MODEL_ARCHITECTURES = ["gpt2"]
 
 
-@pytest.fixture(scope="module", params=[EXPORT_MODELS_TINY[model_arch] for model_arch in DECODER_MODEL_ARCHITECTURES])
+@pytest.fixture(scope="module", params=[MODEL_NAMES[model_arch] for model_arch in DECODER_MODEL_ARCHITECTURES])
 def export_model_id(request):
     return request.param
 
