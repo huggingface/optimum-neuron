@@ -51,23 +51,3 @@ def is_inferentia_test(test_case):
         return test_case
     else:
         return pytest.mark.is_inferentia_test()(test_case)
-
-
-def is_inf1_test(test_case):
-    test_case = requires_neuron(test_case)
-    try:
-        import pytest
-    except ImportError:
-        return test_case
-    else:
-        return pytest.mark.is_inf1_test()(test_case)
-
-
-def is_inf2_test(test_case):
-    test_case = requires_neuronx(test_case)
-    try:
-        import pytest
-    except ImportError:
-        return test_case
-    else:
-        return pytest.mark.is_inf2_test()(test_case)
