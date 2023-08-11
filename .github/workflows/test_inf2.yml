@@ -1,4 +1,4 @@
-name: Optimum neuron / Test INF2 CLI-EXPORT
+name: Optimum neuron / Test INF2 INFERENCE
 
 on:
   push:
@@ -79,7 +79,7 @@ jobs:
       - name: Run tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          pytest -m is_inf2_test tests/cli/test_export_cli.py --collect-only
+          pytest -m is_inferentia_test tests --collect-only
   stop-runner:
     name: Stop self-hosted EC2 runner
     needs:

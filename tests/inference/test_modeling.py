@@ -46,7 +46,7 @@ from optimum.neuron import (
     pipeline,
 )
 from optimum.neuron.utils import NEURON_FILE_NAME, is_neuron_available, is_neuronx_available
-from optimum.neuron.utils.testing_utils import is_inf1_test, is_inf2_test
+from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 from optimum.utils import (
     CONFIG_NAME,
     logging,
@@ -101,8 +101,7 @@ class NeuronModelTestMixin(unittest.TestCase):
             shutil.rmtree(dir_path)
 
 
-@is_inf1_test
-@is_inf2_test
+@is_inferentia_test
 class NeuronModelIntegrationTest(unittest.TestCase):
     if is_neuron_available():
         LOCAL_MODEL_PATH = "tests/assets/neuron"
@@ -195,8 +194,7 @@ class NeuronModelIntegrationTest(unittest.TestCase):
         self.assertIsInstance(model.config, PretrainedConfig)
 
 
-@is_inf1_test
-@is_inf2_test
+@is_inferentia_test
 class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronModelForFeatureExtraction
     TASK = "feature-extraction"
@@ -240,6 +238,7 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
         ATOL_FOR_VALIDATION = 1e-5
         SUPPORTED_ARCHITECTURES = []
 
+    @requires_neuronx
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_compare_to_transformers_dyn_bs(self, model_arch):
         # Neuron model with dynamic batching
@@ -356,8 +355,7 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
         gc.collect()
 
 
-@is_inf1_test
-@is_inf2_test
+@is_inferentia_test
 class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronModelForMaskedLM
     TASK = "fill-mask"
@@ -409,6 +407,7 @@ class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
 
         self.assertIn("Unrecognized configuration class", str(context.exception))
 
+    @requires_neuronx
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_compare_to_transformers_dyn_bs(self, model_arch):
         # Neuron model with dynamic batching
@@ -522,8 +521,7 @@ class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
         gc.collect()
 
 
-@is_inf1_test
-@is_inf2_test
+@is_inferentia_test
 class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronModelForQuestionAnswering
     TASK = "question-answering"
@@ -575,6 +573,7 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
 
         self.assertIn("Unrecognized configuration class", str(context.exception))
 
+    @requires_neuronx
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_compare_to_transformers_dyn_bs(self, model_arch):
         # Neuron model with dynamic batching
@@ -720,8 +719,7 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
         gc.collect()
 
 
-@is_inf1_test
-@is_inf2_test
+@is_inferentia_test
 class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronModelForSequenceClassification
     TASK = "text-classification"
@@ -773,6 +771,7 @@ class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
 
         self.assertIn("Unrecognized configuration class", str(context.exception))
 
+    @requires_neuronx
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_compare_to_transformers_dyn_bs(self, model_arch):
         # Neuron model with dynamic batching
@@ -887,8 +886,7 @@ class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
         gc.collect()
 
 
-@is_inf1_test
-@is_inf2_test
+@is_inferentia_test
 class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronModelForTokenClassification
     TASK = "token-classification"
@@ -940,6 +938,7 @@ class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
 
         self.assertIn("Unrecognized configuration class", str(context.exception))
 
+    @requires_neuronx
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_compare_to_transformers_dyn_bs(self, model_arch):
         # Neuron model with dynamic batching
@@ -1053,8 +1052,7 @@ class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
         gc.collect()
 
 
-@is_inf1_test
-@is_inf2_test
+@is_inferentia_test
 class NeuronModelForMultipleChoiceIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronModelForMultipleChoice
     TASK = "multiple-choice"
@@ -1099,6 +1097,7 @@ class NeuronModelForMultipleChoiceIntegrationTest(NeuronModelTestMixin):
         ATOL_FOR_VALIDATION = 1e-5
         SUPPORTED_ARCHITECTURES = []
 
+    @requires_neuronx
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_compare_to_transformers_dyn_bs(self, model_arch):
         # Neuron model with dynamic batching
