@@ -34,5 +34,5 @@ known-first-party = ["optimum.neuron"]
 markers = [
     "is_staging_test",
     "is_trainium_test",
-    "is_inferentia_test"
+    "is_inferentia_test",
 ]
