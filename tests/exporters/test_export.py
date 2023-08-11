@@ -159,9 +159,9 @@ class NeuronStableDiffusionExportTestCase(TestCase):
     """
 
     @requires_neuronx
-    @parameterized.expand(STABLE_DIFFUSION_MODELS_TINY)
     @require_vision
     @require_diffusers
+    @parameterized.expand(STABLE_DIFFUSION_MODELS_TINY)
     def test_export_for_stable_diffusion_models(self, model_name):
         set_seed(SEED)
 
