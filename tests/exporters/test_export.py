@@ -34,7 +34,7 @@ from optimum.exporters.neuron import (
 from optimum.exporters.neuron.model_configs import *  # noqa: F403
 from optimum.exporters.tasks import TasksManager
 from optimum.neuron.utils import is_neuronx_available
-from optimum.neuron.utils.testing_utils import is_inferentia_test
+from optimum.neuron.utils.testing_utils import is_inf1_test, is_inf2_test
 from optimum.utils import DEFAULT_DUMMY_SHAPES, is_diffusers_available, logging
 from optimum.utils.testing_utils import require_diffusers
 
@@ -85,7 +85,8 @@ def _get_models_to_test(export_models_dict: Dict, random_pick: Optional[int] = N
         return sorted(models_to_test)
 
 
-@is_inferentia_test
+@is_inf1_test
+@is_inf2_test
 class NeuronExportTestCase(TestCase):
     """
     Integration tests ensuring supported models are correctly exported.
@@ -141,6 +142,13 @@ class NeuronExportTestCase(TestCase):
     def test_export_with_dynamic_batch_size(self, test_name, name, model_name, task, neuron_config_constructor):
         if is_neuronx_available():
             self._neuronx_export(test_name, name, model_name, task, neuron_config_constructor, dynamic_batch_size=True)
+
+
+@is_inf2_test
+class NeuronStableDiffusionExportTestCase(TestCase):
+    """
+    Integration tests ensuring stable diffusion models are correctly exported.
+    """
 
     @parameterized.expand(STABLE_DIFFUSION_MODELS_TINY)
     @require_vision
