@@ -158,8 +158,6 @@ class StableDiffusionPipelineMixin(StableDiffusionPipeline):
     def __call__(
         self,
         prompt: Union[str, List[str]] = None,
-        height: Optional[int] = None,
-        width: Optional[int] = None,
         num_inference_steps: int = 50,
         guidance_scale: float = 7.5,
         negative_prompt: Optional[Union[str, List[str]]] = None,
@@ -176,9 +174,9 @@ class StableDiffusionPipelineMixin(StableDiffusionPipeline):
         cross_attention_kwargs: Optional[Dict[str, Any]] = None,
         guidance_rescale: float = 0.0,
     ):
-        # 0. Default height and width to unet
-        height = height or self.unet.config.sample_size * self.vae_scale_factor
-        width = width or self.unet.config.sample_size * self.vae_scale_factor
+        # 0. Height and width to unet (static shapes)
+        height = self.unet.config.neuron["static_height"] * self.vae_scale_factor
+        width = self.unet.config.neuron["static_width"] * self.vae_scale_factor
 
         # 1. Check inputs. Raise error if not correct
         self.check_inputs(
