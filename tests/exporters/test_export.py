@@ -43,7 +43,7 @@ from optimum.neuron.utils import (
     DIFFUSION_MODEL_VAE_ENCODER_NAME,
     NEURON_FILE_NAME,
 )
-from optimum.neuron.utils.testing_utils import is_inf1_test, is_inf2_test
+from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 from optimum.utils import DEFAULT_DUMMY_SHAPES, is_diffusers_available, logging
 from optimum.utils.testing_utils import require_diffusers
 
@@ -94,6 +94,7 @@ def _get_models_to_test(export_models_dict: Dict, random_pick: Optional[int] = N
         return sorted(models_to_test)
 
 
+@is_inferentia_test
 class NeuronExportTestCase(TestCase):
     """
     Integration tests ensuring supported models are correctly exported.
@@ -141,24 +142,23 @@ class NeuronExportTestCase(TestCase):
             except (RuntimeError, ValueError) as e:
                 self.fail(f"{model_type}, {task} -> {e}")
 
-    @is_inf1_test
-    @is_inf2_test
     @parameterized.expand(_get_models_to_test(EXPORT_MODELS_TINY))
     def test_export(self, test_name, name, model_name, task, neuron_config_constructor):
         self._neuronx_export(test_name, name, model_name, task, neuron_config_constructor)
 
-    @is_inf2_test
+    @requires_neuronx
     @parameterized.expand(_get_models_to_test(EXPORT_MODELS_TINY), skip_on_empty=True)  # , random_pick=1
     def test_export_with_dynamic_batch_size(self, test_name, name, model_name, task, neuron_config_constructor):
         self._neuronx_export(test_name, name, model_name, task, neuron_config_constructor, dynamic_batch_size=True)
 
 
+@is_inferentia_test
 class NeuronStableDiffusionExportTestCase(TestCase):
     """
     Integration tests ensuring stable diffusion models are correctly exported.
     """
 
-    @is_inf2_test
+    @requires_neuronx
     @parameterized.expand(STABLE_DIFFUSION_MODELS_TINY)
     @require_vision
     @require_diffusers
