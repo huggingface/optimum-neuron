@@ -172,6 +172,9 @@ def main_export(
     output = Path(output)
     if not output.parent.exists():
         output.parent.mkdir(parents=True)
+    
+    original_task = task
+    task = TasksManager.map_from_synonym(task)
 
     model = TasksManager.get_model_from_task(
         task,
