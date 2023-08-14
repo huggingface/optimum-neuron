@@ -13,11 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import shutil
 import tempfile
 import unittest
 from typing import Dict
 
+from huggingface_hub import HfFolder
 from transformers import set_seed
 
 
@@ -43,6 +45,42 @@ MODEL_NAMES = {
     "xlm": "hf-internal-testing/tiny-random-XLMModel",
     "xlm-roberta": "hf-internal-testing/tiny-xlm-roberta",
 }
+
+
+class NeuronModelIntegrationTestMixin(unittest.TestCase):
+    USER = "optimum"
+    MODEL_ID = None
+    NEURON_MODEL_REPO = None
+    NEURON_MODEL_CLASS = None
+    STATIC_INPUTS_SHAPES = {}
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._token = HfFolder.get_token()
+        if os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI", None) is not None:
+            token = os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI")
+            HfFolder.save_token(token)
+        else:
+            raise RuntimeError("Please specify the token via the HF_TOKEN_OPTIMUM_NEURON_CI environment variable.")
+
+        model_name = cls.MODEL_ID.split("/")[-1]
+        model_dir = tempfile.mkdtemp(prefix=f"{model_name}_")
+
+        # Export model to local path
+        neuron_model = cls.NEURON_MODEL_CLASS.from_pretrained(cls.MODEL_ID, export=True, **cls.STATIC_INPUTS_SHAPES)
+        neuron_model.save_pretrained(model_dir)
+        cls.local_model_path = model_dir
+
+        # Upload to the hub
+        cls.neuron_model_id = f"{cls.USER}/{cls.NEURON_MODEL_REPO}"
+        neuron_model.push_to_hub(model_dir, repository_id=cls.neuron_model_id, use_auth_token=cls._token)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        if cls._token is not None:
+            HfFolder.save_token(cls._token)
+        if cls.local_model_path is not None:
+            shutil.rmtree(cls.local_model_path)
 
 
 class NeuronModelTestMixin(unittest.TestCase):

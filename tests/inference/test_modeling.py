@@ -16,7 +16,6 @@ import gc
 import os
 import shutil
 import tempfile
-import unittest
 
 import torch
 from huggingface_hub.constants import default_cache_path
@@ -50,102 +49,76 @@ from optimum.utils import (
     CONFIG_NAME,
     logging,
 )
-from optimum.utils.testing_utils import require_hf_token
 
-from .inference_utils import MODEL_NAMES, SEED, NeuronModelTestMixin
+from .inference_utils import MODEL_NAMES, SEED, NeuronModelIntegrationTestMixin, NeuronModelTestMixin
 
 
 logger = logging.get_logger()
 
 
 @is_inferentia_test
-class NeuronModelIntegrationTest(unittest.TestCase):
+class NeuronModelIntegrationTest(NeuronModelIntegrationTestMixin):
+    MODEL_ID = MODEL_NAMES["bert"]
     if is_neuron_available():
-        LOCAL_MODEL_PATH = "tests/assets/neuron"
-        NEURON_MODEL_ID = "optimum/tiny_random_bert_neuron"
-        PRIVATE_NEURON_MODEL_ID = "Jingya/tiny-random-BertModel-neuron-private"
+        NEURON_MODEL_REPO = "tiny_random_bert_neuron"
     elif is_neuronx_available():
-        LOCAL_MODEL_PATH = "tests/assets/neuronx"
-        NEURON_MODEL_ID = "optimum/tiny_random_bert_neuronx"
-        PRIVATE_NEURON_MODEL_ID = "Jingya/tiny-random-BertModel-neuronx-private"
+        NEURON_MODEL_REPO = "tiny_random_bert_neuronx"
+    NEURON_MODEL_CLASS = NeuronModelForSequenceClassification
+    STATIC_INPUTS_SHAPES = {"batch_size": 1, "sequence_length": 32}
 
     TINY_SUBFOLDER_MODEL_ID = "fxmarty/tiny-bert-sst2-distilled-subfolder"
     FAIL_NEURON_MODEL_ID = "sshleifer/tiny-distilbert-base-cased-distilled-squad"
     TINY_MODEL_REMOTE = "Jingya/tiny-random-bert-remote-code"
-    INPUTS_SHAPES = {"batch_size": 3, "sequence_length": 64}
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
 
     def test_load_model_from_local_path(self):
-        model = NeuronBaseModel.from_pretrained(self.LOCAL_MODEL_PATH)
+        model = NeuronBaseModel.from_pretrained(self.local_model_path)
         self.assertIsInstance(model.model, torch.jit._script.ScriptModule)
         self.assertIsInstance(model.config, PretrainedConfig)
 
     def test_load_model_from_hub(self):
-        model = NeuronBaseModel.from_pretrained(self.NEURON_MODEL_ID)
+        model = NeuronBaseModel.from_pretrained(self.neuron_model_id)
         self.assertIsInstance(model.model, torch.jit._script.ScriptModule)
         self.assertIsInstance(model.config, PretrainedConfig)
 
     def test_load_model_from_hub_subfolder(self):
         model = NeuronModelForSequenceClassification.from_pretrained(
-            self.TINY_SUBFOLDER_MODEL_ID, subfolder="my_subfolder", export=True, **self.INPUTS_SHAPES
+            self.TINY_SUBFOLDER_MODEL_ID, subfolder="my_subfolder", export=True, **self.STATIC_INPUTS_SHAPES
         )
         self.assertIsInstance(model.model, torch.jit._script.ScriptModule)
         self.assertIsInstance(model.config, PretrainedConfig)
 
     def test_load_model_from_cache(self):
-        _ = NeuronBaseModel.from_pretrained(self.NEURON_MODEL_ID)  # caching
+        _ = NeuronBaseModel.from_pretrained(self.neuron_model_id)  # caching
 
-        model = NeuronBaseModel.from_pretrained(self.NEURON_MODEL_ID, local_files_only=True)
+        model = NeuronBaseModel.from_pretrained(self.neuron_model_id, local_files_only=True)
 
         self.assertIsInstance(model.model, torch.jit._script.ScriptModule)
         self.assertIsInstance(model.config, PretrainedConfig)
 
     def test_load_model_from_empty_cache(self):
-        dirpath = os.path.join(default_cache_path, "models--" + self.NEURON_MODEL_ID.replace("/", "--"))
+        dirpath = os.path.join(default_cache_path, "models--" + self.neuron_model_id.replace("/", "--"))
 
         if os.path.exists(dirpath) and os.path.isdir(dirpath):
             shutil.rmtree(dirpath)
         with self.assertRaises(Exception):
-            _ = NeuronBaseModel.from_pretrained(self.NEURON_MODEL_ID, local_files_only=True)
+            _ = NeuronBaseModel.from_pretrained(self.neuron_model_id, local_files_only=True)
 
     def test_load_model_from_hub_without_neuron_model(self):
         with self.assertRaises(FileNotFoundError):
             NeuronBaseModel.from_pretrained(self.FAIL_NEURON_MODEL_ID)
 
-    @require_hf_token
-    def test_load_model_from_hub_private(self):
-        model = NeuronBaseModel.from_pretrained(
-            self.PRIVATE_NEURON_MODEL_ID, use_auth_token=os.environ.get("HF_AUTH_TOKEN", None)
-        )
-        self.assertIsInstance(model.model, torch.jit._script.ScriptModule)
-        self.assertIsInstance(model.config, PretrainedConfig)
-
     def test_save_model(self):
         with tempfile.TemporaryDirectory() as tmpdirname:
-            model = NeuronBaseModel.from_pretrained(self.LOCAL_MODEL_PATH)
+            model = NeuronBaseModel.from_pretrained(self.local_model_path)
             model.save_pretrained(tmpdirname)
             # folder contains all config files and neuron exported model
             folder_contents = os.listdir(tmpdirname)
             self.assertTrue(NEURON_FILE_NAME in folder_contents)
             self.assertTrue(CONFIG_NAME in folder_contents)
 
-    @require_hf_token
-    def test_push_model_to_hub(self):
-        with tempfile.TemporaryDirectory() as tmpdirname:
-            model = NeuronBaseModel.from_pretrained(self.LOCAL_MODEL_PATH)
-            model.save_pretrained(
-                tmpdirname,
-                use_auth_token=os.environ.get("HF_AUTH_TOKEN", None),
-                push_to_hub=True,
-                repository_id=self.PRIVATE_NEURON_MODEL_ID,
-                private=True,
-            )
-
     def test_trust_remote_code(self):
         model = NeuronModelForSequenceClassification.from_pretrained(
-            self.TINY_MODEL_REMOTE, export=True, trust_remote_code=True, **self.INPUTS_SHAPES
+            self.TINY_MODEL_REMOTE, export=True, trust_remote_code=True, **self.STATIC_INPUTS_SHAPES
         )
         self.assertIsInstance(model.model, torch.jit._script.ScriptModule)
         self.assertIsInstance(model.config, PretrainedConfig)
@@ -199,17 +172,17 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_compare_to_transformers_dyn_bs(self, model_arch):
         # Neuron model with dynamic batching
-        model_args_dyn = {
+        model_args = {
             "test_name": model_arch + "_dyn_bs_true",
             "model_arch": model_arch,
             "dynamic_batch_size": True,
         }
-        self._setup(model_args_dyn)
+        self._setup(model_args)
 
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
 
         neuron_model_dyn = NeuronModelForFeatureExtraction.from_pretrained(
-            self.neuron_model_dirs[model_args_dyn["test_name"]]
+            self.neuron_model_dirs[model_arch + "_dyn_bs_true"]
         )
         self.assertIsInstance(neuron_model_dyn.model, torch.jit._script.ScriptModule)
         self.assertIsInstance(neuron_model_dyn.config, PretrainedConfig)
@@ -247,17 +220,17 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_compare_to_transformers_non_dyn_bs(self, model_arch):
-        model_args_non_dyn = {
+        model_args = {
             "test_name": model_arch + "_dyn_bs_false",
             "model_arch": model_arch,
             "dynamic_batch_size": False,
         }
-        self._setup(model_args_non_dyn)
+        self._setup(model_args)
 
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
 
         neuron_model_non_dyn = NeuronModelForFeatureExtraction.from_pretrained(
-            self.neuron_model_dirs[model_args_non_dyn["test_name"]]
+            self.neuron_model_dirs[model_arch + "_dyn_bs_false"]
         )
         self.assertIsInstance(neuron_model_non_dyn.model, torch.jit._script.ScriptModule)
         self.assertIsInstance(neuron_model_non_dyn.config, PretrainedConfig)
@@ -302,7 +275,7 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
 
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
         neuron_model = NeuronModelForSequenceClassification.from_pretrained(
-            self.neuron_model_dirs[model_args["test_name"]]
+            self.neuron_model_dirs[model_arch + "_dyn_bs_false"]
         )
         tokenizer = get_preprocessor(model_id)
         pipe = pipeline(self.TASK, model=neuron_model, tokenizer=tokenizer)
@@ -370,12 +343,12 @@ class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_compare_to_transformers_dyn_bs(self, model_arch):
         # Neuron model with dynamic batching
-        model_args_dyn = {
+        model_args = {
             "test_name": model_arch + "_dyn_bs_true",
             "model_arch": model_arch,
             "dynamic_batch_size": True,
         }
-        self._setup(model_args_dyn)
+        self._setup(model_args)
 
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
 
@@ -404,12 +377,12 @@ class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_compare_to_transformers_non_dyn_bs(self, model_arch):
-        model_args_non_dyn = {
+        model_args = {
             "test_name": model_arch + "_dyn_bs_false",
             "model_arch": model_arch,
             "dynamic_batch_size": False,
         }
-        self._setup(model_args_non_dyn)
+        self._setup(model_args)
 
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
 
@@ -463,11 +436,13 @@ class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_pipeline_model(self, model_arch):
-        model_args = {"test_name": model_arch, "model_arch": model_arch}
+        model_args = {"test_name": model_arch + "_dyn_bs_false", "model_arch": model_arch}
         self._setup(model_args)
 
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
-        neuron_model = NeuronModelForSequenceClassification.from_pretrained(self.neuron_model_dirs[model_arch])
+        neuron_model = NeuronModelForSequenceClassification.from_pretrained(
+            self.neuron_model_dirs[model_arch + "_dyn_bs_false"]
+        )
         tokenizer = get_preprocessor(model_id)
         MASK_TOKEN = tokenizer.mask_token
         pipe = pipeline(self.TASK, model=neuron_model, tokenizer=tokenizer)
@@ -530,18 +505,18 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
                 "hf-internal-testing/tiny-random-t5", from_transformers=True, **self.STATIC_INPUTS_SHAPES
             )
 
-        self.assertIn("Unrecognized configuration class", str(context.exception))
+        self.assertIn("is not supported yet", str(context.exception))
 
     @requires_neuronx
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_compare_to_transformers_dyn_bs(self, model_arch):
         # Neuron model with dynamic batching
-        model_args_dyn = {
+        model_args = {
             "test_name": model_arch + "_dyn_bs_true",
             "model_arch": model_arch,
             "dynamic_batch_size": True,
         }
-        self._setup(model_args_dyn)
+        self._setup(model_args)
 
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
 
@@ -587,12 +562,12 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_compare_to_transformers_non_dyn_bs(self, model_arch):
-        model_args_non_dyn = {
+        model_args = {
             "test_name": model_arch + "_dyn_bs_false",
             "model_arch": model_arch,
             "dynamic_batch_size": False,
         }
-        self._setup(model_args_non_dyn)
+        self._setup(model_args)
 
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
 
@@ -661,11 +636,13 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_pipeline_model(self, model_arch):
-        model_args = {"test_name": model_arch, "model_arch": model_arch}
+        model_args = {"test_name": model_arch + "_dyn_bs_false", "model_arch": model_arch}
         self._setup(model_args)
 
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
-        neuron_model = NeuronModelForQuestionAnswering.from_pretrained(self.neuron_model_dirs[model_arch])
+        neuron_model = NeuronModelForQuestionAnswering.from_pretrained(
+            self.neuron_model_dirs[model_arch + "_dyn_bs_false"]
+        )
         tokenizer = get_preprocessor(model_id)
         pipe = pipeline(self.TASK, model=neuron_model, tokenizer=tokenizer)
         question = "Whats my name?"
@@ -734,12 +711,12 @@ class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_compare_to_transformers_dyn_bs(self, model_arch):
         # Neuron model with dynamic batching
-        model_args_dyn = {
+        model_args = {
             "test_name": model_arch + "_dyn_bs_true",
             "model_arch": model_arch,
             "dynamic_batch_size": True,
         }
-        self._setup(model_args_dyn)
+        self._setup(model_args)
 
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
 
@@ -770,12 +747,12 @@ class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_compare_to_transformers_non_dyn_bs(self, model_arch):
-        model_args_non_dyn = {
+        model_args = {
             "test_name": model_arch + "_dyn_bs_false",
             "model_arch": model_arch,
             "dynamic_batch_size": False,
         }
-        self._setup(model_args_non_dyn)
+        self._setup(model_args)
 
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
 
@@ -829,11 +806,13 @@ class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_pipeline_model(self, model_arch):
-        model_args = {"test_name": model_arch, "model_arch": model_arch}
+        model_args = {"test_name": model_arch + "_dyn_bs_false", "model_arch": model_arch}
         self._setup(model_args)
 
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
-        neuron_model = NeuronModelForSequenceClassification.from_pretrained(self.neuron_model_dirs[model_arch])
+        neuron_model = NeuronModelForSequenceClassification.from_pretrained(
+            self.neuron_model_dirs[model_arch + "_dyn_bs_false"]
+        )
         tokenizer = get_preprocessor(model_id)
         pipe = pipeline(self.TASK, model=neuron_model, tokenizer=tokenizer)
         text = "I like you."
@@ -901,12 +880,12 @@ class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_compare_to_transformers_dyn_bs(self, model_arch):
         # Neuron model with dynamic batching
-        model_args_dyn = {
+        model_args = {
             "test_name": model_arch + "_dyn_bs_true",
             "model_arch": model_arch,
             "dynamic_batch_size": True,
         }
-        self._setup(model_args_dyn)
+        self._setup(model_args)
 
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
 
@@ -937,12 +916,12 @@ class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_compare_to_transformers_non_dyn_bs(self, model_arch):
-        model_args_non_dyn = {
+        model_args = {
             "test_name": model_arch + "_dyn_bs_false",
             "model_arch": model_arch,
             "dynamic_batch_size": False,
         }
-        self._setup(model_args_non_dyn)
+        self._setup(model_args)
 
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
 
@@ -996,11 +975,13 @@ class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_pipeline_model(self, model_arch):
-        model_args = {"test_name": model_arch, "model_arch": model_arch}
+        model_args = {"test_name": model_arch + "_dyn_bs_false", "model_arch": model_arch}
         self._setup(model_args)
 
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
-        neuron_model = NeuronModelForTokenClassification.from_pretrained(self.neuron_model_dirs[model_arch])
+        neuron_model = NeuronModelForTokenClassification.from_pretrained(
+            self.neuron_model_dirs[model_arch + "_dyn_bs_false"]
+        )
         tokenizer = get_preprocessor(model_id)
         pipe = pipeline(self.TASK, model=neuron_model, tokenizer=tokenizer)
         text = "My Name is Philipp."
@@ -1060,12 +1041,12 @@ class NeuronModelForMultipleChoiceIntegrationTest(NeuronModelTestMixin):
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_compare_to_transformers_dyn_bs(self, model_arch):
         # Neuron model with dynamic batching
-        model_args_dyn = {
+        model_args = {
             "test_name": model_arch + "_dyn_bs_true",
             "model_arch": model_arch,
             "dynamic_batch_size": True,
         }
-        self._setup(model_args_dyn)
+        self._setup(model_args)
 
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
 
@@ -1104,12 +1085,12 @@ class NeuronModelForMultipleChoiceIntegrationTest(NeuronModelTestMixin):
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_compare_to_transformers_non_dyn_bas(self, model_arch):
-        model_args_non_dyn = {
+        model_args = {
             "test_name": model_arch + "_dyn_bs_false",
             "model_arch": model_arch,
             "dynamic_batch_size": False,
         }
-        self._setup(model_args_non_dyn)
+        self._setup(model_args)
 
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
 
