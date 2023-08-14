@@ -209,7 +209,7 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
 
         neuron_model_dyn = NeuronModelForFeatureExtraction.from_pretrained(
-            self.neuron_model_dirs[model_arch + "_dyn_bs_true"]
+            self.neuron_model_dirs[model_args_dyn["test_name"]]
         )
         self.assertIsInstance(neuron_model_dyn.model, torch.jit._script.ScriptModule)
         self.assertIsInstance(neuron_model_dyn.config, PretrainedConfig)
@@ -257,7 +257,7 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
 
         neuron_model_non_dyn = NeuronModelForFeatureExtraction.from_pretrained(
-            self.neuron_model_dirs[model_arch + "_dyn_bs_false"]
+            self.neuron_model_dirs[model_args_non_dyn["test_name"]]
         )
         self.assertIsInstance(neuron_model_non_dyn.model, torch.jit._script.ScriptModule)
         self.assertIsInstance(neuron_model_non_dyn.config, PretrainedConfig)
@@ -297,11 +297,13 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_pipeline_model(self, model_arch):
-        model_args = {"test_name": model_arch, "model_arch": model_arch}
+        model_args = {"test_name": model_arch + "_dyn_bs_false", "model_arch": model_arch}
         self._setup(model_args)
 
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
-        neuron_model = NeuronModelForSequenceClassification.from_pretrained(self.neuron_model_dirs[model_arch])
+        neuron_model = NeuronModelForSequenceClassification.from_pretrained(
+            self.neuron_model_dirs[model_args["test_name"]]
+        )
         tokenizer = get_preprocessor(model_id)
         pipe = pipeline(self.TASK, model=neuron_model, tokenizer=tokenizer)
         text = "My Name is Philipp."

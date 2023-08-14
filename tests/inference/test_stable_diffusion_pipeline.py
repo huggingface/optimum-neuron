@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import unittest
 
 from parameterized import parameterized
 
@@ -21,6 +20,8 @@ from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neur
 from optimum.utils import logging
 from optimum.utils.testing_utils import require_diffusers
 
+from .inference_utils import NeuronModelTestMixin
+
 
 logger = logging.get_logger()
 
@@ -28,7 +29,7 @@ logger = logging.get_logger()
 @is_inferentia_test
 @requires_neuronx
 @require_diffusers
-class NeuronModelForMultipleChoiceIntegrationTest(unittest.TestCase):
+class NeuronModelForMultipleChoiceIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronStableDiffusionPipeline
     STATIC_INPUTS_SHAPES = {"batch_size": 1, "height": 64, "width": 64}
     SUPPORTED_ARCHITECTURES = [
