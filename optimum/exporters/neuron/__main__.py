@@ -195,7 +195,7 @@ def main_export(
         neuron_config = neuron_config_constructor(model.config, dynamic_batch_size=dynamic_batch_size, **input_shapes)
         if atol is None:
             atol = neuron_config.ATOL_FOR_VALIDATION
-        output_model_names = ["model.neuron"]
+        output_model_names = {"model": "model.neuron"}
         models_and_neuron_configs = {"model": (model, neuron_config)}
         maybe_save_preprocessors(model, output.parent)
 
