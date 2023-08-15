@@ -15,6 +15,7 @@
 """Neuron compiled model check and export functions."""
 
 import copy
+import time
 from collections import OrderedDict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
@@ -289,6 +290,7 @@ def export_models(
 
     failed_models = []
     for i, model_name in enumerate(models_and_neuron_configs.keys()):
+        logger.info(f"***** Compiling {model_name} *****")
         submodel, sub_neuron_config = models_and_neuron_configs[model_name]
         output_file_name = (
             output_file_names[model_name] if output_file_names is not None else Path(model_name + ".neuron")
@@ -298,12 +300,15 @@ def export_models(
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         try:
+            start_time = time.time()
             neuron_inputs, neuron_outputs = export(
                 model=submodel,
                 config=sub_neuron_config,
                 output=output_path,
                 **compiler_kwargs,
             )
+            compilation_time = time.time() - start_time
+            logger.info(f"[Compilation Time] {np.round(compilation_time, 2)} seconds.")
             outputs.append((neuron_inputs, neuron_outputs))
             # Add neuron specific configs to model components' original config
             if hasattr(submodel, "config"):
