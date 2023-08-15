@@ -79,8 +79,7 @@ jobs:
       - name: Run tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          export HF_TOKEN_OPTIMUM_NEURON_CI=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }}
-          python -c "import os;print(os.environ["HF_TOKEN_OPTIMUM_NEURON_CI"] is not None)"
+          HF_TOKEN_OPTIMUM_NEURON_CI=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} python -c "import os;print(os.environ["HF_TOKEN_OPTIMUM_NEURON_CI"] is not None)"
   stop-runner:
     name: Stop self-hosted EC2 runner
     needs:
