@@ -79,7 +79,7 @@ jobs:
       - name: Run tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          HF_TOKEN_OPTIMUM_NEURON_CI=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} USE_VENV="false" pytest -m is_inferentia_test tests/inference/test_modeling.py
+          HF_TOKEN_OPTIMUM_NEURON_CI=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_INF_CI }} USE_VENV="false" pytest -m is_inferentia_test tests/inference/test_modeling.py
   stop-runner:
     name: Stop self-hosted EC2 runner
     needs:
