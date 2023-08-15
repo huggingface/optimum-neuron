@@ -210,6 +210,12 @@ You can also accelerate the inference of stable diffusion on neuronx devices (in
 
 The export can be done either with the CLI or with `NeuronStableDiffusionPipeline` API. Here is an example of exporting stable diffusion components with `NeuronStableDiffusionPipeline`:
 
+<Tip>
+
+To apply optimized compute of Unet's attention score, please configure your environment variable with `export NEURON_FUSE_SOFTMAX=1`.
+
+</Tip>
+
 ```python
 >>> from optimum.neuron import NeuronStableDiffusionPipeline
 
