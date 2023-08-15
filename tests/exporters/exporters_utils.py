@@ -24,8 +24,6 @@ EXPORT_MODELS_TINY = {
     "distilbert": "hf-internal-testing/tiny-random-DistilBertModel",
     "electra": "hf-internal-testing/tiny-random-ElectraModel",
     "flaubert": "flaubert/flaubert_small_cased",
-    # TODO: AttributeError: type object 'GPT2NeuronConfig' has no attribute 'get_mandatory_axes_for_task'
-    # "gpt2": "hf-internal-testing/tiny-random-gpt2",
     "mobilebert": "hf-internal-testing/tiny-random-MobileBertModel",
     "mpnet": "hf-internal-testing/tiny-random-MPNetModel",
     "roberta": "hf-internal-testing/tiny-random-RobertaModel",

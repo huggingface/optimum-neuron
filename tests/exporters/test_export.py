@@ -16,10 +16,10 @@
 import copy
 import os
 import random
+import unittest
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import Dict, Optional
-from unittest import TestCase
 
 from parameterized import parameterized
 from transformers import AutoConfig, set_seed
@@ -94,8 +94,7 @@ def _get_models_to_test(export_models_dict: Dict, random_pick: Optional[int] = N
         return sorted(models_to_test)
 
 
-@is_inferentia_test
-class NeuronExportTestCase(TestCase):
+class NeuronExportTestCase(unittest.TestCase):
     """
     Integration tests ensuring supported models are correctly exported.
     """
@@ -143,24 +142,26 @@ class NeuronExportTestCase(TestCase):
                 self.fail(f"{model_type}, {task} -> {e}")
 
     @parameterized.expand(_get_models_to_test(EXPORT_MODELS_TINY))
+    @is_inferentia_test
     def test_export(self, test_name, name, model_name, task, neuron_config_constructor):
         self._neuronx_export(test_name, name, model_name, task, neuron_config_constructor)
 
-    @requires_neuronx
     @parameterized.expand(_get_models_to_test(EXPORT_MODELS_TINY), skip_on_empty=True)  # , random_pick=1
+    @is_inferentia_test
+    @requires_neuronx
     def test_export_with_dynamic_batch_size(self, test_name, name, model_name, task, neuron_config_constructor):
         self._neuronx_export(test_name, name, model_name, task, neuron_config_constructor, dynamic_batch_size=True)
 
 
 @is_inferentia_test
-class NeuronStableDiffusionExportTestCase(TestCase):
+@requires_neuronx
+@require_vision
+@require_diffusers
+class NeuronStableDiffusionExportTestCase(unittest.TestCase):
     """
     Integration tests ensuring stable diffusion models are correctly exported.
     """
 
-    @requires_neuronx
-    @require_vision
-    @require_diffusers
     @parameterized.expand(STABLE_DIFFUSION_MODELS_TINY)
     def test_export_for_stable_diffusion_models(self, model_name):
         set_seed(SEED)
