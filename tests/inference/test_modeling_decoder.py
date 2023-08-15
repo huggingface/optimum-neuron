@@ -41,6 +41,7 @@ def export_model_id(request):
 
 
 @pytest.fixture(scope="module")
+@requires_neuronx
 def neuron_model_path(export_model_id):
     # For now we need to use a batch_size of 2 because it fails with batch_size == 1
     model = NeuronModelForCausalLM.from_pretrained(export_model_id, export=True, batch_size=2)
