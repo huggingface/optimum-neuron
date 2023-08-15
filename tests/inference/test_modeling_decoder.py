@@ -75,8 +75,6 @@ def _check_neuron_model(neuron_model, batch_size=None, num_cores=None, auto_cast
         assert neuron_config["auto_cast_type"] == auto_cast_type
 
 
-@is_inferentia_test
-@requires_neuronx
 @pytest.mark.parametrize(
     "batch_size, num_cores, auto_cast_type",
     [
@@ -85,6 +83,8 @@ def _check_neuron_model(neuron_model, batch_size=None, num_cores=None, auto_cast
         [2, 2, "bf16"],
     ],
 )
+@is_inferentia_test
+@requires_neuronx
 def test_model_export(export_model_id, batch_size, num_cores, auto_cast_type):
     model = NeuronModelForCausalLM.from_pretrained(
         export_model_id, export=True, batch_size=batch_size, num_cores=num_cores, auto_cast_type=auto_cast_type
@@ -116,11 +116,11 @@ def _test_model_generation(model, tokenizer, batch_size, length, **gen_kwargs):
         assert sample_output.shape[1] == length
 
 
-@is_inferentia_test
-@requires_neuronx
 @pytest.mark.parametrize(
     "gen_kwargs", [{"do_sample": True}, {"do_sample": True, "temperature": 0.7}], ids=["sample", "sample-with-temp"]
 )
+@is_inferentia_test
+@requires_neuronx
 def test_model_generation(neuron_model_path, gen_kwargs):
     model = NeuronModelForCausalLM.from_pretrained(neuron_model_path)
     tokenizer = AutoTokenizer.from_pretrained(neuron_model_path)
