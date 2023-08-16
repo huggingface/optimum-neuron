@@ -56,12 +56,12 @@ class NeuronModelIntegrationTestMixin(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls._token = HfFolder.get_token()
         if os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI", None) is not None:
             token = os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI")
             HfFolder.save_token(token)
         else:
             raise RuntimeError("Please specify the token via the HF_TOKEN_OPTIMUM_NEURON_CI environment variable.")
+        cls._token = HfFolder.get_token()
 
         model_name = cls.MODEL_ID.split("/")[-1]
         model_dir = tempfile.mkdtemp(prefix=f"{model_name}_")
