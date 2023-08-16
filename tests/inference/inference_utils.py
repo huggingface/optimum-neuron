@@ -1,0 +1,124 @@
+# coding=utf-8
+# Copyright 2022 The HuggingFace Team. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import os
+import shutil
+import tempfile
+import unittest
+from typing import Dict
+
+from huggingface_hub import HfFolder
+from transformers import set_seed
+
+
+SEED = 42
+
+
+MODEL_NAMES = {
+    "albert": "hf-internal-testing/tiny-random-AlbertModel",
+    "bert": "hf-internal-testing/tiny-random-BertModel",
+    "camembert": "hf-internal-testing/tiny-random-camembert",
+    "convbert": "hf-internal-testing/tiny-random-ConvBertModel",
+    # "deberta": "hf-internal-testing/tiny-random-DebertaModel",  # Failed for INF1: 'XSoftmax'
+    # "deberta-v2": "hf-internal-testing/tiny-random-DebertaV2Model",  # Failed for INF1: 'XSoftmax'
+    "distilbert": "hf-internal-testing/tiny-random-DistilBertModel",
+    "electra": "hf-internal-testing/tiny-random-ElectraModel",
+    "flaubert": "flaubert/flaubert_small_cased",
+    "gpt2": "hf-internal-testing/tiny-random-gpt2",
+    "mobilebert": "hf-internal-testing/tiny-random-MobileBertModel",
+    "mpnet": "hf-internal-testing/tiny-random-MPNetModel",
+    "roberta": "hf-internal-testing/tiny-random-RobertaModel",
+    "roformer": "hf-internal-testing/tiny-random-RoFormerModel",
+    "stable-diffusion": "hf-internal-testing/tiny-stable-diffusion-torch",
+    "xlm": "hf-internal-testing/tiny-random-XLMModel",
+    "xlm-roberta": "hf-internal-testing/tiny-xlm-roberta",
+}
+
+
+class NeuronModelIntegrationTestMixin(unittest.TestCase):
+    USER = "optimum"
+    MODEL_ID = None
+    NEURON_MODEL_REPO = None
+    NEURON_MODEL_CLASS = None
+    STATIC_INPUTS_SHAPES = {}
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        if os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI", None) is not None:
+            token = os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI")
+            HfFolder.save_token(token)
+        else:
+            raise RuntimeError("Please specify the token via the HF_TOKEN_OPTIMUM_NEURON_CI environment variable.")
+        cls._token = HfFolder.get_token()
+
+        model_name = cls.MODEL_ID.split("/")[-1]
+        model_dir = tempfile.mkdtemp(prefix=f"{model_name}_")
+
+        # Export model to local path
+        neuron_model = cls.NEURON_MODEL_CLASS.from_pretrained(cls.MODEL_ID, export=True, **cls.STATIC_INPUTS_SHAPES)
+        neuron_model.save_pretrained(model_dir)
+        cls.local_model_path = model_dir
+
+        # Upload to the hub
+        cls.neuron_model_id = f"{cls.USER}/{cls.NEURON_MODEL_REPO}"
+        neuron_model.push_to_hub(model_dir, repository_id=cls.neuron_model_id, use_auth_token=cls._token)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        if cls._token is not None:
+            HfFolder.save_token(cls._token)
+        if cls.local_model_path is not None:
+            shutil.rmtree(cls.local_model_path)
+
+
+class NeuronModelTestMixin(unittest.TestCase):
+    ARCH_MODEL_MAP = {}
+    STATIC_INPUTS_SHAPES = {"batch_size": 1, "sequence_length": 32}
+
+    @classmethod
+    def setUpClass(cls):
+        cls.neuron_model_dirs = {}
+
+    def _setup(self, model_args: Dict):
+        """
+        Exports the PyTorch models to Neuron models ahead of time to avoid multiple exports during the tests.
+        We don't use unittest setUpClass, in order to still be able to run individual tests.
+        """
+        model_arch = model_args["model_arch"]
+        model_arch_and_params = model_args["test_name"]
+        dynamic_batch_size = getattr(model_args, "dynamic_batch_size", False)
+
+        if model_arch_and_params not in self.neuron_model_dirs:
+            # model_args will contain kwargs to pass to NeuronBaseModel.from_pretrained()
+            model_args.pop("test_name")
+            model_args.pop("model_arch")
+            model_args.pop("dynamic_batch_size", None)
+
+            model_id = (
+                self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
+            )
+            set_seed(SEED)
+            neuron_model = self.NEURON_MODEL_CLASS.from_pretrained(
+                model_id, **model_args, export=True, dynamic_batch_size=dynamic_batch_size, **self.STATIC_INPUTS_SHAPES
+            )
+
+            model_dir = tempfile.mkdtemp(prefix=f"{model_arch_and_params}_{self.TASK}_")
+            neuron_model.save_pretrained(model_dir)
+            self.neuron_model_dirs[model_arch_and_params] = model_dir
+
+    @classmethod
+    def tearDownClass(cls):
+        for _, dir_path in cls.neuron_model_dirs.items():
+            shutil.rmtree(dir_path)

@@ -12,12 +12,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import copy
+import os
 import random
+import unittest
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import Dict, Optional
-from unittest import TestCase
 
 from parameterized import parameterized
 from transformers import AutoConfig, set_seed
@@ -25,6 +27,7 @@ from transformers.testing_utils import require_vision
 
 from optimum.exporters.neuron import (
     NeuronConfig,
+    build_stable_diffusion_components_mandatory_shapes,
     export,
     export_models,
     get_stable_diffusion_models_for_export,
@@ -33,8 +36,14 @@ from optimum.exporters.neuron import (
 )
 from optimum.exporters.neuron.model_configs import *  # noqa: F403
 from optimum.exporters.tasks import TasksManager
-from optimum.neuron.utils import is_neuronx_available
-from optimum.neuron.utils.testing_utils import is_inferentia_test
+from optimum.neuron.utils import (
+    DIFFUSION_MODEL_TEXT_ENCODER_NAME,
+    DIFFUSION_MODEL_UNET_NAME,
+    DIFFUSION_MODEL_VAE_DECODER_NAME,
+    DIFFUSION_MODEL_VAE_ENCODER_NAME,
+    NEURON_FILE_NAME,
+)
+from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 from optimum.utils import DEFAULT_DUMMY_SHAPES, is_diffusers_available, logging
 from optimum.utils.testing_utils import require_diffusers
 
@@ -85,8 +94,7 @@ def _get_models_to_test(export_models_dict: Dict, random_pick: Optional[int] = N
         return sorted(models_to_test)
 
 
-@is_inferentia_test
-class NeuronExportTestCase(TestCase):
+class NeuronExportTestCase(unittest.TestCase):
     """
     Integration tests ensuring supported models are correctly exported.
     """
@@ -134,42 +142,47 @@ class NeuronExportTestCase(TestCase):
                 self.fail(f"{model_type}, {task} -> {e}")
 
     @parameterized.expand(_get_models_to_test(EXPORT_MODELS_TINY))
+    @is_inferentia_test
     def test_export(self, test_name, name, model_name, task, neuron_config_constructor):
         self._neuronx_export(test_name, name, model_name, task, neuron_config_constructor)
 
     @parameterized.expand(_get_models_to_test(EXPORT_MODELS_TINY), skip_on_empty=True)  # , random_pick=1
+    @is_inferentia_test
+    @requires_neuronx
     def test_export_with_dynamic_batch_size(self, test_name, name, model_name, task, neuron_config_constructor):
-        if is_neuronx_available():
-            self._neuronx_export(test_name, name, model_name, task, neuron_config_constructor, dynamic_batch_size=True)
+        self._neuronx_export(test_name, name, model_name, task, neuron_config_constructor, dynamic_batch_size=True)
+
+
+@is_inferentia_test
+@requires_neuronx
+@require_vision
+@require_diffusers
+class NeuronStableDiffusionExportTestCase(unittest.TestCase):
+    """
+    Integration tests ensuring stable diffusion models are correctly exported.
+    """
 
     @parameterized.expand(STABLE_DIFFUSION_MODELS_TINY)
-    @require_vision
-    @require_diffusers
     def test_export_for_stable_diffusion_models(self, model_name):
         set_seed(SEED)
 
-        pipeline = StableDiffusionPipeline.from_pretrained(model_name)
-        output_model_names = [
-            "text_encoder/model.neuron",
-            "unet/model.neuron",
-            "vae_decoder/model.neuron",
-            "vae_conv/model.neuron",
-        ]
-        text_encoder_input_shapes = {"batch_size": 2, "sequence_length": 18}
-        vae_decoder_input_shapes = unet_input_shapes = vae_post_quant_conv_input_shapes = {
-            "batch_size": 2,
-            "num_channels": 4,
-            "height": 64,
-            "width": 64,
-        }
-        models_and_neuron_configs = get_stable_diffusion_models_for_export(
-            pipeline,
-            text_encoder_input_shapes,
-            vae_decoder_input_shapes,
-            unet_input_shapes,
-            vae_post_quant_conv_input_shapes,
-            dynamic_batch_size=True,
+        # prepare neuron config / models
+        pipe = StableDiffusionPipeline.from_pretrained(model_name)
+        input_shapes = build_stable_diffusion_components_mandatory_shapes(
+            **{"batch_size": 1, "height": 64, "width": 64}
         )
+        models_and_neuron_configs = get_stable_diffusion_models_for_export(
+            pipe,
+            dynamic_batch_size=False,
+            **input_shapes,
+        )
+
+        output_model_names = {
+            DIFFUSION_MODEL_TEXT_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_TEXT_ENCODER_NAME, NEURON_FILE_NAME),
+            DIFFUSION_MODEL_UNET_NAME: os.path.join(DIFFUSION_MODEL_UNET_NAME, NEURON_FILE_NAME),
+            DIFFUSION_MODEL_VAE_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_ENCODER_NAME, NEURON_FILE_NAME),
+            DIFFUSION_MODEL_VAE_DECODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_DECODER_NAME, NEURON_FILE_NAME),
+        }
 
         with TemporaryDirectory() as tmpdirname:
             _, neuron_outputs = export_models(

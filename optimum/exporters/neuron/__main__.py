@@ -173,6 +173,8 @@ def main_export(
     if not output.parent.exists():
         output.parent.mkdir(parents=True)
 
+    task = TasksManager.map_from_synonym(task)
+
     model = TasksManager.get_model_from_task(
         task,
         model_name_or_path,
@@ -193,7 +195,7 @@ def main_export(
         neuron_config = neuron_config_constructor(model.config, dynamic_batch_size=dynamic_batch_size, **input_shapes)
         if atol is None:
             atol = neuron_config.ATOL_FOR_VALIDATION
-        output_model_names = ["model.neuron"]
+        output_model_names = {"model": "model.neuron"}
         models_and_neuron_configs = {"model": (model, neuron_config)}
         maybe_save_preprocessors(model, output.parent)
 

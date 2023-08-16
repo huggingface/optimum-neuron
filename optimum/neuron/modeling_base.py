@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 import torch
 from huggingface_hub import HfApi, HfFolder, hf_hub_download
+from huggingface_hub.utils import is_google_colab
 from transformers import AutoConfig, AutoModel
 
 from ..exporters.neuron import export
@@ -244,6 +245,7 @@ class NeuronBaseModel(OptimizedModel):
             trust_remote_code=trust_remote_code,
         )
 
+        task = TasksManager.map_from_synonym(task)
         neuron_config_constructor = TasksManager.get_exporter_config_constructor(
             model=model, exporter="neuron", task=task
         )
@@ -326,7 +328,9 @@ class NeuronBaseModel(OptimizedModel):
         api = HfApi(endpoint=endpoint)
 
         user = api.whoami(huggingface_token)
-        self.git_config_username_and_email(git_email=user["email"], git_user=user["fullname"])
+        if is_google_colab():
+            # Only in Google Colab to avoid the warning message
+            self.git_config_username_and_email(git_email=user["email"], git_user=user["fullname"])
 
         api.create_repo(
             token=huggingface_token,
@@ -402,6 +406,7 @@ class NeuronBaseModel(OptimizedModel):
 
         # Neuron config constructuor
         task = TasksManager.infer_task_from_model(cls.auto_model_class)
+        task = TasksManager.map_from_synonym(task)
         neuron_config_constructor = TasksManager.get_exporter_config_constructor(
             model_type=config.model_type, exporter="neuron", task=task
         )

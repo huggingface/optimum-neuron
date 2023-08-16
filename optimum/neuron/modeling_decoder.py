@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Optional, Tuple, Union
 
 import torch
 from huggingface_hub import HfApi, HfFolder, snapshot_download
+from huggingface_hub.utils import is_google_colab
 from transformers import GenerationConfig
 
 from ..exporters.neuron.model_configs import *  # noqa: F403
@@ -254,7 +255,9 @@ class NeuronDecoderModel(OptimizedModel):
         api = HfApi(endpoint=endpoint)
 
         user = api.whoami(huggingface_token)
-        self.git_config_username_and_email(git_email=user["email"], git_user=user["fullname"])
+        if is_google_colab():
+            # Only in Google Colab to avoid the warning message
+            self.git_config_username_and_email(git_email=user["email"], git_user=user["fullname"])
 
         api.create_repo(
             token=huggingface_token,
