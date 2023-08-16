@@ -17,13 +17,13 @@
 import logging
 import os
 import shutil
-import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Optional, Tuple, Union
 
 import torch
 from huggingface_hub import HfApi, HfFolder, snapshot_download
+from huggingface_hub.utils import is_google_colab
 from transformers import GenerationConfig
 
 from ..exporters.neuron.model_configs import *  # noqa: F403
@@ -255,7 +255,9 @@ class NeuronDecoderModel(OptimizedModel):
         api = HfApi(endpoint=endpoint)
 
         user = api.whoami(huggingface_token)
-        self.git_config_username_and_email(git_email=user["email"], git_user=user["fullname"])
+        if is_google_colab():
+            # Only in Google Colab to avoid the warning message
+            self.git_config_username_and_email(git_email=user["email"], git_user=user["fullname"])
 
         api.create_repo(
             token=huggingface_token,
@@ -274,26 +276,26 @@ class NeuronDecoderModel(OptimizedModel):
                     path_in_repo=hub_file_path,
                 )
 
-    def git_config_username_and_email(self, git_user: str = None, git_email: str = None):
-        """
-        Sets git user name and email (only in the current repo)
-        """
-        try:
-            if git_user is not None:
-                subprocess.run(
-                    ["git", "config", "--system", "user.name", git_user],
-                    stderr=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    check=True,
-                    encoding="utf-8",
-                )
-            if git_email is not None:
-                subprocess.run(
-                    ["git", "config", "--system", "user.email", git_email],
-                    stderr=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    check=True,
-                    encoding="utf-8",
-                )
-        except subprocess.CalledProcessError as exc:
-            raise EnvironmentError(exc.stderr)
+    # def git_config_username_and_email(self, git_user: str = None, git_email: str = None):
+    #     """
+    #     Sets git user name and email (only in the current repo)
+    #     """
+    #     try:
+    #         if git_user is not None:
+    #             subprocess.run(
+    #                 ["git", "config", "--system", "user.name", git_user],
+    #                 stderr=subprocess.PIPE,
+    #                 stdout=subprocess.PIPE,
+    #                 check=True,
+    #                 encoding="utf-8",
+    #             )
+    #         if git_email is not None:
+    #             subprocess.run(
+    #                 ["git", "config", "--system", "user.email", git_email],
+    #                 stderr=subprocess.PIPE,
+    #                 stdout=subprocess.PIPE,
+    #                 check=True,
+    #                 encoding="utf-8",
+    #             )
+    #     except subprocess.CalledProcessError as exc:
+    #         raise EnvironmentError(exc.stderr)
