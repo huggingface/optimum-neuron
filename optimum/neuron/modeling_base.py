@@ -17,6 +17,7 @@
 import logging
 import os
 import shutil
+import subprocess
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -345,6 +346,30 @@ class NeuronBaseModel(OptimizedModel):
                     path_or_fileobj=os.path.join(os.getcwd(), local_file_path),
                     path_in_repo=hub_file_path,
                 )
+
+    def git_config_username_and_email(self, git_user: str = None, git_email: str = None):
+        """
+        Sets git user name and email (only in the current repo)
+        """
+        try:
+            if git_user is not None:
+                subprocess.run(
+                    ["git", "config", "--system", "user.name", git_user],
+                    stderr=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    check=True,
+                    encoding="utf-8",
+                )
+            if git_email is not None:
+                subprocess.run(
+                    ["git", "config", "--system", "user.email", git_email],
+                    stderr=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    check=True,
+                    encoding="utf-8",
+                )
+        except subprocess.CalledProcessError as exc:
+            raise EnvironmentError(exc.stderr)
 
     def forward(self, *args, **kwargs):
         raise NotImplementedError
