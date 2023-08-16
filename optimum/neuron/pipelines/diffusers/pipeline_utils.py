@@ -15,11 +15,10 @@
 from typing import List, Optional
 
 import torch
-from diffusers import StableDiffusionPipeline
 from diffusers.loaders import LoraLoaderMixin, TextualInversionLoaderMixin
 
 
-class StableDiffusionPipelineBaseMixin(StableDiffusionPipeline):
+class StableDiffusionPipelineBaseMixin:
     # Adapted from https://github.com/huggingface/diffusers/blob/v0.18.2/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L302
     def _encode_prompt(
         self,

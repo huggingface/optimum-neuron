@@ -25,13 +25,13 @@ from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion_img2img impo
 )
 from diffusers.utils import deprecate, randn_tensor
 
-from .pipeline_stable_diffusion import StableDiffusionPipelineMixin
+from .pipeline_utils import StableDiffusionPipelineBaseMixin
 
 
 logger = logging.getLogger(__name__)
 
 
-class StableDiffusionImg2ImgPipelineMixin(StableDiffusionPipelineMixin, StableDiffusionImg2ImgPipeline):
+class StableDiffusionImg2ImgPipelineMixin(StableDiffusionPipelineBaseMixin, StableDiffusionImg2ImgPipeline):
     # Copied from diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_img2img.check_inputs
     def check_inputs(
         self,
@@ -78,27 +78,6 @@ class StableDiffusionImg2ImgPipelineMixin(StableDiffusionPipelineMixin, StableDi
                     f" got: `prompt_embeds` {prompt_embeds.shape} != `negative_prompt_embeds`"
                     f" {negative_prompt_embeds.shape}."
                 )
-
-    def _encode_prompt(
-        self,
-        prompt,
-        num_images_per_prompt,
-        do_classifier_free_guidance,
-        negative_prompt=None,
-        prompt_embeds: Optional[torch.FloatTensor] = None,
-        negative_prompt_embeds: Optional[torch.FloatTensor] = None,
-        lora_scale: Optional[float] = None,
-    ):
-        StableDiffusionPipelineMixin._encode_prompt(
-            self,
-            prompt,
-            num_images_per_prompt,
-            do_classifier_free_guidance,
-            negative_prompt,
-            prompt_embeds,
-            negative_prompt_embeds,
-            lora_scale,
-        )
 
     # Adapted from diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_img2img.prepare_latents
     def prepare_latents(self, image, timestep, batch_size, num_images_per_prompt, dtype, generator=None):
