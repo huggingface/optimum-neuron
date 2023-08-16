@@ -32,7 +32,7 @@ from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..exporters.tasks import TasksManager
 from ..utils import is_diffusers_available
 from .modeling_base import NeuronBaseModel
-from .pipelines.diffusers.pipeline_stable_diffusion import StableDiffusionPipelineMixin, StableDiffusionImg2ImgPipelineMixin
+from .pipelines.diffusers import StableDiffusionImg2ImgPipelineMixin, StableDiffusionPipelineMixin
 from .utils import (
     DIFFUSION_MODEL_TEXT_ENCODER_NAME,
     DIFFUSION_MODEL_UNET_NAME,
@@ -132,12 +132,16 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         self.unet = NeuronModelUnet(
             unet, self, self.configs[DIFFUSION_MODEL_UNET_NAME], self.neuron_configs[DIFFUSION_MODEL_UNET_NAME]
         )
-        self.vae_encoder = NeuronModelVaeEncoder(
-            vae_encoder,
-            self,
-            self.configs[DIFFUSION_MODEL_VAE_ENCODER_NAME],
-            self.neuron_configs[DIFFUSION_MODEL_VAE_ENCODER_NAME],
-        ) if vae_encoder else None
+        self.vae_encoder = (
+            NeuronModelVaeEncoder(
+                vae_encoder,
+                self,
+                self.configs[DIFFUSION_MODEL_VAE_ENCODER_NAME],
+                self.neuron_configs[DIFFUSION_MODEL_VAE_ENCODER_NAME],
+            )
+            if vae_encoder
+            else None
+        )
         self.vae_decoder = NeuronModelVaeDecoder(
             vae_decoder,
             self,

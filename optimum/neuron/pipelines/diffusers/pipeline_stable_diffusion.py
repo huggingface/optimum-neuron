@@ -19,7 +19,6 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 import torch
 from diffusers import StableDiffusionPipeline
-from diffusers.loaders import LoraLoaderMixin, TextualInversionLoaderMixin
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import rescale_noise_cfg
 from diffusers.utils import randn_tensor
@@ -31,7 +30,6 @@ logger = logging.getLogger(__name__)
 
 
 class StableDiffusionPipelineMixin(StableDiffusionPipelineBaseMixin, StableDiffusionPipeline):
-
     # Adapted from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.StableDiffusionPipeline.prepare_latents
     def prepare_latents(self, batch_size, num_channels_latents, height, width, dtype, generator, latents=None):
         shape = (batch_size, num_channels_latents, height // self.vae_scale_factor, width // self.vae_scale_factor)

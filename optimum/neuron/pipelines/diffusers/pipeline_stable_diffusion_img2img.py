@@ -14,15 +14,15 @@
 # limitations under the License.
 """Override some diffusers API for NeuroStableDiffusionImg2ImgPipeline"""
 
-import inspect
 import logging
-from typing import Callable, List, Optional, Union, Dict, Any
+from typing import Any, Callable, Dict, List, Optional, Union
 
 import numpy as np
 import PIL
 import torch
-from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
-from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion_img2img import preprocess, StableDiffusionImg2ImgPipeline
+from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion_img2img import (
+    StableDiffusionImg2ImgPipeline,
+)
 from diffusers.utils import deprecate, randn_tensor
 
 from .pipeline_stable_diffusion import StableDiffusionPipelineMixin
@@ -78,7 +78,7 @@ class StableDiffusionImg2ImgPipelineMixin(StableDiffusionPipelineMixin, StableDi
                     f" got: `prompt_embeds` {prompt_embeds.shape} != `negative_prompt_embeds`"
                     f" {negative_prompt_embeds.shape}."
                 )
-    
+
     def _encode_prompt(
         self,
         prompt,
@@ -97,9 +97,9 @@ class StableDiffusionImg2ImgPipelineMixin(StableDiffusionPipelineMixin, StableDi
             negative_prompt,
             prompt_embeds,
             negative_prompt_embeds,
-            lora_scale
+            lora_scale,
         )
-    
+
     # Adapted from diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_img2img.prepare_latents
     def prepare_latents(self, image, timestep, batch_size, num_images_per_prompt, dtype, generator=None):
         if not isinstance(image, (torch.Tensor, PIL.Image.Image, list)):
@@ -118,7 +118,7 @@ class StableDiffusionImg2ImgPipelineMixin(StableDiffusionPipelineMixin, StableDi
             init_latents = self.vae_encoder(sample=image)[0]
             scaling_factor = self.vae_decoder.config.get("scaling_factor", 0.18215)
             init_latents = scaling_factor * init_latents
-            
+
         if batch_size > init_latents.shape[0] and batch_size % init_latents.shape[0] == 0:
             # expand init_latents for batch_size
             deprecation_message = (
@@ -173,7 +173,6 @@ class StableDiffusionImg2ImgPipelineMixin(StableDiffusionPipelineMixin, StableDi
         callback_steps: int = 1,
         cross_attention_kwargs: Optional[Dict[str, Any]] = None,
     ):
-
         # 1. Check inputs. Raise error if not correct
         self.check_inputs(prompt, strength, callback_steps, negative_prompt, prompt_embeds, negative_prompt_embeds)
 
@@ -189,7 +188,7 @@ class StableDiffusionImg2ImgPipelineMixin(StableDiffusionPipelineMixin, StableDi
         # of the Imagen paper: https://arxiv.org/pdf/2205.11487.pdf . `guidance_scale = 1`
         # corresponds to doing no classifier free guidance.
         do_classifier_free_guidance = guidance_scale > 1.0 and (self.dynamic_batch_size or len(self.device_ids) >= 2)
-        
+
         # 3. Encode input prompt
         text_encoder_lora_scale = (
             cross_attention_kwargs.get("scale", None) if cross_attention_kwargs is not None else None
@@ -206,12 +205,12 @@ class StableDiffusionImg2ImgPipelineMixin(StableDiffusionPipelineMixin, StableDi
 
         # 4. Preprocess image
         image = self.image_processor.preprocess(image)
-        
+
         # 5. set timesteps
         self.scheduler.set_timesteps(num_inference_steps)
         timesteps, num_inference_steps = self.get_timesteps(num_inference_steps, strength)
         latent_timestep = timesteps[:1].repeat(batch_size * num_images_per_prompt)
-        
+
         # 6. Prepare latent variables
         latents = self.prepare_latents(
             image, latent_timestep, batch_size, num_images_per_prompt, prompt_embeds.dtype, generator

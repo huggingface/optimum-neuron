@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2023 The HuggingFace Inc. team. All rights reserved.
+# Copyright 2023 The HuggingFace Team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,12 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Override some diffusers API for NeuroStableDiffusionInpaintPipeline"""
 
-
-class StableDiffusionInpaintPipelineMixin:
-    def check_inputs():
-        pass
-
-    def __call__():
-        pass
+from .pipeline_stable_diffusion import StableDiffusionPipelineMixin
+from .pipeline_stable_diffusion_img2img import StableDiffusionImg2ImgPipelineMixin
+from .pipeline_stable_diffusion_inpaint import StableDiffusionInpaintPipelineMixin
