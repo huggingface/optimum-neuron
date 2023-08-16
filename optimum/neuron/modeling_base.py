@@ -15,6 +15,7 @@
 """NeuronBaseModel base classe for inference on neuron devices using the same API as Transformers."""
 
 import logging
+import os
 import shutil
 from contextlib import contextmanager
 from pathlib import Path
@@ -23,6 +24,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 import torch
 from huggingface_hub import HfApi, HfFolder, hf_hub_download
+from huggingface_hub.utils import is_google_colab
 from transformers import AutoConfig, AutoModel
 
 from ..exporters.neuron import export
@@ -243,6 +245,7 @@ class NeuronBaseModel(OptimizedModel):
             trust_remote_code=trust_remote_code,
         )
 
+        task = TasksManager.map_from_synonym(task)
         neuron_config_constructor = TasksManager.get_exporter_config_constructor(
             model=model, exporter="neuron", task=task
         )
@@ -308,6 +311,44 @@ class NeuronBaseModel(OptimizedModel):
 
         return cls._from_pretrained(save_dir_path, config, model_save_dir=save_dir, neuron_config=neuron_config)
 
+    def push_to_hub(
+        self,
+        save_directory: str,
+        repository_id: str,
+        private: Optional[bool] = None,
+        use_auth_token: Union[bool, str] = True,
+        endpoint: Optional[str] = None,
+    ) -> str:
+        if isinstance(use_auth_token, str):
+            huggingface_token = use_auth_token
+        elif use_auth_token:
+            huggingface_token = HfFolder.get_token()
+        else:
+            raise ValueError("You need to provide `use_auth_token` to be able to push to the hub")
+        api = HfApi(endpoint=endpoint)
+
+        user = api.whoami(huggingface_token)
+        if is_google_colab():
+            # Only in Google Colab to avoid the warning message
+            self.git_config_username_and_email(git_email=user["email"], git_user=user["fullname"])
+
+        api.create_repo(
+            token=huggingface_token,
+            repo_id=repository_id,
+            exist_ok=True,
+            private=private,
+        )
+        for path, subdirs, files in os.walk(save_directory):
+            for name in files:
+                local_file_path = os.path.join(path, name)
+                hub_file_path = os.path.relpath(local_file_path, save_directory)
+                api.upload_file(
+                    token=huggingface_token,
+                    repo_id=repository_id,
+                    path_or_fileobj=os.path.join(os.getcwd(), local_file_path),
+                    path_in_repo=hub_file_path,
+                )
+
     def forward(self, *args, **kwargs):
         raise NotImplementedError
 
@@ -365,6 +406,7 @@ class NeuronBaseModel(OptimizedModel):
 
         # Neuron config constructuor
         task = TasksManager.infer_task_from_model(cls.auto_model_class)
+        task = TasksManager.map_from_synonym(task)
         neuron_config_constructor = TasksManager.get_exporter_config_constructor(
             model_type=config.model_type, exporter="neuron", task=task
         )

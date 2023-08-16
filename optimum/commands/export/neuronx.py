@@ -19,8 +19,15 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from ...exporters import TasksManager
+from ...utils import is_diffusers_available
 from ..base import BaseOptimumCLICommand, CommandInfo
 
+
+if is_diffusers_available():
+    # Mandatory for applying optimized attention score of Stable Diffusion
+    import os
+
+    os.environ["NEURON_FUSE_SOFTMAX"] = "1"
 
 if TYPE_CHECKING:
     from argparse import ArgumentParser, Namespace, _SubParsersAction

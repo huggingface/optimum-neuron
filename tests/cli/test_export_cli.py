@@ -25,7 +25,7 @@ from parameterized import parameterized
 from optimum.exporters.neuron.model_configs import *  # noqa: F403
 from optimum.exporters.tasks import TasksManager
 from optimum.neuron.utils import is_neuron_available, is_neuronx_available
-from optimum.neuron.utils.testing_utils import is_inferentia_test
+from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 from optimum.utils import DEFAULT_DUMMY_SHAPES, logging
 
 from ..exporters.exporters_utils import EXPORT_MODELS_TINY
@@ -132,6 +132,7 @@ class TestExportCLI(unittest.TestCase):
 
             subprocess.run(command, shell=True, check=True)
 
+    @requires_neuronx
     def test_dynamic_batching(self):
         model_id = "hf-internal-testing/tiny-random-BertModel"
         with tempfile.TemporaryDirectory() as tempdir:
@@ -155,6 +156,7 @@ class TestExportCLI(unittest.TestCase):
                 check=True,
             )
 
+    @requires_neuronx
     def test_stable_diffusion(self):
         model_id = "hf-internal-testing/tiny-stable-diffusion-torch"
         with tempfile.TemporaryDirectory() as tempdir:
@@ -169,10 +171,6 @@ class TestExportCLI(unittest.TestCase):
                     "stable-diffusion",
                     "--batch_size",
                     "1",
-                    "--sequence_length",
-                    "16",
-                    "--num_channels",
-                    "4",
                     "--height",
                     "64",
                     "--width",

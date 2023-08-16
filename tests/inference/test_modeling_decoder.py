@@ -26,7 +26,7 @@ from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neur
 from optimum.utils import logging
 from optimum.utils.testing_utils import TOKEN, USER
 
-from .exporters.exporters_utils import EXPORT_MODELS_TINY
+from .inference_utils import MODEL_NAMES
 
 
 logger = logging.get_logger()
@@ -35,12 +35,13 @@ logger = logging.get_logger()
 DECODER_MODEL_ARCHITECTURES = ["gpt2"]
 
 
-@pytest.fixture(scope="module", params=[EXPORT_MODELS_TINY[model_arch] for model_arch in DECODER_MODEL_ARCHITECTURES])
+@pytest.fixture(scope="module", params=[MODEL_NAMES[model_arch] for model_arch in DECODER_MODEL_ARCHITECTURES])
 def export_model_id(request):
     return request.param
 
 
 @pytest.fixture(scope="module")
+@requires_neuronx
 def neuron_model_path(export_model_id):
     # For now we need to use a batch_size of 2 because it fails with batch_size == 1
     model = NeuronModelForCausalLM.from_pretrained(export_model_id, export=True, batch_size=2)
@@ -75,8 +76,6 @@ def _check_neuron_model(neuron_model, batch_size=None, num_cores=None, auto_cast
         assert neuron_config["auto_cast_type"] == auto_cast_type
 
 
-@is_inferentia_test
-@requires_neuronx
 @pytest.mark.parametrize(
     "batch_size, num_cores, auto_cast_type",
     [
@@ -85,6 +84,8 @@ def _check_neuron_model(neuron_model, batch_size=None, num_cores=None, auto_cast
         [2, 2, "bf16"],
     ],
 )
+@is_inferentia_test
+@requires_neuronx
 def test_model_export(export_model_id, batch_size, num_cores, auto_cast_type):
     model = NeuronModelForCausalLM.from_pretrained(
         export_model_id, export=True, batch_size=batch_size, num_cores=num_cores, auto_cast_type=auto_cast_type
@@ -116,11 +117,11 @@ def _test_model_generation(model, tokenizer, batch_size, length, **gen_kwargs):
         assert sample_output.shape[1] == length
 
 
-@is_inferentia_test
-@requires_neuronx
 @pytest.mark.parametrize(
     "gen_kwargs", [{"do_sample": True}, {"do_sample": True, "temperature": 0.7}], ids=["sample", "sample-with-temp"]
 )
+@is_inferentia_test
+@requires_neuronx
 def test_model_generation(neuron_model_path, gen_kwargs):
     model = NeuronModelForCausalLM.from_pretrained(neuron_model_path)
     tokenizer = AutoTokenizer.from_pretrained(neuron_model_path)
