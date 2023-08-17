@@ -43,6 +43,7 @@ from .model_configs import *  # noqa: F403
 from .utils import (
     build_stable_diffusion_components_mandatory_shapes,
     get_stable_diffusion_models_for_export,
+    infer_stable_diffusion_shapes_from_diffusers,
 )
 
 
@@ -60,7 +61,7 @@ if is_neuronx_available():
 
 if TYPE_CHECKING:
     if is_diffusers_available():
-        from diffusers import StableDiffusionPipeline
+        pass
 
 
 logger = logging.get_logger()
@@ -128,30 +129,6 @@ def normalize_stable_diffusion_input_shapes(
     return input_shapes
 
 
-def infer_stable_diffusion_shapes_from_diffusers(
-    input_shapes: Dict[str, Dict[str, int]],
-    model: "StableDiffusionPipeline",
-):
-    sequence_length = model.tokenizer.model_max_length
-    unet_num_channels = model.unet.config.in_channels
-    vae_encoder_num_channels = model.vae.config.in_channels
-    vae_decoder_num_channels = model.vae.config.latent_channels
-    vae_scale_factor = 2 ** (len(model.vae.config.block_out_channels) - 1) or 8
-    height = input_shapes["unet_input_shapes"]["height"] // vae_scale_factor
-    width = input_shapes["unet_input_shapes"]["width"] // vae_scale_factor
-
-    input_shapes["text_encoder_input_shapes"].update({"sequence_length": sequence_length})
-    input_shapes["unet_input_shapes"].update(
-        {"sequence_length": sequence_length, "num_channels": unet_num_channels, "height": height, "width": width}
-    )
-    input_shapes["vae_encoder_input_shapes"].update(
-        {"num_channels": vae_encoder_num_channels, "height": height, "width": width}
-    )
-    input_shapes["vae_decoder_input_shapes"].update(
-        {"num_channels": vae_decoder_num_channels, "height": height, "width": width}
-    )
-
-
 def main_export(
     model_name_or_path: str,
     output: Union[str, Path],
@@ -211,7 +188,7 @@ def main_export(
             DIFFUSION_MODEL_VAE_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_ENCODER_NAME, NEURON_FILE_NAME),
             DIFFUSION_MODEL_VAE_DECODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_DECODER_NAME, NEURON_FILE_NAME),
         }
-        infer_stable_diffusion_shapes_from_diffusers(input_shapes, model)
+        input_shapes = infer_stable_diffusion_shapes_from_diffusers(input_shapes, model)
 
         models_and_neuron_configs = get_stable_diffusion_models_for_export(
             model,

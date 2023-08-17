@@ -19,6 +19,7 @@ from .constant import (
     DIFFUSION_MODEL_UNET_NAME,
     DIFFUSION_MODEL_VAE_DECODER_NAME,
     DIFFUSION_MODEL_VAE_ENCODER_NAME,
+    DTYPE_MAPPING,
     NEURON_FILE_NAME,
 )
 from .import_utils import (

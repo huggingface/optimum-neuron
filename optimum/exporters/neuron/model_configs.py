@@ -179,7 +179,7 @@ class CLIPNeuronConfig(TextAndVisionNeuronConfig):
         return ["logits_per_image", "logits_per_text", "text_embeds", "image_embeds"]
 
 
-@register_in_tasks_manager("clip-text-model", *["feature-extraction"])
+@register_in_tasks_manager("clip-text-with-projection", *["feature-extraction"])
 class CLIPTextWithProjectionNeuronConfig(TextEncoderNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
 
@@ -204,6 +204,23 @@ class CLIPTextWithProjectionNeuronConfig(TextEncoderNeuronConfig):
 
         return common_outputs
 
+    class ModelWrapper(torch.nn.Module):
+        def __init__(self, model, input_names: List[str], dtype: torch.dtype = None):
+            super().__init__()
+            self.model = model
+            self.input_names = input_names
+            self.dtype = dtype or model.dtype
+
+        def forward(self, emb, attention_mask=None):
+            return [self.model(emb)[0]]
+
+    def check_model_inputs_order(self, model, dummy_inputs, auto_cast_type):
+        return super().check_model_inputs_order(
+            model=model,
+            custom_model_wrapper=self.ModelWrapper,
+            custom_wrapper_kwargs={"input_names": list(dummy_inputs.keys()), "dtype": auto_cast_type},
+        )
+
 
 @register_in_tasks_manager("clip-text-model", *["stable-diffusion", "feature-extraction"])
 class CLIPTextNeuronConfig(CLIPTextWithProjectionNeuronConfig):
@@ -211,7 +228,7 @@ class CLIPTextNeuronConfig(CLIPTextWithProjectionNeuronConfig):
 
     @property
     def outputs(self) -> List[str]:
-        common_outputs = ["last_hidden_state", "pooler_output"]
+        common_outputs = ["last_hidden_state"]
 
         if self._normalized_config.output_hidden_states:
             for i in range(self._normalized_config.num_layers + 1):
@@ -227,9 +244,6 @@ class CLIPTextNeuronConfig(CLIPTextWithProjectionNeuronConfig):
             return tuple(dummy_inputs.values())
         else:
             return dummy_inputs
-
-    def check_model_inputs_order(self, model, dummy_inputs, forward_with_tuple=False):
-        return super().check_model_inputs_order(model, dummy_inputs, forward_with_tuple, eligible_outputs=[0])
 
 
 @register_in_tasks_manager("unet", *["stable-diffusion", "semantic-segmentation"])
@@ -268,6 +282,8 @@ class UNetNeuronConfig(VisionNeuronConfig):
         return ["sample"]
 
     def generate_dummy_inputs(self, return_tuple: bool = False, **kwargs):
+        # dtype = kwargs.pop("dtype", None)
+        dtype = None  # Compilation fails if cast the dummy inputs to bf16
         # For neuron, we use static shape for compiling the unet. Unlike `optimum`, we use the given `height` and `width` instead of the `sample_size`.
         if self.height == self.width:
             self._normalized_config.image_size = self.height
@@ -276,13 +292,35 @@ class UNetNeuronConfig(VisionNeuronConfig):
                 "You need to input the same value for `self.height({self.height})` and `self.width({self.width})`."
             )
         dummy_inputs = super().generate_dummy_inputs(**kwargs)
-        dummy_inputs["timestep"] = dummy_inputs["timestep"].float()
-        dummy_inputs["encoder_hidden_states"] = dummy_inputs["encoder_hidden_states"][0]
+        dummy_inputs["timestep"] = dummy_inputs["timestep"].to(dtype) if dtype else dummy_inputs["timestep"].float()
+        dummy_inputs["encoder_hidden_states"] = (
+            dummy_inputs["encoder_hidden_states"][0].to(dtype) if dtype else dummy_inputs["encoder_hidden_states"][0]
+        )
 
         if return_tuple is True:
             return tuple(dummy_inputs.values())
         else:
             return dummy_inputs
+
+    class ModelWrapper(torch.nn.Module):
+        def __init__(self, model, input_names: List[str], dtype: torch.dtype = None):
+            super().__init__()
+            self.model = model
+            self.input_names = input_names
+            self.dtype = dtype or model.dtype
+
+        def forward(self, sample, timestep, encoder_hidden_states, cross_attention_kwargs=None):
+            outputs = [
+                self.model(sample, timestep.to(dtype=self.dtype).expand((sample.shape[0],)), encoder_hidden_states)[0]
+            ]
+            return outputs
+
+    def check_model_inputs_order(self, model, dummy_inputs, auto_cast_type):
+        return super().check_model_inputs_order(
+            model=model,
+            custom_model_wrapper=self.ModelWrapper,
+            custom_wrapper_kwargs={"input_names": list(dummy_inputs.keys()), "dtype": auto_cast_type},
+        )
 
 
 @register_in_tasks_manager("vae-encoder", *["stable-diffusion", "semantic-segmentation"])

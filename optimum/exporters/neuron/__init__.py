@@ -20,4 +20,5 @@ from .utils import (
     DiffusersPretrainedConfig,
     build_stable_diffusion_components_mandatory_shapes,
     get_stable_diffusion_models_for_export,
+    infer_stable_diffusion_shapes_from_diffusers,
 )

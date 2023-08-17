@@ -27,6 +27,7 @@ from transformers import PretrainedConfig
 
 from ...exporters.error_utils import OutputMatchError, ShapeError
 from ...neuron.utils import (
+    DTYPE_MAPPING,
     convert_neuronx_compiler_args_to_neuron,
     is_neuron_available,
     is_neuronx_available,
@@ -121,7 +122,7 @@ def validate_models_outputs(
                 atol=atol,
             )
         except Exception as e:
-            exceptions.append(e)
+            exceptions.append(f"Validation of {model_name} fails: {e}")
 
     if len(exceptions) != 0:
         for i, exception in enumerate(exceptions[:-1]):
@@ -299,50 +300,50 @@ def export_models(
         output_path = output_dir / output_file_name
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        try:
-            start_time = time.time()
-            neuron_inputs, neuron_outputs = export(
-                model=submodel,
-                config=sub_neuron_config,
-                output=output_path,
-                **compiler_kwargs,
-            )
-            compilation_time = time.time() - start_time
-            logger.info(f"[Compilation Time] {np.round(compilation_time, 2)} seconds.")
-            outputs.append((neuron_inputs, neuron_outputs))
-            # Add neuron specific configs to model components' original config
-            if hasattr(submodel, "config"):
-                model_config = submodel.config
-            elif configs and (model_name in configs.keys()):
-                model_config = configs[model_name]
-            else:
-                raise AttributeError("Cannot find model's configuration, please pass it with `configs`.")
+        # try:
+        start_time = time.time()
+        neuron_inputs, neuron_outputs = export(
+            model=submodel,
+            config=sub_neuron_config,
+            output=output_path,
+            **compiler_kwargs,
+        )
+        compilation_time = time.time() - start_time
+        logger.info(f"[Compilation Time] {np.round(compilation_time, 2)} seconds.")
+        outputs.append((neuron_inputs, neuron_outputs))
+        # Add neuron specific configs to model components' original config
+        if hasattr(submodel, "config"):
+            model_config = submodel.config
+        elif configs and (model_name in configs.keys()):
+            model_config = configs[model_name]
+        else:
+            raise AttributeError("Cannot find model's configuration, please pass it with `configs`.")
 
-            if is_diffusers_available() and isinstance(model_config, FrozenDict):
-                model_config = OrderedDict(model_config)
-                model_config = DiffusersPretrainedConfig.from_dict(model_config)
+        if is_diffusers_available() and isinstance(model_config, FrozenDict):
+            model_config = OrderedDict(model_config)
+            model_config = DiffusersPretrainedConfig.from_dict(model_config)
 
-            store_compilation_config(
-                config=model_config,
-                input_shapes=sub_neuron_config.input_shapes,
-                compiler_kwargs=compiler_kwargs,
-                input_names=neuron_inputs,
-                output_names=neuron_outputs,
-                dynamic_batch_size=sub_neuron_config.dynamic_batch_size,
-                compiler_type=NEURON_COMPILER_TYPE,
-                compiler_version=NEURON_COMPILER_VERSION,
-                model_type=getattr(sub_neuron_config, "MODEL_TYPE", None),
-            )
-            if isinstance(model_config, PretrainedConfig):
-                model_config = DiffusersPretrainedConfig.from_dict(model_config.__dict__)
-            model_config.save_pretrained(output_path.parent)
-        except Exception as e:
-            failed_models.append((i, model_name))
-            output_path.parent.rmdir()
-            logger.error(
-                f"An error occured when trying to trace {model_name} with the error message: {e}.\n"
-                f"The export is failed and {model_name} neuron model won't be stored."
-            )
+        store_compilation_config(
+            config=model_config,
+            input_shapes=sub_neuron_config.input_shapes,
+            compiler_kwargs=compiler_kwargs,
+            input_names=neuron_inputs,
+            output_names=neuron_outputs,
+            dynamic_batch_size=sub_neuron_config.dynamic_batch_size,
+            compiler_type=NEURON_COMPILER_TYPE,
+            compiler_version=NEURON_COMPILER_VERSION,
+            model_type=getattr(sub_neuron_config, "MODEL_TYPE", None),
+        )
+        if isinstance(model_config, PretrainedConfig):
+            model_config = DiffusersPretrainedConfig.from_dict(model_config.__dict__)
+        model_config.save_pretrained(output_path.parent)
+        # except Exception as e:
+        #     failed_models.append((i, model_name))
+        #     output_path.parent.rmdir()
+        #     logger.error(
+        #         f"An error occured when trying to trace {model_name} with the error message: {e}.\n"
+        #         f"The export is failed and {model_name} neuron model won't be stored."
+        #     )
 
     # remove models failed to export
     for i, model_name in failed_models:
@@ -416,10 +417,6 @@ def export_neuronx(
     for axis in config.mandatory_axes:
         input_shapes[axis] = getattr(config, axis)
 
-    dummy_inputs = config.generate_dummy_inputs(**input_shapes)
-    dummy_inputs_tuple = tuple(dummy_inputs.values())
-    checked_model = config.check_model_inputs_order(model, dummy_inputs)
-
     if auto_cast is not None:
         logger.info(f"Using Neuron: --auto-cast {auto_cast}")
 
@@ -428,12 +425,19 @@ def export_neuronx(
 
         logger.info(f"Using Neuron: --auto-cast-type {auto_cast_type}")
         compiler_args.extend(["--auto-cast-type", auto_cast_type])
+        auto_cast_type = DTYPE_MAPPING[auto_cast_type]
     else:
         compiler_args = ["--auto-cast", "none"]
+        auto_cast_type = None
 
     # diffusers specific
     compiler_args = add_stable_diffusion_compiler_args(config, compiler_args)
 
+    dummy_inputs = config.generate_dummy_inputs(**{"dtype": auto_cast_type}, **input_shapes)
+    dummy_inputs_tuple = tuple(dummy_inputs.values())
+    checked_model = config.check_model_inputs_order(
+        model=model, dummy_inputs=dummy_inputs, auto_cast_type=auto_cast_type
+    )
     neuron_model = neuronx.trace(checked_model, dummy_inputs_tuple, compiler_args=compiler_args)
 
     if config.dynamic_batch_size is True:
