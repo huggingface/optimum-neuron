@@ -16,7 +16,7 @@
 
 import copy
 import os
-from typing import TYPE_CHECKING, Dict, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
 
 import torch
 from packaging import version
@@ -66,6 +66,13 @@ if TYPE_CHECKING:
 
     if is_diffusers_available():
         from diffusers import ModelMixin, StableDiffusionPipeline
+
+DEFAULT_MODEL_DTYPES = {
+    "text_encoder": torch.float32,
+    "unet": torch.float32,
+    "vae_encoder": torch.float32,
+    "vae_decoder": torch.float32,
+}
 
 
 class DiffusersPretrainedConfig(PretrainedConfig):
@@ -149,11 +156,13 @@ def build_stable_diffusion_components_mandatory_shapes(
 
 def get_stable_diffusion_models_for_export(
     pipeline: "StableDiffusionPipeline",
+    model_kwargs: Dict[str, Any],
     text_encoder_input_shapes: Dict[str, int],
     unet_input_shapes: Dict[str, int],
     vae_encoder_input_shapes: Dict[str, int],
     vae_decoder_input_shapes: Dict[str, int],
     dynamic_batch_size: Optional[bool] = False,
+    model_dtypes: Dict[str, torch.dtype] = DEFAULT_MODEL_DTYPES,
 ) -> Dict[str, Tuple[Union["PreTrainedModel", "ModelMixin"], "NeuronConfig"]]:
     """
     Returns the components of a Stable Diffusion model and their subsequent neuron configs.
@@ -163,7 +172,9 @@ def get_stable_diffusion_models_for_export(
 
     Args:
         pipeline ([`StableDiffusionPipeline`]):
-            The model to export.
+            Stable diffusion pipeline with float32 as dtype.
+        model_kwargs (Dict[str, Any]):
+            Keyword arguments to pass to the model `.from_pretrained()` method.
         text_encoder_input_shapes (`Dict[str, int]`):
             Static shapes used for compiling text encoder.
         unet_input_shapes (`Dict[str, int]`):
@@ -174,12 +185,14 @@ def get_stable_diffusion_models_for_export(
             Static shapes used for compiling vae decoder.
         dynamic_batch_size (`bool`, defaults to `False`):
             Whether the Neuron compiled model supports dynamic batch size.
+        model_dtypes (`Dict[str, torch.dtype]`, defaults to `DEFAULT_MODEL_DTYPES`.)
+            Data type of stable diffusion models.
 
     Returns:
         `Dict[str, Tuple[Union[`PreTrainedModel`, `ModelMixin`], `NeuronConfig`]: A Dict containing the model and
         Neuron configs for the different components of the model.
     """
-    models_for_export = _get_submodels_for_export_stable_diffusion(pipeline)
+    models_for_export = _get_submodels_for_export_stable_diffusion(pipeline, model_kwargs, model_dtypes)
 
     # Text encoder
     text_encoder = models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_NAME]
@@ -244,18 +257,56 @@ def get_stable_diffusion_models_for_export(
 
 def _get_submodels_for_export_stable_diffusion(
     pipeline: "StableDiffusionPipeline",
+    model_kwargs: Dict[str, Any],
+    model_dtypes: Dict[str, torch.dtype] = DEFAULT_MODEL_DTYPES,
 ) -> Dict[str, Union["PreTrainedModel", "ModelMixin"]]:
     """
+    Args:
+        model_kwargs (Dict[str, Any]):
+            Keyword arguments to pass to the model `.from_pretrained()` method.
+        model_dtypes (`Dict[str, torch.dtype]`):
+            Mapping of stable diffusion models and their data type. For example: {"text_encoder": torch.float32,
+            "unet": torch.bfloat16, "vae_encoder": torch.float32, "vae_decoder": torch.float32}
+
     Returns the components of a Stable Diffusion model.
     """
     models_for_export = {}
-    projection_dim = pipeline.text_encoder.config.projection_dim
+    model_dtype_groups = {
+        dtype: [model_name for model_name in model_dtypes.keys() if model_dtypes[model_name] == dtype]
+        for dtype in set(model_dtypes.values())
+    }
 
-    # Text encoder
+    if torch.float32 in model_dtype_groups.keys():
+        # Put models on float on the top to reuse the pipeline
+        model_dtype_groups = {torch.float32: model_dtype_groups.pop(torch.float32), **model_dtype_groups}
+    else:
+        del pipeline
+        pipeline = None
+
+    model_init_funcs = {
+        DIFFUSION_MODEL_TEXT_ENCODER_NAME: _get_text_encoder_for_export,
+        DIFFUSION_MODEL_UNET_NAME: _get_unet_for_export,
+        DIFFUSION_MODEL_VAE_ENCODER_NAME: _get_vae_encoder_for_export,
+        DIFFUSION_MODEL_VAE_DECODER_NAME: _get_vae_decoder_for_export,
+    }
+
+    for model_dtype, model_names in model_dtype_groups.items():
+        if pipeline is None:
+            pipeline = TasksManager.get_model_from_task(**model_kwargs, torch_dtype=model_dtype)
+        for model_name in model_names:
+            models_for_export[model_name] = model_init_funcs[model_name](pipeline)
+        del pipeline
+
+    return models_for_export
+
+
+def _get_text_encoder_for_export(pipeline):
     if pipeline.text_encoder is not None:
-        models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_NAME] = copy.deepcopy(pipeline.text_encoder)
+        return copy.deepcopy(pipeline.text_encoder)
 
-    # U-NET
+
+def _get_unet_for_export(pipeline):
+    projection_dim = pipeline.text_encoder.config.projection_dim
     pipeline.unet.set_attn_processor(AttnProcessor())
     pipeline.unet.config.text_encoder_projection_dim = projection_dim
     # The U-NET time_ids inputs shapes depends on the value of `requires_aesthetics_score`
@@ -271,23 +322,23 @@ def _get_submodels_for_export_stable_diffusion(
             "You are not applying optimized attention score computation. If you want better performance, please"
             " set the environment variable with `export NEURON_FUSE_SOFTMAX=1` and recompile the unet model."
         )
-    models_for_export["unet"] = copy.deepcopy(pipeline.unet)
+    return copy.deepcopy(pipeline.unet)
 
-    # VAE Encoder
+
+def _get_vae_encoder_for_export(pipeline):
     vae_encoder = copy.deepcopy(pipeline.vae)
     if not version.parse(torch.__version__) >= version.parse("2.1.0"):
         vae_encoder = override_diffusers_2_0_attn_processors(vae_encoder)
     vae_encoder.forward = lambda sample: {"latent_sample": vae_encoder.encode(x=sample)["latent_dist"].sample()}
-    models_for_export["vae_encoder"] = vae_encoder
+    return vae_encoder
 
-    # VAE Decoder
+
+def _get_vae_decoder_for_export(pipeline):
     vae_decoder = copy.deepcopy(pipeline.vae)
     if not version.parse(torch.__version__) >= version.parse("2.1.0"):
         vae_decoder = override_diffusers_2_0_attn_processors(vae_decoder)
     vae_decoder.forward = lambda latent_sample: vae_decoder.decode(z=latent_sample)
-    models_for_export["vae_decoder"] = vae_decoder
-
-    return models_for_export
+    return vae_decoder
 
 
 def override_diffusers_2_0_attn_processors(model):

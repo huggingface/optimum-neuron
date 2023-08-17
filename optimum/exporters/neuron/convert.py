@@ -114,6 +114,7 @@ def validate_models_outputs(
         )
         neuron_paths.append(neuron_model_path)
         try:
+            logger.info(f"Validating {model_name} model...")
             validate_model_outputs(
                 config=sub_neuron_config,
                 reference_model=ref_submodel,
@@ -155,8 +156,6 @@ def validate_model_outputs(
     Raises:
         ValueError: If the outputs shapes or values do not match between the reference and the exported model.
     """
-    logger.info("Validating Neuron model...")
-
     if atol is None:
         if isinstance(config.ATOL_FOR_VALIDATION, dict):
             atol = config.ATOL_FOR_VALIDATION[config.task]
@@ -300,50 +299,50 @@ def export_models(
         output_path = output_dir / output_file_name
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # try:
-        start_time = time.time()
-        neuron_inputs, neuron_outputs = export(
-            model=submodel,
-            config=sub_neuron_config,
-            output=output_path,
-            **compiler_kwargs,
-        )
-        compilation_time = time.time() - start_time
-        logger.info(f"[Compilation Time] {np.round(compilation_time, 2)} seconds.")
-        outputs.append((neuron_inputs, neuron_outputs))
-        # Add neuron specific configs to model components' original config
-        if hasattr(submodel, "config"):
-            model_config = submodel.config
-        elif configs and (model_name in configs.keys()):
-            model_config = configs[model_name]
-        else:
-            raise AttributeError("Cannot find model's configuration, please pass it with `configs`.")
+        try:
+            start_time = time.time()
+            neuron_inputs, neuron_outputs = export(
+                model=submodel,
+                config=sub_neuron_config,
+                output=output_path,
+                **compiler_kwargs,
+            )
+            compilation_time = time.time() - start_time
+            logger.info(f"[Compilation Time] {np.round(compilation_time, 2)} seconds.")
+            outputs.append((neuron_inputs, neuron_outputs))
+            # Add neuron specific configs to model components' original config
+            if hasattr(submodel, "config"):
+                model_config = submodel.config
+            elif configs and (model_name in configs.keys()):
+                model_config = configs[model_name]
+            else:
+                raise AttributeError("Cannot find model's configuration, please pass it with `configs`.")
 
-        if is_diffusers_available() and isinstance(model_config, FrozenDict):
-            model_config = OrderedDict(model_config)
-            model_config = DiffusersPretrainedConfig.from_dict(model_config)
+            if is_diffusers_available() and isinstance(model_config, FrozenDict):
+                model_config = OrderedDict(model_config)
+                model_config = DiffusersPretrainedConfig.from_dict(model_config)
 
-        store_compilation_config(
-            config=model_config,
-            input_shapes=sub_neuron_config.input_shapes,
-            compiler_kwargs=compiler_kwargs,
-            input_names=neuron_inputs,
-            output_names=neuron_outputs,
-            dynamic_batch_size=sub_neuron_config.dynamic_batch_size,
-            compiler_type=NEURON_COMPILER_TYPE,
-            compiler_version=NEURON_COMPILER_VERSION,
-            model_type=getattr(sub_neuron_config, "MODEL_TYPE", None),
-        )
-        if isinstance(model_config, PretrainedConfig):
-            model_config = DiffusersPretrainedConfig.from_dict(model_config.__dict__)
-        model_config.save_pretrained(output_path.parent)
-        # except Exception as e:
-        #     failed_models.append((i, model_name))
-        #     output_path.parent.rmdir()
-        #     logger.error(
-        #         f"An error occured when trying to trace {model_name} with the error message: {e}.\n"
-        #         f"The export is failed and {model_name} neuron model won't be stored."
-        #     )
+            store_compilation_config(
+                config=model_config,
+                input_shapes=sub_neuron_config.input_shapes,
+                compiler_kwargs=compiler_kwargs,
+                input_names=neuron_inputs,
+                output_names=neuron_outputs,
+                dynamic_batch_size=sub_neuron_config.dynamic_batch_size,
+                compiler_type=NEURON_COMPILER_TYPE,
+                compiler_version=NEURON_COMPILER_VERSION,
+                model_type=getattr(sub_neuron_config, "MODEL_TYPE", None),
+            )
+            if isinstance(model_config, PretrainedConfig):
+                model_config = DiffusersPretrainedConfig.from_dict(model_config.__dict__)
+            model_config.save_pretrained(output_path.parent)
+        except Exception as e:
+            failed_models.append((i, model_name))
+            output_path.parent.rmdir()
+            logger.error(
+                f"An error occured when trying to trace {model_name} with the error message: {e}.\n"
+                f"The export is failed and {model_name} neuron model won't be stored."
+            )
 
     # remove models failed to export
     for i, model_name in failed_models:
