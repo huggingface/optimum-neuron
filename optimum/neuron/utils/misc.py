@@ -148,11 +148,11 @@ def convert_checkpoint_to_safetensors(
         checkpoint = torch.load(weight_file)
         data_pointers = set()
         for k, v in checkpoint.items():
-            if id(v.data) in data_pointers:
-                v = v.clone()
+            if v.data_ptr() in data_pointers:
+                v = v.detach().clone()
             v = v.contiguous()
             checkpoint[k] = v
-            data_pointers.add(id(v.data))
+            data_pointers.add(v.data_ptr())
         save_file(checkpoint, safetensors_path)
         del checkpoint
 
