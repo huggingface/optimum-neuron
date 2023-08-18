@@ -152,9 +152,10 @@ class ParallelEmbedding(ParallelLayer):
                 else:
                     lm_head_weight_name = f"{cls.LM_HEAD_NAME}.weight"
                     lm_head_bias_weight_name = f"{cls.LM_HEAD_NAME}.bias"
-                lm_head_weight_info = WeightInformation(
-                    weight_map[lm_head_weight_name], lm_head_weight_name, device=device
-                )
+                if lm_head_weight_name in weight_map:
+                    lm_head_weight_info = WeightInformation(
+                        weight_map[lm_head_weight_name], lm_head_weight_name, device=device
+                    )
                 if lm_head_bias_weight_name in weight_map:
                     lm_head_bias_weight_info = WeightInformation(
                         weight_map[lm_head_bias_weight_name], lm_head_bias_weight_name, device=device
