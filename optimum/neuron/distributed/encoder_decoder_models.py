@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Dict, Optional
 
 from .base import Parallelizer
 from .parallel_layers import ParallelEmbedding, ParallelMLP, ParallelSelfAttention
+from .utils import linear_to_parallel_linear
 
 
 if TYPE_CHECKING:
