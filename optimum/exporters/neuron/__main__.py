@@ -292,6 +292,7 @@ def main():
         atol=args.atol,
         cache_dir=args.cache_dir,
         trust_remote_code=args.trust_remote_code,
+        do_validation=args.do_validation,
         **input_shapes,
     )
 
