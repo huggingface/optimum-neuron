@@ -59,9 +59,9 @@ def parse_args_neuron(parser: "ArgumentParser"):
         help="Allow to use custom code for the modeling hosted in the model repository. This option should only be set for repositories you trust and in which you have read the code, as it will execute on your local machine arbitrary code present in the model repository.",
     )
     optional_group.add_argument(
-        "--do-validation",
+        "--disable-validation",
         action="store_true",
-        help="Whether validate the inference on neuron device compared to the outputs of original PyTorch model on CPU.",
+        help="Whether to disable the validation of inference on neuron device compared to the outputs of original PyTorch model on CPU.",
     )
     optional_group.add_argument(
         "--auto_cast",
