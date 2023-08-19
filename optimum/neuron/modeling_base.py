@@ -469,6 +469,7 @@ class NeuronBaseModel(OptimizedModel):
 
             if (
                 self.preprocessors is not None
+                and len(self.preprocessors) > 0
                 and self.preprocessors[0].pad_token_id is not None
                 and input_name == "input_ids"
             ):
