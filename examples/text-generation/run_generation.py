@@ -24,11 +24,12 @@ def load_llm_optimum(model_id_or_path, batch_size, num_cores, auto_cast_type):
 
 
 def generate(model, tokenizer, prompts, length, temperature):
-    # Specifiy padding options
+    # Specifiy padding options for decoder-only architecture
     tokenizer.pad_token_id = tokenizer.eos_token_id
+    tokenizer.padding_side = "left"
 
     # Encode tokens and generate using temperature
-    tokens = tokenizer(prompts, return_tensors="pt")
+    tokens = tokenizer(prompts, return_tensors="pt", padding=True)
     start = time.time()
     with torch.inference_mode():
         sample_output = model.generate(
@@ -46,11 +47,13 @@ def generate(model, tokenizer, prompts, length, temperature):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("model", type=str, help="The HF Hub model id or a local directory.")
-    parser.add_argument("--prompt", type=str, default="One of my fondest memory is", help="The starting prompt.")
-    parser.add_argument("--length", type=int, default=128, help="The number of tokens in the generated sequences.")
     parser.add_argument(
-        "--batch_size", type=int, default=1, help="If > 1, the prompt will be duplicated to test model throughput."
+        "--prompts",
+        type=str,
+        default="One of my fondest memory is",
+        help="The prompts to use for generation, using | as separator.",
     )
+    parser.add_argument("--length", type=int, default=128, help="The number of tokens in the generated sequences.")
     parser.add_argument(
         "--num_cores", type=int, default=2, help="The number of cores on which the model should be split."
     )
@@ -66,11 +69,10 @@ if __name__ == "__main__":
     )
     parser.add_argument("--compare", action="store_true", help="Compare with the genuine transformers model on CPU.")
     args = parser.parse_args()
-    # Load llm model and tokenizer
-    model = load_llm_optimum(args.model, args.batch_size, args.num_cores, args.auto_cast_type)
+    prompts = args.prompts.split("|")
+    batch_size = len(prompts)
+    model = load_llm_optimum(args.model, batch_size, args.num_cores, args.auto_cast_type)
     tokenizer = AutoTokenizer.from_pretrained(args.model)
-    # We need to replicate the text if batch_size is not 1
-    prompts = [args.prompt for _ in range(args.batch_size)]
     outputs, latency = generate(model, tokenizer, prompts, args.length, args.temperature)
     print(outputs)
     print(f"Outputs generated using Neuron model in {latency:.4f} s")
