@@ -80,9 +80,10 @@ from transformers import AutoTokenizer
 -model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-uncased-finetuned-sst-2-english")
 
 # Compile your model during the first time
++compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
 +input_shapes = {"batch_size": 1, "sequence_length": 64}
 +model = NeuronModelForSequenceClassification.from_pretrained(
-+    "distilbert-base-uncased-finetuned-sst-2-english", export=True, **input_shapes
++    "distilbert-base-uncased-finetuned-sst-2-english", export=True, **compiler_args, **input_shapes,
 +)
 
 tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased-finetuned-sst-2-english")
@@ -92,6 +93,8 @@ logits = model(**inputs).logits
 print(model.config.id2label[logits.argmax().item()])
 # 'POSITIVE'
 ```
+
+`compiler_args` are optional arguments for the compiler, these arguments usually control how the compilers makes tradeoff between inference performance (latency and throughput) and accuracy. Here we cast FP32 operations to BF16 using the Neuron matrix-multiplication engine.
 
 `input_shapes` are mandatory static shape information that you need to send to the neuron compiler. Wondering what shapes are mandatory for your model? Check it out
 with the following code:
@@ -220,9 +223,10 @@ To apply optimized compute of Unet's attention score, please configure your envi
 >>> from optimum.neuron import NeuronStableDiffusionPipeline
 
 >>> model_id = "runwayml/stable-diffusion-v1-5"
+>>> compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
 >>> input_shapes = {"batch_size": 1, "height": 512, "width": 512}  
 
->>> stable_diffusion = NeuronStableDiffusionPipeline.from_pretrained(model_id, export=True, **input_shapes)
+>>> stable_diffusion = NeuronStableDiffusionPipeline.from_pretrained(model_id, export=True, **compiler_args, **input_shapes)
 
 # Save locally or upload to the HuggingFace Hub
 >>> save_directory = "sd_neuron/"
