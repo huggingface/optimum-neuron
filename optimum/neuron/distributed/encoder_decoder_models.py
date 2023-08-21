@@ -123,6 +123,8 @@ class T5ParallelMLP(ParallelMLP):
 
         cls.FIRST_LINEAR_NAME = orig_first_linear_name
 
+        return layer
+
 
 class T5Parallelizer(Parallelizer):
     @classmethod
