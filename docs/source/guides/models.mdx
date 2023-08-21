@@ -94,7 +94,7 @@ print(model.config.id2label[logits.argmax().item()])
 # 'POSITIVE'
 ```
 
-`compiler_args` are optional arguments for the compiler, these arguments usually control how the compilers makes tradeoff between inference performance (latency and throughput) and accuracy. Here we cast FP32 operations to BF16 using the Neuron matrix-multiplication engine.
+`compiler_args` are optional arguments for the compiler, these arguments usually control how the compiler makes tradeoff between the inference performance (latency and throughput) and the accuracy. Here we cast FP32 operations to BF16 using the Neuron matrix-multiplication engine.
 
 `input_shapes` are mandatory static shape information that you need to send to the neuron compiler. Wondering what shapes are mandatory for your model? Check it out
 with the following code:
