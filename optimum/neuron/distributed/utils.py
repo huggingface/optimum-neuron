@@ -296,7 +296,7 @@ def linear_to_parallel_linear(
                     ),
                 )
                 parallel_linear_layer.weight.data = weight_data
-            elif linear_layer.device != torch.device("meta"):
+            elif linear_layer.weight.device != torch.device("meta"):
                 parallel_linear_layer.weight.copy_(
                     linear_layer.weight[:, tp_rank * col_size : (tp_rank + 1) * col_size]
                 )
@@ -325,7 +325,7 @@ def linear_to_parallel_linear(
                 )
                 parallel_linear_layer.weight.data = weight_data
 
-            elif linear_layer.device != torch.device("meta"):
+            elif linear_layer.weight.device != torch.device("meta"):
                 parallel_linear_layer.weight.copy_(
                     linear_layer.weight[tp_rank * row_size : (tp_rank + 1) * row_size, :]
                 )
