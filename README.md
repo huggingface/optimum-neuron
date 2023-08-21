@@ -111,7 +111,7 @@ The command above will export `distilbert-base-uncased-finetuned-sst-2-english` 
 
 Then you can run the exported Neuron model on Neuron devices with `NeuronModelForXXX` classes which are similar to `AutoModelForXXX` classes in 🤗 Transformers:
 
-```python
+```diff
 from transformers import AutoTokenizer
 -from transformers import AutoModelForSequenceClassification
 +from optimum.neuron import NeuronModelForSequenceClassification
