@@ -78,7 +78,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         tokenizer: CLIPTokenizer,
         scheduler: Union[DDIMScheduler, PNDMScheduler, LMSDiscreteScheduler],
         feature_extractor: Optional[CLIPFeatureExtractor] = None,
-        device_ids: Optional[List[int]] = [],
+        device_ids: Optional[List[int]] = [0, 1],
         configs: Optional[Dict[str, "PretrainedConfig"]] = None,
         neuron_configs: Optional[Dict[str, "NeuronConfig"]] = None,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
@@ -235,7 +235,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         vae_decoder_file_name: Optional[str] = NEURON_FILE_NAME,
         local_files_only: bool = False,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
-        device_ids: Optional[List[int]] = [],
+        device_ids: Optional[List[int]] = [0, 1],
         **kwargs,  # To share kwargs only available for `_from_transformers`
     ):
         model_id = str(model_id)
@@ -356,12 +356,12 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         local_files_only: bool = False,
         trust_remote_code: bool = False,
         task: Optional[str] = None,
-        auto_cast: Optional[str] = None,
-        auto_cast_type: Optional[str] = None,
+        auto_cast: Optional[str] = "matmul",
+        auto_cast_type: Optional[str] = "bf16",
         disable_fast_relayout: Optional[bool] = False,
         disable_fallback: bool = False,
         dynamic_batch_size: bool = False,
-        device_ids: Optional[List[int]] = [],
+        device_ids: Optional[List[int]] = [0, 1],
         **kwargs_shapes,
     ) -> "NeuronStableDiffusionPipelineBase":
         if task is None:
