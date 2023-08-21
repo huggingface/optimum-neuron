@@ -48,7 +48,7 @@ pip install git+https://github.com/huggingface/optimum-neuron.git
 > python setup.py install
 > ```
 
-*Make sure that you have installed the Neuron driver and tools before installing `optimum-neuron`, [more guide here](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/setup/torch-neuronx.html#setup-torch-neuronx).*
+*Make sure that you have installed the Neuron driver and tools before installing `optimum-neuron`, [more extensive guide here](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/setup/torch-neuronx.html#setup-torch-neuronx).*
 
 Last but not least, don't forget to install the requirements for every example:
 
