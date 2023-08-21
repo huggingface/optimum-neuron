@@ -61,7 +61,7 @@ def parse_args_neuron(parser: "ArgumentParser"):
     optional_group.add_argument(
         "--disable-validation",
         action="store_true",
-        help="Whether to disable the validation of inference on neuron device compared to the outputs of original PyTorch model on CPU.",
+        help="Whether to disable the validation of the exported model on neuron device compared to the outputs of original PyTorch model on CPU.",
     )
     optional_group.add_argument(
         "--auto_cast",
