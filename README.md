@@ -23,6 +23,14 @@ The list of officially validated models and tasks is available [here](TODO:). Us
 ## Install
 To install the latest release of this package:
 
+* For AWS Trainium (trn1) or AWS inferentia2 (inf2)
+
+```bash
+pip install optimum[neuronx]
+```
+
+* For AWS inferentia (inf1)
+
 ```bash
 pip install optimum[neuron]
 ```
@@ -40,6 +48,8 @@ pip install git+https://github.com/huggingface/optimum-neuron.git
 > python setup.py install
 > ```
 
+*Make sure that you have installed the Neuron driver and tools before installing `optimum-neuron`, [more extensive guide here](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/setup/torch-neuronx.html#setup-torch-neuronx).*
+
 Last but not least, don't forget to install the requirements for every example:
 
 ```bash
@@ -48,13 +58,11 @@ pip install -r requirements.txt
 ```
 
 
-## How to use it?
-
-### Quick Start
+## Quick Start
 
 🤗 Optimum Neuron was designed with one goal in mind: **to make training and inference straightforward for any 🤗 Transformers user while leveraging the complete power of AWS Accelerators**.
 
-#### Transformers Interface
+### Training
 
 There are two main classes one needs to know:
 - TrainiumArgumentParser: inherits the original [HfArgumentParser](https://huggingface.co/docs/transformers/main/en/internal/trainer_utils#transformers.HfArgumentParser) in Transformers with additional checks on the argument values to make sure that they will work well with AWS Trainium instances.
@@ -83,6 +91,41 @@ trainer = Trainer(
     tokenizer=tokenizer,
     data_collator=data_collator,
 )
+```
+
+### Inference
+
+You can compile and export your 🤗 Transformers models to a serialized format before inference on Neuron devices:
+
+```bash
+optimum-cli export neuron 
+  --model distilbert-base-uncased-finetuned-sst-2-english \
+  --batch_size 1 \
+  --sequence_length 32 \
+  --auto_cast matmul \
+  --auto_cast_type bf16 \
+  distilbert_base_uncased_finetuned_sst2_english_neuron/
+```
+
+The command above will export `distilbert-base-uncased-finetuned-sst-2-english` with static shapes: `batch_size=1` and `sequence_length=32`, and cast all `matmul` operations from FP32 to BF16. Check out the [exporter guide](https://huggingface.co/docs/optimum-neuron/guides/export_model) for more compilation options.
+
+Then you can run the exported Neuron model on Neuron devices with `NeuronModelForXXX` classes which are similar to `AutoModelForXXX` classes in 🤗 Transformers:
+
+```diff
+from transformers import AutoTokenizer
+-from transformers import AutoModelForSequenceClassification
++from optimum.neuron import NeuronModelForSequenceClassification
+
+# PyTorch checkpoint
+-model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-uncased-finetuned-sst-2-english")
++model = NeuronModelForSequenceClassification.from_pretrained("distilbert_base_uncased_finetuned_sst2_english_neuron")
+
+tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased-finetuned-sst-2-english")
+inputs = tokenizer("Hamilton is considered to be the best musical of past years.", return_tensors="pt")
+
+logits = model(**inputs).logits
+print(model.config.id2label[logits.argmax().item()])
+# 'POSITIVE'
 ```
 
 ### Documentation
