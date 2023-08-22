@@ -296,6 +296,7 @@ def _get_submodels_for_export_stable_diffusion(
         for model_name in model_names:
             models_for_export[model_name] = model_init_funcs[model_name](pipeline)
         del pipeline
+        pipeline = None 
 
     return models_for_export
 
