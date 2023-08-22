@@ -17,12 +17,17 @@
 from typing import TYPE_CHECKING, Dict, Optional
 
 from .base import Parallelizer
-from .parallel_layers import ParallelSelfAttention, ParallelSelfOutput
+from .parallel_layers import ParallelEmbedding, ParallelSelfAttention, ParallelSelfOutput
 
 
 if TYPE_CHECKING:
     import torch
     from transformers import PreTrainedModel
+
+
+class BertParallelEmbedding(ParallelEmbedding):
+    EMBEDDING_NAME = "bert.embeddings.word_embeddings"
+    LM_HEAD_NAME = "cls.predictions.decoder"
 
 
 class BertParallelSelfAttention(ParallelSelfAttention):
@@ -40,7 +45,11 @@ class BertParallelizer(Parallelizer):
         model: "PreTrainedModel",
         orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]],
         device: Optional["torch.device"] = None,
+        parallelize_embeddings: bool = True,
     ) -> "PreTrainedModel":
+        # if parallelize_embeddings:
+        #     print("HEYYYYYYYYY")
+        #     model = BertParallelEmbedding.transform(model, model, device=device)
         for layer in model.bert.encoder.layer:
             layer.attention.self = BertParallelSelfAttention.transform(
                 model,
@@ -55,6 +64,11 @@ class BertParallelizer(Parallelizer):
                 device=device,
             )
         return model
+
+
+class RobertaParallelEmbedding(ParallelEmbedding):
+    EMBEDDING_NAME = "roberta.embeddings.word_embeddings"
+    LM_HEAD_NAME = "lm_head.decoder"
 
 
 class RobertaParallelSelfAttention(BertParallelSelfAttention):
@@ -72,7 +86,10 @@ class RobertaParallelizer(Parallelizer):
         model: "PreTrainedModel",
         orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]],
         device: Optional["torch.device"] = None,
+        parallelize_embeddings: bool = True,
     ) -> "PreTrainedModel":
+        if parallelize_embeddings:
+            model = RobertaParallelEmbedding.transform(model, model, device=device)
         for layer in model.roberta.encoder.layer:
             layer.attention.self = RobertaParallelSelfAttention.transform(
                 model,

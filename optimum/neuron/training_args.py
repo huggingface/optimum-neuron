@@ -55,6 +55,10 @@ class NeuronTrainingArgumentsMixin:
     tensor_parallel_size: int = field(
         default=1, metadata={"help": "The number of replicas the model will be sharded on."}
     )
+    disable_embedding_parallelization: bool = field(
+        default=False,
+        metadata={"help": "The number of replicas the model will be sharded on.", "action": "store_true"},
+    )
 
     def __post_init__(self):
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
@@ -86,7 +90,7 @@ class NeuronTrainingArgumentsMixin:
                     "The minimal required Transformers version to perform XLA FSDP is "
                     f"{TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP} but {transformers.__version__} is installed."
                 )
-        self.tp_plugin = TensorParallelismPlugin(self.tensor_parallel_size)
+        self.tp_plugin = TensorParallelismPlugin(self.tensor_parallel_size, not self.disable_embedding_parallelization)
         super().__post_init__()
 
     # Needed only to specialize the warning message for FSDP.

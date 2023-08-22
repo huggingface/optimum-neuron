@@ -94,6 +94,7 @@ class Parallelizer(ABC):
         model: "PreTrainedModel",
         orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
         device: Optional["torch.device"] = None,
+        parallelize_embeddings: bool = True,
     ) -> "PreTrainedModel":
         """
         Parallelizes the model by transforming regular layer into their parallel counterparts.
@@ -107,6 +108,9 @@ class Parallelizer(ABC):
                 It might be deprecated soon.
             device (`Optional[torch.device]`, defaults to `None`):
                 The device where the new parallel layers should be put.
+            parallelize_embeddings (`bool`, defaults to `True`):
+                Whether or not the embeddings should be parallelized.
+                This can be disabled in the case when the TP size does not divide the vocabulary size.
 
         Returns:
             `PreTrainedModel`: The parallelized model.
@@ -118,6 +122,7 @@ class Parallelizer(ABC):
         model: "PreTrainedModel",
         orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
         device: Optional["torch.device"] = None,
+        parallelize_embeddings: bool = True,
     ) -> "PreTrainedModel":
         """
         Parallelizes the model by transforming regular layer into their parallel counterparts using
@@ -134,11 +139,16 @@ class Parallelizer(ABC):
                 It might be deprecated soon.
             device (`Optional[torch.device]`, defaults to `None`):
                 The device where the new parallel layers should be put.
+            parallelize_embeddings (`bool`, defaults to `True`):
+                Whether or not the embeddings should be parallelized.
+                This can be disabled in the case when the TP size does not divide the vocabulary size.
 
         Returns:
             `PreTrainedModel`: The parallelized model.
         """
-        model = cls._parallelize(model, orig_to_parallel=orig_to_parallel, device=device)
+        model = cls._parallelize(
+            model, orig_to_parallel=orig_to_parallel, device=device, parallelize_embeddings=parallelize_embeddings
+        )
         weight_map = getattr(model, "_weight_map", {})
         with torch.no_grad():
             modules_to_initialize = []

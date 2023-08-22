@@ -109,7 +109,7 @@ class NeuronAccelerator(Accelerator):
                 tp_size = 1
             else:
                 tp_size = int(use_neuronx_distributed_tp)
-            tp_plugin = TensorParallelismPlugin(tensor_parallel_size=tp_size)
+            tp_plugin = TensorParallelismPlugin(tensor_parallel_size=tp_size, parallelize_embeddings=True)
         self._model_cpu_parameters_to_xla = {}
 
         if tp_plugin.should_parallelize:
