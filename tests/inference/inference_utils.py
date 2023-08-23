@@ -98,7 +98,7 @@ class NeuronModelTestMixin(unittest.TestCase):
         """
         model_arch = model_args["model_arch"]
         model_arch_and_params = model_args["test_name"]
-        dynamic_batch_size = getattr(model_args, "dynamic_batch_size", False)
+        dynamic_batch_size = model_args.get("dynamic_batch_size", False)
 
         if model_arch_and_params not in self.neuron_model_dirs:
             # model_args will contain kwargs to pass to NeuronBaseModel.from_pretrained()
