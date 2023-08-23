@@ -57,7 +57,7 @@ class NeuronTrainingArgumentsMixin:
     )
     disable_embedding_parallelization: bool = field(
         default=False,
-        metadata={"help": "The number of replicas the model will be sharded on."},
+        metadata={"help": "Whether or not the embedding parallelization when doing TP should be disabled."},
     )
 
     def __post_init__(self):
