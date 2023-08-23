@@ -175,6 +175,8 @@ class TestExportCLI(unittest.TestCase):
                     "64",
                     "--width",
                     "64",
+                    "--num_image_per_prompt",
+                    "4",
                     tempdir,
                 ],
                 shell=False,
