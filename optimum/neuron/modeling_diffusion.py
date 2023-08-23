@@ -157,6 +157,12 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             # DIFFUSION_MODEL_VAE_ENCODER_NAME: self.vae_encoder,
             DIFFUSION_MODEL_VAE_DECODER_NAME: self.vae_decoder,
         }
+        self.dtypes = {
+            DIFFUSION_MODEL_TEXT_ENCODER_NAME: self.text_encoder.dtype,
+            DIFFUSION_MODEL_UNET_NAME: self.unet.dtype,
+            # DIFFUSION_MODEL_VAE_ENCODER_NAME: self.vae_encoder.dtype,
+            DIFFUSION_MODEL_VAE_DECODER_NAME: self.vae_decoder.dtype,
+        }
         for name in sub_models.keys():
             self._internal_dict[name] = ("optimum", sub_models[name].__class__.__name__)
         self._internal_dict.pop("vae", None)
@@ -436,6 +442,7 @@ class _NeuronDiffusionModelPart:
         self.neuron_config = neuron_config
         self.model_type = model_type
         self.device = device
+        self.io_dtype = self.neuron_config.neuron["io_dtype"]
 
     @abstractmethod
     def forward(self, *args, **kwargs):
