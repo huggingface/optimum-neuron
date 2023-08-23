@@ -191,7 +191,7 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
         transformers_model = AutoModel.from_pretrained(model_id)
         tokenizer = AutoTokenizer.from_pretrained(model_id)
 
-        text = "This is a sample output"
+        text = ["This is a sample output"] * 2
         tokens = tokenizer(text, return_tensors="pt")
         with torch.no_grad():
             transformers_outputs = transformers_model(**tokens)
@@ -360,7 +360,7 @@ class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
         transformers_model = AutoModelForMaskedLM.from_pretrained(model_id)
         tokenizer = AutoTokenizer.from_pretrained(model_id)
 
-        text = f"The capital of France is {tokenizer.mask_token}."
+        text = [f"The capital of France is {tokenizer.mask_token}."] * 2
         tokens = tokenizer(text, return_tensors="pt")
         with torch.no_grad():
             transformers_outputs = transformers_model(**tokens)
@@ -530,7 +530,7 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
         transformers_model = AutoModelForQuestionAnswering.from_pretrained(model_id)
         tokenizer = AutoTokenizer.from_pretrained(model_id)
 
-        text = "This is a sample output"
+        text = ["This is a sample output"] * 2
         tokens = tokenizer(text, return_tensors="pt")
         with torch.no_grad():
             transformers_outputs = transformers_model(**tokens)
@@ -705,7 +705,7 @@ class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
                 "hf-internal-testing/tiny-random-t5", from_transformers=True, **self.STATIC_INPUTS_SHAPES
             )
 
-        self.assertIn("Unrecognized configuration class", str(context.exception))
+        self.assertIn("is not supported yet", str(context.exception))
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     @requires_neuronx
@@ -730,7 +730,7 @@ class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
         transformers_model = AutoModelForSequenceClassification.from_pretrained(model_id)
         tokenizer = AutoTokenizer.from_pretrained(model_id)
 
-        text = "This is a sample output"
+        text = ["This is a sample output"] * 2
         tokens = tokenizer(text, return_tensors="pt")
         with torch.no_grad():
             transformers_outputs = transformers_model(**tokens)
@@ -899,7 +899,7 @@ class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
         transformers_model = AutoModelForTokenClassification.from_pretrained(model_id)
         tokenizer = AutoTokenizer.from_pretrained(model_id)
 
-        text = "This is a sample output"
+        text = ["This is a sample output"] * 2
         tokens = tokenizer(text, return_tensors="pt")
         with torch.no_grad():
             transformers_outputs = transformers_model(**tokens)
