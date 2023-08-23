@@ -14,6 +14,7 @@
 # limitations under the License.
 """NeuronModelForXXX classes for inference on neuron devices using the same API as Transformers."""
 
+import copy
 import logging
 import warnings
 from typing import TYPE_CHECKING, Dict, List, Optional, Union
@@ -37,6 +38,7 @@ from transformers.generation import (
     StoppingCriteriaList,
     TopKLogitsWarper,
 )
+from transformers.generation.utils import GenerationMode
 from transformers.modeling_outputs import (
     BaseModelOutputWithPooling,
     MaskedLMOutput,
@@ -625,18 +627,6 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
         return (out_logits,)
 
     def prepare_inputs_for_generation(self, input_ids: torch.Tensor, **kwargs) -> Dict[str, torch.Tensor]:
-        # Sanity checks
-        if kwargs.get("past_key_values", None) is not None:
-            raise ValueError("This model does not support dynamic key, value cache.")
-        batch_size, sequence_length = input_ids.shape
-        if batch_size != self.batch_size:
-            raise ValueError(
-                f"The specified batch_size ({batch_size}) does not match the model static batch size ({self.batch_size})"
-            )
-        if sequence_length > self.max_length:
-            raise ValueError(
-                f"The current sequence length ({sequence_length}) exceeds the model static sequence length ({self.max_length})"
-            )
         # convert attention_mask to start_ids
         attention_mask = None
         start_ids = None
@@ -668,6 +658,125 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
     def can_generate(self) -> bool:
         """Returns True to validate the check made in `GenerationMixin.generate()`."""
         return True
+
+    def generate(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        generation_config: Optional["GenerationConfig"] = None,
+        **kwargs,
+    ) -> torch.LongTensor:
+        r"""
+        A streamlined generate() method overriding the transformers.GenerationMixin.generate() method.
+
+        This method uses the same logits processors/warpers and stopping criterias as the transformers library
+        `generate()` method but restricts the generation to greedy search and sampling.
+
+        It does not support transformers `generate()` advanced options.
+
+        Please refer to https://huggingface.co/docs/transformers/en/main_classes/text_generation#transformers.GenerationMixin.generate
+        for details on generation configuration.
+
+        Parameters:
+            input_ids (`torch.Tensor` of shape `(batch_size, sequence_length)`):
+                The sequence used as a prompt for the generation.
+            attention_mask (`torch.Tensor` of shape `(batch_size, sequence_length)`, *optional*):
+                Mask to avoid performing attention on padding token indices.
+            generation_config (`~transformers.generation.GenerationConfig`, *optional*):
+                The generation configuration to be used as base parametrization for the generation call. `**kwargs`
+                passed to generate matching the attributes of `generation_config` will override them. If
+                `generation_config` is not provided, default will be used, which had the following loading
+                priority: 1) from the `generation_config.json` model file, if it exists; 2) from the model
+                configuration. Please note that unspecified parameters will inherit [`~transformers.generation.GenerationConfig`]'s
+                default values, whose documentation should be checked to parameterize generation.
+
+        Returns:
+            `torch.Tensor`: A  `torch.FloatTensor`.
+        """
+        # The actual generation configuration is a combination of config and parameters
+        generation_config = copy.deepcopy(self.generation_config if generation_config is None else generation_config)
+        model_kwargs = generation_config.update(**kwargs)  # All unused kwargs must be model kwargs
+        # Check model kwargs are actually used by either prepare_inputs_for_generation or forward
+        self._validate_model_kwargs(model_kwargs)
+        generation_config.validate()
+
+        unsupported_generation_flags = [
+            "output_attentions",
+            "output_hidden_states",
+            "output_scores",
+            "return_dict_in_generate",
+        ]
+        for flag in unsupported_generation_flags:
+            if getattr(generation_config, flag, False):
+                raise ValueError("{flag} is not supported for generation.")
+
+        # Verify that the inputs are compatible with the model static input dimensions
+        batch_size, sequence_length = input_ids.shape
+        if batch_size != self.batch_size:
+            raise ValueError(
+                f"The specified batch_size ({batch_size}) does not match the model static batch size ({self.batch_size})"
+            )
+        if sequence_length > self.max_length:
+            raise ValueError(
+                f"The input sequence length ({sequence_length}) exceeds the model static sequence length ({self.max_length})"
+            )
+        min_length = generation_config.min_length
+        if min_length > self.max_length:
+            raise ValueError(
+                f"The minimum generation length ({min_length}) exceeds the model static sequence length ({self.max_length})"
+            )
+        max_length = generation_config.max_length
+        if min_length > self.max_length:
+            logger.warning(
+                f"The maximum generation length ({max_length}) exceeds the model static sequence length ({self.max_length})"
+            )
+
+        # Instantiate transformers library processors and criterias
+        logits_processor = self._get_logits_processor(
+            generation_config,
+            input_ids_seq_length=input_ids.shape[-1],
+            encoder_input_ids=input_ids,
+            prefix_allowed_tokens_fn=None,
+            logits_processor=LogitsProcessorList(),
+        )
+        stopping_criteria = self._get_stopping_criteria(generation_config, stopping_criteria=StoppingCriteriaList())
+
+        # Special tokens are required for generation
+        eos_token_id = generation_config.eos_token_id
+        # This is not supposed to happen for any of the models we support
+        assert eos_token_id is not None and not isinstance(eos_token_id, list)
+        if generation_config.pad_token_id is None:
+            logger.warning(f"Setting `pad_token_id` to `eos_token_id`:{eos_token_id} for open-end generation.")
+            generation_config.pad_token_id = eos_token_id
+
+        # Drop the current generation context and clear the Key/Value cache
+        self.reset_generation()
+
+        generation_mode = self._get_generation_mode(generation_config, None)
+        if generation_mode == GenerationMode.GREEDY_SEARCH:
+            return self.greedy_search(
+                input_ids,
+                attention_mask=attention_mask,
+                logits_processor=logits_processor,
+                stopping_criteria=stopping_criteria,
+                pad_token_id=generation_config.pad_token_id,
+                eos_token_id=generation_config.eos_token_id,
+                **model_kwargs,
+            )
+        elif generation_mode == GenerationMode.SAMPLE:
+            logits_warper = self._get_logits_warper(generation_config)
+            return self.sample(
+                input_ids,
+                attention_mask=attention_mask,
+                logits_processor=logits_processor,
+                stopping_criteria=stopping_criteria,
+                logits_warper=logits_warper,
+                pad_token_id=generation_config.pad_token_id,
+                eos_token_id=generation_config.eos_token_id,
+                **model_kwargs,
+            )
+        else:
+            raise ValueError("Unsupported generation mode")
 
     class FastTopKLogitsWarper(LogitsWarper):
         r"""Returns [batch_size, top_k] scores and indices instead of [batch_size, vocab_size] scores."""
@@ -801,9 +910,6 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
 
         # keep track of which sequences are already finished
         unfinished_sequences = torch.ones(input_ids.shape[0], dtype=torch.long, device=input_ids.device)
-
-        # This is specific to Neuron models
-        self.reset_generation()
 
         # auto-regressive generation
         while True:

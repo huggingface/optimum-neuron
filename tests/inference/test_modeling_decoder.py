@@ -107,14 +107,11 @@ def test_model_from_hub():
     _check_neuron_model(model)
 
 
-def _test_model_generation(model, tokenizer, batch_size, length, **gen_kwargs):
-    prompt_text = "Hello, I'm a language model,"
-    prompts = [prompt_text for _ in range(batch_size)]
-    tokens = tokenizer(prompts, return_tensors="pt")
+def _test_model_generation(model, tokenizer, batch_size, input_length, **gen_kwargs):
+    input_ids = torch.ones((batch_size, input_length), dtype=torch.int64)
     with torch.inference_mode():
-        sample_output = model.generate(**tokens, min_length=length, max_length=length, **gen_kwargs)
+        sample_output = model.generate(input_ids, **gen_kwargs)
         assert sample_output.shape[0] == batch_size
-        assert sample_output.shape[1] == length
 
 
 @pytest.mark.parametrize(
@@ -125,16 +122,22 @@ def _test_model_generation(model, tokenizer, batch_size, length, **gen_kwargs):
 def test_model_generation(neuron_model_path, gen_kwargs):
     model = NeuronModelForCausalLM.from_pretrained(neuron_model_path)
     tokenizer = AutoTokenizer.from_pretrained(neuron_model_path)
-    # Using static model parameters
-    _test_model_generation(model, tokenizer, model.batch_size, model.max_length, **gen_kwargs)
-    # Using a lower max length
-    _test_model_generation(model, tokenizer, model.batch_size, model.max_length // 2, **gen_kwargs)
+    _test_model_generation(model, tokenizer, model.batch_size, 10, **gen_kwargs)
+
+
+@is_inferentia_test
+@requires_neuronx
+def test_model_generation_input_dimensions(neuron_model_path):
+    model = NeuronModelForCausalLM.from_pretrained(neuron_model_path)
+    tokenizer = AutoTokenizer.from_pretrained(neuron_model_path)
+    # Using valid input dimensions
+    _test_model_generation(model, tokenizer, model.batch_size, model.max_length // 2)
     # Using an incompatible batch_size
     with pytest.raises(ValueError, match="The specified batch_size"):
-        _test_model_generation(model, tokenizer, model.batch_size + 1, model.max_length, **gen_kwargs)
-    # Using an incompatible generation length
-    with pytest.raises(ValueError, match="The current sequence length"):
-        _test_model_generation(model, tokenizer, model.batch_size, model.max_length * 2, **gen_kwargs)
+        _test_model_generation(model, tokenizer, model.batch_size + 1, model.max_length)
+    # Using an incompatible input length
+    with pytest.raises(ValueError, match="The input sequence length"):
+        _test_model_generation(model, tokenizer, model.batch_size, input_length=model.max_length * 2)
 
 
 @is_inferentia_test
