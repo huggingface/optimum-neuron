@@ -72,6 +72,10 @@ class BertParallelizer(Parallelizer):
 class RobertaParallelEmbedding(ParallelEmbedding):
     EMBEDDING_NAME = "roberta.embeddings.word_embeddings"
     LM_HEAD_NAME = "lm_head.decoder"
+    LM_HEAD_NAME = {
+        "RobertaForCausalLM": "lm_head.decoder",
+        "RobertaForMaskedLM": "lm_head.decoder",
+    }
 
 
 class RobertaParallelSelfAttention(BertParallelSelfAttention):

@@ -133,8 +133,10 @@ class T5Parallelizer(Parallelizer):
         model: "PreTrainedModel",
         orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]],
         device: Optional["torch.device"] = None,
+        parallelize_embeddings: bool = True,
     ) -> "PreTrainedModel":
-        model = T5ParallelEmbedding.transform(model, model, device=device)
+        if parallelize_embeddings:
+            model = T5ParallelEmbedding.transform(model, model, device=device)
         if model.encoder.embed_tokens is not None:
             model.encoder.embed_tokens = model.shared
         if model.decoder.embed_tokens is not None:

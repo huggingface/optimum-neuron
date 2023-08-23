@@ -18,7 +18,7 @@ from abc import ABC, abstractclassmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Optional, Tuple, Union
 
-from ...utils import NormalizedConfigManager
+from ...utils import NormalizedConfigManager, logging
 from ..utils import is_neuronx_distributed_available
 from .utils import WeightInformation, embedding_to_parallel_embedding, linear_to_parallel_linear
 
@@ -29,6 +29,9 @@ if is_neuronx_distributed_available():
 if TYPE_CHECKING:
     import torch
     from transformers import PretrainedConfig, PreTrainedModel
+
+
+logger = logging.get_logger()
 
 
 class ParallelLayer(ABC):
@@ -167,6 +170,18 @@ class ParallelEmbedding(ParallelLayer):
                     lm_head_bias_weight_info = WeightInformation(
                         weight_map[lm_head_bias_weight_name], lm_head_bias_weight_name, device=device
                     )
+
+        embedding_layer = layer.get_submodule(cls.EMBEDDING_NAME)
+        tp_size = parallel_state.get_tensor_model_parallel_size()
+        if embedding_layer.num_embeddings % tp_size != 0:
+            import torch_xla.core.xla_model as xm
+
+            if xm.get_ordinal() == 0:
+                logger.warning(
+                    f"Embedding parallelization for TP was skipped because the tensor parallel size ({tp_size}) does not "
+                    f"divide the number of embeddings ({embedding_layer.num_embeddings})"
+                )
+            return layer
 
         parallel_layers = embedding_to_parallel_embedding(
             layer.get_submodule(cls.EMBEDDING_NAME),
