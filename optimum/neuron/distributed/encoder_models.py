@@ -27,7 +27,11 @@ if TYPE_CHECKING:
 
 class BertParallelEmbedding(ParallelEmbedding):
     EMBEDDING_NAME = "bert.embeddings.word_embeddings"
-    LM_HEAD_NAME = "cls.predictions.decoder"
+    LM_HEAD_NAME = {
+        "BertForPreTraining": "cls.predictions.decoder",
+        "BertLMHeadModel": "cls.predictions.decoder",
+        "BertForMaskedLM": "cls.predictions.decoder",
+    }
 
 
 class BertParallelSelfAttention(ParallelSelfAttention):
@@ -47,9 +51,8 @@ class BertParallelizer(Parallelizer):
         device: Optional["torch.device"] = None,
         parallelize_embeddings: bool = True,
     ) -> "PreTrainedModel":
-        # if parallelize_embeddings:
-        #     print("HEYYYYYYYYY")
-        #     model = BertParallelEmbedding.transform(model, model, device=device)
+        if parallelize_embeddings:
+            model = BertParallelEmbedding.transform(model, model, device=device)
         for layer in model.bert.encoder.layer:
             layer.attention.self = BertParallelSelfAttention.transform(
                 model,

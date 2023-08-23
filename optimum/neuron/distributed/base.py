@@ -150,6 +150,58 @@ class Parallelizer(ABC):
             model, orig_to_parallel=orig_to_parallel, device=device, parallelize_embeddings=parallelize_embeddings
         )
         weight_map = getattr(model, "_weight_map", {})
+        # parameter2name = {id(p): n for n, p in model.named_parameters()}
+        # weights = defaultdict(lambda: {"modules": [], "concrete_parameter": None})
+        # to_visit = [model]
+        # modules_to_initialize = []
+        # visited = set()
+        # while to_visit:
+        #     mod = to_visit.pop(0)
+        #     if mod in visited:
+        #         continue
+        #     visited.add(mod)
+        #     for param in mod.parameters():
+        #         name = parameter2name[id(param)]
+        #         split = name.rsplit(".", maxsplit=1)
+        #         module = model.get_submodule(split[0])
+        #         attribute_name = split[1]
+        #         weights[id(param)]["modules"].append((module, attribute_name))
+        #         if weights[id(param)]["concrete_parameter"] is None:
+        #             if param.device == torch.device("meta"):
+        #                 if weight_map is None:
+        #                     raise ValueError(
+        #                         f"The parameter called {name} of the model is on the `meta` device and no weight map is "
+        #                         "attached to the model to load the proper weights from file."
+        #                     )
+        #             try:
+        #                 weight_info = WeightInformation(weight_map[name], name, device=device)
+        #                 concrete_parameter = torch.nn.Parameter(load_tensor_for_weight(weight_info))
+        #             except KeyError:
+        #                 # This means that there is no information about where to find the weights for this parameter.
+        #                 device = torch.device("cpu") if device is None else device
+        #                 concrete_parameter = torch.nn.Parameter(torch.empty_like(getattr(module, attribute_name), device=device))
+        #                 modules_to_initialize.append(module)
+        #             weights[id(param)]["concrete_parameter"] = concrete_parameter
+        #     to_visit.extend(mod.modules())
+
+        # for param, entry in weights.items():
+        #     print(entry["modules"])
+
+        # with torch.no_grad():
+        #     for parameter, entry in weights.items():
+        #         name = parameter2name[parameter]
+        #         associated_modules = entry["modules"]
+        #         concrete_parameter = entry["concrete_parameter"]
+        #         for module, attribute_name in associated_modules:
+        #             # This must be either a torch.nn.Embedding or a torch.nn.Linear since those are the only
+        #             # classes that we initialize on the `meta` device.
+        #             setattr(module, attribute_name, concrete_parameter)
+
+        #         for mod in modules_to_initialize:
+        #             # This module has not pre-trained weights, it must be fine-tuned, we initialize it with the
+        #             # `reset_parameters()` method.
+        #             mod.reset_parameters()
+
         with torch.no_grad():
             modules_to_initialize = []
             for name, parameter in model.named_parameters():
@@ -162,12 +214,8 @@ class Parallelizer(ABC):
                             "attached to the model to load the proper weights from file."
                         )
                     split = name.rsplit(".", maxsplit=1)
-                    if len(split) == 1:
-                        module = model
-                        attribute_name = split[0]
-                    else:
-                        module = model.get_submodule(split[0])
-                        attribute_name = split[1]
+                    module = model.get_submodule(split[0])
+                    attribute_name = split[1]
                     try:
                         weight_info = WeightInformation(weight_map[name], name, device=device)
                         setattr(module, attribute_name, torch.nn.Parameter(load_tensor_for_weight(weight_info)))

@@ -30,6 +30,8 @@ from accelerate.utils import DistributedType
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
+from optimum.neuron.utils.patching import ModelPatcher
+
 from ...utils import logging
 from ..distributed import Parallelizer, ParallelizersManager
 from ..distributed.utils import ZeroRedundancyOptimizerCompatibleWithTensorParallelism
@@ -305,8 +307,17 @@ class NeuronAccelerator(Accelerator):
                 model.to(torch.bfloat16)
             else:
                 model.to(torch.float32)
-            parallel_layers.move_model_to_device(model, self.device)
-            model.tie_weights()
+
+            def _tie_or_clone_weights_for_tp(self, output_embeddings, input_embeddings):
+                """Tie or clone module weights depending of whether we are using TorchScript or not"""
+                output_embeddings.weight = input_embeddings.weight
+                if hasattr(output_embeddings, "out_features") and hasattr(input_embeddings, "num_embeddings"):
+                    output_embeddings.out_features = input_embeddings.num_embeddings
+
+            with ModelPatcher(patching_specs=[(model, "_tie_or_clone_weights", _tie_or_clone_weights_for_tp)]):
+                model.tie_weights()
+                parallel_layers.move_model_to_device(model, self.device)
+                model.tie_weights()
             self._model_cpu_parameters_to_xla[id(model)] = dict(zip(cpu_ids, model.parameters()))
             device_placement = False
         return super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
