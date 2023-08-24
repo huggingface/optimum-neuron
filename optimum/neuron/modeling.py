@@ -608,16 +608,8 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
         input_ids: torch.Tensor,
         cache_ids: torch.Tensor,
         start_ids: torch.Tensor = None,
-        output_hidden_states: bool = False,
-        output_attentions: bool = False,
-        attention_mask: torch.Tensor = None,
         return_dict: bool = True,
     ):
-        if output_hidden_states or output_attentions or attention_mask is not None:
-            warnings.warn(
-                "Warning: These arguments are not used by forward(): \
-                (output_hidden_states, output_attentions, attention_mask)"
-            )
         # Evaluate the output logits, storing the current key and values at the indices specified by cache_ids
         out_logits = self.model.forward(input_ids, cache_ids, start_ids)
         out_logits = out_logits[:, None, :]
@@ -626,13 +618,11 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
             return ModelOutput([("logits", out_logits)])
         return (out_logits,)
 
-    def prepare_inputs_for_generation(self, input_ids: torch.Tensor, **kwargs) -> Dict[str, torch.Tensor]:
+    def prepare_inputs_for_generation(
+        self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor] = None, **kwargs
+    ) -> Dict[str, torch.Tensor]:
         # convert attention_mask to start_ids
-        attention_mask = None
         start_ids = None
-        if "attention_mask" in kwargs:
-            attention_mask = kwargs["attention_mask"]
-
         if attention_mask is not None:
             _, start_ids = attention_mask.max(axis=1)
 
@@ -794,6 +784,7 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
     def sample(
         self,
         input_ids: torch.LongTensor,
+        attention_mask: Optional[torch.Tensor] = None,
         logits_processor: Optional[LogitsProcessorList] = None,
         stopping_criteria: Optional[StoppingCriteriaList] = None,
         logits_warper: Optional[LogitsProcessorList] = None,
@@ -819,6 +810,8 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
         Args:
             input_ids (`torch.LongTensor` of shape `(batch_size, sequence_length)`):
                 The sequence used as a prompt for the generation.
+            attention_mask (`torch.Tensor` of shape `(batch_size, sequence_length)`, *optional*):
+                Mask to avoid performing attention on padding token indices.
             logits_processor (`LogitsProcessorList`, *optional*):
                 An instance of [`LogitsProcessorList`]. List of instances of class derived from [`LogitsProcessor`]
                 used to modify the prediction scores of the language modeling head applied at each generation step.
@@ -914,7 +907,7 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
         # auto-regressive generation
         while True:
             # prepare model inputs
-            model_inputs = self.prepare_inputs_for_generation(input_ids, **model_kwargs)
+            model_inputs = self.prepare_inputs_for_generation(input_ids, attention_mask, **model_kwargs)
 
             # forward pass to get next token
             outputs = self(
@@ -972,13 +965,15 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
                     raise ValueError("If `eos_token_id` is defined, make sure that `pad_token_id` is defined.")
                 next_tokens = next_tokens * unfinished_sequences + pad_token_id * (1 - unfinished_sequences)
 
-            # update generated ids, model inputs, and length for next step
+            # update inputs for the next step
             input_ids = torch.cat([input_ids, next_tokens[:, None]], dim=-1)
+            if attention_mask is not None:
+                attention_mask = torch.cat(
+                    [attention_mask, attention_mask.new_ones((attention_mask.shape[0], 1))], dim=-1
+                )
+
             if streamer is not None:
                 streamer.put(next_tokens.cpu())
-            model_kwargs = self._update_model_kwargs_for_generation(
-                outputs, model_kwargs, is_encoder_decoder=self.config.is_encoder_decoder
-            )
 
             # if eos_token was found in one sentence, set sentence to finished
             if eos_token_id_tensor is not None:
