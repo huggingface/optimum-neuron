@@ -182,7 +182,7 @@ def embedding_to_parallel_embedding(
                     None,
                 ),
             )
-            parallel_embedding_layer.weight.data = weight_data
+            parallel_embedding_layer.weight.copy_(weight_data)
         else:
             parallel_embedding_layer.weight.copy_(
                 embedding_layer.weight[tp_rank * row_size : (tp_rank + 1) * row_size, :]
