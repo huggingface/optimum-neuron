@@ -256,17 +256,17 @@ def main_export(
         except AtolError as e:
             logger.warning(
                 f"The {NEURON_COMPILER} export succeeded with the warning: {e}.\n The exported model was saved at: "
-                f"{output.parent.as_posix()}"
+                f"{output.as_posix()}"
             )
         except OutputMatchError as e:
             logger.warning(
                 f"The {NEURON_COMPILER} export succeeded with the warning: {e}.\n The exported model was saved at: "
-                f"{output.parent.as_posix()}"
+                f"{output.as_posix()}"
             )
         except Exception as e:
             logger.error(
                 f"An error occured with the error message: {e}.\n The exported model was saved at: "
-                f"{output.parent.as_posix()}"
+                f"{output.as_posix()}"
             )
 
 

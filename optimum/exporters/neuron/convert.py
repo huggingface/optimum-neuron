@@ -113,6 +113,7 @@ def validate_models_outputs(
         )
         neuron_paths.append(neuron_model_path)
         try:
+            logger.info(f"Validating {model_name} model...")
             validate_model_outputs(
                 config=sub_neuron_config,
                 reference_model=ref_submodel,
@@ -121,7 +122,7 @@ def validate_models_outputs(
                 atol=atol,
             )
         except Exception as e:
-            exceptions.append(e)
+            exceptions.append(f"Validation of {model_name} fails: {e}")
 
     if len(exceptions) != 0:
         for i, exception in enumerate(exceptions[:-1]):
@@ -154,8 +155,6 @@ def validate_model_outputs(
     Raises:
         ValueError: If the outputs shapes or values do not match between the reference and the exported model.
     """
-    logger.info("Validating Neuron model...")
-
     if atol is None:
         if isinstance(config.ATOL_FOR_VALIDATION, dict):
             atol = config.ATOL_FOR_VALIDATION[config.task]
