@@ -226,6 +226,8 @@ optimum-cli export neuron --model stabilityai/stable-diffusion-2-1-base \
   --batch_size 1 \
   --height 512 `# height in pixels of generated image, eg. 512, 768` \
   --width 512 `# width in pixels of generated image, eg. 512, 768` \
+  --auto_cast matmul `# cast only matrix multiplication operations` \
+  --auto_cast_type bf16 `# cast operations from FP32 to BF16` \
   sd_neuron/
 ```
 

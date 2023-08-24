@@ -17,6 +17,9 @@ limitations under the License.
 # Quickstart
 
 🤗 Optimum Neuron was designed with one goal in mind: **to make training and inference straightforward for any 🤗 Transformers user while leveraging the complete power of AWS Accelerators**.
+
+## Training
+
 There are two main classes one needs to know:
 
 - NeuronArgumentParser: inherits the original [HfArgumentParser](https://huggingface.co/docs/transformers/main/en/internal/trainer_utils#transformers.HfArgumentParser) in Transformers with additional checks on the argument values to make sure that they will work well with AWS Trainium instances.
@@ -61,4 +64,39 @@ torchrun --nproc_per_node=2 huggingface-neuron-samples/text-classification/run_g
 --learning_rate 5e-5 \
 --num_train_epochs 3 \
 --output_dir ./bert-emotion
+```
+
+## Inference
+
+You can compile and export your 🤗 Transformers models to a serialized format before inference on Neuron devices:
+
+```bash
+optimum-cli export neuron 
+  --model distilbert-base-uncased-finetuned-sst-2-english \
+  --batch_size 1 \
+  --sequence_length 32 \
+  --auto_cast matmul \
+  --auto_cast_type bf16 \
+  distilbert_base_uncased_finetuned_sst2_english_neuron/
+```
+
+The command above will export `distilbert-base-uncased-finetuned-sst-2-english` with static shapes: `batch_size=1` and `sequence_length=32`, and cast all `matmul` operations from FP32 to BF16. Check out the [exporter guide](https://huggingface.co/docs/optimum-neuron/guides/export_model#exporting-a-model-to-neuron-using-the-cli) for more compilation options.
+
+Then you can run the exported Neuron model on Neuron devices with `NeuronModelForXXX` classes which are similar to `AutoModelForXXX` classes in 🤗 Transformers:
+
+```diff
+from transformers import AutoTokenizer
+-from transformers import AutoModelForSequenceClassification
++from optimum.neuron import NeuronModelForSequenceClassification
+
+# PyTorch checkpoint
+-model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-uncased-finetuned-sst-2-english")
++model = NeuronModelForSequenceClassification.from_pretrained("distilbert_base_uncased_finetuned_sst2_english_neuron")
+
+tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased-finetuned-sst-2-english")
+inputs = tokenizer("Hamilton is considered to be the best musical of past years.", return_tensors="pt")
+
+logits = model(**inputs).logits
+print(model.config.id2label[logits.argmax().item()])
+# 'POSITIVE'
 ```

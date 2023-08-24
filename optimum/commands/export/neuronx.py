@@ -66,6 +66,11 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         help="Allow to use custom code for the modeling hosted in the model repository. This option should only be set for repositories you trust and in which you have read the code, as it will execute on your local machine arbitrary code present in the model repository.",
     )
     optional_group.add_argument(
+        "--disable-validation",
+        action="store_true",
+        help="Whether to disable the validation of inference on neuron device compared to the outputs of original PyTorch model on CPU.",
+    )
+    optional_group.add_argument(
         "--auto_cast",
         type=str,
         default=None,
@@ -116,6 +121,12 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         "--height",
         type=int,
         help=f"Image tasks only. Height {doc_input}",
+    )
+    input_group.add_argument(
+        "--num_image_per_prompt",
+        type=int,
+        default=1,
+        help=f"Stable diffusion only. Number of image per prompt {doc_input}",
     )
 
 

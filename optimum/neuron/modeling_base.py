@@ -413,7 +413,7 @@ class NeuronBaseModel(OptimizedModel):
 
         return neuron_config_constructor(
             config,
-            dynamic_batch_size=getattr(config, "dynamic_batch_size", False),
+            dynamic_batch_size=neuron_configs.get("dynamic_batch_size", False),
             compiler_type=compiler_type,
             compiler_version=compiler_version,
             **compile_shapes,
@@ -469,6 +469,7 @@ class NeuronBaseModel(OptimizedModel):
 
             if (
                 self.preprocessors is not None
+                and len(self.preprocessors) > 0
                 and self.preprocessors[0].pad_token_id is not None
                 and input_name == "input_ids"
             ):

@@ -77,7 +77,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         scheduler: Union[DDIMScheduler, PNDMScheduler, LMSDiscreteScheduler],
         vae_encoder: torch.jit._script.ScriptModule = None,
         feature_extractor: Optional[CLIPFeatureExtractor] = None,
-        device_ids: Optional[List[int]] = [],
+        device_ids: Optional[List[int]] = None,
         configs: Optional[Dict[str, "PretrainedConfig"]] = None,
         neuron_configs: Optional[Dict[str, "NeuronConfig"]] = None,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
@@ -103,7 +103,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 The Neuron TorchScript module associated to the VAE encoder, it is mandatory when taking an image as input.
             feature_extractor (`Optional[CLIPFeatureExtractor]`, defaults to `None`):
                 A model extracting features from generated images to be used as inputs for the `safety_checker`
-            device_ids (Optional[List[int]], defaults to `[]`):
+            device_ids (Optional[List[int]], defaults to `None`):
                 A list of integers that specify the NeuronCores to use for parallelization
             configs (Optional[Dict[str, "PretrainedConfig"]], defaults to `None`):
                 A dictionary configurations for components of the pipeline.
@@ -238,7 +238,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         vae_decoder_file_name: Optional[str] = NEURON_FILE_NAME,
         local_files_only: bool = False,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
-        device_ids: Optional[List[int]] = [],
+        device_ids: Optional[List[int]] = None,
         **kwargs,  # To share kwargs only available for `_from_transformers`
     ):
         model_id = str(model_id)
@@ -314,7 +314,9 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         neuron_configs = {name: cls._neuron_config_init(model_config) for name, model_config in configs.items()}
 
         text_encoder = cls.load_model(model_and_config_save_paths["text_encoder"][0])
-        if device_ids:
+        if device_ids is None:
+            device_ids = [0, 1]
+        if len(device_ids) > 1:
             # Load the compiled UNet onto multiple neuron cores
             unet = torch_neuronx.DataParallel(
                 torch.jit.load(model_and_config_save_paths["unet"][0]),
@@ -358,12 +360,12 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         local_files_only: bool = False,
         trust_remote_code: bool = False,
         task: Optional[str] = None,
-        auto_cast: Optional[str] = None,
-        auto_cast_type: Optional[str] = None,
+        auto_cast: Optional[str] = "matmul",
+        auto_cast_type: Optional[str] = "bf16",
         disable_fast_relayout: Optional[bool] = False,
         disable_fallback: bool = False,
         dynamic_batch_size: bool = False,
-        device_ids: Optional[List[int]] = [],
+        device_ids: Optional[List[int]] = None,
         **kwargs_shapes,
     ) -> "NeuronStableDiffusionPipelineBase":
         if task is None:

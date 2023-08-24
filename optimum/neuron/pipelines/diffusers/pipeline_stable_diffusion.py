@@ -48,10 +48,22 @@ class StableDiffusionPipelineMixin(StableDiffusionPipelineBaseMixin, StableDiffu
         latents = latents * self.scheduler.init_noise_sigma
         return latents
 
+    def check_num_image_per_prompt(self, prompt_batch_size: int, neuron_batch_size: int, num_images_per_prompt: int):
+        if self.dynamic_batch_size:
+            return prompt_batch_size, num_images_per_prompt
+        if neuron_batch_size != prompt_batch_size * num_images_per_prompt:
+            raise ValueError(
+                f"Models in the pipeline were compiled with `batch_size` {neuron_batch_size} which does not equal the number of"
+                f" prompt({prompt_batch_size}) multiplied by `num_image_per_prompt`({num_images_per_prompt}). You need to enable"
+                " `dynamic_batch_size` or precisely configure `num_image_per_prompt` during the compilation."
+            )
+        else:
+            return prompt_batch_size, num_images_per_prompt
+
     # Adapted from https://github.com/huggingface/diffusers/blob/v0.18.2/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L566
     def __call__(
         self,
-        prompt: Union[str, List[str]] = None,
+        prompt: Optional[Union[str, List[str]]] = None,
         num_inference_steps: int = 50,
         guidance_scale: float = 7.5,
         negative_prompt: Optional[Union[str, List[str]]] = None,
@@ -79,11 +91,15 @@ class StableDiffusionPipelineMixin(StableDiffusionPipelineBaseMixin, StableDiffu
 
         # 2. Define call parameters
         if prompt is not None and isinstance(prompt, str):
-            batch_size = 1
+            prompt_batch_size = 1
         elif prompt is not None and isinstance(prompt, list):
-            batch_size = len(prompt)
+            prompt_batch_size = len(prompt)
         else:
-            batch_size = prompt_embeds.shape[0]
+            prompt_batch_size = prompt_embeds.shape[0]
+        neuron_batch_size = self.unet.config.neuron["static_batch_size"]
+        batch_size, num_images_per_prompt = self.check_num_image_per_prompt(
+            prompt_batch_size, neuron_batch_size, num_images_per_prompt
+        )
 
         # here `guidance_scale` is defined analog to the guidance weight `w` of equation (2)
         # of the Imagen paper: https://arxiv.org/pdf/2205.11487.pdf . `guidance_scale = 1`

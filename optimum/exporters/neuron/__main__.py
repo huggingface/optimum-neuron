@@ -124,6 +124,9 @@ def normalize_stable_diffusion_input_shapes(
             f"Shape of {mandatory_axes} are mandatory for neuron compilation, while {mandatory_axes.difference(args.keys())} are not given."
         )
     mandatory_shapes = {name: args[name] for name in mandatory_axes}
+    if "num_image_per_prompt" in args and args["num_image_per_prompt"] > 1:
+        batch_size = args["num_image_per_prompt"] * args["batch_size"]
+        mandatory_shapes["batch_size"] = batch_size
     input_shapes = build_stable_diffusion_components_mandatory_shapes(**mandatory_shapes)
     return input_shapes
 
@@ -253,17 +256,17 @@ def main_export(
         except AtolError as e:
             logger.warning(
                 f"The {NEURON_COMPILER} export succeeded with the warning: {e}.\n The exported model was saved at: "
-                f"{output.parent.as_posix()}"
+                f"{output.as_posix()}"
             )
         except OutputMatchError as e:
             logger.warning(
                 f"The {NEURON_COMPILER} export succeeded with the warning: {e}.\n The exported model was saved at: "
-                f"{output.parent.as_posix()}"
+                f"{output.as_posix()}"
             )
         except Exception as e:
             logger.error(
                 f"An error occured with the error message: {e}.\n The exported model was saved at: "
-                f"{output.parent.as_posix()}"
+                f"{output.as_posix()}"
             )
 
 
@@ -292,6 +295,7 @@ def main():
         atol=args.atol,
         cache_dir=args.cache_dir,
         trust_remote_code=args.trust_remote_code,
+        do_validation=not args.disable_validation,
         **input_shapes,
     )
 

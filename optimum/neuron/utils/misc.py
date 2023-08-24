@@ -102,6 +102,7 @@ def _original_filename_to_safetensors_filename(filename: str) -> str:
 def convert_checkpoint_to_safetensors(
     weight_file: Union[str, Path],
     output_dir: Optional[Union[str, Path]] = None,
+    safetensors_weight_filename_prefix: Optional[str] = None,
     log: bool = False,
 ) -> Path:
     """
@@ -113,6 +114,8 @@ def convert_checkpoint_to_safetensors(
         output_dir (`Optional[Union[str, Path]]`, defaults to `None`):
             The output directory where the `safetensors` checkpoint will be saved.
             If left unspecified, the parent directory of the PyTorch checkpoint will be used.
+        safetensors_weight_filename_prefix (`Optional[str]`, defaults to `None`):
+            If specified, the name of the converted file will be prefixed by "safetensors_weight_filename_prefix-".
         log (`bool`, defaults to `False`):
             Whether or not the function should log which file it is converting.
 
@@ -135,6 +138,8 @@ def convert_checkpoint_to_safetensors(
         raise ValueError("Can only convert PyTorch checkpoints to safetensors.")
 
     safetensors_filename = _original_filename_to_safetensors_filename(weight_file.name)
+    if safetensors_weight_filename_prefix is not None:
+        safetensors_filename = f"{safetensors_weight_filename_prefix}-{safetensors_filename}"
     safetensors_path = output_dir / safetensors_filename
 
     already_exists = safetensors_path.is_file()
@@ -148,11 +153,11 @@ def convert_checkpoint_to_safetensors(
         checkpoint = torch.load(weight_file)
         data_pointers = set()
         for k, v in checkpoint.items():
-            if id(v.data) in data_pointers:
-                v = v.clone()
+            if v.data_ptr() in data_pointers:
+                v = v.detach().clone()
             v = v.contiguous()
             checkpoint[k] = v
-            data_pointers.add(id(v.data))
+            data_pointers.add(v.data_ptr())
         save_file(checkpoint, safetensors_path)
         del checkpoint
 
@@ -442,7 +447,9 @@ def download_checkpoints_in_cache(
             if filename.suffix == ".safetensors":
                 filenames_to_safetensors_filenames[filename.name] = filename
             elif filename.suffix == ".bin":
-                output_path = convert_checkpoint_to_safetensors(filename, log=True)
+                output_path = convert_checkpoint_to_safetensors(
+                    filename, safetensors_weight_filename_prefix="converted", log=True
+                )
                 filenames_to_safetensors_filenames[filename.name] = output_path
             else:
                 raise ValueError("Only PyTorch and safetensors files are supported.")

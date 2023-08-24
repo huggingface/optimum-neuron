@@ -296,10 +296,12 @@ def linear_to_parallel_linear(
                     ),
                 )
                 parallel_linear_layer.weight.data = weight_data
-            else:
+            elif linear_layer.weight.device != torch.device("meta"):
                 parallel_linear_layer.weight.copy_(
                     linear_layer.weight[:, tp_rank * col_size : (tp_rank + 1) * col_size]
                 )
+            else:
+                raise ValueError("Could not find data for the linear layer to parellelize.")
 
             if linear_layer.bias is not None:
                 if linear_layer_bias_weight_info is not None:
@@ -323,10 +325,12 @@ def linear_to_parallel_linear(
                 )
                 parallel_linear_layer.weight.data = weight_data
 
-            else:
+            elif linear_layer.weight.device != torch.device("meta"):
                 parallel_linear_layer.weight.copy_(
                     linear_layer.weight[tp_rank * row_size : (tp_rank + 1) * row_size, :]
                 )
+            else:
+                raise ValueError("Could not find data for the linear layer to parellelize.")
 
             if linear_layer.bias is not None:
                 if linear_layer_bias_weight_info is not None:
