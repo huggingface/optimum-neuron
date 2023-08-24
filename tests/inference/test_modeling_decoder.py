@@ -115,7 +115,14 @@ def _test_model_generation(model, tokenizer, batch_size, input_length, **gen_kwa
 
 
 @pytest.mark.parametrize(
-    "gen_kwargs", [{"do_sample": True}, {"do_sample": True, "temperature": 0.7}], ids=["sample", "sample-with-temp"]
+    "gen_kwargs",
+    [
+        {"do_sample": True},
+        {"do_sample": True, "temperature": 0.7},
+        {"do_sample": False},
+        {"do_sample": False, "repetition_penalty": 1.2},
+    ],
+    ids=["sample", "sample-with-temp", "greedy", "greedy_no-repeat"],
 )
 @is_inferentia_test
 @requires_neuronx
