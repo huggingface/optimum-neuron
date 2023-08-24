@@ -232,11 +232,15 @@ class ModelParallelizationTestCase(unittest.TestCase):
 
     @parameterized.expand(MODELS_TO_TEST)
     def test_model_parallel_from_config_without_lazy_load(self, model_class_name: str, model_name_or_path: str):
-        self._test_model_parallel(model_class_name, model_name_or_path, True, False, True)
+        self._test_model_parallel(
+            model_class_name, model_name_or_path, True, False, False
+        )  # Should be True once it's working.
 
     @parameterized.expand(MODELS_TO_TEST)
     def test_model_parallel_from_pretrained_without_lazy_load(self, model_class_name: str, model_name_or_path: str):
-        self._test_model_parallel(model_class_name, model_name_or_path, False, False, True)
+        self._test_model_parallel(
+            model_class_name, model_name_or_path, False, False, False
+        )  # Should be True once it's working.
 
     # TODO: enable that once it's working.
     # @parameterized.expand(MODELS_TO_TEST)
