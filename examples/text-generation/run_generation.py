@@ -35,7 +35,6 @@ def generate(model, tokenizer, prompts, length, temperature):
         sample_output = model.generate(
             **tokens,
             do_sample=True,
-            min_length=length,
             max_length=length,
             temperature=temperature,
         )
