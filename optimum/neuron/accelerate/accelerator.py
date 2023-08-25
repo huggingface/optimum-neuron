@@ -484,3 +484,7 @@ class NeuronAccelerator(Accelerator):
         elif self.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
             return self.save_state_for_tp(output_dir=output_dir, **save_model_func_kwargs)
         return super().save_state(output_dir=output_dir, **save_model_func_kwargs)
+
+    @patch_within_function(("accelerate.utils.operations.xm", xm), ignore_missing_attributes=True)
+    def gather_for_metrics(self, tensor):
+        return super().gather_for_metrics(tensor)

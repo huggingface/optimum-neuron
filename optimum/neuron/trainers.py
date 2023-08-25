@@ -297,33 +297,6 @@ class AugmentTrainerForNeuronMixin:
             ignore_keys_for_eval=ignore_keys_for_eval,
         )
 
-    # def _nested_gather_for_xla_fsdp(self, tensors, name=None):
-    #     # if isinstance(tensors, (list, tuple)):
-    #     #     return type(tensors)(self._nested_gather_for_xla_fsdp(t, f"{name}_{i}") for i, t in enumerate(tensors))
-    #     # if isinstance(tensors, dict):
-    #     #     return type(tensors)(
-    #     #         {k: self._nested_gather_for_xla_fsdp(t, f"{name}_{i}") for i, (k, t) in enumerate(tensors.items())}
-    #     #     )
-
-    #     # tensors = atleast_1d(tensors)
-    #     # return xm.mesh_reduce(name, tensors, torch.cat)
-    #     if isinstance(tensors, (tuple, list)):
-    #         return type(tensors)(self._nested_gather_for_xla_fsdp(t) for t in tensors)
-    #     elif isinstance(tensors, dict):
-    #         return type(tensors)({k: self._nested_gather_for_xla_fsdp(t) for k, t in tensors.items()})
-    #     tensors = atleast_1d(tensors)
-    #     # result = torch.empty((self.args.world_size,), device=self.args.device, dtype=tensors.dtype)
-    #     # print("tensors", tensors)
-    #     # print("result", result)
-    #     result = xm.all_gather(tensors, dim=0)
-    #     # print("gathered result", result)
-    #     return result
-
-    # def _nested_gather(self, tensors, name=None):
-    #     if self.is_fsdp_enabled:
-    #         return self._nested_gather_for_xla_fsdp(tensors, name="nested_gather_for_xla_fsdp")
-    #     return super()._nested_gather(tensors, name=name)
-
     def _save_checkpoint_with_accelerator(self, model, trial, metrics=None):
         if self.accelerator.distributed_type is NeuronDistributedType.XLA_FSDP and not self.is_fsdp_enabled:
             # TODO: handle this case better?
