@@ -287,7 +287,7 @@ def linear_to_parallel_linear(
     with torch.no_grad():
         if axis == "row":
             if embedding_weight_to_tie is not None:
-                parallel_linear_layer.weight.copy_(embedding_weight_to_tie)
+                parallel_linear_layer.weight = embedding_weight_to_tie
             elif linear_layer_weight_info is not None:
                 weight_data = load_tensor_for_weight(
                     linear_layer_weight_info,
@@ -296,7 +296,7 @@ def linear_to_parallel_linear(
                         (tp_rank * col_size, (tp_rank + 1) * col_size),
                     ),
                 )
-                parallel_linear_layer.weight.data = weight_data
+                parallel_linear_layer.weight.copy_(weight_data)
             elif linear_layer.weight.device != torch.device("meta"):
                 parallel_linear_layer.weight.copy_(
                     linear_layer.weight[:, tp_rank * col_size : (tp_rank + 1) * col_size]
@@ -315,7 +315,7 @@ def linear_to_parallel_linear(
                     orig_to_parallel[id(linear_layer.bias)] = parallel_linear_layer.bias
         else:
             if embedding_weight_to_tie is not None:
-                parallel_linear_layer.weight.copy_(embedding_weight_to_tie)
+                parallel_linear_layer.weight = embedding_weight_to_tie
             elif linear_layer_weight_info is not None:
                 weight_data = load_tensor_for_weight(
                     linear_layer_weight_info,
@@ -324,7 +324,7 @@ def linear_to_parallel_linear(
                         None,
                     ),
                 )
-                parallel_linear_layer.weight.data = weight_data
+                parallel_linear_layer.weight.copy_(weight_data)
 
             elif linear_layer.weight.device != torch.device("meta"):
                 parallel_linear_layer.weight.copy_(
