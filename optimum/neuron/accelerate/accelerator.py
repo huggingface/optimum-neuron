@@ -60,7 +60,7 @@ if TYPE_CHECKING:
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
-    from torch_xla.distributed.parallel_loader import ParallelLoader
+    from torch_xla.distributed.parallel_loader import MpDeviceLoader
 else:
     xm = None
 
@@ -162,7 +162,8 @@ class NeuronAccelerator(Accelerator):
     def prepare_data_loader(self, data_loader: DataLoader, device_placement: Optional[bool] = None):
         if self.state.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
             data_loader = self._prepare_data_loader_for_tp(data_loader)
-        data_loader = ParallelLoader(data_loader, [self.device]).per_device_loader(self.device)
+        if self.state.num_processes > 1:
+            data_loader = MpDeviceLoader(data_loader, self.device)
         return data_loader
         # TODO: fix that.
         # return super().prepare_data_loader(data_loader, device_placement=device_placement)
