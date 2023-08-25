@@ -149,19 +149,18 @@ class AugmentTrainerForNeuronMixin:
         if self.args.local_rank <= 0:
             logger.setLevel(logging.INFO)
 
-        if not is_precompilation():
-            push = self.args.local_rank <= 0
-            fetch = self.args.local_rank <= 0
+        push = self.args.local_rank <= 0
+        fetch = self.args.local_rank <= 0
 
-            callback = NeuronCacheCallback(
-                tmp_neuron_cache=_TMP_NEURON_CACHE_DIR,
-                original_neuron_cache_path=_ORIGINAL_NEURON_CACHE_PATH,
-                fetch=fetch,
-                push=push,
-                wait_for_everyone_on_fetch=False,
-                wait_for_everyone_on_push=True,
-            )
-            self.add_callback(callback)
+        callback = NeuronCacheCallback(
+            tmp_neuron_cache=_TMP_NEURON_CACHE_DIR,
+            original_neuron_cache_path=_ORIGINAL_NEURON_CACHE_PATH,
+            fetch=fetch,
+            push=push,
+            wait_for_everyone_on_fetch=False,
+            wait_for_everyone_on_push=True,
+        )
+        self.add_callback(callback)
 
         # Make the model Neuron-compatible for generation.
         patch_generation_mixin_to_neuron_generation_mixin(self.model)
@@ -177,9 +176,6 @@ class AugmentTrainerForNeuronMixin:
         if args.num_train_epochs != 1:
             logger.info("Setting the number of epochs for precompilation to 1.")
             args.num_train_epochs = 1
-        if args.max_steps is not None:
-            logger.info("Disabling max_steps for precompilation.")
-            args.nax_steps = None
         if args.do_eval is True:
             logger.info("Disabling evaluation during precompilation as this is not well supported yet.")
             args.do_eval = False
