@@ -76,8 +76,7 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
                 self.optimizer.step(closure)
             elif self.accelerator_state.distributed_type is DistributedType.TPU:
                 optimizer_args = {"closure": closure} if closure is not None else {}
-                # By default barrier=False, but making sure it's the case here since we xm.mark_step() at the end of
-                # this method.
+                # By default barrier=False, but making sure it's the case here since we use ParalleLoader.
                 xm.optimizer_step(self.optimizer, optimizer_args=optimizer_args, barrier=False)
             elif self.accelerator_state.distributed_type is NeuronDistributedType.XLA_FSDP:
                 self.optimizer.step(closure)
@@ -97,7 +96,6 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
                 self._is_overflow = scale_after < scale_before
             else:
                 self.optimizer.step(closure)
-            xm.mark_step()
 
     def __getstate__(self):
         return {

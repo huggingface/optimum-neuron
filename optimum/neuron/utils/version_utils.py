@@ -22,6 +22,7 @@ from .import_utils import is_neuron_available, is_neuronx_available
 
 _neuronxcc_version: Optional[str] = None
 _neuroncc_version: Optional[str] = None
+_torch_xla_version: Optional[str] = None
 
 
 def get_neuronxcc_version() -> str:
@@ -46,6 +47,18 @@ def get_neuroncc_version() -> str:
         raise ValueError("Neuron Compiler python package is not installed.")
     _neuroncc_version = neuroncc.__version__
     return _neuroncc_version
+
+
+def get_torch_xla_version() -> str:
+    global _torch_xla_version
+    if _torch_xla_version is not None:
+        return _torch_xla_version
+    try:
+        import torch_xla
+    except ImportError:
+        raise ValueError("`torch_xla` python package is not installed.")
+    _torch_xla_version = torch_xla.__version__
+    return _torch_xla_version
 
 
 def check_compiler_compatibility(compiler_type: str, compiler_version: str):
