@@ -112,6 +112,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
         from_config: bool,
         tp_size: int,
         lazy_load: bool,
+        parallelize_embeddings: bool,
     ):
         model_import = f"from transformers import AutoConfig, AutoTokenizer, {model_class}"
         other_imports = (
@@ -157,7 +158,8 @@ class ModelParallelizationTestCase(unittest.TestCase):
         model_to_eval_mode = "model = model.eval()\nunsharded_model = unsharded_model.eval()"
 
         parallel_model_loading = (
-            "parallel_model = ParallelizersManager.parallelizer_for_model(model).parallelize(model)"
+            "parallel_model = ParallelizersManager.parallelizer_for_model(model).parallelize(model, "
+            f"parallelize_embeddings={parallelize_embeddings})"
         )
 
         inference = (
@@ -200,10 +202,15 @@ class ModelParallelizationTestCase(unittest.TestCase):
         )
 
     def _test_model_parallel(
-        self, model_class_name: str, model_name_or_path: str, from_config: bool, with_lazy_load: bool
+        self,
+        model_class_name: str,
+        model_name_or_path: str,
+        from_config: bool,
+        with_lazy_load: bool,
+        parallelize_embeddings: bool,
     ):
         python_code = self.get_parallel_test_python_file_content(
-            model_class_name, model_name_or_path, from_config, 2, with_lazy_load
+            model_class_name, model_name_or_path, from_config, 2, with_lazy_load, parallelize_embeddings
         )
 
         with TemporaryDirectory() as tmpdirname:
@@ -225,11 +232,20 @@ class ModelParallelizationTestCase(unittest.TestCase):
 
     @parameterized.expand(MODELS_TO_TEST)
     def test_model_parallel_from_config_without_lazy_load(self, model_class_name: str, model_name_or_path: str):
-        self._test_model_parallel(model_class_name, model_name_or_path, True, False)
+        self._test_model_parallel(
+            model_class_name, model_name_or_path, True, False, False
+        )  # Should be True once it's working.
 
     @parameterized.expand(MODELS_TO_TEST)
     def test_model_parallel_from_pretrained_without_lazy_load(self, model_class_name: str, model_name_or_path: str):
-        self._test_model_parallel(model_class_name, model_name_or_path, False, False)
+        self._test_model_parallel(
+            model_class_name, model_name_or_path, False, False, False
+        )  # Should be True once it's working.
+
+    # TODO: enable that once it's working.
+    # @parameterized.expand(MODELS_TO_TEST)
+    # def test_model_parallel_without_parallelizing_embeddings(self, model_class_name: str, model_name_or_path: str):
+    #     self._test_model_parallel(model_class_name, model_name_or_path, False, False, False)
 
     # TODO: enable that.
     # @parameterized.expand(MODELS_TO_TEST)

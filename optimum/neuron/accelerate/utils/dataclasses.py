@@ -141,6 +141,7 @@ class NeuronFullyShardedDataParallelPlugin(FullyShardedDataParallelPlugin):
 @dataclass
 class TensorParallelismPlugin:
     tensor_parallel_size: int = 1
+    parallelize_embeddings: bool = True
 
     def __post_init__(self):
         if self.tensor_parallel_size < 1:
@@ -162,6 +163,7 @@ class TensorParallelismPlugin:
             model,
             orig_to_parallel=orig_to_parallel,
             device=device,
+            parallelize_embeddings=self.parallelize_embeddings,
         )
         if return_orig_to_parallel:
             return parallelized_model, orig_to_parallel

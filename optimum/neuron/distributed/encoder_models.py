@@ -17,12 +17,21 @@
 from typing import TYPE_CHECKING, Dict, Optional
 
 from .base import Parallelizer
-from .parallel_layers import ParallelSelfAttention, ParallelSelfOutput
+from .parallel_layers import ParallelEmbedding, ParallelSelfAttention, ParallelSelfOutput
 
 
 if TYPE_CHECKING:
     import torch
     from transformers import PreTrainedModel
+
+
+class BertParallelEmbedding(ParallelEmbedding):
+    EMBEDDING_NAME = "bert.embeddings.word_embeddings"
+    LM_HEAD_NAME = {
+        "BertForPreTraining": "cls.predictions.decoder",
+        "BertLMHeadModel": "cls.predictions.decoder",
+        "BertForMaskedLM": "cls.predictions.decoder",
+    }
 
 
 class BertParallelSelfAttention(ParallelSelfAttention):
@@ -40,7 +49,10 @@ class BertParallelizer(Parallelizer):
         model: "PreTrainedModel",
         orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]],
         device: Optional["torch.device"] = None,
+        parallelize_embeddings: bool = True,
     ) -> "PreTrainedModel":
+        if parallelize_embeddings:
+            model = BertParallelEmbedding.transform(model, model, device=device)
         for layer in model.bert.encoder.layer:
             layer.attention.self = BertParallelSelfAttention.transform(
                 model,
@@ -55,6 +67,14 @@ class BertParallelizer(Parallelizer):
                 device=device,
             )
         return model
+
+
+class RobertaParallelEmbedding(ParallelEmbedding):
+    EMBEDDING_NAME = "roberta.embeddings.word_embeddings"
+    LM_HEAD_NAME = {
+        "RobertaForCausalLM": "lm_head.decoder",
+        "RobertaForMaskedLM": "lm_head.decoder",
+    }
 
 
 class RobertaParallelSelfAttention(BertParallelSelfAttention):
@@ -72,7 +92,10 @@ class RobertaParallelizer(Parallelizer):
         model: "PreTrainedModel",
         orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]],
         device: Optional["torch.device"] = None,
+        parallelize_embeddings: bool = True,
     ) -> "PreTrainedModel":
+        if parallelize_embeddings:
+            model = RobertaParallelEmbedding.transform(model, model, device=device)
         for layer in model.roberta.encoder.layer:
             layer.attention.self = RobertaParallelSelfAttention.transform(
                 model,
