@@ -27,6 +27,7 @@ from transformers import PretrainedConfig
 
 from ...exporters.error_utils import OutputMatchError, ShapeError
 from ...neuron.utils import (
+    DTYPE_MAPPING,
     convert_neuronx_compiler_args_to_neuron,
     is_neuron_available,
     is_neuronx_available,
@@ -415,10 +416,6 @@ def export_neuronx(
     for axis in config.mandatory_axes:
         input_shapes[axis] = getattr(config, axis)
 
-    dummy_inputs = config.generate_dummy_inputs(**input_shapes)
-    dummy_inputs_tuple = tuple(dummy_inputs.values())
-    checked_model = config.check_model_inputs_order(model, dummy_inputs)
-
     if auto_cast is not None:
         logger.info(f"Using Neuron: --auto-cast {auto_cast}")
 
@@ -427,12 +424,19 @@ def export_neuronx(
 
         logger.info(f"Using Neuron: --auto-cast-type {auto_cast_type}")
         compiler_args.extend(["--auto-cast-type", auto_cast_type])
+        auto_cast_type = DTYPE_MAPPING[auto_cast_type]
     else:
         compiler_args = ["--auto-cast", "none"]
+        auto_cast_type = None
 
     # diffusers specific
     compiler_args = add_stable_diffusion_compiler_args(config, compiler_args)
 
+    dummy_inputs = config.generate_dummy_inputs(**{"dtype": auto_cast_type}, **input_shapes)
+    dummy_inputs_tuple = tuple(dummy_inputs.values())
+    checked_model = config.check_model_inputs_order(
+        model=model, dummy_inputs=dummy_inputs, auto_cast_type=auto_cast_type
+    )
     neuron_model = neuronx.trace(checked_model, dummy_inputs_tuple, compiler_args=compiler_args)
 
     if config.dynamic_batch_size is True:

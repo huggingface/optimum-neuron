@@ -270,9 +270,12 @@ class NeuronConfig(ExportConfig, ABC):
     def check_model_inputs_order(
         self,
         model: "PreTrainedModel",
-        dummy_inputs: Dict[str, torch.Tensor],
+        dummy_inputs: Optional[Dict[str, torch.Tensor]] = None,
         forward_with_tuple: bool = False,
+        auto_cast_type: Optional[torch.dtype] = None,
         eligible_outputs: Optional[List[Union[str, int]]] = None,
+        custom_model_wrapper: Optional[torch.nn.Module] = None,
+        custom_wrapper_kwargs: Optional[Dict] = {},
     ):
         """
         Checks if inputs order of the model's forward pass correspond to the generated dummy inputs to ensure the dummy inputs tuple used for
@@ -311,7 +314,10 @@ class NeuronConfig(ExportConfig, ABC):
 
                 return outputs
 
-        return ModelWrapper(model, list(dummy_inputs.keys()))
+        if custom_model_wrapper:
+            return custom_model_wrapper(model, **custom_wrapper_kwargs)
+        else:
+            return ModelWrapper(model, list(dummy_inputs.keys()))
 
 
 class NeuronDecoderConfig(ExportConfig):

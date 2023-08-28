@@ -29,6 +29,7 @@ from ...neuron.utils import (
     DIFFUSION_MODEL_UNET_NAME,
     DIFFUSION_MODEL_VAE_DECODER_NAME,
     DIFFUSION_MODEL_VAE_ENCODER_NAME,
+    DTYPE_MAPPING,
     NEURON_FILE_NAME,
     is_neuron_available,
     is_neuronx_available,
@@ -41,8 +42,10 @@ from ..tasks import TasksManager
 from .convert import export_models, validate_models_outputs
 from .model_configs import *  # noqa: F403
 from .utils import (
+    DEFAULT_MODEL_DTYPES,
     build_stable_diffusion_components_mandatory_shapes,
     get_stable_diffusion_models_for_export,
+    infer_stable_diffusion_shapes_from_diffusers,
 )
 
 
@@ -60,7 +63,7 @@ if is_neuronx_available():
 
 if TYPE_CHECKING:
     if is_diffusers_available():
-        from diffusers import StableDiffusionPipeline
+        pass
 
 
 logger = logging.get_logger()
@@ -131,30 +134,6 @@ def normalize_stable_diffusion_input_shapes(
     return input_shapes
 
 
-def infer_stable_diffusion_shapes_from_diffusers(
-    input_shapes: Dict[str, Dict[str, int]],
-    model: "StableDiffusionPipeline",
-):
-    sequence_length = model.tokenizer.model_max_length
-    unet_num_channels = model.unet.config.in_channels
-    vae_encoder_num_channels = model.vae.config.in_channels
-    vae_decoder_num_channels = model.vae.config.latent_channels
-    vae_scale_factor = 2 ** (len(model.vae.config.block_out_channels) - 1) or 8
-    height = input_shapes["unet_input_shapes"]["height"] // vae_scale_factor
-    width = input_shapes["unet_input_shapes"]["width"] // vae_scale_factor
-
-    input_shapes["text_encoder_input_shapes"].update({"sequence_length": sequence_length})
-    input_shapes["unet_input_shapes"].update(
-        {"sequence_length": sequence_length, "num_channels": unet_num_channels, "height": height, "width": width}
-    )
-    input_shapes["vae_encoder_input_shapes"].update(
-        {"num_channels": vae_encoder_num_channels, "height": height, "width": width}
-    )
-    input_shapes["vae_decoder_input_shapes"].update(
-        {"num_channels": vae_decoder_num_channels, "height": height, "width": width}
-    )
-
-
 def main_export(
     model_name_or_path: str,
     output: Union[str, Path],
@@ -178,19 +157,19 @@ def main_export(
 
     task = TasksManager.map_from_synonym(task)
 
-    model = TasksManager.get_model_from_task(
-        task,
-        model_name_or_path,
-        subfolder=subfolder,
-        revision=revision,
-        cache_dir=cache_dir,
-        use_auth_token=use_auth_token,
-        local_files_only=local_files_only,
-        force_download=force_download,
-        trust_remote_code=trust_remote_code,
-        framework="pt",
-    )
-
+    model_kwargs = {
+        "task": task,
+        "model_name_or_path": model_name_or_path,
+        "subfolder": subfolder,
+        "revision": revision,
+        "cache_dir": cache_dir,
+        "use_auth_token": use_auth_token,
+        "local_files_only": local_files_only,
+        "force_download": force_download,
+        "trust_remote_code": trust_remote_code,
+        "framework": "pt",
+    }
+    model = TasksManager.get_model_from_task(**model_kwargs)
     if task != "stable-diffusion":
         neuron_config_constructor = TasksManager.get_exporter_config_constructor(
             model=model, exporter="neuron", task=task
@@ -216,11 +195,12 @@ def main_export(
         }
         infer_stable_diffusion_shapes_from_diffusers(input_shapes, model)
 
-        models_and_neuron_configs = get_stable_diffusion_models_for_export(
-            model,
-            dynamic_batch_size=dynamic_batch_size,
-            **input_shapes,
-        )
+        # Fow now only support compiling text_encoder and unet with dtype other than fp32
+        model_dtypes = DEFAULT_MODEL_DTYPES
+        if compiler_kwargs["auto_cast"] and compiler_kwargs["auto_cast_type"]:
+            model_dtypes[DIFFUSION_MODEL_TEXT_ENCODER_NAME] = DTYPE_MAPPING[compiler_kwargs["auto_cast_type"]]
+            model_dtypes[DIFFUSION_MODEL_UNET_NAME] = DTYPE_MAPPING[compiler_kwargs["auto_cast_type"]]
+
         # Saving the model config and preprocessor as this is needed sometimes.
         model.tokenizer.save_pretrained(output.joinpath("tokenizer"))
         model.scheduler.save_pretrained(output.joinpath("scheduler"))
@@ -228,14 +208,20 @@ def main_export(
             model.feature_extractor.save_pretrained(output.joinpath("feature_extractor"))
         model.save_config(output)
 
+        models_and_neuron_configs = get_stable_diffusion_models_for_export(
+            pipeline=model,
+            model_kwargs=model_kwargs,
+            model_dtypes=model_dtypes,
+            dynamic_batch_size=dynamic_batch_size,
+            **input_shapes,
+        )
+
     _, neuron_outputs = export_models(
         models_and_neuron_configs=models_and_neuron_configs,
         output_dir=output,
         output_file_names=output_model_names,
         compiler_kwargs=compiler_kwargs,
     )
-
-    del model
 
     # Validate compiled model
     if do_validation is True:
@@ -249,7 +235,7 @@ def main_export(
             )
 
             logger.info(
-                f"The {NEURON_COMPILER} export succeeded and the exported model was saved at: " f"{output.as_posix()}"
+                f"The {NEURON_COMPILER} export succeeded and the exported model was saved at: {output.parent.as_posix()}"
             )
         except ShapeError as e:
             raise e

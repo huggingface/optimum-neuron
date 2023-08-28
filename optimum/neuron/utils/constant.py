@@ -13,9 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Constants used as default values."""
+import torch
+
 
 NEURON_FILE_NAME = "model.neuron"
 DIFFUSION_MODEL_TEXT_ENCODER_NAME = "text_encoder"
 DIFFUSION_MODEL_UNET_NAME = "unet"
 DIFFUSION_MODEL_VAE_ENCODER_NAME = "vae_encoder"
 DIFFUSION_MODEL_VAE_DECODER_NAME = "vae_decoder"
+
+DTYPE_MAPPING = {
+    "bf16": torch.bfloat16,
+    "fp32": torch.float32,
+    "fp16": torch.float16,
+    "int32": torch.int32,
+}
