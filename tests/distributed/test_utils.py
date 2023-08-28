@@ -202,8 +202,8 @@ class ParallelUtilsTestCase(unittest.TestCase):
             weight_filename = tmpdir / "weights.safetensors"
 
             if with_weight_info:
-                linear_weight = torch.randn(vocab_size, 300)
-                linear_bias_weight = torch.rand(vocab_size)
+                linear_weight = torch.randn(300, vocab_size) if axis == "row" else torch.randn(vocab_size, 300)
+                linear_bias_weight = torch.rand(300 if axis == "row" else vocab_size)
                 state_dict = {
                     "linear_weight": linear_weight,
                     "linear_bias_weight": linear_bias_weight,

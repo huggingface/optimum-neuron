@@ -51,8 +51,10 @@ class GPTNeoParallelizer(Parallelizer):
         model: "PreTrainedModel",
         orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]],
         device: Optional["torch.device"] = None,
+        parallelize_embeddings: bool = True,
     ) -> "PreTrainedModel":
-        model = GPTNeoParallelEmbedding.transform(model, model, device=device)
+        if parallelize_embeddings:
+            model = GPTNeoParallelEmbedding.transform(model, model, device=device)
         for block in model.transformer.h:
             block.attn.attention = GPTNeoParallelSelfAttention.transform(
                 model,
@@ -130,8 +132,10 @@ class LlamaParallelizer(Parallelizer):
         model: "PreTrainedModel",
         orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]],
         device: Optional["torch.device"] = None,
+        parallelize_embeddings: bool = True,
     ) -> "PreTrainedModel":
-        model = LlamaParallelEmbedding.transform(model, model, device=device)
+        if parallelize_embeddings:
+            model = LlamaParallelEmbedding.transform(model, model, device=device)
         for layer in model.model.layers:
             layer.self_attn = LlamaParallelSelfAttention.transform(model, layer.self_attn, device=device)
             layer.mlp = LLamaParallelMLP.transform(model, layer.mlp, device=device)

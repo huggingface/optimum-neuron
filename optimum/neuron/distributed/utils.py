@@ -182,7 +182,7 @@ def embedding_to_parallel_embedding(
                     None,
                 ),
             )
-            parallel_embedding_layer.weight.data = weight_data
+            parallel_embedding_layer.weight.copy_(weight_data)
         else:
             parallel_embedding_layer.weight.copy_(
                 embedding_layer.weight[tp_rank * row_size : (tp_rank + 1) * row_size, :]
@@ -280,6 +280,7 @@ def linear_to_parallel_linear(
     kwargs["device"] = device
 
     parallel_linear_layer = parallel_linear_class(linear_layer.in_features, linear_layer.out_features, **kwargs)
+
     tp_rank = get_tensor_model_parallel_rank()
     row_size, col_size = parallel_linear_layer.weight.shape
 
@@ -295,16 +296,18 @@ def linear_to_parallel_linear(
                         (tp_rank * col_size, (tp_rank + 1) * col_size),
                     ),
                 )
-                parallel_linear_layer.weight.data = weight_data
-            else:
+                parallel_linear_layer.weight.copy_(weight_data)
+            elif linear_layer.weight.device != torch.device("meta"):
                 parallel_linear_layer.weight.copy_(
                     linear_layer.weight[:, tp_rank * col_size : (tp_rank + 1) * col_size]
                 )
+            else:
+                raise ValueError("Could not find data for the linear layer to parellelize.")
 
             if linear_layer.bias is not None:
                 if linear_layer_bias_weight_info is not None:
                     bias_weight_data = load_tensor_for_weight(linear_layer_bias_weight_info)
-                    parallel_linear_layer.bias.data = bias_weight_data
+                    parallel_linear_layer.bias.copy_(bias_weight_data)
                 else:
                     parallel_linear_layer.bias.copy_(linear_layer.bias)
 
@@ -321,12 +324,14 @@ def linear_to_parallel_linear(
                         None,
                     ),
                 )
-                parallel_linear_layer.weight.data = weight_data
+                parallel_linear_layer.weight.copy_(weight_data)
 
-            else:
+            elif linear_layer.weight.device != torch.device("meta"):
                 parallel_linear_layer.weight.copy_(
                     linear_layer.weight[tp_rank * row_size : (tp_rank + 1) * row_size, :]
                 )
+            else:
+                raise ValueError("Could not find data for the linear layer to parellelize.")
 
             if linear_layer.bias is not None:
                 if linear_layer_bias_weight_info is not None:
@@ -343,8 +348,7 @@ def linear_to_parallel_linear(
                         linear_layer_bias_weight_info,
                         tensor_slices=tensor_slices,
                     )
-                    parallel_linear_layer.bias.data = bias_weight_data
-
+                    parallel_linear_layer.bias.copy_(bias_weight_data)
                 else:
                     if gather_output:
                         parallel_linear_layer.bias.copy_(linear_layer.bias)

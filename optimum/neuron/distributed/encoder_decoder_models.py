@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Dict, Optional
 
 from .base import Parallelizer
 from .parallel_layers import ParallelEmbedding, ParallelMLP, ParallelSelfAttention
+from .utils import linear_to_parallel_linear
 
 
 if TYPE_CHECKING:
@@ -68,6 +69,62 @@ class T5ParallelMLP(ParallelMLP):
     FIRST_LINEAR_NAME = "wi"
     SECOND_LINEAR_NAME = "wo"
 
+    @classmethod
+    def transform(
+        cls,
+        model: "PreTrainedModel",
+        layer: "torch.nn.Module",
+        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+        device: Optional["torch.device"] = None,
+    ) -> "torch.nn.Module":
+        from transformers.models.t5.modeling_t5 import T5DenseGatedActDense
+
+        if cls.FIRST_LINEAR_NAME is None or cls.SECOND_LINEAR_NAME is None:
+            raise ValueError("Both `FIRST_LINEAR_NAME` and `SECOND_LINEAR_NAME` class attributes must be set.")
+
+        orig_first_linear_name = cls.FIRST_LINEAR_NAME
+
+        if isinstance(layer, T5DenseGatedActDense):
+            # Changing the name of the first linear layer to match wi_0.
+            cls.FIRST_LINEAR_NAME = f"{orig_first_linear_name}_0"
+
+        # This will parallelize both wi_0 and wo.
+        layer = super().transform(model, layer, orig_to_parallel=orig_to_parallel, device=device)
+
+        if isinstance(layer, T5DenseGatedActDense):
+            # In this case, only wi_1 remains to be parallelized, we do it here.
+            cls.FIRST_LINEAR_NAME = f"{orig_first_linear_name}_1"
+            layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
+            weight_map = getattr(model, "_weight_map", None)
+
+            linear_layer_weight_info, linear_layer_bias_weight_info = None, None
+            module, attribute_name = cls._get_module_and_attribute_name(layer, cls.FIRST_LINEAR_NAME)
+            if weight_map is not None:
+                layer_qualified_name = layer_to_fully_qualified_name[id(module)]
+                linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
+                    weight_map,
+                    f"{layer_qualified_name}.{attribute_name}",
+                    device=device,
+                )
+
+            setattr(
+                module,
+                attribute_name,
+                linear_to_parallel_linear(
+                    getattr(module, attribute_name),
+                    "column",
+                    gather_output=False,
+                    linear_layer_weight_info=linear_layer_weight_info,
+                    linear_layer_bias_weight_info=linear_layer_bias_weight_info,
+                    orig_to_parallel=orig_to_parallel,
+                    device=device,
+                ),
+            )
+
+        cls.FIRST_LINEAR_NAME = orig_first_linear_name
+
+        return layer
+
 
 class T5Parallelizer(Parallelizer):
     @classmethod
@@ -76,8 +133,10 @@ class T5Parallelizer(Parallelizer):
         model: "PreTrainedModel",
         orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]],
         device: Optional["torch.device"] = None,
+        parallelize_embeddings: bool = True,
     ) -> "PreTrainedModel":
-        model = T5ParallelEmbedding.transform(model, model, device=device)
+        if parallelize_embeddings:
+            model = T5ParallelEmbedding.transform(model, model, device=device)
         if model.encoder.embed_tokens is not None:
             model.encoder.embed_tokens = model.shared
         if model.decoder.embed_tokens is not None:

@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import copy
 import unittest
 
 import PIL
@@ -48,12 +49,15 @@ class NeuronModelForMultipleChoiceIntegrationTest(unittest.TestCase):
     ATOL_FOR_VALIDATION = 1e-3
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
-    def test_export_and_inference(self, model_arch):
+    def test_export_and_inference_non_dyn(self, model_arch):
+        num_image_per_prompt = 4
+        input_shapes = copy.deepcopy(self.STATIC_INPUTS_SHAPES)
+        input_shapes.update({"num_image_per_prompt": num_image_per_prompt})
         neuron_pipeline = self.NEURON_MODEL_CLASS.from_pretrained(
             MODEL_NAMES[model_arch],
             export=True,
             dynamic_batch_size=False,
-            **self.STATIC_INPUTS_SHAPES,
+            **input_shapes,
             **self.COMPILER_ARGS,
             device_ids=[0, 1],
         )
@@ -64,5 +68,26 @@ class NeuronModelForMultipleChoiceIntegrationTest(unittest.TestCase):
         self.assertIsInstance(neuron_pipeline.vae_decoder, NeuronModelVaeDecoder)
 
         prompt = "sailing ship in storm by Leonardo da Vinci"
-        image = neuron_pipeline(prompt).images[0]
+        with self.assertRaises(Exception) as context:
+            image = neuron_pipeline(prompt).images[0]
+        self.assertIn("pipeline were compiled with", str(context.exception))
+
+        prompts = ["sailing ship in storm by Leonardo da Vinci"] * num_image_per_prompt
+        image = neuron_pipeline(prompts).images[0]
+        self.assertIsInstance(image, PIL.Image.Image)
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @unittest.skip("The dynamic batching is not well supported for stable diffusion for now.")
+    def test_export_and_inference_dyn(self, model_arch):
+        neuron_pipeline = self.NEURON_MODEL_CLASS.from_pretrained(
+            MODEL_NAMES[model_arch],
+            export=True,
+            dynamic_batch_size=True,
+            **self.STATIC_INPUTS_SHAPES,
+            **self.COMPILER_ARGS,
+            device_ids=[0, 1],
+        )
+
+        prompts = ["sailing ship in storm by Leonardo da Vinci"] * 2
+        image = neuron_pipeline(prompts).images[0]
         self.assertIsInstance(image, PIL.Image.Image)

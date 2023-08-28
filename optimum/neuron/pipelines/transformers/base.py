@@ -92,7 +92,7 @@ def load_pipeline(
     input_shapes={},
     export=False,
     subfolder: str = "",
-    use_auth_token: Optional[Union[bool, str]] = None,
+    token: Optional[Union[bool, str]] = None,
     revision: str = "main",
     model_kwargs: Optional[Dict[str, Any]] = None,
     config: AutoConfig = None,
@@ -151,7 +151,7 @@ def pipeline(
     use_fast: bool = True,
     export: bool = False,
     input_shapes: Optional[Dict[str, int]] = None,
-    use_auth_token: Optional[Union[str, bool]] = None,
+    token: Optional[Union[str, bool]] = None,
     revision: Optional[str] = None,
     trust_remote_code: Optional[bool] = None,
     *model_kwargs,
@@ -165,7 +165,7 @@ def pipeline(
     # copied from transformers.pipelines.__init__.py
     hub_kwargs = {
         "revision": revision,
-        "use_auth_token": use_auth_token,
+        "token": token,
         "trust_remote_code": trust_remote_code,
         "_commit_hash": None,
     }
@@ -227,6 +227,7 @@ def pipeline(
         supported_tasks=NEURONX_SUPPORTED_TASKS,
         config=config,
         hub_kwargs=hub_kwargs,
+        token=token,
         *model_kwargs,
         **kwargs,
     )
@@ -242,6 +243,5 @@ def pipeline(
         tokenizer=tokenizer,
         feature_extractor=feature_extractor,
         use_fast=use_fast,
-        use_auth_token=use_auth_token,
         **kwargs,
     )

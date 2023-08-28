@@ -55,10 +55,17 @@ class NeuronTrainingArgumentsMixin:
     tensor_parallel_size: int = field(
         default=1, metadata={"help": "The number of replicas the model will be sharded on."}
     )
+    disable_embedding_parallelization: bool = field(
+        default=True,
+        metadata={"help": "Whether or not the embedding parallelization when doing TP should be disabled."},
+    )
 
     def __post_init__(self):
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
         patch_accelerate_is_tpu_available()
+
+        if not self.disable_embedding_parallelization:
+            raise NotImplementedError("Disabling the parallelization of the embeddings is not fully supported yet.")
 
         if self.fsdp != "":
             # Disabling FSDP until next release because it is still very experimental and not validated.
@@ -86,7 +93,7 @@ class NeuronTrainingArgumentsMixin:
                     "The minimal required Transformers version to perform XLA FSDP is "
                     f"{TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP} but {transformers.__version__} is installed."
                 )
-        self.tp_plugin = TensorParallelismPlugin(self.tensor_parallel_size)
+        self.tp_plugin = TensorParallelismPlugin(self.tensor_parallel_size, not self.disable_embedding_parallelization)
         super().__post_init__()
 
     # Needed only to specialize the warning message for FSDP.
