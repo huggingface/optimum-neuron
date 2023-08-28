@@ -27,6 +27,8 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 import torch
 from transformers import TrainerCallback, TrainerState
 
+from optimum.neuron.utils.training_utils import is_precompilation
+
 from ..utils import logging
 from .utils import is_torch_xla_available
 from .utils.cache_utils import (
@@ -93,7 +95,13 @@ class NeuronCacheCallback(TrainerCallback):
         self.neuron_cache_path.mkdir(parents=True, exist_ok=True)
 
         # Temporary Neuron compile cache.
-        if tmp_neuron_cache is None:
+        if is_precompilation():
+            # When doing precompilation, the graph will be compiled after than the script is done.
+            # By setting `self.tmp_neuron_cache` to `self.neuron_cache_path`, `neuron_parallel_compile` will extract
+            # the very same graphs than the one created during real training, while not doing any synchronization
+            # during training since the compiled files will not be there yet.
+            self.tmp_neuron_cache = self.neuron_cache_path
+        elif tmp_neuron_cache is None:
             self.tmp_neuron_cache = self.create_temporary_neuron_cache(self.neuron_cache_path)
         else:
             self.tmp_neuron_cache = tmp_neuron_cache
@@ -131,13 +139,12 @@ class NeuronCacheCallback(TrainerCallback):
         return cache_stats
 
     @classmethod
-    def _insert_in_cache_stats(cls, cache_stats: Dict[str, Dict[str, Any]], path: Path, cache_path: Path):
-        path_in_cache = path_after_folder(path, cache_path.name)
+    def _insert_in_cache_stats(cls, cache_stats: Dict[str, Dict[str, Any]], full_path: Path, path_in_cache: Path):
         cache_key = path_in_cache.parts[0]
         item = cache_stats.get(cache_key, {})
-        if path.parent.as_posix() in item:
+        if full_path.parent.as_posix() in item:
             return
-        item[path.parent.as_posix()] = {"used_time": 1, "size": cls.get_dir_size(path.parent)}
+        item[full_path.parent.as_posix()] = {"used_time": 1, "size": cls.get_dir_size(full_path.parent)}
         cache_stats[cache_key] = item
 
     @classmethod
@@ -176,11 +183,13 @@ class NeuronCacheCallback(TrainerCallback):
             if cache_file.name == "cache_stats.json":
                 continue
             path_in_neuron_cache = path_after_folder(cache_file, neuron_cache_path.name)
+            if NEURON_COMPILE_CACHE_NAME in path_in_neuron_cache.parts:
+                path_in_neuron_cache = path_after_folder(path_in_neuron_cache, NEURON_COMPILE_CACHE_NAME)
             tmp_cache_file = tmp_neuron_cache_path / path_in_neuron_cache
             tmp_cache_file.parent.mkdir(parents=True, exist_ok=True)
             tmp_cache_file.symlink_to(cache_file)
 
-            cls._insert_in_cache_stats(cache_stats, cache_file, neuron_cache_path)
+            cls._insert_in_cache_stats(cache_stats, cache_file, path_in_neuron_cache)
 
         if not cache_stats_exists:
             with open(tmp_neuron_cache_path / "cache_stats.json", "w") as fp:
