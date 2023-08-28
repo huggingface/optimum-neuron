@@ -69,7 +69,7 @@ if __name__ == "__main__":
     parser.add_argument("--compare", action="store_true", help="Compare with the genuine transformers model on CPU.")
     parser.add_argument("--seed", type=int, default=None, help="Pass a seed for reproducibility.")
     args = parser.parse_args()
-    if args.seed:
+    if args.seed is not None:
         set_seed(args.seed)
     prompts = args.prompts.split("|")
     batch_size = len(prompts)
