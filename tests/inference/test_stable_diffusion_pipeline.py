@@ -76,7 +76,6 @@ class NeuronModelForMultipleChoiceIntegrationTest(unittest.TestCase):
         self.assertIsInstance(image, PIL.Image.Image)
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
-    @unittest.skip("The dynamic batching is not well supported for stable diffusion for now.")
     def test_export_and_inference_dyn(self, model_arch):
         neuron_pipeline = self.NEURON_MODEL_CLASS.from_pretrained(
             MODEL_NAMES[model_arch],
