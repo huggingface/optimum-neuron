@@ -201,10 +201,10 @@ with torch.inference_mode():
 Optimum extends 🤗`Diffusers` to support inference on Neuron. To get started, make sure you have installed Diffusers:
 
 ```bash
-pip install diffusers>=0.17.0
+pip install diffusers>=0.20.0
 ```
 
-You can also accelerate the inference of stable diffusion on neuronx devices (inf / trn1). There are three components which need to be exported to the `.neuron` format to boost the performance:
+You can also accelerate the inference of stable diffusion on neuronx devices (inf2 / trn1). There are four components which need to be exported to the `.neuron` format to boost the performance:
 
 * Text encoder
 * U-Net
@@ -215,7 +215,7 @@ The export can be done either with the CLI or with `NeuronStableDiffusionPipelin
 
 <Tip>
 
-To apply optimized compute of Unet's attention score, please configure your environment variable with `export NEURON_FUSE_SOFTMAX=1`.
+To apply optimized compute of Unet's attention score, please configure your environment variable with `export NEURON_FUSE_SOFTMAX=1`. Besides, don't hesitate to tweak the compilation configuration to find the best tradeoff of performance v.s accuracy in your use case. By default, we suggest casting FP32 matrix multiplication operations to BF16. Check out the guide from [AWS Neuron documentation](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/appnotes/neuronx-cc/neuronx-cc-training-mixed-precision.html#neuronx-cc-training-mixed-precision) to better understand the options for your compilation.
 
 </Tip>
 

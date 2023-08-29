@@ -63,8 +63,7 @@ class NeuronModelForMultipleChoiceIntegrationTest(unittest.TestCase):
         )
         self.assertIsInstance(neuron_pipeline.text_encoder, NeuronModelTextEncoder)
         self.assertIsInstance(neuron_pipeline.unet, NeuronModelUnet)
-        # #TODO: activate the checker once the encoder export fixed (2.13 release)
-        # self.assertIsInstance(neuron_pipeline.vae_encoder, NeuronModelVaeEncoder)
+        self.assertIsInstance(neuron_pipeline.vae_encoder, NeuronModelVaeEncoder)
         self.assertIsInstance(neuron_pipeline.vae_decoder, NeuronModelVaeDecoder)
 
         prompt = "sailing ship in storm by Leonardo da Vinci"
