@@ -87,10 +87,12 @@ The Optimum Neuron export can be used through Optimum command-line:
 ```bash
 optimum-cli export neuron --help
 
-usage: optimum-cli export neuron [-h] -m MODEL [--task TASK] [--atol ATOL] [--cache_dir CACHE_DIR] [--trust-remote-code]
-                                 [--auto_cast {none,matmul,all}] [--auto_cast_type {bf16,fp16,mixed,tf32}]
-                                 [--disable-fast-relayout] [--disable-fallback] [--dynamic-batch-size] [--batch_size BATCH_SIZE]
-                                 [--sequence_length SEQUENCE_LENGTH] [--num_choices NUM_CHOICES]
+usage: optimum-cli export neuron [-h] -m MODEL [--task TASK] [--atol ATOL] [--cache_dir CACHE_DIR]
+                                 [--trust-remote-code] [--disable-validation] [--auto_cast {none,matmul,all}]
+                                 [--auto_cast_type {bf16,fp16,tf32}] [--dynamic-batch-size]
+                                 [--batch_size BATCH_SIZE] [--sequence_length SEQUENCE_LENGTH]
+                                 [--num_choices NUM_CHOICES] [--num_channels NUM_CHANNELS] [--width WIDTH]
+                                 [--height HEIGHT] [--num_images_per_prompt NUM_IMAGES_PER_PROMPT]
                                  output
 
 optional arguments:
@@ -99,45 +101,54 @@ optional arguments:
 Required arguments:
   -m MODEL, --model MODEL
                         Model ID on huggingface.co or path on disk to load model from.
-  output                Path indicating the directory where to store generated Neuron compiled TorchScript model.
+  output                Path indicating the directory where to store generated Neuronx compiled TorchScript model.
 
 Optional arguments:
-  --task TASK           The task to export the model for. If not specified, the task will be auto-inferred based on the model.
-                        Available tasks depend on the model, but are among: ['conversational', 'feature-extraction', 'fill-
-                        mask', 'text-generation', 'text2text-generation', 'text-classification', 'token-classification',
-                        'multiple-choice', 'object-detection', 'question-answering', 'image-classification', 'image-
-                        segmentation', 'masked-im', 'semantic-segmentation', 'automatic-speech-recognition', 'audio-
-                        classification', 'audio-frame-classification', 'audio-xvector', 'image-to-text', 'stable-diffusion',
-                        'zero-shot-image-classification', 'zero-shot-object-detection'].
-  --atol ATOL           If specified, the absolute difference tolerance when validating the model. Otherwise, the default atol
-                        for the model will be used.
+  --task TASK           The task to export the model for. If not specified, the task will be auto-inferred based on
+                        the model. Available tasks depend on the model, but are among: ['conversational', 'feature-
+                        extraction', 'fill-mask', 'text-generation', 'text2text-generation', 'text-classification',
+                        'token-classification', 'multiple-choice', 'object-detection', 'question-answering',
+                        'image-classification', 'image-segmentation', 'mask-generation', 'masked-im', 'semantic-
+                        segmentation', 'automatic-speech-recognition', 'audio-classification', 'audio-frame-
+                        classification', 'audio-xvector', 'image-to-text', 'stable-diffusion', 'stable-diffusion-
+                        xl', 'zero-shot-image-classification', 'zero-shot-object-detection'].
+  --atol ATOL           If specified, the absolute difference tolerance when validating the model. Otherwise, the
+                        default atol for the model will be used.
   --cache_dir CACHE_DIR
                         Path indicating where to store cache.
-  --trust-remote-code   Allow to use custom code for the modeling hosted in the model repository. This option should only be set
-                        for repositories you trust and in which you have read the code, as it will execute on your local machine
-                        arbitrary code present in the model repository.
+  --trust-remote-code   Allow to use custom code for the modeling hosted in the model repository. This option
+                        should only be set for repositories you trust and in which you have read the code, as it
+                        will execute on your local machine arbitrary code present in the model repository.
+  --disable-validation  Whether to disable the validation of inference on neuron device compared to the outputs of
+                        original PyTorch model on CPU.
   --auto_cast {none,matmul,all}
-                        Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `"none"`,
-                        `"matmul"` or `"all"`.
-  --auto_cast_type {bf16,fp16,mixed,tf32}
-                        The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"`,
-                        `"mixed"` or `"tf32"`.
-  --disable-fast-relayout
-                        Whether to disable fast relayout optimization which improves performance by using the matrix multiplier
-                        for tensor transpose. (inf1 only)
-  --disable-fallback    Whether to disable CPU partitioning to force operations to Neuron. Defaults to `False`, as without
-                        fallback, there could be some compilation failures or performance problems. (inf1 only)
-  --dynamic-batch-size  Enable dynamic batch size for neuron compiled model. If this option is enabled, the input batch size can
-                        be dynamic during the inference, but it comes with a potential tradeoff in terms of latency.
+                        Whether to cast operations from FP32 to lower precision to speed up the inference. Can be
+                        `"none"`, `"matmul"` or `"all"`.
+  --auto_cast_type {bf16,fp16,tf32}
+                        The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`,
+                        `"fp16"` or `"tf32"`.
+  --dynamic-batch-size  Enable dynamic batch size for neuron compiled model. If this option is enabled, the input
+                        batch size can be a multiple of the batch size during the compilation, but it comes with a
+                        potential tradeoff in terms of latency.
 
 Input shapes:
   --batch_size BATCH_SIZE
-                        Batch size that the Neuron-cc compiler exported model will be able to take as input.
+                        Batch size that the Neuronx-cc compiler exported model will be able to take as input.
   --sequence_length SEQUENCE_LENGTH
-                        Sequence length that the Neuron-cc compiler exported model will be able to take as input.
+                        Sequence length that the Neuronx-cc compiler exported model will be able to take as input.
   --num_choices NUM_CHOICES
-                        Only for the multiple-choice task. Num choices that the Neuron-cc compiler exported model will be able
-                        to take as input.
+                        Only for the multiple-choice task. Num choices that the Neuronx-cc compiler exported model
+                        will be able to take as input.
+  --num_channels NUM_CHANNELS
+                        Image tasks only. Number of channels that the Neuronx-cc compiler exported model will be
+                        able to take as input.
+  --width WIDTH         Image tasks only. Width that the Neuronx-cc compiler exported model will be able to take as
+                        input.
+  --height HEIGHT       Image tasks only. Height that the Neuronx-cc compiler exported model will be able to take
+                        as input.
+  --num_images_per_prompt NUM_IMAGES_PER_PROMPT
+                        Stable diffusion only. Number of images per prompt that the Neuronx-cc compiler exported
+                        model will be able to take as input.
 
 ```
 
@@ -216,6 +227,8 @@ So far, we support the export of following components in the pipeline:
 
 "These blocks are chosen because they represent the bulk of the compute in the pipeline, and performance benchmarking has shown that running them on Neuron yields significant performance benefit."
 
+Besides, don't hesitate to tweak the compilation configuration to find the best tradeoff between performance v.s accuracy in your use case. By default, we suggest casting FP32 matrix multiplication operations to BF16 which offers good performance with moderate sacrifice of the accuracy. Check out the guide from [AWS Neuron documentation](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/appnotes/neuronx-cc/neuronx-cc-training-mixed-precision.html#neuronx-cc-training-mixed-precision) to better understand the options for your compilation.
+
 </Tip>
 
 Exporting a stable diffusion checkpoint can be done using the CLI:
@@ -226,6 +239,7 @@ optimum-cli export neuron --model stabilityai/stable-diffusion-2-1-base \
   --batch_size 1 \
   --height 512 `# height in pixels of generated image, eg. 512, 768` \
   --width 512 `# width in pixels of generated image, eg. 512, 768` \
+  --num_image_per_prompt 4 `# number of images to generate per prompt, defaults to 1` \
   --auto_cast matmul `# cast only matrix multiplication operations` \
   --auto_cast_type bf16 `# cast operations from FP32 to BF16` \
   sd_neuron/

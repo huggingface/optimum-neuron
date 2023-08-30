@@ -123,10 +123,10 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         help=f"Image tasks only. Height {doc_input}",
     )
     input_group.add_argument(
-        "--num_image_per_prompt",
+        "--num_images_per_prompt",
         type=int,
         default=1,
-        help=f"Stable diffusion only. Number of image per prompt {doc_input}",
+        help=f"Stable diffusion only. Number of images per prompt {doc_input}",
     )
 
 

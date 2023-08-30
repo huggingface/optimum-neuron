@@ -154,14 +154,14 @@ class StableDiffusionPipelineMixin(StableDiffusionPipeline):
         latents = latents * self.scheduler.init_noise_sigma
         return latents
 
-    def check_num_image_per_prompt(self, prompt_batch_size: int, neuron_batch_size: int, num_images_per_prompt: int):
+    def check_num_images_per_prompt(self, prompt_batch_size: int, neuron_batch_size: int, num_images_per_prompt: int):
         if self.dynamic_batch_size:
             return prompt_batch_size, num_images_per_prompt
         if neuron_batch_size != prompt_batch_size * num_images_per_prompt:
             raise ValueError(
                 f"Models in the pipeline were compiled with `batch_size` {neuron_batch_size} which does not equal the number of"
-                f" prompt({prompt_batch_size}) multiplied by `num_image_per_prompt`({num_images_per_prompt}). You need to enable"
-                " `dynamic_batch_size` or precisely configure `num_image_per_prompt` during the compilation."
+                f" prompt({prompt_batch_size}) multiplied by `num_images_per_prompt`({num_images_per_prompt}). You need to enable"
+                " `dynamic_batch_size` or precisely configure `num_images_per_prompt` during the compilation."
             )
         else:
             return prompt_batch_size, num_images_per_prompt
@@ -203,7 +203,7 @@ class StableDiffusionPipelineMixin(StableDiffusionPipeline):
         else:
             prompt_batch_size = prompt_embeds.shape[0]
         neuron_batch_size = self.unet.config.neuron["static_batch_size"]
-        batch_size, num_images_per_prompt = self.check_num_image_per_prompt(
+        batch_size, num_images_per_prompt = self.check_num_images_per_prompt(
             prompt_batch_size, neuron_batch_size, num_images_per_prompt
         )
 
