@@ -179,7 +179,7 @@ class CLIPNeuronConfig(TextAndVisionNeuronConfig):
         return ["logits_per_image", "logits_per_text", "text_embeds", "image_embeds"]
 
 
-@register_in_tasks_manager("clip-text-with-projection", *["stable-diffusion-xl", "feature-extraction"])
+@register_in_tasks_manager("clip-text-with-projection", *["feature-extraction"])
 class CLIPTextWithProjectionNeuronConfig(TextEncoderNeuronConfig):
     MODEL_TYPE = "clip-text-model"
     ATOL_FOR_VALIDATION = 1e-3
@@ -206,13 +206,13 @@ class CLIPTextWithProjectionNeuronConfig(TextEncoderNeuronConfig):
         return common_outputs
 
 
-@register_in_tasks_manager("clip-text-model", *["stable-diffusion", "stable-diffusion-xl", "feature-extraction"])
+@register_in_tasks_manager("clip-text-model", *["feature-extraction"])
 class CLIPTextNeuronConfig(CLIPTextWithProjectionNeuronConfig):
     MODEL_TYPE = "clip-text-model"
 
     @property
     def outputs(self) -> List[str]:
-        common_outputs = ["last_hidden_state", "pooler_output"]
+        common_outputs = ["last_hidden_state"]
 
         if self._normalized_config.output_hidden_states:
             for i in range(self._normalized_config.num_layers + 1):
@@ -233,7 +233,7 @@ class CLIPTextNeuronConfig(CLIPTextWithProjectionNeuronConfig):
         return super().check_model_inputs_order(model, dummy_inputs, forward_with_tuple, eligible_outputs=[0])
 
 
-@register_in_tasks_manager("unet", *["stable-diffusion", "stable-diffusion-xl", "semantic-segmentation"])
+@register_in_tasks_manager("unet", *["semantic-segmentation"])
 class UNetNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
     MANDATORY_AXES = ("batch_size", "sequence_length", "num_channels", "width", "height")
@@ -292,7 +292,7 @@ class UNetNeuronConfig(VisionNeuronConfig):
             return dummy_inputs
 
 
-@register_in_tasks_manager("vae-encoder", *["stable-diffusion", "stable-diffusion-xl", "semantic-segmentation"])
+@register_in_tasks_manager("vae-encoder", *["semantic-segmentation"])
 class VaeEncoderNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-2
     MODEL_TYPE = "vae-encoder"
@@ -312,7 +312,7 @@ class VaeEncoderNeuronConfig(VisionNeuronConfig):
         return ["latent_sample"]
 
 
-@register_in_tasks_manager("vae-decoder", *["stable-diffusion", "stable-diffusion-xl", "semantic-segmentation"])
+@register_in_tasks_manager("vae-decoder", *["semantic-segmentation"])
 class VaeDecoderNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
     MODEL_TYPE = "vae-decoder"

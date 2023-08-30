@@ -127,7 +127,7 @@ def validate_models_outputs(
     if len(exceptions) != 0:
         for i, exception in enumerate(exceptions[:-1]):
             logger.error(f"Validation {i} for the model {neuron_paths[i].as_posix()} raised: {exception}")
-        raise exceptions[-1]
+        raise Exception(exceptions[-1])
 
 
 def validate_model_outputs(
@@ -212,6 +212,9 @@ def validate_model_outputs(
 
     # Check if the number of outputs matches the number of output names
     if len(neuron_output_names_set) != len(neuron_outputs):
+        import pdb
+
+        pdb.set_trace()
         raise OutputMatchError(
             f"The exported Neuron model has {len(neuron_outputs)} outputs while {len(neuron_output_names_set)} are expected."
         )

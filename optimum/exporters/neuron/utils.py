@@ -28,7 +28,8 @@ from ...neuron.utils import (
     DIFFUSION_MODEL_UNET_NAME,
     DIFFUSION_MODEL_VAE_DECODER_NAME,
     DIFFUSION_MODEL_VAE_ENCODER_NAME,
-    get_attention_scores,
+    get_attention_scores_sd,
+    get_attention_scores_sdxl,
 )
 from ...utils import (
     DIFFUSERS_MINIMUM_VERSION,
@@ -49,7 +50,6 @@ if is_diffusers_available():
             f"We found an older version of diffusers {_diffusers_version} but we require diffusers to be >= {DIFFUSERS_MINIMUM_VERSION}. "
             "Please update diffusers by running `pip install --upgrade diffusers`"
         )
-    from diffusers import StableDiffusionXLPipeline
     from diffusers.models.attention_processor import (
         Attention,
         AttnAddedKVProcessor,
@@ -67,7 +67,7 @@ if TYPE_CHECKING:
     from .base import NeuronConfig
 
     if is_diffusers_available():
-        from diffusers import ModelMixin, StableDiffusionPipeline, StableDiffusionXLPipeline
+        from diffusers import ModelMixin, StableDiffusionPipeline, StableDiffusionXLImg2ImgPipeline
 
 
 class DiffusersPretrainedConfig(PretrainedConfig):
@@ -124,7 +124,8 @@ def build_stable_diffusion_components_mandatory_shapes(
 
 
 def get_stable_diffusion_models_for_export(
-    pipeline: Union["StableDiffusionPipeline", "StableDiffusionXLPipeline"],
+    pipeline: Union["StableDiffusionPipeline", "StableDiffusionXLImg2ImgPipeline"],
+    task: str,
     text_encoder_input_shapes: Dict[str, int],
     unet_input_shapes: Dict[str, int],
     vae_encoder_input_shapes: Dict[str, int],
@@ -138,8 +139,10 @@ def get_stable_diffusion_models_for_export(
     performance benefit (CLIP text encoder, VAE encoder, VAE decoder, Unet).
 
     Args:
-        pipeline ([`Union["StableDiffusionPipeline", "StableDiffusionXLPipeline"]`]):
+        pipeline ([`Union["StableDiffusionPipeline", "StableDiffusionXLImg2ImgPipeline"]`]):
             The model to export.
+        task (`str`):
+            Task name, should be either "stable-diffusion" or "stable-diffusion-xl".
         text_encoder_input_shapes (`Dict[str, int]`):
             Static shapes used for compiling text encoder.
         unet_input_shapes (`Dict[str, int]`):
@@ -155,7 +158,7 @@ def get_stable_diffusion_models_for_export(
         `Dict[str, Tuple[Union[`PreTrainedModel`, `ModelMixin`], `NeuronConfig`]: A Dict containing the model and
         Neuron configs for the different components of the model.
     """
-    models_for_export = _get_submodels_for_export_stable_diffusion(pipeline)
+    models_for_export = _get_submodels_for_export_stable_diffusion(pipeline=pipeline, task=task)
 
     # Text encoders
     if DIFFUSION_MODEL_TEXT_ENCODER_NAME in models_for_export:
@@ -236,12 +239,13 @@ def get_stable_diffusion_models_for_export(
 
 
 def _get_submodels_for_export_stable_diffusion(
-    pipeline: Union["StableDiffusionPipeline", "StableDiffusionXLPipeline"],
+    pipeline: Union["StableDiffusionPipeline", "StableDiffusionXLImg2ImgPipeline"],
+    task: str,
 ) -> Dict[str, Union["PreTrainedModel", "ModelMixin"]]:
     """
     Returns the components of a Stable Diffusion model.
     """
-    is_sdxl = isinstance(pipeline, StableDiffusionXLPipeline)
+    is_sdxl = "xl" in task
 
     models_for_export = {}
     projection_dim = (
@@ -269,7 +273,7 @@ def _get_submodels_for_export_stable_diffusion(
     # Replace original cross-attention module with custom cross-attention module for better performance
     # For applying optimized attention score, we need to set env variable  `NEURON_FUSE_SOFTMAX=1`
     if os.environ.get("NEURON_FUSE_SOFTMAX") == "1":
-        Attention.get_attention_scores = get_attention_scores
+        Attention.get_attention_scores = get_attention_scores_sdxl if is_sdxl else get_attention_scores_sd
     else:
         logger.warning(
             "You are not applying optimized attention score computation. If you want better performance, please"

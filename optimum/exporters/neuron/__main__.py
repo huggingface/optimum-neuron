@@ -37,7 +37,6 @@ from ...neuron.utils import (
 from ...neuron.utils.version_utils import check_compiler_compatibility_for_stable_diffusion
 from ...utils import is_diffusers_available, logging
 from ...utils.save_utils import maybe_save_preprocessors
-from ..error_utils import AtolError, OutputMatchError, ShapeError
 from ..tasks import TasksManager
 from .convert import export_models, validate_models_outputs
 from .model_configs import *  # noqa: F403
@@ -185,8 +184,8 @@ def main_export(
     task = TasksManager.map_from_synonym(task)
 
     model = TasksManager.get_model_from_task(
-        task,
-        model_name_or_path,
+        task=task,
+        model_name_or_path=model_name_or_path,
         subfolder=subfolder,
         revision=revision,
         cache_dir=cache_dir,
@@ -217,7 +216,8 @@ def main_export(
             )
         input_shapes = infer_stable_diffusion_shapes_from_diffusers(input_shapes, model)
         models_and_neuron_configs = get_stable_diffusion_models_for_export(
-            model,
+            pipeline=model,
+            task=task,
             dynamic_batch_size=dynamic_batch_size,
             **input_shapes,
         )
@@ -253,35 +253,35 @@ def main_export(
 
     # Validate compiled model
     if do_validation is True:
-        try:
-            validate_models_outputs(
-                models_and_neuron_configs=models_and_neuron_configs,
-                neuron_named_outputs=neuron_outputs,
-                output_dir=output,
-                atol=atol,
-                neuron_files_subpaths=output_model_names,
-            )
+        # try:
+        validate_models_outputs(
+            models_and_neuron_configs=models_and_neuron_configs,
+            neuron_named_outputs=neuron_outputs,
+            output_dir=output,
+            atol=atol,
+            neuron_files_subpaths=output_model_names,
+        )
 
-            logger.info(
-                f"The {NEURON_COMPILER} export succeeded and the exported model was saved at: " f"{output.as_posix()}"
-            )
-        except ShapeError as e:
-            raise e
-        except AtolError as e:
-            logger.warning(
-                f"The {NEURON_COMPILER} export succeeded with the warning: {e}.\n The exported model was saved at: "
-                f"{output.as_posix()}"
-            )
-        except OutputMatchError as e:
-            logger.warning(
-                f"The {NEURON_COMPILER} export succeeded with the warning: {e}.\n The exported model was saved at: "
-                f"{output.as_posix()}"
-            )
-        except Exception as e:
-            logger.error(
-                f"An error occured with the error message: {e}.\n The exported model was saved at: "
-                f"{output.as_posix()}"
-            )
+        logger.info(
+            f"The {NEURON_COMPILER} export succeeded and the exported model was saved at: " f"{output.as_posix()}"
+        )
+        # except ShapeError as e:
+        #     raise e
+        # except AtolError as e:
+        #     logger.warning(
+        #         f"The {NEURON_COMPILER} export succeeded with the warning: {e}.\n The exported model was saved at: "
+        #         f"{output.as_posix()}"
+        #     )
+        # except OutputMatchError as e:
+        #     logger.warning(
+        #         f"The {NEURON_COMPILER} export succeeded with the warning: {e}.\n The exported model was saved at: "
+        #         f"{output.as_posix()}"
+        #     )
+        # except Exception as e:
+        #     logger.error(
+        #         f"An error occured with the error message: {e}.\n The exported model was saved at: "
+        #         f"{output.as_posix()}"
+        #     )
 
 
 def main():
