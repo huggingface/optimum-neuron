@@ -127,8 +127,8 @@ def normalize_stable_diffusion_input_shapes(
             f"Shape of {mandatory_axes} are mandatory for neuron compilation, while {mandatory_axes.difference(args.keys())} are not given."
         )
     mandatory_shapes = {name: args[name] for name in mandatory_axes}
-    if "num_image_per_prompt" in args and args["num_image_per_prompt"] > 1:
-        batch_size = args["num_image_per_prompt"] * args["batch_size"]
+    if "num_images_per_prompt" in args and args["num_images_per_prompt"] > 1:
+        batch_size = args["num_images_per_prompt"] * args["batch_size"]
         mandatory_shapes["batch_size"] = batch_size
     input_shapes = build_stable_diffusion_components_mandatory_shapes(**mandatory_shapes)
     return input_shapes

@@ -2,7 +2,7 @@ import argparse
 import time
 
 import torch
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, set_seed
 
 from optimum.neuron import NeuronModelForCausalLM
 
@@ -35,7 +35,6 @@ def generate(model, tokenizer, prompts, length, temperature):
         sample_output = model.generate(
             **tokens,
             do_sample=True,
-            min_length=length,
             max_length=length,
             temperature=temperature,
         )
@@ -68,7 +67,10 @@ if __name__ == "__main__":
         "--save_dir", type=str, help="The save directory. Allows to avoid recompiling the model every time."
     )
     parser.add_argument("--compare", action="store_true", help="Compare with the genuine transformers model on CPU.")
+    parser.add_argument("--seed", type=int, default=None, help="Pass a seed for reproducibility.")
     args = parser.parse_args()
+    if args.seed is not None:
+        set_seed(args.seed)
     prompts = args.prompts.split("|")
     batch_size = len(prompts)
     model = load_llm_optimum(args.model, batch_size, args.num_cores, args.auto_cast_type)
