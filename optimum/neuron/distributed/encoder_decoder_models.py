@@ -16,6 +16,9 @@
 
 from typing import TYPE_CHECKING, Dict, Optional
 
+import torch
+
+from ...utils import NormalizedConfigManager
 from .base import Parallelizer
 from .parallel_layers import ParallelEmbedding, ParallelMLP, ParallelSelfAttention
 from .utils import linear_to_parallel_linear
@@ -47,21 +50,43 @@ class T5ParallelSelfAttention(ParallelSelfAttention):
         orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
         device: Optional["torch.device"] = None,
     ) -> "torch.nn.Module":
-        layer = super().transform(model, layer, orig_to_parallel=orig_to_parallel, device=device)
-
-        num_heads = layer.n_heads
-        from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_rank
+        from neuronx_distributed.parallel_layers.parallel_state import (
+            get_tensor_model_parallel_rank,
+            get_tensor_model_parallel_size,
+        )
 
         tp_rank = get_tensor_model_parallel_rank()
+        tp_size = get_tensor_model_parallel_size()
+
+        config = model.config
+        normalized_config = NormalizedConfigManager.get_normalized_config_class(config.model_type)(config)
+        if cls.NUM_ATTENTION_HEADS_NAME is None:
+            num_attention_heads_name = normalized_config.NUM_ATTENTION_HEADS
+        else:
+            num_attention_heads_name = cls.NUM_ATTENTION_HEADS_NAME
+
+        num_attention_heads = getattr(layer, num_attention_heads_name)
+        num_attention_heads_per_rank = num_attention_heads // tp_size
+
+        layer = super().transform(model, layer, orig_to_parallel=orig_to_parallel, device=device)
 
         orig_compute_bias = layer.compute_bias
 
         def compute_bias(self, query_length, key_length, device=None):
             """Compute binned relative position bias"""
             values = orig_compute_bias(query_length, key_length, device=device)
-            return values[:, tp_rank * num_heads : (tp_rank + 1) * num_heads, :]
+            return values[:, tp_rank * num_attention_heads_per_rank : (tp_rank + 1) * num_attention_heads_per_rank, :]
 
         layer.compute_bias = compute_bias.__get__(layer)
+
+        if layer.has_relative_attention_bias:
+            with torch.no_grad():
+                layer.relative_attention_bias.weight.copy_(
+                    layer.relative_attention_bias.weight[
+                        :, num_attention_heads_per_rank * tp_rank : num_attention_heads_per_rank * (tp_rank + 1)
+                    ]
+                )
+
         return layer
 
 

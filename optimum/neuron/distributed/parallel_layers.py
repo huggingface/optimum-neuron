@@ -310,7 +310,7 @@ class ParallelSelfAttention(ParallelLayer):
         setattr(
             layer,
             num_attention_heads_name,
-            normalized_config.num_attention_heads // parallel_state.get_tensor_model_parallel_size(),
+            getattr(layer, num_attention_heads_name) // parallel_state.get_tensor_model_parallel_size(),
         )
         setattr(
             layer,
