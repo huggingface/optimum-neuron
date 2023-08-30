@@ -50,9 +50,9 @@ class NeuronModelForMultipleChoiceIntegrationTest(unittest.TestCase):
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_export_and_inference_non_dyn(self, model_arch):
-        num_image_per_prompt = 4
+        num_images_per_prompt = 4
         input_shapes = copy.deepcopy(self.STATIC_INPUTS_SHAPES)
-        input_shapes.update({"num_image_per_prompt": num_image_per_prompt})
+        input_shapes.update({"num_images_per_prompt": num_images_per_prompt})
         neuron_pipeline = self.NEURON_MODEL_CLASS.from_pretrained(
             MODEL_NAMES[model_arch],
             export=True,
@@ -71,7 +71,7 @@ class NeuronModelForMultipleChoiceIntegrationTest(unittest.TestCase):
             image = neuron_pipeline(prompt).images[0]
         self.assertIn("pipeline were compiled with", str(context.exception))
 
-        prompts = ["sailing ship in storm by Leonardo da Vinci"] * num_image_per_prompt
+        prompts = ["sailing ship in storm by Leonardo da Vinci"] * num_images_per_prompt
         image = neuron_pipeline(prompts).images[0]
         self.assertIsInstance(image, PIL.Image.Image)
 
@@ -87,5 +87,5 @@ class NeuronModelForMultipleChoiceIntegrationTest(unittest.TestCase):
         )
 
         prompts = ["sailing ship in storm by Leonardo da Vinci"] * 2
-        image = neuron_pipeline(prompts).images[0]
+        image = neuron_pipeline(prompts, num_images_per_prompt=2).images[0]
         self.assertIsInstance(image, PIL.Image.Image)
