@@ -29,7 +29,7 @@ TESTS_REQUIRE = [
     "sentencepiece",
     "datasets",
     "sacremoses",
-    "diffusers>=0.17.0",
+    "diffusers >= 0.20.0",
     "safetensors",
 ]
 
