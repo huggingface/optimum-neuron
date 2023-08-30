@@ -158,6 +158,8 @@ def infer_stable_diffusion_shapes_from_diffusers(
         {"num_channels": vae_decoder_num_channels, "height": height, "width": width}
     )
 
+    return input_shapes
+
 
 def main_export(
     model_name_or_path: str,
@@ -213,20 +215,13 @@ def main_export(
             raise RuntimeError(
                 "Stable diffusion export is not supported by neuron-cc on inf1, please use neuronx-cc on either inf2/trn1 instead."
             )
-        output_model_names = {
-            DIFFUSION_MODEL_TEXT_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_TEXT_ENCODER_NAME, NEURON_FILE_NAME),
-            DIFFUSION_MODEL_TEXT_ENCODER_2_NAME: os.path.join(DIFFUSION_MODEL_TEXT_ENCODER_2_NAME, NEURON_FILE_NAME),
-            DIFFUSION_MODEL_UNET_NAME: os.path.join(DIFFUSION_MODEL_UNET_NAME, NEURON_FILE_NAME),
-            DIFFUSION_MODEL_VAE_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_ENCODER_NAME, NEURON_FILE_NAME),
-            DIFFUSION_MODEL_VAE_DECODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_DECODER_NAME, NEURON_FILE_NAME),
-        }
-        infer_stable_diffusion_shapes_from_diffusers(input_shapes, model)
-
+        input_shapes = infer_stable_diffusion_shapes_from_diffusers(input_shapes, model)
         models_and_neuron_configs = get_stable_diffusion_models_for_export(
             model,
             dynamic_batch_size=dynamic_batch_size,
             **input_shapes,
         )
+
         # Saving the model config and preprocessor as this is needed sometimes.
         model.scheduler.save_pretrained(output.joinpath("scheduler"))
         model.tokenizer.save_pretrained(output.joinpath("tokenizer"))
@@ -235,6 +230,17 @@ def main_export(
         if hasattr(model, "feature_extractor"):
             model.feature_extractor.save_pretrained(output.joinpath("feature_extractor"))
         model.save_config(output)
+
+        output_model_names = {
+            DIFFUSION_MODEL_TEXT_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_TEXT_ENCODER_NAME, NEURON_FILE_NAME),
+            DIFFUSION_MODEL_UNET_NAME: os.path.join(DIFFUSION_MODEL_UNET_NAME, NEURON_FILE_NAME),
+            DIFFUSION_MODEL_VAE_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_ENCODER_NAME, NEURON_FILE_NAME),
+            DIFFUSION_MODEL_VAE_DECODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_DECODER_NAME, NEURON_FILE_NAME),
+        }
+        if hasattr(model, "text_encoder_2"):
+            output_model_names[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME] = os.path.join(
+                DIFFUSION_MODEL_TEXT_ENCODER_2_NAME, NEURON_FILE_NAME
+            )
 
     _, neuron_outputs = export_models(
         models_and_neuron_configs=models_and_neuron_configs,

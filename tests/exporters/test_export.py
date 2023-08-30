@@ -37,6 +37,7 @@ from optimum.exporters.neuron import (
 from optimum.exporters.neuron.model_configs import *  # noqa: F403
 from optimum.exporters.tasks import TasksManager
 from optimum.neuron.utils import (
+    DIFFUSION_MODEL_TEXT_ENCODER_2_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_NAME,
     DIFFUSION_MODEL_UNET_NAME,
     DIFFUSION_MODEL_VAE_DECODER_NAME,
@@ -162,7 +163,7 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
     Integration tests ensuring stable diffusion models are correctly exported.
     """
 
-    @parameterized.expand(STABLE_DIFFUSION_MODELS_TINY)
+    @parameterized.expand(STABLE_DIFFUSION_MODELS_TINY["stable-diffusion"])
     def test_export_for_stable_diffusion_models(self, model_name):
         set_seed(SEED)
 
@@ -179,6 +180,42 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
 
         output_model_names = {
             DIFFUSION_MODEL_TEXT_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_TEXT_ENCODER_NAME, NEURON_FILE_NAME),
+            DIFFUSION_MODEL_UNET_NAME: os.path.join(DIFFUSION_MODEL_UNET_NAME, NEURON_FILE_NAME),
+            DIFFUSION_MODEL_VAE_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_ENCODER_NAME, NEURON_FILE_NAME),
+            DIFFUSION_MODEL_VAE_DECODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_DECODER_NAME, NEURON_FILE_NAME),
+        }
+
+        with TemporaryDirectory() as tmpdirname:
+            _, neuron_outputs = export_models(
+                models_and_neuron_configs=models_and_neuron_configs,
+                output_dir=Path(tmpdirname),
+                output_file_names=output_model_names,
+            )
+            validate_models_outputs(
+                models_and_neuron_configs=models_and_neuron_configs,
+                neuron_named_outputs=neuron_outputs,
+                output_dir=Path(tmpdirname),
+                neuron_files_subpaths=output_model_names,
+            )
+
+    @parameterized.expand(STABLE_DIFFUSION_MODELS_TINY["stable-diffusion-xl"])
+    def test_export_for_stable_diffusion_models(self, model_name):
+        set_seed(SEED)
+
+        # prepare neuron config / models
+        pipe = StableDiffusionPipeline.from_pretrained(model_name)
+        input_shapes = build_stable_diffusion_components_mandatory_shapes(
+            **{"batch_size": 1, "height": 64, "width": 64}
+        )
+        models_and_neuron_configs = get_stable_diffusion_models_for_export(
+            pipe,
+            dynamic_batch_size=False,
+            **input_shapes,
+        )
+
+        output_model_names = {
+            DIFFUSION_MODEL_TEXT_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_TEXT_ENCODER_NAME, NEURON_FILE_NAME),
+            DIFFUSION_MODEL_TEXT_ENCODER_2_NAME: os.path.join(DIFFUSION_MODEL_TEXT_ENCODER_2_NAME, NEURON_FILE_NAME),
             DIFFUSION_MODEL_UNET_NAME: os.path.join(DIFFUSION_MODEL_UNET_NAME, NEURON_FILE_NAME),
             DIFFUSION_MODEL_VAE_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_ENCODER_NAME, NEURON_FILE_NAME),
             DIFFUSION_MODEL_VAE_DECODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_DECODER_NAME, NEURON_FILE_NAME),
