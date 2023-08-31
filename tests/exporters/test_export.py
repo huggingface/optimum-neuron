@@ -200,7 +200,7 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
             )
 
     @parameterized.expand(STABLE_DIFFUSION_MODELS_TINY["stable-diffusion-xl"])
-    def test_export_for_stable_diffusion_models(self, model_name):
+    def test_export_for_stable_diffusion_xl_models(self, model_name):
         set_seed(SEED)
 
         # prepare neuron config / models
