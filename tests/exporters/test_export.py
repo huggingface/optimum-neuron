@@ -173,7 +173,8 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
             **{"batch_size": 1, "height": 64, "width": 64}
         )
         models_and_neuron_configs = get_stable_diffusion_models_for_export(
-            pipe,
+            pipeline=pipe,
+            task="stable-diffusion",
             dynamic_batch_size=False,
             **input_shapes,
         )
@@ -208,7 +209,8 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
             **{"batch_size": 1, "height": 64, "width": 64}
         )
         models_and_neuron_configs = get_stable_diffusion_models_for_export(
-            pipe,
+            pipeline=pipe,
+            task="stable-diffusion-xl",
             dynamic_batch_size=False,
             **input_shapes,
         )

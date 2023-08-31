@@ -212,9 +212,6 @@ def validate_model_outputs(
 
     # Check if the number of outputs matches the number of output names
     if len(neuron_output_names_set) != len(neuron_outputs):
-        import pdb
-
-        pdb.set_trace()
         raise OutputMatchError(
             f"The exported Neuron model has {len(neuron_outputs)} outputs while {len(neuron_output_names_set)} are expected."
         )
@@ -324,7 +321,7 @@ def export_models(
                 model_config = OrderedDict(model_config)
                 model_config = DiffusersPretrainedConfig.from_dict(model_config)
 
-            store_compilation_config(
+            model_config = store_compilation_config(
                 config=model_config,
                 input_shapes=sub_neuron_config.input_shapes,
                 compiler_kwargs=compiler_kwargs,
@@ -334,6 +331,7 @@ def export_models(
                 compiler_type=NEURON_COMPILER_TYPE,
                 compiler_version=NEURON_COMPILER_VERSION,
                 model_type=getattr(sub_neuron_config, "MODEL_TYPE", None),
+                task=getattr(sub_neuron_config, "task", None),
             )
             if isinstance(model_config, PretrainedConfig):
                 model_config = DiffusersPretrainedConfig.from_dict(model_config.__dict__)

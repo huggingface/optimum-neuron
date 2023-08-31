@@ -146,6 +146,7 @@ def store_compilation_config(
     compiler_type: str,
     compiler_version: str,
     model_type: Optional[str] = None,
+    task: str = None,
     **kwargs,
 ):
     if isinstance(config, OrderedDict):
@@ -182,3 +183,6 @@ def store_compilation_config(
     model_type = getattr(config, "model_type", None) or model_type
     model_type = str(model_type).replace("_", "-")
     update_func("model_type", model_type)
+    update_func("task", task)
+
+    return config
