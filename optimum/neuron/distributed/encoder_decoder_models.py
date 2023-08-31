@@ -68,17 +68,6 @@ class T5ParallelSelfAttention(ParallelSelfAttention):
         num_attention_heads = getattr(layer, num_attention_heads_name)
         num_attention_heads_per_rank = num_attention_heads // tp_size
 
-        layer = super().transform(model, layer, orig_to_parallel=orig_to_parallel, device=device)
-
-        orig_compute_bias = layer.compute_bias
-
-        def compute_bias(self, query_length, key_length, device=None):
-            """Compute binned relative position bias"""
-            values = orig_compute_bias(query_length, key_length, device=device)
-            return values[:, tp_rank * num_attention_heads_per_rank : (tp_rank + 1) * num_attention_heads_per_rank]
-
-        # layer.compute_bias = compute_bias.__get__(layer)
-
         if layer.has_relative_attention_bias:
             with torch.no_grad():
                 layer.relative_attention_bias.weight.data = layer.relative_attention_bias.weight.data[
@@ -86,6 +75,8 @@ class T5ParallelSelfAttention(ParallelSelfAttention):
                 ]
                 layer.relative_attention_bias.embedding_dim = num_attention_heads_per_rank
                 set_tensor_model_parallel_attributes(layer.relative_attention_bias.weight, True, 1, stride=1)
+
+        layer = super().transform(model, layer, orig_to_parallel=orig_to_parallel, device=device)
 
         return layer
 

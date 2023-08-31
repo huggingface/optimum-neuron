@@ -205,6 +205,34 @@ class NeuronTrainingArgumentsMixin:
             divisor = self.tp_plugin.tensor_parallel_size
         return super().world_size // divisor
 
+    @property
+    def train_batch_size(self) -> int:
+        """
+        The actual batch size for training (may differ from `per_gpu_train_batch_size` in distributed training).
+        """
+        if self.per_gpu_train_batch_size:
+            logger.warning(
+                "Using deprecated `--per_gpu_train_batch_size` argument which will be removed in a future "
+                "version. Using `--per_device_train_batch_size` is preferred."
+            )
+        per_device_batch_size = self.per_gpu_train_batch_size or self.per_device_train_batch_size
+        train_batch_size = per_device_batch_size * 1
+        return train_batch_size
+
+    @property
+    def eval_batch_size(self) -> int:
+        """
+        The actual batch size for evaluation (may differ from `per_gpu_eval_batch_size` in distributed training).
+        """
+        if self.per_gpu_eval_batch_size:
+            logger.warning(
+                "Using deprecated `--per_gpu_eval_batch_size` argument which will be removed in a future "
+                "version. Using `--per_device_eval_batch_size` is preferred."
+            )
+        per_device_batch_size = self.per_gpu_eval_batch_size or self.per_device_eval_batch_size
+        eval_batch_size = per_device_batch_size * max(1, self.n_gpu)
+        return eval_batch_size
+
 
 @dataclass
 class NeuronTrainingArguments(NeuronTrainingArgumentsMixin, TrainingArguments):
