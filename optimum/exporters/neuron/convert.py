@@ -220,8 +220,12 @@ def validate_model_outputs(
     shape_failures = []
     value_failures = []
     for name, output in zip(neuron_output_names_list, neuron_outputs):
-        ref_output = ref_outputs[name].numpy()
-        output = output.numpy()
+        if isinstance(output, torch.Tensor):
+            ref_output = ref_outputs[name].numpy()
+            output = output.numpy()
+        elif isinstance(output, tuple):  # eg. `hidden_states` of `AutoencoderKL` is a tuple of tensors.
+            ref_output = torch.stack(ref_outputs[name]).numpy()
+            output = torch.stack(output).numpy()
 
         logger.info(f'\t- Validating Neuron Model output "{name}":')
 
