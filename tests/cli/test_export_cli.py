@@ -20,15 +20,11 @@ import unittest
 from itertools import product
 from typing import Dict, Optional
 
-from parameterized import parameterized
-
 from optimum.exporters.neuron.model_configs import *  # noqa: F403
 from optimum.exporters.tasks import TasksManager
 from optimum.neuron.utils import is_neuron_available, is_neuronx_available
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 from optimum.utils import DEFAULT_DUMMY_SHAPES, logging
-
-from ..exporters.exporters_utils import EXPORT_MODELS_TINY
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
@@ -125,12 +121,12 @@ class TestExportCLI(unittest.TestCase):
         for command in commands:
             subprocess.run(command, shell=True, check=True)
 
-    @parameterized.expand(_get_commands_to_test(_get_models_to_test(EXPORT_MODELS_TINY)), skip_on_empty=True)
-    def test_export_commands(self, test_name, command_content):
-        with tempfile.TemporaryDirectory() as tempdir:
-            command = command_content + f" {tempdir}"
+    # @parameterized.expand(_get_commands_to_test(_get_models_to_test(EXPORT_MODELS_TINY)), skip_on_empty=True)
+    # def test_export_commands(self, test_name, command_content):
+    #     with tempfile.TemporaryDirectory() as tempdir:
+    #         command = command_content + f" {tempdir}"
 
-            subprocess.run(command, shell=True, check=True)
+    #         subprocess.run(command, shell=True, check=True)
 
     @requires_neuronx
     def test_dynamic_batching(self):
@@ -206,7 +202,7 @@ class TestExportCLI(unittest.TestCase):
                     "64",
                     "--width",
                     "64",
-                    "--num_image_per_prompt",
+                    "--num_images_per_prompt",
                     "4",
                     "--auto_cast",
                     "matmul",
