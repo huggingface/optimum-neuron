@@ -405,7 +405,7 @@ class NeuronBaseModel(OptimizedModel):
         }
 
         # Neuron config constructuor
-        task = TasksManager.infer_task_from_model(cls.auto_model_class)
+        task = getattr(config, "task") or TasksManager.infer_task_from_model(cls.auto_model_class)
         task = TasksManager.map_from_synonym(task)
         neuron_config_constructor = TasksManager.get_exporter_config_constructor(
             model_type=config.model_type, exporter="neuron", task=task

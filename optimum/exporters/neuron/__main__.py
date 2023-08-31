@@ -25,6 +25,7 @@ from requests.exceptions import ConnectionError as RequestsConnectionError
 from transformers import AutoConfig
 
 from ...neuron.utils import (
+    DIFFUSION_MODEL_TEXT_ENCODER_2_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_NAME,
     DIFFUSION_MODEL_UNET_NAME,
     DIFFUSION_MODEL_VAE_DECODER_NAME,
@@ -56,6 +57,9 @@ if is_neuronx_available():
     from ...commands.export.neuronx import parse_args_neuronx as parse_args_neuron  # noqa: F811
 
     NEURON_COMPILER = "Neuronx"
+
+if is_diffusers_available():
+    from diffusers import StableDiffusionXLPipeline
 
 
 if TYPE_CHECKING:
@@ -133,7 +137,7 @@ def normalize_stable_diffusion_input_shapes(
 
 def infer_stable_diffusion_shapes_from_diffusers(
     input_shapes: Dict[str, Dict[str, int]],
-    model: "StableDiffusionPipeline",
+    model: Union["StableDiffusionPipeline", "StableDiffusionXLPipeline"],
 ):
     sequence_length = model.tokenizer.model_max_length
     unet_num_channels = model.unet.config.in_channels
@@ -153,6 +157,8 @@ def infer_stable_diffusion_shapes_from_diffusers(
     input_shapes["vae_decoder_input_shapes"].update(
         {"num_channels": vae_decoder_num_channels, "height": height, "width": width}
     )
+
+    return input_shapes
 
 
 def main_export(
@@ -179,8 +185,8 @@ def main_export(
     task = TasksManager.map_from_synonym(task)
 
     model = TasksManager.get_model_from_task(
-        task,
-        model_name_or_path,
+        task=task,
+        model_name_or_path=model_name_or_path,
         subfolder=subfolder,
         revision=revision,
         cache_dir=cache_dir,
@@ -191,7 +197,8 @@ def main_export(
         framework="pt",
     )
 
-    if task != "stable-diffusion":
+    is_stable_diffusion = "stable-diffusion" in task
+    if not is_stable_diffusion:
         neuron_config_constructor = TasksManager.get_exporter_config_constructor(
             model=model, exporter="neuron", task=task
         )
@@ -202,31 +209,39 @@ def main_export(
         models_and_neuron_configs = {"model": (model, neuron_config)}
         maybe_save_preprocessors(model, output.parent)
 
-    if task == "stable-diffusion":
+    if is_stable_diffusion:
         check_compiler_compatibility_for_stable_diffusion()
         if is_neuron_available():
             raise RuntimeError(
                 "Stable diffusion export is not supported by neuron-cc on inf1, please use neuronx-cc on either inf2/trn1 instead."
             )
+        input_shapes = infer_stable_diffusion_shapes_from_diffusers(input_shapes, model)
+        models_and_neuron_configs = get_stable_diffusion_models_for_export(
+            pipeline=model,
+            task=task,
+            dynamic_batch_size=dynamic_batch_size,
+            **input_shapes,
+        )
+
+        # Saving the model config and preprocessor as this is needed sometimes.
+        model.scheduler.save_pretrained(output.joinpath("scheduler"))
+        model.tokenizer.save_pretrained(output.joinpath("tokenizer"))
+        if hasattr(model, "tokenizer_2"):
+            model.tokenizer_2.save_pretrained(output.joinpath("tokenizer_2"))
+        if hasattr(model, "feature_extractor"):
+            model.feature_extractor.save_pretrained(output.joinpath("feature_extractor"))
+        model.save_config(output)
+
         output_model_names = {
             DIFFUSION_MODEL_TEXT_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_TEXT_ENCODER_NAME, NEURON_FILE_NAME),
             DIFFUSION_MODEL_UNET_NAME: os.path.join(DIFFUSION_MODEL_UNET_NAME, NEURON_FILE_NAME),
             DIFFUSION_MODEL_VAE_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_ENCODER_NAME, NEURON_FILE_NAME),
             DIFFUSION_MODEL_VAE_DECODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_DECODER_NAME, NEURON_FILE_NAME),
         }
-        infer_stable_diffusion_shapes_from_diffusers(input_shapes, model)
-
-        models_and_neuron_configs = get_stable_diffusion_models_for_export(
-            model,
-            dynamic_batch_size=dynamic_batch_size,
-            **input_shapes,
-        )
-        # Saving the model config and preprocessor as this is needed sometimes.
-        model.tokenizer.save_pretrained(output.joinpath("tokenizer"))
-        model.scheduler.save_pretrained(output.joinpath("scheduler"))
-        if model.feature_extractor is not None:
-            model.feature_extractor.save_pretrained(output.joinpath("feature_extractor"))
-        model.save_config(output)
+        if hasattr(model, "text_encoder_2"):
+            output_model_names[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME] = os.path.join(
+                DIFFUSION_MODEL_TEXT_ENCODER_2_NAME, NEURON_FILE_NAME
+            )
 
     _, neuron_outputs = export_models(
         models_and_neuron_configs=models_and_neuron_configs,
@@ -239,6 +254,12 @@ def main_export(
 
     # Validate compiled model
     if do_validation is True:
+        if is_stable_diffusion:
+            # Do not validate vae encoder due to the sampling randomness
+            del neuron_outputs[-2]  # -2 is the index of `vae_encoder`
+            models_and_neuron_configs.pop("vae_encoder", None)
+            output_model_names.pop("vae_encoder", None)
+
         try:
             validate_models_outputs(
                 models_and_neuron_configs=models_and_neuron_configs,
@@ -279,9 +300,10 @@ def main():
     args = parser.parse_args()
 
     task = infer_task(args.task, args.model)
+    is_stable_diffusion = "stable-diffusion" in task
     compiler_kwargs = infer_compiler_kwargs(args)
 
-    if task == "stable-diffusion":
+    if is_stable_diffusion:
         input_shapes = normalize_stable_diffusion_input_shapes(args)
     else:
         input_shapes = normalize_input_shapes(task, args)

@@ -68,6 +68,10 @@ class NeuronConfig(ExportConfig, ABC):
             The task the model should be exported for.
         dynamic_batch_size (`bool`, defaults to `False`):
             Whether the Neuron compiled model supports dynamic batch size.
+        int_dtype (`str`, defaults to `"int64"`):
+            The data type of integer tensors, could be ["int64", "int32", "int8"], default to "int64".
+        float_dtype (`str`, defaults to `"fp32"`):
+            The data type of float tensors, could be ["fp32", "fp16", "bf16"], default to "fp32".
 
         The rest of the arguments are used to specify the shape of the inputs the model can take.
         They are required or not depending on the model the `NeuronConfig` is designed for.
@@ -115,6 +119,9 @@ class NeuronConfig(ExportConfig, ABC):
         audio_sequence_length: Optional[int] = None,
         point_batch_size: Optional[int] = None,
         nb_points_per_image: Optional[int] = None,
+        # TODO: add custom dtype after optimum 1.13 release
+        # int_dtype: str = "int64",
+        # float_dtype: str = "fp32",
     ):
         self._config = config
         self._normalized_config = self.NORMALIZED_CONFIG_CLASS(self._config)
@@ -254,6 +261,8 @@ class NeuronConfig(ExportConfig, ABC):
             for dummy_input_gen in dummy_inputs_generators:
                 if dummy_input_gen.supports_input(input_name):
                     dummy_inputs[input_name] = dummy_input_gen.generate(input_name, framework="pt")
+                    # TODO: add custom dtype after optimum 1.13 release
+                    # dummy_inputs[input_name] = dummy_input_gen.generate(input_name, framework="pt", int_dtype=self.int_dtype, float_dtype=self.float_dtype)
                     input_was_inserted = True
                     break
             if not input_was_inserted:

@@ -127,7 +127,7 @@ def validate_models_outputs(
     if len(exceptions) != 0:
         for i, exception in enumerate(exceptions[:-1]):
             logger.error(f"Validation {i} for the model {neuron_paths[i].as_posix()} raised: {exception}")
-        raise exceptions[-1]
+        raise Exception(exceptions[-1])
 
 
 def validate_model_outputs(
@@ -220,8 +220,12 @@ def validate_model_outputs(
     shape_failures = []
     value_failures = []
     for name, output in zip(neuron_output_names_list, neuron_outputs):
-        ref_output = ref_outputs[name].numpy()
-        output = output.numpy()
+        if isinstance(output, torch.Tensor):
+            ref_output = ref_outputs[name].numpy()
+            output = output.numpy()
+        elif isinstance(output, tuple):  # eg. `hidden_states` of `AutoencoderKL` is a tuple of tensors.
+            ref_output = torch.stack(ref_outputs[name]).numpy()
+            output = torch.stack(output).numpy()
 
         logger.info(f'\t- Validating Neuron Model output "{name}":')
 
@@ -321,7 +325,7 @@ def export_models(
                 model_config = OrderedDict(model_config)
                 model_config = DiffusersPretrainedConfig.from_dict(model_config)
 
-            store_compilation_config(
+            model_config = store_compilation_config(
                 config=model_config,
                 input_shapes=sub_neuron_config.input_shapes,
                 compiler_kwargs=compiler_kwargs,
@@ -331,6 +335,7 @@ def export_models(
                 compiler_type=NEURON_COMPILER_TYPE,
                 compiler_version=NEURON_COMPILER_VERSION,
                 model_type=getattr(sub_neuron_config, "MODEL_TYPE", None),
+                task=getattr(sub_neuron_config, "task", None),
             )
             if isinstance(model_config, PretrainedConfig):
                 model_config = DiffusersPretrainedConfig.from_dict(model_config.__dict__)

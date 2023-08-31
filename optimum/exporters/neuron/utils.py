@@ -16,6 +16,7 @@
 
 import copy
 import os
+from collections import OrderedDict
 from typing import TYPE_CHECKING, Dict, Optional, Tuple, Union
 
 import torch
@@ -23,11 +24,13 @@ from packaging import version
 from transformers import PretrainedConfig
 
 from ...neuron.utils import (
+    DIFFUSION_MODEL_TEXT_ENCODER_2_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_NAME,
     DIFFUSION_MODEL_UNET_NAME,
     DIFFUSION_MODEL_VAE_DECODER_NAME,
     DIFFUSION_MODEL_VAE_ENCODER_NAME,
-    get_attention_scores,
+    get_attention_scores_sd,
+    get_attention_scores_sdxl,
 )
 from ...utils import (
     DIFFUSERS_MINIMUM_VERSION,
@@ -65,7 +68,7 @@ if TYPE_CHECKING:
     from .base import NeuronConfig
 
     if is_diffusers_available():
-        from diffusers import ModelMixin, StableDiffusionPipeline
+        from diffusers import ModelMixin, StableDiffusionPipeline, StableDiffusionXLImg2ImgPipeline
 
 
 class DiffusersPretrainedConfig(PretrainedConfig):
@@ -122,7 +125,8 @@ def build_stable_diffusion_components_mandatory_shapes(
 
 
 def get_stable_diffusion_models_for_export(
-    pipeline: "StableDiffusionPipeline",
+    pipeline: Union["StableDiffusionPipeline", "StableDiffusionXLImg2ImgPipeline"],
+    task: str,
     text_encoder_input_shapes: Dict[str, int],
     unet_input_shapes: Dict[str, int],
     vae_encoder_input_shapes: Dict[str, int],
@@ -136,8 +140,10 @@ def get_stable_diffusion_models_for_export(
     performance benefit (CLIP text encoder, VAE encoder, VAE decoder, Unet).
 
     Args:
-        pipeline ([`StableDiffusionPipeline`]):
+        pipeline ([`Union["StableDiffusionPipeline", "StableDiffusionXLImg2ImgPipeline"]`]):
             The model to export.
+        task (`str`):
+            Task name, should be either "stable-diffusion" or "stable-diffusion-xl".
         text_encoder_input_shapes (`Dict[str, int]`):
             Static shapes used for compiling text encoder.
         unet_input_shapes (`Dict[str, int]`):
@@ -153,20 +159,37 @@ def get_stable_diffusion_models_for_export(
         `Dict[str, Tuple[Union[`PreTrainedModel`, `ModelMixin`], `NeuronConfig`]: A Dict containing the model and
         Neuron configs for the different components of the model.
     """
-    models_for_export = _get_submodels_for_export_stable_diffusion(pipeline)
+    models_for_export = _get_submodels_for_export_stable_diffusion(pipeline=pipeline, task=task)
 
-    # Text encoder
-    text_encoder = models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_NAME]
-    text_encoder_config_constructor = TasksManager.get_exporter_config_constructor(
-        model=text_encoder, exporter="neuron", task="feature-extraction"
-    )
-    text_encoder_neuron_config = text_encoder_config_constructor(
-        text_encoder.config,
-        task="feature-extraction",
-        dynamic_batch_size=dynamic_batch_size,
-        **text_encoder_input_shapes,
-    )
-    models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_NAME] = (text_encoder, text_encoder_neuron_config)
+    # Text encoders
+    if DIFFUSION_MODEL_TEXT_ENCODER_NAME in models_for_export:
+        text_encoder = models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_NAME]
+        text_encoder_config_constructor = TasksManager.get_exporter_config_constructor(
+            model=text_encoder, exporter="neuron", task="feature-extraction"
+        )
+        text_encoder_neuron_config = text_encoder_config_constructor(
+            text_encoder.config,
+            task="feature-extraction",
+            dynamic_batch_size=dynamic_batch_size,
+            **text_encoder_input_shapes,
+        )
+        models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_NAME] = (text_encoder, text_encoder_neuron_config)
+
+    if DIFFUSION_MODEL_TEXT_ENCODER_2_NAME in models_for_export:
+        text_encoder_2 = models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME]
+        text_encoder_config_constructor_2 = TasksManager.get_exporter_config_constructor(
+            model=text_encoder_2,
+            exporter="neuron",
+            task="feature-extraction",
+            model_type="clip-text-with-projection",
+        )
+        text_encoder_neuron_config_2 = text_encoder_config_constructor_2(
+            text_encoder_2.config,
+            task="feature-extraction",
+            dynamic_batch_size=dynamic_batch_size,
+            **text_encoder_input_shapes,
+        )
+        models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME] = (text_encoder_2, text_encoder_neuron_config_2)
 
     # U-NET
     unet = models_for_export[DIFFUSION_MODEL_UNET_NAME]
@@ -217,17 +240,29 @@ def get_stable_diffusion_models_for_export(
 
 
 def _get_submodels_for_export_stable_diffusion(
-    pipeline: "StableDiffusionPipeline",
+    pipeline: Union["StableDiffusionPipeline", "StableDiffusionXLImg2ImgPipeline"],
+    task: str,
 ) -> Dict[str, Union["PreTrainedModel", "ModelMixin"]]:
     """
     Returns the components of a Stable Diffusion model.
     """
-    models_for_export = {}
-    projection_dim = pipeline.text_encoder.config.projection_dim
+    is_sdxl = "xl" in task
 
-    # Text encoder
+    models_for_export = []
+    projection_dim = (
+        pipeline.text_encoder_2.config.projection_dim if is_sdxl else pipeline.text_encoder.config.projection_dim
+    )
+
+    # Text encoders
     if pipeline.text_encoder is not None:
-        models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_NAME] = copy.deepcopy(pipeline.text_encoder)
+        if is_sdxl:
+            pipeline.text_encoder.config.output_hidden_states = True
+        models_for_export.append((DIFFUSION_MODEL_TEXT_ENCODER_NAME, copy.deepcopy(pipeline.text_encoder)))
+
+    text_encoder_2 = getattr(pipeline, "text_encoder_2", None)
+    if text_encoder_2 is not None:
+        text_encoder_2.config.output_hidden_states = True
+        models_for_export.append((DIFFUSION_MODEL_TEXT_ENCODER_2_NAME, copy.deepcopy(text_encoder_2)))
 
     # U-NET
     pipeline.unet.set_attn_processor(AttnProcessor())
@@ -239,29 +274,29 @@ def _get_submodels_for_export_stable_diffusion(
     # Replace original cross-attention module with custom cross-attention module for better performance
     # For applying optimized attention score, we need to set env variable  `NEURON_FUSE_SOFTMAX=1`
     if os.environ.get("NEURON_FUSE_SOFTMAX") == "1":
-        Attention.get_attention_scores = get_attention_scores
+        Attention.get_attention_scores = get_attention_scores_sdxl if is_sdxl else get_attention_scores_sd
     else:
         logger.warning(
             "You are not applying optimized attention score computation. If you want better performance, please"
             " set the environment variable with `export NEURON_FUSE_SOFTMAX=1` and recompile the unet model."
         )
-    models_for_export["unet"] = copy.deepcopy(pipeline.unet)
+    models_for_export.append((DIFFUSION_MODEL_UNET_NAME, copy.deepcopy(pipeline.unet)))
 
     # VAE Encoder
     vae_encoder = copy.deepcopy(pipeline.vae)
     if not version.parse(torch.__version__) >= version.parse("2.1.0"):
         vae_encoder = override_diffusers_2_0_attn_processors(vae_encoder)
     vae_encoder.forward = lambda sample: {"latent_sample": vae_encoder.encode(x=sample)["latent_dist"].sample()}
-    models_for_export["vae_encoder"] = vae_encoder
+    models_for_export.append((DIFFUSION_MODEL_VAE_ENCODER_NAME, vae_encoder))
 
     # VAE Decoder
     vae_decoder = copy.deepcopy(pipeline.vae)
     if not version.parse(torch.__version__) >= version.parse("2.1.0"):
         vae_decoder = override_diffusers_2_0_attn_processors(vae_decoder)
     vae_decoder.forward = lambda latent_sample: vae_decoder.decode(z=latent_sample)
-    models_for_export["vae_decoder"] = vae_decoder
+    models_for_export.append((DIFFUSION_MODEL_VAE_DECODER_NAME, vae_decoder))
 
-    return models_for_export
+    return OrderedDict(models_for_export)
 
 
 def override_diffusers_2_0_attn_processors(model):
