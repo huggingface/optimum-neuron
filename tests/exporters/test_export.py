@@ -52,7 +52,7 @@ from .exporters_utils import EXPORT_MODELS_TINY, STABLE_DIFFUSION_MODELS_TINY
 
 
 if is_diffusers_available():
-    from diffusers import StableDiffusionPipeline
+    from diffusers import StableDiffusionPipeline, StableDiffusionXLPipeline
 
 SEED = 42
 
@@ -204,7 +204,7 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
         set_seed(SEED)
 
         # prepare neuron config / models
-        pipe = StableDiffusionPipeline.from_pretrained(model_name)
+        pipe = StableDiffusionXLPipeline.from_pretrained(model_name)
         input_shapes = build_stable_diffusion_components_mandatory_shapes(
             **{"batch_size": 1, "height": 64, "width": 64}
         )

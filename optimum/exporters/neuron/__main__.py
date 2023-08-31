@@ -253,35 +253,41 @@ def main_export(
 
     # Validate compiled model
     if do_validation is True:
-        # try:
-        validate_models_outputs(
-            models_and_neuron_configs=models_and_neuron_configs,
-            neuron_named_outputs=neuron_outputs,
-            output_dir=output,
-            atol=atol,
-            neuron_files_subpaths=output_model_names,
-        )
+        if is_stable_diffusion:
+            # Do not validate vae encoder due to the sampling randomness
+            del neuron_outputs[-2]  # -2 is the index of `vae_encoder`
+            models_and_neuron_configs.pop("vae_encoder", None)
+            output_model_names.pop("vae_encoder", None)
 
-        logger.info(
-            f"The {NEURON_COMPILER} export succeeded and the exported model was saved at: " f"{output.as_posix()}"
-        )
-        # except ShapeError as e:
-        #     raise e
-        # except AtolError as e:
-        #     logger.warning(
-        #         f"The {NEURON_COMPILER} export succeeded with the warning: {e}.\n The exported model was saved at: "
-        #         f"{output.as_posix()}"
-        #     )
-        # except OutputMatchError as e:
-        #     logger.warning(
-        #         f"The {NEURON_COMPILER} export succeeded with the warning: {e}.\n The exported model was saved at: "
-        #         f"{output.as_posix()}"
-        #     )
-        # except Exception as e:
-        #     logger.error(
-        #         f"An error occured with the error message: {e}.\n The exported model was saved at: "
-        #         f"{output.as_posix()}"
-        #     )
+        try:
+            validate_models_outputs(
+                models_and_neuron_configs=models_and_neuron_configs,
+                neuron_named_outputs=neuron_outputs,
+                output_dir=output,
+                atol=atol,
+                neuron_files_subpaths=output_model_names,
+            )
+
+            logger.info(
+                f"The {NEURON_COMPILER} export succeeded and the exported model was saved at: " f"{output.as_posix()}"
+            )
+        except ShapeError as e:
+            raise e
+        except AtolError as e:
+            logger.warning(
+                f"The {NEURON_COMPILER} export succeeded with the warning: {e}.\n The exported model was saved at: "
+                f"{output.as_posix()}"
+            )
+        except OutputMatchError as e:
+            logger.warning(
+                f"The {NEURON_COMPILER} export succeeded with the warning: {e}.\n The exported model was saved at: "
+                f"{output.as_posix()}"
+            )
+        except Exception as e:
+            logger.error(
+                f"An error occured with the error message: {e}.\n The exported model was saved at: "
+                f"{output.as_posix()}"
+            )
 
 
 def main():

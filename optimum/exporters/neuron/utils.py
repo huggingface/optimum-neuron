@@ -16,6 +16,7 @@
 
 import copy
 import os
+from collections import OrderedDict
 from typing import TYPE_CHECKING, Dict, Optional, Tuple, Union
 
 import torch
@@ -247,7 +248,7 @@ def _get_submodels_for_export_stable_diffusion(
     """
     is_sdxl = "xl" in task
 
-    models_for_export = {}
+    models_for_export = []
     projection_dim = (
         pipeline.text_encoder_2.config.projection_dim if is_sdxl else pipeline.text_encoder.config.projection_dim
     )
@@ -256,12 +257,12 @@ def _get_submodels_for_export_stable_diffusion(
     if pipeline.text_encoder is not None:
         if is_sdxl:
             pipeline.text_encoder.config.output_hidden_states = True
-        models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_NAME] = copy.deepcopy(pipeline.text_encoder)
+        models_for_export.append((DIFFUSION_MODEL_TEXT_ENCODER_NAME, copy.deepcopy(pipeline.text_encoder)))
 
     text_encoder_2 = getattr(pipeline, "text_encoder_2", None)
     if text_encoder_2 is not None:
         text_encoder_2.config.output_hidden_states = True
-        models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME] = copy.deepcopy(text_encoder_2)
+        models_for_export.append((DIFFUSION_MODEL_TEXT_ENCODER_2_NAME, copy.deepcopy(text_encoder_2)))
 
     # U-NET
     pipeline.unet.set_attn_processor(AttnProcessor())
@@ -279,23 +280,23 @@ def _get_submodels_for_export_stable_diffusion(
             "You are not applying optimized attention score computation. If you want better performance, please"
             " set the environment variable with `export NEURON_FUSE_SOFTMAX=1` and recompile the unet model."
         )
-    models_for_export[DIFFUSION_MODEL_UNET_NAME] = copy.deepcopy(pipeline.unet)
+    models_for_export.append((DIFFUSION_MODEL_UNET_NAME, copy.deepcopy(pipeline.unet)))
 
     # VAE Encoder
     vae_encoder = copy.deepcopy(pipeline.vae)
     if not version.parse(torch.__version__) >= version.parse("2.1.0"):
         vae_encoder = override_diffusers_2_0_attn_processors(vae_encoder)
     vae_encoder.forward = lambda sample: {"latent_sample": vae_encoder.encode(x=sample)["latent_dist"].sample()}
-    models_for_export[DIFFUSION_MODEL_VAE_ENCODER_NAME] = vae_encoder
+    models_for_export.append((DIFFUSION_MODEL_VAE_ENCODER_NAME, vae_encoder))
 
     # VAE Decoder
     vae_decoder = copy.deepcopy(pipeline.vae)
     if not version.parse(torch.__version__) >= version.parse("2.1.0"):
         vae_decoder = override_diffusers_2_0_attn_processors(vae_decoder)
     vae_decoder.forward = lambda latent_sample: vae_decoder.decode(z=latent_sample)
-    models_for_export[DIFFUSION_MODEL_VAE_DECODER_NAME] = vae_decoder
+    models_for_export.append((DIFFUSION_MODEL_VAE_DECODER_NAME, vae_decoder))
 
-    return models_for_export
+    return OrderedDict(models_for_export)
 
 
 def override_diffusers_2_0_attn_processors(model):

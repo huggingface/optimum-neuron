@@ -39,7 +39,7 @@ logger = logging.get_logger()
 @is_inferentia_test
 @requires_neuronx
 @require_diffusers
-class NeuronModelForMultipleChoiceIntegrationTest(unittest.TestCase):
+class NeuronStableDiffusionPipelineIntegrationTest(unittest.TestCase):
     NEURON_MODEL_CLASS = NeuronStableDiffusionPipeline
     STATIC_INPUTS_SHAPES = {"batch_size": 1, "height": 64, "width": 64}
     COMPILER_ARGS = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
