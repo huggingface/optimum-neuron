@@ -73,7 +73,7 @@ class NeuronTrainerState(TrainerState):
 class NeuronCacheCallback(TrainerCallback):
     def __init__(
         self,
-        tmp_neuron_cache: Optional[TemporaryDirectory] = None,
+        tmp_neuron_cache: Optional[Path] = None,
         original_neuron_cache_path: Optional[Path] = None,
         fetch: bool = True,
         push: bool = True,
@@ -100,12 +100,17 @@ class NeuronCacheCallback(TrainerCallback):
             # By setting `self.tmp_neuron_cache` to `self.neuron_cache_path`, `neuron_parallel_compile` will extract
             # the very same graphs than the one created during real training, while not doing any synchronization
             # during training since the compiled files will not be there yet.
-            self.tmp_neuron_cache = self.neuron_cache_path
+            self.tmp_neuron_cache_path = self.neuron_cache_path
         elif tmp_neuron_cache is None:
-            self.tmp_neuron_cache = self.create_temporary_neuron_cache(self.neuron_cache_path)
+            # To keep an instance of the TemporaryDirectory as long as the callback lives.
+            self._tmp_neuron_cache = self.create_temporary_neuron_cache(self.neuron_cache_path)
+            self.tmp_neuron_cache_path = self._tmp_neuron_cache.name
         else:
-            self.tmp_neuron_cache = tmp_neuron_cache
-        self.tmp_neuron_cache_path = Path(self.tmp_neuron_cache.name) / NEURON_COMPILE_CACHE_NAME
+            self.tmp_neuron_cache_path = tmp_neuron_cache
+
+        if self.tmp_neuron_cache_path.name != NEURON_COMPILE_CACHE_NAME:
+            self.tmp_neuron_cache_path = self.tmp_neuron_cache_path / NEURON_COMPILE_CACHE_NAME
+
         self.tmp_neuron_cache_state = list_files_in_neuron_cache(self.tmp_neuron_cache_path, only_relevant_files=True)
         self.fetch_files = set()
 
@@ -218,7 +223,7 @@ class NeuronCacheCallback(TrainerCallback):
 
         key_args = (model, input_shapes, data_type)
         key_kwargs = {"tensor_parallel_size": args.tensor_parallel_size}
-        key = key_args + tuple(key_kwargs.values())
+        key = (id(model),) + key_args[1:] + tuple(key_kwargs.values())
         neuron_hash = self.neuron_hashes.get(key, None)
         if neuron_hash is None:
             neuron_hash = NeuronHash(*key_args, **key_kwargs)

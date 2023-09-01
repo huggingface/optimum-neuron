@@ -22,7 +22,7 @@ import re
 import shutil
 import subprocess
 import tempfile
-from dataclasses import asdict, dataclass, field
+from dataclasses import InitVar, asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 
@@ -217,7 +217,7 @@ def get_neuron_cache_path() -> Optional[Path]:
     if "--no-cache" in neuron_cc_flags:
         return None
     else:
-        match_ = re.search(r"--cache_dir=([\w\/]+)", neuron_cc_flags)
+        match_ = re.search(r"--cache_dir=([\w\/-]+)", neuron_cc_flags)
         if match_:
             path = Path(match_.group(1))
         else:
@@ -553,7 +553,7 @@ class _UnspecifiedHashAttribute:
 
 @dataclass(frozen=True)
 class NeuronHash:
-    model: "PreTrainedModel"
+    model: InitVar["PreTrainedModel"]
     input_shapes: Tuple[Tuple[str, Tuple[int, ...]], ...]
     data_type: torch.dtype
     num_neuron_cores: int = field(default_factory=get_num_neuron_cores_used)
@@ -564,13 +564,31 @@ class NeuronHash:
     tensor_parallel_size: Union[int, _UnspecifiedHashAttribute] = field(
         default_factory=_UnspecifiedHashAttribute.with_args(min_optimum_neuron_version="0.0.8", default=1)
     )
+    _is_private: Optional[bool] = None
+    _model_type: Optional[str] = None
     _hash: _MutableHashAttribute = field(default_factory=_MutableHashAttribute)
 
-    def __post_init__(self):
+    def __post_init__(self, model: "PreTrainedModel"):
         for attr in self.__dict__.values():
             if isinstance(attr, _UnspecifiedHashAttribute):
                 attr.check_requirements_are_met(self.neuron_compiler_version)
-        self.compute_hash()
+
+        # Checking whether the model is private or not.
+        is_private = None
+        model_name_or_path = _get_model_name_or_path(model.config)
+        if model_name_or_path is None:
+            is_private = True
+        elif Path(model_name_or_path).exists():
+            is_private = True
+        else:
+            is_private = is_private_repo(model_name_or_path)
+
+        # Using object.__setattr__ to change the field value because NeuronHash is supposed to be frozen.
+        # Not very clear, but it should work here.
+        super().__setattr__("_is_private", is_private)
+        super().__setattr__("_model_type", model.config.model_type)
+
+        self.compute_hash(model)
 
     def _insert_potential_unspecified_hash_attribute(
         self, attribute_name: str, attribute: Any, hash_dict: Dict[str, Any]
@@ -582,19 +600,6 @@ class NeuronHash:
             hash_dict[attribute_name] = attribute.default
         else:
             hash_dict[attribute_name] = attribute
-
-    @property
-    def hash_dict(self) -> Dict[str, Any]:
-        hash_dict = asdict(self)
-        hash_dict["model"] = hash_dict["model"].state_dict()
-        hash_dict["_model_class"] = self.model.__class__
-        hash_dict["_is_model_training"] = self.model.training
-        hash_dict.pop("_hash")
-
-        self._insert_potential_unspecified_hash_attribute("tensor_parallel_size", self.tensor_parallel_size, hash_dict)
-        self._insert_potential_unspecified_hash_attribute("fsdp", self.fsdp, hash_dict)
-
-        return hash_dict
 
     def state_dict_to_bytes(self, state_dict: Dict[str, torch.Tensor]) -> bytes:
         cast_to_mapping = {
@@ -614,12 +619,25 @@ class NeuronHash:
             hash_.update(buffer)
         return hash_.hexdigest()
 
-    def compute_hash(self) -> Tuple[str, str]:
+    def compute_hash(self, model: Optional["PreTrainedModel"] = None) -> Tuple[str, str]:
         if self._hash.is_empty:
-            model_hash = self.compute_sha512_hash(self.state_dict_to_bytes(self.model.state_dict()))
+            if model is None:
+                raise ValueError("A model must be specified the first time the hash is computed.")
+            model_hash = self.compute_sha512_hash(self.state_dict_to_bytes(model.state_dict()))
 
-            hash_dict = self.hash_dict
+            hash_dict = asdict(self)
             hash_dict["model"] = model_hash
+            hash_dict["_model_class"] = model.__class__
+            hash_dict["_is_model_training"] = model.training
+            hash_dict.pop("_is_private")
+            hash_dict.pop("_model_type")
+            hash_dict.pop("_hash")
+
+            self._insert_potential_unspecified_hash_attribute(
+                "tensor_parallel_size", self.tensor_parallel_size, hash_dict
+            )
+            self._insert_potential_unspecified_hash_attribute("fsdp", self.fsdp, hash_dict)
+
             hash_dict["data_type"] = str(hash_dict["data_type"]).split(".")[1]
 
             buffers = [name.encode("utf-8") + str(value).encode("utf-8") for name, value in hash_dict.items()]
@@ -632,10 +650,12 @@ class NeuronHash:
 
     @property
     def folders(self) -> List[str]:
+        if self._model_type is None:
+            raise ValueError("Model type was not set.")
         model_hash, overall_hash = self.compute_hash()
         return [
             self.neuron_compiler_version,
-            self.model.config.model_type,
+            self._model_type,
             model_hash,
             overall_hash,
         ]
@@ -652,15 +672,7 @@ class NeuronHash:
 
     @property
     def is_private(self):
-        private = None
-        model_name_or_path = _get_model_name_or_path(self.model.config)
-        if model_name_or_path is None:
-            private = True
-        elif Path(model_name_or_path).exists():
-            private = True
-        else:
-            private = is_private_repo(model_name_or_path)
-        return private
+        return self._is_private
 
 
 @dataclass
