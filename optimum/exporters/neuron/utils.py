@@ -274,6 +274,7 @@ def _get_submodels_for_export_stable_diffusion(
     # Replace original cross-attention module with custom cross-attention module for better performance
     # For applying optimized attention score, we need to set env variable  `NEURON_FUSE_SOFTMAX=1`
     if os.environ.get("NEURON_FUSE_SOFTMAX") == "1":
+        logger.info("Applying optimized attention score computation.")
         Attention.get_attention_scores = get_attention_scores_sdxl if is_sdxl else get_attention_scores_sd
     else:
         logger.warning(
