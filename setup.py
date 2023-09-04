@@ -58,7 +58,7 @@ EXTRAS_REQUIRE = {
         "transformers-neuronx",
         "torch==1.13.1.*",
         "torchvision==0.14.*",
-        "neuronx_distributed",
+        "neuronx_distributed >= 0.2.0",
     ],
     "diffusers": ["diffusers"],
 }
