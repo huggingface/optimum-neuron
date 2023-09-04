@@ -91,9 +91,6 @@ _TMP_NEURON_CACHE_PATH: Optional[Path] = None
 _TCP_STORE_ADDRESS = "127.0.0.1"
 _TCP_STORE_PORT = 5000
 
-# TODO: remove that.
-os.environ["NEURON_CC_FLAGS"] = "--log_level=INFO"
-
 
 MODEL_PATCHING_SPECS = [
     ("config.layerdrop", 0),

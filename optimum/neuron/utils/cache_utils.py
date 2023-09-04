@@ -326,7 +326,7 @@ def add_in_registry(repo_id: str, neuron_hash: "NeuronHash"):
     was_added = _ADDED_IN_REGISTRY.get((repo_id, neuron_hash), False)
     if was_added:
         return
-    model_name_or_path = _get_model_name_or_path(neuron_hash.model.config)
+    model_name_or_path = neuron_hash._model_name_or_path
     if model_name_or_path is None:
         model_name_or_path = "null"
 
@@ -564,6 +564,7 @@ class NeuronHash:
     tensor_parallel_size: Union[int, _UnspecifiedHashAttribute] = field(
         default_factory=_UnspecifiedHashAttribute.with_args(min_optimum_neuron_version="0.0.8", default=1)
     )
+    _model_name_or_path: Optional[str] = None
     _is_private: Optional[bool] = None
     _model_type: Optional[str] = None
     _hash: _MutableHashAttribute = field(default_factory=_MutableHashAttribute)
@@ -584,7 +585,8 @@ class NeuronHash:
             is_private = is_private_repo(model_name_or_path)
 
         # Using object.__setattr__ to change the field value because NeuronHash is supposed to be frozen.
-        # Not very clear, but it should work here.
+        # Not very clean, but it should work here.
+        super().__setattr__("_model_name_or_path", model_name_or_path)
         super().__setattr__("_is_private", is_private)
         super().__setattr__("_model_type", model.config.model_type)
 
