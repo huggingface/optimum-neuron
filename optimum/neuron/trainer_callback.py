@@ -223,7 +223,7 @@ class NeuronCacheCallback(TrainerCallback):
 
         key_args = (model, input_shapes, data_type)
         key_kwargs = {"tensor_parallel_size": args.tensor_parallel_size}
-        key = (id(model),) + key_args[1:] + tuple(key_kwargs.values())
+        key = key_args + tuple(key_kwargs.values())
         neuron_hash = self.neuron_hashes.get(key, None)
         if neuron_hash is None:
             neuron_hash = NeuronHash(*key_args, **key_kwargs)
