@@ -276,12 +276,28 @@ class NeuronConfig(ExportConfig, ABC):
         else:
             return dummy_inputs
 
+    @classmethod
+    def flatten_inputs(cls, inputs: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Flatten nested structure in dummy inputs, e.g `addition_embed_type` of unet model.
+        """
+        flatten = {}
+        for name, value in inputs.items():
+            if isinstance(value, dict):
+                for sub_name, sub_value in value.items():
+                    flatten[sub_name] = sub_value
+            else:
+                flatten[name] = value
+        return flatten
+
     def check_model_inputs_order(
         self,
         model: "PreTrainedModel",
-        dummy_inputs: Dict[str, torch.Tensor],
+        dummy_inputs: Optional[Dict[str, torch.Tensor]] = None,
         forward_with_tuple: bool = False,
         eligible_outputs: Optional[List[Union[str, int]]] = None,
+        custom_model_wrapper: Optional[torch.nn.Module] = None,
+        custom_wrapper_kwargs: Optional[Dict] = None,
     ):
         """
         Checks if inputs order of the model's forward pass correspond to the generated dummy inputs to ensure the dummy inputs tuple used for
@@ -320,7 +336,14 @@ class NeuronConfig(ExportConfig, ABC):
 
                 return outputs
 
-        return ModelWrapper(model, list(dummy_inputs.keys()))
+        if custom_model_wrapper:
+            return (
+                custom_model_wrapper(model)
+                if custom_wrapper_kwargs is None
+                else custom_model_wrapper(model, **custom_wrapper_kwargs)
+            )
+        else:
+            return ModelWrapper(model, list(dummy_inputs.keys()))
 
 
 class NeuronDecoderConfig(ExportConfig):

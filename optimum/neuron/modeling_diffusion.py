@@ -34,6 +34,7 @@ from ..utils import is_diffusers_available
 from .modeling_base import NeuronBaseModel
 from .pipelines.diffusers.pipeline_stable_diffusion import StableDiffusionPipelineMixin
 from .utils import (
+    DIFFUSION_MODEL_TEXT_ENCODER_2_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_NAME,
     DIFFUSION_MODEL_UNET_NAME,
     DIFFUSION_MODEL_VAE_DECODER_NAME,
@@ -71,11 +72,13 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         self,
         text_encoder: torch.jit._script.ScriptModule,
         unet: torch.jit._script.ScriptModule,
-        vae_encoder: torch.jit._script.ScriptModule,
         vae_decoder: torch.jit._script.ScriptModule,
         config: Dict[str, Any],
         tokenizer: CLIPTokenizer,
         scheduler: Union[DDIMScheduler, PNDMScheduler, LMSDiscreteScheduler],
+        vae_encoder: Optional[torch.jit._script.ScriptModule] = None,
+        text_encoder_2: Optional[torch.jit._script.ScriptModule] = None,
+        tokenizer_2: Optional[CLIPTokenizer] = None,
         feature_extractor: Optional[CLIPFeatureExtractor] = None,
         device_ids: Optional[List[int]] = None,
         configs: Optional[Dict[str, "PretrainedConfig"]] = None,
@@ -89,8 +92,6 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 The Neuron TorchScript module associated to the text encoder.
             unet (`torch.jit._script.ScriptModule`):
                 The Neuron TorchScript module associated to the U-NET.
-            vae_encoder (`torch.jit._script.ScriptModule`):
-                The Neuron TorchScript module associated to the VAE encoder.
             vae_decoder (`torch.jit._script.ScriptModule`):
                 The Neuron TorchScript module associated to the VAE decoder.
             config (`Dict[str, Any]`):
@@ -101,6 +102,13 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 [CLIPTokenizer](https://huggingface.co/docs/transformers/v4.21.0/en/model_doc/clip#transformers.CLIPTokenizer).
             scheduler (`Union[DDIMScheduler, PNDMScheduler, LMSDiscreteScheduler]`):
                 A scheduler to be used in combination with the U-NET component to denoise the encoded image latents.
+            vae_encoder (`Optional[torch.jit._script.ScriptModule]`, defaults to `None`):
+                The Neuron TorchScript module associated to the VAE encoder.
+            text_encoder_2 (`Optional[torch.jit._script.ScriptModule]`, defaults to `None`):
+                The Neuron TorchScript module associated to the second frozen text encoder. Stable Diffusion XL uses the text and pool portion of [CLIP](https://huggingface.co/docs/transformers/model_doc/clip#transformers.CLIPTextModelWithProjection), specifically the [laion/CLIP-ViT-bigG-14-laion2B-39B-b160k](https://huggingface.co/laion/CLIP-ViT-bigG-14-laion2B-39B-b160k) variant.
+            tokenizer_2 (`Optional[CLIPTokenizer]`, defaults to `None`):
+                Second tokenizer of class
+                [CLIPTokenizer](https://huggingface.co/docs/transformers/v4.21.0/en/model_doc/clip#transformers.CLIPTokenizer).
             feature_extractor (`Optional[CLIPFeatureExtractor]`, defaults to `None`):
                 A model extracting features from generated images to be used as inputs for the `safety_checker`
             device_ids (Optional[List[int]], defaults to `None`):
@@ -123,20 +131,38 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             neuron_config._config.neuron["dynamic_batch_size"] for neuron_config in self.neuron_configs.values()
         )
 
-        self.text_encoder = NeuronModelTextEncoder(
-            text_encoder,
-            self,
-            self.configs[DIFFUSION_MODEL_TEXT_ENCODER_NAME],
-            self.neuron_configs[DIFFUSION_MODEL_TEXT_ENCODER_NAME],
+        self.text_encoder = (
+            NeuronModelTextEncoder(
+                text_encoder,
+                self,
+                self.configs[DIFFUSION_MODEL_TEXT_ENCODER_NAME],
+                self.neuron_configs[DIFFUSION_MODEL_TEXT_ENCODER_NAME],
+            )
+            if text_encoder is not None
+            else None
+        )
+        self.text_encoder_2 = (
+            NeuronModelTextEncoder(
+                text_encoder_2,
+                self,
+                self.configs[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME],
+                self.neuron_configs[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME],
+            )
+            if text_encoder_2 is not None
+            else None
         )
         self.unet = NeuronModelUnet(
             unet, self, self.configs[DIFFUSION_MODEL_UNET_NAME], self.neuron_configs[DIFFUSION_MODEL_UNET_NAME]
         )
-        self.vae_encoder = NeuronModelVaeEncoder(
-            vae_encoder,
-            self,
-            self.configs[DIFFUSION_MODEL_VAE_ENCODER_NAME],
-            self.neuron_configs[DIFFUSION_MODEL_VAE_ENCODER_NAME],
+        self.vae_encoder = (
+            NeuronModelVaeEncoder(
+                vae_encoder,
+                self,
+                self.configs[DIFFUSION_MODEL_VAE_ENCODER_NAME],
+                self.neuron_configs[DIFFUSION_MODEL_VAE_ENCODER_NAME],
+            )
+            if vae_encoder is not None
+            else None
         )
         self.vae_decoder = NeuronModelVaeDecoder(
             vae_decoder,
@@ -146,11 +172,13 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         )
 
         self.tokenizer = tokenizer
+        self.tokenizer_2 = tokenizer_2
         self.scheduler = scheduler
         self.feature_extractor = feature_extractor
         self.safety_checker = None
         sub_models = {
             DIFFUSION_MODEL_TEXT_ENCODER_NAME: self.text_encoder,
+            DIFFUSION_MODEL_TEXT_ENCODER_2_NAME: self.text_encoder_2,
             DIFFUSION_MODEL_UNET_NAME: self.unet,
             DIFFUSION_MODEL_VAE_ENCODER_NAME: self.vae_encoder,
             DIFFUSION_MODEL_VAE_DECODER_NAME: self.vae_decoder,
@@ -192,10 +220,19 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             logger.info(f"Saving the {tuple(self.model_and_config_save_paths.keys())}...")
 
         dst_paths = {
-            "text_encoder": save_directory / DIFFUSION_MODEL_TEXT_ENCODER_NAME / text_encoder_file_name,
-            "unet": save_directory / DIFFUSION_MODEL_UNET_NAME / unet_file_name,
-            "vae_encoder": save_directory / DIFFUSION_MODEL_VAE_ENCODER_NAME / vae_encoder_file_name,
-            "vae_decoder": save_directory / DIFFUSION_MODEL_VAE_DECODER_NAME / vae_decoder_file_name,
+            DIFFUSION_MODEL_TEXT_ENCODER_NAME: save_directory
+            / DIFFUSION_MODEL_TEXT_ENCODER_NAME
+            / text_encoder_file_name,
+            DIFFUSION_MODEL_TEXT_ENCODER_2_NAME: save_directory
+            / DIFFUSION_MODEL_TEXT_ENCODER_2_NAME
+            / text_encoder_file_name,
+            DIFFUSION_MODEL_UNET_NAME: save_directory / DIFFUSION_MODEL_UNET_NAME / unet_file_name,
+            DIFFUSION_MODEL_VAE_ENCODER_NAME: save_directory
+            / DIFFUSION_MODEL_VAE_ENCODER_NAME
+            / vae_encoder_file_name,
+            DIFFUSION_MODEL_VAE_DECODER_NAME: save_directory
+            / DIFFUSION_MODEL_VAE_DECODER_NAME
+            / vae_decoder_file_name,
         }
         model_src_to_dst_path = {
             self.model_and_config_save_paths[model_name][0]: dst_paths[model_name]
@@ -215,6 +252,8 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             shutil.copyfile(src_path, dst_path)
 
         self.tokenizer.save_pretrained(save_directory.joinpath("tokenizer"))
+        if self.tokenizer_2 is not None:
+            self.tokenizer_2.save_pretrained(save_directory.joinpath("tokenizer_2"))
         self.scheduler.save_pretrained(save_directory.joinpath("scheduler"))
         if self.feature_extractor is not None:
             self.feature_extractor.save_pretrained(save_directory.joinpath("feature_extractor"))
@@ -228,6 +267,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         revision: Optional[str] = None,
         cache_dir: Optional[str] = None,
         text_encoder_file_name: Optional[str] = NEURON_FILE_NAME,
+        text_encoder_2_file_name: Optional[str] = NEURON_FILE_NAME,
         unet_file_name: Optional[str] = NEURON_FILE_NAME,
         vae_encoder_file_name: Optional[str] = NEURON_FILE_NAME,
         vae_decoder_file_name: Optional[str] = NEURON_FILE_NAME,
@@ -237,17 +277,16 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         **kwargs,  # To share kwargs only available for `_from_transformers`
     ):
         model_id = str(model_id)
-        sub_models_to_load, _, _ = cls.extract_init_dict(config)
-        sub_models_names = set(sub_models_to_load.keys()).intersection({"feature_extractor", "tokenizer", "scheduler"})
-        sub_models = {}
+        patterns = set(config.keys())
+        sub_models_to_load = patterns.intersection({"feature_extractor", "tokenizer", "tokenizer_2", "scheduler"})
 
         if not os.path.isdir(model_id):
-            patterns = set(config.keys())
             patterns.update({DIFFUSION_MODEL_VAE_ENCODER_NAME, DIFFUSION_MODEL_VAE_DECODER_NAME})
             allow_patterns = {os.path.join(k, "*") for k in patterns if not k.startswith("_")}
             allow_patterns.update(
                 {
                     text_encoder_file_name,
+                    text_encoder_2_file_name,
                     unet_file_name,
                     vae_encoder_file_name,
                     vae_decoder_file_name,
@@ -268,8 +307,9 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             )
 
         new_model_save_dir = Path(model_id)
-        for name in sub_models_names:
-            library_name, library_classes = sub_models_to_load[name]
+        sub_models = {}
+        for name in sub_models_to_load:
+            library_name, library_classes = config[name]
             if library_classes is not None:
                 library = importlib.import_module(library_name)
                 class_obj = getattr(library, library_classes)
@@ -284,6 +324,10 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             "text_encoder": (
                 new_model_save_dir / DIFFUSION_MODEL_TEXT_ENCODER_NAME / text_encoder_file_name,
                 new_model_save_dir / DIFFUSION_MODEL_TEXT_ENCODER_NAME / cls.sub_component_config_name,
+            ),
+            "text_encoder_2": (
+                new_model_save_dir / DIFFUSION_MODEL_TEXT_ENCODER_2_NAME / text_encoder_2_file_name,
+                new_model_save_dir / DIFFUSION_MODEL_TEXT_ENCODER_2_NAME / cls.sub_component_config_name,
             ),
             "unet": (
                 new_model_save_dir / DIFFUSION_MODEL_UNET_NAME / unet_file_name,
@@ -307,6 +351,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         neuron_configs = {name: cls._neuron_config_init(model_config) for name, model_config in configs.items()}
 
         text_encoder = cls.load_model(model_and_config_save_paths["text_encoder"][0])
+        text_encoder_2 = cls.load_model(model_and_config_save_paths["text_encoder_2"][0])
         if device_ids is None:
             device_ids = [0, 1]
         if len(device_ids) > 1:
@@ -327,11 +372,13 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         return cls(
             text_encoder=text_encoder,
             unet=unet,
-            vae_encoder=vae_encoder,
             vae_decoder=vae_decoder,
             config=config,
             tokenizer=sub_models["tokenizer"],
             scheduler=sub_models["scheduler"],
+            vae_encoder=vae_encoder,
+            text_encoder_2=text_encoder_2,
+            tokenizer_2=sub_models.pop("tokenizer_2", None),
             feature_extractor=sub_models.pop("feature_extractor", None),
             device_ids=device_ids,
             configs=configs,

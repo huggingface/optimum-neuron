@@ -112,17 +112,17 @@ def validate_models_outputs(
             else output_dir.joinpath(model_name + ".neuron")
         )
         neuron_paths.append(neuron_model_path)
-        try:
-            logger.info(f"Validating {model_name} model...")
-            validate_model_outputs(
-                config=sub_neuron_config,
-                reference_model=ref_submodel,
-                neuron_model_path=neuron_model_path,
-                neuron_named_outputs=neuron_named_outputs[i],
-                atol=atol,
-            )
-        except Exception as e:
-            exceptions.append(f"Validation of {model_name} fails: {e}")
+        # try:
+        logger.info(f"Validating {model_name} model...")
+        validate_model_outputs(
+            config=sub_neuron_config,
+            reference_model=ref_submodel,
+            neuron_model_path=neuron_model_path,
+            neuron_named_outputs=neuron_named_outputs[i],
+            atol=atol,
+        )
+        # except Exception as e:
+        #     exceptions.append(f"Validation of {model_name} fails: {e}")
 
     if len(exceptions) != 0:
         for i, exception in enumerate(exceptions[:-1]):
@@ -178,11 +178,16 @@ def validate_model_outputs(
             neuron_inputs = ref_inputs
         else:
             ref_outputs = reference_model(**ref_inputs)
-            neuron_inputs = tuple(ref_inputs.values())
+            neuron_inputs = tuple(config.flatten_inputs(ref_inputs).values())
 
     # Neuron outputs
-    neuron_model = torch.jit.load(neuron_model_path)
-    neuron_outputs = neuron_model(*neuron_inputs)
+    try:
+        neuron_model = torch.jit.load(neuron_model_path)
+        neuron_outputs = neuron_model(*neuron_inputs)
+    except Exception:
+        import pdb
+
+        pdb.set_trace()
     if isinstance(neuron_outputs, dict):
         neuron_outputs = tuple(neuron_outputs.values())
     elif isinstance(neuron_outputs, torch.Tensor):
@@ -421,6 +426,7 @@ def export_neuronx(
         input_shapes[axis] = getattr(config, axis)
 
     dummy_inputs = config.generate_dummy_inputs(**input_shapes)
+    dummy_inputs = config.flatten_inputs(dummy_inputs)
     dummy_inputs_tuple = tuple(dummy_inputs.values())
     checked_model = config.check_model_inputs_order(model, dummy_inputs)
 
@@ -434,6 +440,8 @@ def export_neuronx(
         compiler_args.extend(["--auto-cast-type", auto_cast_type])
     else:
         compiler_args = ["--auto-cast", "none"]
+    # WARNING: Enabled experimental parallel compilation
+    compiler_args.extend(["--enable-experimental-O1"])
 
     # diffusers specific
     compiler_args = add_stable_diffusion_compiler_args(config, compiler_args)
@@ -454,11 +462,14 @@ def export_neuronx(
 
 def add_stable_diffusion_compiler_args(config, compiler_args):
     if hasattr(config._config, "_name_or_path"):
-        sd_components = ["text_encoder", "unet", "vae", "vae_encoder", "vae_decoder"]
+        sd_components = ["text_encoder", "vae", "vae_encoder", "vae_decoder"]
         if any(component in config._config._name_or_path.lower() for component in sd_components):
             compiler_args.extend(["--enable-fast-loading-neuron-binaries"])
         # unet
         if "unet" in config._config._name_or_path.lower():
+            # SDXL unet doesn't support fast loading neuron binaries
+            if "stable-diffusion-xl" not in config._config._name_or_path.lower():
+                compiler_args.extend(["--enable-fast-loading-neuron-binaries"])
             compiler_args.extend(["--model-type=unet-inference"])
     return compiler_args
 

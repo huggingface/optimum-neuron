@@ -102,7 +102,8 @@ class NeuronBaseModel(OptimizedModel):
         if not isinstance(path, str):
             path = str(path)
 
-        return torch.jit.load(path)
+        if path.is_file():
+            return torch.jit.load(path)
 
     def _save_pretrained(self, save_directory: Union[str, Path]):
         """
