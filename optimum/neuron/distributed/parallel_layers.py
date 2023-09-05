@@ -219,6 +219,7 @@ class ParallelSelfAttention(ParallelLayer):
         NUM_ATTENTION_HEADS_NAME (`Optional[str]`, defaults to `None`):
             The name of the attribute in the layer specifying the number of attention heads.
             If left unspecified, the attribute will be fetched by using the NormalizedConfig associated to the model.
+        NUM_KEY_VALUE_HEADS_NAME: #TODO
         ALL_HEAD_SIZE_NAME (`Optional[str]`, defaults to `None`):
             The name of the attribute in the layer specifying the hidden dimension of each attention head.
             If left unspecified, the attribute will be fetched by using the NormalizedConfig associated to the model.
@@ -229,6 +230,7 @@ class ParallelSelfAttention(ParallelLayer):
     VALUES_NAME = "value"
     OUTPUT_PROJECTION_NAME: Optional[str] = None
     NUM_ATTENTION_HEADS_NAME: Optional[str] = None
+    NUM_KEY_VALUE_HEADS_NAME: Optional[str] = None
     # TODO: add this in NormalizedConfig
     ALL_HEAD_SIZE_NAME: Optional[str] = None  # "all_head_size"
 
@@ -240,6 +242,10 @@ class ParallelSelfAttention(ParallelLayer):
         orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
         device: Optional["torch.device"] = None,
     ) -> "torch.nn.Module":
+        from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
+
+        tp_size = get_tensor_model_parallel_size()
+
         weight_map = getattr(model, "_weight_map", None)
         config = model.config
         normalized_config = NormalizedConfigManager.get_normalized_config_class(config.model_type)(config)
@@ -250,7 +256,39 @@ class ParallelSelfAttention(ParallelLayer):
         else:
             layer_qualified_name = ""
 
+        if cls.NUM_ATTENTION_HEADS_NAME is None:
+            num_attention_heads_name = normalized_config.NUM_ATTENTION_HEADS
+        else:
+            num_attention_heads_name = cls.NUM_ATTENTION_HEADS_NAME
+
+        if cls.NUM_KEY_VALUE_HEADS_NAME is not None:
+            num_key_value_heads = getattr(layer, cls.NUM_KEY_VALUE_HEADS_NAME)
+            if num_key_value_heads % tp_size != 0 and tp_size % num_key_value_heads != 0:
+                raise NotImplementedError(
+                    "Only the cases where the number of key value heads is divisible by the TP size, or the other way around are supported."
+                )
+            elif num_key_value_heads < tp_size:
+                logger.warning(
+                    f"The TP size ({tp_size}) is bigger than the number of key value heads ({num_key_value_heads}). "
+                    "This is not ideal because the key and value projections will not be sharded accross the TP ranks."
+                )
+
+            kv_heads_are_parallelized = num_key_value_heads >= tp_size
+            if kv_heads_are_parallelized:
+                setattr(
+                    layer,
+                    cls.NUM_KEY_VALUE_HEADS_NAME,
+                    num_key_value_heads // parallel_state.get_tensor_model_parallel_size(),
+                )
+        else:
+            num_key_value_heads = getattr(layer, num_attention_heads_name)
+            kv_heads_are_parallelized = True
+
         for name in [cls.QUERIES_NAME, cls.KEYS_NAME, cls.VALUES_NAME]:
+            # Under GQA setting with num_key_value_heads < tp_size, the key and value projections are replicated accross
+            # workers.
+            if not kv_heads_are_parallelized and name in [cls.KEYS_NAME, cls.VALUES_NAME]:
+                continue
             linear_layer_weight_info, linear_layer_bias_weight_info = None, None
             if weight_map is not None:
                 linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
@@ -290,11 +328,6 @@ class ParallelSelfAttention(ParallelLayer):
                     device=device,
                 ),
             )
-
-        if cls.NUM_ATTENTION_HEADS_NAME is None:
-            num_attention_heads_name = normalized_config.NUM_ATTENTION_HEADS
-        else:
-            num_attention_heads_name = cls.NUM_ATTENTION_HEADS_NAME
 
         if not hasattr(layer, num_attention_heads_name):
             raise AttributeError(f"The {type(layer)} layer has not attribute {num_attention_heads_name}.")

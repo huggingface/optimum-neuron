@@ -76,6 +76,7 @@ class LlamaParallelSelfAttention(ParallelSelfAttention):
     VALUES_NAME = "v_proj"
     OUTPUT_PROJECTION_NAME = "o_proj"
     NUM_ATTENTION_HEADS_NAME = "num_heads"
+    NUM_KEY_VALUE_HEADS_NAME = "num_key_value_heads"
     ALL_HEAD_SIZE_NAME = "hidden_size"
 
 

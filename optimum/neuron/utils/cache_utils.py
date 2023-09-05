@@ -99,7 +99,8 @@ def load_custom_cache_repo_name_from_hf_home(
 ) -> Optional[str]:
     if Path(hf_home_cache_repo_file).exists():
         with open(hf_home_cache_repo_file, "r") as fp:
-            return fp.read()
+            repo_id = fp.read()
+            return repo_id.strip()
     return None
 
 

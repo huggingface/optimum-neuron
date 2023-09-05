@@ -1,0 +1,74 @@
+import os
+from contextlib import nullcontext
+from inspect import signature
+
+import torch
+import neuronx_distributed
+from neuronx_distributed import parallel_layers
+import torch_xla.core.xla_model as xm
+
+from transformers import AutoConfig, AutoTokenizer, {model_class}
+from transformers.trainer_utils import set_seed
+from optimum.neuron.distributed import ParallelizersManager, lazy_load_for_parallelism
+
+if os.environ.get('TORCHELASTIC_RUN_ID'):
+    import torch_xla.distributed.xla_backend as xbn
+
+    if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
+        torch.distributed.init_process_group(backend='xla')
+
+
+from_config = os.environ["from_config"] == "true"
+lazy_load = os.environ["lazy_load"] == "true"
+
+# Initialize TP
+neuronx_distributed.parallel_layers.parallel_state.initialize_model_parallel(tensor_model_parallel_size={tp_size})
+
+
+config = AutoConfig.from_pretrained('{model_name_or_path}')
+preprocessor = AutoTokenizer.from_pretrained('{model_name_or_path}')
+
+inputs = preprocessor('This is a test to check that TP is working.', return_tensors='pt')
+
+
+if from_config:
+    set_seed(42)
+    model = {model_class}(config)
+    set_seed(42)
+    unsharded_model = {model_class}(config)
+else:
+    ctx = lazy_load_for_parallelism(tensor_parallel_size={tp_size}) if lazy_load else nullcontext
+    with ctx:
+        model = {model_class}.from_pretrained('{model_name_or_path}', ignore_mismatched_sizes=True).eval()
+        unsharded_model = {model_class}.from_pretrained('{model_name_or_path}', ignore_mismatched_sizes=True).eval()
+
+parallel_model = ParallelizersManager.parallelizer_for_model(model).parallelize(model, parallelize_embeddings={parallelize_embeddings})
+parallel_layers.move_model_to_device(parallel_model, "xla")
+
+unsharded_model = parallel_model.to("xla")
+
+xla_inputs = dict()
+sig = signature(model.forward)
+for k, v in inputs.items():
+    if k not in sig.parameters:
+        continue
+    xla_inputs[k] = v.to("xla")
+    decoder_input_name = "decoder_" + k
+    if model.config.is_encoder_decoder and decoder_input_name in sig.parameters:
+        xla_inputs[decoder_input_name] = v.to("xla")
+
+xm.mark_step()
+
+model_outputs = unsharded_model(**xla_inputs, return_dict=True)
+xm.mark_step()
+
+parallel_model_outputs = parallel_model(**xla_inputs, return_dict=True)
+xm.mark_step()
+
+for name, t in parallel_model_outputs.items():
+   if not isinstance(t, torch.Tensor):
+       continue
+   print(t, model_outputs[name])
+   torch.testing.assert_close(t, model_outputs[name])
+
+print('This is a success')

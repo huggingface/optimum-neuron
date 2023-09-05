@@ -15,8 +15,10 @@
 """Tests validating that models can be parallelized correctly."""
 
 import subprocess
+import os
 import unittest
 from tempfile import TemporaryDirectory
+from pathlib import Path
 from typing import TYPE_CHECKING, List, Optional, Type, Union
 
 from parameterized import parameterized
@@ -45,6 +47,9 @@ from ..test_utils import is_trainium_test
 
 if TYPE_CHECKING:
     from transformers import PretrainedConfig
+
+
+TEMPLATE_FILE_NAME = "model_parallel_test_template.py"
 
 
 def _generate_supported_model_class_names(
@@ -213,13 +218,34 @@ class ModelParallelizationTestCase(unittest.TestCase):
             model_class_name, model_name_or_path, from_config, 2, with_lazy_load, parallelize_embeddings
         )
 
+        tp_size = 2
+
+        template_content = None
+        template_file_path = Path(__file__).parent.resolve() / TEMPLATE_FILE_NAME
+        with open(template_file_path, "r") as fp:
+            template_content = fp.read()
+        specialization_data = {
+            "model_class": model_class_name,
+            "model_name_or_path": model_name_or_path,
+            "parallelize_embeddings": "True" if parallelize_embeddings else "False",
+            "tp_size": tp_size,
+        }
+        specialization_env = {
+            "from_config": "true" if from_config else "false",
+            "lazy_load": "true" if with_lazy_load else "false",
+            **os.environ,
+        }
+        specialized_content = template_content.format(**specialization_data)
+
+        print(specialized_content)
+
         with TemporaryDirectory() as tmpdirname:
             with open(f"{tmpdirname}/code.py", "w") as fp:
-                fp.write(python_code)
+                fp.write(specialized_content)
 
             cmd = ["torchrun", "--nproc_per_node=2", f"{tmpdirname}/code.py"]
 
-            p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=specialization_env)
             stdout, stderr = p.communicate()
 
             stdout = stdout.decode("utf-8")
