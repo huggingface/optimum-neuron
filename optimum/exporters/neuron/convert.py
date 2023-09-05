@@ -292,6 +292,7 @@ def export_models(
         )
 
     failed_models = []
+    total_compilation_time = 0
     for i, model_name in enumerate(models_and_neuron_configs.keys()):
         logger.info(f"***** Compiling {model_name} *****")
         submodel, sub_neuron_config = models_and_neuron_configs[model_name]
@@ -311,6 +312,7 @@ def export_models(
                 **compiler_kwargs,
             )
             compilation_time = time.time() - start_time
+            total_compilation_time += compilation_time
             logger.info(f"[Compilation Time] {np.round(compilation_time, 2)} seconds.")
             outputs.append((neuron_inputs, neuron_outputs))
             # Add neuron specific configs to model components' original config
@@ -347,6 +349,7 @@ def export_models(
                 f"An error occured when trying to trace {model_name} with the error message: {e}.\n"
                 f"The export is failed and {model_name} neuron model won't be stored."
             )
+    logger.info(f"[Total compilation Time] {np.round(total_compilation_time, 2)} seconds.")
 
     # remove models failed to export
     for i, model_name in failed_models:

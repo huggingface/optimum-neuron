@@ -510,6 +510,8 @@ class StableDiffusionXLPipelineMixin(StableDiffusionXLPipeline):
         if self.watermark is not None:
             image = self.watermark.apply_watermark(image)
 
+        image = self.image_processor.postprocess(image, output_type=output_type)
+
         if not return_dict:
             return (image,)
 
