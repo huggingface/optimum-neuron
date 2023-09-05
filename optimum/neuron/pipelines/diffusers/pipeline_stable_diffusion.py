@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 class StableDiffusionPipelineMixin(StableDiffusionPipeline):
     # Adapted from https://github.com/huggingface/diffusers/blob/v0.18.2/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L302
-    def _encode_prompt(
+    def encode_prompt(
         self,
         prompt,
         num_images_per_prompt,
@@ -216,7 +216,7 @@ class StableDiffusionPipelineMixin(StableDiffusionPipeline):
         text_encoder_lora_scale = (
             cross_attention_kwargs.get("scale", None) if cross_attention_kwargs is not None else None
         )
-        prompt_embeds = self._encode_prompt(
+        prompt_embeds = self.encode_prompt(
             prompt,
             num_images_per_prompt,
             do_classifier_free_guidance,

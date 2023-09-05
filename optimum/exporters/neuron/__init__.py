@@ -14,10 +14,10 @@
 # limitations under the License.
 
 from .__main__ import (
+    infer_stable_diffusion_shapes_from_diffusers,
     main_export,
     normalize_input_shapes,
     normalize_stable_diffusion_input_shapes,
-    infer_stable_diffusion_shapes_from_diffusers,
 )
 from .base import NeuronConfig
 from .convert import export, export_models, validate_model_outputs, validate_models_outputs

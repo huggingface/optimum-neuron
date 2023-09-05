@@ -112,17 +112,17 @@ def validate_models_outputs(
             else output_dir.joinpath(model_name + ".neuron")
         )
         neuron_paths.append(neuron_model_path)
-        # try:
-        logger.info(f"Validating {model_name} model...")
-        validate_model_outputs(
-            config=sub_neuron_config,
-            reference_model=ref_submodel,
-            neuron_model_path=neuron_model_path,
-            neuron_named_outputs=neuron_named_outputs[i],
-            atol=atol,
-        )
-        # except Exception as e:
-        #     exceptions.append(f"Validation of {model_name} fails: {e}")
+        try:
+            logger.info(f"Validating {model_name} model...")
+            validate_model_outputs(
+                config=sub_neuron_config,
+                reference_model=ref_submodel,
+                neuron_model_path=neuron_model_path,
+                neuron_named_outputs=neuron_named_outputs[i],
+                atol=atol,
+            )
+        except Exception as e:
+            exceptions.append(f"Validation of {model_name} fails: {e}")
 
     if len(exceptions) != 0:
         for i, exception in enumerate(exceptions[:-1]):
@@ -181,13 +181,8 @@ def validate_model_outputs(
             neuron_inputs = tuple(config.flatten_inputs(ref_inputs).values())
 
     # Neuron outputs
-    try:
-        neuron_model = torch.jit.load(neuron_model_path)
-        neuron_outputs = neuron_model(*neuron_inputs)
-    except Exception:
-        import pdb
-
-        pdb.set_trace()
+    neuron_model = torch.jit.load(neuron_model_path)
+    neuron_outputs = neuron_model(*neuron_inputs)
     if isinstance(neuron_outputs, dict):
         neuron_outputs = tuple(neuron_outputs.values())
     elif isinstance(neuron_outputs, torch.Tensor):
