@@ -14,12 +14,12 @@
 # limitations under the License.
 """Tests validating that models can be parallelized correctly."""
 
-import subprocess
 import os
+import subprocess
 import unittest
-from tempfile import TemporaryDirectory
 from pathlib import Path
-from typing import TYPE_CHECKING, List, Optional, Type, Union
+from tempfile import TemporaryDirectory
+from typing import TYPE_CHECKING, Dict, List, Optional, Type, Union
 
 from parameterized import parameterized
 from transformers.models.auto.modeling_auto import (
@@ -208,18 +208,14 @@ class ModelParallelizationTestCase(unittest.TestCase):
 
     def _test_model_parallel(
         self,
+        tp_size: int,
         model_class_name: str,
         model_name_or_path: str,
         from_config: bool,
         with_lazy_load: bool,
         parallelize_embeddings: bool,
+        overwrite_model_config: Optional[Dict[str, str]] = None,
     ):
-        python_code = self.get_parallel_test_python_file_content(
-            model_class_name, model_name_or_path, from_config, 2, with_lazy_load, parallelize_embeddings
-        )
-
-        tp_size = 2
-
         template_content = None
         template_file_path = Path(__file__).parent.resolve() / TEMPLATE_FILE_NAME
         with open(template_file_path, "r") as fp:
@@ -235,6 +231,11 @@ class ModelParallelizationTestCase(unittest.TestCase):
             "lazy_load": "true" if with_lazy_load else "false",
             **os.environ,
         }
+        if overwrite_model_config is not None:
+            specialization_env["overwrite_config"] = ",".join(
+                f"{key}={value}" for key, value in overwrite_model_config.items()
+            )
+
         specialized_content = template_content.format(**specialization_data)
 
         print(specialized_content)
@@ -259,14 +260,90 @@ class ModelParallelizationTestCase(unittest.TestCase):
     @parameterized.expand(MODELS_TO_TEST)
     def test_model_parallel_from_config_without_lazy_load(self, model_class_name: str, model_name_or_path: str):
         self._test_model_parallel(
-            model_class_name, model_name_or_path, True, False, False
+            2, model_class_name, model_name_or_path, True, False, False
         )  # Should be True once it's working.
 
     @parameterized.expand(MODELS_TO_TEST)
     def test_model_parallel_from_pretrained_without_lazy_load(self, model_class_name: str, model_name_or_path: str):
         self._test_model_parallel(
-            model_class_name, model_name_or_path, False, False, False
+            2, model_class_name, model_name_or_path, False, False, False
         )  # Should be True once it's working.
+
+    def test_llama_v2_mqa(self):
+        # MHA setup
+        # TP size = 4, num_attention_heads = 8, num_key_value_heads = 8
+        self._test_model_parallel(
+            tp_size=4,
+            model_class_name="LlamaForCausalLM",
+            model_name_or_path="anushehchaudry/llama-2-tiny-random",
+            from_config=True,
+            with_lazy_load=False,
+            parallelize_embeddings=False,
+            overwrite_model_config={
+                "num_attention_heads": "8",
+                "num_key_value_heads": "8",
+            },
+        )
+
+        # GQA setup with num_key_value_heads > tp_size.
+        # TP size = 2, num_attention_heads = 8, num_key_value_heads = 4
+        self._test_model_parallel(
+            tp_size=2,
+            model_class_name="LlamaForCausalLM",
+            model_name_or_path="anushehchaudry/llama-2-tiny-random",
+            from_config=True,
+            with_lazy_load=False,
+            parallelize_embeddings=False,
+            overwrite_model_config={
+                "num_attention_heads": "8",
+                "num_key_value_heads": "4",
+            },
+        )
+
+        # GQA setup with num_key_value_heads = tp_size.
+        # TP size = 4, num_attention_heads = 8, num_key_value_heads = 4
+        self._test_model_parallel(
+            tp_size=4,
+            model_class_name="LlamaForCausalLM",
+            model_name_or_path="anushehchaudry/llama-2-tiny-random",
+            from_config=True,
+            with_lazy_load=False,
+            parallelize_embeddings=False,
+            overwrite_model_config={
+                "num_attention_heads": "8",
+                "num_key_value_heads": "4",
+            },
+        )
+
+        # GQA setup with num_key_value_heads < tp_size.
+        # TP size = 4, num_attention_heads = 8, num_key_value_heads = 2
+        self._test_model_parallel(
+            tp_size=4,
+            model_class_name="LlamaForCausalLM",
+            model_name_or_path="anushehchaudry/llama-2-tiny-random",
+            from_config=True,
+            with_lazy_load=False,
+            parallelize_embeddings=False,
+            overwrite_model_config={
+                "num_attention_heads": "8",
+                "num_key_value_heads": "2",
+            },
+        )
+
+        # MQA setup
+        # TP size = 4, num_attention_heads = 8, num_key_value_heads = 1
+        self._test_model_parallel(
+            tp_size=4,
+            model_class_name="LlamaForCausalLM",
+            model_name_or_path="anushehchaudry/llama-2-tiny-random",
+            from_config=True,
+            with_lazy_load=False,
+            parallelize_embeddings=False,
+            overwrite_model_config={
+                "num_attention_heads": "8",
+                "num_key_value_heads": "1",
+            },
+        )
 
     # TODO: enable that once it's working.
     # @parameterized.expand(MODELS_TO_TEST)

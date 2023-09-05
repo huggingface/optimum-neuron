@@ -20,12 +20,19 @@ if os.environ.get('TORCHELASTIC_RUN_ID'):
 
 from_config = os.environ["from_config"] == "true"
 lazy_load = os.environ["lazy_load"] == "true"
+config_overwrite = os.environ.get("config_overwrite", "")
 
 # Initialize TP
 neuronx_distributed.parallel_layers.parallel_state.initialize_model_parallel(tensor_model_parallel_size={tp_size})
 
 
 config = AutoConfig.from_pretrained('{model_name_or_path}')
+config_overwrite = config_overwrite.split(",")
+for overwrite_info in config_overwrite:
+    attr_name, attr_value = overwrite_info.split("=")
+    attr_type = type(getattr(config, attr_name))
+    setattr(config, attr_name, attr_type(attr_value))
+
 preprocessor = AutoTokenizer.from_pretrained('{model_name_or_path}')
 
 inputs = preprocessor('This is a test to check that TP is working.', return_tensors='pt')
@@ -39,9 +46,12 @@ if from_config:
 else:
     ctx = lazy_load_for_parallelism(tensor_parallel_size={tp_size}) if lazy_load else nullcontext
     with ctx:
+        set_seed(42)
         model = {model_class}.from_pretrained('{model_name_or_path}', ignore_mismatched_sizes=True).eval()
+        set_seed(42)
         unsharded_model = {model_class}.from_pretrained('{model_name_or_path}', ignore_mismatched_sizes=True).eval()
 
+set_seed(42)
 parallel_model = ParallelizersManager.parallelizer_for_model(model).parallelize(model, parallelize_embeddings={parallelize_embeddings})
 parallel_layers.move_model_to_device(parallel_model, "xla")
 
