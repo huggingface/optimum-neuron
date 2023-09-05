@@ -1,3 +1,5 @@
+# This is a template file for testing model parallelization.
+
 import os
 from contextlib import nullcontext
 from inspect import signature
@@ -22,6 +24,9 @@ from_config = os.environ["from_config"] == "true"
 lazy_load = os.environ["lazy_load"] == "true"
 config_overwrite = os.environ.get("config_overwrite", "")
 
+if config_overwrite and not from_config:
+  raise ValueError("from_config must be True when providing a config_overwrite, otherwise it would be ignored.")
+
 # Initialize TP
 neuronx_distributed.parallel_layers.parallel_state.initialize_model_parallel(tensor_model_parallel_size={tp_size})
 
@@ -32,6 +37,9 @@ for overwrite_info in config_overwrite:
     attr_name, attr_value = overwrite_info.split("=")
     attr_type = type(getattr(config, attr_name))
     setattr(config, attr_name, attr_type(attr_value))
+
+if xm.get_ordinal() == 0:
+  print(config)
 
 preprocessor = AutoTokenizer.from_pretrained('{model_name_or_path}')
 
@@ -75,10 +83,11 @@ xm.mark_step()
 parallel_model_outputs = parallel_model(**xla_inputs, return_dict=True)
 xm.mark_step()
 
-for name, t in parallel_model_outputs.items():
-   if not isinstance(t, torch.Tensor):
-       continue
-   print(t, model_outputs[name])
-   torch.testing.assert_close(t, model_outputs[name])
-
-print('This is a success')
+if xm.get_ordinal() == 0:
+  for name, t in parallel_model_outputs.items():
+     if not isinstance(t, torch.Tensor):
+         continue
+     print(t, model_outputs[name])
+     torch.testing.assert_close(t, model_outputs[name])
+  
+  print('This is a success')

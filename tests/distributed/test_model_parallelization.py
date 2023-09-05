@@ -49,7 +49,7 @@ if TYPE_CHECKING:
     from transformers import PretrainedConfig
 
 
-TEMPLATE_FILE_NAME = "model_parallel_test_template.py"
+TEMPLATE_FILE_NAME = "model_parallel_test_template.txt"
 
 
 def _generate_supported_model_class_names(
@@ -232,13 +232,13 @@ class ModelParallelizationTestCase(unittest.TestCase):
             **os.environ,
         }
         if overwrite_model_config is not None:
-            specialization_env["overwrite_config"] = ",".join(
+            specialization_env["config_overwrite"] = ",".join(
                 f"{key}={value}" for key, value in overwrite_model_config.items()
             )
 
         specialized_content = template_content.format(**specialization_data)
 
-        print(specialized_content)
+        # print(specialized_content)
 
         with TemporaryDirectory() as tmpdirname:
             with open(f"{tmpdirname}/code.py", "w") as fp:
