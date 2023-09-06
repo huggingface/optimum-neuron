@@ -52,6 +52,12 @@ if __name__ == "__main__":
         default="One of my fondest memory is",
         help="The prompts to use for generation, using | as separator.",
     )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=None,
+        help="The batch size (optional). If not specified it wil be based on the number of prompts.",
+    )
     parser.add_argument("--length", type=int, default=128, help="The number of tokens in the generated sequences.")
     parser.add_argument(
         "--num_cores", type=int, default=2, help="The number of cores on which the model should be split."
@@ -72,7 +78,9 @@ if __name__ == "__main__":
     if args.seed is not None:
         set_seed(args.seed)
     prompts = args.prompts.split("|")
-    batch_size = len(prompts)
+    batch_size = len(prompts) if args.batch_size is None else args.batch_size
+    if len(prompts) < batch_size:
+        prompts = prompts + [prompts[-1]] * (batch_size - len(prompts))
     model = load_llm_optimum(args.model, batch_size, args.num_cores, args.auto_cast_type)
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     outputs, latency = generate(model, tokenizer, prompts, args.length, args.temperature)
