@@ -63,7 +63,7 @@ class TokenSelector:
     def create(
         cls, input_ids: torch.Tensor, generation_config: GenerationConfig, model: GenerationMixin, max_seq_length: int
     ) -> "TokenSelector":
-        r"""Create the `TokenSelector` for a specific generation configuration.
+        r"""Creates the `TokenSelector` for a specific generation configuration.
 
         Args:
             input_ids (`torch.LongTensor` of shape `(batch_size, sequence_length)`):
