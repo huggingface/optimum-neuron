@@ -15,6 +15,7 @@
 [tool.black]
 line-length = 119
 target-version = ['py38']
+extend-exclude = '.ipynb'
 
 [tool.ruff]
 # Never enforce `E501` (line length violations).

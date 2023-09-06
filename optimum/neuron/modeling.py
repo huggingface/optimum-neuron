@@ -31,12 +31,7 @@ from transformers import (
 from transformers.file_utils import add_start_docstrings, add_start_docstrings_to_model_forward
 from transformers.generation import (
     GenerationMixin,
-    LogitsProcessorList,
-    LogitsWarper,
-    StoppingCriteriaList,
-    TopKLogitsWarper,
 )
-from transformers.generation.utils import GenerationMode
 from transformers.modeling_outputs import (
     BaseModelOutputWithPooling,
     MaskedLMOutput,
@@ -47,6 +42,7 @@ from transformers.modeling_outputs import (
 )
 from transformers.utils import ModelOutput
 
+from .generation import TokenSelector
 from .modeling_base import NeuronBaseModel
 from .modeling_decoder import NeuronDecoderModel
 
@@ -686,17 +682,9 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
         model_kwargs = generation_config.update(**kwargs)  # All unused kwargs must be model kwargs
         # Check model kwargs are actually used by either prepare_inputs_for_generation or forward
         self._validate_model_kwargs(model_kwargs)
-        generation_config.validate()
 
-        unsupported_generation_flags = [
-            "output_attentions",
-            "output_hidden_states",
-            "output_scores",
-            "return_dict_in_generate",
-        ]
-        for flag in unsupported_generation_flags:
-            if getattr(generation_config, flag, False):
-                raise ValueError("{flag} is not supported for generation.")
+        # Instantiate a TokenSelector for the specified configuration
+        selector = TokenSelector.create(input_ids, generation_config, self, self.max_length)
 
         # Verify that the inputs are compatible with the model static input dimensions
         batch_size, sequence_length = input_ids.shape
@@ -708,182 +696,13 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
             raise ValueError(
                 f"The input sequence length ({sequence_length}) exceeds the model static sequence length ({self.max_length})"
             )
-        min_length = generation_config.min_length
-        if min_length > self.max_length:
-            raise ValueError(
-                f"The minimum generation length ({min_length}) exceeds the model static sequence length ({self.max_length})"
-            )
-        max_length = generation_config.max_length
-        if min_length > self.max_length:
-            logger.warning(
-                f"The maximum generation length ({max_length}) exceeds the model static sequence length ({self.max_length})"
-            )
-
-        # Instantiate transformers library processors and criterias
-        logits_processor = self._get_logits_processor(
-            generation_config,
-            input_ids_seq_length=input_ids.shape[-1],
-            encoder_input_ids=input_ids,
-            prefix_allowed_tokens_fn=None,
-            logits_processor=LogitsProcessorList(),
-        )
-        stopping_criteria = self._get_stopping_criteria(generation_config, stopping_criteria=StoppingCriteriaList())
-
-        # Special tokens are required for generation
-        eos_token_id = generation_config.eos_token_id
-        # This is not supposed to happen for any of the models we support
-        assert eos_token_id is not None and not isinstance(eos_token_id, list)
-        if generation_config.pad_token_id is None:
-            logger.warning(f"Setting `pad_token_id` to `eos_token_id`:{eos_token_id} for open-end generation.")
-            generation_config.pad_token_id = eos_token_id
 
         # Drop the current generation context and clear the Key/Value cache
         self.reset_generation()
 
-        generation_mode = self._get_generation_mode(generation_config, None)
-        if generation_mode == GenerationMode.GREEDY_SEARCH:
-            return self.greedy_search(
-                input_ids,
-                attention_mask=attention_mask,
-                logits_processor=logits_processor,
-                stopping_criteria=stopping_criteria,
-                pad_token_id=generation_config.pad_token_id,
-                eos_token_id=generation_config.eos_token_id,
-                **model_kwargs,
-            )
-        elif generation_mode == GenerationMode.SAMPLE:
-            logits_warper = self._get_logits_warper(generation_config)
-            last_warper = logits_warper[-1]
-            fast_topk = isinstance(last_warper, TopKLogitsWarper)
-            if fast_topk:
-                # Replace the last warping operation by a faster alternative
-                logits_warper[-1] = self.FastTopKLogitsWarper(last_warper.top_k, last_warper.filter_value)
-            return self.sample(
-                input_ids,
-                attention_mask=attention_mask,
-                logits_processor=logits_processor,
-                stopping_criteria=stopping_criteria,
-                logits_warper=logits_warper,
-                pad_token_id=generation_config.pad_token_id,
-                eos_token_id=generation_config.eos_token_id,
-                **model_kwargs,
-            )
-        else:
-            raise ValueError("Unsupported generation mode")
-
-    class FastTopKLogitsWarper(LogitsWarper):
-        r"""Returns [batch_size, top_k] scores and indices instead of [batch_size, vocab_size] scores."""
-
-        def __init__(self, top_k: int, filter_value: float):
-            self.top_k = top_k
-            self.filter_value = filter_value
-
-        def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
-            top_k = min(self.top_k, scores.size(-1))  # Safety check
-            # Remove all tokens with a probability less than the last token of the top-k
-            return torch.topk(scores, top_k)
-
-    def sample(
-        self,
-        input_ids: torch.LongTensor,
-        eos_token_id: int,
-        pad_token_id: int,
-        logits_processor: LogitsProcessorList,
-        stopping_criteria: StoppingCriteriaList,
-        logits_warper: LogitsProcessorList,
-        attention_mask: Optional[torch.Tensor] = None,
-        **model_kwargs,
-    ) -> torch.LongTensor:
-        r"""
-        This is a simplified version of the transformers `GenerationMixin.sample()` method that is optimized for neuron inference.
-
-        It generates sequences of token ids for models with a language modeling head using **multinomial sampling** and
-        can be used for text-decoder, text-to-text, speech-to-text, and vision-to-text models.
-
-        Please refer to https://huggingface.co/docs/transformers/en/main_classes/text_generation#transformers.GenerationMixin.sample.
-
-        Args:
-            input_ids (`torch.LongTensor` of shape `(batch_size, sequence_length)`):
-                The sequence used as a prompt for the generation.
-            eos_token_id (`int`):
-                The id of the *end-of-sequence* token.
-            pad_token_id (`int`):
-                The id of the *padding* token.
-            logits_processor (`LogitsProcessorList`):
-                An instance of [`LogitsProcessorList`]. List of instances of class derived from [`LogitsProcessor`]
-                used to modify the prediction scores of the language modeling head applied at each generation step.
-            stopping_criteria (`StoppingCriteriaList`):
-                An instance of [`StoppingCriteriaList`]. List of instances of class derived from [`StoppingCriteria`]
-                used to tell if the generation loop should stop.
-            logits_warper (`LogitsProcessorList`):
-                An instance of [`LogitsProcessorList`]. List of instances of class derived from [`LogitsWarper`] used
-                to warp the prediction score distribution of the language modeling head applied before multinomial
-                sampling at each generation step.
-            attention_mask (`torch.Tensor` of shape `(batch_size, sequence_length)`, *optional*):
-                Mask to avoid performing attention on padding token indices.
-            model_kwargs:
-                Additional model specific kwargs will be forwarded to the `forward` function of the model.
-
-        Return:
-            `torch.LongTensor`: A `torch.LongTensor` containing the generated tokens.
-
-        """
         return self.generate_tokens(
             input_ids,
-            eos_token_id=eos_token_id,
-            pad_token_id=pad_token_id,
-            logits_processor=logits_processor,
-            stopping_criteria=stopping_criteria,
-            do_sample=True,
-            logits_warper=logits_warper,
-            attention_mask=attention_mask,
-            **model_kwargs,
-        )
-
-    def greedy_search(
-        self,
-        input_ids: torch.LongTensor,
-        eos_token_id: int,
-        pad_token_id: int,
-        logits_processor: LogitsProcessorList,
-        stopping_criteria: StoppingCriteriaList,
-        attention_mask: Optional[torch.Tensor] = None,
-        **model_kwargs,
-    ) -> torch.LongTensor:
-        r"""
-        This is a simplified version of the transformers `GenerationMixin.greedy_search()` method that is optimized for neuron inference.
-
-        Please refer to https://huggingface.co/docs/transformers/en/main_classes/text_generation#transformers.GenerationMixin.greedy_search.
-
-        Args:
-            input_ids (`torch.LongTensor` of shape `(batch_size, sequence_length)`):
-                The sequence used as a prompt for the generation.
-            eos_token_id (`int`):
-                The id of the *end-of-sequence* token.
-            pad_token_id (`int`):
-                The id of the *padding* token.
-            logits_processor (`LogitsProcessorList`):
-                An instance of [`LogitsProcessorList`]. List of instances of class derived from [`LogitsProcessor`]
-                used to modify the prediction scores of the language modeling head applied at each generation step.
-            stopping_criteria (`StoppingCriteriaList`):
-                An instance of [`StoppingCriteriaList`]. List of instances of class derived from [`StoppingCriteria`]
-                used to tell if the generation loop should stop.
-            attention_mask (`torch.Tensor` of shape `(batch_size, sequence_length)`, *optional*):
-                Mask to avoid performing attention on padding token indices.
-            model_kwargs:
-                Additional model specific kwargs will be forwarded to the `forward` function of the model.
-
-        Return:
-            `torch.LongTensor`: A `torch.LongTensor` containing the generated tokens.
-
-        """
-        return self.generate_tokens(
-            input_ids,
-            eos_token_id=eos_token_id,
-            pad_token_id=pad_token_id,
-            logits_processor=logits_processor,
-            stopping_criteria=stopping_criteria,
-            do_sample=False,
+            selector,
             attention_mask=attention_mask,
             **model_kwargs,
         )
@@ -891,12 +710,7 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
     def generate_tokens(
         self,
         input_ids: torch.LongTensor,
-        eos_token_id: int,
-        pad_token_id: int,
-        logits_processor: LogitsProcessorList,
-        stopping_criteria: StoppingCriteriaList,
-        do_sample: bool,
-        logits_warper: Optional[LogitsProcessorList] = None,
+        selector: TokenSelector,
         attention_mask: Optional[torch.Tensor] = None,
         **model_kwargs,
     ) -> torch.LongTensor:
@@ -906,21 +720,8 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
         Args:
             input_ids (`torch.LongTensor` of shape `(batch_size, sequence_length)`):
                 The sequence used as a prompt for the generation.
-            eos_token_id (`int`):
-                The id of the *end-of-sequence* token.
-            pad_token_id (`int`):
-                The id of the *padding* token.
-            logits_processor (`LogitsProcessorList`):
-                An instance of [`LogitsProcessorList`]. List of instances of class derived from [`LogitsProcessor`]
-                used to modify the prediction scores of the language modeling head applied at each generation step.
-            stopping_criteria (`StoppingCriteriaList`):
-                An instance of [`StoppingCriteriaList`]. List of instances of class derived from [`StoppingCriteria`]
-                used to tell if the generation loop should stop.
-            do_sample (`bool`): Sample new tokens or simply takes the one with the highest score.
-            logits_warper (`LogitsProcessorList`, *optional*):
-                An instance of [`LogitsProcessorList`]. List of instances of class derived from [`LogitsWarper`] used
-                to warp the prediction score distribution of the language modeling head applied before multinomial
-                sampling at each generation step.
+            selector (`TokenSelector`):
+                The object implementing the generation logic based on transformers processors and stopping criterias.
             attention_mask (`torch.Tensor` of shape `(batch_size, sequence_length)`, *optional*):
                 Mask to avoid performing attention on padding token indices.
             model_kwargs:
@@ -930,9 +731,6 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
             `torch.LongTensor`: A `torch.LongTensor` containing the generated tokens.
 
         """
-        if do_sample:
-            warper_indices = len(logits_warper) > 0 and isinstance(logits_warper[-1], self.FastTopKLogitsWarper)
-
         # keep track of which sequences are already finished
         unfinished_sequences = torch.ones(input_ids.shape[0], dtype=torch.long, device=input_ids.device)
 
@@ -949,21 +747,10 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
 
             next_token_logits = outputs.logits[:, -1, :]
 
-            # pre-process distribution
-            next_token_scores = logits_processor(input_ids, next_token_logits)
-
-            if do_sample:
-                next_tokens = self.sample_token(
-                    next_token_scores,
-                    logits_warper=logits_warper,
-                    warper_indices=warper_indices,
-                    **model_kwargs,
-                )
-            else:
-                next_tokens = torch.argmax(next_token_scores, dim=-1)
+            next_tokens = selector.select(input_ids, next_token_logits)
 
             # finished sentences should have their next token be a padding token
-            next_tokens = next_tokens * unfinished_sequences + pad_token_id * (1 - unfinished_sequences)
+            next_tokens = next_tokens * unfinished_sequences + selector.pad_token_id * (1 - unfinished_sequences)
 
             # update inputs for the next step
             input_ids = torch.cat([input_ids, next_tokens[:, None]], dim=-1)
@@ -973,34 +760,14 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
                 )
 
             # if eos_token was found in one sentence, set sentence to finished
-            unfinished_sequences = unfinished_sequences * next_tokens.ne(eos_token_id)
+            unfinished_sequences = unfinished_sequences * next_tokens.ne(selector.eos_token_id)
 
             # stop when each sentence is finished
             if unfinished_sequences.max() == 0:
                 break
 
             # stop if we exceed the maximum length
-            if stopping_criteria(input_ids, None):
+            if selector.stopping_criteria(input_ids, None):
                 break
 
         return input_ids
-
-    def sample_token(
-        self,
-        scores,
-        logits_warper: LogitsProcessorList,
-        warper_indices: bool,
-    ) -> torch.LongTensor:
-        if warper_indices:
-            # Get [batch_size, top_k] scores and indices instead of [batch_size, vocab_size] scores
-            scores, next_token_indices = logits_warper(None, scores)
-        else:
-            scores = logits_warper(None, scores)
-
-        # sample
-        probs = torch.nn.functional.softmax(scores, dim=-1)
-        next_tokens = torch.multinomial(probs, num_samples=1)
-        if warper_indices:
-            # Convert the topk relative tokens to actual vocabulary tokens
-            next_tokens = torch.gather(next_token_indices, 1, next_tokens)
-        return next_tokens.squeeze(1)
