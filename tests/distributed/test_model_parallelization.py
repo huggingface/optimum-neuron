@@ -195,7 +195,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
         NUM_NEURON_CORES_AVAILABLE < 32,
         f"This test requires 32 Neuron cores, but only {NUM_NEURON_CORES_AVAILABLE} are available",
     )
-    def test_llama_v2_mqa(self):
+    def test_llama_v2_gqa_variants(self):
         # MHA setup
         # TP size = 4, num_attention_heads = 8, num_key_value_heads = 8
         self._test_model_parallel(
