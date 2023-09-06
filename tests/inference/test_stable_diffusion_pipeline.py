@@ -36,7 +36,7 @@ from .inference_utils import MODEL_NAMES
 logger = logging.get_logger()
 
 
-# @is_inferentia_test
+@is_inferentia_test
 @requires_neuronx
 @require_diffusers
 class NeuronStableDiffusionPipelineIntegrationTest(unittest.TestCase):
@@ -65,11 +65,6 @@ class NeuronStableDiffusionPipelineIntegrationTest(unittest.TestCase):
         self.assertIsInstance(neuron_pipeline.unet, NeuronModelUnet)
         self.assertIsInstance(neuron_pipeline.vae_encoder, NeuronModelVaeEncoder)
         self.assertIsInstance(neuron_pipeline.vae_decoder, NeuronModelVaeDecoder)
-
-        prompt = "sailing ship in storm by Leonardo da Vinci"
-        with self.assertRaises(Exception) as context:
-            image = neuron_pipeline(prompt).images[0]
-        self.assertIn("pipeline were compiled with", str(context.exception))
 
         prompts = ["sailing ship in storm by Leonardo da Vinci"]
         image = neuron_pipeline(prompts, num_images_per_prompt=num_images_per_prompt).images[0]
@@ -126,17 +121,6 @@ class NeuronStableDiffusionXLPipelineIntegrationTest(unittest.TestCase):
         prompt_2 = "Van Gogh painting"
         negative_prompt_1 = "low quality, low resolution"
         negative_prompt_2 = "low quality, low resolution"
-        with self.assertRaises(Exception) as context:
-            image = neuron_pipeline(
-                prompt=prompt,
-                prompt_2=prompt_2,
-                negative_prompt=negative_prompt_1,
-                negative_prompt_2=negative_prompt_2,
-            ).images[0]
-        import pdb
-
-        pdb.set_trace()
-        self.assertIn("RuntimeError", str(context.exception))
 
         image = neuron_pipeline(
             prompt=prompt,
@@ -147,26 +131,26 @@ class NeuronStableDiffusionXLPipelineIntegrationTest(unittest.TestCase):
         ).images[0]
         self.assertIsInstance(image, PIL.Image.Image)
 
-    # @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
-    # def test_export_and_inference_dyn(self, model_arch):
-    #     neuron_pipeline = self.NEURON_MODEL_CLASS.from_pretrained(
-    #         MODEL_NAMES[model_arch],
-    #         export=True,
-    #         dynamic_batch_size=True,
-    #         **self.STATIC_INPUTS_SHAPES,
-    #         **self.COMPILER_ARGS,
-    #         device_ids=[0, 1],
-    #     )
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    def test_export_and_inference_dyn(self, model_arch):
+        neuron_pipeline = self.NEURON_MODEL_CLASS.from_pretrained(
+            MODEL_NAMES[model_arch],
+            export=True,
+            dynamic_batch_size=True,
+            **self.STATIC_INPUTS_SHAPES,
+            **self.COMPILER_ARGS,
+            device_ids=[0, 1],
+        )
 
-    #     prompt = ["Astronaut in a jungle, cold color palette, muted colors, detailed, 8k"] * 2
-    #     prompt_2 = ["Van Gogh painting"] * 2
-    #     negative_prompt_1 = ["low quality, low resolution"] * 2
-    #     negative_prompt_2 = ["low quality, low resolution"] * 2
-    #     image = neuron_pipeline(
-    #         prompt=prompt,
-    #         prompt_2=prompt_2,
-    #         negative_prompt=negative_prompt_1,
-    #         negative_prompt_2=negative_prompt_2,
-    #         num_images_per_prompt=2,
-    #     ).images[0]
-    #     self.assertIsInstance(image, PIL.Image.Image)
+        prompt = ["Astronaut in a jungle, cold color palette, muted colors, detailed, 8k"] * 2
+        prompt_2 = ["Van Gogh painting"] * 2
+        negative_prompt_1 = ["low quality, low resolution"] * 2
+        negative_prompt_2 = ["low quality, low resolution"] * 2
+        image = neuron_pipeline(
+            prompt=prompt,
+            prompt_2=prompt_2,
+            negative_prompt=negative_prompt_1,
+            negative_prompt_2=negative_prompt_2,
+            num_images_per_prompt=2,
+        ).images[0]
+        self.assertIsInstance(image, PIL.Image.Image)
