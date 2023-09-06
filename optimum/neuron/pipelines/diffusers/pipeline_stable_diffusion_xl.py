@@ -363,6 +363,12 @@ class StableDiffusionXLPipelineMixin(StableDiffusionXLPipeline):
         # 0. Default height and width to unet (static shapes)
         height = self.unet.config.neuron["static_height"] * self.vae_scale_factor
         width = self.unet.config.neuron["static_width"] * self.vae_scale_factor
+        if self.num_images_per_prompt != num_images_per_prompt and not self.dynamic_batch_size:
+            logger.warning(
+                f"Overriding `num_images_per_prompt({num_images_per_prompt})` to {self.num_images_per_prompt} used for the compilation. Please recompile the models with your "
+                f"custom `num_images_per_prompt` or turn on `dynamic_batch_size`, if you wish generating {num_images_per_prompt} per prompt."
+            )
+            num_images_per_prompt = self.num_images_per_prompt
 
         original_size = original_size or (height, width)
         target_size = target_size or (height, width)
@@ -448,8 +454,6 @@ class StableDiffusionXLPipelineMixin(StableDiffusionXLPipeline):
             add_text_embeds = torch.cat([negative_pooled_prompt_embeds, add_text_embeds], dim=0)
             add_time_ids = torch.cat([add_time_ids, add_time_ids], dim=0)
 
-        prompt_embeds = prompt_embeds
-        add_text_embeds = add_text_embeds
         add_time_ids = add_time_ids.repeat(batch_size * num_images_per_prompt, 1)
 
         # 8. Denoising loop
@@ -468,6 +472,8 @@ class StableDiffusionXLPipelineMixin(StableDiffusionXLPipeline):
 
         with self.progress_bar(total=num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps):
+                # import pdb
+                # pdb.set_trace()
                 # expand the latents if we are doing classifier free guidance
                 latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
 

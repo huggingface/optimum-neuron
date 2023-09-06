@@ -201,6 +201,10 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         else:
             self.vae_scale_factor = 8
 
+        self.num_images_per_prompt = (
+            self.neuron_configs["unet"].batch_size // self.neuron_configs["text_encoder"].batch_size
+        )
+
         self.image_processor = VaeImageProcessor(vae_scale_factor=self.vae_scale_factor)
 
     @staticmethod
