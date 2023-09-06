@@ -57,11 +57,14 @@ else:
     ctx = lazy_load_for_parallelism(tensor_parallel_size={tp_size}) if lazy_load else nullcontext()
     with ctx:
         set_seed(42)
-        model = {model_class}.from_pretrained('{model_name_or_path}', ignore_mismatched_sizes=True).eval()
+        model = {model_class}.from_pretrained('{model_name_or_path}', ignore_mismatched_sizes=True)
         set_seed(42)
-        unsharded_model = {model_class}.from_pretrained('{model_name_or_path}', ignore_mismatched_sizes=True).eval()
+        unsharded_model = {model_class}.from_pretrained('{model_name_or_path}', ignore_mismatched_sizes=True)
 
-set_seed(42)
+
+model = model.eval()
+unsharded_model = unsharded_model.eval()
+
 parallel_model = ParallelizersManager.parallelizer_for_model(model).parallelize(model, parallelize_embeddings={parallelize_embeddings})
 parallel_layers.move_model_to_device(parallel_model, "xla")
 
