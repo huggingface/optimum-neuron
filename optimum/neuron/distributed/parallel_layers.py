@@ -295,9 +295,9 @@ class ParallelSelfAttention(ParallelLayer):
             elif num_key_value_heads < tp_size:
                 logger.warning(
                     f"The TP size ({tp_size}) is bigger than the number of key value heads ({num_key_value_heads}). "
-                    "This is not ideal because the key and value projections will not be sharded accross the TP ranks."
+                    "This is not ideal because the key and value projections will not be sharded accross the TP ranks. "
+                    "For better performance choose the number of key value heads to be divisible by the TP size."
                 )
-
             kv_heads_are_parallelized = num_key_value_heads >= tp_size
         else:
             num_key_value_heads = getattr(layer, num_attention_heads_name)
