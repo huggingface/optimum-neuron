@@ -57,7 +57,7 @@ class TokenSelector:
             self.fast_topk = isinstance(last_warper, TopKLogitsWarper)
             if self.fast_topk:
                 # Replace the last warping operation by a faster alternative
-                self.logits_warper[-1] = FastTopKLogitsWarper(last_warper.top_k, last_warper.filter_value)
+                self.logits_warper[-1] = FastTopKLogitsWarper(last_warper.top_k)
 
     @classmethod
     def create(
