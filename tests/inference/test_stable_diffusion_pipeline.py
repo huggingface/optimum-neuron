@@ -19,7 +19,7 @@ import unittest
 import PIL
 from parameterized import parameterized
 
-from optimum.neuron import NeuronStableDiffusionPipeline
+from optimum.neuron import NeuronStableDiffusionPipeline, NeuronStableDiffusionXLPipeline
 from optimum.neuron.modeling_diffusion import (
     NeuronModelTextEncoder,
     NeuronModelUnet,
@@ -39,7 +39,7 @@ logger = logging.get_logger()
 @is_inferentia_test
 @requires_neuronx
 @require_diffusers
-class NeuronModelForMultipleChoiceIntegrationTest(unittest.TestCase):
+class NeuronStableDiffusionPipelineIntegrationTest(unittest.TestCase):
     NEURON_MODEL_CLASS = NeuronStableDiffusionPipeline
     STATIC_INPUTS_SHAPES = {"batch_size": 1, "height": 64, "width": 64}
     COMPILER_ARGS = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
@@ -50,9 +50,9 @@ class NeuronModelForMultipleChoiceIntegrationTest(unittest.TestCase):
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_export_and_inference_non_dyn(self, model_arch):
-        num_image_per_prompt = 4
+        num_images_per_prompt = 4
         input_shapes = copy.deepcopy(self.STATIC_INPUTS_SHAPES)
-        input_shapes.update({"num_image_per_prompt": num_image_per_prompt})
+        input_shapes.update({"num_images_per_prompt": num_images_per_prompt})
         neuron_pipeline = self.NEURON_MODEL_CLASS.from_pretrained(
             MODEL_NAMES[model_arch],
             export=True,
@@ -63,21 +63,14 @@ class NeuronModelForMultipleChoiceIntegrationTest(unittest.TestCase):
         )
         self.assertIsInstance(neuron_pipeline.text_encoder, NeuronModelTextEncoder)
         self.assertIsInstance(neuron_pipeline.unet, NeuronModelUnet)
-        # #TODO: activate the checker once the encoder export fixed (2.13 release)
-        # self.assertIsInstance(neuron_pipeline.vae_encoder, NeuronModelVaeEncoder)
+        self.assertIsInstance(neuron_pipeline.vae_encoder, NeuronModelVaeEncoder)
         self.assertIsInstance(neuron_pipeline.vae_decoder, NeuronModelVaeDecoder)
 
-        prompt = "sailing ship in storm by Leonardo da Vinci"
-        with self.assertRaises(Exception) as context:
-            image = neuron_pipeline(prompt).images[0]
-        self.assertIn("pipeline were compiled with", str(context.exception))
-
-        prompts = ["sailing ship in storm by Leonardo da Vinci"] * num_image_per_prompt
-        image = neuron_pipeline(prompts).images[0]
+        prompts = ["sailing ship in storm by Leonardo da Vinci"]
+        image = neuron_pipeline(prompts, num_images_per_prompt=num_images_per_prompt).images[0]
         self.assertIsInstance(image, PIL.Image.Image)
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
-    @unittest.skip("The dynamic batching is not well supported for stable diffusion for now.")
     def test_export_and_inference_dyn(self, model_arch):
         neuron_pipeline = self.NEURON_MODEL_CLASS.from_pretrained(
             MODEL_NAMES[model_arch],
@@ -89,5 +82,75 @@ class NeuronModelForMultipleChoiceIntegrationTest(unittest.TestCase):
         )
 
         prompts = ["sailing ship in storm by Leonardo da Vinci"] * 2
-        image = neuron_pipeline(prompts).images[0]
+        image = neuron_pipeline(prompts, num_images_per_prompt=2).images[0]
+        self.assertIsInstance(image, PIL.Image.Image)
+
+
+@is_inferentia_test
+@requires_neuronx
+@require_diffusers
+class NeuronStableDiffusionXLPipelineIntegrationTest(unittest.TestCase):
+    NEURON_MODEL_CLASS = NeuronStableDiffusionXLPipeline
+    STATIC_INPUTS_SHAPES = {"batch_size": 1, "height": 64, "width": 64}
+    COMPILER_ARGS = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
+    SUPPORTED_ARCHITECTURES = [
+        "stable-diffusion-xl",
+    ]
+    ATOL_FOR_VALIDATION = 1e-3
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    def test_export_and_inference_non_dyn(self, model_arch):
+        num_images_per_prompt = 4
+        input_shapes = copy.deepcopy(self.STATIC_INPUTS_SHAPES)
+        input_shapes.update({"num_images_per_prompt": num_images_per_prompt})
+        neuron_pipeline = self.NEURON_MODEL_CLASS.from_pretrained(
+            MODEL_NAMES[model_arch],
+            export=True,
+            dynamic_batch_size=False,
+            **input_shapes,
+            **self.COMPILER_ARGS,
+            device_ids=[0, 1],
+        )
+        self.assertIsInstance(neuron_pipeline.text_encoder, NeuronModelTextEncoder)
+        self.assertIsInstance(neuron_pipeline.text_encoder_2, NeuronModelTextEncoder)
+        self.assertIsInstance(neuron_pipeline.unet, NeuronModelUnet)
+        self.assertIsInstance(neuron_pipeline.vae_encoder, NeuronModelVaeEncoder)
+        self.assertIsInstance(neuron_pipeline.vae_decoder, NeuronModelVaeDecoder)
+
+        prompt = "Astronaut in a jungle, cold color palette, muted colors, detailed, 8k"
+        prompt_2 = "Van Gogh painting"
+        negative_prompt_1 = "low quality, low resolution"
+        negative_prompt_2 = "low quality, low resolution"
+
+        image = neuron_pipeline(
+            prompt=prompt,
+            prompt_2=prompt_2,
+            negative_prompt=negative_prompt_1,
+            negative_prompt_2=negative_prompt_2,
+            num_images_per_prompt=num_images_per_prompt,
+        ).images[0]
+        self.assertIsInstance(image, PIL.Image.Image)
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    def test_export_and_inference_dyn(self, model_arch):
+        neuron_pipeline = self.NEURON_MODEL_CLASS.from_pretrained(
+            MODEL_NAMES[model_arch],
+            export=True,
+            dynamic_batch_size=True,
+            **self.STATIC_INPUTS_SHAPES,
+            **self.COMPILER_ARGS,
+            device_ids=[0, 1],
+        )
+
+        prompt = ["Astronaut in a jungle, cold color palette, muted colors, detailed, 8k"] * 2
+        prompt_2 = ["Van Gogh painting"] * 2
+        negative_prompt_1 = ["low quality, low resolution"] * 2
+        negative_prompt_2 = ["low quality, low resolution"] * 2
+        image = neuron_pipeline(
+            prompt=prompt,
+            prompt_2=prompt_2,
+            negative_prompt=negative_prompt_1,
+            negative_prompt_2=negative_prompt_2,
+            num_images_per_prompt=2,
+        ).images[0]
         self.assertIsInstance(image, PIL.Image.Image)

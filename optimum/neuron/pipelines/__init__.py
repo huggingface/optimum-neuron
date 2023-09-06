@@ -13,6 +13,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .transformers import (
-    pipeline,
-)
+from typing import TYPE_CHECKING
+
+from transformers.utils import _LazyModule
+
+
+_import_structure = {
+    "transformers": ["pipeline"],
+}
+
+if TYPE_CHECKING:
+    from .transformers import (
+        pipeline,
+    )
+else:
+    import sys
+
+    sys.modules[__name__] = _LazyModule(
+        __name__,
+        globals()["__file__"],
+        _import_structure,
+        module_spec=__spec__,
+    )

@@ -127,7 +127,7 @@ def validate_models_outputs(
     if len(exceptions) != 0:
         for i, exception in enumerate(exceptions[:-1]):
             logger.error(f"Validation {i} for the model {neuron_paths[i].as_posix()} raised: {exception}")
-        raise exceptions[-1]
+        raise Exception(exceptions[-1])
 
 
 def validate_model_outputs(
@@ -178,7 +178,7 @@ def validate_model_outputs(
             neuron_inputs = ref_inputs
         else:
             ref_outputs = reference_model(**ref_inputs)
-            neuron_inputs = tuple(ref_inputs.values())
+            neuron_inputs = tuple(config.flatten_inputs(ref_inputs).values())
 
     # Neuron outputs
     neuron_model = torch.jit.load(neuron_model_path)
@@ -220,8 +220,12 @@ def validate_model_outputs(
     shape_failures = []
     value_failures = []
     for name, output in zip(neuron_output_names_list, neuron_outputs):
-        ref_output = ref_outputs[name].numpy()
-        output = output.numpy()
+        if isinstance(output, torch.Tensor):
+            ref_output = ref_outputs[name].numpy()
+            output = output.numpy()
+        elif isinstance(output, tuple):  # eg. `hidden_states` of `AutoencoderKL` is a tuple of tensors.
+            ref_output = torch.stack(ref_outputs[name]).numpy()
+            output = torch.stack(output).numpy()
 
         logger.info(f'\t- Validating Neuron Model output "{name}":')
 
@@ -288,6 +292,7 @@ def export_models(
         )
 
     failed_models = []
+    total_compilation_time = 0
     for i, model_name in enumerate(models_and_neuron_configs.keys()):
         logger.info(f"***** Compiling {model_name} *****")
         submodel, sub_neuron_config = models_and_neuron_configs[model_name]
@@ -307,6 +312,7 @@ def export_models(
                 **compiler_kwargs,
             )
             compilation_time = time.time() - start_time
+            total_compilation_time += compilation_time
             logger.info(f"[Compilation Time] {np.round(compilation_time, 2)} seconds.")
             outputs.append((neuron_inputs, neuron_outputs))
             # Add neuron specific configs to model components' original config
@@ -321,7 +327,7 @@ def export_models(
                 model_config = OrderedDict(model_config)
                 model_config = DiffusersPretrainedConfig.from_dict(model_config)
 
-            store_compilation_config(
+            model_config = store_compilation_config(
                 config=model_config,
                 input_shapes=sub_neuron_config.input_shapes,
                 compiler_kwargs=compiler_kwargs,
@@ -331,6 +337,7 @@ def export_models(
                 compiler_type=NEURON_COMPILER_TYPE,
                 compiler_version=NEURON_COMPILER_VERSION,
                 model_type=getattr(sub_neuron_config, "MODEL_TYPE", None),
+                task=getattr(sub_neuron_config, "task", None),
             )
             if isinstance(model_config, PretrainedConfig):
                 model_config = DiffusersPretrainedConfig.from_dict(model_config.__dict__)
@@ -342,6 +349,7 @@ def export_models(
                 f"An error occured when trying to trace {model_name} with the error message: {e}.\n"
                 f"The export is failed and {model_name} neuron model won't be stored."
             )
+    logger.info(f"[Total compilation Time] {np.round(total_compilation_time, 2)} seconds.")
 
     # remove models failed to export
     for i, model_name in failed_models:
@@ -416,6 +424,7 @@ def export_neuronx(
         input_shapes[axis] = getattr(config, axis)
 
     dummy_inputs = config.generate_dummy_inputs(**input_shapes)
+    dummy_inputs = config.flatten_inputs(dummy_inputs)
     dummy_inputs_tuple = tuple(dummy_inputs.values())
     checked_model = config.check_model_inputs_order(model, dummy_inputs)
 
@@ -429,6 +438,8 @@ def export_neuronx(
         compiler_args.extend(["--auto-cast-type", auto_cast_type])
     else:
         compiler_args = ["--auto-cast", "none"]
+    # WARNING: Enabled experimental parallel compilation
+    compiler_args.extend(["--enable-experimental-O1"])
 
     # diffusers specific
     compiler_args = add_stable_diffusion_compiler_args(config, compiler_args)
@@ -449,11 +460,14 @@ def export_neuronx(
 
 def add_stable_diffusion_compiler_args(config, compiler_args):
     if hasattr(config._config, "_name_or_path"):
-        sd_components = ["text_encoder", "unet", "vae", "vae_encoder", "vae_decoder"]
+        sd_components = ["text_encoder", "vae", "vae_encoder", "vae_decoder"]
         if any(component in config._config._name_or_path.lower() for component in sd_components):
             compiler_args.extend(["--enable-fast-loading-neuron-binaries"])
         # unet
         if "unet" in config._config._name_or_path.lower():
+            # SDXL unet doesn't support fast loading neuron binaries
+            if "stable-diffusion-xl" not in config._config._name_or_path.lower():
+                compiler_args.extend(["--enable-fast-loading-neuron-binaries"])
             compiler_args.extend(["--model-type=unet-inference"])
     return compiler_args
 

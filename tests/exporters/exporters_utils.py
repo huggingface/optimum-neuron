@@ -33,7 +33,8 @@ EXPORT_MODELS_TINY = {
 }
 
 STABLE_DIFFUSION_MODELS_TINY = {
-    ("hf-internal-testing/tiny-stable-diffusion-torch"),
+    "stable-diffusion": ["hf-internal-testing/tiny-stable-diffusion-torch"],
+    "stable-diffusion-xl": ["echarlaix/tiny-random-stable-diffusion-xl"],
 }
 
 SEED = 42

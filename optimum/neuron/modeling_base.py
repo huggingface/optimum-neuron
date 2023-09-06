@@ -99,10 +99,11 @@ class NeuronBaseModel(OptimizedModel):
             path (`Union[str, Path]`):
                 Path of the compiled model.
         """
-        if not isinstance(path, str):
-            path = str(path)
+        if not isinstance(path, Path):
+            path = Path(path)
 
-        return torch.jit.load(path)
+        if path.is_file():
+            return torch.jit.load(path)
 
     def _save_pretrained(self, save_directory: Union[str, Path]):
         """
@@ -405,7 +406,7 @@ class NeuronBaseModel(OptimizedModel):
         }
 
         # Neuron config constructuor
-        task = TasksManager.infer_task_from_model(cls.auto_model_class)
+        task = getattr(config, "task") or TasksManager.infer_task_from_model(cls.auto_model_class)
         task = TasksManager.map_from_synonym(task)
         neuron_config_constructor = TasksManager.get_exporter_config_constructor(
             model_type=config.model_type, exporter="neuron", task=task

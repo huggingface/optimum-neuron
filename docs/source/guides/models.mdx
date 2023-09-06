@@ -67,7 +67,7 @@ And the next time when you want to run inference, just load your compiled model 
 As you see, there is no need to pass the neuron arguments used during the export as they are
 saved in a `config.json` file, and will be restored automatically by `NeuronModelForXXX` class.
 
-## Export and inference of Discriminative NLP models
+## Discriminative NLP models
 
 As explained in the previous section, you will need only few modifications to your Transformers code to export and run NLP models:
 
@@ -133,7 +133,7 @@ No worries, `NeuronModelForXXX` class will pad your inputs to an eligible shape.
 
 </Tip>
 
-## Export and inference of Generative NLP models
+## Generative NLP models
 
 As explained before, you will need only a few modifications to your Transformers code to export and run NLP models:
 
@@ -196,15 +196,15 @@ with torch.inference_mode():
     print(outputs)
 ```
 
-## Inference of Stable Diffusion Models
+## Stable Diffusion
 
 Optimum extends 🤗`Diffusers` to support inference on Neuron. To get started, make sure you have installed Diffusers:
 
 ```bash
-pip install diffusers>=0.17.0
+pip install "optimum[neuronx, diffusers]"
 ```
 
-You can also accelerate the inference of stable diffusion on neuronx devices (inf / trn1). There are three components which need to be exported to the `.neuron` format to boost the performance:
+You can also accelerate the inference of stable diffusion on neuronx devices (inf2 / trn1). There are four components which need to be exported to the `.neuron` format to boost the performance:
 
 * Text encoder
 * U-Net
@@ -215,7 +215,9 @@ The export can be done either with the CLI or with `NeuronStableDiffusionPipelin
 
 <Tip>
 
-To apply optimized compute of Unet's attention score, please configure your environment variable with `export NEURON_FUSE_SOFTMAX=1`.
+To apply optimized compute of Unet's attention score, please configure your environment variable with `export NEURON_FUSE_SOFTMAX=1`. 
+
+Besides, don't hesitate to tweak the compilation configuration to find the best tradeoff between performance v.s accuracy in your use case. By default, we suggest casting FP32 matrix multiplication operations to BF16 which offers good performance with moderate sacrifice of the accuracy. Check out the guide from [AWS Neuron documentation](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/appnotes/neuronx-cc/neuronx-cc-training-mixed-precision.html#neuronx-cc-training-mixed-precision) to better understand the options for your compilation.
 
 </Tip>
 
@@ -245,7 +247,40 @@ Now generate an image with a prompt on neuron:
 
 <img
   src="https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/guides/models/01-sd-image.png"
-  alt="search ami"
+  alt="stable diffusion generated image"
+/>
+
+## Stable Diffusion XL
+
+Similar to Stable Diffusion, you will be able to use `NeuronStableDiffusionXLPipeline` API to export and run inference on Neuron devices with SDXL models. 
+
+```python
+>>> from optimum.neuron import NeuronStableDiffusionXLPipeline
+
+>>> model_id = "stabilityai/stable-diffusion-xl-base-1.0"
+>>> compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
+>>> input_shapes = {"batch_size": 1, "height": 1024, "width": 1024}
+
+>>> stable_diffusion_xl = NeuronStableDiffusionXLPipeline.from_pretrained(model_id, export=True, **compiler_args, **input_shapes)
+
+# Save locally or upload to the HuggingFace Hub
+>>> save_directory = "sd_neuron_xl/"
+>>> stable_diffusion_xl.save_pretrained(save_directory)
+>>> stable_diffusion_xl.push_to_hub(
+...     save_directory, repository_id="my-neuron-repo", use_auth_token=True
+... )
+```
+
+Now generate an image with a prompt on neuron:
+
+```python
+>>> prompt = "Astronaut in a jungle, cold color palette, muted colors, detailed, 8k"
+>>> image = stable_diffusion_xl(prompt).images[0]
+```
+
+<img
+  src="https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/guides/models/02-sdxl-image.png"
+  alt="sdxl generated image"
 />
 
 

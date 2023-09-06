@@ -68,6 +68,10 @@ class NeuronConfig(ExportConfig, ABC):
             The task the model should be exported for.
         dynamic_batch_size (`bool`, defaults to `False`):
             Whether the Neuron compiled model supports dynamic batch size.
+        int_dtype (`str`, defaults to `"int64"`):
+            The data type of integer tensors, could be ["int64", "int32", "int8"], default to "int64".
+        float_dtype (`str`, defaults to `"fp32"`):
+            The data type of float tensors, could be ["fp32", "fp16", "bf16"], default to "fp32".
 
         The rest of the arguments are used to specify the shape of the inputs the model can take.
         They are required or not depending on the model the `NeuronConfig` is designed for.
@@ -115,6 +119,9 @@ class NeuronConfig(ExportConfig, ABC):
         audio_sequence_length: Optional[int] = None,
         point_batch_size: Optional[int] = None,
         nb_points_per_image: Optional[int] = None,
+        # TODO: add custom dtype after optimum 1.13 release
+        # int_dtype: str = "int64",
+        # float_dtype: str = "fp32",
     ):
         self._config = config
         self._normalized_config = self.NORMALIZED_CONFIG_CLASS(self._config)
@@ -254,6 +261,8 @@ class NeuronConfig(ExportConfig, ABC):
             for dummy_input_gen in dummy_inputs_generators:
                 if dummy_input_gen.supports_input(input_name):
                     dummy_inputs[input_name] = dummy_input_gen.generate(input_name, framework="pt")
+                    # TODO: add custom dtype after optimum 1.13 release
+                    # dummy_inputs[input_name] = dummy_input_gen.generate(input_name, framework="pt", int_dtype=self.int_dtype, float_dtype=self.float_dtype)
                     input_was_inserted = True
                     break
             if not input_was_inserted:
@@ -267,12 +276,28 @@ class NeuronConfig(ExportConfig, ABC):
         else:
             return dummy_inputs
 
+    @classmethod
+    def flatten_inputs(cls, inputs: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Flatten nested structure in dummy inputs, e.g `addition_embed_type` of unet model.
+        """
+        flatten = {}
+        for name, value in inputs.items():
+            if isinstance(value, dict):
+                for sub_name, sub_value in value.items():
+                    flatten[sub_name] = sub_value
+            else:
+                flatten[name] = value
+        return flatten
+
     def check_model_inputs_order(
         self,
         model: "PreTrainedModel",
-        dummy_inputs: Dict[str, torch.Tensor],
+        dummy_inputs: Optional[Dict[str, torch.Tensor]] = None,
         forward_with_tuple: bool = False,
         eligible_outputs: Optional[List[Union[str, int]]] = None,
+        custom_model_wrapper: Optional[torch.nn.Module] = None,
+        custom_wrapper_kwargs: Optional[Dict] = None,
     ):
         """
         Checks if inputs order of the model's forward pass correspond to the generated dummy inputs to ensure the dummy inputs tuple used for
@@ -311,7 +336,14 @@ class NeuronConfig(ExportConfig, ABC):
 
                 return outputs
 
-        return ModelWrapper(model, list(dummy_inputs.keys()))
+        if custom_model_wrapper:
+            return (
+                custom_model_wrapper(model)
+                if custom_wrapper_kwargs is None
+                else custom_model_wrapper(model, **custom_wrapper_kwargs)
+            )
+        else:
+            return ModelWrapper(model, list(dummy_inputs.keys()))
 
 
 class NeuronDecoderConfig(ExportConfig):

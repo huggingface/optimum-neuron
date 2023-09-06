@@ -27,14 +27,18 @@ import torch
 from accelerate import Accelerator
 from accelerate.checkpointing import save_accelerator_state, save_custom_state
 from accelerate.utils import DistributedType
+from packaging import version
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
+
+from optimum.neuron.utils.patching import ModelPatcher
 
 from ...utils import logging
 from ..distributed import Parallelizer, ParallelizersManager
 from ..distributed.utils import ZeroRedundancyOptimizerCompatibleWithTensorParallelism
 from ..utils import Patcher, is_neuronx_distributed_available, is_torch_xla_available, patch_within_function
 from ..utils.misc import args_and_kwargs_to_kwargs_only
+from ..utils.version_utils import get_torch_xla_version
 from .optimizer import NeuronAcceleratedOptimizer
 from .scheduler import NeuronAcceleratedScheduler
 from .state import NeuronAcceleratorState
@@ -56,6 +60,7 @@ if TYPE_CHECKING:
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
+    from torch_xla.distributed.parallel_loader import MpDeviceLoader
 else:
     xm = None
 
@@ -109,7 +114,7 @@ class NeuronAccelerator(Accelerator):
                 tp_size = 1
             else:
                 tp_size = int(use_neuronx_distributed_tp)
-            tp_plugin = TensorParallelismPlugin(tensor_parallel_size=tp_size)
+            tp_plugin = TensorParallelismPlugin(tensor_parallel_size=tp_size, parallelize_embeddings=True)
         self._model_cpu_parameters_to_xla = {}
 
         if tp_plugin.should_parallelize:
@@ -157,10 +162,11 @@ class NeuronAccelerator(Accelerator):
     def prepare_data_loader(self, data_loader: DataLoader, device_placement: Optional[bool] = None):
         if self.state.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
             data_loader = self._prepare_data_loader_for_tp(data_loader)
-        else:
-            # TODO: fix that.
-            return data_loader
-        return super().prepare_data_loader(data_loader, device_placement=device_placement)
+        if self.state.num_processes > 1:
+            data_loader = MpDeviceLoader(data_loader, self.device)
+        return data_loader
+        # TODO: fix that.
+        # return super().prepare_data_loader(data_loader, device_placement=device_placement)
 
     def _prepare_optimizer_for_tp(self, optimizer: torch.optim.Optimizer, device_placement=None):
         cpu_parameters_to_xla = collections.ChainMap(*self._model_cpu_parameters_to_xla.values())
@@ -190,13 +196,44 @@ class NeuronAccelerator(Accelerator):
             params = args[0]
             defaults = args_and_kwargs_to_kwargs_only(optimizer.__class__, args[1:], kwargs)
 
-            zero_1_optimizer = ZeroRedundancyOptimizerCompatibleWithTensorParallelism(
-                params,
-                optimizer.__class__,
-                optimizer_dtype=optimizer_dtype,
-                pin_layout=False,
-                **defaults,
-            )
+            # Prior to 1.13.1+torchneuron8, the vanilla ZeroRedundancyOptimizer was not designed for TP.
+            full_torch_xla_version = get_torch_xla_version()
+            torch_xla_version, torchneuron_version = full_torch_xla_version.split("+")
+            torch_xla_version = version.parse(torch_xla_version)
+            if torch_xla_version <= version.parse("1.13.1") and int(torchneuron_version[-1]) < 8:
+                zero_1_optimizer = ZeroRedundancyOptimizerCompatibleWithTensorParallelism(
+                    params,
+                    optimizer.__class__,
+                    optimizer_dtype=optimizer_dtype,
+                    pin_layout=False,
+                    **defaults,
+                )
+            # Exception to make sure `ZeroRedundancyOptimizerCompatibleWithTensorParallelism` is removed in 3 releases.
+            elif torch_xla_version <= version.parse("1.13.1") and int(torchneuron_version[-1]) >= 11:
+                raise RuntimeError(
+                    "ZeroRedundancyOptimizerCompatibleWithTensorParallelism is deprecated and should be removed from "
+                    "`optimum-neuron`"
+                )
+            else:
+                from neuronx_distributed.parallel_layers.parallel_state import (
+                    get_data_parallel_group,
+                    model_parallel_is_initialized,
+                )
+                from torch_xla.distributed.zero_redundancy_optimizer import ZeroRedundancyOptimizer
+
+                if not is_neuronx_distributed_available() or not model_parallel_is_initialized():
+                    cc_op_groups = None
+                else:
+                    cc_op_groups = get_data_parallel_group(as_list=True)
+
+                zero_1_optimizer = ZeroRedundancyOptimizer(
+                    params,
+                    optimizer.__class__,
+                    optimizer_dtype=optimizer_dtype,
+                    pin_layout=False,
+                    cc_op_groups=cc_op_groups,
+                    **defaults,
+                )
             del optimizer
         else:
             logger.warning(
@@ -305,8 +342,17 @@ class NeuronAccelerator(Accelerator):
                 model.to(torch.bfloat16)
             else:
                 model.to(torch.float32)
-            parallel_layers.move_model_to_device(model, self.device)
-            model.tie_weights()
+
+            def _tie_or_clone_weights_for_tp(self, output_embeddings, input_embeddings):
+                """Tie or clone module weights depending of whether we are using TorchScript or not"""
+                output_embeddings.weight = input_embeddings.weight
+                if hasattr(output_embeddings, "out_features") and hasattr(input_embeddings, "num_embeddings"):
+                    output_embeddings.out_features = input_embeddings.num_embeddings
+
+            with ModelPatcher(patching_specs=[(model, "_tie_or_clone_weights", _tie_or_clone_weights_for_tp)]):
+                model.tie_weights()
+                parallel_layers.move_model_to_device(model, self.device)
+                model.tie_weights()
             self._model_cpu_parameters_to_xla[id(model)] = dict(zip(cpu_ids, model.parameters()))
             device_placement = False
         return super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
@@ -473,3 +519,7 @@ class NeuronAccelerator(Accelerator):
         elif self.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
             return self.save_state_for_tp(output_dir=output_dir, **save_model_func_kwargs)
         return super().save_state(output_dir=output_dir, **save_model_func_kwargs)
+
+    @patch_within_function(("accelerate.utils.operations.xm", xm), ignore_missing_attributes=True)
+    def gather_for_metrics(self, tensor):
+        return super().gather_for_metrics(tensor)
