@@ -113,102 +113,6 @@ for model_type, model_name_or_path in MODEL_TYPES_TO_TEST:
 
 @is_trainium_test
 class ModelParallelizationTestCase(unittest.TestCase):
-    def get_parallel_test_python_file_content(
-        self,
-        model_class: str,
-        model_name_or_path: str,
-        from_config: bool,
-        tp_size: int,
-        lazy_load: bool,
-        parallelize_embeddings: bool,
-    ):
-        model_import = f"from transformers import AutoConfig, AutoTokenizer, {model_class}"
-        other_imports = (
-            "import torch\n"
-            "from transformers.trainer_utils import set_seed\n"
-            "from optimum.neuron.distributed import ParallelizersManager, lazy_load_for_parallelism\n"
-            "import neuronx_distributed\n"
-            "import os\n"
-            "from inspect import signature\n"
-        )
-
-        initialize_torch_distributed = (
-            "if os.environ.get('TORCHELASTIC_RUN_ID'):\n"
-            "\timport torch_xla.distributed.xla_backend as xbn\n"
-            "if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):\n"
-            "\ttorch.distributed.init_process_group(backend='xla')\n"
-        )
-
-        initialize_tp = f"neuronx_distributed.parallel_layers.parallel_state.initialize_model_parallel(tensor_model_parallel_size={tp_size})"
-
-        set_seed = "set_seed(42)"
-
-        config_loading = f"config = AutoConfig.from_pretrained('{model_name_or_path}')"
-        preprocessor_loading = f"preprocessor = AutoTokenizer.from_pretrained('{model_name_or_path}')"
-        inputs = "inputs = preprocessor('This is a test to check that TP is working.', return_tensors='pt')"
-
-        if from_config:
-            model_loading_line = f"model = {model_class}(config)"
-            full_model_loading_line = f"unsharded_model = {model_class}(config)"
-        else:
-            model_loading_line = (
-                f"model = {model_class}.from_pretrained('{model_name_or_path}', ignore_mismatched_sizes=True)"
-            )
-            full_model_loading_line = f"unsharded_model = {model_class}.from_pretrained('{model_name_or_path}', ignore_mismatched_sizes=True)"
-
-        if lazy_load:
-            model_loading_block = (
-                f"with lazy_load_for_parallelism(tensor_parallel_size={tp_size}):\n" f"    {model_loading_line}"
-            )
-        else:
-            model_loading_block = model_loading_line
-
-        model_to_eval_mode = "model = model.eval()\nunsharded_model = unsharded_model.eval()"
-
-        parallel_model_loading = (
-            "parallel_model = ParallelizersManager.parallelizer_for_model(model).parallelize(model, "
-            f"parallelize_embeddings={parallelize_embeddings})"
-        )
-
-        inference = (
-            "unsharded_model = unsharded_model.to('xla')\n"
-            "parallel_model = parallel_model.to('xla')\n"
-            "xla_inputs = {k: v.to('xla') for k, v in inputs.items()}\n"
-            "sig = signature(parallel_model.forward)\n"
-            "if unsharded_model.config.is_encoder_decoder:\n"
-            "    decoder_xla_inputs = {f'decoder_{k}': v for k, v in xla_inputs.items()}\n"
-            "    xla_inputs.update(decoder_xla_inputs)\n"
-            "xla_inputs = {k: v for k, v in xla_inputs.items() if k in sig.parameters}\n"
-            "print(parallel_model)\n"
-            "model_outputs = unsharded_model(**xla_inputs, return_dict=True)\n"
-            "parallel_model_outputs = parallel_model(**xla_inputs, return_dict=True)\n"
-            "for name, t in parallel_model_outputs.items():\n"
-            "   if not isinstance(t, torch.Tensor):\n"
-            "       continue\n"
-            "   print(t, model_outputs[name])\n"
-            "   torch.testing.assert_close(t, model_outputs[name])\n"
-            "print('This is a success')\n"
-        )
-
-        return "\n".join(
-            [
-                model_import,
-                other_imports,
-                initialize_torch_distributed,
-                initialize_tp,
-                config_loading,
-                preprocessor_loading,
-                inputs,
-                set_seed,
-                full_model_loading_line,
-                set_seed,
-                model_loading_block,
-                model_to_eval_mode,
-                parallel_model_loading,
-                inference,
-            ]
-        )
-
     def _test_model_parallel(
         self,
         tp_size: int,
@@ -248,8 +152,6 @@ class ModelParallelizationTestCase(unittest.TestCase):
 
         specialized_content = template_content.format(**specialization_data)
 
-        # print(specialized_content)
-
         with TemporaryDirectory() as tmpdirname:
             with open(f"{tmpdirname}/code.py", "w") as fp:
                 fp.write(specialized_content)
@@ -270,14 +172,24 @@ class ModelParallelizationTestCase(unittest.TestCase):
     @parameterized.expand(MODELS_TO_TEST)
     def test_model_parallel_from_config_without_lazy_load(self, model_class_name: str, model_name_or_path: str):
         self._test_model_parallel(
-            2, model_class_name, model_name_or_path, True, False, False
-        )  # Should be True once it's working.
+            tp_size=2,
+            model_class_name=model_class_name,
+            model_name_or_path=model_name_or_path,
+            from_config=True,
+            with_lazy_load=False,
+            parallelize_embeddings=False,  # Should be True once it's working.
+        )
 
     @parameterized.expand(MODELS_TO_TEST)
     def test_model_parallel_from_pretrained_without_lazy_load(self, model_class_name: str, model_name_or_path: str):
         self._test_model_parallel(
-            2, model_class_name, model_name_or_path, False, False, False
-        )  # Should be True once it's working.
+            tp_size=2,
+            model_class_name=model_class_name,
+            model_name_or_path=model_name_or_path,
+            from_config=False,
+            with_lazy_load=False,
+            parallelize_embeddings=False,  # Should be True once it's working.
+        )
 
     @unittest.skipIf(
         NUM_NEURON_CORES_AVAILABLE < 32,
