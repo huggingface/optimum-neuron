@@ -260,7 +260,7 @@ def get_num_neuron_cores() -> int:
     stdout, _ = proc.communicate()
     stdout = stdout.decode("utf-8")
     json_stdout = json.loads(stdout)
-    return json_stdout[0]["nc_count"]
+    return sum(neuron_device_info["nc_count"] for neuron_device_info in json_stdout)
 
 
 def get_num_neuron_cores_used() -> int:

@@ -20,7 +20,13 @@ from typing import TYPE_CHECKING, Dict, Optional, Tuple, Union
 
 from ...utils import NormalizedConfigManager, logging
 from ..utils import is_neuronx_distributed_available
-from .utils import WeightInformation, embedding_to_parallel_embedding, linear_to_parallel_linear
+from .utils import (
+    GroupedQueryAttentionInfo,
+    WeightInformation,
+    embedding_to_parallel_embedding,
+    gqa_key_value_slicing_when_tp_size_greater_than_num_key_value_heads,
+    linear_to_parallel_linear,
+)
 
 
 if is_neuronx_distributed_available():
@@ -231,6 +237,7 @@ class ParallelSelfAttention(ParallelLayer):
     OUTPUT_PROJECTION_NAME: Optional[str] = None
     NUM_ATTENTION_HEADS_NAME: Optional[str] = None
     NUM_KEY_VALUE_HEADS_NAME: Optional[str] = None
+    NUM_KEY_VALUE_GROUPS_NAME: Optional[str] = None
     # TODO: add this in NormalizedConfig
     ALL_HEAD_SIZE_NAME: Optional[str] = None  # "all_head_size"
 
@@ -242,6 +249,11 @@ class ParallelSelfAttention(ParallelLayer):
         orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
         device: Optional["torch.device"] = None,
     ) -> "torch.nn.Module":
+        if (cls.NUM_KEY_VALUE_HEADS_NAME is not None and cls.NUM_KEY_VALUE_GROUPS_NAME is None) or (
+            cls.NUM_KEY_VALUE_HEADS_NAME is None and cls.NUM_KEY_VALUE_GROUPS_NAME is not None
+        ):
+            raise AttributeError("Both NUM_KEY_VALUE_HEADS_NAME and NUM_KEY_VALUE_GROUPS_NAME must be specified.")
+
         from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 
         tp_size = get_tensor_model_parallel_size()
@@ -261,6 +273,19 @@ class ParallelSelfAttention(ParallelLayer):
         else:
             num_attention_heads_name = cls.NUM_ATTENTION_HEADS_NAME
 
+        if not hasattr(layer, num_attention_heads_name):
+            raise AttributeError(f"The {type(layer)} layer has not attribute {num_attention_heads_name}.")
+
+        num_attention_heads = getattr(layer, num_attention_heads_name)
+
+        if cls.ALL_HEAD_SIZE_NAME is None:
+            all_head_size_name = normalized_config.ALL_HEAD_SIZE_NAME
+        else:
+            all_head_size_name = cls.ALL_HEAD_SIZE_NAME
+
+        if not hasattr(layer, all_head_size_name):
+            raise AttributeError(f"The {type(layer)} layer has not attribute {all_head_size_name}.")
+
         if cls.NUM_KEY_VALUE_HEADS_NAME is not None:
             num_key_value_heads = getattr(layer, cls.NUM_KEY_VALUE_HEADS_NAME)
             if num_key_value_heads % tp_size != 0 and tp_size % num_key_value_heads != 0:
@@ -274,21 +299,11 @@ class ParallelSelfAttention(ParallelLayer):
                 )
 
             kv_heads_are_parallelized = num_key_value_heads >= tp_size
-            if kv_heads_are_parallelized:
-                setattr(
-                    layer,
-                    cls.NUM_KEY_VALUE_HEADS_NAME,
-                    num_key_value_heads // parallel_state.get_tensor_model_parallel_size(),
-                )
         else:
             num_key_value_heads = getattr(layer, num_attention_heads_name)
             kv_heads_are_parallelized = True
 
         for name in [cls.QUERIES_NAME, cls.KEYS_NAME, cls.VALUES_NAME]:
-            # Under GQA setting with num_key_value_heads < tp_size, the key and value projections are replicated accross
-            # workers.
-            if not kv_heads_are_parallelized and name in [cls.KEYS_NAME, cls.VALUES_NAME]:
-                continue
             linear_layer_weight_info, linear_layer_bias_weight_info = None, None
             if weight_map is not None:
                 linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
@@ -296,15 +311,27 @@ class ParallelSelfAttention(ParallelLayer):
                     f"{layer_qualified_name}.{name}",
                     device=device,
                 )
-            parallel_linear = linear_to_parallel_linear(
-                getattr(layer, name),
-                "column",
-                gather_output=False,
-                linear_layer_weight_info=linear_layer_weight_info,
-                linear_layer_bias_weight_info=linear_layer_bias_weight_info,
-                orig_to_parallel=orig_to_parallel,
-                device=device,
-            )
+            # Under GQA setting with num_key_value_heads < tp_size, the key and value projections are replicated accross
+            # workers.
+            if not kv_heads_are_parallelized and name in [cls.KEYS_NAME, cls.VALUES_NAME]:
+                gqa_info = GroupedQueryAttentionInfo(num_attention_heads, num_key_value_heads)
+                parallel_linear = gqa_key_value_slicing_when_tp_size_greater_than_num_key_value_heads(
+                    gqa_info,
+                    getattr(layer, name),
+                    linear_layer_weight_info=linear_layer_weight_info,
+                    linear_layer_bias_weight_info=linear_layer_bias_weight_info,
+                    device=device,
+                )
+            else:
+                parallel_linear = linear_to_parallel_linear(
+                    getattr(layer, name),
+                    "column",
+                    gather_output=False,
+                    linear_layer_weight_info=linear_layer_weight_info,
+                    linear_layer_bias_weight_info=linear_layer_bias_weight_info,
+                    orig_to_parallel=orig_to_parallel,
+                    device=device,
+                )
             setattr(layer, name, parallel_linear)
 
         if cls.OUTPUT_PROJECTION_NAME is not None:
@@ -329,22 +356,39 @@ class ParallelSelfAttention(ParallelLayer):
                 ),
             )
 
-        if not hasattr(layer, num_attention_heads_name):
-            raise AttributeError(f"The {type(layer)} layer has not attribute {num_attention_heads_name}.")
-
-        if cls.ALL_HEAD_SIZE_NAME is None:
-            all_head_size_name = normalized_config.ALL_HEAD_SIZE_NAME
-        else:
-            all_head_size_name = cls.ALL_HEAD_SIZE_NAME
-
-        if not hasattr(layer, all_head_size_name):
-            raise AttributeError(f"The {type(layer)} layer has not attribute {all_head_size_name}.")
-
         setattr(
             layer,
             num_attention_heads_name,
-            getattr(layer, num_attention_heads_name) // parallel_state.get_tensor_model_parallel_size(),
+            num_attention_heads // parallel_state.get_tensor_model_parallel_size(),
         )
+
+        if cls.NUM_KEY_VALUE_HEADS_NAME is not None:
+            # This happens when Grouped Query Attention is used and the number of kv heads is bigger than the TP size.
+            # Since those heads end-up sharded accross TP ranks just as the query heads, only the number of kv heads
+            # needs to be updated. The number of query groups remains the same here because it is the ratio between the
+            # number of query heads and the number of kv heads.
+            if kv_heads_are_parallelized:
+                setattr(
+                    layer,
+                    cls.NUM_KEY_VALUE_HEADS_NAME,
+                    num_key_value_heads // parallel_state.get_tensor_model_parallel_size(),
+                )
+            # This happens when Grouped Query Attention (or Multi Query Attention) is used and the number of kv heads is
+            # smaller than the TP size.
+            # In this case, multiple ranks will end-up with the same kv head, and each rank will only have one kv head
+            # and query group.
+            else:
+                setattr(
+                    layer,
+                    cls.NUM_KEY_VALUE_HEADS_NAME,
+                    1,
+                )
+                setattr(
+                    layer,
+                    cls.NUM_KEY_VALUE_GROUPS_NAME,
+                    1,
+                )
+
         setattr(
             layer,
             all_head_size_name,

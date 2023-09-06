@@ -42,6 +42,8 @@ from transformers.models.auto.modeling_auto import (
     MODEL_FOR_ZERO_SHOT_IMAGE_CLASSIFICATION_MAPPING_NAMES,
 )
 
+from optimum.neuron.utils.cache_utils import get_num_neuron_cores
+
 from ..test_utils import is_trainium_test
 
 
@@ -50,6 +52,7 @@ if TYPE_CHECKING:
 
 
 TEMPLATE_FILE_NAME = "model_parallel_test_template.txt"
+NUM_NEURON_CORES_AVAILABLE = get_num_neuron_cores()
 
 
 def _generate_supported_model_class_names(
@@ -215,7 +218,14 @@ class ModelParallelizationTestCase(unittest.TestCase):
         with_lazy_load: bool,
         parallelize_embeddings: bool,
         overwrite_model_config: Optional[Dict[str, str]] = None,
+        num_neuron_cores: int = NUM_NEURON_CORES_AVAILABLE,
     ):
+        if num_neuron_cores < tp_size:
+            raise ValueError(
+                "The number of Neuron cores available is lower than the TP size, failing since the test might not be "
+                "testing what is expected."
+            )
+
         template_content = None
         template_file_path = Path(__file__).parent.resolve() / TEMPLATE_FILE_NAME
         with open(template_file_path, "r") as fp:
@@ -244,7 +254,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
             with open(f"{tmpdirname}/code.py", "w") as fp:
                 fp.write(specialized_content)
 
-            cmd = ["torchrun", "--nproc_per_node=2", f"{tmpdirname}/code.py"]
+            cmd = ["torchrun", f"--nproc_per_node={num_neuron_cores}", f"{tmpdirname}/code.py"]
 
             p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=specialization_env)
             stdout, stderr = p.communicate()
@@ -269,6 +279,10 @@ class ModelParallelizationTestCase(unittest.TestCase):
             2, model_class_name, model_name_or_path, False, False, False
         )  # Should be True once it's working.
 
+    @unittest.skipIf(
+        NUM_NEURON_CORES_AVAILABLE < 32,
+        f"This test requires 32 Neuron cores, but only {NUM_NEURON_CORES_AVAILABLE} are available",
+    )
     def test_llama_v2_mqa(self):
         # MHA setup
         # TP size = 4, num_attention_heads = 8, num_key_value_heads = 8
@@ -280,6 +294,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
             with_lazy_load=False,
             parallelize_embeddings=False,
             overwrite_model_config={
+                "num_hidden_layers": "2",
                 "num_attention_heads": "8",
                 "num_key_value_heads": "8",
             },
@@ -295,6 +310,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
             with_lazy_load=False,
             parallelize_embeddings=False,
             overwrite_model_config={
+                "num_hidden_layers": "2",
                 "num_attention_heads": "8",
                 "num_key_value_heads": "4",
             },
@@ -310,6 +326,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
             with_lazy_load=False,
             parallelize_embeddings=False,
             overwrite_model_config={
+                "num_hidden_layers": "2",
                 "num_attention_heads": "8",
                 "num_key_value_heads": "4",
             },
@@ -325,6 +342,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
             with_lazy_load=False,
             parallelize_embeddings=False,
             overwrite_model_config={
+                "num_hidden_layers": "2",
                 "num_attention_heads": "8",
                 "num_key_value_heads": "2",
             },
@@ -340,6 +358,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
             with_lazy_load=False,
             parallelize_embeddings=False,
             overwrite_model_config={
+                "num_hidden_layers": "2",
                 "num_attention_heads": "8",
                 "num_key_value_heads": "1",
             },
