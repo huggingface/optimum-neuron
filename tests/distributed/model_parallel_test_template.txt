@@ -13,22 +13,25 @@ from transformers import AutoConfig, AutoTokenizer, {model_class}
 from transformers.trainer_utils import set_seed
 from optimum.neuron.distributed import ParallelizersManager, lazy_load_for_parallelism
 
+
 if os.environ.get('TORCHELASTIC_RUN_ID'):
     import torch_xla.distributed.xla_backend as xbn
 
     if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
-        torch.distributed.init_process_group(backend='xla')
+        torch.distributed.init_process_group(backend="xla")
 
+# Initialize TP
+neuronx_distributed.parallel_layers.parallel_state.initialize_model_parallel(tensor_model_parallel_size={tp_size})
+
+SEED = 42
 
 from_config = os.environ["from_config"] == "true"
 lazy_load = os.environ["lazy_load"] == "true"
+is_parallel = os.environ["is_parallel"] == "true"
 config_overwrite = os.environ.get("config_overwrite", "")
 
 if config_overwrite and not from_config:
   raise ValueError("from_config must be True when providing a config_overwrite, otherwise it would be ignored.")
-
-# Initialize TP
-neuronx_distributed.parallel_layers.parallel_state.initialize_model_parallel(tensor_model_parallel_size={tp_size})
 
 
 config = AutoConfig.from_pretrained('{model_name_or_path}')
@@ -47,28 +50,27 @@ preprocessor = AutoTokenizer.from_pretrained('{model_name_or_path}')
 
 inputs = preprocessor('This is a test to check that TP is working.', return_tensors='pt')
 
-
-if from_config:
-    set_seed(42)
-    model = {model_class}(config)
-    set_seed(42)
-    unsharded_model = {model_class}(config)
-else:
-    ctx = lazy_load_for_parallelism(tensor_parallel_size={tp_size}) if lazy_load else nullcontext()
-    with ctx:
-        set_seed(42)
-        model = {model_class}.from_pretrained('{model_name_or_path}', ignore_mismatched_sizes=True)
-        set_seed(42)
-        unsharded_model = {model_class}.from_pretrained('{model_name_or_path}', ignore_mismatched_sizes=True)
+def load_model_with_seed(seed: int, from_config: bool):
+    set_seed(seed)
+    if from_config:
+        model = {model_class}(config)
+    else:
+      ctx = lazy_load_for_parallelism(tensor_parallel_size={tp_size}) if lazy_load else nullcontext()
+      with ctx:
+          model = {model_class}.from_pretrained('{model_name_or_path}', ignore_mismatched_sizes=True)
+    return model
 
 
+model = load_model_with_seed(SEED, from_config)
 model = model.eval()
-unsharded_model = unsharded_model.eval()
 
-parallel_model = ParallelizersManager.parallelizer_for_model(model).parallelize(model, parallelize_embeddings={parallelize_embeddings})
-parallel_layers.move_model_to_device(parallel_model, "xla")
-
-unsharded_model = parallel_model.to("xla")
+if is_parallel:
+  model = ParallelizersManager.parallelizer_for_model(model).parallelize(model, parallelize_embeddings={parallelize_embeddings})
+  parallel_layers.move_model_to_device(model, "xla")
+  filename = "parallel.bin"
+else:
+  model = model.to("xla")
+  filename = "original.bin"
 
 xla_inputs = dict()
 sig = signature(model.forward)
@@ -80,19 +82,5 @@ for k, v in inputs.items():
     if model.config.is_encoder_decoder and decoder_input_name in sig.parameters:
         xla_inputs[decoder_input_name] = v.to("xla")
 
-xm.mark_step()
-
-model_outputs = unsharded_model(**xla_inputs, return_dict=True)
-xm.mark_step()
-
-parallel_model_outputs = parallel_model(**xla_inputs, return_dict=True)
-xm.mark_step()
-
-if xm.get_ordinal() == 0:
-  for name, t in parallel_model_outputs.items():
-     if not isinstance(t, torch.Tensor):
-         continue
-     print(t, model_outputs[name])
-     torch.testing.assert_close(t, model_outputs[name])
-  
-  print('This is a success')
+model_outputs = model(**xla_inputs, return_dict=True)
+xm.save(model_outputs, "{output_path}" + "/" + filename)

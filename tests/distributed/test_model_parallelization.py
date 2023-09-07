@@ -21,6 +21,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Dict, List, Optional, Type, Union
 
+import torch
 from parameterized import parameterized
 from transformers.models.auto.modeling_auto import (
     MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING_NAMES,
@@ -134,12 +135,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
         template_file_path = Path(__file__).parent.resolve() / TEMPLATE_FILE_NAME
         with open(template_file_path, "r") as fp:
             template_content = fp.read()
-        specialization_data = {
-            "model_class": model_class_name,
-            "model_name_or_path": model_name_or_path,
-            "parallelize_embeddings": "True" if parallelize_embeddings else "False",
-            "tp_size": tp_size,
-        }
+
         specialization_env = {
             "from_config": "true" if from_config else "false",
             "lazy_load": "true" if with_lazy_load else "false",
@@ -150,28 +146,67 @@ class ModelParallelizationTestCase(unittest.TestCase):
                 f"{key}={value}" for key, value in overwrite_model_config.items()
             )
 
-        specialized_content = template_content.format(**specialization_data)
-
         with TemporaryDirectory() as tmpdirname:
+            specialization_data = {
+                "model_class": model_class_name,
+                "model_name_or_path": model_name_or_path,
+                "parallelize_embeddings": "True" if parallelize_embeddings else "False",
+                "tp_size": tp_size,
+                "output_path": tmpdirname,
+            }
+            specialized_content = template_content.format(**specialization_data)
             with open(f"{tmpdirname}/code.py", "w") as fp:
                 fp.write(specialized_content)
 
             cmd = ["torchrun", f"--nproc_per_node={num_neuron_cores}", f"{tmpdirname}/code.py"]
 
-            p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=specialization_env)
+            # Original model.
+            p = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env={"is_parallel": "false", **specialization_env}
+            )
             stdout, stderr = p.communicate()
 
             stdout = stdout.decode("utf-8")
             stderr = stderr.decode("utf-8")
 
-            full_output = f"Standard output:\n{stdout}\nStandard error:\n{stderr}"
+            if stdout == "":
+                stdout = "N/A"
+            if stderr == "":
+                stderr = "N/A"
+
+            full_output = f"Original model standard output:\n{stdout}\nOriginal model standard error:\n{stderr}"
             print(full_output)
 
-            assert "This is a success" in stdout
+            # Parallel model.
+            p = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env={"is_parallel": "true", **specialization_env}
+            )
+            stdout, stderr = p.communicate()
+
+            stdout = stdout.decode("utf-8")
+            stderr = stderr.decode("utf-8")
+
+            if stdout == "":
+                stdout = "N/A"
+            if stderr == "":
+                stderr = "N/A"
+
+            full_output = f"Parallel model standard output:\n{stdout}\nParallel model standard error:\n{stderr}"
+            print(full_output)
+
+            temporary_dir = Path(tmpdirname)
+            original_model_outputs = torch.load(temporary_dir / "original.bin")
+            parallel_model_outputs = torch.load(temporary_dir / "parallel.bin")
+            for name, t in parallel_model_outputs.items():
+                if not isinstance(t, torch.Tensor):
+                    continue
+                print(t, original_model_outputs[name])
+                torch.testing.assert_close(t, original_model_outputs[name], msg=f"Input called {name} do not match.")
 
     @parameterized.expand(MODELS_TO_TEST)
     def test_model_parallel_from_config_without_lazy_load(self, model_class_name: str, model_name_or_path: str):
         self._test_model_parallel(
+            num_neuron_cores=2,
             tp_size=2,
             model_class_name=model_class_name,
             model_name_or_path=model_name_or_path,
@@ -183,6 +218,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
     @parameterized.expand(MODELS_TO_TEST)
     def test_model_parallel_from_pretrained_without_lazy_load(self, model_class_name: str, model_name_or_path: str):
         self._test_model_parallel(
+            num_neuron_cores=2,
             tp_size=2,
             model_class_name=model_class_name,
             model_name_or_path=model_name_or_path,
