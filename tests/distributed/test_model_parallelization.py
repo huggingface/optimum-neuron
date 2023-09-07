@@ -19,7 +19,7 @@ import subprocess
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Dict, List, Optional, Type, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Type, Union
 
 import torch
 from parameterized import parameterized
@@ -122,13 +122,21 @@ class ModelParallelizationTestCase(unittest.TestCase):
         from_config: bool,
         with_lazy_load: bool,
         parallelize_embeddings: bool,
-        overwrite_model_config: Optional[Dict[str, str]] = None,
         num_neuron_cores: int = NUM_NEURON_CORES_AVAILABLE,
+        run_test_in_parallel: bool = False,
+        overwrite_model_config: Optional[Dict[str, str]] = None,
     ):
         if num_neuron_cores < tp_size:
             raise ValueError(
                 "The number of Neuron cores available is lower than the TP size, failing since the test might not be "
                 "testing what is expected."
+            )
+
+        if run_test_in_parallel and (NUM_NEURON_CORES_AVAILABLE // num_neuron_cores) < 2:
+            raise ValueError(
+                "The test cannot be run in parallel because there is not enough Neuron cores available to preserve the "
+                f"number of Neuron cores requested ({NUM_NEURON_CORES_AVAILABLE} cores available and {num_neuron_cores} "
+                "were requested)"
             )
 
         template_content = None
@@ -160,37 +168,52 @@ class ModelParallelizationTestCase(unittest.TestCase):
 
             cmd = ["torchrun", f"--nproc_per_node={num_neuron_cores}", f"{tmpdirname}/code.py"]
 
+            def get_outputs_from_process(process) -> Tuple[str, str]:
+                stdout, stderr = process.communicate()
+
+                stdout = stdout.decode("utf-8")
+                stderr = stderr.decode("utf-8")
+
+                if stdout == "":
+                    stdout = "N/A"
+                if stderr == "":
+                    stderr = "N/A"
+                return stdout, stderr
+
+            # When running the test in parallel, we need 2 rendez-vous endpoints: one for the script running the
+            # original model and one for the script running the parallel model.
+            rdzv_endpoint_host = "localhost"
+            rdzv_endpoint_port = 29400
+
             # Original model.
-            p = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env={"is_parallel": "false", **specialization_env}
-            )
-            stdout, stderr = p.communicate()
+            env = {"is_parallel": "false", **specialization_env}
+            if run_test_in_parallel:
+                # Setting the rendez-vous endpoint for the original model process.
+                cmd.insert(1, f"--rdzv_endpoint={rdzv_endpoint_host}:{rdzv_endpoint_port}")
+                env["NEURON_RT_VISIBLE_CORES"] = f"0-{num_neuron_cores - 1}"
 
-            stdout = stdout.decode("utf-8")
-            stderr = stderr.decode("utf-8")
+            p_original = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
 
-            if stdout == "":
-                stdout = "N/A"
-            if stderr == "":
-                stderr = "N/A"
-
-            full_output = f"Original model standard output:\n{stdout}\nOriginal model standard error:\n{stderr}"
-            print(full_output)
+            # When running tests in parallel, synchronization is done after both processes started.
+            if not run_test_in_parallel:
+                stdout, stderr = get_outputs_from_process(p_original)
+                full_output = f"Original model standard output:\n{stdout}\nOriginal model standard error:\n{stderr}"
+                print(full_output)
 
             # Parallel model.
-            p = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env={"is_parallel": "true", **specialization_env}
-            )
-            stdout, stderr = p.communicate()
+            env = {"is_parallel": "true", **specialization_env}
+            if run_test_in_parallel:
+                # Updating the rendez-vous endpoint for the parallel model process.
+                cmd[1] = f"--rdzv_endpoint={rdzv_endpoint_host}:{rdzv_endpoint_port + 1}"
+                env["NEURON_RT_VISIBLE_CORES"] = f"{num_neuron_cores}-{2 * num_neuron_cores - 1}"
+            p_parallel = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
 
-            stdout = stdout.decode("utf-8")
-            stderr = stderr.decode("utf-8")
+            if run_test_in_parallel:
+                stdout, stderr = get_outputs_from_process(p_original)
+                full_output = f"Original model standard output:\n{stdout}\nOriginal model standard error:\n{stderr}"
+                print(full_output)
 
-            if stdout == "":
-                stdout = "N/A"
-            if stderr == "":
-                stderr = "N/A"
-
+            stdout, stderr = get_outputs_from_process(p_parallel)
             full_output = f"Parallel model standard output:\n{stdout}\nParallel model standard error:\n{stderr}"
             print(full_output)
 
@@ -206,8 +229,9 @@ class ModelParallelizationTestCase(unittest.TestCase):
     @parameterized.expand(MODELS_TO_TEST)
     def test_model_parallel_from_config_without_lazy_load(self, model_class_name: str, model_name_or_path: str):
         self._test_model_parallel(
-            num_neuron_cores=2,
+            num_neuron_cores=8,
             tp_size=2,
+            run_test_in_parallel=True,
             model_class_name=model_class_name,
             model_name_or_path=model_name_or_path,
             from_config=True,
@@ -233,9 +257,11 @@ class ModelParallelizationTestCase(unittest.TestCase):
     )
     def test_llama_v2_gqa_variants(self):
         # MHA setup
-        # TP size = 4, num_attention_heads = 8, num_key_value_heads = 8
+        # TP size = 2, num_attention_heads = 8, num_key_value_heads = 8
         self._test_model_parallel(
-            tp_size=4,
+            num_neuron_cores=8,
+            tp_size=2,
+            run_test_in_parallel=True,
             model_class_name="LlamaForCausalLM",
             model_name_or_path="anushehchaudry/llama-2-tiny-random",
             from_config=True,
@@ -251,7 +277,9 @@ class ModelParallelizationTestCase(unittest.TestCase):
         # GQA setup with num_key_value_heads > tp_size.
         # TP size = 2, num_attention_heads = 8, num_key_value_heads = 4
         self._test_model_parallel(
+            num_neuron_cores=8,
             tp_size=2,
+            run_test_in_parallel=True,
             model_class_name="LlamaForCausalLM",
             model_name_or_path="anushehchaudry/llama-2-tiny-random",
             from_config=True,
@@ -265,9 +293,11 @@ class ModelParallelizationTestCase(unittest.TestCase):
         )
 
         # GQA setup with num_key_value_heads = tp_size.
-        # TP size = 4, num_attention_heads = 8, num_key_value_heads = 4
+        # TP size = 8, num_attention_heads = 16, num_key_value_heads = 8
         self._test_model_parallel(
-            tp_size=4,
+            num_neuron_cores=8,
+            tp_size=8,
+            run_test_in_parallel=True,
             model_class_name="LlamaForCausalLM",
             model_name_or_path="anushehchaudry/llama-2-tiny-random",
             from_config=True,
@@ -275,15 +305,18 @@ class ModelParallelizationTestCase(unittest.TestCase):
             parallelize_embeddings=False,
             overwrite_model_config={
                 "num_hidden_layers": "2",
-                "num_attention_heads": "8",
-                "num_key_value_heads": "4",
+                "hidden_size": "32",
+                "num_attention_heads": "16",
+                "num_key_value_heads": "8",
             },
         )
 
         # GQA setup with num_key_value_heads < tp_size.
-        # TP size = 4, num_attention_heads = 8, num_key_value_heads = 2
+        # TP size = 8, num_attention_heads = 16, num_key_value_heads = 2
         self._test_model_parallel(
-            tp_size=4,
+            num_neuron_cores=8,
+            tp_size=8,
+            run_test_in_parallel=True,
             model_class_name="LlamaForCausalLM",
             model_name_or_path="anushehchaudry/llama-2-tiny-random",
             from_config=True,
@@ -291,15 +324,18 @@ class ModelParallelizationTestCase(unittest.TestCase):
             parallelize_embeddings=False,
             overwrite_model_config={
                 "num_hidden_layers": "2",
-                "num_attention_heads": "8",
+                "hidden_size": "32",
+                "num_attention_heads": "16",
                 "num_key_value_heads": "2",
             },
         )
 
         # MQA setup
-        # TP size = 4, num_attention_heads = 8, num_key_value_heads = 1
+        # TP size = 8, num_attention_heads = 16, num_key_value_heads = 1
         self._test_model_parallel(
-            tp_size=4,
+            num_neuron_cores=8,
+            tp_size=8,
+            run_test_in_parallel=True,
             model_class_name="LlamaForCausalLM",
             model_name_or_path="anushehchaudry/llama-2-tiny-random",
             from_config=True,
@@ -307,7 +343,8 @@ class ModelParallelizationTestCase(unittest.TestCase):
             parallelize_embeddings=False,
             overwrite_model_config={
                 "num_hidden_layers": "2",
-                "num_attention_heads": "8",
+                "hidden_size": "32",
+                "num_attention_heads": "16",
                 "num_key_value_heads": "1",
             },
         )
