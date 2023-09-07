@@ -319,6 +319,21 @@ class VaeEncoderNeuronConfig(VisionNeuronConfig):
     def outputs(self) -> List[str]:
         return ["latent_sample"]
 
+    def generate_dummy_inputs(self, return_tuple: bool = False, **kwargs):
+        # For neuron, we use static shape for compiling the unet. Unlike `optimum`, we use the given `height` and `width` instead of the `sample_size`.
+        if self.height == self.width:
+            self._normalized_config.image_size = self.height
+        else:
+            raise ValueError(
+                "You need to input the same value for `self.height({self.height})` and `self.width({self.width})`."
+            )
+        dummy_inputs = super().generate_dummy_inputs(**kwargs)
+
+        if return_tuple is True:
+            return tuple(dummy_inputs.values())
+        else:
+            return dummy_inputs
+
 
 @register_in_tasks_manager("vae-decoder", *["semantic-segmentation"])
 class VaeDecoderNeuronConfig(VisionNeuronConfig):

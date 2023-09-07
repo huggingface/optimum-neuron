@@ -33,9 +33,9 @@ from ..exporters.tasks import TasksManager
 from ..utils import is_diffusers_available
 from .modeling_base import NeuronBaseModel
 from .pipelines.diffusers import (
-    StableDiffusionPipelineMixin,
-    StableDiffusionImg2ImgPipelineMixin, 
+    StableDiffusionImg2ImgPipelineMixin,
     StableDiffusionInpaintPipelineMixin,
+    StableDiffusionPipelineMixin,
     StableDiffusionXLPipelineMixin,
 )
 from .utils import (
@@ -168,11 +168,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 self.configs[DIFFUSION_MODEL_VAE_ENCODER_NAME],
                 self.neuron_configs[DIFFUSION_MODEL_VAE_ENCODER_NAME],
             )
-<<<<<<< HEAD
-            if vae_encoder
-=======
             if vae_encoder is not None
->>>>>>> add-sdxl-inf
             else None
         )
         self.vae_decoder = NeuronModelVaeDecoder(
@@ -643,7 +639,7 @@ class NeuronStableDiffusionPipeline(NeuronStableDiffusionPipelineBase, StableDif
 
 class NeuronStableDiffusionImg2ImgPipeline(NeuronStableDiffusionPipelineBase, StableDiffusionImg2ImgPipelineMixin):
     __call__ = StableDiffusionImg2ImgPipelineMixin.__call__
-    
+
 
 class NeuronStableDiffusionInpaintPipeline(NeuronStableDiffusionPipelineBase, StableDiffusionInpaintPipelineMixin):
     __call__ = StableDiffusionImg2ImgPipelineMixin.__call__

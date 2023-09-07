@@ -16,3 +16,4 @@
 from .pipeline_stable_diffusion import StableDiffusionPipelineMixin
 from .pipeline_stable_diffusion_img2img import StableDiffusionImg2ImgPipelineMixin
 from .pipeline_stable_diffusion_inpaint import StableDiffusionInpaintPipelineMixin
+from .pipeline_stable_diffusion_xl import StableDiffusionXLPipelineMixin
