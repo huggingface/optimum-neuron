@@ -183,18 +183,19 @@ def main_export(
 
     task = TasksManager.map_from_synonym(task)
 
-    model = TasksManager.get_model_from_task(
-        task=task,
-        model_name_or_path=model_name_or_path,
-        subfolder=subfolder,
-        revision=revision,
-        cache_dir=cache_dir,
-        use_auth_token=use_auth_token,
-        local_files_only=local_files_only,
-        force_download=force_download,
-        trust_remote_code=trust_remote_code,
-        framework="pt",
-    )
+    model_kwargs = {
+        "task": task,
+        "model_name_or_path": model_name_or_path,
+        "subfolder": subfolder,
+        "revision": revision,
+        "cache_dir": cache_dir,
+        "use_auth_token": use_auth_token,
+        "local_files_only": local_files_only,
+        "force_download": force_download,
+        "trust_remote_code": trust_remote_code,
+        "framework": "pt",
+    }
+    model = TasksManager.get_model_from_task(**model_kwargs)
 
     is_stable_diffusion = "stable-diffusion" in task
     if not is_stable_diffusion:
@@ -215,12 +216,6 @@ def main_export(
                 "Stable diffusion export is not supported by neuron-cc on inf1, please use neuronx-cc on either inf2/trn1 instead."
             )
         input_shapes = infer_stable_diffusion_shapes_from_diffusers(input_shapes, model)
-        models_and_neuron_configs = get_stable_diffusion_models_for_export(
-            pipeline=model,
-            task=task,
-            dynamic_batch_size=dynamic_batch_size,
-            **input_shapes,
-        )
 
         # Saving the model config and preprocessor as this is needed sometimes.
         model.scheduler.save_pretrained(output.joinpath("scheduler"))
@@ -231,6 +226,12 @@ def main_export(
             model.feature_extractor.save_pretrained(output.joinpath("feature_extractor"))
         model.save_config(output)
 
+        models_and_neuron_configs = get_stable_diffusion_models_for_export(
+            pipeline=model,
+            task=task,
+            dynamic_batch_size=dynamic_batch_size,
+            **input_shapes,
+        )
         output_model_names = {
             DIFFUSION_MODEL_TEXT_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_TEXT_ENCODER_NAME, NEURON_FILE_NAME),
             DIFFUSION_MODEL_UNET_NAME: os.path.join(DIFFUSION_MODEL_UNET_NAME, NEURON_FILE_NAME),
@@ -241,6 +242,7 @@ def main_export(
             output_model_names[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME] = os.path.join(
                 DIFFUSION_MODEL_TEXT_ENCODER_2_NAME, NEURON_FILE_NAME
             )
+        del model
 
     _, neuron_outputs = export_models(
         models_and_neuron_configs=models_and_neuron_configs,
@@ -248,8 +250,6 @@ def main_export(
         output_file_names=output_model_names,
         compiler_kwargs=compiler_kwargs,
     )
-
-    del model
 
     # Validate compiled model
     if do_validation is True:
