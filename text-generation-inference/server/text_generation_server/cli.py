@@ -1,6 +1,6 @@
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 import typer
 from loguru import logger
@@ -15,7 +15,7 @@ def serve(
     revision: Optional[str] = None,
     sharded: bool = False,
     trust_remote_code: bool = None,
-    uds_path: Path = "/tmp/text-generation-server",
+    uds_path: Union[Path, str] = "/tmp/text-generation-server",
     logger_level: str = "INFO",
     json_output: bool = False,
 ):
@@ -31,7 +31,7 @@ def serve(
             text-generation-launcher, but must be set to False.
         trust-remote-code (`bool`):
             Kept for compatibility with text-generation-launcher. Ignored.
-        uds_path (`str`):
+        uds_path (`Union[Path, str]`):
             The local path on which the server will expose its google RPC services.
         logger_level (`str`):
             The server logger level. Defaults to *INFO*.

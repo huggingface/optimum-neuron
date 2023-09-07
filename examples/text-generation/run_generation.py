@@ -56,7 +56,7 @@ if __name__ == "__main__":
         "--batch_size",
         type=int,
         default=None,
-        help="The batch size (optional). If not specified it wil be based on the number of prompts.",
+        help="The batch size (optional). If not specified it will be based on the number of prompts.",
     )
     parser.add_argument("--length", type=int, default=128, help="The number of tokens in the generated sequences.")
     parser.add_argument(

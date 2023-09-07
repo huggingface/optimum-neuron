@@ -15,7 +15,7 @@ def fetch_model(
     Args:
         model_id (`str`):
             The *model_id* of a model on the HuggingFace hub or the path to a local model.
-        revision (`str`):
+        revision (`Optional[str]`, defaults to `None`):
             The revision of the model on the HuggingFace hub.
 
     Returns:
