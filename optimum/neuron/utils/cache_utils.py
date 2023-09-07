@@ -258,11 +258,10 @@ def set_neuron_cache_path(neuron_cache_path: Union[str, Path], ignore_no_cache: 
 
 def get_num_neuron_cores() -> int:
     path = os.environ["PATH"]
-    env = dict(os.environ)
     if NEURON_BINARIES_PATH not in path:
         path = f"{NEURON_BINARIES_PATH}:{path}"
-        env["PATH"] = path
-    proc = subprocess.Popen(["neuron-ls", "-j"], stdout=subprocess.PIPE, env=env)
+        os.environ["PATH"] = path
+    proc = subprocess.Popen(["neuron-ls", "-j"], stdout=subprocess.PIPE)
     stdout, _ = proc.communicate()
     stdout = stdout.decode("utf-8")
     json_stdout = json.loads(stdout)

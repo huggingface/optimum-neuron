@@ -44,6 +44,7 @@ from transformers.models.auto.modeling_auto import (
 )
 
 from optimum.neuron.utils.cache_utils import get_num_neuron_cores
+from optimum.neuron.utils.import_utils import is_neuronx_available
 
 from ..test_utils import is_trainium_test
 
@@ -53,7 +54,10 @@ if TYPE_CHECKING:
 
 
 TEMPLATE_FILE_NAME = "model_parallel_test_template.txt"
-NUM_NEURON_CORES_AVAILABLE = get_num_neuron_cores()
+if is_neuronx_available():
+    NUM_NEURON_CORES_AVAILABLE = get_num_neuron_cores()
+else:
+    NUM_NEURON_CORES_AVAILABLE = 0
 
 
 def _generate_supported_model_class_names(
