@@ -165,7 +165,7 @@ class StableDiffusionImg2ImgPipelineMixin(StableDiffusionImg2ImgPipeline):
                 f"`image` has to be of type `torch.Tensor`, `PIL.Image.Image` or list but is {type(image)}"
             )
 
-        # downscale image
+        # Resize image
         height = self.vae_encoder.config.neuron["static_height"]
         width = self.vae_encoder.config.neuron["static_width"]
         image = torch.nn.functional.interpolate(
@@ -207,12 +207,6 @@ class StableDiffusionImg2ImgPipelineMixin(StableDiffusionImg2ImgPipeline):
         # get latents
         init_latents = self.scheduler.add_noise(init_latents, noise, timestep)
         latents = init_latents
-
-        # upscale latents
-        latents = torch.nn.functional.interpolate(
-            latents,
-            size=(height, width),
-        )
 
         return latents
 
