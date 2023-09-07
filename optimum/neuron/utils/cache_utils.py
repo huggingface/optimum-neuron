@@ -43,6 +43,7 @@ from packaging import version
 
 from ...utils import logging
 from ...utils.logging import warn_once
+from .constant import NEURON_BINARIES_PATH
 from .version_utils import get_neuronxcc_version
 
 
@@ -256,9 +257,12 @@ def set_neuron_cache_path(neuron_cache_path: Union[str, Path], ignore_no_cache: 
 
 
 def get_num_neuron_cores() -> int:
-    proc = subprocess.Popen(["neuron-top"], stdout=subprocess.PIPE)
-    proc = subprocess.Popen(["neuron-ls", "-j"])
-    proc = subprocess.Popen(["neuron-ls", "-j"], stdout=subprocess.PIPE)
+    path = os.environ["PATH"]
+    env = dict(os.environ)
+    if NEURON_BINARIES_PATH not in path:
+        path = f"{NEURON_BINARIES_PATH}:{path}"
+        env["PATH"] = path
+    proc = subprocess.Popen(["neuron-ls", "-j"], stdout=subprocess.PIPE, env=env)
     stdout, _ = proc.communicate()
     stdout = stdout.decode("utf-8")
     json_stdout = json.loads(stdout)
