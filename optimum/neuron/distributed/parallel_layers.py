@@ -225,7 +225,14 @@ class ParallelSelfAttention(ParallelLayer):
         NUM_ATTENTION_HEADS_NAME (`Optional[str]`, defaults to `None`):
             The name of the attribute in the layer specifying the number of attention heads.
             If left unspecified, the attribute will be fetched by using the NormalizedConfig associated to the model.
-        NUM_KEY_VALUE_HEADS_NAME: #TODO
+        NUM_KEY_VALUE_HEADS_NAME (`Optional[str]`, defaults to `None`):
+            The name of the attribute in the layer specifying the number of key value heads (when using Grouped Query
+            Attention). If left unspecified, it is interpreted as the model using the regular Multi Head Attention
+            mechanism.
+        NUM_KEY_VALUE_GROUPS_NAME (`Optional[str]`, defaults to `None`):
+            The name of the attribute in the layer specifying the number of query groups (when using Grouped Query
+            Attention). If left unspecified, it is interpreted as the model using the regular Multi Head Attention
+            mechnism.
         ALL_HEAD_SIZE_NAME (`Optional[str]`, defaults to `None`):
             The name of the attribute in the layer specifying the hidden dimension of each attention head.
             If left unspecified, the attribute will be fetched by using the NormalizedConfig associated to the model.
