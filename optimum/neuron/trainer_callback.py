@@ -192,8 +192,6 @@ class NeuronCacheCallback(TrainerCallback):
                 path_in_neuron_cache = path_after_folder(path_in_neuron_cache, NEURON_COMPILE_CACHE_NAME)
             tmp_cache_file = tmp_neuron_cache_path / path_in_neuron_cache
             tmp_cache_file.parent.mkdir(parents=True, exist_ok=True)
-            if tmp_cache_file.exists():
-                continue
             tmp_cache_file.symlink_to(cache_file)
 
             cls._insert_in_cache_stats(cache_stats, cache_file, path_in_neuron_cache)
