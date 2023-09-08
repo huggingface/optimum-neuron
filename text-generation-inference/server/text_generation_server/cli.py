@@ -1,6 +1,5 @@
 import sys
-from pathlib import Path
-from typing import Optional, Union
+from typing import Optional
 
 import typer
 from loguru import logger
@@ -15,7 +14,7 @@ def serve(
     revision: Optional[str] = None,
     sharded: bool = False,
     trust_remote_code: bool = None,
-    uds_path: Union[Path, str] = "/tmp/text-generation-server",
+    uds_path: str = "/tmp/text-generation-server",
     logger_level: str = "INFO",
     json_output: bool = False,
 ):
