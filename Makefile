@@ -40,6 +40,9 @@ PACKAGE_FILES = $(PACKAGE_PYTHON_FILES)  \
 $(PACKAGE_DIST) $(PACKAGE_WHEEL): $(PACKAGE_FILES)
 	python -m build
 
+neuronx-tgi: $(PACKAGE_DIST)
+	docker build --rm -f text-generation-inference/Dockerfile --build-arg VERSION=$(VERSION) -t neuronx-tgi:$(VERSION) .
+
 # Creates example scripts from Transformers
 transformers_examples:
 	rm -f examples/**/*.py

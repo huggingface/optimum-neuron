@@ -688,29 +688,41 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
 
         # Verify that the inputs are compatible with the model static input dimensions
         batch_size, sequence_length = input_ids.shape
-        if batch_size != self.batch_size:
-            raise ValueError(
-                f"The specified batch_size ({batch_size}) does not match the model static batch size ({self.batch_size})"
-            )
         if sequence_length > self.max_length:
             raise ValueError(
                 f"The input sequence length ({sequence_length}) exceeds the model static sequence length ({self.max_length})"
             )
-
+        padded_input_ids = input_ids
+        padded_attention_mask = attention_mask
+        if batch_size > self.batch_size:
+            raise ValueError(
+                f"The specified batch_size ({batch_size}) exceeds the model static batch size ({self.batch_size})"
+            )
+        elif batch_size < self.batch_size:
+            logger.warning("Inputs will be padded to match the model static batch size. This will increase latency.")
+            padding_shape = [self.batch_size - batch_size, sequence_length]
+            padding = torch.full(padding_shape, fill_value=self.config.eos_token_id, dtype=torch.int64)
+            padded_input_ids = torch.cat([input_ids, padding])
+            if attention_mask is not None:
+                padding = torch.zeros(padding_shape, dtype=torch.int64)
+                padded_attention_mask = torch.cat([attention_mask, padding])
         # Drop the current generation context and clear the Key/Value cache
         self.reset_generation()
 
-        return self.generate_tokens(
-            input_ids,
+        output_ids = self.generate_tokens(
+            padded_input_ids,
             selector,
-            attention_mask=attention_mask,
+            batch_size,
+            attention_mask=padded_attention_mask,
             **model_kwargs,
         )
+        return output_ids[:batch_size, :]
 
     def generate_tokens(
         self,
         input_ids: torch.LongTensor,
         selector: TokenSelector,
+        batch_size: int,
         attention_mask: Optional[torch.Tensor] = None,
         **model_kwargs,
     ) -> torch.LongTensor:
@@ -722,6 +734,8 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
                 The sequence used as a prompt for the generation.
             selector (`TokenSelector`):
                 The object implementing the generation logic based on transformers processors and stopping criterias.
+            batch_size (`int`):
+                The actual input batch size. Used to avoid generating tokens for padded inputs.
             attention_mask (`torch.Tensor` of shape `(batch_size, sequence_length)`, *optional*):
                 Mask to avoid performing attention on padding token indices.
             model_kwargs:
@@ -732,7 +746,8 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
 
         """
         # keep track of which sequences are already finished
-        unfinished_sequences = torch.ones(input_ids.shape[0], dtype=torch.long, device=input_ids.device)
+        unfinished_sequences = torch.zeros(input_ids.shape[0], dtype=torch.long, device=input_ids.device)
+        unfinished_sequences[:batch_size] = 1
 
         # auto-regressive generation
         while True:
