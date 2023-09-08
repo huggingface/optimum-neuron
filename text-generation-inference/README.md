@@ -18,7 +18,7 @@ The main differences with the standard service for CUDA and CPU backends are tha
 
 - the service uses a single internal static batch,
 - new requests are inserted in the static batch during prefill,
-- the static QV cache is rebuilt entirely during prefill (which makes it even more costly).
+- the static KV cache is rebuilt entirely during prefill (which makes it even more costly).
 
 ## Build image
 
