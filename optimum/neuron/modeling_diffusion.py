@@ -209,11 +209,11 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
 
     @staticmethod
     def load_model(
-        text_encoder_path: Path,
-        unet_path: Path,
-        vae_decoder_path: Path,
-        vae_encoder_path: Optional[Path] = None,
-        text_encoder_2_path: Optional[Path] = None,
+        text_encoder_path: Union[str, Path],
+        unet_path: Union[str, Path],
+        vae_decoder_path: Union[str, Path],
+        vae_encoder_path: Optional[Union[str, Path]] = None,
+        text_encoder_2_path: Optional[Union[str, Path]] = None,
         device_ids: Optional[List[int]] = None,
         dynamic_batch_size: bool = False,
     ):
