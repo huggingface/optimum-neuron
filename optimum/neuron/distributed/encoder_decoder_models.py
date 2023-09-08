@@ -73,7 +73,7 @@ class T5ParallelSelfAttention(ParallelSelfAttention):
                 layer.relative_attention_bias.weight.data = layer.relative_attention_bias.weight.data[
                     :, num_attention_heads_per_rank * tp_rank : num_attention_heads_per_rank * (tp_rank + 1)
                 ]
-                layer.relative_attention_bias.embedding_dim = num_attention_heads_per_rank
+                layer.relative_attention_bias.num_embeddings = num_attention_heads_per_rank
                 set_tensor_model_parallel_attributes(layer.relative_attention_bias.weight, True, 1, stride=1)
 
         layer = super().transform(model, layer, orig_to_parallel=orig_to_parallel, device=device)
@@ -153,9 +153,9 @@ class T5Parallelizer(Parallelizer):
     ) -> "PreTrainedModel":
         if parallelize_embeddings:
             model = T5ParallelEmbedding.transform(model, model, device=device)
-        if model.encoder.embed_tokens is not None:
+        if parallelize_embeddings and model.encoder.embed_tokens is not None:
             model.encoder.embed_tokens = model.shared
-        if model.decoder.embed_tokens is not None:
+        if parallelize_embeddings and model.decoder.embed_tokens is not None:
             model.decoder.embed_tokens = model.shared
         for block in model.encoder.block:
             block.layer[0].SelfAttention = T5ParallelSelfAttention.transform(

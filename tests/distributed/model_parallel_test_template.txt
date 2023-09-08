@@ -14,14 +14,12 @@ from transformers.trainer_utils import set_seed
 from optimum.neuron.distributed import ParallelizersManager, lazy_load_for_parallelism
 
 
-if os.environ.get('TORCHELASTIC_RUN_ID'):
+if os.environ.get("TORCHELASTIC_RUN_ID"):
     import torch_xla.distributed.xla_backend as xbn
 
     if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
         torch.distributed.init_process_group(backend="xla")
 
-# Initialize TP
-neuronx_distributed.parallel_layers.parallel_state.initialize_model_parallel(tensor_model_parallel_size={tp_size})
 
 SEED = 42
 
@@ -30,11 +28,12 @@ lazy_load = os.environ["lazy_load"] == "true"
 is_parallel = os.environ["is_parallel"] == "true"
 config_overwrite = os.environ.get("config_overwrite", "")
 
-if config_overwrite and not from_config:
-  raise ValueError("from_config must be True when providing a config_overwrite, otherwise it would be ignored.")
+# Initialize TP
+if is_parallel:
+  neuronx_distributed.parallel_layers.parallel_state.initialize_model_parallel(tensor_model_parallel_size={tp_size})
 
 
-config = AutoConfig.from_pretrained('{model_name_or_path}')
+config = AutoConfig.from_pretrained("{model_name_or_path}")
 config_overwrite = config_overwrite.split(",")
 for overwrite_info in config_overwrite:
     if overwrite_info == "":
@@ -46,9 +45,9 @@ for overwrite_info in config_overwrite:
 if xm.get_ordinal() == 0:
   print(config)
 
-preprocessor = AutoTokenizer.from_pretrained('{model_name_or_path}')
+preprocessor = AutoTokenizer.from_pretrained("{model_name_or_path}")
 
-inputs = preprocessor('This is a test to check that TP is working.', return_tensors='pt')
+inputs = preprocessor("This is a test to check that TP is working.", return_tensors="pt")
 
 def load_model_with_seed(seed: int, from_config: bool):
     set_seed(seed)
@@ -57,7 +56,7 @@ def load_model_with_seed(seed: int, from_config: bool):
     else:
       ctx = lazy_load_for_parallelism(tensor_parallel_size={tp_size}) if lazy_load else nullcontext()
       with ctx:
-          model = {model_class}.from_pretrained('{model_name_or_path}', ignore_mismatched_sizes=True)
+          model = {model_class}.from_pretrained("{model_name_or_path}", config=config, ignore_mismatched_sizes=True)
     return model
 
 

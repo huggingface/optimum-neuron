@@ -366,7 +366,7 @@ class ParallelSelfAttention(ParallelLayer):
         setattr(
             layer,
             num_attention_heads_name,
-            num_attention_heads // parallel_state.get_tensor_model_parallel_size(),
+            num_attention_heads // tp_size,
         )
 
         if cls.NUM_KEY_VALUE_HEADS_NAME is not None:
@@ -378,7 +378,7 @@ class ParallelSelfAttention(ParallelLayer):
                 setattr(
                     layer,
                     cls.NUM_KEY_VALUE_HEADS_NAME,
-                    num_key_value_heads // parallel_state.get_tensor_model_parallel_size(),
+                    num_key_value_heads // tp_size,
                 )
             # This happens when Grouped Query Attention (or Multi Query Attention) is used and the number of kv heads is
             # smaller than the TP size.
@@ -399,7 +399,7 @@ class ParallelSelfAttention(ParallelLayer):
         setattr(
             layer,
             all_head_size_name,
-            getattr(layer, all_head_size_name) // parallel_state.get_tensor_model_parallel_size(),
+            getattr(layer, all_head_size_name) // tp_size,
         )
         return layer
 

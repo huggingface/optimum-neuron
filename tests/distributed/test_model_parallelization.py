@@ -99,7 +99,7 @@ def _generate_supported_model_class_names(
         if class_name:
             model_class_names.append(class_name)
 
-    return model_class_names
+    return list(set(model_class_names))
 
 
 MODEL_TYPES_TO_TEST = [
@@ -107,13 +107,19 @@ MODEL_TYPES_TO_TEST = [
     ("roberta", "hf-internal-testing/tiny-random-roberta"),
     ("gpt_neo", "hf-internal-testing/tiny-random-GPTNeoModel"),
     ("llama", "fxmarty/tiny-llama-fast-tokenizer"),
-    ("t5", "patrickvonplaten/t5-tiny-random"),
+    ("llama", "anushehchaudry/llama-2-tiny-random"),
+    ("t5", "hf-tiny-model-private/tiny-random-T5ForConditionalGeneration", {"d_ff": "64"}),
 ]
 
 MODELS_TO_TEST = []
-for model_type, model_name_or_path in MODEL_TYPES_TO_TEST:
+for entry in MODEL_TYPES_TO_TEST:
+    if len(entry) == 2:
+        model_type, model_name_or_path = entry
+        config_overwrite = {}
+    else:
+        model_type, model_name_or_path, config_overwrite = entry
     for model_class_name in _generate_supported_model_class_names(model_type):
-        MODELS_TO_TEST.append((model_class_name, model_name_or_path))
+        MODELS_TO_TEST.append((model_class_name, model_name_or_path, config_overwrite))
 
 
 @is_trainium_test
@@ -228,10 +234,14 @@ class ModelParallelizationTestCase(unittest.TestCase):
                 if not isinstance(t, torch.Tensor):
                     continue
                 print(t, original_model_outputs[name])
-                torch.testing.assert_close(t, original_model_outputs[name], msg=f"Input called {name} do not match.")
+                torch.testing.assert_close(
+                    t, original_model_outputs[name]
+                )  # , msg=f"Input called {name} do not match.")
 
     @parameterized.expand(MODELS_TO_TEST)
-    def test_model_parallel_from_config_without_lazy_load(self, model_class_name: str, model_name_or_path: str):
+    def test_model_parallel_from_config_without_lazy_load(
+        self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
+    ):
         self._test_model_parallel(
             num_neuron_cores=8,
             tp_size=2,
@@ -241,18 +251,22 @@ class ModelParallelizationTestCase(unittest.TestCase):
             from_config=True,
             with_lazy_load=False,
             parallelize_embeddings=False,  # Should be True once it's working.
+            overwrite_model_config=config_overwrite,
         )
 
     @parameterized.expand(MODELS_TO_TEST)
-    def test_model_parallel_from_pretrained_without_lazy_load(self, model_class_name: str, model_name_or_path: str):
+    def test_model_parallel_from_pretrained_without_lazy_load(
+        self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
+    ):
         self._test_model_parallel(
-            num_neuron_cores=2,
+            num_neuron_cores=8,
             tp_size=2,
             model_class_name=model_class_name,
             model_name_or_path=model_name_or_path,
             from_config=False,
             with_lazy_load=False,
             parallelize_embeddings=False,  # Should be True once it's working.
+            overwrite_model_config=config_overwrite,
         )
 
     @unittest.skipIf(
@@ -260,6 +274,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
         f"This test requires 32 Neuron cores, but only {NUM_NEURON_CORES_AVAILABLE} are available",
     )
     def test_llama_v2_gqa_variants(self):
+        llama_v2_model_name = "anushehchaudry/llama-2-tiny-random"
         # MHA setup
         # TP size = 2, num_attention_heads = 8, num_key_value_heads = 8
         self._test_model_parallel(
@@ -267,7 +282,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
             tp_size=2,
             run_test_in_parallel=True,
             model_class_name="LlamaForCausalLM",
-            model_name_or_path="anushehchaudry/llama-2-tiny-random",
+            model_name_or_path=llama_v2_model_name,
             from_config=True,
             with_lazy_load=False,
             parallelize_embeddings=False,
@@ -285,7 +300,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
             tp_size=2,
             run_test_in_parallel=True,
             model_class_name="LlamaForCausalLM",
-            model_name_or_path="anushehchaudry/llama-2-tiny-random",
+            model_name_or_path=llama_v2_model_name,
             from_config=True,
             with_lazy_load=False,
             parallelize_embeddings=False,
@@ -303,7 +318,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
             tp_size=8,
             run_test_in_parallel=True,
             model_class_name="LlamaForCausalLM",
-            model_name_or_path="anushehchaudry/llama-2-tiny-random",
+            model_name_or_path=llama_v2_model_name,
             from_config=True,
             with_lazy_load=False,
             parallelize_embeddings=False,
@@ -322,7 +337,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
             tp_size=8,
             run_test_in_parallel=True,
             model_class_name="LlamaForCausalLM",
-            model_name_or_path="anushehchaudry/llama-2-tiny-random",
+            model_name_or_path=llama_v2_model_name,
             from_config=True,
             with_lazy_load=False,
             parallelize_embeddings=False,
@@ -341,7 +356,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
             tp_size=8,
             run_test_in_parallel=True,
             model_class_name="LlamaForCausalLM",
-            model_name_or_path="anushehchaudry/llama-2-tiny-random",
+            model_name_or_path=llama_v2_model_name,
             from_config=True,
             with_lazy_load=False,
             parallelize_embeddings=False,
