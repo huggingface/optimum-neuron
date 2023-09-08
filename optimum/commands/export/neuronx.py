@@ -50,7 +50,7 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         default="auto",
         help=(
             "The task to export the model for. If not specified, the task will be auto-inferred based on the model. Available tasks depend on the model, but are among:"
-            f" {str(list(TasksManager._TASKS_TO_AUTOMODELS.keys()))}."
+            f" {str(list(TasksManager._TRANSFORMERS_TASKS_TO_MODEL_LOADERS.keys()) + list(TasksManager._DIFFUSERS_TASKS_TO_MODEL_LOADERS.keys()))}."
         ),
     )
     optional_group.add_argument(
