@@ -62,7 +62,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--num_cores", type=int, default=1, help="The number of cores on which the model should be split."
     )
-    parser.add_argument("--auto_cast_type", type=str, default="f32", help="One of f32, f16, bf16.")
+    parser.add_argument(
+        "--auto_cast_type", type=str, default="f32", choices=["f32", "f16", "bf16"], help="One of f32, f16, bf16."
+    )
     parser.add_argument(
         "--temperature",
         type=float,
