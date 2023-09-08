@@ -154,9 +154,9 @@ class T5Parallelizer(Parallelizer):
     ) -> "PreTrainedModel":
         if isinstance(model, T5ForSequenceClassification):
             raise NotImplementedError(
-                "Model parallelism for T5ForSequenceClassification is not supported. Please open an issue to ask for "
-                "support or a PR adding this feature in the optimum-neuron repo "
-                "(https://github.com/huggingface/optimum-neuron)"
+                "Model parallelism is currently not supported for T5ForSequenceClassification. Please open an issue to "
+                "request support or submit a PR to implement it in the optimum-neuron repo "
+                "(https://github.com/huggingface/optimum-neuron)."
             )
         if parallelize_embeddings:
             model = T5ParallelEmbedding.transform(model, model, device=device)

@@ -296,7 +296,7 @@ class ParallelSelfAttention(ParallelLayer):
         if cls.NUM_KEY_VALUE_HEADS_NAME is not None:
             num_key_value_heads = getattr(layer, cls.NUM_KEY_VALUE_HEADS_NAME)
             if num_key_value_heads % tp_size != 0 and tp_size % num_key_value_heads != 0:
-                raise NotImplementedError(
+                raise ValueError(
                     "Only the cases where the number of key value heads is divisible by the TP size, or the other way around are supported."
                 )
             elif num_key_value_heads < tp_size:
