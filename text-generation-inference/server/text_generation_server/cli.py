@@ -24,7 +24,7 @@ def serve(
     Args:
         model_id (`str`):
             The *model_id* of a model on the HuggingFace hub or the path to a local model.
-        revision (`str`):
+        revision (`Optional[str]`, defaults to `None`):
             The revision of the model on the HuggingFace hub.
         sharded (`bool`):
             Whether the model must be sharded or not. Kept for compatibility with the
