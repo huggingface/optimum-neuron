@@ -248,7 +248,7 @@ class NeuronGenerator(Generator):
         dtype = getattr(self.model.config, "torch_dtype", "float32")
         return InfoResponse(
             requires_padding=True,
-            dtype=dtype,
+            dtype=str(dtype),
             device_type="xla",
         )
 
