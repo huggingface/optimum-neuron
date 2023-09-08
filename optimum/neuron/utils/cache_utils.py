@@ -43,6 +43,7 @@ from packaging import version
 
 from ...utils import logging
 from ...utils.logging import warn_once
+from .constant import NEURON_BINARIES_PATH
 from .version_utils import get_neuronxcc_version
 
 
@@ -99,7 +100,8 @@ def load_custom_cache_repo_name_from_hf_home(
 ) -> Optional[str]:
     if Path(hf_home_cache_repo_file).exists():
         with open(hf_home_cache_repo_file, "r") as fp:
-            return fp.read()
+            repo_id = fp.read()
+            return repo_id.strip()
     return None
 
 
@@ -255,11 +257,15 @@ def set_neuron_cache_path(neuron_cache_path: Union[str, Path], ignore_no_cache: 
 
 
 def get_num_neuron_cores() -> int:
+    path = os.environ["PATH"]
+    if NEURON_BINARIES_PATH not in path:
+        path = f"{NEURON_BINARIES_PATH}:{path}"
+        os.environ["PATH"] = path
     proc = subprocess.Popen(["neuron-ls", "-j"], stdout=subprocess.PIPE)
     stdout, _ = proc.communicate()
     stdout = stdout.decode("utf-8")
     json_stdout = json.loads(stdout)
-    return json_stdout[0]["nc_count"]
+    return sum(neuron_device_info["nc_count"] for neuron_device_info in json_stdout)
 
 
 def get_num_neuron_cores_used() -> int:

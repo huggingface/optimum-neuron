@@ -1,14 +1,12 @@
-name: Optimum Neuron - Trainium-dependent Tests
+name: Optimum Neuron - Example scripts test on Trainium
 
 on:
   push:
-    branches: [ main ]
-    paths:
-      - "optimum/**.py"
-  pull_request:
-    branches: [ main ]
-    paths:
-      - "optimum/**.py"
+    branches:
+      - main
+  schedule:
+    # At the end of everyday
+    - cron: 0 22 * * *
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -60,17 +58,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v2
-      # - name: Install python3.8-venv
-      #   run: sudo apt update; sudo apt install -y python3.8-venv
-      - name: Set pip repository pointing to the Neuron repository
-        run: pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
       - name: Install Python dependencies
         run: pip install .[tests,neuronx]
-      - name: Run tests on neuron cores
+      - name: Install python3.8-venv
+        run: sudo apt update; sudo apt install -y python3.8-venv
+      - name: Run example tests on Neuron cores
         run: |
-          HF_TOKEN_OPTIMUM_NEURON_CI=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} USE_VENV="false" pytest -m "is_trainium_test" tests -k "not test_run_example"
-      - name: Run staging tests on neuron cores 
-        run: HUGGINGFACE_CO_STAGING=1 pytest -m "is_trainium_test and is_staging_test" tests
+          HF_TOKEN_OPTIMUM_NEURON_CI=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} USE_VENV="false" RUN_SLOW=1 pytest -m "is_trainium_test" tests/test_examples.py -v
   stop-runner:
     name: Stop self-hosted EC2 runner
     needs:

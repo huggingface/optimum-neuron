@@ -1,0 +1,85 @@
+# This is a template file for testing model parallelization.
+
+import os
+from contextlib import nullcontext
+from inspect import signature
+
+import torch
+import neuronx_distributed
+from neuronx_distributed import parallel_layers
+import torch_xla.core.xla_model as xm
+
+from transformers import AutoConfig, AutoTokenizer, {model_class}
+from transformers.trainer_utils import set_seed
+from optimum.neuron.distributed import ParallelizersManager, lazy_load_for_parallelism
+
+
+if os.environ.get("TORCHELASTIC_RUN_ID"):
+    import torch_xla.distributed.xla_backend as xbn
+
+    if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
+        torch.distributed.init_process_group(backend="xla")
+
+
+SEED = 42
+
+from_config = os.environ["from_config"] == "true"
+lazy_load = os.environ["lazy_load"] == "true"
+is_parallel = os.environ["is_parallel"] == "true"
+config_overwrite = os.environ.get("config_overwrite", "")
+
+# Initialize TP
+if is_parallel:
+  neuronx_distributed.parallel_layers.parallel_state.initialize_model_parallel(tensor_model_parallel_size={tp_size})
+
+
+config = AutoConfig.from_pretrained("{model_name_or_path}")
+config_overwrite = config_overwrite.split(",")
+for overwrite_info in config_overwrite:
+    if overwrite_info == "":
+      continue
+    attr_name, attr_value = overwrite_info.split("=")
+    attr_type = type(getattr(config, attr_name))
+    setattr(config, attr_name, attr_type(attr_value))
+
+if xm.get_ordinal() == 0:
+  print(config)
+
+preprocessor = AutoTokenizer.from_pretrained("{model_name_or_path}")
+
+inputs = preprocessor("This is a test to check that TP is working.", return_tensors="pt")
+
+def load_model_with_seed(seed: int, from_config: bool):
+    set_seed(seed)
+    if from_config:
+        model = {model_class}(config)
+    else:
+      ctx = lazy_load_for_parallelism(tensor_parallel_size={tp_size}) if lazy_load else nullcontext()
+      with ctx:
+          model = {model_class}.from_pretrained("{model_name_or_path}", config=config, ignore_mismatched_sizes=True)
+    return model
+
+
+model = load_model_with_seed(SEED, from_config)
+model = model.eval()
+
+if is_parallel:
+  model = ParallelizersManager.parallelizer_for_model(model).parallelize(model, parallelize_embeddings={parallelize_embeddings})
+  parallel_layers.move_model_to_device(model, "xla")
+  filename = "parallel.bin"
+else:
+  model = model.to("xla")
+  filename = "original.bin"
+
+xla_inputs = dict()
+sig = signature(model.forward)
+for k, v in inputs.items():
+    if k not in sig.parameters:
+        continue
+    xla_inputs[k] = v.to("xla")
+    decoder_input_name = "decoder_" + k
+    if model.config.is_encoder_decoder and decoder_input_name in sig.parameters:
+        xla_inputs[decoder_input_name] = v.to("xla")
+
+model_outputs = model(**xla_inputs, return_dict=True)
+xm.save(model_outputs, "{output_path}" + "/" + filename)

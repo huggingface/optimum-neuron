@@ -14,11 +14,14 @@
 # limitations under the License.
 """Tests validating that models can be parallelized correctly."""
 
+import os
 import subprocess
 import unittest
+from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, List, Optional, Type, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Type, Union
 
+import torch
 from parameterized import parameterized
 from transformers.models.auto.modeling_auto import (
     MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING_NAMES,
@@ -40,11 +43,26 @@ from transformers.models.auto.modeling_auto import (
     MODEL_FOR_ZERO_SHOT_IMAGE_CLASSIFICATION_MAPPING_NAMES,
 )
 
+from optimum.neuron.utils.cache_utils import get_num_neuron_cores
+from optimum.neuron.utils.import_utils import is_neuronx_available
+
 from ..test_utils import is_trainium_test
 
 
 if TYPE_CHECKING:
     from transformers import PretrainedConfig
+
+
+TEMPLATE_FILE_NAME = "model_parallel_test_template.txt"
+if is_neuronx_available():
+    NUM_NEURON_CORES_AVAILABLE = get_num_neuron_cores()
+else:
+    NUM_NEURON_CORES_AVAILABLE = 0
+
+
+CLASSES_TO_IGNORE = [
+    "T5ForSequenceClassification",
+]
 
 
 def _generate_supported_model_class_names(
@@ -83,10 +101,10 @@ def _generate_supported_model_class_names(
     model_class_names = []
     for task in supported_tasks:
         class_name = task_mapping[task].get(model_name, None)
-        if class_name:
+        if class_name is not None and class_name not in CLASSES_TO_IGNORE:
             model_class_names.append(class_name)
 
-    return model_class_names
+    return list(set(model_class_names))
 
 
 MODEL_TYPES_TO_TEST = [
@@ -94,153 +112,266 @@ MODEL_TYPES_TO_TEST = [
     ("roberta", "hf-internal-testing/tiny-random-roberta"),
     ("gpt_neo", "hf-internal-testing/tiny-random-GPTNeoModel"),
     ("llama", "fxmarty/tiny-llama-fast-tokenizer"),
-    ("t5", "patrickvonplaten/t5-tiny-random"),
+    ("llama", "anushehchaudry/llama-2-tiny-random"),
+    ("t5", "hf-tiny-model-private/tiny-random-T5ForConditionalGeneration", {"d_ff": "64"}),
 ]
 
 MODELS_TO_TEST = []
-for model_type, model_name_or_path in MODEL_TYPES_TO_TEST:
+for entry in MODEL_TYPES_TO_TEST:
+    if len(entry) == 2:
+        model_type, model_name_or_path = entry
+        config_overwrite = {}
+    else:
+        model_type, model_name_or_path, config_overwrite = entry
     for model_class_name in _generate_supported_model_class_names(model_type):
-        MODELS_TO_TEST.append((model_class_name, model_name_or_path))
+        MODELS_TO_TEST.append((model_class_name, model_name_or_path, config_overwrite))
 
 
 @is_trainium_test
 class ModelParallelizationTestCase(unittest.TestCase):
-    def get_parallel_test_python_file_content(
-        self,
-        model_class: str,
-        model_name_or_path: str,
-        from_config: bool,
-        tp_size: int,
-        lazy_load: bool,
-        parallelize_embeddings: bool,
-    ):
-        model_import = f"from transformers import AutoConfig, AutoTokenizer, {model_class}"
-        other_imports = (
-            "import torch\n"
-            "from transformers.trainer_utils import set_seed\n"
-            "from optimum.neuron.distributed import ParallelizersManager, lazy_load_for_parallelism\n"
-            "import neuronx_distributed\n"
-            "import os\n"
-            "from inspect import signature\n"
-        )
-
-        initialize_torch_distributed = (
-            "if os.environ.get('TORCHELASTIC_RUN_ID'):\n"
-            "\timport torch_xla.distributed.xla_backend as xbn\n"
-            "if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):\n"
-            "\ttorch.distributed.init_process_group(backend='xla')\n"
-        )
-
-        initialize_tp = f"neuronx_distributed.parallel_layers.parallel_state.initialize_model_parallel(tensor_model_parallel_size={tp_size})"
-
-        set_seed = "set_seed(42)"
-
-        config_loading = f"config = AutoConfig.from_pretrained('{model_name_or_path}')"
-        preprocessor_loading = f"preprocessor = AutoTokenizer.from_pretrained('{model_name_or_path}')"
-        inputs = "inputs = preprocessor('This is a test to check that TP is working.', return_tensors='pt')"
-
-        if from_config:
-            model_loading_line = f"model = {model_class}(config)"
-            full_model_loading_line = f"unsharded_model = {model_class}(config)"
-        else:
-            model_loading_line = (
-                f"model = {model_class}.from_pretrained('{model_name_or_path}', ignore_mismatched_sizes=True)"
-            )
-            full_model_loading_line = f"unsharded_model = {model_class}.from_pretrained('{model_name_or_path}', ignore_mismatched_sizes=True)"
-
-        if lazy_load:
-            model_loading_block = (
-                f"with lazy_load_for_parallelism(tensor_parallel_size={tp_size}):\n" f"    {model_loading_line}"
-            )
-        else:
-            model_loading_block = model_loading_line
-
-        model_to_eval_mode = "model = model.eval()\nunsharded_model = unsharded_model.eval()"
-
-        parallel_model_loading = (
-            "parallel_model = ParallelizersManager.parallelizer_for_model(model).parallelize(model, "
-            f"parallelize_embeddings={parallelize_embeddings})"
-        )
-
-        inference = (
-            "unsharded_model = unsharded_model.to('xla')\n"
-            "parallel_model = parallel_model.to('xla')\n"
-            "xla_inputs = {k: v.to('xla') for k, v in inputs.items()}\n"
-            "sig = signature(parallel_model.forward)\n"
-            "if unsharded_model.config.is_encoder_decoder:\n"
-            "    decoder_xla_inputs = {f'decoder_{k}': v for k, v in xla_inputs.items()}\n"
-            "    xla_inputs.update(decoder_xla_inputs)\n"
-            "xla_inputs = {k: v for k, v in xla_inputs.items() if k in sig.parameters}\n"
-            "print(parallel_model)\n"
-            "model_outputs = unsharded_model(**xla_inputs, return_dict=True)\n"
-            "parallel_model_outputs = parallel_model(**xla_inputs, return_dict=True)\n"
-            "for name, t in parallel_model_outputs.items():\n"
-            "   if not isinstance(t, torch.Tensor):\n"
-            "       continue\n"
-            "   print(t, model_outputs[name])\n"
-            "   torch.testing.assert_close(t, model_outputs[name])\n"
-            "print('This is a success')\n"
-        )
-
-        return "\n".join(
-            [
-                model_import,
-                other_imports,
-                initialize_torch_distributed,
-                initialize_tp,
-                config_loading,
-                preprocessor_loading,
-                inputs,
-                set_seed,
-                full_model_loading_line,
-                set_seed,
-                model_loading_block,
-                model_to_eval_mode,
-                parallel_model_loading,
-                inference,
-            ]
-        )
-
     def _test_model_parallel(
         self,
+        tp_size: int,
         model_class_name: str,
         model_name_or_path: str,
         from_config: bool,
         with_lazy_load: bool,
         parallelize_embeddings: bool,
+        num_neuron_cores: int = NUM_NEURON_CORES_AVAILABLE,
+        run_test_in_parallel: bool = False,
+        overwrite_model_config: Optional[Dict[str, str]] = None,
     ):
-        python_code = self.get_parallel_test_python_file_content(
-            model_class_name, model_name_or_path, from_config, 2, with_lazy_load, parallelize_embeddings
-        )
+        if num_neuron_cores < tp_size:
+            raise ValueError(
+                "The number of Neuron cores available is lower than the TP size, failing since the test might not be "
+                "testing what is expected."
+            )
+
+        if run_test_in_parallel and (NUM_NEURON_CORES_AVAILABLE // num_neuron_cores) < 2:
+            raise ValueError(
+                "The test cannot be run in parallel because there is not enough Neuron cores available to preserve the "
+                f"number of Neuron cores requested ({NUM_NEURON_CORES_AVAILABLE} cores available and {num_neuron_cores} "
+                "were requested)"
+            )
+
+        template_content = None
+        template_file_path = Path(__file__).parent.resolve() / TEMPLATE_FILE_NAME
+        with open(template_file_path, "r") as fp:
+            template_content = fp.read()
+
+        specialization_env = {
+            "from_config": "true" if from_config else "false",
+            "lazy_load": "true" if with_lazy_load else "false",
+            **os.environ,
+        }
+        if overwrite_model_config is not None:
+            specialization_env["config_overwrite"] = ",".join(
+                f"{key}={value}" for key, value in overwrite_model_config.items()
+            )
 
         with TemporaryDirectory() as tmpdirname:
+            specialization_data = {
+                "model_class": model_class_name,
+                "model_name_or_path": model_name_or_path,
+                "parallelize_embeddings": "True" if parallelize_embeddings else "False",
+                "tp_size": tp_size,
+                "output_path": tmpdirname,
+            }
+            specialized_content = template_content.format(**specialization_data)
             with open(f"{tmpdirname}/code.py", "w") as fp:
-                fp.write(python_code)
+                fp.write(specialized_content)
 
-            cmd = ["torchrun", "--nproc_per_node=2", f"{tmpdirname}/code.py"]
+            cmd = ["torchrun", f"--nproc_per_node={num_neuron_cores}", f"{tmpdirname}/code.py"]
 
-            p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            stdout, stderr = p.communicate()
+            def get_outputs_from_process(process) -> Tuple[str, str]:
+                stdout, stderr = process.communicate()
 
-            stdout = stdout.decode("utf-8")
-            stderr = stderr.decode("utf-8")
+                stdout = stdout.decode("utf-8")
+                stderr = stderr.decode("utf-8")
 
-            full_output = f"Standard output:\n{stdout}\nStandard error:\n{stderr}"
+                if stdout == "":
+                    stdout = "N/A"
+                if stderr == "":
+                    stderr = "N/A"
+                return stdout, stderr
+
+            # When running the test in parallel, we need 2 rendez-vous endpoints: one for the script running the
+            # original model and one for the script running the parallel model.
+            rdzv_endpoint_host = "localhost"
+            rdzv_endpoint_port = 29400
+
+            # Original model.
+            env = {"is_parallel": "false", **specialization_env}
+            if run_test_in_parallel:
+                # Setting the rendez-vous endpoint for the original model process.
+                cmd.insert(1, f"--rdzv_endpoint={rdzv_endpoint_host}:{rdzv_endpoint_port}")
+                env["NEURON_RT_VISIBLE_CORES"] = f"0-{num_neuron_cores - 1}"
+
+            p_original = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+
+            # When running tests in parallel, synchronization is done after both processes started.
+            if not run_test_in_parallel:
+                stdout, stderr = get_outputs_from_process(p_original)
+                full_output = f"Original model standard output:\n{stdout}\nOriginal model standard error:\n{stderr}"
+                print(full_output)
+
+            # Parallel model.
+            env = {"is_parallel": "true", **specialization_env}
+            if run_test_in_parallel:
+                # Updating the rendez-vous endpoint for the parallel model process.
+                cmd[1] = f"--rdzv_endpoint={rdzv_endpoint_host}:{rdzv_endpoint_port + 1}"
+                env["NEURON_RT_VISIBLE_CORES"] = f"{num_neuron_cores}-{2 * num_neuron_cores - 1}"
+            p_parallel = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+
+            if run_test_in_parallel:
+                stdout, stderr = get_outputs_from_process(p_original)
+                full_output = f"Original model standard output:\n{stdout}\nOriginal model standard error:\n{stderr}"
+                print(full_output)
+
+            stdout, stderr = get_outputs_from_process(p_parallel)
+            full_output = f"Parallel model standard output:\n{stdout}\nParallel model standard error:\n{stderr}"
             print(full_output)
 
-            assert "This is a success" in stdout
+            temporary_dir = Path(tmpdirname)
+            original_model_outputs = torch.load(temporary_dir / "original.bin")
+            parallel_model_outputs = torch.load(temporary_dir / "parallel.bin")
+            for name, t in parallel_model_outputs.items():
+                if not isinstance(t, torch.Tensor):
+                    continue
+                print(t, original_model_outputs[name])
+                torch.testing.assert_close(
+                    t, original_model_outputs[name]
+                )  # , msg=f"Input called {name} do not match.")
 
     @parameterized.expand(MODELS_TO_TEST)
-    def test_model_parallel_from_config_without_lazy_load(self, model_class_name: str, model_name_or_path: str):
+    def test_model_parallel_from_config_without_lazy_load(
+        self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
+    ):
         self._test_model_parallel(
-            model_class_name, model_name_or_path, True, False, False
-        )  # Should be True once it's working.
+            num_neuron_cores=8,
+            tp_size=2,
+            run_test_in_parallel=True,
+            model_class_name=model_class_name,
+            model_name_or_path=model_name_or_path,
+            from_config=True,
+            with_lazy_load=False,
+            parallelize_embeddings=False,  # Should be True once it's working.
+            overwrite_model_config=config_overwrite,
+        )
 
     @parameterized.expand(MODELS_TO_TEST)
-    def test_model_parallel_from_pretrained_without_lazy_load(self, model_class_name: str, model_name_or_path: str):
+    def test_model_parallel_from_pretrained_without_lazy_load(
+        self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
+    ):
         self._test_model_parallel(
-            model_class_name, model_name_or_path, False, False, False
-        )  # Should be True once it's working.
+            num_neuron_cores=8,
+            tp_size=2,
+            model_class_name=model_class_name,
+            model_name_or_path=model_name_or_path,
+            from_config=False,
+            with_lazy_load=False,
+            parallelize_embeddings=False,  # Should be True once it's working.
+            overwrite_model_config=config_overwrite,
+        )
+
+    @unittest.skipIf(
+        NUM_NEURON_CORES_AVAILABLE < 32,
+        f"This test requires 32 Neuron cores, but only {NUM_NEURON_CORES_AVAILABLE} are available",
+    )
+    def test_llama_v2_gqa_variants(self):
+        llama_v2_model_name = "anushehchaudry/llama-2-tiny-random"
+        # MHA setup
+        # TP size = 2, num_attention_heads = 8, num_key_value_heads = 8
+        self._test_model_parallel(
+            num_neuron_cores=8,
+            tp_size=2,
+            run_test_in_parallel=True,
+            model_class_name="LlamaForCausalLM",
+            model_name_or_path=llama_v2_model_name,
+            from_config=True,
+            with_lazy_load=False,
+            parallelize_embeddings=False,
+            overwrite_model_config={
+                "num_hidden_layers": "2",
+                "num_attention_heads": "8",
+                "num_key_value_heads": "8",
+            },
+        )
+
+        # GQA setup with num_key_value_heads > tp_size.
+        # TP size = 2, num_attention_heads = 8, num_key_value_heads = 4
+        self._test_model_parallel(
+            num_neuron_cores=8,
+            tp_size=2,
+            run_test_in_parallel=True,
+            model_class_name="LlamaForCausalLM",
+            model_name_or_path=llama_v2_model_name,
+            from_config=True,
+            with_lazy_load=False,
+            parallelize_embeddings=False,
+            overwrite_model_config={
+                "num_hidden_layers": "2",
+                "num_attention_heads": "8",
+                "num_key_value_heads": "4",
+            },
+        )
+
+        # GQA setup with num_key_value_heads = tp_size.
+        # TP size = 8, num_attention_heads = 16, num_key_value_heads = 8
+        self._test_model_parallel(
+            num_neuron_cores=8,
+            tp_size=8,
+            run_test_in_parallel=True,
+            model_class_name="LlamaForCausalLM",
+            model_name_or_path=llama_v2_model_name,
+            from_config=True,
+            with_lazy_load=False,
+            parallelize_embeddings=False,
+            overwrite_model_config={
+                "num_hidden_layers": "2",
+                "hidden_size": "32",
+                "num_attention_heads": "16",
+                "num_key_value_heads": "8",
+            },
+        )
+
+        # GQA setup with num_key_value_heads < tp_size.
+        # TP size = 8, num_attention_heads = 16, num_key_value_heads = 2
+        self._test_model_parallel(
+            num_neuron_cores=8,
+            tp_size=8,
+            run_test_in_parallel=True,
+            model_class_name="LlamaForCausalLM",
+            model_name_or_path=llama_v2_model_name,
+            from_config=True,
+            with_lazy_load=False,
+            parallelize_embeddings=False,
+            overwrite_model_config={
+                "num_hidden_layers": "2",
+                "hidden_size": "32",
+                "num_attention_heads": "16",
+                "num_key_value_heads": "2",
+            },
+        )
+
+        # MQA setup
+        # TP size = 8, num_attention_heads = 16, num_key_value_heads = 1
+        self._test_model_parallel(
+            num_neuron_cores=8,
+            tp_size=8,
+            run_test_in_parallel=True,
+            model_class_name="LlamaForCausalLM",
+            model_name_or_path=llama_v2_model_name,
+            from_config=True,
+            with_lazy_load=False,
+            parallelize_embeddings=False,
+            overwrite_model_config={
+                "num_hidden_layers": "2",
+                "hidden_size": "32",
+                "num_attention_heads": "16",
+                "num_key_value_heads": "1",
+            },
+        )
 
     # TODO: enable that once it's working.
     # @parameterized.expand(MODELS_TO_TEST)
