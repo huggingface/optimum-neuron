@@ -17,6 +17,7 @@
 from typing import TYPE_CHECKING, Dict, Optional
 
 import torch
+from transformers import T5ForSequenceClassification
 
 from ...utils import NormalizedConfigManager
 from .base import Parallelizer
@@ -151,6 +152,12 @@ class T5Parallelizer(Parallelizer):
         device: Optional["torch.device"] = None,
         parallelize_embeddings: bool = True,
     ) -> "PreTrainedModel":
+        if isinstance(model, T5ForSequenceClassification):
+            raise NotImplementedError(
+                "Model parallelism for T5ForSequenceClassification is not supported. Please open an issue to ask for "
+                "support or a PR adding this feature in the optimum-neuron repo "
+                "(https://github.com/huggingface/optimum-neuron)"
+            )
         if parallelize_embeddings:
             model = T5ParallelEmbedding.transform(model, model, device=device)
         if parallelize_embeddings and model.encoder.embed_tokens is not None:

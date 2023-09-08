@@ -60,6 +60,11 @@ else:
     NUM_NEURON_CORES_AVAILABLE = 0
 
 
+CLASSES_TO_IGNORE = [
+    "T5ForSequenceClassification",
+]
+
+
 def _generate_supported_model_class_names(
     model_name: Type["PretrainedConfig"],
     supported_tasks: Optional[Union[str, List[str]]] = None,
@@ -96,7 +101,7 @@ def _generate_supported_model_class_names(
     model_class_names = []
     for task in supported_tasks:
         class_name = task_mapping[task].get(model_name, None)
-        if class_name:
+        if class_name is not None and class_name not in CLASSES_TO_IGNORE:
             model_class_names.append(class_name)
 
     return list(set(model_class_names))
