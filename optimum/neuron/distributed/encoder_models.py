@@ -16,8 +16,9 @@
 
 from typing import TYPE_CHECKING, Dict, Optional
 
+from ..utils.require_utils import requires_neuronx_distributed
 from .base import Parallelizer
-from .parallel_layers import ParallelEmbedding, ParallelSelfAttention, ParallelSelfOutput
+from .parallel_layers import ParallelCrossEntropy, ParallelEmbedding, ParallelSelfAttention, ParallelSelfOutput
 
 
 if TYPE_CHECKING:
@@ -33,6 +34,23 @@ class BertParallelEmbedding(ParallelEmbedding):
         "BertForMaskedLM": "cls.predictions.decoder",
     }
 
+    @classmethod
+    @requires_neuronx_distributed
+    def transform(
+        cls,
+        model: "PreTrainedModel",
+        layer: "torch.nn.Module",
+        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+        device: Optional["torch.device"] = None,
+    ) -> "torch.nn.Module":
+        layer = super().transform(model, layer, orig_to_parallel=orig_to_parallel, device=device)
+        from transformers.models.bert.modeling_bert import BertLMPredictionHead
+
+        for mod in layer.modules():
+            if isinstance(mod, BertLMPredictionHead):
+                mod.bias = mod.decoder.bias
+        return layer
+
 
 class BertParallelSelfAttention(ParallelSelfAttention):
     ALL_HEAD_SIZE_NAME = "all_head_size"
@@ -40,6 +58,14 @@ class BertParallelSelfAttention(ParallelSelfAttention):
 
 class BertParallelSelfOutput(ParallelSelfOutput):
     pass
+
+
+class BertParallelCrossEntropy(ParallelCrossEntropy):
+    LAST_LINEAR_PROJECTION_NAME = {
+        "BertForPreTraining": "cls.predictions.decoder",
+        "BertLMHeadModel": "cls.predictions.decoder",
+        "BertForMaskedLM": "cls.predictions.decoder",
+    }
 
 
 class BertParallelizer(Parallelizer):
@@ -66,6 +92,8 @@ class BertParallelizer(Parallelizer):
                 orig_to_parallel=orig_to_parallel,
                 device=device,
             )
+        if parallelize_embeddings:
+            model = BertParallelCrossEntropy.transform(model, model, device=device)
         return model
 
 

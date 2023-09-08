@@ -214,7 +214,7 @@ def embedding_to_parallel_embedding(
                 linear_layer_weight_info=lm_head_weight_info,
                 linear_layer_bias_weight_info=lm_head_bias_weight_info,
                 embedding_weight_to_tie=embedding_weight_to_tie,
-                gather_output=True,
+                gather_output=False,
                 orig_to_parallel=orig_to_parallel if not is_tied else None,
                 device=device,
             )

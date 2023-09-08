@@ -56,7 +56,7 @@ class NeuronTrainingArgumentsMixin:
         default=1, metadata={"help": "The number of replicas the model will be sharded on."}
     )
     disable_embedding_parallelization: bool = field(
-        default=True,
+        default=False,
         metadata={"help": "Whether or not the embedding parallelization when doing TP should be disabled."},
     )
 
@@ -64,8 +64,8 @@ class NeuronTrainingArgumentsMixin:
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
         patch_accelerate_is_tpu_available()
 
-        if not self.disable_embedding_parallelization:
-            raise NotImplementedError("Disabling the parallelization of the embeddings is not fully supported yet.")
+        # if not self.disable_embedding_parallelization:
+        #     raise NotImplementedError("Disabling the parallelization of the embeddings is not fully supported yet.")
 
         if self.fsdp != "":
             # Disabling FSDP until next release because it is still very experimental and not validated.
