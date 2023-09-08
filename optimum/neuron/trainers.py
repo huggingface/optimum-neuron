@@ -51,7 +51,7 @@ from .utils import (
     is_torch_xla_available,
     patch_within_function,
 )
-from .utils.cache_utils import get_neuron_cache_path
+from .utils.cache_utils import NEURON_COMPILE_CACHE_NAME, get_neuron_cache_path, set_neuron_cache_path
 from .utils.training_utils import (
     TRANSFORMERS_MIN_VERSION_USE_ACCELERATE,
     get_model_param_count,
@@ -87,6 +87,9 @@ if KEEP_HF_HUB_PROGRESS_BARS is None:
 # Used for torch.distributed.
 _ORIGINAL_NEURON_CACHE_PATH: Optional[Path] = None
 _TMP_NEURON_CACHE_DIR: Optional[TemporaryDirectory] = None
+_TMP_NEURON_CACHE_PATH: Optional[Path] = None
+_TCP_STORE_ADDRESS = "127.0.0.1"
+_TCP_STORE_PORT = 5000
 
 
 MODEL_PATCHING_SPECS = [
@@ -104,8 +107,18 @@ if os.environ.get("TORCHELASTIC_RUN_ID"):
 
     if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
         _ORIGINAL_NEURON_CACHE_PATH = get_neuron_cache_path()
+
         if not is_precompilation():
-            _TMP_NEURON_CACHE_DIR = NeuronCacheCallback.create_temporary_neuron_cache(get_neuron_cache_path())
+            if os.environ["RANK"] == "0":
+                _TMP_NEURON_CACHE_DIR = NeuronCacheCallback.create_temporary_neuron_cache(get_neuron_cache_path())
+                store = torch.distributed.TCPStore(_TCP_STORE_ADDRESS, _TCP_STORE_PORT, is_master=True)
+                store.set("tmp_neuron_cache_path", _TMP_NEURON_CACHE_DIR.name)
+                _TMP_NEURON_CACHE_PATH = Path(_TMP_NEURON_CACHE_DIR.name)
+            else:
+                store = torch.distributed.TCPStore(_TCP_STORE_ADDRESS, _TCP_STORE_PORT, is_master=False)
+                _TMP_NEURON_CACHE_PATH = Path(store.get("tmp_neuron_cache_path").decode("utf-8"))
+            set_neuron_cache_path(_TMP_NEURON_CACHE_PATH / NEURON_COMPILE_CACHE_NAME)
+
         torch.distributed.init_process_group(backend="xla")
         if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
             raise AssertionError("Failed to initialize torch.distributed process group using XLA backend.")
@@ -150,10 +163,10 @@ class AugmentTrainerForNeuronMixin:
             logger.setLevel(logging.INFO)
 
         push = self.args.local_rank <= 0
-        fetch = self.args.local_rank <= 0
+        fetch = self.args.local_rank <= 0 or self.args.tp_plugin.should_parallelize
 
         callback = NeuronCacheCallback(
-            tmp_neuron_cache=_TMP_NEURON_CACHE_DIR,
+            tmp_neuron_cache=_TMP_NEURON_CACHE_PATH,
             original_neuron_cache_path=_ORIGINAL_NEURON_CACHE_PATH,
             fetch=fetch,
             push=push,

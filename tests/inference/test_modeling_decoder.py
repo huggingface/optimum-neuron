@@ -79,7 +79,7 @@ def _check_neuron_model(neuron_model, batch_size=None, num_cores=None, auto_cast
 @pytest.mark.parametrize(
     "batch_size, num_cores, auto_cast_type",
     [
-        pytest.param(1, 2, "f32", marks=pytest.mark.skip(reason="Does not work with batch_size 1")),
+        [1, 2, "f32"],
         [2, 2, "f32"],
         [2, 2, "bf16"],
     ],

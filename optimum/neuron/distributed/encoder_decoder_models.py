@@ -16,13 +16,15 @@
 
 from typing import TYPE_CHECKING, Dict, Optional
 
+import torch
+
+from ...utils import NormalizedConfigManager
 from .base import Parallelizer
 from .parallel_layers import ParallelEmbedding, ParallelMLP, ParallelSelfAttention
 from .utils import linear_to_parallel_linear
 
 
 if TYPE_CHECKING:
-    import torch
     from transformers import PreTrainedModel
 
 
@@ -47,21 +49,35 @@ class T5ParallelSelfAttention(ParallelSelfAttention):
         orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
         device: Optional["torch.device"] = None,
     ) -> "torch.nn.Module":
-        layer = super().transform(model, layer, orig_to_parallel=orig_to_parallel, device=device)
-
-        num_heads = layer.n_heads
-        from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_rank
+        from neuronx_distributed.parallel_layers.parallel_state import (
+            get_tensor_model_parallel_rank,
+            get_tensor_model_parallel_size,
+        )
+        from neuronx_distributed.parallel_layers.utils import set_tensor_model_parallel_attributes
 
         tp_rank = get_tensor_model_parallel_rank()
+        tp_size = get_tensor_model_parallel_size()
 
-        orig_compute_bias = layer.compute_bias
+        config = model.config
+        normalized_config = NormalizedConfigManager.get_normalized_config_class(config.model_type)(config)
+        if cls.NUM_ATTENTION_HEADS_NAME is None:
+            num_attention_heads_name = normalized_config.NUM_ATTENTION_HEADS
+        else:
+            num_attention_heads_name = cls.NUM_ATTENTION_HEADS_NAME
 
-        def compute_bias(self, query_length, key_length, device=None):
-            """Compute binned relative position bias"""
-            values = orig_compute_bias(query_length, key_length, device=device)
-            return values[:, tp_rank * num_heads : (tp_rank + 1) * num_heads, :]
+        num_attention_heads = getattr(layer, num_attention_heads_name)
+        num_attention_heads_per_rank = num_attention_heads // tp_size
 
-        layer.compute_bias = compute_bias.__get__(layer)
+        if layer.has_relative_attention_bias:
+            with torch.no_grad():
+                layer.relative_attention_bias.weight.data = layer.relative_attention_bias.weight.data[
+                    :, num_attention_heads_per_rank * tp_rank : num_attention_heads_per_rank * (tp_rank + 1)
+                ]
+                layer.relative_attention_bias.embedding_dim = num_attention_heads_per_rank
+                set_tensor_model_parallel_attributes(layer.relative_attention_bias.weight, True, 1, stride=1)
+
+        layer = super().transform(model, layer, orig_to_parallel=orig_to_parallel, device=device)
+
         return layer
 
 
