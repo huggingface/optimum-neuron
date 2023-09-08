@@ -19,8 +19,6 @@ import os
 from collections import OrderedDict
 from typing import TYPE_CHECKING, Dict, Optional, Tuple, Union
 
-import torch
-from packaging import version
 from transformers import PretrainedConfig
 
 from ...neuron.utils import (
@@ -92,22 +90,23 @@ def build_stable_diffusion_components_mandatory_shapes(
     vae_decoder_num_channels: Optional[int] = None,
     height: Optional[int] = None,
     width: Optional[int] = None,
+    num_images_per_prompt: Optional[int] = 1,
 ):
     text_encoder_input_shapes = {"batch_size": batch_size, "sequence_length": sequence_length}
     vae_encoder_input_shapes = {
-        "batch_size": batch_size,
+        "batch_size": batch_size * num_images_per_prompt,
         "num_channels": vae_encoder_num_channels,
         "height": height,
         "width": width,
     }
     vae_decoder_input_shapes = {
-        "batch_size": batch_size,
+        "batch_size": batch_size * num_images_per_prompt,
         "num_channels": vae_decoder_num_channels,
         "height": height,
         "width": width,
     }
     unet_input_shapes = {
-        "batch_size": batch_size,
+        "batch_size": batch_size * num_images_per_prompt,
         "sequence_length": sequence_length,
         "num_channels": unet_num_channels,
         "height": height,
@@ -285,21 +284,18 @@ def _get_submodels_for_export_stable_diffusion(
 
     # VAE Encoder
     vae_encoder = copy.deepcopy(pipeline.vae)
-    if not version.parse(torch.__version__) >= version.parse("2.1.0"):
-        vae_encoder = override_diffusers_2_0_attn_processors(vae_encoder)
     vae_encoder.forward = lambda sample: {"latent_sample": vae_encoder.encode(x=sample)["latent_dist"].sample()}
     models_for_export.append((DIFFUSION_MODEL_VAE_ENCODER_NAME, vae_encoder))
 
     # VAE Decoder
     vae_decoder = copy.deepcopy(pipeline.vae)
-    if not version.parse(torch.__version__) >= version.parse("2.1.0"):
-        vae_decoder = override_diffusers_2_0_attn_processors(vae_decoder)
     vae_decoder.forward = lambda latent_sample: vae_decoder.decode(z=latent_sample)
     models_for_export.append((DIFFUSION_MODEL_VAE_DECODER_NAME, vae_decoder))
 
     return OrderedDict(models_for_export)
 
 
+# Using xformers or torch_2_0 can avoid overflow on float16, do not apply this unless compilation error.
 def override_diffusers_2_0_attn_processors(model):
     for _, submodule in model.named_modules():
         if isinstance(submodule, Attention):

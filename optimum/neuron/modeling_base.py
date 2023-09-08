@@ -99,10 +99,11 @@ class NeuronBaseModel(OptimizedModel):
             path (`Union[str, Path]`):
                 Path of the compiled model.
         """
-        if not isinstance(path, str):
-            path = str(path)
+        if not isinstance(path, Path):
+            path = Path(path)
 
-        return torch.jit.load(path)
+        if path.is_file():
+            return torch.jit.load(path)
 
     def _save_pretrained(self, save_directory: Union[str, Path]):
         """

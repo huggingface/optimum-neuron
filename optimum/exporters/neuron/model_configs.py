@@ -277,6 +277,28 @@ class UNetNeuronConfig(VisionNeuronConfig):
         else:
             return dummy_inputs
 
+    class ModelWrapper(torch.nn.Module):
+        def __init__(self, model):
+            super().__init__()
+            self.model = model
+
+        def forward(self, sample, timestep, encoder_hidden_states, text_embeds=None, time_ids=None):
+            out_tuple = self.model(
+                sample,
+                timestep.float().expand((sample.shape[0],)),
+                encoder_hidden_states,
+                added_cond_kwargs={"text_embeds": text_embeds, "time_ids": time_ids},
+                return_dict=False,
+            )
+
+            return out_tuple
+
+    def check_model_inputs_order(self, model, dummy_inputs):
+        return super().check_model_inputs_order(
+            model=model,
+            custom_model_wrapper=self.ModelWrapper,
+        )
+
 
 @register_in_tasks_manager("vae-encoder", *["semantic-segmentation"])
 class VaeEncoderNeuronConfig(VisionNeuronConfig):

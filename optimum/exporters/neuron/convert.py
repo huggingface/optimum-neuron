@@ -13,8 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Neuron compiled model check and export functions."""
-
 import copy
+import os
 import time
 from collections import OrderedDict
 from pathlib import Path
@@ -22,7 +22,6 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
-from packaging import version
 from transformers import PretrainedConfig
 
 from ...exporters.error_utils import OutputMatchError, ShapeError
@@ -178,7 +177,7 @@ def validate_model_outputs(
             neuron_inputs = ref_inputs
         else:
             ref_outputs = reference_model(**ref_inputs)
-            neuron_inputs = tuple(ref_inputs.values())
+            neuron_inputs = tuple(config.flatten_inputs(ref_inputs).values())
 
     # Neuron outputs
     neuron_model = torch.jit.load(neuron_model_path)
@@ -292,6 +291,7 @@ def export_models(
         )
 
     failed_models = []
+    total_compilation_time = 0
     for i, model_name in enumerate(models_and_neuron_configs.keys()):
         logger.info(f"***** Compiling {model_name} *****")
         submodel, sub_neuron_config = models_and_neuron_configs[model_name]
@@ -311,6 +311,7 @@ def export_models(
                 **compiler_kwargs,
             )
             compilation_time = time.time() - start_time
+            total_compilation_time += compilation_time
             logger.info(f"[Compilation Time] {np.round(compilation_time, 2)} seconds.")
             outputs.append((neuron_inputs, neuron_outputs))
             # Add neuron specific configs to model components' original config
@@ -347,6 +348,7 @@ def export_models(
                 f"An error occured when trying to trace {model_name} with the error message: {e}.\n"
                 f"The export is failed and {model_name} neuron model won't be stored."
             )
+    logger.info(f"[Total compilation Time] {np.round(total_compilation_time, 2)} seconds.")
 
     # remove models failed to export
     for i, model_name in failed_models:
@@ -421,6 +423,7 @@ def export_neuronx(
         input_shapes[axis] = getattr(config, axis)
 
     dummy_inputs = config.generate_dummy_inputs(**input_shapes)
+    dummy_inputs = config.flatten_inputs(dummy_inputs)
     dummy_inputs_tuple = tuple(dummy_inputs.values())
     checked_model = config.check_model_inputs_order(model, dummy_inputs)
 
@@ -435,6 +438,10 @@ def export_neuronx(
     else:
         compiler_args = ["--auto-cast", "none"]
 
+    # WARNING: Enabled experimental parallel compilation
+    compiler_args.extend(["--enable-experimental-O1"])
+    compiler_args.extend(["--num-parallel-jobs", str(os.cpu_count())])
+
     # diffusers specific
     compiler_args = add_stable_diffusion_compiler_args(config, compiler_args)
 
@@ -447,6 +454,9 @@ def export_neuronx(
     improve_stable_diffusion_loading(config, neuron_model)
 
     torch.jit.save(neuron_model, output)
+    del model
+    del checked_model
+    del dummy_inputs
     del neuron_model
 
     return config.inputs, config.outputs
@@ -454,24 +464,26 @@ def export_neuronx(
 
 def add_stable_diffusion_compiler_args(config, compiler_args):
     if hasattr(config._config, "_name_or_path"):
-        sd_components = ["text_encoder", "unet", "vae", "vae_encoder", "vae_decoder"]
+        sd_components = ["text_encoder", "vae", "vae_encoder", "vae_decoder"]
         if any(component in config._config._name_or_path.lower() for component in sd_components):
             compiler_args.extend(["--enable-fast-loading-neuron-binaries"])
         # unet
         if "unet" in config._config._name_or_path.lower():
+            # SDXL unet doesn't support fast loading neuron binaries
+            if "stable-diffusion-xl" not in config._config._name_or_path.lower():
+                compiler_args.extend(["--enable-fast-loading-neuron-binaries"])
             compiler_args.extend(["--model-type=unet-inference"])
     return compiler_args
 
 
 def improve_stable_diffusion_loading(config, neuron_model):
-    if version.parse(neuronx.__version__) >= version.parse("1.13.1.1.9.0"):
-        if hasattr(config._config, "_name_or_path"):
-            sd_components = ["text_encoder", "unet", "vae", "vae_encoder", "vae_decoder"]
-            if any(component in config._config._name_or_path.lower() for component in sd_components):
-                neuronx.async_load(neuron_model)
-            # unet
-            if "unet" in config._config._name_or_path.lower():
-                neuronx.lazy_load(neuron_model)
+    if hasattr(config._config, "_name_or_path"):
+        sd_components = ["text_encoder", "unet", "vae", "vae_encoder", "vae_decoder"]
+        if any(component in config._config._name_or_path.lower() for component in sd_components):
+            neuronx.async_load(neuron_model)
+        # unet
+        if "unet" in config._config._name_or_path.lower():
+            neuronx.lazy_load(neuron_model)
 
 
 def export_neuron(
@@ -537,6 +549,9 @@ def export_neuron(
         fallback=not disable_fallback,
     )
     torch.jit.save(neuron_model, output)
+    del model
+    del checked_model
+    del dummy_inputs
     del neuron_model
 
     return config.inputs, config.outputs
