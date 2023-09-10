@@ -222,6 +222,9 @@ def main_export(
                 "Stable diffusion export is not supported by neuron-cc on inf1, please use neuronx-cc on either inf2/trn1 instead."
             )
         input_shapes = infer_stable_diffusion_shapes_from_diffusers(input_shapes, model)
+        # Test for img2img Ghibli
+        input_shapes["vae_encoder_input_shapes"]["height"] = 384
+        input_shapes["vae_encoder_input_shapes"]["width"] = 786
         models_and_neuron_configs = get_stable_diffusion_models_for_export(
             pipeline=model,
             task=task,
