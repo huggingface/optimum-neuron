@@ -620,7 +620,7 @@ class ParallelCrossEntropy(ParallelLayer):
                 ("torch.nn.modules.loss.F.cross_entropy", safe_parallel_cross_entropy),
             ]
         )
-        model.forward = patcher(orig_forward).__get__(model)
+        model.forward = patcher(orig_forward)
 
     @classmethod
     @requires_neuronx_distributed

@@ -17,7 +17,7 @@
 from typing import TYPE_CHECKING, Dict, Optional
 
 from .base import Parallelizer
-from .parallel_layers import ParallelEmbedding, ParallelMLP, ParallelSelfAttention
+from .parallel_layers import ParallelCrossEntropy, ParallelEmbedding, ParallelMLP, ParallelSelfAttention
 from .utils import linear_to_parallel_linear
 
 
@@ -44,6 +44,10 @@ class GPTNeoParallelMLP(ParallelMLP):
     SECOND_LINEAR_NAME = "c_proj"
 
 
+class GPTNeoParallelCrossEntropy(ParallelCrossEntropy):
+    LAST_LINEAR_PROJECTION_NAME = "lm_head"
+
+
 class GPTNeoParallelizer(Parallelizer):
     @classmethod
     def _parallelize(
@@ -62,6 +66,8 @@ class GPTNeoParallelizer(Parallelizer):
                 device=device,
             )
             block.mlp = GPTNeoParallelMLP.transform(model, block.mlp, device=device)
+        if parallelize_embeddings:
+            model = GPTNeoParallelCrossEntropy.transform(model, model, device=device)
         return model
 
 
@@ -127,6 +133,10 @@ class LLamaParallelMLP(ParallelMLP):
         return layer
 
 
+class LlamaParallelCrossEntropy(ParallelCrossEntropy):
+    LAST_LINEAR_PROJECTION_NAME = "lm_head"
+
+
 class LlamaParallelizer(Parallelizer):
     @classmethod
     def _parallelize(
@@ -141,4 +151,6 @@ class LlamaParallelizer(Parallelizer):
         for layer in model.model.layers:
             layer.self_attn = LlamaParallelSelfAttention.transform(model, layer.self_attn, device=device)
             layer.mlp = LLamaParallelMLP.transform(model, layer.mlp, device=device)
+        if parallelize_embeddings:
+            model = LlamaParallelCrossEntropy.transform(model, model, device=device)
         return model

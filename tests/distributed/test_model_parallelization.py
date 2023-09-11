@@ -43,7 +43,7 @@ from transformers.models.auto.modeling_auto import (
     MODEL_FOR_ZERO_SHOT_IMAGE_CLASSIFICATION_MAPPING_NAMES,
 )
 
-from optimum.neuron.utils.cache_utils import get_num_neuron_cores
+from optimum.neuron.utils.cache_utils import get_num_neuron_cores, set_neuron_cache_path
 from optimum.neuron.utils.import_utils import is_neuronx_available
 
 from ..test_utils import is_trainium_test
@@ -200,8 +200,13 @@ class ModelParallelizationTestCase(unittest.TestCase):
             rdzv_endpoint_host = "localhost"
             rdzv_endpoint_port = 29400
 
+            orig_neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
+            set_neuron_cache_path(tmpdirname)
+            neuron_cc_flags = os.environ["NEURON_CC_FLAGS"]
+            os.environ["NEURON_CC_FLAGS"] = orig_neuron_cc_flags
+
             # Original model.
-            env = {"is_parallel": "false", **specialization_env}
+            env = {"is_parallel": "false", **specialization_env, "NEURON_CC_FLAGS": neuron_cc_flags}
             if run_test_in_parallel:
                 # Setting the rendez-vous endpoint for the original model process.
                 cmd.insert(1, f"--rdzv_endpoint={rdzv_endpoint_host}:{rdzv_endpoint_port}")
@@ -216,7 +221,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
                 print(full_output)
 
             # Parallel model.
-            env = {"is_parallel": "true", **specialization_env}
+            env = {"is_parallel": "true", **specialization_env, "NEURON_CC_FLAGS": neuron_cc_flags}
             if run_test_in_parallel:
                 # Updating the rendez-vous endpoint for the parallel model process.
                 cmd[1] = f"--rdzv_endpoint={rdzv_endpoint_host}:{rdzv_endpoint_port + 1}"
@@ -238,10 +243,9 @@ class ModelParallelizationTestCase(unittest.TestCase):
             for name, t in parallel_model_outputs.items():
                 if not isinstance(t, torch.Tensor):
                     continue
-                print(t, original_model_outputs[name])
-                torch.testing.assert_close(
-                    t, original_model_outputs[name]
-                )  # , msg=f"Input called {name} do not match.")
+                print(f"Testing that {name} match.")
+                torch.testing.assert_close(t, original_model_outputs[name])
+                print("Ok!")
 
     @parameterized.expand(MODELS_TO_TEST)
     def test_model_parallel_from_config_without_lazy_load(
