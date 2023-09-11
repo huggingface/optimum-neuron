@@ -370,6 +370,11 @@ class NeuronGenerator(Generator):
             slot_input_ids = input_ids[i : i + 1, :]
             next_token = slot.select(slot_input_ids, next_token_logits)
             next_token_text = self.tokenizer.decode(next_token)
+            if not slot.generated_text.endswith(" ") and not next_token_text.startswith(" "):
+                # Some tokenizers do not prepend spaces automatically when decoding a single token
+                contextual_text = self.tokenizer.decode([slot.next_token, next_token])
+                if contextual_text[: -len(next_token_text)].endswith(" "):
+                    next_token_text = " " + next_token_text
             slot.append(next_token, next_token_text)
             generated_text = None
             finish_reason = None
@@ -447,6 +452,7 @@ class NeuronGenerator(Generator):
         Args:
             model_id (`str`):
                 The *model_id* of a model on the HuggingFace hub or the path to a local model.
+                In either case, the hub or local path must also contain a Tokenizer.
             revision (`str`):
                 The revision of the model on the HuggingFace hub.
 
