@@ -1,12 +1,14 @@
-name: Optimum Neuron - Test example scripts on Trainium
+name: Optimum Neuron - Test optimum.neuron.distributed on Trainium
 
 on:
   push:
-    branches:
-      - main
-  schedule:
-    # At the end of everyday
-    - cron: 0 22 * * *
+    branches: [ main ]
+    paths:
+      - "optimum/neuron/distributed/**.py"
+  pull_request:
+    branches: [ main ]
+    paths:
+      - "optimum/neuron/distributed/**.py"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -20,7 +22,7 @@ jobs:
     env:
       AWS_REGION: us-east-1
       EC2_AMI_ID: ${{ vars.TRAINIUM_AMI_ID }} 
-      EC2_INSTANCE_TYPE: trn1.2xlarge 
+      EC2_INSTANCE_TYPE: trn1.32xlarge 
       EC2_SUBNET_ID: subnet-859322b4,subnet-b7533b96,subnet-47cfad21,subnet-a396b2ad,subnet-06576a4b,subnet-df0f6180
       EC2_SECURITY_GROUP: sg-0bb210cd3ec725a13
       EC2_IAM_ROLE: optimum-ec2-github-actions-role
@@ -58,13 +60,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v2
+      - name: Set pip repository pointing to the Neuron repository
+        run: pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
       - name: Install Python dependencies
-        run: pip install .[tests]
-      - name: Install python3.8-venv
-        run: sudo apt update; sudo apt install -y python3.8-venv
-      - name: Run example tests 
+        run: pip install .[tests,neuronx]
+      - name: Run tests on Neuron cores
         run: |
-          HF_TOKEN_OPTIMUM_NEURON_CI=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} USE_VENV="false" RUN_SLOW=1 pytest -m "is_trainium_test" tests/test_examples.py -v
+          HF_TOKEN_OPTIMUM_NEURON_CI=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m "is_trainium_test" tests/distributed/ 
   stop-runner:
     name: Stop self-hosted EC2 runner
     needs:

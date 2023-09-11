@@ -213,11 +213,11 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
 
     @staticmethod
     def load_model(
-        text_encoder_path: Path,
-        unet_path: Path,
-        vae_decoder_path: Path,
-        vae_encoder_path: Optional[Path] = None,
-        text_encoder_2_path: Optional[Path] = None,
+        text_encoder_path: Union[str, Path],
+        unet_path: Union[str, Path],
+        vae_decoder_path: Union[str, Path],
+        vae_encoder_path: Optional[Union[str, Path]] = None,
+        text_encoder_2_path: Optional[Union[str, Path]] = None,
         device_ids: Optional[List[int]] = None,
         dynamic_batch_size: bool = False,
     ):
@@ -272,6 +272,12 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         Saves the model to the serialized format optimized for Neuron devices.
         """
         save_directory = Path(save_directory)
+        if not self.model_and_config_save_paths.get(DIFFUSION_MODEL_VAE_ENCODER_NAME)[0].is_file():
+            self.model_and_config_save_paths.pop(DIFFUSION_MODEL_VAE_ENCODER_NAME)
+
+        if not self.model_and_config_save_paths.get(DIFFUSION_MODEL_TEXT_ENCODER_2_NAME)[0].is_file():
+            self.model_and_config_save_paths.pop(DIFFUSION_MODEL_TEXT_ENCODER_2_NAME)
+
         if self.model_and_config_save_paths is None:
             logger.warning(
                 "`model_save_paths` is None which means that no path of Neuron model is defined. Nothing will be saved."
@@ -404,12 +410,6 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 new_model_save_dir / DIFFUSION_MODEL_VAE_DECODER_NAME / cls.sub_component_config_name,
             ),
         }
-
-        # Load VAE encoder only when it exists
-        vae_encoder_model_path = new_model_save_dir / DIFFUSION_MODEL_VAE_ENCODER_NAME / vae_encoder_file_name
-        vae_encoder_config_path = new_model_save_dir / DIFFUSION_MODEL_VAE_ENCODER_NAME / cls.sub_component_config_name
-        if os.path.isfile(vae_encoder_model_path) and os.path.isfile(vae_encoder_config_path):
-            model_and_config_save_paths["vae_encoder"] = (vae_encoder_model_path, vae_encoder_config_path)
 
         # Re-build pretrained configs and neuron configs
         configs, neuron_configs = {}, {}

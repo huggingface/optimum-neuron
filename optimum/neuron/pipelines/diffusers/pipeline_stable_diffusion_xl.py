@@ -46,7 +46,7 @@ class StableDiffusionXLPipelineMixin(StableDiffusionXLPipeline):
         Encodes the prompt into text encoder hidden states.
 
         Args:
-            prompt (`str`, *optional*):
+            prompt (`str`):
                 prompt to be encoded
             prompt_2 (`Optional[str]`, defaults to `None`):
                 The prompt or prompts to be sent to the `tokenizer_2` and `text_encoder_2`. If not defined, `prompt` is

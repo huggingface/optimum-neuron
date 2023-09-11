@@ -205,8 +205,12 @@ class NeuronDecoderModel(OptimizedModel):
             neuronx_model._load_compiled_artifacts(compiled_path)
 
         # Compile the Neuron model (if present compiled artifacts will be reloaded instead of compiled)
-        os.environ["NEURON_CC_FLAGS"] = "--model-type=transformer-inference"
+        neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
+        os.environ["NEURON_CC_FLAGS"] = (
+            neuron_cc_flags + " --model-type=transformer-inference --enable-experimental-O1"
+        )
         neuronx_model.to_neuron()
+        os.environ["NEURON_CC_FLAGS"] = neuron_cc_flags
 
         # Try to reload the generation config (if any)
         generation_config = None

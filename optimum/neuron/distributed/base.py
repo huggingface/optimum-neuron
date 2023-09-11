@@ -164,16 +164,35 @@ class Parallelizer(ABC):
                     split = name.rsplit(".", maxsplit=1)
                     module = model.get_submodule(split[0])
                     attribute_name = split[1]
+                    current_weight = getattr(module, attribute_name)
                     try:
                         weight_info = WeightInformation(weight_map[name], name, device=device)
-                        setattr(module, attribute_name, torch.nn.Parameter(load_tensor_for_weight(weight_info)))
+                        # The weight might have been parallelized, in which case we must load the proper slice.
+                        if getattr(current_weight, "tensor_model_parallel", False):
+                            num_dims = current_weight.dim()
+                            partition_dim = getattr(current_weight, "partition_dim")
+                            tp_rank = parallel_layers.parallel_state.get_tensor_model_parallel_rank()
+                            size_per_rank = current_weight.size(partition_dim)
+                            slices = [
+                                None
+                                if idx != partition_dim
+                                else (size_per_rank * tp_rank, size_per_rank * (tp_rank + 1))
+                                for idx in range(num_dims)
+                            ]
+                        else:
+                            slices = None
+                        setattr(
+                            module,
+                            attribute_name,
+                            torch.nn.Parameter(load_tensor_for_weight(weight_info, tensor_slices=slices)),
+                        )
                     except KeyError:
                         # This means that there is no information about where to find the weights for this parameter.
                         device = torch.device("cpu") if device is None else device
                         setattr(
                             module,
                             attribute_name,
-                            torch.nn.Parameter(torch.empty_like(getattr(module, attribute_name), device=device)),
+                            torch.nn.Parameter(torch.empty_like(current_weight, device=device)),
                         )
                         modules_to_initialize.append(module)
                 for mod in modules_to_initialize:
@@ -300,7 +319,7 @@ class Parallelizer(ABC):
     ):
         cls._check_model_was_parallelized(model)
         data_parallel_rank = parallel_layers.parallel_state.get_data_parallel_rank()
-        tensor_parallel_rank = parallel_layers.parallel_state.get_tensor_parallel_rank()
+        tensor_parallel_rank = parallel_layers.parallel_state.get_tensor_model_parallel_rank()
 
         if data_parallel_rank != 0:
             return

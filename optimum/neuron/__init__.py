@@ -62,9 +62,9 @@ if TYPE_CHECKING:
     from .modeling_base import NeuronBaseModel
     from .modeling_decoder import NeuronDecoderModel
     from .modeling_diffusion import (
+        NeuronStableDiffusionPipeline,
         NeuronStableDiffusionImg2ImgPipeline,
         NeuronStableDiffusionInpaintPipeline,
-        NeuronStableDiffusionPipeline,
         NeuronStableDiffusionXLPipeline,
     )
     from .pipelines import pipeline

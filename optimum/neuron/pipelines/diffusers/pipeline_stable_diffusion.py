@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 class StableDiffusionPipelineMixin(StableDiffusionPipeline):
-    # Adapted from https://github.com/huggingface/diffusers/blob/v0.20.2/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L253
+    # Adapted from https://github.com/huggingface/diffusers/blob/v0.18.2/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L302
     def encode_prompt(
         self,
         prompt: Union[str, List[str]],
@@ -208,6 +208,12 @@ class StableDiffusionPipelineMixin(StableDiffusionPipeline):
         # 0. Height and width to unet (static shapes)
         height = self.unet.config.neuron["static_height"] * self.vae_scale_factor
         width = self.unet.config.neuron["static_width"] * self.vae_scale_factor
+        if self.num_images_per_prompt != num_images_per_prompt and not self.dynamic_batch_size:
+            logger.warning(
+                f"Overriding `num_images_per_prompt({num_images_per_prompt})` to {self.num_images_per_prompt} used for the compilation. Please recompile the models with your "
+                f"custom `num_images_per_prompt` or turn on `dynamic_batch_size`, if you wish generating {num_images_per_prompt} per prompt."
+            )
+            num_images_per_prompt = self.num_images_per_prompt
 
         # 1. Check inputs. Raise error if not correct
         if self.num_images_per_prompt != num_images_per_prompt and not self.dynamic_batch_size:

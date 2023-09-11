@@ -17,8 +17,31 @@ DEFAULT_CLONE_URL := https://github.com/huggingface/optimum-neuron.git
 # If CLONE_URL is empty, revert to DEFAULT_CLONE_URL
 REAL_CLONE_URL = $(if $(CLONE_URL),$(CLONE_URL),$(DEFAULT_CLONE_URL))
 
+.PHONY:	build_dist style style_check clean
 
-.PHONY:	style test
+clean:
+	rm -rf dist
+
+rwildcard=$(wildcard $1) $(foreach d,$1,$(call rwildcard,$(addsuffix /$(notdir $d),$(wildcard $(dir $d)*))))
+
+VERSION := $(shell python -W ignore -c "from optimum.neuron.version import __version__; print(__version__)")
+
+PACKAGE_DIST = dist/optimum-neuron-$(VERSION).tar.gz
+PACKAGE_WHEEL = dist/optimum_neuron-$(VERSION)-py3-none-any.whl
+PACKAGE_PYTHON_FILES = $(call rwildcard, optimum/*.py)
+PACKAGE_FILES = $(PACKAGE_PYTHON_FILES)  \
+				setup.py \
+				setup.cfg \
+				pyproject.toml \
+				README.md \
+				MANIFEST.in
+
+# Package build recipe
+$(PACKAGE_DIST) $(PACKAGE_WHEEL): $(PACKAGE_FILES)
+	python -m build
+
+neuronx-tgi: $(PACKAGE_DIST)
+	docker build --rm -f text-generation-inference/Dockerfile --build-arg VERSION=$(VERSION) -t neuronx-tgi:$(VERSION) .
 
 # Creates example scripts from Transformers
 transformers_examples:
@@ -39,13 +62,10 @@ build_dist_install_tools:
 	python -m pip install build
 	python -m pip install twine
 
-build_dist:
-	rm -fr build
-	rm -fr dist
-	python -m build
+build_dist: ${PACKAGE_DIST} ${PACKAGE_WHEEL}
 
-pypi_upload: build_dist
-	python -m twine upload dist/*
+pypi_upload: ${PACKAGE_DIST} ${PACKAGE_WHEEL}
+	python -m twine upload ${PACKAGE_DIST} ${PACKAGE_WHEEL}
 
 test_installs:
 	python -m pip install .[tests]

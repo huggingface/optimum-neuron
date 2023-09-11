@@ -92,7 +92,7 @@ class NeuronStableDiffusionPipelineIntegrationTest(unittest.TestCase):
 class NeuronStableDiffusionXLPipelineIntegrationTest(unittest.TestCase):
     NEURON_MODEL_CLASS = NeuronStableDiffusionXLPipeline
     STATIC_INPUTS_SHAPES = {"batch_size": 1, "height": 64, "width": 64}
-    COMPILER_ARGS = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
+    COMPILER_ARGS = {"auto_cast": "all", "auto_cast_type": "bf16"}
     SUPPORTED_ARCHITECTURES = [
         "stable-diffusion-xl",
     ]
