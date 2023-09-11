@@ -18,20 +18,23 @@ from abc import ABC, abstractclassmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Optional, Tuple, Union
 
+import torch
+from torch.nn.modules.loss import _WeightedLoss
+
 from ...utils import NormalizedConfigManager, logging
-from ..utils import patch_within_function
-from ..utils.require_utils import requires_neuronx_distributed
+from ..utils import patch_everywhere, patch_within_function
+from ..utils.require_utils import requires_neuronx_distributed, requires_torch_neuronx
 from .utils import (
     GroupedQueryAttentionInfo,
     WeightInformation,
     embedding_to_parallel_embedding,
     gqa_key_value_slicing_when_tp_size_greater_than_num_key_value_heads,
     linear_to_parallel_linear,
+    tensor_is_parallel,
 )
 
 
 if TYPE_CHECKING:
-    import torch
     from transformers import PreTrainedModel
 
 
@@ -113,12 +116,16 @@ class ParallelEmbedding(ParallelLayer):
     Attributes:
         EMBEDDING_NAME (`str`, defaults to `"embedding"`):
             The qualified name of the embedding layer.
+        VOCAB_SIZE_NAME (`Optional[str]`, defaults to `"config.vocab_size"`):
+            The name of the attribute holding the value of the vocabulary size.
+            If specified, it will overwrite the value to account for embedding parallelization.
         LM_HEAD_NAME (`Optional[Union[str, Dict[str, str]]]`, defaults to `None`):
             The qualified name of the LM head tied to the embedding layer (if any). It can be also a dictionary mapping
             a class name to LM head qualified name.
     """
 
-    EMBEDDING_NAME: str = "embedding"
+    EMBEDDING_NAME: str
+    VOCAB_SIZE_NAME: Optional[str] = "config.vocab_size"
     LM_HEAD_NAME: Optional[Union[str, Dict[str, str]]] = None
 
     @classmethod
@@ -207,6 +214,16 @@ class ParallelEmbedding(ParallelLayer):
             setattr(parent_lm_head_module, parent_lm_head_attribute_name, parallel_layers[1])
         else:
             setattr(parent_embedding_module, embedding_attribute_name, parallel_layers)
+
+        if cls.VOCAB_SIZE_NAME is not None:
+            attribute_names = cls.VOCAB_SIZE_NAME.split(".")
+            obj = layer
+            for name in attribute_names[:-1]:
+                obj = getattr(obj, name)
+            vocab_size_attribute_name = attribute_names[-1]
+            new_vocab_size = getattr(obj, vocab_size_attribute_name) // tp_size
+            setattr(obj, vocab_size_attribute_name, new_vocab_size)
+
         return layer
 
 
@@ -531,27 +548,20 @@ class ParallelMLP(ParallelLayer):
 
 @requires_neuronx_distributed
 def safe_parallel_cross_entropy(*args, **kwargs):
-    # torch.nn.functional.cross_entropy(input, target, weight=None, size_average=None, ignore_index=- 100, reduce=None, reduction='mean', label_smoothing=0.0
-    # def parallel_cross_entropy(vocab_parallel_logits, target, label_smoothing=0.0):
-    if kwargs.get("weight", None) is not None:
+    if kwargs.pop("weight", None) is not None:
         raise ValueError("The weight keyword argument is not supported when using parallel cross entropy")
-    if kwargs.get("size_average", None) is not None:
+    if kwargs.pop("size_average", None) is not None:
         raise ValueError("The size_average keyword argument is not supported when using parallel cross entropy")
-    if kwargs.get("ignore_index", -100) != -100:
+    if kwargs.pop("ignore_index", -100) != -100:
         raise ValueError("The ignore_index keyword argument is not supported when using parallel cross entropy")
-    if kwargs.get("reduce", None) is not None:
+    if kwargs.pop("reduce", None) is not None:
         raise ValueError("The reduce keyword argument is not supported when using parallel cross entropy")
-    if kwargs.get("reduction", "mean") != "mean":
+    if kwargs.pop("reduction", "mean") != "mean":
         raise ValueError("The reduction keyword argument is not supported when using parallel cross entropy")
     from neuronx_distributed.parallel_layers.loss_functions import parallel_cross_entropy
 
-    assert 3 == 2
     loss = parallel_cross_entropy(*args, **kwargs)
     return loss.mean()
-
-
-import torch
-from torch.nn.modules.loss import _WeightedLoss
 
 
 class ParallelCrossEntropyLoss(_WeightedLoss):
@@ -568,19 +578,26 @@ class ParallelCrossEntropyLoss(_WeightedLoss):
         reduction: str = "mean",
         label_smoothing: float = 0.0,
     ) -> None:
-        super(ParallelCrossEntropy, self).__init__(weight, size_average, reduce, reduction)
+        super().__init__(weight, size_average, reduce, reduction)
         self.ignore_index = ignore_index
         self.label_smoothing = label_smoothing
 
+    @requires_torch_neuronx
     def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        return safe_parallel_cross_entropy(
-            input,
-            target,
-            weight=self.weight,
-            ignore_index=self.ignore_index,
-            reduction=self.reduction,
-            label_smoothing=self.label_smoothing,
-        )
+        if tensor_is_parallel(input):
+            output = safe_parallel_cross_entropy(
+                input,
+                target,
+                weight=self.weight,
+                ignore_index=self.ignore_index,
+                reduction=self.reduction,
+                label_smoothing=self.label_smoothing,
+            )
+        else:
+            from torch_neuronx.xla_impl.ops import SimpleCrossEntropyLoss
+
+            output = SimpleCrossEntropyLoss.gen_override().forward(self, input, target)
+        return output
 
 
 class ParallelCrossEntropy(ParallelLayer):
@@ -594,13 +611,13 @@ class ParallelCrossEntropy(ParallelLayer):
         return getattr(model.config, "problem_type", "") not in ["regression", "multi_label_classification"]
 
     @classmethod
-    def patch_cross_entropy_in_model(cls, model: "PreTrainedModel"):
+    def patch_cross_entropy(cls, model: "PreTrainedModel"):
+        patch_everywhere("CrossEntropyLoss", ParallelCrossEntropyLoss)
         orig_forward = model.forward
         patcher = patch_within_function(
             [
                 ("torch.nn.functional.cross_entropy", safe_parallel_cross_entropy),
                 ("torch.nn.modules.loss.F.cross_entropy", safe_parallel_cross_entropy),
-                ("torch.nn.modules.loss.CrossEntropyLoss", ParallelCrossEntropyLoss),
             ]
         )
         model.forward = patcher(orig_forward).__get__(model)
@@ -634,9 +651,12 @@ class ParallelCrossEntropy(ParallelLayer):
         )
         linear_projection = getattr(linear_projection_parent, linear_projection_attr_name)
 
+        # If the layer was already parallelized, which is the case most of the time with tied embeddings and LM heads
+        # because it is handled in ParallelEmbedding, we only patch the cross entropy loss object.
         if isinstance(linear_projection, parallel_layers.ColumnParallelLinear):
-            model = cls.patch_cross_entropy_in_model(model)
+            cls.patch_cross_entropy(model)
             return layer
+
         if isinstance(linear_projection, parallel_layers.RowParallelLinear):
             raise ValueError(
                 "Cannot parallelize the cross entropy loss if the last linear projection is a RowParallelLinear "
@@ -662,6 +682,6 @@ class ParallelCrossEntropy(ParallelLayer):
         )
         setattr(linear_projection_parent, linear_projection_attr_name, parallel_linear_projection)
 
-        model = cls.patch_cross_entropy_in_model(model)
+        cls.patch_cross_entropy(model)
 
         return layer

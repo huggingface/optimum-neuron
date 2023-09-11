@@ -61,3 +61,7 @@ def is_accelerate_available(min_version: Optional[str] = MIN_ACCELERATE_VERSION)
         else:
             return False
     return _accelerate_available
+
+
+def is_torch_neuronx_available() -> bool:
+    return importlib.util.find_spec("torch_neuronx") is not None

@@ -36,9 +36,6 @@ else:
     ZeroRedundancyOptimizer = object
 
 
-if is_neuronx_distributed_available():
-    from neuronx_distributed.parallel_layers import layers
-
 TENSOR_PARALLEL_SHARDS_DIR_NAME = "tensor_parallel_shards"
 
 
@@ -129,6 +126,30 @@ def _validate_weight_info_device_matches_specified_device(device: "torch.device"
         )
 
 
+if is_neuronx_distributed_available():
+    from neuronx_distributed.parallel_layers import layers
+
+    class ColumnParallelLinear(layers.ColumnParallelLinear):
+        """
+        Same as `neuronx_distributed.parallel_layers.layers.ColumnParallelLinear` but marks output as parallel.
+        """
+
+        def forward(self, input: "torch.Tensor") -> "torch.Tensor":
+            output = super().forward(input)
+            output.is_parallel = not self.gather_output
+            return output
+
+else:
+    ColumnParallelLinear = None
+
+
+def tensor_is_parallel(x: "torch.Tensor") -> bool:
+    """
+    Returns `True` if the tensor is the output of a `ColumnParallelLinear` layer and `False` otherwise.
+    """
+    return getattr(x, "is_parallel", False)
+
+
 @requires_neuronx_distributed
 def embedding_to_parallel_embedding(
     embedding_layer: "torch.nn.Embedding",
@@ -163,7 +184,7 @@ def embedding_to_parallel_embedding(
             The device where the new parallel layer should be put.
 
     Returns:
-        `Union[ParallelEmbedding, Tuple[ParallelEmbedding", ColumnParallelLinear]]`: The parallel embedding and the
+        `Union[ParallelEmbedding, Tuple[ParallelEmbedding", layers.ColumnParallelLinear]]`: The parallel embedding and the
         parallel linear projection if specified.
     """
     from neuronx_distributed.parallel_layers import layers
@@ -289,7 +310,7 @@ def linear_to_parallel_linear(
         parallel_linear_class = layers.RowParallelLinear
         kwargs["input_is_parallel"] = input_is_parallel
     else:
-        parallel_linear_class = layers.ColumnParallelLinear
+        parallel_linear_class = ColumnParallelLinear
         kwargs["gather_output"] = gather_output
 
     kwargs["dtype"] = linear_layer.weight.dtype
