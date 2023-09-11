@@ -437,8 +437,6 @@ def export_neuronx(
         compiler_args.extend(["--auto-cast-type", auto_cast_type])
     else:
         compiler_args = ["--auto-cast", "none"]
-    # WARNING: Enabled experimental parallel compilation
-    compiler_args.extend(["--enable-experimental-O1"])
 
     # WARNING: Enabled experimental parallel compilation
     compiler_args.extend(["--enable-experimental-O1"])
