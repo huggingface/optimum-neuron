@@ -207,7 +207,7 @@ class Slot:
         Return:
             `torch.LongTensor`: A scalar torch.LongTensor` containing the selected token.
         """
-        return self._selector.select(input_ids, logits)
+        return self._selector.select(input_ids, logits)[0]
 
     @property
     def stopped(self) -> bool:
