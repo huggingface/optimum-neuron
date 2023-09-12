@@ -97,7 +97,7 @@ xm.mark_step()
 if is_parallel and parallelize_embeddings:
     gathered_model_outputs =  dict()
     for name, output in model_outputs.items():
-        if name == "loss" or output is None: 
+        if name == "loss" or output is None or output.shape[-1] != (vocab_size // {tp_size}):
             gathered_model_outputs[name] = output
         else:
             gathered_model_outputs[name] = gather_along_last_dim(output)

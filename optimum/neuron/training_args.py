@@ -64,9 +64,6 @@ class NeuronTrainingArgumentsMixin:
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
         patch_accelerate_is_tpu_available()
 
-        # if not self.disable_embedding_parallelization:
-        #     raise NotImplementedError("Disabling the parallelization of the embeddings is not fully supported yet.")
-
         if self.fsdp != "":
             # Disabling FSDP until next release because it is still very experimental and not validated.
             raise RuntimeError("FSDP is not supported yet.")
