@@ -1,4 +1,5 @@
 import copy
+import logging
 from abc import ABC
 from enum import Enum
 from typing import List, Optional, Tuple
@@ -21,6 +22,11 @@ from .pb.generate_pb2 import (
     InfoResponse,
     Request,
 )
+
+
+# Disable optimum-neuron warnings as it seems to block the server after a while
+optimum_logger = logging.getLogger("optimum.neuron")
+optimum_logger.setLevel("CRITICAL")
 
 
 class Generator(ABC):
