@@ -47,7 +47,7 @@ EXTRAS_REQUIRE = {
         "wheel",
         "torch-neuron==1.13.1.*",
         "torch==1.13.1.*",
-        "neuron-cc[tensorflow]==1.15.*",
+        "neuron-cc[tensorflow]==1.18.*",
         "protobuf",
         "torchvision",
     ],
