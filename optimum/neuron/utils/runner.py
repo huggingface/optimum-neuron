@@ -155,7 +155,12 @@ class ExampleRunner:
     }
 
     def __init__(
-        self, model_name_or_path: str, task: str, example_dir: Optional[Union[str, Path]] = None, use_venv: bool = True
+        self,
+        model_name_or_path: str,
+        task: str,
+        example_dir: Optional[Union[str, Path]] = None,
+        use_venv: bool = True,
+        install_requirements: bool = True,
     ):
         self.model_name_or_path = model_name_or_path
 
@@ -177,6 +182,7 @@ class ExampleRunner:
                 self.example_dir = example_dir
 
         self.use_venv = use_venv
+        self.should_install_requirements = install_requirements
         self.venv_dir = TemporaryDirectory()
         self.python_name = "python"
         self.pip_name = "pip"
@@ -312,6 +318,11 @@ class ExampleRunner:
         logging_steps: int = 1,
         save_steps: int = -1,
         learning_rate: float = 1e-4,
+        tensor_parallel_size: int = 1,
+        disable_embedding_parallelization: bool = False,
+        zero_1: bool = False,
+        do_precompilation: bool = True,
+        output_dir: Optional[Union[Path, str]] = None,
     ) -> Tuple[int, str, str]:
         if num_cores <= 0 or num_cores > 32:
             raise ValueError("The number of Neuron cores to use must be between 1 and 32.")
@@ -338,7 +349,8 @@ class ExampleRunner:
                 script_path = candidates[0]
 
         # Installing requirements if needed.
-        self.install_requirements(script_path.parent / "requirements.txt")
+        if self.should_install_requirements:
+            self.install_requirements(script_path.parent / "requirements.txt")
 
         cmd = []
 
@@ -348,8 +360,10 @@ class ExampleRunner:
 
         # Training steps and batch sizes.
         cmd.append(f"--num_train_epochs {num_epochs}")
+        max_steps_idx = -1
         if max_steps is not None:
             cmd.append(f"--max_steps {max_steps}")
+            max_steps_idx = len(cmd) - 1
         cmd.append("--do_train")
         if do_eval:
             cmd.append("--do_eval")
@@ -368,6 +382,14 @@ class ExampleRunner:
         cmd.append("--save_strategy steps")
         cmd.append(f"--save_steps {save_steps}")
         cmd.append("--save_total_limit 1")
+
+        # Parallelism
+        if tensor_parallel_size > 1:
+            cmd.append(f"--tensor_parallel_size {tensor_parallel_size}")
+        if disable_embedding_parallelization:
+            cmd.append("--disable_embedding_parallelization")
+        if zero_1:
+            cmd.append("--zero_1")
 
         if precision is Precision.bf16:
             cmd.append("--bf16")
@@ -400,9 +422,31 @@ class ExampleRunner:
             return [x for y in cmd for x in re.split(pattern, y) if x]
 
         with TemporaryDirectory() as tmpdirname:
-            cmd.append(f"--output_dir {tmpdirname}")
+            if output_dir is None:
+                cmd.append(f"--output_dir {tmpdirname}")
+            else:
+                cmd.append(f"--output_dir {output_dir}")
 
             cmd = split_args_and_value_in_command(cmd)
+
+            if do_precompilation:
+                # We need to update both the number of steps and the output directory specifically for the 
+                # precompilation step.
+                with TemporaryDirectory() as precompilation_tmpdirname:
+                    precompilation_cmd = list(cmd)
+                    max_steps_cmd_str = "--max_steps 10"
+                    if max_steps_idx >= 0:
+                        precompilation_cmd[max_steps_idx] = max_steps_cmd_str
+                    else:
+                        precompilation_cmd.append(max_steps_cmd_str)
+                    precompilation_cmd[-1] = f"--output_dir {precompilation_tmpdirname}"
+                    
+                    precompilation_cmd = ["neuron_parallel_compile"] + precompilation_cmd
+
+                    print(f"RUNNING PRECOMPILATION COMMAND:\n{' '.join(precompilation_cmd)}")
+
+                    proc = subprocess.Popen(precompilation_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    stdout, stderr = proc.communicate()
 
             print(f"RUNNING COMMAND:\n{' '.join(cmd)}")
 

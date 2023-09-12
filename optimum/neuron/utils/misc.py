@@ -150,7 +150,7 @@ def convert_checkpoint_to_safetensors(
     if not already_exists and (not is_distributed or is_main_process):
         if log:
             logger.info(f"Converting {weight_file} to safetensors")
-        checkpoint = torch.load(weight_file)
+        checkpoint = torch.load(weight_file, map_location=torch.device("cpu"))
         data_pointers = set()
         for k, v in checkpoint.items():
             if v.data_ptr() in data_pointers:
