@@ -13,7 +13,7 @@ from transformers import AutoConfig, AutoTokenizer, {model_class}
 from transformers.trainer_utils import set_seed
 from optimum.neuron.distributed import ParallelizersManager, lazy_load_for_parallelism
 
-from utils import generate_dummy_labels
+from utils import gather_along_last_dim, generate_dummy_labels
 
 
 if os.environ.get("TORCHELASTIC_RUN_ID"):
@@ -65,6 +65,8 @@ def load_model_with_seed(seed: int, from_config: bool):
 model = load_model_with_seed(SEED, from_config)
 model = model.eval()
 
+vocab_size = getattr(model.config, "vocab_size", None)
+
 if is_parallel:
   model = ParallelizersManager.parallelizer_for_model(model).parallelize(model, parallelize_embeddings=parallelize_embeddings)
   parallel_layers.move_model_to_device(model, "xla")
@@ -87,22 +89,18 @@ for k, v in inputs.items():
 # Might not work for every tasks.
 shape = list(xla_inputs.values())[0].shape
 
-xla_inputs.update(generate_dummy_labels(model, shape, device="xla"))
+xla_inputs.update(generate_dummy_labels(model, shape, vocab_size=vocab_size, device="xla"))
 
 model_outputs = model(**xla_inputs, return_dict=True)
 xm.mark_step()
 
 if is_parallel and parallelize_embeddings:
     gathered_model_outputs =  dict()
-    from neuronx_distributed.parallel_layers.mappings import _gather_along_last_dim
-    from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_group
     for name, output in model_outputs.items():
-        if name == "loss": 
-            continue
-        # gathered_model_outputs[name] = _gather_along_last_dim(model_outputs[name])
-        gathered_model_outputs[name] = xm.all_gather(output, dim=-1, groups=get_tensor_model_parallel_group(as_list=True), pin_layout=False)
+        if name == "loss" or output is None: 
+            gathered_model_outputs[name] = output
+        else:
+            gathered_model_outputs[name] = gather_along_last_dim(output)
     model_outputs = gathered_model_outputs
-
-xm.mark_step()
 
 xm.save(model_outputs, "{output_path}" + "/" + filename)

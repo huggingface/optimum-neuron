@@ -30,7 +30,6 @@ from .utils import (
     embedding_to_parallel_embedding,
     gqa_key_value_slicing_when_tp_size_greater_than_num_key_value_heads,
     linear_to_parallel_linear,
-    tensor_is_parallel,
 )
 
 
@@ -584,7 +583,8 @@ class ParallelCrossEntropyLoss(_WeightedLoss):
 
     @requires_torch_neuronx
     def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        if tensor_is_parallel(input):
+        # TODO: find a solution to check wheter an input is parallelized or not.
+        if True:  # tensor_is_parallel(input):
             output = safe_parallel_cross_entropy(
                 input,
                 target,

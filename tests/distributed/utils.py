@@ -36,6 +36,8 @@ from transformers.models.auto.modeling_auto import (
     MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING_NAMES,
 )
 
+from optimum.neuron.utils.require_utils import requires_neuronx_distributed, requires_torch_xla
+
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
@@ -44,6 +46,7 @@ if TYPE_CHECKING:
 def generate_dummy_labels(
     model: "PreTrainedModel",
     shape: List[int],
+    vocab_size: Optional[int] = None,
     device: Optional[torch.device] = None,
 ) -> Dict[str, torch.Tensor]:
     """Generates dummy labels."""
@@ -103,9 +106,49 @@ def generate_dummy_labels(
         "PeftModelForCausalLM",
         "PeftModelForSeq2SeqLM",
     ]:
-        labels["labels"] = torch.zeros(shape, dtype=torch.long, device=device)
+        if vocab_size is None:
+            raise ValueError(
+                "The vocabulary size needs to be specified to generte dummy labels for language-modeling tasks."
+            )
+        labels["labels"] = torch.randint(0, vocab_size, shape, dtype=torch.long, device=device)
     elif model_class_name in [*get_values(MODEL_FOR_CTC_MAPPING_NAMES)]:
         labels["labels"] = torch.zeros(shape, dtype=torch.float32, device=device)
     else:
         raise NotImplementedError(f"Generating the dummy input named for {model_class_name} is not supported yet.")
     return labels
+
+
+@requires_torch_xla
+@requires_neuronx_distributed
+def gather_along_last_dim(input_: torch.Tensor) -> torch.Tensor:
+    import torch_xla.core.xla_model as xm
+    from neuronx_distributed.parallel_layers.parallel_state import (
+        get_tensor_model_parallel_group,
+        get_tensor_model_parallel_rank,
+        get_tensor_model_parallel_size,
+    )
+
+    """Gathers tensors and concatenate along the last dimension."""
+
+    world_size = get_tensor_model_parallel_size()
+    # Bypass the function if we are using only 1 device.
+    if world_size == 1:
+        return input_
+
+    # Size and dimension.
+    last_dim = input_.dim() - 1
+    rank = get_tensor_model_parallel_rank()
+
+    tensor_list = [torch.empty_like(input_) for _ in range(world_size)]
+    tensor_list[rank] = input_
+    torch.distributed.all_gather(tensor_list, input_, group=get_tensor_model_parallel_group())
+
+    # Compilation fails when not synchronizing here.
+    xm.mark_step()
+
+    # Note: torch.cat already creates a contiguous tensor.
+    output = torch.cat(tensor_list, dim=last_dim).contiguous()
+
+    xm.mark_step()
+
+    return output

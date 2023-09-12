@@ -251,9 +251,8 @@ class ModelParallelizationTestCase(unittest.TestCase):
             for name, t in parallel_model_outputs.items():
                 if not isinstance(t, torch.Tensor):
                     continue
-                if name == "loss":
-                    continue
                 print(f"Testing that {name} match.")
+                print(t, original_model_outputs[name])
                 torch.testing.assert_close(t, original_model_outputs[name])
                 print("Ok!")
 
