@@ -16,6 +16,7 @@
 
 import json
 import os
+import re
 import sys
 from enum import Enum
 from pathlib import Path
@@ -295,6 +296,24 @@ class ExampleTestMeta(type):
             return attribute.get(model_type, attribute["default"])
         return attribute
 
+    @staticmethod
+    def parse_loss_from_log(log: str) -> List[float]:
+        pattern = re.compile(r"{'loss': ([0-9]+\.[0-9]+),.*?}")
+        losses = []
+        for match_ in re.finditer(pattern, log):
+            losses.append(float(match_.group(1)))
+        return losses
+
+    @staticmethod
+    def check_that_loss_is_decreasing(losses: List[float], steps: int) -> bool:
+        mean_losses = []
+        num_mean_losses = len(losses) // steps
+        for i in range(num_mean_losses):
+            mean = sum(losses[i * steps : (i + 1) * steps]) / steps
+            mean_losses.append(mean)
+
+        return mean_losses == sorted(mean_losses, reverse=True)
+
     @classmethod
     def _create_test(
         cls,
@@ -334,7 +353,7 @@ class ExampleTestMeta(type):
             )
 
             with TemporaryDirectory() as tmpdirname:
-                returncode, _, _ = runner.run(
+                returncode, stdout, stderr = runner.run(
                     self.NUM_CORES,
                     "bf16",
                     train_batch_size,
@@ -357,10 +376,13 @@ class ExampleTestMeta(type):
                 )
                 assert returncode == 0
 
-                with open(Path(tmpdirname) / "all_results.json") as fp:
-                    results = json.load(fp)
+                if self.CHECK_THAT_LOSS_IS_DECREASING:
+                    losses = ExampleTestMeta.parse_loss_from_log(stdout)
+                    assert ExampleTestMeta.check_that_loss_is_decreasing(losses, 20)
 
                 if self.DO_EVAL:
+                    with open(Path(tmpdirname) / "all_results.json") as fp:
+                        results = json.load(fp)
                     eval_score_threshold = (
                         self.EVAL_SCORE_THRESHOLD if not RUN_TINY else self.EVAL_SCORE_THRESHOLD_FOR_TINY
                     )
@@ -370,11 +392,11 @@ class ExampleTestMeta(type):
                     else:
                         self.assertLessEqual(float(results[self.SCORE_NAME]), eval_score_threshold)
 
-                train_loss_threshold = (
-                    self.TRAIN_LOSS_THRESHOLD if not RUN_TINY else self.TRAIN_LOSS_THRESHOLD_FOR_TINY
-                )
-                train_loss_threshold = ExampleTestMeta.process_class_attribute(train_loss_threshold, model_type)
-                self.assertLessEqual(float(results["train_loss"]), train_loss_threshold)
+                # train_loss_threshold = (
+                #     self.TRAIN_LOSS_THRESHOLD if not RUN_TINY else self.TRAIN_LOSS_THRESHOLD_FOR_TINY
+                # )
+                # train_loss_threshold = ExampleTestMeta.process_class_attribute(train_loss_threshold, model_type)
+                # self.assertLessEqual(float(results["train_loss"]), train_loss_threshold)
 
         return test
 
@@ -402,6 +424,7 @@ class ExampleTesterBase(TestCase):
 
     TRAIN_LOSS_THRESHOLD: float
     TRAIN_LOSS_THRESHOLD_FOR_TINY: float
+    CHECK_THAT_LOSS_IS_DECREASING: bool = True
 
     # Camembert is pretrained on French.
     DO_EVAL: bool
