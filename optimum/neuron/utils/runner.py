@@ -136,7 +136,6 @@ class ExampleRunner:
             "set_max_target_length": True,
             "extra_command_line_arguments": [
                 "--pad_to_max_length",
-                "--pad_to_max_length",
                 "--prediction_loss_only",
                 {"t5": "--source_prefix 'summarize: '"},
             ],
