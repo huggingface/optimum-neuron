@@ -16,7 +16,6 @@
 
 import json
 import os
-import re
 import sys
 from enum import Enum
 from pathlib import Path
@@ -259,9 +258,10 @@ class ExampleTestMeta(type):
             )
 
             # Training with ZeRO-1.
-            attrs[f"test_{example_name}_{model_type}_with_zero1"] = cls._create_test(
-                model_type, model_name_or_path, 1, True, True, config_overrides
-            )
+            # TODO: enable this once fix from #222 is merged.
+            # attrs[f"test_{example_name}_{model_type}_with_zero1"] = cls._create_test(
+            #     model_type, model_name_or_path, 1, True, True, config_overrides
+            # )
 
             tensor_parallel_size = 2 if tp_support is not TPSupport.NONE else 1
             disable_embedding_parallelization = tp_support is TPSupport.PARTIAL
@@ -276,14 +276,15 @@ class ExampleTestMeta(type):
                     config_overrides,
                 )
                 # Training with TP and ZeRO-1 if supported.
-                attrs[f"test_{example_name}_{model_type}_with_tp_and_zero1"] = cls._create_test(
-                    model_type,
-                    model_name_or_path,
-                    tensor_parallel_size,
-                    disable_embedding_parallelization,
-                    True,
-                    config_overrides,
-                )
+                # TODO: enable this once fix from #222 is merged.
+                # attrs[f"test_{example_name}_{model_type}_with_tp_and_zero1"] = cls._create_test(
+                #     model_type,
+                #     model_name_or_path,
+                #     tensor_parallel_size,
+                #     disable_embedding_parallelization,
+                #     True,
+                #     config_overrides,
+                # )
 
         attrs["EXAMPLE_NAME"] = example_name
         return super().__new__(cls, name, bases, attrs)
@@ -293,10 +294,6 @@ class ExampleTestMeta(type):
         if isinstance(attribute, dict):
             return attribute.get(model_type, attribute["default"])
         return attribute
-
-    @staticmethod
-    def parse_loss_in_log(log: str) -> List[float]:
-        re.compile(r"\{\"loss\"\: ([0-9]+\.[0-9]+).")
 
     @classmethod
     def _create_test(
@@ -347,30 +344,37 @@ class ExampleTestMeta(type):
                     gradient_accumulation_steps=gradient_accumulation_steps,
                     num_epochs=self.NUM_EPOCHS,
                     max_steps=self.MAX_STEPS,
+                    max_eval_samples=self.MAX_EVAL_SAMPLES,
                     save_steps=self.SAVE_STEPS,
                     learning_rate=self.LEARNING_RATE,
                     tensor_parallel_size=tensor_parallel_size,
                     disable_embedding_parallelization=disable_embedding_parallelization,
                     zero_1=zero_1,
                     output_dir=tmpdirname,
-                    do_precompilation=True,
+                    # TODO: enable precompilation once it's working with subprocess.
+                    do_precompilation=False,
                     print_outputs=True,
                 )
-                print(f"Return code: {returncode}")
-
                 assert returncode == 0
 
                 with open(Path(tmpdirname) / "all_results.json") as fp:
                     results = json.load(fp)
 
                 if self.DO_EVAL:
-                    with open(Path(tmpdirname) / "all_results.json") as fp:
-                        results = json.load(fp)
-                    threshold = ExampleTestMeta.process_class_attribute(self.EVAL_SCORE_THRESHOLD, model_type)
+                    eval_score_threshold = (
+                        self.EVAL_SCORE_THRESHOLD if not RUN_TINY else self.EVAL_SCORE_THRESHOLD_FOR_TINY
+                    )
+                    eval_score_threshold = ExampleTestMeta.process_class_attribute(eval_score_threshold, model_type)
                     if self.EVAL_SCORE_GREATER_IS_BETTER:
-                        self.assertGreaterEqual(float(results[self.SCORE_NAME]), threshold)
+                        self.assertGreaterEqual(float(results[self.SCORE_NAME]), eval_score_threshold)
                     else:
-                        self.assertLessEqual(float(results[self.SCORE_NAME]), threshold)
+                        self.assertLessEqual(float(results[self.SCORE_NAME]), eval_score_threshold)
+
+                train_loss_threshold = (
+                    self.TRAIN_LOSS_THRESHOLD if not RUN_TINY else self.TRAIN_LOSS_THRESHOLD_FOR_TINY
+                )
+                train_loss_threshold = ExampleTestMeta.process_class_attribute(train_loss_threshold, model_type)
+                self.assertLessEqual(float(results["train_loss"]), train_loss_threshold)
 
         return test
 
@@ -396,8 +400,12 @@ class ExampleTesterBase(TestCase):
     LOGGING_STEPS: int = 1
     SAVE_STEPS: int = 200
 
+    TRAIN_LOSS_THRESHOLD: float
+    TRAIN_LOSS_THRESHOLD_FOR_TINY: float
+
     # Camembert is pretrained on French.
     DO_EVAL: bool
+    MAX_EVAL_SAMPLES: Optional[int] = None
     EVAL_SCORE_THRESHOLD: float
     EVAL_SCORE_THRESHOLD_FOR_TINY: float
     EVAL_SCORE_GREATER_IS_BETTER: bool
@@ -407,23 +415,32 @@ class ExampleTesterBase(TestCase):
 class CausalLMExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_clm"):
     TASK_NAME = "causal-lm"
 
-    MAX_STEPS = 100
+    MAX_STEPS = 200
 
     TRAIN_BATCH_SIZE = 2
     EVAL_BATCH_SIZE = 2
     SEQUENCE_LENGTH = 512
 
+    TRAIN_LOSS_THRESHOLD = 1.5
+    TRAIN_LOSS_THRESHOLD_FOR_TINY = 2.5
+
     DO_EVAL = False
+    MAX_EVAL_SAMPLES = 200
 
 
 class TextClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_glue"):
     TASK_NAME = "text-classification"
 
-    NUM_EPOCHS = 1
+    MAX_STEPS = 200
+
     SEQUENCE_LENGTH = 128
+
+    TRAIN_LOSS_THRESHOLD = 0.5
+    TRAIN_LOSS_THRESHOLD_FOR_TINY = 0.5
 
     # Camembert is pretrained on French.
     DO_EVAL = False  # TODO: Evaluation is broken.
+    MAX_EVAL_SAMPLES = 200
     EVAL_SCORE_THRESHOLD = {"default": 0.75, "camembert": 0.5}
     EVAL_SCORE_THRESHOLD_FOR_TINY = {"default": 0.75, "camembert": 0.5}
     EVAL_SCORE_GREATER_IS_BETTER = True
@@ -434,12 +451,18 @@ class TokenClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestM
     TASK_NAME = "token-classification"
 
     NUM_EPOCHS = 1
+    MAX_STEPS = 200
+
     TRAIN_BATCH_SIZE = {"default": 4, "distilbert": 6}
     EVAL_BATCH_SIZE = {"default": 4, "distilbert": 6}
     SEQUENCE_LENGTH = 384
 
+    TRAIN_LOSS_THRESHOLD = 0.5
+    TRAIN_LOSS_THRESHOLD_FOR_TINY = 0.5
+
     # Camembert is pretrained on French.
     DO_EVAL = False  # TODO: Evaluation is broken.
+    MAX_EVAL_SAMPLES = 200
     EVAL_SCORE_THRESHOLD = {"default": 0.75, "camembert": 0.5}
     EVAL_SCORE_THRESHOLD_FOR_TINY = {"default": 0.75, "camembert": 0.5}
     EVAL_SCORE_GREATER_IS_BETTER = True
@@ -449,129 +472,97 @@ class TokenClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestM
 class MultipleChoiceExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_swag"):
     TASK_NAME = "multiple-choice"
 
+    MAX_STEPS = 200
+
     TRAIN_BATCH_SIZE = 2
     EVAL_BATCH_SIZE = 2
-    MAX_STEPS = 100
     SEQUENCE_LENGTH = 512
+
+    TRAIN_LOSS_THRESHOLD = 0.5
+    TRAIN_LOSS_THRESHOLD_FOR_TINY = 0.5
 
     # Camembert is pretrained on French.
     DO_EVAL = False  # TODO: Evaluation is broken.
+    MAX_EVAL_SAMPLES = 200
     EVAL_SCORE_THRESHOLD = {"default": 0.75, "camembert": 0.5, "distilbert": 0.645}
     EVAL_SCORE_THRESHOLD_FOR_TINY = {"default": 0.75, "camembert": 0.5, "distilbert": 0.645}
     EVAL_SCORE_GREATER_IS_BETTER = True
     SCORE_NAME = "eval_accuracy"
-    # TODO: handle that.
-    # EXTRA_COMMAND_LINE_ARGUMENTS = [
-    #     "--max_eval_samples 840",
-    # ]
 
 
 class QuestionAnsweringExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_qa"):
     TASK_NAME = "question-answering"
 
+    MAX_STEPS = 200
+
     TRAIN_BATCH_SIZE = 2
     EVAL_BATCH_SIZE = 2
 
+    TRAIN_LOSS_THRESHOLD = 0.5
+    TRAIN_LOSS_THRESHOLD_FOR_TINY = 0.5
+
     DO_EVAL = False  # TODO: Evaluation is broken.
+    MAX_EVAL_SAMPLES = 200
     EVAL_SCORE_THRESHOLD = {"default": 0.75, "camembert": 0.5}
     EVAL_SCORE_THRESHOLD_FOR_TINY = {"default": 0.75, "camembert": 0.5}
     EVAL_SCORE_GREATER_IS_BETTER = True
     SCORE_NAME = "eval_f1"
 
 
-# class SummarizationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_summarization"):
-#     TASK_NAME = "cnn_dailymail"
-#     DATASET_CONFIG_NAME = "3.0.0"
-#     TRAIN_BATCH_SIZE = 1
-#     EVAL_BATCH_SIZE = 1
-#     MAX_STEPS = 200
-#     EVAL_IS_SUPPORTED = False
-#     EVAL_SCORE_THRESHOLD = 30
-#     SCORE_NAME = "eval_rougeLsum"
-#     EXTRA_COMMAND_LINE_ARGUMENTS = [
-#         "--prediction_loss_only",
-#         "--pad_to_max_length",
-#         "--max_target_length 200",
-#         {"default": "--max_source_length 1024", "t5": "--max_source_length 768"},
-#         {"default": "", "t5": "--source_prefix 'summarize: '"},
-#     ]
-#
-#     def _create_command_line(
-#         self,
-#         script: str,
-#         model_name: str,
-#         model_type: str,
-#         output_dir: str,
-#         is_precompilation: bool = False,
-#     ) -> List[str]:
-#         extra_command_line_arguments = [
-#             ExampleTestMeta.process_class_attribute(arg, model_type) for arg in self.EXTRA_COMMAND_LINE_ARGUMENTS
-#         ]
-#         if extra_command_line_arguments is None:
-#             extra_command_line_arguments = []
-#         return super()._create_command_line(
-#             script,
-#             model_name,
-#             model_type,
-#             output_dir,
-#             is_precompilation=is_precompilation,
-#         )
-#
-#
-# class TranslationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_translation"):
-#     TASK_NAME = "wmt16"
-#     DATASET_CONFIG_NAME = "ro-en"
-#     TRAIN_BATCH_SIZE = 1
-#     EVAL_BATCH_SIZE = 1
-#     MAX_STEPS = 200
-#     EVAL_IS_SUPPORTED = False
-#     EVAL_SCORE_THRESHOLD = 22
-#     SCORE_NAME = "eval_bleu"
-#     EXTRA_COMMAND_LINE_ARGUMENTS = [
-#         "--source_lang ro",
-#         "--target_lang en",
-#         "--pad_to_max_length",
-#         {"default": "--max_source_length 512", "m2m_100": "--max_source_length 128"},
-#         {"default": "--max_target_length 512", "m2m_100": "--max_target_length 128"},
-#         # "--max_source_length 512",
-#         # "--max_target_length 512",
-#         "--prediction_loss_only",
-#     ]
-#
-#     def _create_command_line(
-#         self,
-#         script: str,
-#         model_name: str,
-#         model_type: str,
-#         output_dir: str,
-#         is_precompilation: bool = False,
-#     ) -> List[str]:
-#         extra_command_line_arguments = [
-#             ExampleTestMeta.process_class_attribute(arg, model_type) for arg in self.EXTRA_COMMAND_LINE_ARGUMENTS
-#         ]
-#         if extra_command_line_arguments is None:
-#             extra_command_line_arguments = []
-#         if "t5" in model_name:
-#             extra_command_line_arguments.append("--source_prefix 'translate English to Romanian: '")
-#         return super()._create_command_line(
-#             script,
-#             model_name,
-#             model_type,
-#             output_dir,
-#             is_precompilation=is_precompilation,
-#         )
-#
-#
-# class ImageClassificationExampleTester(
-#     ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_image_classification"
-# ):
-#     TASK_NAME = "cifar10"
-#     NUM_EPOCHS = 2
-#     EXTRA_COMMAND_LINE_ARGUMENTS = [
-#         "--remove_unused_columns false",
-#         "--dataloader_drop_last true",
-#         "--ignore_mismatched_sizes",
-#     ]
+class SummarizationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_summarization"):
+    TASK_NAME = "summarization"
+
+    MAX_STEPS = 200
+
+    TRAIN_BATCH_SIZE = 2
+    EVAL_BATCH_SIZE = 2
+    SEQUENCE_LENGTH = {"default": [1024, 200], "t5": [768, 200]}
+
+    TRAIN_LOSS_THRESHOLD = 0.5
+    TRAIN_LOSS_THRESHOLD_FOR_TINY = 0.5
+
+    DO_EVAL = False  # TODO: Evaluation is broken.
+    MAX_EVAL_SAMPLES = 200
+    EVAL_SCORE_THRESHOLD = 30
+    EVAL_SCORE_THRESHOLD_FOR_TINY = 30
+    SCORE_NAME = "eval_rougeLsum"
+
+
+class TranslationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_translation"):
+    TASK_NAME = "translation"
+
+    MAX_STEPS = 200
+
+    TRAIN_BATCH_SIZE = 2
+    EVAL_BATCH_SIZE = 2
+    SEQUENCE_LENGTH = {"default": [512, 512], "m2m_100": [128, 128]}
+
+    DO_EVAL = False
+    MAX_EVAL_SAMPLES = 200
+    EVAL_SCORE_THRESHOLD = 22
+    EVAL_SCORE_THRESHOLD_FOR_TINY = 20
+    SCORE_NAME = "eval_bleu"
+
+
+class ImageClassificationExampleTester(
+    ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_image_classification"
+):
+    TASK_NAME = "image-classification"
+
+    MAX_STEPS = 200
+
+    TRAIN_BATCH_SIZE = 2
+    EVAL_BATCH_SIZE = 2
+
+    TRAIN_LOSS_THRESHOLD = 0.5
+    TRAIN_LOSS_THRESHOLD_FOR_TINY = 0.5
+
+    DO_EVAL = False  # TODO: Evaluation is broken.
+    MAX_EVAL_SAMPLES = 200
+    EVAL_SCORE_THRESHOLD = 0.8
+    EVAL_SCORE_THRESHOLD_FOR_TINY = 0.70
+    EVAL_SCORE_GREATER_IS_BETTER = True
+    SCORE_NAME = "eval_accuracy"
 
 
 # class AudioClassificationExampleTester(

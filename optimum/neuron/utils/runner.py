@@ -136,6 +136,9 @@ class ExampleRunner:
             "set_max_target_length": True,
             "extra_command_line_arguments": [
                 "--pad_to_max_length",
+                "--pad_to_max_length",
+                "--prediction_loss_only",
+                {"t5": "--source_prefix 'summarize: '"},
             ],
         },
         "translation": {
@@ -148,6 +151,7 @@ class ExampleRunner:
                 "--target_lang en",
                 "--pad_to_max_length",
                 "--prediction_loss_only",
+                {"t5": "--source_prefix 'Translate Romanian to Enligsh: '"},
             ],
         },
         "image-classification": {
@@ -365,6 +369,7 @@ class ExampleRunner:
         gradient_accumulation_steps: int = 1,
         num_epochs: int = 1,
         max_steps: Optional[int] = None,
+        max_eval_samples: Optional[int] = None,
         logging_steps: int = 1,
         save_steps: int = -1,
         learning_rate: float = 1e-4,
@@ -424,6 +429,8 @@ class ExampleRunner:
         cmd.append("--do_train")
         if do_eval:
             cmd.append("--do_eval")
+            if max_eval_samples is not None:
+                cmd.append("--max_eval_samples {max_eval_samples}")
         cmd.append(f"--learning_rate {learning_rate}")
         cmd.append(f"--per_device_train_batch_size {train_batch_size}")
         if do_eval:
@@ -453,6 +460,7 @@ class ExampleRunner:
 
         # Dataset
         arguments = self._TASK_TO_COMMAND_ARGUMENTS[self.task]
+        model_type = AutoConfig.from_pretrained(model_name_or_path).model_type
         for name, value in arguments.items():
             if name == "set_max_length":
                 if isinstance(sequence_length, (tuple, list)):
@@ -470,7 +478,10 @@ class ExampleRunner:
                     cmd.append(f"--max_target_length {sequence_length[1]}")
             elif name == "extra_command_line_arguments":
                 for argument in value:
-                    cmd.append(argument)
+                    if isinstance(argument, dict):
+                        argument = argument.get(model_type, argument.get("default", None))
+                    if argument is not None:
+                        cmd.append(argument)
             else:
                 cmd.append(f"--{name} {value}")
 
@@ -484,21 +495,21 @@ class ExampleRunner:
             else:
                 cmd.append(f"--output_dir {output_dir}")
 
-            cmd = split_args_and_value_in_command(cmd)
-
             if do_precompilation:
                 # We need to update both the number of steps and the output directory specifically for the
                 # precompilation step.
                 with TemporaryDirectory() as precompilation_tmpdirname:
                     precompilation_cmd = list(cmd)
+                    precompilation_cmd.pop(-1)  # Removing the --output_dir argument.
                     max_steps_cmd_str = "--max_steps 10"
                     if max_steps_idx >= 0:
                         precompilation_cmd[max_steps_idx] = max_steps_cmd_str
                     else:
                         precompilation_cmd.append(max_steps_cmd_str)
-                    precompilation_cmd[-1] = f"--output_dir {precompilation_tmpdirname}"
-
+                    precompilation_cmd.append(f"--output_dir {precompilation_tmpdirname}")
                     precompilation_cmd = ["neuron_parallel_compile"] + precompilation_cmd
+
+                    precompilation_cmd = split_args_and_value_in_command(precompilation_cmd)
 
                     print(f"RUNNING PRECOMPILATION COMMAND:\n{' '.join(precompilation_cmd)}")
 
@@ -508,9 +519,10 @@ class ExampleRunner:
                     stderr = stderr.decode("utf-8")
 
                     if print_outputs:
-                        print("Precompilation standard output:\n{stdout}")
-                        print("Precompilation standard error:\n{stderr}")
+                        print(f"Precompilation standard output:\n{stdout}")
+                        print(f"Precompilation standard error:\n{stderr}")
 
+            cmd = split_args_and_value_in_command(cmd)
             print(f"RUNNING COMMAND:\n{' '.join(cmd)}")
 
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -518,8 +530,8 @@ class ExampleRunner:
             stdout = stdout.decode("utf-8")
             stderr = stderr.decode("utf-8")
             if print_outputs:
-                print("Precompilation standard output:\n{stdout}")
-                print("Precompilation standard error:\n{stderr}")
+                print(f"Standard output:\n{stdout}")
+                print(f"Standard error:\n{stderr}")
 
         tmpdir.cleanup()
 
