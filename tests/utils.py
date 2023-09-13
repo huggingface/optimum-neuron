@@ -44,7 +44,6 @@ from optimum.neuron.utils.cache_utils import (
 from optimum.utils.testing_utils import TOKEN, USER
 
 
-
 def get_random_string(length) -> str:
     letters = string.ascii_lowercase
     return "".join(random.choice(letters) for _ in range(length))

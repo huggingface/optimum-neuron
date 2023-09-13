@@ -21,10 +21,15 @@ from enum import Enum
 from pathlib import Path
 from subprocess import PIPE
 from tempfile import TemporaryDirectory
-from typing import List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import requests
-from huggingface_hub import HfFolder
+from huggingface_hub import (
+    HfApi,
+    HfFolder,
+    snapshot_download,
+)
+from transformers import AutoConfig
 
 from ...utils import logging
 from .cache_utils import get_hf_hub_cache_repos, has_write_access_to_repo, load_custom_cache_repo_name_from_hf_home
@@ -159,10 +164,12 @@ class ExampleRunner:
         model_name_or_path: str,
         task: str,
         example_dir: Optional[Union[str, Path]] = None,
+        config_overrides: Optional[Dict[str, Any]] = None,
         use_venv: bool = True,
         install_requirements: bool = True,
     ):
         self.model_name_or_path = model_name_or_path
+        self.config_overrides = config_overrides
 
         if task not in _TASK_TO_EXAMPLE_SCRIPT:
             supported_tasks = ", ".join(_TASK_TO_EXAMPLE_SCRIPT.keys())
@@ -304,6 +311,49 @@ class ExampleRunner:
                 f"You do not have write access to {main_repo}. Please log in and/or use a custom Tranium cache repo."
             )
 
+    def download_model_repo_and_override_config(
+        self, model_name_or_path: str, config_overrides: Dict[str, Any], output_dir: Union[str, Path]
+    ) -> Union[str, Path]:
+        if not config_overrides:
+            return model_name_or_path
+
+        filenames = HfApi().list_repo_files(repo_id=model_name_or_path, token=HfFolder.get_token())
+        safetensors_model_file_pattern = re.compile(r"\w+(-[0-9]*-of-[0-9]*)?\.safetensors")
+        allow_patterns = ["*.json", "*.txt"]
+        if any(re.match(safetensors_model_file_pattern, filename) for filename in filenames):
+            # Not downloading PyTorch checkpoints if safetensors checkpoints are available.
+            allow_patterns.append("*.bin")
+        else:
+            allow_patterns.append("*.safetensors")
+
+        directory = Path(output_dir) / model_name_or_path.split("/")[-1]
+
+        # local_dir_use_symlinks = "auto" will download big files (>= 5MB) in the cache and create symlinks in
+        # local_dir, while creating copies in local_dir for small files.
+        # Here the goal is to edit the config of the model so this solution seems optimal.
+        snapshot_download(
+            model_name_or_path, allow_patterns=allow_patterns, local_dir=directory, local_dir_use_symlinks="auto"
+        )
+
+        config = AutoConfig.from_pretrained(directory)
+
+        # config_cls = config.__class__
+        # parameters = inspect.signature(config_cls).parameters
+        # new_kwargs = {k: v for k, v in config.to_dict().items() if k in parameters}
+
+        for name, value in config_overrides.items():
+            type_of_attribute = type(getattr(config, name))
+            if type(value) is not type_of_attribute:
+                value = type_of_attribute(value)
+            setattr(config, name, value)
+            # new_kwargs[name] = value
+
+        # new_config = config_cls(**new_kwargs)
+        # new_config.save_pretrained(directory)
+        config.save_pretrained(directory)
+
+        return directory
+
     def run(
         self,
         num_cores: int,
@@ -321,8 +371,9 @@ class ExampleRunner:
         tensor_parallel_size: int = 1,
         disable_embedding_parallelization: bool = False,
         zero_1: bool = False,
-        do_precompilation: bool = True,
         output_dir: Optional[Union[Path, str]] = None,
+        do_precompilation: bool = False,
+        print_outputs: bool = False,
     ) -> Tuple[int, str, str]:
         if num_cores <= 0 or num_cores > 32:
             raise ValueError("The number of Neuron cores to use must be between 1 and 32.")
@@ -356,7 +407,13 @@ class ExampleRunner:
 
         cmd.append(self.python_name if num_cores == 1 else f"{self.torchrun_name} --nproc_per_node {num_cores}")
         cmd.append(script_path.as_posix())
-        cmd.append(f"--model_name_or_path {self.model_name_or_path}")
+
+        model_name_or_path = self.model_name_or_path
+        if self.config_overrides is not None:
+            model_name_or_path = self.download_model_repo_and_override_config(
+                self.model_name_or_path, self.config_overrides, tmpdir.name
+            )
+        cmd.append(f"--model_name_or_path {model_name_or_path}")
 
         # Training steps and batch sizes.
         cmd.append(f"--num_train_epochs {num_epochs}")
@@ -430,7 +487,7 @@ class ExampleRunner:
             cmd = split_args_and_value_in_command(cmd)
 
             if do_precompilation:
-                # We need to update both the number of steps and the output directory specifically for the 
+                # We need to update both the number of steps and the output directory specifically for the
                 # precompilation step.
                 with TemporaryDirectory() as precompilation_tmpdirname:
                     precompilation_cmd = list(cmd)
@@ -440,13 +497,19 @@ class ExampleRunner:
                     else:
                         precompilation_cmd.append(max_steps_cmd_str)
                     precompilation_cmd[-1] = f"--output_dir {precompilation_tmpdirname}"
-                    
+
                     precompilation_cmd = ["neuron_parallel_compile"] + precompilation_cmd
 
                     print(f"RUNNING PRECOMPILATION COMMAND:\n{' '.join(precompilation_cmd)}")
 
                     proc = subprocess.Popen(precompilation_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                     stdout, stderr = proc.communicate()
+                    stdout = stdout.decode("utf-8")
+                    stderr = stderr.decode("utf-8")
+
+                    if print_outputs:
+                        print("Precompilation standard output:\n{stdout}")
+                        print("Precompilation standard error:\n{stderr}")
 
             print(f"RUNNING COMMAND:\n{' '.join(cmd)}")
 
@@ -454,6 +517,9 @@ class ExampleRunner:
             stdout, stderr = proc.communicate()
             stdout = stdout.decode("utf-8")
             stderr = stderr.decode("utf-8")
+            if print_outputs:
+                print("Precompilation standard output:\n{stdout}")
+                print("Precompilation standard error:\n{stderr}")
 
         tmpdir.cleanup()
 

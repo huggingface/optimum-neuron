@@ -44,6 +44,20 @@ from .require_utils import requires_safetensors
 logger = logging.get_logger()
 
 
+# From https://stackoverflow.com/questions/15008758/parsing-boolean-values-with-argparse
+def string_to_bool(v: Union[str, bool]) -> bool:
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ("yes", "true", "t", "y", "1"):
+        return True
+    elif v.lower() in ("no", "false", "f", "n", "0"):
+        return False
+    else:
+        raise TypeError(
+            f"Truthy value expected: got {v} but expected one of yes/no, true/false, t/f, y/n, 1/0 (case insensitive)."
+        )
+
+
 def args_and_kwargs_to_kwargs_only(
     f: Callable,
     args: Optional[Tuple[Any, ...]] = None,

@@ -16,16 +16,15 @@
 
 import json
 import os
-import subprocess
+import re
 import sys
-from pathlib import Path
 from enum import Enum
+from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union, Generic, TypeVar
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 from unittest import TestCase
 
 from huggingface_hub import HfFolder
-from parameterized import parameterized
 from transformers import (
     CONFIG_MAPPING,
     MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING,
@@ -41,6 +40,7 @@ from transformers import (
 )
 from transformers.testing_utils import slow
 
+from optimum.neuron.utils.misc import string_to_bool
 from optimum.neuron.utils.runner import ExampleRunner
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
@@ -62,48 +62,122 @@ if os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI", None) is not None:
 
 CACHE_REPO_NAME = "optimum-internal-testing/optimum-neuron-cache-for-testing"
 
-USE_VENV = False # os.environ.get("USE_VENV", "true") == "true"
+USE_VENV = False  # os.environ.get("USE_VENV", "true") == "true"
+
 
 class TPSupport(str, Enum):
     """
     Describes the support for Tensor Parallelism for a given model:
-        
+
         - full: The model can be fully parallelized (embeddings + blocks + cross-entropy loss when it makes sense).
-        - partial: The model can be parallelized but not the embeddings. Usually because the vocabulary size is not 
+        - partial: The model can be parallelized but not the embeddings. Usually because the vocabulary size is not
         divisible by the tensor parallel size (2 here).
-        - none: The model cannot be parallelized, either for shape mismatch as in the partial case, or because the 
+        - none: The model cannot be parallelized, either for shape mismatch as in the partial case, or because the
         tensor parallelism support for this model type has not been added.
     """
+
     FULL = "full"
     PARTIAL = "partial"
     NONE = "none"
+
 
 class Priority(str, Enum):
     LOW = "low"
     MIDDLE = "middle"
     HIGH = "high"
     ALL = "all"
-    
-PRIORITY = Priority(os.environ.get("PRIORITY", "all"))
 
+
+PRIORITY = Priority(os.environ.get("PRIORITY", "all"))
+RUN_TINY = string_to_bool(os.environ.get("RUN_TINY", "false"))
 
 MODELS_TO_TEST_MAPPING = {
-    "albert": ("albert-base-v2", TPSupport.NONE, Priority.LOW),
-    "bart": ("facebook/bart-base", TPSupport.NONE, Priority.MIDDLE),
-    "bert": ("bert-base-uncased", TPSupport.FULL, Priority.MIDDLE),
-    "camembert": ("camembert-base", TPSupport.NONE, Priority.LOW),
-    "distilbert": ("distilbert-base-uncased", TPSupport.NONE, Priority.LOW),
-    "electra": ("google/electra-base-discriminator", TPSupport.NONE, Priority.LOW),
-    "gpt2": ("gpt2", TPSupport.NONE, Priority.HIGH),
-    "gpt_neo": ("EleutherAI/gpt-neo-125M", TPSupport.PARTIAL, Priority.HIGH),
-    "marian": ("Helsinki-NLP/opus-mt-en-ro", TPSupport.NONE, Priority.MIDDLE),
-    "roberta": ("roberta-base", TPSupport.PARTIAL, Priority.MIDDLE),
-    "t5": ("t5-small", TPSupport.FULL, Priority.HIGH),
-    "vit": ("google/vit-base-patch16-224-in21k", TPSupport.NONE, Priority.LOW),
-    "xlm-roberta": ("xlm-roberta-base", TPSupport.NONE, Priority.LOW),
+    "albert": (
+        "albert-base-v2",
+        TPSupport.NONE,
+        Priority.LOW,
+        {"num_hidden_layers": 4},
+    ),
+    "bart": (
+        "facebook/bart-base",
+        TPSupport.NONE,
+        Priority.MIDDLE,
+        {"encoder_layers": 2, "decoder_layers": 2},
+    ),
+    "bert": (
+        "bert-base-uncased",
+        TPSupport.FULL,
+        Priority.HIGH,
+        {"num_hidden_layers": 4},
+    ),
+    "camembert": (
+        "camembert-base",
+        TPSupport.NONE,
+        Priority.LOW,
+        {"num_hidden_layers": 4},
+    ),
+    "distilbert": (
+        "distilbert-base-uncased",
+        TPSupport.NONE,
+        Priority.LOW,
+        {"num_hidden_layers": 4},
+    ),
+    "electra": (
+        "google/electra-base-discriminator",
+        TPSupport.NONE,
+        Priority.LOW,
+        {"num_hidden_layers": 4},
+    ),
+    "gpt2": (
+        "gpt2",
+        TPSupport.NONE,
+        Priority.MIDDLE,
+        {"num_hidden_layers": 4},
+    ),
+    "gpt_neo": (
+        "EleutherAI/gpt-neo-125M",
+        TPSupport.PARTIAL,
+        Priority.HIGH,
+        {"num_hidden_layers": 4, "attention_types": [[["global", "local"], 2]]},
+    ),
+    "marian": (
+        "Helsinki-NLP/opus-mt-en-ro",
+        TPSupport.NONE,
+        Priority.MIDDLE,
+        {"encoder_layers": 2, "decoder_layers": 2},
+    ),
+    "roberta": (
+        "roberta-base",
+        TPSupport.PARTIAL,
+        Priority.LOW,
+        {"num_hidden_layers": 4},
+    ),
+    "t5": (
+        "t5-small",
+        TPSupport.FULL,
+        Priority.HIGH,
+        {"num_hidden_layers": 2},
+    ),
+    "vit": (
+        "google/vit-base-patch16-224-in21k",
+        TPSupport.NONE,
+        Priority.HIGH,
+        {"num_hidden_layers": 4},
+    ),
+    "xlm-roberta": (
+        "xlm-roberta-base",
+        TPSupport.NONE,
+        Priority.LOW,
+        {"num_hidden_layers": 4},
+    ),
     # TODO: issue with this model for now.
-    "m2m_100": ("facebook/m2m100_418M", TPSupport.NONE, Priority.MIDDLE),
-    # TODO: Llama 
+    "m2m_100": (
+        "facebook/m2m100_418M",
+        TPSupport.NONE,
+        Priority.MIDDLE,
+        {"encoder_layers": 2, "decoder_layers": 2},
+    ),
+    # TODO: Llama
     # "wav2vec2": "facebook/wav2vec2-base",
     # Remaning: XLNet, Deberta-v2, MPNet, CLIP
 }
@@ -119,7 +193,7 @@ def _get_supported_models_for_script(
         to_exclude = set()
     supported_models = []
     for model_type, entry in models_to_test.items():
-        model_name, tp_support, priority = entry
+        model_name, tp_support, priority, config_overrides = entry
         if model_type in to_exclude:
             continue
         if PRIORITY != "all" and PRIORITY != priority:
@@ -127,7 +201,7 @@ def _get_supported_models_for_script(
         if CONFIG_MAPPING[model_type] in task_mapping:
             if model_type == "bart" and task_mapping is not MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING:
                 continue
-            supported_models.append((model_type, model_name, tp_support))
+            supported_models.append((model_type, model_name, tp_support, config_overrides))
     return supported_models
 
 
@@ -178,8 +252,39 @@ class ExampleTestMeta(type):
             models_to_test = _SCRIPT_TO_MODEL_MAPPING.get(example_name)
             if models_to_test is None:
                 raise AttributeError(f"could not create class because no model was found for example {example_name}")
-        for model_type, model_name_or_path, tp_support in models_to_test:
-            attrs[f"test_{example_name}_{model_type}"] = cls._create_test(model_type, model_name_or_path, tp_support)
+        for model_type, model_name_or_path, tp_support, config_overrides in models_to_test:
+            # Regular training.
+            attrs[f"test_{example_name}_{model_type}"] = cls._create_test(
+                model_type, model_name_or_path, 1, True, False, config_overrides
+            )
+
+            # Training with ZeRO-1.
+            attrs[f"test_{example_name}_{model_type}_with_zero1"] = cls._create_test(
+                model_type, model_name_or_path, 1, True, True, config_overrides
+            )
+
+            tensor_parallel_size = 2 if tp_support is not TPSupport.NONE else 1
+            disable_embedding_parallelization = tp_support is TPSupport.PARTIAL
+            if tensor_parallel_size > 1:
+                # Training with TP if supported.
+                attrs[f"test_{example_name}_{model_type}_with_tp"] = cls._create_test(
+                    model_type,
+                    model_name_or_path,
+                    tensor_parallel_size,
+                    disable_embedding_parallelization,
+                    False,
+                    config_overrides,
+                )
+                # Training with TP and ZeRO-1 if supported.
+                attrs[f"test_{example_name}_{model_type}_with_tp_and_zero1"] = cls._create_test(
+                    model_type,
+                    model_name_or_path,
+                    tensor_parallel_size,
+                    disable_embedding_parallelization,
+                    True,
+                    config_overrides,
+                )
+
         attrs["EXAMPLE_NAME"] = example_name
         return super().__new__(cls, name, bases, attrs)
 
@@ -189,8 +294,20 @@ class ExampleTestMeta(type):
             return attribute.get(model_type, attribute["default"])
         return attribute
 
+    @staticmethod
+    def parse_loss_in_log(log: str) -> List[float]:
+        re.compile(r"\{\"loss\"\: ([0-9]+\.[0-9]+).")
+
     @classmethod
-    def _create_test(cls, model_type: str, model_name_or_path: str, tp_support: TPSupport) -> Callable[["ExampleTesterBase"], None]:
+    def _create_test(
+        cls,
+        model_type: str,
+        model_name_or_path: str,
+        tensor_parallel_size: int,
+        disable_embedding_parallelization: bool,
+        zero_1: bool,
+        config_overrides: Optional[Dict[str, Any]] = None,
+    ) -> Callable[["ExampleTesterBase"], None]:
         """
         Creates a test function that runs an example for a model_name.
 
@@ -207,17 +324,20 @@ class ExampleTestMeta(type):
             train_batch_size = ExampleTestMeta.process_class_attribute(self.TRAIN_BATCH_SIZE, model_type)
             eval_batch_size = ExampleTestMeta.process_class_attribute(self.EVAL_BATCH_SIZE, model_type)
             sequence_length = ExampleTestMeta.process_class_attribute(self.SEQUENCE_LENGTH, model_type)
-            gradient_accumulation_steps = ExampleTestMeta.process_class_attribute(self.GRADIENT_ACCUMULATION_STEPS, model_type)
+            gradient_accumulation_steps = ExampleTestMeta.process_class_attribute(
+                self.GRADIENT_ACCUMULATION_STEPS, model_type
+            )
 
-            tensor_parallel_size = 2 if tp_support is not TPSupport.NONE else 1
-            disable_embedding_parallelization = tp_support is TPSupport.PARTIAL
-            zero_1 = ExampleTestMeta.process_class_attribute(self.ZERO_1, model_type)
-
-            runner = ExampleRunner(model_name_or_path, self.TASK_NAME, example_dir=self.EXAMPLE_DIR, use_venv=USE_VENV)
+            runner = ExampleRunner(
+                model_name_or_path,
+                self.TASK_NAME,
+                example_dir=self.EXAMPLE_DIR,
+                use_venv=USE_VENV,
+                config_overrides=config_overrides if RUN_TINY else None,
+            )
 
             with TemporaryDirectory() as tmpdirname:
-
-                returncode, stdout, stderr = runner.run(
+                returncode, _, _ = runner.run(
                     self.NUM_CORES,
                     "bf16",
                     train_batch_size,
@@ -233,17 +353,17 @@ class ExampleTestMeta(type):
                     disable_embedding_parallelization=disable_embedding_parallelization,
                     zero_1=zero_1,
                     output_dir=tmpdirname,
+                    do_precompilation=True,
+                    print_outputs=True,
                 )
                 print(f"Return code: {returncode}")
-                print(f"Standard output:\n{stdout}\n")
-                print(f"Standard error:\n{stderr}\n")
 
                 assert returncode == 0
 
-                if self.ONLY_CHECK_THAT_LOSS_IS_DECREASING:
-                    # TODO
-                    pass
-                elif self.DO_EVAL:
+                with open(Path(tmpdirname) / "all_results.json") as fp:
+                    results = json.load(fp)
+
+                if self.DO_EVAL:
                     with open(Path(tmpdirname) / "all_results.json") as fp:
                         results = json.load(fp)
                     threshold = ExampleTestMeta.process_class_attribute(self.EVAL_SCORE_THRESHOLD, model_type)
@@ -251,6 +371,7 @@ class ExampleTestMeta(type):
                         self.assertGreaterEqual(float(results[self.SCORE_NAME]), threshold)
                     else:
                         self.assertLessEqual(float(results[self.SCORE_NAME]), threshold)
+
         return test
 
 
@@ -258,16 +379,17 @@ class ExampleTesterBase(TestCase):
     """
     Base example tester class.
     """
+
     EXAMPLE_DIR = Path(__file__).parent.parent / "examples"
-    TASK_NAME: str 
+    TASK_NAME: str
 
     NUM_EPOCHS: int = 1
-    MAX_STEPS: Optional[int] = None 
+    MAX_STEPS: Optional[int] = None
 
     LEARNING_RATE: float = 1e-4
-    TRAIN_BATCH_SIZE: int = 16
-    EVAL_BATCH_SIZE: int = 16
-    GRADIENT_ACCUMULATION_STEPS: int = 16
+    TRAIN_BATCH_SIZE: int = 2
+    EVAL_BATCH_SIZE: int = 2
+    GRADIENT_ACCUMULATION_STEPS: int = 1
     SEQUENCE_LENGTH: Optional[Union[int, Tuple[int, int]]] = None
 
     NUM_CORES: int = 32
@@ -275,28 +397,23 @@ class ExampleTesterBase(TestCase):
     SAVE_STEPS: int = 200
 
     # Camembert is pretrained on French.
-    DO_EVAL: bool 
-    ONLY_CHECK_THAT_LOSS_IS_DECREASING: bool = False
-    EVAL_SCORE_THRESHOLD: float 
+    DO_EVAL: bool
+    EVAL_SCORE_THRESHOLD: float
+    EVAL_SCORE_THRESHOLD_FOR_TINY: float
     EVAL_SCORE_GREATER_IS_BETTER: bool
-    SCORE_NAME: str 
-
+    SCORE_NAME: str
 
 
 class CausalLMExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_clm"):
     TASK_NAME = "causal-lm"
 
-    NUM_EPOCHS = 1
     MAX_STEPS = 100
+
     TRAIN_BATCH_SIZE = 2
     EVAL_BATCH_SIZE = 2
     SEQUENCE_LENGTH = 512
 
-    # TODO: enable ZERO_1 once it has been fixed by #222.
-    ZERO_1 = False
-
     DO_EVAL = False
-    ONLY_CHECK_THAT_LOSS_IS_DECREASING: bool = True
 
 
 class TextClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_glue"):
@@ -305,14 +422,12 @@ class TextClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestMe
     NUM_EPOCHS = 1
     SEQUENCE_LENGTH = 128
 
-    ZERO_1 = False
-
     # Camembert is pretrained on French.
-    DO_EVAL = False # TODO: Evaluation is broken.
+    DO_EVAL = False  # TODO: Evaluation is broken.
     EVAL_SCORE_THRESHOLD = {"default": 0.75, "camembert": 0.5}
+    EVAL_SCORE_THRESHOLD_FOR_TINY = {"default": 0.75, "camembert": 0.5}
     EVAL_SCORE_GREATER_IS_BETTER = True
     SCORE_NAME = "eval_accuracy"
-
 
 
 class TokenClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_ner"):
@@ -323,11 +438,10 @@ class TokenClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestM
     EVAL_BATCH_SIZE = {"default": 4, "distilbert": 6}
     SEQUENCE_LENGTH = 384
 
-    ZERO_1 = False
-
     # Camembert is pretrained on French.
-    DO_EVAL = False # TODO: Evaluation is broken.
+    DO_EVAL = False  # TODO: Evaluation is broken.
     EVAL_SCORE_THRESHOLD = {"default": 0.75, "camembert": 0.5}
+    EVAL_SCORE_THRESHOLD_FOR_TINY = {"default": 0.75, "camembert": 0.5}
     EVAL_SCORE_GREATER_IS_BETTER = True
     SCORE_NAME = "eval_accuracy"
 
@@ -335,16 +449,15 @@ class TokenClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestM
 class MultipleChoiceExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_swag"):
     TASK_NAME = "multiple-choice"
 
-    TRAIN_BATCH_SIZE = 2 
-    EVAL_BATCH_SIZE = 2 
+    TRAIN_BATCH_SIZE = 2
+    EVAL_BATCH_SIZE = 2
     MAX_STEPS = 100
     SEQUENCE_LENGTH = 512
 
-    ZERO_1 = True
-
     # Camembert is pretrained on French.
-    DO_EVAL = False # TODO: Evaluation is broken.
+    DO_EVAL = False  # TODO: Evaluation is broken.
     EVAL_SCORE_THRESHOLD = {"default": 0.75, "camembert": 0.5, "distilbert": 0.645}
+    EVAL_SCORE_THRESHOLD_FOR_TINY = {"default": 0.75, "camembert": 0.5, "distilbert": 0.645}
     EVAL_SCORE_GREATER_IS_BETTER = True
     SCORE_NAME = "eval_accuracy"
     # TODO: handle that.
@@ -354,9 +467,16 @@ class MultipleChoiceExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, 
 
 
 class QuestionAnsweringExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_qa"):
-    TASK_NAME = "squad"
+    TASK_NAME = "question-answering"
+
+    TRAIN_BATCH_SIZE = 2
+    EVAL_BATCH_SIZE = 2
+
+    DO_EVAL = False  # TODO: Evaluation is broken.
+    EVAL_SCORE_THRESHOLD = {"default": 0.75, "camembert": 0.5}
+    EVAL_SCORE_THRESHOLD_FOR_TINY = {"default": 0.75, "camembert": 0.5}
+    EVAL_SCORE_GREATER_IS_BETTER = True
     SCORE_NAME = "eval_f1"
-    NUM_EPOCHS = 1
 
 
 # class SummarizationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_summarization"):
@@ -375,7 +495,7 @@ class QuestionAnsweringExampleTester(ExampleTesterBase, metaclass=ExampleTestMet
 #         {"default": "--max_source_length 1024", "t5": "--max_source_length 768"},
 #         {"default": "", "t5": "--source_prefix 'summarize: '"},
 #     ]
-# 
+#
 #     def _create_command_line(
 #         self,
 #         script: str,
@@ -396,8 +516,8 @@ class QuestionAnsweringExampleTester(ExampleTesterBase, metaclass=ExampleTestMet
 #             output_dir,
 #             is_precompilation=is_precompilation,
 #         )
-# 
-# 
+#
+#
 # class TranslationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_translation"):
 #     TASK_NAME = "wmt16"
 #     DATASET_CONFIG_NAME = "ro-en"
@@ -417,7 +537,7 @@ class QuestionAnsweringExampleTester(ExampleTesterBase, metaclass=ExampleTestMet
 #         # "--max_target_length 512",
 #         "--prediction_loss_only",
 #     ]
-# 
+#
 #     def _create_command_line(
 #         self,
 #         script: str,
@@ -440,8 +560,8 @@ class QuestionAnsweringExampleTester(ExampleTesterBase, metaclass=ExampleTestMet
 #             output_dir,
 #             is_precompilation=is_precompilation,
 #         )
-# 
-# 
+#
+#
 # class ImageClassificationExampleTester(
 #     ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_image_classification"
 # ):
