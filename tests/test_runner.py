@@ -71,9 +71,7 @@ class TestExampleRunner(TestCase):
     @parameterized.expand(TO_TEST)
     def test_run_example(self, task, model_name_or_path, sequence_length):
         runner = ExampleRunner(model_name_or_path, task)
-        returncode, stdout = runner.run(
-            1, "bf16", 1, sequence_length=sequence_length, max_steps=10, save_steps=5
-        )
+        returncode, stdout = runner.run(1, "bf16", 1, sequence_length=sequence_length, max_steps=10, save_steps=5)
         print(stdout)
         if returncode != 0:
             self.fail(f"ExampleRunner failed for task {task}.\nStandard output:\n{stdout}")

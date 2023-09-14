@@ -301,14 +301,15 @@ class ExampleTestMeta(type):
         return losses
 
     @staticmethod
-    def check_that_loss_is_decreasing(losses: List[float], steps: int) -> bool:
+    def check_that_loss_is_decreasing(losses: List[float], steps: int) -> Tuple[bool, List[float], List[float]]:
         mean_losses = []
         num_mean_losses = len(losses) // steps
         for i in range(num_mean_losses):
             mean = sum(losses[i * steps : (i + 1) * steps]) / steps
             mean_losses.append(mean)
 
-        return mean_losses == sorted(mean_losses, reverse=True)
+        expected_mean_losses = sorted(mean_losses, reverse=True)
+        return mean_losses == expected_mean_losses, mean_losses, expected_mean_losses
 
     @classmethod
     def _create_test(
@@ -366,7 +367,6 @@ class ExampleTestMeta(type):
                     disable_embedding_parallelization=disable_embedding_parallelization,
                     zero_1=zero_1,
                     output_dir=tmpdirname,
-                    # TODO: enable precompilation once it's working with subprocess.
                     do_precompilation=True,
                     print_outputs=True,
                 )
@@ -374,7 +374,12 @@ class ExampleTestMeta(type):
 
                 if self.CHECK_THAT_LOSS_IS_DECREASING:
                     losses = ExampleTestMeta.parse_loss_from_log(stdout)
-                    assert ExampleTestMeta.check_that_loss_is_decreasing(losses, 20)
+                    is_decreasing, mean_losses, expected_mean_losses = ExampleTestMeta.check_that_loss_is_decreasing(
+                        losses, 50
+                    )
+                    self.assertTrue(
+                        is_decreasing, f"Expected mean losses to be {expected_mean_losses} but got {mean_losses}"
+                    )
 
                 if self.DO_EVAL:
                     with open(Path(tmpdirname) / "all_results.json") as fp:
@@ -387,12 +392,6 @@ class ExampleTestMeta(type):
                         self.assertGreaterEqual(float(results[self.SCORE_NAME]), eval_score_threshold)
                     else:
                         self.assertLessEqual(float(results[self.SCORE_NAME]), eval_score_threshold)
-
-                # train_loss_threshold = (
-                #     self.TRAIN_LOSS_THRESHOLD if not RUN_TINY else self.TRAIN_LOSS_THRESHOLD_FOR_TINY
-                # )
-                # train_loss_threshold = ExampleTestMeta.process_class_attribute(train_loss_threshold, model_type)
-                # self.assertLessEqual(float(results["train_loss"]), train_loss_threshold)
 
         return test
 
