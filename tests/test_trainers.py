@@ -233,7 +233,7 @@ class StagingNeuronTrainerTestCase(StagingTestMixin, TestCase):
             ]
 
             start = time.time()
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            proc = subprocess.Popen(cmd, stderr=subprocess.PIPE)
             end = time.time()
             first_training_duration = end - start
 
@@ -277,7 +277,7 @@ class StagingNeuronTrainerTestCase(StagingTestMixin, TestCase):
             ]
 
             start = time.time()
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            proc = subprocess.Popen(cmd, stderr=subprocess.PIPE)
             end = time.time()
             second_training_duration = end - start
 
@@ -337,8 +337,8 @@ class NeuronTrainerTestCase(TestCase):
                 f"--fsdp={fsdp_mode}",
             ]
 
-            proc = subprocess.Popen(fsdp_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            stdout, stderr = proc.communicate()
+            proc = subprocess.Popen(fsdp_cmd)
+            proc.wait()
 
             checkpoint = output_1 / "checkpoint-50"
             output_2 = Path(tmpdirname) / "out_2"
@@ -362,8 +362,8 @@ class NeuronTrainerTestCase(TestCase):
                 f"--fsdp={fsdp_mode}",
             ]
 
-            proc = subprocess.Popen(resume_fsdp_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            stdout, stderr = proc.communicate()
+            proc = subprocess.Popen(resume_fsdp_cmd)
+            proc.wait()
 
             training_fsdp_metrics = {}
             with open(output_1 / "all_results.json") as fp:
@@ -398,8 +398,8 @@ class NeuronTrainerTestCase(TestCase):
                 f"--fsdp={fsdp_mode}",
             ]
 
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            stdout, stderr = proc.communicate()
+            proc = subprocess.Popen(cmd)
+            proc.wait()
 
             regular_training_metrics = {}
             with open(output_3 / "all_results.json") as fp:

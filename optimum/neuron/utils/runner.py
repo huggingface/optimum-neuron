@@ -14,8 +14,8 @@
 # limitations under the License.
 """Utilities to be able to perform model compilation easily."""
 
-import os
 import codecs
+import os
 import re
 import subprocess
 from enum import Enum

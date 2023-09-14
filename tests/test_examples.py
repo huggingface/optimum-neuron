@@ -60,7 +60,6 @@ if os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI", None) is not None:
 CACHE_REPO_NAME = "optimum-internal-testing/optimum-neuron-cache-for-testing"
 
 
-
 class TPSupport(str, Enum):
     """
     Describes the support for Tensor Parallelism for a given model:
