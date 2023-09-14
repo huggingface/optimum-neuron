@@ -223,9 +223,6 @@ def main_export(
                 "Stable diffusion export is not supported by neuron-cc on inf1, please use neuronx-cc on either inf2/trn1 instead."
             )
         input_shapes = infer_stable_diffusion_shapes_from_diffusers(input_shapes, model)
-        # Test for img2img Ghibli
-        input_shapes["vae_encoder_input_shapes"]["height"] = 384
-        input_shapes["vae_encoder_input_shapes"]["width"] = 786
 
         # Saving the model config and preprocessor as this is needed sometimes.
         model.scheduler.save_pretrained(output.joinpath("scheduler"))
@@ -263,11 +260,11 @@ def main_export(
 
     # Validate compiled model
     if do_validation is True:
-        if is_stable_diffusion:
-            # Do not validate vae encoder due to the sampling randomness
-            del neuron_outputs[-2]  # -2 is the index of `vae_encoder`
-            models_and_neuron_configs.pop("vae_encoder", None)
-            output_model_names.pop("vae_encoder", None)
+        # if is_stable_diffusion:
+        #     # Do not validate vae encoder due to the sampling randomness
+        #     del neuron_outputs[-2]  # -2 is the index of `vae_encoder`
+        #     models_and_neuron_configs.pop("vae_encoder", None)
+        #     output_model_names.pop("vae_encoder", None)
 
         try:
             validate_models_outputs(
