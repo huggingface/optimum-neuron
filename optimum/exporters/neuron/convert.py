@@ -14,7 +14,6 @@
 # limitations under the License.
 """Neuron compiled model check and export functions."""
 import copy
-import os
 import time
 from collections import OrderedDict
 from pathlib import Path
@@ -437,10 +436,6 @@ def export_neuronx(
         compiler_args.extend(["--auto-cast-type", auto_cast_type])
     else:
         compiler_args = ["--auto-cast", "none"]
-
-    # WARNING: Enabled experimental parallel compilation
-    compiler_args.extend(["--enable-experimental-O1"])
-    compiler_args.extend(["--num-parallel-jobs", str(os.cpu_count())])
 
     # diffusers specific
     compiler_args = add_stable_diffusion_compiler_args(config, compiler_args)
