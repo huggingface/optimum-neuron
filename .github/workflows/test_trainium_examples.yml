@@ -3,8 +3,8 @@ name: Optimum Neuron - Test Example Scripts
 on:
   workflow_dispatch:
     inputs: 
-      priority: 
-        description: The priority of the models to test, useful to perform filtering
+      coverage: 
+        description: The coverage of the models to test, useful to perform filtering
         options:
           - all
           - high
