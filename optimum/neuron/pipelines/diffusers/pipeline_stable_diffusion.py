@@ -22,7 +22,7 @@ from diffusers import StableDiffusionPipeline
 from diffusers.loaders import LoraLoaderMixin, TextualInversionLoaderMixin
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import rescale_noise_cfg
-from diffusers.utils import randn_tensor
+from diffusers.utils.torch_utils import randn_tensor
 
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 class StableDiffusionPipelineMixin(StableDiffusionPipeline):
     # Adapted from https://github.com/huggingface/diffusers/blob/v0.18.2/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L302
-    def _encode_prompt(
+    def encode_prompt(
         self,
         prompt,
         num_images_per_prompt,
@@ -173,7 +173,7 @@ class StableDiffusionPipelineMixin(StableDiffusionPipeline):
         num_inference_steps: int = 50,
         guidance_scale: float = 7.5,
         negative_prompt: Optional[Union[str, List[str]]] = None,
-        num_images_per_prompt: Optional[int] = 1,
+        num_images_per_prompt: int = 1,
         eta: float = 0.0,
         generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None,
         latents: Optional[torch.FloatTensor] = None,
@@ -189,6 +189,12 @@ class StableDiffusionPipelineMixin(StableDiffusionPipeline):
         # 0. Height and width to unet (static shapes)
         height = self.unet.config.neuron["static_height"] * self.vae_scale_factor
         width = self.unet.config.neuron["static_width"] * self.vae_scale_factor
+        if self.num_images_per_prompt != num_images_per_prompt and not self.dynamic_batch_size:
+            logger.warning(
+                f"Overriding `num_images_per_prompt({num_images_per_prompt})` to {self.num_images_per_prompt} used for the compilation. Please recompile the models with your "
+                f"custom `num_images_per_prompt` or turn on `dynamic_batch_size`, if you wish generating {num_images_per_prompt} per prompt."
+            )
+            num_images_per_prompt = self.num_images_per_prompt
 
         # 1. Check inputs. Raise error if not correct
         self.check_inputs(
@@ -216,7 +222,7 @@ class StableDiffusionPipelineMixin(StableDiffusionPipeline):
         text_encoder_lora_scale = (
             cross_attention_kwargs.get("scale", None) if cross_attention_kwargs is not None else None
         )
-        prompt_embeds = self._encode_prompt(
+        prompt_embeds = self.encode_prompt(
             prompt,
             num_images_per_prompt,
             do_classifier_free_guidance,

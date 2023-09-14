@@ -19,7 +19,7 @@ import subprocess
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Type, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Type, Union
 
 import torch
 from parameterized import parameterized
@@ -191,18 +191,6 @@ class ModelParallelizationTestCase(unittest.TestCase):
 
             cmd = ["torchrun", f"--nproc_per_node={num_neuron_cores}", f"{tmpdirname}/code.py"]
 
-            def get_outputs_from_process(process) -> Tuple[str, str]:
-                stdout, stderr = process.communicate()
-
-                stdout = stdout.decode("utf-8")
-                stderr = stderr.decode("utf-8")
-
-                if stdout == "":
-                    stdout = "N/A"
-                if stderr == "":
-                    stderr = "N/A"
-                return stdout, stderr
-
             # When running the test in parallel, we need 2 rendez-vous endpoints: one for the script running the
             # original model and one for the script running the parallel model.
             rdzv_endpoint_host = "localhost"
@@ -220,12 +208,13 @@ class ModelParallelizationTestCase(unittest.TestCase):
                 cmd.insert(1, f"--rdzv_endpoint={rdzv_endpoint_host}:{rdzv_endpoint_port}")
                 env["NEURON_RT_VISIBLE_CORES"] = f"0-{num_neuron_cores - 1}"
 
-            p_original = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+            p_original = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
 
             # When running tests in parallel, synchronization is done after both processes started.
             if not run_test_in_parallel:
-                stdout, stderr = get_outputs_from_process(p_original)
-                full_output = f"Original model standard output:\n{stdout}\nOriginal model standard error:\n{stderr}"
+                stdout, _ = p_original.communicate()
+                stdout = stdout.decode("utf-8")
+                full_output = f"Original model standard output:\n{stdout}"
                 print(full_output)
 
             # Parallel model.
@@ -234,15 +223,17 @@ class ModelParallelizationTestCase(unittest.TestCase):
                 # Updating the rendez-vous endpoint for the parallel model process.
                 cmd[1] = f"--rdzv_endpoint={rdzv_endpoint_host}:{rdzv_endpoint_port + 1}"
                 env["NEURON_RT_VISIBLE_CORES"] = f"{num_neuron_cores}-{2 * num_neuron_cores - 1}"
-            p_parallel = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+            p_parallel = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
 
             if run_test_in_parallel:
-                stdout, stderr = get_outputs_from_process(p_original)
-                full_output = f"Original model standard output:\n{stdout}\nOriginal model standard error:\n{stderr}"
+                stdout, _ = p_original.communicate()
+                stdout = stdout.decode("utf-8")
+                full_output = f"Original model standard output:\n{stdout}"
                 print(full_output)
 
-            stdout, stderr = get_outputs_from_process(p_parallel)
-            full_output = f"Parallel model standard output:\n{stdout}\nParallel model standard error:\n{stderr}"
+            stdout, _ = p_parallel.communicate()
+            stdout = stdout.decode("utf-8")
+            full_output = f"Parallel model standard output:\n{stdout}"
             print(full_output)
 
             temporary_dir = Path(tmpdirname)

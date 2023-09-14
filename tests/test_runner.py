@@ -24,7 +24,7 @@ from optimum.neuron.utils.cache_utils import (
     load_custom_cache_repo_name_from_hf_home,
     set_custom_cache_repo_name_in_hf_home,
 )
-from optimum.neuron.utils.compilation_utils import ExampleRunner
+from optimum.neuron.utils.runner import ExampleRunner
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
 
@@ -71,11 +71,7 @@ class TestExampleRunner(TestCase):
     @parameterized.expand(TO_TEST)
     def test_run_example(self, task, model_name_or_path, sequence_length):
         runner = ExampleRunner(model_name_or_path, task)
-        returncode, stdout, stderr = runner.run(
-            1, "bf16", 1, sequence_length=sequence_length, max_steps=10, save_steps=5
-        )
-        print(f"Standard output:\n{stdout}")
-        print("=" * 50)
-        print(f"Standard error:\n{stderr}")
+        returncode, stdout = runner.run(1, "bf16", 1, sequence_length=sequence_length, max_steps=10, save_steps=5)
+        print(stdout)
         if returncode != 0:
-            self.fail(f"ExampleRunner failed for task {task}.\nStandard output:\n{stdout}\nStandard error:\b{stderr}")
+            self.fail(f"ExampleRunner failed for task {task}.\nStandard output:\n{stdout}")

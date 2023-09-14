@@ -1,4 +1,5 @@
 import copy
+import logging
 from abc import ABC
 from enum import Enum
 from typing import List, Optional, Tuple
@@ -21,6 +22,11 @@ from .pb.generate_pb2 import (
     InfoResponse,
     Request,
 )
+
+
+# Disable optimum-neuron warnings as it seems to block the server after a while
+optimum_logger = logging.getLogger("optimum.neuron")
+optimum_logger.setLevel("CRITICAL")
 
 
 class Generator(ABC):
@@ -151,7 +157,7 @@ class Slot:
         self._generation_config.max_new_tokens = request.stopping_parameters.max_new_tokens
         # TODO: stop_sequences, ignore_eos_token
 
-    def reset(self, input_ids, selector):
+    def reset(self, input_ids: torch.LongTensor, selector: TokenSelector):
         """Reset the slot for the next generation.
 
         Args:
@@ -160,7 +166,7 @@ class Slot:
             selector: (`optimum.neuron.generation.TokenSelector`):
                 An object implementing the updated token selection logic.
         """
-        self._tokens = input_ids
+        self._tokens = input_ids.clone()
         self._selector = selector
 
     def pause(self):
@@ -207,7 +213,7 @@ class Slot:
         Return:
             `torch.LongTensor`: A scalar torch.LongTensor` containing the selected token.
         """
-        return self._selector.select(input_ids, logits)
+        return self._selector.select(input_ids, logits)[0]
 
     @property
     def stopped(self) -> bool:
@@ -248,7 +254,7 @@ class NeuronGenerator(Generator):
         dtype = getattr(self.model.config, "torch_dtype", "float32")
         return InfoResponse(
             requires_padding=True,
-            dtype=dtype,
+            dtype=str(dtype),
             device_type="xla",
         )
 
@@ -370,6 +376,11 @@ class NeuronGenerator(Generator):
             slot_input_ids = input_ids[i : i + 1, :]
             next_token = slot.select(slot_input_ids, next_token_logits)
             next_token_text = self.tokenizer.decode(next_token)
+            if not slot.generated_text.endswith(" ") and not next_token_text.startswith(" "):
+                # Some tokenizers do not prepend spaces automatically when decoding a single token
+                contextual_text = self.tokenizer.decode([slot.next_token, next_token])
+                if contextual_text[: -len(next_token_text)].endswith(" "):
+                    next_token_text = " " + next_token_text
             slot.append(next_token, next_token_text)
             generated_text = None
             finish_reason = None
@@ -447,6 +458,7 @@ class NeuronGenerator(Generator):
         Args:
             model_id (`str`):
                 The *model_id* of a model on the HuggingFace hub or the path to a local model.
+                In either case, the hub or local path must also contain a Tokenizer.
             revision (`str`):
                 The revision of the model on the HuggingFace hub.
 
