@@ -24,7 +24,7 @@ from ...neuron.utils.cache_utils import (
     load_custom_cache_repo_name_from_hf_home,
     set_custom_cache_repo_name_in_hf_home,
 )
-from ...neuron.utils.compilation_utils import ExampleRunner
+from ...neuron.utils.runner import ExampleRunner
 from ...utils import logging
 from ..base import BaseOptimumCLICommand, CommandInfo
 
