@@ -1,4 +1,5 @@
 import copy
+import logging
 from abc import ABC
 from enum import Enum
 from typing import List, Optional, Tuple
@@ -21,6 +22,11 @@ from .pb.generate_pb2 import (
     InfoResponse,
     Request,
 )
+
+
+# Disable optimum-neuron warnings as it seems to block the server after a while
+optimum_logger = logging.getLogger("optimum.neuron")
+optimum_logger.setLevel("CRITICAL")
 
 
 class Generator(ABC):
@@ -151,7 +157,7 @@ class Slot:
         self._generation_config.max_new_tokens = request.stopping_parameters.max_new_tokens
         # TODO: stop_sequences, ignore_eos_token
 
-    def reset(self, input_ids, selector):
+    def reset(self, input_ids: torch.LongTensor, selector: TokenSelector):
         """Reset the slot for the next generation.
 
         Args:
@@ -160,7 +166,7 @@ class Slot:
             selector: (`optimum.neuron.generation.TokenSelector`):
                 An object implementing the updated token selection logic.
         """
-        self._tokens = input_ids
+        self._tokens = input_ids.clone()
         self._selector = selector
 
     def pause(self):
