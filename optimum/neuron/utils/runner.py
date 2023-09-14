@@ -15,6 +15,7 @@
 """Utilities to be able to perform model compilation easily."""
 
 import os
+import codecs
 import re
 import subprocess
 from enum import Enum
@@ -191,6 +192,8 @@ class ExampleRunner:
             else:
                 self.example_dir = example_dir
 
+        if use_venv:
+            raise NotImplementedError("use_venv=True is not supported yet.")
         self.use_venv = use_venv
         self.should_install_requirements = install_requirements
         self.venv_dir = TemporaryDirectory()
@@ -505,10 +508,10 @@ class ExampleRunner:
 
                     print(f"RUNNING PRECOMPILATION COMMAND:\n{' '.join(precompilation_cmd)}")
 
-                    proc = subprocess.Popen(precompilation_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                    stdout, stderr = proc.communicate()
+                    proc = subprocess.Popen(precompilation_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                    stdout, _ = proc.communicate()
                     stdout = stdout.decode("utf-8")
-                    stderr = stderr.decode("utf-8")
+                    stderr = stdout
 
                     if print_outputs:
                         print(f"Precompilation standard output:\n{stdout}")
@@ -517,13 +520,27 @@ class ExampleRunner:
             cmd = split_args_and_value_in_command(cmd)
             print(f"RUNNING COMMAND:\n{' '.join(cmd)}")
 
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            stdout, stderr = proc.communicate()
-            stdout = stdout.decode("utf-8")
-            stderr = stderr.decode("utf-8")
-            if print_outputs:
-                print(f"Standard output:\n{stdout}")
-                print(f"Standard error:\n{stderr}")
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            stdout = []
+            decoder = codecs.getincrementaldecoder("utf-8")()
+            while True:
+                output = proc.stdout.read(128)
+                output = decoder.decode(output)
+                if output == "" and proc.poll() is not None:
+                    break
+                if output != "":
+                    stdout.append(output)
+                    if print_outputs:
+                        print(output)
+            stdout = "".join(stdout)
+            stderr = stdout
+
+            # stdout, stderr = proc.communicate()
+            # stdout = stdout.decode("utf-8")
+            # stderr = stderr.decode("utf-8")
+            # if print_outputs:
+            #     print(f"Standard output:\n{stdout}")
+            #     print(f"Standard error:\n{stderr}")
 
         tmpdir.cleanup()
 

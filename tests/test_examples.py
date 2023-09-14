@@ -59,7 +59,6 @@ if os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI", None) is not None:
 
 CACHE_REPO_NAME = "optimum-internal-testing/optimum-neuron-cache-for-testing"
 
-USE_VENV = False  # os.environ.get("USE_VENV", "true") == "true"
 
 
 class TPSupport(str, Enum):
@@ -78,100 +77,101 @@ class TPSupport(str, Enum):
     NONE = "none"
 
 
-class Priority(str, Enum):
+class Coverage(str, Enum):
     LOW = "low"
     MIDDLE = "middle"
     HIGH = "high"
     ALL = "all"
 
 
-PRIORITY = Priority(os.environ.get("PRIORITY", "all"))
+COVERAGE = Coverage(os.environ.get("COVERAGE", "all"))
 RUN_TINY = string_to_bool(os.environ.get("RUN_TINY", "false"))
+USE_VENV = string_to_bool(os.environ.get("USE_VENV", "true"))
 
 MODELS_TO_TEST_MAPPING = {
     "albert": (
         "albert-base-v2",
         TPSupport.NONE,
-        Priority.LOW,
+        Coverage.LOW,
         {"num_hidden_layers": 4},
     ),
     "bart": (
         "facebook/bart-base",
         TPSupport.NONE,
-        Priority.MIDDLE,
+        Coverage.MIDDLE,
         {"encoder_layers": 2, "decoder_layers": 2},
     ),
     "bert": (
         "bert-base-uncased",
         TPSupport.FULL,
-        Priority.HIGH,
+        Coverage.HIGH,
         {"num_hidden_layers": 4},
     ),
     "camembert": (
         "camembert-base",
         TPSupport.NONE,
-        Priority.LOW,
+        Coverage.LOW,
         {"num_hidden_layers": 4},
     ),
     "distilbert": (
         "distilbert-base-uncased",
         TPSupport.NONE,
-        Priority.LOW,
+        Coverage.LOW,
         {"num_hidden_layers": 4},
     ),
     "electra": (
         "google/electra-base-discriminator",
         TPSupport.NONE,
-        Priority.LOW,
+        Coverage.LOW,
         {"num_hidden_layers": 4},
     ),
     "gpt2": (
         "gpt2",
         TPSupport.NONE,
-        Priority.MIDDLE,
+        Coverage.MIDDLE,
         {"num_hidden_layers": 4},
     ),
     "gpt_neo": (
         "EleutherAI/gpt-neo-125M",
         TPSupport.PARTIAL,
-        Priority.HIGH,
+        Coverage.HIGH,
         {"num_hidden_layers": 4, "attention_types": [[["global", "local"], 2]]},
     ),
     "marian": (
         "Helsinki-NLP/opus-mt-en-ro",
         TPSupport.NONE,
-        Priority.MIDDLE,
+        Coverage.MIDDLE,
         {"encoder_layers": 2, "decoder_layers": 2},
     ),
     "roberta": (
         "roberta-base",
         TPSupport.PARTIAL,
-        Priority.LOW,
+        Coverage.LOW,
         {"num_hidden_layers": 4},
     ),
     "t5": (
         "t5-small",
         TPSupport.FULL,
-        Priority.HIGH,
+        Coverage.HIGH,
         {"num_hidden_layers": 2},
     ),
     "vit": (
         "google/vit-base-patch16-224-in21k",
         TPSupport.NONE,
-        Priority.HIGH,
+        Coverage.HIGH,
         {"num_hidden_layers": 4},
     ),
     "xlm-roberta": (
         "xlm-roberta-base",
         TPSupport.NONE,
-        Priority.LOW,
+        Coverage.LOW,
         {"num_hidden_layers": 4},
     ),
     # TODO: issue with this model for now.
     "m2m_100": (
         "facebook/m2m100_418M",
         TPSupport.NONE,
-        Priority.MIDDLE,
+        Coverage.MIDDLE,
         {"encoder_layers": 2, "decoder_layers": 2},
     ),
     # TODO: Llama
@@ -190,10 +190,10 @@ def _get_supported_models_for_script(
         to_exclude = set()
     supported_models = []
     for model_type, entry in models_to_test.items():
-        model_name, tp_support, priority, config_overrides = entry
+        model_name, tp_support, coverage, config_overrides = entry
         if model_type in to_exclude:
             continue
-        if PRIORITY != "all" and PRIORITY != priority:
+        if COVERAGE != "all" and COVERAGE != coverage:
             continue
         if CONFIG_MAPPING[model_type] in task_mapping:
             if model_type == "bart" and task_mapping is not MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING:
@@ -368,7 +368,7 @@ class ExampleTestMeta(type):
                     zero_1=zero_1,
                     output_dir=tmpdirname,
                     # TODO: enable precompilation once it's working with subprocess.
-                    do_precompilation=False,
+                    do_precompilation=True,
                     print_outputs=True,
                 )
                 assert returncode == 0
