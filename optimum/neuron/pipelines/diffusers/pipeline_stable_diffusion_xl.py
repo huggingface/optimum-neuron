@@ -16,20 +16,11 @@ import logging
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
-
-from ....utils import is_diffusers_available
-
-
-if is_diffusers_available():
-    from diffusers import StableDiffusionXLPipeline
-    from diffusers.loaders import LoraLoaderMixin, TextualInversionLoaderMixin
-    from diffusers.pipelines.stable_diffusion_xl import StableDiffusionXLPipelineOutput
-    from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl import rescale_noise_cfg
-    from diffusers.utils.torch_utils import randn_tensor
-else:
-    raise ImportError(
-        "Stable diffusion XL requires the diffusers library but it was not found in your environment. You can install it with pip: `pip install diffusers`. Please note that you may need to restart your runtime after installation."
-    )
+from diffusers import StableDiffusionXLPipeline
+from diffusers.loaders import LoraLoaderMixin, TextualInversionLoaderMixin
+from diffusers.pipelines.stable_diffusion_xl import StableDiffusionXLPipelineOutput
+from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl import rescale_noise_cfg
+from diffusers.utils.torch_utils import randn_tensor
 
 
 logger = logging.getLogger(__name__)
