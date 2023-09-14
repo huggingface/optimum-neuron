@@ -21,7 +21,7 @@ import sys
 from enum import Enum
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TypeVar, Union
 from unittest import TestCase
 
 from huggingface_hub import HfFolder
@@ -49,11 +49,8 @@ from optimum.neuron.utils.testing_utils import is_trainium_test
 path_tests = Path(__file__).parent
 sys.path.insert(0, str(path_tests))
 
-# T =  TypeVar("T")
-# TypeOrDictOfType = Union[T, Dict[str, T]]
-# class TypeOrDictOfType(Generic[T]):  # This is fine
-#     pass
-# TypeOrDictOfType[
+T = TypeVar("T")
+TypeOrDictOfType = Union[T, Dict[str, T]]
 
 
 TOKEN = HfFolder.get_token()
@@ -353,7 +350,7 @@ class ExampleTestMeta(type):
             )
 
             with TemporaryDirectory() as tmpdirname:
-                returncode, stdout, stderr = runner.run(
+                returncode, stdout, _ = runner.run(
                     self.NUM_CORES,
                     "bf16",
                     train_batch_size,
@@ -412,11 +409,11 @@ class ExampleTesterBase(TestCase):
     NUM_EPOCHS: int = 1
     MAX_STEPS: Optional[int] = None
 
-    LEARNING_RATE: float = 1e-4
-    TRAIN_BATCH_SIZE: int = 2
-    EVAL_BATCH_SIZE: int = 2
-    GRADIENT_ACCUMULATION_STEPS: int = 1
-    SEQUENCE_LENGTH: Optional[Union[int, Tuple[int, int]]] = None
+    LEARNING_RATE: TypeOrDictOfType[float] = 1e-4
+    TRAIN_BATCH_SIZE: TypeOrDictOfType[int] = 2
+    EVAL_BATCH_SIZE: TypeOrDictOfType[int] = 2
+    GRADIENT_ACCUMULATION_STEPS: TypeOrDictOfType[int] = 1
+    SEQUENCE_LENGTH: TypeOrDictOfType[Optional[Union[int, Tuple[int, int]]]] = None
 
     NUM_CORES: int = 32
     LOGGING_STEPS: int = 1
@@ -424,13 +421,13 @@ class ExampleTesterBase(TestCase):
 
     TRAIN_LOSS_THRESHOLD: float
     TRAIN_LOSS_THRESHOLD_FOR_TINY: float
-    CHECK_THAT_LOSS_IS_DECREASING: bool = True
+    CHECK_THAT_LOSS_IS_DECREASING: TypeOrDictOfType[bool] = True
 
     # Camembert is pretrained on French.
-    DO_EVAL: bool
+    DO_EVAL: TypeOrDictOfType[bool]
     MAX_EVAL_SAMPLES: Optional[int] = None
-    EVAL_SCORE_THRESHOLD: float
-    EVAL_SCORE_THRESHOLD_FOR_TINY: float
+    EVAL_SCORE_THRESHOLD: TypeOrDictOfType[float]
+    EVAL_SCORE_THRESHOLD_FOR_TINY: TypeOrDictOfType[float]
     EVAL_SCORE_GREATER_IS_BETTER: bool
     SCORE_NAME: str
 

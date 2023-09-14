@@ -150,7 +150,7 @@ class ExampleRunner:
                 "--target_lang en",
                 "--pad_to_max_length",
                 "--prediction_loss_only",
-                {"t5": "--source_prefix 'Translate Romanian to Enligsh: '"},
+                {"t5": "--source_prefix 'Translate Romanian to English: '"},
             ],
         },
         "image-classification": {
