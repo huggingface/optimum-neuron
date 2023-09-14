@@ -32,8 +32,6 @@ from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..exporters.tasks import TasksManager
 from ..utils import is_diffusers_available
 from .modeling_base import NeuronBaseModel
-from .pipelines.diffusers.pipeline_stable_diffusion import StableDiffusionPipelineMixin
-from .pipelines.diffusers.pipeline_stable_diffusion_xl import StableDiffusionXLPipelineMixin
 from .utils import (
     DIFFUSION_MODEL_TEXT_ENCODER_2_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_NAME,
@@ -60,6 +58,9 @@ if is_diffusers_available():
     from diffusers.image_processor import VaeImageProcessor
     from diffusers.schedulers.scheduling_utils import SCHEDULER_CONFIG_NAME
     from diffusers.utils import CONFIG_NAME, is_invisible_watermark_available
+
+    from .pipelines.diffusers.pipeline_stable_diffusion import StableDiffusionPipelineMixin
+    from .pipelines.diffusers.pipeline_stable_diffusion_xl import StableDiffusionXLPipelineMixin
 
 
 if TYPE_CHECKING:
