@@ -26,6 +26,10 @@ if is_diffusers_available():
     from diffusers.pipelines.stable_diffusion_xl import StableDiffusionXLPipelineOutput
     from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl import rescale_noise_cfg
     from diffusers.utils.torch_utils import randn_tensor
+else:
+    raise ImportError(
+        "Stable diffusion XL requires the diffusers library but it was not found in your environment. You can install it with pip: `pip install diffusers`. Please note that you may need to restart your runtime after installation."
+    )
 
 
 logger = logging.getLogger(__name__)
