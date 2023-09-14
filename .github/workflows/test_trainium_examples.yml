@@ -1,12 +1,22 @@
-name: Optimum Neuron - Example scripts test on Trainium
+name: Optimum Neuron - Test Example Scripts
 
 on:
-  push:
-    branches:
-      - main
-  schedule:
-    # At the end of everyday
-    - cron: 0 22 * * *
+  workflow_dispatch:
+    inputs: 
+      priority: 
+        description: The priority of the models to test, useful to perform filtering
+        options:
+          - all
+          - high
+          - middle
+          - low
+        required: true
+      model_size: 
+        description: The size of the models to tests
+        options:
+          - regular
+          - tiny
+        required: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -55,16 +65,15 @@ jobs:
     runs-on: ${{ needs.start-runner.outputs.label }} # run the job on the newly created runner
     env:
       AWS_REGION: us-east-1
+      RUN_TINY: ${{ github.event.inputs.model_size == "tiny" && "1" || "0" }}
     steps:
       - name: Checkout
         uses: actions/checkout@v2
       - name: Install Python dependencies
         run: pip install .[tests,neuronx]
-      - name: Install python3.8-venv
-        run: sudo apt update; sudo apt install -y python3.8-venv
       - name: Run example tests on Neuron cores
         run: |
-          HF_TOKEN_OPTIMUM_NEURON_CI=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} USE_VENV="false" RUN_SLOW=1 pytest -m "is_trainium_test" tests/test_examples.py -v
+          HF_TOKEN_OPTIMUM_NEURON_CI=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} USE_VENV="false" PRIORITY=${{ github.event.inputs.priority }} RUN_TINY=$RUN_TINY RUN_SLOW=1 pytest -m "is_trainium_test" tests/test_examples.py -v
   stop-runner:
     name: Stop self-hosted EC2 runner
     needs:

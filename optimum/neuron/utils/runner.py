@@ -340,19 +340,12 @@ class ExampleRunner:
 
         config = AutoConfig.from_pretrained(directory)
 
-        # config_cls = config.__class__
-        # parameters = inspect.signature(config_cls).parameters
-        # new_kwargs = {k: v for k, v in config.to_dict().items() if k in parameters}
-
         for name, value in config_overrides.items():
             type_of_attribute = type(getattr(config, name))
             if type(value) is not type_of_attribute:
                 value = type_of_attribute(value)
             setattr(config, name, value)
-            # new_kwargs[name] = value
 
-        # new_config = config_cls(**new_kwargs)
-        # new_config.save_pretrained(directory)
         config.save_pretrained(directory)
 
         return directory
