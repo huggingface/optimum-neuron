@@ -349,7 +349,7 @@ class ExampleTestMeta(type):
             )
 
             with TemporaryDirectory() as tmpdirname:
-                returncode, stdout, _ = runner.run(
+                returncode, stdout = runner.run(
                     self.NUM_CORES,
                     "bf16",
                     train_batch_size,

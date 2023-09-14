@@ -90,6 +90,22 @@ class Precision(str, Enum):
     bf16 = "bf16"
 
 
+def run_command_with_realtime_output(cmd: List[str]) -> Tuple[int, str]:
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    stdout = []
+    decoder = codecs.getincrementaldecoder("utf-8")()
+    while True:
+        output = proc.stdout.read(1)
+        output = decoder.decode(output)
+        if output == "" and proc.poll() is not None:
+            break
+        if output != "":
+            stdout.append(output)
+            print(output, end="")
+    stdout = "".join(stdout)
+    return proc.returncode, stdout
+
+
 class ExampleRunner:
     _TASK_TO_COMMAND_ARGUMENTS = {
         "masked-lm": {
@@ -374,7 +390,7 @@ class ExampleRunner:
         output_dir: Optional[Union[Path, str]] = None,
         do_precompilation: bool = False,
         print_outputs: bool = False,
-    ) -> Tuple[int, str, str]:
+    ) -> Tuple[int, str]:
         if num_cores <= 0 or num_cores > 32:
             raise ValueError("The number of Neuron cores to use must be between 1 and 32.")
         if isinstance(precision, str) and not isinstance(precision, Precision):
@@ -508,40 +524,25 @@ class ExampleRunner:
 
                     print(f"RUNNING PRECOMPILATION COMMAND:\n{' '.join(precompilation_cmd)}")
 
-                    proc = subprocess.Popen(precompilation_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-                    stdout, _ = proc.communicate()
-                    stdout = stdout.decode("utf-8")
-                    stderr = stdout
-
                     if print_outputs:
-                        print(f"Precompilation standard output:\n{stdout}")
-                        print(f"Precompilation standard error:\n{stderr}")
+                        returncode, stdout = run_command_with_realtime_output(precompilation_cmd)
+                    else:
+                        proc = subprocess.Popen(precompilation_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                        stdout, _ = proc.communicate()
+                        stdout = stdout.decode("utf-8")
+                        returncode = proc.returncode
 
             cmd = split_args_and_value_in_command(cmd)
             print(f"RUNNING COMMAND:\n{' '.join(cmd)}")
 
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-            stdout = []
-            decoder = codecs.getincrementaldecoder("utf-8")()
-            while True:
-                output = proc.stdout.read(128)
-                output = decoder.decode(output)
-                if output == "" and proc.poll() is not None:
-                    break
-                if output != "":
-                    stdout.append(output)
-                    if print_outputs:
-                        print(output)
-            stdout = "".join(stdout)
-            stderr = stdout
-
-            # stdout, stderr = proc.communicate()
-            # stdout = stdout.decode("utf-8")
-            # stderr = stderr.decode("utf-8")
-            # if print_outputs:
-            #     print(f"Standard output:\n{stdout}")
-            #     print(f"Standard error:\n{stderr}")
+            if print_outputs:
+                returncode, stdout = run_command_with_realtime_output(cmd)
+            else:
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                stdout, _ = proc.communicate()
+                stdout = stdout.decode("utf-8")
+                returncode = proc.returncode
 
         tmpdir.cleanup()
 
-        return proc.returncode, stdout, stderr
+        return returncode, stdout
