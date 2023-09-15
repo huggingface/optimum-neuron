@@ -98,7 +98,7 @@ trainer = Trainer(
 You can compile and export your 🤗 Transformers models to a serialized format before inference on Neuron devices:
 
 ```bash
-optimum-cli export neuron 
+optimum-cli export neuron \
   --model distilbert-base-uncased-finetuned-sst-2-english \
   --batch_size 1 \
   --sequence_length 32 \
