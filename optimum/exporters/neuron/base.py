@@ -346,7 +346,7 @@ class NeuronConfig(ExportConfig, ABC):
             return ModelWrapper(model, list(dummy_inputs.keys()))
 
 
-class NeuronDecoderConfig(NeuronConfig):
+class NeuronDecoderConfig(ExportConfig):
     """
     Base class for configuring the export of Neuron Decoder models
 
