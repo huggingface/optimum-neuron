@@ -27,6 +27,7 @@ from transformers.utils import WEIGHTS_NAME
 
 from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
+from .parallel_layers import LayerNormSequenceParallelizer
 from .utils import TENSOR_PARALLEL_SHARDS_DIR_NAME, ParameterMetadata, WeightInformation, load_tensor_for_weight
 
 
@@ -62,6 +63,8 @@ class Parallelizer(ABC):
     """
     Base abstract class that handles model parallelism.
     """
+
+    SEQUENCE_PARALLEL_LAYERNORM_PATTERNS: Optional[List[str]] = None
 
     def __init__(self):
         self._validate_required_libaries_are_available()
@@ -115,6 +118,15 @@ class Parallelizer(ABC):
         """
 
     @classmethod
+    def patch_attention_forward_for_sequence_parallelism(
+        cls, model: "PreTrainedModel", sequence_parallel_enabled: bool
+    ):
+        if sequence_parallel_enabled:
+            raise NotImplementedError(
+                f"No patching for the attention mechansim for sequence parallelism was implemented for {model.__class__}"
+            )
+
+    @classmethod
     def parallelize(
         cls,
         model: "PreTrainedModel",
@@ -143,9 +155,27 @@ class Parallelizer(ABC):
         Returns:
             `PreTrainedModel`: The parallelized model.
         """
-        model = cls._parallelize(
-            model, device=device, parallelize_embeddings=parallelize_embeddings, sequence_parallel_enabled=sequence_parallel_enabled,
+        if sequence_parallel_enabled and cls.SEQUENCE_PARALLEL_LAYERNORM_PATTERNS is None:
+            raise NotImplementedError(f"Sequence parallelism is not supported for {model.__class__}.")
+
+        # Patching both LayerNorms and attention forward methods for sequence parallelism if needed.
+        layer_norm_qualified_name_patterns = (
+            cls.SEQUENCE_PARALLEL_LAYERNORM_PATTERNS if cls.SEQUENCE_PARALLEL_LAYERNORM_PATTERNS is not None else []
         )
+        layer_norm_sequence_parallelizer = LayerNormSequenceParallelizer(
+            sequence_parallel_enabled, layer_norm_qualified_name_patterns
+        )
+        model = layer_norm_sequence_parallelizer.sequence_parallelize(model)
+        # TODO: choose an API between returning a model changed in place or not returning anything at all.
+        cls.patch_attention_forward_for_sequence_parallelism(model, sequence_parallel_enabled)
+
+        model = cls._parallelize(
+            model,
+            device=device,
+            parallelize_embeddings=parallelize_embeddings,
+            sequence_parallel_enabled=sequence_parallel_enabled,
+        )
+
         weight_map = getattr(model, "_weight_map", {})
         with torch.no_grad():
             modules_to_initialize = []

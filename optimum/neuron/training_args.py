@@ -59,6 +59,10 @@ class NeuronTrainingArgumentsMixin:
         default=True,
         metadata={"help": "Whether or not the embedding parallelization when doing TP should be disabled."},
     )
+    sequence_parallel_enabled: bool = field(
+        default=False,
+        metadata={"help": "Whether or not to enable sequence parallelism."},
+    )
 
     def __post_init__(self):
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`

@@ -40,10 +40,10 @@ class BertParallelEmbedding(ParallelEmbedding):
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
-        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+        sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
     ) -> "torch.nn.Module":
-        layer = super().transform(model, layer, orig_to_parallel=orig_to_parallel, device=device)
+        layer = super().transform(model, layer, sequence_parallel_enabled=sequence_parallel_enabled, device=device)
         from transformers.models.bert.modeling_bert import BertLMPredictionHead
 
         for mod in layer.modules():
@@ -69,6 +69,45 @@ class BertParallelCrossEntropy(ParallelCrossEntropy):
 
 
 class BertParallelizer(Parallelizer):
+    SEQUENCE_PARALLEL_LAYERNORM_PATTERNS = [
+        "bert.embeddings.LayerNorm",
+        "bert.encoder.layer.[0-9]+.attention.output.LayerNorm",
+        "bert.encoder.layer.[0-9]+.output.LayerNorm",
+    ]
+
+    @classmethod
+    def patch_attention_forward_for_sequence_parallelism(
+        cls, model: "PreTrainedModel", sequence_parallel_enabled: bool
+    ):
+        from transformers.models.bert.modeling_bert import BertSelfAttention
+
+        def create_sequence_parallel_attention_forward(attention_forward):
+            import functools
+
+            @functools.wraps(attention_forward)
+            def sequence_parallel_attention_forward(self, *args, **kwargs):
+                outputs = attention_forward(*args, **kwargs)
+                context_layer = outputs[0]
+                if sequence_parallel_enabled:
+                    # [B, S, hidden_dim] -> [S, B, hidden_dim]
+                    context_layer = context_layer.transpose(0, 1)
+                return (context_layer,) + outputs[1:]
+
+            return sequence_parallel_attention_forward.__get__(attention_forward.__self__)
+
+        def transpose_for_scores(self, x: "torch.Tensor") -> "torch.Tensor":
+            new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
+            x = x.view(new_x_shape)
+            if sequence_parallel_enabled:
+                # [S, B, num_heads, head_dim] -> [B, num_heads, S, head_dim]
+                return x.permute(1, 2, 0, 3)
+            return x.permute(0, 2, 1, 3)
+
+        for module in model.modules():
+            if isinstance(module, BertSelfAttention):
+                module.forward = create_sequence_parallel_attention_forward(module.forward)
+                module.transpose_for_scores = transpose_for_scores.__get__(module)
+
     @classmethod
     def _parallelize(
         cls,
@@ -78,7 +117,9 @@ class BertParallelizer(Parallelizer):
         sequence_parallel_enabled: bool = False,
     ) -> "PreTrainedModel":
         if parallelize_embeddings:
-            model = BertParallelEmbedding.transform(model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device)
+            model = BertParallelEmbedding.transform(
+                model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+            )
         for layer in model.bert.encoder.layer:
             layer.attention.self = BertParallelSelfAttention.transform(
                 model,
@@ -95,7 +136,9 @@ class BertParallelizer(Parallelizer):
         # Valid because we currently parallelize the cross-entropy loss only for language-modeling tasks where the
         # embeddings and the LM head are tied.
         if parallelize_embeddings:
-            model = BertParallelCrossEntropy.transform(model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device)
+            model = BertParallelCrossEntropy.transform(
+                model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+            )
         return model
 
 

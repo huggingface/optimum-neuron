@@ -14,12 +14,15 @@
 # limitations under the License.
 """Classes related to parallel versions of common blocks in Transformers models."""
 
+import re
 from abc import ABC, abstractclassmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 
 import torch
 from torch.nn.modules.loss import _WeightedLoss
+
+from optimum.neuron.utils.import_utils import is_neuronx_distributed_available
 
 from ...utils import NormalizedConfigManager, logging
 from ..utils import patch_everywhere, patch_within_function
@@ -43,6 +46,8 @@ logger = logging.get_logger()
 # Just for testing purposes, setting that to True will feed a copy of the  input to `parallel_cross_entropy` which
 # changes inputs inplace. This way the original input is not transformed and can be used in tests for comparison.
 _PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT: bool = False
+
+_shape_t = Union[int, List[int], torch.Size]
 
 
 class ParallelLayer(ABC):
@@ -703,3 +708,75 @@ class ParallelCrossEntropy(ParallelLayer):
         cls.patch_cross_entropy(model)
 
         return layer
+
+
+if is_neuronx_distributed_available():
+    from neuronx_distributed.parallel_layers import mappings
+    from neuronx_distributed.parallel_layers.layer_norm import LayerNorm
+
+    class _ScatterToSequenceParallelRegion(torch.autograd.Function):
+        """Splits the input and keep only the corresponding chunk to the rank."""
+
+        @staticmethod
+        def symbolic(graph, input_):
+            return mappings._split_along_first_dim(input_)
+
+        @staticmethod
+        def forward(ctx, input_):
+            return mappings._split_along_first_dim(input_)
+
+        @staticmethod
+        def backward(ctx, grad_output):
+            return mappings._gather_along_first_dim(grad_output)
+
+    # TODO: can be removed when new release is out since it'll be upstreamd to `neuronx_distributed`.
+    def scatter_to_sequence_parallel_region(input_):
+        return _ScatterToSequenceParallelRegion.apply(input_)
+
+    class SequenceParallelLayerNorm(LayerNorm):
+        @property
+        def is_first_layer_norm(self):
+            return getattr(self, "_is_first_layer_norm", False)
+
+        @is_first_layer_norm.setter
+        def is_first_layer_norm(self, value: bool):
+            self._is_first_layer_norm = value
+
+        def forward(self, input_: torch.Tensor) -> torch.Tensor:
+            if self.sequence_parallel_enabled and self.is_first_layer_norm:
+                input_ = input_.transpose(0, 1).contiguous()
+                input_ = scatter_to_sequence_parallel_region(input_)
+            return super().forward(input_)
+
+else:
+
+    class SequenceParallelLayerNorm:
+        pass
+
+
+class LayerNormSequenceParallelizer:
+    def __init__(self, sequence_parallel_enabled: bool, layer_norm_qualified_name_patterns: List[str]):
+        self.sequence_parallel_enabled = sequence_parallel_enabled
+        self.layer_norm_qualified_name_patterns = [
+            re.compile(pattern) for pattern in layer_norm_qualified_name_patterns
+        ]
+
+    # @requires_neuronx_distributed
+    def parallelize_layernorm(self, module: torch.nn.LayerNorm, is_first_layer_norm: bool):
+        from neuronx_distributed.parallel_layers.layer_norm import _set_sequence_parallel_enabled
+
+        if not isinstance(module, torch.nn.LayerNorm):
+            raise TypeError(f"Expected torch.nn.LayerNorm but got {type(module)}.")
+        module.__class__ = SequenceParallelLayerNorm
+        module.sequence_parallel_enabled = self.sequence_parallel_enabled
+        module.is_first_layer_norm = is_first_layer_norm
+        if module.elementwise_affine:
+            _set_sequence_parallel_enabled(module.weight, self.sequence_parallel_enabled)
+            _set_sequence_parallel_enabled(module.bias, self.sequence_parallel_enabled)
+
+    def sequence_parallelize(self, model: "PreTrainedModel") -> "PreTrainedModel":
+        for name, module in model.named_modules():
+            for idx, pattern in enumerate(self.layer_norm_qualified_name_patterns):
+                if re.match(pattern, name):
+                    self.parallelize_layernorm(module, idx == 0)
+        return model

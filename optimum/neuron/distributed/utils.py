@@ -19,7 +19,7 @@ import functools
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, Literal, Optional, Tuple, Type, Union
+from typing import TYPE_CHECKING, Literal, Optional, Tuple, Type, Union
 
 import torch
 from transformers import PretrainedConfig
@@ -287,7 +287,12 @@ def linear_to_parallel_linear(
     kwargs["bias"] = linear_layer.bias is not None
     kwargs["device"] = device
 
-    parallel_linear_layer = parallel_linear_class(linear_layer.in_features, linear_layer.out_features, sequence_parallel_enabled=sequence_parallel_enabled, **kwargs)
+    parallel_linear_layer = parallel_linear_class(
+        linear_layer.in_features,
+        linear_layer.out_features,
+        sequence_parallel_enabled=sequence_parallel_enabled,
+        **kwargs,
+    )
 
     tp_rank = get_tensor_model_parallel_rank()
     row_size, col_size = parallel_linear_layer.weight.shape
@@ -319,8 +324,6 @@ def linear_to_parallel_linear(
                 else:
                     parallel_linear_layer.bias.copy_(linear_layer.bias)
 
-                if orig_to_parallel is not None:
-                    orig_to_parallel[id(linear_layer.bias)] = parallel_linear_layer.bias
         else:
             if embedding_weight_to_tie is not None:
                 parallel_linear_layer.weight = embedding_weight_to_tie
@@ -364,12 +367,6 @@ def linear_to_parallel_linear(
                         parallel_linear_layer.bias.copy_(
                             linear_layer.bias[tp_rank * row_size : (tp_rank + 1) * row_size]
                         )
-
-                if orig_to_parallel is not None:
-                    orig_to_parallel[id(linear_layer.bias)] = parallel_linear_layer.bias
-
-    if orig_to_parallel is not None:
-        orig_to_parallel[id(linear_layer.weight)] = parallel_linear_layer.weight
 
     return parallel_linear_layer
 
@@ -453,8 +450,8 @@ def gqa_key_value_slicing_when_tp_size_greater_than_num_key_value_heads(
     return sliced_linear_layer
 
 
-@requires_torch_xla
 @classmethod
+@requires_torch_xla
 def from_pretrained_for_tp(
     cls,
     pretrained_model_name_or_path: Optional[Union[str, os.PathLike]],

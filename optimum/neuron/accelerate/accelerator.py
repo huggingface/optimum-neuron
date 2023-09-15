@@ -322,7 +322,7 @@ class NeuronAccelerator(Accelerator):
         if not evaluation_mode:
             cpu_ids = [id(v) for v in model.parameters()]
             # TODO: enable self.device (if needed).
-            model = self.state.tp_plugin.parallelize_model(model, return_orig_to_parallel=False, device=None)
+            model = self.state.tp_plugin.parallelize_model(model, device=None)
             if os.environ.get("XLA_USE_BF16", "0") == "1":
                 model.to(torch.bfloat16)
             else:
