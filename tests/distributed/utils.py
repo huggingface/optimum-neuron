@@ -47,6 +47,7 @@ def generate_dummy_labels(
     model: "PreTrainedModel",
     shape: List[int],
     vocab_size: Optional[int] = None,
+    seed: Optional[int] = None,
     device: Optional[torch.device] = None,
 ) -> Dict[str, torch.Tensor]:
     """Generates dummy labels."""
@@ -110,7 +111,12 @@ def generate_dummy_labels(
             raise ValueError(
                 "The vocabulary size needs to be specified to generte dummy labels for language-modeling tasks."
             )
+        if seed is not None:
+            orig_seed = torch.seed()
+            torch.manual_seed(seed)
         labels["labels"] = torch.randint(0, vocab_size, shape, dtype=torch.long, device=device)
+        if seed is not None:
+            torch.manual_seed(orig_seed)
     elif model_class_name in [*get_values(MODEL_FOR_CTC_MAPPING_NAMES)]:
         labels["labels"] = torch.zeros(shape, dtype=torch.float32, device=device)
     else:

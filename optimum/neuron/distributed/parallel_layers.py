@@ -23,7 +23,7 @@ from torch.nn.modules.loss import _WeightedLoss
 
 from ...utils import NormalizedConfigManager, logging
 from ..utils import patch_everywhere, patch_within_function
-from ..utils.require_utils import requires_neuronx_distributed, requires_torch_neuronx
+from ..utils.require_utils import requires_neuronx_distributed
 from .utils import (
     GroupedQueryAttentionInfo,
     WeightInformation,
@@ -38,6 +38,11 @@ if TYPE_CHECKING:
 
 
 logger = logging.get_logger()
+
+
+# Just for testing purposes, setting that to True will feed a copy of the  input to `parallel_cross_entropy` which
+# changes inputs inplace. This way the original input is not transformed and can be used in tests for comparison.
+_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT: bool = False
 
 
 class ParallelLayer(ABC):
@@ -555,12 +560,26 @@ def safe_parallel_cross_entropy(*args, **kwargs):
         raise ValueError("The ignore_index keyword argument is not supported when using parallel cross entropy")
     if kwargs.pop("reduce", None) is not None:
         raise ValueError("The reduce keyword argument is not supported when using parallel cross entropy")
-    if kwargs.pop("reduction", "mean") != "mean":
-        raise ValueError("The reduction keyword argument is not supported when using parallel cross entropy")
+    reduction = kwargs.pop("reduction", "mean")
+    if reduction not in ["mean", "sum", "none"]:
+        raise ValueError(
+            f'The reduction parameter only accepts 3 values: "mean", "sum" and "none", but {reduction} was provided '
+            "here."
+        )
+
     from neuronx_distributed.parallel_layers.loss_functions import parallel_cross_entropy
 
-    loss = parallel_cross_entropy(*args, **kwargs)
-    return loss.mean()
+    input_ = args[0]
+    if _PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT:
+        input_ = input_.clone()
+    loss = parallel_cross_entropy(input_, *args[1:], **kwargs)
+
+    if reduction == "mean":
+        loss = loss.mean()
+    elif reduction == "sum":
+        loss = loss.sum()
+
+    return loss
 
 
 class ParallelCrossEntropyLoss(_WeightedLoss):
@@ -581,22 +600,18 @@ class ParallelCrossEntropyLoss(_WeightedLoss):
         self.ignore_index = ignore_index
         self.label_smoothing = label_smoothing
 
-    @requires_torch_neuronx
     def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        # TODO: find a solution to check wheter an input is parallelized or not.
-        if True:  # tensor_is_parallel(input):
-            output = safe_parallel_cross_entropy(
-                input,
-                target,
-                weight=self.weight,
-                ignore_index=self.ignore_index,
-                reduction=self.reduction,
-                label_smoothing=self.label_smoothing,
-            )
-        else:
-            from torch_neuronx.xla_impl.ops import SimpleCrossEntropyLoss
-
-            output = SimpleCrossEntropyLoss.gen_override().forward(self, input, target)
+        # Original way of computing the cross-entropy in `torch_neuronx`:
+        # from torch_neuronx.xla_impl.ops import SimpleCrossEntropyLoss
+        # output = SimpleCrossEntropyLoss.gen_override().forward(self, input, target)
+        output = safe_parallel_cross_entropy(
+            input.clone(),
+            target,
+            weight=self.weight,
+            ignore_index=self.ignore_index,
+            reduction=self.reduction,
+            label_smoothing=self.label_smoothing,
+        )
         return output
 
 

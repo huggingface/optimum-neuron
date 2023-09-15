@@ -242,9 +242,12 @@ class ModelParallelizationTestCase(unittest.TestCase):
             for name, t in parallel_model_outputs.items():
                 if not isinstance(t, torch.Tensor):
                     continue
+                original_t = original_model_outputs[name]
                 print(f"Testing that {name} match.")
-                print(t, original_model_outputs[name])
-                torch.testing.assert_close(t, original_model_outputs[name])
+                print(f"Original {name}:\nShape: {original_t.shape}\nValue: {original_t}")
+                print(f"Parallel {name}:\nShape: {t.shape}\nValue: {t}")
+                print(t, original_t)
+                torch.testing.assert_close(t, original_t)
                 print("Ok!")
 
     @parameterized.expand(MODELS_TO_TEST)
@@ -274,7 +277,22 @@ class ModelParallelizationTestCase(unittest.TestCase):
             model_name_or_path=model_name_or_path,
             from_config=False,
             with_lazy_load=False,
-            parallelize_embeddings=False,  # Should be True once it's working.
+            parallelize_embeddings=True,
+            overwrite_model_config=config_overwrite,
+        )
+
+    @parameterized.expand(MODELS_TO_TEST)
+    def test_model_parallel_without_parallelizing_embeddings(
+        self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
+    ):
+        self._test_model_parallel(
+            num_neuron_cores=8,
+            tp_size=2,
+            model_class_name=model_class_name,
+            model_name_or_path=model_name_or_path,
+            from_config=False,
+            with_lazy_load=True,
+            parallelize_embeddings=False,
             overwrite_model_config=config_overwrite,
         )
 
@@ -376,13 +394,3 @@ class ModelParallelizationTestCase(unittest.TestCase):
                 "num_key_value_heads": "1",
             },
         )
-
-    # TODO: enable that once it's working.
-    # @parameterized.expand(MODELS_TO_TEST)
-    # def test_model_parallel_without_parallelizing_embeddings(self, model_class_name: str, model_name_or_path: str):
-    #     self._test_model_parallel(model_class_name, model_name_or_path, False, False, False)
-
-    # TODO: enable that.
-    # @parameterized.expand(MODELS_TO_TEST)
-    # def test_model_parallel_from_pretrained_with_lazy_load(self, model_class_name: str, model_name_or_path: str):
-    #     self._test_model_parallel(model_class_name, model_name_or_path, False, True)
