@@ -111,7 +111,6 @@ MODEL_TYPES_TO_TEST = [
     ("bert", "hf-internal-testing/tiny-random-bert"),
     ("roberta", "hf-internal-testing/tiny-random-roberta"),
     ("gpt_neo", "hf-internal-testing/tiny-random-GPTNeoModel"),
-    ("llama", "fxmarty/tiny-llama-fast-tokenizer"),
     ("llama", "anushehchaudry/llama-2-tiny-random"),
     ("t5", "hf-tiny-model-private/tiny-random-T5ForConditionalGeneration", {"d_ff": "64"}),
 ]
