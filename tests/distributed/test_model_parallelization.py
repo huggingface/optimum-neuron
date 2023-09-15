@@ -259,7 +259,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
         self._test_model_parallel(
             num_neuron_cores=8,
             tp_size=2,
-            run_test_in_parallel=False,
+            run_test_in_parallel=True,
             model_class_name=model_class_name,
             model_name_or_path=model_name_or_path,
             from_config=True,
@@ -275,6 +275,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
         self._test_model_parallel(
             num_neuron_cores=8,
             tp_size=2,
+            run_test_in_parallel=True,
             model_class_name=model_class_name,
             model_name_or_path=model_name_or_path,
             from_config=False,
@@ -290,6 +291,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
         self._test_model_parallel(
             num_neuron_cores=8,
             tp_size=2,
+            run_test_in_parallel=True,
             model_class_name=model_class_name,
             model_name_or_path=model_name_or_path,
             from_config=False,
