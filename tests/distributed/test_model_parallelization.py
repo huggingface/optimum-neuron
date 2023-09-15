@@ -45,6 +45,7 @@ from transformers.models.auto.modeling_auto import (
 
 from optimum.neuron.utils.cache_utils import get_num_neuron_cores, set_neuron_cache_path
 from optimum.neuron.utils.import_utils import is_neuronx_available
+from optimum.neuron.utils.runner import run_command_with_realtime_output
 
 from ..test_utils import is_trainium_test
 
@@ -207,14 +208,12 @@ class ModelParallelizationTestCase(unittest.TestCase):
                 cmd.insert(1, f"--rdzv_endpoint={rdzv_endpoint_host}:{rdzv_endpoint_port}")
                 env["NEURON_RT_VISIBLE_CORES"] = f"0-{num_neuron_cores - 1}"
 
-            p_original = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
 
             # When running tests in parallel, synchronization is done after both processes started.
             if not run_test_in_parallel:
-                stdout, _ = p_original.communicate()
-                stdout = stdout.decode("utf-8")
-                full_output = f"Original model standard output:\n{stdout}"
-                print(full_output)
+                _, stdout = run_command_with_realtime_output(cmd, env=env)
+            else:
+                p_original = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
 
             # Parallel model.
             env = {"is_parallel": "true", **specialization_env, "NEURON_CC_FLAGS": neuron_cc_flags}
@@ -222,18 +221,22 @@ class ModelParallelizationTestCase(unittest.TestCase):
                 # Updating the rendez-vous endpoint for the parallel model process.
                 cmd[1] = f"--rdzv_endpoint={rdzv_endpoint_host}:{rdzv_endpoint_port + 1}"
                 env["NEURON_RT_VISIBLE_CORES"] = f"{num_neuron_cores}-{2 * num_neuron_cores - 1}"
-            p_parallel = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
 
-            if run_test_in_parallel:
+                p_parallel = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+
                 stdout, _ = p_original.communicate()
                 stdout = stdout.decode("utf-8")
                 full_output = f"Original model standard output:\n{stdout}"
                 print(full_output)
 
-            stdout, _ = p_parallel.communicate()
-            stdout = stdout.decode("utf-8")
-            full_output = f"Parallel model standard output:\n{stdout}"
-            print(full_output)
+                stdout, _ = p_parallel.communicate()
+                stdout = stdout.decode("utf-8")
+                full_output = f"Parallel model standard output:\n{stdout}"
+                print(full_output)
+
+            else:
+                _, stdout = run_command_with_realtime_output(cmd, env=env)
+
 
             temporary_dir = Path(tmpdirname)
             original_model_outputs = torch.load(temporary_dir / "original.bin")
@@ -256,7 +259,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
         self._test_model_parallel(
             num_neuron_cores=8,
             tp_size=2,
-            run_test_in_parallel=True,
+            run_test_in_parallel=False,
             model_class_name=model_class_name,
             model_name_or_path=model_name_or_path,
             from_config=True,

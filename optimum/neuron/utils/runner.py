@@ -90,8 +90,8 @@ class Precision(str, Enum):
     bf16 = "bf16"
 
 
-def run_command_with_realtime_output(cmd: List[str]) -> Tuple[int, str]:
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+def run_command_with_realtime_output(cmd: List[str], **popen_kwargs) -> Tuple[int, str]:
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, **popen_kwargs)
     stdout = []
     decoder = codecs.getincrementaldecoder("utf-8")()
     while True:

@@ -605,7 +605,7 @@ class ParallelCrossEntropyLoss(_WeightedLoss):
         # from torch_neuronx.xla_impl.ops import SimpleCrossEntropyLoss
         # output = SimpleCrossEntropyLoss.gen_override().forward(self, input, target)
         output = safe_parallel_cross_entropy(
-            input.clone(),
+            input,
             target,
             weight=self.weight,
             ignore_index=self.ignore_index,
