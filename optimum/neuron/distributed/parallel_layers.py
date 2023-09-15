@@ -93,7 +93,7 @@ class ParallelLayer(ABC):
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
-        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+        sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
     ) -> "torch.nn.Module":
         """
@@ -104,9 +104,8 @@ class ParallelLayer(ABC):
                 The model to parallelize.
             layer (`torch.nn.Module`):
                 The layer to transform.
-            orig_to_parallel (`Optional[Dict[int, torch.nn.Parameter]]`, defaults to `None`):
-                A dictionary to fill. It maps a former parameter id to its parallel version.
-                It might be deprecated soon.
+            sequence_parallel_enabled (`bool`, defaults to `False`):
+                Whether or not sequence parallelism is enabled.
             device (`Optional[torch.device]`, defaults to `None`):
                 The device where the new parallel layer should be put.
         """
@@ -138,7 +137,7 @@ class ParallelEmbedding(ParallelLayer):
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
-        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+        sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
     ) -> "torch.nn.Module":
         from neuronx_distributed.parallel_layers import parallel_state
@@ -207,7 +206,6 @@ class ParallelEmbedding(ParallelLayer):
             embedding_weight_info=embedding_weight_info,
             lm_head_weight_info=lm_head_weight_info,
             lm_head_bias_weight_info=lm_head_bias_weight_info,
-            orig_to_parallel=orig_to_parallel,
             device=device,
         )
         parent_embedding_module, embedding_attribute_name = cls._get_module_and_attribute_name(
@@ -276,7 +274,7 @@ class ParallelSelfAttention(ParallelLayer):
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
-        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+        sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
     ) -> "torch.nn.Module":
         if (cls.NUM_KEY_VALUE_HEADS_NAME is not None and cls.NUM_KEY_VALUE_GROUPS_NAME is None) or (
@@ -359,7 +357,7 @@ class ParallelSelfAttention(ParallelLayer):
                     gather_output=False,
                     linear_layer_weight_info=linear_layer_weight_info,
                     linear_layer_bias_weight_info=linear_layer_bias_weight_info,
-                    orig_to_parallel=orig_to_parallel,
+                    sequence_parallel_enabled=sequence_parallel_enabled,
                     device=device,
                 )
             setattr(layer, name, parallel_linear)
@@ -381,7 +379,7 @@ class ParallelSelfAttention(ParallelLayer):
                     input_is_parallel=True,
                     linear_layer_weight_info=linear_layer_weight_info,
                     linear_layer_bias_weight_info=linear_layer_bias_weight_info,
-                    orig_to_parallel=orig_to_parallel,
+                    sequence_parallel_enabled=sequence_parallel_enabled,
                     device=device,
                 ),
             )
@@ -443,7 +441,7 @@ class ParallelSelfOutput(ParallelLayer):
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
-        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+        sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
     ) -> "torch.nn.Module":
         weight_map = getattr(model, "_weight_map", None)
@@ -467,7 +465,7 @@ class ParallelSelfOutput(ParallelLayer):
                 input_is_parallel=True,
                 linear_layer_weight_info=linear_layer_weight_info,
                 linear_layer_bias_weight_info=linear_layer_bias_weight_info,
-                orig_to_parallel=orig_to_parallel,
+                sequence_parallel_enabled=sequence_parallel_enabled,
                 device=device,
             ),
         )
@@ -493,7 +491,7 @@ class ParallelMLP(ParallelLayer):
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
-        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+        sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
     ) -> "torch.nn.Module":
         layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
@@ -518,7 +516,7 @@ class ParallelMLP(ParallelLayer):
                 gather_output=False,
                 linear_layer_weight_info=linear_layer_weight_info,
                 linear_layer_bias_weight_info=linear_layer_bias_weight_info,
-                orig_to_parallel=orig_to_parallel,
+                sequence_parallel_enabled=sequence_parallel_enabled,
                 device=device,
             ),
         )
@@ -542,7 +540,7 @@ class ParallelMLP(ParallelLayer):
                 input_is_parallel=True,
                 linear_layer_weight_info=linear_layer_weight_info,
                 linear_layer_bias_weight_info=linear_layer_bias_weight_info,
-                orig_to_parallel=orig_to_parallel,
+                sequence_parallel_enabled=sequence_parallel_enabled,
                 device=device,
             ),
         )
@@ -648,7 +646,7 @@ class ParallelCrossEntropy(ParallelLayer):
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
-        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+        sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
     ) -> "torch.nn.Module":
         from neuronx_distributed import parallel_layers

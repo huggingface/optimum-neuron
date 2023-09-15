@@ -132,7 +132,7 @@ def embedding_to_parallel_embedding(
     embedding_weight_info: Optional[WeightInformation] = None,
     lm_head_weight_info: Optional[WeightInformation] = None,
     lm_head_bias_weight_info: Optional[WeightInformation] = None,
-    orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+    sequence_parallel_enabled: bool = False,
     device: Optional["torch.device"] = None,
 ) -> Union["layers.ParallelEmbedding", Tuple["layers.ParallelEmbedding", "layers.ColumnParallelLinear"]]:
     """
@@ -152,9 +152,8 @@ def embedding_to_parallel_embedding(
             Information about which checkpoint file the tied linear projection weights are stored in.
         lm_head_bias_weight_info (`Optional[WeightInformation]`, defaults to `None`):
             Information about which checkpoint file the tied linear projection bias is stored in.
-        orig_to_parallel (`Optional[Dict[int, torch.nn.Parameter]]`, defaults to `None`):
-            A dictionary to fill. It maps a former parameter id to its parallel version.
-            It might be deprecated soon.
+        sequence_parallel_enabled (`bool`, defaults to `False`):
+            Whether or not sequence parallelism is enabled.
         device (`Optional[torch.device]`, defaults to `None`):
             The device where the new parallel layer should be put.
 
@@ -211,12 +210,9 @@ def embedding_to_parallel_embedding(
                 linear_layer_bias_weight_info=lm_head_bias_weight_info,
                 embedding_weight_to_tie=embedding_weight_to_tie,
                 gather_output=False,
-                orig_to_parallel=orig_to_parallel if not is_tied else None,
+                sequence_parallel_enabled=sequence_parallel_enabled,
                 device=device,
             )
-
-    if orig_to_parallel:
-        orig_to_parallel[id(embedding_layer.weight)] = parallel_embedding_layer.weight
 
     del embedding_layer.weight
 
@@ -235,7 +231,7 @@ def linear_to_parallel_linear(
     linear_layer_weight_info: Optional[WeightInformation] = None,
     linear_layer_bias_weight_info: Optional[WeightInformation] = None,
     embedding_weight_to_tie: Optional["torch.nn.Parameter"] = None,
-    orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+    sequence_parallel_enabled: bool = False,
     device: Optional["torch.device"] = None,
 ) -> Union["layers.RowParallelLinear", "layers.ColumnParallelLinear"]:
     """
@@ -259,9 +255,8 @@ def linear_to_parallel_linear(
             Information about which checkpoint file the linear layer bias is stored in.
         embedding_weight_to_tie (`Optional[torch.nn.Parameter]`, defaults to `None`):
             If specified, will tie the linear layer weights to it.
-        orig_to_parallel (`Optional[Dict[int, torch.nn.Parameter]]`, defaults to `None`):
-            A dictionary to fill. It maps a former parameter id to its parallel version.
-            It might be deprecated soon.
+        sequence_parallel_enabled (`bool`, defaults to `False`):
+            Whether or not sequence parallelism is enabled.
         device (`Optional[torch.device]`, defaults to `None`):
             The device where the new parallel layer should be put.
 
@@ -292,7 +287,7 @@ def linear_to_parallel_linear(
     kwargs["bias"] = linear_layer.bias is not None
     kwargs["device"] = device
 
-    parallel_linear_layer = parallel_linear_class(linear_layer.in_features, linear_layer.out_features, **kwargs)
+    parallel_linear_layer = parallel_linear_class(linear_layer.in_features, linear_layer.out_features, sequence_parallel_enabled=sequence_parallel_enabled, **kwargs)
 
     tp_rank = get_tensor_model_parallel_rank()
     row_size, col_size = parallel_linear_layer.weight.shape

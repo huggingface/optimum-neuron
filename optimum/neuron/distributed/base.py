@@ -92,9 +92,9 @@ class Parallelizer(ABC):
     def _parallelize(
         cls,
         model: "PreTrainedModel",
-        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
         device: Optional["torch.device"] = None,
         parallelize_embeddings: bool = True,
+        sequence_parallel_enabled: bool = False,
     ) -> "PreTrainedModel":
         """
         Parallelizes the model by transforming regular layer into their parallel counterparts.
@@ -103,15 +103,13 @@ class Parallelizer(ABC):
         Args:
             model (`PreTrainedModel`):
                 The model to parallelize.
-            orig_to_parallel (`Optional[Dict[int, torch.nn.Parameter]]`, defaults to `None`):
-                A dictionary to fill. It maps a former parameter id to its parallel version.
-                It might be deprecated soon.
             device (`Optional[torch.device]`, defaults to `None`):
                 The device where the new parallel layers should be put.
             parallelize_embeddings (`bool`, defaults to `True`):
                 Whether or not the embeddings should be parallelized.
                 This can be disabled in the case when the TP size does not divide the vocabulary size.
-
+            sequence_parallel_enabled (`bool`, defaults to `False`):
+                Whether or not sequence parallelism is enabled.
         Returns:
             `PreTrainedModel`: The parallelized model.
         """
@@ -120,9 +118,9 @@ class Parallelizer(ABC):
     def parallelize(
         cls,
         model: "PreTrainedModel",
-        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
         device: Optional["torch.device"] = None,
         parallelize_embeddings: bool = True,
+        sequence_parallel_enabled: bool = False,
     ) -> "PreTrainedModel":
         """
         Parallelizes the model by transforming regular layer into their parallel counterparts using
@@ -134,20 +132,19 @@ class Parallelizer(ABC):
         Args:
             model (`PreTrainedModel`):
                 The model to parallelize.
-            orig_to_parallel (`Optional[Dict[int, torch.nn.Parameter]]`, defaults to `None`):
-                A dictionary to fill. It maps a former parameter id to its parallel version.
-                It might be deprecated soon.
             device (`Optional[torch.device]`, defaults to `None`):
                 The device where the new parallel layers should be put.
             parallelize_embeddings (`bool`, defaults to `True`):
                 Whether or not the embeddings should be parallelized.
                 This can be disabled in the case when the TP size does not divide the vocabulary size.
+            sequence_parallel_enabled (`bool`, defaults to `False`):
+                Whether or not sequence parallelism is enabled.
 
         Returns:
             `PreTrainedModel`: The parallelized model.
         """
         model = cls._parallelize(
-            model, orig_to_parallel=orig_to_parallel, device=device, parallelize_embeddings=parallelize_embeddings
+            model, device=device, parallelize_embeddings=parallelize_embeddings, sequence_parallel_enabled=sequence_parallel_enabled,
         )
         weight_map = getattr(model, "_weight_map", {})
         with torch.no_grad():

@@ -73,29 +73,29 @@ class BertParallelizer(Parallelizer):
     def _parallelize(
         cls,
         model: "PreTrainedModel",
-        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]],
         device: Optional["torch.device"] = None,
         parallelize_embeddings: bool = True,
+        sequence_parallel_enabled: bool = False,
     ) -> "PreTrainedModel":
         if parallelize_embeddings:
-            model = BertParallelEmbedding.transform(model, model, device=device)
+            model = BertParallelEmbedding.transform(model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device)
         for layer in model.bert.encoder.layer:
             layer.attention.self = BertParallelSelfAttention.transform(
                 model,
                 layer.attention.self,
-                orig_to_parallel=orig_to_parallel,
+                sequence_parallel_enabled=sequence_parallel_enabled,
                 device=device,
             )
             layer.attention.output = BertParallelSelfOutput.transform(
                 model,
                 layer.attention.output,
-                orig_to_parallel=orig_to_parallel,
+                sequence_parallel_enabled=sequence_parallel_enabled,
                 device=device,
             )
         # Valid because we currently parallelize the cross-entropy loss only for language-modeling tasks where the
         # embeddings and the LM head are tied.
         if parallelize_embeddings:
-            model = BertParallelCrossEntropy.transform(model, model, device=device)
+            model = BertParallelCrossEntropy.transform(model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device)
         return model
 
 
