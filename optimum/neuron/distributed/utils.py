@@ -19,14 +19,20 @@ import functools
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Literal, Optional, Tuple, Type, Union
+from typing import TYPE_CHECKING, Dict, Literal, Optional, Tuple, Type, Union
 
 import torch
 from transformers import PretrainedConfig
 
-from ..utils import DynamicPatch, Patcher, is_neuronx_distributed_available
+from optimum.neuron.utils.import_utils import is_neuronx_distributed_available
+
+from ..utils import DynamicPatch, Patcher
 from ..utils.misc import download_checkpoints_in_cache
 from ..utils.require_utils import requires_neuronx_distributed, requires_safetensors, requires_torch_xla
+
+
+if TYPE_CHECKING and is_neuronx_distributed_available():
+    from neuronx_distributed.parallel_layers import layers
 
 
 TENSOR_PARALLEL_SHARDS_DIR_NAME = "tensor_parallel_shards"
@@ -117,30 +123,6 @@ def _validate_weight_info_device_matches_specified_device(device: "torch.device"
             f"The specfified device must match the device in the `WeightInformation` but got {device} and "
             f"{weight_info.device}, the `WeightInformation` object is: {weight_info}."
         )
-
-
-if is_neuronx_distributed_available():
-    from neuronx_distributed.parallel_layers import layers
-
-    class ColumnParallelLinear(layers.ColumnParallelLinear):
-        """
-        Same as `neuronx_distributed.parallel_layers.layers.ColumnParallelLinear` but marks output as parallel.
-        """
-
-        def forward(self, input: "torch.Tensor") -> "torch.Tensor":
-            output = super().forward(input)
-            output.is_parallel = not self.gather_output
-            return output
-
-else:
-    ColumnParallelLinear = None
-
-
-def tensor_is_parallel(x: "torch.Tensor") -> bool:
-    """
-    Returns `True` if the tensor is the output of a `ColumnParallelLinear` layer and `False` otherwise.
-    """
-    return getattr(x, "is_parallel", False)
 
 
 @requires_neuronx_distributed
@@ -303,7 +285,7 @@ def linear_to_parallel_linear(
         parallel_linear_class = layers.RowParallelLinear
         kwargs["input_is_parallel"] = input_is_parallel
     else:
-        parallel_linear_class = ColumnParallelLinear
+        parallel_linear_class = layers.ColumnParallelLinear
         kwargs["gather_output"] = gather_output
 
     kwargs["dtype"] = linear_layer.weight.dtype
