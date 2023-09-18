@@ -13,6 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .logits_process import FastTopKLogitsWarper, FusedLogitsWarper
+from .logits_process import FusedLogitsWarper
 from .token_selector import TokenSelector
 from .utils import NeuronGenerationMixin
