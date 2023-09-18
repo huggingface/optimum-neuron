@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Optional
 from ..utils.require_utils import requires_neuronx_distributed
 from .base import Parallelizer
 from .parallel_layers import ParallelCrossEntropy, ParallelEmbedding, ParallelSelfAttention, ParallelSelfOutput
+from .utils import create_sequence_parallel_attention_forward
 
 
 if TYPE_CHECKING:
@@ -81,20 +82,6 @@ class BertParallelizer(Parallelizer):
     ):
         from transformers.models.bert.modeling_bert import BertSelfAttention
 
-        def create_sequence_parallel_attention_forward(attention_forward):
-            import functools
-
-            @functools.wraps(attention_forward)
-            def sequence_parallel_attention_forward(self, *args, **kwargs):
-                outputs = attention_forward(*args, **kwargs)
-                context_layer = outputs[0]
-                if sequence_parallel_enabled:
-                    # [B, S, hidden_dim] -> [S, B, hidden_dim]
-                    context_layer = context_layer.transpose(0, 1)
-                return (context_layer,) + outputs[1:]
-
-            return sequence_parallel_attention_forward.__get__(attention_forward.__self__)
-
         def transpose_for_scores(self, x: "torch.Tensor") -> "torch.Tensor":
             new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
             x = x.view(new_x_shape)
@@ -105,8 +92,8 @@ class BertParallelizer(Parallelizer):
 
         for module in model.modules():
             if isinstance(module, BertSelfAttention):
-                module.forward = create_sequence_parallel_attention_forward(module.forward)
                 module.transpose_for_scores = transpose_for_scores.__get__(module)
+                module.forward = create_sequence_parallel_attention_forward(module.forward, sequence_parallel_enabled)
 
     @classmethod
     def _parallelize(
@@ -178,24 +165,9 @@ class RobertaParallelizer(Parallelizer):
     ):
         from transformers.models.roberta.modeling_roberta import RobertaSelfAttention
 
-        def create_sequence_parallel_attention_forward(attention_forward):
-            import functools
-
-            @functools.wraps(attention_forward)
-            def sequence_parallel_attention_forward(self, *args, **kwargs):
-                outputs = attention_forward(*args, **kwargs)
-                context_layer = outputs[0]
-                if sequence_parallel_enabled:
-                    # [B, S, hidden_dim] -> [S, B, hidden_dim]
-                    context_layer = context_layer.transpose(0, 1)
-                return (context_layer,) + outputs[1:]
-
-            return sequence_parallel_attention_forward.__get__(attention_forward.__self__)
-
         def transpose_for_scores(self, x: "torch.Tensor") -> "torch.Tensor":
             new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
             x = x.view(new_x_shape)
-            print("IS SEQUENCE", sequence_parallel_enabled)
             if sequence_parallel_enabled:
                 # [S, B, num_heads, head_dim] -> [B, num_heads, S, head_dim]
                 return x.permute(1, 2, 0, 3)
@@ -203,8 +175,8 @@ class RobertaParallelizer(Parallelizer):
 
         for module in model.modules():
             if isinstance(module, RobertaSelfAttention):
-                module.forward = create_sequence_parallel_attention_forward(module.forward)
                 module.transpose_for_scores = transpose_for_scores.__get__(module)
+                module.forward = create_sequence_parallel_attention_forward(module.forward, sequence_parallel_enabled)
 
     @classmethod
     def _parallelize(

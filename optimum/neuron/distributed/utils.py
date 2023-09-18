@@ -210,7 +210,7 @@ def embedding_to_parallel_embedding(
                 linear_layer_bias_weight_info=lm_head_bias_weight_info,
                 embedding_weight_to_tie=embedding_weight_to_tie,
                 gather_output=False,
-                sequence_parallel_enabled=sequence_parallel_enabled,
+                sequence_parallel_enabled=False,
                 device=device,
             )
 
@@ -449,6 +449,20 @@ def gqa_key_value_slicing_when_tp_size_greater_than_num_key_value_heads(
                 )
     return sliced_linear_layer
 
+
+def create_sequence_parallel_attention_forward(attention_forward, sequence_parallel_enabled: bool):
+    import functools
+
+    @functools.wraps(attention_forward)
+    def sequence_parallel_attention_forward(self, *args, **kwargs):
+        outputs = attention_forward(*args, **kwargs)
+        context_layer = outputs[0]
+        if sequence_parallel_enabled:
+            # [B, S, hidden_dim] -> [S, B, hidden_dim]
+            context_layer = context_layer.transpose(0, 1)
+        return (context_layer,) + outputs[1:]
+
+    return sequence_parallel_attention_forward.__get__(attention_forward.__self__)
 
 @classmethod
 @requires_torch_xla

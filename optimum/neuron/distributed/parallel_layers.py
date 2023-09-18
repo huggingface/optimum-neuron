@@ -756,10 +756,11 @@ if is_neuronx_distributed_available():
                 if self.is_first_layer_norm:
                     input_ = input_.transpose(0, 1).contiguous()
                     input_ = scatter_to_sequence_parallel_region(input_)
+                output = super().forward(input_)
                 if self.is_last_layer_norm:
-                    input_ = gather_from_sequence_parallel_region(input_, to_model_parallel=False)
-                    input_ = input_.transpose(0, 1).contiguous()
-            return super().forward(input_)
+                    output = gather_from_sequence_parallel_region(output, to_model_parallel=False)
+                    output = output.transpose(0, 1).contiguous()
+                return output
 
 else:
 
@@ -768,16 +769,17 @@ else:
 
 
 class LayerNormSequenceParallelizer:
+    RMS_NORM_MODELS = ["t5", "llama"]
+
     def __init__(self, sequence_parallel_enabled: bool, layer_norm_qualified_name_patterns: List[str]):
         self.sequence_parallel_enabled = sequence_parallel_enabled
         self.layer_norm_qualified_name_patterns = [
             re.compile(pattern) for pattern in layer_norm_qualified_name_patterns
         ]
 
-    # @requires_neuronx_distributed
+    @requires_neuronx_distributed
     def parallelize_layernorm(self, module: torch.nn.LayerNorm, is_first_layer_norm: bool, is_last_layer_norm: bool):
         from neuronx_distributed.parallel_layers.layer_norm import _set_sequence_parallel_enabled
-
         if not isinstance(module, torch.nn.LayerNorm):
             raise TypeError(f"Expected torch.nn.LayerNorm but got {type(module)}.")
         module.__class__ = SequenceParallelLayerNorm
@@ -788,17 +790,34 @@ class LayerNormSequenceParallelizer:
             _set_sequence_parallel_enabled(module.weight, self.sequence_parallel_enabled)
             _set_sequence_parallel_enabled(module.bias, self.sequence_parallel_enabled)
 
+    @requires_neuronx_distributed
+    def parallelize_rmsnorm(self, module: torch.nn.Module, is_first_layer_norm: bool, is_last_layer_norm: bool):
+        from neuronx_distributed.parallel_layers.layer_norm import _set_sequence_parallel_enabled
+        module.is_first_layer_norm = is_first_layer_norm
+        module.is_last_layer_norm = is_last_layer_norm
+        _set_sequence_parallel_enabled(module.weight, self.sequence_parallel_enabled)
+
     def sequence_parallelize(self, model: "PreTrainedModel") -> "PreTrainedModel":
+        if model.config.model_type in self.RMS_NORM_MODELS:
+            parallelize_method = self.parallelize_rmsnorm
+        else:
+            parallelize_method = self.parallelize_layernorm
         first_layer_norm = None
         last_layer_norm = None
+        name_1 = None
+        name_2 = None
         for name, module in model.named_modules():
             for pattern in self.layer_norm_qualified_name_patterns:
                 if re.match(pattern, name):
                     if first_layer_norm is None:
                         first_layer_norm = module
+                        name_1 = name
                     last_layer_norm = module
+                    name_2 = name
+        print("name 1", name_1)
+        print("name 2", name_2)
         for name, module in model.named_modules():
             for pattern in self.layer_norm_qualified_name_patterns:
                 if re.match(pattern, name):
-                    self.parallelize_layernorm(module, module is first_layer_norm, module is last_layer_norm)
+                    parallelize_method(module, module is first_layer_norm, module is last_layer_norm)
         return model

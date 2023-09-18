@@ -267,7 +267,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
             # TODO: enable once ParallelCrossEntropy works.
             # parallelize_embeddings=True,
             parallelize_embeddings=False,
-            sequence_parallel_enabled=False,
+            sequence_parallel_enabled=True,
             overwrite_model_config=config_overwrite,
         )
 
