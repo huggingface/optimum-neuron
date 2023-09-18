@@ -137,6 +137,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
         from_config: bool,
         with_lazy_load: bool,
         parallelize_embeddings: bool,
+        sequence_parallel_enabled: bool,
         num_neuron_cores: int = NUM_NEURON_CORES_AVAILABLE,
         run_test_in_parallel: bool = False,
         overwrite_model_config: Optional[Dict[str, str]] = None,
@@ -164,6 +165,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
             "from_config": "true" if from_config else "false",
             "lazy_load": "true" if with_lazy_load else "false",
             "parallelize_embeddings": "true" if parallelize_embeddings else "false",
+            "sequence_parallel_enabled": "true" if sequence_parallel_enabled else "false",
             **os.environ,
         }
 
@@ -262,7 +264,10 @@ class ModelParallelizationTestCase(unittest.TestCase):
             model_name_or_path=model_name_or_path,
             from_config=True,
             with_lazy_load=False,
+            # TODO: enable once ParallelCrossEntropy works.
+            # parallelize_embeddings=True,
             parallelize_embeddings=False,
+            sequence_parallel_enabled=False,
             overwrite_model_config=config_overwrite,
         )
 
@@ -278,7 +283,10 @@ class ModelParallelizationTestCase(unittest.TestCase):
             model_name_or_path=model_name_or_path,
             from_config=False,
             with_lazy_load=False,
+            # TODO: enable once ParallelCrossEntropy works.
+            # parallelize_embeddings=True,
             parallelize_embeddings=False,
+            sequence_parallel_enabled=True,
             overwrite_model_config=config_overwrite,
         )
 
@@ -295,8 +303,44 @@ class ModelParallelizationTestCase(unittest.TestCase):
             from_config=False,
             with_lazy_load=True,
             parallelize_embeddings=False,
+            sequence_parallel_enabled=True,
             overwrite_model_config=config_overwrite,
         )
+
+    # TODO: enable that once ParallelCrossEntropy works.
+    # @parameterized.expand(MODELS_TO_TEST)
+    # def test_model_parallel_without_sequence_parallel(
+    #     self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
+    # ):
+    #     self._test_model_parallel(
+    #         num_neuron_cores=8,
+    #         tp_size=2,
+    #         run_test_in_parallel=True,
+    #         model_class_name=model_class_name,
+    #         model_name_or_path=model_name_or_path,
+    #         from_config=False,
+    #         with_lazy_load=True,
+    #         parallelize_embeddings=True,
+    #         sequence_parallel_enabled=False,
+    #         overwrite_model_config=config_overwrite,
+    #     )
+
+    # @parameterized.expand(MODELS_TO_TEST)
+    # def test_model_parallel_without_anything(
+    #     self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
+    # ):
+    #     self._test_model_parallel(
+    #         num_neuron_cores=8,
+    #         tp_size=2,
+    #         run_test_in_parallel=True,
+    #         model_class_name=model_class_name,
+    #         model_name_or_path=model_name_or_path,
+    #         from_config=False,
+    #         with_lazy_load=True,
+    #         parallelize_embeddings=False,
+    #         sequence_parallel_enabled=False,
+    #         overwrite_model_config=config_overwrite,
+    #     )
 
     @unittest.skipIf(
         NUM_NEURON_CORES_AVAILABLE < 32,
@@ -315,6 +359,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
             from_config=True,
             with_lazy_load=False,
             parallelize_embeddings=False,
+            sequence_parallel_enabled=False,
             overwrite_model_config={
                 "num_hidden_layers": "2",
                 "num_attention_heads": "8",
@@ -333,6 +378,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
             from_config=True,
             with_lazy_load=False,
             parallelize_embeddings=False,
+            sequence_parallel_enabled=False,
             overwrite_model_config={
                 "num_hidden_layers": "2",
                 "num_attention_heads": "8",
@@ -351,6 +397,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
             from_config=True,
             with_lazy_load=False,
             parallelize_embeddings=False,
+            sequence_parallel_enabled=False,
             overwrite_model_config={
                 "num_hidden_layers": "2",
                 "hidden_size": "32",
@@ -370,6 +417,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
             from_config=True,
             with_lazy_load=False,
             parallelize_embeddings=False,
+            sequence_parallel_enabled=False,
             overwrite_model_config={
                 "num_hidden_layers": "2",
                 "hidden_size": "32",
@@ -389,6 +437,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
             from_config=True,
             with_lazy_load=False,
             parallelize_embeddings=False,
+            sequence_parallel_enabled=False,
             overwrite_model_config={
                 "num_hidden_layers": "2",
                 "hidden_size": "32",

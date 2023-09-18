@@ -713,6 +713,7 @@ class ParallelCrossEntropy(ParallelLayer):
 if is_neuronx_distributed_available():
     from neuronx_distributed.parallel_layers import mappings
     from neuronx_distributed.parallel_layers.layer_norm import LayerNorm
+    from neuronx_distributed.parallel_layers.mappings import gather_from_sequence_parallel_region
 
     class _ScatterToSequenceParallelRegion(torch.autograd.Function):
         """Splits the input and keep only the corresponding chunk to the rank."""
@@ -738,14 +739,26 @@ if is_neuronx_distributed_available():
         def is_first_layer_norm(self):
             return getattr(self, "_is_first_layer_norm", False)
 
+        @property
+        def is_last_layer_norm(self):
+            return getattr(self, "_is_last_layer_norm", False)
+
         @is_first_layer_norm.setter
         def is_first_layer_norm(self, value: bool):
             self._is_first_layer_norm = value
 
+        @is_last_layer_norm.setter
+        def is_last_layer_norm(self, value: bool):
+            self._is_last_layer_norm = value
+
         def forward(self, input_: torch.Tensor) -> torch.Tensor:
-            if self.sequence_parallel_enabled and self.is_first_layer_norm:
-                input_ = input_.transpose(0, 1).contiguous()
-                input_ = scatter_to_sequence_parallel_region(input_)
+            if self.sequence_parallel_enabled:
+                if self.is_first_layer_norm:
+                    input_ = input_.transpose(0, 1).contiguous()
+                    input_ = scatter_to_sequence_parallel_region(input_)
+                if self.is_last_layer_norm:
+                    input_ = gather_from_sequence_parallel_region(input_, to_model_parallel=False)
+                    input_ = input_.transpose(0, 1).contiguous()
             return super().forward(input_)
 
 else:
@@ -762,7 +775,7 @@ class LayerNormSequenceParallelizer:
         ]
 
     # @requires_neuronx_distributed
-    def parallelize_layernorm(self, module: torch.nn.LayerNorm, is_first_layer_norm: bool):
+    def parallelize_layernorm(self, module: torch.nn.LayerNorm, is_first_layer_norm: bool, is_last_layer_norm: bool):
         from neuronx_distributed.parallel_layers.layer_norm import _set_sequence_parallel_enabled
 
         if not isinstance(module, torch.nn.LayerNorm):
@@ -770,13 +783,22 @@ class LayerNormSequenceParallelizer:
         module.__class__ = SequenceParallelLayerNorm
         module.sequence_parallel_enabled = self.sequence_parallel_enabled
         module.is_first_layer_norm = is_first_layer_norm
+        module.is_last_layer_norm = is_last_layer_norm
         if module.elementwise_affine:
             _set_sequence_parallel_enabled(module.weight, self.sequence_parallel_enabled)
             _set_sequence_parallel_enabled(module.bias, self.sequence_parallel_enabled)
 
     def sequence_parallelize(self, model: "PreTrainedModel") -> "PreTrainedModel":
+        first_layer_norm = None
+        last_layer_norm = None
         for name, module in model.named_modules():
-            for idx, pattern in enumerate(self.layer_norm_qualified_name_patterns):
+            for pattern in self.layer_norm_qualified_name_patterns:
                 if re.match(pattern, name):
-                    self.parallelize_layernorm(module, idx == 0)
+                    if first_layer_norm is None:
+                        first_layer_norm = module
+                    last_layer_norm = module
+        for name, module in model.named_modules():
+            for pattern in self.layer_norm_qualified_name_patterns:
+                if re.match(pattern, name):
+                    self.parallelize_layernorm(module, module is first_layer_norm, module is last_layer_norm)
         return model

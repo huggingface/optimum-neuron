@@ -31,6 +31,7 @@ lazy_load = os.environ["lazy_load"] == "true"
 is_parallel = os.environ["is_parallel"] == "true"
 config_overwrite = os.environ.get("config_overwrite", "")
 parallelize_embeddings = is_parallel and os.environ["parallelize_embeddings"] == "true"
+sequence_parallel_enabled = os.environ["sequence_parallel_enabled"] == "true"
 
 # This is required to prevent `parallel_cross_entropy` to mutate the logits (which would make them not comparable).
 if is_parallel and parallelize_embeddings:
@@ -57,6 +58,14 @@ preprocessor = AutoTokenizer.from_pretrained("{model_name_or_path}")
 
 inputs = preprocessor("This is a test to check that TP is working.", return_tensors="pt")
 
+if sequence_parallel_enabled and hasattr(preprocessor, "pad_token_id"):
+    for name, tensor in inputs.items():
+        if tensor.shape[1] % {tp_size} != 0:
+            tensor = torch.nn.functional.pad(
+              tensor, pad=(0, tensor.shape[1] % {tp_size}), value=preprocessor.pad_token_id
+            )
+            inputs[name] = tensor
+
 def load_model_with_seed(seed: int, from_config: bool):
     set_seed(seed)
     if from_config:
@@ -74,7 +83,11 @@ model = model.eval()
 vocab_size = getattr(model.config, "vocab_size", None)
 
 if is_parallel:
-    model = ParallelizersManager.parallelizer_for_model(model).parallelize(model, parallelize_embeddings=parallelize_embeddings)
+    model = ParallelizersManager.parallelizer_for_model(model).parallelize(
+        model, 
+        parallelize_embeddings=parallelize_embeddings, 
+        sequence_parallel_enabled=sequence_parallel_enabled,
+    )
     parallel_layers.move_model_to_device(model, "xla")
     filename = "parallel.bin"
 else:

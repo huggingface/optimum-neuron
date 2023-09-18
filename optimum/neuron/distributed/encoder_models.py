@@ -14,7 +14,7 @@
 # limitations under the License.
 """Classes related to `neuronx-distributed` to perform parallelism."""
 
-from typing import TYPE_CHECKING, Dict, Optional
+from typing import TYPE_CHECKING, Optional
 
 from ..utils.require_utils import requires_neuronx_distributed
 from .base import Parallelizer
@@ -166,31 +166,75 @@ class RobertaParallelCrossEntropy(ParallelCrossEntropy):
 
 
 class RobertaParallelizer(Parallelizer):
+    SEQUENCE_PARALLEL_LAYERNORM_PATTERNS = [
+        "roberta.embeddings.LayerNorm",
+        "roberta.encoder.layer.[0-9]+.attention.output.LayerNorm",
+        "roberta.encoder.layer.[0-9]+.output.LayerNorm",
+    ]
+
+    @classmethod
+    def patch_attention_forward_for_sequence_parallelism(
+        cls, model: "PreTrainedModel", sequence_parallel_enabled: bool
+    ):
+        from transformers.models.roberta.modeling_roberta import RobertaSelfAttention
+
+        def create_sequence_parallel_attention_forward(attention_forward):
+            import functools
+
+            @functools.wraps(attention_forward)
+            def sequence_parallel_attention_forward(self, *args, **kwargs):
+                outputs = attention_forward(*args, **kwargs)
+                context_layer = outputs[0]
+                if sequence_parallel_enabled:
+                    # [B, S, hidden_dim] -> [S, B, hidden_dim]
+                    context_layer = context_layer.transpose(0, 1)
+                return (context_layer,) + outputs[1:]
+
+            return sequence_parallel_attention_forward.__get__(attention_forward.__self__)
+
+        def transpose_for_scores(self, x: "torch.Tensor") -> "torch.Tensor":
+            new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
+            x = x.view(new_x_shape)
+            print("IS SEQUENCE", sequence_parallel_enabled)
+            if sequence_parallel_enabled:
+                # [S, B, num_heads, head_dim] -> [B, num_heads, S, head_dim]
+                return x.permute(1, 2, 0, 3)
+            return x.permute(0, 2, 1, 3)
+
+        for module in model.modules():
+            if isinstance(module, RobertaSelfAttention):
+                module.forward = create_sequence_parallel_attention_forward(module.forward)
+                module.transpose_for_scores = transpose_for_scores.__get__(module)
+
     @classmethod
     def _parallelize(
         cls,
         model: "PreTrainedModel",
-        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]],
         device: Optional["torch.device"] = None,
         parallelize_embeddings: bool = True,
+        sequence_parallel_enabled: bool = False,
     ) -> "PreTrainedModel":
         if parallelize_embeddings:
-            model = RobertaParallelEmbedding.transform(model, model, device=device)
+            model = RobertaParallelEmbedding.transform(
+                model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+            )
         for layer in model.roberta.encoder.layer:
             layer.attention.self = RobertaParallelSelfAttention.transform(
                 model,
                 layer.attention.self,
-                orig_to_parallel=orig_to_parallel,
+                sequence_parallel_enabled=sequence_parallel_enabled,
                 device=device,
             )
             layer.attention.output = RobertaParallelSelfOutput.transform(
                 model,
                 layer.attention.output,
-                orig_to_parallel=orig_to_parallel,
+                sequence_parallel_enabled=sequence_parallel_enabled,
                 device=device,
             )
         # Valid because we currently parallelize the cross-entropy loss only for language-modeling tasks where the
         # embeddings and the LM head are tied.
         if parallelize_embeddings:
-            model = RobertaParallelCrossEntropy.transform(model, model, device=device)
+            model = RobertaParallelCrossEntropy.transform(
+                model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+            )
         return model
