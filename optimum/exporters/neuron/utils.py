@@ -285,9 +285,7 @@ def _get_submodels_for_export_stable_diffusion(
 
     # VAE Encoder
     vae_encoder = copy.deepcopy(pipeline.vae)
-    seed = 42
-    # vae_encoder.forward = lambda sample: {"latent_sample": vae_encoder.encode(x=sample)["latent_dist"].sample(torch.Generator().manual_seed(seed))}
-    vae_encoder.forward = lambda sample: {"latent_sample": vae_encoder.encode(x=sample)["latent_dist"].mean}
+    vae_encoder.forward = lambda sample: {"latent_sample": vae_encoder.encode(x=sample)["latent_dist"].sample()}
     models_for_export.append((DIFFUSION_MODEL_VAE_ENCODER_NAME, vae_encoder))
 
     # VAE Decoder

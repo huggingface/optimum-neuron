@@ -23,12 +23,15 @@ from diffusers.loaders import LoraLoaderMixin, TextualInversionLoaderMixin
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import rescale_noise_cfg
 from diffusers.utils.torch_utils import randn_tensor
+from .pipeline_utils import DiffusionPipelineMixin
 
 
 logger = logging.getLogger(__name__)
 
 
-class StableDiffusionPipelineMixin(StableDiffusionPipeline):
+class StableDiffusionPipelineMixin(StableDiffusionPipeline, DiffusionPipelineMixin):
+    run_safety_checker = DiffusionPipelineMixin.run_safety_checker
+    
     # Adapted from https://github.com/huggingface/diffusers/blob/v0.18.2/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L302
     def encode_prompt(
         self,
@@ -173,18 +176,6 @@ class StableDiffusionPipelineMixin(StableDiffusionPipeline):
         latents = latents * self.scheduler.init_noise_sigma
         return latents
 
-    def check_num_images_per_prompt(self, prompt_batch_size: int, neuron_batch_size: int, num_images_per_prompt: int):
-        if self.dynamic_batch_size:
-            return prompt_batch_size, num_images_per_prompt
-        if neuron_batch_size != prompt_batch_size * num_images_per_prompt:
-            raise ValueError(
-                f"Models in the pipeline were compiled with `batch_size` {neuron_batch_size} which does not equal the number of"
-                f" prompt({prompt_batch_size}) multiplied by `num_images_per_prompt`({num_images_per_prompt}). You need to enable"
-                " `dynamic_batch_size` or precisely configure `num_images_per_prompt` during the compilation."
-            )
-        else:
-            return prompt_batch_size, num_images_per_prompt
-
     # Adapted from https://github.com/huggingface/diffusers/blob/v0.18.2/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L566
     def __call__(
         self,
@@ -208,12 +199,6 @@ class StableDiffusionPipelineMixin(StableDiffusionPipeline):
         # 0. Height and width to unet (static shapes)
         height = self.unet.config.neuron["static_height"] * self.vae_scale_factor
         width = self.unet.config.neuron["static_width"] * self.vae_scale_factor
-        if self.num_images_per_prompt != num_images_per_prompt and not self.dynamic_batch_size:
-            logger.warning(
-                f"Overriding `num_images_per_prompt({num_images_per_prompt})` to {self.num_images_per_prompt} used for the compilation. Please recompile the models with your "
-                f"custom `num_images_per_prompt` or turn on `dynamic_batch_size`, if you wish generating {num_images_per_prompt} per prompt."
-            )
-            num_images_per_prompt = self.num_images_per_prompt
 
         # 1. Check inputs. Raise error if not correct
         if self.num_images_per_prompt != num_images_per_prompt and not self.dynamic_batch_size:
@@ -338,17 +323,3 @@ class StableDiffusionPipelineMixin(StableDiffusionPipeline):
             return (image, has_nsfw_concept)
 
         return StableDiffusionPipelineOutput(images=image, nsfw_content_detected=has_nsfw_concept)
-
-    def run_safety_checker(self, image, dtype):
-        if self.safety_checker is None:
-            has_nsfw_concept = None
-        else:
-            if torch.is_tensor(image):
-                feature_extractor_input = self.image_processor.postprocess(image, output_type="pil")
-            else:
-                feature_extractor_input = self.image_processor.numpy_to_pil(image)
-            safety_checker_input = self.feature_extractor(feature_extractor_input, return_tensors="pt")
-            image, has_nsfw_concept = self.safety_checker(
-                images=image, clip_input=safety_checker_input.pixel_values.to(dtype)
-            )
-        return image, has_nsfw_concept

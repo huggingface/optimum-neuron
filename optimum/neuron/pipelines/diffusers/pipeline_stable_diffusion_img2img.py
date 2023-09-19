@@ -20,19 +20,21 @@ from typing import Any, Callable, Dict, List, Optional, Union
 import numpy as np
 import PIL
 import torch
+from diffusers import StableDiffusionImg2ImgPipeline
 from diffusers.loaders import LoraLoaderMixin, TextualInversionLoaderMixin
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
-from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion_img2img import (
-    StableDiffusionImg2ImgPipeline,
-)
-from diffusers.utils import deprecate, randn_tensor
+from diffusers.utils import deprecate
+from diffusers.utils.torch_utils import randn_tensor
+from .pipeline_utils import DiffusionPipelineMixin
 
 
 logger = logging.getLogger(__name__)
 
 
-class StableDiffusionImg2ImgPipelineMixin(StableDiffusionImg2ImgPipeline):
-    # Copied from optimum/neuron/pipelines/diffusers/pipeline_stable_diffusion.encode_prompt
+class StableDiffusionImg2ImgPipelineMixin(StableDiffusionImg2ImgPipeline, DiffusionPipelineMixin):
+    run_safety_checker = DiffusionPipelineMixin.run_safety_checker
+    
+    # Adapted from https://github.com/huggingface/diffusers/blob/v0.21.2/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_img2img.py#L256
     def encode_prompt(
         self,
         prompt: Union[str, List[str]],
@@ -346,18 +348,3 @@ class StableDiffusionImg2ImgPipelineMixin(StableDiffusionImg2ImgPipeline):
             return (image, has_nsfw_concept)
 
         return StableDiffusionPipelineOutput(images=image, nsfw_content_detected=has_nsfw_concept)
-
-    # Copied from optimum/neuron/pipelines/diffusers/pipeline_stable_diffusion.run_safety_checker
-    def run_safety_checker(self, image, dtype):
-        if self.safety_checker is None:
-            has_nsfw_concept = None
-        else:
-            if torch.is_tensor(image):
-                feature_extractor_input = self.image_processor.postprocess(image, output_type="pil")
-            else:
-                feature_extractor_input = self.image_processor.numpy_to_pil(image)
-            safety_checker_input = self.feature_extractor(feature_extractor_input, return_tensors="pt")
-            image, has_nsfw_concept = self.safety_checker(
-                images=image, clip_input=safety_checker_input.pixel_values.to(dtype)
-            )
-        return image, has_nsfw_concept

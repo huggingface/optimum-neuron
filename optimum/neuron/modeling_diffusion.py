@@ -160,16 +160,16 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         self.unet = NeuronModelUnet(
             unet, self, self.configs[DIFFUSION_MODEL_UNET_NAME], self.neuron_configs[DIFFUSION_MODEL_UNET_NAME]
         )
-        self.vae_encoder = (
-            NeuronModelVaeEncoder(
-                vae_encoder,
-                self,
-                self.configs[DIFFUSION_MODEL_VAE_ENCODER_NAME],
-                self.neuron_configs[DIFFUSION_MODEL_VAE_ENCODER_NAME],
-            )
-            if vae_encoder is not None
-            else None
-        )
+        if vae_encoder is not None:
+            self.vae_encoder = NeuronModelVaeEncoder(
+                    vae_encoder,
+                    self,
+                    self.configs[DIFFUSION_MODEL_VAE_ENCODER_NAME],
+                    self.neuron_configs[DIFFUSION_MODEL_VAE_ENCODER_NAME],
+                )
+        else:
+            self.vae_encoder = None
+        
         self.vae_decoder = NeuronModelVaeDecoder(
             vae_decoder,
             self,

@@ -303,7 +303,7 @@ class UNetNeuronConfig(VisionNeuronConfig):
 
 @register_in_tasks_manager("vae-encoder", *["semantic-segmentation"])
 class VaeEncoderNeuronConfig(VisionNeuronConfig):
-    ATOL_FOR_VALIDATION = 1e-2
+    ATOL_FOR_VALIDATION = 1e-3
     MODEL_TYPE = "vae-encoder"
 
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
