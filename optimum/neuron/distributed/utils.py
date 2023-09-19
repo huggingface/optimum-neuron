@@ -464,6 +464,7 @@ def create_sequence_parallel_attention_forward(attention_forward, sequence_paral
 
     return sequence_parallel_attention_forward.__get__(attention_forward.__self__)
 
+
 @classmethod
 @requires_torch_xla
 def from_pretrained_for_tp(

@@ -17,7 +17,7 @@
 import re
 from abc import ABC, abstractclassmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union, Type
 
 import torch
 from torch.nn.modules.loss import _WeightedLoss
@@ -711,30 +711,46 @@ class ParallelCrossEntropy(ParallelLayer):
 
 
 if is_neuronx_distributed_available():
-    from neuronx_distributed.parallel_layers import mappings
     from neuronx_distributed.parallel_layers.layer_norm import LayerNorm
-    from neuronx_distributed.parallel_layers.mappings import gather_from_sequence_parallel_region
+    from neuronx_distributed.parallel_layers.mappings import gather_from_sequence_parallel_region, scatter_to_sequence_parallel_region
 
-    class _ScatterToSequenceParallelRegion(torch.autograd.Function):
-        """Splits the input and keep only the corresponding chunk to the rank."""
+    # class _ScatterToSequenceParallelRegion(torch.autograd.Function):
+    #     """Splits the input and keep only the corresponding chunk to the rank."""
 
-        @staticmethod
-        def symbolic(graph, input_):
-            return mappings._split_along_first_dim(input_)
+    #     @staticmethod
+    #     def symbolic(graph, input_):
+    #         return mappings._split_along_first_dim(input_)
 
-        @staticmethod
-        def forward(ctx, input_):
-            return mappings._split_along_first_dim(input_)
+    #     @staticmethod
+    #     def forward(ctx, input_):
+    #         return mappings._split_along_first_dim(input_)
 
-        @staticmethod
-        def backward(ctx, grad_output):
-            return mappings._gather_along_first_dim(grad_output)
+    #     @staticmethod
+    #     def backward(ctx, grad_output):
+    #         return mappings._gather_along_first_dim(grad_output)
 
-    # TODO: can be removed when new release is out since it'll be upstreamd to `neuronx_distributed`.
-    def scatter_to_sequence_parallel_region(input_):
-        return _ScatterToSequenceParallelRegion.apply(input_)
+    # # TODO: can be removed when new release is out since it'll be upstreamd to `neuronx_distributed`.
+    # def scatter_to_sequence_parallel_region(input_):
+    #     return _ScatterToSequenceParallelRegion.apply(input_)
 
-    class SequenceParallelLayerNorm(LayerNorm):
+    def create_sequence_parallel_forward(forward):
+
+        @functools.wraps(forward)
+        def wrapper(self, input_):
+            if self.sequence_parallel_enabled:
+                if self.is_first_layer_norm:
+                    input_ = input_.transpose(0, 1).contiguous()
+                    input_ = scatter_to_sequence_parallel_region(input_)
+                output = super(self).forward(input_)
+                if self.is_last_layer_norm:
+                    output = gather_from_sequence_parallel_region(output, to_model_parallel=False)
+                    output = output.transpose(0, 1).contiguous()
+                return output
+
+        return wrapper.__get__(forward.__self__)
+
+
+    class SequenceParallelLayerNormMixin:
         @property
         def is_first_layer_norm(self):
             return getattr(self, "_is_first_layer_norm", False)
@@ -762,10 +778,14 @@ if is_neuronx_distributed_available():
                     output = output.transpose(0, 1).contiguous()
                 return output
 
+
 else:
 
-    class SequenceParallelLayerNorm:
+    class SequenceParallelLayerNormMixin:
         pass
+
+def create_sequence_parallel_layer_norm_type(layer_norm_type: Type) -> Type:
+    return type(f"SequenceParallel{layer_norm_type.__name__}", (SequenceParallelLayerNormMixin, layer_norm_type), {})
 
 
 class LayerNormSequenceParallelizer:
@@ -780,8 +800,10 @@ class LayerNormSequenceParallelizer:
     @requires_neuronx_distributed
     def parallelize_layernorm(self, module: torch.nn.LayerNorm, is_first_layer_norm: bool, is_last_layer_norm: bool):
         from neuronx_distributed.parallel_layers.layer_norm import _set_sequence_parallel_enabled
+
         if not isinstance(module, torch.nn.LayerNorm):
             raise TypeError(f"Expected torch.nn.LayerNorm but got {type(module)}.")
+
         module.__class__ = SequenceParallelLayerNorm
         module.sequence_parallel_enabled = self.sequence_parallel_enabled
         module.is_first_layer_norm = is_first_layer_norm
@@ -793,6 +815,9 @@ class LayerNormSequenceParallelizer:
     @requires_neuronx_distributed
     def parallelize_rmsnorm(self, module: torch.nn.Module, is_first_layer_norm: bool, is_last_layer_norm: bool):
         from neuronx_distributed.parallel_layers.layer_norm import _set_sequence_parallel_enabled
+
+        module.__class__ = create_sequence_parallel_layer_norm_type(module.__class__)
+        module.sequence_parallel_enabled = self.sequence_parallel_enabled
         module.is_first_layer_norm = is_first_layer_norm
         module.is_last_layer_norm = is_last_layer_norm
         _set_sequence_parallel_enabled(module.weight, self.sequence_parallel_enabled)

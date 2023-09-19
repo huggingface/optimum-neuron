@@ -14,11 +14,11 @@
 # limitations under the License.
 """Classes related to `neuronx-distributed` to perform parallelism."""
 
-from typing import TYPE_CHECKING, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Optional, Tuple
 
 from .base import Parallelizer
 from .parallel_layers import ParallelCrossEntropy, ParallelEmbedding, ParallelMLP, ParallelSelfAttention
-from .utils import create_sequence_parallel_attention_forward, linear_to_parallel_linear
+from .utils import linear_to_parallel_linear
 
 
 if TYPE_CHECKING:
@@ -64,9 +64,9 @@ class GPTNeoParallelizer(Parallelizer):
             new_shape = tensor.size()[:-1] + (num_heads, attn_head_size)
             tensor = tensor.view(new_shape)
             if sequence_parallel_enabled:
-                # [S, B, num_heads, head_dim] -> [B, num_heads, S, head_dim] 
+                # [S, B, num_heads, head_dim] -> [B, num_heads, S, head_dim]
                 return tensor.permute(1, 2, 0, 3).contiguous()
-            return tensor.permute(0, 2, 1, 3)  
+            return tensor.permute(0, 2, 1, 3)
 
         def _merge_heads(self, tensor, num_heads, attn_head_size):
             if sequence_parallel_enabled:
@@ -91,7 +91,9 @@ class GPTNeoParallelizer(Parallelizer):
         sequence_parallel_enabled: bool = False,
     ) -> "PreTrainedModel":
         if parallelize_embeddings:
-            model = GPTNeoParallelEmbedding.transform(model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device)
+            model = GPTNeoParallelEmbedding.transform(
+                model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+            )
         for block in model.transformer.h:
             block.attn.attention = GPTNeoParallelSelfAttention.transform(
                 model,
@@ -99,9 +101,13 @@ class GPTNeoParallelizer(Parallelizer):
                 sequence_parallel_enabled=sequence_parallel_enabled,
                 device=device,
             )
-            block.mlp = GPTNeoParallelMLP.transform(model, block.mlp, sequence_parallel_enabled=sequence_parallel_enabled, device=device)
+            block.mlp = GPTNeoParallelMLP.transform(
+                model, block.mlp, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+            )
         if parallelize_embeddings:
-            model = GPTNeoParallelCrossEntropy.transform(model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device)
+            model = GPTNeoParallelCrossEntropy.transform(
+                model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+            )
         return model
 
 
@@ -182,10 +188,12 @@ class LlamaParallelizer(Parallelizer):
     def patch_attention_forward_for_sequence_parallelism(
         cls, model: "PreTrainedModel", sequence_parallel_enabled: bool
     ):
+        import math
+
         from transformers.models.llama.modeling_llama import LlamaAttention, apply_rotary_pos_emb, repeat_kv
+        import torch
         import torch.nn.functional as F
         from torch import nn
-        import math
 
         def forward(
             self,
@@ -196,12 +204,6 @@ class LlamaParallelizer(Parallelizer):
             output_attentions: bool = False,
             use_cache: bool = False,
         ) -> Tuple["torch.Tensor", Optional["torch.Tensor"], Optional[Tuple["torch.Tensor"]]]:
-            if sequence_parallel_enabled:
-                q_len, bsz, _ = hidden_states.size()
-            else:
-                bsz, q_len, _ = hidden_states.size()
-            print(hidden_states.size())
-
             if self.config.pretraining_tp > 1:
                 key_value_slicing = (self.num_key_value_heads * self.head_dim) // self.config.pretraining_tp
                 query_slices = self.q_proj.weight.split(
@@ -225,10 +227,17 @@ class LlamaParallelizer(Parallelizer):
                 value_states = self.v_proj(hidden_states)
 
             if sequence_parallel_enabled:
+                q_len, bsz, _ = query_states.size()
+            else:
+                bsz, q_len, _ = query_states.size()
+
+            if sequence_parallel_enabled:
                 # [S, B, hidden_dim] -> [S, B, num_heads, head_dim] -> [B, num_heads, S, head_dim]
-                query_states = query_states.view(q_len, bsz, self.num_heads, self.head_dim).permute(2, 0, 1, 3)
-                key_states = key_states.view(q_len, bsz, self.num_key_value_heads, self.head_dim).permute(2, 0, 1, 3)
-                value_states = value_states.view(q_len, bsz, self.num_key_value_heads, self.head_dim).permute(2, 0, 1, 3)
+                query_states = query_states.view(q_len, bsz, self.num_heads, self.head_dim).permute(1, 2, 0, 3)
+                key_states = key_states.view(q_len, bsz, self.num_key_value_heads, self.head_dim).permute(1, 2, 0, 3)
+                value_states = value_states.view(q_len, bsz, self.num_key_value_heads, self.head_dim).permute(
+                   1, 2, 0, 3 
+                )
             else:
                 query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
                 key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
@@ -276,25 +285,29 @@ class LlamaParallelizer(Parallelizer):
                     f" {attn_output.size()}"
                 )
 
-            attn_output = attn_output.transpose(1, 2).contiguous()
-            attn_output = attn_output.reshape(bsz, q_len, self.hidden_size)
+            if sequence_parallel_enabled:
+                # [B, num_heads, S, head_dim] -> [S, B, num_heads, head_dim]
+                attn_output = attn_output.permute(2, 0, 1, 3)
+                attn_output = attn_output.reshape(q_len, bsz, -1)
+            else:
+                attn_output = attn_output.transpose(1, 2).contiguous()
+                attn_output = attn_output.reshape(bsz, q_len, self.hidden_size)
+
 
             if self.config.pretraining_tp > 1:
                 attn_output = attn_output.split(self.hidden_size // self.config.pretraining_tp, dim=2)
                 o_proj_slices = self.o_proj.weight.split(self.hidden_size // self.config.pretraining_tp, dim=1)
-                attn_output = sum([F.linear(attn_output[i], o_proj_slices[i]) for i in range(self.config.pretraining_tp)])
+                attn_output = sum(
+                    [F.linear(attn_output[i], o_proj_slices[i]) for i in range(self.config.pretraining_tp)]
+                )
             else:
                 attn_output = self.o_proj(attn_output)
 
             if not output_attentions:
                 attn_weights = None
 
-            if sequence_parallel_enabled:
-                # [B, S, hidden_dim] -> [S, B, hidden_dim]
-                attn_output = attn_output.transpose(0, 1)
 
             return attn_output, attn_weights, past_key_value
-
 
         for module in model.modules():
             if isinstance(module, LlamaAttention):
@@ -309,10 +322,18 @@ class LlamaParallelizer(Parallelizer):
         sequence_parallel_enabled: bool = False,
     ) -> "PreTrainedModel":
         if parallelize_embeddings:
-            model = LlamaParallelEmbedding.transform(model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device)
+            model = LlamaParallelEmbedding.transform(
+                model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+            )
         for layer in model.model.layers:
-            layer.self_attn = LlamaParallelSelfAttention.transform(model, layer.self_attn, sequence_parallel_enabled=sequence_parallel_enabled, device=device)
-            layer.mlp = LLamaParallelMLP.transform(model, layer.mlp, sequence_parallel_enabled=sequence_parallel_enabled, device=device)
+            layer.self_attn = LlamaParallelSelfAttention.transform(
+                model, layer.self_attn, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+            )
+            layer.mlp = LLamaParallelMLP.transform(
+                model, layer.mlp, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+            )
         if parallelize_embeddings:
-            model = LlamaParallelCrossEntropy.transform(model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device)
+            model = LlamaParallelCrossEntropy.transform(
+                model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+            )
         return model
