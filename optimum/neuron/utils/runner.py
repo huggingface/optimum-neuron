@@ -14,6 +14,7 @@
 # limitations under the License.
 """Utilities to be able to perform model compilation easily."""
 
+import codecs
 import os
 import re
 import subprocess
@@ -21,10 +22,15 @@ from enum import Enum
 from pathlib import Path
 from subprocess import PIPE
 from tempfile import TemporaryDirectory
-from typing import List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import requests
-from huggingface_hub import HfFolder
+from huggingface_hub import (
+    HfApi,
+    HfFolder,
+    snapshot_download,
+)
+from transformers import AutoConfig
 
 from ...utils import logging
 from .cache_utils import get_hf_hub_cache_repos, has_write_access_to_repo, load_custom_cache_repo_name_from_hf_home
@@ -84,6 +90,22 @@ class Precision(str, Enum):
     bf16 = "bf16"
 
 
+def run_command_with_realtime_output(cmd: List[str]) -> Tuple[int, str]:
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    stdout = []
+    decoder = codecs.getincrementaldecoder("utf-8")()
+    while True:
+        output = proc.stdout.read(1)
+        output = decoder.decode(output)
+        if output == "" and proc.poll() is not None:
+            break
+        if output != "":
+            stdout.append(output)
+            print(output, end="")
+    stdout = "".join(stdout)
+    return proc.returncode, stdout
+
+
 class ExampleRunner:
     _TASK_TO_COMMAND_ARGUMENTS = {
         "masked-lm": {
@@ -131,6 +153,8 @@ class ExampleRunner:
             "set_max_target_length": True,
             "extra_command_line_arguments": [
                 "--pad_to_max_length",
+                "--prediction_loss_only",
+                {"t5": "--source_prefix 'summarize: '"},
             ],
         },
         "translation": {
@@ -143,6 +167,7 @@ class ExampleRunner:
                 "--target_lang en",
                 "--pad_to_max_length",
                 "--prediction_loss_only",
+                {"t5": "--source_prefix 'Translate Romanian to English: '"},
             ],
         },
         "image-classification": {
@@ -155,9 +180,16 @@ class ExampleRunner:
     }
 
     def __init__(
-        self, model_name_or_path: str, task: str, example_dir: Optional[Union[str, Path]] = None, use_venv: bool = True
+        self,
+        model_name_or_path: str,
+        task: str,
+        example_dir: Optional[Union[str, Path]] = None,
+        config_overrides: Optional[Dict[str, Any]] = None,
+        use_venv: bool = True,
+        install_requirements: bool = True,
     ):
         self.model_name_or_path = model_name_or_path
+        self.config_overrides = config_overrides
 
         if task not in _TASK_TO_EXAMPLE_SCRIPT:
             supported_tasks = ", ".join(_TASK_TO_EXAMPLE_SCRIPT.keys())
@@ -176,7 +208,10 @@ class ExampleRunner:
             else:
                 self.example_dir = example_dir
 
+        if use_venv:
+            raise NotImplementedError("use_venv=True is not supported yet.")
         self.use_venv = use_venv
+        self.should_install_requirements = install_requirements
         self.venv_dir = TemporaryDirectory()
         self.python_name = "python"
         self.pip_name = "pip"
@@ -298,6 +333,42 @@ class ExampleRunner:
                 f"You do not have write access to {main_repo}. Please log in and/or use a custom Tranium cache repo."
             )
 
+    def download_model_repo_and_override_config(
+        self, model_name_or_path: str, config_overrides: Dict[str, Any], output_dir: Union[str, Path]
+    ) -> Union[str, Path]:
+        if not config_overrides:
+            return model_name_or_path
+
+        filenames = HfApi().list_repo_files(repo_id=model_name_or_path, token=HfFolder.get_token())
+        safetensors_model_file_pattern = re.compile(r"\w+(-[0-9]*-of-[0-9]*)?\.safetensors")
+        allow_patterns = ["*.json", "*.txt"]
+        if any(re.match(safetensors_model_file_pattern, filename) for filename in filenames):
+            # Not downloading PyTorch checkpoints if safetensors checkpoints are available.
+            allow_patterns.append("*.bin")
+        else:
+            allow_patterns.append("*.safetensors")
+
+        directory = Path(output_dir) / model_name_or_path.split("/")[-1]
+
+        # local_dir_use_symlinks = "auto" will download big files (>= 5MB) in the cache and create symlinks in
+        # local_dir, while creating copies in local_dir for small files.
+        # Here the goal is to edit the config of the model so this solution seems optimal.
+        snapshot_download(
+            model_name_or_path, allow_patterns=allow_patterns, local_dir=directory, local_dir_use_symlinks="auto"
+        )
+
+        config = AutoConfig.from_pretrained(directory)
+
+        for name, value in config_overrides.items():
+            type_of_attribute = type(getattr(config, name))
+            if type(value) is not type_of_attribute:
+                value = type_of_attribute(value)
+            setattr(config, name, value)
+
+        config.save_pretrained(directory)
+
+        return directory
+
     def run(
         self,
         num_cores: int,
@@ -309,10 +380,17 @@ class ExampleRunner:
         gradient_accumulation_steps: int = 1,
         num_epochs: int = 1,
         max_steps: Optional[int] = None,
+        max_eval_samples: Optional[int] = None,
         logging_steps: int = 1,
         save_steps: int = -1,
         learning_rate: float = 1e-4,
-    ) -> Tuple[int, str, str]:
+        tensor_parallel_size: int = 1,
+        disable_embedding_parallelization: bool = False,
+        zero_1: bool = False,
+        output_dir: Optional[Union[Path, str]] = None,
+        do_precompilation: bool = False,
+        print_outputs: bool = False,
+    ) -> Tuple[int, str]:
         if num_cores <= 0 or num_cores > 32:
             raise ValueError("The number of Neuron cores to use must be between 1 and 32.")
         if isinstance(precision, str) and not isinstance(precision, Precision):
@@ -338,21 +416,32 @@ class ExampleRunner:
                 script_path = candidates[0]
 
         # Installing requirements if needed.
-        self.install_requirements(script_path.parent / "requirements.txt")
+        if self.should_install_requirements:
+            self.install_requirements(script_path.parent / "requirements.txt")
 
         cmd = []
 
         cmd.append(self.python_name if num_cores == 1 else f"{self.torchrun_name} --nproc_per_node {num_cores}")
         cmd.append(script_path.as_posix())
-        cmd.append(f"--model_name_or_path {self.model_name_or_path}")
+
+        model_name_or_path = self.model_name_or_path
+        if self.config_overrides is not None:
+            model_name_or_path = self.download_model_repo_and_override_config(
+                self.model_name_or_path, self.config_overrides, tmpdir.name
+            )
+        cmd.append(f"--model_name_or_path {model_name_or_path}")
 
         # Training steps and batch sizes.
         cmd.append(f"--num_train_epochs {num_epochs}")
+        max_steps_idx = -1
         if max_steps is not None:
             cmd.append(f"--max_steps {max_steps}")
+            max_steps_idx = len(cmd) - 1
         cmd.append("--do_train")
         if do_eval:
             cmd.append("--do_eval")
+            if max_eval_samples is not None:
+                cmd.append("--max_eval_samples {max_eval_samples}")
         cmd.append(f"--learning_rate {learning_rate}")
         cmd.append(f"--per_device_train_batch_size {train_batch_size}")
         if do_eval:
@@ -369,11 +458,20 @@ class ExampleRunner:
         cmd.append(f"--save_steps {save_steps}")
         cmd.append("--save_total_limit 1")
 
+        # Parallelism
+        if tensor_parallel_size > 1:
+            cmd.append(f"--tensor_parallel_size {tensor_parallel_size}")
+        if disable_embedding_parallelization:
+            cmd.append("--disable_embedding_parallelization")
+        if zero_1:
+            cmd.append("--zero_1")
+
         if precision is Precision.bf16:
             cmd.append("--bf16")
 
         # Dataset
         arguments = self._TASK_TO_COMMAND_ARGUMENTS[self.task]
+        model_type = AutoConfig.from_pretrained(model_name_or_path).model_type
         for name, value in arguments.items():
             if name == "set_max_length":
                 if isinstance(sequence_length, (tuple, list)):
@@ -391,7 +489,10 @@ class ExampleRunner:
                     cmd.append(f"--max_target_length {sequence_length[1]}")
             elif name == "extra_command_line_arguments":
                 for argument in value:
-                    cmd.append(argument)
+                    if isinstance(argument, dict):
+                        argument = argument.get(model_type, argument.get("default", None))
+                    if argument is not None:
+                        cmd.append(argument)
             else:
                 cmd.append(f"--{name} {value}")
 
@@ -400,17 +501,48 @@ class ExampleRunner:
             return [x for y in cmd for x in re.split(pattern, y) if x]
 
         with TemporaryDirectory() as tmpdirname:
-            cmd.append(f"--output_dir {tmpdirname}")
+            if output_dir is None:
+                cmd.append(f"--output_dir {tmpdirname}")
+            else:
+                cmd.append(f"--output_dir {output_dir}")
+
+            if do_precompilation:
+                # We need to update both the number of steps and the output directory specifically for the
+                # precompilation step.
+                with TemporaryDirectory() as precompilation_tmpdirname:
+                    precompilation_cmd = list(cmd)
+                    precompilation_cmd.pop(-1)  # Removing the --output_dir argument.
+                    max_steps_cmd_str = "--max_steps 10"
+                    if max_steps_idx >= 0:
+                        precompilation_cmd[max_steps_idx] = max_steps_cmd_str
+                    else:
+                        precompilation_cmd.append(max_steps_cmd_str)
+                    precompilation_cmd.append(f"--output_dir {precompilation_tmpdirname}")
+                    precompilation_cmd = ["neuron_parallel_compile"] + precompilation_cmd
+
+                    precompilation_cmd = split_args_and_value_in_command(precompilation_cmd)
+
+                    print(f"RUNNING PRECOMPILATION COMMAND:\n{' '.join(precompilation_cmd)}")
+
+                    if print_outputs:
+                        returncode, stdout = run_command_with_realtime_output(precompilation_cmd)
+                    else:
+                        proc = subprocess.Popen(precompilation_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                        stdout, _ = proc.communicate()
+                        stdout = stdout.decode("utf-8")
+                        returncode = proc.returncode
 
             cmd = split_args_and_value_in_command(cmd)
-
             print(f"RUNNING COMMAND:\n{' '.join(cmd)}")
 
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            stdout, stderr = proc.communicate()
-            stdout = stdout.decode("utf-8")
-            stderr = stderr.decode("utf-8")
+            if print_outputs:
+                returncode, stdout = run_command_with_realtime_output(cmd)
+            else:
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                stdout, _ = proc.communicate()
+                stdout = stdout.decode("utf-8")
+                returncode = proc.returncode
 
         tmpdir.cleanup()
 
-        return proc.returncode, stdout, stderr
+        return returncode, stdout

@@ -368,3 +368,9 @@ class VaeDecoderNeuronConfig(VisionNeuronConfig):
 class GPT2NeuronConfig(TextNeuronDecoderConfig):
     NEURONX_ARGS = ["n_positions"]
     NEURONX_CLASS = "gpt2.model.GPT2ForSampling"
+
+
+@register_in_tasks_manager("llama", "text-generation")
+class LLamaNeuronConfig(TextNeuronDecoderConfig):
+    NEURONX_ARGS = ["n_positions"]
+    NEURONX_CLASS = "llama.model.LlamaForSampling"

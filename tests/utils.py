@@ -44,27 +44,6 @@ from optimum.neuron.utils.cache_utils import (
 from optimum.utils.testing_utils import TOKEN, USER
 
 
-MODELS_TO_TEST_MAPPING = {
-    "albert": "albert-base-v2",
-    "bart": "facebook/bart-base",
-    "bert": "bert-base-uncased",
-    "camembert": "camembert-base",
-    "distilbert": "distilbert-base-uncased",
-    "electra": "google/electra-base-discriminator",
-    "gpt2": "gpt2",
-    "gpt_neo": "EleutherAI/gpt-neo-125M",
-    "marian": "Helsinki-NLP/opus-mt-en-ro",
-    "roberta": "roberta-base",
-    "t5": "t5-small",
-    "vit": "google/vit-base-patch16-224-in21k",
-    "xlm-roberta": "xlm-roberta-base",
-    # TODO: issue with this model for now.
-    "m2m_100": "facebook/m2m100_418M",
-    # "wav2vec2": "facebook/wav2vec2-base",
-    # Remaning: XLNet, Deberta-v2, MPNet, CLIP
-}
-
-
 def get_random_string(length) -> str:
     letters = string.ascii_lowercase
     return "".join(random.choice(letters) for _ in range(length))

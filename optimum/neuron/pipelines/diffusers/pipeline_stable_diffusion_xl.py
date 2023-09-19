@@ -20,7 +20,7 @@ from diffusers import StableDiffusionXLPipeline
 from diffusers.loaders import LoraLoaderMixin, TextualInversionLoaderMixin
 from diffusers.pipelines.stable_diffusion_xl import StableDiffusionXLPipelineOutput
 from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl import rescale_noise_cfg
-from diffusers.utils import randn_tensor
+from diffusers.utils.torch_utils import randn_tensor
 
 
 logger = logging.getLogger(__name__)
