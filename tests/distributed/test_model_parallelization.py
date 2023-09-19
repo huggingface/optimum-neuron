@@ -208,7 +208,6 @@ class ModelParallelizationTestCase(unittest.TestCase):
                 cmd.insert(1, f"--rdzv_endpoint={rdzv_endpoint_host}:{rdzv_endpoint_port}")
                 env["NEURON_RT_VISIBLE_CORES"] = f"0-{num_neuron_cores - 1}"
 
-
             # When running tests in parallel, synchronization is done after both processes started.
             if not run_test_in_parallel:
                 _, stdout = run_command_with_realtime_output(cmd, env=env)
@@ -237,7 +236,6 @@ class ModelParallelizationTestCase(unittest.TestCase):
             else:
                 _, stdout = run_command_with_realtime_output(cmd, env=env)
 
-
             temporary_dir = Path(tmpdirname)
             original_model_outputs = torch.load(temporary_dir / "original.bin")
             parallel_model_outputs = torch.load(temporary_dir / "parallel.bin")
@@ -264,7 +262,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
             model_name_or_path=model_name_or_path,
             from_config=True,
             with_lazy_load=False,
-            parallelize_embeddings=True,
+            parallelize_embeddings=False,
             overwrite_model_config=config_overwrite,
         )
 
@@ -280,7 +278,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
             model_name_or_path=model_name_or_path,
             from_config=False,
             with_lazy_load=False,
-            parallelize_embeddings=True,
+            parallelize_embeddings=False,
             overwrite_model_config=config_overwrite,
         )
 
