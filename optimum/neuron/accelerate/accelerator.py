@@ -220,7 +220,7 @@ class NeuronAccelerator(Accelerator):
             del optimizer
         else:
             logger.warning(
-                f"Creating a ZeroRedundancyOptimizer from {optimizer}, this might change some default values. When "
+                f"Creating a NeuronZero1Optimizer from {optimizer}, this might change some default values. When "
                 "using ZeRO 1 it is recommended to create the ZeroRedundancyOptimizer yourself to avoid this kind of "
                 "issues."
             )

@@ -93,7 +93,7 @@ class BertParallelizer(Parallelizer):
                 device=device,
             )
         # Valid because we currently parallelize the cross-entropy loss only for language-modeling tasks where the
-        # embeddigns and the LM head are tied.
+        # embeddings and the LM head are tied.
         if parallelize_embeddings:
             model = BertParallelCrossEntropy.transform(model, model, device=device)
         return model
@@ -147,7 +147,7 @@ class RobertaParallelizer(Parallelizer):
                 device=device,
             )
         # Valid because we currently parallelize the cross-entropy loss only for language-modeling tasks where the
-        # embeddigns and the LM head are tied.
+        # embeddings and the LM head are tied.
         if parallelize_embeddings:
             model = RobertaParallelCrossEntropy.transform(model, model, device=device)
         return model

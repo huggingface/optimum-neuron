@@ -583,6 +583,11 @@ def safe_parallel_cross_entropy(*args, **kwargs):
 
 
 class ParallelCrossEntropyLoss(_WeightedLoss):
+    """
+    Same as `torch.nn.CrossEntropyLoss` except that it uses
+    `neuronx_distributed.parallel_layers.loss_functions.parallel_cross_entropy`.
+    """
+
     __constants__ = ["ignore_index", "reduction", "label_smoothing"]
     ignore_index: int
     label_smoothing: float
