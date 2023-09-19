@@ -43,8 +43,9 @@ from transformers.models.auto.modeling_auto import (
     MODEL_FOR_ZERO_SHOT_IMAGE_CLASSIFICATION_MAPPING_NAMES,
 )
 
-from optimum.neuron.utils.cache_utils import get_num_neuron_cores
+from optimum.neuron.utils.cache_utils import get_num_neuron_cores, set_neuron_cache_path
 from optimum.neuron.utils.import_utils import is_neuronx_available
+from optimum.neuron.utils.runner import run_command_with_realtime_output
 
 from ..test_utils import is_trainium_test
 
@@ -111,7 +112,6 @@ MODEL_TYPES_TO_TEST = [
     ("bert", "hf-internal-testing/tiny-random-bert"),
     ("roberta", "hf-internal-testing/tiny-random-roberta"),
     ("gpt_neo", "hf-internal-testing/tiny-random-GPTNeoModel"),
-    ("llama", "fxmarty/tiny-llama-fast-tokenizer"),
     ("llama", "anushehchaudry/llama-2-tiny-random"),
     ("t5", "hf-tiny-model-private/tiny-random-T5ForConditionalGeneration", {"d_ff": "64"}),
 ]
@@ -155,15 +155,23 @@ class ModelParallelizationTestCase(unittest.TestCase):
             )
 
         template_content = None
-        template_file_path = Path(__file__).parent.resolve() / TEMPLATE_FILE_NAME
+        current_directory = Path(__file__).parent.resolve()
+        template_file_path = current_directory / TEMPLATE_FILE_NAME
         with open(template_file_path, "r") as fp:
             template_content = fp.read()
 
         specialization_env = {
             "from_config": "true" if from_config else "false",
             "lazy_load": "true" if with_lazy_load else "false",
+            "parallelize_embeddings": "true" if parallelize_embeddings else "false",
             **os.environ,
         }
+
+        # Updating the Python path to be able to use `tests/distributed/utils.py`.
+        python_path = specialization_env.get("PYTHONPATH", "")
+        python_path = f"{current_directory}:{python_path}"
+        specialization_env["PYTHONPATH"] = python_path
+
         if overwrite_model_config is not None:
             specialization_env["config_overwrite"] = ",".join(
                 f"{key}={value}" for key, value in overwrite_model_config.items()
@@ -188,40 +196,45 @@ class ModelParallelizationTestCase(unittest.TestCase):
             rdzv_endpoint_host = "localhost"
             rdzv_endpoint_port = 29400
 
+            orig_neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
+            set_neuron_cache_path(tmpdirname)
+            neuron_cc_flags = os.environ["NEURON_CC_FLAGS"]
+            os.environ["NEURON_CC_FLAGS"] = orig_neuron_cc_flags
+
             # Original model.
-            env = {"is_parallel": "false", **specialization_env}
+            env = {"is_parallel": "false", **specialization_env, "NEURON_CC_FLAGS": neuron_cc_flags}
             if run_test_in_parallel:
                 # Setting the rendez-vous endpoint for the original model process.
                 cmd.insert(1, f"--rdzv_endpoint={rdzv_endpoint_host}:{rdzv_endpoint_port}")
                 env["NEURON_RT_VISIBLE_CORES"] = f"0-{num_neuron_cores - 1}"
 
-            p_original = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
-
             # When running tests in parallel, synchronization is done after both processes started.
             if not run_test_in_parallel:
-                stdout, _ = p_original.communicate()
-                stdout = stdout.decode("utf-8")
-                full_output = f"Original model standard output:\n{stdout}"
-                print(full_output)
+                _, stdout = run_command_with_realtime_output(cmd, env=env)
+            else:
+                p_original = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
 
             # Parallel model.
-            env = {"is_parallel": "true", **specialization_env}
+            env = {"is_parallel": "true", **specialization_env, "NEURON_CC_FLAGS": neuron_cc_flags}
             if run_test_in_parallel:
                 # Updating the rendez-vous endpoint for the parallel model process.
                 cmd[1] = f"--rdzv_endpoint={rdzv_endpoint_host}:{rdzv_endpoint_port + 1}"
                 env["NEURON_RT_VISIBLE_CORES"] = f"{num_neuron_cores}-{2 * num_neuron_cores - 1}"
-            p_parallel = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
 
-            if run_test_in_parallel:
+                p_parallel = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+
                 stdout, _ = p_original.communicate()
                 stdout = stdout.decode("utf-8")
                 full_output = f"Original model standard output:\n{stdout}"
                 print(full_output)
 
-            stdout, _ = p_parallel.communicate()
-            stdout = stdout.decode("utf-8")
-            full_output = f"Parallel model standard output:\n{stdout}"
-            print(full_output)
+                stdout, _ = p_parallel.communicate()
+                stdout = stdout.decode("utf-8")
+                full_output = f"Parallel model standard output:\n{stdout}"
+                print(full_output)
+
+            else:
+                _, stdout = run_command_with_realtime_output(cmd, env=env)
 
             temporary_dir = Path(tmpdirname)
             original_model_outputs = torch.load(temporary_dir / "original.bin")
@@ -229,8 +242,13 @@ class ModelParallelizationTestCase(unittest.TestCase):
             for name, t in parallel_model_outputs.items():
                 if not isinstance(t, torch.Tensor):
                     continue
-                print(t, original_model_outputs[name])
-                torch.testing.assert_close(t, original_model_outputs[name])
+                original_t = original_model_outputs[name]
+                print(f"Testing that {name} match.")
+                print(f"Original {name}:\nShape: {original_t.shape}\nValue: {original_t}")
+                print(f"Parallel {name}:\nShape: {t.shape}\nValue: {t}")
+                print(t, original_t)
+                torch.testing.assert_close(t, original_t)
+                print("Ok!")
 
     @parameterized.expand(MODELS_TO_TEST)
     def test_model_parallel_from_config_without_lazy_load(
@@ -244,7 +262,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
             model_name_or_path=model_name_or_path,
             from_config=True,
             with_lazy_load=False,
-            parallelize_embeddings=False,  # Should be True once it's working.
+            parallelize_embeddings=False,
             overwrite_model_config=config_overwrite,
         )
 
@@ -255,11 +273,28 @@ class ModelParallelizationTestCase(unittest.TestCase):
         self._test_model_parallel(
             num_neuron_cores=8,
             tp_size=2,
+            run_test_in_parallel=True,
             model_class_name=model_class_name,
             model_name_or_path=model_name_or_path,
             from_config=False,
             with_lazy_load=False,
-            parallelize_embeddings=False,  # Should be True once it's working.
+            parallelize_embeddings=False,
+            overwrite_model_config=config_overwrite,
+        )
+
+    @parameterized.expand(MODELS_TO_TEST)
+    def test_model_parallel_without_parallelizing_embeddings(
+        self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
+    ):
+        self._test_model_parallel(
+            num_neuron_cores=8,
+            tp_size=2,
+            run_test_in_parallel=True,
+            model_class_name=model_class_name,
+            model_name_or_path=model_name_or_path,
+            from_config=False,
+            with_lazy_load=True,
+            parallelize_embeddings=False,
             overwrite_model_config=config_overwrite,
         )
 
@@ -361,13 +396,3 @@ class ModelParallelizationTestCase(unittest.TestCase):
                 "num_key_value_heads": "1",
             },
         )
-
-    # TODO: enable that once it's working.
-    # @parameterized.expand(MODELS_TO_TEST)
-    # def test_model_parallel_without_parallelizing_embeddings(self, model_class_name: str, model_name_or_path: str):
-    #     self._test_model_parallel(model_class_name, model_name_or_path, False, False, False)
-
-    # TODO: enable that.
-    # @parameterized.expand(MODELS_TO_TEST)
-    # def test_model_parallel_from_pretrained_with_lazy_load(self, model_class_name: str, model_name_or_path: str):
-    #     self._test_model_parallel(model_class_name, model_name_or_path, False, True)

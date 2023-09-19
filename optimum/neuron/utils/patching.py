@@ -172,12 +172,15 @@ def patch_within_function(
     def decorator(func):
         is_bound = hasattr(func, "__self__")
 
-        @functools.wraps(func)
+        @functools.wraps(func.__func__ if is_bound else func)
         def wrapper(*args, **kwargs):
             with patcher:
                 if is_bound:
                     args = args[1:]
                 return func(*args, **kwargs)
+
+        if is_bound:
+            wrapper = wrapper.__get__(getattr(func, "__self__"))
 
         return wrapper
 
