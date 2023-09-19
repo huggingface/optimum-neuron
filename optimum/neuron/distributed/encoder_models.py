@@ -77,9 +77,7 @@ class BertParallelizer(Parallelizer):
     ]
 
     @classmethod
-    def patch_attention_forward_for_sequence_parallelism(
-        cls, model: "PreTrainedModel", sequence_parallel_enabled: bool
-    ):
+    def patch_for_sequence_paralelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
         from transformers.models.bert.modeling_bert import BertSelfAttention
 
         def transpose_for_scores(self, x: "torch.Tensor") -> "torch.Tensor":
@@ -160,9 +158,7 @@ class RobertaParallelizer(Parallelizer):
     ]
 
     @classmethod
-    def patch_attention_forward_for_sequence_parallelism(
-        cls, model: "PreTrainedModel", sequence_parallel_enabled: bool
-    ):
+    def patch_for_sequence_paralelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
         from transformers.models.roberta.modeling_roberta import RobertaSelfAttention
 
         def transpose_for_scores(self, x: "torch.Tensor") -> "torch.Tensor":

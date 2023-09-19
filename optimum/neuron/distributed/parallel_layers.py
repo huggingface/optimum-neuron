@@ -14,10 +14,12 @@
 # limitations under the License.
 """Classes related to parallel versions of common blocks in Transformers models."""
 
+import functools
 import re
 from abc import ABC, abstractclassmethod
+from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union, Type
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Type, Union
 
 import torch
 from torch.nn.modules.loss import _WeightedLoss
@@ -711,8 +713,10 @@ class ParallelCrossEntropy(ParallelLayer):
 
 
 if is_neuronx_distributed_available():
-    from neuronx_distributed.parallel_layers.layer_norm import LayerNorm
-    from neuronx_distributed.parallel_layers.mappings import gather_from_sequence_parallel_region, scatter_to_sequence_parallel_region
+    from neuronx_distributed.parallel_layers.mappings import (
+        gather_from_sequence_parallel_region,
+        scatter_to_sequence_parallel_region,
+    )
 
     # class _ScatterToSequenceParallelRegion(torch.autograd.Function):
     #     """Splits the input and keep only the corresponding chunk to the rank."""
@@ -734,7 +738,6 @@ if is_neuronx_distributed_available():
     #     return _ScatterToSequenceParallelRegion.apply(input_)
 
     def create_sequence_parallel_forward(forward):
-
         @functools.wraps(forward)
         def wrapper(self, input_):
             if self.sequence_parallel_enabled:
@@ -748,7 +751,6 @@ if is_neuronx_distributed_available():
                 return output
 
         return wrapper.__get__(forward.__self__)
-
 
     class SequenceParallelLayerNormMixin:
         @property
@@ -778,19 +780,22 @@ if is_neuronx_distributed_available():
                     output = output.transpose(0, 1).contiguous()
                 return output
 
-
 else:
 
     class SequenceParallelLayerNormMixin:
         pass
 
-def create_sequence_parallel_layer_norm_type(layer_norm_type: Type) -> Type:
+
+def create_sequence_parallel_layer_norm_class(layer_norm_type: Type) -> Type:
     return type(f"SequenceParallel{layer_norm_type.__name__}", (SequenceParallelLayerNormMixin, layer_norm_type), {})
 
 
-class LayerNormSequenceParallelizer:
-    RMS_NORM_MODELS = ["t5", "llama"]
+class LayerNormType(str, Enum):
+    REGULAR = "regular"
+    RMS_NORM = "rms_norm"
 
+
+class LayerNormSequenceParallelizer:
     def __init__(self, sequence_parallel_enabled: bool, layer_norm_qualified_name_patterns: List[str]):
         self.sequence_parallel_enabled = sequence_parallel_enabled
         self.layer_norm_qualified_name_patterns = [
@@ -804,7 +809,7 @@ class LayerNormSequenceParallelizer:
         if not isinstance(module, torch.nn.LayerNorm):
             raise TypeError(f"Expected torch.nn.LayerNorm but got {type(module)}.")
 
-        module.__class__ = SequenceParallelLayerNorm
+        module.__class__ = create_sequence_parallel_layer_norm_class(module.__class__)
         module.sequence_parallel_enabled = self.sequence_parallel_enabled
         module.is_first_layer_norm = is_first_layer_norm
         module.is_last_layer_norm = is_last_layer_norm
@@ -816,17 +821,28 @@ class LayerNormSequenceParallelizer:
     def parallelize_rmsnorm(self, module: torch.nn.Module, is_first_layer_norm: bool, is_last_layer_norm: bool):
         from neuronx_distributed.parallel_layers.layer_norm import _set_sequence_parallel_enabled
 
-        module.__class__ = create_sequence_parallel_layer_norm_type(module.__class__)
+        module.__class__ = create_sequence_parallel_layer_norm_class(module.__class__)
         module.sequence_parallel_enabled = self.sequence_parallel_enabled
         module.is_first_layer_norm = is_first_layer_norm
         module.is_last_layer_norm = is_last_layer_norm
         _set_sequence_parallel_enabled(module.weight, self.sequence_parallel_enabled)
 
-    def sequence_parallelize(self, model: "PreTrainedModel") -> "PreTrainedModel":
-        if model.config.model_type in self.RMS_NORM_MODELS:
-            parallelize_method = self.parallelize_rmsnorm
-        else:
-            parallelize_method = self.parallelize_layernorm
+    def sequence_parallelize(
+        self,
+        model: "PreTrainedModel",
+        layernorm_type: Union[str, LayerNormType],
+        parallelize_input_to_first_layernorm: bool = True,
+        gather_output_from_last_layernorm: bool = True,
+    ) -> "PreTrainedModel":
+        if type(layernorm_type) is str:
+            layernorm_type = LayerNormType(layernorm_type)
+
+        layernorm_type_to_parallelize_method = {
+            LayerNormType.REGULAR: self.parallelize_layernorm,
+            LayerNormType.RMS_NORM: self.parallelize_rmsnorm,
+        }
+        parallelize_method = layernorm_type_to_parallelize_method[layernorm_type]
+
         first_layer_norm = None
         last_layer_norm = None
         name_1 = None
@@ -844,5 +860,9 @@ class LayerNormSequenceParallelizer:
         for name, module in model.named_modules():
             for pattern in self.layer_norm_qualified_name_patterns:
                 if re.match(pattern, name):
-                    parallelize_method(module, module is first_layer_norm, module is last_layer_norm)
+                    parallelize_method(
+                        module,
+                        parallelize_input_to_first_layernorm and module is first_layer_norm,
+                        gather_output_from_last_layernorm and module is last_layer_norm,
+                    )
         return model

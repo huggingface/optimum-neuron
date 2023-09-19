@@ -32,6 +32,7 @@ is_parallel = os.environ["is_parallel"] == "true"
 config_overwrite = os.environ.get("config_overwrite", "")
 parallelize_embeddings = is_parallel and os.environ["parallelize_embeddings"] == "true"
 sequence_parallel_enabled = os.environ["sequence_parallel_enabled"] == "true"
+computing_loss_is_supported = os.environ["computing_loss_is_supported"] == "true"
 
 # This is required to prevent `parallel_cross_entropy` to mutate the logits (which would make them not comparable).
 if is_parallel and parallelize_embeddings:
@@ -108,7 +109,8 @@ for k, v in inputs.items():
 # Might not work for every tasks.
 shape = list(xla_inputs.values())[0].shape
 
-# xla_inputs.update(generate_dummy_labels(model, shape, vocab_size=vocab_size, device="xla", seed=SEED))
+if computing_loss_is_supported:
+  xla_inputs.update(generate_dummy_labels(model, shape, vocab_size=vocab_size, device="xla", seed=SEED))
 
 model_outputs = model(**xla_inputs, return_dict=True)
 xm.mark_step()

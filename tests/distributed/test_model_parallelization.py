@@ -166,6 +166,8 @@ class ModelParallelizationTestCase(unittest.TestCase):
             "lazy_load": "true" if with_lazy_load else "false",
             "parallelize_embeddings": "true" if parallelize_embeddings else "false",
             "sequence_parallel_enabled": "true" if sequence_parallel_enabled else "false",
+            # TODO: disable that once that loss computation compilation for LLama does not take forever.
+            "computing_loss_is_supported": "true" if not model_class_name.startswith("Llama") else "false",
             **os.environ,
         }
 

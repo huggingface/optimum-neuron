@@ -27,7 +27,7 @@ from transformers.utils import WEIGHTS_NAME
 
 from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
-from .parallel_layers import LayerNormSequenceParallelizer
+from .parallel_layers import LayerNormSequenceParallelizer, LayerNormType
 from .utils import TENSOR_PARALLEL_SHARDS_DIR_NAME, ParameterMetadata, WeightInformation, load_tensor_for_weight
 
 
@@ -65,6 +65,9 @@ class Parallelizer(ABC):
     """
 
     SEQUENCE_PARALLEL_LAYERNORM_PATTERNS: Optional[List[str]] = None
+    LAYERNORM_TYPE: LayerNormType = LayerNormType.REGULAR
+    PARALLELIZE_INPUT_OF_FIRST_LAYERNORM: bool = True
+    GATHER_OUTPUT_OF_LAST_LAYERNORM: bool = True
 
     def __init__(self):
         self._validate_required_libaries_are_available()
@@ -118,9 +121,7 @@ class Parallelizer(ABC):
         """
 
     @classmethod
-    def patch_attention_forward_for_sequence_parallelism(
-        cls, model: "PreTrainedModel", sequence_parallel_enabled: bool
-    ):
+    def patch_for_sequence_paralelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
         if sequence_parallel_enabled:
             raise NotImplementedError(
                 f"No patching for the attention mechansim for sequence parallelism was implemented for {model.__class__}"
@@ -165,9 +166,11 @@ class Parallelizer(ABC):
         layer_norm_sequence_parallelizer = LayerNormSequenceParallelizer(
             sequence_parallel_enabled, layer_norm_qualified_name_patterns
         )
-        model = layer_norm_sequence_parallelizer.sequence_parallelize(model)
+        model = layer_norm_sequence_parallelizer.sequence_parallelize(
+            model, cls.LAYERNORM_TYPE, cls.PARALLELIZE_INPUT_OF_FIRST_LAYERNORM, cls.GATHER_OUTPUT_OF_LAST_LAYERNORM
+        )
         # TODO: choose an API between returning a model changed in place or not returning anything at all.
-        cls.patch_attention_forward_for_sequence_parallelism(model, sequence_parallel_enabled)
+        cls.patch_for_sequence_paralelism(model, sequence_parallel_enabled)
 
         model = cls._parallelize(
             model,

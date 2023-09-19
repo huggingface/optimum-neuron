@@ -14,10 +14,11 @@
 # limitations under the License.
 """Classes related to `neuronx-distributed` to perform parallelism."""
 
+import functools
 from typing import TYPE_CHECKING, Optional, Tuple
 
 from .base import Parallelizer
-from .parallel_layers import ParallelCrossEntropy, ParallelEmbedding, ParallelMLP, ParallelSelfAttention
+from .parallel_layers import LayerNormType, ParallelCrossEntropy, ParallelEmbedding, ParallelMLP, ParallelSelfAttention
 from .utils import linear_to_parallel_linear
 
 
@@ -55,9 +56,7 @@ class GPTNeoParallelizer(Parallelizer):
     ]
 
     @classmethod
-    def patch_attention_forward_for_sequence_parallelism(
-        cls, model: "PreTrainedModel", sequence_parallel_enabled: bool
-    ):
+    def patch_for_sequence_paralelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
         from transformers.models.gpt_neo.modeling_gpt_neo import GPTNeoSelfAttention
 
         def _split_heads(self, tensor, num_heads, attn_head_size):
@@ -183,19 +182,27 @@ class LlamaParallelizer(Parallelizer):
         "model.layers.[0-9]+.post_attention_layernorm",
         "model.norm",
     ]
+    LAYERNORM_TYPE = LayerNormType.RMS_NORM
+    PARALLELIZE_INPUT_OF_FIRST_LAYERNORM = False
 
     @classmethod
-    def patch_attention_forward_for_sequence_parallelism(
-        cls, model: "PreTrainedModel", sequence_parallel_enabled: bool
-    ):
+    def patch_for_sequence_paralelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
         import math
 
-        from transformers.models.llama.modeling_llama import LlamaAttention, apply_rotary_pos_emb, repeat_kv
         import torch
         import torch.nn.functional as F
+        from neuronx_distributed.parallel_layers.mappings import (
+            scatter_to_sequence_parallel_region,
+        )
         from torch import nn
+        from transformers.models.llama.modeling_llama import (
+            LlamaAttention,
+            LlamaDecoderLayer,
+            apply_rotary_pos_emb,
+            repeat_kv,
+        )
 
-        def forward(
+        def attention_forward(
             self,
             hidden_states: "torch.Tensor",
             attention_mask: Optional["torch.Tensor"] = None,
@@ -236,7 +243,7 @@ class LlamaParallelizer(Parallelizer):
                 query_states = query_states.view(q_len, bsz, self.num_heads, self.head_dim).permute(1, 2, 0, 3)
                 key_states = key_states.view(q_len, bsz, self.num_key_value_heads, self.head_dim).permute(1, 2, 0, 3)
                 value_states = value_states.view(q_len, bsz, self.num_key_value_heads, self.head_dim).permute(
-                   1, 2, 0, 3 
+                    1, 2, 0, 3
                 )
             else:
                 query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
@@ -293,7 +300,6 @@ class LlamaParallelizer(Parallelizer):
                 attn_output = attn_output.transpose(1, 2).contiguous()
                 attn_output = attn_output.reshape(bsz, q_len, self.hidden_size)
 
-
             if self.config.pretraining_tp > 1:
                 attn_output = attn_output.split(self.hidden_size // self.config.pretraining_tp, dim=2)
                 o_proj_slices = self.o_proj.weight.split(self.hidden_size // self.config.pretraining_tp, dim=1)
@@ -306,12 +312,25 @@ class LlamaParallelizer(Parallelizer):
             if not output_attentions:
                 attn_weights = None
 
-
             return attn_output, attn_weights, past_key_value
 
+        def create_sequence_parallel_first_decoder_layer_forward(forward):
+            @functools.wraps(forward)
+            def first_decoder_layer_forward(*args, **kwargs):
+                hidden_states = args[1]
+                hidden_states = hidden_states.transpose(0, 1).contiguous()
+                hidden_states = scatter_to_sequence_parallel_region(hidden_states)
+                return forward(hidden_states, *args[2:], **kwargs)
+
+            return first_decoder_layer_forward.__get__(forward.__self__)
+
+        is_first_decoder_layer = True
         for module in model.modules():
+            if is_first_decoder_layer and isinstance(module, LlamaDecoderLayer):
+                module.forward = create_sequence_parallel_first_decoder_layer_forward(module.forward)
+                is_first_decoder_layer = False
             if isinstance(module, LlamaAttention):
-                module.forward = forward.__get__(module)
+                module.forward = attention_forward.__get__(module)
 
     @classmethod
     def _parallelize(
