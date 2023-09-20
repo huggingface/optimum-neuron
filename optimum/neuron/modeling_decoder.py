@@ -206,7 +206,7 @@ class NeuronDecoderModel(OptimizedModel):
 
         # Compile the Neuron model (if present compiled artifacts will be reloaded instead of compiled)
         neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
-        os.environ["NEURON_CC_FLAGS"] = neuron_cc_flags + " --model-type=transformer-inference"
+        os.environ["NEURON_CC_FLAGS"] = neuron_cc_flags + " --model-type=transformer"
         neuronx_model.to_neuron()
         os.environ["NEURON_CC_FLAGS"] = neuron_cc_flags
 

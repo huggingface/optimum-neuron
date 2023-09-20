@@ -89,19 +89,19 @@ RUN wget -qO - https://apt.repos.neuron.amazonaws.com/GPG-PUB-KEY-AMAZON-AWS-NEU
 # Install neuronx 2.12.2 packages
 RUN apt-get update -y \
  && apt-get install -y --no-install-recommends \
-    aws-neuronx-dkms=2.12.18.0 \
-    aws-neuronx-collectives=2.16.16.0-e59c7bb3e \
-    aws-neuronx-runtime-lib=2.16.14.0-61fdc395f \
-    aws-neuronx-tools=2.13.4.0 \
+    aws-neuronx-dkms=2.13.4.0 \
+    aws-neuronx-collectives=2.17.9.0-fb6d14044 \
+    aws-neuronx-runtime-lib=2.17.7.0-df62e3f70 \
+    aws-neuronx-tools=2.14.6.0 \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
 ENV PATH="/opt/bin/:/opt/aws/neuron/bin:${PATH}"
 
 RUN pip3 install \
-    neuronx-cc==2.9.0.40 \
-    torch-neuronx==1.13.1.1.10.1 \
-    transformers-neuronx==0.6.106 \
+    neuronx-cc==2.10.0.34 \
+    torch-neuronx==1.13.1.1.11.0 \
+    transformers-neuronx==0.7.84 \
     --extra-index-url=https://pip.repos.neuron.amazonaws.com
 
 # Install HuggingFace packages
