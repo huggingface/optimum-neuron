@@ -75,6 +75,8 @@ class BertParallelizer(Parallelizer):
         "bert.encoder.layer.[0-9]+.attention.output.LayerNorm",
         "bert.encoder.layer.[0-9]+.output.LayerNorm",
     ]
+    SCATTER_SEQUENCE_AT_FIRST_LAYER_OF_TYPE = torch.nn.LayerNorm
+    GATHER_SEQUENCE_AT_LAST_LAYER_OF_TYPE = torch.nn.LayerNorm
 
     @classmethod
     def patch_for_sequence_paralelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
@@ -156,6 +158,8 @@ class RobertaParallelizer(Parallelizer):
         "roberta.encoder.layer.[0-9]+.attention.output.LayerNorm",
         "roberta.encoder.layer.[0-9]+.output.LayerNorm",
     ]
+    SCATTER_SEQUENCE_AT_FIRST_LAYER_OF_TYPE = torch.nn.LayerNorm
+    GATHER_SEQUENCE_AT_LAST_LAYER_OF_TYPE = torch.nn.LayerNorm
 
     @classmethod
     def patch_for_sequence_paralelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):

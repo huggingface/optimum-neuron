@@ -20,14 +20,14 @@ from abc import ABC, abstractclassmethod
 from dataclasses import asdict
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple, Type, Union
 
 import torch
 from transformers.utils import WEIGHTS_NAME
 
 from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
-from .parallel_layers import LayerNormSequenceParallelizer, LayerNormType
+from .parallel_layers import IOSequenceParallelizer, LayerNormSequenceParallelizer, LayerNormType
 from .utils import TENSOR_PARALLEL_SHARDS_DIR_NAME, ParameterMetadata, WeightInformation, load_tensor_for_weight
 
 
@@ -66,8 +66,10 @@ class Parallelizer(ABC):
 
     SEQUENCE_PARALLEL_LAYERNORM_PATTERNS: Optional[List[str]] = None
     LAYERNORM_TYPE: LayerNormType = LayerNormType.REGULAR
-    PARALLELIZE_INPUT_OF_FIRST_LAYERNORM: bool = True
-    GATHER_OUTPUT_OF_LAST_LAYERNORM: bool = True
+    SCATTER_SEQUENCE_AT_FIRST_LAYER_OF_TYPE: Optional[Type["torch.nn.Module"]] = None
+    GATHER_SEQUENCE_AT_LAST_LAYER_OF_TYPE: Optional[Type["torch.nn.Module"]] = None
+    PARALLELIZE_INPUT_OF_FIRST_LAYERNORM: bool = False
+    GATHER_OUTPUT_OF_LAST_LAYERNORM: bool = False
 
     def __init__(self):
         self._validate_required_libaries_are_available()
@@ -159,17 +161,24 @@ class Parallelizer(ABC):
         if sequence_parallel_enabled and cls.SEQUENCE_PARALLEL_LAYERNORM_PATTERNS is None:
             raise NotImplementedError(f"Sequence parallelism is not supported for {model.__class__}.")
 
-        # Patching both LayerNorms and attention forward methods for sequence parallelism if needed.
+        # Preparing the model for sequence parallelism:
+        # 1. Transforming the LayerNorms.
         layer_norm_qualified_name_patterns = (
             cls.SEQUENCE_PARALLEL_LAYERNORM_PATTERNS if cls.SEQUENCE_PARALLEL_LAYERNORM_PATTERNS is not None else []
         )
         layer_norm_sequence_parallelizer = LayerNormSequenceParallelizer(
             sequence_parallel_enabled, layer_norm_qualified_name_patterns
         )
-        model = layer_norm_sequence_parallelizer.sequence_parallelize(
-            model, cls.LAYERNORM_TYPE, cls.PARALLELIZE_INPUT_OF_FIRST_LAYERNORM, cls.GATHER_OUTPUT_OF_LAST_LAYERNORM
+        layer_norm_sequence_parallelizer.sequence_parallelize(model, cls.LAYERNORM_TYPE)
+
+        # 2. Taking care of scattering / gathering on the sequence axis in the model via the IOSequenceParallelizer.
+        io_sequence_parallelizer = IOSequenceParallelizer(
+            sequence_scatter_at_first_layer_of_type=cls.SCATTER_SEQUENCE_AT_FIRST_LAYER_OF_TYPE,
+            sequence_gather_at_last_layer_of_type=cls.GATHER_SEQUENCE_AT_LAST_LAYER_OF_TYPE,
         )
-        # TODO: choose an API between returning a model changed in place or not returning anything at all.
+        io_sequence_parallelizer.sequence_parallelize(model)
+
+        # 3. Applying model specific patching for sequence parallelism.
         cls.patch_for_sequence_paralelism(model, sequence_parallel_enabled)
 
         model = cls._parallelize(

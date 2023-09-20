@@ -718,76 +718,63 @@ if is_neuronx_distributed_available():
         scatter_to_sequence_parallel_region,
     )
 
-    # class _ScatterToSequenceParallelRegion(torch.autograd.Function):
-    #     """Splits the input and keep only the corresponding chunk to the rank."""
+    class IOSequenceParallelizer:
+        def __init__(
+            self,
+            sequence_scatter_at_first_layer_of_type: Optional[Type["torch.nn.Module"]] = None,
+            sequence_gather_at_last_layer_of_type: Optional[Type["torch.nn.Module"]] = None,
+        ):
+            self.scatter_layer_type = sequence_scatter_at_first_layer_of_type
+            self.gather_layer_type = sequence_gather_at_last_layer_of_type
+            self.count = 0
 
-    #     @staticmethod
-    #     def symbolic(graph, input_):
-    #         return mappings._split_along_first_dim(input_)
+        def get_first_and_last_layers_of_type(
+            self, model: "torch.nn.Module", type_: Type["torch.nn.Module"]
+        ) -> Tuple["torch.nn.Module", "torch.nn.Module"]:
+            first_layer = None
+            last_layer = None
+            for module in model.modules():
+                if isinstance(module, type_):
+                    if first_layer is None:
+                        first_layer = module
+                    last_layer = module
+            if first_layer is None:
+                raise ValueError(f"Could not find layer of type {type_} in {model}.")
+            return [first_layer, last_layer]
 
-    #     @staticmethod
-    #     def forward(ctx, input_):
-    #         return mappings._split_along_first_dim(input_)
+        def sequence_parallelize(self, model: "torch.nn.Module"):
+            print(self.count)
+            self.count += 1
+            if self.scatter_layer_type is not None:
+                scatter_layer, _ = self.get_first_and_last_layers_of_type(model, self.scatter_layer_type)
+                orig_scatter_layer_forward = scatter_layer.forward
 
-    #     @staticmethod
-    #     def backward(ctx, grad_output):
-    #         return mappings._gather_along_first_dim(grad_output)
+                @functools.wraps(orig_scatter_layer_forward)
+                def sequence_parallel_forward(*args, **kwargs):
+                    hidden_states = args[1]
+                    hidden_states = hidden_states.transpose(0, 1).contiguous()
+                    hidden_states = scatter_to_sequence_parallel_region(hidden_states)
+                    return orig_scatter_layer_forward(hidden_states, *args[2:], **kwargs)
 
-    # # TODO: can be removed when new release is out since it'll be upstreamd to `neuronx_distributed`.
-    # def scatter_to_sequence_parallel_region(input_):
-    #     return _ScatterToSequenceParallelRegion.apply(input_)
+                scatter_layer.forward = sequence_parallel_forward.__get__(scatter_layer)
 
-    def create_sequence_parallel_forward(forward):
-        @functools.wraps(forward)
-        def wrapper(self, input_):
-            if self.sequence_parallel_enabled:
-                if self.is_first_layer_norm:
-                    input_ = input_.transpose(0, 1).contiguous()
-                    input_ = scatter_to_sequence_parallel_region(input_)
-                output = super(self).forward(input_)
-                if self.is_last_layer_norm:
+            if self.gather_layer_type is not None:
+                _, gather_layer = self.get_first_and_last_layers_of_type(model, self.gather_layer_type)
+                orig_gather_layer_forward = gather_layer.forward
+
+                @functools.wraps(orig_gather_layer_forward)
+                def sequence_parallel_forward(*args, **kwargs):
+                    output = orig_gather_layer_forward(*args[1:], **kwargs)
                     output = gather_from_sequence_parallel_region(output, to_model_parallel=False)
                     output = output.transpose(0, 1).contiguous()
-                return output
+                    return output
 
-        return wrapper.__get__(forward.__self__)
-
-    class SequenceParallelLayerNormMixin:
-        @property
-        def is_first_layer_norm(self):
-            return getattr(self, "_is_first_layer_norm", False)
-
-        @property
-        def is_last_layer_norm(self):
-            return getattr(self, "_is_last_layer_norm", False)
-
-        @is_first_layer_norm.setter
-        def is_first_layer_norm(self, value: bool):
-            self._is_first_layer_norm = value
-
-        @is_last_layer_norm.setter
-        def is_last_layer_norm(self, value: bool):
-            self._is_last_layer_norm = value
-
-        def forward(self, input_: torch.Tensor) -> torch.Tensor:
-            if self.sequence_parallel_enabled:
-                if self.is_first_layer_norm:
-                    input_ = input_.transpose(0, 1).contiguous()
-                    input_ = scatter_to_sequence_parallel_region(input_)
-                output = super().forward(input_)
-                if self.is_last_layer_norm:
-                    output = gather_from_sequence_parallel_region(output, to_model_parallel=False)
-                    output = output.transpose(0, 1).contiguous()
-                return output
+                gather_layer.forward = sequence_parallel_forward.__get__(gather_layer)
 
 else:
 
-    class SequenceParallelLayerNormMixin:
+    class IOSequenceParallelizer:
         pass
-
-
-def create_sequence_parallel_layer_norm_class(layer_norm_type: Type) -> Type:
-    return type(f"SequenceParallel{layer_norm_type.__name__}", (SequenceParallelLayerNormMixin, layer_norm_type), {})
 
 
 class LayerNormType(str, Enum):
@@ -803,37 +790,25 @@ class LayerNormSequenceParallelizer:
         ]
 
     @requires_neuronx_distributed
-    def parallelize_layernorm(self, module: torch.nn.LayerNorm, is_first_layer_norm: bool, is_last_layer_norm: bool):
-        from neuronx_distributed.parallel_layers.layer_norm import _set_sequence_parallel_enabled
+    def parallelize_layernorm(self, module: torch.nn.LayerNorm):
+        from neuronx_distributed.parallel_layers.layer_norm import LayerNorm, _set_sequence_parallel_enabled
 
         if not isinstance(module, torch.nn.LayerNorm):
             raise TypeError(f"Expected torch.nn.LayerNorm but got {type(module)}.")
 
-        module.__class__ = create_sequence_parallel_layer_norm_class(module.__class__)
+        module.__class__ = LayerNorm
         module.sequence_parallel_enabled = self.sequence_parallel_enabled
-        module.is_first_layer_norm = is_first_layer_norm
-        module.is_last_layer_norm = is_last_layer_norm
         if module.elementwise_affine:
             _set_sequence_parallel_enabled(module.weight, self.sequence_parallel_enabled)
             _set_sequence_parallel_enabled(module.bias, self.sequence_parallel_enabled)
 
     @requires_neuronx_distributed
-    def parallelize_rmsnorm(self, module: torch.nn.Module, is_first_layer_norm: bool, is_last_layer_norm: bool):
+    def parallelize_rmsnorm(self, module: "torch.nn.Module"):
         from neuronx_distributed.parallel_layers.layer_norm import _set_sequence_parallel_enabled
 
-        module.__class__ = create_sequence_parallel_layer_norm_class(module.__class__)
-        module.sequence_parallel_enabled = self.sequence_parallel_enabled
-        module.is_first_layer_norm = is_first_layer_norm
-        module.is_last_layer_norm = is_last_layer_norm
         _set_sequence_parallel_enabled(module.weight, self.sequence_parallel_enabled)
 
-    def sequence_parallelize(
-        self,
-        model: "PreTrainedModel",
-        layernorm_type: Union[str, LayerNormType],
-        parallelize_input_to_first_layernorm: bool = True,
-        gather_output_from_last_layernorm: bool = True,
-    ) -> "PreTrainedModel":
+    def sequence_parallelize(self, model: "PreTrainedModel", layernorm_type: Union[str, LayerNormType]):
         if type(layernorm_type) is str:
             layernorm_type = LayerNormType(layernorm_type)
 
@@ -843,26 +818,7 @@ class LayerNormSequenceParallelizer:
         }
         parallelize_method = layernorm_type_to_parallelize_method[layernorm_type]
 
-        first_layer_norm = None
-        last_layer_norm = None
-        name_1 = None
-        name_2 = None
         for name, module in model.named_modules():
             for pattern in self.layer_norm_qualified_name_patterns:
                 if re.match(pattern, name):
-                    if first_layer_norm is None:
-                        first_layer_norm = module
-                        name_1 = name
-                    last_layer_norm = module
-                    name_2 = name
-        print("name 1", name_1)
-        print("name 2", name_2)
-        for name, module in model.named_modules():
-            for pattern in self.layer_norm_qualified_name_patterns:
-                if re.match(pattern, name):
-                    parallelize_method(
-                        module,
-                        parallelize_input_to_first_layernorm and module is first_layer_norm,
-                        gather_output_from_last_layernorm and module is last_layer_norm,
-                    )
-        return model
+                    parallelize_method(module)

@@ -14,16 +14,30 @@
 # limitations under the License.
 """Classes related to `neuronx-distributed` to perform parallelism."""
 
-import functools
 from typing import TYPE_CHECKING, Optional, Tuple
 
+import torch
+from transformers.models.gpt_neo.modeling_gpt_neo import GPTNeoBlock, GPTNeoSelfAttention
+from transformers.models.llama.modeling_llama import (
+    LlamaAttention,
+    LlamaDecoderLayer,
+    LlamaRMSNorm,
+    apply_rotary_pos_emb,
+    repeat_kv,
+)
+
 from .base import Parallelizer
-from .parallel_layers import LayerNormType, ParallelCrossEntropy, ParallelEmbedding, ParallelMLP, ParallelSelfAttention
+from .parallel_layers import (
+    LayerNormType,
+    ParallelCrossEntropy,
+    ParallelEmbedding,
+    ParallelMLP,
+    ParallelSelfAttention,
+)
 from .utils import linear_to_parallel_linear
 
 
 if TYPE_CHECKING:
-    import torch
     from transformers import PreTrainedModel
 
 
@@ -54,11 +68,11 @@ class GPTNeoParallelizer(Parallelizer):
         "transformer.h.[0-9]+.ln_[1-2]",
         "transformer.ln_f",
     ]
+    SCATTER_SEQUENCE_AT_FIRST_LAYER_OF_TYPE = GPTNeoBlock
+    GATHER_SEQUENCE_AT_LAST_LAYER_OF_TYPE = torch.nn.LayerNorm
 
     @classmethod
     def patch_for_sequence_paralelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
-        from transformers.models.gpt_neo.modeling_gpt_neo import GPTNeoSelfAttention
-
         def _split_heads(self, tensor, num_heads, attn_head_size):
             new_shape = tensor.size()[:-1] + (num_heads, attn_head_size)
             tensor = tensor.view(new_shape)
@@ -183,24 +197,16 @@ class LlamaParallelizer(Parallelizer):
         "model.norm",
     ]
     LAYERNORM_TYPE = LayerNormType.RMS_NORM
-    PARALLELIZE_INPUT_OF_FIRST_LAYERNORM = False
+    SCATTER_SEQUENCE_AT_FIRST_LAYER_OF_TYPE = LlamaDecoderLayer
+    GATHER_SEQUENCE_AT_LAST_LAYER_OF_TYPE = LlamaRMSNorm
 
     @classmethod
     def patch_for_sequence_paralelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
         import math
 
+        import nn.functional as F
         import torch
-        import torch.nn.functional as F
-        from neuronx_distributed.parallel_layers.mappings import (
-            scatter_to_sequence_parallel_region,
-        )
         from torch import nn
-        from transformers.models.llama.modeling_llama import (
-            LlamaAttention,
-            LlamaDecoderLayer,
-            apply_rotary_pos_emb,
-            repeat_kv,
-        )
 
         def attention_forward(
             self,
@@ -314,21 +320,7 @@ class LlamaParallelizer(Parallelizer):
 
             return attn_output, attn_weights, past_key_value
 
-        def create_sequence_parallel_first_decoder_layer_forward(forward):
-            @functools.wraps(forward)
-            def first_decoder_layer_forward(*args, **kwargs):
-                hidden_states = args[1]
-                hidden_states = hidden_states.transpose(0, 1).contiguous()
-                hidden_states = scatter_to_sequence_parallel_region(hidden_states)
-                return forward(hidden_states, *args[2:], **kwargs)
-
-            return first_decoder_layer_forward.__get__(forward.__self__)
-
-        is_first_decoder_layer = True
         for module in model.modules():
-            if is_first_decoder_layer and isinstance(module, LlamaDecoderLayer):
-                module.forward = create_sequence_parallel_first_decoder_layer_forward(module.forward)
-                is_first_decoder_layer = False
             if isinstance(module, LlamaAttention):
                 module.forward = attention_forward.__get__(module)
 
