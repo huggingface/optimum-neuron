@@ -11,7 +11,11 @@ import torch_xla.core.xla_model as xm
 
 from transformers import AutoConfig, AutoTokenizer, {model_class}
 from transformers.trainer_utils import set_seed
+
+import optimum
 from optimum.neuron.distributed import ParallelizersManager, lazy_load_for_parallelism
+
+from utils import gather_along_last_dim, generate_dummy_labels
 
 
 if os.environ.get("TORCHELASTIC_RUN_ID"):
@@ -20,13 +24,17 @@ if os.environ.get("TORCHELASTIC_RUN_ID"):
     if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
         torch.distributed.init_process_group(backend="xla")
 
-
 SEED = 42
 
 from_config = os.environ["from_config"] == "true"
 lazy_load = os.environ["lazy_load"] == "true"
 is_parallel = os.environ["is_parallel"] == "true"
 config_overwrite = os.environ.get("config_overwrite", "")
+parallelize_embeddings = is_parallel and os.environ["parallelize_embeddings"] == "true"
+
+# This is required to prevent `parallel_cross_entropy` to mutate the logits (which would make them not comparable).
+if is_parallel and parallelize_embeddings:
+    optimum.neuron.distributed.parallel_layers._PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT = True
 
 # Initialize TP
 if is_parallel:
@@ -63,13 +71,15 @@ def load_model_with_seed(seed: int, from_config: bool):
 model = load_model_with_seed(SEED, from_config)
 model = model.eval()
 
+vocab_size = getattr(model.config, "vocab_size", None)
+
 if is_parallel:
-  model = ParallelizersManager.parallelizer_for_model(model).parallelize(model, parallelize_embeddings={parallelize_embeddings})
-  parallel_layers.move_model_to_device(model, "xla")
-  filename = "parallel.bin"
+    model = ParallelizersManager.parallelizer_for_model(model).parallelize(model, parallelize_embeddings=parallelize_embeddings)
+    parallel_layers.move_model_to_device(model, "xla")
+    filename = "parallel.bin"
 else:
-  model = model.to("xla")
-  filename = "original.bin"
+    model = model.to("xla")
+    filename = "original.bin"
 
 xla_inputs = dict()
 sig = signature(model.forward)
@@ -81,5 +91,22 @@ for k, v in inputs.items():
     if model.config.is_encoder_decoder and decoder_input_name in sig.parameters:
         xla_inputs[decoder_input_name] = v.to("xla")
 
+# We take the shape of the first input to "predict" the shape of the labels.
+# Might not work for every tasks.
+shape = list(xla_inputs.values())[0].shape
+
+xla_inputs.update(generate_dummy_labels(model, shape, vocab_size=vocab_size, device="xla", seed=SEED))
+
 model_outputs = model(**xla_inputs, return_dict=True)
+xm.mark_step()
+
+if is_parallel and parallelize_embeddings:
+    gathered_model_outputs =  dict()
+    for name, output in model_outputs.items():
+        if name == "loss" or output is None or not isinstance(output, torch.Tensor) or output.shape[-1] != (vocab_size // {tp_size}):
+            gathered_model_outputs[name] = output
+        else:
+            gathered_model_outputs[name] = gather_along_last_dim(output)
+    model_outputs = gathered_model_outputs
+
 xm.save(model_outputs, "{output_path}" + "/" + filename)

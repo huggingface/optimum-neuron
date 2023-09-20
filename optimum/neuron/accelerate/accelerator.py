@@ -27,7 +27,6 @@ import torch
 from accelerate import Accelerator
 from accelerate.checkpointing import save_accelerator_state, save_custom_state
 from accelerate.utils import DistributedType
-from packaging import version
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
@@ -35,10 +34,9 @@ from optimum.neuron.utils.patching import ModelPatcher
 
 from ...utils import logging
 from ..distributed import Parallelizer, ParallelizersManager
-from ..distributed.utils import ZeroRedundancyOptimizerCompatibleWithTensorParallelism
 from ..utils import Patcher, is_neuronx_distributed_available, is_torch_xla_available, patch_within_function
 from ..utils.misc import args_and_kwargs_to_kwargs_only
-from ..utils.version_utils import get_torch_xla_version
+from ..utils.require_utils import requires_neuronx_distributed
 from .optimizer import NeuronAcceleratedOptimizer
 from .scheduler import NeuronAcceleratedScheduler
 from .state import NeuronAcceleratorState
@@ -182,6 +180,7 @@ class NeuronAccelerator(Accelerator):
                 optimizer.param_groups = xla_parameters
         return optimizer
 
+    @requires_neuronx_distributed
     def _prepare_optimizer_for_zero_1(self, optimizer: torch.optim.Optimizer, device_placement=None):
         mixed_precision_to_dtype = {
             "no": torch.float32,
@@ -191,61 +190,47 @@ class NeuronAccelerator(Accelerator):
         if optimizer_dtype is None:
             raise ValueError(f"The precision {self.state.mixed_precision} is not supported for ZeRO Stage 1")
 
+        from neuronx_distributed.optimizer import NeuronZero1Optimizer
+        from neuronx_distributed.parallel_layers.parallel_state import (
+            get_data_parallel_group,
+            get_tensor_model_parallel_group,
+            model_parallel_is_initialized,
+        )
+
+        if not is_neuronx_distributed_available() or not model_parallel_is_initialized():
+            sharding_groups = None
+            grad_norm_groups = None
+        else:
+            sharding_groups = get_data_parallel_group(as_list=True)
+            grad_norm_groups = get_tensor_model_parallel_group(as_list=True)
+
         if hasattr(optimizer, "_args_to_recreate"):
             args, kwargs = optimizer._args_to_recreate
             params = args[0]
             defaults = args_and_kwargs_to_kwargs_only(optimizer.__class__, args[1:], kwargs)
-
-            # Prior to 1.13.1+torchneuron8, the vanilla ZeroRedundancyOptimizer was not designed for TP.
-            full_torch_xla_version = get_torch_xla_version()
-            torch_xla_version, torchneuron_version = full_torch_xla_version.split("+")
-            torch_xla_version = version.parse(torch_xla_version)
-            if torch_xla_version <= version.parse("1.13.1") and int(torchneuron_version[-1]) < 8:
-                zero_1_optimizer = ZeroRedundancyOptimizerCompatibleWithTensorParallelism(
-                    params,
-                    optimizer.__class__,
-                    optimizer_dtype=optimizer_dtype,
-                    pin_layout=False,
-                    **defaults,
-                )
-            # Exception to make sure `ZeroRedundancyOptimizerCompatibleWithTensorParallelism` is removed in 3 releases.
-            elif torch_xla_version <= version.parse("1.13.1") and int(torchneuron_version[-1]) >= 11:
-                raise RuntimeError(
-                    "ZeroRedundancyOptimizerCompatibleWithTensorParallelism is deprecated and should be removed from "
-                    "`optimum-neuron`"
-                )
-            else:
-                from neuronx_distributed.parallel_layers.parallel_state import (
-                    get_data_parallel_group,
-                    model_parallel_is_initialized,
-                )
-                from torch_xla.distributed.zero_redundancy_optimizer import ZeroRedundancyOptimizer
-
-                if not is_neuronx_distributed_available() or not model_parallel_is_initialized():
-                    cc_op_groups = None
-                else:
-                    cc_op_groups = get_data_parallel_group(as_list=True)
-
-                zero_1_optimizer = ZeroRedundancyOptimizer(
-                    params,
-                    optimizer.__class__,
-                    optimizer_dtype=optimizer_dtype,
-                    pin_layout=False,
-                    cc_op_groups=cc_op_groups,
-                    **defaults,
-                )
+            zero_1_optimizer = NeuronZero1Optimizer(
+                params,
+                optimizer.__class__,
+                optimizer_dtype=optimizer_dtype,
+                pin_layout=False,
+                sharding_groups=sharding_groups,
+                grad_norm_groups=grad_norm_groups,
+                **defaults,
+            )
             del optimizer
         else:
             logger.warning(
-                f"Creating a ZeroRedundancyOptimizer from {optimizer}, this might change some default values. When "
+                f"Creating a NeuronZero1Optimizer from {optimizer}, this might change some default values. When "
                 "using ZeRO 1 it is recommended to create the ZeroRedundancyOptimizer yourself to avoid this kind of "
                 "issues."
             )
-            zero_1_optimizer = ZeroRedundancyOptimizerCompatibleWithTensorParallelism(
+            zero_1_optimizer = NeuronZero1Optimizer(
                 optimizer.param_groups,
                 optimizer.__class__,
                 optimizer_dtype=optimizer_dtype,
                 pin_layout=False,
+                sharding_groups=sharding_groups,
+                grad_norm_groups=grad_norm_groups,
             )
         return zero_1_optimizer
 
