@@ -211,7 +211,11 @@ You can also accelerate the inference of stable diffusion on neuronx devices (in
 * VAE encoder
 * VAE decoder
 
-The export can be done either with the CLI or with `NeuronStableDiffusionPipeline` API. Here is an example of exporting stable diffusion components with `NeuronStableDiffusionPipeline`:
+### Text-to-image
+
+`NeuronStableDiffusionPipeline` class allows you to generate images from a text prompt on neuron devices similar to the experience with diffusers. 
+
+Like other models, you need to compile models before the inference. The export can be done either with the CLI or with `NeuronStableDiffusionPipeline` API. Here is an example of exporting stable diffusion components with `NeuronStableDiffusionPipeline`:
 
 <Tip>
 
@@ -247,8 +251,69 @@ Now generate an image with a prompt on neuron:
 
 <img
   src="https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/guides/models/01-sd-image.png"
+  width="256" 
+  height="256"
   alt="stable diffusion generated image"
 />
+
+### Image-to-image
+
+With `NeuronStableDiffusionImg2ImgPipeline` class, you can generate a new image conditioned by a text prompt and an initial image.
+
+```python
+import requests
+import torch
+from PIL import Image
+from io import BytesIO
+from optimum.neuron import NeuronStableDiffusionImg2ImgPipeline
+
+model_id = "nitrosocke/Ghibli-Diffusion"
+input_shapes = {"batch_size": 1, "height": 512, "width": 512}
+pipeline = NeuronStableDiffusionImg2ImgPipeline.from_pretrained(model_id, export=True, **input_shapes, device_ids=[0, 1])
+pipeline.save_pretrained("sd_img2img/")
+
+url = "https://raw.githubusercontent.com/CompVis/stable-diffusion/main/assets/stable-samples/img2img/sketch-mountains-input.jpg"
+
+response = requests.get(url)
+init_image = Image.open(BytesIO(response.content)).convert("RGB")
+init_image = init_image.resize((768, 512))
+
+prompt = "A fantasy landscape, trending on artstation"
+
+image = pipeline(prompt=prompt, image=init_image, strength=0.75, guidance_scale=7.5).images[0]
+image.save("fantasy_landscape.png")
+```
+
+### Inpaint
+
+With `NeuronStableDiffusionInpaintPipeline` class, you can edit specific parts of an image by providing a mask and a text prompt.
+
+```python
+import requests
+import torch
+from PIL import Image
+from io import BytesIO
+from optimum.neuron import NeuronStableDiffusionInpaintPipeline
+
+model_id = "runwayml/stable-diffusion-inpainting"
+input_shapes = {"batch_size": 1, "height": 512, "width": 512}
+pipeline = NeuronStableDiffusionInpaintPipeline.from_pretrained(model_id, export=True, **input_shapes, device_ids=[0, 1])
+pipeline.save_pretrained("sd_inpaint/")
+
+def download_image(url):
+    response = requests.get(url)
+    return Image.open(BytesIO(response.content)).convert("RGB")
+
+img_url = "https://raw.githubusercontent.com/CompVis/latent-diffusion/main/data/inpainting_examples/overture-creations-5sI6fQgYIuo.png"
+mask_url = "https://raw.githubusercontent.com/CompVis/latent-diffusion/main/data/inpainting_examples/overture-creations-5sI6fQgYIuo_mask.png"
+
+init_image = download_image(img_url).resize((512, 512))
+mask_image = download_image(mask_url).resize((512, 512))
+
+prompt = "Face of a yellow cat, high resolution, sitting on a park bench"
+image = pipeline(prompt=prompt, image=init_image, mask_image=mask_image).images[0]
+image.save("cat_on_bench.png")
+```
 
 ## Stable Diffusion XL
 
@@ -280,6 +345,8 @@ Now generate an image with a prompt on neuron:
 
 <img
   src="https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/guides/models/02-sdxl-image.jpeg"
+  width="256" 
+  height="256"
   alt="sdxl generated image"
 />
 
