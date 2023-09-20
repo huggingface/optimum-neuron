@@ -276,7 +276,7 @@ url = "https://raw.githubusercontent.com/CompVis/stable-diffusion/main/assets/st
 
 response = requests.get(url)
 init_image = Image.open(BytesIO(response.content)).convert("RGB")
-init_image = init_image.resize((768, 512))
+init_image = init_image.resize((512, 512))
 
 prompt = "ghibli style, a fantasy landscape with snowcapped mountains, trees, lake with detailed reflection. sunlight and cloud in the sky, warm colors, 8K"
 
@@ -285,7 +285,7 @@ image.save("fantasy_landscape.png")
 ```
 `image`          | `prompt` | output |
 :-------------------------:|:-------------------------:|:-------------------------:|-------------------------:|
-<img src="https://huggingface.co/datasets/optimum/documentation-images/resolve/main/neuron/models/03-sd-img2img-init.png" alt="landscape photo" width="256" height="256"/> | ***ghibli style, a fantasy landscape with snowcapped mountains, trees, lake with detailed reflection. sunlight and cloud in the sky, warm colors, 8K*** | <img src="https://huggingface.co/datasets/optimum/documentation-images/resolve/main/neuron/models/04-sd-img2img.png" alt="drawing" width="250"/> |
+<img src="https://huggingface.co/datasets/optimum/documentation-images/resolve/main/neuron/models/03-sd-img2img-init.png" alt="landscape photo" width="256" height="256"/> | ***ghibli style, a fantasy landscape with snowcapped mountains, trees, lake with detailed reflection. warm colors, 8K*** | <img src="https://huggingface.co/datasets/optimum/documentation-images/resolve/main/neuron/models/04-sd-img2img.png" alt="drawing" width="250"/> |
 
 ### Inpaint
 
