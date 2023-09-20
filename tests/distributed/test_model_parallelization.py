@@ -244,6 +244,8 @@ class ModelParallelizationTestCase(unittest.TestCase):
             original_model_outputs = torch.load(temporary_dir / "original.bin")
             parallel_model_outputs = torch.load(temporary_dir / "parallel.bin")
             for name, t in parallel_model_outputs.items():
+                # if name == "loss":
+                #     continue
                 if not isinstance(t, torch.Tensor):
                     continue
                 original_t = original_model_outputs[name]

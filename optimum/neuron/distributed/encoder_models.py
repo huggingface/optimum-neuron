@@ -16,6 +16,8 @@
 
 from typing import TYPE_CHECKING, Optional
 
+import torch
+
 from ..utils.require_utils import requires_neuronx_distributed
 from .base import Parallelizer
 from .parallel_layers import ParallelCrossEntropy, ParallelEmbedding, ParallelSelfAttention, ParallelSelfOutput
@@ -23,7 +25,6 @@ from .utils import create_sequence_parallel_attention_forward
 
 
 if TYPE_CHECKING:
-    import torch
     from transformers import PreTrainedModel
 
 

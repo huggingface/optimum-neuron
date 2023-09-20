@@ -78,12 +78,12 @@ class GPTNeoParallelizer(Parallelizer):
             tensor = tensor.view(new_shape)
             if sequence_parallel_enabled:
                 # [S, B, num_heads, head_dim] -> [B, num_heads, S, head_dim]
-                return tensor.permute(1, 2, 0, 3).contiguous()
+                return tensor.permute(1, 2, 0, 3)
             return tensor.permute(0, 2, 1, 3)
 
         def _merge_heads(self, tensor, num_heads, attn_head_size):
             if sequence_parallel_enabled:
-                # [B, num_heads, S, head_dim] -> [S, B, num_heads, hidden_dim]
+                # [B, num_heads, S, head_dim] -> [S, B, num_heads, head_dim]
                 tensor = tensor.permute(2, 0, 1, 3).contiguous()
             else:
                 tensor = tensor.permute(0, 2, 1, 3).contiguous()

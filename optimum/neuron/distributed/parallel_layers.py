@@ -14,12 +14,13 @@
 # limitations under the License.
 """Classes related to parallel versions of common blocks in Transformers models."""
 
+from dataclasses import dataclass
 import functools
 import re
 from abc import ABC, abstractclassmethod
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Type, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Type, Union, Literal
 
 import torch
 from torch.nn.modules.loss import _WeightedLoss
@@ -712,6 +713,18 @@ class ParallelCrossEntropy(ParallelLayer):
         return layer
 
 
+@dataclass(frozen=True)
+class SequenceCollectiveOpInfo:
+    collective_op: Union[Literal["scatter"], Literal["gather"]]
+    layer: Union[Type["torch.nn.Module"], str]
+    position: Union[Literal["before"], Literal["after"]]
+    first_or_last: Union[Literal["first"], Literal["last"]]
+
+    def __post_init__(self):
+        if self.collective_op not in ["scatter", "gather"]:
+            raise ValueError(f'Authorized values are "scatter" and "gather", but {self.collective_op} was given here') 
+
+
 if is_neuronx_distributed_available():
     from neuronx_distributed.parallel_layers.mappings import (
         gather_from_sequence_parallel_region,
@@ -721,12 +734,36 @@ if is_neuronx_distributed_available():
     class IOSequenceParallelizer:
         def __init__(
             self,
-            sequence_scatter_at_first_layer_of_type: Optional[Type["torch.nn.Module"]] = None,
-            sequence_gather_at_last_layer_of_type: Optional[Type["torch.nn.Module"]] = None,
+            sequence_parallel_enabled: bool,
+            sequence_collective_op_infos: Optional[List[SequenceCollectiveOpInfo]] = None 
+            # scatter_sequence: Optional[List[SequenceCollectiveOpInfo]] = None,
+            # gather_sequence: Optional[List[SequenceCollectiveOpInfo]] = None,
+            # scatter_sequence_at_first_layer_of_type: Optional[Type["torch.nn.Module"]] = None,
+            # scatter_before_first_layer: bool = True,
+            # gather_sequence_at_last_layer_of_type: Optional[Type["torch.nn.Module"]] = None,
+            # gather_after_last_layer: bool = True,
         ):
-            self.scatter_layer_type = sequence_scatter_at_first_layer_of_type
-            self.gather_layer_type = sequence_gather_at_last_layer_of_type
-            self.count = 0
+            self.sequence_parallel_enabled = sequence_parallel_enabled
+            self.sequence_collective_op_infos = sequence_collective_op_infos
+            # self.scatter_sequence = scatter_sequence
+            # self.gather_sequence = gather_sequence
+            # self.scatter_layer_type = scatter_sequence_at_first_layer_of_type
+            # self.scatter_before_first_layer = scatter_before_first_layer
+            # self.gather_layer_type = gather_sequence_at_last_layer_of_type
+            # self.gather_after_last_layer = gather_after_last_layer
+
+        def get_first_and_last_layers_matching_pattern(self, model: "torch.nn.Module", pattern: str) -> Tuple["torch.nn.Module", "torch.nn.Module"]:
+            first_layer = None
+            last_layer = None
+            for name, module in model.named_modules():
+                if re.match(pattern, name):
+                    if first_layer is None:
+                        first_layer = module
+                    last_layer = module
+            if first_layer is None:
+                raise ValueError(f"Could not find layer of with pattern {pattern} in {model}.")
+            return [first_layer, last_layer]
+
 
         def get_first_and_last_layers_of_type(
             self, model: "torch.nn.Module", type_: Type["torch.nn.Module"]
@@ -742,34 +779,113 @@ if is_neuronx_distributed_available():
                 raise ValueError(f"Could not find layer of type {type_} in {model}.")
             return [first_layer, last_layer]
 
-        def sequence_parallelize(self, model: "torch.nn.Module"):
-            print(self.count)
-            self.count += 1
-            if self.scatter_layer_type is not None:
-                scatter_layer, _ = self.get_first_and_last_layers_of_type(model, self.scatter_layer_type)
+
+        def _sequence_parallelize(self, model: "torch.nn.Module", sequence_collective_op_info: SequenceCollectiveOpInfo):
+
+            if sequence_collective_op_info.collective_op == "scatter":
+                if isinstance(sequence_collective_op_info.layer, str):
+                    first_layer, last_layer = self.get_first_and_last_layers_matching_pattern(model, sequence_collective_op_info.layer)
+                else:
+                    first_layer, last_layer = self.get_first_and_last_layers_of_type(model, sequence_collective_op_info.layer)
+                scatter_layer = first_layer if sequence_collective_op_info.first_or_last == "first" else last_layer
                 orig_scatter_layer_forward = scatter_layer.forward
 
-                @functools.wraps(orig_scatter_layer_forward)
-                def sequence_parallel_forward(*args, **kwargs):
-                    hidden_states = args[1]
-                    hidden_states = hidden_states.transpose(0, 1).contiguous()
-                    hidden_states = scatter_to_sequence_parallel_region(hidden_states)
-                    return orig_scatter_layer_forward(hidden_states, *args[2:], **kwargs)
+                if sequence_collective_op_info.position == "before":
+                    @functools.wraps(orig_scatter_layer_forward)
+                    def sequence_parallel_forward(*args, **kwargs):
+                        hidden_states = args[1]
+                        hidden_states = hidden_states.transpose(0, 1).contiguous()
+                        hidden_states = scatter_to_sequence_parallel_region(hidden_states)
+                        return orig_scatter_layer_forward(hidden_states, *args[2:], **kwargs)
+                else:
+                    @functools.wraps(orig_scatter_layer_forward)
+                    def sequence_parallel_forward(*args, **kwargs):
+                        output = orig_scatter_layer_forward(*args[1:], **kwargs)
+                        hidden_states = output if isinstance(output, torch.Tensor) else output[0]
+                        hidden_states = hidden_states.transpose(0, 1).contiguous()
+                        hidden_states = scatter_to_sequence_parallel_region(hidden_states)
+                        return hidden_states if isinstance(output, torch.Tensor) else (hidden_states,) + output[1:]
 
                 scatter_layer.forward = sequence_parallel_forward.__get__(scatter_layer)
 
-            if self.gather_layer_type is not None:
-                _, gather_layer = self.get_first_and_last_layers_of_type(model, self.gather_layer_type)
+            else:
+                if isinstance(sequence_collective_op_info.layer, str):
+                    first_layer, last_layer = self.get_first_and_last_layers_matching_pattern(model, sequence_collective_op_info.layer)
+                else:
+                    first_layer, last_layer = self.get_first_and_last_layers_of_type(model, sequence_collective_op_info.layer)
+                gather_layer = first_layer if sequence_collective_op_info.first_or_last == "first" else last_layer
                 orig_gather_layer_forward = gather_layer.forward
 
-                @functools.wraps(orig_gather_layer_forward)
-                def sequence_parallel_forward(*args, **kwargs):
-                    output = orig_gather_layer_forward(*args[1:], **kwargs)
-                    output = gather_from_sequence_parallel_region(output, to_model_parallel=False)
-                    output = output.transpose(0, 1).contiguous()
-                    return output
+                if sequence_collective_op_info.position == "after":
+                    @functools.wraps(orig_gather_layer_forward)
+                    def sequence_parallel_forward(*args, **kwargs):
+                        output = orig_gather_layer_forward(*args[1:], **kwargs)
+                        output = gather_from_sequence_parallel_region(output, to_model_parallel=False)
+                        output = output.transpose(0, 1).contiguous()
+                        return output
+                else:
+                    @functools.wraps(orig_gather_layer_forward)
+                    def sequence_parallel_forward(*args, **kwargs):
+                        hidden_states = args[1]
+                        hidden_states = gather_from_sequence_parallel_region(hidden_states, to_model_parallel=False)
+                        hidden_states = hidden_states.transpose(0, 1).contiguous()
+                        output = orig_gather_layer_forward(hidden_states, *args[2:], **kwargs)
+                        return output
+
 
                 gather_layer.forward = sequence_parallel_forward.__get__(gather_layer)
+
+            # if self.scatter_layer_type is not None:
+            #     scatter_layer, _ = self.get_first_and_last_layers_of_type(model, self.scatter_layer_type)
+            #     orig_scatter_layer_forward = scatter_layer.forward
+
+            #     if self.scatter_before_first_layer:
+            #         @functools.wraps(orig_scatter_layer_forward)
+            #         def sequence_parallel_forward(*args, **kwargs):
+            #             hidden_states = args[1]
+            #             hidden_states = hidden_states.transpose(0, 1).contiguous()
+            #             hidden_states = scatter_to_sequence_parallel_region(hidden_states)
+            #             return orig_scatter_layer_forward(hidden_states, *args[2:], **kwargs)
+            #     else:
+            #         @functools.wraps(orig_scatter_layer_forward)
+            #         def sequence_parallel_forward(*args, **kwargs):
+            #             output = orig_scatter_layer_forward(*args[1:], **kwargs)
+            #             hidden_states = output if isinstance(output, torch.Tensor) else output[0]
+            #             hidden_states = hidden_states.transpose(0, 1).contiguous()
+            #             hidden_states = scatter_to_sequence_parallel_region(hidden_states)
+            #             return hidden_states if isinstance(output, torch.Tensor) else (hidden_states,) + output[1:]
+
+            #     scatter_layer.forward = sequence_parallel_forward.__get__(scatter_layer)
+
+            # if self.gather_layer_type is not None:
+            #     _, gather_layer = self.get_first_and_last_layers_of_type(model, self.gather_layer_type)
+            #     orig_gather_layer_forward = gather_layer.forward
+
+            #     if self.gather_after_last_layer:
+
+            #         @functools.wraps(orig_gather_layer_forward)
+            #         def sequence_parallel_forward(*args, **kwargs):
+            #             output = orig_gather_layer_forward(*args[1:], **kwargs)
+            #             output = gather_from_sequence_parallel_region(output, to_model_parallel=False)
+            #             output = output.transpose(0, 1).contiguous()
+            #             return output
+            #     else:
+            #         @functools.wraps(orig_gather_layer_forward)
+            #         def sequence_parallel_forward(*args, **kwargs):
+            #             hidden_states = args[1]
+            #             hidden_states = gather_from_sequence_parallel_region(hidden_states, to_model_parallel=False)
+            #             hidden_states = hidden_states.transpose(0, 1).contiguous()
+            #             output = orig_gather_layer_forward(hidden_states, *args[2:], **kwargs)
+            #             return output
+
+
+            #     gather_layer.forward = sequence_parallel_forward.__get__(gather_layer)
+
+        def sequence_parallelize(self, model: "torch.nn.Module"):
+            if not self.sequence_parallel_enabled or not self.sequence_collective_op_infos:
+                return
+            for sequence_collective_op_info in self.sequence_collective_op_infos:
+                self._sequence_parallelize(model, sequence_collective_op_info)
 
 else:
 
