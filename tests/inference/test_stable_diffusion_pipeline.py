@@ -19,7 +19,12 @@ import unittest
 import PIL
 from parameterized import parameterized
 
-from optimum.neuron import NeuronStableDiffusionPipeline, NeuronStableDiffusionXLPipeline
+from optimum.neuron import (
+    NeuronStableDiffusionImg2ImgPipeline,
+    NeuronStableDiffusionInpaintPipeline,
+    NeuronStableDiffusionPipeline,
+    NeuronStableDiffusionXLPipeline,
+)
 from optimum.neuron.modeling_diffusion import (
     NeuronModelTextEncoder,
     NeuronModelUnet,
@@ -30,7 +35,7 @@ from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neur
 from optimum.utils import logging
 from optimum.utils.testing_utils import require_diffusers
 
-from .inference_utils import MODEL_NAMES
+from .inference_utils import MODEL_NAMES, download_image
 
 
 logger = logging.get_logger()
@@ -83,6 +88,42 @@ class NeuronStableDiffusionPipelineIntegrationTest(unittest.TestCase):
 
         prompts = ["sailing ship in storm by Leonardo da Vinci"] * 2
         image = neuron_pipeline(prompts, num_images_per_prompt=2).images[0]
+        self.assertIsInstance(image, PIL.Image.Image)
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    def test_img2img_export_and_inference(self, model_arch):
+        neuron_pipeline = NeuronStableDiffusionImg2ImgPipeline.from_pretrained(
+            MODEL_NAMES[model_arch],
+            export=True,
+            dynamic_batch_size=False,
+            **self.STATIC_INPUTS_SHAPES,
+            **self.COMPILER_ARGS,
+            device_ids=[0, 1],
+        )
+
+        url = "https://raw.githubusercontent.com/CompVis/stable-diffusion/main/assets/stable-samples/img2img/sketch-mountains-input.jpg"
+        init_image = download_image(url)
+        prompt = "ghibli style, a fantasy landscape with mountain, trees and lake, reflection"
+        image = neuron_pipeline(prompt=prompt, image=init_image, strength=0.75, guidance_scale=7.5).images[0]
+        self.assertIsInstance(image, PIL.Image.Image)
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    def test_inpaint_export_and_inference(self, model_arch):
+        neuron_pipeline = NeuronStableDiffusionInpaintPipeline.from_pretrained(
+            MODEL_NAMES[model_arch],
+            export=True,
+            dynamic_batch_size=False,
+            **self.STATIC_INPUTS_SHAPES,
+            **self.COMPILER_ARGS,
+            device_ids=[0, 1],
+        )
+
+        img_url = "https://raw.githubusercontent.com/CompVis/latent-diffusion/main/data/inpainting_examples/overture-creations-5sI6fQgYIuo.png"
+        mask_url = "https://raw.githubusercontent.com/CompVis/latent-diffusion/main/data/inpainting_examples/overture-creations-5sI6fQgYIuo_mask.png"
+        init_image = download_image(img_url).resize((512, 512))
+        mask_image = download_image(mask_url).resize((512, 512))
+        prompt = "Face of a yellow cat, high resolution, sitting on a park bench"
+        image = neuron_pipeline(prompt=prompt, image=init_image, mask_image=mask_image).images[0]
         self.assertIsInstance(image, PIL.Image.Image)
 
 

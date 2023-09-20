@@ -29,14 +29,14 @@ _import_structure = {
 }
 
 if TYPE_CHECKING:
-    from .transformers import (
-        pipeline,
-    )
     from .diffusers import (
-        StableDiffusionPipelineMixin,
         StableDiffusionImg2ImgPipelineMixin,
         StableDiffusionInpaintPipelineMixin,
+        StableDiffusionPipelineMixin,
         StableDiffusionXLPipelineMixin,
+    )
+    from .transformers import (
+        pipeline,
     )
 else:
     import sys

@@ -58,10 +58,11 @@ if is_diffusers_available():
     from diffusers.image_processor import VaeImageProcessor
     from diffusers.schedulers.scheduling_utils import SCHEDULER_CONFIG_NAME
     from diffusers.utils import CONFIG_NAME, is_invisible_watermark_available
+
     from .pipelines import (
-        StableDiffusionPipelineMixin,
         StableDiffusionImg2ImgPipelineMixin,
         StableDiffusionInpaintPipelineMixin,
+        StableDiffusionPipelineMixin,
         StableDiffusionXLPipelineMixin,
     )
 
@@ -163,14 +164,14 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         )
         if vae_encoder is not None:
             self.vae_encoder = NeuronModelVaeEncoder(
-                    vae_encoder,
-                    self,
-                    self.configs[DIFFUSION_MODEL_VAE_ENCODER_NAME],
-                    self.neuron_configs[DIFFUSION_MODEL_VAE_ENCODER_NAME],
-                )
+                vae_encoder,
+                self,
+                self.configs[DIFFUSION_MODEL_VAE_ENCODER_NAME],
+                self.neuron_configs[DIFFUSION_MODEL_VAE_ENCODER_NAME],
+            )
         else:
             self.vae_encoder = None
-        
+
         self.vae_decoder = NeuronModelVaeDecoder(
             vae_decoder,
             self,
@@ -627,16 +628,16 @@ class NeuronModelVaeDecoder(_NeuronDiffusionModelPart):
         super().__init__(model, parent_model, config, neuron_config, DIFFUSION_MODEL_VAE_DECODER_NAME)
 
     def forward(
-        self, 
-        latent_sample: torch.Tensor, 
-        image: Optional[torch.Tensor] = None, 
+        self,
+        latent_sample: torch.Tensor,
+        image: Optional[torch.Tensor] = None,
         mask: Optional[torch.Tensor] = None,
     ):
         inputs = (latent_sample,)
         if image is not None:
-            inputs += (image, )
+            inputs += (image,)
         if mask is not None:
-            inputs += (mask, )
+            inputs += (mask,)
         outputs = self.model(*inputs)
 
         return tuple(output for output in outputs.values())

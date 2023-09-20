@@ -261,11 +261,11 @@ def main_export(
 
     # Validate compiled model
     if do_validation is True:
-        # if is_stable_diffusion:
-        #     # Do not validate vae encoder due to the sampling randomness
-        #     del neuron_outputs[-2]  # -2 is the index of `vae_encoder`
-        #     models_and_neuron_configs.pop("vae_encoder", None)
-        #     output_model_names.pop("vae_encoder", None)
+        if is_stable_diffusion:
+            # Do not validate vae encoder due to the sampling randomness
+            del neuron_outputs[-2]  # -2 is the index of `vae_encoder`
+            models_and_neuron_configs.pop("vae_encoder", None)
+            output_model_names.pop("vae_encoder", None)
 
         try:
             validate_models_outputs(

@@ -13,10 +13,13 @@
 #  limitations under the License.
 import logging
 from typing import List, Optional, Union
+
 import torch
 from diffusers.loaders import LoraLoaderMixin, TextualInversionLoaderMixin
 
+
 logger = logging.getLogger(__name__)
+
 
 class DiffusionBasePipelineMixin:
     def check_num_images_per_prompt(self, prompt_batch_size: int, neuron_batch_size: int, num_images_per_prompt: int):
@@ -26,7 +29,7 @@ class DiffusionBasePipelineMixin:
                 f" prompt({prompt_batch_size}) multiplied by `num_images_per_prompt`({num_images_per_prompt}). You need to enable"
                 " `dynamic_batch_size` or precisely configure `num_images_per_prompt` during the compilation."
             )
-    
+
     # Adapted from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.StableDiffusionPipeline.run_safety_checker
     def run_safety_checker(self, image, dtype):
         if self.safety_checker is None:
@@ -41,6 +44,7 @@ class DiffusionBasePipelineMixin:
                 images=image, clip_input=safety_checker_input.pixel_values.to(dtype)
             )
         return image, has_nsfw_concept
+
 
 class StableDiffusionPipelineMixin(DiffusionBasePipelineMixin):
     # Adapted from https://github.com/huggingface/diffusers/blob/v0.18.2/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L302

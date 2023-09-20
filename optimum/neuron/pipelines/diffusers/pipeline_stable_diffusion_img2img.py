@@ -24,6 +24,7 @@ from diffusers import StableDiffusionImg2ImgPipeline
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
 from diffusers.utils import deprecate
 from diffusers.utils.torch_utils import randn_tensor
+
 from .pipeline_utils import StableDiffusionPipelineMixin
 
 

@@ -17,17 +17,17 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 from diffusers import StableDiffusionXLPipeline
-from diffusers.loaders import LoraLoaderMixin, TextualInversionLoaderMixin
 from diffusers.pipelines.stable_diffusion_xl import StableDiffusionXLPipelineOutput
 from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl import rescale_noise_cfg
 from diffusers.utils.torch_utils import randn_tensor
+
 from .pipeline_utils import StableDiffusionXLPipelineMixin
 
 
 logger = logging.getLogger(__name__)
 
 
-class StableDiffusionXLPipelineMixin(StableDiffusionXLPipeline, StableDiffusionXLPipelineMixin):  
+class StableDiffusionXLPipelineMixin(StableDiffusionXLPipeline, StableDiffusionXLPipelineMixin):
     encode_prompt = StableDiffusionXLPipelineMixin.encode_prompt
 
     # Adapted from https://github.com/huggingface/diffusers/blob/v0.20.2/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py#L502

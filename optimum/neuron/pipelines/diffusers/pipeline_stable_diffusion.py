@@ -22,6 +22,7 @@ from diffusers import StableDiffusionPipeline
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import rescale_noise_cfg
 from diffusers.utils.torch_utils import randn_tensor
+
 from .pipeline_utils import StableDiffusionPipelineMixin
 
 
@@ -31,7 +32,7 @@ logger = logging.getLogger(__name__)
 class StableDiffusionPipelineMixin(StableDiffusionPipeline, StableDiffusionPipelineMixin):
     run_safety_checker = StableDiffusionPipelineMixin.run_safety_checker
     encode_prompt = StableDiffusionPipelineMixin.encode_prompt
-    
+
     # Adapted from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.StableDiffusionPipeline.prepare_latents
     def prepare_latents(self, batch_size, num_channels_latents, height, width, dtype, generator, latents=None):
         shape = (batch_size, num_channels_latents, height // self.vae_scale_factor, width // self.vae_scale_factor)

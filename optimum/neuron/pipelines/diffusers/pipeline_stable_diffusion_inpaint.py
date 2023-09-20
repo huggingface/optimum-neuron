@@ -17,14 +17,11 @@
 import logging
 from typing import Any, Callable, Dict, List, Optional, Union
 
-import numpy as np
-import PIL
 import torch
-from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
 from diffusers import StableDiffusionInpaintPipeline
-from diffusers.utils import deprecate
-from diffusers.utils.torch_utils import randn_tensor
 from diffusers.image_processor import PipelineImageInput, VaeImageProcessor
+from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
+
 from .pipeline_utils import StableDiffusionPipelineMixin
 
 
@@ -34,9 +31,11 @@ logger = logging.getLogger(__name__)
 class StableDiffusionInpaintPipelineMixin(StableDiffusionInpaintPipeline, StableDiffusionPipelineMixin):
     run_safety_checker = StableDiffusionPipelineMixin.run_safety_checker
     encode_prompt = StableDiffusionPipelineMixin.encode_prompt
-    
+
     # Adapted from https://github.com/huggingface/diffusers/blob/v0.21.2/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_inpaint.py#L629
-    def _encode_vae_image(self, image: torch.Tensor, generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None):
+    def _encode_vae_image(
+        self, image: torch.Tensor, generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None
+    ):
         image_latents = self.vae_encoder(sample=image)[0]
         image_latents = self.vae_encoder.config.scaling_factor * image_latents
 
@@ -77,7 +76,7 @@ class StableDiffusionInpaintPipelineMixin(StableDiffusionInpaintPipeline, Stable
                 f"custom `num_images_per_prompt` or turn on `dynamic_batch_size`, if you wish generating {num_images_per_prompt} per prompt."
             )
             num_images_per_prompt = self.num_images_per_prompt
-        
+
         # 1. Check inputs
         self.check_inputs(
             prompt,
@@ -89,7 +88,7 @@ class StableDiffusionInpaintPipelineMixin(StableDiffusionInpaintPipeline, Stable
             prompt_embeds,
             negative_prompt_embeds,
         )
-        
+
         # 2. Define call parameters
         if prompt is not None and isinstance(prompt, str):
             batch_size = 1
@@ -99,7 +98,7 @@ class StableDiffusionInpaintPipelineMixin(StableDiffusionInpaintPipeline, Stable
             batch_size = prompt_embeds.shape[0]
         neuron_batch_size = self.unet.config.neuron["static_batch_size"]
         self.check_num_images_per_prompt(batch_size, neuron_batch_size, num_images_per_prompt)
-        
+
         # here `guidance_scale` is defined analog to the guidance weight `w` of equation (2)
         # of the Imagen paper: https://arxiv.org/pdf/2205.11487.pdf . `guidance_scale = 1`
         # corresponds to doing no classifier free guidance.
@@ -123,7 +122,7 @@ class StableDiffusionInpaintPipelineMixin(StableDiffusionInpaintPipeline, Stable
         # to avoid doing two forward passes
         if do_classifier_free_guidance:
             prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds])
-        
+
         # 4. set timesteps
         self.scheduler.set_timesteps(num_inference_steps)
         timesteps, num_inference_steps = self.get_timesteps(
@@ -139,11 +138,11 @@ class StableDiffusionInpaintPipelineMixin(StableDiffusionInpaintPipeline, Stable
         latent_timestep = timesteps[:1].repeat(batch_size * num_images_per_prompt)
         # create a boolean to check if the strength is set to 1. if so then initialise the latents with pure noise
         is_strength_max = strength == 1.0
-        
+
         # 5. Preprocess mask and image
         init_image = self.image_processor.preprocess(image, height=height, width=width)
         init_image = init_image.to(dtype=torch.float32)
-        
+
         # 6. Prepare latent variables
         num_channels_latents = self.vae_encoder.config.latent_channels
         num_channels_unet = self.unet.config.in_channels
@@ -169,7 +168,7 @@ class StableDiffusionInpaintPipelineMixin(StableDiffusionInpaintPipeline, Stable
             latents, noise, image_latents = latents_outputs
         else:
             latents, noise = latents_outputs
-        
+
         # 7. Prepare mask latent variables
         self.mask_processor = VaeImageProcessor(
             vae_scale_factor=self.vae_scale_factor, do_normalize=False, do_binarize=True, do_convert_grayscale=True
@@ -192,7 +191,7 @@ class StableDiffusionInpaintPipelineMixin(StableDiffusionInpaintPipeline, Stable
             generator,
             do_classifier_free_guidance,
         )
-        
+
         # 8. Check that sizes of mask, masked image and latents match
         if num_channels_unet == 9:
             # default case for runwayml/stable-diffusion-inpainting
@@ -210,10 +209,10 @@ class StableDiffusionInpaintPipelineMixin(StableDiffusionInpaintPipeline, Stable
             raise ValueError(
                 f"The unet {self.unet.__class__} should have either 4 or 9 input channels, not {self.unet.config.in_channels}."
             )
-        
+
         # 9. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
-        
+
         # 10. Denoising loop
         num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
         with self.progress_bar(total=num_inference_steps) as progress_bar:
@@ -270,7 +269,9 @@ class StableDiffusionInpaintPipelineMixin(StableDiffusionInpaintPipeline, Stable
                 init_image = self._encode_vae_image(init_image)
                 mask_condition = mask_condition.to(dtype=masked_image_latents.dtype)
                 condition_kwargs = {"image": init_image_condition, "mask": mask_condition}
-            image = self.vae_decoder(latents / getattr(self.vae_decoder.config, "scaling_factor", 0.18215), **condition_kwargs)[0]
+            image = self.vae_decoder(
+                latents / getattr(self.vae_decoder.config, "scaling_factor", 0.18215), **condition_kwargs
+            )[0]
             image, has_nsfw_concept = self.run_safety_checker(image, prompt_embeds.dtype)
         else:
             image = latents
@@ -290,5 +291,3 @@ class StableDiffusionInpaintPipelineMixin(StableDiffusionInpaintPipeline, Stable
             return (image, has_nsfw_concept)
 
         return StableDiffusionPipelineOutput(images=image, nsfw_content_detected=has_nsfw_concept)
-        
-        
