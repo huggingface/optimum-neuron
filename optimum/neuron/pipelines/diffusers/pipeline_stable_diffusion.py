@@ -19,145 +19,19 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 import torch
 from diffusers import StableDiffusionPipeline
-from diffusers.loaders import LoraLoaderMixin, TextualInversionLoaderMixin
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import rescale_noise_cfg
 from diffusers.utils.torch_utils import randn_tensor
-from .pipeline_utils import DiffusionPipelineMixin
+from .pipeline_utils import StableDiffusionPipelineMixin
 
 
 logger = logging.getLogger(__name__)
 
 
-class StableDiffusionPipelineMixin(StableDiffusionPipeline, DiffusionPipelineMixin):
-    run_safety_checker = DiffusionPipelineMixin.run_safety_checker
+class StableDiffusionPipelineMixin(StableDiffusionPipeline, StableDiffusionPipelineMixin):
+    run_safety_checker = StableDiffusionPipelineMixin.run_safety_checker
+    encode_prompt = StableDiffusionPipelineMixin.encode_prompt
     
-    # Adapted from https://github.com/huggingface/diffusers/blob/v0.18.2/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L302
-    def encode_prompt(
-        self,
-        prompt: Union[str, List[str]],
-        num_images_per_prompt: int,
-        do_classifier_free_guidance: bool,
-        negative_prompt: Optional[Union[str, list]] = None,
-        prompt_embeds: Optional[torch.FloatTensor] = None,
-        negative_prompt_embeds: Optional[torch.FloatTensor] = None,
-        lora_scale: Optional[float] = None,
-    ):
-        r"""
-        Encodes the prompt into text encoder hidden states.
-
-        Args:
-            prompt (`Union[str, List[str]]`):
-                prompt to be encoded
-            num_images_per_prompt (`int`):
-                number of images that should be generated per prompt
-            do_classifier_free_guidance (`bool`):
-                whether to use classifier free guidance or not
-            negative_prompt (`Optional[Union[str, list]]`, defaults to `None`):
-                The prompt or prompts not to guide the image generation. If not defined, one has to pass
-                `negative_prompt_embeds` instead. Ignored when not using guidance (i.e., ignored if `guidance_scale` is
-                less than `1`).
-            prompt_embeds (`Optional[torch.FloatTensor]`, defaults to `None`):
-                Pre-generated text embeddings. Can be used to easily tweak text inputs, *e.g.* prompt weighting. If not
-                provided, text embeddings will be generated from `prompt` input argument.
-            negative_prompt_embeds (`Optional[torch.FloatTensor]`, defaults to `None`):
-                Pre-generated negative text embeddings. Can be used to easily tweak text inputs, *e.g.* prompt
-                weighting. If not provided, negative_prompt_embeds will be generated from `negative_prompt` input
-                argument.
-            lora_scale (`Optional[float]`, defaults to `None`):
-                A lora scale that will be applied to all LoRA layers of the text encoder if LoRA layers are loaded.
-        """
-        if lora_scale is not None and isinstance(self, LoraLoaderMixin):
-            self._lora_scale = lora_scale
-
-        if prompt is not None and isinstance(prompt, str):
-            batch_size = 1
-        elif prompt is not None and isinstance(prompt, list):
-            batch_size = len(prompt)
-        else:
-            batch_size = prompt_embeds.shape[0]
-
-        if prompt_embeds is None:
-            # textual inversion: process multi-vector tokens if necessary
-            if isinstance(self, TextualInversionLoaderMixin):
-                prompt = self.maybe_convert_prompt(prompt, self.tokenizer)
-
-            text_inputs = self.tokenizer(
-                prompt,
-                padding="max_length",
-                max_length=self.tokenizer.model_max_length,
-                truncation=True,
-                return_tensors="pt",
-            )
-            text_input_ids = text_inputs.input_ids
-            untruncated_ids = self.tokenizer(prompt, padding="longest", return_tensors="pt").input_ids
-
-            if untruncated_ids.shape[-1] >= text_input_ids.shape[-1] and not torch.equal(
-                text_input_ids, untruncated_ids
-            ):
-                removed_text = self.tokenizer.batch_decode(
-                    untruncated_ids[:, self.tokenizer.model_max_length - 1 : -1]
-                )
-                logger.warning(
-                    "The following part of your input was truncated because CLIP can only handle sequences up to"
-                    f" {self.tokenizer.model_max_length} tokens: {removed_text}"
-                )
-
-            # [Modified] Input and its dtype constraints
-            prompt_embeds = self.text_encoder(input_ids=text_input_ids)
-            prompt_embeds = prompt_embeds[0]
-
-        bs_embed, seq_len, _ = prompt_embeds.shape
-        # duplicate text embeddings for each generation per prompt, using mps friendly method
-        prompt_embeds = prompt_embeds.repeat(1, num_images_per_prompt, 1)
-        prompt_embeds = prompt_embeds.view(bs_embed * num_images_per_prompt, seq_len, -1)
-
-        # get unconditional embeddings for classifier free guidance
-        if do_classifier_free_guidance and negative_prompt_embeds is None:
-            uncond_tokens: List[str]
-            if negative_prompt is None:
-                uncond_tokens = [""] * batch_size
-            elif prompt is not None and type(prompt) is not type(negative_prompt):
-                raise TypeError(
-                    f"`negative_prompt` should be the same type to `prompt`, but got {type(negative_prompt)} !="
-                    f" {type(prompt)}."
-                )
-            elif isinstance(negative_prompt, str):
-                uncond_tokens = [negative_prompt]
-            elif batch_size != len(negative_prompt):
-                raise ValueError(
-                    f"`negative_prompt`: {negative_prompt} has batch size {len(negative_prompt)}, but `prompt`:"
-                    f" {prompt} has batch size {batch_size}. Please make sure that passed `negative_prompt` matches"
-                    " the batch size of `prompt`."
-                )
-            else:
-                uncond_tokens = negative_prompt
-
-            # textual inversion: process multi-vector tokens if necessary
-            if isinstance(self, TextualInversionLoaderMixin):
-                uncond_tokens = self.maybe_convert_prompt(uncond_tokens, self.tokenizer)
-
-            max_length = prompt_embeds.shape[1]
-            uncond_input = self.tokenizer(
-                uncond_tokens,
-                padding="max_length",
-                max_length=max_length,
-                truncation=True,
-                return_tensors="pt",
-            )
-
-            negative_prompt_embeds = self.text_encoder(uncond_input.input_ids)
-            negative_prompt_embeds = negative_prompt_embeds[0]
-
-        if do_classifier_free_guidance:
-            # duplicate unconditional embeddings for each generation per prompt, using mps friendly method
-            seq_len = negative_prompt_embeds.shape[1]
-
-            negative_prompt_embeds = negative_prompt_embeds.repeat(1, num_images_per_prompt, 1)
-            negative_prompt_embeds = negative_prompt_embeds.view(batch_size * num_images_per_prompt, seq_len, -1)
-
-        return prompt_embeds, negative_prompt_embeds
-
     # Adapted from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.StableDiffusionPipeline.prepare_latents
     def prepare_latents(self, batch_size, num_channels_latents, height, width, dtype, generator, latents=None):
         shape = (batch_size, num_channels_latents, height // self.vae_scale_factor, width // self.vae_scale_factor)
@@ -213,15 +87,13 @@ class StableDiffusionPipelineMixin(StableDiffusionPipeline, DiffusionPipelineMix
 
         # 2. Define call parameters
         if prompt is not None and isinstance(prompt, str):
-            prompt_batch_size = 1
+            batch_size = 1
         elif prompt is not None and isinstance(prompt, list):
-            prompt_batch_size = len(prompt)
+            batch_size = len(prompt)
         else:
-            prompt_batch_size = prompt_embeds.shape[0]
+            batch_size = prompt_embeds.shape[0]
         neuron_batch_size = self.unet.config.neuron["static_batch_size"]
-        batch_size, num_images_per_prompt = self.check_num_images_per_prompt(
-            prompt_batch_size, neuron_batch_size, num_images_per_prompt
-        )
+        self.check_num_images_per_prompt(batch_size, neuron_batch_size, num_images_per_prompt)
 
         # here `guidance_scale` is defined analog to the guidance weight `w` of equation (2)
         # of the Imagen paper: https://arxiv.org/pdf/2205.11487.pdf . `guidance_scale = 1`
@@ -275,7 +147,7 @@ class StableDiffusionPipelineMixin(StableDiffusionPipeline, DiffusionPipelineMix
                 latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
 
                 # predict the noise residual
-                # [modified for meuron] Remove not traced inputs: cross_attention_kwargs, return_dict
+                # [modified for neuron] Remove not traced inputs: cross_attention_kwargs, return_dict
                 noise_pred = self.unet(
                     latent_model_input,
                     t,

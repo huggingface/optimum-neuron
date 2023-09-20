@@ -58,11 +58,12 @@ if is_diffusers_available():
     from diffusers.image_processor import VaeImageProcessor
     from diffusers.schedulers.scheduling_utils import SCHEDULER_CONFIG_NAME
     from diffusers.utils import CONFIG_NAME, is_invisible_watermark_available
-
-    from .pipelines.diffusers.pipeline_stable_diffusion import StableDiffusionPipelineMixin
-    from .pipelines.diffusers.pipeline_stable_diffusion_img2img import StableDiffusionImg2ImgPipelineMixin
-    from .pipelines.diffusers.pipeline_stable_diffusion_inpaint import StableDiffusionInpaintPipelineMixin
-    from .pipelines.diffusers.pipeline_stable_diffusion_xl import StableDiffusionXLPipelineMixin
+    from .pipelines import (
+        StableDiffusionPipelineMixin,
+        StableDiffusionImg2ImgPipelineMixin,
+        StableDiffusionInpaintPipelineMixin,
+        StableDiffusionXLPipelineMixin,
+    )
 
 
 if TYPE_CHECKING:
@@ -625,8 +626,17 @@ class NeuronModelVaeDecoder(_NeuronDiffusionModelPart):
     ):
         super().__init__(model, parent_model, config, neuron_config, DIFFUSION_MODEL_VAE_DECODER_NAME)
 
-    def forward(self, latent_sample: torch.Tensor):
+    def forward(
+        self, 
+        latent_sample: torch.Tensor, 
+        image: Optional[torch.Tensor] = None, 
+        mask: Optional[torch.Tensor] = None,
+    ):
         inputs = (latent_sample,)
+        if image is not None:
+            inputs += (image, )
+        if mask is not None:
+            inputs += (mask, )
         outputs = self.model(*inputs)
 
         return tuple(output for output in outputs.values())
@@ -641,7 +651,7 @@ class NeuronStableDiffusionImg2ImgPipeline(NeuronStableDiffusionPipelineBase, St
 
 
 class NeuronStableDiffusionInpaintPipeline(NeuronStableDiffusionPipelineBase, StableDiffusionInpaintPipelineMixin):
-    __call__ = StableDiffusionImg2ImgPipelineMixin.__call__
+    __call__ = StableDiffusionInpaintPipelineMixin.__call__
 
 
 class NeuronStableDiffusionXLPipelineBase(NeuronStableDiffusionPipelineBase):
