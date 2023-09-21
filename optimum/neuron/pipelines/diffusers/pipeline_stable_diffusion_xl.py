@@ -49,7 +49,7 @@ class NeuronStableDiffusionXLPipelineMixin(StableDiffusionXLPipelineMixin, Stabl
     # Adapted from https://github.com/huggingface/diffusers/blob/v0.20.2/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py#L557
     def __call__(
         self,
-        prompt: Union[str, List[str]] = None,
+        prompt: Optional[Union[str, List[str]]] = None,
         prompt_2: Optional[Union[str, List[str]]] = None,
         num_inference_steps: int = 50,
         denoising_end: Optional[float] = None,
@@ -78,102 +78,118 @@ class NeuronStableDiffusionXLPipelineMixin(StableDiffusionXLPipelineMixin, Stabl
         Function invoked when calling the pipeline for generation.
 
         Args:
-            prompt (`str` or `List[str]`, *optional*):
+            prompt (`Optional[Union[str, List[str]]]`, defaults to `None`):
                 The prompt or prompts to guide the image generation. If not defined, one has to pass `prompt_embeds`.
                 instead.
-            prompt_2 (`str` or `List[str]`, *optional*):
+            prompt_2 (`Optional[Union[str, List[str]]]`, defaults to `None`):
                 The prompt or prompts to be sent to the `tokenizer_2` and `text_encoder_2`. If not defined, `prompt` is
                 used in both text-encoders
-            num_inference_steps (`int`, *optional*, defaults to 50):
+            num_inference_steps (`int`, defaults to 50):
                 The number of denoising steps. More denoising steps usually lead to a higher quality image at the
                 expense of slower inference.
-            denoising_end (`float`, *optional*):
+            denoising_end (`Optional[float]`, defaults to `None`):
                 When specified, determines the fraction (between 0.0 and 1.0) of the total denoising process to be
                 completed before it is intentionally prematurely terminated. As a result, the returned sample will
                 still retain a substantial amount of noise as determined by the discrete timesteps selected by the
                 scheduler. The denoising_end parameter should ideally be utilized when this pipeline forms a part of a
                 "Mixture of Denoisers" multi-pipeline setup, as elaborated in [**Refining the Image
                 Output**](https://huggingface.co/docs/diffusers/api/pipelines/stable_diffusion/stable_diffusion_xl#refining-the-image-output)
-            guidance_scale (`float`, *optional*, defaults to 5.0):
+            guidance_scale (`float`, defaults to 5.0):
                 Guidance scale as defined in [Classifier-Free Diffusion Guidance](https://arxiv.org/abs/2207.12598).
                 `guidance_scale` is defined as `w` of equation 2. of [Imagen
                 Paper](https://arxiv.org/pdf/2205.11487.pdf). Guidance scale is enabled by setting `guidance_scale >
                 1`. Higher guidance scale encourages to generate images that are closely linked to the text `prompt`,
                 usually at the expense of lower image quality.
-            negative_prompt (`str` or `List[str]`, *optional*):
+            negative_prompt (`Optional[Union[str, List[str]]]`, defaults to `None`):
                 The prompt or prompts not to guide the image generation. If not defined, one has to pass
                 `negative_prompt_embeds` instead. Ignored when not using guidance (i.e., ignored if `guidance_scale` is
                 less than `1`).
-            negative_prompt_2 (`str` or `List[str]`, *optional*):
+            negative_prompt_2 (`Optional[Union[str, List[str]]]`, defaults to `None`):
                 The prompt or prompts not to guide the image generation to be sent to `tokenizer_2` and
                 `text_encoder_2`. If not defined, `negative_prompt` is used in both text-encoders
-            num_images_per_prompt (`int`, *optional*, defaults to 1):
-                The number of images to generate per prompt.
-            eta (`float`, *optional*, defaults to 0.0):
+            num_images_per_prompt (`int`, defaults to 1):
+                The number of images to generate per prompt. If it is different from the batch size used for the compiltaion,
+                it will be overriden by the static batch size of neuron (except for dynamic batching).
+            eta (`float`, defaults to 0.0):
                 Corresponds to parameter eta (η) in the DDIM paper: https://arxiv.org/abs/2010.02502. Only applies to
                 [`schedulers.DDIMScheduler`], will be ignored for others.
-            generator (`torch.Generator` or `List[torch.Generator]`, *optional*):
+            generator (`Optional[Union[torch.Generator, List[torch.Generator]]]`, defaults to `None`):
                 One or a list of [torch generator(s)](https://pytorch.org/docs/stable/generated/torch.Generator.html)
                 to make generation deterministic.
-            latents (`torch.FloatTensor`, *optional*):
+            latents (`Optional[torch.FloatTensor]`, defaults to `None`):
                 Pre-generated noisy latents, sampled from a Gaussian distribution, to be used as inputs for image
                 generation. Can be used to tweak the same generation with different prompts. If not provided, a latents
                 tensor will ge generated by sampling using the supplied random `generator`.
-            prompt_embeds (`torch.FloatTensor`, *optional*):
+            prompt_embeds (`Optional[torch.FloatTensor]`, defaults to `None`):
                 Pre-generated text embeddings. Can be used to easily tweak text inputs, *e.g.* prompt weighting. If not
                 provided, text embeddings will be generated from `prompt` input argument.
-            negative_prompt_embeds (`torch.FloatTensor`, *optional*):
+            negative_prompt_embeds (`Optional[torch.FloatTensor]`, defaults to `None`):
                 Pre-generated negative text embeddings. Can be used to easily tweak text inputs, *e.g.* prompt
                 weighting. If not provided, negative_prompt_embeds will be generated from `negative_prompt` input
                 argument.
-            pooled_prompt_embeds (`torch.FloatTensor`, *optional*):
+            pooled_prompt_embeds (`Optional[torch.FloatTensor]`, defaults to `None`):
                 Pre-generated pooled text embeddings. Can be used to easily tweak text inputs, *e.g.* prompt weighting.
                 If not provided, pooled text embeddings will be generated from `prompt` input argument.
-            negative_pooled_prompt_embeds (`torch.FloatTensor`, *optional*):
+            negative_pooled_prompt_embeds (`Optional[torch.FloatTensor]`, defaults to `None`):
                 Pre-generated negative pooled text embeddings. Can be used to easily tweak text inputs, *e.g.* prompt
                 weighting. If not provided, pooled negative_prompt_embeds will be generated from `negative_prompt`
                 input argument.
-            output_type (`str`, *optional*, defaults to `"pil"`):
+            output_type (`Optional[str]`, defaults to `"pil"`):
                 The output format of the generate image. Choose between
                 [PIL](https://pillow.readthedocs.io/en/stable/): `PIL.Image.Image` or `np.array`.
-            return_dict (`bool`, *optional*, defaults to `True`):
-                Whether or not to return a [`~pipelines.stable_diffusion_xl.StableDiffusionXLPipelineOutput`] instead
+            return_dict (`bool`, defaults to `True`):
+                Whether or not to return a [`diffusers.pipelines.stable_diffusion_xl.StableDiffusionXLPipelineOutput`] instead
                 of a plain tuple.
-            callback (`Callable`, *optional*):
+            callback (`Optional[Callable]`, defaults to `None`):
                 A function that will be called every `callback_steps` steps during inference. The function will be
                 called with the following arguments: `callback(step: int, timestep: int, latents: torch.FloatTensor)`.
-            callback_steps (`int`, *optional*, defaults to 1):
+            callback_steps (`int`, defaults to 1):
                 The frequency at which the `callback` function will be called. If not specified, the callback will be
                 called at every step.
-            cross_attention_kwargs (`dict`, *optional*):
+            cross_attention_kwargs (`dict`, defaults to `None`):
                 A kwargs dictionary that if specified is passed along to the `AttentionProcessor` as defined under
                 `self.processor` in
                 [diffusers.models.attention_processor](https://github.com/huggingface/diffusers/blob/main/src/diffusers/models/attention_processor.py).
-            guidance_rescale (`float`, *optional*, defaults to 0.7):
+            guidance_rescale (`float`, *optional*, defaults to 0.0):
                 Guidance rescale factor proposed by [Common Diffusion Noise Schedules and Sample Steps are
                 Flawed](https://arxiv.org/pdf/2305.08891.pdf) `guidance_scale` is defined as `φ` in equation 16. of
                 [Common Diffusion Noise Schedules and Sample Steps are Flawed](https://arxiv.org/pdf/2305.08891.pdf).
                 Guidance rescale factor should fix overexposure when using zero terminal SNR.
-            original_size (`Tuple[int]`, *optional*, defaults to (1024, 1024)):
+            original_size (`Optional[Tuple[int, int]]`, defaults to (1024, 1024)):
                 If `original_size` is not the same as `target_size` the image will appear to be down- or upsampled.
                 `original_size` defaults to `(width, height)` if not specified. Part of SDXL's micro-conditioning as
                 explained in section 2.2 of
                 [https://huggingface.co/papers/2307.01952](https://huggingface.co/papers/2307.01952).
-            crops_coords_top_left (`Tuple[int]`, *optional*, defaults to (0, 0)):
+            crops_coords_top_left (`Tuple[int]`, defaults to (0, 0)):
                 `crops_coords_top_left` can be used to generate an image that appears to be "cropped" from the position
                 `crops_coords_top_left` downwards. Favorable, well-centered images are usually achieved by setting
                 `crops_coords_top_left` to (0, 0). Part of SDXL's micro-conditioning as explained in section 2.2 of
                 [https://huggingface.co/papers/2307.01952](https://huggingface.co/papers/2307.01952).
-            target_size (`Tuple[int]`, *optional*, defaults to (1024, 1024)):
+            target_size (`Tuple[int]`,defaults to (1024, 1024)):
                 For most cases, `target_size` should be set to the desired height and width of the generated image. If
                 not specified it will default to `(width, height)`. Part of SDXL's micro-conditioning as explained in
                 section 2.2 of [https://huggingface.co/papers/2307.01952](https://huggingface.co/papers/2307.01952).
 
         Examples:
 
+        ```py
+        >>> from optimum.neuron import NeuronStableDiffusionXLPipeline
+
+        >>> compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
+        >>> input_shapes = {"batch_size": 1, "height": 1024, "width": 1024}
+
+        >>> stable_diffusion_xl = NeuronStableDiffusionXLPipeline.from_pretrained(
+        ...     "stabilityai/stable-diffusion-xl-base-1.0", export=True, **compiler_args, **input_shapes)
+        ... )
+        >>> stable_diffusion_xl.save_pretrained("sd_neuron_xl/")
+
+        >>> prompt = "Astronaut in a jungle, cold color palette, muted colors, detailed, 8k"
+        >>> image = stable_diffusion_xl(prompt).images[0]
+        ```
+
         Returns:
-            [`~pipelines.stable_diffusion_xl.StableDiffusionXLPipelineOutput`] or `tuple`:
-            [`~pipelines.stable_diffusion_xl.StableDiffusionXLPipelineOutput`] if `return_dict` is True, otherwise a
+            [`diffusers.pipelines.stable_diffusion_xl.StableDiffusionXLPipelineOutput`] or `tuple`:
+            [`diffusers.pipelines.stable_diffusion_xl.StableDiffusionXLPipelineOutput`] if `return_dict` is True, otherwise a
             `tuple`. When returning a tuple, the first element is a list with the generated images.
         """
         # 0. Default height and width to unet (static shapes)

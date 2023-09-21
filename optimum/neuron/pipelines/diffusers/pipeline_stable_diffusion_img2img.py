@@ -103,6 +103,97 @@ class NeuronStableDiffusionImg2ImgPipelineMixin(StableDiffusionPipelineMixin, St
         callback_steps: int = 1,
         cross_attention_kwargs: Optional[Dict[str, Any]] = None,
     ):
+        r"""
+        The call function to the pipeline for generation.
+
+        Args:
+            prompt (`Optional[Union[str, List[str]]]`, defaults to `None`):
+                The prompt or prompts to guide image generation. If not defined, you need to pass `prompt_embeds`.
+            image (`torch.FloatTensor`, `PIL.Image.Image`, `np.ndarray`, `List[torch.FloatTensor]`, `List[PIL.Image.Image]`, or `List[np.ndarray]`):
+                `Image`, numpy array or tensor representing an image batch to be used as the starting point. For both
+                numpy array and pytorch tensor, the expected value range is between `[0, 1]` If it's a tensor or a list
+                or tensors, the expected shape should be `(B, C, H, W)` or `(C, H, W)`. If it is a numpy array or a
+                list of arrays, the expected shape should be `(B, H, W, C)` or `(H, W, C)` It can also accept image
+                latents as `image`, but if passing latents directly it is not encoded again.
+            strength (`float`, defaults to 0.8):
+                Indicates extent to transform the reference `image`. Must be between 0 and 1. `image` is used as a
+                starting point and more noise is added the higher the `strength`. The number of denoising steps depends
+                on the amount of noise initially added. When `strength` is 1, added noise is maximum and the denoising
+                process runs for the full number of iterations specified in `num_inference_steps`. A value of 1
+                essentially ignores `image`.
+            num_inference_steps (`int`, defaults to 50):
+                The number of denoising steps. More denoising steps usually lead to a higher quality image at the
+                expense of slower inference. This parameter is modulated by `strength`.
+            guidance_scale (`float`, defaults to 7.5):
+                A higher guidance scale value encourages the model to generate images closely linked to the text
+                `prompt` at the expense of lower image quality. Guidance scale is enabled when `guidance_scale > 1`.
+            negative_prompt (`Optional[Union[str, List[str]`, defaults to `None`):
+                The prompt or prompts to guide what to not include in image generation. If not defined, you need to
+                pass `negative_prompt_embeds` instead. Ignored when not using guidance (`guidance_scale < 1`).
+            num_images_per_prompt (`int`, defaults to 1):
+                The number of images to generate per prompt. If it is different from the batch size used for the compiltaion,
+                it will be overriden by the static batch size of neuron (except for dynamic batching).
+            eta (`float`, defaults to 0.0):
+                Corresponds to parameter eta (η) from the [DDIM](https://arxiv.org/abs/2010.02502) paper. Only applies
+                to the [`diffusers.schedulers.DDIMScheduler`], and is ignored in other schedulers.
+            generator (`Optional[Union[torch.Generator, List[torch.Generator]]]`, defaults to `None`):
+                A [`torch.Generator`](https://pytorch.org/docs/stable/generated/torch.Generator.html) to make
+                generation deterministic.
+            prompt_embeds (`Optional[torch.FloatTensor]`, defaults to `None`):
+                Pre-generated text embeddings. Can be used to easily tweak text inputs (prompt weighting). If not
+                provided, text embeddings are generated from the `prompt` input argument.
+            negative_prompt_embeds (`Optional[torch.FloatTensor]`, defaults to `None`):
+                Pre-generated negative text embeddings. Can be used to easily tweak text inputs (prompt weighting). If
+                not provided, `negative_prompt_embeds` are generated from the `negative_prompt` input argument.
+            output_type (`Optional[str]`, defaults to `"pil"`):
+                The output format of the generated image. Choose between `PIL.Image` or `np.array`.
+            return_dict (`bool`, defaults to `True`):
+                Whether or not to return a [`diffusers.pipelines.stable_diffusion.StableDiffusionPipelineOutput`] instead of a
+                plain tuple.
+            callback (`Optional[Callable]`, defaults to `None`):
+                A function that calls every `callback_steps` steps during inference. The function is called with the
+                following arguments: `callback(step: int, timestep: int, latents: torch.FloatTensor)`.
+            callback_steps (`int`, defaults to 1):
+                The frequency at which the `callback` function is called. If not specified, the callback is called at
+                every step.
+            cross_attention_kwargs (`dict`, defaults to `None`):
+                A kwargs dictionary that if specified is passed along to the [`AttentionProcessor`] as defined in
+                [`self.processor`](https://github.com/huggingface/diffusers/blob/main/src/diffusers/models/attention_processor.py).
+
+        Examples:
+
+        ```py
+        >>> import PIL
+        >>> import requests
+        >>> from io import BytesIO
+
+        >>> from optimum.neuron import NeuronStableDiffusionImg2ImgPipeline
+
+        >>> compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
+        >>> input_shapes = {"batch_size": 1, "height": 512, "width": 512}
+
+        >>> url = "https://raw.githubusercontent.com/CompVis/stable-diffusion/main/assets/stable-samples/img2img/sketch-mountains-input.jpg"
+        >>> response = requests.get(url)
+
+        >>> init_image = Image.open(BytesIO(response.content)).convert("RGB")
+        >>> init_image = init_image.resize((512, 512))
+
+        >>> pipeline = NeuronStableDiffusionImg2ImgPipeline.from_pretrained(
+        ...     "nitrosocke/Ghibli-Diffusion", export=True, **input_shapes, device_ids=[0, 1]
+        ... )
+        >>> pipeline.save_pretrained("sd_img2img/")
+
+        >>> prompt = "ghibli style, a fantasy landscape with snowcapped mountains, trees, lake with detailed reflection."
+        >>> image = pipeline(prompt=prompt, image=init_image, strength=0.75, guidance_scale=7.5).images[0]
+        ```
+
+        Returns:
+            [`diffusers.pipelines.stable_diffusion.StableDiffusionPipelineOutput`] or `tuple`:
+                If `return_dict` is `True`, [`diffusers.pipelines.stable_diffusion.StableDiffusionPipelineOutput`] is returned,
+                otherwise a `tuple` is returned where the first element is a list with the generated images and the
+                second element is a list of `bool`s indicating whether the corresponding generated image contains
+                "not-safe-for-work" (nsfw) content.
+        """
         # 1. Check inputs. Raise error if not correct
         if self.num_images_per_prompt != num_images_per_prompt and not self.dynamic_batch_size:
             logger.warning(
