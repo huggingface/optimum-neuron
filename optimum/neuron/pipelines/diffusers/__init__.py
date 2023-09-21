@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .pipeline_stable_diffusion import StableDiffusionPipelineMixin
-from .pipeline_stable_diffusion_img2img import StableDiffusionImg2ImgPipelineMixin
-from .pipeline_stable_diffusion_inpaint import StableDiffusionInpaintPipelineMixin
-from .pipeline_stable_diffusion_xl import StableDiffusionXLPipelineMixin
+from .pipeline_stable_diffusion import NeuronStableDiffusionPipelineMixin
+from .pipeline_stable_diffusion_img2img import NeuronStableDiffusionImg2ImgPipelineMixin
+from .pipeline_stable_diffusion_inpaint import NeuronStableDiffusionInpaintPipelineMixin
+from .pipeline_stable_diffusion_xl import NeuronStableDiffusionXLPipelineMixin

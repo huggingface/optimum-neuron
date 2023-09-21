@@ -60,10 +60,10 @@ if is_diffusers_available():
     from diffusers.utils import CONFIG_NAME, is_invisible_watermark_available
 
     from .pipelines import (
-        StableDiffusionImg2ImgPipelineMixin,
-        StableDiffusionInpaintPipelineMixin,
-        StableDiffusionPipelineMixin,
-        StableDiffusionXLPipelineMixin,
+        NeuronStableDiffusionImg2ImgPipelineMixin,
+        NeuronStableDiffusionInpaintPipelineMixin,
+        NeuronStableDiffusionPipelineMixin,
+        NeuronStableDiffusionXLPipelineMixin,
     )
 
 
@@ -643,16 +643,20 @@ class NeuronModelVaeDecoder(_NeuronDiffusionModelPart):
         return tuple(output for output in outputs.values())
 
 
-class NeuronStableDiffusionPipeline(NeuronStableDiffusionPipelineBase, StableDiffusionPipelineMixin):
-    __call__ = StableDiffusionPipelineMixin.__call__
+class NeuronStableDiffusionPipeline(NeuronStableDiffusionPipelineBase, NeuronStableDiffusionPipelineMixin):
+    __call__ = NeuronStableDiffusionPipelineMixin.__call__
 
 
-class NeuronStableDiffusionImg2ImgPipeline(NeuronStableDiffusionPipelineBase, StableDiffusionImg2ImgPipelineMixin):
-    __call__ = StableDiffusionImg2ImgPipelineMixin.__call__
+class NeuronStableDiffusionImg2ImgPipeline(
+    NeuronStableDiffusionPipelineBase, NeuronStableDiffusionImg2ImgPipelineMixin
+):
+    __call__ = NeuronStableDiffusionImg2ImgPipelineMixin.__call__
 
 
-class NeuronStableDiffusionInpaintPipeline(NeuronStableDiffusionPipelineBase, StableDiffusionInpaintPipelineMixin):
-    __call__ = StableDiffusionInpaintPipelineMixin.__call__
+class NeuronStableDiffusionInpaintPipeline(
+    NeuronStableDiffusionPipelineBase, NeuronStableDiffusionInpaintPipelineMixin
+):
+    __call__ = NeuronStableDiffusionInpaintPipelineMixin.__call__
 
 
 class NeuronStableDiffusionXLPipelineBase(NeuronStableDiffusionPipelineBase):
@@ -710,5 +714,5 @@ class NeuronStableDiffusionXLPipelineBase(NeuronStableDiffusionPipelineBase):
             self.watermark = None
 
 
-class NeuronStableDiffusionXLPipeline(NeuronStableDiffusionXLPipelineBase, StableDiffusionXLPipelineMixin):
-    __call__ = StableDiffusionXLPipelineMixin.__call__
+class NeuronStableDiffusionXLPipeline(NeuronStableDiffusionXLPipelineBase, NeuronStableDiffusionXLPipelineMixin):
+    __call__ = NeuronStableDiffusionXLPipelineMixin.__call__

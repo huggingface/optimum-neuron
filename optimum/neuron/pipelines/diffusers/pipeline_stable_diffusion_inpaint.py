@@ -22,16 +22,13 @@ from diffusers import StableDiffusionInpaintPipeline
 from diffusers.image_processor import PipelineImageInput, VaeImageProcessor
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
 
-from .pipeline_utils import StableDiffusionPipelineMixin
+from .pipeline_utils import NeuronStableDiffusionPipelineMixin
 
 
 logger = logging.getLogger(__name__)
 
 
-class StableDiffusionInpaintPipelineMixin(StableDiffusionInpaintPipeline, StableDiffusionPipelineMixin):
-    run_safety_checker = StableDiffusionPipelineMixin.run_safety_checker
-    encode_prompt = StableDiffusionPipelineMixin.encode_prompt
-
+class NeuronStableDiffusionInpaintPipelineMixin(NeuronStableDiffusionPipelineMixin, StableDiffusionInpaintPipeline):
     # Adapted from https://github.com/huggingface/diffusers/blob/v0.21.2/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_inpaint.py#L629
     def _encode_vae_image(
         self, image: torch.Tensor, generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None

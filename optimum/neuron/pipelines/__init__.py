@@ -21,19 +21,19 @@ from transformers.utils import _LazyModule
 _import_structure = {
     "transformers": ["pipeline"],
     "diffusers": [
-        "StableDiffusionPipelineMixin",
-        "StableDiffusionImg2ImgPipelineMixin",
-        "StableDiffusionInpaintPipelineMixin",
-        "StableDiffusionXLPipelineMixin",
+        "NeuronStableDiffusionPipelineMixin",
+        "NeuronStableDiffusionImg2ImgPipelineMixin",
+        "NeuronStableDiffusionInpaintPipelineMixin",
+        "NeuronStableDiffusionXLPipelineMixin",
     ],
 }
 
 if TYPE_CHECKING:
     from .diffusers import (
-        StableDiffusionImg2ImgPipelineMixin,
-        StableDiffusionInpaintPipelineMixin,
-        StableDiffusionPipelineMixin,
-        StableDiffusionXLPipelineMixin,
+        NeuronStableDiffusionImg2ImgPipelineMixin,
+        NeuronStableDiffusionInpaintPipelineMixin,
+        NeuronStableDiffusionPipelineMixin,
+        NeuronStableDiffusionXLPipelineMixin,
     )
     from .transformers import (
         pipeline,
