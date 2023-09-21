@@ -17,9 +17,12 @@ import os
 import shutil
 import tempfile
 import unittest
+from io import BytesIO
 from typing import Dict
 
+import requests
 from huggingface_hub import HfFolder
+from PIL import Image
 from transformers import set_seed
 
 
@@ -123,3 +126,8 @@ class NeuronModelTestMixin(unittest.TestCase):
     def tearDownClass(cls):
         for _, dir_path in cls.neuron_model_dirs.items():
             shutil.rmtree(dir_path)
+
+
+def download_image(url):
+    response = requests.get(url)
+    return Image.open(BytesIO(response.content)).convert("RGB")
