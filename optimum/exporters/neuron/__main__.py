@@ -143,18 +143,25 @@ def infer_stable_diffusion_shapes_from_diffusers(
     vae_encoder_num_channels = model.vae.config.in_channels
     vae_decoder_num_channels = model.vae.config.latent_channels
     vae_scale_factor = 2 ** (len(model.vae.config.block_out_channels) - 1) or 8
-    height = input_shapes["unet_input_shapes"]["height"] // vae_scale_factor
-    width = input_shapes["unet_input_shapes"]["width"] // vae_scale_factor
+    height = input_shapes["unet_input_shapes"]["height"]
+    scaled_height = height // vae_scale_factor
+    width = input_shapes["unet_input_shapes"]["width"]
+    scaled_width = width // vae_scale_factor
 
     input_shapes["text_encoder_input_shapes"].update({"sequence_length": sequence_length})
     input_shapes["unet_input_shapes"].update(
-        {"sequence_length": sequence_length, "num_channels": unet_num_channels, "height": height, "width": width}
+        {
+            "sequence_length": sequence_length,
+            "num_channels": unet_num_channels,
+            "height": scaled_height,
+            "width": scaled_width,
+        }
     )
     input_shapes["vae_encoder_input_shapes"].update(
         {"num_channels": vae_encoder_num_channels, "height": height, "width": width}
     )
     input_shapes["vae_decoder_input_shapes"].update(
-        {"num_channels": vae_decoder_num_channels, "height": height, "width": width}
+        {"num_channels": vae_decoder_num_channels, "height": scaled_height, "width": scaled_width}
     )
 
     return input_shapes

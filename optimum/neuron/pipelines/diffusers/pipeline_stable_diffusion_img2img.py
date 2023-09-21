@@ -12,15 +12,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Override some diffusers API for NeuroStableDiffusionPipeline"""
+"""Override some diffusers API for NeuroStableDiffusionImg2ImgPipeline"""
 
 import logging
 from typing import Any, Callable, Dict, List, Optional, Union
 
+import numpy as np
+import PIL
 import torch
-from diffusers import StableDiffusionPipeline
+from diffusers import StableDiffusionImg2ImgPipeline
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
-from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import rescale_noise_cfg
+from diffusers.utils import deprecate
 from diffusers.utils.torch_utils import randn_tensor
 
 from .pipeline_utils import StableDiffusionPipelineMixin
@@ -29,44 +31,77 @@ from .pipeline_utils import StableDiffusionPipelineMixin
 logger = logging.getLogger(__name__)
 
 
-class NeuronStableDiffusionPipelineMixin(StableDiffusionPipelineMixin, StableDiffusionPipeline):
-    # Adapted from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.StableDiffusionPipeline.prepare_latents
-    def prepare_latents(self, batch_size, num_channels_latents, height, width, dtype, generator, latents=None):
-        shape = (batch_size, num_channels_latents, height // self.vae_scale_factor, width // self.vae_scale_factor)
-        if isinstance(generator, list) and len(generator) != batch_size:
+class NeuronStableDiffusionImg2ImgPipelineMixin(StableDiffusionPipelineMixin, StableDiffusionImg2ImgPipeline):
+    # Adapted from diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_img2img.prepare_latents
+    def prepare_latents(self, image, timestep, batch_size, num_images_per_prompt, dtype, generator=None):
+        if not isinstance(image, (torch.Tensor, PIL.Image.Image, list)):
             raise ValueError(
-                f"You have passed a list of generators of length {len(generator)}, but requested an effective batch"
-                f" size of {batch_size}. Make sure the batch size matches the length of the generators."
+                f"`image` has to be of type `torch.Tensor`, `PIL.Image.Image` or list but is {type(image)}"
             )
 
-        if latents is None:
-            latents = randn_tensor(shape, generator=generator, dtype=dtype)
-        elif latents.shape != shape:
-            raise ValueError(f"Unexpected latents shape, got {latents.shape}, expected {shape}")
+        batch_size = batch_size * num_images_per_prompt
 
-        # scale the initial noise by the standard deviation required by the scheduler
-        latents = latents * self.scheduler.init_noise_sigma
+        if image.shape[1] == 4:
+            init_latents = image
+        else:
+            # encode the init image into latents and scale the latents
+            init_latents = self.vae_encoder(sample=image)[0]
+            scaling_factor = self.vae_encoder.config.scaling_factor or 0.18215
+            init_latents = scaling_factor * init_latents
+
+        if batch_size > init_latents.shape[0] and batch_size % init_latents.shape[0] == 0:
+            # expand init_latents for batch_size
+            deprecation_message = (
+                f"You have passed {batch_size} text prompts (`prompt`), but only {init_latents.shape[0]} initial"
+                " images (`image`). Initial images are now duplicating to match the number of text prompts. Note"
+                " that this behavior is deprecated and will be removed in a version 1.0.0. Please make sure to update"
+                " your script to pass as many initial images as text prompts to suppress this warning."
+            )
+            deprecate("len(prompt) != len(image)", "1.0.0", deprecation_message, standard_warn=False)
+            additional_image_per_prompt = batch_size // init_latents.shape[0]
+            init_latents = torch.cat([init_latents] * additional_image_per_prompt, dim=0)
+        elif batch_size > init_latents.shape[0] and batch_size % init_latents.shape[0] != 0:
+            raise ValueError(
+                f"Cannot duplicate `image` of batch size {init_latents.shape[0]} to {batch_size} text prompts."
+            )
+        else:
+            init_latents = torch.cat([init_latents], dim=0)
+
+        shape = init_latents.shape
+        noise = randn_tensor(shape, generator=generator, dtype=dtype)
+
+        # get latents
+        init_latents = self.scheduler.add_noise(init_latents, noise, timestep)
+        latents = init_latents
+
         return latents
 
-    # Adapted from https://github.com/huggingface/diffusers/blob/v0.18.2/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L566
+    # Adapted from diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_img2img.__call__
     def __call__(
         self,
         prompt: Optional[Union[str, List[str]]] = None,
+        image: Union[
+            torch.FloatTensor,
+            PIL.Image.Image,
+            np.ndarray,
+            List[torch.FloatTensor],
+            List[PIL.Image.Image],
+            List[np.ndarray],
+        ] = None,
+        strength: float = 0.8,
         num_inference_steps: int = 50,
         guidance_scale: float = 7.5,
         negative_prompt: Optional[Union[str, List[str]]] = None,
         num_images_per_prompt: int = 1,
         eta: float = 0.0,
-        generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None,
-        latents: Optional[torch.FloatTensor] = None,
+        generator: Optional[torch.Generator] = None,
         prompt_embeds: Optional[torch.FloatTensor] = None,
         negative_prompt_embeds: Optional[torch.FloatTensor] = None,
-        output_type: Optional[str] = "pil",
+        output_type: str = "pil",
         return_dict: bool = True,
         callback: Optional[Callable[[int, int, torch.FloatTensor], None]] = None,
         callback_steps: int = 1,
         cross_attention_kwargs: Optional[Dict[str, Any]] = None,
-        guidance_rescale: float = 0.0,
     ):
         r"""
         The call function to the pipeline for generation.
@@ -74,13 +109,25 @@ class NeuronStableDiffusionPipelineMixin(StableDiffusionPipelineMixin, StableDif
         Args:
             prompt (`Optional[Union[str, List[str]]]`, defaults to `None`):
                 The prompt or prompts to guide image generation. If not defined, you need to pass `prompt_embeds`.
+            image (`torch.FloatTensor`, `PIL.Image.Image`, `np.ndarray`, `List[torch.FloatTensor]`, `List[PIL.Image.Image]`, or `List[np.ndarray]`):
+                `Image`, numpy array or tensor representing an image batch to be used as the starting point. For both
+                numpy array and pytorch tensor, the expected value range is between `[0, 1]` If it's a tensor or a list
+                or tensors, the expected shape should be `(B, C, H, W)` or `(C, H, W)`. If it is a numpy array or a
+                list of arrays, the expected shape should be `(B, H, W, C)` or `(H, W, C)` It can also accept image
+                latents as `image`, but if passing latents directly it is not encoded again.
+            strength (`float`, defaults to 0.8):
+                Indicates extent to transform the reference `image`. Must be between 0 and 1. `image` is used as a
+                starting point and more noise is added the higher the `strength`. The number of denoising steps depends
+                on the amount of noise initially added. When `strength` is 1, added noise is maximum and the denoising
+                process runs for the full number of iterations specified in `num_inference_steps`. A value of 1
+                essentially ignores `image`.
             num_inference_steps (`int`, defaults to 50):
                 The number of denoising steps. More denoising steps usually lead to a higher quality image at the
-                expense of slower inference.
+                expense of slower inference. This parameter is modulated by `strength`.
             guidance_scale (`float`, defaults to 7.5):
                 A higher guidance scale value encourages the model to generate images closely linked to the text
                 `prompt` at the expense of lower image quality. Guidance scale is enabled when `guidance_scale > 1`.
-            negative_prompt (`Optional[Union[str, List[str]]]`, defaults to `None`):
+            negative_prompt (`Optional[Union[str, List[str]`, defaults to `None`):
                 The prompt or prompts to guide what to not include in image generation. If not defined, you need to
                 pass `negative_prompt_embeds` instead. Ignored when not using guidance (`guidance_scale < 1`).
             num_images_per_prompt (`int`, defaults to 1):
@@ -92,10 +139,6 @@ class NeuronStableDiffusionPipelineMixin(StableDiffusionPipelineMixin, StableDif
             generator (`Optional[Union[torch.Generator, List[torch.Generator]]]`, defaults to `None`):
                 A [`torch.Generator`](https://pytorch.org/docs/stable/generated/torch.Generator.html) to make
                 generation deterministic.
-            latents (`Optional[torch.FloatTensor]`, defaults to `None`):
-                Pre-generated noisy latents sampled from a Gaussian distribution, to be used as inputs for image
-                generation. Can be used to tweak the same generation with different prompts. If not provided, a latents
-                tensor is generated by sampling using the supplied random `generator`.
             prompt_embeds (`Optional[torch.FloatTensor]`, defaults to `None`):
                 Pre-generated text embeddings. Can be used to easily tweak text inputs (prompt weighting). If not
                 provided, text embeddings are generated from the `prompt` input argument.
@@ -116,26 +159,32 @@ class NeuronStableDiffusionPipelineMixin(StableDiffusionPipelineMixin, StableDif
             cross_attention_kwargs (`dict`, defaults to `None`):
                 A kwargs dictionary that if specified is passed along to the [`AttentionProcessor`] as defined in
                 [`self.processor`](https://github.com/huggingface/diffusers/blob/main/src/diffusers/models/attention_processor.py).
-            guidance_rescale (`float`, defaults to 0.0):
-                Guidance rescale factor from [Common Diffusion Noise Schedules and Sample Steps are
-                Flawed](https://arxiv.org/pdf/2305.08891.pdf). Guidance rescale factor should fix overexposure when
-                using zero terminal SNR.
 
         Examples:
 
         ```py
-        >>> from optimum.neuron import NeuronStableDiffusionPipeline
+        >>> import PIL
+        >>> import requests
+        >>> from io import BytesIO
+
+        >>> from optimum.neuron import NeuronStableDiffusionImg2ImgPipeline
 
         >>> compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
         >>> input_shapes = {"batch_size": 1, "height": 512, "width": 512}
 
-        >>> stable_diffusion = NeuronStableDiffusionPipeline.from_pretrained(
-        ...     "runwayml/stable-diffusion-v1-5", export=True, **compiler_args, **input_shapes
-        ... )
-        >>> stable_diffusion.save_pretrained("sd_neuron/")
+        >>> url = "https://raw.githubusercontent.com/CompVis/stable-diffusion/main/assets/stable-samples/img2img/sketch-mountains-input.jpg"
+        >>> response = requests.get(url)
 
-        >>> prompt = "a photo of an astronaut riding a horse on mars"
-        >>> image = stable_diffusion(prompt).images[0]
+        >>> init_image = Image.open(BytesIO(response.content)).convert("RGB")
+        >>> init_image = init_image.resize((512, 512))
+
+        >>> pipeline = NeuronStableDiffusionImg2ImgPipeline.from_pretrained(
+        ...     "nitrosocke/Ghibli-Diffusion", export=True, **input_shapes, device_ids=[0, 1]
+        ... )
+        >>> pipeline.save_pretrained("sd_img2img/")
+
+        >>> prompt = "ghibli style, a fantasy landscape with snowcapped mountains, trees, lake with detailed reflection."
+        >>> image = pipeline(prompt=prompt, image=init_image, strength=0.75, guidance_scale=7.5).images[0]
         ```
 
         Returns:
@@ -145,20 +194,14 @@ class NeuronStableDiffusionPipelineMixin(StableDiffusionPipelineMixin, StableDif
                 second element is a list of `bool`s indicating whether the corresponding generated image contains
                 "not-safe-for-work" (nsfw) content.
         """
-        # 0. Height and width to unet (static shapes)
-        height = self.unet.config.neuron["static_height"] * self.vae_scale_factor
-        width = self.unet.config.neuron["static_width"] * self.vae_scale_factor
-
         # 1. Check inputs. Raise error if not correct
         if self.num_images_per_prompt != num_images_per_prompt and not self.dynamic_batch_size:
             logger.warning(
                 f"Overriding `num_images_per_prompt({num_images_per_prompt})` to {self.num_images_per_prompt} used for the compilation. Please recompile the models with your "
-                f"custom `num_images_per_prompt` or turn on `dynamic_batch_size`, if you wish generating {num_images_per_prompt} per prompt."
+                f"custom `num_images_per_prompt` or turn on `dynamic_batch_size`, if you wish generating {num_images_per_prompt} image per prompt."
             )
             num_images_per_prompt = self.num_images_per_prompt
-        self.check_inputs(
-            prompt, height, width, callback_steps, negative_prompt, prompt_embeds, negative_prompt_embeds
-        )
+        self.check_inputs(prompt, strength, callback_steps, negative_prompt, prompt_embeds, negative_prompt_embeds)
 
         # 2. Define call parameters
         if prompt is not None and isinstance(prompt, str):
@@ -194,26 +237,25 @@ class NeuronStableDiffusionPipelineMixin(StableDiffusionPipelineMixin, StableDif
         if do_classifier_free_guidance:
             prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds])
 
-        # 4. Prepare timesteps
-        self.scheduler.set_timesteps(num_inference_steps)
-        timesteps = self.scheduler.timesteps
+        # 4. Preprocess image
+        height = self.vae_encoder.config.neuron["static_height"]
+        width = self.vae_encoder.config.neuron["static_width"]
+        image = self.image_processor.preprocess(image, height=height, width=width)
 
-        # 5. Prepare latent variables
-        num_channels_latents = self.unet.config.in_channels
+        # 5. set timesteps
+        self.scheduler.set_timesteps(num_inference_steps)
+        timesteps, num_inference_steps = self.get_timesteps(num_inference_steps, strength, device=None)
+        latent_timestep = timesteps[:1].repeat(batch_size * num_images_per_prompt)
+
+        # 6. Prepare latent variables
         latents = self.prepare_latents(
-            batch_size * num_images_per_prompt,
-            num_channels_latents,
-            height,
-            width,
-            prompt_embeds.dtype,
-            generator,
-            latents,
+            image, latent_timestep, batch_size, num_images_per_prompt, prompt_embeds.dtype, generator
         )
 
-        # 6. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
+        # 7. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
 
-        # 7. Denoising loop
+        # 8. Denoising loop
         num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
         with self.progress_bar(total=num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps):
@@ -234,10 +276,6 @@ class NeuronStableDiffusionPipelineMixin(StableDiffusionPipelineMixin, StableDif
                     noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
                     noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
 
-                if do_classifier_free_guidance and guidance_rescale > 0.0:
-                    # Based on 3.4. in https://arxiv.org/pdf/2305.08891.pdf
-                    noise_pred = rescale_noise_cfg(noise_pred, noise_pred_text, guidance_rescale=guidance_rescale)
-
                 # compute the previous noisy sample x_t -> x_t-1
                 latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)[0]
 
@@ -248,7 +286,6 @@ class NeuronStableDiffusionPipelineMixin(StableDiffusionPipelineMixin, StableDif
                         callback(i, t, latents)
 
         if not output_type == "latent":
-            # [Modified] Replace with pre-compiled
             image = self.vae_decoder(latents / getattr(self.vae_decoder.config, "scaling_factor", 0.18215))[0]
             image, has_nsfw_concept = self.run_safety_checker(image, prompt_embeds.dtype)
         else:
