@@ -458,8 +458,8 @@ def gqa_key_value_slicing_when_tp_size_greater_than_num_key_value_heads(
     return sliced_linear_layer
 
 
-@requires_torch_xla
 @classmethod
+@requires_torch_xla
 def from_pretrained_for_tp(
     cls,
     pretrained_model_name_or_path: Optional[Union[str, os.PathLike]],
