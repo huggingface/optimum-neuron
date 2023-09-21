@@ -168,21 +168,24 @@ class Parallelizer(ABC):
                     weight_info = None
 
                 if weight_info is not None:
-                    if getattr(current_weight, "tensor_model_parallel", False) and parameter.device == torch.device(
-                        "meta"
-                    ):
-                        # This must either be a torch.nn.Embedding or a torch.nn.Linear that was not handled during
-                        # parallelization since those are the only classes that we initialize on the `meta` device.
-                        # We only load weights for the parameters that are still on the meta device because other
-                        # parallel layers were handled during parallelization.
-                        num_dims = current_weight.dim()
-                        partition_dim = getattr(current_weight, "partition_dim")
-                        tp_rank = parallel_layers.parallel_state.get_tensor_model_parallel_rank()
-                        size_per_rank = current_weight.size(partition_dim)
-                        slices = [
-                            None if idx != partition_dim else (size_per_rank * tp_rank, size_per_rank * (tp_rank + 1))
-                            for idx in range(num_dims)
-                        ]
+                    if getattr(current_weight, "tensor_model_parallel", False):
+                        if parameter.device == torch.device("meta"):
+                            # This must either be a torch.nn.Embedding or a torch.nn.Linear that was not handled during
+                            # parallelization since those are the only classes that we initialize on the `meta` device.
+                            num_dims = current_weight.dim()
+                            partition_dim = getattr(current_weight, "partition_dim")
+                            tp_rank = parallel_layers.parallel_state.get_tensor_model_parallel_rank()
+                            size_per_rank = current_weight.size(partition_dim)
+                            slices = [
+                                None
+                                if idx != partition_dim
+                                else (size_per_rank * tp_rank, size_per_rank * (tp_rank + 1))
+                                for idx in range(num_dims)
+                            ]
+                        else:
+                            # The parameter is not on the `meta` device, it has been loaded from a checkpoint during
+                            # parallelization, we can skip.
+                            continue
                     else:
                         slices = None
 
