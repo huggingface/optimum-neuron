@@ -76,6 +76,9 @@ class GPTNeoParallelizer(Parallelizer):
 
     @classmethod
     def patch_for_sequence_paralelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
+        if not sequence_parallel_enabled:
+            return
+
         def _split_heads(self, tensor, num_heads, attn_head_size):
             new_shape = tensor.size()[:-1] + (num_heads, attn_head_size)
             tensor = tensor.view(new_shape)
@@ -207,6 +210,9 @@ class LlamaParallelizer(Parallelizer):
 
     @classmethod
     def patch_for_sequence_paralelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
+        if not sequence_parallel_enabled:
+            return
+
         import math
 
         import torch

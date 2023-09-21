@@ -170,6 +170,9 @@ class T5Parallelizer(Parallelizer):
 
     @classmethod
     def patch_for_sequence_paralelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
+        if not sequence_parallel_enabled:
+            return
+
         from torch import nn
 
         def sequence_parallel_forward(
@@ -350,7 +353,7 @@ class T5Parallelizer(Parallelizer):
                 sequence_parallel_enabled=sequence_parallel_enabled,
                 device=device,
             )
-            block.layer[0].SelfAttention = T5ParallelSelfAttention.transform(
+            block.layer[1].EncDecAttention = T5ParallelSelfAttention.transform(
                 model,
                 block.layer[1].EncDecAttention,
                 sequence_parallel_enabled=sequence_parallel_enabled,

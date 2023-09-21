@@ -185,7 +185,8 @@ class Parallelizer(ABC):
         io_sequence_parallelizer.sequence_parallelize(model)
 
         # 3. Applying model specific patching for sequence parallelism.
-        cls.patch_for_sequence_paralelism(model, sequence_parallel_enabled)
+        if sequence_parallel_enabled:
+            cls.patch_for_sequence_paralelism(model, sequence_parallel_enabled)
 
         model = cls._parallelize(
             model,
