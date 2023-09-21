@@ -7,6 +7,7 @@ from inspect import signature
 import torch
 import neuronx_distributed
 from neuronx_distributed import parallel_layers
+from neuronx_distributed.utils.model_utils import move_model_to_device
 import torch_xla.core.xla_model as xm
 
 from transformers import AutoConfig, AutoTokenizer, {model_class}
@@ -89,7 +90,7 @@ if is_parallel:
         parallelize_embeddings=parallelize_embeddings, 
         sequence_parallel_enabled=sequence_parallel_enabled,
     )
-    parallel_layers.move_model_to_device(model, "xla")
+    move_model_to_device(model, "xla")
     filename = "parallel.bin"
 else:
     model = model.to("xla")

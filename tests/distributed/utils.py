@@ -187,6 +187,6 @@ def gather_along_dim(input_: torch.Tensor, dim: int) -> torch.Tensor:
     elif dim in [-1, input_.dim() - 1]:
         return gather_along_last_dim(input_)
     else:
-        t = input_.transpose(0, dim)
+        t = input_.transpose(0, dim).contiguous()
         gathered_t = gather_along_first_dim(t)
         return gathered_t.transpose(0, dim).contiguous()

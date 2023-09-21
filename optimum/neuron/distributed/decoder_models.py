@@ -209,8 +209,8 @@ class LlamaParallelizer(Parallelizer):
     def patch_for_sequence_paralelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
         import math
 
-        import nn.functional as F
         import torch
+        import torch.nn.functional as F
         from torch import nn
 
         def attention_forward(
