@@ -296,7 +296,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
         self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
     ):
         self._test_model_parallel(
-            num_neuron_cores=2,
+            num_neuron_cores=8,
             tp_size=2,
             run_test_in_parallel=True,
             model_class_name=model_class_name,

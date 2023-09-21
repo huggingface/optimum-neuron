@@ -127,8 +127,8 @@ class Parallelizer(ABC):
     @classmethod
     def patch_for_sequence_paralelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
         """
-        This method needs to be overriden. It must patch anything model-specfic to make it compatible with sequence
-        parallelism.
+        This method needs to be overriden. It must patch anything model-specfic to make the model compatible with
+        sequence parallelism.
         """
         if sequence_parallel_enabled:
             raise NotImplementedError(

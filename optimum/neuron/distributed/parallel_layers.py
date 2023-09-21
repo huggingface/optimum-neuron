@@ -48,8 +48,6 @@ logger = logging.get_logger()
 # changes inputs inplace. This way the original input is not transformed and can be used in tests for comparison.
 _PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT: bool = False
 
-_shape_t = Union[int, List[int], torch.Size]
-
 
 class ParallelLayer(ABC):
     @classmethod

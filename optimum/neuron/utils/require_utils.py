@@ -52,14 +52,3 @@ requires_safetensors = _create_requires_function("safetensors")
 requires_torch_xla = _create_requires_function("torch_xla")
 requires_neuronx_distributed = _create_requires_function("neuronx_distributed")
 requires_torch_neuronx = _create_requires_function("torch_neuronx")
-
-
-class RequirementClass:
-    PACKAGE_NAME: str
-
-    def __init__(self, *args, **kwargs):
-        if not _AVAILIBILITIES[self.PACKAGE_NAME]():
-            raise ModuleNotFoundError(
-                f"{self.__class__} requires the `{self.PACKAGE_NAME} package. You can install it by running: pip "
-                f"install {self.PACKAGE_NAME}"
-            )

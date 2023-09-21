@@ -149,6 +149,4 @@ if is_parallel:
         gathered_model_outputs[gathered_output_name] = gathered_output
     model_outputs = gathered_model_outputs
 
-print(model_outputs.keys())
-
 xm.save(model_outputs, "{output_path}" + "/" + filename)
