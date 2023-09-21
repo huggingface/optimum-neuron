@@ -15,7 +15,7 @@
 """Override some diffusers API for NeuroStableDiffusionInpaintPipeline"""
 
 import logging
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union, TYPE_CHECKING
 
 import torch
 from diffusers import StableDiffusionInpaintPipeline
@@ -23,6 +23,10 @@ from diffusers.image_processor import PipelineImageInput, VaeImageProcessor
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
 
 from .pipeline_utils import StableDiffusionPipelineMixin
+
+
+if TYPE_CHECKING:
+    from diffusers.image_processor import PipelineImageInput
 
 
 logger = logging.getLogger(__name__)
@@ -41,10 +45,10 @@ class NeuronStableDiffusionInpaintPipelineMixin(StableDiffusionPipelineMixin, St
     # Adapted from https://github.com/huggingface/diffusers/blob/v0.21.2/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_inpaint.py#L699
     def __call__(
         self,
-        prompt: Union[str, List[str]] = None,
-        image: PipelineImageInput = None,
-        mask_image: PipelineImageInput = None,
-        masked_image_latents: torch.FloatTensor = None,
+        prompt: Optional[Union[str, List[str]]] = None,
+        image: Optional["PipelineImageInput"] = None,
+        mask_image: Optional["PipelineImageInput"] = None,
+        masked_image_latents: Optional[torch.FloatTensor] = None,
         strength: float = 1.0,
         num_inference_steps: int = 50,
         guidance_scale: float = 7.5,
@@ -68,14 +72,14 @@ class NeuronStableDiffusionInpaintPipelineMixin(StableDiffusionPipelineMixin, St
         Args:
             prompt (`Optional[Union[str, List[str]]]`, defaults to `None`):
                 The prompt or prompts to guide image generation. If not defined, you need to pass `prompt_embeds`.
-            image (`torch.FloatTensor`, `PIL.Image.Image`, `np.ndarray`, `List[torch.FloatTensor]`, `List[PIL.Image.Image]`, or `List[np.ndarray]`):
+            image (`Optional["PipelineImageInput"]`, defaults to `None`):
                 `Image`, numpy array or tensor representing an image batch to be inpainted (which parts of the image to
                 be masked out with `mask_image` and repainted according to `prompt`). For both numpy array and pytorch
                 tensor, the expected value range is between `[0, 1]` If it's a tensor or a list or tensors, the
                 expected shape should be `(B, C, H, W)` or `(C, H, W)`. If it is a numpy array or a list of arrays, the
                 expected shape should be `(B, H, W, C)` or `(H, W, C)` It can also accept image latents as `image`, but
                 if passing latents directly it is not encoded again.
-            mask_image (`torch.FloatTensor`, `PIL.Image.Image`, `np.ndarray`, `List[torch.FloatTensor]`, `List[PIL.Image.Image]`, or `List[np.ndarray]`):
+            mask_image (`Optional["PipelineImageInput"]`, defaults to `None`):
                 `Image`, numpy array or tensor representing an image batch to mask `image`. White pixels in the mask
                 are repainted while black pixels are preserved. If `mask_image` is a PIL image, it is converted to a
                 single channel (luminance) before use. If it's a numpy array or pytorch tensor, it should contain one
@@ -171,17 +175,17 @@ class NeuronStableDiffusionInpaintPipelineMixin(StableDiffusionPipelineMixin, St
                 second element is a list of `bool`s indicating whether the corresponding generated image contains
                 "not-safe-for-work" (nsfw) content.
         """
-        # 0. Height and width to unet (static shapes)
-        height = self.unet.config.neuron["static_height"] * self.vae_scale_factor
-        width = self.unet.config.neuron["static_width"] * self.vae_scale_factor
-
-        # 1. Check inputs. Raise error if not correct
+        # -1. Check `num_images_per_prompt`
         if self.num_images_per_prompt != num_images_per_prompt and not self.dynamic_batch_size:
             logger.warning(
                 f"Overriding `num_images_per_prompt({num_images_per_prompt})` to {self.num_images_per_prompt} used for the compilation. Please recompile the models with your "
                 f"custom `num_images_per_prompt` or turn on `dynamic_batch_size`, if you wish generating {num_images_per_prompt} per prompt."
             )
             num_images_per_prompt = self.num_images_per_prompt
+        
+        # 0. Height and width to unet (static shapes)
+        height = self.unet.config.neuron["static_height"] * self.vae_scale_factor
+        width = self.unet.config.neuron["static_width"] * self.vae_scale_factor
 
         # 1. Check inputs
         self.check_inputs(

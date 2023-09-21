@@ -145,17 +145,19 @@ class NeuronStableDiffusionPipelineMixin(StableDiffusionPipelineMixin, StableDif
                 second element is a list of `bool`s indicating whether the corresponding generated image contains
                 "not-safe-for-work" (nsfw) content.
         """
-        # 0. Height and width to unet (static shapes)
-        height = self.unet.config.neuron["static_height"] * self.vae_scale_factor
-        width = self.unet.config.neuron["static_width"] * self.vae_scale_factor
-
-        # 1. Check inputs. Raise error if not correct
+        # -1. Check `num_images_per_prompt`
         if self.num_images_per_prompt != num_images_per_prompt and not self.dynamic_batch_size:
             logger.warning(
                 f"Overriding `num_images_per_prompt({num_images_per_prompt})` to {self.num_images_per_prompt} used for the compilation. Please recompile the models with your "
                 f"custom `num_images_per_prompt` or turn on `dynamic_batch_size`, if you wish generating {num_images_per_prompt} per prompt."
             )
             num_images_per_prompt = self.num_images_per_prompt
+        
+        # 0. Height and width to unet (static shapes)
+        height = self.unet.config.neuron["static_height"] * self.vae_scale_factor
+        width = self.unet.config.neuron["static_width"] * self.vae_scale_factor
+
+        # 1. Check inputs. Raise error if not correct
         self.check_inputs(
             prompt, height, width, callback_steps, negative_prompt, prompt_embeds, negative_prompt_embeds
         )

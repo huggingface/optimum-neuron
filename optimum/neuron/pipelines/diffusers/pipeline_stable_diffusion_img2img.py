@@ -15,7 +15,7 @@
 """Override some diffusers API for NeuroStableDiffusionImg2ImgPipeline"""
 
 import logging
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union, TYPE_CHECKING
 
 import numpy as np
 import PIL
@@ -26,6 +26,9 @@ from diffusers.utils import deprecate
 from diffusers.utils.torch_utils import randn_tensor
 
 from .pipeline_utils import StableDiffusionPipelineMixin
+
+if TYPE_CHECKING:
+    from diffusers.image_processor import PipelineImageInput
 
 
 logger = logging.getLogger(__name__)
@@ -80,14 +83,7 @@ class NeuronStableDiffusionImg2ImgPipelineMixin(StableDiffusionPipelineMixin, St
     def __call__(
         self,
         prompt: Optional[Union[str, List[str]]] = None,
-        image: Union[
-            torch.FloatTensor,
-            PIL.Image.Image,
-            np.ndarray,
-            List[torch.FloatTensor],
-            List[PIL.Image.Image],
-            List[np.ndarray],
-        ] = None,
+        image: Optional["PipelineImageInput"] = None,
         strength: float = 0.8,
         num_inference_steps: int = 50,
         guidance_scale: float = 7.5,
@@ -109,7 +105,7 @@ class NeuronStableDiffusionImg2ImgPipelineMixin(StableDiffusionPipelineMixin, St
         Args:
             prompt (`Optional[Union[str, List[str]]]`, defaults to `None`):
                 The prompt or prompts to guide image generation. If not defined, you need to pass `prompt_embeds`.
-            image (`torch.FloatTensor`, `PIL.Image.Image`, `np.ndarray`, `List[torch.FloatTensor]`, `List[PIL.Image.Image]`, or `List[np.ndarray]`):
+            image (`Optional["PipelineImageInput"]`, defaults to `None`):
                 `Image`, numpy array or tensor representing an image batch to be used as the starting point. For both
                 numpy array and pytorch tensor, the expected value range is between `[0, 1]` If it's a tensor or a list
                 or tensors, the expected shape should be `(B, C, H, W)` or `(C, H, W)`. If it is a numpy array or a
@@ -194,13 +190,15 @@ class NeuronStableDiffusionImg2ImgPipelineMixin(StableDiffusionPipelineMixin, St
                 second element is a list of `bool`s indicating whether the corresponding generated image contains
                 "not-safe-for-work" (nsfw) content.
         """
-        # 1. Check inputs. Raise error if not correct
+        # 0. Check `num_images_per_prompt`
         if self.num_images_per_prompt != num_images_per_prompt and not self.dynamic_batch_size:
             logger.warning(
                 f"Overriding `num_images_per_prompt({num_images_per_prompt})` to {self.num_images_per_prompt} used for the compilation. Please recompile the models with your "
                 f"custom `num_images_per_prompt` or turn on `dynamic_batch_size`, if you wish generating {num_images_per_prompt} image per prompt."
             )
             num_images_per_prompt = self.num_images_per_prompt
+            
+        # 1. Check inputs. Raise error if not correct
         self.check_inputs(prompt, strength, callback_steps, negative_prompt, prompt_embeds, negative_prompt_embeds)
 
         # 2. Define call parameters
