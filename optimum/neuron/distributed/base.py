@@ -207,11 +207,6 @@ class Parallelizer(ABC):
                 # This module has not pre-trained weights, it must be fine-tuned, we initialize it with the
                 # `reset_parameters()` method.
                 mod.reset_parameters()
-            for name, mod in model.named_parameters():
-                if name in weight_map:
-                    weight_info = WeightInformation(weight_map[name], name, device=device)
-                    tensor = load_tensor_for_weight(weight_info)
-                    print(mod, tensor)
         return model
 
     @classmethod
