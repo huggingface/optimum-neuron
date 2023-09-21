@@ -53,6 +53,9 @@ for overwrite_info in config_overwrite:
     attr_type = type(getattr(config, attr_name))
     setattr(config, attr_name, attr_type(attr_value))
 
+if getattr(config, "problem_type", None) is None:
+    config.problem_type = "single_label_classification"
+
 if xm.get_ordinal() == 0:
   print(config)
 
