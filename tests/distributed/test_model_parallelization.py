@@ -277,6 +277,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
                 except AssertionError as e:
                     regular_parallel_outputs_error_msg = str(e)
                 if regular_parallel_outputs_error_msg is not None:
+                    print("Regular output did not match, testing with the gathered output...")
                     try:
                         self._check_output(name, t, parallel_model_outputs[f"gathered_{name}"])
                     except AssertionError as e:

@@ -27,11 +27,25 @@ from .parallel_layers import (
     ParallelSelfOutput,
     SequenceCollectiveOpInfo,
 )
-from .utils import create_sequence_parallel_attention_forward
 
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
+
+
+def create_sequence_parallel_attention_forward(attention_forward, sequence_parallel_enabled: bool):
+    import functools
+
+    @functools.wraps(attention_forward)
+    def sequence_parallel_attention_forward(self, *args, **kwargs):
+        outputs = attention_forward(*args, **kwargs)
+        context_layer = outputs[0]
+        if sequence_parallel_enabled:
+            # [B, S, hidden_dim] -> [S, B, hidden_dim]
+            context_layer = context_layer.transpose(0, 1)
+        return (context_layer,) + outputs[1:]
+
+    return sequence_parallel_attention_forward
 
 
 class BertParallelEmbedding(ParallelEmbedding):
@@ -83,8 +97,8 @@ class BertParallelizer(Parallelizer):
         "bert.encoder.layer.[0-9]+.output.LayerNorm",
     ]
     SEQUENCE_COLLECTIVE_OPS_INFOS = [
-        SequenceCollectiveOpInfo("scatter", torch.nn.LayerNorm, "before", "first"),
-        SequenceCollectiveOpInfo("gather", torch.nn.LayerNorm, "after", "last"),
+        SequenceCollectiveOpInfo("scatter", torch.nn.LayerNorm, "input", "first"),
+        SequenceCollectiveOpInfo("gather", torch.nn.LayerNorm, "output", "last"),
     ]
 
     @classmethod
@@ -102,7 +116,9 @@ class BertParallelizer(Parallelizer):
         for module in model.modules():
             if isinstance(module, BertSelfAttention):
                 module.transpose_for_scores = transpose_for_scores.__get__(module)
-                module.forward = create_sequence_parallel_attention_forward(module.forward, sequence_parallel_enabled)
+                module.forward = create_sequence_parallel_attention_forward(
+                    module.forward, sequence_parallel_enabled
+                ).__get__(module)
 
     @classmethod
     def _parallelize(
@@ -168,8 +184,8 @@ class RobertaParallelizer(Parallelizer):
         "roberta.encoder.layer.[0-9]+.output.LayerNorm",
     ]
     SEQUENCE_COLLECTIVE_OPS_INFOS = [
-        SequenceCollectiveOpInfo("scatter", torch.nn.LayerNorm, "before", "first"),
-        SequenceCollectiveOpInfo("gather", torch.nn.LayerNorm, "after", "last"),
+        SequenceCollectiveOpInfo("scatter", torch.nn.LayerNorm, "input", "first"),
+        SequenceCollectiveOpInfo("gather", torch.nn.LayerNorm, "output", "last"),
     ]
 
     @classmethod
@@ -187,7 +203,9 @@ class RobertaParallelizer(Parallelizer):
         for module in model.modules():
             if isinstance(module, RobertaSelfAttention):
                 module.transpose_for_scores = transpose_for_scores.__get__(module)
-                module.forward = create_sequence_parallel_attention_forward(module.forward, sequence_parallel_enabled)
+                module.forward = create_sequence_parallel_attention_forward(
+                    module.forward, sequence_parallel_enabled
+                ).__get__(module)
 
     @classmethod
     def _parallelize(

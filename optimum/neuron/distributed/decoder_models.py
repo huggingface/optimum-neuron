@@ -70,8 +70,8 @@ class GPTNeoParallelizer(Parallelizer):
         "transformer.ln_f",
     ]
     SEQUENCE_COLLECTIVE_OPS_INFOS = [
-        SequenceCollectiveOpInfo("scatter", GPTNeoBlock, "before", "first"),
-        SequenceCollectiveOpInfo("gather", torch.nn.LayerNorm, "after", "last"),
+        SequenceCollectiveOpInfo("scatter", GPTNeoBlock, "input", "first"),
+        SequenceCollectiveOpInfo("gather", torch.nn.LayerNorm, "output", "last"),
     ]
 
     @classmethod
@@ -201,8 +201,8 @@ class LlamaParallelizer(Parallelizer):
     ]
     LAYERNORM_TYPE = LayerNormType.RMS_NORM
     SEQUENCE_COLLECTIVE_OPS_INFOS = [
-        SequenceCollectiveOpInfo("scatter", LlamaDecoderLayer, "before", "first"),
-        SequenceCollectiveOpInfo("gather", LlamaRMSNorm, "after", "last"),
+        SequenceCollectiveOpInfo("scatter", LlamaDecoderLayer, "input", "first"),
+        SequenceCollectiveOpInfo("gather", LlamaRMSNorm, "output", "last"),
     ]
 
     @classmethod

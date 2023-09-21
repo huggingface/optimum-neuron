@@ -164,8 +164,8 @@ class T5Parallelizer(Parallelizer):
 
     LAYERNORM_TYPE = LayerNormType.RMS_NORM
     SEQUENCE_COLLECTIVE_OPS_INFOS = [
-        SequenceCollectiveOpInfo("scatter", torch.nn.Embedding, "after", "first"),
-        SequenceCollectiveOpInfo("gather", T5LayerNorm, "after", "last"),
+        SequenceCollectiveOpInfo("scatter", torch.nn.Embedding, "output", "first"),
+        SequenceCollectiveOpInfo("gather", T5LayerNorm, "output", "last"),
     ]
 
     @classmethod

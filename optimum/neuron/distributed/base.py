@@ -20,7 +20,7 @@ from abc import ABC, abstractclassmethod
 from dataclasses import asdict
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple, Type, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple, Union
 
 import torch
 from transformers.utils import WEIGHTS_NAME
@@ -126,6 +126,10 @@ class Parallelizer(ABC):
 
     @classmethod
     def patch_for_sequence_paralelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
+        """
+        This method needs to be overriden. It must patch anything model-specfic to make it compatible with sequence
+        parallelism.
+        """
         if sequence_parallel_enabled:
             raise NotImplementedError(
                 f"No patching for the attention mechansim for sequence parallelism was implemented for {model.__class__}"
