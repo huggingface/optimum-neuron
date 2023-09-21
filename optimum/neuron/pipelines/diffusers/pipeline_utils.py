@@ -21,7 +21,7 @@ from diffusers.loaders import LoraLoaderMixin, TextualInversionLoaderMixin
 logger = logging.getLogger(__name__)
 
 
-class NeuronDiffusionBasePipelineMixin:
+class DiffusionBasePipelineMixin:
     def check_num_images_per_prompt(self, prompt_batch_size: int, neuron_batch_size: int, num_images_per_prompt: int):
         if not self.dynamic_batch_size and neuron_batch_size != prompt_batch_size * num_images_per_prompt:
             raise ValueError(
@@ -46,7 +46,7 @@ class NeuronDiffusionBasePipelineMixin:
         return image, has_nsfw_concept
 
 
-class NeuronStableDiffusionPipelineMixin(NeuronDiffusionBasePipelineMixin):
+class StableDiffusionPipelineMixin(DiffusionBasePipelineMixin):
     # Adapted from https://github.com/huggingface/diffusers/blob/v0.18.2/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L302
     def encode_prompt(
         self,
@@ -174,7 +174,7 @@ class NeuronStableDiffusionPipelineMixin(NeuronDiffusionBasePipelineMixin):
         return prompt_embeds, negative_prompt_embeds
 
 
-class NeuronStableDiffusionXLPipelineMixin(NeuronDiffusionBasePipelineMixin):
+class StableDiffusionXLPipelineMixin(DiffusionBasePipelineMixin):
     # Adapted from https://github.com/huggingface/diffusers/blob/v0.20.2/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py#L219
     def encode_prompt(
         self,

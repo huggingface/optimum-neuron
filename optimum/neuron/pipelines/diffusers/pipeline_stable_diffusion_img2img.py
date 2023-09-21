@@ -25,13 +25,13 @@ from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
 from diffusers.utils import deprecate
 from diffusers.utils.torch_utils import randn_tensor
 
-from .pipeline_utils import NeuronStableDiffusionPipelineMixin
+from .pipeline_utils import StableDiffusionPipelineMixin
 
 
 logger = logging.getLogger(__name__)
 
 
-class NeuronStableDiffusionImg2ImgPipelineMixin(NeuronStableDiffusionPipelineMixin, StableDiffusionImg2ImgPipeline):
+class NeuronStableDiffusionImg2ImgPipelineMixin(StableDiffusionPipelineMixin, StableDiffusionImg2ImgPipeline):
     # Adapted from diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_img2img.prepare_latents
     def prepare_latents(self, image, timestep, batch_size, num_images_per_prompt, dtype, generator=None):
         if not isinstance(image, (torch.Tensor, PIL.Image.Image, list)):

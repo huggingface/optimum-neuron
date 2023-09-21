@@ -21,13 +21,13 @@ from diffusers.pipelines.stable_diffusion_xl import StableDiffusionXLPipelineOut
 from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl import rescale_noise_cfg
 from diffusers.utils.torch_utils import randn_tensor
 
-from .pipeline_utils import NeuronStableDiffusionXLPipelineMixin
+from .pipeline_utils import StableDiffusionXLPipelineMixin
 
 
 logger = logging.getLogger(__name__)
 
 
-class NeuronStableDiffusionXLPipelineMixin(NeuronStableDiffusionXLPipelineMixin, StableDiffusionXLPipeline):
+class NeuronStableDiffusionXLPipelineMixin(StableDiffusionXLPipelineMixin, StableDiffusionXLPipeline):
     # Adapted from https://github.com/huggingface/diffusers/blob/v0.20.2/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py#L502
     def prepare_latents(self, batch_size, num_channels_latents, height, width, dtype, generator, latents=None):
         shape = (batch_size, num_channels_latents, height // self.vae_scale_factor, width // self.vae_scale_factor)
