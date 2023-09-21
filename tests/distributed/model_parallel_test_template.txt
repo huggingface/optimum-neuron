@@ -15,7 +15,7 @@ from transformers.trainer_utils import set_seed
 import optimum
 from optimum.neuron.distributed import ParallelizersManager, lazy_load_for_parallelism
 
-from utils import gather_along_last_dim, generate_dummy_labels
+from utils import gather_along_dim, generate_dummy_labels
 
 
 if os.environ.get("TORCHELASTIC_RUN_ID"):
@@ -115,13 +115,38 @@ if computing_loss_is_supported:
 model_outputs = model(**xla_inputs, return_dict=True)
 xm.mark_step()
 
+axis_to_gather = dict()
+axis_to_gather["default"] = -1
+axis_to_gather["past_key_values"] = 1
+
+def gather_output(output, gather_dim):
+    if isinstance(output, (tuple, list, set)):
+        output_type = type(output)
+        gathered_output = []
+        for t in output:
+            gathered_output.append(gather_output(t, gather_dim))
+        result = output_type(gathered_output)
+    else:
+        result = gather_along_dim(output, gather_dim)
+    return result
+      
 if is_parallel and parallelize_embeddings:
-    gathered_model_outputs =  dict()
+    # gathered_model_outputs =  dict()
     for name, output in model_outputs.items():
-        if name == "loss" or output is None or not isinstance(output, torch.Tensor) or output.shape[-1] != (vocab_size // {tp_size}):
-            gathered_model_outputs[name] = output
+        gathered_model_outputs[name] = output
+        if name == "loss" or output is None: # or not isinstance(output, torch.Tensor) or output.shape[-1] != (vocab_size // {tp_size}):
+            gathered_output = output
         else:
-            gathered_model_outputs[name] = gather_along_last_dim(output)
+            gathered_output = gather_output(output, axis_to_gather.get(name, axis_to_gather["default"]))
+        gathered_output_name = "gathered_" + name
+        gathered_model_outputs[gathered_output_name] = gathered_output
+        # elif isinstance(output, (tuple, list, set)):
+        #     output_type = type(output)
+        #     gathered_output = []
+        #     for t in output:
+        #         
+        # else:
+        #     gathered_model_outputs[name] = gather_along_last_dim(output)
     model_outputs = gathered_model_outputs
 
 xm.save(model_outputs, "{output_path}" + "/" + filename)

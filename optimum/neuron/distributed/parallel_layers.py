@@ -793,18 +793,18 @@ if is_neuronx_distributed_available():
                 if sequence_collective_op_info.position == "before":
                     @functools.wraps(orig_scatter_layer_forward)
                     def sequence_parallel_forward(*args, **kwargs):
-                        hidden_states = args[1]
-                        hidden_states = hidden_states.transpose(0, 1).contiguous()
-                        hidden_states = scatter_to_sequence_parallel_region(hidden_states)
-                        return orig_scatter_layer_forward(hidden_states, *args[2:], **kwargs)
+                        to_scatter = args[1]
+                        to_scatter = to_scatter.transpose(0, 1).contiguous()
+                        scattered = scatter_to_sequence_parallel_region(to_scatter)
+                        return orig_scatter_layer_forward(scattered, *args[2:], **kwargs)
                 else:
                     @functools.wraps(orig_scatter_layer_forward)
                     def sequence_parallel_forward(*args, **kwargs):
                         output = orig_scatter_layer_forward(*args[1:], **kwargs)
-                        hidden_states = output if isinstance(output, torch.Tensor) else output[0]
-                        hidden_states = hidden_states.transpose(0, 1).contiguous()
-                        hidden_states = scatter_to_sequence_parallel_region(hidden_states)
-                        return hidden_states if isinstance(output, torch.Tensor) else (hidden_states,) + output[1:]
+                        to_scatter = output if isinstance(output, torch.Tensor) else output[0]
+                        to_scatter = to_scatter.transpose(0, 1).contiguous()
+                        scattered = scatter_to_sequence_parallel_region(to_scatter)
+                        return scattered if isinstance(output, torch.Tensor) else (scattered,) + output[1:]
 
                 scatter_layer.forward = sequence_parallel_forward.__get__(scatter_layer)
 
@@ -820,16 +820,17 @@ if is_neuronx_distributed_available():
                     @functools.wraps(orig_gather_layer_forward)
                     def sequence_parallel_forward(*args, **kwargs):
                         output = orig_gather_layer_forward(*args[1:], **kwargs)
-                        output = gather_from_sequence_parallel_region(output, to_model_parallel=False)
-                        output = output.transpose(0, 1).contiguous()
-                        return output
+                        to_gather = output if isinstance(output, torch.Tensor) else output[0]
+                        gathered = gather_from_sequence_parallel_region(to_gather, to_model_parallel=False)
+                        gathered = gathered.transpose(0, 1).contiguous()
+                        return gathered if isinstance(output, torch.Tensor) else (gathered,) + output[1:]
                 else:
                     @functools.wraps(orig_gather_layer_forward)
                     def sequence_parallel_forward(*args, **kwargs):
-                        hidden_states = args[1]
-                        hidden_states = gather_from_sequence_parallel_region(hidden_states, to_model_parallel=False)
-                        hidden_states = hidden_states.transpose(0, 1).contiguous()
-                        output = orig_gather_layer_forward(hidden_states, *args[2:], **kwargs)
+                        to_gather = args[1]
+                        gathered = gather_from_sequence_parallel_region(to_gather, to_model_parallel=False)
+                        gathered = gathered.transpose(0, 1).contiguous()
+                        output = orig_gather_layer_forward(gathered, *args[2:], **kwargs)
                         return output
 
 

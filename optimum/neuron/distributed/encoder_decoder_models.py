@@ -157,13 +157,9 @@ class T5Parallelizer(Parallelizer):
 
     LAYERNORM_TYPE = LayerNormType.RMS_NORM
     SEQUENCE_COLLECTIVE_OPS_INFOS = [
-        SequenceCollectiveOpInfo(torch.nn.Embedding, "first", "
-
+        SequenceCollectiveOpInfo("scatter", torch.nn.Embedding, "after", "first"),
+        SequenceCollectiveOpInfo("gather", T5LayerNorm, "after", "last"),
     ]
-    # SCATTER_SEQUENCE_AT_FIRST_LAYER_OF_TYPE = torch.nn.Embedding
-    # # Scattering needs to happen before the embeddings computations.
-    # SCATTER_BEFORE_FIRST_LAYER = False 
-    # GATHER_SEQUENCE_AT_LAST_LAYER_OF_TYPE = T5LayerNorm 
 
     @classmethod
     def patch_for_sequence_paralelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
@@ -181,6 +177,7 @@ class T5Parallelizer(Parallelizer):
             use_cache=False,
             output_attentions=False,
         ):
+            # Without sequence parallelism:
             # Input is (batch_size, seq_length, dim)
             # Mask is (batch_size, key_length) (non-causal) or (batch_size, key_length, key_length)
             # past_key_value[0] is (batch_size, n_heads, q_len - 1, dim_per_head)
@@ -188,7 +185,6 @@ class T5Parallelizer(Parallelizer):
                 batch_size = hidden_states.shape[1]
             else:
                 batch_size = hidden_states.shape[0]
-
 
             def shape(states):
                 """projection"""
@@ -252,10 +248,6 @@ class T5Parallelizer(Parallelizer):
                     )
                 real_seq_length += past_key_value[0].shape[2] if query_length is None else query_length
 
-            # if sequence_parallel_enabled:
-            #     key_length = real_seq_length if key_value_states is None else key_value_states.shape[0]
-            # else:
-            print("Key value states shape", key_value_states.shape if key_value_states is not None  else None, key_states.shape)
             key_length = real_seq_length if key_value_states is None else key_value_states.shape[1]
 
             # compute scores
@@ -279,7 +271,6 @@ class T5Parallelizer(Parallelizer):
                     position_bias = position_bias[:, :, -hidden_states.size(1) :, :]
 
                 if mask is not None:
-                    print(position_bias.shape, mask.shape)
                     position_bias = position_bias + mask  # (batch_size, n_heads, seq_length, key_length)
 
             if self.pruned_heads:
@@ -350,6 +341,12 @@ class T5Parallelizer(Parallelizer):
             block.layer[0].SelfAttention = T5ParallelSelfAttention.transform(
                 model,
                 block.layer[0].SelfAttention,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                device=device,
+            )
+            block.layer[0].SelfAttention = T5ParallelSelfAttention.transform(
+                model,
+                block.layer[1].EncDecAttention,
                 sequence_parallel_enabled=sequence_parallel_enabled,
                 device=device,
             )

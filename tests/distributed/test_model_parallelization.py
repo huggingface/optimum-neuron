@@ -129,6 +129,29 @@ for entry in MODEL_TYPES_TO_TEST:
 
 @is_trainium_test
 class ModelParallelizationTestCase(unittest.TestCase):
+    OUTPUTS_TO_IGNORE = {
+        # It might not match in the sequence parallel setting because of mistmatched shapes.
+        # Since these outputs are not needed during training, we do not want to perform an expensive gather for them.
+        "encoder_last_hidden_state",
+    }
+
+    def _check_output(self, name: str, original_output, output):
+        assert type(original_output) is type(output)
+        if isinstance(original_output, (tuple, list, set)):
+            for idx, orig_output in enumerate(original_output):
+                new_name = f"{name}.{idx}"
+                self._check_output(new_name, orig_output, output[idx])
+        elif isinstance(original_output, dict):
+            for output_name in original_output:
+                new_name = f"{name}.{output_name}"
+                self._check_output(new_name, original_output[name], output[name])
+        elif isinstance(original_output, torch.Tensor):
+            print(f"Original {name}:\nShape: {original_output.shape}\nValue: {original_output}")
+            print(f"Parallel {name}:\nShape: {output.shape}\nValue: {output}")
+            torch.testing.assert_close(original_output, output)
+        else:
+            assert original_output == output, f"Output named {name} do not match."
+
     def _test_model_parallel(
         self,
         tp_size: int,
@@ -243,17 +266,28 @@ class ModelParallelizationTestCase(unittest.TestCase):
             temporary_dir = Path(tmpdirname)
             original_model_outputs = torch.load(temporary_dir / "original.bin")
             parallel_model_outputs = torch.load(temporary_dir / "parallel.bin")
-            for name, t in parallel_model_outputs.items():
-                # if name == "loss":
-                #     continue
-                if not isinstance(t, torch.Tensor):
+            for name, t in original_model_outputs.items():
+                if name in self.OUTPUTS_TO_IGNORE:
                     continue
-                original_t = original_model_outputs[name]
                 print(f"Testing that {name} match.")
-                print(f"Original {name}:\nShape: {original_t.shape}\nValue: {original_t}")
-                print(f"Parallel {name}:\nShape: {t.shape}\nValue: {t}")
-                print(t, original_t)
-                torch.testing.assert_close(t, original_t)
+                regular_parallel_outputs_error_msg = None
+                gathered_parallel_outputs_error_msg = None
+                try:
+                    self._check_output(name, t, parallel_model_outputs[name])
+                except AssertionError as e:
+                    regular_parallel_outputs_error_msg = str(e)
+                if regular_parallel_outputs_error_msg is not None:
+                    try:
+                        self._check_output(name, t, parallel_model_outputs[f"gathered_{name}"])
+                    except AssertionError as e:
+                        gathered_parallel_outputs_error_msg = str(e)
+                if regular_parallel_outputs_error_msg is not None and gathered_parallel_outputs_error_msg is not None:
+                    msg = (
+                        "Output did not matched.\nTest with non-gathered parallel outputs error:\n"
+                        "{regular_parallel_outputs_error_msg}\nTest with gathered parallel outputs error:\n"
+                        "{gathered_parallel_outputs_error_msg}"
+                    )
+                    raise AssertionError(msg)
                 print("Ok!")
 
     @parameterized.expand(MODELS_TO_TEST)

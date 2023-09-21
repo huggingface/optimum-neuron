@@ -158,3 +158,35 @@ def gather_along_last_dim(input_: torch.Tensor) -> torch.Tensor:
     xm.mark_step()
 
     return output
+
+
+@requires_torch_xla
+@requires_neuronx_distributed
+def gather_along_first_dim(input_: torch.Tensor) -> torch.Tensor:
+    import torch_xla.core.xla_model as xm
+    from neuronx_distributed.parallel_layers.parallel_state import (
+        get_tensor_model_parallel_group,
+        get_tensor_model_parallel_size,
+    )
+
+    world_size = get_tensor_model_parallel_size()
+    # Bypass the function if we are using only 1 GPU.
+    if world_size == 1:
+        return input_
+
+    output = xm.all_gather(input_, groups=get_tensor_model_parallel_group(as_list=True), pin_layout=False)
+
+    return output
+
+
+@requires_torch_xla
+@requires_neuronx_distributed
+def gather_along_dim(input_: torch.Tensor, dim: int) -> torch.Tensor:
+    if dim == 0:
+        return gather_along_first_dim(input_)
+    elif dim in [-1, input_.dim() - 1]:
+        return gather_along_last_dim(input_)
+    else:
+        t = input_.transpose(0, dim)
+        gathered_t = gather_along_first_dim(t)
+        return gathered_t.transpose(0, dim)
