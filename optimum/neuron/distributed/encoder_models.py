@@ -98,7 +98,7 @@ class BertParallelizer(Parallelizer):
     ]
     SEQUENCE_COLLECTIVE_OPS_INFOS = [
         SequenceCollectiveOpInfo("scatter", torch.nn.LayerNorm, "input", "first"),
-        SequenceCollectiveOpInfo("gather", torch.nn.LayerNorm, "output", "last"),
+        SequenceCollectiveOpInfo("gather", "bert.encoder.layer.[0-9]+.output.LayerNorm", "output", "last"),
     ]
 
     @classmethod
@@ -188,7 +188,7 @@ class RobertaParallelizer(Parallelizer):
     ]
     SEQUENCE_COLLECTIVE_OPS_INFOS = [
         SequenceCollectiveOpInfo("scatter", torch.nn.LayerNorm, "input", "first"),
-        SequenceCollectiveOpInfo("gather", torch.nn.LayerNorm, "output", "last"),
+        SequenceCollectiveOpInfo("gather", "roberta.encoder.layer.[0-9]+.output.LayerNorm", "output", "last"),
     ]
 
     @classmethod

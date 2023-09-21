@@ -63,11 +63,11 @@ preprocessor = AutoTokenizer.from_pretrained("{model_name_or_path}")
 
 inputs = preprocessor("This is a test to check that TP is working.", return_tensors="pt")
 
-if sequence_parallel_enabled and hasattr(preprocessor, "pad_token_id"):
+if sequence_parallel_enabled:
     for name, tensor in inputs.items():
         if tensor.shape[1] % {tp_size} != 0:
             tensor = torch.nn.functional.pad(
-              tensor, pad=(0, tensor.shape[1] % {tp_size}), value=preprocessor.pad_token_id
+              tensor, pad=(0, tensor.shape[1] % {tp_size}), value=1,
             )
             inputs[name] = tensor
 
