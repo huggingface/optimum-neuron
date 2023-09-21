@@ -71,10 +71,6 @@ class Parallelizer(ABC):
 
     SEQUENCE_PARALLEL_LAYERNORM_PATTERNS: Optional[List[str]] = None
     LAYERNORM_TYPE: LayerNormType = LayerNormType.REGULAR
-    SCATTER_SEQUENCE_AT_FIRST_LAYER_OF_TYPE: Optional[Type["torch.nn.Module"]] = None
-    SCATTER_BEFORE_FIRST_LAYER: bool = True
-    GATHER_SEQUENCE_AT_LAST_LAYER_OF_TYPE: Optional[Type["torch.nn.Module"]] = None
-    GATHER_AFTER_LAST_LAYER: bool = True
     SEQUENCE_COLLECTIVE_OPS_INFOS: Optional[List[SequenceCollectiveOpInfo]] = None
 
     def __init__(self):
