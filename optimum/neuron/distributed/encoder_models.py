@@ -20,7 +20,13 @@ import torch
 
 from ..utils.require_utils import requires_neuronx_distributed
 from .base import Parallelizer
-from .parallel_layers import ParallelCrossEntropy, ParallelEmbedding, ParallelSelfAttention, ParallelSelfOutput
+from .parallel_layers import (
+    ParallelCrossEntropy,
+    ParallelEmbedding,
+    ParallelSelfAttention,
+    ParallelSelfOutput,
+    SequenceCollectiveOpInfo,
+)
 from .utils import create_sequence_parallel_attention_forward
 
 
@@ -76,8 +82,10 @@ class BertParallelizer(Parallelizer):
         "bert.encoder.layer.[0-9]+.attention.output.LayerNorm",
         "bert.encoder.layer.[0-9]+.output.LayerNorm",
     ]
-    SCATTER_SEQUENCE_AT_FIRST_LAYER_OF_TYPE = torch.nn.LayerNorm
-    GATHER_SEQUENCE_AT_LAST_LAYER_OF_TYPE = torch.nn.LayerNorm
+    SEQUENCE_COLLECTIVE_OPS_INFOS = [
+        SequenceCollectiveOpInfo("scatter", torch.nn.LayerNorm, "before", "first"),
+        SequenceCollectiveOpInfo("gather", torch.nn.LayerNorm, "after", "last"),
+    ]
 
     @classmethod
     def patch_for_sequence_paralelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
@@ -159,8 +167,10 @@ class RobertaParallelizer(Parallelizer):
         "roberta.encoder.layer.[0-9]+.attention.output.LayerNorm",
         "roberta.encoder.layer.[0-9]+.output.LayerNorm",
     ]
-    SCATTER_SEQUENCE_AT_FIRST_LAYER_OF_TYPE = torch.nn.LayerNorm
-    GATHER_SEQUENCE_AT_LAST_LAYER_OF_TYPE = torch.nn.LayerNorm
+    SEQUENCE_COLLECTIVE_OPS_INFOS = [
+        SequenceCollectiveOpInfo("scatter", torch.nn.LayerNorm, "before", "first"),
+        SequenceCollectiveOpInfo("gather", torch.nn.LayerNorm, "after", "last"),
+    ]
 
     @classmethod
     def patch_for_sequence_paralelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):

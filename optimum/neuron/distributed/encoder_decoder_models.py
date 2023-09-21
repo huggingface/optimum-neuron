@@ -14,14 +14,21 @@
 # limitations under the License.
 """Classes related to `neuronx-distributed` to perform parallelism."""
 
-from typing import TYPE_CHECKING, Dict, Optional
+from typing import TYPE_CHECKING, Optional
 
 import torch
-from transformers.models.t5.modeling_t5 import T5ForSequenceClassification, T5Attention, T5LayerNorm
+from transformers.models.t5.modeling_t5 import T5Attention, T5ForSequenceClassification, T5LayerNorm
 
 from ...utils import NormalizedConfigManager
 from .base import Parallelizer
-from .parallel_layers import LayerNormType, ParallelCrossEntropy, ParallelEmbedding, ParallelMLP, ParallelSelfAttention, SequenceCollectiveOpInfo
+from .parallel_layers import (
+    LayerNormType,
+    ParallelCrossEntropy,
+    ParallelEmbedding,
+    ParallelMLP,
+    ParallelSelfAttention,
+    SequenceCollectiveOpInfo,
+)
 from .utils import linear_to_parallel_linear
 
 
@@ -306,7 +313,6 @@ class T5Parallelizer(Parallelizer):
             if isinstance(module, T5Attention):
                 module.forward = sequence_parallel_forward.__get__(module)
 
-
     @classmethod
     def _parallelize(
         cls,
@@ -351,8 +357,13 @@ class T5Parallelizer(Parallelizer):
                 device=device,
             )
             block.layer[2].DenseReluDense = T5ParallelMLP.transform(
-                model, block.layer[2].DenseReluDense, sequence_parallel_enabled=sequence_parallel_enabled, device=device
-                )
+                model,
+                block.layer[2].DenseReluDense,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                device=device,
+            )
         if parallelize_embeddings:
-            model = T5ParallelCrossEntropy.transform(model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device)
+            model = T5ParallelCrossEntropy.transform(
+                model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+            )
         return model

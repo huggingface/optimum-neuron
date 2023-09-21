@@ -27,7 +27,12 @@ from transformers.utils import WEIGHTS_NAME
 
 from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
-from .parallel_layers import IOSequenceParallelizer, LayerNormSequenceParallelizer, LayerNormType, SequenceCollectiveOpInfo
+from .parallel_layers import (
+    IOSequenceParallelizer,
+    LayerNormSequenceParallelizer,
+    LayerNormType,
+    SequenceCollectiveOpInfo,
+)
 from .utils import TENSOR_PARALLEL_SHARDS_DIR_NAME, ParameterMetadata, WeightInformation, load_tensor_for_weight
 
 
@@ -176,10 +181,6 @@ class Parallelizer(ABC):
         io_sequence_parallelizer = IOSequenceParallelizer(
             sequence_parallel_enabled,
             sequence_collective_op_infos=cls.SEQUENCE_COLLECTIVE_OPS_INFOS,
-            # scatter_sequence_at_first_layer_of_type=cls.SCATTER_SEQUENCE_AT_FIRST_LAYER_OF_TYPE,
-            # scatter_before_first_layer=cls.SCATTER_BEFORE_FIRST_LAYER,
-            # gather_sequence_at_last_layer_of_type=cls.GATHER_SEQUENCE_AT_LAST_LAYER_OF_TYPE,
-            # gather_after_last_layer=cls.GATHER_AFTER_LAST_LAYER,
         )
         io_sequence_parallelizer.sequence_parallelize(model)
 

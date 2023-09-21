@@ -14,13 +14,13 @@
 # limitations under the License.
 """Classes related to parallel versions of common blocks in Transformers models."""
 
-from dataclasses import dataclass
 import functools
 import re
 from abc import ABC, abstractclassmethod
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Type, Union, Literal
+from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Tuple, Type, Union
 
 import torch
 from torch.nn.modules.loss import _WeightedLoss
@@ -722,7 +722,7 @@ class SequenceCollectiveOpInfo:
 
     def __post_init__(self):
         if self.collective_op not in ["scatter", "gather"]:
-            raise ValueError(f'Authorized values are "scatter" and "gather", but {self.collective_op} was given here') 
+            raise ValueError(f'Authorized values are "scatter" and "gather", but {self.collective_op} was given here')
 
 
 if is_neuronx_distributed_available():
@@ -735,7 +735,7 @@ if is_neuronx_distributed_available():
         def __init__(
             self,
             sequence_parallel_enabled: bool,
-            sequence_collective_op_infos: Optional[List[SequenceCollectiveOpInfo]] = None 
+            sequence_collective_op_infos: Optional[List[SequenceCollectiveOpInfo]] = None
             # scatter_sequence: Optional[List[SequenceCollectiveOpInfo]] = None,
             # gather_sequence: Optional[List[SequenceCollectiveOpInfo]] = None,
             # scatter_sequence_at_first_layer_of_type: Optional[Type["torch.nn.Module"]] = None,
@@ -752,7 +752,9 @@ if is_neuronx_distributed_available():
             # self.gather_layer_type = gather_sequence_at_last_layer_of_type
             # self.gather_after_last_layer = gather_after_last_layer
 
-        def get_first_and_last_layers_matching_pattern(self, model: "torch.nn.Module", pattern: str) -> Tuple["torch.nn.Module", "torch.nn.Module"]:
+        def get_first_and_last_layers_matching_pattern(
+            self, model: "torch.nn.Module", pattern: str
+        ) -> Tuple["torch.nn.Module", "torch.nn.Module"]:
             first_layer = None
             last_layer = None
             for name, module in model.named_modules():
@@ -763,7 +765,6 @@ if is_neuronx_distributed_available():
             if first_layer is None:
                 raise ValueError(f"Could not find layer of with pattern {pattern} in {model}.")
             return [first_layer, last_layer]
-
 
         def get_first_and_last_layers_of_type(
             self, model: "torch.nn.Module", type_: Type["torch.nn.Module"]
@@ -779,25 +780,32 @@ if is_neuronx_distributed_available():
                 raise ValueError(f"Could not find layer of type {type_} in {model}.")
             return [first_layer, last_layer]
 
-
-        def _sequence_parallelize(self, model: "torch.nn.Module", sequence_collective_op_info: SequenceCollectiveOpInfo):
-
+        def _sequence_parallelize(
+            self, model: "torch.nn.Module", sequence_collective_op_info: SequenceCollectiveOpInfo
+        ):
             if sequence_collective_op_info.collective_op == "scatter":
                 if isinstance(sequence_collective_op_info.layer, str):
-                    first_layer, last_layer = self.get_first_and_last_layers_matching_pattern(model, sequence_collective_op_info.layer)
+                    first_layer, last_layer = self.get_first_and_last_layers_matching_pattern(
+                        model, sequence_collective_op_info.layer
+                    )
                 else:
-                    first_layer, last_layer = self.get_first_and_last_layers_of_type(model, sequence_collective_op_info.layer)
+                    first_layer, last_layer = self.get_first_and_last_layers_of_type(
+                        model, sequence_collective_op_info.layer
+                    )
                 scatter_layer = first_layer if sequence_collective_op_info.first_or_last == "first" else last_layer
                 orig_scatter_layer_forward = scatter_layer.forward
 
                 if sequence_collective_op_info.position == "before":
+
                     @functools.wraps(orig_scatter_layer_forward)
                     def sequence_parallel_forward(*args, **kwargs):
                         to_scatter = args[1]
                         to_scatter = to_scatter.transpose(0, 1).contiguous()
                         scattered = scatter_to_sequence_parallel_region(to_scatter)
                         return orig_scatter_layer_forward(scattered, *args[2:], **kwargs)
+
                 else:
+
                     @functools.wraps(orig_scatter_layer_forward)
                     def sequence_parallel_forward(*args, **kwargs):
                         output = orig_scatter_layer_forward(*args[1:], **kwargs)
@@ -810,13 +818,18 @@ if is_neuronx_distributed_available():
 
             else:
                 if isinstance(sequence_collective_op_info.layer, str):
-                    first_layer, last_layer = self.get_first_and_last_layers_matching_pattern(model, sequence_collective_op_info.layer)
+                    first_layer, last_layer = self.get_first_and_last_layers_matching_pattern(
+                        model, sequence_collective_op_info.layer
+                    )
                 else:
-                    first_layer, last_layer = self.get_first_and_last_layers_of_type(model, sequence_collective_op_info.layer)
+                    first_layer, last_layer = self.get_first_and_last_layers_of_type(
+                        model, sequence_collective_op_info.layer
+                    )
                 gather_layer = first_layer if sequence_collective_op_info.first_or_last == "first" else last_layer
                 orig_gather_layer_forward = gather_layer.forward
 
                 if sequence_collective_op_info.position == "after":
+
                     @functools.wraps(orig_gather_layer_forward)
                     def sequence_parallel_forward(*args, **kwargs):
                         output = orig_gather_layer_forward(*args[1:], **kwargs)
@@ -824,7 +837,9 @@ if is_neuronx_distributed_available():
                         gathered = gather_from_sequence_parallel_region(to_gather, to_model_parallel=False)
                         gathered = gathered.transpose(0, 1).contiguous()
                         return gathered if isinstance(output, torch.Tensor) else (gathered,) + output[1:]
+
                 else:
+
                     @functools.wraps(orig_gather_layer_forward)
                     def sequence_parallel_forward(*args, **kwargs):
                         to_gather = args[1]
@@ -832,7 +847,6 @@ if is_neuronx_distributed_available():
                         gathered = gathered.transpose(0, 1).contiguous()
                         output = orig_gather_layer_forward(gathered, *args[2:], **kwargs)
                         return output
-
 
                 gather_layer.forward = sequence_parallel_forward.__get__(gather_layer)
 
@@ -878,7 +892,6 @@ if is_neuronx_distributed_available():
             #             hidden_states = hidden_states.transpose(0, 1).contiguous()
             #             output = orig_gather_layer_forward(hidden_states, *args[2:], **kwargs)
             #             return output
-
 
             #     gather_layer.forward = sequence_parallel_forward.__get__(gather_layer)
 

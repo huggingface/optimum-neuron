@@ -33,6 +33,7 @@ from .parallel_layers import (
     ParallelEmbedding,
     ParallelMLP,
     ParallelSelfAttention,
+    SequenceCollectiveOpInfo,
 )
 from .utils import linear_to_parallel_linear
 
@@ -68,8 +69,10 @@ class GPTNeoParallelizer(Parallelizer):
         "transformer.h.[0-9]+.ln_[1-2]",
         "transformer.ln_f",
     ]
-    SCATTER_SEQUENCE_AT_FIRST_LAYER_OF_TYPE = GPTNeoBlock
-    GATHER_SEQUENCE_AT_LAST_LAYER_OF_TYPE = torch.nn.LayerNorm
+    SEQUENCE_COLLECTIVE_OPS_INFOS = [
+        SequenceCollectiveOpInfo("scatter", GPTNeoBlock, "before", "first"),
+        SequenceCollectiveOpInfo("gather", torch.nn.LayerNorm, "after", "last"),
+    ]
 
     @classmethod
     def patch_for_sequence_paralelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
@@ -197,8 +200,10 @@ class LlamaParallelizer(Parallelizer):
         "model.norm",
     ]
     LAYERNORM_TYPE = LayerNormType.RMS_NORM
-    SCATTER_SEQUENCE_AT_FIRST_LAYER_OF_TYPE = LlamaDecoderLayer
-    GATHER_SEQUENCE_AT_LAST_LAYER_OF_TYPE = LlamaRMSNorm
+    SEQUENCE_COLLECTIVE_OPS_INFOS = [
+        SequenceCollectiveOpInfo("scatter", LlamaDecoderLayer, "before", "first"),
+        SequenceCollectiveOpInfo("gather", LlamaRMSNorm, "after", "last"),
+    ]
 
     @classmethod
     def patch_for_sequence_paralelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
