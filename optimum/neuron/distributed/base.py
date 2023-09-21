@@ -149,26 +149,29 @@ class Parallelizer(ABC):
         model = cls._parallelize(
             model, orig_to_parallel=orig_to_parallel, device=device, parallelize_embeddings=parallelize_embeddings
         )
-        weight_map = getattr(model, "_weight_map", {})
+        weight_map = getattr(model, "_weight_map", None)
+
+        # The model was not loaded lazily, it is already ready.
+        if weight_map is None:
+            return model
+
         with torch.no_grad():
             modules_to_initialize = []
             for name, parameter in model.named_parameters():
-                # This must be either a torch.nn.Embedding or a torch.nn.Linear since those are the only
-                # classes that we initialize on the `meta` device.
-                if parameter.device == torch.device("meta"):
-                    if weight_map is None:
-                        raise ValueError(
-                            f"The parameter called {name} of the model is on the `meta` device and no weight map is "
-                            "attached to the model to load the proper weights from file."
-                        )
-                    split = name.rsplit(".", maxsplit=1)
-                    module = model.get_submodule(split[0])
-                    attribute_name = split[1]
-                    current_weight = getattr(module, attribute_name)
-                    try:
-                        weight_info = WeightInformation(weight_map[name], name, device=device)
-                        # The weight might have been parallelized, in which case we must load the proper slice.
-                        if getattr(current_weight, "tensor_model_parallel", False):
+                split = name.rsplit(".", maxsplit=1)
+                module = model.get_submodule(split[0])
+                attribute_name = split[1]
+                current_weight = getattr(module, attribute_name)
+                try:
+                    weight_info = WeightInformation(weight_map[name], name, device=device)
+                except KeyError:
+                    weight_info = None
+
+                if weight_info is not None:
+                    if getattr(current_weight, "tensor_model_parallel", False):
+                        if parameter.device == torch.device("meta"):
+                            # This must either be a torch.nn.Embedding or a torch.nn.Linear that was not handled during
+                            # parallelization since those are the only classes that we initialize on the `meta` device.
                             num_dims = current_weight.dim()
                             partition_dim = getattr(current_weight, "partition_dim")
                             tp_rank = parallel_layers.parallel_state.get_tensor_model_parallel_rank()
@@ -180,25 +183,30 @@ class Parallelizer(ABC):
                                 for idx in range(num_dims)
                             ]
                         else:
-                            slices = None
-                        setattr(
-                            module,
-                            attribute_name,
-                            torch.nn.Parameter(load_tensor_for_weight(weight_info, tensor_slices=slices)),
-                        )
-                    except KeyError:
-                        # This means that there is no information about where to find the weights for this parameter.
-                        device = torch.device("cpu") if device is None else device
-                        setattr(
-                            module,
-                            attribute_name,
-                            torch.nn.Parameter(torch.empty_like(current_weight, device=device)),
-                        )
-                        modules_to_initialize.append(module)
-                for mod in modules_to_initialize:
-                    # This module has not pre-trained weights, it must be fine-tuned, we initialize it with the
-                    # `reset_parameters()` method.
-                    mod.reset_parameters()
+                            # The parameter is not on the `meta` device, it has been loaded from a checkpoint during
+                            # parallelization, we can skip.
+                            continue
+                    else:
+                        slices = None
+
+                    setattr(
+                        module,
+                        attribute_name,
+                        torch.nn.Parameter(load_tensor_for_weight(weight_info, tensor_slices=slices)),
+                    )
+                else:
+                    # This means that there is no information about where to find the weights for this parameter.
+                    device = torch.device("cpu") if device is None else device
+                    setattr(
+                        module,
+                        attribute_name,
+                        torch.nn.Parameter(torch.empty_like(current_weight, device=device)),
+                    )
+                    modules_to_initialize.append(module)
+            for mod in modules_to_initialize:
+                # This module has not pre-trained weights, it must be fine-tuned, we initialize it with the
+                # `reset_parameters()` method.
+                mod.reset_parameters()
         return model
 
     @classmethod
