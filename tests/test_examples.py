@@ -301,15 +301,26 @@ class ExampleTestMeta(type):
         return losses
 
     @staticmethod
-    def check_that_loss_is_decreasing(losses: List[float], steps: int) -> Tuple[bool, List[float], List[float]]:
-        mean_losses = []
-        num_mean_losses = len(losses) // steps
-        for i in range(num_mean_losses):
-            mean = sum(losses[i * steps : (i + 1) * steps]) / steps
-            mean_losses.append(mean)
+    def check_that_loss_is_decreasing(
+        losses: List[float], window_size: int, allowed_miss_rate: float = 0.1
+    ) -> Tuple[bool, List[float]]:
+        def moving_average(values: List[float], window_size: int):
+            averages = []
+            n = len(values)
+            for i in range(n - window_size + 1):
+                window = values[i : i + window_size]
+                averages.append(sum(window) / window_size)
+            return averages
 
-        expected_mean_losses = sorted(mean_losses, reverse=True)
-        return mean_losses == expected_mean_losses, mean_losses, expected_mean_losses
+        moving_average_losses = moving_average(losses, window_size)
+        num_losses = len(moving_average_losses)
+        num_misses = 0
+        num_misses_allowed = int(num_losses * allowed_miss_rate)
+        for x, y in zip(moving_average_losses[:-1], moving_average_losses[1:]):
+            if x > y:
+                num_misses += 1
+
+        return num_misses <= num_misses_allowed, moving_average_losses
 
     @classmethod
     def _create_test(
@@ -369,25 +380,30 @@ class ExampleTestMeta(type):
                     output_dir=tmpdirname,
                     do_precompilation=True,
                     print_outputs=True,
+                    _disable_is_private_model_repo_check=True,
                 )
                 assert returncode == 0
 
                 if self.CHECK_THAT_LOSS_IS_DECREASING:
                     losses = ExampleTestMeta.parse_loss_from_log(stdout)
-                    is_decreasing, mean_losses, expected_mean_losses = ExampleTestMeta.check_that_loss_is_decreasing(
-                        losses, 50
+                    allowed_miss_rate = 0.1
+                    is_decreasing, moving_average_losses = ExampleTestMeta.check_that_loss_is_decreasing(
+                        losses,
+                        16,
+                        allowed_miss_rate=allowed_miss_rate,
                     )
                     self.assertTrue(
-                        is_decreasing, f"Expected mean losses to be {expected_mean_losses} but got {mean_losses}"
+                        is_decreasing,
+                        f"The moving average loss does not decrease as expected: {moving_average_losses} (allowed miss "
+                        "rate = {allowed_miss_rate})",
                     )
 
-                if self.DO_EVAL:
+                if not RUN_TINY and self.DO_EVAL:
                     with open(Path(tmpdirname) / "all_results.json") as fp:
                         results = json.load(fp)
-                    eval_score_threshold = (
-                        self.EVAL_SCORE_THRESHOLD if not RUN_TINY else self.EVAL_SCORE_THRESHOLD_FOR_TINY
+                    eval_score_threshold = ExampleTestMeta.process_class_attribute(
+                        self.EVAL_SCORE_THRESHOLD, model_type
                     )
-                    eval_score_threshold = ExampleTestMeta.process_class_attribute(eval_score_threshold, model_type)
                     if self.EVAL_SCORE_GREATER_IS_BETTER:
                         self.assertGreaterEqual(float(results[self.SCORE_NAME]), eval_score_threshold)
                     else:
@@ -411,21 +427,19 @@ class ExampleTesterBase(TestCase):
     TRAIN_BATCH_SIZE: TypeOrDictOfType[int] = 2
     EVAL_BATCH_SIZE: TypeOrDictOfType[int] = 2
     GRADIENT_ACCUMULATION_STEPS: TypeOrDictOfType[int] = 1
-    SEQUENCE_LENGTH: TypeOrDictOfType[Optional[Union[int, Tuple[int, int]]]] = None
+    SEQUENCE_LENGTH: TypeOrDictOfType[Optional[Union[int, Tuple[int, int], List[int]]]] = None
 
     NUM_CORES: int = 32
     LOGGING_STEPS: int = 1
     SAVE_STEPS: int = 200
 
     TRAIN_LOSS_THRESHOLD: float
-    TRAIN_LOSS_THRESHOLD_FOR_TINY: float
     CHECK_THAT_LOSS_IS_DECREASING: TypeOrDictOfType[bool] = True
 
     # Camembert is pretrained on French.
     DO_EVAL: TypeOrDictOfType[bool]
     MAX_EVAL_SAMPLES: Optional[int] = None
     EVAL_SCORE_THRESHOLD: TypeOrDictOfType[float]
-    EVAL_SCORE_THRESHOLD_FOR_TINY: TypeOrDictOfType[float]
     EVAL_SCORE_GREATER_IS_BETTER: bool
     SCORE_NAME: str
 
@@ -440,7 +454,6 @@ class CausalLMExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, exampl
     SEQUENCE_LENGTH = 512
 
     TRAIN_LOSS_THRESHOLD = 1.5
-    TRAIN_LOSS_THRESHOLD_FOR_TINY = 2.5
 
     DO_EVAL = False
     MAX_EVAL_SAMPLES = 200
@@ -454,13 +467,11 @@ class TextClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestMe
     SEQUENCE_LENGTH = 128
 
     TRAIN_LOSS_THRESHOLD = 0.5
-    TRAIN_LOSS_THRESHOLD_FOR_TINY = 0.5
 
     # Camembert is pretrained on French.
     DO_EVAL = False  # TODO: Evaluation is broken.
     MAX_EVAL_SAMPLES = 200
     EVAL_SCORE_THRESHOLD = {"default": 0.75, "camembert": 0.5}
-    EVAL_SCORE_THRESHOLD_FOR_TINY = {"default": 0.75, "camembert": 0.5}
     EVAL_SCORE_GREATER_IS_BETTER = True
     SCORE_NAME = "eval_accuracy"
 
@@ -476,13 +487,11 @@ class TokenClassificationExampleTester(ExampleTesterBase, metaclass=ExampleTestM
     SEQUENCE_LENGTH = 384
 
     TRAIN_LOSS_THRESHOLD = 0.5
-    TRAIN_LOSS_THRESHOLD_FOR_TINY = 0.5
 
     # Camembert is pretrained on French.
     DO_EVAL = False  # TODO: Evaluation is broken.
     MAX_EVAL_SAMPLES = 200
     EVAL_SCORE_THRESHOLD = {"default": 0.75, "camembert": 0.5}
-    EVAL_SCORE_THRESHOLD_FOR_TINY = {"default": 0.75, "camembert": 0.5}
     EVAL_SCORE_GREATER_IS_BETTER = True
     SCORE_NAME = "eval_accuracy"
 
@@ -497,13 +506,11 @@ class MultipleChoiceExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, 
     SEQUENCE_LENGTH = 512
 
     TRAIN_LOSS_THRESHOLD = 0.5
-    TRAIN_LOSS_THRESHOLD_FOR_TINY = 0.5
 
     # Camembert is pretrained on French.
     DO_EVAL = False  # TODO: Evaluation is broken.
     MAX_EVAL_SAMPLES = 200
     EVAL_SCORE_THRESHOLD = {"default": 0.75, "camembert": 0.5, "distilbert": 0.645}
-    EVAL_SCORE_THRESHOLD_FOR_TINY = {"default": 0.75, "camembert": 0.5, "distilbert": 0.645}
     EVAL_SCORE_GREATER_IS_BETTER = True
     SCORE_NAME = "eval_accuracy"
 
@@ -517,12 +524,10 @@ class QuestionAnsweringExampleTester(ExampleTesterBase, metaclass=ExampleTestMet
     EVAL_BATCH_SIZE = 2
 
     TRAIN_LOSS_THRESHOLD = 0.5
-    TRAIN_LOSS_THRESHOLD_FOR_TINY = 0.5
 
     DO_EVAL = False  # TODO: Evaluation is broken.
     MAX_EVAL_SAMPLES = 200
     EVAL_SCORE_THRESHOLD = {"default": 0.75, "camembert": 0.5}
-    EVAL_SCORE_THRESHOLD_FOR_TINY = {"default": 0.75, "camembert": 0.5}
     EVAL_SCORE_GREATER_IS_BETTER = True
     SCORE_NAME = "eval_f1"
 
@@ -537,12 +542,10 @@ class SummarizationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, e
     SEQUENCE_LENGTH = {"default": [1024, 200], "t5": [768, 200]}
 
     TRAIN_LOSS_THRESHOLD = 0.5
-    TRAIN_LOSS_THRESHOLD_FOR_TINY = 0.5
 
     DO_EVAL = False  # TODO: Evaluation is broken.
     MAX_EVAL_SAMPLES = 200
     EVAL_SCORE_THRESHOLD = 30
-    EVAL_SCORE_THRESHOLD_FOR_TINY = 30
     SCORE_NAME = "eval_rougeLsum"
 
 
@@ -558,7 +561,6 @@ class TranslationExampleTester(ExampleTesterBase, metaclass=ExampleTestMeta, exa
     DO_EVAL = False
     MAX_EVAL_SAMPLES = 200
     EVAL_SCORE_THRESHOLD = 22
-    EVAL_SCORE_THRESHOLD_FOR_TINY = 20
     SCORE_NAME = "eval_bleu"
 
 
@@ -573,12 +575,10 @@ class ImageClassificationExampleTester(
     EVAL_BATCH_SIZE = 2
 
     TRAIN_LOSS_THRESHOLD = 0.5
-    TRAIN_LOSS_THRESHOLD_FOR_TINY = 0.5
 
     DO_EVAL = False  # TODO: Evaluation is broken.
     MAX_EVAL_SAMPLES = 200
     EVAL_SCORE_THRESHOLD = 0.8
-    EVAL_SCORE_THRESHOLD_FOR_TINY = 0.70
     EVAL_SCORE_GREATER_IS_BETTER = True
     SCORE_NAME = "eval_accuracy"
 

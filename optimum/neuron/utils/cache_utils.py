@@ -44,6 +44,7 @@ from packaging import version
 from ...utils import logging
 from ...utils.logging import warn_once
 from .constant import NEURON_BINARIES_PATH
+from .misc import string_to_bool
 from .version_utils import get_neuronxcc_version
 
 
@@ -81,6 +82,16 @@ _REGISTRY_FILE_EXISTS: Dict[str, bool] = {}
 _ADDED_IN_REGISTRY: Dict[Tuple[str, "NeuronHash"], bool] = {}
 
 _NEW_CACHE_NAMING_CONVENTION_NEURONXCC_VERSION = "2.7.0.40+f7c6cf2a3"
+
+# For testing purposes.
+_DISABLE_IS_PRIVATE_REPO_CHECK: bool = string_to_bool(
+    os.environ.get("OPTIMUM_NEURON_DISABLE_IS_PRIVATE_REPO_CHECK", "false")
+)
+if _DISABLE_IS_PRIVATE_REPO_CHECK:
+    logger.warning(
+        "The check that prevents you from pushing compiled files from private models is disabled. This is allowed only "
+        "for testing purposes."
+    )
 
 
 def follows_new_cache_naming_convention(neuronxcc_version: Optional[str] = None) -> bool:
@@ -139,6 +150,8 @@ def create_custom_cache_repo(repo_id: str = CACHE_REPO_NAME, private: bool = Tru
 
 
 def is_private_repo(repo_id: str) -> bool:
+    if _DISABLE_IS_PRIVATE_REPO_CHECK:
+        return False
     HfApi().list_repo_files(repo_id=repo_id, token=HfFolder.get_token())
     private = False
     try:

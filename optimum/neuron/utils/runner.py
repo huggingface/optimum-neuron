@@ -390,6 +390,7 @@ class ExampleRunner:
         output_dir: Optional[Union[Path, str]] = None,
         do_precompilation: bool = False,
         print_outputs: bool = False,
+        _disable_is_private_model_repo_check: bool = False,
     ) -> Tuple[int, str]:
         if num_cores <= 0 or num_cores > 32:
             raise ValueError("The number of Neuron cores to use must be between 1 and 32.")
@@ -419,6 +420,14 @@ class ExampleRunner:
         if self.should_install_requirements:
             self.install_requirements(script_path.parent / "requirements.txt")
 
+        def compute_max_train_samples(
+            max_steps: int, num_cores: int, tensor_parallel_size: int, per_device_train_batch_size: int
+        ) -> int:
+            total_batch_size = (num_cores // tensor_parallel_size) * per_device_train_batch_size
+            total_num_samples = max_steps * total_batch_size
+            # Adding 10% more examples just to make sure.
+            return int(total_num_samples * 1.1)
+
         cmd = []
 
         cmd.append(self.python_name if num_cores == 1 else f"{self.torchrun_name} --nproc_per_node {num_cores}")
@@ -437,6 +446,9 @@ class ExampleRunner:
         if max_steps is not None:
             cmd.append(f"--max_steps {max_steps}")
             max_steps_idx = len(cmd) - 1
+            max_train_samples = compute_max_train_samples(max_steps, num_cores, tensor_parallel_size, train_batch_size)
+            cmd.append(f"--max_train_samples {max_train_samples}")
+
         cmd.append("--do_train")
         if do_eval:
             cmd.append("--do_eval")
@@ -506,6 +518,10 @@ class ExampleRunner:
             else:
                 cmd.append(f"--output_dir {output_dir}")
 
+            env = dict(os.environ)
+            if _disable_is_private_model_repo_check:
+                env["OPTIMUM_NEURON_DISABLE_IS_PRIVATE_REPO_CHECK"] = "true"
+
             if do_precompilation:
                 # We need to update both the number of steps and the output directory specifically for the
                 # precompilation step.
@@ -513,10 +529,17 @@ class ExampleRunner:
                     precompilation_cmd = list(cmd)
                     precompilation_cmd.pop(-1)  # Removing the --output_dir argument.
                     max_steps_cmd_str = "--max_steps 10"
+                    max_train_samples = compute_max_train_samples(
+                        10, num_cores, tensor_parallel_size, train_batch_size
+                    )
+                    max_train_samples_cmd = f"--max_train_samples {max_train_samples}"
                     if max_steps_idx >= 0:
                         precompilation_cmd[max_steps_idx] = max_steps_cmd_str
+                        precompilation_cmd[max_steps_idx + 1] = max_train_samples_cmd
                     else:
                         precompilation_cmd.append(max_steps_cmd_str)
+                        precompilation_cmd.append(max_train_samples_cmd)
+
                     precompilation_cmd.append(f"--output_dir {precompilation_tmpdirname}")
                     precompilation_cmd = ["neuron_parallel_compile"] + precompilation_cmd
 
@@ -527,7 +550,9 @@ class ExampleRunner:
                     if print_outputs:
                         returncode, stdout = run_command_with_realtime_output(precompilation_cmd)
                     else:
-                        proc = subprocess.Popen(precompilation_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                        proc = subprocess.Popen(
+                            precompilation_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env
+                        )
                         stdout, _ = proc.communicate()
                         stdout = stdout.decode("utf-8")
                         returncode = proc.returncode
@@ -538,7 +563,7 @@ class ExampleRunner:
             if print_outputs:
                 returncode, stdout = run_command_with_realtime_output(cmd)
             else:
-                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
                 stdout, _ = proc.communicate()
                 stdout = stdout.decode("utf-8")
                 returncode = proc.returncode
