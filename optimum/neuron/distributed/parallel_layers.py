@@ -902,7 +902,7 @@ class LayerNormSequenceParallelizer:
         _set_sequence_parallel_enabled(module.weight, self.sequence_parallel_enabled)
 
     def sequence_parallelize(self, model: "PreTrainedModel", layernorm_type: Union[str, LayerNormType]):
-        if type(layernorm_type) is str:
+        if type(layernorm_type) is str: # noqa: E721
             layernorm_type = LayerNormType(layernorm_type)
 
         layernorm_type_to_parallelize_method = {
