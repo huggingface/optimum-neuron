@@ -4,7 +4,8 @@ on:
   workflow_dispatch:
     inputs: 
       coverage: 
-        description: The coverage of the models to test, useful to perform filtering
+        description: Coverage
+        type: choice
         options:
           - all
           - high
@@ -12,7 +13,8 @@ on:
           - low
         required: true
       model_size: 
-        description: The size of the models to tests
+        description: Size of models
+        type: choice
         options:
           - regular
           - tiny
