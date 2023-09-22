@@ -160,7 +160,7 @@ class Parallelizer(ABC):
         """
         if sequence_parallel_enabled:
             raise NotImplementedError(
-                f"No patching for the attention mechansim for sequence parallelism was implemented for {model.__class__}"
+                f"No patching for the attention mechanism for sequence parallelism was implemented for {model.__class__}"
             )
 
     @classmethod

@@ -346,40 +346,41 @@ class ModelParallelizationTestCase(unittest.TestCase):
             overwrite_model_config=config_overwrite,
         )
 
-    # TODO: enable that once ParallelCrossEntropy works.
-    # @parameterized.expand(MODELS_TO_TEST)
-    # def test_model_parallel_lazy_load_without_sequence_parallel(
-    #     self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
-    # ):
-    #     self._test_model_parallel(
-    #         num_neuron_cores=8,
-    #         tp_size=2,
-    #         run_test_in_parallel=True,
-    #         model_class_name=model_class_name,
-    #         model_name_or_path=model_name_or_path,
-    #         from_config=False,
-    #         with_lazy_load=True,
-    #         parallelize_embeddings=True,
-    #         sequence_parallel_enabled=False,
-    #         overwrite_model_config=config_overwrite,
-    #     )
+    @unittest.skip("Parallel cross entropy does not work yet.")
+    @parameterized.expand(MODELS_TO_TEST)
+    def test_model_parallel_lazy_load_without_sequence_parallel(
+        self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
+    ):
+        self._test_model_parallel(
+            num_neuron_cores=8,
+            tp_size=2,
+            run_test_in_parallel=True,
+            model_class_name=model_class_name,
+            model_name_or_path=model_name_or_path,
+            from_config=False,
+            with_lazy_load=True,
+            parallelize_embeddings=True,
+            sequence_parallel_enabled=False,
+            overwrite_model_config=config_overwrite,
+        )
 
-    # @parameterized.expand(MODELS_TO_TEST)
-    # def test_model_parallel_lazy_load_without_anything()
-    #     self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
-    # ):
-    #     self._test_model_parallel(
-    #         num_neuron_cores=8,
-    #         tp_size=2,
-    #         run_test_in_parallel=True,
-    #         model_class_name=model_class_name,
-    #         model_name_or_path=model_name_or_path,
-    #         from_config=False,
-    #         with_lazy_load=True,
-    #         parallelize_embeddings=False,
-    #         sequence_parallel_enabled=False,
-    #         overwrite_model_config=config_overwrite,
-    #     )
+    @unittest.skip("Parallel cross entropy does not work yet.")
+    @parameterized.expand(MODELS_TO_TEST)
+    def test_model_parallel_lazy_load_without_anything(
+        self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
+    ):
+        self._test_model_parallel(
+            num_neuron_cores=8,
+            tp_size=2,
+            run_test_in_parallel=True,
+            model_class_name=model_class_name,
+            model_name_or_path=model_name_or_path,
+            from_config=False,
+            with_lazy_load=True,
+            parallelize_embeddings=False,
+            sequence_parallel_enabled=False,
+            overwrite_model_config=config_overwrite,
+        )
 
     @unittest.skipIf(
         NUM_NEURON_CORES_AVAILABLE < 32,

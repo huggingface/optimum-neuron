@@ -714,8 +714,17 @@ class SequenceCollectiveOpInfo:
     """
     Represents a collective op to perform.
 
-    Example:
+    Attributes:
+        - collective_op (`Union[Literal["scatter"], Literal["gather"]]`) -- The collective operation that should be
+        performed.
+        - layer (`Union[Type[torch.nn.Module], str]`) -- The layer to consider. It can either be a type or a qualified
+        name pattern to match.
+        - io (`Union[Literal["input"], Literal["output"]]`) -- Whether the collective op should be applied to the input
+        or to the output of the matched layer.
+        - first_or_last (`Union[Literal["first"], Literal["last"]]`) -- Whether to consider the first matching layer or
+        the last matching layer.
 
+    Example:
         ```python
         info = SequenceCollectiveOpInfo("gather", torch.nn.LayerNorm, "output", "last")
         ```
