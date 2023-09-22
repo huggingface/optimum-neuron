@@ -27,6 +27,7 @@ from transformers.utils import WEIGHTS_NAME
 
 from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
+from ..utils.deprecate_utils import deprecate
 from .parallel_layers import (
     IOSequenceParallelizer,
     LayerNormSequenceParallelizer,
@@ -62,6 +63,33 @@ class SavedModelInTemporaryDirectory:
 
     def __exit__(self, *exc):
         self.tmpdir.cleanup()
+
+
+@deprecate(
+    "2.0.0",
+    package_name="torch",
+    reason="torch.nn.Module._named_members takes a `remove_duplicate` parameter starting from 2.0.0",
+)
+def _named_members(module, get_members_fn, prefix="", recurse=True, remove_duplicate: bool = True):
+    r"""Helper method for yielding various names + members of modules."""
+    memo = set()
+    modules = module.named_modules(prefix=prefix, remove_duplicate=remove_duplicate) if recurse else [(prefix, module)]
+    for module_prefix, mod in modules:
+        members = get_members_fn(mod)
+        for k, v in members:
+            if v is None or v in memo:
+                continue
+            if remove_duplicate:
+                memo.add(v)
+            name = module_prefix + ("." if module_prefix else "") + k
+            yield name, v
+
+
+def named_parameters(module: "torch.nn.Module", prefix: str = "", recurse: bool = True, remove_duplicate: bool = True):
+    gen = _named_members(
+        module, lambda mod: mod._parameters.items(), prefix=prefix, recurse=recurse, remove_duplicate=remove_duplicate
+    )
+    yield from gen
 
 
 class Parallelizer(ABC):
@@ -202,18 +230,23 @@ class Parallelizer(ABC):
             return model
 
         with torch.no_grad():
+            tied_weights = {}
             modules_to_initialize = []
-            for name, parameter in model.named_parameters():
+            for name, parameter in named_parameters(model, remove_duplicate=False):
                 split = name.rsplit(".", maxsplit=1)
                 module = model.get_submodule(split[0])
                 attribute_name = split[1]
                 current_weight = getattr(module, attribute_name)
+
                 try:
                     weight_info = WeightInformation(weight_map[name], name, device=device)
                 except KeyError:
                     weight_info = None
 
-                if weight_info is not None:
+                if parameter in tied_weights:
+                    new_parameter = tied_weights[parameter]
+
+                elif weight_info is not None:
                     if getattr(current_weight, "tensor_model_parallel", False):
                         if parameter.device == torch.device("meta"):
                             # This must either be a torch.nn.Embedding or a torch.nn.Linear that was not handled during
@@ -235,24 +268,27 @@ class Parallelizer(ABC):
                     else:
                         slices = None
 
-                    setattr(
-                        module,
-                        attribute_name,
-                        torch.nn.Parameter(load_tensor_for_weight(weight_info, tensor_slices=slices)),
-                    )
+                    new_parameter = torch.nn.Parameter(load_tensor_for_weight(weight_info, tensor_slices=slices))
                 else:
                     # This means that there is no information about where to find the weights for this parameter.
                     device = torch.device("cpu") if device is None else device
-                    setattr(
-                        module,
-                        attribute_name,
-                        torch.nn.Parameter(torch.empty_like(current_weight, device=device)),
-                    )
+                    new_parameter = torch.nn.Parameter(torch.empty_like(current_weight, device=device))
                     modules_to_initialize.append(module)
+                setattr(
+                    module,
+                    attribute_name,
+                    new_parameter,
+                )
+                tied_weights[parameter] = new_parameter
             for mod in modules_to_initialize:
                 # This module has not pre-trained weights, it must be fine-tuned, we initialize it with the
                 # `reset_parameters()` method.
                 mod.reset_parameters()
+
+            for name, p in model.named_parameters():
+                if p.device == torch.device("meta"):
+                    continue
+                    print("Name", name)
         return model
 
     @classmethod

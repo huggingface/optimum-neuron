@@ -23,6 +23,8 @@ from .import_utils import is_neuron_available, is_neuronx_available
 _neuronxcc_version: Optional[str] = None
 _neuroncc_version: Optional[str] = None
 _torch_xla_version: Optional[str] = None
+_neuronx_distributed_version: Optional[str] = None
+_torch_version: Optional[str] = None
 
 
 def get_neuronxcc_version() -> str:
@@ -32,7 +34,7 @@ def get_neuronxcc_version() -> str:
     try:
         import neuronxcc
     except ImportError:
-        raise ValueError("NeuronX Compiler python package is not installed.")
+        raise ModuleNotFoundError("NeuronX Compiler python package is not installed.")
     _neuronxcc_version = neuronxcc.__version__
     return _neuronxcc_version
 
@@ -44,7 +46,7 @@ def get_neuroncc_version() -> str:
     try:
         import neuroncc
     except ImportError:
-        raise ValueError("Neuron Compiler python package is not installed.")
+        raise ModuleNotFoundError("Neuron Compiler python package is not installed.")
     _neuroncc_version = neuroncc.__version__
     return _neuroncc_version
 
@@ -56,9 +58,33 @@ def get_torch_xla_version() -> str:
     try:
         import torch_xla
     except ImportError:
-        raise ValueError("`torch_xla` python package is not installed.")
+        raise ModuleNotFoundError("`torch_xla` python package is not installed.")
     _torch_xla_version = torch_xla.__version__
     return _torch_xla_version
+
+
+def get_neuronx_distributed_version() -> str:
+    global _neuronx_distributed_version
+    if _neuronx_distributed_version is not None:
+        return _neuronx_distributed_version
+    try:
+        import neuronx_distributed
+    except ImportError:
+        raise ModuleNotFoundError("`neuronx_distributed` python package is not installed.")
+    _neuronx_distributed_version = neuronx_distributed.__version__
+    return _neuronx_distributed_version
+
+
+def get_torch_version() -> str:
+    global _torch_version
+    if _torch_version is not None:
+        return _torch_version
+    try:
+        import torch
+    except ImportError:
+        raise ModuleNotFoundError("`torch` python package is not installed.")
+    _torch_version = torch.__version__
+    return _torch_version
 
 
 def check_compiler_compatibility(compiler_type: str, compiler_version: str):

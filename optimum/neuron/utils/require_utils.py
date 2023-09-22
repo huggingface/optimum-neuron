@@ -22,7 +22,7 @@ from transformers.utils import is_safetensors_available
 from . import is_neuronx_distributed_available, is_torch_neuronx_available, is_torch_xla_available
 
 
-_AVAILIBILITIES: Dict[str, Callable[[], bool]] = {
+_AVAILABILITIES: Dict[str, Callable[[], bool]] = {
     "safetensors": is_safetensors_available,
     "torch_xla": is_torch_xla_available,
     "neuronx_distributed": is_neuronx_distributed_available,
@@ -31,7 +31,7 @@ _AVAILIBILITIES: Dict[str, Callable[[], bool]] = {
 
 
 def _create_requires_function(package_name: str) -> Callable[..., Any]:
-    availability_function = _AVAILIBILITIES[package_name]
+    availability_function = _AVAILABILITIES[package_name]
 
     def require_func(func):
         @functools.wraps(func)

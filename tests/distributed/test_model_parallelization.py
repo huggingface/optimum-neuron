@@ -311,7 +311,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
         )
 
     @parameterized.expand(MODELS_TO_TEST)
-    def test_model_parallel_from_pretrained_without_lazy_load(
+    def test_model_parallel_from_pretrained_no_lazy_load(
         self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
     ):
         self._test_model_parallel(
@@ -330,7 +330,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
         )
 
     @parameterized.expand(MODELS_TO_TEST)
-    def test_model_parallel_without_parallelizing_embeddings(
+    def test_model_parallel_lazy_load_without_parallelizing_embeddings(
         self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
     ):
         self._test_model_parallel(
@@ -348,7 +348,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
 
     # TODO: enable that once ParallelCrossEntropy works.
     # @parameterized.expand(MODELS_TO_TEST)
-    # def test_model_parallel_without_sequence_parallel(
+    # def test_model_parallel_lazy_load_without_sequence_parallel(
     #     self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
     # ):
     #     self._test_model_parallel(
@@ -365,7 +365,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
     #     )
 
     # @parameterized.expand(MODELS_TO_TEST)
-    # def test_model_parallel_without_anything(
+    # def test_model_parallel_lazy_load_without_anything()
     #     self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
     # ):
     #     self._test_model_parallel(

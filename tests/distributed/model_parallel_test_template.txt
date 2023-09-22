@@ -76,7 +76,8 @@ def load_model_with_seed(seed: int, from_config: bool):
     if from_config:
         model = {model_class}(config)
     else:
-      ctx = lazy_load_for_parallelism(tensor_parallel_size={tp_size}) if lazy_load else nullcontext()
+      tp_size = {tp_size} if is_parallel else 1
+      ctx = lazy_load_for_parallelism(tensor_parallel_size=tp_size) if lazy_load else nullcontext()
       with ctx:
           model = {model_class}.from_pretrained("{model_name_or_path}", config=config, ignore_mismatched_sizes=True)
     return model
