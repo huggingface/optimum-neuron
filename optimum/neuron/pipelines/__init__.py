@@ -34,8 +34,8 @@ if TYPE_CHECKING:
         NeuronStableDiffusionImg2ImgPipelineMixin,
         NeuronStableDiffusionInpaintPipelineMixin,
         NeuronStableDiffusionPipelineMixin,
-        NeuronStableDiffusionXLPipelineMixin,
         NeuronStableDiffusionXLImg2ImgPipeline,
+        NeuronStableDiffusionXLPipelineMixin,
     )
     from .transformers import (
         pipeline,

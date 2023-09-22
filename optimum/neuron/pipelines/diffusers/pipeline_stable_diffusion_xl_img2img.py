@@ -14,16 +14,13 @@
 """Override some diffusers API for NeuronStableDiffusionXLPipelineMixin"""
 
 import logging
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 from diffusers import StableDiffusionXLImg2ImgPipeline
-from diffusers.pipelines.stable_diffusion_xl import StableDiffusionXLPipelineOutput
-from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl import rescale_noise_cfg
-from diffusers.utils.torch_utils import randn_tensor
-from diffusers.image_processor import VaeImageProcessor
 
 from .pipeline_utils import StableDiffusionXLPipelineMixin
+
 
 if TYPE_CHECKING:
     from diffusers.image_processor import PipelineImageInput
@@ -33,7 +30,6 @@ logger = logging.getLogger(__name__)
 
 
 class NeuronStableDiffusionXLImg2ImgPipeline(StableDiffusionXLPipelineMixin, StableDiffusionXLImg2ImgPipeline):
-    
     # Adapted from https://github.com/huggingface/diffusers/blob/v0.21.2/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl_img2img.py#L654
     def __call__(
         self,
@@ -224,7 +220,7 @@ class NeuronStableDiffusionXLImg2ImgPipeline(StableDiffusionXLPipelineMixin, Sta
                 f"custom `num_images_per_prompt` or turn on `dynamic_batch_size`, if you wish generating {num_images_per_prompt} image per prompt."
             )
             num_images_per_prompt = self.num_images_per_prompt
-        
+
         # 1. Check inputs. Raise error if not correct
         self.check_inputs(
             prompt,
@@ -237,7 +233,7 @@ class NeuronStableDiffusionXLImg2ImgPipeline(StableDiffusionXLPipelineMixin, Sta
             prompt_embeds,
             negative_prompt_embeds,
         )
-        
+
         # 2. Define call parameters
         if prompt is not None and isinstance(prompt, str):
             batch_size = 1
@@ -247,12 +243,12 @@ class NeuronStableDiffusionXLImg2ImgPipeline(StableDiffusionXLPipelineMixin, Sta
             batch_size = prompt_embeds.shape[0]
         neuron_batch_size = self.unet.config.neuron["static_batch_size"]
         self.check_num_images_per_prompt(batch_size, neuron_batch_size, num_images_per_prompt)
-        
+
         # here `guidance_scale` is defined analog to the guidance weight `w` of equation (2)
         # of the Imagen paper: https://arxiv.org/pdf/2205.11487.pdf . `guidance_scale = 1`
         # corresponds to doing no classifier free guidance.
         do_classifier_free_guidance = guidance_scale > 1.0 and (self.dynamic_batch_size or len(self.device_ids) == 2)
-        
+
         # 3. Encode input prompt
         text_encoder_lora_scale = (
             cross_attention_kwargs.get("scale", None) if cross_attention_kwargs is not None else None
@@ -276,5 +272,3 @@ class NeuronStableDiffusionXLImg2ImgPipeline(StableDiffusionXLPipelineMixin, Sta
             lora_scale=text_encoder_lora_scale,
             clip_skip=clip_skip,
         )
-        
-        

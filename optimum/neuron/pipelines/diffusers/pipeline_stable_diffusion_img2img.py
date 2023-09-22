@@ -15,9 +15,8 @@
 """Override some diffusers API for NeuroStableDiffusionImg2ImgPipeline"""
 
 import logging
-from typing import Any, Callable, Dict, List, Optional, Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 
-import numpy as np
 import PIL
 import torch
 from diffusers import StableDiffusionImg2ImgPipeline
@@ -26,6 +25,7 @@ from diffusers.utils import deprecate
 from diffusers.utils.torch_utils import randn_tensor
 
 from .pipeline_utils import StableDiffusionPipelineMixin
+
 
 if TYPE_CHECKING:
     from diffusers.image_processor import PipelineImageInput
@@ -197,7 +197,7 @@ class NeuronStableDiffusionImg2ImgPipelineMixin(StableDiffusionPipelineMixin, St
                 f"custom `num_images_per_prompt` or turn on `dynamic_batch_size`, if you wish generating {num_images_per_prompt} image per prompt."
             )
             num_images_per_prompt = self.num_images_per_prompt
-            
+
         # 1. Check inputs. Raise error if not correct
         self.check_inputs(prompt, strength, callback_steps, negative_prompt, prompt_embeds, negative_prompt_embeds)
 
