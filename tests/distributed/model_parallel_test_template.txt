@@ -138,7 +138,7 @@ def gather_output(output, gather_dim):
 if is_parallel:
     # Because of parallelism (embeddings and sequence parallelism), some outputs need to be gathered.
     # Since it is not possible to generically know which one, we save both the "regular" output and the gathered 
-    # version of it. We then compare both of them to the original output and fail both do not match.
+    # version of it. We then compare both of them to the original output and fail if both do not match.
     gathered_model_outputs =  dict()
     for name, output in model_outputs.items():
         gathered_model_outputs[name] = output
