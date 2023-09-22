@@ -175,7 +175,6 @@ MODELS_TO_TEST_MAPPING = {
     ),
     "llama": (
         "NousResearch/Llama-2-7b-hf",
-        # "daryl149/llama-2-7b-chat-hf",
         TPSupport.FULL,
         Coverage.HIGH,
         {"num_hidden_layers": 2},
