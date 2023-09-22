@@ -173,7 +173,13 @@ MODELS_TO_TEST_MAPPING = {
         Coverage.MIDDLE,
         {"encoder_layers": 2, "decoder_layers": 2},
     ),
-    # TODO: Llama
+    "llama": (
+        "NousResearch/Llama-2-7b-hf",
+        # "daryl149/llama-2-7b-chat-hf",
+        TPSupport.FULL,
+        Coverage.HIGH,
+        {"num_hidden_layers": 2},
+    ),
     # "wav2vec2": "facebook/wav2vec2-base",
     # Remaning: XLNet, Deberta-v2, MPNet, CLIP
 }
@@ -181,7 +187,7 @@ MODELS_TO_TEST_MAPPING = {
 
 def _get_supported_models_for_script(
     models_to_test: Dict[str, str], task_mapping: Dict[str, str], to_exclude: Optional[Set[str]] = None
-) -> List[str]:
+) -> List[Tuple[str, str, TPSupport, Dict[str, Any]]]:
     """
     Filters models that can perform the task from models_to_test.
     """

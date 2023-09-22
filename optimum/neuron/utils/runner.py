@@ -344,9 +344,9 @@ class ExampleRunner:
         allow_patterns = ["*.json", "*.txt"]
         if any(re.match(safetensors_model_file_pattern, filename) for filename in filenames):
             # Not downloading PyTorch checkpoints if safetensors checkpoints are available.
-            allow_patterns.append("*.bin")
-        else:
             allow_patterns.append("*.safetensors")
+        else:
+            allow_patterns.append("*.bin")
 
         directory = Path(output_dir) / model_name_or_path.split("/")[-1]
 
