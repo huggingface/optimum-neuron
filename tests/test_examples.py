@@ -83,7 +83,7 @@ class Coverage(str, Enum):
     ALL = "all"
 
 
-USE_VENV = string_to_bool(os.environ.get("USE_VENV", "true"))
+USE_VENV = string_to_bool(os.environ.get("USE_VENV", "false"))
 COVERAGE = Coverage(os.environ.get("COVERAGE", "all"))
 RUN_TINY = string_to_bool(os.environ.get("RUN_TINY", "false"))
 
