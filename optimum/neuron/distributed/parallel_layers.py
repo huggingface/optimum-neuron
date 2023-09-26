@@ -68,7 +68,7 @@ class ParallelLayer(ABC):
     @classmethod
     def _get_linear_weight_info(
         cls,
-        weight_map: Dict[str, Path],
+        weight_map: Dict[str, Union[Path, str]],
         linear_layer_qualified_name: str,
         device: Optional["torch.device"] = None,
     ) -> Tuple[WeightInformation, Optional[WeightInformation]]:
@@ -76,6 +76,7 @@ class ParallelLayer(ABC):
         linear_layer_weight_info = WeightInformation(
             weight_map[linear_layer_weight_qualified_name],
             linear_layer_weight_qualified_name,
+            weight_map=weight_map,
             device=device,
         )
 
@@ -85,6 +86,7 @@ class ParallelLayer(ABC):
             linear_layer_bias_weight_info = WeightInformation(
                 linear_layer_bias_filename,
                 linear_layer_bias_qualified_name,
+                weight_map=weight_map,
                 device=device,
             )
         else:
@@ -174,6 +176,7 @@ class ParallelEmbedding(ParallelLayer):
             embedding_weight_info = WeightInformation(
                 weight_map[embedding_weight_name],
                 embedding_weight_name,
+                weight_map=weight_map,
                 device=device,
             )
             if model_has_lm_head:
@@ -185,11 +188,14 @@ class ParallelEmbedding(ParallelLayer):
                     lm_head_bias_weight_name = f"{lm_head_name}.bias"
                 if lm_head_weight_name in weight_map:
                     lm_head_weight_info = WeightInformation(
-                        weight_map[lm_head_weight_name], lm_head_weight_name, device=device
+                        weight_map[lm_head_weight_name], lm_head_weight_name, weight_map=weight_map, device=device
                     )
                 if lm_head_bias_weight_name in weight_map:
                     lm_head_bias_weight_info = WeightInformation(
-                        weight_map[lm_head_bias_weight_name], lm_head_bias_weight_name, device=device
+                        weight_map[lm_head_bias_weight_name],
+                        lm_head_bias_weight_name,
+                        weight_map=weight_map,
+                        device=device,
                     )
 
         embedding_layer = layer.get_submodule(cls.EMBEDDING_NAME)
@@ -511,6 +517,7 @@ class ParallelMLP(ParallelLayer):
                 device=device,
             )
 
+            print(f"{layer_qualified_name}.{attribute_name}")
         setattr(
             module,
             attribute_name,
@@ -902,7 +909,7 @@ class LayerNormSequenceParallelizer:
         _set_sequence_parallel_enabled(module.weight, self.sequence_parallel_enabled)
 
     def sequence_parallelize(self, model: "PreTrainedModel", layernorm_type: Union[str, LayerNormType]):
-        if type(layernorm_type) is str: # noqa: E721
+        if type(layernorm_type) is str:  # noqa: E721
             layernorm_type = LayerNormType(layernorm_type)
 
         layernorm_type_to_parallelize_method = {

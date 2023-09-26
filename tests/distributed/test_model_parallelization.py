@@ -21,6 +21,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Dict, List, Optional, Type, Union
 
+import pytest
 import torch
 from parameterized import parameterized
 from transformers.models.auto.modeling_auto import (
@@ -112,8 +113,13 @@ MODEL_TYPES_TO_TEST = [
     ("bert", "hf-internal-testing/tiny-random-bert"),
     ("roberta", "hf-internal-testing/tiny-random-roberta"),
     ("gpt_neo", "hf-internal-testing/tiny-random-GPTNeoModel"),
-    ("llama", "anushehchaudry/llama-2-tiny-random", {"num_hidden_layers": "2"}),
-    ("t5", "hf-tiny-model-private/tiny-random-T5ForConditionalGeneration", {"d_ff": "64"}),
+    ("llama", "yujiepan/llama-2-tiny-3layers-random", {"num_hidden_layers": "2"}),
+    (
+        "t5",
+        # "hf-tiny-model-private/tiny-random-T5ForConditionalGeneration",
+        "hf-internal-testing/tiny-random-T5Model",
+        {"d_ff": "64", "num_layers": "2", "num_decoder_layers": "2"},
+    ),
 ]
 
 MODELS_TO_TEST = []
@@ -285,14 +291,14 @@ class ModelParallelizationTestCase(unittest.TestCase):
                 if regular_parallel_outputs_error_msg is not None and gathered_parallel_outputs_error_msg is not None:
                     msg = (
                         "Output did not matched.\nTest with non-gathered parallel outputs error:\n"
-                        "{regular_parallel_outputs_error_msg}\nTest with gathered parallel outputs error:\n"
-                        "{gathered_parallel_outputs_error_msg}"
+                        f"{regular_parallel_outputs_error_msg}\nTest with gathered parallel outputs error:\n"
+                        f"{gathered_parallel_outputs_error_msg}"
                     )
                     raise AssertionError(msg)
                 print("Ok!")
 
     @parameterized.expand(MODELS_TO_TEST)
-    def test_model_parallel_from_config_without_lazy_load(
+    def test_model_parallel_from_config_no_lazy_load(
         self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
     ):
         self._test_model_parallel(
@@ -346,8 +352,8 @@ class ModelParallelizationTestCase(unittest.TestCase):
             overwrite_model_config=config_overwrite,
         )
 
-    @unittest.skip("Parallel cross entropy does not work yet.")
     @parameterized.expand(MODELS_TO_TEST)
+    @pytest.mark.skip("Parallel cross entropy does not work yet.")
     def test_model_parallel_lazy_load_without_sequence_parallel(
         self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
     ):
@@ -364,8 +370,8 @@ class ModelParallelizationTestCase(unittest.TestCase):
             overwrite_model_config=config_overwrite,
         )
 
-    @unittest.skip("Parallel cross entropy does not work yet.")
     @parameterized.expand(MODELS_TO_TEST)
+    @pytest.mark.skip("Parallel cross entropy does not work yet.")
     def test_model_parallel_lazy_load_without_anything(
         self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
     ):
@@ -382,7 +388,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
             overwrite_model_config=config_overwrite,
         )
 
-    @unittest.skipIf(
+    @pytest.mark.skipif(
         NUM_NEURON_CORES_AVAILABLE < 32,
         f"This test requires 32 Neuron cores, but only {NUM_NEURON_CORES_AVAILABLE} are available",
     )

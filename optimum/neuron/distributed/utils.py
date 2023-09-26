@@ -16,10 +16,11 @@
 
 import contextlib
 import functools
+import itertools
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Optional, Tuple, Type, Union
+from typing import TYPE_CHECKING, Dict, Literal, Optional, Tuple, Type, Union
 
 import torch
 from transformers import PretrainedConfig
@@ -47,17 +48,27 @@ class WeightInformation:
         - filename (`Union[str, Path]`) -- The name of the `safetensors` checkpoint file containing the weights of the
         parameter.
         - qualified_name (`str`) -- The fully qualified name of the parameter in the model hierarchy.
-        - device (`torch.device`) -- The device to put the weight on, defaults to `torch.device("cpu")` if left
-        unspecified.
+        - weight_map (`Optional[Dict[str, Union[Path, str]]]`, defaults to `None`) -- The weight map use to get the
+        filename and the qualified name. It is useful to specify it because then `WeightInformation` will take into
+        account potential prefixes that were artficially added to the qualified names.
+        - device (`Optional[torch.device]`, defaults to `None`) -- The device to put the weight on, initialized to
+        `torch.device("cpu")` if left unspecified.
     """
 
     filename: Union[str, Path]
     qualified_name: str
+    weight_map: Optional[Dict[str, Union[Path, str]]] = None
     device: Optional[torch.device] = None
 
     def __post_init__(self):
         if self.device is None:
             self.device = torch.device("cpu")
+
+        prefix = None
+        if self.weight_map is not None:
+            prefix = self.weight_map.get("lazy_load_used_prefix", None)
+        if prefix is not None and self.qualified_name.startswith(prefix):
+            self.qualified_name = self.qualified_name[len(prefix) :]
 
 
 @dataclass
@@ -335,6 +346,7 @@ def linear_to_parallel_linear(
                         None,
                     ),
                 )
+                print(linear_layer.weight.shape, parallel_linear_layer.weight.shape, weight_data.shape)
                 parallel_linear_layer.weight.copy_(weight_data)
 
             elif linear_layer.weight.device != torch.device("meta"):
@@ -545,6 +557,38 @@ def from_pretrained_for_tp(
 
         with safe_open(filename, framework="pt", device="cpu") as fp:
             weight_map = {weight_name: filename for weight_name in fp.keys()}
+
+        # If the model checkpoint used is from a base model but our model is "task-specific", for instance a checkpoint
+        # from `GPTNeoModel` when using `GPTNeoForCausalLM`, then our model weight names might not match the names in
+        # `weight_map`.
+        weight_map_for_model = {}
+        model_parameter_and_buffer_names = ({
+            n for n, _ in itertools.chain(model.named_parameters(), model.named_buffers())
+        })
+        names_of_weights_not_in_model = set()
+        prefixes = set()
+        for name, filename in weight_map.items():
+            if name not in model_parameter_and_buffer_names:
+                sharing_same_suffix_as_name = [n for n in model_parameter_and_buffer_names if n.endswith(name)]
+                if not sharing_same_suffix_as_name:
+                    continue
+                names_of_weights_not_in_model.add(name)
+                longest_sharing_parameter_name = max(sharing_same_suffix_as_name, key=lambda s: len(s))
+                prefixes.add(longest_sharing_parameter_name.replace(name, ""))
+            else:
+                weight_map_for_model[name] = filename
+        if names_of_weights_not_in_model:
+            if len(prefixes) == 1:
+                prefix = prefixes.pop()
+                weight_map_for_model["lazy_load_used_prefix"] = prefix
+                for name in names_of_weights_not_in_model:
+                    weight_map_for_model[f"{prefix}{name}"] = weight_map[name]
+            else:
+                raise ValueError(
+                    "Some weights in weight_map do not match any model parameters or buffers: "
+                    f"{', '.join(names_of_weights_not_in_model)}."
+                )
+        weight_map = weight_map_for_model
 
     model._weight_map = weight_map
 

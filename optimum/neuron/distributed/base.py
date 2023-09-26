@@ -239,7 +239,7 @@ class Parallelizer(ABC):
                 current_weight = getattr(module, attribute_name)
 
                 try:
-                    weight_info = WeightInformation(weight_map[name], name, device=device)
+                    weight_info = WeightInformation(weight_map[name], name, weight_map=weight_map, device=device)
                 except KeyError:
                     weight_info = None
 
@@ -284,11 +284,6 @@ class Parallelizer(ABC):
                 # This module has not pre-trained weights, it must be fine-tuned, we initialize it with the
                 # `reset_parameters()` method.
                 mod.reset_parameters()
-
-            for name, p in model.named_parameters():
-                if p.device == torch.device("meta"):
-                    continue
-                    print("Name", name)
         return model
 
     @classmethod
