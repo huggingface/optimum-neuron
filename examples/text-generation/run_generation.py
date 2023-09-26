@@ -74,7 +74,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--save_dir", type=str, help="The save directory. Allows to avoid recompiling the model every time."
     )
-    parser.add_argument("--compare", action="store_true", help="Compare with the genuine transformers model on CPU.")
+    parser.add_argument("--compare", type=str, help="Compare with the genuine transformers model on CPU.")
     parser.add_argument("--seed", type=int, default=None, help="Pass a seed for reproducibility.")
     args = parser.parse_args()
     if args.seed is not None:
@@ -89,7 +89,7 @@ if __name__ == "__main__":
     print(outputs)
     print(f"Outputs generated using Neuron model in {latency:.4f} s")
     if args.compare:
-        cpu_model = AutoModelForCausalLM.from_pretrained("gpt2")
+        cpu_model = AutoModelForCausalLM.from_pretrained(args.compare)
         outputs, latency = generate(cpu_model, tokenizer, prompts, args.length, args.temperature)
         print(outputs)
         print(f"Outputs generated using pytorch model in {latency:.4f} s")
