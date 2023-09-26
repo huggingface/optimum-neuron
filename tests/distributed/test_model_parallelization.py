@@ -119,6 +119,7 @@ MODEL_TYPES_TO_TEST = [
             "num_layers": "2",
         },
     ),
+    ("gpt_neox", "hf-tiny-model-private/tiny-random-GPTNeoXModel", {"num_hidden_layers": "2", "intermediate_size": "36"}),
     ("llama", "yujiepan/llama-2-tiny-3layers-random", {"num_hidden_layers": "2"}),
     (
         "t5",
