@@ -1,4 +1,5 @@
 import argparse
+import os
 import time
 
 import torch
@@ -36,8 +37,12 @@ if __name__ == "__main__":
         default=1,
         help="The batch size.",
     )
+    neuron_core_num = len(os.listdir("/sys/class/neuron_device/")) * 2
     export_parser.add_argument(
-        "--num_cores", type=int, default=1, help="The number of cores on which the model should be split."
+        "--num_cores",
+        type=int,
+        default=neuron_core_num,
+        help="The number of cores on which the model should be split. If not specified, all cores will be used.",
     )
     export_parser.add_argument(
         "--auto_cast_type", type=str, default="f32", choices=["f32", "f16", "bf16"], help="One of f32, f16, bf16."
