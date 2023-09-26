@@ -7,11 +7,10 @@ from transformers.generation import (
     GenerationMixin,
     LogitsProcessorList,
     StoppingCriteriaList,
-    TopKLogitsWarper,
 )
 from transformers.generation.utils import GenerationMode
 
-from .logits_process import FastTopKLogitsWarper
+from .logits_process import FusedLogitsWarper
 
 
 logger = logging.getLogger(__name__)
@@ -51,13 +50,6 @@ class TokenSelector:
         self.eos_token_id = eos_token_id
         self.pad_token_id = pad_token_id
         self.logits_warper = logits_warper
-        if self.mode == GenerationMode.SAMPLE:
-            assert len(self.logits_warper) > 0
-            last_warper = self.logits_warper[-1]
-            self.fast_topk = isinstance(last_warper, TopKLogitsWarper)
-            if self.fast_topk:
-                # Replace the last warping operation by a faster alternative
-                self.logits_warper[-1] = FastTopKLogitsWarper(last_warper.top_k)
 
     @classmethod
     def create(
@@ -134,7 +126,7 @@ class TokenSelector:
 
         logits_warper = None
         if generation_mode == GenerationMode.SAMPLE:
-            logits_warper = model._get_logits_warper(generation_config)
+            logits_warper = FusedLogitsWarper.from_config(generation_config)
 
         return cls(
             mode=generation_mode,
@@ -164,16 +156,12 @@ class TokenSelector:
             return torch.argmax(scores, dim=-1)
 
     def _sample(self, scores: torch.Tensor) -> torch.LongTensor:
-        if self.fast_topk:
-            # Get [batch_size, top_k] scores and indices instead of [batch_size, vocab_size] scores
-            scores, next_token_indices = self.logits_warper(None, scores)
-        else:
-            scores = self.logits_warper(None, scores)
+        # Get [batch_size, kept] scores and indices instead of [batch_size, vocab_size] scores
+        scores, next_token_indices = self.logits_warper(scores)
 
         # sample
         probs = torch.nn.functional.softmax(scores, dim=-1)
         next_tokens = torch.multinomial(probs, num_samples=1)
-        if self.fast_topk:
-            # Convert the topk relative tokens to actual vocabulary tokens
-            next_tokens = torch.gather(next_token_indices, 1, next_tokens)
+        # Convert the filtered tokens to actual vocabulary tokens
+        next_tokens = torch.gather(next_token_indices, 1, next_tokens)
         return next_tokens.squeeze(1)

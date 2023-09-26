@@ -104,7 +104,7 @@ You can query the model using either the `/generate` or `/generate_stream` route
 ```
 curl 127.0.0.1:8080/generate \
     -X POST \
-    -d '{"inputs":"What is Deep Learning?","parameters":{"max_new_tokens":20}' \
+    -d '{"inputs":"What is Deep Learning?","parameters":{"max_new_tokens":20}}' \
     -H 'Content-Type: application/json'
 ```
 

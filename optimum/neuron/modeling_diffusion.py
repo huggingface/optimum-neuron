@@ -59,8 +59,12 @@ if is_diffusers_available():
     from diffusers.schedulers.scheduling_utils import SCHEDULER_CONFIG_NAME
     from diffusers.utils import CONFIG_NAME, is_invisible_watermark_available
 
-    from .pipelines.diffusers.pipeline_stable_diffusion import StableDiffusionPipelineMixin
-    from .pipelines.diffusers.pipeline_stable_diffusion_xl import StableDiffusionXLPipelineMixin
+    from .pipelines import (
+        NeuronStableDiffusionImg2ImgPipelineMixin,
+        NeuronStableDiffusionInpaintPipelineMixin,
+        NeuronStableDiffusionPipelineMixin,
+        NeuronStableDiffusionXLPipelineMixin,
+    )
 
 
 if TYPE_CHECKING:
@@ -158,16 +162,16 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         self.unet = NeuronModelUnet(
             unet, self, self.configs[DIFFUSION_MODEL_UNET_NAME], self.neuron_configs[DIFFUSION_MODEL_UNET_NAME]
         )
-        self.vae_encoder = (
-            NeuronModelVaeEncoder(
+        if vae_encoder is not None:
+            self.vae_encoder = NeuronModelVaeEncoder(
                 vae_encoder,
                 self,
                 self.configs[DIFFUSION_MODEL_VAE_ENCODER_NAME],
                 self.neuron_configs[DIFFUSION_MODEL_VAE_ENCODER_NAME],
             )
-            if vae_encoder is not None
-            else None
-        )
+        else:
+            self.vae_encoder = None
+
         self.vae_decoder = NeuronModelVaeDecoder(
             vae_decoder,
             self,
@@ -623,15 +627,36 @@ class NeuronModelVaeDecoder(_NeuronDiffusionModelPart):
     ):
         super().__init__(model, parent_model, config, neuron_config, DIFFUSION_MODEL_VAE_DECODER_NAME)
 
-    def forward(self, latent_sample: torch.Tensor):
+    def forward(
+        self,
+        latent_sample: torch.Tensor,
+        image: Optional[torch.Tensor] = None,
+        mask: Optional[torch.Tensor] = None,
+    ):
         inputs = (latent_sample,)
+        if image is not None:
+            inputs += (image,)
+        if mask is not None:
+            inputs += (mask,)
         outputs = self.model(*inputs)
 
         return tuple(output for output in outputs.values())
 
 
-class NeuronStableDiffusionPipeline(NeuronStableDiffusionPipelineBase, StableDiffusionPipelineMixin):
-    __call__ = StableDiffusionPipelineMixin.__call__
+class NeuronStableDiffusionPipeline(NeuronStableDiffusionPipelineBase, NeuronStableDiffusionPipelineMixin):
+    __call__ = NeuronStableDiffusionPipelineMixin.__call__
+
+
+class NeuronStableDiffusionImg2ImgPipeline(
+    NeuronStableDiffusionPipelineBase, NeuronStableDiffusionImg2ImgPipelineMixin
+):
+    __call__ = NeuronStableDiffusionImg2ImgPipelineMixin.__call__
+
+
+class NeuronStableDiffusionInpaintPipeline(
+    NeuronStableDiffusionPipelineBase, NeuronStableDiffusionInpaintPipelineMixin
+):
+    __call__ = NeuronStableDiffusionInpaintPipelineMixin.__call__
 
 
 class NeuronStableDiffusionXLPipelineBase(NeuronStableDiffusionPipelineBase):
@@ -689,5 +714,5 @@ class NeuronStableDiffusionXLPipelineBase(NeuronStableDiffusionPipelineBase):
             self.watermark = None
 
 
-class NeuronStableDiffusionXLPipeline(NeuronStableDiffusionXLPipelineBase, StableDiffusionXLPipelineMixin):
-    __call__ = StableDiffusionXLPipelineMixin.__call__
+class NeuronStableDiffusionXLPipeline(NeuronStableDiffusionXLPipelineBase, NeuronStableDiffusionXLPipelineMixin):
+    __call__ = NeuronStableDiffusionXLPipelineMixin.__call__

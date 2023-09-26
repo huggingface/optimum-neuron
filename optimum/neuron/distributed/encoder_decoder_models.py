@@ -21,7 +21,7 @@ from transformers import T5ForSequenceClassification
 
 from ...utils import NormalizedConfigManager
 from .base import Parallelizer
-from .parallel_layers import ParallelEmbedding, ParallelMLP, ParallelSelfAttention
+from .parallel_layers import ParallelCrossEntropy, ParallelEmbedding, ParallelMLP, ParallelSelfAttention
 from .utils import linear_to_parallel_linear
 
 
@@ -143,6 +143,10 @@ class T5ParallelMLP(ParallelMLP):
         return layer
 
 
+class T5ParallelCrossEntropy(ParallelCrossEntropy):
+    LAST_LINEAR_PROJECTION_NAME = "lm_head"
+
+
 class T5Parallelizer(Parallelizer):
     @classmethod
     def _parallelize(
@@ -182,4 +186,6 @@ class T5Parallelizer(Parallelizer):
             block.layer[2].DenseReluDense = T5ParallelMLP.transform(
                 model, block.layer[2].DenseReluDense, device=device
             )
+        if parallelize_embeddings:
+            model = T5ParallelCrossEntropy.transform(model, model, device=device)
         return model

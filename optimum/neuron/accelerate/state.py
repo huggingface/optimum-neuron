@@ -58,6 +58,7 @@ class NeuronPartialState(PartialState):
             self.backend = None
             env_device = os.environ.get("ACCELERATE_TORCH_DEVICE", None)
             self.device = torch.device(env_device) if env_device is not None else None
+            self.debug = parse_flag_from_env("ACCELERATE_DEBUG_MODE")
             use_sagemaker_dp = kwargs.pop("_use_sagemaker_dp", None)
             if use_sagemaker_dp is None:
                 use_sagemaker_dp = (

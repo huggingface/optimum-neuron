@@ -18,8 +18,12 @@ from abc import ABC, abstractclassmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Optional, Tuple, Union
 
+import torch
+from torch.nn.modules.loss import _WeightedLoss
+
 from ...utils import NormalizedConfigManager, logging
-from ..utils import is_neuronx_distributed_available
+from ..utils import patch_everywhere, patch_within_function
+from ..utils.require_utils import requires_neuronx_distributed
 from .utils import (
     GroupedQueryAttentionInfo,
     WeightInformation,
@@ -29,15 +33,16 @@ from .utils import (
 )
 
 
-if is_neuronx_distributed_available():
-    from neuronx_distributed.parallel_layers import parallel_state
-
 if TYPE_CHECKING:
-    import torch
-    from transformers import PretrainedConfig, PreTrainedModel
+    from transformers import PreTrainedModel
 
 
 logger = logging.get_logger()
+
+
+# Just for testing purposes, setting that to True will feed a copy of the  input to `parallel_cross_entropy` which
+# changes inputs inplace. This way the original input is not transformed and can be used in tests for comparison.
+_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT: bool = False
 
 
 class ParallelLayer(ABC):
@@ -86,8 +91,8 @@ class ParallelLayer(ABC):
     @abstractclassmethod
     def transform(
         cls,
+        model: "PreTrainedModel",
         layer: "torch.nn.Module",
-        config: "PretrainedConfig",
         orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
         device: Optional["torch.device"] = None,
     ) -> "torch.nn.Module":
@@ -95,10 +100,10 @@ class ParallelLayer(ABC):
         Transforms a layer to its parallel counterpart.
 
         Args:
+            model (`PreTrainedModel`):
+                The model to parallelize.
             layer (`torch.nn.Module`):
                 The layer to transform.
-            config (`PretrainedConfig`):
-                The config of the model.
             orig_to_parallel (`Optional[Dict[int, torch.nn.Parameter]]`, defaults to `None`):
                 A dictionary to fill. It maps a former parameter id to its parallel version.
                 It might be deprecated soon.
@@ -115,15 +120,20 @@ class ParallelEmbedding(ParallelLayer):
     Attributes:
         EMBEDDING_NAME (`str`, defaults to `"embedding"`):
             The qualified name of the embedding layer.
+        VOCAB_SIZE_NAME (`Optional[str]`, defaults to `"config.vocab_size"`):
+            The name of the attribute holding the value of the vocabulary size.
+            If specified, it will overwrite the value to account for embedding parallelization.
         LM_HEAD_NAME (`Optional[Union[str, Dict[str, str]]]`, defaults to `None`):
             The qualified name of the LM head tied to the embedding layer (if any). It can be also a dictionary mapping
             a class name to LM head qualified name.
     """
 
-    EMBEDDING_NAME: str = "embedding"
+    EMBEDDING_NAME: str
+    VOCAB_SIZE_NAME: Optional[str] = "config.vocab_size"
     LM_HEAD_NAME: Optional[Union[str, Dict[str, str]]] = None
 
     @classmethod
+    @requires_neuronx_distributed
     def transform(
         cls,
         model: "PreTrainedModel",
@@ -131,6 +141,8 @@ class ParallelEmbedding(ParallelLayer):
         orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
         device: Optional["torch.device"] = None,
     ) -> "torch.nn.Module":
+        from neuronx_distributed.parallel_layers import parallel_state
+
         if cls.LM_HEAD_NAME is not None:
             if isinstance(cls.LM_HEAD_NAME, dict):
                 lm_head_name = cls.LM_HEAD_NAME.get(model.__class__.__name__, None)
@@ -206,6 +218,16 @@ class ParallelEmbedding(ParallelLayer):
             setattr(parent_lm_head_module, parent_lm_head_attribute_name, parallel_layers[1])
         else:
             setattr(parent_embedding_module, embedding_attribute_name, parallel_layers)
+
+        if cls.VOCAB_SIZE_NAME is not None:
+            attribute_names = cls.VOCAB_SIZE_NAME.split(".")
+            obj = layer
+            for name in attribute_names[:-1]:
+                obj = getattr(obj, name)
+            vocab_size_attribute_name = attribute_names[-1]
+            new_vocab_size = getattr(obj, vocab_size_attribute_name) // tp_size
+            setattr(obj, vocab_size_attribute_name, new_vocab_size)
+
         return layer
 
 
@@ -249,6 +271,7 @@ class ParallelSelfAttention(ParallelLayer):
     ALL_HEAD_SIZE_NAME: Optional[str] = None  # "all_head_size"
 
     @classmethod
+    @requires_neuronx_distributed
     def transform(
         cls,
         model: "PreTrainedModel",
@@ -456,14 +479,14 @@ class ParallelMLP(ParallelLayer):
     Transforms a MLP into a Parallel MLP.
 
     Attributes:
-        FIRST_LINEAR_NAME (`Optional[str]`, defaults to `None`):
+        FIRST_LINEAR_NAME (`str`):
             The qualified name of the first linear projection in the module.
-        SECOND_LINEAR_NAME (`Optional[str]`, defaults to `None`):
+        SECOND_LINEAR_NAME (`str`):
             The qualified name of the second linear projection in the module.
     """
 
-    FIRST_LINEAR_NAME: Optional[str] = None
-    SECOND_LINEAR_NAME: Optional[str] = None
+    FIRST_LINEAR_NAME: str
+    SECOND_LINEAR_NAME: str
 
     @classmethod
     def transform(
@@ -473,9 +496,6 @@ class ParallelMLP(ParallelLayer):
         orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
         device: Optional["torch.device"] = None,
     ) -> "torch.nn.Module":
-        if cls.FIRST_LINEAR_NAME is None or cls.SECOND_LINEAR_NAME is None:
-            raise ValueError("Both `FIRST_LINEAR_NAME` and `SECOND_LINEAR_NAME` class attributes must be set.")
-
         layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
         weight_map = getattr(model, "_weight_map", None)
 
@@ -526,5 +546,162 @@ class ParallelMLP(ParallelLayer):
                 device=device,
             ),
         )
+
+        return layer
+
+
+@requires_neuronx_distributed
+def safe_parallel_cross_entropy(*args, **kwargs):
+    if kwargs.pop("weight", None) is not None:
+        raise ValueError("The weight keyword argument is not supported when using parallel cross entropy")
+    if kwargs.pop("size_average", None) is not None:
+        raise ValueError("The size_average keyword argument is not supported when using parallel cross entropy")
+    if kwargs.pop("ignore_index", -100) != -100:
+        raise ValueError("The ignore_index keyword argument is not supported when using parallel cross entropy")
+    if kwargs.pop("reduce", None) is not None:
+        raise ValueError("The reduce keyword argument is not supported when using parallel cross entropy")
+    reduction = kwargs.pop("reduction", "mean")
+    if reduction not in ["mean", "sum", "none"]:
+        raise ValueError(
+            f'The reduction parameter only accepts 3 values: "mean", "sum" and "none", but {reduction} was provided '
+            "here."
+        )
+
+    from neuronx_distributed.parallel_layers.loss_functions import parallel_cross_entropy
+
+    input_ = args[0]
+    if _PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT:
+        input_ = input_.clone()
+    loss = parallel_cross_entropy(input_, *args[1:], **kwargs)
+
+    if reduction == "mean":
+        loss = loss.mean()
+    elif reduction == "sum":
+        loss = loss.sum()
+
+    return loss
+
+
+class ParallelCrossEntropyLoss(_WeightedLoss):
+    """
+    Same as `torch.nn.CrossEntropyLoss` except that it uses
+    `neuronx_distributed.parallel_layers.loss_functions.parallel_cross_entropy`.
+    """
+
+    __constants__ = ["ignore_index", "reduction", "label_smoothing"]
+    ignore_index: int
+    label_smoothing: float
+
+    def __init__(
+        self,
+        weight: Optional[torch.Tensor] = None,
+        size_average=None,
+        ignore_index: int = -100,
+        reduce=None,
+        reduction: str = "mean",
+        label_smoothing: float = 0.0,
+    ) -> None:
+        super().__init__(weight, size_average, reduce, reduction)
+        self.ignore_index = ignore_index
+        self.label_smoothing = label_smoothing
+
+    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        # Original way of computing the cross-entropy in `torch_neuronx`:
+        # from torch_neuronx.xla_impl.ops import SimpleCrossEntropyLoss
+        # output = SimpleCrossEntropyLoss.gen_override().forward(self, input, target)
+        output = safe_parallel_cross_entropy(
+            input,
+            target,
+            weight=self.weight,
+            ignore_index=self.ignore_index,
+            reduction=self.reduction,
+            label_smoothing=self.label_smoothing,
+        )
+        return output
+
+
+class ParallelCrossEntropy(ParallelLayer):
+    LAST_LINEAR_PROJECTION_NAME: Union[str, Dict[str, str]]
+
+    @classmethod
+    def is_eligible_for_cross_entropy_parallelization(cls, model: "PreTrainedModel") -> bool:
+        """
+        Specifies whether a given model is eligible for cross entropy loss parallelization.
+        """
+        return getattr(model.config, "problem_type", "") not in ["regression", "multi_label_classification"]
+
+    @classmethod
+    def patch_cross_entropy(cls, model: "PreTrainedModel"):
+        patch_everywhere("CrossEntropyLoss", ParallelCrossEntropyLoss)
+        orig_forward = model.forward
+        patcher = patch_within_function(
+            [
+                ("torch.nn.functional.cross_entropy", safe_parallel_cross_entropy),
+                ("torch.nn.modules.loss.F.cross_entropy", safe_parallel_cross_entropy),
+            ]
+        )
+        model.forward = patcher(orig_forward)
+
+    @classmethod
+    @requires_neuronx_distributed
+    def transform(
+        cls,
+        model: "PreTrainedModel",
+        layer: "torch.nn.Module",
+        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+        device: Optional["torch.device"] = None,
+    ) -> "torch.nn.Module":
+        from neuronx_distributed import parallel_layers
+
+        linear_projection_name = None
+        if cls.LAST_LINEAR_PROJECTION_NAME is not None:
+            if isinstance(cls.LAST_LINEAR_PROJECTION_NAME, dict):
+                linear_projection_name = cls.LAST_LINEAR_PROJECTION_NAME.get(model.__class__.__name__, None)
+            else:
+                linear_projection_name = cls.LAST_LINEAR_PROJECTION_NAME
+
+        if linear_projection_name is None:
+            return layer
+
+        if not cls.is_eligible_for_cross_entropy_parallelization(model):
+            return layer
+
+        linear_projection_parent, linear_projection_attr_name = cls._get_module_and_attribute_name(
+            layer, linear_projection_name
+        )
+        linear_projection = getattr(linear_projection_parent, linear_projection_attr_name)
+
+        # If the layer was already parallelized, which is the case most of the time with tied embeddings and LM heads
+        # because it is handled in ParallelEmbedding, we only patch the cross entropy loss object.
+        if isinstance(linear_projection, parallel_layers.ColumnParallelLinear):
+            cls.patch_cross_entropy(model)
+            return layer
+
+        if isinstance(linear_projection, parallel_layers.RowParallelLinear):
+            raise ValueError(
+                "Cannot parallelize the cross entropy loss if the last linear projection is a RowParallelLinear "
+                "instance."
+            )
+
+        linear_projection_weight_info, linear_projection_bias_weight_info = None, None
+        weight_map = getattr(model, "_weight_map", None)
+        if weight_map is not None:
+            layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
+            linear_projection_qualified_name = layer_to_fully_qualified_name[id(linear_projection)]
+            linear_projection_weight_info, linear_projection_bias_weight_info = cls._get_linear_weight_info(
+                weight_map, linear_projection_qualified_name, device=device
+            )
+
+        parallel_linear_projection = linear_to_parallel_linear(
+            getattr(linear_projection_parent, linear_projection_attr_name),
+            axis="column",
+            gather_output=False,
+            linear_layer_weight_info=linear_projection_weight_info,
+            linear_layer_bias_weight_info=linear_projection_bias_weight_info,
+            device=device,
+        )
+        setattr(linear_projection_parent, linear_projection_attr_name, parallel_linear_projection)
+
+        cls.patch_cross_entropy(model)
 
         return layer

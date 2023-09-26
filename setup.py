@@ -14,7 +14,7 @@ except Exception as error:
 
 INSTALL_REQUIRES = [
     "transformers >= 4.32.1",
-    "accelerate >= 0.20.1",
+    "accelerate == 0.23.0",
     "optimum >= 1.13.0",
     "huggingface_hub >= 0.14.0",
     "numpy>=1.18.5, <=1.21.6",
@@ -53,12 +53,12 @@ EXTRAS_REQUIRE = {
     ],
     "neuronx": [
         "wheel",
-        "neuronx-cc>=2.9",
-        "torch-neuronx>=1.13.1.1.10.1",
-        "transformers-neuronx>=0.6.106",
+        "neuronx-cc>=2.10",
+        "torch-neuronx>=1.13.1.1.11.0",
+        "transformers-neuronx>=0.7.84",
         "torch==1.13.1.*",
         "torchvision==0.14.*",
-        "neuronx_distributed>=0.3.0",
+        "neuronx_distributed>=0.4.0",
     ],
     "diffusers": ["diffusers"],
 }

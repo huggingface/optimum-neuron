@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2023 The HuggingFace Inc. team. All rights reserved.
+# Copyright 2023 The HuggingFace Team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .logits_process import FusedLogitsWarper
-from .token_selector import TokenSelector
-from .utils import NeuronGenerationMixin
+from .pipeline_stable_diffusion import NeuronStableDiffusionPipelineMixin
+from .pipeline_stable_diffusion_img2img import NeuronStableDiffusionImg2ImgPipelineMixin
+from .pipeline_stable_diffusion_inpaint import NeuronStableDiffusionInpaintPipelineMixin
+from .pipeline_stable_diffusion_xl import NeuronStableDiffusionXLPipelineMixin
