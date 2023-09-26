@@ -1,3 +1,4 @@
+import os
 import argparse
 import time
 
@@ -44,6 +45,8 @@ def generate(model, tokenizer, prompts, length, temperature):
 
 
 if __name__ == "__main__":
+    neuron_core_num = len(os.listdir('/sys/class/neuron_device/')) * 2
+
     parser = argparse.ArgumentParser()
     parser.add_argument("model", type=str, help="The HF Hub model id or a local directory.")
     parser.add_argument(
@@ -60,10 +63,10 @@ if __name__ == "__main__":
     )
     parser.add_argument("--length", type=int, default=128, help="The number of tokens in the generated sequences.")
     parser.add_argument(
-        "--num_cores", type=int, default=1, help="The number of cores on which the model should be split."
+        "--num_cores", type=int, default=neuron_core_num, help="The number of cores on which the model should be split."
     )
     parser.add_argument(
-        "--auto_cast_type", type=str, default="f32", choices=["f32", "f16", "bf16"], help="One of f32, f16, bf16."
+        "--auto_cast_type", type=str, default="bf16", choices=["f32", "f16", "bf16"], help="One of f32, f16, bf16."
     )
     parser.add_argument(
         "--temperature",
