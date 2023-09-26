@@ -245,7 +245,6 @@ class Parallelizer(ABC):
 
                 if parameter in tied_weights:
                     new_parameter = tied_weights[parameter]
-
                 elif weight_info is not None:
                     if getattr(current_weight, "tensor_model_parallel", False):
                         if parameter.device == torch.device("meta"):
@@ -274,6 +273,7 @@ class Parallelizer(ABC):
                     device = torch.device("cpu") if device is None else device
                     new_parameter = torch.nn.Parameter(torch.empty_like(current_weight, device=device))
                     modules_to_initialize.append(module)
+
                 setattr(
                     module,
                     attribute_name,

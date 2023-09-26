@@ -346,7 +346,6 @@ def linear_to_parallel_linear(
                         None,
                     ),
                 )
-                print(linear_layer.weight.shape, parallel_linear_layer.weight.shape, weight_data.shape)
                 parallel_linear_layer.weight.copy_(weight_data)
 
             elif linear_layer.weight.device != torch.device("meta"):
@@ -562,9 +561,9 @@ def from_pretrained_for_tp(
         # from `GPTNeoModel` when using `GPTNeoForCausalLM`, then our model weight names might not match the names in
         # `weight_map`.
         weight_map_for_model = {}
-        model_parameter_and_buffer_names = ({
+        model_parameter_and_buffer_names = {
             n for n, _ in itertools.chain(model.named_parameters(), model.named_buffers())
-        })
+        }
         names_of_weights_not_in_model = set()
         prefixes = set()
         for name, filename in weight_map.items():

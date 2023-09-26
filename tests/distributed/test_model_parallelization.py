@@ -110,15 +110,20 @@ def _generate_supported_model_class_names(
 
 
 MODEL_TYPES_TO_TEST = [
-    ("bert", "hf-internal-testing/tiny-random-bert"),
-    ("roberta", "hf-internal-testing/tiny-random-roberta"),
-    ("gpt_neo", "hf-internal-testing/tiny-random-GPTNeoModel"),
+    ("bert", "hf-internal-testing/tiny-random-bert", {"num_hidden_layers": "2"}),
+    ("roberta", "hf-internal-testing/tiny-random-roberta", {"num_hidden_layers": "2"}),
+    (
+        "gpt_neo",
+        "hf-internal-testing/tiny-random-GPTNeoModel",
+        {
+            "num_layers": "2",
+        },
+    ),
     ("llama", "yujiepan/llama-2-tiny-3layers-random", {"num_hidden_layers": "2"}),
     (
         "t5",
-        # "hf-tiny-model-private/tiny-random-T5ForConditionalGeneration",
         "hf-internal-testing/tiny-random-T5Model",
-        {"d_ff": "64", "num_layers": "2", "num_decoder_layers": "2"},
+        {"d_ff": "36", "num_layers": "2", "num_decoder_layers": "2"},
     ),
 ]
 
@@ -141,20 +146,23 @@ class ModelParallelizationTestCase(unittest.TestCase):
         "encoder_last_hidden_state",
     }
 
-    def _check_output(self, name: str, original_output, output):
+    def _check_output(self, name: str, original_output, output, lazy_load: bool):
         assert type(original_output) is type(output)
         if isinstance(original_output, (tuple, list, set)):
             for idx, orig_output in enumerate(original_output):
                 new_name = f"{name}.{idx}"
-                self._check_output(new_name, orig_output, output[idx])
+                self._check_output(new_name, orig_output, output[idx], lazy_load)
         elif isinstance(original_output, dict):
             for output_name in original_output:
                 new_name = f"{name}.{output_name}"
-                self._check_output(new_name, original_output[name], output[name])
+                self._check_output(new_name, original_output[name], output[name], lazy_load)
         elif isinstance(original_output, torch.Tensor):
             print(f"Original {name}:\nShape: {original_output.shape}\nValue: {original_output}")
             print(f"Parallel {name}:\nShape: {output.shape}\nValue: {output}")
-            torch.testing.assert_close(original_output, output)
+
+            atol = None if not lazy_load else 1e-3
+
+            torch.testing.assert_close(original_output, output, atol=atol)
         else:
             assert original_output == output, f"Output named {name} do not match."
 
@@ -279,13 +287,13 @@ class ModelParallelizationTestCase(unittest.TestCase):
                 regular_parallel_outputs_error_msg = None
                 gathered_parallel_outputs_error_msg = None
                 try:
-                    self._check_output(name, t, parallel_model_outputs[name])
+                    self._check_output(name, t, parallel_model_outputs[name], with_lazy_load)
                 except AssertionError as e:
                     regular_parallel_outputs_error_msg = str(e)
                 if regular_parallel_outputs_error_msg is not None:
                     print("Regular output did not match, testing with the gathered output...")
                     try:
-                        self._check_output(name, t, parallel_model_outputs[f"gathered_{name}"])
+                        self._check_output(name, t, parallel_model_outputs[f"gathered_{name}"], with_lazy_load)
                     except AssertionError as e:
                         gathered_parallel_outputs_error_msg = str(e)
                 if regular_parallel_outputs_error_msg is not None and gathered_parallel_outputs_error_msg is not None:

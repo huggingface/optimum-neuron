@@ -517,7 +517,6 @@ class ParallelMLP(ParallelLayer):
                 device=device,
             )
 
-            print(f"{layer_qualified_name}.{attribute_name}")
         setattr(
             module,
             attribute_name,
