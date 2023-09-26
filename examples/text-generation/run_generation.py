@@ -83,17 +83,22 @@ if __name__ == "__main__":
     batch_size = len(prompts) if args.batch_size is None else args.batch_size
     if len(prompts) < batch_size:
         prompts = prompts + [prompts[-1]] * (batch_size - len(prompts))
+    print(f"Loading Neuron model.")
     model = load_llm_optimum(args.model, batch_size, args.num_cores, args.auto_cast_type)
     tokenizer = AutoTokenizer.from_pretrained(args.model)
+    print(f"Generating via Neuron model.")
     outputs, latency = generate(model, tokenizer, prompts, args.length, args.temperature)
     print(outputs)
     print(f"Outputs generated using Neuron model in {latency:.4f} s")
     if args.compare:
+        print(f"Loading pytorch model to cpu.")
         cpu_model = AutoModelForCausalLM.from_pretrained(args.compare)
+        print(f"Generating via pytorch model.")
         outputs, latency = generate(cpu_model, tokenizer, prompts, args.length, args.temperature)
         print(outputs)
         print(f"Outputs generated using pytorch model in {latency:.4f} s")
 
     if args.save_dir:
+        print(f"Saving model to {args.save_dir}.")
         model.save_pretrained(args.save_dir)
         tokenizer.save_pretrained(args.save_dir)
