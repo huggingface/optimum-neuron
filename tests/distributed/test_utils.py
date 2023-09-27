@@ -146,7 +146,9 @@ class ParallelUtilsTestCase(unittest.TestCase):
                 torch.testing.assert_close(
                     parallel_lm_head.weight, lm_head_weight[tp_rank * shard_size : (tp_rank + 1) * shard_size, :]
                 )
-                torch.testing.assert_close(parallel_lm_head.bias, lm_head_bias_weight)
+                torch.testing.assert_close(
+                    parallel_lm_head.bias, lm_head_bias_weight[tp_rank * shard_size : (tp_rank + 1) * shard_size]
+                )
                 assert id(parallel_embedding.weight) != id(parallel_lm_head.weight)
                 assert id(parallel_lm_head.bias) != id(lm_head.bias)
 
@@ -172,7 +174,9 @@ class ParallelUtilsTestCase(unittest.TestCase):
                 torch.testing.assert_close(
                     parallel_lm_head.weight, embedding_weight[tp_rank * shard_size : (tp_rank + 1) * shard_size, :]
                 )
-                torch.testing.assert_close(parallel_lm_head.bias, lm_head_bias_weight)
+                torch.testing.assert_close(
+                    parallel_lm_head.bias, lm_head_bias_weight[tp_rank * shard_size : (tp_rank + 1) * shard_size]
+                )
                 assert id(parallel_embedding.weight) == id(parallel_lm_head.weight)
                 assert id(parallel_lm_head.bias) != id(lm_head.bias)
 

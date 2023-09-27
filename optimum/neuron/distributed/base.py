@@ -27,6 +27,13 @@ from transformers.utils import WEIGHTS_NAME
 
 from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
+from ..utils.deprecate_utils import deprecate
+from .parallel_layers import (
+    IOSequenceParallelizer,
+    LayerNormSequenceParallelizer,
+    LayerNormType,
+    SequenceCollectiveOpInfo,
+)
 from .utils import TENSOR_PARALLEL_SHARDS_DIR_NAME, ParameterMetadata, WeightInformation, load_tensor_for_weight
 
 
@@ -58,10 +65,41 @@ class SavedModelInTemporaryDirectory:
         self.tmpdir.cleanup()
 
 
+@deprecate(
+    "2.0.0",
+    package_name="torch",
+    reason="torch.nn.Module._named_members takes a `remove_duplicate` parameter starting from 2.0.0",
+)
+def _named_members(module, get_members_fn, prefix="", recurse=True, remove_duplicate: bool = True):
+    r"""Helper method for yielding various names + members of modules."""
+    memo = set()
+    modules = module.named_modules(prefix=prefix, remove_duplicate=remove_duplicate) if recurse else [(prefix, module)]
+    for module_prefix, mod in modules:
+        members = get_members_fn(mod)
+        for k, v in members:
+            if v is None or v in memo:
+                continue
+            if remove_duplicate:
+                memo.add(v)
+            name = module_prefix + ("." if module_prefix else "") + k
+            yield name, v
+
+
+def named_parameters(module: "torch.nn.Module", prefix: str = "", recurse: bool = True, remove_duplicate: bool = True):
+    gen = _named_members(
+        module, lambda mod: mod._parameters.items(), prefix=prefix, recurse=recurse, remove_duplicate=remove_duplicate
+    )
+    yield from gen
+
+
 class Parallelizer(ABC):
     """
     Base abstract class that handles model parallelism.
     """
+
+    SEQUENCE_PARALLEL_LAYERNORM_PATTERNS: Optional[List[str]] = None
+    LAYERNORM_TYPE: LayerNormType = LayerNormType.REGULAR
+    SEQUENCE_COLLECTIVE_OPS_INFOS: Optional[List[SequenceCollectiveOpInfo]] = None
 
     def __init__(self):
         self._validate_required_libaries_are_available()
@@ -92,9 +130,9 @@ class Parallelizer(ABC):
     def _parallelize(
         cls,
         model: "PreTrainedModel",
-        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
         device: Optional["torch.device"] = None,
         parallelize_embeddings: bool = True,
+        sequence_parallel_enabled: bool = False,
     ) -> "PreTrainedModel":
         """
         Parallelizes the model by transforming regular layer into their parallel counterparts.
@@ -103,26 +141,35 @@ class Parallelizer(ABC):
         Args:
             model (`PreTrainedModel`):
                 The model to parallelize.
-            orig_to_parallel (`Optional[Dict[int, torch.nn.Parameter]]`, defaults to `None`):
-                A dictionary to fill. It maps a former parameter id to its parallel version.
-                It might be deprecated soon.
             device (`Optional[torch.device]`, defaults to `None`):
                 The device where the new parallel layers should be put.
             parallelize_embeddings (`bool`, defaults to `True`):
                 Whether or not the embeddings should be parallelized.
                 This can be disabled in the case when the TP size does not divide the vocabulary size.
-
+            sequence_parallel_enabled (`bool`, defaults to `False`):
+                Whether or not sequence parallelism is enabled.
         Returns:
             `PreTrainedModel`: The parallelized model.
         """
 
     @classmethod
+    def patch_for_sequence_paralelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
+        """
+        This method needs to be overriden. It must patch anything model-specfic to make the model compatible with
+        sequence parallelism.
+        """
+        if sequence_parallel_enabled:
+            raise NotImplementedError(
+                f"No patching for the attention mechanism for sequence parallelism was implemented for {model.__class__}"
+            )
+
+    @classmethod
     def parallelize(
         cls,
         model: "PreTrainedModel",
-        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
         device: Optional["torch.device"] = None,
         parallelize_embeddings: bool = True,
+        sequence_parallel_enabled: bool = False,
     ) -> "PreTrainedModel":
         """
         Parallelizes the model by transforming regular layer into their parallel counterparts using
@@ -134,21 +181,48 @@ class Parallelizer(ABC):
         Args:
             model (`PreTrainedModel`):
                 The model to parallelize.
-            orig_to_parallel (`Optional[Dict[int, torch.nn.Parameter]]`, defaults to `None`):
-                A dictionary to fill. It maps a former parameter id to its parallel version.
-                It might be deprecated soon.
             device (`Optional[torch.device]`, defaults to `None`):
                 The device where the new parallel layers should be put.
             parallelize_embeddings (`bool`, defaults to `True`):
                 Whether or not the embeddings should be parallelized.
                 This can be disabled in the case when the TP size does not divide the vocabulary size.
+            sequence_parallel_enabled (`bool`, defaults to `False`):
+                Whether or not sequence parallelism is enabled.
 
         Returns:
             `PreTrainedModel`: The parallelized model.
         """
-        model = cls._parallelize(
-            model, orig_to_parallel=orig_to_parallel, device=device, parallelize_embeddings=parallelize_embeddings
+        if sequence_parallel_enabled and cls.SEQUENCE_PARALLEL_LAYERNORM_PATTERNS is None:
+            raise NotImplementedError(f"Sequence parallelism is not supported for {model.__class__}.")
+
+        # Preparing the model for sequence parallelism:
+        # 1. Transforming the LayerNorms.
+        layer_norm_qualified_name_patterns = (
+            cls.SEQUENCE_PARALLEL_LAYERNORM_PATTERNS if cls.SEQUENCE_PARALLEL_LAYERNORM_PATTERNS is not None else []
         )
+        layer_norm_sequence_parallelizer = LayerNormSequenceParallelizer(
+            sequence_parallel_enabled, layer_norm_qualified_name_patterns
+        )
+        layer_norm_sequence_parallelizer.sequence_parallelize(model, cls.LAYERNORM_TYPE)
+
+        # 2. Taking care of scattering / gathering on the sequence axis in the model via the IOSequenceParallelizer.
+        io_sequence_parallelizer = IOSequenceParallelizer(
+            sequence_parallel_enabled,
+            sequence_collective_op_infos=cls.SEQUENCE_COLLECTIVE_OPS_INFOS,
+        )
+        io_sequence_parallelizer.sequence_parallelize(model)
+
+        # 3. Applying model specific patching for sequence parallelism.
+        if sequence_parallel_enabled:
+            cls.patch_for_sequence_paralelism(model, sequence_parallel_enabled)
+
+        model = cls._parallelize(
+            model,
+            device=device,
+            parallelize_embeddings=parallelize_embeddings,
+            sequence_parallel_enabled=sequence_parallel_enabled,
+        )
+
         weight_map = getattr(model, "_weight_map", None)
 
         # The model was not loaded lazily, it is already ready.
@@ -156,18 +230,22 @@ class Parallelizer(ABC):
             return model
 
         with torch.no_grad():
+            tied_weights = {}
             modules_to_initialize = []
-            for name, parameter in model.named_parameters():
+            for name, parameter in named_parameters(model, remove_duplicate=False):
                 split = name.rsplit(".", maxsplit=1)
                 module = model.get_submodule(split[0])
                 attribute_name = split[1]
                 current_weight = getattr(module, attribute_name)
+
                 try:
-                    weight_info = WeightInformation(weight_map[name], name, device=device)
+                    weight_info = WeightInformation(weight_map[name], name, weight_map=weight_map, device=device)
                 except KeyError:
                     weight_info = None
 
-                if weight_info is not None:
+                if parameter in tied_weights:
+                    new_parameter = tied_weights[parameter]
+                elif weight_info is not None:
                     if getattr(current_weight, "tensor_model_parallel", False):
                         if parameter.device == torch.device("meta"):
                             # This must either be a torch.nn.Embedding or a torch.nn.Linear that was not handled during
@@ -189,24 +267,26 @@ class Parallelizer(ABC):
                     else:
                         slices = None
 
-                    setattr(
-                        module,
-                        attribute_name,
-                        torch.nn.Parameter(load_tensor_for_weight(weight_info, tensor_slices=slices)),
+                    new_parameter = torch.nn.Parameter(
+                        load_tensor_for_weight(weight_info, tensor_slices=slices).to(parameter.dtype)
                     )
                 else:
                     # This means that there is no information about where to find the weights for this parameter.
                     device = torch.device("cpu") if device is None else device
-                    setattr(
-                        module,
-                        attribute_name,
-                        torch.nn.Parameter(torch.empty_like(current_weight, device=device)),
-                    )
+                    new_parameter = torch.nn.Parameter(torch.empty_like(current_weight, device=device))
                     modules_to_initialize.append(module)
+
+                setattr(
+                    module,
+                    attribute_name,
+                    new_parameter,
+                )
+                tied_weights[parameter] = new_parameter
             for mod in modules_to_initialize:
                 # This module has not pre-trained weights, it must be fine-tuned, we initialize it with the
                 # `reset_parameters()` method.
                 mod.reset_parameters()
+
         return model
 
     @classmethod

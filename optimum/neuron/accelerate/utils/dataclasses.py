@@ -142,6 +142,7 @@ class NeuronFullyShardedDataParallelPlugin(FullyShardedDataParallelPlugin):
 class TensorParallelismPlugin:
     tensor_parallel_size: int = 1
     parallelize_embeddings: bool = True
+    sequence_parallel_enabled: bool = False
 
     def __post_init__(self):
         if self.tensor_parallel_size < 1:
@@ -154,18 +155,13 @@ class TensorParallelismPlugin:
     def parallelize_model(
         self,
         model: "PreTrainedModel",
-        return_orig_to_parallel: bool = False,
         device: Optional["torch.device"] = None,
     ) -> Union["PreTrainedModel", Tuple["PreTrainedModel", Dict[int, "torch.nn.Parameter"]]]:
-        orig_to_parallel = {} if return_orig_to_parallel else None
         parallelizer = ParallelizersManager.parallelizer_for_model(model)
         parallelized_model = parallelizer.parallelize(
             model,
-            orig_to_parallel=orig_to_parallel,
             device=device,
             parallelize_embeddings=self.parallelize_embeddings,
+            sequence_parallel_enabled=self.sequence_parallel_enabled,
         )
-        if return_orig_to_parallel:
-            return parallelized_model, orig_to_parallel
-        else:
-            return parallelized_model
+        return parallelized_model

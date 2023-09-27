@@ -7,6 +7,7 @@ from inspect import signature
 import torch
 import neuronx_distributed
 from neuronx_distributed import parallel_layers
+from neuronx_distributed.utils.model_utils import move_model_to_device
 import torch_xla.core.xla_model as xm
 
 from transformers import AutoConfig, AutoTokenizer, {model_class}
@@ -15,7 +16,7 @@ from transformers.trainer_utils import set_seed
 import optimum
 from optimum.neuron.distributed import ParallelizersManager, lazy_load_for_parallelism
 
-from utils import gather_along_last_dim, generate_dummy_labels
+from utils import gather_along_dim, generate_dummy_labels
 
 
 if os.environ.get("TORCHELASTIC_RUN_ID"):
@@ -31,6 +32,8 @@ lazy_load = os.environ["lazy_load"] == "true"
 is_parallel = os.environ["is_parallel"] == "true"
 config_overwrite = os.environ.get("config_overwrite", "")
 parallelize_embeddings = is_parallel and os.environ["parallelize_embeddings"] == "true"
+sequence_parallel_enabled = os.environ["sequence_parallel_enabled"] == "true"
+computing_loss_is_supported = os.environ["computing_loss_is_supported"] == "true"
 
 # This is required to prevent `parallel_cross_entropy` to mutate the logits (which would make them not comparable).
 if is_parallel and parallelize_embeddings:
@@ -50,6 +53,9 @@ for overwrite_info in config_overwrite:
     attr_type = type(getattr(config, attr_name))
     setattr(config, attr_name, attr_type(attr_value))
 
+if getattr(config, "problem_type", None) is None:
+    config.problem_type = "single_label_classification"
+
 if xm.get_ordinal() == 0:
   print(config)
 
@@ -57,12 +63,21 @@ preprocessor = AutoTokenizer.from_pretrained("{model_name_or_path}")
 
 inputs = preprocessor("This is a test to check that TP is working.", return_tensors="pt")
 
+if sequence_parallel_enabled:
+    for name, tensor in inputs.items():
+        if tensor.shape[1] % {tp_size} != 0:
+            tensor = torch.nn.functional.pad(
+              tensor, pad=(0, tensor.shape[1] % {tp_size}), value=1,
+            )
+            inputs[name] = tensor
+
 def load_model_with_seed(seed: int, from_config: bool):
     set_seed(seed)
     if from_config:
         model = {model_class}(config)
     else:
-      ctx = lazy_load_for_parallelism(tensor_parallel_size={tp_size}) if lazy_load else nullcontext()
+      tp_size = {tp_size} if is_parallel else 1
+      ctx = lazy_load_for_parallelism(tensor_parallel_size=tp_size) if lazy_load else nullcontext()
       with ctx:
           model = {model_class}.from_pretrained("{model_name_or_path}", config=config, ignore_mismatched_sizes=True)
     return model
@@ -74,8 +89,12 @@ model = model.eval()
 vocab_size = getattr(model.config, "vocab_size", None)
 
 if is_parallel:
-    model = ParallelizersManager.parallelizer_for_model(model).parallelize(model, parallelize_embeddings=parallelize_embeddings)
-    parallel_layers.move_model_to_device(model, "xla")
+    model = ParallelizersManager.parallelizer_for_model(model).parallelize(
+        model, 
+        parallelize_embeddings=parallelize_embeddings, 
+        sequence_parallel_enabled=sequence_parallel_enabled,
+    )
+    move_model_to_device(model, "xla")
     filename = "parallel.bin"
 else:
     model = model.to("xla")
@@ -95,18 +114,40 @@ for k, v in inputs.items():
 # Might not work for every tasks.
 shape = list(xla_inputs.values())[0].shape
 
-xla_inputs.update(generate_dummy_labels(model, shape, vocab_size=vocab_size, device="xla", seed=SEED))
+if computing_loss_is_supported:
+    xla_inputs.update(generate_dummy_labels(model, shape, vocab_size=vocab_size, device="xla", seed=SEED))
 
 model_outputs = model(**xla_inputs, return_dict=True)
 xm.mark_step()
 
-if is_parallel and parallelize_embeddings:
+axis_to_gather = dict()
+axis_to_gather["default"] = -1
+axis_to_gather["past_key_values"] = 1
+
+def gather_output(output, gather_dim):
+    if isinstance(output, (tuple, list, set)):
+        output_type = type(output)
+        gathered_output = []
+        for t in output:
+            gathered_output.append(gather_output(t, gather_dim))
+        result = output_type(gathered_output)
+    else:
+        result = gather_along_dim(output, gather_dim)
+    return result
+      
+if is_parallel:
+    # Because of parallelism (embeddings and sequence parallelism), some outputs need to be gathered.
+    # Since it is not possible to generically know which one, we save both the "regular" output and the gathered 
+    # version of it. We then compare both of them to the original output and fail if both do not match.
     gathered_model_outputs =  dict()
     for name, output in model_outputs.items():
-        if name == "loss" or output is None or not isinstance(output, torch.Tensor) or output.shape[-1] != (vocab_size // {tp_size}):
-            gathered_model_outputs[name] = output
+        gathered_model_outputs[name] = output
+        if name == "loss" or output is None: 
+            gathered_output = output
         else:
-            gathered_model_outputs[name] = gather_along_last_dim(output)
+            gathered_output = gather_output(output, axis_to_gather.get(name, axis_to_gather["default"]))
+        gathered_output_name = "gathered_" + name
+        gathered_model_outputs[gathered_output_name] = gathered_output
     model_outputs = gathered_model_outputs
 
 xm.save(model_outputs, "{output_path}" + "/" + filename)

@@ -15,14 +15,24 @@
 """Utilities to handle the several optional requirement packages."""
 
 import functools
-from typing import Any, Callable
+from typing import Any, Callable, Dict
 
 from transformers.utils import is_safetensors_available
 
 from . import is_neuronx_distributed_available, is_torch_neuronx_available, is_torch_xla_available
 
 
-def _create_requires_function(availability_function: Callable[[], bool], package_name: str) -> Callable[..., Any]:
+_AVAILABILITIES: Dict[str, Callable[[], bool]] = {
+    "safetensors": is_safetensors_available,
+    "torch_xla": is_torch_xla_available,
+    "neuronx_distributed": is_neuronx_distributed_available,
+    "torch_neuronx": is_torch_neuronx_available,
+}
+
+
+def _create_requires_function(package_name: str) -> Callable[..., Any]:
+    availability_function = _AVAILABILITIES[package_name]
+
     def require_func(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -38,7 +48,7 @@ def _create_requires_function(availability_function: Callable[[], bool], package
     return require_func
 
 
-requires_safetensors = _create_requires_function(is_safetensors_available, "safetensors")
-requires_torch_xla = _create_requires_function(is_torch_xla_available, "torch_xla")
-requires_neuronx_distributed = _create_requires_function(is_neuronx_distributed_available, "neuronx_distributed")
-requires_torch_neuronx = _create_requires_function(is_torch_neuronx_available, "torch_neuronx")
+requires_safetensors = _create_requires_function("safetensors")
+requires_torch_xla = _create_requires_function("torch_xla")
+requires_neuronx_distributed = _create_requires_function("neuronx_distributed")
+requires_torch_neuronx = _create_requires_function("torch_neuronx")

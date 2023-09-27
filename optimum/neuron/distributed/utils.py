@@ -16,6 +16,7 @@
 
 import contextlib
 import functools
+import itertools
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -47,17 +48,27 @@ class WeightInformation:
         - filename (`Union[str, Path]`) -- The name of the `safetensors` checkpoint file containing the weights of the
         parameter.
         - qualified_name (`str`) -- The fully qualified name of the parameter in the model hierarchy.
-        - device (`torch.device`) -- The device to put the weight on, defaults to `torch.device("cpu")` if left
-        unspecified.
+        - weight_map (`Optional[Dict[str, Union[Path, str]]]`, defaults to `None`) -- The weight map use to get the
+        filename and the qualified name. It is useful to specify it because then `WeightInformation` will take into
+        account potential prefixes that were artficially added to the qualified names.
+        - device (`Optional[torch.device]`, defaults to `None`) -- The device to put the weight on, initialized to
+        `torch.device("cpu")` if left unspecified.
     """
 
     filename: Union[str, Path]
     qualified_name: str
+    weight_map: Optional[Dict[str, Union[Path, str]]] = None
     device: Optional[torch.device] = None
 
     def __post_init__(self):
         if self.device is None:
             self.device = torch.device("cpu")
+
+        prefix = None
+        if self.weight_map is not None:
+            prefix = self.weight_map.get("lazy_load_used_prefix", None)
+        if prefix is not None and self.qualified_name.startswith(prefix):
+            self.qualified_name = self.qualified_name[len(prefix) :]
 
 
 @dataclass
@@ -132,7 +143,7 @@ def embedding_to_parallel_embedding(
     embedding_weight_info: Optional[WeightInformation] = None,
     lm_head_weight_info: Optional[WeightInformation] = None,
     lm_head_bias_weight_info: Optional[WeightInformation] = None,
-    orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+    sequence_parallel_enabled: bool = False,
     device: Optional["torch.device"] = None,
 ) -> Union["layers.ParallelEmbedding", Tuple["layers.ParallelEmbedding", "layers.ColumnParallelLinear"]]:
     """
@@ -152,9 +163,8 @@ def embedding_to_parallel_embedding(
             Information about which checkpoint file the tied linear projection weights are stored in.
         lm_head_bias_weight_info (`Optional[WeightInformation]`, defaults to `None`):
             Information about which checkpoint file the tied linear projection bias is stored in.
-        orig_to_parallel (`Optional[Dict[int, torch.nn.Parameter]]`, defaults to `None`):
-            A dictionary to fill. It maps a former parameter id to its parallel version.
-            It might be deprecated soon.
+        sequence_parallel_enabled (`bool`, defaults to `False`):
+            Whether or not sequence parallelism is enabled.
         device (`Optional[torch.device]`, defaults to `None`):
             The device where the new parallel layer should be put.
 
@@ -211,12 +221,9 @@ def embedding_to_parallel_embedding(
                 linear_layer_bias_weight_info=lm_head_bias_weight_info,
                 embedding_weight_to_tie=embedding_weight_to_tie,
                 gather_output=False,
-                orig_to_parallel=orig_to_parallel if not is_tied else None,
+                sequence_parallel_enabled=False,
                 device=device,
             )
-
-    if orig_to_parallel:
-        orig_to_parallel[id(embedding_layer.weight)] = parallel_embedding_layer.weight
 
     del embedding_layer.weight
 
@@ -235,7 +242,7 @@ def linear_to_parallel_linear(
     linear_layer_weight_info: Optional[WeightInformation] = None,
     linear_layer_bias_weight_info: Optional[WeightInformation] = None,
     embedding_weight_to_tie: Optional["torch.nn.Parameter"] = None,
-    orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+    sequence_parallel_enabled: bool = False,
     device: Optional["torch.device"] = None,
 ) -> Union["layers.RowParallelLinear", "layers.ColumnParallelLinear"]:
     """
@@ -259,9 +266,8 @@ def linear_to_parallel_linear(
             Information about which checkpoint file the linear layer bias is stored in.
         embedding_weight_to_tie (`Optional[torch.nn.Parameter]`, defaults to `None`):
             If specified, will tie the linear layer weights to it.
-        orig_to_parallel (`Optional[Dict[int, torch.nn.Parameter]]`, defaults to `None`):
-            A dictionary to fill. It maps a former parameter id to its parallel version.
-            It might be deprecated soon.
+        sequence_parallel_enabled (`bool`, defaults to `False`):
+            Whether or not sequence parallelism is enabled.
         device (`Optional[torch.device]`, defaults to `None`):
             The device where the new parallel layer should be put.
 
@@ -292,7 +298,12 @@ def linear_to_parallel_linear(
     kwargs["bias"] = linear_layer.bias is not None
     kwargs["device"] = device
 
-    parallel_linear_layer = parallel_linear_class(linear_layer.in_features, linear_layer.out_features, **kwargs)
+    parallel_linear_layer = parallel_linear_class(
+        linear_layer.in_features,
+        linear_layer.out_features,
+        sequence_parallel_enabled=sequence_parallel_enabled,
+        **kwargs,
+    )
 
     tp_rank = get_tensor_model_parallel_rank()
     row_size, col_size = parallel_linear_layer.weight.shape
@@ -324,8 +335,6 @@ def linear_to_parallel_linear(
                 else:
                     parallel_linear_layer.bias.copy_(linear_layer.bias)
 
-                if orig_to_parallel is not None:
-                    orig_to_parallel[id(linear_layer.bias)] = parallel_linear_layer.bias
         else:
             if embedding_weight_to_tie is not None:
                 parallel_linear_layer.weight = embedding_weight_to_tie
@@ -369,12 +378,6 @@ def linear_to_parallel_linear(
                         parallel_linear_layer.bias.copy_(
                             linear_layer.bias[tp_rank * row_size : (tp_rank + 1) * row_size]
                         )
-
-                if orig_to_parallel is not None:
-                    orig_to_parallel[id(linear_layer.bias)] = parallel_linear_layer.bias
-
-    if orig_to_parallel is not None:
-        orig_to_parallel[id(linear_layer.weight)] = parallel_linear_layer.weight
 
     return parallel_linear_layer
 
@@ -553,6 +556,38 @@ def from_pretrained_for_tp(
 
         with safe_open(filename, framework="pt", device="cpu") as fp:
             weight_map = {weight_name: filename for weight_name in fp.keys()}
+
+        # If the model checkpoint used is from a base model but our model is "task-specific", for instance a checkpoint
+        # from `GPTNeoModel` when using `GPTNeoForCausalLM`, then our model weight names might not match the names in
+        # `weight_map`.
+        weight_map_for_model = {}
+        model_parameter_and_buffer_names = {
+            n for n, _ in itertools.chain(model.named_parameters(), model.named_buffers())
+        }
+        names_of_weights_not_in_model = set()
+        prefixes = set()
+        for name, filename in weight_map.items():
+            if name not in model_parameter_and_buffer_names:
+                sharing_same_suffix_as_name = [n for n in model_parameter_and_buffer_names if n.endswith(name)]
+                if not sharing_same_suffix_as_name:
+                    continue
+                names_of_weights_not_in_model.add(name)
+                longest_sharing_parameter_name = max(sharing_same_suffix_as_name, key=lambda s: len(s))
+                prefixes.add(longest_sharing_parameter_name.replace(name, ""))
+            else:
+                weight_map_for_model[name] = filename
+        if names_of_weights_not_in_model:
+            if len(prefixes) == 1:
+                prefix = prefixes.pop()
+                weight_map_for_model["lazy_load_used_prefix"] = prefix
+                for name in names_of_weights_not_in_model:
+                    weight_map_for_model[f"{prefix}{name}"] = weight_map[name]
+            else:
+                raise ValueError(
+                    "Some weights in weight_map do not match any model parameters or buffers: "
+                    f"{', '.join(names_of_weights_not_in_model)}."
+                )
+        weight_map = weight_map_for_model
 
     model._weight_map = weight_map
 

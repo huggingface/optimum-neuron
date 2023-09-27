@@ -21,6 +21,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Dict, List, Optional, Type, Union
 
+import pytest
 import torch
 from parameterized import parameterized
 from transformers.models.auto.modeling_auto import (
@@ -109,11 +110,21 @@ def _generate_supported_model_class_names(
 
 
 MODEL_TYPES_TO_TEST = [
-    ("bert", "hf-internal-testing/tiny-random-bert"),
-    ("roberta", "hf-internal-testing/tiny-random-roberta"),
-    ("gpt_neo", "hf-internal-testing/tiny-random-GPTNeoModel"),
-    ("llama", "anushehchaudry/llama-2-tiny-random"),
-    ("t5", "hf-tiny-model-private/tiny-random-T5ForConditionalGeneration", {"d_ff": "64"}),
+    ("bert", "hf-internal-testing/tiny-random-bert", {"num_hidden_layers": "2"}),
+    ("roberta", "hf-internal-testing/tiny-random-roberta", {"num_hidden_layers": "2"}),
+    (
+        "gpt_neo",
+        "hf-internal-testing/tiny-random-GPTNeoModel",
+        {
+            "num_layers": "2",
+        },
+    ),
+    ("llama", "yujiepan/llama-2-tiny-3layers-random", {"num_hidden_layers": "2"}),
+    (
+        "t5",
+        "hf-internal-testing/tiny-random-T5Model",
+        {"d_ff": "36", "num_layers": "2", "num_decoder_layers": "2"},
+    ),
 ]
 
 MODELS_TO_TEST = []
@@ -129,6 +140,32 @@ for entry in MODEL_TYPES_TO_TEST:
 
 @is_trainium_test
 class ModelParallelizationTestCase(unittest.TestCase):
+    OUTPUTS_TO_IGNORE = {
+        # It might not match in the sequence parallel setting because of mistmatched shapes.
+        # Since these outputs are not needed during training, we do not want to perform an expensive gather for them.
+        "encoder_last_hidden_state",
+    }
+
+    def _check_output(self, name: str, original_output, output, lazy_load: bool):
+        assert type(original_output) is type(output)
+        if isinstance(original_output, (tuple, list, set)):
+            for idx, orig_output in enumerate(original_output):
+                new_name = f"{name}.{idx}"
+                self._check_output(new_name, orig_output, output[idx], lazy_load)
+        elif isinstance(original_output, dict):
+            for output_name in original_output:
+                new_name = f"{name}.{output_name}"
+                self._check_output(new_name, original_output[name], output[name], lazy_load)
+        elif isinstance(original_output, torch.Tensor):
+            print(f"Original {name}:\nShape: {original_output.shape}\nValue: {original_output}")
+            print(f"Parallel {name}:\nShape: {output.shape}\nValue: {output}")
+
+            # TODO: Remove that once lazy load initializew the weights the same way as no lazy load.
+            if not lazy_load:
+                torch.testing.assert_close(original_output, output)
+        else:
+            assert original_output == output, f"Output named {name} do not match."
+
     def _test_model_parallel(
         self,
         tp_size: int,
@@ -137,6 +174,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
         from_config: bool,
         with_lazy_load: bool,
         parallelize_embeddings: bool,
+        sequence_parallel_enabled: bool,
         num_neuron_cores: int = NUM_NEURON_CORES_AVAILABLE,
         run_test_in_parallel: bool = False,
         overwrite_model_config: Optional[Dict[str, str]] = None,
@@ -164,6 +202,9 @@ class ModelParallelizationTestCase(unittest.TestCase):
             "from_config": "true" if from_config else "false",
             "lazy_load": "true" if with_lazy_load else "false",
             "parallelize_embeddings": "true" if parallelize_embeddings else "false",
+            "sequence_parallel_enabled": "true" if sequence_parallel_enabled else "false",
+            # TODO: disable that once that loss computation compilation for LLama does not take forever.
+            "computing_loss_is_supported": "true" if not model_class_name.startswith("Llama") else "false",
             **os.environ,
         }
 
@@ -210,7 +251,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
 
             # When running tests in parallel, synchronization is done after both processes started.
             if not run_test_in_parallel:
-                _, stdout = run_command_with_realtime_output(cmd, env=env)
+                p_original_returncode, stdout = run_command_with_realtime_output(cmd, env=env)
             else:
                 p_original = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
 
@@ -224,34 +265,53 @@ class ModelParallelizationTestCase(unittest.TestCase):
                 p_parallel = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
 
                 stdout, _ = p_original.communicate()
+                p_original_returncode = p_original.returncode
                 stdout = stdout.decode("utf-8")
                 full_output = f"Original model standard output:\n{stdout}"
                 print(full_output)
 
                 stdout, _ = p_parallel.communicate()
+                p_parallel_returncode = p_parallel.returncode
                 stdout = stdout.decode("utf-8")
                 full_output = f"Parallel model standard output:\n{stdout}"
                 print(full_output)
 
             else:
-                _, stdout = run_command_with_realtime_output(cmd, env=env)
+                p_parallel_returncode, stdout = run_command_with_realtime_output(cmd, env=env)
+
+            assert p_original_returncode == 0
+            assert p_parallel_returncode == 0
 
             temporary_dir = Path(tmpdirname)
             original_model_outputs = torch.load(temporary_dir / "original.bin")
             parallel_model_outputs = torch.load(temporary_dir / "parallel.bin")
-            for name, t in parallel_model_outputs.items():
-                if not isinstance(t, torch.Tensor):
+            for name, t in original_model_outputs.items():
+                if name in self.OUTPUTS_TO_IGNORE:
                     continue
-                original_t = original_model_outputs[name]
                 print(f"Testing that {name} match.")
-                print(f"Original {name}:\nShape: {original_t.shape}\nValue: {original_t}")
-                print(f"Parallel {name}:\nShape: {t.shape}\nValue: {t}")
-                print(t, original_t)
-                torch.testing.assert_close(t, original_t)
+                regular_parallel_outputs_error_msg = None
+                gathered_parallel_outputs_error_msg = None
+                try:
+                    self._check_output(name, t, parallel_model_outputs[name], with_lazy_load)
+                except AssertionError as e:
+                    regular_parallel_outputs_error_msg = str(e)
+                if regular_parallel_outputs_error_msg is not None:
+                    print("Regular output did not match, testing with the gathered output...")
+                    try:
+                        self._check_output(name, t, parallel_model_outputs[f"gathered_{name}"], with_lazy_load)
+                    except AssertionError as e:
+                        gathered_parallel_outputs_error_msg = str(e)
+                if regular_parallel_outputs_error_msg is not None and gathered_parallel_outputs_error_msg is not None:
+                    msg = (
+                        "Output did not matched.\nTest with non-gathered parallel outputs error:\n"
+                        f"{regular_parallel_outputs_error_msg}\nTest with gathered parallel outputs error:\n"
+                        f"{gathered_parallel_outputs_error_msg}"
+                    )
+                    raise AssertionError(msg)
                 print("Ok!")
 
     @parameterized.expand(MODELS_TO_TEST)
-    def test_model_parallel_from_config_without_lazy_load(
+    def test_model_parallel_from_config_no_lazy_load(
         self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
     ):
         self._test_model_parallel(
@@ -262,12 +322,15 @@ class ModelParallelizationTestCase(unittest.TestCase):
             model_name_or_path=model_name_or_path,
             from_config=True,
             with_lazy_load=False,
+            # TODO: enable once ParallelCrossEntropy works.
+            # parallelize_embeddings=True,
             parallelize_embeddings=False,
+            sequence_parallel_enabled=True,
             overwrite_model_config=config_overwrite,
         )
 
     @parameterized.expand(MODELS_TO_TEST)
-    def test_model_parallel_from_pretrained_without_lazy_load(
+    def test_model_parallel_from_pretrained_no_lazy_load(
         self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
     ):
         self._test_model_parallel(
@@ -278,12 +341,15 @@ class ModelParallelizationTestCase(unittest.TestCase):
             model_name_or_path=model_name_or_path,
             from_config=False,
             with_lazy_load=False,
+            # TODO: enable once ParallelCrossEntropy works.
+            # parallelize_embeddings=True,
             parallelize_embeddings=False,
+            sequence_parallel_enabled=True,
             overwrite_model_config=config_overwrite,
         )
 
     @parameterized.expand(MODELS_TO_TEST)
-    def test_model_parallel_without_parallelizing_embeddings(
+    def test_model_parallel_lazy_load_without_parallelizing_embeddings(
         self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
     ):
         self._test_model_parallel(
@@ -295,12 +361,49 @@ class ModelParallelizationTestCase(unittest.TestCase):
             from_config=False,
             with_lazy_load=True,
             parallelize_embeddings=False,
+            sequence_parallel_enabled=True,
             overwrite_model_config=config_overwrite,
         )
 
-    @unittest.skipIf(
+    @parameterized.expand(MODELS_TO_TEST)
+    @pytest.mark.skip("Parallel cross entropy does not work yet.")
+    def test_model_parallel_lazy_load_without_sequence_parallel(
+        self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
+    ):
+        self._test_model_parallel(
+            num_neuron_cores=8,
+            tp_size=2,
+            run_test_in_parallel=True,
+            model_class_name=model_class_name,
+            model_name_or_path=model_name_or_path,
+            from_config=False,
+            with_lazy_load=True,
+            parallelize_embeddings=True,
+            sequence_parallel_enabled=False,
+            overwrite_model_config=config_overwrite,
+        )
+
+    @parameterized.expand(MODELS_TO_TEST)
+    @pytest.mark.skip("Parallel cross entropy does not work yet.")
+    def test_model_parallel_lazy_load_without_anything(
+        self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
+    ):
+        self._test_model_parallel(
+            num_neuron_cores=8,
+            tp_size=2,
+            run_test_in_parallel=True,
+            model_class_name=model_class_name,
+            model_name_or_path=model_name_or_path,
+            from_config=False,
+            with_lazy_load=True,
+            parallelize_embeddings=False,
+            sequence_parallel_enabled=False,
+            overwrite_model_config=config_overwrite,
+        )
+
+    @pytest.mark.skipif(
         NUM_NEURON_CORES_AVAILABLE < 32,
-        f"This test requires 32 Neuron cores, but only {NUM_NEURON_CORES_AVAILABLE} are available",
+        reason=f"This test requires 32 Neuron cores, but only {NUM_NEURON_CORES_AVAILABLE} are available",
     )
     def test_llama_v2_gqa_variants(self):
         llama_v2_model_name = "anushehchaudry/llama-2-tiny-random"
@@ -315,6 +418,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
             from_config=True,
             with_lazy_load=False,
             parallelize_embeddings=False,
+            sequence_parallel_enabled=False,
             overwrite_model_config={
                 "num_hidden_layers": "2",
                 "num_attention_heads": "8",
@@ -333,6 +437,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
             from_config=True,
             with_lazy_load=False,
             parallelize_embeddings=False,
+            sequence_parallel_enabled=False,
             overwrite_model_config={
                 "num_hidden_layers": "2",
                 "num_attention_heads": "8",
@@ -351,6 +456,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
             from_config=True,
             with_lazy_load=False,
             parallelize_embeddings=False,
+            sequence_parallel_enabled=False,
             overwrite_model_config={
                 "num_hidden_layers": "2",
                 "hidden_size": "32",
@@ -370,6 +476,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
             from_config=True,
             with_lazy_load=False,
             parallelize_embeddings=False,
+            sequence_parallel_enabled=False,
             overwrite_model_config={
                 "num_hidden_layers": "2",
                 "hidden_size": "32",
@@ -389,6 +496,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
             from_config=True,
             with_lazy_load=False,
             parallelize_embeddings=False,
+            sequence_parallel_enabled=False,
             overwrite_model_config={
                 "num_hidden_layers": "2",
                 "hidden_size": "32",

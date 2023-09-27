@@ -64,6 +64,7 @@ else:
 
 if is_neuronx_distributed_available():
     from neuronx_distributed import parallel_layers
+    from neuronx_distributed.utils.model_utils import move_model_to_device
 
 
 logger = logging.get_logger(__name__)
@@ -322,7 +323,7 @@ class NeuronAccelerator(Accelerator):
         if not evaluation_mode:
             cpu_ids = [id(v) for v in model.parameters()]
             # TODO: enable self.device (if needed).
-            model = self.state.tp_plugin.parallelize_model(model, return_orig_to_parallel=False, device=None)
+            model = self.state.tp_plugin.parallelize_model(model, device=None)
             if os.environ.get("XLA_USE_BF16", "0") == "1":
                 model.to(torch.bfloat16)
             else:
@@ -336,7 +337,7 @@ class NeuronAccelerator(Accelerator):
 
             with ModelPatcher(patching_specs=[(model, "_tie_or_clone_weights", _tie_or_clone_weights_for_tp)]):
                 model.tie_weights()
-                parallel_layers.move_model_to_device(model, self.device)
+                move_model_to_device(model, self.device)
                 model.tie_weights()
             self._model_cpu_parameters_to_xla[id(model)] = dict(zip(cpu_ids, model.parameters()))
             device_placement = False

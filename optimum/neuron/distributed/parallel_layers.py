@@ -14,9 +14,13 @@
 # limitations under the License.
 """Classes related to parallel versions of common blocks in Transformers models."""
 
+import functools
+import re
 from abc import ABC, abstractclassmethod
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Tuple, Type, Union
 
 import torch
 from torch.nn.modules.loss import _WeightedLoss
@@ -64,7 +68,7 @@ class ParallelLayer(ABC):
     @classmethod
     def _get_linear_weight_info(
         cls,
-        weight_map: Dict[str, Path],
+        weight_map: Dict[str, Union[Path, str]],
         linear_layer_qualified_name: str,
         device: Optional["torch.device"] = None,
     ) -> Tuple[WeightInformation, Optional[WeightInformation]]:
@@ -72,6 +76,7 @@ class ParallelLayer(ABC):
         linear_layer_weight_info = WeightInformation(
             weight_map[linear_layer_weight_qualified_name],
             linear_layer_weight_qualified_name,
+            weight_map=weight_map,
             device=device,
         )
 
@@ -81,6 +86,7 @@ class ParallelLayer(ABC):
             linear_layer_bias_weight_info = WeightInformation(
                 linear_layer_bias_filename,
                 linear_layer_bias_qualified_name,
+                weight_map=weight_map,
                 device=device,
             )
         else:
@@ -93,7 +99,7 @@ class ParallelLayer(ABC):
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
-        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+        sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
     ) -> "torch.nn.Module":
         """
@@ -104,9 +110,8 @@ class ParallelLayer(ABC):
                 The model to parallelize.
             layer (`torch.nn.Module`):
                 The layer to transform.
-            orig_to_parallel (`Optional[Dict[int, torch.nn.Parameter]]`, defaults to `None`):
-                A dictionary to fill. It maps a former parameter id to its parallel version.
-                It might be deprecated soon.
+            sequence_parallel_enabled (`bool`, defaults to `False`):
+                Whether or not sequence parallelism is enabled.
             device (`Optional[torch.device]`, defaults to `None`):
                 The device where the new parallel layer should be put.
         """
@@ -138,7 +143,7 @@ class ParallelEmbedding(ParallelLayer):
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
-        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+        sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
     ) -> "torch.nn.Module":
         from neuronx_distributed.parallel_layers import parallel_state
@@ -171,6 +176,7 @@ class ParallelEmbedding(ParallelLayer):
             embedding_weight_info = WeightInformation(
                 weight_map[embedding_weight_name],
                 embedding_weight_name,
+                weight_map=weight_map,
                 device=device,
             )
             if model_has_lm_head:
@@ -182,11 +188,14 @@ class ParallelEmbedding(ParallelLayer):
                     lm_head_bias_weight_name = f"{lm_head_name}.bias"
                 if lm_head_weight_name in weight_map:
                     lm_head_weight_info = WeightInformation(
-                        weight_map[lm_head_weight_name], lm_head_weight_name, device=device
+                        weight_map[lm_head_weight_name], lm_head_weight_name, weight_map=weight_map, device=device
                     )
                 if lm_head_bias_weight_name in weight_map:
                     lm_head_bias_weight_info = WeightInformation(
-                        weight_map[lm_head_bias_weight_name], lm_head_bias_weight_name, device=device
+                        weight_map[lm_head_bias_weight_name],
+                        lm_head_bias_weight_name,
+                        weight_map=weight_map,
+                        device=device,
                     )
 
         embedding_layer = layer.get_submodule(cls.EMBEDDING_NAME)
@@ -207,7 +216,6 @@ class ParallelEmbedding(ParallelLayer):
             embedding_weight_info=embedding_weight_info,
             lm_head_weight_info=lm_head_weight_info,
             lm_head_bias_weight_info=lm_head_bias_weight_info,
-            orig_to_parallel=orig_to_parallel,
             device=device,
         )
         parent_embedding_module, embedding_attribute_name = cls._get_module_and_attribute_name(
@@ -276,7 +284,7 @@ class ParallelSelfAttention(ParallelLayer):
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
-        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+        sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
     ) -> "torch.nn.Module":
         if (cls.NUM_KEY_VALUE_HEADS_NAME is not None and cls.NUM_KEY_VALUE_GROUPS_NAME is None) or (
@@ -359,7 +367,7 @@ class ParallelSelfAttention(ParallelLayer):
                     gather_output=False,
                     linear_layer_weight_info=linear_layer_weight_info,
                     linear_layer_bias_weight_info=linear_layer_bias_weight_info,
-                    orig_to_parallel=orig_to_parallel,
+                    sequence_parallel_enabled=sequence_parallel_enabled,
                     device=device,
                 )
             setattr(layer, name, parallel_linear)
@@ -381,7 +389,7 @@ class ParallelSelfAttention(ParallelLayer):
                     input_is_parallel=True,
                     linear_layer_weight_info=linear_layer_weight_info,
                     linear_layer_bias_weight_info=linear_layer_bias_weight_info,
-                    orig_to_parallel=orig_to_parallel,
+                    sequence_parallel_enabled=sequence_parallel_enabled,
                     device=device,
                 ),
             )
@@ -443,7 +451,7 @@ class ParallelSelfOutput(ParallelLayer):
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
-        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+        sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
     ) -> "torch.nn.Module":
         weight_map = getattr(model, "_weight_map", None)
@@ -467,7 +475,7 @@ class ParallelSelfOutput(ParallelLayer):
                 input_is_parallel=True,
                 linear_layer_weight_info=linear_layer_weight_info,
                 linear_layer_bias_weight_info=linear_layer_bias_weight_info,
-                orig_to_parallel=orig_to_parallel,
+                sequence_parallel_enabled=sequence_parallel_enabled,
                 device=device,
             ),
         )
@@ -493,7 +501,7 @@ class ParallelMLP(ParallelLayer):
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
-        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+        sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
     ) -> "torch.nn.Module":
         layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
@@ -518,7 +526,7 @@ class ParallelMLP(ParallelLayer):
                 gather_output=False,
                 linear_layer_weight_info=linear_layer_weight_info,
                 linear_layer_bias_weight_info=linear_layer_bias_weight_info,
-                orig_to_parallel=orig_to_parallel,
+                sequence_parallel_enabled=sequence_parallel_enabled,
                 device=device,
             ),
         )
@@ -542,7 +550,7 @@ class ParallelMLP(ParallelLayer):
                 input_is_parallel=True,
                 linear_layer_weight_info=linear_layer_weight_info,
                 linear_layer_bias_weight_info=linear_layer_bias_weight_info,
-                orig_to_parallel=orig_to_parallel,
+                sequence_parallel_enabled=sequence_parallel_enabled,
                 device=device,
             ),
         )
@@ -648,7 +656,7 @@ class ParallelCrossEntropy(ParallelLayer):
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
-        orig_to_parallel: Optional[Dict[int, "torch.nn.Parameter"]] = None,
+        sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
     ) -> "torch.nn.Module":
         from neuronx_distributed import parallel_layers
@@ -705,3 +713,211 @@ class ParallelCrossEntropy(ParallelLayer):
         cls.patch_cross_entropy(model)
 
         return layer
+
+
+@dataclass(frozen=True)
+class SequenceCollectiveOpInfo:
+    """
+    Represents a collective op to perform.
+
+    Attributes:
+        - collective_op (`Union[Literal["scatter"], Literal["gather"]]`) -- The collective operation that should be
+        performed.
+        - layer (`Union[Type[torch.nn.Module], str]`) -- The layer to consider. It can either be a type or a qualified
+        name pattern to match.
+        - io (`Union[Literal["input"], Literal["output"]]`) -- Whether the collective op should be applied to the input
+        or to the output of the matched layer.
+        - first_or_last (`Union[Literal["first"], Literal["last"]]`) -- Whether to consider the first matching layer or
+        the last matching layer.
+
+    Example:
+        ```python
+        info = SequenceCollectiveOpInfo("gather", torch.nn.LayerNorm, "output", "last")
+        ```
+        Here `info` indicates that the output of the last `torch.nn.LayerNorm` must be gathered on the sequence axis.
+
+    """
+
+    collective_op: Union[Literal["scatter"], Literal["gather"]]
+    layer: Union[Type["torch.nn.Module"], str]
+    io: Union[Literal["input"], Literal["output"]]
+    first_or_last: Union[Literal["first"], Literal["last"]]
+
+    def __post_init__(self):
+        if self.collective_op not in ["scatter", "gather"]:
+            raise ValueError(f'Authorized values are "scatter" and "gather", but {self.collective_op} was given here')
+        if self.io not in ["input", "output"]:
+            raise ValueError(f'Authorized values are "input" and "output", but {self.io} was given here')
+
+
+class IOSequenceParallelizer:
+    """
+    Handles the input and output parallelization for sequence parallelism.
+    """
+
+    def __init__(
+        self,
+        sequence_parallel_enabled: bool,
+        sequence_collective_op_infos: Optional[List[SequenceCollectiveOpInfo]] = None,
+    ):
+        self.sequence_parallel_enabled = sequence_parallel_enabled
+        self.sequence_collective_op_infos = sequence_collective_op_infos
+
+    def get_first_and_last_layers_matching_pattern(
+        self, model: "torch.nn.Module", pattern: str
+    ) -> Tuple["torch.nn.Module", "torch.nn.Module"]:
+        first_layer = None
+        last_layer = None
+        for name, module in model.named_modules():
+            if re.match(pattern, name):
+                if first_layer is None:
+                    first_layer = module
+                last_layer = module
+        if first_layer is None:
+            raise ValueError(f"Could not find layer of with pattern {pattern} in {model}.")
+        return [first_layer, last_layer]
+
+    def get_first_and_last_layers_of_type(
+        self, model: "torch.nn.Module", type_: Type["torch.nn.Module"]
+    ) -> Tuple["torch.nn.Module", "torch.nn.Module"]:
+        first_layer = None
+        last_layer = None
+        for module in model.modules():
+            if isinstance(module, type_):
+                if first_layer is None:
+                    first_layer = module
+                last_layer = module
+        if first_layer is None:
+            raise ValueError(f"Could not find layer of type {type_} in {model}.")
+        return [first_layer, last_layer]
+
+    @requires_neuronx_distributed
+    def _sequence_parallelize(self, model: "torch.nn.Module", sequence_collective_op_info: SequenceCollectiveOpInfo):
+        from neuronx_distributed.parallel_layers.mappings import (
+            gather_from_sequence_parallel_region,
+            scatter_to_sequence_parallel_region,
+        )
+
+        if sequence_collective_op_info.collective_op == "scatter":
+            if isinstance(sequence_collective_op_info.layer, str):
+                first_layer, last_layer = self.get_first_and_last_layers_matching_pattern(
+                    model, sequence_collective_op_info.layer
+                )
+            else:
+                first_layer, last_layer = self.get_first_and_last_layers_of_type(
+                    model, sequence_collective_op_info.layer
+                )
+            scatter_layer = first_layer if sequence_collective_op_info.first_or_last == "first" else last_layer
+            orig_scatter_layer_forward = scatter_layer.forward
+
+            if sequence_collective_op_info.io == "input":
+
+                @functools.wraps(orig_scatter_layer_forward)
+                def sequence_parallel_forward(*args, **kwargs):
+                    to_scatter = args[1]
+                    to_scatter = to_scatter.transpose(0, 1).contiguous()
+                    scattered = scatter_to_sequence_parallel_region(to_scatter)
+                    return orig_scatter_layer_forward(scattered, *args[2:], **kwargs)
+
+            else:
+
+                @functools.wraps(orig_scatter_layer_forward)
+                def sequence_parallel_forward(*args, **kwargs):
+                    output = orig_scatter_layer_forward(*args[1:], **kwargs)
+                    to_scatter = output if isinstance(output, torch.Tensor) else output[0]
+                    to_scatter = to_scatter.transpose(0, 1).contiguous()
+                    scattered = scatter_to_sequence_parallel_region(to_scatter)
+                    return scattered if isinstance(output, torch.Tensor) else (scattered,) + output[1:]
+
+            scatter_layer.forward = sequence_parallel_forward.__get__(scatter_layer)
+
+        else:
+            if isinstance(sequence_collective_op_info.layer, str):
+                first_layer, last_layer = self.get_first_and_last_layers_matching_pattern(
+                    model, sequence_collective_op_info.layer
+                )
+            else:
+                first_layer, last_layer = self.get_first_and_last_layers_of_type(
+                    model, sequence_collective_op_info.layer
+                )
+            gather_layer = first_layer if sequence_collective_op_info.first_or_last == "first" else last_layer
+            orig_gather_layer_forward = gather_layer.forward
+
+            if sequence_collective_op_info.io == "output":
+
+                @functools.wraps(orig_gather_layer_forward)
+                def sequence_parallel_forward(*args, **kwargs):
+                    output = orig_gather_layer_forward(*args[1:], **kwargs)
+                    to_gather = output if isinstance(output, torch.Tensor) else output[0]
+                    gathered = gather_from_sequence_parallel_region(to_gather, to_model_parallel=False)
+                    gathered = gathered.transpose(0, 1).contiguous()
+                    return gathered if isinstance(output, torch.Tensor) else (gathered,) + output[1:]
+
+            else:
+
+                @functools.wraps(orig_gather_layer_forward)
+                def sequence_parallel_forward(*args, **kwargs):
+                    to_gather = args[1]
+                    gathered = gather_from_sequence_parallel_region(to_gather, to_model_parallel=False)
+                    gathered = gathered.transpose(0, 1).contiguous()
+                    output = orig_gather_layer_forward(gathered, *args[2:], **kwargs)
+                    return output
+
+            gather_layer.forward = sequence_parallel_forward.__get__(gather_layer)
+
+    def sequence_parallelize(self, model: "torch.nn.Module"):
+        if not self.sequence_parallel_enabled or not self.sequence_collective_op_infos:
+            return
+        for sequence_collective_op_info in self.sequence_collective_op_infos:
+            self._sequence_parallelize(model, sequence_collective_op_info)
+
+
+class LayerNormType(str, Enum):
+    REGULAR = "regular"
+    RMS_NORM = "rms_norm"
+
+
+class LayerNormSequenceParallelizer:
+    """
+    Handles the parallelization of LayerNorm layers for sequence parallelism.
+    """
+
+    def __init__(self, sequence_parallel_enabled: bool, layer_norm_qualified_name_patterns: List[str]):
+        self.sequence_parallel_enabled = sequence_parallel_enabled
+        self.layer_norm_qualified_name_patterns = [
+            re.compile(pattern) for pattern in layer_norm_qualified_name_patterns
+        ]
+
+    @requires_neuronx_distributed
+    def parallelize_layernorm(self, module: torch.nn.LayerNorm):
+        from neuronx_distributed.parallel_layers.layer_norm import LayerNorm, _set_sequence_parallel_enabled
+
+        if not isinstance(module, torch.nn.LayerNorm):
+            raise TypeError(f"Expected torch.nn.LayerNorm but got {type(module)}.")
+
+        module.__class__ = LayerNorm
+        module.sequence_parallel_enabled = self.sequence_parallel_enabled
+        if module.elementwise_affine:
+            _set_sequence_parallel_enabled(module.weight, self.sequence_parallel_enabled)
+            _set_sequence_parallel_enabled(module.bias, self.sequence_parallel_enabled)
+
+    @requires_neuronx_distributed
+    def parallelize_rmsnorm(self, module: "torch.nn.Module"):
+        from neuronx_distributed.parallel_layers.layer_norm import _set_sequence_parallel_enabled
+
+        _set_sequence_parallel_enabled(module.weight, self.sequence_parallel_enabled)
+
+    def sequence_parallelize(self, model: "PreTrainedModel", layernorm_type: Union[str, LayerNormType]):
+        if type(layernorm_type) is str:  # noqa: E721
+            layernorm_type = LayerNormType(layernorm_type)
+
+        layernorm_type_to_parallelize_method = {
+            LayerNormType.REGULAR: self.parallelize_layernorm,
+            LayerNormType.RMS_NORM: self.parallelize_rmsnorm,
+        }
+        parallelize_method = layernorm_type_to_parallelize_method[layernorm_type]
+
+        for name, module in model.named_modules():
+            for pattern in self.layer_norm_qualified_name_patterns:
+                if re.match(pattern, name):
+                    parallelize_method(module)
