@@ -435,6 +435,126 @@ class ParallelSelfAttention(ParallelLayer):
         return layer
 
 
+class ParallelSelfAttentionWithFusedQKV(ParallelLayer):
+    """
+    Transforms a Self-Attention layer into a Parallel Self-Attention layer.
+
+    Attributes:
+        QUERY_KEY_VALUE_NAME (`str`, defaults to `"query_key_value"`):
+            The qualified name of the fused query, key and value layer in the Self-Attention module.
+        OUTPUT_PROJECTION_NAME (`Optional[str]`, defaults to `None`):
+            The qualified name of the output projection layer in the Self-Attention module.
+        NUM_ATTENTION_HEADS_NAME (`Optional[str]`, defaults to `None`):
+            The name of the attribute in the layer specifying the number of attention heads.
+            If left unspecified, the attribute will be fetched by using the NormalizedConfig associated to the model.
+        ALL_HEAD_SIZE_NAME (`Optional[str]`, defaults to `None`):
+            The name of the attribute in the layer specifying the hidden dimension of each attention head.
+            If left unspecified, the attribute will be fetched by using the NormalizedConfig associated to the model.
+    """
+
+    QUERY_KEY_VALUE_NAME = "query_key_value"
+    OUTPUT_PROJECTION_NAME: Optional[str] = None
+    NUM_ATTENTION_HEADS_NAME: Optional[str] = None
+    # TODO: add this in NormalizedConfig
+    ALL_HEAD_SIZE_NAME: Optional[str] = None  # "all_head_size"
+
+    @classmethod
+    @requires_neuronx_distributed
+    def transform(
+        cls,
+        model: "PreTrainedModel",
+        layer: "torch.nn.Module",
+        sequence_parallel_enabled: bool = False,
+        device: Optional["torch.device"] = None,
+    ) -> "torch.nn.Module":
+        from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
+
+        tp_size = get_tensor_model_parallel_size()
+
+        weight_map = getattr(model, "_weight_map", None)
+        config = model.config
+        normalized_config = NormalizedConfigManager.get_normalized_config_class(config.model_type)(config)
+
+        if weight_map is not None:
+            layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
+            layer_qualified_name = layer_to_fully_qualified_name[id(layer)]
+        else:
+            layer_qualified_name = ""
+
+        if cls.NUM_ATTENTION_HEADS_NAME is None:
+            num_attention_heads_name = normalized_config.NUM_ATTENTION_HEADS
+        else:
+            num_attention_heads_name = cls.NUM_ATTENTION_HEADS_NAME
+
+        if not hasattr(layer, num_attention_heads_name):
+            raise AttributeError(f"The {type(layer)} layer has not attribute {num_attention_heads_name}.")
+
+        num_attention_heads = getattr(layer, num_attention_heads_name)
+
+        if cls.ALL_HEAD_SIZE_NAME is None:
+            all_head_size_name = normalized_config.ALL_HEAD_SIZE_NAME
+        else:
+            all_head_size_name = cls.ALL_HEAD_SIZE_NAME
+
+        if not hasattr(layer, all_head_size_name):
+            raise AttributeError(f"The {type(layer)} layer has not attribute {all_head_size_name}.")
+
+        linear_layer_weight_info, linear_layer_bias_weight_info = None, None
+        if weight_map is not None:
+            linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
+                weight_map,
+                f"{layer_qualified_name}.{cls.QUERY_KEY_VALUE_NAME}",
+                device=device,
+            )
+
+        parallel_linear = linear_to_parallel_linear(
+            getattr(layer, cls.QUERY_KEY_VALUE_NAME),
+            "column",
+            gather_output=False,
+            stride=3,
+            linear_layer_weight_info=linear_layer_weight_info,
+            linear_layer_bias_weight_info=linear_layer_bias_weight_info,
+            sequence_parallel_enabled=sequence_parallel_enabled,
+            device=device,
+        )
+
+        setattr(layer, cls.QUERY_KEY_VALUE_NAME, parallel_linear)
+
+        if cls.OUTPUT_PROJECTION_NAME is not None:
+            linear_layer_weight_info, linear_layer_bias_weight_info = None, None
+            if weight_map is not None:
+                linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
+                    weight_map,
+                    f"{layer_qualified_name}.{cls.OUTPUT_PROJECTION_NAME}",
+                    device=device,
+                )
+            setattr(
+                layer,
+                cls.OUTPUT_PROJECTION_NAME,
+                linear_to_parallel_linear(
+                    getattr(layer, cls.OUTPUT_PROJECTION_NAME),
+                    "row",
+                    input_is_parallel=True,
+                    linear_layer_weight_info=linear_layer_weight_info,
+                    linear_layer_bias_weight_info=linear_layer_bias_weight_info,
+                    sequence_parallel_enabled=sequence_parallel_enabled,
+                    device=device,
+                ),
+            )
+
+        setattr(
+            layer,
+            num_attention_heads_name,
+            num_attention_heads // tp_size,
+        )
+        setattr(
+            layer,
+            all_head_size_name,
+            getattr(layer, all_head_size_name) // tp_size,
+        )
+        return layer
+
+
 class ParallelSelfOutput(ParallelLayer):
     """
     Transforms the output projection of the Self-Attention mechanism into a parallel version of it.

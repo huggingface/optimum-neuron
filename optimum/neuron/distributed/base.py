@@ -153,7 +153,7 @@ class Parallelizer(ABC):
         """
 
     @classmethod
-    def patch_for_sequence_paralelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
+    def patch_for_sequence_parallelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
         """
         This method needs to be overriden. It must patch anything model-specfic to make the model compatible with
         sequence parallelism.
@@ -214,7 +214,7 @@ class Parallelizer(ABC):
 
         # 3. Applying model specific patching for sequence parallelism.
         if sequence_parallel_enabled:
-            cls.patch_for_sequence_paralelism(model, sequence_parallel_enabled)
+            cls.patch_for_sequence_parallelism(model, sequence_parallel_enabled)
 
         model = cls._parallelize(
             model,

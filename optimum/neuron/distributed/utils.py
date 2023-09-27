@@ -239,6 +239,7 @@ def linear_to_parallel_linear(
     axis: Union[Literal["row"], Literal["column"]],
     input_is_parallel: bool = False,
     gather_output: bool = True,
+    stride: int = 1,
     linear_layer_weight_info: Optional[WeightInformation] = None,
     linear_layer_bias_weight_info: Optional[WeightInformation] = None,
     embedding_weight_to_tie: Optional["torch.nn.Parameter"] = None,
@@ -260,6 +261,8 @@ def linear_to_parallel_linear(
         gather_output (`bool`, defaults to `True`):
             Only relevant when `axis="column"`. It means that the resulting `ColumnParallelLinear` will gather the
             output after its forward. It allows to get a non-parallelized output from a `ColumnParallelLinear` layer.
+        stride (`int`, defaults to 1):
+            The stride of the new parallel layer weights.
         linear_layer_weight_info (`Optional[torch.nn.Linear]`, defaults to `None`):
             Information about which checkpoint file the linear layer weights are stored in.
         linear_layer_bias_weight_info (`Optional[WeightInformation]`, defaults to `None`):
@@ -302,6 +305,7 @@ def linear_to_parallel_linear(
         linear_layer.in_features,
         linear_layer.out_features,
         sequence_parallel_enabled=sequence_parallel_enabled,
+        stride=stride,
         **kwargs,
     )
 

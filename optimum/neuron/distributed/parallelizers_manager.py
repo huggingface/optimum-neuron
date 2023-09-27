@@ -54,6 +54,7 @@ class ParallelizersManager:
             "bert": "BertParallelizer",
             "roberta": "RobertaParallelizer",
             "gpt_neo": "GPTNeoParallelizer",
+            "gpt_neox": "GPTNeoXParallelizer",
             "llama": "LlamaParallelizer",
             "t5": "T5Parallelizer",
         }

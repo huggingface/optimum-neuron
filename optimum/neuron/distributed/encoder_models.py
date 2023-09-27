@@ -102,7 +102,7 @@ class BertParallelizer(Parallelizer):
     ]
 
     @classmethod
-    def patch_for_sequence_paralelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
+    def patch_for_sequence_parallelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
         if not sequence_parallel_enabled:
             return
 
@@ -192,7 +192,7 @@ class RobertaParallelizer(Parallelizer):
     ]
 
     @classmethod
-    def patch_for_sequence_paralelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
+    def patch_for_sequence_parallelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
         if not sequence_parallel_enabled:
             return
 
