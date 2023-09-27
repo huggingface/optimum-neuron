@@ -59,6 +59,7 @@ from .utils.training_utils import (
     patch_generation_mixin_to_neuron_generation_mixin,
     patched_finfo,
     prepare_environment_for_neuron,
+    set_neuron_cc_optlevel_for_model,
     skip_first_batches,
 )
 
@@ -177,6 +178,8 @@ class AugmentTrainerForNeuronMixin:
 
         # Make the model Neuron-compatible for generation.
         patch_generation_mixin_to_neuron_generation_mixin(self.model)
+
+        set_neuron_cc_optlevel_for_model(self.model, optlevel=self.args.neuron_cc_optlevel)
 
     @property
     def tp_enabled(self):

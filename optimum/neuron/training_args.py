@@ -63,6 +63,13 @@ class NeuronTrainingArgumentsMixin:
         default=False,
         metadata={"help": "Whether or not to enable sequence parallelism."},
     )
+    neuron_cc_optlevel: str = field(
+        default="auto",
+        metadata={
+            "choices": ["auto", "1", "2", "3"],
+            "help": "Specify the level of optimization the Neuron compiler should perform.",
+        },
+    )
 
     def __post_init__(self):
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
@@ -98,6 +105,8 @@ class NeuronTrainingArgumentsMixin:
                     f"{TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP} but {transformers.__version__} is installed."
                 )
         self.tp_plugin = TensorParallelismPlugin(self.tensor_parallel_size, not self.disable_embedding_parallelization)
+        if self.neuron_cc_optlevel != "auto":
+            self.neuron_cc_optlevel = f"-O{self.neuron_cc_optlevel}"
         super().__post_init__()
 
     # Needed only to specialize the warning message for FSDP.

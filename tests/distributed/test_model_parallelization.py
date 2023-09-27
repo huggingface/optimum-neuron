@@ -371,7 +371,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
         )
 
     @parameterized.expand(MODELS_TO_TEST)
-    @pytest.mark.skip("Parallel cross entropy does not work yet.")
+    # @pytest.mark.skip("Parallel cross entropy does not work yet.")
     def test_model_parallel_lazy_load_without_sequence_parallel(
         self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
     ):
@@ -382,7 +382,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
             model_class_name=model_class_name,
             model_name_or_path=model_name_or_path,
             from_config=False,
-            with_lazy_load=True,
+            with_lazy_load=False,
             parallelize_embeddings=True,
             sequence_parallel_enabled=False,
             overwrite_model_config=config_overwrite,

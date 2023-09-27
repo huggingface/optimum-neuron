@@ -28,6 +28,7 @@ from transformers.utils import WEIGHTS_NAME
 from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
 from ..utils.deprecate_utils import deprecate
+from ..utils.require_utils import requires_neuronx_distributed, requires_torch_xla
 from .parallel_layers import (
     IOSequenceParallelizer,
     LayerNormSequenceParallelizer,
@@ -35,14 +36,6 @@ from .parallel_layers import (
     SequenceCollectiveOpInfo,
 )
 from .utils import TENSOR_PARALLEL_SHARDS_DIR_NAME, ParameterMetadata, WeightInformation, load_tensor_for_weight
-
-
-if is_neuronx_distributed_available():
-    import neuronx_distributed
-    from neuronx_distributed import parallel_layers
-
-if is_torch_xla_available():
-    import torch_xla.core.xla_model as xm
 
 
 if TYPE_CHECKING:
@@ -164,6 +157,7 @@ class Parallelizer(ABC):
             )
 
     @classmethod
+    @requires_neuronx_distributed
     def parallelize(
         cls,
         model: "PreTrainedModel",
@@ -192,6 +186,8 @@ class Parallelizer(ABC):
         Returns:
             `PreTrainedModel`: The parallelized model.
         """
+        from neuronx_distributed import parallel_layers
+
         if sequence_parallel_enabled and cls.SEQUENCE_PARALLEL_LAYERNORM_PATTERNS is None:
             raise NotImplementedError(f"Sequence parallelism is not supported for {model.__class__}.")
 
@@ -283,9 +279,16 @@ class Parallelizer(ABC):
                 )
                 tied_weights[parameter] = new_parameter
             for mod in modules_to_initialize:
-                # This module has not pre-trained weights, it must be fine-tuned, we initialize it with the
-                # `reset_parameters()` method.
-                mod.reset_parameters()
+                if isinstance(mod, (torch.nn.Embedding, torch.nn.Linear)):
+                    # This module has not pre-trained weights, it must be fine-tuned, we initialize it with the
+                    # `reset_parameters()` method.
+                    mod.reset_parameters()
+                elif isinstance(mod, parallel_layers.layers.BaseParallelLinear):
+                    mod._init_weight(mod.weight)
+                    if mod.bias is not None:
+                        mod._init_bias()
+                else:
+                    raise ValueError(f"Do not know how to initialize a module of type {mod.__class__}")
 
         return model
 
@@ -294,11 +297,14 @@ class Parallelizer(ABC):
         raise NotImplementedError
 
     @classmethod
+    @requires_neuronx_distributed
     def was_parallelized(cls, model: "PreTrainedModel") -> bool:
+        import neuronx_distributed
+
         parallel_layer_classes = (
-            parallel_layers.ParallelEmbedding,
-            parallel_layers.ColumnParallelLinear,
-            parallel_layers.RowParallelLinear,
+            neuronx_distributed.parallel_layers.ParallelEmbedding,
+            neuronx_distributed.parallel_layers.ColumnParallelLinear,
+            neuronx_distributed.parallel_layers.RowParallelLinear,
         )
         return any(isinstance(mod, parallel_layer_classes) for mod in model.modules())
 
@@ -399,12 +405,18 @@ class Parallelizer(ABC):
         return tp_metadata
 
     @classmethod
+    @requires_torch_xla
+    @requires_neuronx_distributed
     def save_model_checkpoint_as_regular(
         cls,
         model: "PreTrainedModel",
         output_dir: Union[str, Path],
         optimizer: Optional["torch.optim.Optimizer"] = None,
     ):
+        import neuronx_distributed
+        import torch_xla.core.xla_model as xm
+        from neuronx_distributed import parallel_layers
+
         cls._check_model_was_parallelized(model)
         data_parallel_rank = parallel_layers.parallel_state.get_data_parallel_rank()
         tensor_parallel_rank = parallel_layers.parallel_state.get_tensor_model_parallel_rank()
@@ -443,12 +455,21 @@ class Parallelizer(ABC):
         xm.rendezvous("saving regular checkpoint")
 
     @classmethod
+    @requires_torch_xla
+    @requires_neuronx_distributed
     def save_model_checkpoint_as_sharded(
         cls,
         model: "PreTrainedModel",
         output_dir: Union[str, Path],
         optimizer: Optional["torch.optim.Optimizer"] = None,
     ):
+        import torch_xla.core.xla_model as xm
+        from neuronx_distributed import parallel_layers
+        from parallel_layers.parallel_state import (
+            get_data_parallel_rank,
+            get_tensor_model_parallel_rank,
+        )
+
         cls._check_model_was_parallelized(model)
         if not isinstance(output_dir, Path):
             output_dir = Path(output_dir)
@@ -463,10 +484,6 @@ class Parallelizer(ABC):
             state_dict["optimizer_state_dict"] = optimizer.state_dict()
 
         output_path = output_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME
-        from neuronx_distributed.parallel_layers.parallel_state import (
-            get_data_parallel_rank,
-            get_tensor_model_parallel_rank,
-        )
 
         if get_data_parallel_rank() == 0 and get_tensor_model_parallel_rank() == 0:
             if output_path.is_dir():
@@ -496,11 +513,14 @@ class Parallelizer(ABC):
         raise NotImplementedError("This requires being able to deparallelize the model.")
 
     @classmethod
+    @requires_neuronx_distributed
     def load_model_sharded_checkpoint(cls, model: "PreTrainedModel", load_dir: Union[str, Path]):
+        import neuronx_distributed
+
         cls._check_model_was_parallelized(model)
         if not isinstance(load_dir, Path):
             load_dir = Path(load_dir)
-        parallel_layers.load(load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME, model=model, sharded=True)
+        neuronx_distributed.parallel_layers.load(load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME, model=model, sharded=True)
 
     @classmethod
     def load_model_checkpoint(cls, model: "PreTrainedModel", load_dir: Union[str, Path]):
