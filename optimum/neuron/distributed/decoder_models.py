@@ -77,7 +77,7 @@ class GPTNeoParallelizer(Parallelizer):
     ]
 
     @classmethod
-    def patch_for_sequence_paralelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
+    def patch_for_sequence_parallelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
         if not sequence_parallel_enabled:
             return
 
@@ -165,7 +165,7 @@ class GPTNeoXParallelizer(Parallelizer):
     ]
 
     @classmethod
-    def patch_for_sequence_paralelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
+    def patch_for_sequence_parallelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
         if not sequence_parallel_enabled:
             return
 
@@ -182,11 +182,15 @@ class GPTNeoXParallelizer(Parallelizer):
             has_layer_past = layer_past is not None
 
             # Compute QKV
-            # Attention heads [batch, seq_len, hidden_size]
-            #   --> [batch, seq_len, (np * 3 * head_size)]
+            # If sequence_parallel_enabled:
+            #   --> [seq_len, batch, (num_heads * 3 * head_size)]
+            # Else:
+            #   --> [batch, seq_len, (num_heads * 3 * head_size)]
             qkv = self.query_key_value(hidden_states)
 
-            # [batch, seq_len, (num_heads * 3 * head_size)]
+            # If sequence_parallel_enabled:
+            #   --> [seq_len, batch, num_heads, 3 * head_size]
+            # Else:
             #   --> [batch, seq_len, num_heads, 3 * head_size]
             new_qkv_shape = qkv.size()[:-1] + (self.num_attention_heads, 3 * self.head_size)
             qkv = qkv.view(*new_qkv_shape)
@@ -355,7 +359,7 @@ class LlamaParallelizer(Parallelizer):
     ]
 
     @classmethod
-    def patch_for_sequence_paralelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
+    def patch_for_sequence_parallelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
         if not sequence_parallel_enabled:
             return
 
