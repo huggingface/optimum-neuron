@@ -185,8 +185,13 @@ def embedding_to_parallel_embedding(
     parallel_embedding_layer = layers.ParallelEmbedding(
         embedding_layer.num_embeddings,
         embedding_layer.embedding_dim,
-        dtype=embedding_layer.weight.dtype,
+        padding_idx=embedding_layer.padding_idx,
+        max_norm=embedding_layer.max_norm,
+        norm_type=embedding_layer.norm_type,
+        scale_grad_by_freq=embedding_layer.scale_grad_by_freq,
+        sparse=embedding_layer.sparse,
         device=device,
+        dtype=embedding_layer.weight.dtype,
     )
 
     tp_rank = get_tensor_model_parallel_rank()
@@ -351,7 +356,6 @@ def linear_to_parallel_linear(
                     ),
                 )
                 parallel_linear_layer.weight.copy_(weight_data)
-
             elif linear_layer.weight.device != torch.device("meta"):
                 parallel_linear_layer.weight.copy_(
                     linear_layer.weight[tp_rank * row_size : (tp_rank + 1) * row_size, :]

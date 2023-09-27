@@ -320,16 +320,14 @@ class ModelParallelizationTestCase(unittest.TestCase):
         self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
     ):
         self._test_model_parallel(
-            num_neuron_cores=8,
+            num_neuron_cores=2,
             tp_size=2,
             run_test_in_parallel=True,
             model_class_name=model_class_name,
             model_name_or_path=model_name_or_path,
             from_config=True,
             with_lazy_load=False,
-            # TODO: enable once ParallelCrossEntropy works.
-            # parallelize_embeddings=True,
-            parallelize_embeddings=False,
+            parallelize_embeddings=True,
             sequence_parallel_enabled=True,
             overwrite_model_config=config_overwrite,
         )
@@ -382,7 +380,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
             model_class_name=model_class_name,
             model_name_or_path=model_name_or_path,
             from_config=False,
-            with_lazy_load=False,
+            with_lazy_load=True,
             parallelize_embeddings=True,
             sequence_parallel_enabled=False,
             overwrite_model_config=config_overwrite,

@@ -278,6 +278,7 @@ class Parallelizer(ABC):
                     new_parameter,
                 )
                 tied_weights[parameter] = new_parameter
+
             for mod in modules_to_initialize:
                 if isinstance(mod, (torch.nn.Embedding, torch.nn.Linear)):
                     # This module has not pre-trained weights, it must be fine-tuned, we initialize it with the
