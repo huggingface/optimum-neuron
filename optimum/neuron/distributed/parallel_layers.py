@@ -434,6 +434,7 @@ class ParallelSelfAttention(ParallelLayer):
         )
         return layer
 
+
 class ParallelSelfAttentionWithFusedQKV(ParallelLayer):
     """
     Transforms a Self-Attention layer into a Parallel Self-Attention layer.
@@ -552,6 +553,7 @@ class ParallelSelfAttentionWithFusedQKV(ParallelLayer):
             getattr(layer, all_head_size_name) // tp_size,
         )
         return layer
+
 
 class ParallelSelfOutput(ParallelLayer):
     """

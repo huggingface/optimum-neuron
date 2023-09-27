@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Optional, Tuple
 
 import torch
 from transformers.models.gpt_neo.modeling_gpt_neo import GPTNeoBlock, GPTNeoSelfAttention
-from transformers.models.gpt_neox.modeling_gpt_neox import GPTNeoXAttention 
+from transformers.models.gpt_neox.modeling_gpt_neox import GPTNeoXAttention
 from transformers.models.llama.modeling_llama import (
     LlamaAttention,
     LlamaDecoderLayer,
@@ -274,6 +274,7 @@ class GPTNeoXParallelizer(Parallelizer):
                 model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device
             )
         return model
+
 
 class LlamaParallelEmbedding(ParallelEmbedding):
     EMBEDDING_NAME = "model.embed_tokens"
