@@ -287,9 +287,6 @@ class Parallelizer(ABC):
                 # `reset_parameters()` method.
                 mod.reset_parameters()
 
-            for name, p in model.named_parameters():
-                if p.dtype != torch.float32:
-                    print(name, p.dtype)
         return model
 
     @classmethod

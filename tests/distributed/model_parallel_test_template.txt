@@ -115,7 +115,7 @@ for k, v in inputs.items():
 shape = list(xla_inputs.values())[0].shape
 
 if computing_loss_is_supported:
-  xla_inputs.update(generate_dummy_labels(model, shape, vocab_size=vocab_size, device="xla", seed=SEED))
+    xla_inputs.update(generate_dummy_labels(model, shape, vocab_size=vocab_size, device="xla", seed=SEED))
 
 model_outputs = model(**xla_inputs, return_dict=True)
 xm.mark_step()
