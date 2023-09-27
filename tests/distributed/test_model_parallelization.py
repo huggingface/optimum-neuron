@@ -403,7 +403,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
 
     @pytest.mark.skipif(
         NUM_NEURON_CORES_AVAILABLE < 32,
-        f"This test requires 32 Neuron cores, but only {NUM_NEURON_CORES_AVAILABLE} are available",
+        reason=f"This test requires 32 Neuron cores, but only {NUM_NEURON_CORES_AVAILABLE} are available",
     )
     def test_llama_v2_gqa_variants(self):
         llama_v2_model_name = "anushehchaudry/llama-2-tiny-random"

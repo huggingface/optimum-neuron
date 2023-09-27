@@ -267,7 +267,9 @@ class Parallelizer(ABC):
                     else:
                         slices = None
 
-                    new_parameter = torch.nn.Parameter(load_tensor_for_weight(weight_info, tensor_slices=slices))
+                    new_parameter = torch.nn.Parameter(
+                        load_tensor_for_weight(weight_info, tensor_slices=slices).to(parameter.dtype)
+                    )
                 else:
                     # This means that there is no information about where to find the weights for this parameter.
                     device = torch.device("cpu") if device is None else device
@@ -284,6 +286,10 @@ class Parallelizer(ABC):
                 # This module has not pre-trained weights, it must be fine-tuned, we initialize it with the
                 # `reset_parameters()` method.
                 mod.reset_parameters()
+
+            for name, p in model.named_parameters():
+                if p.dtype != torch.float32:
+                    print(name, p.dtype)
         return model
 
     @classmethod
