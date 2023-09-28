@@ -339,6 +339,7 @@ class NeuronAccelerator(Accelerator):
                 model.tie_weights()
                 move_model_to_device(model, self.device)
                 model.tie_weights()
+
             self._model_cpu_parameters_to_xla[id(model)] = dict(zip(cpu_ids, model.parameters()))
             device_placement = False
         return super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)

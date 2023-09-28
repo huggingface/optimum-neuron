@@ -85,7 +85,6 @@ def load_model_with_seed(seed: int, from_config: bool):
 
 
 model = load_model_with_seed(SEED, from_config)
-model = model.eval()
 
 set_neuron_cc_optlevel_for_model(model)
 
@@ -102,6 +101,8 @@ if is_parallel:
 else:
     model = model.to("xla")
     filename = "original.bin"
+
+model = model.eval()
 
 xla_inputs = dict()
 sig = signature(model.forward)
