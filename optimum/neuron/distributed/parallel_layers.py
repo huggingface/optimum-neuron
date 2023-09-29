@@ -251,8 +251,6 @@ class ParallelEmbedding(ParallelLayer):
         else:
             setattr(parent_embedding_module, embedding_attribute_name, parallel_layers)
 
-        cls.overwrite_vocab_size_value_for_cross_entropy_computation(layer)
-
         return layer
 
 

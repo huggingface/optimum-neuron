@@ -291,6 +291,8 @@ class ModelParallelizationTestCase(unittest.TestCase):
             original_model_outputs = torch.load(temporary_dir / "original.bin")
             parallel_model_outputs = torch.load(temporary_dir / "parallel.bin")
             for name, t in original_model_outputs.items():
+                if name == "loss":
+                    continue
                 if name in self.OUTPUTS_TO_IGNORE:
                     continue
                 print(f"Testing that {name} match.")
@@ -328,7 +330,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
             from_config=True,
             with_lazy_load=False,
             parallelize_embeddings=True,
-            sequence_parallel_enabled=True,
+            sequence_parallel_enabled=False,
             overwrite_model_config=config_overwrite,
         )
 

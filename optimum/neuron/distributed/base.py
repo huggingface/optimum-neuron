@@ -466,7 +466,7 @@ class Parallelizer(ABC):
     ):
         import torch_xla.core.xla_model as xm
         from neuronx_distributed import parallel_layers
-        from parallel_layers.parallel_state import (
+        from neuronx_distributed.parallel_layers.parallel_state import (
             get_data_parallel_rank,
             get_tensor_model_parallel_rank,
         )

@@ -133,7 +133,7 @@ class GPTNeoParallelizer(Parallelizer):
 
 
 class GPTNeoXParallelEmbedding(ParallelEmbedding):
-    EMBEDDING_NAME = "embed_in"
+    EMBEDDING_NAME = "gpt_neox.embed_in"
     LM_HEAD_NAME = "embed_out"
 
 
