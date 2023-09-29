@@ -96,12 +96,11 @@ if is_parallel:
         parallelize_embeddings=parallelize_embeddings, 
         sequence_parallel_enabled=sequence_parallel_enabled,
     )
-    move_model_to_device(model, "xla")
     filename = "parallel.bin"
 else:
-    model = model.to("xla")
     filename = "original.bin"
 
+move_model_to_device(model, "xla")
 model = model.eval()
 
 xla_inputs = dict()

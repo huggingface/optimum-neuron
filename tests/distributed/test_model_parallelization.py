@@ -291,8 +291,6 @@ class ModelParallelizationTestCase(unittest.TestCase):
             original_model_outputs = torch.load(temporary_dir / "original.bin")
             parallel_model_outputs = torch.load(temporary_dir / "parallel.bin")
             for name, t in original_model_outputs.items():
-                if name == "loss":
-                    continue
                 if name in self.OUTPUTS_TO_IGNORE:
                     continue
                 print(f"Testing that {name} match.")
