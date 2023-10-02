@@ -47,6 +47,12 @@ class NeuronStableDiffusionXLPipelineMixin(StableDiffusionXLPipelineMixin, Stabl
         latents = latents * self.scheduler.init_noise_sigma
         return latents
 
+    # Adapted from https://github.com/huggingface/diffusers/blob/v0.21.2/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py#L506
+    def _get_add_time_ids(self, original_size, crops_coords_top_left, target_size, dtype):
+        add_time_ids = list(original_size + crops_coords_top_left + target_size)
+        add_time_ids = torch.tensor([add_time_ids], dtype=dtype)
+        return add_time_ids
+
     # Adapted from https://github.com/huggingface/diffusers/blob/v0.20.2/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py#L557
     def __call__(
         self,
@@ -306,11 +312,14 @@ class NeuronStableDiffusionXLPipelineMixin(StableDiffusionXLPipelineMixin, Stabl
 
         # 7. Prepare added time ids & embeddings
         add_text_embeds = pooled_prompt_embeds
-        add_time_ids = (original_size + crops_coords_top_left + target_size,)
-        add_time_ids = torch.tensor(add_time_ids, dtype=prompt_embeds.dtype)
+        add_time_ids = self._get_add_time_ids(
+            original_size, crops_coords_top_left, target_size, dtype=prompt_embeds.dtype
+        )
         if negative_original_size is not None and negative_target_size is not None:
-            negative_add_time_ids = torch.tensor(
-                [list(negative_original_size + negative_crops_coords_top_left + negative_target_size)],
+            negative_add_time_ids = self._get_add_time_ids(
+                negative_original_size,
+                negative_crops_coords_top_left,
+                negative_target_size,
                 dtype=prompt_embeds.dtype,
             )
         else:

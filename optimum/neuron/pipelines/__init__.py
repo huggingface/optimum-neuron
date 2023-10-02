@@ -25,7 +25,8 @@ _import_structure = {
         "NeuronStableDiffusionImg2ImgPipelineMixin",
         "NeuronStableDiffusionInpaintPipelineMixin",
         "NeuronStableDiffusionXLPipelineMixin",
-        "NeuronStableDiffusionXLImg2ImgPipeline",
+        "NeuronStableDiffusionXLImg2ImgPipelineMixin",
+        "NeuronStableDiffusionXLInpaintPipelineMixin",
     ],
 }
 
@@ -34,7 +35,8 @@ if TYPE_CHECKING:
         NeuronStableDiffusionImg2ImgPipelineMixin,
         NeuronStableDiffusionInpaintPipelineMixin,
         NeuronStableDiffusionPipelineMixin,
-        NeuronStableDiffusionXLImg2ImgPipeline,
+        NeuronStableDiffusionXLImg2ImgPipelineMixin,
+        NeuronStableDiffusionXLInpaintPipelineMixin,
         NeuronStableDiffusionXLPipelineMixin,
     )
     from .transformers import (

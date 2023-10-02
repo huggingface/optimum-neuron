@@ -11,13 +11,15 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
-"""Override some diffusers API for NeuronStableDiffusionXLPipelineMixin"""
+"""Override some diffusers API for NeuronStableDiffusionXLImg2ImgPipeline"""
 
 import logging
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
+import PIL
 
 import torch
 from diffusers import StableDiffusionXLImg2ImgPipeline
+from diffusers.utils.torch_utils import randn_tensor
 
 from .pipeline_utils import StableDiffusionXLPipelineMixin
 
@@ -29,7 +31,68 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class NeuronStableDiffusionXLImg2ImgPipeline(StableDiffusionXLPipelineMixin, StableDiffusionXLImg2ImgPipeline):
+class NeuronStableDiffusionXLImg2ImgPipelineMixin(StableDiffusionXLPipelineMixin, StableDiffusionXLImg2ImgPipeline):
+    # Adapted from https://github.com/huggingface/diffusers/blob/v0.21.2/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl_img2img.py#L515
+    def prepare_latents(self, image, timestep, batch_size, num_images_per_prompt, dtype, generator=None, add_noise=True):
+        if not isinstance(image, (torch.Tensor, PIL.Image.Image, list)):
+            raise ValueError(
+                f"`image` has to be of type `torch.Tensor`, `PIL.Image.Image` or list but is {type(image)}"
+            )
+
+        image = image.to(dtype=dtype)
+
+        batch_size = batch_size * num_images_per_prompt
+
+        if image.shape[1] == 4:
+            init_latents = image
+
+        else:
+            # make sure the VAE is in float32 mode, as it overflows in float16
+            if self.vae_encoder.config.force_upcast:
+                image = image.float()
+                self.vae.to(dtype=torch.float32)
+
+            if isinstance(generator, list) and len(generator) != batch_size:
+                raise ValueError(
+                    f"You have passed a list of generators of length {len(generator)}, but requested an effective batch"
+                    f" size of {batch_size}. Make sure the batch size matches the length of the generators."
+                )
+
+            elif isinstance(generator, list):
+                init_latents = [
+                    self.vae.encode(image[i : i + 1]).latent_dist.sample(generator[i]) for i in range(batch_size)
+                ]
+                init_latents = torch.cat(init_latents, dim=0)
+            else:
+                init_latents = self.vae.encode(image).latent_dist.sample(generator)
+
+            if self.vae.config.force_upcast:
+                self.vae.to(dtype)
+
+            init_latents = init_latents.to(dtype)
+            init_latents = self.vae.config.scaling_factor * init_latents
+
+        if batch_size > init_latents.shape[0] and batch_size % init_latents.shape[0] == 0:
+            # expand init_latents for batch_size
+            additional_image_per_prompt = batch_size // init_latents.shape[0]
+            init_latents = torch.cat([init_latents] * additional_image_per_prompt, dim=0)
+        elif batch_size > init_latents.shape[0] and batch_size % init_latents.shape[0] != 0:
+            raise ValueError(
+                f"Cannot duplicate `image` of batch size {init_latents.shape[0]} to {batch_size} text prompts."
+            )
+        else:
+            init_latents = torch.cat([init_latents], dim=0)
+
+        if add_noise:
+            shape = init_latents.shape
+            noise = randn_tensor(shape, generator=generator, dtype=dtype)
+            # get latents
+            init_latents = self.scheduler.add_noise(init_latents, noise, timestep)
+
+        latents = init_latents
+
+        return latents
+    
     # Adapted from https://github.com/huggingface/diffusers/blob/v0.21.2/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl_img2img.py#L654
     def __call__(
         self,
@@ -271,4 +334,29 @@ class NeuronStableDiffusionXLImg2ImgPipeline(StableDiffusionXLPipelineMixin, Sta
             negative_pooled_prompt_embeds=negative_pooled_prompt_embeds,
             lora_scale=text_encoder_lora_scale,
             clip_skip=clip_skip,
+        )
+        
+        # 4. Preprocess image
+        image = self.image_processor.preprocess(image)
+        
+        # 5. Prepare timesteps
+        def denoising_value_valid(dnv):
+            return isinstance(denoising_end, float) and 0 < dnv < 1
+
+        self.scheduler.set_timesteps(num_inference_steps, device=None)
+        timesteps, num_inference_steps = self.get_timesteps(
+            num_inference_steps, strength, None, denoising_start=denoising_start if denoising_value_valid else None
+        )
+        latent_timestep = timesteps[:1].repeat(batch_size * num_images_per_prompt)
+        
+        add_noise = True if denoising_start is None else False
+        # 6. Prepare latent variables
+        latents = self.prepare_latents(
+            image,
+            latent_timestep,
+            batch_size,
+            num_images_per_prompt,
+            prompt_embeds.dtype,
+            generator,
+            add_noise,
         )

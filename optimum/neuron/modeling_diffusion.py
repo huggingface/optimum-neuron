@@ -64,6 +64,9 @@ if is_diffusers_available():
         NeuronStableDiffusionInpaintPipelineMixin,
         NeuronStableDiffusionPipelineMixin,
         NeuronStableDiffusionXLPipelineMixin,
+        NeuronStableDiffusionXLImg2ImgPipelineMixin,
+        NeuronStableDiffusionXLInpaintPipelineMixin,
+        
     )
 
 
@@ -143,11 +146,15 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             neuron_config._config.neuron["dynamic_batch_size"] for neuron_config in self.neuron_configs.values()
         )
 
-        self.text_encoder = NeuronModelTextEncoder(
-            text_encoder,
-            self,
-            self.configs[DIFFUSION_MODEL_TEXT_ENCODER_NAME],
-            self.neuron_configs[DIFFUSION_MODEL_TEXT_ENCODER_NAME],
+        self.text_encoder = (
+            NeuronModelTextEncoder(
+                text_encoder,
+                self,
+                self.configs[DIFFUSION_MODEL_TEXT_ENCODER_NAME],
+                self.neuron_configs[DIFFUSION_MODEL_TEXT_ENCODER_NAME],
+            )
+            if text_encoder is not None
+            else None
         )
         self.text_encoder_2 = (
             NeuronModelTextEncoder(
@@ -206,9 +213,15 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         else:
             self.vae_scale_factor = 8
 
-        self.num_images_per_prompt = (
-            self.neuron_configs["unet"].batch_size // self.neuron_configs["text_encoder"].batch_size
-        )
+        unet_batch_size = self.neuron_configs["unet"].batch_size
+        if "text_encoder" in self.neuron_configs:
+            text_encoder_batch_size = self.neuron_configs["text_encoder"].batch_size
+            self.num_images_per_prompt = unet_batch_size // text_encoder_batch_size
+        elif "text_encoder_2" in self.neuron_configs:
+            text_encoder_batch_size = self.neuron_configs["text_encoder_2"].batch_size
+            self.num_images_per_prompt = unet_batch_size // text_encoder_batch_size
+        else:
+            self.num_images_per_prompt = 1
 
         self.image_processor = VaeImageProcessor(vae_scale_factor=self.vae_scale_factor)
 
@@ -276,6 +289,9 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         if not self.model_and_config_save_paths.get(DIFFUSION_MODEL_VAE_ENCODER_NAME)[0].is_file():
             self.model_and_config_save_paths.pop(DIFFUSION_MODEL_VAE_ENCODER_NAME)
 
+        if not self.model_and_config_save_paths.get(DIFFUSION_MODEL_TEXT_ENCODER_NAME)[0].is_file():
+            self.model_and_config_save_paths.pop(DIFFUSION_MODEL_TEXT_ENCODER_NAME)
+            
         if not self.model_and_config_save_paths.get(DIFFUSION_MODEL_TEXT_ENCODER_2_NAME)[0].is_file():
             self.model_and_config_save_paths.pop(DIFFUSION_MODEL_TEXT_ENCODER_2_NAME)
 
@@ -320,7 +336,8 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             if src_path.is_file():
                 shutil.copyfile(src_path, dst_path)
 
-        self.tokenizer.save_pretrained(save_directory.joinpath("tokenizer"))
+        if self.tokenizer is not None:
+            self.tokenizer.save_pretrained(save_directory.joinpath("tokenizer"))
         if self.tokenizer_2 is not None:
             self.tokenizer_2.save_pretrained(save_directory.joinpath("tokenizer_2"))
         self.scheduler.save_pretrained(save_directory.joinpath("scheduler"))
@@ -438,12 +455,12 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             unet=unet,
             vae_decoder=vae_decoder,
             config=config,
-            tokenizer=sub_models["tokenizer"],
-            scheduler=sub_models["scheduler"],
+            tokenizer=sub_models.get("tokenizer", None),
+            scheduler=sub_models.get("scheduler"),
             vae_encoder=vae_encoder,
             text_encoder_2=text_encoder_2,
-            tokenizer_2=sub_models.pop("tokenizer_2", None),
-            feature_extractor=sub_models.pop("feature_extractor", None),
+            tokenizer_2=sub_models.get("tokenizer_2", None),
+            feature_extractor=sub_models.get("feature_extractor", None),
             device_ids=device_ids,
             configs=configs,
             neuron_configs=neuron_configs,
@@ -716,3 +733,11 @@ class NeuronStableDiffusionXLPipelineBase(NeuronStableDiffusionPipelineBase):
 
 class NeuronStableDiffusionXLPipeline(NeuronStableDiffusionXLPipelineBase, NeuronStableDiffusionXLPipelineMixin):
     __call__ = NeuronStableDiffusionXLPipelineMixin.__call__
+    
+
+class NeuronStableDiffusionXLImg2ImgPipeline(NeuronStableDiffusionXLPipelineBase, NeuronStableDiffusionXLImg2ImgPipelineMixin):
+    __call__ = NeuronStableDiffusionXLImg2ImgPipelineMixin.__call__
+
+
+class NeuronStableDiffusionXLInpaintPipeline(NeuronStableDiffusionXLPipelineBase, NeuronStableDiffusionXLInpaintPipelineMixin):
+    __call__ = NeuronStableDiffusionXLInpaintPipelineMixin.__call__
