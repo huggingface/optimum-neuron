@@ -29,20 +29,20 @@ if __name__ == "__main__":
     subparsers = parser.add_subparsers(help="Action to perform", dest="action")
     parent_parser = argparse.ArgumentParser(add_help=False)
     parent_parser.add_argument("model", type=str, help="The HF Hub model id or a local directory.")
-    compile_parser = subparsers.add_parser("compile", parents=[parent_parser], help="Convert model to Neuron.")
-    compile_parser.add_argument(
+    export_parser = subparsers.add_parser("export", parents=[parent_parser], help="Convert model to Neuron.")
+    export_parser.add_argument(
         "--batch_size",
         type=int,
         default=1,
         help="The batch size.",
     )
-    compile_parser.add_argument(
+    export_parser.add_argument(
         "--num_cores", type=int, default=1, help="The number of cores on which the model should be split."
     )
-    compile_parser.add_argument(
+    export_parser.add_argument(
         "--auto_cast_type", type=str, default="f32", choices=["f32", "f16", "bf16"], help="One of f32, f16, bf16."
     )
-    compile_parser.add_argument(
+    export_parser.add_argument(
         "--save_dir", type=str, help="The save directory. Allows to avoid recompiling the model every time."
     )
     run_parser = subparsers.add_parser(
@@ -63,7 +63,7 @@ if __name__ == "__main__":
     )
     run_parser.add_argument("--seed", type=int, default=None, help="Pass a seed for reproducibility.")
     args = parser.parse_args()
-    if args.action == "compile":
+    if args.action == "export":
         model = NeuronModelForCausalLM.from_pretrained(
             args.model,
             export=True,
