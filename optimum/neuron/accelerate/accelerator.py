@@ -27,14 +27,19 @@ import torch
 from accelerate import Accelerator
 from accelerate.checkpointing import save_accelerator_state, save_custom_state
 from accelerate.utils import DistributedType
+from accelerate.utils.operations import gather_object, recursively_apply
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
-from optimum.neuron.utils.patching import ModelPatcher
-
 from ...utils import logging
 from ..distributed import Parallelizer, ParallelizersManager
-from ..utils import Patcher, is_neuronx_distributed_available, is_torch_xla_available, patch_within_function
+from ..utils import (
+    ModelPatcher,
+    Patcher,
+    is_neuronx_distributed_available,
+    is_torch_xla_available,
+    patch_within_function,
+)
 from ..utils.misc import args_and_kwargs_to_kwargs_only
 from ..utils.require_utils import requires_neuronx_distributed
 from .optimizer import NeuronAcceleratedOptimizer
@@ -46,6 +51,7 @@ from .utils import (
     TensorParallelismPlugin,
     patch_accelerate_is_tpu_available,
 )
+from .utils.operations import _xla_gather
 
 
 if TYPE_CHECKING:
@@ -320,32 +326,35 @@ class NeuronAccelerator(Accelerator):
     def _prepare_model_for_tp(
         self, model: torch.nn.Module, device_placement: Optional[bool] = None, evaluation_mode: bool = False
     ):
-        if not evaluation_mode:
-            cpu_ids = [id(v) for v in model.parameters()]
-            # TODO: enable self.device (if needed).
-            model = self.state.tp_plugin.parallelize_model(model, device=None)
-            if os.environ.get("XLA_USE_BF16", "0") == "1":
-                model.to(torch.bfloat16)
-            else:
-                model.to(torch.float32)
+        cpu_ids = [id(v) for v in model.parameters()]
+        # TODO: enable self.device (if needed).
+        model = self.state.tp_plugin.parallelize_model(model, device=None)
+        if os.environ.get("XLA_USE_BF16", "0") == "1":
+            model.to(torch.bfloat16)
+        else:
+            model.to(torch.float32)
 
-            def _tie_or_clone_weights_for_tp(self, output_embeddings, input_embeddings):
-                """Tie or clone module weights depending of whether we are using TorchScript or not"""
-                output_embeddings.weight = input_embeddings.weight
-                if hasattr(output_embeddings, "out_features") and hasattr(input_embeddings, "num_embeddings"):
-                    output_embeddings.out_features = input_embeddings.num_embeddings
+        def _tie_or_clone_weights_for_tp(self, output_embeddings, input_embeddings):
+            """Tie or clone module weights depending of whether we are using TorchScript or not"""
+            output_embeddings.weight = input_embeddings.weight
+            if hasattr(output_embeddings, "out_features") and hasattr(input_embeddings, "num_embeddings"):
+                output_embeddings.out_features = input_embeddings.num_embeddings
 
-            with ModelPatcher(patching_specs=[(model, "_tie_or_clone_weights", _tie_or_clone_weights_for_tp)]):
-                model.tie_weights()
-                move_model_to_device(model, self.device)
-                model.tie_weights()
-            self._model_cpu_parameters_to_xla[id(model)] = dict(zip(cpu_ids, model.parameters()))
-            device_placement = False
+        with ModelPatcher(patching_specs=[(model, "_tie_or_clone_weights", _tie_or_clone_weights_for_tp)]):
+            model.tie_weights()
+            move_model_to_device(model, self.device)
+            model.tie_weights()
+        self._model_cpu_parameters_to_xla[id(model)] = dict(zip(cpu_ids, model.parameters()))
+        device_placement = False
+
         return super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
 
     def prepare_model(
         self, model: torch.nn.Module, device_placement: Optional[bool] = None, evaluation_mode: bool = False
     ):
+        # If the model was already prepared, we skip.
+        if model in self._models:
+            return model
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:
             return self.prepare_model_for_xla_fsdp(
                 model, device_placement=device_placement, evaluation_mode=evaluation_mode
@@ -506,6 +515,43 @@ class NeuronAccelerator(Accelerator):
             return self.save_state_for_tp(output_dir=output_dir, **save_model_func_kwargs)
         return super().save_state(output_dir=output_dir, **save_model_func_kwargs)
 
-    @patch_within_function(("accelerate.utils.operations.xm", xm), ignore_missing_attributes=True)
-    def gather_for_metrics(self, tensor):
-        return super().gather_for_metrics(tensor)
+    def gather(self, tensor, out_of_graph: bool = False):
+        return _xla_gather(tensor, out_of_graph=out_of_graph)
+
+    def gather_for_metrics(self, input_data):
+        try:
+            recursively_apply(lambda x: x, input_data, error_on_other_type=True)
+            all_tensors = True
+        except TypeError:
+            all_tensors = False
+
+        if not all_tensors:
+            data = gather_object(input_data)
+        else:
+            # It is needed to perform out-of-graph gather otherwise re-compilation happens at every evaluation step.
+            data = self.gather(input_data, out_of_graph=True)
+
+        try:
+            if self.gradient_state.end_of_dataloader:
+                # at the end of a dataloader, `gather_for_metrics` regresses to
+                # `gather` unless the dataset has a remainder so log.
+                if self.gradient_state.remainder == -1:
+                    logger.info(
+                        "The used dataset had no length, returning gathered tensors. You should drop the remainder yourself."
+                    )
+                    return data
+                elif self.gradient_state.remainder > 0:
+                    # Last batch needs to be truncated on distributed systems as it contains additional samples
+                    def _adjust_samples(tensor):
+                        return tensor[: self.gradient_state.remainder]
+
+                    return recursively_apply(_adjust_samples, data)
+                else:  # remainder is 0
+                    # no remainder even though at end of dataloader, so nothing to do.
+                    return data
+            else:
+                # Not at the end of the dataloader, no need to adjust the tensors
+                return data
+        except Exception:
+            # Dataset had no length or raised an error
+            return data

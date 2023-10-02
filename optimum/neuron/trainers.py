@@ -26,7 +26,6 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import torch
 from packaging import version
-from torch.utils.data import DataLoader
 from transformers import PreTrainedModel, Seq2SeqTrainer, Trainer, TrainingArguments
 from transformers.dependency_versions_check import dep_version_check
 from transformers.integrations import is_fairscale_available
@@ -37,7 +36,7 @@ from transformers.trainer import (
     TRAINING_ARGS_NAME,
 )
 from transformers.trainer_pt_utils import reissue_pt_warnings
-from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
+from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR, EvalLoopOutput
 from transformers.utils import is_sagemaker_mp_enabled
 
 from ..utils import check_if_transformers_greater, logging
@@ -251,24 +250,10 @@ class AugmentTrainerForNeuronMixin:
                 }
                 callback.on_step_middle(self.args, self.state, self.control, **kwargs)
 
-    def _prepare_data_loader_with_accelerator(self, data_loader: DataLoader):
-        if not check_if_transformers_greater("4.31.0"):
-            data_loader = self.accelerator.prepare_data_loader(data_loader)
-        return data_loader
-
     def _get_train_sampler(self) -> Optional[torch.utils.data.Sampler]:
         if self.tp_enabled:
             return None
         return super()._get_train_sampler()
-
-    def get_train_dataloader(self, *args, **kwargs) -> DataLoader:
-        return self._prepare_data_loader_with_accelerator(super().get_train_dataloader(*args, **kwargs))
-
-    def get_eval_dataloader(self, *args, **kwargs) -> DataLoader:
-        return self._prepare_data_loader_with_accelerator(super().get_eval_dataloader(*args, **kwargs))
-
-    def get_test_dataloader(self, *args, **kwargs) -> DataLoader:
-        return self._prepare_data_loader_with_accelerator(super().get_test_dataloader(*args, **kwargs))
 
     @staticmethod
     def get_optimizer_cls_and_kwargs(args: TrainingArguments) -> Tuple[Any, Any]:
@@ -442,6 +427,28 @@ class AugmentTrainerForNeuronMixin:
             resume_from_checkpoint=resume_from_checkpoint,
             trial=trial,
             ignore_keys_for_eval=ignore_keys_for_eval,
+        )
+
+    def evaluation_loop(
+        self,
+        dataloader: torch.utils.data.DataLoader,
+        description: str,
+        prediction_loss_only: Optional[bool] = None,
+        ignore_keys: Optional[List[str]] = None,
+        metric_key_prefix: str = "eval",
+    ) -> EvalLoopOutput:
+        # This will prepare the model if it was not prepared before.
+        # This is needed for example for TP when we performing only evaluation (no training):
+        #   1. The model needs to be loaded if it was lazy loaded.
+        #   2. The model needs to be parallelized.
+        self.accelerator.prepare_model(self.model)
+
+        return super().evaluation_loop(
+            dataloader,
+            description,
+            prediction_loss_only=prediction_loss_only,
+            ignore_keys=ignore_keys,
+            metric_key_prefix=metric_key_prefix,
         )
 
 
