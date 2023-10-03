@@ -231,11 +231,11 @@ class NeuronStableDiffusionXLImg2ImgPipelineMixin(StableDiffusionXLPipelineMixin
             callback_stcallback_steps (`int`, defaults to 1):
                 The frequency at which the `callback` function will be called. If not specified, the callback will be
                 called at every step.
-            cross_attention_kwargs (`dict`, defaults to `None`):
+            cross_attention_kwargs (`Optional[Dict[str, Any]]`, defaults to `None`):
                 A kwargs dictionary that if specified is passed along to the `AttentionProcessor` as defined under
                 `self.processor` in
                 [diffusers.models.attention_processor](https://github.com/huggingface/diffusers/blob/main/src/diffusers/models/attention_processor.py).
-            guidance_rescale (`float`, *optional*, defaults to 0.0):
+            guidance_rescale (`float`, defaults to 0.0):
                 Guidance rescale factor proposed by [Common Diffusion Noise Schedules and Sample Steps are
                 Flawed](https://arxiv.org/pdf/2305.08891.pdf) `guidance_scale` is defined as `φ` in equation 16. of
                 [Common Diffusion Noise Schedules and Sample Steps are Flawed](https://arxiv.org/pdf/2305.08891.pdf).
@@ -478,8 +478,7 @@ class NeuronStableDiffusionXLImg2ImgPipelineMixin(StableDiffusionXLPipelineMixin
         if not output_type == "latent":
             image = self.vae_decoder(latents / getattr(self.vae_decoder.config, "scaling_factor", 0.18215))[0]
         else:
-            image = latents
-            return StableDiffusionXLPipelineOutput(images=image)
+            return StableDiffusionXLPipelineOutput(images=latents)
 
         # apply watermark if available
         if self.watermark is not None:

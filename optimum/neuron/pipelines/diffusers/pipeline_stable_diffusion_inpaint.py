@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 
 import torch
 from diffusers import StableDiffusionInpaintPipeline
-from diffusers.image_processor import PipelineImageInput, VaeImageProcessor
+from diffusers.image_processor import VaeImageProcessor
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
 
 from .pipeline_utils import StableDiffusionPipelineMixin
