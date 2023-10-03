@@ -139,7 +139,7 @@ def infer_stable_diffusion_shapes_from_diffusers(
     model: Union["StableDiffusionPipeline", "StableDiffusionXLPipeline"],
 ):
     if model.tokenizer is not None:
-        sequence_length = model.tokenizer.model_max_length  
+        sequence_length = model.tokenizer.model_max_length
     elif hasattr(model, "tokenizer_2") and model.tokenizer_2 is not None:
         sequence_length = model.tokenizer_2.model_max_length
     else:
@@ -252,7 +252,9 @@ def main_export(
             DIFFUSION_MODEL_VAE_DECODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_DECODER_NAME, NEURON_FILE_NAME),
         }
         if hasattr(model, "text_encoder") and model.text_encoder is not None:
-            output_model_names[DIFFUSION_MODEL_TEXT_ENCODER_NAME] = os.path.join(DIFFUSION_MODEL_TEXT_ENCODER_NAME, NEURON_FILE_NAME),
+            output_model_names[DIFFUSION_MODEL_TEXT_ENCODER_NAME] = (
+                os.path.join(DIFFUSION_MODEL_TEXT_ENCODER_NAME, NEURON_FILE_NAME),
+            )
         if hasattr(model, "text_encoder_2") and model.text_encoder_2 is not None:
             output_model_names[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME] = os.path.join(
                 DIFFUSION_MODEL_TEXT_ENCODER_2_NAME, NEURON_FILE_NAME

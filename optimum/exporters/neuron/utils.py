@@ -19,6 +19,7 @@ import os
 from collections import OrderedDict
 from typing import TYPE_CHECKING, Dict, Optional, Tuple, Union
 
+import torch
 from transformers import PretrainedConfig
 
 from ...neuron.utils import (
@@ -281,6 +282,9 @@ def _get_submodels_for_export_stable_diffusion(
             " set the environment variable with `export NEURON_FUSE_SOFTMAX=1` and recompile the unet model."
         )
     models_for_export.append((DIFFUSION_MODEL_UNET_NAME, copy.deepcopy(pipeline.unet)))
+
+    if pipeline.vae.config.get("force_upcast", None) is True:
+        pipeline.vae.to(dtype=torch.float32)
 
     # VAE Encoder
     vae_encoder = copy.deepcopy(pipeline.vae)

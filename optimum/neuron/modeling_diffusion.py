@@ -63,10 +63,9 @@ if is_diffusers_available():
         NeuronStableDiffusionImg2ImgPipelineMixin,
         NeuronStableDiffusionInpaintPipelineMixin,
         NeuronStableDiffusionPipelineMixin,
-        NeuronStableDiffusionXLPipelineMixin,
         NeuronStableDiffusionXLImg2ImgPipelineMixin,
         NeuronStableDiffusionXLInpaintPipelineMixin,
-        
+        NeuronStableDiffusionXLPipelineMixin,
     )
 
 
@@ -291,7 +290,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
 
         if not self.model_and_config_save_paths.get(DIFFUSION_MODEL_TEXT_ENCODER_NAME)[0].is_file():
             self.model_and_config_save_paths.pop(DIFFUSION_MODEL_TEXT_ENCODER_NAME)
-            
+
         if not self.model_and_config_save_paths.get(DIFFUSION_MODEL_TEXT_ENCODER_2_NAME)[0].is_file():
             self.model_and_config_save_paths.pop(DIFFUSION_MODEL_TEXT_ENCODER_2_NAME)
 
@@ -733,11 +732,15 @@ class NeuronStableDiffusionXLPipelineBase(NeuronStableDiffusionPipelineBase):
 
 class NeuronStableDiffusionXLPipeline(NeuronStableDiffusionXLPipelineBase, NeuronStableDiffusionXLPipelineMixin):
     __call__ = NeuronStableDiffusionXLPipelineMixin.__call__
-    
 
-class NeuronStableDiffusionXLImg2ImgPipeline(NeuronStableDiffusionXLPipelineBase, NeuronStableDiffusionXLImg2ImgPipelineMixin):
+
+class NeuronStableDiffusionXLImg2ImgPipeline(
+    NeuronStableDiffusionXLPipelineBase, NeuronStableDiffusionXLImg2ImgPipelineMixin
+):
     __call__ = NeuronStableDiffusionXLImg2ImgPipelineMixin.__call__
 
 
-class NeuronStableDiffusionXLInpaintPipeline(NeuronStableDiffusionXLPipelineBase, NeuronStableDiffusionXLInpaintPipelineMixin):
+class NeuronStableDiffusionXLInpaintPipeline(
+    NeuronStableDiffusionXLPipelineBase, NeuronStableDiffusionXLInpaintPipelineMixin
+):
     __call__ = NeuronStableDiffusionXLInpaintPipelineMixin.__call__

@@ -16,11 +16,9 @@
 
 import logging
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
-import PIL
 
 import torch
 from diffusers import StableDiffusionXLInpaintPipeline
-from diffusers.utils.torch_utils import randn_tensor
 
 from .pipeline_utils import StableDiffusionXLPipelineMixin
 
@@ -33,7 +31,6 @@ logger = logging.getLogger(__name__)
 
 
 class NeuronStableDiffusionXLInpaintPipelineMixin(StableDiffusionXLPipelineMixin, StableDiffusionXLInpaintPipeline):
-    
     # Adapted from https://github.com/huggingface/diffusers/blob/v0.21.2/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl_inpaint.py#L871
     def __call__(
         self,
