@@ -253,7 +253,7 @@ def main_export(
         }
         if hasattr(model, "text_encoder") and model.text_encoder is not None:
             output_model_names[DIFFUSION_MODEL_TEXT_ENCODER_NAME] = (
-                os.path.join(DIFFUSION_MODEL_TEXT_ENCODER_NAME, NEURON_FILE_NAME),
+                os.path.join(DIFFUSION_MODEL_TEXT_ENCODER_NAME, NEURON_FILE_NAME)
             )
         if hasattr(model, "text_encoder_2") and model.text_encoder_2 is not None:
             output_model_names[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME] = os.path.join(
