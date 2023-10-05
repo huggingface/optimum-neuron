@@ -22,9 +22,10 @@ from optimum.neuron.utils.testing_utils import requires_neuronx
 from optimum.utils.testing_utils import USER
 
 
-DECODER_MODEL_ARCHITECTURES = ["gpt2"]
+DECODER_MODEL_ARCHITECTURES = ["gpt2", "llama"]
 DECODER_MODEL_NAMES = {
     "gpt2": "hf-internal-testing/tiny-random-gpt2",
+    "llama": "dacorvo/tiny-random-llama",
 }
 
 
@@ -36,8 +37,9 @@ def export_model_id(request):
 @pytest.fixture(scope="module")
 @requires_neuronx
 def neuron_model_path(export_model_id):
-    # For now we need to use a batch_size of 2 because it fails with batch_size == 1
-    model = NeuronModelForCausalLM.from_pretrained(export_model_id, export=True, batch_size=2)
+    model = NeuronModelForCausalLM.from_pretrained(
+        export_model_id, export=True, batch_size=1, sequence_length=128, num_cores=2
+    )
     model_dir = TemporaryDirectory()
     model_path = model_dir.name
     model.save_pretrained(model_path)

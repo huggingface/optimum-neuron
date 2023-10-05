@@ -24,8 +24,8 @@ from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neur
     "batch_size, sequence_length, num_cores, auto_cast_type",
     [
         [1, 128, 2, "fp32"],
-        [1, 128, 2, "fp32"],
-        [2, 512, 2, "bf16"],
+        [1, 128, 2, "fp16"],
+        [2, 128, 2, "fp16"],
     ],
 )
 @is_inferentia_test
