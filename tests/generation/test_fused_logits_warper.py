@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from optimum.neuron.generation import FusedLogitsWarper
+from optimum.neuron.generation.logits_process import FusedLogitsWarper
 
 
 def test_temperature():
@@ -54,7 +54,7 @@ def test_top_p(batch_size, vocab_size):
     norm_logits = torch.zeros(batch_size, vocab_size, dtype=torch.float)
     # We have 4 buckets, each corresponding to 0.25 of the total weights
     # With populations corresponding to 0.4, 0.3, 0.2 and 0.1 percent of the vocab_size
-    buckets = [0.4, 0.3, 0.2, 0.1]
+    buckets = [0.5, 0.2, 0.2, 0.1]
     bucket_weight = 1.0 / len(buckets)
     index = 0
     for bucket in buckets:

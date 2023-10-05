@@ -103,7 +103,9 @@ def test_model_from_path(neuron_model_path):
 @is_inferentia_test
 @requires_neuronx
 def test_model_from_hub():
-    model = NeuronModelForCausalLM.from_pretrained("dacorvo/tiny-random-gpt2-neuronx")
+    model = NeuronModelForCausalLM.from_pretrained(
+        "dacorvo/tiny-random-gpt2-neuronx", revision="320d42fb0968d4f7857a00eb65a301e977098aa0"
+    )
     _check_neuron_model(model)
 
 
