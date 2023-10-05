@@ -36,6 +36,7 @@ if __name__ == "__main__":
         default=1,
         help="The batch size.",
     )
+    export_parser.add_argument("--sequence_length", type=int, help="The maximum sequence length.")
     export_parser.add_argument(
         "--num_cores", type=int, default=1, help="The number of cores on which the model should be split."
     )
@@ -70,6 +71,7 @@ if __name__ == "__main__":
             low_cpu_mem_usage=True,
             # These are parameters required for the conversion
             batch_size=args.batch_size,
+            sequence_length=args.sequence_length,
             num_cores=args.num_cores,
             auto_cast_type=args.auto_cast_type,
         )

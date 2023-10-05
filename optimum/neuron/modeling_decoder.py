@@ -96,6 +96,7 @@ class NeuronDecoderModel(OptimizedModel):
         trust_remote_code: bool = False,
         task: Optional[str] = None,
         batch_size: Optional[int] = 1,
+        sequence_length: Optional[int] = None,
         num_cores: Optional[int] = 2,
         auto_cast_type: Optional[str] = "f32",
         **kwargs,
@@ -105,12 +106,6 @@ class NeuronDecoderModel(OptimizedModel):
 
         if task is None:
             task = TasksManager.infer_task_from_model(cls.auto_model_class)
-
-        # Instantiate the exporter for the specified configuration and task
-        exporter = get_exporter(config, task)
-
-        # Split kwargs between model and neuron args
-        model_kwargs, neuron_kwargs = exporter.split_kwargs(**kwargs)
 
         # Instantiate the transformers model checkpoint
         model = TasksManager.get_model_from_task(
@@ -124,12 +119,17 @@ class NeuronDecoderModel(OptimizedModel):
             local_files_only=local_files_only,
             force_download=force_download,
             trust_remote_code=trust_remote_code,
-            **model_kwargs,
+            **kwargs,
         )
 
         # Save the model checkpoint in a temporary directory
         checkpoint_dir = TemporaryDirectory()
         save_pretrained_split(model, checkpoint_dir.name)
+
+        # If the sequence_length was not specified, deduce it from the model configuration
+        if sequence_length is None:
+            # Note: for older models, max_position_embeddings is an alias for n_positions
+            sequence_length = config.max_position_embeddings
 
         # Update the config
         config.neuron = {
@@ -137,7 +137,7 @@ class NeuronDecoderModel(OptimizedModel):
             "batch_size": batch_size,
             "num_cores": num_cores,
             "auto_cast_type": auto_cast_type,
-            "neuron_kwargs": neuron_kwargs,
+            "sequence_length": sequence_length,
             "compiler_type": "neuronx-cc",
             "compiler_version": get_neuronxcc_version(),
         }
@@ -186,9 +186,9 @@ class NeuronDecoderModel(OptimizedModel):
         # Evaluate the configuration passed during export
         task = neuron_config["task"]
         batch_size = neuron_config["batch_size"]
+        sequence_length = neuron_config["sequence_length"]
         num_cores = neuron_config["num_cores"]
         auto_cast_type = neuron_config["auto_cast_type"]
-        neuron_kwargs = neuron_config["neuron_kwargs"]
 
         check_compiler_compatibility(neuron_config["compiler_type"], neuron_config["compiler_version"])
 
@@ -197,7 +197,11 @@ class NeuronDecoderModel(OptimizedModel):
         model_path, checkpoint_path, compiled_path = cls._get_neuron_paths(model_id, use_auth_token)
 
         neuronx_model = exporter.neuronx_class.from_pretrained(
-            checkpoint_path, batch_size=batch_size, tp_degree=num_cores, amp=auto_cast_type, **neuron_kwargs
+            checkpoint_path,
+            batch_size=batch_size,
+            n_positions=sequence_length,
+            tp_degree=num_cores,
+            amp=auto_cast_type,
         )
 
         if compiled_path is not None:

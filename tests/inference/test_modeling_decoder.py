@@ -65,7 +65,7 @@ def neuron_push_id(export_model_id):
     return repo_id
 
 
-def _check_neuron_model(neuron_model, batch_size=None, num_cores=None, auto_cast_type=None):
+def _check_neuron_model(neuron_model, batch_size=None, sequence_length=None, num_cores=None, auto_cast_type=None):
     neuron_config = getattr(neuron_model.config, "neuron", None)
     assert neuron_config
     if batch_size:
@@ -77,20 +77,25 @@ def _check_neuron_model(neuron_model, batch_size=None, num_cores=None, auto_cast
 
 
 @pytest.mark.parametrize(
-    "batch_size, num_cores, auto_cast_type",
+    "batch_size, sequence_length, num_cores, auto_cast_type",
     [
-        [1, 2, "f32"],
-        [2, 2, "f32"],
-        [2, 2, "bf16"],
+        [1, 128, 2, "f32"],
+        [1, 128, 2, "f32"],
+        [2, 512, 2, "bf16"],
     ],
 )
 @is_inferentia_test
 @requires_neuronx
-def test_model_export(export_model_id, batch_size, num_cores, auto_cast_type):
+def test_model_export(export_model_id, batch_size, sequence_length, num_cores, auto_cast_type):
     model = NeuronModelForCausalLM.from_pretrained(
-        export_model_id, export=True, batch_size=batch_size, num_cores=num_cores, auto_cast_type=auto_cast_type
+        export_model_id,
+        export=True,
+        batch_size=batch_size,
+        sequence_length=sequence_length,
+        num_cores=num_cores,
+        auto_cast_type=auto_cast_type,
     )
-    _check_neuron_model(model, batch_size, num_cores, auto_cast_type)
+    _check_neuron_model(model, batch_size, sequence_length, num_cores, auto_cast_type)
 
 
 @is_inferentia_test
@@ -104,9 +109,9 @@ def test_model_from_path(neuron_model_path):
 @requires_neuronx
 def test_model_from_hub():
     model = NeuronModelForCausalLM.from_pretrained(
-        "dacorvo/tiny-random-gpt2-neuronx", revision="320d42fb0968d4f7857a00eb65a301e977098aa0"
+        "dacorvo/tiny-random-gpt2-neuronx", revision="94c56ea9486d12c446e910e925745973aa1ac7e0"
     )
-    _check_neuron_model(model)
+    _check_neuron_model(model, batch_size=16, num_cores=2, auto_cast_type="f32")
 
 
 def _test_model_generation(model, tokenizer, batch_size, input_length, **gen_kwargs):
