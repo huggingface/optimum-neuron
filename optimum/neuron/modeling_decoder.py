@@ -98,7 +98,7 @@ class NeuronDecoderModel(OptimizedModel):
         batch_size: Optional[int] = 1,
         sequence_length: Optional[int] = None,
         num_cores: Optional[int] = 2,
-        auto_cast_type: Optional[str] = "f32",
+        auto_cast_type: Optional[str] = "fp32",
         **kwargs,
     ) -> "NeuronDecoderModel":
         if not is_transformers_neuronx_available():
@@ -196,6 +196,8 @@ class NeuronDecoderModel(OptimizedModel):
 
         model_path, checkpoint_path, compiled_path = cls._get_neuron_paths(model_id, use_auth_token)
 
+        # transformers-neuronx uses f32/f16 instead of fp32/fp16
+        auto_cast_type = auto_cast_type.replace("p", "")
         neuronx_model = exporter.neuronx_class.from_pretrained(
             checkpoint_path,
             batch_size=batch_size,

@@ -79,8 +79,8 @@ def _check_neuron_model(neuron_model, batch_size=None, sequence_length=None, num
 @pytest.mark.parametrize(
     "batch_size, sequence_length, num_cores, auto_cast_type",
     [
-        [1, 128, 2, "f32"],
-        [1, 128, 2, "f32"],
+        [1, 128, 2, "fp32"],
+        [1, 128, 2, "fp32"],
         [2, 512, 2, "bf16"],
     ],
 )
@@ -109,9 +109,9 @@ def test_model_from_path(neuron_model_path):
 @requires_neuronx
 def test_model_from_hub():
     model = NeuronModelForCausalLM.from_pretrained(
-        "dacorvo/tiny-random-gpt2-neuronx", revision="94c56ea9486d12c446e910e925745973aa1ac7e0"
+        "dacorvo/tiny-random-gpt2-neuronx", revision="b8f1aec89f9b278721068bfe616fa9227c1d0238"
     )
-    _check_neuron_model(model, batch_size=16, num_cores=2, auto_cast_type="f32")
+    _check_neuron_model(model, batch_size=16, num_cores=2, auto_cast_type="fp32")
 
 
 def _test_model_generation(model, tokenizer, batch_size, input_length, **gen_kwargs):
