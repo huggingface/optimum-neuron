@@ -18,6 +18,7 @@ EXPORT_MODELS_TINY = {
     "albert": "hf-internal-testing/tiny-random-AlbertModel",
     "bert": "hf-internal-testing/tiny-random-BertModel",
     "camembert": "hf-internal-testing/tiny-random-camembert",
+    "clip": "hf-internal-testing/tiny-random-CLIPModel",
     "convbert": "hf-internal-testing/tiny-random-ConvBertModel",
     # "deberta": "hf-internal-testing/tiny-random-DebertaModel",  # Failed for INF1: 'XSoftmax'
     # "deberta-v2": "hf-internal-testing/tiny-random-DebertaV2Model",  # Failed for INF1: 'XSoftmax'
@@ -26,8 +27,14 @@ EXPORT_MODELS_TINY = {
     "flaubert": "flaubert/flaubert_small_cased",
     "mobilebert": "hf-internal-testing/tiny-random-MobileBertModel",
     "mpnet": "hf-internal-testing/tiny-random-MPNetModel",
+    "perceiver": {
+        "hf-internal-testing/tiny-random-language_perceiver": ["fill-mask", "text-classification"],
+        "hf-internal-testing/tiny-random-vision_perceiver_conv": ["image-classification"],
+    },
+    "resnet": "hf-internal-testing/tiny-random-resnet",
     "roberta": "hf-internal-testing/tiny-random-RobertaModel",
     "roformer": "hf-internal-testing/tiny-random-RoFormerModel",
+    "vit": "google/vit-base-patch16-224",
     "xlm": "hf-internal-testing/tiny-random-XLMModel",
     "xlm-roberta": "hf-internal-testing/tiny-xlm-roberta",
 }
