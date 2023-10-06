@@ -138,7 +138,12 @@ def infer_stable_diffusion_shapes_from_diffusers(
     input_shapes: Dict[str, Dict[str, int]],
     model: Union["StableDiffusionPipeline", "StableDiffusionXLPipeline"],
 ):
-    sequence_length = model.tokenizer.model_max_length
+    if model.tokenizer is not None:
+        sequence_length = model.tokenizer.model_max_length
+    elif hasattr(model, "tokenizer_2") and model.tokenizer_2 is not None:
+        sequence_length = model.tokenizer_2.model_max_length
+    else:
+        raise AttributeError(f"Cannot infer sequence_length from {type(model)} as there is no tokenizer as attribute.")
     unet_num_channels = model.unet.config.in_channels
     vae_encoder_num_channels = model.vae.config.in_channels
     vae_decoder_num_channels = model.vae.config.latent_channels
@@ -227,8 +232,9 @@ def main_export(
 
         # Saving the model config and preprocessor as this is needed sometimes.
         model.scheduler.save_pretrained(output.joinpath("scheduler"))
-        model.tokenizer.save_pretrained(output.joinpath("tokenizer"))
-        if hasattr(model, "tokenizer_2"):
+        if hasattr(model, "tokenizer") and model.tokenizer is not None:
+            model.tokenizer.save_pretrained(output.joinpath("tokenizer"))
+        if hasattr(model, "tokenizer_2") and model.tokenizer_2 is not None:
             model.tokenizer_2.save_pretrained(output.joinpath("tokenizer_2"))
         if hasattr(model, "feature_extractor"):
             model.feature_extractor.save_pretrained(output.joinpath("feature_extractor"))
@@ -241,12 +247,15 @@ def main_export(
             **input_shapes,
         )
         output_model_names = {
-            DIFFUSION_MODEL_TEXT_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_TEXT_ENCODER_NAME, NEURON_FILE_NAME),
             DIFFUSION_MODEL_UNET_NAME: os.path.join(DIFFUSION_MODEL_UNET_NAME, NEURON_FILE_NAME),
             DIFFUSION_MODEL_VAE_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_ENCODER_NAME, NEURON_FILE_NAME),
             DIFFUSION_MODEL_VAE_DECODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_DECODER_NAME, NEURON_FILE_NAME),
         }
-        if hasattr(model, "text_encoder_2"):
+        if hasattr(model, "text_encoder") and model.text_encoder is not None:
+            output_model_names[DIFFUSION_MODEL_TEXT_ENCODER_NAME] = os.path.join(
+                DIFFUSION_MODEL_TEXT_ENCODER_NAME, NEURON_FILE_NAME
+            )
+        if hasattr(model, "text_encoder_2") and model.text_encoder_2 is not None:
             output_model_names[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME] = os.path.join(
                 DIFFUSION_MODEL_TEXT_ENCODER_2_NAME, NEURON_FILE_NAME
             )

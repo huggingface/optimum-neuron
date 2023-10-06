@@ -37,6 +37,8 @@ _import_structure = {
         "NeuronStableDiffusionImg2ImgPipeline",
         "NeuronStableDiffusionInpaintPipeline",
         "NeuronStableDiffusionXLPipeline",
+        "NeuronStableDiffusionXLImg2ImgPipeline",
+        "NeuronStableDiffusionXLInpaintPipeline",
     ],
     "modeling_decoder": ["NeuronDecoderModel"],
     "accelerate": [
@@ -65,6 +67,8 @@ if TYPE_CHECKING:
         NeuronStableDiffusionImg2ImgPipeline,
         NeuronStableDiffusionInpaintPipeline,
         NeuronStableDiffusionPipeline,
+        NeuronStableDiffusionXLImg2ImgPipeline,
+        NeuronStableDiffusionXLInpaintPipeline,
         NeuronStableDiffusionXLPipeline,
     )
     from .pipelines import pipeline

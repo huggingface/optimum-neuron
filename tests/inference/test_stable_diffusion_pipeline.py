@@ -23,6 +23,8 @@ from optimum.neuron import (
     NeuronStableDiffusionImg2ImgPipeline,
     NeuronStableDiffusionInpaintPipeline,
     NeuronStableDiffusionPipeline,
+    NeuronStableDiffusionXLImg2ImgPipeline,
+    NeuronStableDiffusionXLInpaintPipeline,
     NeuronStableDiffusionXLPipeline,
 )
 from optimum.neuron.modeling_diffusion import (
@@ -194,4 +196,42 @@ class NeuronStableDiffusionXLPipelineIntegrationTest(unittest.TestCase):
             negative_prompt_2=negative_prompt_2,
             num_images_per_prompt=2,
         ).images[0]
+        self.assertIsInstance(image, PIL.Image.Image)
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    def test_img2img_export_and_inference(self, model_arch):
+        neuron_pipeline = NeuronStableDiffusionXLImg2ImgPipeline.from_pretrained(
+            MODEL_NAMES[model_arch],
+            export=True,
+            dynamic_batch_size=False,
+            **self.STATIC_INPUTS_SHAPES,
+            **self.COMPILER_ARGS,
+            device_ids=[0, 1],
+        )
+
+        url = "https://huggingface.co/datasets/optimum/documentation-images/resolve/main/intel/openvino/sd_xl/castle_friedrich.png"
+        init_image = download_image(url)
+        prompt = "a dog running, lake, moat"
+        image = neuron_pipeline(prompt=prompt, image=init_image).images[0]
+        self.assertIsInstance(image, PIL.Image.Image)
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    def test_inpaint_export_and_inference(self, model_arch):
+        neuron_pipeline = NeuronStableDiffusionXLInpaintPipeline.from_pretrained(
+            MODEL_NAMES[model_arch],
+            export=True,
+            dynamic_batch_size=False,
+            **self.STATIC_INPUTS_SHAPES,
+            **self.COMPILER_ARGS,
+            device_ids=[0, 1],
+        )
+
+        img_url = (
+            "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/sdxl-text2img.png"
+        )
+        mask_url = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/sdxl-inpaint-mask.png"
+        init_image = download_image(img_url).resize((64, 64))
+        mask_image = download_image(mask_url).resize((64, 64))
+        prompt = "A deep sea diver floating"
+        image = neuron_pipeline(prompt=prompt, image=init_image, mask_image=mask_image).images[0]
         self.assertIsInstance(image, PIL.Image.Image)

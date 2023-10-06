@@ -15,9 +15,8 @@
 """Override some diffusers API for NeuroStableDiffusionImg2ImgPipeline"""
 
 import logging
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 
-import numpy as np
 import PIL
 import torch
 from diffusers import StableDiffusionImg2ImgPipeline
@@ -26,6 +25,10 @@ from diffusers.utils import deprecate
 from diffusers.utils.torch_utils import randn_tensor
 
 from .pipeline_utils import StableDiffusionPipelineMixin
+
+
+if TYPE_CHECKING:
+    from diffusers.image_processor import PipelineImageInput
 
 
 logger = logging.getLogger(__name__)
@@ -44,7 +47,7 @@ class NeuronStableDiffusionImg2ImgPipelineMixin(StableDiffusionPipelineMixin, St
         if image.shape[1] == 4:
             init_latents = image
         else:
-            # encode the init image into latents and scale the latents
+            # [Modified] Replace with pre-compiled vae encoder, encode the init image into latents and scale the latents
             init_latents = self.vae_encoder(sample=image)[0]
             scaling_factor = self.vae_encoder.config.scaling_factor or 0.18215
             init_latents = scaling_factor * init_latents
@@ -80,14 +83,7 @@ class NeuronStableDiffusionImg2ImgPipelineMixin(StableDiffusionPipelineMixin, St
     def __call__(
         self,
         prompt: Optional[Union[str, List[str]]] = None,
-        image: Union[
-            torch.FloatTensor,
-            PIL.Image.Image,
-            np.ndarray,
-            List[torch.FloatTensor],
-            List[PIL.Image.Image],
-            List[np.ndarray],
-        ] = None,
+        image: Optional["PipelineImageInput"] = None,
         strength: float = 0.8,
         num_inference_steps: int = 50,
         guidance_scale: float = 7.5,
@@ -109,7 +105,7 @@ class NeuronStableDiffusionImg2ImgPipelineMixin(StableDiffusionPipelineMixin, St
         Args:
             prompt (`Optional[Union[str, List[str]]]`, defaults to `None`):
                 The prompt or prompts to guide image generation. If not defined, you need to pass `prompt_embeds`.
-            image (`torch.FloatTensor`, `PIL.Image.Image`, `np.ndarray`, `List[torch.FloatTensor]`, `List[PIL.Image.Image]`, or `List[np.ndarray]`):
+            image (`Optional["PipelineImageInput"]`, defaults to `None`):
                 `Image`, numpy array or tensor representing an image batch to be used as the starting point. For both
                 numpy array and pytorch tensor, the expected value range is between `[0, 1]` If it's a tensor or a list
                 or tensors, the expected shape should be `(B, C, H, W)` or `(C, H, W)`. If it is a numpy array or a
@@ -163,23 +159,16 @@ class NeuronStableDiffusionImg2ImgPipelineMixin(StableDiffusionPipelineMixin, St
         Examples:
 
         ```py
-        >>> import PIL
-        >>> import requests
-        >>> from io import BytesIO
-
         >>> from optimum.neuron import NeuronStableDiffusionImg2ImgPipeline
+        >>> from diffusers.utils import load_image
+
+        >>> url = "https://raw.githubusercontent.com/CompVis/stable-diffusion/main/assets/stable-samples/img2img/sketch-mountains-input.jpg"
+        >>> init_image = load_image(url).convert("RGB")
 
         >>> compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
         >>> input_shapes = {"batch_size": 1, "height": 512, "width": 512}
-
-        >>> url = "https://raw.githubusercontent.com/CompVis/stable-diffusion/main/assets/stable-samples/img2img/sketch-mountains-input.jpg"
-        >>> response = requests.get(url)
-
-        >>> init_image = Image.open(BytesIO(response.content)).convert("RGB")
-        >>> init_image = init_image.resize((512, 512))
-
         >>> pipeline = NeuronStableDiffusionImg2ImgPipeline.from_pretrained(
-        ...     "nitrosocke/Ghibli-Diffusion", export=True, **input_shapes, device_ids=[0, 1]
+        ...     "nitrosocke/Ghibli-Diffusion", export=True, **compiler_args, **input_shapes, device_ids=[0, 1]
         ... )
         >>> pipeline.save_pretrained("sd_img2img/")
 
@@ -194,13 +183,15 @@ class NeuronStableDiffusionImg2ImgPipelineMixin(StableDiffusionPipelineMixin, St
                 second element is a list of `bool`s indicating whether the corresponding generated image contains
                 "not-safe-for-work" (nsfw) content.
         """
-        # 1. Check inputs. Raise error if not correct
+        # 0. Check `num_images_per_prompt`
         if self.num_images_per_prompt != num_images_per_prompt and not self.dynamic_batch_size:
             logger.warning(
                 f"Overriding `num_images_per_prompt({num_images_per_prompt})` to {self.num_images_per_prompt} used for the compilation. Please recompile the models with your "
                 f"custom `num_images_per_prompt` or turn on `dynamic_batch_size`, if you wish generating {num_images_per_prompt} image per prompt."
             )
             num_images_per_prompt = self.num_images_per_prompt
+
+        # 1. Check inputs. Raise error if not correct
         self.check_inputs(prompt, strength, callback_steps, negative_prompt, prompt_embeds, negative_prompt_embeds)
 
         # 2. Define call parameters
@@ -286,6 +277,7 @@ class NeuronStableDiffusionImg2ImgPipelineMixin(StableDiffusionPipelineMixin, St
                         callback(i, t, latents)
 
         if not output_type == "latent":
+            # [Modified] Replace with pre-compiled vae decoder
             image = self.vae_decoder(latents / getattr(self.vae_decoder.config, "scaling_factor", 0.18215))[0]
             image, has_nsfw_concept = self.run_safety_checker(image, prompt_embeds.dtype)
         else:

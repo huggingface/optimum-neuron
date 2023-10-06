@@ -189,6 +189,7 @@ class StableDiffusionXLPipelineMixin(DiffusionBasePipelineMixin):
         pooled_prompt_embeds: Optional[torch.FloatTensor] = None,
         negative_pooled_prompt_embeds: Optional[torch.FloatTensor] = None,
         lora_scale: Optional[float] = None,
+        clip_skip: Optional[int] = None,
     ):
         r"""
         Encodes the prompt into text encoder hidden states.
@@ -226,6 +227,9 @@ class StableDiffusionXLPipelineMixin(DiffusionBasePipelineMixin):
                 input argument.
             lora_scale (`Optional[float]`, defaults to `None`):
                 A lora scale that will be applied to all LoRA layers of the text encoder if LoRA layers are loaded.
+            clip_skip (`Optional[int]`, defaults to `None`):
+                Number of layers to be skipped from CLIP while computing the prompt embeddings. A value of 1 means that
+                the output of the pre-final layer will be used for computing the prompt embeddings.
         """
         # set lora scale so that monkey patched LoRA
         # function of text encoder can correctly access it
@@ -278,7 +282,11 @@ class StableDiffusionXLPipelineMixin(DiffusionBasePipelineMixin):
 
                 # We are only ALWAYS interested in the pooled output of the final text encoder
                 pooled_prompt_embeds = prompt_embeds[0]
-                prompt_embeds = prompt_embeds[-1][-2]  # hidden_states
+                if clip_skip is None:
+                    prompt_embeds = prompt_embeds[-1][-2]  # hidden_states
+                else:
+                    # "2" because SDXL always indexes from the penultimate layer.
+                    prompt_embeds = prompt_embeds[-1][-(clip_skip + 2)]
 
                 prompt_embeds_list.append(prompt_embeds)
 

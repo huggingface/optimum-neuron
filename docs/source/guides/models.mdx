@@ -67,6 +67,12 @@ And the next time when you want to run inference, just load your compiled model 
 As you see, there is no need to pass the neuron arguments used during the export as they are
 saved in a `config.json` file, and will be restored automatically by `NeuronModelForXXX` class.
 
+<Tip>
+
+When running inference for the first time, there is a warmup phase when you run the pipeline for the first time.  This run would take 3x-4x higher latency than a regular run.
+
+</Tip>
+
 ## Discriminative NLP models
 
 As explained in the previous section, you will need only few modifications to your Transformers code to export and run NLP models:
@@ -282,6 +288,7 @@ prompt = "ghibli style, a fantasy landscape with snowcapped mountains, trees, la
 image = pipeline(prompt=prompt, image=init_image, strength=0.75, guidance_scale=7.5).images[0]
 image.save("fantasy_landscape.png")
 ```
+
 `image`          | `prompt` | output |
 :-------------------------:|:-------------------------:|:-------------------------:|-------------------------:|
 <img src="https://huggingface.co/datasets/optimum/documentation-images/resolve/main/neuron/models/03-sd-img2img-init.png" alt="landscape photo" width="256" height="256"/> | ***ghibli style, a fantasy landscape with snowcapped mountains, trees, lake with detailed reflection. warm colors, 8K*** | <img src="https://huggingface.co/datasets/optimum/documentation-images/resolve/main/neuron/models/04-sd-img2img.png" alt="drawing" width="250"/> |
@@ -322,6 +329,8 @@ image.save("cat_on_bench.png")
 
 ## Stable Diffusion XL
 
+### Text-to-Image
+
 Similar to Stable Diffusion, you will be able to use `NeuronStableDiffusionXLPipeline` API to export and run inference on Neuron devices with SDXL models. 
 
 ```python
@@ -341,7 +350,7 @@ Similar to Stable Diffusion, you will be able to use `NeuronStableDiffusionXLPip
 ... )
 ```
 
-Now generate an image with a prompt on neuron:
+Now generate an image with a text prompt on neuron:
 
 ```python
 >>> prompt = "Astronaut in a jungle, cold color palette, muted colors, detailed, 8k"
@@ -355,5 +364,112 @@ Now generate an image with a prompt on neuron:
   alt="sdxl generated image"
 />
 
+### Image-to-Image
+
+With `NeuronStableDiffusionXLImg2ImgPipeline`, you can pass an initial image, and a text prompt to condition generated images:
+
+```python
+from optimum.neuron import NeuronStableDiffusionXLImg2ImgPipeline
+from diffusers.utils import load_image
+
+prompt = "a dog running, lake, moat"
+url = "https://huggingface.co/datasets/optimum/documentation-images/resolve/main/intel/openvino/sd_xl/castle_friedrich.png"
+init_image = load_image(url).convert("RGB")
+
+pipe = NeuronStableDiffusionXLImg2ImgPipeline.from_pretrained("sd_neuron_xl/", device_ids=[0, 1])
+image = pipe(prompt=prompt, image=init_image).images[0]
+```
+
+`image`          | `prompt` | output |
+:-------------------------:|:-------------------------:|:-------------------------:|-------------------------:|
+<img src="https://huggingface.co/datasets/optimum/documentation-images/resolve/main/intel/openvino/sd_xl/castle_friedrich.png" alt="castle photo" width="256" height="256"/> | ***a dog running, lake, moat*** | <img src="https://huggingface.co/datasets/optimum/documentation-images/resolve/main/neuron/models/06-sdxl-img2img.png" alt="castle with dog" width="250"/> |
+
+### Inpaint
+
+With `NeuronStableDiffusionXLInpaintPipeline`, pass the original image and a mask of what you want to replace in the original image. Then replace the masked area with content described in a prompt.
+
+```python
+from optimum.neuron import NeuronStableDiffusionXLInpaintPipeline
+from diffusers.utils import load_image
+
+img_url = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/sdxl-text2img.png"
+mask_url = (
+    "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/sdxl-inpaint-mask.png"
+)
+
+init_image = load_image(img_url).convert("RGB")
+mask_image = load_image(mask_url).convert("RGB")
+prompt = "A deep sea diver floating"
+
+pipe = NeuronStableDiffusionXLInpaintPipeline.from_pretrained("sd_neuron_xl/", device_ids=[0, 1])
+image = pipe(prompt=prompt, image=init_image, mask_image=mask_image, strength=0.85, guidance_scale=12.5).images[0]
+```
+
+`image`          | `mask_image` | `prompt` | output |
+:-------------------------:|:-------------------------:|:-------------------------:|-------------------------:|
+<img src="https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/sdxl-text2img.png" alt="drawing" width="250"/> | <img src="https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/sdxl-inpaint-mask.png" alt="drawing" width="250"/> | ***A deep sea diver floating*** | <img src="https://huggingface.co/datasets/optimum/documentation-images/resolve/main/neuron/models/07-sdxl-inpaint.png" alt="drawing" width="250"/> |
+
+### Refine Image Quality
+
+SDXL includes a [refiner model](https://huggingface.co/stabilityai/stable-diffusion-xl-refiner-1.0) to denoise low-noise stage images generated from the base model. There are two ways to use the refiner:
+
+1. use the base and refiner model together to produce a refined image.
+2. use the base model to produce an image, and subsequently use the refiner model to add more details to the image.
+
+#### Base + refiner model
+
+```python
+from optimum.neuron import NeuronStableDiffusionXLPipeline, NeuronStableDiffusionXLImg2ImgPipeline
+
+prompt = "A majestic lion jumping from a big stone at night"
+base = NeuronStableDiffusionXLPipeline.from_pretrained("sd_neuron_xl/", device_ids=[0, 1])
+image = base(
+    prompt=prompt,
+    num_images_per_prompt=num_images_per_prompt,
+    num_inference_steps=40,
+    denoising_end=0.8,
+    output_type="latent",
+).images[0]
+del base  # To avoid neuron device OOM
+
+refiner = NeuronStableDiffusionXLImg2ImgPipeline.from_pretrained("sd_neuron_xl_refiner/", device_ids=[0, 1])
+image = image = refiner(
+    prompt=prompt,
+    num_inference_steps=40,
+    denoising_start=0.8,
+    image=image,
+).images[0]
+```
+
+<img
+  src="https://huggingface.co/datasets/optimum/documentation-images/resolve/main/neuron/models/08-sdxl-base-refine.png"
+  width="256" 
+  height="256"
+  alt="sdxl base + refiner"
+/>
+
+#### Base to refiner model
+
+```python
+from optimum.neuron import NeuronStableDiffusionXLPipeline, NeuronStableDiffusionXLImg2ImgPipeline
+
+prompt = "A majestic lion jumping from a big stone at night"
+base = NeuronStableDiffusionXLPipeline.from_pretrained("sd_neuron_xl/", device_ids=[0, 1])
+image = base(prompt=prompt, output_type="latent").images[0]
+del base  # To avoid neuron device OOM
+
+refiner = NeuronStableDiffusionXLImg2ImgPipeline.from_pretrained("sd_neuron_xl_refiner/", device_ids=[0, 1])
+image = refiner(prompt=prompt, image=image[None, :]).images[0]
+```
+
+`Base Image`         | Refined Image |
+:-------------------------:|-------------------------:|
+<img src="https://huggingface.co/datasets/optimum/documentation-images/resolve/main/neuron/models/09-sdxl-base-full.png" alt="drawing" width="250"/> | <img src="https://huggingface.co/datasets/optimum/documentation-images/resolve/main/neuron/models/010-sdxl-refiner-detailed.png" alt="drawing" width="250"/> |
+
+<Tip>
+
+To avoid Neuron device out of memory, it's suggested to finish all base inference and release the device memory before running the refiner. 
+
+</Tip>
 
 Happy inference with Neuron! 🚀
