@@ -69,7 +69,7 @@ saved in a `config.json` file, and will be restored automatically by `NeuronMode
 
 <Tip>
 
-When running inference for the first time, there is a warmup phase which would take 3x-4x latency than a regular run.
+When running inference for the first time, there is a warmup phase when you run the pipeline for the first time.  This run would take 3x-4x higher latency than a regular run.
 
 </Tip>
 
@@ -366,7 +366,7 @@ Now generate an image with a text prompt on neuron:
 
 ### Image-to-Image
 
-With `NeuronStableDiffusionXLImg2ImgPipeline`, you can pass an initial image, and a text prompt to condition gnerated images:
+With `NeuronStableDiffusionXLImg2ImgPipeline`, you can pass an initial image, and a text prompt to condition generated images:
 
 ```python
 from optimum.neuron import NeuronStableDiffusionXLImg2ImgPipeline
