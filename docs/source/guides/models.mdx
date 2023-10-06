@@ -149,7 +149,7 @@ As for non-generative models, two sets of parameters can be passed to the `from_
 a neuron optimized model:
 
 - `compiler_args = { num_cores, auto_cast_type }` are optional arguments for the compiler, these arguments usually control how the compiler makes tradeoff between the inference latency and throughput and the accuracy.
-- `input_shapes = { batch_size, sequence_length }` correspond to the static shape of the model input and Key, Value cache.
+- `input_shapes = { batch_size, sequence_length }` correspond to the static shape of the model input and the KV-cache (attention keys and values for past tokens).
 
 - `num_cores` is the number of neuron cores used when instantiating the model. Each neuron core has 16 Gb of memory, which means that
 bigger models need to be split on multiple cores. Defaults to 1,
@@ -174,7 +174,7 @@ This means in particular that during inference:
 
 - the `batch_size` of the inputs should be equal to the `batch_size` used during export,
 - the `length` of the input sequences should be lower than the `sequence_length` used during export,
-- the maximum nember of tokens (input + generated) cannot exceed the `sequence_length` used during export.
+- the maximum number of tokens (input + generated) cannot exceed the `sequence_length` used during export.
 
 ### Text generation inference
 
