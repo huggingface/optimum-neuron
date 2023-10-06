@@ -251,6 +251,27 @@ class NeuronStableDiffusionXLInpaintPipelineMixin(StableDiffusionXLPipelineMixin
 
         Examples:
 
+        ```py
+        >>> from optimum.neuron import NeuronStableDiffusionXLInpaintPipeline
+        >>> from diffusers.utils import load_image
+
+        >>> img_url = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/sdxl-text2img.png" (
+        >>> mask_url = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/sdxl-inpaint-mask.png"
+
+        >>> init_image = load_image(img_url).convert("RGB")
+        >>> mask_image = load_image(mask_url).convert("RGB")
+
+        >>> compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
+        >>> input_shapes = {"batch_size": 1, "height": 1024, "width": 1024}
+        >>> pipeline = NeuronStableDiffusionXLInpaintPipeline.from_pretrained(
+        ...     "stabilityai/stable-diffusion-xl-base-1.0", export=True, **compiler_args, **input_shapes, device_ids=[0, 1])
+        ... )
+        >>> pipeline.save_pretrained("sdxl_inpaint/")
+
+        >>> prompt = "A deep sea diver floating"
+        >>> image = pipeline(prompt=prompt, image=init_image, mask_image=mask_image, strength=0.85, guidance_scale=12.5).images[0]
+        ```
+
         Returns:
             [`diffusers.pipelines.stable_diffusion.StableDiffusionXLPipelineOutput`] or `tuple`:
             [`diffusers.pipelines.stable_diffusion.StableDiffusionXLPipelineOutput`] if `return_dict` is True, otherwise a

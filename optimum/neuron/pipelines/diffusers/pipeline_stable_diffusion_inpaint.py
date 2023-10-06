@@ -141,26 +141,19 @@ class NeuronStableDiffusionInpaintPipelineMixin(StableDiffusionPipelineMixin, St
         Examples:
 
         ```py
-        >>> import PIL
-        >>> import requests
-        >>> from io import BytesIO
-
         >>> from optimum.neuron import NeuronStableDiffusionInpaintPipeline
-
-
-        >>> def download_image(url):
-        ...     response = requests.get(url)
-        ...     return PIL.Image.open(BytesIO(response.content)).convert("RGB")
-
+        >>> from diffusers.utils import load_image
 
         >>> img_url = "https://raw.githubusercontent.com/CompVis/latent-diffusion/main/data/inpainting_examples/overture-creations-5sI6fQgYIuo.png"
         >>> mask_url = "https://raw.githubusercontent.com/CompVis/latent-diffusion/main/data/inpainting_examples/overture-creations-5sI6fQgYIuo_mask.png"
 
-        >>> init_image = download_image(img_url).resize((512, 512))
-        >>> mask_image = download_image(mask_url).resize((512, 512))
+        >>> init_image = load_image(img_url).convert("RGB")
+        >>> mask_image = load_image(mask_url).convert("RGB")
 
+        >>> compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
+        >>> input_shapes = {"batch_size": 1, "height": 1024, "width": 1024}
         >>> pipeline = NeuronStableDiffusionInpaintPipeline.from_pretrained(
-        ...     "runwayml/stable-diffusion-inpainting", export=True, **input_shapes, device_ids=[0, 1])
+        ...     "runwayml/stable-diffusion-inpainting", export=True, **compiler_args, **input_shapes, device_ids=[0, 1])
         ... )
         >>> pipeline.save_pretrained("sd_inpaint/")
 

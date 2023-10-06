@@ -159,23 +159,16 @@ class NeuronStableDiffusionImg2ImgPipelineMixin(StableDiffusionPipelineMixin, St
         Examples:
 
         ```py
-        >>> import PIL
-        >>> import requests
-        >>> from io import BytesIO
-
         >>> from optimum.neuron import NeuronStableDiffusionImg2ImgPipeline
+        >>> from diffusers.utils import load_image
+
+        >>> url = "https://raw.githubusercontent.com/CompVis/stable-diffusion/main/assets/stable-samples/img2img/sketch-mountains-input.jpg"
+        >>> init_image = load_image(url).convert("RGB")
 
         >>> compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
         >>> input_shapes = {"batch_size": 1, "height": 512, "width": 512}
-
-        >>> url = "https://raw.githubusercontent.com/CompVis/stable-diffusion/main/assets/stable-samples/img2img/sketch-mountains-input.jpg"
-        >>> response = requests.get(url)
-
-        >>> init_image = Image.open(BytesIO(response.content)).convert("RGB")
-        >>> init_image = init_image.resize((512, 512))
-
         >>> pipeline = NeuronStableDiffusionImg2ImgPipeline.from_pretrained(
-        ...     "nitrosocke/Ghibli-Diffusion", export=True, **input_shapes, device_ids=[0, 1]
+        ...     "nitrosocke/Ghibli-Diffusion", export=True, **compiler_args, **input_shapes, device_ids=[0, 1]
         ... )
         >>> pipeline.save_pretrained("sd_img2img/")
 

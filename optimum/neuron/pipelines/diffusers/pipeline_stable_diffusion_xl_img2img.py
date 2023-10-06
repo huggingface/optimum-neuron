@@ -283,6 +283,24 @@ class NeuronStableDiffusionXLImg2ImgPipelineMixin(StableDiffusionXLPipelineMixin
 
         Examples:
 
+        ```py
+        >>> from optimum.neuron import NeuronStableDiffusionXLImg2ImgPipeline
+        >>> from diffusers.utils import load_image
+
+        >>> url = "https://huggingface.co/datasets/optimum/documentation-images/resolve/main/intel/openvino/sd_xl/castle_friedrich.png"
+        >>> init_image = load_image(url).convert("RGB")
+
+        >>> compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
+        >>> input_shapes = {"batch_size": 1, "height": 512, "width": 512}
+        >>> pipeline = NeuronStableDiffusionXLImg2ImgPipeline.from_pretrained(
+        ...     "stabilityai/stable-diffusion-xl-base-1.0", export=True, **compiler_args, **input_shapes, device_ids=[0, 1]
+        ... )
+        >>> pipeline.save_pretrained("sdxl_img2img/")
+
+        >>> prompt = "a dog running, lake, moat"
+        >>> image = pipeline(prompt=prompt, image=init_image).images[0]
+        ```
+
         Returns:
             [`diffusers.pipelines.stable_diffusion.StableDiffusionXLPipelineOutput`] or `tuple`:
             [`diffusers.pipelines.stable_diffusion.StableDiffusionXLPipelineOutput`] if `return_dict` is True, otherwise a
