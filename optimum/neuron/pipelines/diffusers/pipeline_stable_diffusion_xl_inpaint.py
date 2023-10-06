@@ -514,6 +514,7 @@ class NeuronStableDiffusionXLInpaintPipelineMixin(StableDiffusionXLPipelineMixin
 
                 # predict the noise residual
                 added_cond_kwargs = {"text_embeds": add_text_embeds, "time_ids": add_time_ids}
+                # [modified for neuron] Remove not traced inputs: cross_attention_kwargs, return_dict
                 noise_pred = self.unet(
                     sample=latent_model_input,
                     timestep=t,
@@ -552,6 +553,7 @@ class NeuronStableDiffusionXLInpaintPipelineMixin(StableDiffusionXLPipelineMixin
                         callback(i, t, latents)
 
         if not output_type == "latent":
+            # [Modified] Replace with pre-compiled vae decoder
             image = self.vae_decoder(latents / getattr(self.vae_decoder.config, "scaling_factor", 0.18215))[0]
         else:
             return StableDiffusionXLPipelineOutput(images=latents)

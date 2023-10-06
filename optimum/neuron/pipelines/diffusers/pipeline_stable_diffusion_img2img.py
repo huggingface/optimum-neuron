@@ -47,7 +47,7 @@ class NeuronStableDiffusionImg2ImgPipelineMixin(StableDiffusionPipelineMixin, St
         if image.shape[1] == 4:
             init_latents = image
         else:
-            # encode the init image into latents and scale the latents
+            # [Modified] Replace with pre-compiled vae encoder, encode the init image into latents and scale the latents
             init_latents = self.vae_encoder(sample=image)[0]
             scaling_factor = self.vae_encoder.config.scaling_factor or 0.18215
             init_latents = scaling_factor * init_latents
@@ -277,6 +277,7 @@ class NeuronStableDiffusionImg2ImgPipelineMixin(StableDiffusionPipelineMixin, St
                         callback(i, t, latents)
 
         if not output_type == "latent":
+            # [Modified] Replace with pre-compiled vae decoder
             image = self.vae_decoder(latents / getattr(self.vae_decoder.config, "scaling_factor", 0.18215))[0]
             image, has_nsfw_concept = self.run_safety_checker(image, prompt_embeds.dtype)
         else:

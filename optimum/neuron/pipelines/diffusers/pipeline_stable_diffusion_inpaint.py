@@ -372,6 +372,7 @@ class NeuronStableDiffusionInpaintPipelineMixin(StableDiffusionPipelineMixin, St
                 init_image = self._encode_vae_image(init_image)
                 mask_condition = mask_condition.to(dtype=masked_image_latents.dtype)
                 condition_kwargs = {"image": init_image_condition, "mask": mask_condition}
+            # [Modified] Replace with pre-compiled vae decoder
             image = self.vae_decoder(
                 latents / getattr(self.vae_decoder.config, "scaling_factor", 0.18215), **condition_kwargs
             )[0]

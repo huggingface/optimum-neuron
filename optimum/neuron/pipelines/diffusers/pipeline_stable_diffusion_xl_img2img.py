@@ -51,7 +51,7 @@ class NeuronStableDiffusionXLImg2ImgPipelineMixin(StableDiffusionXLPipelineMixin
             init_latents = image
 
         else:
-            # encode the init image into latents and scale the latents
+            # [Modified] Replace with pre-compiled vae encoder, encode the init image into latents and scale the latents
             init_latents = self.vae_encoder(sample=image)[0]
             scaling_factor = self.vae_encoder.config.scaling_factor or 0.18215
             init_latents = scaling_factor * init_latents
@@ -468,6 +468,7 @@ class NeuronStableDiffusionXLImg2ImgPipelineMixin(StableDiffusionXLPipelineMixin
 
                 # predict the noise residual
                 added_cond_kwargs = {"text_embeds": add_text_embeds, "time_ids": add_time_ids}
+                # [modified for neuron] Remove not traced inputs: cross_attention_kwargs, return_dict
                 noise_pred = self.unet(
                     sample=latent_model_input,
                     timestep=t,
@@ -494,6 +495,7 @@ class NeuronStableDiffusionXLImg2ImgPipelineMixin(StableDiffusionXLPipelineMixin
                         callback(i, t, latents)
 
         if not output_type == "latent":
+            # [Modified] Replace with pre-compiled vae decoder
             image = self.vae_decoder(latents / getattr(self.vae_decoder.config, "scaling_factor", 0.18215))[0]
         else:
             return StableDiffusionXLPipelineOutput(images=latents)

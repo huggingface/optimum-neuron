@@ -250,7 +250,7 @@ class NeuronStableDiffusionPipelineMixin(StableDiffusionPipelineMixin, StableDif
                         callback(i, t, latents)
 
         if not output_type == "latent":
-            # [Modified] Replace with pre-compiled
+            # [Modified] Replace with pre-compiled vae decoder
             image = self.vae_decoder(latents / getattr(self.vae_decoder.config, "scaling_factor", 0.18215))[0]
             image, has_nsfw_concept = self.run_safety_checker(image, prompt_embeds.dtype)
         else:
