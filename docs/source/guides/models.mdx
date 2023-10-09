@@ -145,13 +145,17 @@ As explained before, you will need only a few modifications to your Transformers
 
 ### Configuring the export of a generative model
 
-There are three main parameters that can be passed to the `from_pretrained()` method to configure how a transformers checkpoint is exported to
+As for non-generative models, two sets of parameters can be passed to the `from_pretrained()` method to configure how a transformers checkpoint is exported to
 a neuron optimized model:
 
-- `batch_size` is the number of input sequences that the model will accept. Defaults to 1,
+- `compiler_args = { num_cores, auto_cast_type }` are optional arguments for the compiler, these arguments usually control how the compiler makes tradeoff between the inference latency and throughput and the accuracy.
+- `input_shapes = { batch_size, sequence_length }` correspond to the static shape of the model input and the KV-cache (attention keys and values for past tokens).
+
 - `num_cores` is the number of neuron cores used when instantiating the model. Each neuron core has 16 Gb of memory, which means that
 bigger models need to be split on multiple cores. Defaults to 1,
-- `auto_cast_type` specifies the format to encode the weights. It can be one of `f32` (`float32`), `f16` (`float16`) or `bf16` (`bfloat16`). Defaults to `f32`.
+- `auto_cast_type` specifies the format to encode the weights. It can be one of `fp32` (`float32`), `fp16` (`float16`) or `bf16` (`bfloat16`). Defaults to `fp32`.
+- `batch_size` is the number of input sequences that the model will accept. Defaults to 1,
+- `sequence_length` is the maximum number of tokens in an input sequence. Defaults to `max_position_embeddings` (`n_positions` for older models).
 
 ```diff
 from transformers import AutoTokenizer
@@ -159,19 +163,18 @@ from transformers import AutoTokenizer
 +from optimum.neuron import NeuronModelForCausalLM
 
 # Instantiate and convert to Neuron a PyTorch checkpoint
++compiler_args = {"num_cores": 1, "auto_cast_type": 'fp32'}
++input_shapes = {"batch_size": 1, "sequence_length": 512}
 -model = AutoModelForCausalLM.from_pretrained("gpt2")
-+model = NeuronModelForCausalLM.from_pretrained("gpt2",
-+                                               export=True,
-+                                               batch_size=16,
-+                                               num_cores=1,
-+                                               auto_cast_type='f32')
++model = NeuronModelForCausalLM.from_pretrained("gpt2", export=True, **compiler_args, **input_shapes)
 ```
 
-As explained before, these parameters can only be configured during export. This means in particular that
-the `batch_size` of the inputs during inference should be equal to the `batch_size` used for exporting the model.
+As explained before, these parameters can only be configured during export.
+This means in particular that during inference:
 
-Each model architecture may also support specific additional parameters for advanced configuration.
-Please refer to the [transformers-neuronx](https://github.com/aws-neuron/transformers-neuronx) documentation.
+- the `batch_size` of the inputs should be equal to the `batch_size` used during export,
+- the `length` of the input sequences should be lower than the `sequence_length` used during export,
+- the maximum number of tokens (input + generated) cannot exceed the `sequence_length` used during export.
 
 ### Text generation inference
 
@@ -202,6 +205,14 @@ with torch.inference_mode():
     print(outputs)
 ```
 
+The generation is highly configurable. Please refer to https://huggingface.co/docs/transformers/generation_strategies for details.
+
+Please be aware that:
+
+- for each model architecture, default values are provided for all parameters, but values passed to the `generate` method will take precedence,
+- the generation parameters can be stored in a `generation_config.json` file. When such a file is present in model directory,
+it will be parsed to set the default parameters (the values passed to the `generate` method still take precedence).
+
 ## Stable Diffusion
 
 Optimum extends 🤗`Diffusers` to support inference on Neuron. To get started, make sure you have installed Diffusers:
@@ -219,13 +230,13 @@ You can also accelerate the inference of stable diffusion on neuronx devices (in
 
 ### Text-to-Image
 
-`NeuronStableDiffusionPipeline` class allows you to generate images from a text prompt on neuron devices similar to the experience with `diffusers`. 
+`NeuronStableDiffusionPipeline` class allows you to generate images from a text prompt on neuron devices similar to the experience with `diffusers`.
 
 Like for other tasks, you need to compile models before being able to perform inference. The export can be done either via the CLI or via `NeuronStableDiffusionPipeline` API. Here is an example of exporting stable diffusion components with `NeuronStableDiffusionPipeline`:
 
 <Tip>
 
-To apply optimized compute of Unet's attention score, please configure your environment variable with `export NEURON_FUSE_SOFTMAX=1`. 
+To apply optimized compute of Unet's attention score, please configure your environment variable with `export NEURON_FUSE_SOFTMAX=1`.
 
 Besides, don't hesitate to tweak the compilation configuration to find the best tradeoff between performance v.s accuracy in your use case. By default, we suggest casting FP32 matrix multiplication operations to BF16 which offers good performance with moderate sacrifice of the accuracy. Check out the guide from [AWS Neuron documentation](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/appnotes/neuronx-cc/neuronx-cc-training-mixed-precision.html#neuronx-cc-training-mixed-precision) to better understand the options for your compilation.
 
@@ -236,7 +247,7 @@ Besides, don't hesitate to tweak the compilation configuration to find the best 
 
 >>> model_id = "runwayml/stable-diffusion-v1-5"
 >>> compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
->>> input_shapes = {"batch_size": 1, "height": 512, "width": 512}  
+>>> input_shapes = {"batch_size": 1, "height": 512, "width": 512}
 
 >>> stable_diffusion = NeuronStableDiffusionPipeline.from_pretrained(model_id, export=True, **compiler_args, **input_shapes)
 
@@ -257,7 +268,7 @@ Now generate an image with a prompt on neuron:
 
 <img
   src="https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/guides/models/01-sd-image.png"
-  width="256" 
+  width="256"
   height="256"
   alt="stable diffusion generated image"
 />
@@ -331,7 +342,7 @@ image.save("cat_on_bench.png")
 
 ### Text-to-Image
 
-Similar to Stable Diffusion, you will be able to use `NeuronStableDiffusionXLPipeline` API to export and run inference on Neuron devices with SDXL models. 
+Similar to Stable Diffusion, you will be able to use `NeuronStableDiffusionXLPipeline` API to export and run inference on Neuron devices with SDXL models.
 
 ```python
 >>> from optimum.neuron import NeuronStableDiffusionXLPipeline
@@ -359,7 +370,7 @@ Now generate an image with a text prompt on neuron:
 
 <img
   src="https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/guides/models/02-sdxl-image.jpeg"
-  width="256" 
+  width="256"
   height="256"
   alt="sdxl generated image"
 />
@@ -443,7 +454,7 @@ image = image = refiner(
 
 <img
   src="https://huggingface.co/datasets/optimum/documentation-images/resolve/main/neuron/models/08-sdxl-base-refine.png"
-  width="256" 
+  width="256"
   height="256"
   alt="sdxl base + refiner"
 />
@@ -468,7 +479,7 @@ image = refiner(prompt=prompt, image=image[None, :]).images[0]
 
 <Tip>
 
-To avoid Neuron device out of memory, it's suggested to finish all base inference and release the device memory before running the refiner. 
+To avoid Neuron device out of memory, it's suggested to finish all base inference and release the device memory before running the refiner.
 
 </Tip>
 

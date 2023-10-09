@@ -36,11 +36,12 @@ if __name__ == "__main__":
         default=1,
         help="The batch size.",
     )
+    export_parser.add_argument("--sequence_length", type=int, help="The maximum sequence length.")
     export_parser.add_argument(
         "--num_cores", type=int, default=1, help="The number of cores on which the model should be split."
     )
     export_parser.add_argument(
-        "--auto_cast_type", type=str, default="f32", choices=["f32", "f16", "bf16"], help="One of f32, f16, bf16."
+        "--auto_cast_type", type=str, default="fp32", choices=["fp32", "fp16", "bf16"], help="One of fp32, fp16, bf16."
     )
     export_parser.add_argument(
         "--save_dir", type=str, help="The save directory. Allows to avoid recompiling the model every time."
@@ -70,6 +71,7 @@ if __name__ == "__main__":
             low_cpu_mem_usage=True,
             # These are parameters required for the conversion
             batch_size=args.batch_size,
+            sequence_length=args.sequence_length,
             num_cores=args.num_cores,
             auto_cast_type=args.auto_cast_type,
         )
