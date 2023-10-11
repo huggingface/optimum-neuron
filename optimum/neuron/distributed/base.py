@@ -245,8 +245,8 @@ class Parallelizer(ABC):
                     weight_info = None
 
                 if parameter in new_parameters:
-                    # It can be the case if a module is shared in the model. 
-                    # For example in T5, the embedding layer is shared so after loading the parameter the first time, 
+                    # It can be the case if a module is shared in the model.
+                    # For example in T5, the embedding layer is shared so after loading the parameter the first time,
                     # it is not needed to do it again, and doing it can cause bugs.
                     continue
                 elif parameter in tied_weights:
