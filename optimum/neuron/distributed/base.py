@@ -231,6 +231,7 @@ class Parallelizer(ABC):
 
         with torch.no_grad():
             tied_weights = {}
+            new_parameters = set()
             modules_to_initialize = []
             for name, parameter in named_parameters(model, remove_duplicate=False):
                 split = name.rsplit(".", maxsplit=1)
@@ -243,7 +244,13 @@ class Parallelizer(ABC):
                 except KeyError:
                     weight_info = None
 
-                if parameter in tied_weights:
+                if parameter in new_parameters:
+                    # It can be the case if a module is shared in the model.
+                    # For example in T5, the embedding layer is shared so after loading the parameter the first time,
+                    # it is not needed to do it again, and doing it can cause bugs.
+                    continue
+                elif parameter in tied_weights:
+                    # It can be the case when weights are tied. For example between the embeddings and the LM head.
                     new_parameter = tied_weights[parameter]
                 elif weight_info is not None:
                     if getattr(current_weight, "tensor_model_parallel", False):
@@ -263,6 +270,8 @@ class Parallelizer(ABC):
                         else:
                             # The parameter is not on the `meta` device, it has been loaded from a checkpoint during
                             # parallelization, we can skip.
+                            tied_weights[parameter] = parameter
+                            new_parameters.add(parameter)
                             continue
                     else:
                         slices = None
@@ -282,6 +291,8 @@ class Parallelizer(ABC):
                     new_parameter,
                 )
                 tied_weights[parameter] = new_parameter
+                new_parameters.add(new_parameter)
+
             for mod in modules_to_initialize:
                 # This module has not pre-trained weights, it must be fine-tuned, we initialize it with the
                 # `reset_parameters()` method.
