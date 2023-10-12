@@ -283,7 +283,7 @@ class Parallelizer(ABC):
                     # This means that there is no information about where to find the weights for this parameter.
                     device = torch.device("cpu") if device is None else device
                     new_parameter = torch.nn.Parameter(torch.empty_like(current_weight, device=device))
-                    modules_to_initialize.append(new_parameter)
+                    modules_to_initialize.append(module)
 
                 setattr(
                     module,
