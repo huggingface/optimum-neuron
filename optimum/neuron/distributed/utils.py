@@ -512,6 +512,12 @@ def from_pretrained_for_tp(
     subfolder = kwargs.pop("subfolder", "")
     kwargs.pop("_commit_hash", None)
     kwargs.pop("variant", None)
+    adapter_kwargs = kwargs.pop("adapter_kwargs", {})
+    kwargs.pop("adapter_name", "default")
+    kwargs.pop("use_flash_attention_2", False)
+
+    if adapter_kwargs:
+        raise NotImplementedError("The support for adapter kwargs has not been implemented yet.")
 
     filenames, sharded_metadata = download_checkpoints_in_cache(
         pretrained_model_name_or_path,
