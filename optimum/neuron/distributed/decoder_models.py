@@ -377,6 +377,7 @@ class LlamaParallelizer(Parallelizer):
             past_key_value: Optional[Tuple["torch.Tensor"]] = None,
             output_attentions: bool = False,
             use_cache: bool = False,
+            padding_mask: Optional[torch.LongTensor] = None,
         ) -> Tuple["torch.Tensor", Optional["torch.Tensor"], Optional[Tuple["torch.Tensor"]]]:
             if self.config.pretraining_tp > 1:
                 key_value_slicing = (self.num_key_value_heads * self.head_dim) // self.config.pretraining_tp
