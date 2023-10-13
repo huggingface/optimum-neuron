@@ -13,7 +13,7 @@ except Exception as error:
 
 
 INSTALL_REQUIRES = [
-    "transformers >= 4.32.1",
+    "transformers >= 4.33.1",
     "accelerate == 0.23.0",
     "optimum >= 1.13.0",
     "huggingface_hub >= 0.14.0",
