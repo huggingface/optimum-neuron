@@ -17,6 +17,7 @@
 import contextlib
 import functools
 import itertools
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,10 +25,10 @@ from typing import TYPE_CHECKING, Dict, Literal, Optional, Tuple, Type, Union
 
 import torch
 from transformers import PretrainedConfig
-
-from optimum.neuron.utils.import_utils import is_neuronx_distributed_available
+from transformers.utils import is_peft_available
 
 from ..utils import DynamicPatch, Patcher
+from ..utils.import_utils import is_neuronx_distributed_available
 from ..utils.misc import download_checkpoints_in_cache
 from ..utils.require_utils import requires_neuronx_distributed, requires_safetensors, requires_torch_xla
 
@@ -510,14 +511,14 @@ def from_pretrained_for_tp(
     kwargs.pop("load_in_4bit", False)
     kwargs.pop("quantization_config", None)
     subfolder = kwargs.pop("subfolder", "")
-    kwargs.pop("_commit_hash", None)
+    commit_hash = kwargs.pop("_commit_hash", None)
     kwargs.pop("variant", None)
     adapter_kwargs = kwargs.pop("adapter_kwargs", {})
-    kwargs.pop("adapter_name", "default")
+    adapter_name = kwargs.pop("adapter_name", "default")
     kwargs.pop("use_flash_attention_2", False)
 
-    if adapter_kwargs:
-        raise NotImplementedError("The support for adapter kwargs has not been implemented yet.")
+    if token is not None and adapter_kwargs is not None and "token" not in adapter_kwargs:
+        adapter_kwargs["token"] = token
 
     filenames, sharded_metadata = download_checkpoints_in_cache(
         pretrained_model_name_or_path,
@@ -554,6 +555,29 @@ def from_pretrained_for_tp(
         )
     else:
         model_kwargs = kwargs
+
+    if is_peft_available():
+        from transformers.utils import find_adapter_config_file
+
+        _adapter_model_path = adapter_kwargs.pop("_adapter_model_path", None)
+
+        if _adapter_model_path is None:
+            _adapter_model_path = find_adapter_config_file(
+                pretrained_model_name_or_path,
+                cache_dir=cache_dir,
+                force_download=force_download,
+                resume_download=resume_download,
+                proxies=proxies,
+                local_files_only=local_files_only,
+                _commit_hash=commit_hash,
+                **adapter_kwargs,
+            )
+        if _adapter_model_path is not None and os.path.isfile(_adapter_model_path):
+            with open(_adapter_model_path, "r", encoding="utf-8") as f:
+                _adapter_model_path = pretrained_model_name_or_path
+                pretrained_model_name_or_path = json.load(f)["base_model_name_or_path"]
+    else:
+        _adapter_model_path = None
 
     model = cls(config, *model_args, **model_kwargs)
 
@@ -598,6 +622,14 @@ def from_pretrained_for_tp(
                     f"{', '.join(names_of_weights_not_in_model)}."
                 )
         weight_map = weight_map_for_model
+
+    if _adapter_model_path is not None:
+        model.load_adapter(
+            _adapter_model_path,
+            adapter_name=adapter_name,
+            token=token,
+            adapter_kwargs=adapter_kwargs,
+        )
 
     model._weight_map = weight_map
 
