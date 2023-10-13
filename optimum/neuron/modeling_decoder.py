@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Optional, Tuple, Union
 import torch
 from huggingface_hub import HfApi, HfFolder, snapshot_download
 from huggingface_hub.utils import is_google_colab
-from transformers import GenerationConfig
+from transformers import AutoConfig, AutoModel, GenerationConfig
 
 from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..exporters.tasks import TasksManager
@@ -63,6 +63,9 @@ class NeuronDecoderModel(OptimizedModel):
         - generation_config ([`~transformers.GenerationConfig`]) -- The generation configuration used by default when calling `generate()`.
     """
 
+    model_type = "neuron_model"
+    auto_model_class = AutoModel
+
     CHECKPOINT_DIR = "checkpoint"
     COMPILED_DIR = "compiled"
 
@@ -81,6 +84,11 @@ class NeuronDecoderModel(OptimizedModel):
         if generation_config is None:
             generation_config = GenerationConfig.from_model_config(config)
         self.generation_config = generation_config
+        # Registers the NeuronModelForXXX classes into the transformers AutoModel classes to avoid warnings when creating
+        # a pipeline https://github.com/huggingface/transformers/blob/3d3204c025b6b5de013e07dd364208e28b4d9589/src/transformers/pipelines/base.py#L940
+        AutoConfig.register(self.model_type, AutoConfig)
+        if hasattr(self.auto_model_class, "register"):
+            self.auto_model_class.register(AutoConfig, self.__class__)
 
     @classmethod
     def _from_transformers(

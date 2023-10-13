@@ -27,6 +27,7 @@ from transformers import (
     QuestionAnsweringPipeline,
     SequenceFeatureExtractor,
     TextClassificationPipeline,
+    TextGenerationPipeline,
     TokenClassificationPipeline,
 )
 from transformers import pipeline as transformers_pipeline
@@ -36,6 +37,7 @@ from transformers.onnx.utils import get_preprocessor
 from optimum.neuron.modeling_base import NeuronBaseModel
 
 from ...modeling import (
+    NeuronModelForCausalLM,
     NeuronModelForFeatureExtraction,
     NeuronModelForMaskedLM,
     NeuronModelForQuestionAnswering,
@@ -76,6 +78,12 @@ NEURONX_SUPPORTED_TASKS = {
         "impl": TokenClassificationPipeline,
         "class": (NeuronModelForTokenClassification,),
         "default": "dbmdz/bert-large-cased-finetuned-conll03-english",
+        "type": "text",
+    },
+    "text-generation": {
+        "impl": TextGenerationPipeline,
+        "class": (NeuronModelForCausalLM,),
+        "default": "gpt2",
         "type": "text",
     },
 }
