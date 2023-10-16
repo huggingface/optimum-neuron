@@ -38,15 +38,10 @@ def _test_generative_decoding(
     decoder_only: bool = False,
     generation_config_update: Optional[Dict[str, Any]] = None,
 ):
+    import torch_xla.core.xla_model as xm
+
     if generation_config_update is None:
         generation_config_update = {"num_beams": 1, "do_sample": False}
-
-    if device == "xla":
-        import torch_xla.core.xla_model as xm
-
-        device = xm.xla_device()
-    else:
-        device = "cpu"
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = (
@@ -67,7 +62,10 @@ def _test_generative_decoding(
     generation_config.update(**generation_config_update)
     generation_config.use_cache = use_cache
 
+    if device == "xla":
+        pass
     patch_generation_mixin_to_neuron_generation_mixin(model)
+
     model.generation_config.pad_token_id = model.generation_config.eos_token_id
     task_prompt = "translate English to German: "
     input_strings = [
@@ -79,14 +77,15 @@ def _test_generative_decoding(
 
     results = []
     
-    if device == "xla":
-        xm.mark_step()
-
     for input_str in input_strings:
         input_ids = tokenizer(task_prompt + input_str, return_tensors="pt", padding="max_length", max_length=50).to(
             device
         )
         outputs = model.generate(**input_ids, max_new_tokens=20, use_cache=False, generation_config=generation_config)
+
+        if device == "xla":
+            xm.mark_step()
+
         outputs = outputs.detach().cpu().numpy()
         results.append(outputs)
 
@@ -118,7 +117,7 @@ def test_greedy_decoding(model_name, use_cache, decoder_only, compiler_flags):
     cpu_samples = _test_generative_decoding(model_name, device="cpu", use_cache=use_cache, decoder_only=decoder_only)
     print("CPU", cpu_samples)
 
-    assert np.array_equal(cpu_samples[:, :-1], xla_neuron_samples_fp32[:, 1:]), "XLA Neuron FP32 output doesn't match CPU only output"
+    assert np.array_equal(cpu_samples, xla_neuron_samples_fp32), "XLA Neuron FP32 output doesn't match CPU only output"
     # assert np.array_equal(cpu_samples, xla_neuron_samples_bf16), "XLA Neuron bf16 output doesn't match CPU only output"
 
 
