@@ -898,35 +898,17 @@ class NeuronGenerationMixin(GenerationMixin):
             )
 
         # Pad to max_length
-        input_ids = torch.cat(
-            [
-                input_ids,
-                (
-                    torch.ones(
-                        (batch_size, (generation_config.max_length - input_ids_seq_length)),
-                    )
-                    .long()
-                    .to(input_ids.device)
-                )
-                * generation_config.pad_token_id,
-            ],
-            1,
-        )
+        padding = generation_config.pad_token_id *  torch.ones((batch_size, generation_config.max_length - input_ids_seq_length), dtype=input_ids.dtype, device=input_ids.device)
+        input_ids = torch.cat([input_ids, padding], dim=1)
+
         # For decoder only models, pad decoder attention mask in addition to prompts
         if (
             "attention_mask" in model_kwargs
             and model_kwargs.get("use_cache", False) is False
             and not self.config.is_encoder_decoder
         ):
-            model_kwargs["attention_mask"] = torch.cat(
-                [
-                    model_kwargs["attention_mask"],
-                    torch.zeros((batch_size, (generation_config.max_length - input_ids_seq_length)))
-                    .long()
-                    .to(model_kwargs["attention_mask"].device),
-                ],
-                1,
-            )
+            mask_padding = torch.zeros((batch_size, generation_config.max_length - input_ids_seq_length), dtype=input_ids.dtype, device=input_ids.device)
+            model_kwargs["attention_mask"] = torch.cat([model_kwargs["attention_mask"], mask_padding], dim=1)
 
         # 7. determine generation mode
         is_constraint_gen_mode = (
@@ -1066,7 +1048,7 @@ class NeuronGenerationMixin(GenerationMixin):
         output_scores: Optional[bool] = None,
         return_dict_in_generate: Optional[bool] = None,
         synced_gpus: bool = False,
-        seq_length: Optional[int] = int,
+        seq_length: Optional[int] = None,
         streamer: Optional["BaseStreamer"] = None,
         **model_kwargs,
     ) -> Union[GreedySearchOutput, torch.LongTensor]:
