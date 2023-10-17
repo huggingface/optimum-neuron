@@ -2,12 +2,7 @@ import os
 
 import numpy as np
 import pytest
-from transformers import (
-    AutoConfig,
-    AutoModelForCausalLM,
-    AutoModelForSeq2SeqLM,
-    AutoTokenizer,
-)
+from transformers import AutoConfig, AutoModelForCausalLM, AutoModelForSeq2SeqLM, AutoTokenizer, PhrasalConstraint
 from transformers.generation.configuration_utils import GenerationConfig
 
 from optimum.neuron.trainers import patch_generation_mixin_to_neuron_generation_mixin
@@ -19,8 +14,16 @@ def _test_generative_decoding(
     device="cpu",
     use_cache=False,
     decoder_only=False,
-    generation_config_update={"num_beams": 1, "do_sample": False},
+    generation_config_update=None,
+    tokenizer=None,
+    gen_kwargs=None,
 ):
+    if generation_config_update is None:
+        generation_config_update = {"num_beams": 1, "do_sample": False}
+
+    if gen_kwargs is None:
+        gen_kwargs = {}
+
     if device == "xla":
         import torch_xla.core.xla_model as xm
 
@@ -28,7 +31,9 @@ def _test_generative_decoding(
     else:
         device = "cpu"
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    if tokenizer is None:
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+
     model = (
         AutoModelForCausalLM.from_pretrained(model_name).to(device)
         if decoder_only
@@ -64,7 +69,9 @@ def _test_generative_decoding(
         input_ids = tokenizer(task_prompt + input_str, return_tensors="pt", padding="max_length", max_length=50).to(
             device
         )
-        outputs = model.generate(**input_ids, max_new_tokens=20, use_cache=False, generation_config=generation_config)
+        outputs = model.generate(
+            **input_ids, max_new_tokens=20, use_cache=False, generation_config=generation_config, **gen_kwargs
+        )
         outputs = outputs.detach().cpu().numpy()
         results.append(outputs)
 
@@ -80,6 +87,11 @@ beam_search_testdata = [
     ("facebook/bart-base", False, False, "--model-type=transformer --enable-saturate-infinity"),
     ("t5-small", False, False, "--model-type=transformer"),
     ("t5-small", True, False, "--model-type=transformer"),
+]
+
+constrained_beam_search_testdata = [
+    ("facebook/bart-base", False, False, "--model-type=transformer --enable-saturate-infinity"),
+    ("t5-small", False, False, "--model-type=transformer"),
 ]
 
 
@@ -115,6 +127,49 @@ def test_beam_search_decoding(model_name, use_cache, decoder_only, compiler_flag
 
     cpu_samples = _test_generative_decoding(
         model_name=model_name, device="cpu", decoder_only=decoder_only, generation_config_update=config_update
+    )
+
+    assert np.array_equal(cpu_samples, xla_neuron_samples_fp32), "XLA Neuron FP32 output doesn't match CPU only output"
+    assert np.array_equal(cpu_samples, xla_neuron_samples_bf16), "XLA Neuron bf16 output doesn't match CPU only output"
+
+
+@is_trainium_test
+@pytest.mark.parametrize("model_name, use_cache, decoder_only, compiler_flags", constrained_beam_search_testdata)
+def test_constrained_decoding(model_name, use_cache, decoder_only, compiler_flags):
+    os.environ["NEURON_CC_FLAGS"] = compiler_flags
+    config_update = {"num_beams": 4, "min_length": 21, "max_length": 21}
+
+    # Create a phrasal constraint
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    constraints = [PhrasalConstraint(tokenizer("Sie", add_special_tokens=False).input_ids)]
+
+    os.environ["XLA_USE_BF16"] = "0"
+    xla_neuron_samples_fp32 = _test_generative_decoding(
+        model_name=model_name,
+        device="xla",
+        decoder_only=decoder_only,
+        generation_config_update=config_update,
+        tokenizer=tokenizer,
+        gen_kwargs={"constraints": constraints},
+    )
+
+    os.environ["XLA_USE_BF16"] = "1"
+    xla_neuron_samples_bf16 = _test_generative_decoding(
+        model_name=model_name,
+        device="xla",
+        decoder_only=decoder_only,
+        generation_config_update=config_update,
+        tokenizer=tokenizer,
+        gen_kwargs={"constraints": constraints},
+    )
+
+    cpu_samples = _test_generative_decoding(
+        model_name=model_name,
+        device="cpu",
+        decoder_only=decoder_only,
+        generation_config_update=config_update,
+        tokenizer=tokenizer,
+        gen_kwargs={"constraints": constraints},
     )
 
     assert np.array_equal(cpu_samples, xla_neuron_samples_fp32), "XLA Neuron FP32 output doesn't match CPU only output"
