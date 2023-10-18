@@ -23,9 +23,9 @@ from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neur
 @pytest.mark.parametrize(
     "batch_size, sequence_length, num_cores, auto_cast_type",
     [
-        [1, 128, 2, "fp32"],
-        [1, 128, 2, "fp16"],
-        [2, 128, 2, "fp16"],
+        [1, 100, 2, "fp32"],
+        [1, 100, 2, "fp16"],
+        [2, 100, 2, "fp16"],
     ],
 )
 @is_inferentia_test
