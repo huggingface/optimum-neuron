@@ -377,3 +377,8 @@ class LLamaNeuronConfig(TextNeuronDecoderConfig):
 @register_in_tasks_manager("opt", "text-generation")
 class OPTNeuronConfig(TextNeuronDecoderConfig):
     NEURONX_CLASS = "opt.model.OPTForSampling"
+
+
+@register_in_tasks_manager("bloom", "text-generation")
+class BloomNeuronConfig(TextNeuronDecoderConfig):
+    NEURONX_CLASS = "bloom.model.BloomForSampling"
