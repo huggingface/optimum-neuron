@@ -22,3 +22,10 @@ def _test_generation(p):
 def test_export_no_parameters(inf_decoder_model):
     p = pipeline("text-generation", inf_decoder_model, export=True)
     _test_generation(p)
+
+
+@is_inferentia_test
+@requires_neuronx
+def test_load_no_parameters(inf_decoder_path):
+    p = pipeline("text-generation", inf_decoder_path)
+    _test_generation(p)
