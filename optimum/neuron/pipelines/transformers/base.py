@@ -104,22 +104,24 @@ def load_pipeline(
     subfolder: str = "",
     token: Optional[Union[bool, str]] = None,
     revision: str = "main",
-    model_kwargs: Optional[Dict[str, Any]] = None,
+    compiler_args: Optional[Dict[str, Any]] = {},
     config: AutoConfig = None,
+    hub_kwargs: Optional[Dict[str, Any]] = {},
     **kwargs,
 ):
-    if model_kwargs is None:
-        model_kwargs = {}
-
     # loads default model
     if model is None:
         model_id = supported_tasks[targeted_task]["default"]
-        model = supported_tasks[targeted_task]["class"][0].from_pretrained(model_id, export=True, **input_shapes)
+        model = supported_tasks[targeted_task]["class"][0].from_pretrained(
+            model_id, export=True, **compiler_args, **input_shapes, **hub_kwargs, **kwargs
+        )
     # loads model from model id and converts it to neuronx optionally
     elif isinstance(model, str):
         model_id = model
         neuronx_model_class = supported_tasks[targeted_task]["class"][0]
-        model = neuronx_model_class.from_pretrained(model, export=export, **model_kwargs, **input_shapes)
+        model = neuronx_model_class.from_pretrained(
+            model, export=export, **compiler_args, **input_shapes, **hub_kwargs, **kwargs
+        )
     # uses neuron model
     elif isinstance(model, NeuronBaseModel):
         if tokenizer is None and load_tokenizer:
@@ -158,10 +160,10 @@ def pipeline(
     use_fast: bool = True,
     export: bool = False,
     input_shapes: Optional[Dict[str, int]] = {},
+    compiler_args: Optional[Dict[str, int]] = {},
     token: Optional[Union[str, bool]] = None,
     revision: Optional[str] = None,
     trust_remote_code: Optional[bool] = None,
-    *model_kwargs,
     **kwargs,
 ) -> Pipeline:
     if task not in NEURONX_SUPPORTED_TASKS:
@@ -233,12 +235,11 @@ def pipeline(
         load_feature_extractor,
         export=export,
         input_shapes=input_shapes,
+        compiler_args=compiler_args,
         supported_tasks=NEURONX_SUPPORTED_TASKS,
         config=config,
         hub_kwargs=hub_kwargs,
         token=token,
-        *model_kwargs,
-        **kwargs,
     )
 
     if tokenizer is None and load_tokenizer:
