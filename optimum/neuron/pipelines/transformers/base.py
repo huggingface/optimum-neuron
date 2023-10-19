@@ -22,6 +22,7 @@ from transformers import (
     FeatureExtractionPipeline,
     FillMaskPipeline,
     Pipeline,
+    PreTrainedModel,
     PreTrainedTokenizer,
     PreTrainedTokenizerFast,
     QuestionAnsweringPipeline,
@@ -34,6 +35,7 @@ from transformers import pipeline as transformers_pipeline
 from transformers.feature_extraction_utils import PreTrainedFeatureExtractor
 from transformers.onnx.utils import get_preprocessor
 
+from optimum.modeling_base import OptimizedModel
 from optimum.neuron.modeling_base import NeuronBaseModel
 
 from ...modeling import (
@@ -112,9 +114,6 @@ def load_pipeline(
     # loads default model
     if model is None:
         model_id = supported_tasks[targeted_task]["default"]
-        if input_shapes is None:
-            input_shapes = {"batch_size": 1, "sequence_length": 128}
-            logger.warning(f"No input shapes provided, using default shapes, {input_shapes}")
         model = supported_tasks[targeted_task]["class"][0].from_pretrained(model_id, export=True, **input_shapes)
     # loads model from model id and converts it to neuronx optionally
     elif isinstance(model, str):
@@ -179,21 +178,24 @@ def pipeline(
     }
 
     config = kwargs.get("config", None)
-    if config is None and isinstance(model, str):
-        config = AutoConfig.from_pretrained(model, _from_pipeline=task, **hub_kwargs, **kwargs)
-        hub_kwargs["_commit_hash"] = config._commit_hash
+    if config is None:
+        if isinstance(model, str):
+            config = AutoConfig.from_pretrained(model, _from_pipeline=task, **hub_kwargs, **kwargs)
+            hub_kwargs["_commit_hash"] = config._commit_hash
+        elif isinstance(model, (PreTrainedModel, OptimizedModel)):
+            config = model.config
 
-    # check if config contains neuron batch size and sequence length
-    if hasattr(config, "neuron_batch_size") and hasattr(config, "neuron_sequence_length"):
-        if input_shapes is not None:
-            logger.warning("Input shapes will be overwritten by config values")
-        input_shapes = {}
-        input_shapes["batch_size"] = config.neuron_batch_size
-        input_shapes["sequence_length"] = config.neuron_sequence_length
-
-    if export and not input_shapes:
-        input_shapes = {"batch_size": 1, "sequence_length": 128}
-        logger.warning(f"No input shapes provided, using default shapes, {input_shapes}")
+    if export:
+        if hasattr(config, "neuron"):
+            raise ValueError("This model has already been exported to Neuron format")
+        if not input_shapes:
+            input_shapes = {"batch_size": 1, "sequence_length": 128}
+            logger.warning(f"No input shapes provided, using default shapes, {input_shapes}")
+    else:
+        if not hasattr(config, "neuron"):
+            raise ValueError("The model must be exported to Neuron format first")
+        if input_shapes:
+            logger.warning("Input shapes can only be set during export")
 
     no_feature_extractor_tasks = set()
     no_tokenizer_tasks = set()
