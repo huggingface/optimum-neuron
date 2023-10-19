@@ -21,6 +21,8 @@ from .constant import (
     DIFFUSION_MODEL_VAE_DECODER_NAME,
     DIFFUSION_MODEL_VAE_ENCODER_NAME,
     NEURON_FILE_NAME,
+    ENCODER_NAME,
+    DECODER_NAME,
 )
 from .import_utils import (
     is_accelerate_available,

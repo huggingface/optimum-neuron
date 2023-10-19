@@ -35,6 +35,9 @@ from .config import (
     TextNeuronDecoderConfig,
     VisionNeuronConfig,
 )
+from .model_wrappers import (
+    UnetNeuronWrapper,
+)
 
 
 if TYPE_CHECKING:
@@ -278,26 +281,10 @@ class UNetNeuronConfig(VisionNeuronConfig):
         else:
             return dummy_inputs
 
-    class ModelWrapper(torch.nn.Module):
-        def __init__(self, model):
-            super().__init__()
-            self.model = model
-
-        def forward(self, sample, timestep, encoder_hidden_states, text_embeds=None, time_ids=None):
-            out_tuple = self.model(
-                sample,
-                timestep.float().expand((sample.shape[0],)),
-                encoder_hidden_states,
-                added_cond_kwargs={"text_embeds": text_embeds, "time_ids": time_ids},
-                return_dict=False,
-            )
-
-            return out_tuple
-
     def check_model_inputs_order(self, model, dummy_inputs):
         return super().check_model_inputs_order(
             model=model,
-            custom_model_wrapper=self.ModelWrapper,
+            custom_model_wrapper=UnetNeuronWrapper,
         )
 
 
@@ -372,3 +359,12 @@ class GPT2NeuronConfig(TextNeuronDecoderConfig):
 @register_in_tasks_manager("llama", "text-generation")
 class LLamaNeuronConfig(TextNeuronDecoderConfig):
     NEURONX_CLASS = "llama.model.LlamaForSampling"
+
+
+@register_in_tasks_manager("t5", "text2text-generation")
+class T5EncoderNeuronConfig(TextNeuronDecoderConfig):
+    ATOL_FOR_VALIDATION = 1e-3
+    MANDATORY_AXES = ("batch_size", "sequence_length")
+    MODEL_TYPE = "t5-encoder"
+    
+    

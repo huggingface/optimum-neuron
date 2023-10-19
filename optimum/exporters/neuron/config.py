@@ -16,14 +16,17 @@
 Common Neuron configuration classes that handle most of the features for building model specific
 configurations.
 """
-
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Tuple, Union
 from ...utils import (
+    DummyInputGenerator,
     DummyBboxInputGenerator,
     DummyTextInputGenerator,
+    DummySeq2SeqDecoderTextInputGenerator,
+    DummySeq2SeqPastKeyValuesGenerator,
     DummyVisionInputGenerator,
     logging,
 )
-from .base import NeuronConfig, NeuronDecoderConfig
+from .base import NeuronConfig, NeuronDecoderConfig, NeuronSeq2SeqConfigWithPast
 
 
 logger = logging.get_logger(__name__)
@@ -61,3 +64,68 @@ class TextNeuronDecoderConfig(NeuronDecoderConfig):
     """
 
     pass
+
+
+class TextSeq2SeqNeuronConfig(NeuronConfig):
+    """
+    Handles encoder-decoder-based text architectures.
+    """
+    
+    DUMMY_INPUT_GENERATOR_CLASSES = (
+        DummyTextInputGenerator,
+        DummySeq2SeqDecoderTextInputGenerator,
+        DummySeq2SeqPastKeyValuesGenerator,
+    )
+
+    @property
+    def inputs(self) -> Dict[str, Dict[int, str]]:
+        common_inputs = []
+        # encoder + decoder without past
+        if "encoder" in self.MODEL_TYPE:
+            common_inputs = ["input_ids", "attention_mask"]
+
+        # decoder with past
+        if "decoder" in self.MODEL_TYPE:
+            common_inputs = [
+                "decoder_input_ids", 
+                "decoder_attention_mask", 
+                "encoder_hidden_states", 
+                "encoder_attention_mask",
+                "beam_idx",
+                "beam_scores",
+            ]
+
+        return common_inputs
+    
+    @property
+    def outputs(self) -> Dict[str, Dict[int, str]]:
+        # encoder + decoder without past
+        if "encoder" in self.MODEL_TYPE:
+            common_outputs = ["past_key_values"]
+        # decoder with past
+        if "decoder" in self.MODEL_TYPE:
+            common_outputs = ["next_tokens", ""]
+        return common_outputs
+    
+    def _create_dummy_input_generator_classes(self, **kwargs) -> List["DummyInputGenerator"]:
+        dummy_text_input_generator = self.DUMMY_INPUT_GENERATOR_CLASSES[0](
+            self.task, self._normalized_config, **kwargs
+        )
+        dummy_decoder_text_input_generator = self.DUMMY_INPUT_GENERATOR_CLASSES[1](
+            self.task,
+            self._normalized_config,
+            **kwargs,
+        )
+        dummy_seq2seq_past_key_values_generator = self.DUMMY_INPUT_GENERATOR_CLASSES[2](
+            self.task,
+            self._normalized_config,
+            encoder_sequence_length=dummy_text_input_generator.sequence_length,
+            **kwargs,
+        )
+        dummy_inputs_generators = [
+            dummy_text_input_generator,
+            dummy_decoder_text_input_generator,
+            dummy_seq2seq_past_key_values_generator,
+        ]
+
+        return dummy_inputs_generators
