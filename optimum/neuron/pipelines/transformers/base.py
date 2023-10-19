@@ -158,7 +158,7 @@ def pipeline(
     feature_extractor: Optional[Union[str, PreTrainedFeatureExtractor]] = None,
     use_fast: bool = True,
     export: bool = False,
-    input_shapes: Optional[Dict[str, int]] = None,
+    input_shapes: Optional[Dict[str, int]] = {},
     token: Optional[Union[str, bool]] = None,
     revision: Optional[str] = None,
     trust_remote_code: Optional[bool] = None,
@@ -191,8 +191,7 @@ def pipeline(
         input_shapes["batch_size"] = config.neuron_batch_size
         input_shapes["sequence_length"] = config.neuron_sequence_length
 
-    # check if input shapes are provided and if not use default ones
-    if input_shapes is None and export:
+    if export and not input_shapes:
         input_shapes = {"batch_size": 1, "sequence_length": 128}
         logger.warning(f"No input shapes provided, using default shapes, {input_shapes}")
 
