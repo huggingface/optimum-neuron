@@ -156,7 +156,7 @@ def get_stable_diffusion_models_for_export(
             Whether the Neuron compiled model supports dynamic batch size.
 
     Returns:
-        `Dict[str, Tuple[Union[`PreTrainedModel`, `ModelMixin`], `NeuronConfig`]: A Dict containing the model and
+        `Dict[str, Tuple[Union[`PreTrainedModel`, `ModelMixin`], `NeuronConfig`]`: A Dict containing the model and
         Neuron configs for the different components of the model.
     """
     models_for_export = _get_submodels_for_export_stable_diffusion(pipeline=pipeline, task=task)
@@ -320,3 +320,49 @@ def override_diffusers_2_0_attn_processors(model):
             elif isinstance(submodule.processor, AttnAddedKVProcessor2_0):
                 submodule.set_processor(AttnAddedKVProcessor())
     return model
+
+
+def get_encoder_decoder_models_for_export(
+    model: "PreTrainedModel",
+    encoder_input_shapes: Dict[str, int],
+    decoder_input_shapes: Dict[str, int],
+    dynamic_batch_size: Optional[bool] = False,
+) -> Dict[str, Tuple["PreTrainedModel", "NeuronConfig"]]:
+    """
+    Returns the components of an encoder-decoder model and their subsequent neuron configs.
+    The encoder includes the compute of encoder hidden states and the initialization of KV
+    cache. The decoder the autoprogressive process of generating tokens, which takes past 
+    key values as inputs to save the compute.
+
+    Args:
+        model ("PreTrainedModel"):
+            The model to export.
+        encoder_input_shapes (`Dict[str, int]`):
+            Static shapes used for compiling the encoder.
+        decoder_input_shapes (`Dict[str, int]`):
+            Static shapes used for compiling the decoder.
+        dynamic_batch_size (`bool`, defaults to `False`):
+            Whether the Neuron compiled model supports dynamic batch size.
+
+    Returns:
+        `Dict[str, Tuple["PreTrainedModel", "NeuronConfig"]]`: A Dict containing the model and
+        Neuron configs for the different components of the model.
+    """
+    # Encoder
+    encoder = {"encoder": model.encoder, "decoder": model.decoder}
+    encoder_config_constructor = TasksManager.get_exporter_config_constructor(
+        model=model, exporter="neuron", task="feature-extraction"
+    )
+    encoder_neuron_config = encoder_config_constructor(
+        text_encoder.config,
+        task="feature-extraction",
+        dynamic_batch_size=dynamic_batch_size,
+        **encoder_input_shapes,
+    )
+    models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_NAME] = (text_encoder, encoder_neuron_config)
+    
+    # Decoder
+    decoder = {"decoder": model.decoder, "lm_head": model.lm_head}
+    decoder_config_constructor = TasksManager.get_exporter_config_constructor(
+        model=model, exporter="neuron", task="feature-extraction"
+    )

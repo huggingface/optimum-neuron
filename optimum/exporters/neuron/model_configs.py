@@ -37,6 +37,8 @@ from .config import (
 )
 from .model_wrappers import (
     UnetNeuronWrapper,
+    T5EncoderWrapper,
+    T5DecoderWrapper,
 )
 
 
@@ -281,8 +283,8 @@ class UNetNeuronConfig(VisionNeuronConfig):
         else:
             return dummy_inputs
 
-    def check_model_inputs_order(self, model, dummy_inputs):
-        return super().check_model_inputs_order(
+    def patch_model(self, model, dummy_inputs):
+        return super().patch_model(
             model=model,
             custom_model_wrapper=UnetNeuronWrapper,
         )
@@ -342,13 +344,13 @@ class VaeDecoderNeuronConfig(VisionNeuronConfig):
     def outputs(self) -> List[str]:
         return ["sample"]
 
-    def check_model_inputs_order(
+    def patch_model(
         self,
         model: "VaeDecoder",
         dummy_inputs: Dict[str, torch.Tensor],
         **kwargs,
     ):
-        return super().check_model_inputs_order(model=model, dummy_inputs=dummy_inputs, forward_with_tuple=True)
+        return super().patch_model(model=model, dummy_inputs=dummy_inputs, forward_with_tuple=True)
 
 
 @register_in_tasks_manager("gpt2", "text-generation")
@@ -367,4 +369,22 @@ class T5EncoderNeuronConfig(TextNeuronDecoderConfig):
     MANDATORY_AXES = ("batch_size", "sequence_length")
     MODEL_TYPE = "t5-encoder"
     
+    def patch_model(self, model, num_beams=1):
+        return super().patch_model(
+            model=model,
+            custom_model_wrapper=T5EncoderWrapper,
+            custom_wrapper_kwargs={"num_beams": num_beams}
+        )
     
+    
+@register_in_tasks_manager("t5", "text2text-generation")
+class T5DecoderNeuronConfig(TextNeuronDecoderConfig):
+    ATOL_FOR_VALIDATION = 1e-3
+    MANDATORY_AXES = ("batch_size", "sequence_length", "num_beams")
+    MODEL_TYPE = "t5-decoder"
+    
+    def patch_model(self, model, dummy_inputs):
+        return super().patch_model(
+            model=model,
+            custom_model_wrapper=T5DecoderWrapper,
+        )
