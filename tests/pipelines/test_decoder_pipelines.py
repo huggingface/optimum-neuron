@@ -11,12 +11,17 @@ def _test_generation(p):
     batch_size = getattr(p.model.config, "neuron")["batch_size"]
     prompt = "I like you."
     prompts = [prompt] * batch_size
-    outputs = p(prompts, do_sample=True, top_k=50, top_p=0.9, temperature=0.9)
-    assert len(outputs) == batch_size
-    for output in outputs:
-        # We only ever generate one sequence per sample
-        sequence = output[0]
-        assert sequence["generated_text"].startswith(prompt)
+    for return_tensors in [True, None]:
+        outputs = p(prompts, return_tensors=return_tensors, do_sample=True, top_k=50, top_p=0.9, temperature=0.9)
+        assert len(outputs) == batch_size
+        for input, output in zip(prompts, outputs):
+            # We only ever generate one sequence per input
+            sequence = output[0]
+            if return_tensors:
+                input_ids = p.tokenizer(input, add_special_tokens=False).input_ids
+                assert sequence["generated_token_ids"][: len(input_ids)] == input_ids
+            else:
+                assert sequence["generated_text"].startswith(input)
 
 
 @is_inferentia_test
