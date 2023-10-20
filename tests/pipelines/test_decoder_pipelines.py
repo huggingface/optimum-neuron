@@ -45,3 +45,12 @@ def test_error_already_exported(inf_decoder_path):
 def test_error_needs_export(inf_decoder_model):
     with pytest.raises(ValueError, match="must be exported"):
         pipeline("text-generation", inf_decoder_model, export=False)
+
+
+@is_inferentia_test
+@requires_neuronx
+def test_from_hub():
+    model_id = "dacorvo/tiny-random-gpt2-neuronx"
+    revision = "b8f1aec89f9b278721068bfe616fa9227c1d0238"
+    p = pipeline("text-generation", model_id, revision=revision)
+    _test_generation(p)
