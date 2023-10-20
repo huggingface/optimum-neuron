@@ -1,3 +1,5 @@
+import itertools
+
 import pytest
 
 from optimum.neuron import NeuronModelForCausalLM
@@ -8,12 +10,26 @@ from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neur
 def _test_generation(p):
     assert p.task == "text-generation"
     assert isinstance(p.model, NeuronModelForCausalLM)
-    batch_size = getattr(p.model.config, "neuron")["batch_size"]
+    model_batch_size = getattr(p.model.config, "neuron")["batch_size"]
     prompt = "I like you."
-    prompts = [prompt] * batch_size
-    for return_tensors in [True, None]:
-        outputs = p(prompts, return_tensors=return_tensors, do_sample=True, top_k=50, top_p=0.9, temperature=0.9)
-        assert len(outputs) == batch_size
+    # We check the ability of the pipeline to split the inputs by using different
+    # combinations of input_size and batch_size
+    input_sizes = [model_batch_size, model_batch_size * 2]
+    batch_sizes = [model_batch_size]
+    if model_batch_size > 1:
+        batch_sizes.append(model_batch_size // 2)
+    for input_size, batch_size, return_tensors in itertools.product(input_sizes, batch_sizes, [True, None]):
+        prompts = [prompt] * input_size
+        outputs = p(
+            prompts,
+            return_tensors=return_tensors,
+            batch_size=batch_size,
+            do_sample=True,
+            top_k=50,
+            top_p=0.9,
+            temperature=0.9,
+        )
+        assert len(outputs) == input_size
         for input, output in zip(prompts, outputs):
             # We only ever generate one sequence per input
             sequence = output[0]
