@@ -247,11 +247,22 @@ def pipeline(
     if feature_extractor is None and load_feature_extractor:
         feature_extractor = get_preprocessor(model_id)
 
+    # If we don't specify a batch_size, the pipeline will assume batch_size 1
+    # and it will process the inputs one by one instead of processing them in parallel
+    batch_size = 1
+    for attr in ["batch_size", "static_batch_size"]:
+        if attr in model.config.neuron:
+            batch_size = model.config.neuron[attr]
+    if batch_size > 1 and tokenizer is not None and tokenizer.pad_token_id is None:
+        # The pipeline needs a pad token to be able to batch
+        tokenizer.pad_token_id = model.config.eos_token_id
+
     return transformers_pipeline(
         task,
         model=model,
         tokenizer=tokenizer,
         feature_extractor=feature_extractor,
         use_fast=use_fast,
+        batch_size=batch_size,
         **kwargs,
     )
