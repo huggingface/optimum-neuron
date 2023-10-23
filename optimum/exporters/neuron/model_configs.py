@@ -25,6 +25,7 @@ from ...utils import (
     DummyVisionInputGenerator,
     NormalizedConfig,
     NormalizedConfigManager,
+    NormalizedSeq2SeqConfig,
     NormalizedTextAndVisionConfig,
     is_diffusers_available,
 )
@@ -33,12 +34,13 @@ from .config import (
     TextAndVisionNeuronConfig,
     TextEncoderNeuronConfig,
     TextNeuronDecoderConfig,
+    TextSeq2SeqNeuronConfig,
     VisionNeuronConfig,
 )
 from .model_wrappers import (
-    UnetNeuronWrapper,
-    T5EncoderWrapper,
     T5DecoderWrapper,
+    T5EncoderWrapper,
+    UnetNeuronWrapper,
 )
 
 
@@ -344,13 +346,13 @@ class VaeDecoderNeuronConfig(VisionNeuronConfig):
     def outputs(self) -> List[str]:
         return ["sample"]
 
-    def patch_model(
+    def patch_model_for_export(
         self,
         model: "VaeDecoder",
         dummy_inputs: Dict[str, torch.Tensor],
         **kwargs,
     ):
-        return super().patch_model(model=model, dummy_inputs=dummy_inputs, forward_with_tuple=True)
+        return super().patch_model_for_export(model=model, dummy_inputs=dummy_inputs, forward_with_tuple=True)
 
 
 @register_in_tasks_manager("gpt2", "text-generation")
@@ -363,27 +365,59 @@ class LLamaNeuronConfig(TextNeuronDecoderConfig):
     NEURONX_CLASS = "llama.model.LlamaForSampling"
 
 
-@register_in_tasks_manager("t5", "text2text-generation")
-class T5EncoderNeuronConfig(TextNeuronDecoderConfig):
+@register_in_tasks_manager("t5-encoder", "text2text-generation")
+class T5EncoderNeuronConfig(TextSeq2SeqNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
     MANDATORY_AXES = ("batch_size", "sequence_length")
     MODEL_TYPE = "t5-encoder"
-    
-    def patch_model(self, model, num_beams=1):
-        return super().patch_model(
+    NORMALIZED_CONFIG_CLASS = NormalizedSeq2SeqConfig.with_args(
+        hidden_size="d_model",
+        num_attention_heads="num_heads",
+        encoder_num_layers="num_layers",
+        decoder_num_layers="num_decoder_layers",
+        key_value_dim="d_kv",
+        allow_new=True,
+    )
+
+    def generate_dummy_inputs(self, **kwargs):
+        dummy_inputs = super().generate_dummy_inputs(**kwargs)
+
+        return dummy_inputs
+
+    def patch_model_for_export(self, model, num_beams=1):
+        return super().patch_model_for_export(
             model=model,
             custom_model_wrapper=T5EncoderWrapper,
-            custom_wrapper_kwargs={"num_beams": num_beams}
         )
-    
-    
-@register_in_tasks_manager("t5", "text2text-generation")
-class T5DecoderNeuronConfig(TextNeuronDecoderConfig):
+
+
+@register_in_tasks_manager("t5-decoder", "text2text-generation")
+class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
-    MANDATORY_AXES = ("batch_size", "sequence_length", "num_beams")
+    MANDATORY_AXES = ("batch_size", "sequence_length")
     MODEL_TYPE = "t5-decoder"
-    
-    def patch_model(self, model, dummy_inputs):
+    NORMALIZED_CONFIG_CLASS = NormalizedSeq2SeqConfig.with_args(
+        hidden_size="d_model",
+        num_attention_heads="num_heads",
+        encoder_num_layers="num_layers",
+        decoder_num_layers="num_decoder_layers",
+        key_value_dim="d_kv",
+        allow_new=True,
+    )
+
+    @property
+    def inputs(self) -> List[str]:
+        common_inputs = super().inputs() + ["beam_idx", "beam_scores"]
+
+        return common_inputs
+
+    def patch_model_for_export(self, model, dummy_inputs):
+        return super().patch_model(
+            model=model,
+            custom_model_wrapper=T5DecoderWrapper,
+        )
+
+    def generate_io_aliases(self, model, dummy_inputs):
         return super().patch_model(
             model=model,
             custom_model_wrapper=T5DecoderWrapper,

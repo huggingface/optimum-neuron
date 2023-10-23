@@ -23,11 +23,13 @@ import torch
 from transformers import PretrainedConfig
 
 from ...neuron.utils import (
+    DECODER_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_2_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_NAME,
     DIFFUSION_MODEL_UNET_NAME,
     DIFFUSION_MODEL_VAE_DECODER_NAME,
     DIFFUSION_MODEL_VAE_ENCODER_NAME,
+    ENCODER_NAME,
     get_attention_scores_sd,
     get_attention_scores_sdxl,
 )
@@ -331,7 +333,7 @@ def get_encoder_decoder_models_for_export(
     """
     Returns the components of an encoder-decoder model and their subsequent neuron configs.
     The encoder includes the compute of encoder hidden states and the initialization of KV
-    cache. The decoder the autoprogressive process of generating tokens, which takes past 
+    cache. The decoder the autoprogressive process of generating tokens, which takes past
     key values as inputs to save the compute.
 
     Args:
@@ -348,21 +350,32 @@ def get_encoder_decoder_models_for_export(
         `Dict[str, Tuple["PreTrainedModel", "NeuronConfig"]]`: A Dict containing the model and
         Neuron configs for the different components of the model.
     """
+    models_for_export = []
+
     # Encoder
-    encoder = {"encoder": model.encoder, "decoder": model.decoder}
+    model_type = getattr(model.config, "model_type") + "-encoder"
     encoder_config_constructor = TasksManager.get_exporter_config_constructor(
-        model=model, exporter="neuron", task="feature-extraction"
+        exporter="neuron", model_type=model_type, task="text2text-generation"
     )
     encoder_neuron_config = encoder_config_constructor(
-        text_encoder.config,
-        task="feature-extraction",
+        config=model.config,
+        task="text2text-generation",
         dynamic_batch_size=dynamic_batch_size,
         **encoder_input_shapes,
     )
-    models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_NAME] = (text_encoder, encoder_neuron_config)
-    
+    models_for_export[ENCODER_NAME] = (model, encoder_neuron_config)
+
     # Decoder
-    decoder = {"decoder": model.decoder, "lm_head": model.lm_head}
+    model_type = getattr(model.config, "model_type") + "-decoder"
     decoder_config_constructor = TasksManager.get_exporter_config_constructor(
-        model=model, exporter="neuron", task="feature-extraction"
+        exporter="neuron", model_type=model_type, task="text2text-generation"
     )
+    decoder_neuron_config = decoder_config_constructor(
+        config=model.config,
+        task="text2text-generation",
+        dynamic_batch_size=dynamic_batch_size,
+        **decoder_input_shapes,
+    )
+    models_for_export[DECODER_NAME] = (model, decoder_neuron_config)
+
+    return models_for_export

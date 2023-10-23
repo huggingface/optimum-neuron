@@ -16,17 +16,18 @@
 Common Neuron configuration classes that handle most of the features for building model specific
 configurations.
 """
-from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Tuple, Union
+from typing import Dict, List
+
 from ...utils import (
-    DummyInputGenerator,
     DummyBboxInputGenerator,
-    DummyTextInputGenerator,
+    DummyInputGenerator,
     DummySeq2SeqDecoderTextInputGenerator,
     DummySeq2SeqPastKeyValuesGenerator,
+    DummyTextInputGenerator,
     DummyVisionInputGenerator,
     logging,
 )
-from .base import NeuronConfig, NeuronDecoderConfig, NeuronSeq2SeqConfigWithPast
+from .base import NeuronConfig, NeuronDecoderConfig
 
 
 logger = logging.get_logger(__name__)
@@ -70,7 +71,7 @@ class TextSeq2SeqNeuronConfig(NeuronConfig):
     """
     Handles encoder-decoder-based text architectures.
     """
-    
+
     DUMMY_INPUT_GENERATOR_CLASSES = (
         DummyTextInputGenerator,
         DummySeq2SeqDecoderTextInputGenerator,
@@ -87,26 +88,24 @@ class TextSeq2SeqNeuronConfig(NeuronConfig):
         # decoder with past
         if "decoder" in self.MODEL_TYPE:
             common_inputs = [
-                "decoder_input_ids", 
-                "decoder_attention_mask", 
-                "encoder_hidden_states", 
+                "decoder_input_ids",
+                "decoder_attention_mask",
+                "encoder_hidden_states",
                 "encoder_attention_mask",
-                "beam_idx",
-                "beam_scores",
             ]
 
         return common_inputs
-    
+
     @property
     def outputs(self) -> Dict[str, Dict[int, str]]:
         # encoder + decoder without past
         if "encoder" in self.MODEL_TYPE:
-            common_outputs = ["past_key_values"]
+            common_outputs = ["present_key_values_self_attn", "past_key_values_cross_attn"]
         # decoder with past
         if "decoder" in self.MODEL_TYPE:
-            common_outputs = ["next_tokens", ""]
+            common_outputs = ["next_tokens", "past_key_values_self_attn", "past_key_values_cross_attn"]
         return common_outputs
-    
+
     def _create_dummy_input_generator_classes(self, **kwargs) -> List["DummyInputGenerator"]:
         dummy_text_input_generator = self.DUMMY_INPUT_GENERATOR_CLASSES[0](
             self.task, self._normalized_config, **kwargs

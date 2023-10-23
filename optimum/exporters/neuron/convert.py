@@ -424,7 +424,7 @@ def export_neuronx(
     dummy_inputs = config.generate_dummy_inputs(**input_shapes)
     dummy_inputs = config.flatten_inputs(dummy_inputs)
     dummy_inputs_tuple = tuple(dummy_inputs.values())
-    checked_model = config.patch_model(model, dummy_inputs)
+    checked_model = config.patch_model_for_export(model, dummy_inputs)
 
     if auto_cast is not None:
         logger.info(f"Using Neuron: --auto-cast {auto_cast}")
@@ -533,7 +533,7 @@ def export_neuron(
 
     dummy_inputs = config.generate_dummy_inputs(**input_shapes)
     dummy_inputs_tuple = tuple(dummy_inputs.values())
-    checked_model = config.patch_model(model, dummy_inputs)
+    checked_model = config.patch_model_for_export(model, dummy_inputs)
     compiler_args = convert_neuronx_compiler_args_to_neuron(auto_cast, auto_cast_type, disable_fast_relayout)
 
     neuron_model = neuron.trace(

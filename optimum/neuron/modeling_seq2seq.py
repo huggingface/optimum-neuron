@@ -13,31 +13,32 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """NeuroModelForXXX classes for seq2seq models' inference on neuron devices."""
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 from abc import abstractmethod
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+
 import torch
 from transformers import AutoModelForSeq2SeqLM
-from .modeling_base import NeuronBaseModel, NeuronConfig
+
 from .generation import NeuronGenerationMixin
+from .modeling_base import NeuronBaseModel, NeuronConfig
 from .utils import (
-    ENCODER_NAME,
-    DECODER_NAME,
     NEURON_FILE_NAME,
     is_neuronx_available,
 )
 
+
 if TYPE_CHECKING:
-    from transformers import PretrainedConfig, PreTrainedModel
+    from transformers import PretrainedConfig
 
 if is_neuronx_available():
-    torch_neuronx
+    pass
 
 
 class NeuronModelForConditionalGeneration(NeuronBaseModel):
     base_model_prefix = "neuron_model"
-    
+
     def __init__(
         self,
         encoder: torch.jit._script.ScriptModule,
@@ -50,7 +51,7 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
         **kwargs,
     ):
         pass
-    
+
     @staticmethod
     def load_model(
         encoder_path: Union[str, Path],
@@ -59,7 +60,7 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
         dynamic_batch_size: bool = False,
     ):
         pass
-    
+
     def _save_pretrained(
         self,
         save_directory: Union[str, Path],
@@ -76,7 +77,7 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
                 The directory where to save the model files.
         """
         pass
-    
+
     @classmethod
     def _from_pretrained(
         cls,
@@ -95,7 +96,7 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
         **kwargs,
     ):
         pass
-    
+
     @classmethod
     def _from_transformers(
         cls,
@@ -116,13 +117,12 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
         dynamic_batch_size: bool = False,
         device_ids: Optional[List[int]] = None,
     ) -> "NeuronModelForConditionalGeneration":
-        pass 
+        pass
 
 
 class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerationMixin):
     auto_model_class = AutoModelForSeq2SeqLM
     main_input_name = "input_ids"
-   
 
 
 class _NeuronSeq2SeqModelPart:
@@ -158,6 +158,7 @@ class NeuronEncoder(_NeuronSeq2SeqModelPart):
     """
     Encoder part of the encoder-decoder model for Neuron inference. (Actually it's a monolith of encoder + decoder without past_key_values to workaround the control flow in the decoder).
     """
+
     def __init__(
         self,
         model: torch.jit._script.ScriptModule,
@@ -166,16 +167,21 @@ class NeuronEncoder(_NeuronSeq2SeqModelPart):
         neuron_config: Optional[Dict[str, str]] = None,
     ):
         super().__init__(model, parent_model, config, neuron_config, "encoder")
-    
+
     def forward(self, input_ids: torch.LongTensor, attention_mask: torch.FloatTensor):
-        inputs = (input_ids, attention_mask, )
+        inputs = (
+            input_ids,
+            attention_mask,
+        )
         outputs = self.model(*inputs)
         return outputs
+
 
 class NeuronDecoder(_NeuronSeq2SeqModelPart):
     """
     Decoder part of the encoder-decoder model for Neuron inference. (Actually it's decoder with past_key_values).
     """
+
     def __init__(
         self,
         model: torch.jit._script.ScriptModule,
@@ -184,16 +190,23 @@ class NeuronDecoder(_NeuronSeq2SeqModelPart):
         neuron_config: Optional[Dict[str, str]] = None,
     ):
         super().__init__(model, parent_model, config, neuron_config, "decoder")
-    
+
     def forward(
-        self, 
-        input_ids: torch.LongTensor, 
+        self,
+        input_ids: torch.LongTensor,
         decoder_attention_mask: torch.FloatTensor,
         encoder_hidden_states: torch.FloatTensor,
         encoder_attention_mask: torch.FloatTensor,
         beam_idx: torch.LongTensor,
         beam_scores: torch.FloatTensor,
     ):
-        inputs = (input_ids, decoder_attention_mask, encoder_hidden_states, encoder_attention_mask, beam_idx, beam_scores)
+        inputs = (
+            input_ids,
+            decoder_attention_mask,
+            encoder_hidden_states,
+            encoder_attention_mask,
+            beam_idx,
+            beam_scores,
+        )
         outputs = self.model(*inputs)
         return outputs
