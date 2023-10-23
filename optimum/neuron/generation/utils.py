@@ -1269,6 +1269,8 @@ class NeuronGenerationMixin(GenerationMixin):
             else:
                 next_token_logits = outputs.logits[:, -1, :]
 
+            xm.mark_step()
+
             # pre-process distribution
             # Move to cpu to handle arbitrary logits_processor
             next_tokens_scores = logits_processor(input_ids.to("cpu")[:, :seq_length], next_token_logits.to("cpu"))
@@ -1302,7 +1304,6 @@ class NeuronGenerationMixin(GenerationMixin):
                 next_tokens = next_tokens * unfinished_sequences + pad_token_id * (1 - unfinished_sequences)
 
             # update generated ids, model inputs, and length for next step
-
             batch_size, _ = input_ids.shape
             update_indices = torch.stack(
                 [torch.arange(batch_size), torch.tensor(seq_length).repeat(batch_size)], dim=-1

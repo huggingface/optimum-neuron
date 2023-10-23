@@ -14,15 +14,27 @@
 # limitations under the License.
 """Custom operations related to accelerate for Neuron."""
 
+
 import torch
 from accelerate.utils.operations import recursively_apply
 
+from ...utils import is_neuronx_distributed_available
 from ...utils.require_utils import requires_torch_xla
 
 
 @requires_torch_xla
 def _xla_gather(tensor, out_of_graph: bool = False):
     import torch_xla.core.xla_model as xm
+
+    groups = None
+    if is_neuronx_distributed_available():
+        from neuronx_distributed.parallel_layers.parallel_state import (
+            get_data_parallel_group,
+            model_parallel_is_initialized,
+        )
+
+        if model_parallel_is_initialized():
+            groups = get_data_parallel_group(as_list=True)
 
     def _xla_gather_one(tensor):
         if tensor.ndim == 0:
@@ -32,9 +44,20 @@ def _xla_gather(tensor, out_of_graph: bool = False):
             tensor = tensor.contiguous()
 
         if out_of_graph:
-            gathered = xm.mesh_reduce("nested_xla_gather", tensor, torch.cat)
+            gathered_tensors = xm.mesh_reduce("nested_xla_gather", tensor, lambda x: x)
+            if groups is not None:
+                new_gathered_tensors = []
+                # Since groups is containing list of group of replicas, we consider that visiting the first group of
+                # replicas is enough since the value should be the same accross other axes.
+                replicas_to_consider = set(groups[0])
+                for idx, tensor in enumerate(gathered_tensors):
+                    if idx not in replicas_to_consider:
+                        continue
+                    new_gathered_tensors.append(tensor)
+                gathered_tensors = new_gathered_tensors
+            gathered = torch.cat(gathered_tensors)
         else:
-            gathered = xm.all_gather(tensor)
+            gathered = xm.all_gather(tensor, groups=groups, pin_layout=False)
         return gathered
 
     res = recursively_apply(_xla_gather_one, tensor, error_on_other_type=True)

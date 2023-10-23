@@ -461,6 +461,15 @@ class Parallelizer(ABC):
         optimizer: Optional["torch.optim.Optimizer"] = None,
     ):
         cls._check_model_was_parallelized(model)
+
+        from neuronx_distributed.parallel_layers.parallel_state import (
+            get_data_parallel_rank,
+            get_tensor_model_parallel_rank,
+        )
+
+        data_parallel_rank = get_data_parallel_rank()
+        tensor_parallel_rank = get_tensor_model_parallel_rank()
+
         if not isinstance(output_dir, Path):
             output_dir = Path(output_dir)
 
@@ -474,12 +483,8 @@ class Parallelizer(ABC):
             state_dict["optimizer_state_dict"] = optimizer.state_dict()
 
         output_path = output_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME
-        from neuronx_distributed.parallel_layers.parallel_state import (
-            get_data_parallel_rank,
-            get_tensor_model_parallel_rank,
-        )
 
-        if get_data_parallel_rank() == 0 and get_tensor_model_parallel_rank() == 0:
+        if data_parallel_rank == 0 and tensor_parallel_rank == 0:
             if output_path.is_dir():
                 shutil.rmtree(output_path, ignore_errors=True)
             output_path.mkdir()
