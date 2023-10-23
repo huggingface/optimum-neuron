@@ -820,7 +820,11 @@ class NeuronGenerationMixin(GenerationMixin):
         # 4. Define other model kwargs
         model_kwargs["output_attentions"] = generation_config.output_attentions
         model_kwargs["output_hidden_states"] = generation_config.output_hidden_states
-        model_kwargs["use_cache"] = generation_config.use_cache
+        if generation_config.use_cache:
+            warnings.warn(
+                "use_cache is not supported for generation on Neuron devices, switching to use_cache=False."
+            )
+        model_kwargs["use_cache"] = False
 
         accepts_attention_mask = "attention_mask" in set(inspect.signature(self.forward).parameters.keys())
         requires_attention_mask = "encoder_outputs" not in model_kwargs
@@ -1066,7 +1070,7 @@ class NeuronGenerationMixin(GenerationMixin):
         output_scores: Optional[bool] = None,
         return_dict_in_generate: Optional[bool] = None,
         synced_gpus: bool = False,
-        seq_length: Optional[int] = int,
+        seq_length: Optional[int] = None,
         streamer: Optional["BaseStreamer"] = None,
         **model_kwargs,
     ) -> Union[GreedySearchOutput, torch.LongTensor]:
@@ -1168,7 +1172,6 @@ class NeuronGenerationMixin(GenerationMixin):
         # init values
         logits_processor = logits_processor if logits_processor is not None else LogitsProcessorList()
         use_cache = model_kwargs["use_cache"] if "use_cache" in model_kwargs else False
-        use_cache = False
         stopping_criteria = stopping_criteria if stopping_criteria is not None else StoppingCriteriaList()
         if max_length is not None:
             warnings.warn(
