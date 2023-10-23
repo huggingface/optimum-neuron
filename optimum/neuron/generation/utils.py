@@ -1168,6 +1168,7 @@ class NeuronGenerationMixin(GenerationMixin):
         # init values
         logits_processor = logits_processor if logits_processor is not None else LogitsProcessorList()
         use_cache = model_kwargs["use_cache"] if "use_cache" in model_kwargs else False
+        use_cache = False
         stopping_criteria = stopping_criteria if stopping_criteria is not None else StoppingCriteriaList()
         if max_length is not None:
             warnings.warn(
@@ -1268,8 +1269,6 @@ class NeuronGenerationMixin(GenerationMixin):
                 next_token_logits = next_token_logits.squeeze(1)
             else:
                 next_token_logits = outputs.logits[:, -1, :]
-
-            xm.mark_step()
 
             # pre-process distribution
             # Move to cpu to handle arbitrary logits_processor
