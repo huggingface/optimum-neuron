@@ -22,6 +22,7 @@ from transformers import (
     FeatureExtractionPipeline,
     FillMaskPipeline,
     Pipeline,
+    PreTrainedModel,
     PreTrainedTokenizer,
     PreTrainedTokenizerFast,
     QuestionAnsweringPipeline,
@@ -34,6 +35,7 @@ from transformers import pipeline as transformers_pipeline
 from transformers.feature_extraction_utils import PreTrainedFeatureExtractor
 from transformers.onnx.utils import get_preprocessor
 
+from optimum.modeling_base import OptimizedModel
 from optimum.neuron.modeling_base import NeuronBaseModel
 
 from ...modeling import (
@@ -102,25 +104,24 @@ def load_pipeline(
     subfolder: str = "",
     token: Optional[Union[bool, str]] = None,
     revision: str = "main",
-    model_kwargs: Optional[Dict[str, Any]] = None,
+    compiler_args: Optional[Dict[str, Any]] = {},
     config: AutoConfig = None,
+    hub_kwargs: Optional[Dict[str, Any]] = {},
     **kwargs,
 ):
-    if model_kwargs is None:
-        model_kwargs = {}
-
     # loads default model
     if model is None:
         model_id = supported_tasks[targeted_task]["default"]
-        if input_shapes is None:
-            input_shapes = {"batch_size": 1, "sequence_length": 128}
-            logger.warning(f"No input shapes provided, using default shapes, {input_shapes}")
-        model = supported_tasks[targeted_task]["class"][0].from_pretrained(model_id, export=True, **input_shapes)
+        model = supported_tasks[targeted_task]["class"][0].from_pretrained(
+            model_id, export=True, **compiler_args, **input_shapes, **hub_kwargs, **kwargs
+        )
     # loads model from model id and converts it to neuronx optionally
     elif isinstance(model, str):
         model_id = model
         neuronx_model_class = supported_tasks[targeted_task]["class"][0]
-        model = neuronx_model_class.from_pretrained(model, export=export, **model_kwargs, **input_shapes)
+        model = neuronx_model_class.from_pretrained(
+            model, export=export, **compiler_args, **input_shapes, **hub_kwargs, **kwargs
+        )
     # uses neuron model
     elif isinstance(model, NeuronBaseModel):
         if tokenizer is None and load_tokenizer:
@@ -158,11 +159,11 @@ def pipeline(
     feature_extractor: Optional[Union[str, PreTrainedFeatureExtractor]] = None,
     use_fast: bool = True,
     export: bool = False,
-    input_shapes: Optional[Dict[str, int]] = None,
+    input_shapes: Optional[Dict[str, int]] = {},
+    compiler_args: Optional[Dict[str, int]] = {},
     token: Optional[Union[str, bool]] = None,
     revision: Optional[str] = None,
     trust_remote_code: Optional[bool] = None,
-    *model_kwargs,
     **kwargs,
 ) -> Pipeline:
     if task not in NEURONX_SUPPORTED_TASKS:
@@ -179,22 +180,24 @@ def pipeline(
     }
 
     config = kwargs.get("config", None)
-    if config is None and isinstance(model, str):
-        config = AutoConfig.from_pretrained(model, _from_pipeline=task, **hub_kwargs, **kwargs)
-        hub_kwargs["_commit_hash"] = config._commit_hash
+    if config is None:
+        if isinstance(model, str):
+            config = AutoConfig.from_pretrained(model, _from_pipeline=task, **hub_kwargs, **kwargs)
+            hub_kwargs["_commit_hash"] = config._commit_hash
+        elif isinstance(model, (PreTrainedModel, OptimizedModel)):
+            config = model.config
 
-    # check if config contains neuron batch size and sequence length
-    if hasattr(config, "neuron_batch_size") and hasattr(config, "neuron_sequence_length"):
-        if input_shapes is not None:
-            logger.warning("Input shapes will be overwritten by config values")
-        input_shapes = {}
-        input_shapes["batch_size"] = config.neuron_batch_size
-        input_shapes["sequence_length"] = config.neuron_sequence_length
-
-    # check if input shapes are provided and if not use default ones
-    if input_shapes is None and export:
-        input_shapes = {"batch_size": 1, "sequence_length": 128}
-        logger.warning(f"No input shapes provided, using default shapes, {input_shapes}")
+    if export:
+        if hasattr(config, "neuron"):
+            raise ValueError("This model has already been exported to Neuron format")
+        if not input_shapes:
+            input_shapes = {"batch_size": 1, "sequence_length": 128}
+            logger.warning(f"No input shapes provided, using default shapes, {input_shapes}")
+    else:
+        if not hasattr(config, "neuron"):
+            raise ValueError("The model must be exported to Neuron format first")
+        if input_shapes:
+            logger.warning("Input shapes can only be set during export")
 
     no_feature_extractor_tasks = set()
     no_tokenizer_tasks = set()
@@ -232,12 +235,11 @@ def pipeline(
         load_feature_extractor,
         export=export,
         input_shapes=input_shapes,
+        compiler_args=compiler_args,
         supported_tasks=NEURONX_SUPPORTED_TASKS,
         config=config,
         hub_kwargs=hub_kwargs,
         token=token,
-        *model_kwargs,
-        **kwargs,
     )
 
     if tokenizer is None and load_tokenizer:
@@ -245,11 +247,22 @@ def pipeline(
     if feature_extractor is None and load_feature_extractor:
         feature_extractor = get_preprocessor(model_id)
 
+    # If we don't specify a batch_size, the pipeline will assume batch_size 1
+    # and it will process the inputs one by one instead of processing them in parallel
+    batch_size = 1
+    for attr in ["batch_size", "static_batch_size"]:
+        if attr in model.config.neuron:
+            batch_size = model.config.neuron[attr]
+    if batch_size > 1 and tokenizer is not None and tokenizer.pad_token_id is None:
+        # The pipeline needs a pad token to be able to batch
+        tokenizer.pad_token_id = model.config.eos_token_id
+
     return transformers_pipeline(
         task,
         model=model,
         tokenizer=tokenizer,
         feature_extractor=feature_extractor,
         use_fast=use_fast,
+        batch_size=batch_size,
         **kwargs,
     )
