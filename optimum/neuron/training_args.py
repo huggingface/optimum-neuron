@@ -32,6 +32,7 @@ from transformers.utils import (
     is_sagemaker_mp_enabled,
     requires_backends,
 )
+from transformers.trainer_utils import get_last_checkpoint
 
 from ..utils import check_if_transformers_greater, logging
 from .accelerate import NeuronAcceleratorState, NeuronPartialState
@@ -97,7 +98,14 @@ class NeuronTrainingArgumentsMixin:
                     "The minimal required Transformers version to perform XLA FSDP is "
                     f"{TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP} but {transformers.__version__} is installed."
                 )
-        self.tp_plugin = TensorParallelismPlugin(self.tensor_parallel_size, not self.disable_embedding_parallelization)
+
+        resume_from_checkpoint = self.resume_from_checkpoint
+        if isinstance(resume_from_checkpoint, bool):
+            if resume_from_checkpoint:
+                resume_from_checkpoint = get_last_checkpoint(self.output_dir)
+            else:
+                resume_from_checkpoint = None
+        self.tp_plugin = TensorParallelismPlugin(self.tensor_parallel_size, not self.disable_embedding_parallelization, sequence_parallel_enabled=self.sequence_parallel_enabled, checkpoint_dir=resume_from_checkpoint)
         super().__post_init__()
 
     # Needed only to specialize the warning message for FSDP.

@@ -470,6 +470,12 @@ class AugmentTrainerForNeuronMixin:
         else:
             return super().save_model(output_dir=output_dir, _internal_call=_internal_call)
 
+    def _load_from_checkpoint(self, resume_from_checkpoint, model=None):
+        # It has been handled during model parallelization.
+        if self.accelerator.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
+            return
+        super()._load_from_checkpoint(self, resume_from_checkpoint, model=model)
+
     def _load_optimizer_and_scheduler_for_xla_fsdp(self, checkpoint):
         if checkpoint is None:
             return
@@ -493,6 +499,7 @@ class AugmentTrainerForNeuronMixin:
         if self.fsdp or self.is_fsdp_enabled:
             return self._load_optimizer_and_scheduler_for_xla_fsdp(checkpoint)
         return super()._load_optimizer_and_scheduler(checkpoint)
+
 
     @patch_within_function(("transformers.trainer.skip_first_batches", skip_first_batches))
     def _inner_training_loop(

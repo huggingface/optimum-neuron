@@ -170,6 +170,7 @@ class Parallelizer(ABC):
         device: Optional["torch.device"] = None,
         parallelize_embeddings: bool = True,
         sequence_parallel_enabled: bool = False,
+        checkpoint_dir: Optional[Union[str, Path]] = None,
     ) -> "PreTrainedModel":
         """
         Parallelizes the model by transforming regular layer into their parallel counterparts using
@@ -188,6 +189,7 @@ class Parallelizer(ABC):
                 This can be disabled in the case when the TP size does not divide the vocabulary size.
             sequence_parallel_enabled (`bool`, defaults to `False`):
                 Whether or not sequence parallelism is enabled.
+            checkpoint_dir: TODO
 
         Returns:
             `PreTrainedModel`: The parallelized model.
@@ -297,6 +299,9 @@ class Parallelizer(ABC):
                 # This module has not pre-trained weights, it must be fine-tuned, we initialize it with the
                 # `reset_parameters()` method.
                 mod.reset_parameters()
+
+        if checkpoint_dir is not None:
+            cls.load_model_checkpoint(model, checkpoint_dir)
 
         return model
 
@@ -508,14 +513,12 @@ class Parallelizer(ABC):
             cls.save_model_checkpoint_as_sharded(model, output_dir, optimizer=optimizer)
 
     @classmethod
-    def load_model_regular_checkpoint(cls, model: "PreTrainedModel", load_dir: Union[str, Path]):
-        raise NotImplementedError("This requires being able to deparallelize the model.")
-
-    @classmethod
     def load_model_sharded_checkpoint(cls, model: "PreTrainedModel", load_dir: Union[str, Path]):
         cls._check_model_was_parallelized(model)
+
         if not isinstance(load_dir, Path):
             load_dir = Path(load_dir)
+
         parallel_layers.load(load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME, model=model, sharded=True)
 
     @classmethod
@@ -525,7 +528,5 @@ class Parallelizer(ABC):
 
         if (load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME).is_dir():
             cls.load_model_sharded_checkpoint(model, load_dir)
-        elif (load_dir / WEIGHTS_NAME).is_file():
-            cls.load_model_regular_checkpoint(model, load_dir)
         else:
-            raise FileNotFoundError(f"Could not find a checkpoint file under {load_dir.as_posix()}.")
+            raise FileNotFoundError(f"Could not find a sharded checkpoint directory under {load_dir.as_posix()}.")
