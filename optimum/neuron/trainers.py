@@ -35,6 +35,7 @@ from transformers.trainer import (
     TRAINER_STATE_NAME,
     TRAINING_ARGS_NAME,
 )
+from transformers.modeling_utils import unwrap_model
 from transformers.trainer_pt_utils import (
     reissue_pt_warnings,
 )
@@ -42,7 +43,7 @@ from transformers.trainer_utils import (
     PREFIX_CHECKPOINT_DIR,
     EvalLoopOutput,
 )
-from transformers.utils import is_sagemaker_mp_enabled
+from transformers.utils import is_sagemaker_mp_enabled, WEIGHTS_NAME
 
 from ..utils import check_if_transformers_greater, logging
 from .accelerate import NeuronAccelerator, NeuronDistributedType
@@ -372,12 +373,57 @@ class AugmentTrainerForNeuronMixin:
             self._save_checkpoint(model, trial, metrics=metrics)
             self.control = self.callback_handler.on_save(self.args, self.state, self.control)
 
-    def _save_checkpoint_with_accelerator(self, model, trial, metrics=None):
-        if self.accelerator.distributed_type is NeuronDistributedType.XLA_FSDP and not self.is_fsdp_enabled:
-            # TODO: handle this case better?
-            # Do we want to fail here? Can we save anyway?
-            raise RuntimeError("Cannot save checkpoint if FSDP is not enabled.")
+    def _save_xla(self, output_dir: Optional[str] = None):
+        output_dir = output_dir if output_dir is not None else self.args.output_dir
+        logger.info(f"Saving model checkpoint to {output_dir}")
 
+        if xm.is_master_ordinal():
+            os.makedirs(output_dir, exist_ok=True)
+            torch.save(self.args, os.path.join(output_dir, TRAINING_ARGS_NAME))
+
+        # Save a trained model and configuration using `save_pretrained()`.
+        # They can then be reloaded using `from_pretrained()`
+        xm.rendezvous("saving_checkpoint")
+        if self.accelerator.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
+            logger.info("Model parallelism is enabled, only saving the model sharded state dict.")
+            parallelizer = ParallelizersManager.parallelizer_for_model(self.model)
+            parallelizer.save_model_checkpoint(self.model, output_dir, as_sharded=True, optimizer=self.optimizer)
+        else:
+            if not isinstance(self.model, PreTrainedModel):
+                if isinstance(unwrap_model(self.model), PreTrainedModel):
+                    unwrap_model(self.model).save_pretrained(
+                        output_dir,
+                        is_main_process=self.args.should_save,
+                        state_dict=self.model.state_dict(),
+                        save_function=xm.save,
+                    )
+                else:
+                    logger.info("Trainer.model is not a `PreTrainedModel`, only saving its state dict.")
+                    state_dict = self.model.state_dict()
+                    xm.save(state_dict, os.path.join(output_dir, WEIGHTS_NAME))
+            else:
+                self.model.save_pretrained(output_dir, is_main_process=self.args.should_save, save_function=xm.save)
+
+        if self.tokenizer is not None and self.args.should_save:
+            self.tokenizer.save_pretrained(output_dir)
+
+    def save_model(self, output_dir: Optional[str] = None, _internal_call: bool = False):
+        if output_dir is None:
+            output_dir = self.args.output_dir
+
+        self._save_xla(output_dir)
+
+        # Push to the Hub when `save_model` is called by the user.
+        if self.args.push_to_hub and not _internal_call:
+            self.push_to_hub(commit_message="Model save")
+
+
+    def _save_checkpoint(self, model, trial, metrics=None):
+        # In all cases, including ddp/dp/deepspeed, self.model is always a reference to the model we
+        # want to save except FullyShardedDDP.
+        # assert unwrap_model(model) is self.model, "internal model should be a reference to self.model"
+
+        # Save model checkpoint
         checkpoint_folder = f"{PREFIX_CHECKPOINT_DIR}-{self.state.global_step}"
 
         if self.hp_search_backend is None and trial is None:
@@ -385,25 +431,20 @@ class AugmentTrainerForNeuronMixin:
 
         run_dir = self._get_output_dir(trial=trial)
         output_dir = os.path.join(run_dir, checkpoint_folder)
-        os.makedirs(output_dir, exist_ok=True)
 
         if xm.is_master_ordinal():
             os.makedirs(output_dir, exist_ok=True)
-            torch.save(self.args, os.path.join(output_dir, TRAINING_ARGS_NAME))
 
-        if self.tokenizer is not None and self.args.should_save:
-            self.tokenizer.save_pretrained(output_dir)
+        self.save_model(output_dir, _internal_call=True)
 
-        if isinstance(self.model, PreTrainedModel):
-            self.model.config.save_pretrained(output_dir)
+        # The optimizer state is saved in the shard alongside with the model parameters when doing TP.
+        if not self.accelerator.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
+            xm.rendezvous("saving_optimizer_states")
+            xm.save(self.optimizer.state_dict(), os.path.join(output_dir, OPTIMIZER_NAME))
 
-        self.accelerator.save_state(output_dir)
-
-        # Save scaler
-        # TODO: is grad scaling supported with TORCH XLA?
-        # reissue_pt_warnings(caught_warnings)
-        # if self.do_grad_scaling:
-        #     xm.save(self.scaler.state_dict(), os.path.join(output_dir, SCALER_NAME))
+        with warnings.catch_warnings(record=True) as caught_warnings:
+            xm.save(self.lr_scheduler.state_dict(), os.path.join(output_dir, SCHEDULER_NAME))
+            reissue_pt_warnings(caught_warnings)
 
         # Determine the new best metric / best model checkpoint
         if metrics is not None and self.args.metric_for_best_model is not None:
@@ -432,8 +473,7 @@ class AugmentTrainerForNeuronMixin:
             "cpu": torch.random.get_rng_state(),
         }
 
-        if is_torch_xla_available():
-            rng_states["xla"] = xm.get_rng_state()
+        rng_states["xla"] = xm.get_rng_state()
 
         # A process can arrive here before the process 0 has a chance to save the model, in which case output_dir may
         # not yet exist.
@@ -451,24 +491,6 @@ class AugmentTrainerForNeuronMixin:
         if self.args.should_save:
             self._rotate_checkpoints(use_mtime=True, output_dir=run_dir)
 
-    def _save_checkpoint(self, model, trial, metrics=None):
-        if check_if_transformers_greater("4.30.0") and self.accelerator.distributed_type in [
-            NeuronDistributedType.XLA_FSDP,
-            NeuronDistributedType.TENSOR_PARALLELISM,
-        ]:
-            return self._save_checkpoint_with_accelerator(model, trial, metrics=metrics)
-        return super()._save_checkpoint(model, trial, metrics=metrics)
-
-    def save_model(self, output_dir: Optional[str] = None, _internal_call: bool = False):
-        if output_dir is None:
-            output_dir = self.args.output_dir
-        if self.accelerator.distributed_type is NeuronDistributedType.XLA_FSDP:
-            self.accelerator.state.fsdp_plugin.save_model(self.accelerator, self.model, output_dir, 0)
-        elif self.accelerator.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
-            parallelizer = ParallelizersManager.parallelizer_for_model(self.model)
-            parallelizer.save_model_checkpoint(self.model, output_dir, as_regular=False)
-        else:
-            return super().save_model(output_dir=output_dir, _internal_call=_internal_call)
 
     def _load_from_checkpoint(self, resume_from_checkpoint, model=None):
         # It has been handled during model parallelization.
@@ -477,8 +499,6 @@ class AugmentTrainerForNeuronMixin:
         super()._load_from_checkpoint(self, resume_from_checkpoint, model=model)
 
     def _load_optimizer_and_scheduler_for_xla_fsdp(self, checkpoint):
-        if checkpoint is None:
-            return
         checkpoint_file_exists = (
             glob.glob(os.path.join(checkpoint, OPTIMIZER_NAME) + "_*")
             if is_sagemaker_mp_enabled()
@@ -496,9 +516,19 @@ class AugmentTrainerForNeuronMixin:
         # TODO: load grad scaling?
 
     def _load_optimizer_and_scheduler(self, checkpoint):
-        if self.fsdp or self.is_fsdp_enabled:
+        if checkpoint is None:
+            return
+        if self.accelerator.distributed_type is NeuronDistributedType.XLA_FSDP:
             return self._load_optimizer_and_scheduler_for_xla_fsdp(checkpoint)
-        return super()._load_optimizer_and_scheduler(checkpoint)
+        elif self.accelerator.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
+                lr_scheduler_state = torch.load(os.path.join(checkpoint, SCHEDULER_NAME), map_location="cpu")
+                xm.send_cpu_data_to_device(lr_scheduler_state, self.args.device)
+                self.lr_scheduler.load_state_dict(lr_scheduler_state)
+
+                parallelizer = ParallelizersManager.parallelizer_for_model(self.model)
+                parallelizer.load_optimizer_sharded_checkpoint(self.optimizer, checkpoint)
+        else:
+            return super()._load_optimizer_and_scheduler(checkpoint)
 
 
     @patch_within_function(("transformers.trainer.skip_first_batches", skip_first_batches))
