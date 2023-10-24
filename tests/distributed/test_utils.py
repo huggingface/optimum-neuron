@@ -39,7 +39,7 @@ def test_load_tensor_for_weight():
         tmpdir = Path(tmpdirname)
         filename = tmpdir / "tensors.safetensors"
 
-        t1 = torch.empty((24, 24), dtype=torch.bfloat16)
+        t1 = torch.randn((24, 24), dtype=torch.bfloat16)
         # Creating a slice from t1, meaning that it shares the same storage as t1.
         # It is important to make sure that the resulting loaded file does not have a bigger storage than needed.
         t2 = t1[:2, :2].contiguous()
