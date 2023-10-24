@@ -29,13 +29,13 @@ from packaging import version
 from transformers import PreTrainedModel, Seq2SeqTrainer, Trainer, TrainingArguments
 from transformers.dependency_versions_check import dep_version_check
 from transformers.integrations import is_fairscale_available
+from transformers.modeling_utils import unwrap_model
 from transformers.trainer import (
     OPTIMIZER_NAME,
     SCHEDULER_NAME,
     TRAINER_STATE_NAME,
     TRAINING_ARGS_NAME,
 )
-from transformers.modeling_utils import unwrap_model
 from transformers.trainer_pt_utils import (
     reissue_pt_warnings,
 )
@@ -43,7 +43,7 @@ from transformers.trainer_utils import (
     PREFIX_CHECKPOINT_DIR,
     EvalLoopOutput,
 )
-from transformers.utils import is_sagemaker_mp_enabled, WEIGHTS_NAME
+from transformers.utils import WEIGHTS_NAME, is_sagemaker_mp_enabled
 
 from ..utils import check_if_transformers_greater, logging
 from .accelerate import NeuronAccelerator, NeuronDistributedType
@@ -417,7 +417,6 @@ class AugmentTrainerForNeuronMixin:
         if self.args.push_to_hub and not _internal_call:
             self.push_to_hub(commit_message="Model save")
 
-
     def _save_checkpoint(self, model, trial, metrics=None):
         # In all cases, including ddp/dp/deepspeed, self.model is always a reference to the model we
         # want to save except FullyShardedDDP.
@@ -438,7 +437,7 @@ class AugmentTrainerForNeuronMixin:
         self.save_model(output_dir, _internal_call=True)
 
         # The optimizer state is saved in the shard alongside with the model parameters when doing TP.
-        if not self.accelerator.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
+        if self.accelerator.distributed_type is not NeuronDistributedType.TENSOR_PARALLELISM:
             xm.rendezvous("saving_optimizer_states")
             xm.save(self.optimizer.state_dict(), os.path.join(output_dir, OPTIMIZER_NAME))
 
@@ -491,7 +490,6 @@ class AugmentTrainerForNeuronMixin:
         if self.args.should_save:
             self._rotate_checkpoints(use_mtime=True, output_dir=run_dir)
 
-
     def _load_from_checkpoint(self, resume_from_checkpoint, model=None):
         # It has been handled during model parallelization.
         if self.accelerator.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
@@ -521,15 +519,14 @@ class AugmentTrainerForNeuronMixin:
         if self.accelerator.distributed_type is NeuronDistributedType.XLA_FSDP:
             return self._load_optimizer_and_scheduler_for_xla_fsdp(checkpoint)
         elif self.accelerator.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
-                lr_scheduler_state = torch.load(os.path.join(checkpoint, SCHEDULER_NAME), map_location="cpu")
-                xm.send_cpu_data_to_device(lr_scheduler_state, self.args.device)
-                self.lr_scheduler.load_state_dict(lr_scheduler_state)
+            lr_scheduler_state = torch.load(os.path.join(checkpoint, SCHEDULER_NAME), map_location="cpu")
+            xm.send_cpu_data_to_device(lr_scheduler_state, self.args.device)
+            self.lr_scheduler.load_state_dict(lr_scheduler_state)
 
-                parallelizer = ParallelizersManager.parallelizer_for_model(self.model)
-                parallelizer.load_optimizer_sharded_checkpoint(self.optimizer, checkpoint)
+            parallelizer = ParallelizersManager.parallelizer_for_model(self.model)
+            parallelizer.load_optimizer_sharded_checkpoint(self.optimizer, checkpoint)
         else:
             return super()._load_optimizer_and_scheduler(checkpoint)
-
 
     @patch_within_function(("transformers.trainer.skip_first_batches", skip_first_batches))
     def _inner_training_loop(

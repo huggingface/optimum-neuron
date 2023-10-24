@@ -15,8 +15,8 @@
 """Base class related to `neuronx_distributed` to perform parallelism."""
 
 import contextlib
-import shutil
 import gc
+import shutil
 from abc import ABC, abstractclassmethod
 from dataclasses import asdict
 from pathlib import Path
@@ -495,7 +495,6 @@ class Parallelizer(ABC):
                 shutil.rmtree(output_path, ignore_errors=True)
             output_path.mkdir()
         xm.rendezvous("waiting before saving")
-        print(model)
         parallel_layers.save(state_dict, output_path.as_posix())
 
     @classmethod
@@ -531,13 +530,16 @@ class Parallelizer(ABC):
         else:
             raise FileNotFoundError(f"Could not find a sharded checkpoint directory under {load_dir.as_posix()}.")
 
-
     @classmethod
     def load_optimizer_sharded_checkpoint(cls, optimizer: "torch.optim.Optimizer", load_dir: Union[str, Path]):
         if not isinstance(load_dir, Path):
             load_dir = Path(load_dir)
 
-        from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size, get_tensor_model_parallel_rank, get_pipeline_model_parallel_rank
+        from neuronx_distributed.parallel_layers.parallel_state import (
+            get_pipeline_model_parallel_rank,
+            get_tensor_model_parallel_rank,
+            get_tensor_model_parallel_size,
+        )
 
         world_size = get_tensor_model_parallel_size()
         tp_rank = get_tensor_model_parallel_rank()
@@ -548,10 +550,18 @@ class Parallelizer(ABC):
 
         checkpoint_name = load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME / f"tp_rank_{tp_rank:02d}_pp_rank{pp_rank:02d}.pt"
 
+        device = "xla"
+        for group in optimizer.param_groups:
+            for p in group["params"]:
+                device = p.device
+                break
+
         for worker_start in range(0, world_size):
             if tp_rank == worker_start:
                 checkpoint = torch.load(checkpoint_name, map_location="cpu")
                 optimizer_state_dict = checkpoint["optimizer_state_dict"]
+                xm.send_cpu_data_to_device(optimizer_state_dict, device)
                 optimizer.load_state_dict(optimizer_state_dict)
+                del checkpoint
                 gc.collect()
             xm.rendezvous("neuron.load_checkpoint" + str(worker_start))
