@@ -91,7 +91,7 @@ class TextSeq2SeqNeuronConfig(NeuronConfig):
                 "decoder_input_ids",
                 "decoder_attention_mask",
                 "encoder_hidden_states",
-                "encoder_attention_mask",
+                "attention_mask",  # TODO: replace with `encoder_attention_mask` after optimum 1.14 release
             ]
 
         return common_inputs

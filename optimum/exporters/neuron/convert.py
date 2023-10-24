@@ -424,7 +424,13 @@ def export_neuronx(
     dummy_inputs = config.generate_dummy_inputs(**input_shapes)
     dummy_inputs = config.flatten_inputs(dummy_inputs)
     dummy_inputs_tuple = tuple(dummy_inputs.values())
-    checked_model = config.patch_model_for_export(model, dummy_inputs)
+
+    aliases = {}
+    if model.config.is_encoder_decoder:
+        checked_model = config.patch_model_for_export(model, **input_shapes)
+        aliases = config.generate_io_aliases(checked_model)
+    else:
+        checked_model = config.patch_model_for_export(model, dummy_inputs)
 
     if auto_cast is not None:
         logger.info(f"Using Neuron: --auto-cast {auto_cast}")
@@ -440,7 +446,12 @@ def export_neuronx(
     # diffusers specific
     compiler_args = add_stable_diffusion_compiler_args(config, compiler_args)
 
-    neuron_model = neuronx.trace(checked_model, dummy_inputs_tuple, compiler_args=compiler_args)
+    neuron_model = neuronx.trace(
+        checked_model,
+        dummy_inputs_tuple,
+        compiler_args=compiler_args,
+        input_output_aliases=aliases,
+    )
 
     if config.dynamic_batch_size is True:
         neuron_model = neuronx.dynamic_batch(neuron_model)

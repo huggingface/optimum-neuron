@@ -19,7 +19,9 @@ from typing import TYPE_CHECKING, Dict, List
 
 import torch
 
+from ...neuron.utils import DummyBeamValuesGenerator
 from ...utils import (
+    DummyInputGenerator,
     DummySeq2SeqDecoderTextInputGenerator,
     DummyTimestepInputGenerator,
     DummyVisionInputGenerator,
@@ -368,7 +370,7 @@ class LLamaNeuronConfig(TextNeuronDecoderConfig):
 @register_in_tasks_manager("t5-encoder", "text2text-generation")
 class T5EncoderNeuronConfig(TextSeq2SeqNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
-    MANDATORY_AXES = ("batch_size", "sequence_length")
+    MANDATORY_AXES = ("batch_size", "sequence_length", "num_beams")
     MODEL_TYPE = "t5-encoder"
     NORMALIZED_CONFIG_CLASS = NormalizedSeq2SeqConfig.with_args(
         hidden_size="d_model",
@@ -379,22 +381,20 @@ class T5EncoderNeuronConfig(TextSeq2SeqNeuronConfig):
         allow_new=True,
     )
 
-    def generate_dummy_inputs(self, **kwargs):
-        dummy_inputs = super().generate_dummy_inputs(**kwargs)
-
-        return dummy_inputs
-
-    def patch_model_for_export(self, model, num_beams=1):
+    def patch_model_for_export(self, model, **kwargs):
+        num_beams = kwargs.pop("num_beams", 1)
         return super().patch_model_for_export(
             model=model,
             custom_model_wrapper=T5EncoderWrapper,
+            custom_wrapper_kwargs={"num_beams": num_beams},
         )
 
 
 @register_in_tasks_manager("t5-decoder", "text2text-generation")
 class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
-    MANDATORY_AXES = ("batch_size", "sequence_length")
+    DUMMY_INPUT_GENERATOR_CLASSES = TextSeq2SeqNeuronConfig.DUMMY_INPUT_GENERATOR_CLASSES + (DummyBeamValuesGenerator,)
+    MANDATORY_AXES = ("batch_size", "sequence_length", "num_beams")
     MODEL_TYPE = "t5-decoder"
     NORMALIZED_CONFIG_CLASS = NormalizedSeq2SeqConfig.with_args(
         hidden_size="d_model",
@@ -407,18 +407,46 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
 
     @property
     def inputs(self) -> List[str]:
-        common_inputs = super().inputs() + ["beam_idx", "beam_scores"]
+        common_inputs = super().inputs + ["beam_idx", "beam_scores"]
 
         return common_inputs
 
-    def patch_model_for_export(self, model, dummy_inputs):
-        return super().patch_model(
+    def generate_dummy_inputs(self, **kwargs):
+        batch_size = kwargs.pop("batch_size") * kwargs.get("num_beams")
+        dummy_inputs = super().generate_dummy_inputs(batch_size=batch_size, **kwargs)
+        dummy_inputs["decoder_input_ids"] = dummy_inputs["decoder_input_ids"][:, :1]  # sequence_length = 1
+        dummy_inputs["encoder_hidden_states"] = dummy_inputs["encoder_hidden_states"][0]
+
+        return dummy_inputs
+
+    def _create_dummy_input_generator_classes(self, **kwargs) -> List["DummyInputGenerator"]:
+        dummy_inputs_generators = super()._create_dummy_input_generator_classes(**kwargs)
+        dummy_beam_values_generator = self.DUMMY_INPUT_GENERATOR_CLASSES[-1](
+            self.task,
+            self._normalized_config,
+            num_beams=kwargs.pop("num_beams", 1),
+            **kwargs,
+        )
+        dummy_inputs_generators.append(dummy_beam_values_generator)
+        return dummy_inputs_generators
+
+    def patch_model_for_export(self, model, **kwargs):
+        return super().patch_model_for_export(
             model=model,
             custom_model_wrapper=T5DecoderWrapper,
+            custom_wrapper_kwargs={
+                "batch_size": kwargs.pop("batch_size", 1),
+                "sequence_length": kwargs.pop("sequence_length", 1),
+                "num_beams": kwargs.pop("num_beams", 1),
+            },
         )
 
-    def generate_io_aliases(self, model, dummy_inputs):
-        return super().patch_model(
-            model=model,
-            custom_model_wrapper=T5DecoderWrapper,
-        )
+    def generate_io_aliases(self, model):
+        num_outputs_from_trace = 3 if model.num_beams > 1 else 1
+        aliases = {}
+        for i in range(len(model.past_key_values_sa)):
+            aliases[model.past_key_values_sa[i]] = i + num_outputs_from_trace
+        for i in range(len(model.past_key_values_ca)):
+            aliases[model.past_key_values_ca[i]] = len(model.past_key_values_sa) + i + num_outputs_from_trace
+
+        return aliases

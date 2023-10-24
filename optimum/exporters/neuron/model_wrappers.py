@@ -47,11 +47,13 @@ class T5EncoderWrapper(torch.nn.Module):
     def __init__(
         self,
         model: "PreTrainedModel",
+        num_beams: int = 1,
         tp_degree=None,
     ):
         super().__init__()
         self.model = model
         self.config = model.config
+        self.num_beams = num_beams
         self.device = "xla"
         self.tp_degree = tp_degree
 
@@ -65,6 +67,9 @@ class T5EncoderWrapper(torch.nn.Module):
         )
 
         last_hidden_state = encoder_output["last_hidden_state"]
+        encoder_hidden_states = torch.concat(
+            [tensor.unsqueeze(0).repeat(self.num_beams, 1, 1) for tensor in last_hidden_state]
+        )
 
         decoder_blocks = self.model.decoder.block
         present_key_value_states_sa = []
@@ -77,10 +82,12 @@ class T5EncoderWrapper(torch.nn.Module):
 
             def shape(states):
                 """projection"""
-                return states.view(batch_size, -1, self.config.num_heads, attention.key_value_proj_dim).transpose(1, 2)
+                return states.view(
+                    self.num_beams * batch_size, -1, self.config.num_heads, attention.key_value_proj_dim
+                ).transpose(1, 2)
 
-            key_states = shape(attention.k(last_hidden_state))
-            value_states = shape(attention.v(last_hidden_state))
+            key_states = shape(attention.k(encoder_hidden_states))
+            value_states = shape(attention.v(encoder_hidden_states))
 
             # cross_attn_kv_state
             present_key_value_states_ca.append(key_states)
@@ -91,7 +98,7 @@ class T5EncoderWrapper(torch.nn.Module):
             # [key states]
             present_key_value_states_sa.append(
                 torch.zeros(
-                    (batch_size, self.config.num_heads, sequence_length - 1, self.config.d_kv),
+                    (self.num_beams * batch_size, self.config.num_heads, sequence_length - 1, self.config.d_kv),
                     dtype=torch.float32,
                     device=self.device,
                 )
@@ -99,7 +106,7 @@ class T5EncoderWrapper(torch.nn.Module):
             # [value states]
             present_key_value_states_sa.append(
                 torch.zeros(
-                    (batch_size, self.config.num_heads, sequence_length - 1, self.config.d_kv),
+                    (self.num_beams * batch_size, self.config.num_heads, sequence_length - 1, self.config.d_kv),
                     dtype=torch.float32,
                     device=self.device,
                 )
@@ -110,12 +117,15 @@ class T5EncoderWrapper(torch.nn.Module):
 
 # Adapted from https://awsdocs-neuron.readthedocs-hosted.com/en/latest/src/examples/pytorch/torch-neuronx/t5-inference-tutorial.html
 class T5DecoderWrapper(torch.nn.Module):
-    """Wrapper to trace the decoder with past with a language head."""
+    """Wrapper to trace the decoder with past keys values with a language head."""
 
-    def __init__(self, model: "PreTrainedModel", num_beams: int, sequence_length: int, tp_degree=None):
+    def __init__(
+        self, model: "PreTrainedModel", batch_size: int, sequence_length: int, num_beams: int = 1, tp_degree=None
+    ):
         super().__init__()
         self.model = model
         self.config = model.config
+        self.batch_size = batch_size
         self.num_beams = num_beams
         self.device = "xla"
         self.tp_degree = tp_degree
@@ -125,7 +135,13 @@ class T5DecoderWrapper(torch.nn.Module):
             [
                 torch.nn.Parameter(
                     torch.ones(
-                        (num_beams, self.config.num_heads, sequence_length - 1, self.config.d_kv), dtype=torch.float32
+                        (
+                            self.batch_size * self.num_beams,
+                            self.config.num_heads,
+                            sequence_length - 1,
+                            self.config.d_kv,
+                        ),
+                        dtype=torch.float32,
                     ),
                     requires_grad=False,
                 )
@@ -136,7 +152,8 @@ class T5DecoderWrapper(torch.nn.Module):
             [
                 torch.nn.Parameter(
                     torch.ones(
-                        (num_beams, self.config.num_heads, sequence_length, self.config.d_kv), dtype=torch.float32
+                        (self.batch_size * self.num_beams, self.config.num_heads, sequence_length, self.config.d_kv),
+                        dtype=torch.float32,
                     ),
                     requires_grad=False,
                 )
@@ -175,9 +192,6 @@ class T5DecoderWrapper(torch.nn.Module):
         beam_scores,
         **kwargs,
     ):
-        # Infer shapes
-        batch_size = input_ids.shape[0] or 1
-
         if self.num_beams > 1:
             # We reorder the cache based on the beams selected in each iteration. Required step for beam search.
             past_key_values_sa = self.reorder_cache(self.past_key_values_sa, beam_idx)
@@ -234,7 +248,7 @@ class T5DecoderWrapper(torch.nn.Module):
 
             # reshape for beam search
             vocab_size = next_token_scores.shape[-1]
-            next_token_scores = next_token_scores.view(batch_size, self.num_beams * vocab_size)
+            next_token_scores = next_token_scores.view(self.batch_size, self.num_beams * vocab_size)
             next_token_scores = next_token_scores * 1
 
             # Sample 2 next tokens for each beam (so we have some spare tokens and match output of beam search)
