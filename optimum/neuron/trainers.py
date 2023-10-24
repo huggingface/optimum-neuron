@@ -386,7 +386,12 @@ class AugmentTrainerForNeuronMixin:
         xm.rendezvous("saving_checkpoint")
         if self.accelerator.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
             logger.info("Model parallelism is enabled, only saving the model sharded state dict.")
+            if isinstance(self.model, PreTrainedModel):
+                self.model.config.save_pretrained(output_dir)
+
             parallelizer = ParallelizersManager.parallelizer_for_model(self.model)
+            # This mark_step is needed to avoid hang issues.
+            xm.mark_step()
             parallelizer.save_model_checkpoint(self.model, output_dir, as_sharded=True, optimizer=self.optimizer)
         else:
             if not isinstance(self.model, PreTrainedModel):
