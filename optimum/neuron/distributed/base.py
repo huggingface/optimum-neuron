@@ -190,7 +190,9 @@ class Parallelizer(ABC):
                 This can be disabled in the case when the TP size does not divide the vocabulary size.
             sequence_parallel_enabled (`bool`, defaults to `False`):
                 Whether or not sequence parallelism is enabled.
-            checkpoint_dir: TODO
+            checkpoint_dir (`Optional[Union[str, Path]]`):
+                Path to a sharded checkpoint. If specified, the checkpoint weights will be loaded to the parallelized
+                model.
 
         Returns:
             `PreTrainedModel`: The parallelized model.
@@ -534,7 +536,9 @@ class Parallelizer(ABC):
     def load_optimizer_sharded_checkpoint(cls, optimizer: "torch.optim.Optimizer", load_dir: Union[str, Path]):
         from neuronx_distributed.optimizer import NeuronZero1Optimizer
 
-        if isinstance(optimizer, NeuronZero1Optimizer):
+        is_zero_1_optimizer = optimizer.__class__.__name__ == "NeuronAcceleratedOptimizer" and isinstance(optimizer.optimizer, NeuronZero1Optimizer)
+        is_zero_1_optimizer = is_zero_1_optimizer or isinstance(optimizer, NeuronZero1Optimizer)
+        if is_zero_1_optimizer:
             raise NotImplementedError("It is not to load a sharded optimizer checkpoint when using ZeRO-1 yet.")
 
         if not isinstance(load_dir, Path):
