@@ -56,8 +56,8 @@ class TestExampleRunner(TestCase):
         cls._cache_repo_name = load_custom_cache_repo_name_from_hf_home()
         if os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI", None) is not None:
             token = os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI")
-            set_custom_cache_repo_name_in_hf_home(cls.CACHE_REPO_NAME)
             HfFolder.save_token(token)
+            set_custom_cache_repo_name_in_hf_home(cls.CACHE_REPO_NAME)
         else:
             raise RuntimeError("Please specify the token via the HF_TOKEN_OPTIMUM_NEURON_CI environment variable.")
 
