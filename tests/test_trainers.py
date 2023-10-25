@@ -24,6 +24,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
 
+import pytest
 from huggingface_hub import HfApi, delete_repo
 from huggingface_hub.utils import RepositoryNotFoundError
 from transformers import BertConfig, BertModel, BertTokenizer, TrainingArguments
@@ -409,17 +410,22 @@ class NeuronTrainerTestCase(TestCase):
             # self.assertEqual(training_fsdp_metrics["eval_loss"], regular_training_metrics["eval_loss"])
             # self.assertEqual(training_fsdp_metrics["eval_accuracy"], regular_training_metrics["eval_accuracy"])
 
+    @pytest.mark.skip("FSDP not supported yet")
     def test_training_with_fsdp_full_shard(self):
         return self._test_training_with_fsdp_mode("full_shard")
 
-    # def test_training_with_fsdp_shard_grad_op(self):
-    #     return self._test_training_with_fsdp_mode("shard_grad_op")
+    @pytest.mark.skip("FSDP not supported yet")
+    def test_training_with_fsdp_shard_grad_op(self):
+        return self._test_training_with_fsdp_mode("shard_grad_op")
 
+    @pytest.mark.skip("FSDP not supported yet")
     def test_training_with_fsdp_no_shard(self):
         return self._test_training_with_fsdp_mode("no_shard")
 
-    # def test_training_with_fsdp_offload(self):
-    #     return self._test_training_with_fsdp_mode("offload")
+    @pytest.mark.skip("FSDP not supported yet")
+    def test_training_with_fsdp_offload(self):
+        return self._test_training_with_fsdp_mode("offload")
 
-    # def test_training_with_fsdp_auto_wrap(self):
-    #     return self._test_training_with_fsdp_mode("auto_wrap")
+    @pytest.mark.skip("FSDP not supported yet")
+    def test_training_with_fsdp_auto_wrap(self):
+        return self._test_training_with_fsdp_mode("auto_wrap")

@@ -224,8 +224,8 @@ def download_checkpoints_in_cache(
     # index of the files.
     is_sharded = False
     sharded_metadata = None
-    # Load model
 
+    # Load model
     user_agent = {"file_type": "model", "framework": "pytorch", "from_auto_class": from_auto_class}
     if from_pipeline is not None:
         user_agent["using_pipeline"] = from_pipeline

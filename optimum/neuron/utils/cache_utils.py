@@ -185,22 +185,22 @@ def has_write_access_to_repo(repo_id: str) -> bool:
 
 def get_hf_hub_cache_repos():
     hf_hub_repos = HF_HUB_CACHE_REPOS
-
     saved_custom_cache_repo = load_custom_cache_repo_name_from_hf_home()
-    if saved_custom_cache_repo is None:
-        warn_once(
-            logger,
-            "No Neuron cache name is saved locally. This means that only the official Neuron cache, and "
-            "potentially a cache defined in $CUSTOM_CACHE_REPO will be used. You can create a Neuron cache repo by "
-            "running the following command: `optimum-cli neuron cache create`. If the Neuron cache already exists "
-            "you can set it by running the following command: `optimum-cli neuron cache set -n [name]`.",
-        )
-    else:
+    if saved_custom_cache_repo is not None:
         hf_hub_repos = [saved_custom_cache_repo] + hf_hub_repos
 
     custom_cache_repo = os.environ.get("CUSTOM_CACHE_REPO", None)
     if custom_cache_repo is not None:
         hf_hub_repos = [custom_cache_repo] + hf_hub_repos
+
+    if saved_custom_cache_repo is None and custom_cache_repo is None:
+        warn_once(
+            logger,
+            "No Neuron cache name is saved locally. This means that only the official Neuron cache will be used. You "
+            "can create a Neuron cache repo by running the following command: `optimum-cli neuron cache create`. If "
+            "the Neuron cache already exists you can set it by running the following command: `optimum-cli neuron cache "
+            "set -n [name]`.",
+        )
 
     # TODO: this is a quick fix.
     # Cache utils should not be aware of the multiprocessing side of things.
