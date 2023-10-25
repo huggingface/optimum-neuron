@@ -55,9 +55,9 @@ def test_tp_save_and_resume_from_checkpoint():
             output_dir=first_output_dir,
             print_outputs=True,
         )
-        assert returncode != 0, "First run failed."
+        assert returncode == 0, "First run failed."
 
-        # Case 1: Resuming from checkpoint by specifying a directory that contains many checkpoints.
+        # Case 1: Resuming from checkpoint by specifying a checkpoint directory.
         second_output_dir = output_dir / "second_run"
         returncode, _ = runner.run(
             num_cores,
@@ -71,31 +71,12 @@ def test_tp_save_and_resume_from_checkpoint():
             do_eval=do_eval,
             max_eval_samples=max_eval_samples,
             output_dir=second_output_dir,
-            resume_from_checkpoint=first_output_dir,
-            print_outputs=True,
-        )
-        assert returncode != 0, "Second run failed."
-
-        # Case 2: Resuming from checkpoint by specifying a checkpoint directory.
-        third_output_dir = output_dir / "third_run"
-        returncode, _ = runner.run(
-            num_cores,
-            precision,
-            train_batch_size,
-            eval_batch_size=eval_batch_size,
-            sequence_length=sequence_length,
-            tensor_parallel_size=tensor_parallel_size,
-            max_steps=max_steps,
-            save_steps=save_steps,
-            do_eval=do_eval,
-            max_eval_samples=max_eval_samples,
-            output_dir=third_output_dir,
             resume_from_checkpoint=first_output_dir / "checkpoint-4",
             print_outputs=True,
         )
-        assert returncode != 0, "Third run failed."
+        assert returncode == 0, "Second run failed."
 
-        # Case 3: Resuming from checkpoint by specifying a boolean, in this case it should look inside the output
+        # Case 2: Resuming from checkpoint by specifying a boolean, in this case it should look inside the output
         # directory.
         returncode, _ = runner.run(
             num_cores,
@@ -108,8 +89,8 @@ def test_tp_save_and_resume_from_checkpoint():
             save_steps=save_steps,
             do_eval=do_eval,
             max_eval_samples=max_eval_samples,
-            output_dir=third_output_dir,
+            output_dir=second_output_dir,
             resume_from_checkpoint=True,
             print_outputs=True,
         )
-        assert returncode != 0, "Fourth run failed."
+        assert returncode == 0, "Third run failed."

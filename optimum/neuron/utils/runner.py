@@ -383,6 +383,7 @@ class ExampleRunner:
         max_eval_samples: Optional[int] = None,
         logging_steps: int = 1,
         save_steps: int = -1,
+        save_total_limit: int = -1,
         learning_rate: float = 1e-4,
         tensor_parallel_size: int = 1,
         disable_embedding_parallelization: bool = False,
@@ -469,7 +470,7 @@ class ExampleRunner:
         cmd.append(f"--logging_steps {logging_steps}")
         cmd.append("--save_strategy steps")
         cmd.append(f"--save_steps {save_steps}")
-        cmd.append("--save_total_limit 1")
+        cmd.append(f"--save_total_limit {save_total_limit}")
 
         # Parallelism
         if tensor_parallel_size > 1:
@@ -520,7 +521,10 @@ class ExampleRunner:
                 cmd.append(f"--output_dir {output_dir}")
 
             if resume_from_checkpoint is not None:
-                cmd.append(f"--resume_from_checkpoint {resume_from_checkpoint}")
+                if isinstance(resume_from_checkpoint, bool) and resume_from_checkpoint:
+                    cmd.append("--resume_from_checkpoint")
+                elif isinstance(resume_from_checkpoint, str):
+                    cmd.append(f"--resume_from_checkpoint {resume_from_checkpoint}")
 
             env = dict(os.environ)
             if _disable_is_private_model_repo_check:
