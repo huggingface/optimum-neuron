@@ -48,13 +48,14 @@ class T5EncoderWrapper(torch.nn.Module):
         self,
         model: "PreTrainedModel",
         num_beams: int = 1,
+        device: str = "xla",
         tp_degree=None,
     ):
         super().__init__()
         self.model = model
         self.config = model.config
         self.num_beams = num_beams
-        self.device = "xla"
+        self.device = device
         self.tp_degree = tp_degree
 
     def forward(self, input_ids, attention_mask):
@@ -120,46 +121,72 @@ class T5DecoderWrapper(torch.nn.Module):
     """Wrapper to trace the decoder with past keys values with a language head."""
 
     def __init__(
-        self, model: "PreTrainedModel", batch_size: int, sequence_length: int, num_beams: int = 1, tp_degree=None
+        self,
+        model: "PreTrainedModel",
+        batch_size: int,
+        sequence_length: int,
+        num_beams: int = 1,
+        device: str = "xla",
+        tp_degree=None,
     ):
         super().__init__()
         self.model = model
         self.config = model.config
         self.batch_size = batch_size
+        self.sequence_length = sequence_length
         self.num_beams = num_beams
-        self.device = "xla"
+        self.device = device
         self.tp_degree = tp_degree
 
         # Initialize KV cache (num_beams, n_heads, seq_length, dim_per_head)
-        self.past_key_values_sa = torch.nn.ParameterList(
-            [
-                torch.nn.Parameter(
-                    torch.ones(
-                        (
-                            self.batch_size * self.num_beams,
-                            self.config.num_heads,
-                            sequence_length - 1,
-                            self.config.d_kv,
+        if device == "cpu":
+            self.past_key_values_sa = [
+                torch.ones(
+                    (num_beams, self.config.num_heads, self.sequence_length - 1, self.config.d_kv), dtype=torch.float32
+                )
+                for _ in range(self.config.num_decoder_layers * 2)
+            ]
+            self.past_key_values_ca = [
+                torch.ones(
+                    (num_beams, self.config.num_heads, self.sequence_length, self.config.d_kv), dtype=torch.float32
+                )
+                for _ in range(self.config.num_decoder_layers * 2)
+            ]
+        elif device == "xla":
+            self.past_key_values_sa = torch.nn.ParameterList(
+                [
+                    torch.nn.Parameter(
+                        torch.ones(
+                            (
+                                self.batch_size * self.num_beams,
+                                self.config.num_heads,
+                                sequence_length - 1,
+                                self.config.d_kv,
+                            ),
+                            dtype=torch.float32,
                         ),
-                        dtype=torch.float32,
-                    ),
-                    requires_grad=False,
-                )
-                for _ in range(self.config.num_decoder_layers * 2)
-            ]
-        )
-        self.past_key_values_ca = torch.nn.ParameterList(
-            [
-                torch.nn.Parameter(
-                    torch.ones(
-                        (self.batch_size * self.num_beams, self.config.num_heads, sequence_length, self.config.d_kv),
-                        dtype=torch.float32,
-                    ),
-                    requires_grad=False,
-                )
-                for _ in range(self.config.num_decoder_layers * 2)
-            ]
-        )
+                        requires_grad=False,
+                    )
+                    for _ in range(self.config.num_decoder_layers * 2)
+                ]
+            )
+            self.past_key_values_ca = torch.nn.ParameterList(
+                [
+                    torch.nn.Parameter(
+                        torch.ones(
+                            (
+                                self.batch_size * self.num_beams,
+                                self.config.num_heads,
+                                sequence_length,
+                                self.config.d_kv,
+                            ),
+                            dtype=torch.float32,
+                        ),
+                        requires_grad=False,
+                    )
+                    for _ in range(self.config.num_decoder_layers * 2)
+                ]
+            )
 
     def update_past(self, past_key_values):
         new_past_sa = []
@@ -234,6 +261,10 @@ class T5DecoderWrapper(torch.nn.Module):
         # We flatten the cache to a single array. This is required for the input output aliasing to work
         past_key_values_sa = [vec for kv_per_layer in past_key_values_sa for vec in kv_per_layer]
         past_key_values_ca = [vec for kv_per_layer in past_key_values_ca for vec in kv_per_layer]
+
+        if self.device == "cpu":
+            self.past_key_values_sa = past_key_values_sa
+            self.past_key_values_ca = past_key_values_ca
 
         # We calculate topk inside the wrapper
         next_token_logits = lm_logits[:, -1, :]

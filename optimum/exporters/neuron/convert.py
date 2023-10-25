@@ -169,8 +169,12 @@ def validate_model_outputs(
     with torch.no_grad():
         reference_model.eval()
         ref_inputs = config.generate_dummy_inputs(return_tuple=False, **input_shapes)
-        if hasattr(config._config, "_class_name") and "AutoencoderKL" in config._config._class_name:
-            # VAE components for stable diffusion
+        if reference_model.config.is_encoder_decoder:
+            reference_model = config.patch_model_for_export(reference_model, device="cpu", **input_shapes)
+        if (
+            hasattr(config._config, "_class_name") and "AutoencoderKL" in config._config._class_name
+        ) or reference_model.config.is_encoder_decoder:
+            # VAE components for stable diffusion or Encoder-Decoder models
             ref_inputs = tuple(ref_inputs.values())
             ref_outputs = reference_model(*ref_inputs)
             neuron_inputs = ref_inputs
@@ -217,9 +221,9 @@ def validate_model_outputs(
     # Check the shape and values match
     shape_failures = []
     value_failures = []
-    for name, output in zip(neuron_output_names_list, neuron_outputs):
+    for i, (name, output) in enumerate(zip(neuron_output_names_list, neuron_outputs)):
         if isinstance(output, torch.Tensor):
-            ref_output = ref_outputs[name].numpy()
+            ref_output = ref_outputs[name].numpy() if isinstance(ref_outputs, Dict) else ref_outputs[i].numpy()
             output = output.numpy()
         elif isinstance(output, tuple):  # eg. `hidden_states` of `AutoencoderKL` is a tuple of tensors.
             ref_output = torch.stack(ref_outputs[name]).numpy()

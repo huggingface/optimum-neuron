@@ -372,6 +372,7 @@ class T5EncoderNeuronConfig(TextSeq2SeqNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
     MANDATORY_AXES = ("batch_size", "sequence_length", "num_beams")
     MODEL_TYPE = "t5-encoder"
+    CUSTOM_MODEL_WRAPPER = T5EncoderWrapper
     NORMALIZED_CONFIG_CLASS = NormalizedSeq2SeqConfig.with_args(
         hidden_size="d_model",
         num_attention_heads="num_heads",
@@ -385,12 +386,12 @@ class T5EncoderNeuronConfig(TextSeq2SeqNeuronConfig):
     def is_decoder(self) -> bool:
         return False
 
-    def patch_model_for_export(self, model, **kwargs):
+    def patch_model_for_export(self, model, device="xla", **kwargs):
         num_beams = kwargs.pop("num_beams", 1)
         return super().patch_model_for_export(
             model=model,
-            custom_model_wrapper=T5EncoderWrapper,
-            custom_wrapper_kwargs={"num_beams": num_beams},
+            custom_model_wrapper=self.CUSTOM_MODEL_WRAPPER,
+            custom_wrapper_kwargs={"num_beams": num_beams, "device": device},
         )
 
 
@@ -400,6 +401,7 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
     DUMMY_INPUT_GENERATOR_CLASSES = TextSeq2SeqNeuronConfig.DUMMY_INPUT_GENERATOR_CLASSES + (DummyBeamValuesGenerator,)
     MANDATORY_AXES = ("batch_size", "sequence_length", "num_beams")
     MODEL_TYPE = "t5-decoder"
+    CUSTOM_MODEL_WRAPPER = T5DecoderWrapper
     NORMALIZED_CONFIG_CLASS = NormalizedSeq2SeqConfig.with_args(
         hidden_size="d_model",
         num_attention_heads="num_heads",
@@ -438,11 +440,12 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
         dummy_inputs_generators.append(dummy_beam_values_generator)
         return dummy_inputs_generators
 
-    def patch_model_for_export(self, model, **kwargs):
+    def patch_model_for_export(self, model, device="xla", **kwargs):
         return super().patch_model_for_export(
             model=model,
-            custom_model_wrapper=T5DecoderWrapper,
+            custom_model_wrapper=self.CUSTOM_MODEL_WRAPPER,
             custom_wrapper_kwargs={
+                "device": device,
                 "batch_size": kwargs.pop("batch_size", 1),
                 "sequence_length": kwargs.pop("sequence_length", 1),
                 "num_beams": kwargs.pop("num_beams", 1),

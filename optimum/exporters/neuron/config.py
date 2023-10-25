@@ -88,7 +88,6 @@ class TextSeq2SeqNeuronConfig(NeuronConfig):
         # encoder + decoder without past
         if "encoder" in self.MODEL_TYPE:
             common_inputs = ["input_ids", "attention_mask"]
-
         # decoder with past
         if "decoder" in self.MODEL_TYPE:
             common_inputs = [
@@ -102,12 +101,28 @@ class TextSeq2SeqNeuronConfig(NeuronConfig):
 
     @property
     def outputs(self) -> Dict[str, Dict[int, str]]:
+        common_outputs = []
         # encoder + decoder without past
         if "encoder" in self.MODEL_TYPE:
-            common_outputs = ["present_key_values_self_attn", "past_key_values_cross_attn"]
+            common_outputs = (
+                [f"present.{idx}.self.key" for idx in range(self._config.num_decoder_layers)]
+                + [f"present.{idx}.self.value" for idx in range(self._config.num_decoder_layers)]
+                + [f"present.{idx}.cross.key" for idx in range(self._config.num_decoder_layers)]
+                + [f"present.{idx}.cross.value" for idx in range(self._config.num_decoder_layers)]
+            )
         # decoder with past
         if "decoder" in self.MODEL_TYPE:
-            common_outputs = ["next_tokens", "past_key_values_self_attn", "past_key_values_cross_attn"]
+            beam_outputs = (
+                ["next_token_scores", "next_tokens", "next_indices"] if self.num_beams > 1 else ["next_tokens"]
+            )
+            # for i in range(self._config.num_decoder_layers):
+            common_outputs = (
+                beam_outputs
+                + [f"past.{idx}.self.key" for idx in range(self._config.num_decoder_layers)]
+                + [f"past.{idx}.self.value" for idx in range(self._config.num_decoder_layers)]
+                + [f"past.{idx}.cross.key" for idx in range(self._config.num_decoder_layers)]
+                + [f"past.{idx}.cross.value" for idx in range(self._config.num_decoder_layers)]
+            )
         return common_outputs
 
     def _create_dummy_input_generator_classes(self, **kwargs) -> List["DummyInputGenerator"]:
