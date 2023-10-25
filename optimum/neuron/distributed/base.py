@@ -532,6 +532,11 @@ class Parallelizer(ABC):
 
     @classmethod
     def load_optimizer_sharded_checkpoint(cls, optimizer: "torch.optim.Optimizer", load_dir: Union[str, Path]):
+        from neuronx_distributed.optimizer import NeuronZero1Optimizer
+
+        if isinstance(optimizer, NeuronZero1Optimizer):
+            raise NotImplementedError("It is not to load a sharded optimizer checkpoint when using ZeRO-1 yet.")
+
         if not isinstance(load_dir, Path):
             load_dir = Path(load_dir)
 
