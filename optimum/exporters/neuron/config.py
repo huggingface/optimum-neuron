@@ -79,6 +79,10 @@ class TextSeq2SeqNeuronConfig(NeuronConfig):
     )
 
     @property
+    def is_decoder(self) -> bool:
+        raise NotImplementedError()
+
+    @property
     def inputs(self) -> Dict[str, Dict[int, str]]:
         common_inputs = []
         # encoder + decoder without past

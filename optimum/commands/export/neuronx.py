@@ -103,6 +103,11 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         help=f"Sequence length {doc_input}",
     )
     input_group.add_argument(
+        "--num_beams",
+        type=int,
+        help=f"Number of beams for beam search {doc_input}",
+    )
+    input_group.add_argument(
         "--num_choices",
         type=int,
         help=f"Only for the multiple-choice task. Num choices {doc_input}",

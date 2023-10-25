@@ -428,7 +428,8 @@ def export_neuronx(
     aliases = {}
     if model.config.is_encoder_decoder:
         checked_model = config.patch_model_for_export(model, **input_shapes)
-        aliases = config.generate_io_aliases(checked_model)
+        if getattr(config, "is_decoder", False):
+            aliases = config.generate_io_aliases(checked_model)
     else:
         checked_model = config.patch_model_for_export(model, dummy_inputs)
 

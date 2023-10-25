@@ -381,6 +381,10 @@ class T5EncoderNeuronConfig(TextSeq2SeqNeuronConfig):
         allow_new=True,
     )
 
+    @property
+    def is_decoder(self) -> bool:
+        return False
+
     def patch_model_for_export(self, model, **kwargs):
         num_beams = kwargs.pop("num_beams", 1)
         return super().patch_model_for_export(
@@ -404,6 +408,10 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
         key_value_dim="d_kv",
         allow_new=True,
     )
+
+    @property
+    def is_decoder(self) -> bool:
+        return True
 
     @property
     def inputs(self) -> List[str]:

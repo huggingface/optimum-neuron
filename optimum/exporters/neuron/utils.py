@@ -326,8 +326,8 @@ def override_diffusers_2_0_attn_processors(model):
 
 def get_encoder_decoder_models_for_export(
     model: "PreTrainedModel",
-    encoder_input_shapes: Dict[str, int],
-    decoder_input_shapes: Dict[str, int],
+    task: str,
+    input_shapes: Dict[str, int],
     dynamic_batch_size: Optional[bool] = False,
 ) -> Dict[str, Tuple["PreTrainedModel", "NeuronConfig"]]:
     """
@@ -339,10 +339,8 @@ def get_encoder_decoder_models_for_export(
     Args:
         model ("PreTrainedModel"):
             The model to export.
-        encoder_input_shapes (`Dict[str, int]`):
-            Static shapes used for compiling the encoder.
-        decoder_input_shapes (`Dict[str, int]`):
-            Static shapes used for compiling the decoder.
+        input_shapes (`Dict[str, int]`):
+            Static shapes used for compiling the encoder and the decoder.
         dynamic_batch_size (`bool`, defaults to `False`):
             Whether the Neuron compiled model supports dynamic batch size.
 
@@ -350,31 +348,31 @@ def get_encoder_decoder_models_for_export(
         `Dict[str, Tuple["PreTrainedModel", "NeuronConfig"]]`: A Dict containing the model and
         Neuron configs for the different components of the model.
     """
-    models_for_export = []
+    models_for_export = {}
 
     # Encoder
     model_type = getattr(model.config, "model_type") + "-encoder"
     encoder_config_constructor = TasksManager.get_exporter_config_constructor(
-        exporter="neuron", model_type=model_type, task="text2text-generation"
+        exporter="neuron", model_type=model_type, task=task
     )
     encoder_neuron_config = encoder_config_constructor(
         config=model.config,
-        task="text2text-generation",
+        task=task,
         dynamic_batch_size=dynamic_batch_size,
-        **encoder_input_shapes,
+        **input_shapes,
     )
     models_for_export[ENCODER_NAME] = (model, encoder_neuron_config)
 
     # Decoder
     model_type = getattr(model.config, "model_type") + "-decoder"
     decoder_config_constructor = TasksManager.get_exporter_config_constructor(
-        exporter="neuron", model_type=model_type, task="text2text-generation"
+        exporter="neuron", model_type=model_type, task=task
     )
     decoder_neuron_config = decoder_config_constructor(
         config=model.config,
-        task="text2text-generation",
+        task=task,
         dynamic_batch_size=dynamic_batch_size,
-        **decoder_input_shapes,
+        **input_shapes,
     )
     models_for_export[DECODER_NAME] = (model, decoder_neuron_config)
 
