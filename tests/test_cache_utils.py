@@ -65,6 +65,10 @@ DUMMY_COMPILER_VERSION = "1.2.3"
 
 @is_trainium_test
 class NeuronUtilsTestCase(TestCase):
+    def tearDown(self):
+        # Cleaning the Neuron compiler flags to avoid breaking other tests.
+        os.environ["NEURON_CC_FLAGS"] = ""
+
     def test_load_custom_cache_repo_name_from_hf_home(self):
         with TemporaryDirectory() as tmpdirname:
             hf_home_cache_repo_file = f"{tmpdirname}/{CACHE_REPO_FILENAME}"
