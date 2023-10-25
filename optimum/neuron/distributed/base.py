@@ -28,8 +28,8 @@ from transformers.utils import WEIGHTS_NAME
 
 from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
-from ..utils.require_utils import requires_neuronx_distributed, requires_torch_xla
 from ..utils.deprecate_utils import deprecate
+from ..utils.require_utils import requires_neuronx_distributed
 from .parallel_layers import (
     IOSequenceParallelizer,
     LayerNormSequenceParallelizer,
@@ -312,6 +312,7 @@ class Parallelizer(ABC):
     @requires_neuronx_distributed
     def was_parallelized(cls, model: "PreTrainedModel") -> bool:
         from neuronx_distributed import parallel_layers
+
         parallel_layer_classes = (
             parallel_layers.ParallelEmbedding,
             parallel_layers.ColumnParallelLinear,
@@ -425,9 +426,12 @@ class Parallelizer(ABC):
     ):
         cls._check_model_was_parallelized(model)
 
-        import torch_xla.core.xla_model as xm
         import neuronx_distributed
-        from neuronx_distributed.parallel_layers.parallel_state import  get_data_parallel_rank, get_tensor_model_parallel_rank
+        import torch_xla.core.xla_model as xm
+        from neuronx_distributed.parallel_layers.parallel_state import (
+            get_data_parallel_rank,
+            get_tensor_model_parallel_rank,
+        )
 
         data_parallel_rank = get_data_parallel_rank()
         tensor_parallel_rank = get_tensor_model_parallel_rank()
@@ -527,6 +531,7 @@ class Parallelizer(ABC):
     def load_model_sharded_checkpoint(cls, model: "PreTrainedModel", load_dir: Union[str, Path]):
         cls._check_model_was_parallelized(model)
         from neuronx_distributed import parallel_layers
+
         if not isinstance(load_dir, Path):
             load_dir = Path(load_dir)
         parallel_layers.load(load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME, model=model, sharded=True)
@@ -546,10 +551,14 @@ class Parallelizer(ABC):
     def load_optimizer_sharded_checkpoint(cls, optimizer: "torch.optim.Optimizer", load_dir: Union[str, Path]):
         from neuronx_distributed.optimizer import NeuronZero1Optimizer
 
-        is_zero_1_optimizer = optimizer.__class__.__name__ == "NeuronAcceleratedOptimizer" and isinstance(optimizer.optimizer, NeuronZero1Optimizer)
+        is_zero_1_optimizer = optimizer.__class__.__name__ == "NeuronAcceleratedOptimizer" and isinstance(
+            optimizer.optimizer, NeuronZero1Optimizer
+        )
         is_zero_1_optimizer = is_zero_1_optimizer or isinstance(optimizer, NeuronZero1Optimizer)
         if is_zero_1_optimizer:
-            raise NotImplementedError("It is not possible to load a sharded optimizer checkpoint when using ZeRO-1 yet.")
+            raise NotImplementedError(
+                "It is not possible to load a sharded optimizer checkpoint when using ZeRO-1 yet."
+            )
 
         if not isinstance(load_dir, Path):
             load_dir = Path(load_dir)
