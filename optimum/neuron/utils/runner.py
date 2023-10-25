@@ -185,7 +185,7 @@ class ExampleRunner:
         task: str,
         example_dir: Optional[Union[str, Path]] = None,
         config_overrides: Optional[Dict[str, Any]] = None,
-        use_venv: bool = True,
+        use_venv: bool = False,
         install_requirements: bool = True,
     ):
         self.model_name_or_path = model_name_or_path
@@ -390,6 +390,7 @@ class ExampleRunner:
         output_dir: Optional[Union[Path, str]] = None,
         do_precompilation: bool = False,
         print_outputs: bool = False,
+        resume_from_checkpoint: Optional[Union[bool, str, Path]] = None,
         _disable_is_private_model_repo_check: bool = False,
     ) -> Tuple[int, str]:
         if num_cores <= 0 or num_cores > 32:
@@ -453,7 +454,7 @@ class ExampleRunner:
         if do_eval:
             cmd.append("--do_eval")
             if max_eval_samples is not None:
-                cmd.append("--max_eval_samples {max_eval_samples}")
+                cmd.append(f"--max_eval_samples {max_eval_samples}")
         cmd.append(f"--learning_rate {learning_rate}")
         cmd.append(f"--per_device_train_batch_size {train_batch_size}")
         if do_eval:
@@ -517,6 +518,9 @@ class ExampleRunner:
                 cmd.append(f"--output_dir {tmpdirname}")
             else:
                 cmd.append(f"--output_dir {output_dir}")
+
+            if resume_from_checkpoint is not None:
+                cmd.append(f"--resume_from_checkpoint {resume_from_checkpoint}")
 
             env = dict(os.environ)
             if _disable_is_private_model_repo_check:
