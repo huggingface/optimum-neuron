@@ -360,6 +360,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         config: Dict[str, Any],
         use_auth_token: Optional[Union[bool, str]] = None,
         revision: Optional[str] = None,
+        force_download: bool = False,
         cache_dir: Optional[str] = None,
         text_encoder_file_name: Optional[str] = NEURON_FILE_NAME,
         text_encoder_2_file_name: Optional[str] = NEURON_FILE_NAME,
@@ -400,6 +401,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 local_files_only=local_files_only,
                 use_auth_token=use_auth_token,
                 revision=revision,
+                force_download=force_download,
                 allow_patterns=allow_patterns,
                 ignore_patterns=["*.msgpack", "*.safetensors", "*.bin"],
             )

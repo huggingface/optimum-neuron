@@ -324,6 +324,15 @@ def override_diffusers_2_0_attn_processors(model):
     return model
 
 
+def check_mandatory_input_shapes(neuron_config_constructor, task, input_shapes):
+    mandatory_shapes = neuron_config_constructor.func.get_mandatory_axes_for_task(task)
+    for name in mandatory_shapes:
+        if input_shapes.get(name, None) is None:
+            raise AttributeError(
+                f"Cannot find the value of `{name}` which is mandatory for exporting the model to the neuron format, please set the value explicitly."
+            )
+
+
 def get_encoder_decoder_models_for_export(
     model: "PreTrainedModel",
     task: str,
@@ -355,6 +364,7 @@ def get_encoder_decoder_models_for_export(
     encoder_config_constructor = TasksManager.get_exporter_config_constructor(
         exporter="neuron", model_type=model_type, task=task
     )
+    check_mandatory_input_shapes(encoder_config_constructor, task, input_shapes)
     encoder_neuron_config = encoder_config_constructor(
         config=model.config,
         task=task,
@@ -368,6 +378,7 @@ def get_encoder_decoder_models_for_export(
     decoder_config_constructor = TasksManager.get_exporter_config_constructor(
         exporter="neuron", model_type=model_type, task=task
     )
+    check_mandatory_input_shapes(encoder_config_constructor, task, input_shapes)
     decoder_neuron_config = decoder_config_constructor(
         config=model.config,
         task=task,

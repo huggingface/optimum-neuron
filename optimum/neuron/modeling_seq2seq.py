@@ -13,17 +13,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """NeuroModelForXXX classes for seq2seq models' inference on neuron devices."""
+import os
 from abc import abstractmethod
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 import torch
-from transformers import AutoModelForSeq2SeqLM
+from huggingface_hub import snapshot_download
+from transformers import AutoConfig, AutoModelForSeq2SeqLM
 
+from ..exporters.neuron import (
+    NeuronConfig,
+    main_export,
+)
+from ..exporters.neuron.model_configs import *  # noqa: F403
+from ..exporters.tasks import TasksManager
+from ..utils.save_utils import maybe_load_preprocessors
 from .generation import NeuronGenerationMixin
-from .modeling_base import NeuronBaseModel, NeuronConfig
+from .modeling_base import NeuronBaseModel
 from .utils import (
+    DECODER_NAME,
+    ENCODER_NAME,
     NEURON_FILE_NAME,
     is_neuronx_available,
 )
@@ -43,23 +54,34 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
         self,
         encoder: torch.jit._script.ScriptModule,
         decoder: torch.jit._script.ScriptModule,
-        config: "PretrainedConfig",
+        configs: Optional[Dict[str, "PretrainedConfig"]] = None,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
-        model_file_name: Optional[str] = None,
+        encoder_file_name: Optional[str] = NEURON_FILE_NAME,
+        decoder_file_name: Optional[str] = NEURON_FILE_NAME,
         preprocessors: Optional[List] = None,
-        neuron_config: Optional["NeuronConfig"] = None,
+        neuron_configs: Optional[Dict[str, "NeuronConfig"]] = None,
         **kwargs,
     ):
-        pass
-
-    @staticmethod
-    def load_model(
-        encoder_path: Union[str, Path],
-        decoder_path: Optional[Union[str, Path]] = None,
-        device_ids: Optional[List[int]] = None,
-        dynamic_batch_size: bool = False,
-    ):
-        pass
+        self.encoder = NeuronEncoder(
+            encoder,
+            self,
+            self.configs[ENCODER_NAME],
+            self.neuron_configs[ENCODER_NAME],
+        )
+        self.decoder = NeuronEncoder(
+            decoder,
+            self,
+            self.configs[DECODER_NAME],
+            self.neuron_configs[DECODER_NAME],
+        )
+        self.configs = configs
+        self.neuron_configs = neuron_configs
+        self.dynamic_batch_size = all(
+            neuron_config._config.neuron["dynamic_batch_size"] for neuron_config in self.neuron_configs.values()
+        )
+        self._attributes_init(model_save_dir, preprocessors, **kwargs)
+        self.encoder_file_name = encoder_file_name
+        self.decoder_file_name = decoder_file_name
 
     def _save_pretrained(
         self,
@@ -76,13 +98,14 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
             save_directory (`Union[str, Path`]):
                 The directory where to save the model files.
         """
-        pass
+        save_directory = Path(save_directory)
+        # TODO
 
     @classmethod
     def _from_pretrained(
         cls,
         model_id: Union[str, Path],
-        config: Dict[str, Any],
+        config: "PretrainedConfig",
         use_auth_token: Optional[Union[bool, str]] = None,
         revision: Optional[str] = None,
         force_download: bool = False,
@@ -92,10 +115,63 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
         subfolder: str = "",
         local_files_only: bool = False,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
-        device_ids: Optional[List[int]] = None,
         **kwargs,
     ):
-        pass
+        import pdb
+
+        pdb.set_trace()
+        patterns = {ENCODER_NAME, DECODER_NAME}
+
+        if not os.path.isdir(model_id):
+            allow_patterns = {os.path.join(k, "*") for k in patterns if not k.startswith("_")}
+            # Downloads all repo's files matching the allowed patterns
+            model_id = snapshot_download(
+                model_id,
+                cache_dir=cache_dir,
+                local_files_only=local_files_only,
+                use_auth_token=use_auth_token,
+                revision=revision,
+                force_download=force_download,
+                allow_patterns=allow_patterns,
+                ignore_patterns=["*.msgpack", "*.safetensors", "*.bin"],  # only download *.neuron artifacts
+            )
+
+        preprocessors = maybe_load_preprocessors(model_id, subfolder=subfolder)
+
+        new_model_save_dir = Path(model_id)
+
+        model_and_config_save_paths = {
+            "encoder": (
+                new_model_save_dir / ENCODER_NAME / encoder_file_name,
+                new_model_save_dir / ENCODER_NAME / cls.config_name,
+            ),
+            "decoder": (
+                new_model_save_dir / DECODER_NAME / decoder_file_name,
+                new_model_save_dir / DECODER_NAME / cls.config_name,
+            ),
+        }
+
+        # Re-build pretrained configs and neuron configs
+        configs, neuron_configs = {}, {}
+        for name, file_paths in model_and_config_save_paths.items():
+            if file_paths[1].is_file():
+                model_config = AutoConfig.from_json_file(file_paths[1])
+                configs[name] = model_config
+                neuron_configs[name] = cls._neuron_config_init(model_config)
+
+        encoder = cls.load_model(model_and_config_save_paths["encoder"][0])
+        decoder = cls.load_model(model_and_config_save_paths["decoder"][0])
+
+        return cls(
+            encoder=encoder,
+            decoder=decoder,
+            configs=configs,
+            model_save_dir=model_save_dir,
+            encoder_file_name=encoder_file_name,
+            decoder_file_name=decoder_file_name,
+            preprocessors=preprocessors,
+            neuron_configs=neuron_configs,
+        )
 
     @classmethod
     def _from_transformers(
@@ -115,9 +191,45 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
         disable_fast_relayout: Optional[bool] = False,
         disable_fallback: bool = False,
         dynamic_batch_size: bool = False,
-        device_ids: Optional[List[int]] = None,
+        **kwargs_shapes,
     ) -> "NeuronModelForConditionalGeneration":
-        pass
+        if task is None:
+            task = TasksManager.infer_task_from_model(cls.auto_model_class)
+
+        # Get compilation arguments
+        auto_cast_type = None if auto_cast is None else auto_cast_type
+        compiler_kwargs = {
+            "auto_cast": auto_cast,
+            "auto_cast_type": auto_cast_type,
+            "disable_fast_relayout": disable_fast_relayout,
+            "disable_fallback": disable_fallback,
+        }
+
+        save_dir = TemporaryDirectory()
+        save_dir_path = Path(save_dir.name)
+
+        main_export(
+            model_name_or_path=model_id,
+            output=save_dir_path,
+            compiler_kwargs=compiler_kwargs,
+            task=task,
+            dynamic_batch_size=dynamic_batch_size,
+            cache_dir=cache_dir,
+            trust_remote_code=trust_remote_code,
+            subfolder=subfolder,
+            revision=revision,
+            force_download=force_download,
+            local_files_only=local_files_only,
+            use_auth_token=use_auth_token,
+            do_validation=False,
+            **kwargs_shapes,
+        )
+
+        return cls._from_pretrained(
+            model_id=save_dir_path,
+            config=config,
+            model_save_dir=save_dir,
+        )
 
 
 class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerationMixin):
