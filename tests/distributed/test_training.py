@@ -18,11 +18,13 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from optimum.neuron.utils.runner import ExampleRunner
+from optimum.neuron.utils.testing_utils import is_trainium_test
 
 
 _TINY_BERT_MODEL_NAME = "hf-internal-testing/tiny-random-bert"
 
 
+@is_trainium_test
 def test_tp_save_and_resume_from_checkpoint():
     num_cores = 8
     precision = "bf16"
@@ -90,7 +92,6 @@ def test_tp_save_and_resume_from_checkpoint():
             do_eval=do_eval,
             max_eval_samples=max_eval_samples,
             output_dir=second_output_dir,
-            resume_from_checkpoint=True,
             print_outputs=True,
         )
         assert returncode == 0, "Third run failed."

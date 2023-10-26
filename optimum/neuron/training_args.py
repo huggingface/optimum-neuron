@@ -100,11 +100,11 @@ class NeuronTrainingArgumentsMixin:
                 )
 
         resume_from_checkpoint = self.resume_from_checkpoint
-        if isinstance(resume_from_checkpoint, bool):
-            if resume_from_checkpoint:
-                resume_from_checkpoint = get_last_checkpoint(self.output_dir)
-            else:
-                resume_from_checkpoint = None
+        if resume_from_checkpoint is None and os.path.isdir(self.output_dir):
+            # If checkpoint is None, then there was no checkpoint in output dir, otherwise we use it.
+            checkpoint = get_last_checkpoint(self.output_dir)
+            resume_from_checkpoint = checkpoint
+
         self.tp_plugin = TensorParallelismPlugin(
             self.tensor_parallel_size,
             not self.disable_embedding_parallelization,
