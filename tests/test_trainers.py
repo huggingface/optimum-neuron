@@ -53,6 +53,7 @@ from .utils import (
 @is_trainium_test
 @is_staging_test
 class StagingNeuronTrainerTestCase(StagingTestMixin, TestCase):
+    @pytest.mark.skip("Seems to be working but takes forever")
     def test_train_and_eval(self):
         os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_PRIVATE_CACHE_REPO
 

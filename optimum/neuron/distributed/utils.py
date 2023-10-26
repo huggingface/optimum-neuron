@@ -27,7 +27,6 @@ import torch
 from transformers import PretrainedConfig
 from transformers.utils import is_peft_available
 
-from ...utils.logging import warn_once
 from ..utils import DynamicPatch, Patcher
 from ..utils.import_utils import is_neuronx_distributed_available
 from ..utils.misc import download_checkpoints_in_cache
@@ -481,7 +480,7 @@ def from_pretrained_for_tp(
     local_files_only: bool = False,
     token: Optional[Union[str, bool]] = None,
     revision: str = "main",
-    use_safetensors: bool = True,
+    use_safetensors: bool = False,
     **kwargs,
 ):
     """
@@ -521,12 +520,6 @@ def from_pretrained_for_tp(
     if token is not None and adapter_kwargs is not None and "token" not in adapter_kwargs:
         adapter_kwargs["token"] = token
 
-    if not use_safetensors:
-        warn_once(
-            "Using safetensors is mandatory when performing tensor parallelism, setting it use_safetensors=True."
-        )
-        use_safetensors = True
-
     filenames, sharded_metadata = download_checkpoints_in_cache(
         pretrained_model_name_or_path,
         cache_dir=cache_dir,
@@ -535,6 +528,7 @@ def from_pretrained_for_tp(
         token=token,
         revision=revision,
         use_safetensors=use_safetensors,
+        use_safetensors_in_priority=True,
         convert_to_safetensors=True,
         **kwargs,
     )
