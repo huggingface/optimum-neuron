@@ -165,13 +165,11 @@ class NeuronUtilsTestCase(TestCase):
     def test_list_files_in_neuron_cache(self):
         with TemporaryDirectory() as tmpdirname:
             filenames = self._create_random_neuron_cache(Path(tmpdirname), return_only_relevant_files=False)
-            self.assertSetEqual(set(filenames), set(list_files_in_neuron_cache(Path(tmpdirname))))
+            self.assertSetEqual(set(filenames), set(list_files_in_neuron_cache(tmpdirname)))
 
         with TemporaryDirectory() as tmpdirname:
             filenames = self._create_random_neuron_cache(Path(tmpdirname), return_only_relevant_files=True)
-            self.assertSetEqual(
-                set(filenames), set(list_files_in_neuron_cache(Path(tmpdirname), only_relevant_files=True))
-            )
+            self.assertSetEqual(set(filenames), set(list_files_in_neuron_cache(tmpdirname, only_relevant_files=True)))
 
     def test_list_in_registry_dict(self):
         registry = {
@@ -505,7 +503,7 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
             tiny_model = self.create_and_run_tiny_pretrained_model(random_num_linears=True)
             neuron_hash = NeuronHash(tiny_model, input_shapes, data_type)
 
-            cached_files = list_files_in_neuron_cache(Path(tmpdirname) / NEURON_COMPILE_CACHE_NAME)
+            cached_files = list_files_in_neuron_cache(tmpdirname)
 
             # The model being loaded locally is assumed to be private, push to hub should prevent from pushing to a
             # public repo.
@@ -527,7 +525,7 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
             tiny_model = self.create_and_run_tiny_pretrained_model(random_num_linears=True)
             neuron_hash = NeuronHash(tiny_model, input_shapes, data_type)
 
-            cached_files = list_files_in_neuron_cache(Path(tmpdirname) / NEURON_COMPILE_CACHE_NAME)
+            cached_files = list_files_in_neuron_cache(tmpdirname)
 
             set_custom_cache_repo_name_in_hf_home(self.CUSTOM_PRIVATE_CACHE_REPO)
             push_to_cache_on_hub(neuron_hash, cached_files[0])
@@ -541,7 +539,7 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
             tiny_model = self.create_and_run_tiny_pretrained_model(random_num_linears=True)
             neuron_hash = NeuronHash(tiny_model, input_shapes, data_type)
 
-            cache_dir = Path(tmpdirname) / NEURON_COMPILE_CACHE_NAME
+            cache_dir = Path(tmpdirname)
             cached_files = list_files_in_neuron_cache(cache_dir)
 
             push_to_cache_on_hub(neuron_hash, cached_files[0], self.CUSTOM_PRIVATE_CACHE_REPO)
@@ -562,6 +560,7 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
             # With a directory
             with self.assertLogs("optimum", level="INFO") as cm:
                 push_to_cache_on_hub(neuron_hash, cache_dir, self.CUSTOM_PRIVATE_CACHE_REPO)
+                print(cm.output)
                 self.assertIn("Did not push the cached model located at", cm.output[0])
 
             with self.assertLogs("optimum", level="WARNING") as cm:
@@ -579,7 +578,7 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
             tiny_model = self.create_and_run_tiny_pretrained_model(random_num_linears=True)
             neuron_hash = NeuronHash(tiny_model, input_shapes, data_type)
 
-            cache_dir = Path(tmpdirname) / NEURON_COMPILE_CACHE_NAME
+            cache_dir = Path(tmpdirname)
             cached_files = list_files_in_neuron_cache(cache_dir)
 
             def local_path_to_path_in_repo(path):
@@ -673,7 +672,7 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
             files_in_repo = [filename for filename in files_in_repo if not filename.startswith(".")]
             self.assertListEqual(files_in_repo, [], "Repo should be empty")
 
-            cached_files = list_files_in_neuron_cache(Path(tmpdirname) / NEURON_COMPILE_CACHE_NAME)
+            cached_files = list_files_in_neuron_cache(tmpdirname)
             push_to_cache_on_hub(neuron_hash, cached_files[0])
             files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
 

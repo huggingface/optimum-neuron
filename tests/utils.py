@@ -223,12 +223,11 @@ class StagingTestMixin:
             tiny_model = self.create_and_run_tiny_pretrained_model(random_num_linears=True)
             neuron_hash = NeuronHash(tiny_model, input_shapes, data_type)
 
-            tmp_cache_dir = Path(tmpdirname) / NEURON_COMPILE_CACHE_NAME
+            tmp_cache_dir = Path(tmpdirname) / neuron_hash.neuron_compiler_version_dir_name
             push_to_cache_on_hub(
                 neuron_hash,
                 tmp_cache_dir,
             )
-
             if cache_dir is not None:
                 for file_or_dir in tmp_cache_dir.iterdir():
                     if file_or_dir.is_file():

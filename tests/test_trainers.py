@@ -27,10 +27,11 @@ from unittest import TestCase
 import pytest
 from huggingface_hub import HfApi, delete_repo
 from huggingface_hub.utils import RepositoryNotFoundError
-from transformers import BertConfig, BertModel, BertTokenizer, TrainingArguments
+from transformers import BertConfig, BertModel, BertTokenizer
 from transformers.testing_utils import is_staging_test
 
 from optimum.neuron.trainers import NeuronTrainer
+from optimum.neuron.training_args import NeuronTrainingArguments
 from optimum.neuron.utils.cache_utils import (
     get_neuron_cache_path,
     list_files_in_neuron_cache,
@@ -77,7 +78,7 @@ class StagingNeuronTrainerTestCase(StagingTestMixin, TestCase):
             self.assertListEqual(files_in_repo, [], "Repo should be empty.")
             self.assertListEqual(files_in_cache, [], "Cache should be empty.")
 
-            args = TrainingArguments(
+            args = NeuronTrainingArguments(
                 tmpdirname,
                 do_train=True,
                 do_eval=True,
@@ -113,7 +114,7 @@ class StagingNeuronTrainerTestCase(StagingTestMixin, TestCase):
             self.assertNotEqual(new_files_in_repo, [], "Repo should not be empty.")
             self.assertListEqual(new_files_in_cache, [], "Cache should be empty.")
 
-            args = TrainingArguments(
+            args = NeuronTrainingArguments(
                 tmpdirname,
                 do_train=True,
                 do_eval=True,
