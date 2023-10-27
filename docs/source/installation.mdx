@@ -13,7 +13,16 @@ specific language governing permissions and limitations under the License.
 # Installation
 
 Our recommendation is to use the [Hugging Face Neuron Deep Learning AMI](https://aws.amazon.com/marketplace/pp/prodview-gr3e6yiscria2) (DLAMI). The DLAMI comes with all required libraries pre-packaged for you, including the Optimum Neuron, Neuron Drivers, Transformers, Datasets, and Accelerate.
-But it can also be installed using `pip` as follows:
+
+But it can also be installed using `pip` as described below.
+
+Before installing `optimum-neuron` make sure that you have installed the Neuron driver and tools, check out [more detailed guide here](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/setup/torch-neuronx.html#setup-torch-neuronx).
+
+## Adding AWS neuron SDK pip packages repo URL
+
+```bash
+python -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
+```
 
 ## Installing `optimum-neuron` for AWS Trainium (`trn1`) or AWS inferentia2 (`inf2`)
 
@@ -26,5 +35,3 @@ python -m pip install optimum[neuronx]
 ```bash
 python -m pip install optimum[neuron]
 ```
-
-Before installing `optimum-neuron` make sure that you have installed the Neuron driver and tools, check out [more detailed guide here](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/setup/torch-neuronx.html#setup-torch-neuronx).
