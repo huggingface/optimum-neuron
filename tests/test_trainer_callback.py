@@ -60,6 +60,8 @@ class NeuronCacheCallbackTestCase(StagingTestMixin, TestCase):
         self.assertEqual(len(callback.neuron_hashes.keys()), 1, "There should be only one entry in neuron_hashes.")
 
     def test_try_to_fetch_cached_model(self):
+        import torch_xla.core.xla_model as xm
+
         os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_PRIVATE_CACHE_REPO
         model = self.create_tiny_pretrained_model(random_num_linears=True).to("xla")
 
@@ -67,7 +69,9 @@ class NeuronCacheCallbackTestCase(StagingTestMixin, TestCase):
             set_neuron_cache_path(tmpdirname)
             args = NeuronTrainingArguments(tmpdirname)
             inputs = {"x": torch.rand((8, 1)).to("xla")}
-            print(model(**inputs))
+            output = model(**inputs)
+            xm.mark_step()
+            print(output)
             neuron_hash = NeuronHash(model, (("x", (8, 1)),), torch.float32)
             push_to_cache_on_hub(neuron_hash, Path(tmpdirname) / neuron_hash.neuron_compiler_version_dir_name)
 
@@ -106,6 +110,8 @@ class NeuronCacheCallbackTestCase(StagingTestMixin, TestCase):
             self.assertEqual(len(files_diff), len(neuron_cache_files_diff))
 
     def test_synchronize_temporary_neuron_cache_state(self):
+        import torch_xla.core.xla_model as xm
+
         with TemporaryDirectory() as tmpdirname:
             set_neuron_cache_path(tmpdirname)
             callback = NeuronCacheCallback()
@@ -115,8 +121,9 @@ class NeuronCacheCallbackTestCase(StagingTestMixin, TestCase):
 
             model = self.create_tiny_pretrained_model(random_num_linears=True).to("xla")
             inputs = {"x": torch.rand((8, 1)).to("xla")}
-            # No compilation happens if not printing for some reason...
-            print(model(**inputs))
+            output = model(**inputs)
+            xm.mark_step()
+            print(output)
             diff = callback.synchronize_temporary_neuron_cache_state()
             self.assertNotEqual(diff, [], "The diff should not be empty.")
 
@@ -126,6 +133,8 @@ class NeuronCacheCallbackTestCase(StagingTestMixin, TestCase):
             )
 
     def test_synchronize_temporary_neuron_cache(self):
+        import torch_xla.core.xla_model as xm
+
         os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_PRIVATE_CACHE_REPO
         model = self.create_tiny_pretrained_model(random_num_linears=True).to("xla")
 
@@ -142,8 +151,13 @@ class NeuronCacheCallbackTestCase(StagingTestMixin, TestCase):
             self.assertListEqual(files_in_cache, [], "Cache should be empty.")
 
             # Running some compilation.
-            inputs = {"x": torch.rand((8, 1)).to("xla")}
-            print(model(**inputs))
+            for _ in range(3):
+                inputs = {"x": torch.rand((8, 1)).to("xla")}
+                output = model(**inputs)
+                xm.mark_step()
+
+            xm.mark_step()
+            print(output)
 
             neuron_hash = callback.neuron_hash_for_model(args, model, inputs)
             diff = callback.synchronize_temporary_neuron_cache_state()
@@ -159,7 +173,9 @@ class NeuronCacheCallbackTestCase(StagingTestMixin, TestCase):
 
             # Using the same inputs, nothing should be uploaded.
             inputs = {"x": torch.rand((8, 1)).to("xla")}
-            print(model(**inputs))
+            output = model(**inputs)
+            xm.mark_step()
+            print(output)
 
             neuron_hash = callback.neuron_hash_for_model(args, model, inputs)
             diff = callback.synchronize_temporary_neuron_cache_state()
@@ -175,7 +191,8 @@ class NeuronCacheCallbackTestCase(StagingTestMixin, TestCase):
 
             # New shahpe, should upload.
             inputs = {"x": torch.rand((24, 1)).to("xla")}
-            print(model(**inputs))
+            output = model(**inputs)
+            print(output)
 
             neuron_hash = callback.neuron_hash_for_model(args, model, inputs)
             diff = callback.synchronize_temporary_neuron_cache_state()
