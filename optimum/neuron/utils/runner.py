@@ -302,13 +302,6 @@ class ExampleRunner:
             assert returncode == 0
             self._installed_requirements = True
 
-        if self.use_venv or requirements_filename.exists():
-            # TODO: remove that as soon as possible.
-            cmd_line = f"{self.pip_name} install numpy==1.21.6".split()
-            p = subprocess.Popen(cmd_line)
-            returncode = p.wait()
-            assert returncode == 0
-
     def check_user_logged_in_and_cache_repo_is_set(self):
         token = HfFolder.get_token()
         if not token:

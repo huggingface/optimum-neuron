@@ -30,7 +30,6 @@ from transformers import TrainerCallback, TrainerState
 from ..utils import logging
 from .utils import is_torch_xla_available
 from .utils.cache_utils import (
-    NEURON_COMPILE_CACHE_NAME,
     NeuronHash,
     download_cached_model_from_hub,
     get_neuron_cache_path,
@@ -108,9 +107,6 @@ class NeuronCacheCallback(TrainerCallback):
         else:
             self.tmp_neuron_cache_path = tmp_neuron_cache
 
-        if self.tmp_neuron_cache_path.name != NEURON_COMPILE_CACHE_NAME:
-            self.tmp_neuron_cache_path = self.tmp_neuron_cache_path / NEURON_COMPILE_CACHE_NAME
-
         self.tmp_neuron_cache_state = list_files_in_neuron_cache(self.tmp_neuron_cache_path, only_relevant_files=True)
         self.fetch_files = set()
 
@@ -184,8 +180,6 @@ class NeuronCacheCallback(TrainerCallback):
             if cache_file.name == "cache_stats.json":
                 continue
             path_in_neuron_cache = path_after_folder(cache_file, neuron_cache_path.name)
-            if NEURON_COMPILE_CACHE_NAME in path_in_neuron_cache.parts:
-                path_in_neuron_cache = path_after_folder(path_in_neuron_cache, NEURON_COMPILE_CACHE_NAME)
             tmp_cache_file = tmp_neuron_cache_path / path_in_neuron_cache
             tmp_cache_file.parent.mkdir(parents=True, exist_ok=True)
             # TODO: investigate why it is needed. Minor issue.

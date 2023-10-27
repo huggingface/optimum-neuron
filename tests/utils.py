@@ -32,7 +32,6 @@ from transformers.testing_utils import ENDPOINT_STAGING
 from optimum.neuron.utils.cache_utils import (
     _ADDED_IN_REGISTRY,
     _REGISTRY_FILE_EXISTS,
-    NEURON_COMPILE_CACHE_NAME,
     NeuronHash,
     delete_custom_cache_repo_name_from_hf_home,
     load_custom_cache_repo_name_from_hf_home,
@@ -231,10 +230,14 @@ class StagingTestMixin:
             if cache_dir is not None:
                 for file_or_dir in tmp_cache_dir.iterdir():
                     if file_or_dir.is_file():
-                        shutil.copy(file_or_dir, cache_dir / path_after_folder(file_or_dir, NEURON_COMPILE_CACHE_NAME))
+                        shutil.copy(
+                            file_or_dir,
+                            cache_dir / path_after_folder(file_or_dir, neuron_hash.neuron_compiler_version_dir_name),
+                        )
                     else:
                         shutil.copytree(
-                            file_or_dir, cache_dir / path_after_folder(file_or_dir, NEURON_COMPILE_CACHE_NAME)
+                            file_or_dir,
+                            cache_dir / path_after_folder(file_or_dir, neuron_hash.neuron_compiler_version_dir_name),
                         )
         if orig_repo_id is not None:
             set_custom_cache_repo_name_in_hf_home(orig_repo_id)
