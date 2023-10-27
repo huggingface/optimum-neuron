@@ -286,7 +286,7 @@ def skip_first_batches(dataloader, num_batches=0):
     """
     import torch_xla.distributed.parallel_loader as pl
 
-    if isinstance(dataloader, (pl.ParallelLoader, pl.PerDeviceLoader)):
+    if isinstance(dataloader, (pl.ParallelLoader, pl.PerDeviceLoader, pl.MpDeviceLoader)):
         dataloader._loader = skip_first_batches(dataloader._loader, num_batches=num_batches)
     else:
         dataloader = accelerate_skip_first_batches(dataloader, num_batches=num_batches)

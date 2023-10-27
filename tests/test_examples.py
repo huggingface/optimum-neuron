@@ -378,6 +378,7 @@ class ExampleTestMeta(type):
                     max_steps=self.MAX_STEPS,
                     max_eval_samples=self.MAX_EVAL_SAMPLES,
                     save_steps=self.SAVE_STEPS,
+                    save_total_limit=1,
                     learning_rate=self.LEARNING_RATE,
                     tensor_parallel_size=tensor_parallel_size,
                     disable_embedding_parallelization=disable_embedding_parallelization,

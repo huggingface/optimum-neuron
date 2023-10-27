@@ -821,9 +821,7 @@ class NeuronGenerationMixin(GenerationMixin):
         model_kwargs["output_attentions"] = generation_config.output_attentions
         model_kwargs["output_hidden_states"] = generation_config.output_hidden_states
         if generation_config.use_cache:
-            warnings.warn(
-                "use_cache is not supported for generation on Neuron devices, switching to use_cache=False."
-            )
+            warnings.warn("use_cache is not supported for generation on Neuron devices, switching to use_cache=False.")
         model_kwargs["use_cache"] = False
 
         accepts_attention_mask = "attention_mask" in set(inspect.signature(self.forward).parameters.keys())

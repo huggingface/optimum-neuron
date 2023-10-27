@@ -15,6 +15,7 @@
 """Base class related to `neuronx_distributed` to perform parallelism."""
 
 import contextlib
+import gc
 import shutil
 from abc import ABC, abstractclassmethod
 from dataclasses import asdict
@@ -28,6 +29,7 @@ from transformers.utils import WEIGHTS_NAME
 from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
 from ..utils.deprecate_utils import deprecate
+from ..utils.require_utils import requires_neuronx_distributed
 from .parallel_layers import (
     IOSequenceParallelizer,
     LayerNormSequenceParallelizer,
@@ -35,14 +37,6 @@ from .parallel_layers import (
     SequenceCollectiveOpInfo,
 )
 from .utils import TENSOR_PARALLEL_SHARDS_DIR_NAME, ParameterMetadata, WeightInformation, load_tensor_for_weight
-
-
-if is_neuronx_distributed_available():
-    import neuronx_distributed
-    from neuronx_distributed import parallel_layers
-
-if is_torch_xla_available():
-    import torch_xla.core.xla_model as xm
 
 
 if TYPE_CHECKING:
@@ -164,12 +158,14 @@ class Parallelizer(ABC):
             )
 
     @classmethod
+    @requires_neuronx_distributed
     def parallelize(
         cls,
         model: "PreTrainedModel",
         device: Optional["torch.device"] = None,
         parallelize_embeddings: bool = True,
         sequence_parallel_enabled: bool = False,
+        checkpoint_dir: Optional[Union[str, Path]] = None,
     ) -> "PreTrainedModel":
         """
         Parallelizes the model by transforming regular layer into their parallel counterparts using
@@ -188,12 +184,17 @@ class Parallelizer(ABC):
                 This can be disabled in the case when the TP size does not divide the vocabulary size.
             sequence_parallel_enabled (`bool`, defaults to `False`):
                 Whether or not sequence parallelism is enabled.
+            checkpoint_dir (`Optional[Union[str, Path]]`):
+                Path to a sharded checkpoint. If specified, the checkpoint weights will be loaded to the parallelized
+                model.
 
         Returns:
             `PreTrainedModel`: The parallelized model.
         """
         if sequence_parallel_enabled and cls.SEQUENCE_PARALLEL_LAYERNORM_PATTERNS is None:
             raise NotImplementedError(f"Sequence parallelism is not supported for {model.__class__}.")
+
+        from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_rank
 
         # Preparing the model for sequence parallelism:
         # 1. Transforming the LayerNorms.
@@ -259,7 +260,7 @@ class Parallelizer(ABC):
                             # parallelization since those are the only classes that we initialize on the `meta` device.
                             num_dims = current_weight.dim()
                             partition_dim = getattr(current_weight, "partition_dim")
-                            tp_rank = parallel_layers.parallel_state.get_tensor_model_parallel_rank()
+                            tp_rank = get_tensor_model_parallel_rank()
                             size_per_rank = current_weight.size(partition_dim)
                             slices = [
                                 None
@@ -298,6 +299,9 @@ class Parallelizer(ABC):
                 # `reset_parameters()` method.
                 mod.reset_parameters()
 
+        if checkpoint_dir is not None:
+            cls.load_model_checkpoint(model, checkpoint_dir)
+
         return model
 
     @classmethod
@@ -305,7 +309,10 @@ class Parallelizer(ABC):
         raise NotImplementedError
 
     @classmethod
+    @requires_neuronx_distributed
     def was_parallelized(cls, model: "PreTrainedModel") -> bool:
+        from neuronx_distributed import parallel_layers
+
         parallel_layer_classes = (
             parallel_layers.ParallelEmbedding,
             parallel_layers.ColumnParallelLinear,
@@ -410,6 +417,7 @@ class Parallelizer(ABC):
         return tp_metadata
 
     @classmethod
+    @requires_neuronx_distributed
     def save_model_checkpoint_as_regular(
         cls,
         model: "PreTrainedModel",
@@ -417,8 +425,16 @@ class Parallelizer(ABC):
         optimizer: Optional["torch.optim.Optimizer"] = None,
     ):
         cls._check_model_was_parallelized(model)
-        data_parallel_rank = parallel_layers.parallel_state.get_data_parallel_rank()
-        tensor_parallel_rank = parallel_layers.parallel_state.get_tensor_model_parallel_rank()
+
+        import neuronx_distributed
+        import torch_xla.core.xla_model as xm
+        from neuronx_distributed.parallel_layers.parallel_state import (
+            get_data_parallel_rank,
+            get_tensor_model_parallel_rank,
+        )
+
+        data_parallel_rank = get_data_parallel_rank()
+        tensor_parallel_rank = get_tensor_model_parallel_rank()
 
         if data_parallel_rank != 0:
             return
@@ -454,6 +470,7 @@ class Parallelizer(ABC):
         xm.rendezvous("saving regular checkpoint")
 
     @classmethod
+    @requires_neuronx_distributed
     def save_model_checkpoint_as_sharded(
         cls,
         model: "PreTrainedModel",
@@ -462,6 +479,8 @@ class Parallelizer(ABC):
     ):
         cls._check_model_was_parallelized(model)
 
+        import torch_xla.core.xla_model as xm
+        from neuronx_distributed import parallel_layers
         from neuronx_distributed.parallel_layers.parallel_state import (
             get_data_parallel_rank,
             get_tensor_model_parallel_rank,
@@ -508,12 +527,11 @@ class Parallelizer(ABC):
             cls.save_model_checkpoint_as_sharded(model, output_dir, optimizer=optimizer)
 
     @classmethod
-    def load_model_regular_checkpoint(cls, model: "PreTrainedModel", load_dir: Union[str, Path]):
-        raise NotImplementedError("This requires being able to deparallelize the model.")
-
-    @classmethod
+    @requires_neuronx_distributed
     def load_model_sharded_checkpoint(cls, model: "PreTrainedModel", load_dir: Union[str, Path]):
         cls._check_model_was_parallelized(model)
+        from neuronx_distributed import parallel_layers
+
         if not isinstance(load_dir, Path):
             load_dir = Path(load_dir)
         parallel_layers.load(load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME, model=model, sharded=True)
@@ -525,7 +543,54 @@ class Parallelizer(ABC):
 
         if (load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME).is_dir():
             cls.load_model_sharded_checkpoint(model, load_dir)
-        elif (load_dir / WEIGHTS_NAME).is_file():
-            cls.load_model_regular_checkpoint(model, load_dir)
         else:
-            raise FileNotFoundError(f"Could not find a checkpoint file under {load_dir.as_posix()}.")
+            raise FileNotFoundError(f"Could not find a sharded checkpoint directory under {load_dir.as_posix()}.")
+
+    @classmethod
+    @requires_neuronx_distributed
+    def load_optimizer_sharded_checkpoint(cls, optimizer: "torch.optim.Optimizer", load_dir: Union[str, Path]):
+        from neuronx_distributed.optimizer import NeuronZero1Optimizer
+
+        is_zero_1_optimizer = optimizer.__class__.__name__ == "NeuronAcceleratedOptimizer" and isinstance(
+            optimizer.optimizer, NeuronZero1Optimizer
+        )
+        is_zero_1_optimizer = is_zero_1_optimizer or isinstance(optimizer, NeuronZero1Optimizer)
+        if is_zero_1_optimizer:
+            raise NotImplementedError(
+                "It is not possible to load a sharded optimizer checkpoint when using ZeRO-1 yet."
+            )
+
+        if not isinstance(load_dir, Path):
+            load_dir = Path(load_dir)
+
+        import torch_xla.core.xla_model as xm
+        from neuronx_distributed.parallel_layers.parallel_state import (
+            get_pipeline_model_parallel_rank,
+            get_tensor_model_parallel_rank,
+            get_tensor_model_parallel_size,
+        )
+
+        world_size = get_tensor_model_parallel_size()
+        tp_rank = get_tensor_model_parallel_rank()
+        pp_rank = get_pipeline_model_parallel_rank()
+
+        if not (load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME).is_dir():
+            raise FileNotFoundError(f"Could not find a sharded checkpoint directory under {load_dir.as_posix()}.")
+
+        checkpoint_name = load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME / f"tp_rank_{tp_rank:02d}_pp_rank{pp_rank:02d}.pt"
+
+        device = "xla"
+        for group in optimizer.param_groups:
+            for p in group["params"]:
+                device = p.device
+                break
+
+        for worker_start in range(0, world_size):
+            if tp_rank == worker_start:
+                checkpoint = torch.load(checkpoint_name, map_location="cpu")
+                optimizer_state_dict = checkpoint["optimizer_state_dict"]
+                xm.send_cpu_data_to_device(optimizer_state_dict, device)
+                optimizer.load_state_dict(optimizer_state_dict)
+                del checkpoint
+                gc.collect()
+            xm.rendezvous("neuron.load_checkpoint" + str(worker_start))
