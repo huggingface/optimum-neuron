@@ -33,7 +33,6 @@ from .utils.cache_utils import (
     NEURON_COMPILE_CACHE_NAME,
     NeuronHash,
     download_cached_model_from_hub,
-    follows_new_cache_naming_convention,
     get_neuron_cache_path,
     list_files_in_neuron_cache,
     path_after_folder,
@@ -172,14 +171,8 @@ class NeuronCacheCallback(TrainerCallback):
         else:
             neuron_cache_files = []
 
-        if follows_new_cache_naming_convention():
-            tmp_neuron_cache_path = tmp_neuron_cache_path / NEURON_COMPILE_CACHE_NAME
-            set_neuron_cache_path(tmp_neuron_cache_path)
-        else:
-            set_neuron_cache_path(tmp_neuron_cache_path)
-            tmp_neuron_cache_path = tmp_neuron_cache_path / NEURON_COMPILE_CACHE_NAME
-
-        tmp_neuron_cache_path.mkdir()
+        # Setting the Neuron compilation cache to be the temporary Neuron compilation cache.
+        set_neuron_cache_path(tmp_neuron_cache_path)
 
         cache_stats_exists = False
         if neuron_cache_path is not None:

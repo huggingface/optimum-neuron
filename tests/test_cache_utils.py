@@ -33,14 +33,12 @@ from transformers.testing_utils import is_staging_test
 
 from optimum.neuron.utils.cache_utils import (
     CACHE_REPO_FILENAME,
-    NEURON_COMPILE_CACHE_NAME,
     REGISTRY_FILENAME,
     NeuronHash,
     _list_in_registry_dict,
     add_in_registry,
     create_registry_file_if_does_not_exist,
     download_cached_model_from_hub,
-    follows_new_cache_naming_convention,
     get_cached_model_on_the_hub,
     get_neuron_cache_path,
     get_num_neuron_cores_used,
@@ -87,35 +85,24 @@ class NeuronUtilsTestCase(TestCase):
         os.environ[
             "NEURON_CC_FLAGS"
         ] = f"--some --parameters --here --cache_dir={custom_cache_dir_name} --other --paremeters --here"
-        if follows_new_cache_naming_convention():
-            self.assertEqual(get_neuron_cache_path(), custom_cache_dir_name)
-        else:
-            self.assertEqual(get_neuron_cache_path(), custom_cache_dir_name / NEURON_COMPILE_CACHE_NAME)
+
+        self.assertEqual(get_neuron_cache_path(), custom_cache_dir_name)
 
         os.environ["NEURON_CC_FLAGS"] = "--some --parameters --here --other --paremeters --here"
-        if follows_new_cache_naming_convention():
-            self.assertEqual(get_neuron_cache_path(), Path("/var/tmp"))
-        else:
-            self.assertEqual(get_neuron_cache_path(), Path("/var/tmp") / NEURON_COMPILE_CACHE_NAME)
+        self.assertEqual(get_neuron_cache_path(), Path("/var/tmp"))
 
     def _test_set_neuron_cache_path(self, new_cache_path):
         os.environ["NEURON_CC_FLAGS"] = "--some --parameters --here --no-cache --other --paremeters --here"
         with self.assertRaisesRegex(ValueError, expected_regex=r"Cannot set the neuron compile cache"):
             set_neuron_cache_path(new_cache_path)
         set_neuron_cache_path(new_cache_path, ignore_no_cache=True)
-        if follows_new_cache_naming_convention():
-            self.assertEqual(get_neuron_cache_path(), Path(new_cache_path))
-        else:
-            self.assertEqual(get_neuron_cache_path(), Path(new_cache_path) / NEURON_COMPILE_CACHE_NAME)
+        self.assertEqual(get_neuron_cache_path(), Path(new_cache_path))
 
         os.environ[
             "NEURON_CC_FLAGS"
         ] = "--some --parameters --here --cache_dir=original_cache_dir --other --paremeters"
         set_neuron_cache_path(new_cache_path)
-        if follows_new_cache_naming_convention():
-            self.assertEqual(get_neuron_cache_path(), Path(new_cache_path))
-        else:
-            self.assertEqual(get_neuron_cache_path(), Path(new_cache_path) / NEURON_COMPILE_CACHE_NAME)
+        self.assertEqual(get_neuron_cache_path(), Path(new_cache_path))
 
     def test_set_neuron_cache_path(self):
         new_cache_path_str = "path/to/my/custom/cache"

@@ -82,8 +82,6 @@ _WRITING_ACCESS_CACHE: Dict[Tuple[str, str], bool] = {}
 _REGISTRY_FILE_EXISTS: Dict[str, bool] = {}
 _ADDED_IN_REGISTRY: Dict[Tuple[str, "NeuronHash"], bool] = {}
 
-_NEW_CACHE_NAMING_CONVENTION_NEURONXCC_VERSION = "2.7.0.40+f7c6cf2a3"
-
 # For testing purposes.
 _DISABLE_IS_PRIVATE_REPO_CHECK: bool = string_to_bool(
     os.environ.get("OPTIMUM_NEURON_DISABLE_IS_PRIVATE_REPO_CHECK", "false")
@@ -93,18 +91,6 @@ if _DISABLE_IS_PRIVATE_REPO_CHECK:
         "The check that prevents you from pushing compiled files from private models is disabled. This is allowed only "
         "for testing purposes."
     )
-
-
-def follows_new_cache_naming_convention(neuronxcc_version: Optional[str] = None) -> bool:
-    """
-    The ways the cache is handled differs starting from `_NEW_CACHE_NAMING_CONVENTION_NEURONXCC_VERSION`.
-    This helper functions returns `True` if `neuronxcc_version` follows the new way the cache is handled and `False`
-    otherwise.
-    """
-    if neuronxcc_version is None:
-        neuronxcc_version = get_neuronxcc_version()
-    neuronxcc_version = version.parse(neuronxcc_version)
-    return neuronxcc_version >= version.parse(_NEW_CACHE_NAMING_CONVENTION_NEURONXCC_VERSION)
 
 
 def load_custom_cache_repo_name_from_hf_home(
@@ -238,10 +224,6 @@ def get_neuron_cache_path() -> Optional[Path]:
             path = Path(match_.group(1))
         else:
             path = Path("/var/tmp")
-
-        # TODO: is that correct?
-        if not follows_new_cache_naming_convention():
-            path = path / NEURON_COMPILE_CACHE_NAME
 
         return path
 
@@ -696,9 +678,7 @@ class NeuronHash:
 
     @property
     def neuron_compiler_version_dir_name(self):
-        if follows_new_cache_naming_convention():
-            return f"neuronxcc-{self.neuron_compiler_version}"
-        return f"USER_neuroncc-{self.neuron_compiler_version}"
+        return f"neuronxcc-{self.neuron_compiler_version}"
 
     @property
     def is_private(self):
@@ -730,7 +710,7 @@ def get_cached_model_on_the_hub(neuron_hash: NeuronHash) -> Optional[CachedModel
             revision = "main"
         try:
             repo_filenames = HfApi().list_repo_files(repo_id, revision=revision, token=HfFolder.get_token())
-        except:
+        except Exception:
             continue
         model_files_on_the_hub = []
         was_found_in_repo = False
@@ -761,10 +741,7 @@ def default_path_in_repo_to_path_in_target_directory(path: Path, neuron_hash: Ne
 
 
 def default_local_path_to_path_in_repo(path: Path, neuron_hash: NeuronHash):
-    if follows_new_cache_naming_convention():
-        return path_after_neuron_compiler_version_dir(path, neuron_hash.neuron_compiler_version)
-    else:
-        return path_after_folder(path, f"USER_neuroncc-{neuron_hash.neuron_compiler_version}")
+    return path_after_neuron_compiler_version_dir(path, neuron_hash.neuron_compiler_version)
 
 
 def download_cached_model_from_hub(
