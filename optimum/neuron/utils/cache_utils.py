@@ -187,11 +187,11 @@ def has_write_access_to_repo(repo_id: str) -> bool:
 def get_hf_hub_cache_repos():
     hf_hub_repos = HF_HUB_CACHE_REPOS
     saved_custom_cache_repo = load_custom_cache_repo_name_from_hf_home()
-    if saved_custom_cache_repo is not None:
+    if saved_custom_cache_repo is not None and saved_custom_cache_repo not in hf_hub_repos:
         hf_hub_repos = [saved_custom_cache_repo] + hf_hub_repos
 
     custom_cache_repo = os.environ.get("CUSTOM_CACHE_REPO", None)
-    if custom_cache_repo is not None:
+    if custom_cache_repo is not None and custom_cache_repo not in hf_hub_repos:
         hf_hub_repos = [custom_cache_repo] + hf_hub_repos
 
     if saved_custom_cache_repo is None and custom_cache_repo is None:
@@ -728,7 +728,10 @@ def get_cached_model_on_the_hub(neuron_hash: NeuronHash) -> Optional[CachedModel
             repo_id, revision = repo_id
         else:
             revision = "main"
-        repo_filenames = HfApi().list_repo_files(repo_id, revision=revision, token=HfFolder.get_token())
+        try:
+            repo_filenames = HfApi().list_repo_files(repo_id, revision=revision, token=HfFolder.get_token())
+        except:
+            continue
         model_files_on_the_hub = []
         was_found_in_repo = False
         for repo_filename in repo_filenames:
