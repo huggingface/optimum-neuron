@@ -22,10 +22,12 @@ from optimum.neuron.utils.testing_utils import requires_neuronx
 from optimum.utils.testing_utils import USER
 
 
-DECODER_MODEL_ARCHITECTURES = ["gpt2", "llama"]
+DECODER_MODEL_ARCHITECTURES = ["bloom", "gpt2", "llama", "opt"]
 DECODER_MODEL_NAMES = {
+    "bloom": "hf-internal-testing/tiny-random-BloomForCausalLM",
     "gpt2": "hf-internal-testing/tiny-random-gpt2",
     "llama": "dacorvo/tiny-random-llama",
+    "opt": "hf-internal-testing/tiny-random-OPTForCausalLM",
 }
 
 
@@ -38,7 +40,7 @@ def export_model_id(request):
 @requires_neuronx
 def neuron_model_path(export_model_id):
     model = NeuronModelForCausalLM.from_pretrained(
-        export_model_id, export=True, batch_size=1, sequence_length=128, num_cores=2
+        export_model_id, export=True, batch_size=1, sequence_length=100, num_cores=2
     )
     model_dir = TemporaryDirectory()
     model_path = model_dir.name
