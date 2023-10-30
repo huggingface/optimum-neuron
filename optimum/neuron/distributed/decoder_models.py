@@ -27,7 +27,7 @@ from transformers.models.llama.modeling_llama import (
     repeat_kv,
 )
 
-from .base import Parallelizer
+from .base import Parallelizer, PipelineParallelismSpecs, SequenceParallelismSpecs
 from .parallel_layers import (
     LayerNormType,
     ParallelCrossEntropy,
@@ -66,7 +66,7 @@ class GPTNeoParallelCrossEntropy(ParallelCrossEntropy):
     LAST_LINEAR_PROJECTION_NAME = "lm_head"
 
 
-class GPTNeoParallelizer(Parallelizer):
+class GPTNeoSequenceParallelismSpecs(SequenceParallelismSpecs):
     SEQUENCE_PARALLEL_LAYERNORM_PATTERNS = [
         "transformer.h.[0-9]+.ln_[1-2]",
         "transformer.ln_f",
@@ -102,6 +102,9 @@ class GPTNeoParallelizer(Parallelizer):
             if isinstance(module, GPTNeoSelfAttention):
                 module._split_heads = _split_heads.__get__(module)
                 module._merge_heads = _merge_heads.__get__(module)
+
+class GPTNeoParallelizer(Parallelizer):
+    SEQUENCE_PARALLELSIM_SPECS_CLS = GPTNeoSequenceParallelismSpecs
 
     @classmethod
     def _parallelize(
@@ -153,7 +156,7 @@ class GPTNeoXParallelCrossEntropy(ParallelCrossEntropy):
     LAST_LINEAR_PROJECTION_NAME = "embed_out"
 
 
-class GPTNeoXParallelizer(Parallelizer):
+class GPTNeoXSequenceParallelismSpecs(SequenceParallelismSpecs):
     SEQUENCE_PARALLEL_LAYERNORM_PATTERNS = [
         "gpt_neox.layers.[0-9]+.input_layernorm",
         "gpt_neox.layers.[0-9]+.post_attention_layernorm",
@@ -251,6 +254,10 @@ class GPTNeoXParallelizer(Parallelizer):
             if isinstance(module, GPTNeoXAttention):
                 module.forward = sequence_parallel_forward.__get__(module)
 
+class GPTNeoXParallelizer(Parallelizer):
+    SEQUENCE_PARALLELSIM_SPECS_CLS = GPTNeoXSequenceParallelismSpecs
+
+
     @classmethod
     def _parallelize(
         cls,
@@ -346,7 +353,7 @@ class LlamaParallelCrossEntropy(ParallelCrossEntropy):
     LAST_LINEAR_PROJECTION_NAME = "lm_head"
 
 
-class LlamaParallelizer(Parallelizer):
+class LlamaSequenceParallelismSpecs(SequenceParallelismSpecs):
     SEQUENCE_PARALLEL_LAYERNORM_PATTERNS = [
         "model.layers.[0-9]+.input_layernorm",
         "model.layers.[0-9]+.post_attention_layernorm",
@@ -485,6 +492,16 @@ class LlamaParallelizer(Parallelizer):
         for module in model.modules():
             if isinstance(module, LlamaAttention):
                 module.forward = attention_forward.__get__(module)
+
+
+class LlamaPipelineParallelismSpecs(PipelineParallelismSpecs):
+    TRASNFORMER_LAYER_CLS = LlamaDecoderLayer
+    LEAF_MODULE_CLASSES_NAMES = [LlamaRMSNorm]
+
+
+class LlamaParallelizer(Parallelizer):
+    SEQUENCE_PARALLELSIM_SPECS_CLS = LlamaSequenceParallelismSpecs
+    PIPELINE_PARALLELISM_SPECS_CLS = LlamaPipelineParallelismSpecs
 
     @classmethod
     def _parallelize(

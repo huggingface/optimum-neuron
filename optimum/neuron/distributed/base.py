@@ -21,9 +21,10 @@ from abc import ABC, abstractclassmethod
 from dataclasses import asdict
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple, Union, Type
 
 import torch
+from transformers import PreTrainedModel, PretrainedConfig
 from transformers.utils import WEIGHTS_NAME
 
 from ...utils import logging
@@ -37,10 +38,6 @@ from .parallel_layers import (
     SequenceCollectiveOpInfo,
 )
 from .utils import TENSOR_PARALLEL_SHARDS_DIR_NAME, ParameterMetadata, WeightInformation, load_tensor_for_weight
-
-
-if TYPE_CHECKING:
-    from transformers import PreTrainedModel
 
 
 logger = logging.get_logger()
@@ -86,14 +83,52 @@ def named_parameters(module: "torch.nn.Module", prefix: str = "", recurse: bool 
     yield from gen
 
 
+class SequenceParallelismSpecs:
+    SEQUENCE_PARALLEL_LAYERNORM_PATTERNS: Optional[List[str]] = None
+    LAYERNORM_TYPE: LayerNormType = LayerNormType.REGULAR
+    SEQUENCE_COLLECTIVE_OPS_INFOS: Optional[List[SequenceCollectiveOpInfo]] = None
+
+    @abstractclassmethod
+    def patch_for_sequence_parallelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
+        """
+        This method needs to be overriden. It must patch anything model-specfic to make the model compatible with
+        sequence parallelism.
+        """
+        if sequence_parallel_enabled:
+            raise NotImplementedError(
+                f"No patching for the attention mechanism for sequence parallelism was implemented for {model.__class__}"
+            )
+
+
+
+class PipelineParallelismSpecs:
+    TRASNFORMER_LAYER_CLS: Type["torch.nn.Module"]
+    LEAF_MODULE_CLASSES_NAMES: Optional[List[str]] = None
+
+    @classmethod
+    def create_pipeline_cuts(cls, model: PreTrainedModel, pipeline_parallel_size: int) -> List[str]:
+        num_layers = sum(1 if isinstance(mod, cls.TRASNFORMER_LAYER_CLS) else 0 for mod in model.modules())
+        if num_layers % pipeline_parallel_size != 0:
+            raise ValueError(
+                "The number of transformer layers ({num_layers}) is not divisible by the pipeline parallel size "
+                f"({pipeline_parallel_size})"
+            )
+        num_layers_per_partition = num_layers // pipeline_parallel_size
+        layers_names = [name for (name, mod) in model.named_modules() if isinstance(mod, cls.TRASNFORMER_LAYER_CLS)]
+        pipeline_cuts = [layers_names[cut_idx] for cut_idx in range(num_layers_per_partition - 1, num_layers, num_layers_per_partition)]
+
+        if torch.distributed.get_rank() == 0:
+            logger.info(f"Pipeline parallelism cuts: {pipeline_cuts}.")
+
+        return pipeline_cuts
+
+
 class Parallelizer(ABC):
     """
     Base abstract class that handles model parallelism.
     """
-
-    SEQUENCE_PARALLEL_LAYERNORM_PATTERNS: Optional[List[str]] = None
-    LAYERNORM_TYPE: LayerNormType = LayerNormType.REGULAR
-    SEQUENCE_COLLECTIVE_OPS_INFOS: Optional[List[SequenceCollectiveOpInfo]] = None
+    SEQUENCE_PARALLELSIM_SPECS_CLS: Optional[Type[SequenceParallelismSpecs]] = None
+    PIPELINE_PARALLELISM_SPECS_CLS: Optional[Type[PipelineParallelismSpecs]] = None
 
     def __init__(self):
         self._validate_required_libaries_are_available()
@@ -146,16 +181,6 @@ class Parallelizer(ABC):
             `PreTrainedModel`: The parallelized model.
         """
 
-    @classmethod
-    def patch_for_sequence_parallelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
-        """
-        This method needs to be overriden. It must patch anything model-specfic to make the model compatible with
-        sequence parallelism.
-        """
-        if sequence_parallel_enabled:
-            raise NotImplementedError(
-                f"No patching for the attention mechanism for sequence parallelism was implemented for {model.__class__}"
-            )
 
     @classmethod
     @requires_neuronx_distributed
@@ -191,31 +216,32 @@ class Parallelizer(ABC):
         Returns:
             `PreTrainedModel`: The parallelized model.
         """
-        if sequence_parallel_enabled and cls.SEQUENCE_PARALLEL_LAYERNORM_PATTERNS is None:
+        if sequence_parallel_enabled and cls.SEQUENCE_PARALLELSIM_SPECS_CLS is None:
             raise NotImplementedError(f"Sequence parallelism is not supported for {model.__class__}.")
 
         from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_rank
 
         # Preparing the model for sequence parallelism:
+        sp_specs_cls = cls.SEQUENCE_PARALLELSIM_SPECS_CLS
         # 1. Transforming the LayerNorms.
         layer_norm_qualified_name_patterns = (
-            cls.SEQUENCE_PARALLEL_LAYERNORM_PATTERNS if cls.SEQUENCE_PARALLEL_LAYERNORM_PATTERNS is not None else []
+            sp_specs_cls.SEQUENCE_PARALLEL_LAYERNORM_PATTERNS if sp_specs_cls.SEQUENCE_PARALLEL_LAYERNORM_PATTERNS is not None else []
         )
         layer_norm_sequence_parallelizer = LayerNormSequenceParallelizer(
             sequence_parallel_enabled, layer_norm_qualified_name_patterns
         )
-        layer_norm_sequence_parallelizer.sequence_parallelize(model, cls.LAYERNORM_TYPE)
+        layer_norm_sequence_parallelizer.sequence_parallelize(model, sp_specs_cls.LAYERNORM_TYPE)
 
         # 2. Taking care of scattering / gathering on the sequence axis in the model via the IOSequenceParallelizer.
         io_sequence_parallelizer = IOSequenceParallelizer(
             sequence_parallel_enabled,
-            sequence_collective_op_infos=cls.SEQUENCE_COLLECTIVE_OPS_INFOS,
+            sequence_collective_op_infos=sp_specs_cls.SEQUENCE_COLLECTIVE_OPS_INFOS,
         )
         io_sequence_parallelizer.sequence_parallelize(model)
 
         # 3. Applying model specific patching for sequence parallelism.
         if sequence_parallel_enabled:
-            cls.patch_for_sequence_parallelism(model, sequence_parallel_enabled)
+            sp_specs_cls.patch_for_sequence_parallelism(model, sequence_parallel_enabled)
 
         model = cls._parallelize(
             model,

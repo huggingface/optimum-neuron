@@ -20,7 +20,7 @@ import torch
 from transformers.models.t5.modeling_t5 import T5Attention, T5ForSequenceClassification, T5LayerNorm
 
 from ...utils import NormalizedConfigManager
-from .base import Parallelizer
+from .base import Parallelizer, SequenceParallelismSpecs
 from .parallel_layers import (
     LayerNormType,
     ParallelCrossEntropy,
@@ -154,7 +154,7 @@ class T5ParallelCrossEntropy(ParallelCrossEntropy):
     LAST_LINEAR_PROJECTION_NAME = "lm_head"
 
 
-class T5Parallelizer(Parallelizer):
+class T5SequenceParallelismSpecs(SequenceParallelismSpecs):
     SEQUENCE_PARALLEL_LAYERNORM_PATTERNS = [
         "encoder.block.[0-9]+.layer.[0-9]+.layer_norm",
         "encoder.final_layer_norm",
@@ -315,6 +315,9 @@ class T5Parallelizer(Parallelizer):
         for module in model.modules():
             if isinstance(module, T5Attention):
                 module.forward = sequence_parallel_forward.__get__(module)
+
+
+class T5Parallelizer(Parallelizer):
 
     @classmethod
     def _parallelize(

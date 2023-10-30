@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Optional
 import torch
 
 from ..utils.require_utils import requires_neuronx_distributed
-from .base import Parallelizer
+from .base import Parallelizer, SequenceParallelismSpecs
 from .parallel_layers import (
     ParallelCrossEntropy,
     ParallelEmbedding,
@@ -90,7 +90,7 @@ class BertParallelCrossEntropy(ParallelCrossEntropy):
     }
 
 
-class BertParallelizer(Parallelizer):
+class BertSequenceParallelismSpecs(SequenceParallelismSpecs):
     SEQUENCE_PARALLEL_LAYERNORM_PATTERNS = [
         "bert.embeddings.LayerNorm",
         "bert.encoder.layer.[0-9]+.attention.output.LayerNorm",
@@ -122,6 +122,9 @@ class BertParallelizer(Parallelizer):
                 module.forward = create_sequence_parallel_attention_forward(
                     module.forward, sequence_parallel_enabled
                 ).__get__(module)
+
+class BertParallelizer(Parallelizer):
+    SEQUENCE_PARALLELSIM_SPECS_CLS = BertSequenceParallelismSpecs
 
     @classmethod
     def _parallelize(
@@ -180,7 +183,7 @@ class RobertaParallelCrossEntropy(ParallelCrossEntropy):
     }
 
 
-class RobertaParallelizer(Parallelizer):
+class RobertaSequenceParallelismSpecs(SequenceParallelismSpecs):
     SEQUENCE_PARALLEL_LAYERNORM_PATTERNS = [
         "roberta.embeddings.LayerNorm",
         "roberta.encoder.layer.[0-9]+.attention.output.LayerNorm",
@@ -212,6 +215,10 @@ class RobertaParallelizer(Parallelizer):
                 module.forward = create_sequence_parallel_attention_forward(
                     module.forward, sequence_parallel_enabled
                 ).__get__(module)
+
+
+class RobertaParallelizer(Parallelizer):
+    SEQUENCE_PARALLELSIM_SPECS_CLS = RobertaSequenceParallelismSpecs
 
     @classmethod
     def _parallelize(
