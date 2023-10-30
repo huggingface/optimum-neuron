@@ -21,7 +21,7 @@ from abc import ABC, abstractclassmethod
 from dataclasses import asdict
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple, Union, Type
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple, Union, Type, Set
 
 import torch
 from transformers import PreTrainedModel, PretrainedConfig
@@ -155,6 +155,36 @@ class Parallelizer(ABC):
         finally:
             tmpdir.cleanup()
 
+    @classmethod
+    @requires_neuronx_distributed
+    def _get_parameter_names_for_current_pipeline(cls, model: "torch.nn.Module") -> Set[str]:
+        from neuronx_distributed.parallel_layers.parallel_state import (
+            get_pipeline_model_parallel_size,
+            get_pipeline_model_parallel_rank,
+        )
+        pp_size = get_pipeline_model_parallel_size()
+        pp_rank = get_pipeline_model_parallel_rank()
+        if pp_size == 1:
+            return {n for n, _ in model.named_parameters()}
+
+        if cls.PIPELINE_PARALLELISM_SPECS_CLS is None:
+            raise ValueError(f"{cls} does not support pipeline parallelism.")
+
+        cuts = cls.PIPELINE_PARALLELISM_SPECS_CLS.create_pipeline_cuts(model, pp_size)
+        start_module_name, end_module_name = cuts[pp_rank: pp_rank + 2]
+        parameter_names = set() 
+        should_add = False
+        for name, mod in model.named_modules():
+            if name == start_module_name:
+                should_add = True
+            elif name == end_module_name:
+                break
+            if should_add:
+                for name, _ in mod.named_parameters():
+                    parameter_names.add(name)
+        return parameter_names
+
+
     @abstractclassmethod
     def _parallelize(
         cls,
@@ -180,7 +210,6 @@ class Parallelizer(ABC):
         Returns:
             `PreTrainedModel`: The parallelized model.
         """
-
 
     @classmethod
     @requires_neuronx_distributed
@@ -249,6 +278,10 @@ class Parallelizer(ABC):
             parallelize_embeddings=parallelize_embeddings,
             sequence_parallel_enabled=sequence_parallel_enabled,
         )
+        
+        names_of_the_parameters_to_consider = cls._get_parameter_names_for_current_pipeline(model)
+        print(names_of_the_parameters_to_consider)
+        assert 3 == 2
 
         weight_map = getattr(model, "_weight_map", None)
 

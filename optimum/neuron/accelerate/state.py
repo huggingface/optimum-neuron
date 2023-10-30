@@ -189,7 +189,7 @@ class NeuronPartialState(PartialState):
         self.fork_launched = parse_flag_from_env("FORK_LAUNCHED", 0)
 
     def wait_for_everyone(self):
-        if self.distributed_type in [NeuronDistributedType.XLA_FSDP, NeuronDistributedType.TENSOR_PARALLELISM]:
+        if self.distributed_type in [NeuronDistributedType.XLA_FSDP, NeuronDistributedType.MODEL_PARALLELISM]:
             xm.rendezvous("accelerate.utils.wait_for_everyone")
         else:
             super().wait_for_everyone()
@@ -223,7 +223,7 @@ class NeuronAcceleratorState(AcceleratorState):
         deepspeed_plugin=None,
         fsdp_plugin=None,
         megatron_lm_plugin=None,
-        tp_plugin=None,
+        mp_plugin=None,
         _from_accelerator: bool = False,
         **kwargs,
     ):
@@ -269,22 +269,23 @@ class NeuronAcceleratorState(AcceleratorState):
                             "running: python -m pip install neuronx_distributed --extra-index-url "
                             "https://pip.repos.neuron.amazonaws.com"
                         )
-                    if tp_plugin is None:
+                    if mp_plugin is None:
                         raise ValueError(
-                            "Could not initialize `neuronx_distributed` tensor parallelism because no "
-                            "TensorParallelismPlugin was provided."
+                            "Could not initialize `neuronx_distributed` model parallelism because no "
+                            "`ModelParallelismPlugin` was provided."
                         )
-                    if tp_plugin.should_parallelize:
+                    if mp_plugin.should_parallelize:
                         parallel_state.initialize_model_parallel(
-                            tensor_model_parallel_size=tp_plugin.tensor_parallel_size
+                            tensor_model_parallel_size=mp_plugin.tensor_parallel_size,
+                            pipeline_parallel_size=mp_plugin.pipeline_parallel_size,
                         )
-                        self.distributed_type = NeuronDistributedType.TENSOR_PARALLELISM
+                        self.distributed_type = NeuronDistributedType.MODEL_PARALLELISM
                     else:
                         logger.warning(
-                            "Tensor parallelism is requested but nothing is done because the tensor parallel size is "
-                            "set to 1."
+                            "Model parallelism is requested but nothing is done because the tensor parallel size and "
+                            "the pipeline parallel size are set to 1."
                         )
-                    self.tp_plugin = tp_plugin
+                    self.mp_plugin = mp_plugin
                 if os.environ.get("ACCELERATE_USE_FSDP", "false") == "true":
                     self.distributed_type = NeuronDistributedType.XLA_FSDP
                     if self._mixed_precision != "no":

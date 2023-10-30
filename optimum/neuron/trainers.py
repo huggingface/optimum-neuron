@@ -175,7 +175,7 @@ class AugmentTrainerForNeuronMixin:
             logger.setLevel(logging.INFO)
 
         push = self.args.local_rank <= 0 and not is_precompilation()
-        fetch = self.args.local_rank <= 0 or self.args.tp_plugin.should_parallelize
+        fetch = self.args.local_rank <= 0 or self.args.mp_plugin.should_parallelize
 
         callback = NeuronCacheCallback(
             tmp_neuron_cache=_TMP_NEURON_CACHE_PATH,
@@ -191,11 +191,8 @@ class AugmentTrainerForNeuronMixin:
         patch_generation_mixin_to_neuron_generation_mixin(self.model)
 
     @property
-    def tp_enabled(self):
-        return (
-            check_if_transformers_greater("4.30.0")
-            and self.accelerator.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM
-        )
+    def mp_enabled(self):
+        return self.accelerator.distributed_type is NeuronDistributedType.MODEL_PARALLELISM
 
     def prepare_args_for_precompilation(self, args: "TrainingArguments"):
         if args.num_train_epochs != 1:
@@ -216,7 +213,7 @@ class AugmentTrainerForNeuronMixin:
         self.accelerator = NeuronAccelerator(
             deepspeed_plugin=self.args.deepspeed_plugin,
             gradient_accumulation_steps=self.args.gradient_accumulation_steps,
-            tp_plugin=self.args.tp_plugin,
+            mp_plugin=self.args.mp_plugin,
             zero_1=self.args.zero_1,
         )
 
@@ -264,7 +261,7 @@ class AugmentTrainerForNeuronMixin:
                 callback.on_step_middle(self.args, self.state, self.control, **kwargs)
 
     def _get_train_sampler(self) -> Optional[torch.utils.data.Sampler]:
-        if self.tp_enabled:
+        if self.mp_enabled:
             return None
         return super()._get_train_sampler()
 
@@ -274,7 +271,7 @@ class AugmentTrainerForNeuronMixin:
     @staticmethod
     def get_optimizer_cls_and_kwargs(args: TrainingArguments) -> Tuple[Any, Any]:
         optimizer_cls, optimizer_kwargs = transformers_get_optimizer_cls_and_kwargs(args)
-        lazy_load = args.tp_plugin.should_parallelize or args.zero_1
+        lazy_load = args.mp_plugin.should_parallelize or args.zero_1
         if check_if_transformers_greater("4.30.0") and lazy_load:
             optimizer_cls = make_optimizer_constructor_lazy(optimizer_cls)
         return optimizer_cls, optimizer_kwargs
@@ -317,7 +314,7 @@ class AugmentTrainerForNeuronMixin:
 
             xm.mark_step()
 
-            if self.args.tp_plugin.tensor_parallel_size > 1:
+            if self.args.mp_plugin.tensor_parallel_size > 1:
                 from neuronx_distributed.parallel_layers.parallel_state import (
                     get_data_parallel_group,
                     get_data_parallel_size,
@@ -384,8 +381,9 @@ class AugmentTrainerForNeuronMixin:
         # Save a trained model and configuration using `save_pretrained()`.
         # They can then be reloaded using `from_pretrained()`
         xm.rendezvous("saving_checkpoint")
-        if self.accelerator.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
+        if self.accelerator.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
             logger.info("Model parallelism is enabled, only saving the model sharded state dict.")
+            # TODO: how to handle pp?
             if isinstance(self.model, PreTrainedModel):
                 self.model.config.save_pretrained(output_dir)
 
@@ -442,8 +440,9 @@ class AugmentTrainerForNeuronMixin:
         self.save_model(output_dir, _internal_call=True)
 
         # The optimizer state is saved in the shard alongside with the model parameters when doing TP.
-        if self.accelerator.distributed_type is not NeuronDistributedType.TENSOR_PARALLELISM:
+        if self.accelerator.distributed_type is not NeuronDistributedType.MODEL_PARALLELISM:
             xm.rendezvous("saving_optimizer_states")
+            # TODO: how to handle pp?
             xm.save(self.optimizer.state_dict(), os.path.join(output_dir, OPTIMIZER_NAME))
 
         with warnings.catch_warnings(record=True) as caught_warnings:
@@ -497,7 +496,8 @@ class AugmentTrainerForNeuronMixin:
 
     def _load_from_checkpoint(self, resume_from_checkpoint, model=None):
         # It has been handled during model parallelization.
-        if self.accelerator.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
+        # TODO: how to handle pp?
+        if self.accelerator.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
             return
         super()._load_from_checkpoint(self, resume_from_checkpoint, model=model)
 
@@ -523,7 +523,8 @@ class AugmentTrainerForNeuronMixin:
             return
         if self.accelerator.distributed_type is NeuronDistributedType.XLA_FSDP:
             return self._load_optimizer_and_scheduler_for_xla_fsdp(checkpoint)
-        elif self.accelerator.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
+        elif self.accelerator.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
+            # TODO: how to handle pp?
             lr_scheduler_state = torch.load(os.path.join(checkpoint, SCHEDULER_NAME), map_location="cpu")
             xm.send_cpu_data_to_device(lr_scheduler_state, self.args.device)
             self.lr_scheduler.load_state_dict(lr_scheduler_state)

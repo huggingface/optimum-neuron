@@ -36,7 +36,7 @@ from transformers.utils import (
 
 from ..utils import check_if_transformers_greater, logging
 from .accelerate import NeuronAcceleratorState, NeuronPartialState
-from .accelerate.utils import TensorParallelismPlugin, patch_accelerate_is_tpu_available
+from .accelerate.utils import ModelParallelismPlugin, patch_accelerate_is_tpu_available
 from .utils import is_accelerate_available, is_torch_xla_available
 from .utils.training_utils import TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP
 
@@ -63,6 +63,9 @@ class NeuronTrainingArgumentsMixin:
     sequence_parallel_enabled: bool = field(
         default=False,
         metadata={"help": "Whether or not to enable sequence parallelism."},
+    )
+    pipeline_parallel_size: int = field(
+        default=1, metadata={"help": "The number of pipeline parallel replicas"},
     )
 
     def __post_init__(self):
@@ -105,7 +108,7 @@ class NeuronTrainingArgumentsMixin:
             checkpoint = get_last_checkpoint(self.output_dir)
             resume_from_checkpoint = checkpoint
 
-        self.tp_plugin = TensorParallelismPlugin(
+        self.mp_plugin = ModelParallelismPlugin(
             self.tensor_parallel_size,
             not self.disable_embedding_parallelization,
             sequence_parallel_enabled=self.sequence_parallel_enabled,
@@ -213,13 +216,13 @@ class NeuronTrainingArgumentsMixin:
 
     @property
     def place_model_on_device(self):
-        return not self.tp_plugin.should_parallelize and super().place_model_on_device
+        return not self.mp_plugin.should_parallelize and super().place_model_on_device
 
     @property
     def world_size(self):
         divisor = 1
-        if self.tp_plugin.should_parallelize:
-            divisor = self.tp_plugin.tensor_parallel_size
+        if self.mp_plugin.should_parallelize:
+            divisor = self.mp_plugin.tensor_parallel_size
         return super().world_size // divisor
 
 

@@ -48,7 +48,7 @@ from .state import NeuronAcceleratorState
 from .utils import (
     NeuronDistributedType,
     NeuronFullyShardedDataParallelPlugin,
-    TensorParallelismPlugin,
+    ModelParallelismPlugin,
     patch_accelerate_is_tpu_available,
 )
 from .utils.operations import _xla_gather
@@ -78,7 +78,7 @@ logger = logging.get_logger(__name__)
 # TODO: should we do a XLAFSDPNeuronAccelerator instead?
 class NeuronAccelerator(Accelerator):
     # @patch_within_function(("accelerate.accelerator.AcceleratorState", NeuronAcceleratorState))
-    def __init__(self, *args, tp_plugin: Optional[TensorParallelismPlugin] = None, zero_1: bool = False, **kwargs):
+    def __init__(self, *args, mp_plugin: Optional[ModelParallelismPlugin] = None, zero_1: bool = False, **kwargs):
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
         patch_accelerate_is_tpu_available()
 
@@ -113,18 +113,26 @@ class NeuronAccelerator(Accelerator):
         self.fsdp_plugin = fsdp_plugin
 
         use_neuronx_distributed_tp = os.environ.get("ACCELERATE_USE_NEURONX_DISTRIBUTED_TP", "false")
-        if tp_plugin is None:
+        use_neuronx_distributed_pp = os.environ.get("ACCELERATE_USE_NEURONX_DISTRIBUTED_PP", "false")
+        if mp_plugin is None:
             if use_neuronx_distributed_tp == "false":
                 tp_size = 1
             else:
                 tp_size = int(use_neuronx_distributed_tp)
-            tp_plugin = TensorParallelismPlugin(tensor_parallel_size=tp_size, parallelize_embeddings=True)
+            if use_neuronx_distributed_pp == "false":
+                pp_size = 1
+            else:
+                pp_size = int(use_neuronx_distributed_pp)
+            mp_plugin = ModelParallelismPlugin(tensor_parallel_size=tp_size, parallelize_embeddings=True, pipeline_parallel_size=pp_size)
         self._model_cpu_parameters_to_xla = {}
 
-        if tp_plugin.should_parallelize:
+        if mp_plugin.tensor_parallel_size > 1:
             os.environ["ACCELERATE_USE_NEURONX_DISTRIBUTED_TP"] = "true"
 
-        patched_accelerator_state = partial(NeuronAcceleratorState, tp_plugin=tp_plugin)
+        if mp_plugin.pipeline_parallel_size > 1:
+            os.environ["ACCELERATE_USE_NEURONX_DISTRIBUTED_PP"] = "true"
+
+        patched_accelerator_state = partial(NeuronAcceleratorState, mp_plugin=mp_plugin)
         with Patcher([("accelerate.accelerator.AcceleratorState", patched_accelerator_state)]):
             super().__init__(**full_kwargs)
 
@@ -136,7 +144,7 @@ class NeuronAccelerator(Accelerator):
         if self.process_index == -1 and self.zero_1:
             raise ValueError("XLA ZeRO Stage 1 can only be enabled in a distributed training setting.")
 
-        if fsdp_plugin is not None and tp_plugin is not None:
+        if fsdp_plugin is not None and mp_plugin is not None:
             raise ValueError("It is not possible to both use neuronx_distributed Tensor Parallelism and XLA FSDP.")
 
         if num_steps != 1:
@@ -175,7 +183,7 @@ class NeuronAccelerator(Accelerator):
         return data_loader_for_tp
 
     def prepare_data_loader(self, data_loader: DataLoader, device_placement: Optional[bool] = None):
-        if self.state.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
+        if self.state.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
             from neuronx_distributed import parallel_layers
 
             num_replicas = parallel_layers.parallel_state.get_data_parallel_size()
@@ -260,7 +268,8 @@ class NeuronAccelerator(Accelerator):
 
     @patch_within_function(("accelerate.accelerator.AcceleratedOptimizer", NeuronAcceleratedOptimizer))
     def prepare_optimizer(self, optimizer: torch.optim.Optimizer, device_placement: Optional[bool] = None):
-        if self.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
+        if self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
+            # TODO: how to handle pp?
             optimizer = self._prepare_optimizer_for_tp(optimizer, device_placement=device_placement)
         if self.zero_1:
             optimizer = self._prepare_optimizer_for_zero_1(optimizer, device_placement=device_placement)
@@ -348,7 +357,7 @@ class NeuronAccelerator(Accelerator):
 
         cpu_ids = [id(v) for v in model.parameters()]
         # TODO: enable self.device (if needed).
-        model = self.state.tp_plugin.parallelize_model(model, device=None)
+        model = self.state.mp_plugin.parallelize_model(model, device=None)
 
         if os.environ.get("XLA_USE_BF16", "0") == "1" or os.environ.get("XLA_DOWNCAST_BF16", "0") == "1":
             model.to(torch.bfloat16)
@@ -380,7 +389,8 @@ class NeuronAccelerator(Accelerator):
             return self.prepare_model_for_xla_fsdp(
                 model, device_placement=device_placement, evaluation_mode=evaluation_mode
             )
-        elif self.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
+        elif self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
+            # TODO: how to handle pp?
             return self._prepare_model_for_tp(
                 model, device_placement=device_placement, evaluation_mode=evaluation_mode
             )
@@ -422,7 +432,8 @@ class NeuronAccelerator(Accelerator):
     def clip_grad_norm_(self, parameters, max_norm, norm_type=2):
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:
             return self.clip_grad_norm_for_xla_fsdp(parameters, max_norm, norm_type=norm_type)
-        elif self.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM or self.zero_1:
+        elif self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM or self.zero_1:
+            # TODO: how to handle pp?
             return self._prepare_clip_grad_norm(parameters, max_norm, norm_type=norm_type)
         return super().clip_grad_norm_(parameters, max_norm, norm_type=norm_type)
 
@@ -532,7 +543,8 @@ class NeuronAccelerator(Accelerator):
     def save_state(self, output_dir: Optional[str] = None, **save_model_func_kwargs) -> str:
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:
             return self.save_state_for_xla_fsdp(output_dir=output_dir, **save_model_func_kwargs)
-        elif self.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
+        elif self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
+            # TODO: how to handle pp?
             return self.save_state_for_tp(output_dir=output_dir, **save_model_func_kwargs)
         return super().save_state(output_dir=output_dir, **save_model_func_kwargs)
 

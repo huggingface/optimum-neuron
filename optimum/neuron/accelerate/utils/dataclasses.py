@@ -46,7 +46,7 @@ class NeuronDistributedType(str, enum.Enum):
     """
 
     XLA_FSDP = "XLA_FSDP"
-    TENSOR_PARALLELISM = "TENSOR_PARALLELISM"
+    MODEL_PARALLELISM = "MODEL_PARALLELISM"
 
 
 @dataclass
@@ -140,21 +140,24 @@ class NeuronFullyShardedDataParallelPlugin(FullyShardedDataParallelPlugin):
 
 
 @dataclass
-class TensorParallelismPlugin:
+class ModelParallelismPlugin:
     tensor_parallel_size: int = 1
     parallelize_embeddings: bool = True
     sequence_parallel_enabled: bool = False
+    pipeline_parallel_size: int = 1
     checkpoint_dir: Optional[Union[str, Path]] = None
 
     def __post_init__(self):
         if self.tensor_parallel_size < 1:
             raise ValueError(f"The tensor parallel size must be >= 1, but {self.tensor_parallel_size} was given here.")
+        if self.pipeline_parallel_size < 1:
+            raise ValueError(f"The pipeline parallel size must be >= 1, but {self.pipeline_parallel_size} was given here.")
         if isinstance(self.checkpoint_dir, str):
             self.checkpoint_dir = Path(self.checkpoint_dir)
 
     @property
     def should_parallelize(self):
-        return self.tensor_parallel_size > 1
+        return self.tensor_parallel_size > 1 or self.pipeline_parallel_size > 1
 
     def parallelize_model(
         self,
@@ -167,6 +170,7 @@ class TensorParallelismPlugin:
             device=device,
             parallelize_embeddings=self.parallelize_embeddings,
             sequence_parallel_enabled=self.sequence_parallel_enabled,
+            pipeline_parallel_size=self.pipeline_parallel_size,
             checkpoint_dir=self.checkpoint_dir,
         )
         return parallelized_model

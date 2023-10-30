@@ -49,7 +49,7 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
         self.parameters = []
         self.parameter_ids = {}
         self.clip_grad_norm_to_perform = None
-        if self.accelerator_state.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
+        if self.accelerator_state.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
             self.parameters = [p for group in self.optimizer.param_groups for p in group["params"]]
             self.parameter_ids = {id(p) for p in self.parameters}
 
@@ -80,7 +80,8 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
                 xm.optimizer_step(self.optimizer, optimizer_args=optimizer_args, barrier=False)
             elif self.accelerator_state.distributed_type is NeuronDistributedType.XLA_FSDP:
                 self.optimizer.step(closure)
-            elif self.accelerator_state.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
+            elif self.accelerator_state.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
+                # TODO: how to handle pp?
                 xm.reduce_gradients(
                     self.optimizer, groups=parallel_layers.parallel_state.get_data_parallel_group(as_list=True)
                 )
