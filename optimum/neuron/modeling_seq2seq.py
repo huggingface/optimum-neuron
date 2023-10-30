@@ -14,6 +14,8 @@
 # limitations under the License.
 """NeuroModelForXXX classes for seq2seq models' inference on neuron devices."""
 import os
+import shutil
+import logging
 from abc import abstractmethod
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -21,7 +23,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 import torch
 from huggingface_hub import snapshot_download
-from transformers import AutoConfig, AutoModelForSeq2SeqLM
+from transformers import AutoConfig, AutoModelForSeq2SeqLM, GenerationConfig
 
 from ..exporters.neuron import (
     NeuronConfig,
@@ -46,9 +48,12 @@ if TYPE_CHECKING:
 if is_neuronx_available():
     pass
 
+logger = logging.getLogger(__name__)
+
 
 class NeuronModelForConditionalGeneration(NeuronBaseModel):
     base_model_prefix = "neuron_model"
+    config_name = "config.json"
 
     def __init__(
         self,
@@ -60,6 +65,7 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
         decoder_file_name: Optional[str] = NEURON_FILE_NAME,
         preprocessors: Optional[List] = None,
         neuron_configs: Optional[Dict[str, "NeuronConfig"]] = None,
+        generation_config: Optional[GenerationConfig] = None,
         **kwargs,
     ):
         self.encoder = NeuronEncoder(
@@ -82,6 +88,10 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
         self._attributes_init(model_save_dir, preprocessors, **kwargs)
         self.encoder_file_name = encoder_file_name
         self.decoder_file_name = decoder_file_name
+        
+        if generation_config is None:
+            generation_config = GenerationConfig.from_model_config(self.configs[DECODER_NAME])
+        self.generation_config = generation_config
 
     def _save_pretrained(
         self,
@@ -98,8 +108,49 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
             save_directory (`Union[str, Path`]):
                 The directory where to save the model files.
         """
+        if self.model_and_config_save_paths is None:
+            logger.warning(
+                "`model_save_paths` is None which means that no path of Neuron model is defined. Nothing will be saved."
+            )
+            return
+        
         save_directory = Path(save_directory)
-        # TODO
+        if not self.model_and_config_save_paths.get(ENCODER_NAME)[0].is_file():
+            self.model_and_config_save_paths.pop(ENCODER_NAME)
+
+        if not self.model_and_config_save_paths.get(DECODER_NAME)[0].is_file():
+            self.model_and_config_save_paths.pop(DECODER_NAME)
+        
+        dst_paths = {
+            ENCODER_NAME: save_directory / ENCODER_NAME / encoder_file_name,
+            DECODER_NAME: save_directory / DECODER_NAME / decoder_file_name,
+        }
+        
+        model_src_to_dst_path = {
+            self.model_and_config_save_paths[model_name][0]: dst_paths[model_name]
+            for model_name in set(self.model_and_config_save_paths.keys()).intersection(dst_paths.keys())
+        }
+        # save
+        config_src_to_dst_path = {
+            self.model_and_config_save_paths[model_name][1]: dst_paths[model_name].parent / self.config_name
+            for model_name in set(self.model_and_config_save_paths.keys()).intersection(dst_paths.keys())
+        }
+        
+        src_paths = list(model_src_to_dst_path.keys()) + list(config_src_to_dst_path.keys())
+        dst_paths = list(model_src_to_dst_path.values()) + list(config_src_to_dst_path.values())
+
+        for src_path, dst_path in zip(src_paths, dst_paths):
+            dst_path.parent.mkdir(parents=True, exist_ok=True)
+            if src_path.is_file():
+                shutil.copyfile(src_path, dst_path)
+            
+        src_paths = [Path(path) for path in self.onnx_paths]
+        dst_paths = [save_directory / path.name for path in src_paths]
+        
+        if self.tokenizer is not None:
+            self.tokenizer.save_pretrained(save_directory)
+
+        self.generation_config.save_pretrained(save_directory)
 
     @classmethod
     def _from_pretrained(
@@ -117,13 +168,9 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
         **kwargs,
     ):
-        import pdb
-
-        pdb.set_trace()
-        patterns = {ENCODER_NAME, DECODER_NAME}
+        model_id = str(model_id)
 
         if not os.path.isdir(model_id):
-            allow_patterns = {os.path.join(k, "*") for k in patterns if not k.startswith("_")}
             # Downloads all repo's files matching the allowed patterns
             model_id = snapshot_download(
                 model_id,
@@ -132,7 +179,6 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
                 use_auth_token=use_auth_token,
                 revision=revision,
                 force_download=force_download,
-                allow_patterns=allow_patterns,
                 ignore_patterns=["*.msgpack", "*.safetensors", "*.bin"],  # only download *.neuron artifacts
             )
 
@@ -155,12 +201,33 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
         configs, neuron_configs = {}, {}
         for name, file_paths in model_and_config_save_paths.items():
             if file_paths[1].is_file():
-                model_config = AutoConfig.from_json_file(file_paths[1])
+                model_config = AutoConfig.from_pretrained(file_paths[1])
                 configs[name] = model_config
                 neuron_configs[name] = cls._neuron_config_init(model_config)
 
         encoder = cls.load_model(model_and_config_save_paths["encoder"][0])
         decoder = cls.load_model(model_and_config_save_paths["decoder"][0])
+        
+        # TODO: Debug num_beams unmatched issue
+        import pdb
+        pdb.set_trace()
+        
+        if model_save_dir is None:
+            model_save_dir = new_model_save_dir
+        
+        generation_config = None
+        try:
+            generation_config = GenerationConfig.from_pretrained(
+                model_id,
+                cache_dir=cache_dir,
+                force_download=force_download,
+                local_files_only=local_files_only,
+                use_auth_token=use_auth_token,
+                revision=revision,
+                subfolder=os.path.join(subfolder, DECODER_NAME),
+            )
+        except OSError:
+            logger.info("Generation config file not found, using a generation config created from the model config.")
 
         return cls(
             encoder=encoder,
@@ -171,6 +238,7 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
             decoder_file_name=decoder_file_name,
             preprocessors=preprocessors,
             neuron_configs=neuron_configs,
+            generation_config=generation_config,
         )
 
     @classmethod

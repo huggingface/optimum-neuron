@@ -172,6 +172,13 @@ def store_compilation_config(
 
     config_args["input_names"] = input_names
     config_args["output_names"] = output_names
+    
+    original_model_type = getattr(config, "model_type", None)
+    neuron_model_type = str(model_type).replace("_", "-")
+    if original_model_type is None:
+        update_func("model_type", neuron_model_type)   # Add model_type to the config if it doesn't exist before, eg. submodel of Stable Diffusion.
+    elif neuron_model_type != original_model_type:
+        config_args["model_type"] = neuron_model_type  # Neuron custom model_type, eg. `t5-encoder`.
 
     update_func("neuron", config_args)
 
@@ -179,10 +186,7 @@ def store_compilation_config(
         import diffusers
 
         update_func("_diffusers_version", diffusers.__version__)
-
-    model_type = getattr(config, "model_type", None) or model_type
-    model_type = str(model_type).replace("_", "-")
-    update_func("model_type", model_type)
+    
     update_func("task", task)
 
     return config

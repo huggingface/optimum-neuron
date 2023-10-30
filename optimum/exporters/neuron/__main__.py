@@ -261,7 +261,7 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
 
 
 def _get_submodels_and_neuron_configs_for_encoder_decoder(
-    model: Union["PreTrainedModel", "DiffusionPipeline"],
+    model: "PreTrainedModel",
     input_shapes: Dict[str, int],
     task: str,
     output: Path,
