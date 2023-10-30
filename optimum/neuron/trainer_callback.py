@@ -104,7 +104,7 @@ class NeuronCacheCallback(TrainerCallback):
         elif tmp_neuron_cache is None:
             # To keep an instance of the TemporaryDirectory as long as the callback lives.
             self._tmp_neuron_cache = self.create_temporary_neuron_cache(self.neuron_cache_path)
-            self.tmp_neuron_cache_path = self._tmp_neuron_cache.name
+            self.tmp_neuron_cache_path = Path(self._tmp_neuron_cache.name)
         else:
             self.tmp_neuron_cache_path = tmp_neuron_cache
 

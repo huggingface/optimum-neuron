@@ -394,6 +394,15 @@ class T5EncoderNeuronConfig(TextSeq2SeqNeuronConfig):
             custom_wrapper_kwargs={"num_beams": num_beams, "device": device},
         )
 
+@register_in_tasks_manager("opt", "text-generation")
+class OPTNeuronConfig(TextNeuronDecoderConfig):
+    NEURONX_CLASS = "opt.model.OPTForSampling"
+
+
+@register_in_tasks_manager("bloom", "text-generation")
+class BloomNeuronConfig(TextNeuronDecoderConfig):
+    NEURONX_CLASS = "bloom.model.BloomForSampling"
+
 
 @register_in_tasks_manager("t5-decoder", "text2text-generation")
 class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
