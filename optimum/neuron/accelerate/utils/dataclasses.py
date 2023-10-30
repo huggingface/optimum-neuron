@@ -170,7 +170,6 @@ class ModelParallelismPlugin:
             device=device,
             parallelize_embeddings=self.parallelize_embeddings,
             sequence_parallel_enabled=self.sequence_parallel_enabled,
-            pipeline_parallel_size=self.pipeline_parallel_size,
             checkpoint_dir=self.checkpoint_dir,
         )
         return parallelized_model

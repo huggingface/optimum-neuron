@@ -103,7 +103,7 @@ class SequenceParallelismSpecs:
 
 class PipelineParallelismSpecs:
     TRASNFORMER_LAYER_CLS: Type["torch.nn.Module"]
-    LEAF_MODULE_CLASSES_NAMES: Optional[List[str]] = None
+    LEAF_MODULE_CLASSES_NAMES: Optional[List[Union[str, Type["torch.nn.Module"]]]] = None
 
     @classmethod
     def create_pipeline_cuts(cls, model: PreTrainedModel, pipeline_parallel_size: int) -> List[str]:
@@ -115,12 +115,18 @@ class PipelineParallelismSpecs:
             )
         num_layers_per_partition = num_layers // pipeline_parallel_size
         layers_names = [name for (name, mod) in model.named_modules() if isinstance(mod, cls.TRASNFORMER_LAYER_CLS)]
-        pipeline_cuts = [layers_names[cut_idx] for cut_idx in range(num_layers_per_partition - 1, num_layers, num_layers_per_partition)]
+        pipeline_cuts = [layers_names[cut_idx] for cut_idx in range(num_layers_per_partition - 1, num_layers - 1, num_layers_per_partition)]
 
         if torch.distributed.get_rank() == 0:
             logger.info(f"Pipeline parallelism cuts: {pipeline_cuts}.")
 
         return pipeline_cuts
+
+    @classmethod
+    def leaf_module_cls(cls) -> List[str]:
+        if cls.LEAF_MODULE_CLASSES_NAMES is None:
+            return []
+        return [class_ if isinstance(class_, str) else class_.__name__ for class_ in cls.LEAF_MODULE_CLASSES_NAMES]
 
 
 class Parallelizer(ABC):
@@ -168,19 +174,27 @@ class Parallelizer(ABC):
             return {n for n, _ in model.named_parameters()}
 
         if cls.PIPELINE_PARALLELISM_SPECS_CLS is None:
-            raise ValueError(f"{cls} does not support pipeline parallelism.")
+            raise NotImplementedError(f"{cls} does not support pipeline parallelism.")
 
         cuts = cls.PIPELINE_PARALLELISM_SPECS_CLS.create_pipeline_cuts(model, pp_size)
-        start_module_name, end_module_name = cuts[pp_rank: pp_rank + 2]
+
+        start_module_name = cuts[pp_rank - 1] if pp_rank > 1 else None
+        end_module_name = None if pp_rank == pp_size - 1 else cuts[pp_rank]
+        parameter2name = {p: n for n, p in model.named_parameters()}
         parameter_names = set() 
         should_add = False
         for name, mod in model.named_modules():
-            if name == start_module_name:
+            if not isinstance(mod, cls.PIPELINE_PARALLELISM_SPECS_CLS.TRASNFORMER_LAYER_CLS):
+                continue
+            if start_module_name is None or start_module_name == name:
                 should_add = True
             elif name == end_module_name:
                 break
             if should_add:
-                for name, _ in mod.named_parameters():
+                for param in mod.parameters():
+                    # It is important to use this dictionary (built with `model.named_parameters()`) instead of using 
+                    # `mod.named_parameters()` to get the fully qualified names.
+                    name = parameter2name[param]
                     parameter_names.add(name)
         return parameter_names
 
@@ -248,7 +262,8 @@ class Parallelizer(ABC):
         if sequence_parallel_enabled and cls.SEQUENCE_PARALLELSIM_SPECS_CLS is None:
             raise NotImplementedError(f"Sequence parallelism is not supported for {model.__class__}.")
 
-        from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_rank
+        from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_rank, get_pipeline_model_parallel_size
+        from neuronx_distributed .pipeline import NxDPPModel
 
         # Preparing the model for sequence parallelism:
         sp_specs_cls = cls.SEQUENCE_PARALLELSIM_SPECS_CLS
@@ -280,8 +295,6 @@ class Parallelizer(ABC):
         )
         
         names_of_the_parameters_to_consider = cls._get_parameter_names_for_current_pipeline(model)
-        print(names_of_the_parameters_to_consider)
-        assert 3 == 2
 
         weight_map = getattr(model, "_weight_map", None)
 
@@ -294,6 +307,11 @@ class Parallelizer(ABC):
             new_parameters = set()
             modules_to_initialize = []
             for name, parameter in named_parameters(model, remove_duplicate=False):
+
+                # Skipping the parameters that will not end-up in this pipeline rank.
+                # if name not in names_of_the_parameters_to_consider:
+                #     continue
+
                 split = name.rsplit(".", maxsplit=1)
                 module = model.get_submodule(split[0])
                 attribute_name = split[1]
@@ -358,6 +376,24 @@ class Parallelizer(ABC):
                 # `reset_parameters()` method.
                 mod.reset_parameters()
 
+        pp_size = get_pipeline_model_parallel_size()
+        if pp_size > 1:
+            if cls.PIPELINE_PARALLELISM_SPECS_CLS is None:
+                raise NotImplementedError("{cls} does not support pipeline parallelism.")
+
+            model.config.return_dict = False
+            model = NxDPPModel(
+                model,
+                transformer_layer_cls=cls.PIPELINE_PARALLELISM_SPECS_CLS.TRASNFORMER_LAYER_CLS,
+                num_microbatches=3,
+                output_loss_value_spec=(True, False),
+                input_names=["input_ids", "attention_mask"],
+                pipeline_cuts=cls.PIPELINE_PARALLELISM_SPECS_CLS.create_pipeline_cuts(model, pp_size),
+                leaf_module_cls=cls.PIPELINE_PARALLELISM_SPECS_CLS.leaf_module_cls(),
+                use_zero1_optimizer=False,
+            )
+
+        # TODO: see how it works out with pp.
         if checkpoint_dir is not None:
             cls.load_model_checkpoint(model, checkpoint_dir)
 

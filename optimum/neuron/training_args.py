@@ -112,6 +112,7 @@ class NeuronTrainingArgumentsMixin:
             self.tensor_parallel_size,
             not self.disable_embedding_parallelization,
             sequence_parallel_enabled=self.sequence_parallel_enabled,
+            pipeline_parallel_size=self.pipeline_parallel_size,
             checkpoint_dir=resume_from_checkpoint,
         )
         super().__post_init__()

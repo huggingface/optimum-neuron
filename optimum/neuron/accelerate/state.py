@@ -277,7 +277,7 @@ class NeuronAcceleratorState(AcceleratorState):
                     if mp_plugin.should_parallelize:
                         parallel_state.initialize_model_parallel(
                             tensor_model_parallel_size=mp_plugin.tensor_parallel_size,
-                            pipeline_parallel_size=mp_plugin.pipeline_parallel_size,
+                            pipeline_model_parallel_size=mp_plugin.pipeline_parallel_size,
                         )
                         self.distributed_type = NeuronDistributedType.MODEL_PARALLELISM
                     else:
