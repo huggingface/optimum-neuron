@@ -189,9 +189,10 @@ class NeuronCacheCallbackTestCase(StagingTestMixin, TestCase):
             self.assertListEqual(files_in_repo, new_files_in_repo, "No new file should be in the Hub.")
             self.assertListEqual(files_in_cache, new_files_in_cache, "No new file should be in the cache.")
 
-            # New shahpe, should upload.
+            # New shape, should upload.
             inputs = {"x": torch.rand((24, 1)).to("xla")}
             output = model(**inputs)
+            xm.mark_step()
             print(output)
 
             neuron_hash = callback.neuron_hash_for_model(args, model, inputs)

@@ -43,6 +43,7 @@ class DistributedTrainingTestCase(TestCase):
         ci_token = os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI", None)
         if ci_token is not None:
             HfFolder.save_token(ci_token)
+            assert 3==2
             set_custom_cache_repo_name_in_hf_home(cls.CACHE_REPO_NAME)
         cls._token = orig_token
         cls._cache_repo = orig_cache_repo
