@@ -100,7 +100,6 @@ class SequenceParallelismSpecs:
             )
 
 
-
 class PipelineParallelismSpecs:
     TRASNFORMER_LAYER_CLS: Type["torch.nn.Module"]
     LEAF_MODULE_CLASSES_NAMES: Optional[List[Union[str, Type["torch.nn.Module"]]]] = None
@@ -121,6 +120,22 @@ class PipelineParallelismSpecs:
             logger.info(f"Pipeline parallelism cuts: {pipeline_cuts}.")
 
         return pipeline_cuts
+
+    # @classmethod
+    # def create_pipeline_cuts(cls, model, pipeline_parallel_size):
+    #     """
+    #     Evenly split the transformer layers between the PP ranks
+    #     """
+    #     assert model.config.num_hidden_layers % pipeline_parallel_size == 0
+    #     num_layer_per_partition = model.config.num_hidden_layers  // pipeline_parallel_size
+    #     pipeline_cuts = []
+    #     current_cut = num_layer_per_partition - 1
+    #     for i in range(pipeline_parallel_size-1):
+    #         pipeline_cuts.append(f"model.layers.{current_cut}")
+    #         current_cut += num_layer_per_partition
+    #     if torch.distributed.get_rank() == 0:
+    #         print(f"pipeline_cuts {pipeline_cuts}")
+    #     return pipeline_cuts
 
     @classmethod
     def leaf_module_cls(cls) -> List[str]:
@@ -170,8 +185,9 @@ class Parallelizer(ABC):
         )
         pp_size = get_pipeline_model_parallel_size()
         pp_rank = get_pipeline_model_parallel_rank()
+        all_parameter_names = {n for n, _ in model.named_parameters()}
         if pp_size == 1:
-            return {n for n, _ in model.named_parameters()}
+            return all_parameter_names
 
         if cls.PIPELINE_PARALLELISM_SPECS_CLS is None:
             raise NotImplementedError(f"{cls} does not support pipeline parallelism.")
@@ -196,7 +212,15 @@ class Parallelizer(ABC):
                     # `mod.named_parameters()` to get the fully qualified names.
                     name = parameter2name[param]
                     parameter_names.add(name)
-        return parameter_names
+
+        parameter_outside_of_transformer_layers_names = set()
+        for mod in model.modules():
+            if not isinstance(mod, cls.PIPELINE_PARALLELISM_SPECS_CLS.TRASNFORMER_LAYER_CLS):
+                for name, _ in mod.named_parameters():
+                    if name not in parameter_names:
+                        parameter_outside_of_transformer_layers_names.add(name)
+
+        return parameter_names | parameter_outside_of_transformer_layers_names
 
 
     @abstractclassmethod
@@ -295,6 +319,8 @@ class Parallelizer(ABC):
         )
         
         names_of_the_parameters_to_consider = cls._get_parameter_names_for_current_pipeline(model)
+        if torch.distributed.get_rank() == 0:
+            print("NAMES TO CONSIDER", names_of_the_parameters_to_consider)
 
         weight_map = getattr(model, "_weight_map", None)
 
@@ -309,8 +335,8 @@ class Parallelizer(ABC):
             for name, parameter in named_parameters(model, remove_duplicate=False):
 
                 # Skipping the parameters that will not end-up in this pipeline rank.
-                # if name not in names_of_the_parameters_to_consider:
-                #     continue
+                if name not in names_of_the_parameters_to_consider:
+                    continue
 
                 split = name.rsplit(".", maxsplit=1)
                 module = model.get_submodule(split[0])
@@ -382,16 +408,24 @@ class Parallelizer(ABC):
                 raise NotImplementedError("{cls} does not support pipeline parallelism.")
 
             model.config.return_dict = False
+            model.config.use_cache = False
+            model.config.output_attentions = False
+            # model.config.output_hidden_states = 
             model = NxDPPModel(
                 model,
                 transformer_layer_cls=cls.PIPELINE_PARALLELISM_SPECS_CLS.TRASNFORMER_LAYER_CLS,
                 num_microbatches=3,
                 output_loss_value_spec=(True, False),
-                input_names=["input_ids", "attention_mask"],
+                input_names=["input_ids", "attention_mask", "labels"],
                 pipeline_cuts=cls.PIPELINE_PARALLELISM_SPECS_CLS.create_pipeline_cuts(model, pp_size),
                 leaf_module_cls=cls.PIPELINE_PARALLELISM_SPECS_CLS.leaf_module_cls(),
+                trace_file_path="/home/ubuntu/trace",
                 use_zero1_optimizer=False,
             )
+
+            for name, p in model.local_named_parameters():
+                if p.device == torch.device("meta"):
+                    print(name)
 
         # TODO: see how it works out with pp.
         if checkpoint_dir is not None:
@@ -436,11 +470,17 @@ class Parallelizer(ABC):
                     new_param = {k: v for k, v in param.items() if k != "params"}
                     params = []
                     for p in param["params"]:
+                        # This can be the case with pipeline parallelism.
+                        if id(p) not in orig_param_to_parallel_param_on_xla:
+                            continue
                         params.append(orig_param_to_parallel_param_on_xla[id(p)])
                     new_param["params"] = params
                 else:
                     new_param = []
                     for p in param:
+                        # This can be the case with pipeline parallelism.
+                        if id(p) not in orig_param_to_parallel_param_on_xla:
+                            continue
                         new_param.append(orig_param_to_parallel_param_on_xla[id(p)])
                 parameters_on_xla.append(new_param)
         else:
@@ -448,6 +488,9 @@ class Parallelizer(ABC):
                 new_params = []
                 params = param_group["params"]
                 for idx in range(len(params)):
+                    if id(params[idx]) not in orig_param_to_parallel_param_on_xla:
+                        need_to_create_new_optimizer = True
+                        continue
                     param_on_xla = orig_param_to_parallel_param_on_xla[id(params[idx])]
                     if params[idx] != param_on_xla:
                         need_to_create_new_optimizer = True

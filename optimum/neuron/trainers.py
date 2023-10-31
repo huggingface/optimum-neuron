@@ -27,8 +27,6 @@ import numpy as np
 import torch
 from packaging import version
 from transformers import PreTrainedModel, Seq2SeqTrainer, Trainer, TrainingArguments
-from transformers.dependency_versions_check import dep_version_check
-from transformers.integrations import is_fairscale_available
 from transformers.modeling_utils import unwrap_model
 from transformers.trainer import (
     OPTIMIZER_NAME,
@@ -79,10 +77,6 @@ if is_sagemaker_mp_enabled():
 
 else:
     IS_SAGEMAKER_MP_POST_1_10 = False
-
-if is_fairscale_available():
-    dep_version_check("fairscale")
-
 
 logger = logging.get_logger("transformers.trainer")
 
@@ -279,6 +273,16 @@ class AugmentTrainerForNeuronMixin:
     @patch_within_function(("transformers.Trainer.get_optimizer_cls_and_kwargs", get_optimizer_cls_and_kwargs))
     def create_optimizer(self):
         return super().create_optimizer()
+
+    def training_step(self, model: torch.nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]) -> torch.Tensor:
+        from neuronx_distributed.pipeline import NxDPPModel
+
+        if isinstance(model, NxDPPModel):
+            inputs = self._prepare_inputs(inputs)
+            loss = model.run_train(**inputs)
+            return loss.detach() / self.args.gradient_accumulation_steps
+        return super().training_step(model, inputs)
+
 
     def compute_loss(self, model, inputs, return_outputs: bool = False):
         self.state.last_inputs = inputs

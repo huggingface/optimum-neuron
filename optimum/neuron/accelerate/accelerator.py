@@ -349,20 +349,18 @@ class NeuronAccelerator(Accelerator):
 
         return model
 
+    @requires_neuronx_distributed
     def _prepare_model_for_tp(
         self, model: torch.nn.Module, device_placement: Optional[bool] = None, evaluation_mode: bool = False
     ):
+        from neuronx_distributed.pipeline import NxDPPModel
+
         if model in self._models or Parallelizer.was_parallelized(model):
             return model
 
-        cpu_ids = [id(v) for v in model.parameters()]
+        cpu_ids = {name: id(param) for name, param in model.named_parameters()}
         # TODO: enable self.device (if needed).
         model = self.state.mp_plugin.parallelize_model(model, device=None)
-
-        if os.environ.get("XLA_USE_BF16", "0") == "1" or os.environ.get("XLA_DOWNCAST_BF16", "0") == "1":
-            model.to(torch.bfloat16)
-        else:
-            model.to(torch.float32)
 
         def _tie_or_clone_weights_for_tp(self, output_embeddings, input_embeddings):
             """Tie or clone module weights depending of whether we are using TorchScript or not"""
@@ -370,11 +368,26 @@ class NeuronAccelerator(Accelerator):
             if hasattr(output_embeddings, "out_features") and hasattr(input_embeddings, "num_embeddings"):
                 output_embeddings.out_features = input_embeddings.num_embeddings
 
-        with ModelPatcher(patching_specs=[(model, "_tie_or_clone_weights", _tie_or_clone_weights_for_tp)]):
-            model.tie_weights()
-            move_model_to_device(model, self.device)
-            model.tie_weights()
-        self._model_cpu_parameters_to_xla[id(model)] = dict(zip(cpu_ids, model.parameters()))
+        if isinstance(model, NxDPPModel):
+            with ModelPatcher(patching_specs=[(model, "_tie_or_clone_weights", _tie_or_clone_weights_for_tp)]):
+                model.tie_weights()
+                model.move_model_to_device()
+                model.tie_weights()
+            xla_ids = {name: param for name, param in model.local_named_parameters()}
+            self._model_cpu_parameters_to_xla[id(model)] = {cpu_ids[name]:  xla_ids[name] for name, _ in model.local_named_parameters()} 
+        else:
+            if os.environ.get("XLA_USE_BF16", "0") == "1" or os.environ.get("XLA_DOWNCAST_BF16", "0") == "1":
+                model.to(torch.bfloat16)
+            else:
+                model.to(torch.float32)
+
+            with ModelPatcher(patching_specs=[(model, "_tie_or_clone_weights", _tie_or_clone_weights_for_tp)]):
+                model.tie_weights()
+                move_model_to_device(model, self.device)
+                model.tie_weights()
+            xla_ids = {name: id(param) for name, param in model.named_parameters()}
+            self._model_cpu_parameters_to_xla[id(model)] = {cpu_ids[name]:  xla_ids[name] for name, _ in model.named_parameters()} 
+
         device_placement = False
 
         return super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
