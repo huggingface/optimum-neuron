@@ -14,7 +14,7 @@
 # limitations under the License.
 """Classes related to `neuronx-distributed` to perform parallelism."""
 
-from typing import TYPE_CHECKING, Optional, Tuple
+from typing import TYPE_CHECKING, Any, List, Optional, Tuple
 
 import torch
 from transformers.models.gpt_neo.modeling_gpt_neo import GPTNeoBlock, GPTNeoSelfAttention
@@ -23,6 +23,7 @@ from transformers.models.llama.modeling_llama import (
     LlamaAttention,
     LlamaDecoderLayer,
     LlamaRMSNorm,
+    _prepare_4d_causal_attention_mask,
     apply_rotary_pos_emb,
     repeat_kv,
 )
@@ -102,6 +103,7 @@ class GPTNeoSequenceParallelismSpecs(SequenceParallelismSpecs):
             if isinstance(module, GPTNeoSelfAttention):
                 module._split_heads = _split_heads.__get__(module)
                 module._merge_heads = _merge_heads.__get__(module)
+
 
 class GPTNeoParallelizer(Parallelizer):
     SEQUENCE_PARALLELSIM_SPECS_CLS = GPTNeoSequenceParallelismSpecs
@@ -254,9 +256,9 @@ class GPTNeoXSequenceParallelismSpecs(SequenceParallelismSpecs):
             if isinstance(module, GPTNeoXAttention):
                 module.forward = sequence_parallel_forward.__get__(module)
 
+
 class GPTNeoXParallelizer(Parallelizer):
     SEQUENCE_PARALLELSIM_SPECS_CLS = GPTNeoXSequenceParallelismSpecs
-
 
     @classmethod
     def _parallelize(
@@ -497,6 +499,18 @@ class LlamaSequenceParallelismSpecs(SequenceParallelismSpecs):
 class LlamaPipelineParallelismSpecs(PipelineParallelismSpecs):
     TRASNFORMER_LAYER_CLS = LlamaDecoderLayer
     LEAF_MODULE_CLASSES_NAMES = [LlamaRMSNorm]
+
+    @classmethod
+    def get_patching_specs(cls) -> List[Tuple[str, Any]]:
+        leaf_prepare_4d_causal_attention_mask = torch.fx._symbolic_trace._create_wrapped_func(
+            _prepare_4d_causal_attention_mask
+        )
+        return [
+            (
+                "transformers.models.llama.modeling_llama._prepare_4d_causal_attention_mask",
+                leaf_prepare_4d_causal_attention_mask,
+            ),
+        ]
 
 
 class LlamaParallelizer(Parallelizer):

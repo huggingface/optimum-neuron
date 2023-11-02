@@ -46,9 +46,9 @@ from .optimizer import NeuronAcceleratedOptimizer
 from .scheduler import NeuronAcceleratedScheduler
 from .state import NeuronAcceleratorState
 from .utils import (
+    ModelParallelismPlugin,
     NeuronDistributedType,
     NeuronFullyShardedDataParallelPlugin,
-    ModelParallelismPlugin,
     patch_accelerate_is_tpu_available,
 )
 from .utils.operations import _xla_gather
@@ -123,7 +123,9 @@ class NeuronAccelerator(Accelerator):
                 pp_size = 1
             else:
                 pp_size = int(use_neuronx_distributed_pp)
-            mp_plugin = ModelParallelismPlugin(tensor_parallel_size=tp_size, parallelize_embeddings=True, pipeline_parallel_size=pp_size)
+            mp_plugin = ModelParallelismPlugin(
+                tensor_parallel_size=tp_size, parallelize_embeddings=True, pipeline_parallel_size=pp_size
+            )
         self._model_cpu_parameters_to_xla = {}
 
         if mp_plugin.tensor_parallel_size > 1:
@@ -193,7 +195,9 @@ class NeuronAccelerator(Accelerator):
             rank = xm.get_ordinal()
         if self.state.num_processes > 1:
             data_loader = self._prepare_data_loader_for_distributed(data_loader, num_replicas=num_replicas, rank=rank)
-            data_loader = MpDeviceLoader(data_loader, self.device)
+            # No need to wrap the dataloader if we are using pipeline parallelism.
+            if self.state.mp_plugin.pipeline_parallel_size == 1:
+                data_loader = MpDeviceLoader(data_loader, self.device)
         return data_loader
         # TODO: fix that.
         # return super().prepare_data_loader(data_loader, device_placement=device_placement)
@@ -373,8 +377,10 @@ class NeuronAccelerator(Accelerator):
                 model.tie_weights()
                 model.move_model_to_device()
                 model.tie_weights()
-            xla_ids = {name: param for name, param in model.local_named_parameters()}
-            self._model_cpu_parameters_to_xla[id(model)] = {cpu_ids[name]:  xla_ids[name] for name, _ in model.local_named_parameters()} 
+            xla_ids = dict(model.local_named_parameters())
+            self._model_cpu_parameters_to_xla[id(model)] = {
+                cpu_ids[name]: xla_ids[name] for name, _ in model.local_named_parameters()
+            }
         else:
             if os.environ.get("XLA_USE_BF16", "0") == "1" or os.environ.get("XLA_DOWNCAST_BF16", "0") == "1":
                 model.to(torch.bfloat16)
@@ -386,7 +392,9 @@ class NeuronAccelerator(Accelerator):
                 move_model_to_device(model, self.device)
                 model.tie_weights()
             xla_ids = {name: id(param) for name, param in model.named_parameters()}
-            self._model_cpu_parameters_to_xla[id(model)] = {cpu_ids[name]:  xla_ids[name] for name, _ in model.named_parameters()} 
+            self._model_cpu_parameters_to_xla[id(model)] = {
+                cpu_ids[name]: xla_ids[name] for name, _ in model.named_parameters()
+            }
 
         device_placement = False
 

@@ -274,6 +274,13 @@ class AugmentTrainerForNeuronMixin:
     def create_optimizer(self):
         return super().create_optimizer()
 
+    def _prepare_input(self, data: Union[torch.Tensor, Any]) -> Union[torch.Tensor, Any]:
+        # When pipeline parallelism is enabled, we should not put any tensor on device.
+        # It is handled by the NxDPPModel class.
+        if self.args.mp_plugin.pipeline_parallel_size > 1:
+            return data
+        return super()._prepare_input(data)
+
     def training_step(self, model: torch.nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]) -> torch.Tensor:
         from neuronx_distributed.pipeline import NxDPPModel
 
@@ -282,7 +289,6 @@ class AugmentTrainerForNeuronMixin:
             loss = model.run_train(**inputs)
             return loss.detach() / self.args.gradient_accumulation_steps
         return super().training_step(model, inputs)
-
 
     def compute_loss(self, model, inputs, return_outputs: bool = False):
         self.state.last_inputs = inputs

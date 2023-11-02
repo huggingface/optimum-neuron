@@ -318,7 +318,6 @@ class T5SequenceParallelismSpecs(SequenceParallelismSpecs):
 
 
 class T5Parallelizer(Parallelizer):
-
     @classmethod
     def _parallelize(
         cls,

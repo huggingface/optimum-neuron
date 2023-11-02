@@ -21,15 +21,16 @@ from abc import ABC, abstractclassmethod
 from dataclasses import asdict
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple, Union, Type, Set
+from typing import Any, Dict, List, Mapping, Optional, Set, Tuple, Type, Union
 
 import torch
-from transformers import PreTrainedModel, PretrainedConfig
+from transformers import PreTrainedModel
 from transformers.utils import WEIGHTS_NAME
 
 from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
 from ..utils.deprecate_utils import deprecate
+from ..utils.patching import Patcher
 from ..utils.require_utils import requires_neuronx_distributed
 from .parallel_layers import (
     IOSequenceParallelizer,
@@ -114,28 +115,15 @@ class PipelineParallelismSpecs:
             )
         num_layers_per_partition = num_layers // pipeline_parallel_size
         layers_names = [name for (name, mod) in model.named_modules() if isinstance(mod, cls.TRASNFORMER_LAYER_CLS)]
-        pipeline_cuts = [layers_names[cut_idx] for cut_idx in range(num_layers_per_partition - 1, num_layers - 1, num_layers_per_partition)]
+        pipeline_cuts = [
+            layers_names[cut_idx]
+            for cut_idx in range(num_layers_per_partition - 1, num_layers - 1, num_layers_per_partition)
+        ]
 
         if torch.distributed.get_rank() == 0:
             logger.info(f"Pipeline parallelism cuts: {pipeline_cuts}.")
 
         return pipeline_cuts
-
-    # @classmethod
-    # def create_pipeline_cuts(cls, model, pipeline_parallel_size):
-    #     """
-    #     Evenly split the transformer layers between the PP ranks
-    #     """
-    #     assert model.config.num_hidden_layers % pipeline_parallel_size == 0
-    #     num_layer_per_partition = model.config.num_hidden_layers  // pipeline_parallel_size
-    #     pipeline_cuts = []
-    #     current_cut = num_layer_per_partition - 1
-    #     for i in range(pipeline_parallel_size-1):
-    #         pipeline_cuts.append(f"model.layers.{current_cut}")
-    #         current_cut += num_layer_per_partition
-    #     if torch.distributed.get_rank() == 0:
-    #         print(f"pipeline_cuts {pipeline_cuts}")
-    #     return pipeline_cuts
 
     @classmethod
     def leaf_module_cls(cls) -> List[str]:
@@ -143,11 +131,16 @@ class PipelineParallelismSpecs:
             return []
         return [class_ if isinstance(class_, str) else class_.__name__ for class_ in cls.LEAF_MODULE_CLASSES_NAMES]
 
+    @classmethod
+    def get_patching_specs(cls) -> List[Tuple[str, Any]]:
+        return []
+
 
 class Parallelizer(ABC):
     """
     Base abstract class that handles model parallelism.
     """
+
     SEQUENCE_PARALLELSIM_SPECS_CLS: Optional[Type[SequenceParallelismSpecs]] = None
     PIPELINE_PARALLELISM_SPECS_CLS: Optional[Type[PipelineParallelismSpecs]] = None
 
@@ -180,9 +173,10 @@ class Parallelizer(ABC):
     @requires_neuronx_distributed
     def _get_parameter_names_for_current_pipeline(cls, model: "torch.nn.Module") -> Set[str]:
         from neuronx_distributed.parallel_layers.parallel_state import (
-            get_pipeline_model_parallel_size,
             get_pipeline_model_parallel_rank,
+            get_pipeline_model_parallel_size,
         )
+
         pp_size = get_pipeline_model_parallel_size()
         pp_rank = get_pipeline_model_parallel_rank()
         all_parameter_names = {n for n, _ in model.named_parameters()}
@@ -197,31 +191,32 @@ class Parallelizer(ABC):
         start_module_name = cuts[pp_rank - 1] if pp_rank > 1 else None
         end_module_name = None if pp_rank == pp_size - 1 else cuts[pp_rank]
         parameter2name = {p: n for n, p in model.named_parameters()}
-        parameter_names = set() 
+        parameter_names = set()
         should_add = False
         for name, mod in model.named_modules():
             if not isinstance(mod, cls.PIPELINE_PARALLELISM_SPECS_CLS.TRASNFORMER_LAYER_CLS):
                 continue
             if start_module_name is None or start_module_name == name:
                 should_add = True
-            elif name == end_module_name:
+            if name == end_module_name:
                 break
             if should_add:
                 for param in mod.parameters():
-                    # It is important to use this dictionary (built with `model.named_parameters()`) instead of using 
+                    # It is important to use this dictionary (built with `model.named_parameters()`) instead of using
                     # `mod.named_parameters()` to get the fully qualified names.
-                    name = parameter2name[param]
-                    parameter_names.add(name)
+                    param_name = parameter2name[param]
+                    parameter_names.add(param_name)
 
-        parameter_outside_of_transformer_layers_names = set()
-        for mod in model.modules():
-            if not isinstance(mod, cls.PIPELINE_PARALLELISM_SPECS_CLS.TRASNFORMER_LAYER_CLS):
-                for name, _ in mod.named_parameters():
-                    if name not in parameter_names:
-                        parameter_outside_of_transformer_layers_names.add(name)
-
+        parameters_inside_transformer_layers = {
+            p
+            for mod in model.modules()
+            if isinstance(mod, cls.PIPELINE_PARALLELISM_SPECS_CLS.TRASNFORMER_LAYER_CLS)
+            for p in mod.parameters()
+        }
+        parameter_outside_of_transformer_layers_names = {
+            name for name, param in model.named_parameters() if param not in parameters_inside_transformer_layers
+        }
         return parameter_names | parameter_outside_of_transformer_layers_names
-
 
     @abstractclassmethod
     def _parallelize(
@@ -286,14 +281,19 @@ class Parallelizer(ABC):
         if sequence_parallel_enabled and cls.SEQUENCE_PARALLELSIM_SPECS_CLS is None:
             raise NotImplementedError(f"Sequence parallelism is not supported for {model.__class__}.")
 
-        from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_rank, get_pipeline_model_parallel_size
-        from neuronx_distributed .pipeline import NxDPPModel
+        from neuronx_distributed.parallel_layers.parallel_state import (
+            get_pipeline_model_parallel_size,
+            get_tensor_model_parallel_rank,
+        )
+        from neuronx_distributed.pipeline import NxDPPModel
 
         # Preparing the model for sequence parallelism:
         sp_specs_cls = cls.SEQUENCE_PARALLELSIM_SPECS_CLS
         # 1. Transforming the LayerNorms.
         layer_norm_qualified_name_patterns = (
-            sp_specs_cls.SEQUENCE_PARALLEL_LAYERNORM_PATTERNS if sp_specs_cls.SEQUENCE_PARALLEL_LAYERNORM_PATTERNS is not None else []
+            sp_specs_cls.SEQUENCE_PARALLEL_LAYERNORM_PATTERNS
+            if sp_specs_cls.SEQUENCE_PARALLEL_LAYERNORM_PATTERNS is not None
+            else []
         )
         layer_norm_sequence_parallelizer = LayerNormSequenceParallelizer(
             sequence_parallel_enabled, layer_norm_qualified_name_patterns
@@ -317,10 +317,8 @@ class Parallelizer(ABC):
             parallelize_embeddings=parallelize_embeddings,
             sequence_parallel_enabled=sequence_parallel_enabled,
         )
-        
+
         names_of_the_parameters_to_consider = cls._get_parameter_names_for_current_pipeline(model)
-        if torch.distributed.get_rank() == 0:
-            print("NAMES TO CONSIDER", names_of_the_parameters_to_consider)
 
         weight_map = getattr(model, "_weight_map", None)
 
@@ -333,7 +331,6 @@ class Parallelizer(ABC):
             new_parameters = set()
             modules_to_initialize = []
             for name, parameter in named_parameters(model, remove_duplicate=False):
-
                 # Skipping the parameters that will not end-up in this pipeline rank.
                 if name not in names_of_the_parameters_to_consider:
                     continue
@@ -410,18 +407,19 @@ class Parallelizer(ABC):
             model.config.return_dict = False
             model.config.use_cache = False
             model.config.output_attentions = False
-            # model.config.output_hidden_states = 
-            model = NxDPPModel(
-                model,
-                transformer_layer_cls=cls.PIPELINE_PARALLELISM_SPECS_CLS.TRASNFORMER_LAYER_CLS,
-                num_microbatches=3,
-                output_loss_value_spec=(True, False),
-                input_names=["input_ids", "attention_mask", "labels"],
-                pipeline_cuts=cls.PIPELINE_PARALLELISM_SPECS_CLS.create_pipeline_cuts(model, pp_size),
-                leaf_module_cls=cls.PIPELINE_PARALLELISM_SPECS_CLS.leaf_module_cls(),
-                trace_file_path="/home/ubuntu/trace",
-                use_zero1_optimizer=False,
-            )
+            model.config.output_hidden_states = False
+
+            with Patcher(cls.PIPELINE_PARALLELISM_SPECS_CLS.get_patching_specs()):
+                model = NxDPPModel(
+                    model,
+                    transformer_layer_cls=cls.PIPELINE_PARALLELISM_SPECS_CLS.TRASNFORMER_LAYER_CLS,
+                    num_microbatches=3,
+                    output_loss_value_spec=(True, False),
+                    input_names=["input_ids", "attention_mask", "labels"],
+                    pipeline_cuts=cls.PIPELINE_PARALLELISM_SPECS_CLS.create_pipeline_cuts(model, pp_size),
+                    leaf_module_cls=cls.PIPELINE_PARALLELISM_SPECS_CLS.leaf_module_cls(),
+                    use_zero1_optimizer=False,
+                )
 
             for name, p in model.local_named_parameters():
                 if p.device == torch.device("meta"):

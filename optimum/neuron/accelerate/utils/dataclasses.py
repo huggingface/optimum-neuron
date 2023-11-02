@@ -151,7 +151,9 @@ class ModelParallelismPlugin:
         if self.tensor_parallel_size < 1:
             raise ValueError(f"The tensor parallel size must be >= 1, but {self.tensor_parallel_size} was given here.")
         if self.pipeline_parallel_size < 1:
-            raise ValueError(f"The pipeline parallel size must be >= 1, but {self.pipeline_parallel_size} was given here.")
+            raise ValueError(
+                f"The pipeline parallel size must be >= 1, but {self.pipeline_parallel_size} was given here."
+            )
         if isinstance(self.checkpoint_dir, str):
             self.checkpoint_dir = Path(self.checkpoint_dir)
 

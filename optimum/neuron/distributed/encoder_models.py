@@ -123,6 +123,7 @@ class BertSequenceParallelismSpecs(SequenceParallelismSpecs):
                     module.forward, sequence_parallel_enabled
                 ).__get__(module)
 
+
 class BertParallelizer(Parallelizer):
     SEQUENCE_PARALLELSIM_SPECS_CLS = BertSequenceParallelismSpecs
 

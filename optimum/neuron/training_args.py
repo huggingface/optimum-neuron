@@ -65,7 +65,8 @@ class NeuronTrainingArgumentsMixin:
         metadata={"help": "Whether or not to enable sequence parallelism."},
     )
     pipeline_parallel_size: int = field(
-        default=1, metadata={"help": "The number of pipeline parallel replicas"},
+        default=1,
+        metadata={"help": "The number of pipeline parallel replicas"},
     )
 
     def __post_init__(self):
