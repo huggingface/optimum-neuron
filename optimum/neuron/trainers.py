@@ -179,7 +179,7 @@ class AugmentTrainerForNeuronMixin:
             wait_for_everyone_on_fetch=False,
             wait_for_everyone_on_push=True,
         )
-        self.add_callback(callback)
+        # self.add_callback(callback)
 
         # Make the model Neuron-compatible for generation.
         patch_generation_mixin_to_neuron_generation_mixin(self.model)
@@ -281,19 +281,35 @@ class AugmentTrainerForNeuronMixin:
             return data
         return super()._prepare_input(data)
 
-    def training_step(self, model: torch.nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]) -> torch.Tensor:
+    def compute_loss(self, model, inputs, return_outputs: bool = False):
+        self.state.last_inputs = inputs
+        self.trigger_on_step_middle_for_neuron_cache_callback(model)
         from neuronx_distributed.pipeline import NxDPPModel
 
         if isinstance(model, NxDPPModel):
             inputs = self._prepare_inputs(inputs)
             loss = model.run_train(**inputs)
-            return loss.detach() / self.args.gradient_accumulation_steps
-        return super().training_step(model, inputs)
+            return loss.detach()
 
-    def compute_loss(self, model, inputs, return_outputs: bool = False):
-        self.state.last_inputs = inputs
-        self.trigger_on_step_middle_for_neuron_cache_callback(model)
         return super().compute_loss(model, inputs, return_outputs=return_outputs)
+    
+    def training_step(self, model: torch.nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]) -> torch.Tensor:
+        from neuronx_distributed.pipeline import NxDPPModel
+        if isinstance(model, NxDPPModel):
+            from neuronx_distributed.parallel_layers.parallel_state import (
+                get_pipeline_model_parallel_rank,
+                get_pipeline_model_parallel_size,
+            )
+            if get_pipeline_model_parallel_rank() != get_pipeline_model_parallel_size() - 1:
+                use_bf16 = os.environ.get("XLA_USE_BF16", False) or os.environ.get("XLA_DOWNCAST_BF16", False)
+                dtype = torch.bfloat16 if use_bf16 else torch.float32 
+                loss = torch.tensor(0, dtype=dtype)
+            else:
+                with self.compute_loss_context_manager():
+                    loss = self.compute_loss(model, inputs)
+                    loss = loss.detach()
+            return loss / self.args.gradient_accumulation_steps
+        return super().training_step(model, inputs)
 
     def prediction_step(
         self,
@@ -328,16 +344,29 @@ class AugmentTrainerForNeuronMixin:
                 from neuronx_distributed.parallel_layers.parallel_state import (
                     get_data_parallel_group,
                     get_data_parallel_size,
+                    get_pipeline_model_parallel_size,
+                    get_pipeline_model_parallel_rank,
+                    get_pipeline_model_parallel_group,
                 )
-
+                pp_size = get_pipeline_model_parallel_size()
                 dp_size = get_data_parallel_size()
-                tr_loss_div = tr_loss / dp_size
-                tr_loss_scalar = xm.all_reduce(
-                    xm.REDUCE_SUM,
-                    tr_loss_div,
-                    groups=get_data_parallel_group(as_list=True),
-                )
-                tr_loss_scalar = tr_loss_scalar.detach().item()
+                tr_loss_div = tr_loss / dp_size 
+                
+                if pp_size > 1:
+                    tr_loss_div = tr_loss_div.to(xm.xla_device())
+                    torch.distributed.all_reduce(tr_loss_div, group=get_data_parallel_group())
+                    torch.distributed.broadcast(
+                        tr_loss_div, torch.distributed.get_rank(), group=get_pipeline_model_parallel_group(),
+                    )
+                    xm.mark_step()
+                    tr_loss_scalar = tr_loss_div.item()
+                else:
+                    tr_loss_scalar = xm.all_reduce(
+                        xm.REDUCE_SUM,
+                        tr_loss_div,
+                        groups=get_data_parallel_group(as_list=True),
+                    )
+                    tr_loss_scalar = tr_loss_scalar.detach().item()
             else:
                 # all_gather + mean() to get average loss over all processes
                 tr_loss_scalar = self._nested_gather(tr_loss).mean().item()
