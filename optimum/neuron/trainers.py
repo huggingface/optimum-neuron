@@ -182,7 +182,7 @@ class AugmentTrainerForNeuronMixin:
             original_neuron_cache_path=_ORIGINAL_NEURON_CACHE_PATH,
             fetch=fetch,
             push=push,
-            wait_for_everyone_on_fetch=False,
+            wait_for_everyone_on_fetch=True,
             wait_for_everyone_on_push=True,
         )
         self.add_callback(callback)
