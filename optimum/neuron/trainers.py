@@ -27,7 +27,6 @@ import numpy as np
 import torch
 from packaging import version
 from transformers import PreTrainedModel, Seq2SeqTrainer, Trainer, TrainingArguments
-from transformers.dependency_versions_check import dep_version_check
 from transformers.modeling_utils import unwrap_model
 from transformers.trainer import (
     OPTIMIZER_NAME,
