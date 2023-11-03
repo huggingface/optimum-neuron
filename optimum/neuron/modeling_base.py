@@ -349,7 +349,7 @@ class NeuronBaseModel(OptimizedModel):
                     repo_id=repository_id,
                     path_or_fileobj=os.path.join(os.getcwd(), local_file_path),
                     path_in_repo=hub_file_path,
-                    revision=revision
+                    revision=revision,
                 )
 
     def forward(self, *args, **kwargs):
