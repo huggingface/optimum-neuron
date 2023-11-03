@@ -317,7 +317,7 @@ class NeuronBaseModel(OptimizedModel):
         save_directory: str,
         repository_id: str,
         private: Optional[bool] = None,
-        revision: Optional[str] = "main",
+        revision: Optional[str] = None,
         use_auth_token: Union[bool, str] = True,
         endpoint: Optional[str] = None,
     ) -> str:
