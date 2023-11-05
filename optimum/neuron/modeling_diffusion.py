@@ -299,7 +299,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 "`model_save_paths` is None which means that no path of Neuron model is defined. Nothing will be saved."
             )
             return
-        
+
         save_directory = Path(save_directory)
         if not self.model_and_config_save_paths.get(DIFFUSION_MODEL_VAE_ENCODER_NAME)[0].is_file():
             self.model_and_config_save_paths.pop(DIFFUSION_MODEL_VAE_ENCODER_NAME)

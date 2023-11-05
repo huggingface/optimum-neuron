@@ -328,7 +328,7 @@ def export_models(
             if is_diffusers_available() and isinstance(model_config, FrozenDict):
                 model_config = OrderedDict(model_config)
                 model_config = DiffusersPretrainedConfig.from_dict(model_config)
-            
+
             model_config = store_compilation_config(
                 config=model_config,
                 input_shapes=sub_neuron_config.input_shapes,
@@ -343,8 +343,6 @@ def export_models(
             )
             if isinstance(model_config, PretrainedConfig):
                 model_config = DiffusersPretrainedConfig.from_dict(model_config.__dict__)
-            import pdb
-            pdb.set_trace()
             model_config.save_pretrained(output_path.parent)
         except Exception as e:
             failed_models.append((i, model_name))
@@ -453,6 +451,9 @@ def export_neuronx(
     # diffusers specific
     compiler_args = add_stable_diffusion_compiler_args(config, compiler_args)
 
+    import pdb
+
+    pdb.set_trace()
     neuron_model = neuronx.trace(
         checked_model,
         dummy_inputs_tuple,

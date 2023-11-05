@@ -13,9 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """NeuroModelForXXX classes for seq2seq models' inference on neuron devices."""
+import logging
 import os
 import shutil
-import logging
 from abc import abstractmethod
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -88,7 +88,7 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
         self._attributes_init(model_save_dir, preprocessors, **kwargs)
         self.encoder_file_name = encoder_file_name
         self.decoder_file_name = decoder_file_name
-        
+
         if generation_config is None:
             generation_config = GenerationConfig.from_model_config(self.configs[DECODER_NAME])
         self.generation_config = generation_config
@@ -113,19 +113,19 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
                 "`model_save_paths` is None which means that no path of Neuron model is defined. Nothing will be saved."
             )
             return
-        
+
         save_directory = Path(save_directory)
         if not self.model_and_config_save_paths.get(ENCODER_NAME)[0].is_file():
             self.model_and_config_save_paths.pop(ENCODER_NAME)
 
         if not self.model_and_config_save_paths.get(DECODER_NAME)[0].is_file():
             self.model_and_config_save_paths.pop(DECODER_NAME)
-        
+
         dst_paths = {
             ENCODER_NAME: save_directory / ENCODER_NAME / encoder_file_name,
             DECODER_NAME: save_directory / DECODER_NAME / decoder_file_name,
         }
-        
+
         model_src_to_dst_path = {
             self.model_and_config_save_paths[model_name][0]: dst_paths[model_name]
             for model_name in set(self.model_and_config_save_paths.keys()).intersection(dst_paths.keys())
@@ -135,7 +135,7 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
             self.model_and_config_save_paths[model_name][1]: dst_paths[model_name].parent / self.config_name
             for model_name in set(self.model_and_config_save_paths.keys()).intersection(dst_paths.keys())
         }
-        
+
         src_paths = list(model_src_to_dst_path.keys()) + list(config_src_to_dst_path.keys())
         dst_paths = list(model_src_to_dst_path.values()) + list(config_src_to_dst_path.values())
 
@@ -143,10 +143,10 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
             dst_path.parent.mkdir(parents=True, exist_ok=True)
             if src_path.is_file():
                 shutil.copyfile(src_path, dst_path)
-            
+
         src_paths = [Path(path) for path in self.onnx_paths]
         dst_paths = [save_directory / path.name for path in src_paths]
-        
+
         if self.tokenizer is not None:
             self.tokenizer.save_pretrained(save_directory)
 
@@ -205,16 +205,21 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
                 configs[name] = model_config
                 neuron_configs[name] = cls._neuron_config_init(model_config)
 
-        encoder = cls.load_model(model_and_config_save_paths["encoder"][0])
-        decoder = cls.load_model(model_and_config_save_paths["decoder"][0])
-        
         # TODO: Debug num_beams unmatched issue
         import pdb
+
         pdb.set_trace()
-        
+        encoder = cls.load_model(model_and_config_save_paths["encoder"][0])
+        decoder = cls.load_model(model_and_config_save_paths["decoder"][0])
+
+        # TODO: Debug num_beams unmatched issue
+        import pdb
+
+        pdb.set_trace()
+
         if model_save_dir is None:
             model_save_dir = new_model_save_dir
-        
+
         generation_config = None
         try:
             generation_config = GenerationConfig.from_pretrained(

@@ -394,6 +394,13 @@ class T5EncoderNeuronConfig(TextSeq2SeqNeuronConfig):
             custom_wrapper_kwargs={"num_beams": num_beams, "device": device},
         )
 
+    # def generate_dummy_inputs(self, **kwargs):
+    #     batch_size = kwargs.pop("batch_size") * kwargs.get("num_beams")
+    #     dummy_inputs = super().generate_dummy_inputs(batch_size=batch_size, **kwargs)
+
+    #     return dummy_inputs
+
+
 @register_in_tasks_manager("opt", "text-generation")
 class OPTNeuronConfig(TextNeuronDecoderConfig):
     NEURONX_CLASS = "opt.model.OPTForSampling"
