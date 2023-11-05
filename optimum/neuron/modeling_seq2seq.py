@@ -19,7 +19,7 @@ import shutil
 from abc import abstractmethod
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 
 import torch
 from huggingface_hub import snapshot_download
@@ -46,7 +46,7 @@ if TYPE_CHECKING:
     from transformers import PretrainedConfig
 
 if is_neuronx_available():
-    pass
+    import torch_neuronx
 
 logger = logging.getLogger(__name__)
 
@@ -66,8 +66,13 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
         preprocessors: Optional[List] = None,
         neuron_configs: Optional[Dict[str, "NeuronConfig"]] = None,
         generation_config: Optional[GenerationConfig] = None,
+        model_and_config_save_paths: Optional[Dict[str, Tuple[str, Path]]] = None,
         **kwargs,
     ):
+        self.configs = configs
+        self.neuron_configs = neuron_configs
+        self._attributes_init(model_save_dir, preprocessors, **kwargs)
+        self.model_and_config_save_paths = model_and_config_save_paths if model_and_config_save_paths else None
         self.encoder = NeuronEncoder(
             encoder,
             self,
@@ -80,12 +85,9 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
             self.configs[DECODER_NAME],
             self.neuron_configs[DECODER_NAME],
         )
-        self.configs = configs
-        self.neuron_configs = neuron_configs
         self.dynamic_batch_size = all(
             neuron_config._config.neuron["dynamic_batch_size"] for neuron_config in self.neuron_configs.values()
         )
-        self._attributes_init(model_save_dir, preprocessors, **kwargs)
         self.encoder_file_name = encoder_file_name
         self.decoder_file_name = decoder_file_name
 
@@ -121,34 +123,19 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
         if not self.model_and_config_save_paths.get(DECODER_NAME)[0].is_file():
             self.model_and_config_save_paths.pop(DECODER_NAME)
 
-        dst_paths = {
-            ENCODER_NAME: save_directory / ENCODER_NAME / encoder_file_name,
-            DECODER_NAME: save_directory / DECODER_NAME / decoder_file_name,
-        }
-
-        model_src_to_dst_path = {
-            self.model_and_config_save_paths[model_name][0]: dst_paths[model_name]
-            for model_name in set(self.model_and_config_save_paths.keys()).intersection(dst_paths.keys())
-        }
-        # save
-        config_src_to_dst_path = {
-            self.model_and_config_save_paths[model_name][1]: dst_paths[model_name].parent / self.config_name
-            for model_name in set(self.model_and_config_save_paths.keys()).intersection(dst_paths.keys())
-        }
-
-        src_paths = list(model_src_to_dst_path.keys()) + list(config_src_to_dst_path.keys())
-        dst_paths = list(model_src_to_dst_path.values()) + list(config_src_to_dst_path.values())
+        dst_paths = [
+            save_directory / ENCODER_NAME / encoder_file_name,
+            save_directory / DECODER_NAME / decoder_file_name,
+        ]
+        src_paths = [
+            Path(self.model_and_config_save_paths[model_name][0])
+            for model_name in set(self.model_and_config_save_paths.keys()).intersection([ENCODER_NAME, DECODER_NAME])
+        ]
 
         for src_path, dst_path in zip(src_paths, dst_paths):
             dst_path.parent.mkdir(parents=True, exist_ok=True)
             if src_path.is_file():
                 shutil.copyfile(src_path, dst_path)
-
-        src_paths = [Path(path) for path in self.onnx_paths]
-        dst_paths = [save_directory / path.name for path in src_paths]
-
-        if self.tokenizer is not None:
-            self.tokenizer.save_pretrained(save_directory)
 
         self.generation_config.save_pretrained(save_directory)
 
@@ -205,17 +192,9 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
                 configs[name] = model_config
                 neuron_configs[name] = cls._neuron_config_init(model_config)
 
-        # TODO: Debug num_beams unmatched issue
-        import pdb
-
-        pdb.set_trace()
         encoder = cls.load_model(model_and_config_save_paths["encoder"][0])
         decoder = cls.load_model(model_and_config_save_paths["decoder"][0])
-
-        # TODO: Debug num_beams unmatched issue
-        import pdb
-
-        pdb.set_trace()
+        torch_neuronx.move_trace_to_device(decoder, 0)
 
         if model_save_dir is None:
             model_save_dir = new_model_save_dir
@@ -244,6 +223,7 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
             preprocessors=preprocessors,
             neuron_configs=neuron_configs,
             generation_config=generation_config,
+            model_and_config_save_paths=model_and_config_save_paths,
         )
 
     @classmethod
@@ -266,6 +246,11 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
         dynamic_batch_size: bool = False,
         **kwargs_shapes,
     ) -> "NeuronModelForConditionalGeneration":
+        if dynamic_batch_size is True:
+            logger.warning(
+                "Sequence-to-sequence models don't support dynamic batch size yet, `dynamic_batch_size` will be set to False."
+            )
+
         if task is None:
             task = TasksManager.infer_task_from_model(cls.auto_model_class)
 
@@ -303,6 +288,11 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
             config=config,
             model_save_dir=save_dir,
         )
+
+    def _save_config(self, save_directory):
+        save_directory = Path(save_directory)
+        self.configs[ENCODER_NAME].save_pretrained(save_directory / ENCODER_NAME)
+        self.configs[DECODER_NAME].save_pretrained(save_directory / DECODER_NAME)
 
 
 class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerationMixin):

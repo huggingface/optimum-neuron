@@ -451,9 +451,6 @@ def export_neuronx(
     # diffusers specific
     compiler_args = add_stable_diffusion_compiler_args(config, compiler_args)
 
-    import pdb
-
-    pdb.set_trace()
     neuron_model = neuronx.trace(
         checked_model,
         dummy_inputs_tuple,
