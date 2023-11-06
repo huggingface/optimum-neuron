@@ -69,7 +69,6 @@ else:
     xm = None
 
 if is_neuronx_distributed_available():
-    from neuronx_distributed import parallel_layers
     from neuronx_distributed.utils.model_utils import move_model_to_device
 
 
@@ -143,15 +142,26 @@ class NeuronAccelerator(Accelerator):
         if num_steps != 1:
             self.gradient_accumulation_steps = num_steps
 
-    def _prepare_data_loader_for_tp(self, data_loader: DataLoader) -> DataLoader:
+    def _prepare_data_loader_for_distributed(
+        self, data_loader: DataLoader, num_replicas: int, rank: int
+    ) -> DataLoader:
         # TODO: make it more robust, similar to the prepare_data_loader function in `accelerate`.
         if isinstance(data_loader.sampler, DistributedSampler):
             return data_loader
-        sampler = DistributedSampler(
-            data_loader.dataset,
-            num_replicas=parallel_layers.parallel_state.get_data_parallel_size(),
-            rank=parallel_layers.parallel_state.get_data_parallel_rank(),
-        )
+
+        orig_sampler = data_loader.sampler
+        if isinstance(orig_sampler, torch.utils.data.SequentialSampler):
+            shuffle = False
+        else:
+            shuffle = True
+            if not isinstance(orig_sampler, torch.utils.data.RandomSampler):
+                logger.warning(
+                    f"The sampler {orig_sampler} is going to be replaced by a torch.utils.data.DistributedSampler. This "
+                    "new sampler will shuffle the dataset, it might not be the expected behaviour."
+                )
+
+        sampler = DistributedSampler(data_loader.dataset, num_replicas=num_replicas, rank=rank, shuffle=shuffle)
+
         data_loader_for_tp = DataLoader(
             data_loader.dataset,
             batch_size=data_loader.batch_size,
@@ -166,8 +176,15 @@ class NeuronAccelerator(Accelerator):
 
     def prepare_data_loader(self, data_loader: DataLoader, device_placement: Optional[bool] = None):
         if self.state.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
-            data_loader = self._prepare_data_loader_for_tp(data_loader)
+            from neuronx_distributed import parallel_layers
+
+            num_replicas = parallel_layers.parallel_state.get_data_parallel_size()
+            rank = parallel_layers.parallel_state.get_data_parallel_rank()
+        else:
+            num_replicas = xm.xrt_world_size()
+            rank = xm.get_ordinal()
         if self.state.num_processes > 1:
+            data_loader = self._prepare_data_loader_for_distributed(data_loader, num_replicas=num_replicas, rank=rank)
             data_loader = MpDeviceLoader(data_loader, self.device)
         return data_loader
         # TODO: fix that.
@@ -204,7 +221,7 @@ class NeuronAccelerator(Accelerator):
             model_parallel_is_initialized,
         )
 
-        if not is_neuronx_distributed_available() or not model_parallel_is_initialized():
+        if not model_parallel_is_initialized():
             sharding_groups = None
             grad_norm_groups = None
         else:
@@ -326,10 +343,14 @@ class NeuronAccelerator(Accelerator):
     def _prepare_model_for_tp(
         self, model: torch.nn.Module, device_placement: Optional[bool] = None, evaluation_mode: bool = False
     ):
+        if model in self._models or Parallelizer.was_parallelized(model):
+            return model
+
         cpu_ids = [id(v) for v in model.parameters()]
         # TODO: enable self.device (if needed).
         model = self.state.tp_plugin.parallelize_model(model, device=None)
-        if os.environ.get("XLA_USE_BF16", "0") == "1":
+
+        if os.environ.get("XLA_USE_BF16", "0") == "1" or os.environ.get("XLA_DOWNCAST_BF16", "0") == "1":
             model.to(torch.bfloat16)
         else:
             model.to(torch.float32)
