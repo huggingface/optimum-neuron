@@ -468,7 +468,7 @@ def gqa_key_value_slicing_when_tp_size_greater_than_num_key_value_heads(
 
 @classmethod
 @requires_torch_xla
-def from_pretrained_for_tp(
+def from_pretrained_for_mp(
     cls,
     pretrained_model_name_or_path: Optional[Union[str, os.PathLike]],
     *model_args,
@@ -645,7 +645,7 @@ def lazy_load_for_parallelism(tensor_parallel_size: int = 1):
         instantiate.
         - Every `torch.nn.Embedding` is also put on the `torch.device("meta")` device.
         - No state dict is actually loaded, instead a weight map is created and attached to the model. For more
-        information, read the [`optimum.neuron.distributed.utils.from_pretrained_for_tp`] docstring.
+        information, read the [`optimum.neuron.distributed.utils.from_pretrained_for_mp`] docstring.
 
     Args:
         tensor_parallel_size (`int`, defaults to 1):
@@ -665,7 +665,7 @@ def lazy_load_for_parallelism(tensor_parallel_size: int = 1):
     patching_specs = [
         ("torch.nn.Embedding.__init__", meta_init_patch),
         ("torch.nn.Linear.__init__", meta_init_patch),
-        ("transformers.modeling_utils.PreTrainedModel.from_pretrained", from_pretrained_for_tp),
+        ("transformers.modeling_utils.PreTrainedModel.from_pretrained", from_pretrained_for_mp),
     ]
     if tensor_parallel_size > 1:
         patcher = Patcher(patching_specs=patching_specs)

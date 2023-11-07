@@ -323,81 +323,79 @@ class Parallelizer(ABC):
         weight_map = getattr(model, "_weight_map", None)
 
         # The model was not loaded lazily, it is already ready.
-        if weight_map is None:
-            return model
+        if weight_map is not None:
+            with torch.no_grad():
+                tied_weights = {}
+                new_parameters = set()
+                modules_to_initialize = []
+                for name, parameter in named_parameters(model, remove_duplicate=False):
+                    # Skipping the parameters that will not end-up in this pipeline rank.
+                    if name not in names_of_the_parameters_to_consider:
+                        continue
 
-        with torch.no_grad():
-            tied_weights = {}
-            new_parameters = set()
-            modules_to_initialize = []
-            for name, parameter in named_parameters(model, remove_duplicate=False):
-                # Skipping the parameters that will not end-up in this pipeline rank.
-                if name not in names_of_the_parameters_to_consider:
-                    continue
+                    split = name.rsplit(".", maxsplit=1)
+                    module = model.get_submodule(split[0])
+                    attribute_name = split[1]
+                    current_weight = getattr(module, attribute_name)
 
-                split = name.rsplit(".", maxsplit=1)
-                module = model.get_submodule(split[0])
-                attribute_name = split[1]
-                current_weight = getattr(module, attribute_name)
+                    try:
+                        weight_info = WeightInformation(weight_map[name], name, weight_map=weight_map, device=device)
+                    except KeyError:
+                        weight_info = None
 
-                try:
-                    weight_info = WeightInformation(weight_map[name], name, weight_map=weight_map, device=device)
-                except KeyError:
-                    weight_info = None
-
-                if parameter in new_parameters:
-                    # It can be the case if a module is shared in the model.
-                    # For example in T5, the embedding layer is shared so after loading the parameter the first time,
-                    # it is not needed to do it again, and doing it can cause bugs.
-                    continue
-                elif parameter in tied_weights:
-                    # It can be the case when weights are tied. For example between the embeddings and the LM head.
-                    new_parameter = tied_weights[parameter]
-                elif weight_info is not None:
-                    if getattr(current_weight, "tensor_model_parallel", False):
-                        if parameter.device == torch.device("meta"):
-                            # This must either be a torch.nn.Embedding or a torch.nn.Linear that was not handled during
-                            # parallelization since those are the only classes that we initialize on the `meta` device.
-                            num_dims = current_weight.dim()
-                            partition_dim = getattr(current_weight, "partition_dim")
-                            tp_rank = get_tensor_model_parallel_rank()
-                            size_per_rank = current_weight.size(partition_dim)
-                            slices = [
-                                None
-                                if idx != partition_dim
-                                else (size_per_rank * tp_rank, size_per_rank * (tp_rank + 1))
-                                for idx in range(num_dims)
-                            ]
+                    if parameter in new_parameters:
+                        # It can be the case if a module is shared in the model.
+                        # For example in T5, the embedding layer is shared so after loading the parameter the first time,
+                        # it is not needed to do it again, and doing it can cause bugs.
+                        continue
+                    elif parameter in tied_weights:
+                        # It can be the case when weights are tied. For example between the embeddings and the LM head.
+                        new_parameter = tied_weights[parameter]
+                    elif weight_info is not None:
+                        if getattr(current_weight, "tensor_model_parallel", False):
+                            if parameter.device == torch.device("meta"):
+                                # This must either be a torch.nn.Embedding or a torch.nn.Linear that was not handled during
+                                # parallelization since those are the only classes that we initialize on the `meta` device.
+                                num_dims = current_weight.dim()
+                                partition_dim = getattr(current_weight, "partition_dim")
+                                tp_rank = get_tensor_model_parallel_rank()
+                                size_per_rank = current_weight.size(partition_dim)
+                                slices = [
+                                    None
+                                    if idx != partition_dim
+                                    else (size_per_rank * tp_rank, size_per_rank * (tp_rank + 1))
+                                    for idx in range(num_dims)
+                                ]
+                            else:
+                                # The parameter is not on the `meta` device, it has been loaded from a checkpoint during
+                                # parallelization, we can skip.
+                                tied_weights[parameter] = parameter
+                                new_parameters.add(parameter)
+                                continue
                         else:
-                            # The parameter is not on the `meta` device, it has been loaded from a checkpoint during
-                            # parallelization, we can skip.
-                            tied_weights[parameter] = parameter
-                            new_parameters.add(parameter)
-                            continue
+                            slices = None
+
+                        new_parameter = torch.nn.Parameter(
+                            load_tensor_for_weight(weight_info, tensor_slices=slices).to(parameter.dtype)
+                        )
                     else:
-                        slices = None
+                        # This means that there is no information about where to find the weights for this parameter.
+                        device = torch.device("cpu") if device is None else device
+                        new_parameter = torch.nn.Parameter(torch.empty_like(current_weight, device=device))
+                        modules_to_initialize.append(module)
 
-                    new_parameter = torch.nn.Parameter(
-                        load_tensor_for_weight(weight_info, tensor_slices=slices).to(parameter.dtype)
+                    setattr(
+                        module,
+                        attribute_name,
+                        new_parameter,
                     )
-                else:
-                    # This means that there is no information about where to find the weights for this parameter.
-                    device = torch.device("cpu") if device is None else device
-                    new_parameter = torch.nn.Parameter(torch.empty_like(current_weight, device=device))
-                    modules_to_initialize.append(module)
+                    tied_weights[parameter] = new_parameter
+                    new_parameters.add(new_parameter)
 
-                setattr(
-                    module,
-                    attribute_name,
-                    new_parameter,
-                )
-                tied_weights[parameter] = new_parameter
-                new_parameters.add(new_parameter)
-
-            for mod in modules_to_initialize:
-                # This module has not pre-trained weights, it must be fine-tuned, we initialize it with the
-                # `reset_parameters()` method.
-                mod.reset_parameters()
+                for mod in modules_to_initialize:
+                    # This module has not pre-trained weights, it must be fine-tuned, we initialize it with the
+                    # `reset_parameters()` method.
+                    mod.reset_parameters()
 
         pp_size = get_pipeline_model_parallel_size()
         if pp_size > 1:
@@ -420,10 +418,6 @@ class Parallelizer(ABC):
                     leaf_module_cls=cls.PIPELINE_PARALLELISM_SPECS_CLS.leaf_module_cls(),
                     use_zero1_optimizer=False,
                 )
-
-            for name, p in model.local_named_parameters():
-                if p.device == torch.device("meta"):
-                    print(name)
 
         # TODO: see how it works out with pp.
         if checkpoint_dir is not None:
@@ -499,7 +493,7 @@ class Parallelizer(ABC):
         return parameters_on_xla, need_to_create_new_optimizer
 
     @classmethod
-    def optimizer_for_tp(
+    def optimizer_for_mp(
         cls,
         optimizer: "torch.optim.Optimizer",
         orig_param_to_parallel_param_on_xla: Mapping[int, "torch.nn.Parameter"],
@@ -529,14 +523,14 @@ class Parallelizer(ABC):
         )
         if hasattr(optimizer, "_args_to_recreate"):
             args, kwargs = optimizer._args_to_recreate
-            optimizer_for_tp = optimizer.__class__(parallel_parameters, *args[1:], **kwargs)
+            optimizer_for_mp = optimizer.__class__(parallel_parameters, *args[1:], **kwargs)
             del optimizer
         elif need_to_create_new_optimizer:
-            optimizer_for_tp = optimizer.__class__(parallel_parameters)
+            optimizer_for_mp = optimizer.__class__(parallel_parameters)
             del optimizer
         else:
-            optimizer_for_tp = optimizer
-        return optimizer_for_tp
+            optimizer_for_mp = optimizer
+        return optimizer_for_mp
 
     @classmethod
     def _get_parameters_tp_metadata(cls, named_parameters: Dict[str, "torch.nn.Parameter"]):
@@ -617,13 +611,6 @@ class Parallelizer(ABC):
 
         import torch_xla.core.xla_model as xm
         from neuronx_distributed import parallel_layers
-        from neuronx_distributed.parallel_layers.parallel_state import (
-            get_data_parallel_rank,
-            get_tensor_model_parallel_rank,
-        )
-
-        data_parallel_rank = get_data_parallel_rank()
-        tensor_parallel_rank = get_tensor_model_parallel_rank()
 
         if not isinstance(output_dir, Path):
             output_dir = Path(output_dir)
@@ -639,7 +626,7 @@ class Parallelizer(ABC):
 
         output_path = output_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME
 
-        if data_parallel_rank == 0 and tensor_parallel_rank == 0:
+        if xm.get_local_ordinal() == 0:
             if output_path.is_dir():
                 shutil.rmtree(output_path, ignore_errors=True)
             output_path.mkdir()

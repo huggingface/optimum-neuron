@@ -16,15 +16,16 @@
 
 from typing import TYPE_CHECKING, Optional
 
+import torch
+
 from accelerate.optimizer import AcceleratedOptimizer
 from accelerate.utils import DistributedType
 
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
+from ..utils.require_utils import requires_neuronx_distributed
 from .utils.dataclasses import NeuronDistributedType
 
 
-if TYPE_CHECKING:
-    import torch
 
 if is_torch_xla_available():
     import accelerate
@@ -33,9 +34,28 @@ if is_torch_xla_available():
 
     accelerate.optimizer.xm = xm
 
-if is_neuronx_distributed_available():
-    from neuronx_distributed import parallel_layers
 
+@requires_neuronx_distributed
+def allreduce_sequence_parallel_gradients(optimizer):
+    """
+    All-reduce layernorm parameters across model parallel nodes when sequence parallelism is used.
+
+    Modified from megatron-lm:
+    https://gitlab-master.nvidia.com/ADLR/megatron-lm/-/blob/3f91f09bb2ab32f9904b47f46f19d2fc3f518ed8/megatron/training.py#L425
+    """
+    from neuronx_distributed.parallel_layers.mappings import reduce_from_tensor_model_parallel_region
+    grads = []
+    for param_group in optimizer.__getstate__()['param_groups']:
+        for group, params in param_group.items():
+            if group == 'params':
+                for p in params:
+                    if isinstance(p, torch.Tensor) and p.grad is not None:
+                        sequence_parallel_param = getattr(p, 'sequence_parallel_enabled', False)
+                        if sequence_parallel_param:
+                            grads.append(p.grad.data)
+    for grad in grads:
+        # sum v.s. average: sum
+        reduce_from_tensor_model_parallel_region(grad)
 
 class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
     def __init__(
@@ -62,8 +82,16 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
         if parameter_ids == self.parameter_ids:
             self.clip_grad_norm_to_perform = {"max_norm": max_norm, "norm_type": norm_type}
 
+    @requires_neuronx_distributed
     def step(self, closure=None):
+        from neuronx_distributed import parallel_layers
+        from neuronx_distributed.parallel_layers.grads import bucket_allreduce_gradients
+
         if self.gradient_state.sync_gradients:
+            # For sequence-parallel, we have to explicitly all-reduce the layernorm gradients.
+            if self.accelerator_state.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
+                allreduce_sequence_parallel_gradients(self.optimizer)
+
             if isinstance(self.optimizer, ZeroRedundancyOptimizer):
                 if self.clip_grad_norm_to_perform is not None:
                     # `ZeroRedundancyOptimizer` does not allow to pass a norm type, it could be done but postponing for
@@ -81,10 +109,8 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
             elif self.accelerator_state.distributed_type is NeuronDistributedType.XLA_FSDP:
                 self.optimizer.step(closure)
             elif self.accelerator_state.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
-                # TODO: how to handle pp?
-                xm.reduce_gradients(
-                    self.optimizer, groups=parallel_layers.parallel_state.get_data_parallel_group(as_list=True)
-                )
+                if parallel_layers.parallel_state.get_data_parallel_size() > 1:
+                    bucket_allreduce_gradients(xm._fetch_gradients(self.optimizer))
                 if self.clip_grad_norm_to_perform is not None:
                     parallel_layers.clip_grad_norm(self.parameters, **self.clip_grad_norm_to_perform)
                 self.optimizer.step()

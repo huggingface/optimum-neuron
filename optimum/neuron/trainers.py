@@ -289,7 +289,7 @@ class AugmentTrainerForNeuronMixin:
         if isinstance(model, NxDPPModel):
             inputs = self._prepare_inputs(inputs)
             loss = model.run_train(**inputs)
-            return loss.detach()
+            return loss
 
         return super().compute_loss(model, inputs, return_outputs=return_outputs)
     
@@ -300,14 +300,15 @@ class AugmentTrainerForNeuronMixin:
                 get_pipeline_model_parallel_rank,
                 get_pipeline_model_parallel_size,
             )
+            with self.compute_loss_context_manager():
+                loss = self.compute_loss(model, inputs)
+
             if get_pipeline_model_parallel_rank() != get_pipeline_model_parallel_size() - 1:
                 use_bf16 = os.environ.get("XLA_USE_BF16", False) or os.environ.get("XLA_DOWNCAST_BF16", False)
                 dtype = torch.bfloat16 if use_bf16 else torch.float32 
                 loss = torch.tensor(0, dtype=dtype)
             else:
-                with self.compute_loss_context_manager():
-                    loss = self.compute_loss(model, inputs)
-                    loss = loss.detach()
+                loss = loss.detach()
             return loss / self.args.gradient_accumulation_steps
         return super().training_step(model, inputs)
 
@@ -340,20 +341,19 @@ class AugmentTrainerForNeuronMixin:
 
             xm.mark_step()
 
-            if self.args.mp_plugin.tensor_parallel_size > 1:
+            if self.args.mp_plugin.should_parallelize:
                 from neuronx_distributed.parallel_layers.parallel_state import (
                     get_data_parallel_group,
                     get_data_parallel_size,
                     get_pipeline_model_parallel_size,
-                    get_pipeline_model_parallel_rank,
                     get_pipeline_model_parallel_group,
                 )
                 pp_size = get_pipeline_model_parallel_size()
                 dp_size = get_data_parallel_size()
+                tr_loss = tr_loss.to(xm.xla_device())
                 tr_loss_div = tr_loss / dp_size 
                 
                 if pp_size > 1:
-                    tr_loss_div = tr_loss_div.to(xm.xla_device())
                     torch.distributed.all_reduce(tr_loss_div, group=get_data_parallel_group())
                     torch.distributed.broadcast(
                         tr_loss_div, torch.distributed.get_rank(), group=get_pipeline_model_parallel_group(),

@@ -172,7 +172,7 @@ class NeuronAccelerator(Accelerator):
 
         sampler = DistributedSampler(data_loader.dataset, num_replicas=num_replicas, rank=rank, shuffle=shuffle)
 
-        data_loader_for_tp = DataLoader(
+        distributed_dataloader = DataLoader(
             data_loader.dataset,
             batch_size=data_loader.batch_size,
             sampler=sampler,
@@ -181,8 +181,8 @@ class NeuronAccelerator(Accelerator):
             pin_memory=data_loader.pin_memory,
             drop_last=data_loader.drop_last,
         )
-        data_loader_for_tp._is_accelerate_prepared = True
-        return data_loader_for_tp
+        distributed_dataloader._is_accelerate_prepared = True
+        return distributed_dataloader
 
     def prepare_data_loader(self, data_loader: DataLoader, device_placement: Optional[bool] = None):
         if self.state.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
@@ -202,10 +202,10 @@ class NeuronAccelerator(Accelerator):
         # TODO: fix that.
         # return super().prepare_data_loader(data_loader, device_placement=device_placement)
 
-    def _prepare_optimizer_for_tp(self, optimizer: torch.optim.Optimizer, device_placement=None):
+    def _prepare_optimizer_for_mp(self, optimizer: torch.optim.Optimizer, device_placement=None):
         cpu_parameters_to_xla = collections.ChainMap(*self._model_cpu_parameters_to_xla.values())
         if not self.zero_1:
-            optimizer = Parallelizer.optimizer_for_tp(optimizer, cpu_parameters_to_xla)
+            optimizer = Parallelizer.optimizer_for_mp(optimizer, cpu_parameters_to_xla)
         else:
             xla_parameters, _ = Parallelizer.optimizer_cpu_params_to_xla_params(optimizer, cpu_parameters_to_xla)
             if hasattr(optimizer, "_args_to_recreate"):
@@ -274,7 +274,7 @@ class NeuronAccelerator(Accelerator):
     def prepare_optimizer(self, optimizer: torch.optim.Optimizer, device_placement: Optional[bool] = None):
         if self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
             # TODO: how to handle pp?
-            optimizer = self._prepare_optimizer_for_tp(optimizer, device_placement=device_placement)
+            optimizer = self._prepare_optimizer_for_mp(optimizer, device_placement=device_placement)
         if self.zero_1:
             optimizer = self._prepare_optimizer_for_zero_1(optimizer, device_placement=device_placement)
         return super().prepare_optimizer(optimizer, device_placement=device_placement)
@@ -354,7 +354,7 @@ class NeuronAccelerator(Accelerator):
         return model
 
     @requires_neuronx_distributed
-    def _prepare_model_for_tp(
+    def _prepare_model_for_mp(
         self, model: torch.nn.Module, device_placement: Optional[bool] = None, evaluation_mode: bool = False
     ):
         from neuronx_distributed.pipeline import NxDPPModel
@@ -366,32 +366,34 @@ class NeuronAccelerator(Accelerator):
         # TODO: enable self.device (if needed).
         model = self.state.mp_plugin.parallelize_model(model, device=None)
 
-        def _tie_or_clone_weights_for_tp(self, output_embeddings, input_embeddings):
+        model_to_cast = model.local_module if isinstance(model, NxDPPModel) else model
+        if os.environ.get("XLA_USE_BF16", "0") == "1" or os.environ.get("XLA_DOWNCAST_BF16", "0") == "1":
+            model_to_cast.to(torch.bfloat16)
+        else:
+            model_to_cast.to(torch.float32)
+
+        def _tie_or_clone_weights_for_mp(self, output_embeddings, input_embeddings):
             """Tie or clone module weights depending of whether we are using TorchScript or not"""
             output_embeddings.weight = input_embeddings.weight
             if hasattr(output_embeddings, "out_features") and hasattr(input_embeddings, "num_embeddings"):
                 output_embeddings.out_features = input_embeddings.num_embeddings
 
         if isinstance(model, NxDPPModel):
-            with ModelPatcher(patching_specs=[(model, "_tie_or_clone_weights", _tie_or_clone_weights_for_tp)]):
-                model.tie_weights()
+            with ModelPatcher(patching_specs=[(model, "_tie_or_clone_weights", _tie_or_clone_weights_for_mp)]):
+                # model.tie_weights()
                 model.move_model_to_device()
-                model.tie_weights()
+                # model.tie_weights()
             xla_ids = dict(model.local_named_parameters())
             self._model_cpu_parameters_to_xla[id(model)] = {
                 cpu_ids[name]: xla_ids[name] for name, _ in model.local_named_parameters()
             }
         else:
-            if os.environ.get("XLA_USE_BF16", "0") == "1" or os.environ.get("XLA_DOWNCAST_BF16", "0") == "1":
-                model.to(torch.bfloat16)
-            else:
-                model.to(torch.float32)
 
-            with ModelPatcher(patching_specs=[(model, "_tie_or_clone_weights", _tie_or_clone_weights_for_tp)]):
-                model.tie_weights()
+            with ModelPatcher(patching_specs=[(model, "_tie_or_clone_weights", _tie_or_clone_weights_for_mp)]):
+                # model.tie_weights()
                 move_model_to_device(model, self.device)
-                model.tie_weights()
-            xla_ids = {name: id(param) for name, param in model.named_parameters()}
+                # model.tie_weights()
+            xla_ids = {name: param for name, param in model.named_parameters()}
             self._model_cpu_parameters_to_xla[id(model)] = {
                 cpu_ids[name]: xla_ids[name] for name, _ in model.named_parameters()
             }
@@ -412,7 +414,7 @@ class NeuronAccelerator(Accelerator):
             )
         elif self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
             # TODO: how to handle pp?
-            return self._prepare_model_for_tp(
+            return self._prepare_model_for_mp(
                 model, device_placement=device_placement, evaluation_mode=evaluation_mode
             )
         return super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
@@ -546,15 +548,15 @@ class NeuronAccelerator(Accelerator):
             save_model_func, save_optimizer_func, output_dir=output_dir, **save_model_func_kwargs
         )
 
-    def save_state_for_tp(self, output_dir: Optional[str] = None, **save_model_func_kwargs):
+    def save_state_for_mp(self, output_dir: Optional[str] = None, **save_model_func_kwargs):
         def save_model_func(accelelerator, model, output_dir, i):
             return
 
         def save_optimizer_func(accelerator, optimizer, model, output_dir, i):
-            logger.info("Saving TP model and optimizer")
+            logger.info("Saving parallel model and optimizer")
             parallelizer = ParallelizersManager.parallelizer_for_model(model)
             parallelizer.save_model_checkpoint(model, output_dir, as_regular=False, optimizer=optimizer)
-            logger.info(f"TP model and optimizer saved to the directory {output_dir}")
+            logger.info(f"Parallel model and optimizer saved to the directory {output_dir}")
 
         return self._custom_save_state(
             save_model_func, save_optimizer_func, output_dir=output_dir, **save_model_func_kwargs
@@ -566,7 +568,7 @@ class NeuronAccelerator(Accelerator):
             return self.save_state_for_xla_fsdp(output_dir=output_dir, **save_model_func_kwargs)
         elif self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
             # TODO: how to handle pp?
-            return self.save_state_for_tp(output_dir=output_dir, **save_model_func_kwargs)
+            return self.save_state_for_mp(output_dir=output_dir, **save_model_func_kwargs)
         return super().save_state(output_dir=output_dir, **save_model_func_kwargs)
 
     def gather(self, tensor, out_of_graph: bool = False):

@@ -262,7 +262,7 @@ class NeuronAcceleratorState(AcceleratorState):
                         os.environ["XLA_USE_BF16"] = str(1)
                         os.environ["XLA_DOWNCAST_BF16"] = str(0)
                         self.downcast_bfloat = False
-                if os.environ.get("ACCELERATE_USE_NEURONX_DISTRIBUTED_TP", "false") == "true":
+                if os.environ.get("ACCELERATE_USE_NEURONX_DISTRIBUTED_TP", "false") == "true" or os.environ.get("ACCELERATE_USE_NEURONX_DISTRIBUTED_PP", "false") == "true":
                     if not is_neuronx_distributed_available():
                         raise RuntimeError(
                             "Tensor parallelism requires the neuronx_distributed package. You can install it by "
