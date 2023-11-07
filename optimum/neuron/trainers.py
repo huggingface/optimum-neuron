@@ -14,7 +14,6 @@
 # limitations under the License.
 """Defines Trainer subclasses to perform training on AWS Neuron instances."""
 
-import contextlib
 import glob
 import os
 import random
@@ -49,19 +48,17 @@ from .distributed import ParallelizersManager
 from .distributed.utils import make_optimizer_constructor_lazy
 from .trainer_callback import NeuronCacheCallback
 from .utils import (
-    DynamicPatch,
-    ModelPatcher,
     is_torch_xla_available,
     patch_within_function,
 )
 from .utils.cache_utils import NEURON_COMPILE_CACHE_NAME, get_neuron_cache_path, set_neuron_cache_path
+from .utils.require_utils import requires_neuronx_distributed
 from .utils.training_utils import (
     TRANSFORMERS_MIN_VERSION_USE_ACCELERATE,
     get_model_param_count,
     is_precompilation,
     is_topology_supported,
     patch_generation_mixin_to_neuron_generation_mixin,
-    patched_finfo,
     prepare_environment_for_neuron,
     skip_first_batches,
 )
@@ -90,16 +87,6 @@ _TMP_NEURON_CACHE_DIR: Optional[TemporaryDirectory] = None
 _TMP_NEURON_CACHE_PATH: Optional[Path] = None
 _TCP_STORE_ADDRESS = "127.0.0.1"
 _TCP_STORE_PORT = 5000
-
-
-MODEL_PATCHING_SPECS = [
-    ("config.layerdrop", 0),
-    ("no_sync", lambda: contextlib.nullcontext()),
-    (
-        "forward",
-        DynamicPatch(patch_within_function(("torch.finfo", patched_finfo))),
-    ),
-]
 
 
 if os.environ.get("TORCHELASTIC_RUN_ID"):
@@ -171,7 +158,7 @@ class AugmentTrainerForNeuronMixin:
         push = self.args.local_rank <= 0 and not is_precompilation()
         fetch = self.args.local_rank <= 0 or self.args.mp_plugin.should_parallelize
 
-        callback = NeuronCacheCallback(
+        NeuronCacheCallback(
             tmp_neuron_cache=_TMP_NEURON_CACHE_PATH,
             original_neuron_cache_path=_ORIGINAL_NEURON_CACHE_PATH,
             fetch=fetch,
@@ -232,12 +219,9 @@ class AugmentTrainerForNeuronMixin:
                 ds_plugin.hf_ds_config.trainer_config_process(self.args)
 
     def _wrap_model(self, model, training=True, dataloader=None):
-        patching_specs = []
-        for spec in MODEL_PATCHING_SPECS:
-            patching_specs.append((model,) + spec)
-
-        with ModelPatcher(patching_specs, ignore_missing_attributes=True):
-            return super()._wrap_model(model, training=training, dataloader=dataloader)
+        return super()._wrap_model(
+            self.accelerator.patch_model_for_neuron(model), training=training, dataloader=dataloader
+        )
 
     # TODO: make this cleaner.
     def trigger_on_step_middle_for_neuron_cache_callback(self, model: "PreTrainedModel"):
@@ -292,20 +276,22 @@ class AugmentTrainerForNeuronMixin:
             return loss
 
         return super().compute_loss(model, inputs, return_outputs=return_outputs)
-    
+
     def training_step(self, model: torch.nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]) -> torch.Tensor:
         from neuronx_distributed.pipeline import NxDPPModel
+
         if isinstance(model, NxDPPModel):
             from neuronx_distributed.parallel_layers.parallel_state import (
                 get_pipeline_model_parallel_rank,
                 get_pipeline_model_parallel_size,
             )
+
             with self.compute_loss_context_manager():
                 loss = self.compute_loss(model, inputs)
 
             if get_pipeline_model_parallel_rank() != get_pipeline_model_parallel_size() - 1:
                 use_bf16 = os.environ.get("XLA_USE_BF16", False) or os.environ.get("XLA_DOWNCAST_BF16", False)
-                dtype = torch.bfloat16 if use_bf16 else torch.float32 
+                dtype = torch.bfloat16 if use_bf16 else torch.float32
                 loss = torch.tensor(0, dtype=dtype)
             else:
                 loss = loss.detach()
@@ -345,18 +331,21 @@ class AugmentTrainerForNeuronMixin:
                 from neuronx_distributed.parallel_layers.parallel_state import (
                     get_data_parallel_group,
                     get_data_parallel_size,
-                    get_pipeline_model_parallel_size,
                     get_pipeline_model_parallel_group,
+                    get_pipeline_model_parallel_size,
                 )
+
                 pp_size = get_pipeline_model_parallel_size()
                 dp_size = get_data_parallel_size()
                 tr_loss = tr_loss.to(xm.xla_device())
-                tr_loss_div = tr_loss / dp_size 
-                
+                tr_loss_div = tr_loss / dp_size
+
                 if pp_size > 1:
                     torch.distributed.all_reduce(tr_loss_div, group=get_data_parallel_group())
                     torch.distributed.broadcast(
-                        tr_loss_div, torch.distributed.get_rank(), group=get_pipeline_model_parallel_group(),
+                        tr_loss_div,
+                        torch.distributed.get_rank(),
+                        group=get_pipeline_model_parallel_group(),
                     )
                     xm.mark_step()
                     tr_loss_scalar = tr_loss_div.item()
@@ -585,6 +574,29 @@ class AugmentTrainerForNeuronMixin:
             ignore_keys_for_eval=ignore_keys_for_eval,
         )
 
+    # def evaluation_loop(
+    #     self,
+    #     dataloader: torch.utils.data.DataLoader,
+    #     description: str,
+    #     prediction_loss_only: Optional[bool] = None,
+    #     ignore_keys: Optional[List[str]] = None,
+    #     metric_key_prefix: str = "eval",
+    # ) -> EvalLoopOutput:
+    #     # This will prepare the model if it was not prepared before.
+    #     # This is needed for example for TP when we performing only evaluation (no training):
+    #     #   1. The model needs to be loaded if it was lazy loaded.
+    #     #   2. The model needs to be parallelized.
+    #     self.accelerator.prepare_model(self.model)
+
+    #     return super().evaluation_loop(
+    #         dataloader,
+    #         description,
+    #         prediction_loss_only=prediction_loss_only,
+    #         ignore_keys=ignore_keys,
+    #         metric_key_prefix=metric_key_prefix,
+    #     )
+
+    @requires_neuronx_distributed
     def evaluation_loop(
         self,
         dataloader: torch.utils.data.DataLoader,
@@ -593,19 +605,212 @@ class AugmentTrainerForNeuronMixin:
         ignore_keys: Optional[List[str]] = None,
         metric_key_prefix: str = "eval",
     ) -> EvalLoopOutput:
-        # This will prepare the model if it was not prepared before.
-        # This is needed for example for TP when we performing only evaluation (no training):
-        #   1. The model needs to be loaded if it was lazy loaded.
-        #   2. The model needs to be parallelized.
-        self.accelerator.prepare_model(self.model)
+        """
+        Prediction/evaluation loop, shared by `Trainer.evaluate()` and `Trainer.predict()`.
 
-        return super().evaluation_loop(
-            dataloader,
-            description,
-            prediction_loss_only=prediction_loss_only,
-            ignore_keys=ignore_keys,
-            metric_key_prefix=metric_key_prefix,
-        )
+        Works both with or without labels.
+        """
+        args = self.args
+
+        prediction_loss_only = prediction_loss_only if prediction_loss_only is not None else args.prediction_loss_only
+
+        from neuronx_distributed.pipeline import NxDPPModel
+
+        model = self.model
+        if not isinstance(model, NxDPPModel):
+            model = self._wrap_model(model, training=False, dataloader=dataloader)
+
+        if len(self.accelerator._models) == 0 and model is self.model:
+            model = (
+                self.accelerator.prepare(model)
+                if self.is_deepspeed_enabled
+                else self.accelerator.prepare_model(model, evaluation_mode=True)
+            )
+
+            if self.is_fsdp_enabled:
+                self.model = model
+
+            # for the rest of this function `model` is the outside model, whether it was wrapped or not
+            if model is not self.model:
+                self.model_wrapped = model
+
+            # backward compatibility
+            if self.is_deepspeed_enabled:
+                self.deepspeed = self.model_wrapped
+
+        # if full fp16 or bf16 eval is wanted and this ``evaluation`` or ``predict`` isn't called
+        # while ``train`` is running, cast it to the right dtype first and then put on device
+        if not self.is_in_train:
+            if args.fp16_full_eval:
+                model = model.to(dtype=torch.float16, device=args.device)
+            elif args.bf16_full_eval:
+                model = model.to(dtype=torch.bfloat16, device=args.device)
+
+        batch_size = self.args.eval_batch_size
+
+        logger.info(f"***** Running {description} *****")
+        if has_length(dataloader):
+            logger.info(f"  Num examples = {self.num_examples(dataloader)}")
+        else:
+            logger.info("  Num examples: Unknown")
+        logger.info(f"  Batch size = {batch_size}")
+
+        model.eval()
+
+        self.callback_handler.eval_dataloader = dataloader
+        # Do this before wrapping.
+        eval_dataset = getattr(dataloader, "dataset", None)
+
+        if args.past_index >= 0:
+            self._past = None
+
+        # Initialize containers
+        # losses/preds/labels on GPU/TPU (accumulated for eval_accumulation_steps)
+        losses_host = None
+        preds_host = None
+        labels_host = None
+        inputs_host = None
+
+        # losses/preds/labels on CPU (final containers)
+        all_losses = None
+        all_preds = None
+        all_labels = None
+        all_inputs = None
+        # Will be useful when we have an iterable dataset so don't know its length.
+
+        observed_num_examples = 0
+        # Main evaluation loop
+        for step, inputs in enumerate(dataloader):
+            # Update the observed num examples
+            observed_batch_size = find_batch_size(inputs)
+            if observed_batch_size is not None:
+                observed_num_examples += observed_batch_size
+                # For batch samplers, batch_size is not known by the dataloader in advance.
+                if batch_size is None:
+                    batch_size = observed_batch_size
+
+            # Prediction step
+            loss, logits, labels = self.prediction_step(model, inputs, prediction_loss_only, ignore_keys=ignore_keys)
+            main_input_name = getattr(self.model, "main_input_name", "input_ids")
+            inputs_decode = self._prepare_input(inputs[main_input_name]) if args.include_inputs_for_metrics else None
+
+            xm.mark_step()
+
+            # Update containers on host
+            if loss is not None:
+                losses = self.accelerator.gather_for_metrics((loss.repeat(batch_size)))
+                losses_host = losses if losses_host is None else nested_concat(losses_host, losses, padding_index=-100)
+            if labels is not None:
+                labels = self.accelerator.pad_across_processes(labels, dim=1, pad_index=-100)
+            if inputs_decode is not None:
+                inputs_decode = self.accelerator.pad_across_processes(inputs_decode, dim=1, pad_index=-100)
+                inputs_decode = self.accelerator.gather_for_metrics((inputs_decode))
+                inputs_host = (
+                    inputs_decode
+                    if inputs_host is None
+                    else nested_concat(inputs_host, inputs_decode, padding_index=-100)
+                )
+            if logits is not None:
+                logits = self.accelerator.pad_across_processes(logits, dim=1, pad_index=-100)
+                if self.preprocess_logits_for_metrics is not None:
+                    logits = self.preprocess_logits_for_metrics(logits, labels)
+                logits = self.accelerator.gather_for_metrics((logits))
+                preds_host = logits if preds_host is None else nested_concat(preds_host, logits, padding_index=-100)
+
+            if labels is not None:
+                labels = self.accelerator.gather_for_metrics((labels))
+                labels_host = labels if labels_host is None else nested_concat(labels_host, labels, padding_index=-100)
+
+            self.control = self.callback_handler.on_prediction_step(args, self.state, self.control)
+
+            # Gather all tensors and put them back on the CPU if we have done enough accumulation steps.
+            if (
+                args.eval_accumulation_steps is not None
+                and (step + 1) % args.eval_accumulation_steps == 0
+                and (self.accelerator.sync_gradients or version.parse(accelerate_version) > version.parse("0.20.3"))
+            ):
+                if losses_host is not None:
+                    losses = nested_numpify(losses_host)
+                    all_losses = losses if all_losses is None else np.concatenate((all_losses, losses), axis=0)
+                if preds_host is not None:
+                    logits = nested_numpify(preds_host)
+                    all_preds = logits if all_preds is None else nested_concat(all_preds, logits, padding_index=-100)
+                if inputs_host is not None:
+                    inputs_decode = nested_numpify(inputs_host)
+                    all_inputs = (
+                        inputs_decode
+                        if all_inputs is None
+                        else nested_concat(all_inputs, inputs_decode, padding_index=-100)
+                    )
+                if labels_host is not None:
+                    labels = nested_numpify(labels_host)
+                    all_labels = (
+                        labels if all_labels is None else nested_concat(all_labels, labels, padding_index=-100)
+                    )
+
+                # Set back to None to begin a new accumulation
+                losses_host, preds_host, inputs_host, labels_host = None, None, None, None
+
+        if args.past_index and hasattr(self, "_past"):
+            # Clean the state at the end of the evaluation loop
+            delattr(self, "_past")
+
+        # Gather all remaining tensors and put them back on the CPU
+        if losses_host is not None:
+            losses = nested_numpify(losses_host)
+            all_losses = losses if all_losses is None else np.concatenate((all_losses, losses), axis=0)
+        if preds_host is not None:
+            logits = nested_numpify(preds_host)
+            all_preds = logits if all_preds is None else nested_concat(all_preds, logits, padding_index=-100)
+        if inputs_host is not None:
+            inputs_decode = nested_numpify(inputs_host)
+            all_inputs = (
+                inputs_decode if all_inputs is None else nested_concat(all_inputs, inputs_decode, padding_index=-100)
+            )
+        if labels_host is not None:
+            labels = nested_numpify(labels_host)
+            all_labels = labels if all_labels is None else nested_concat(all_labels, labels, padding_index=-100)
+
+        # Number of samples
+        if has_length(eval_dataset):
+            num_samples = len(eval_dataset)
+        # The instance check is weird and does not actually check for the type, but whether the dataset has the right
+        # methods. Therefore we need to make sure it also has the attribute.
+        elif isinstance(eval_dataset, IterableDatasetShard) and getattr(eval_dataset, "num_examples", 0) > 0:
+            num_samples = eval_dataset.num_examples
+        else:
+            if has_length(dataloader):
+                num_samples = self.num_examples(dataloader)
+            else:  # both len(dataloader.dataset) and len(dataloader) fail
+                num_samples = observed_num_examples
+        if num_samples == 0 and observed_num_examples > 0:
+            num_samples = observed_num_examples
+
+        # Metrics!
+        if self.compute_metrics is not None and all_preds is not None and all_labels is not None:
+            if args.include_inputs_for_metrics:
+                metrics = self.compute_metrics(
+                    EvalPrediction(predictions=all_preds, label_ids=all_labels, inputs=all_inputs)
+                )
+            else:
+                metrics = self.compute_metrics(EvalPrediction(predictions=all_preds, label_ids=all_labels))
+        else:
+            metrics = {}
+
+        # To be JSON-serializable, we need to remove numpy types or zero-d tensors
+        metrics = denumpify_detensorize(metrics)
+
+        if all_losses is not None:
+            metrics[f"{metric_key_prefix}_loss"] = all_losses.mean().item()
+        if hasattr(self, "jit_compilation_time"):
+            metrics[f"{metric_key_prefix}_jit_compilation_time"] = self.jit_compilation_time
+
+        # Prefix all keys with metric_key_prefix + '_'
+        for key in list(metrics.keys()):
+            if not key.startswith(f"{metric_key_prefix}_"):
+                metrics[f"{metric_key_prefix}_{key}"] = metrics.pop(key)
+
+        return EvalLoopOutput(predictions=all_preds, label_ids=all_labels, metrics=metrics, num_samples=num_samples)
 
 
 class NeuronTrainer(AugmentTrainerForNeuronMixin, Trainer):

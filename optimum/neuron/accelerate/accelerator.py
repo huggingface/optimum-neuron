@@ -15,13 +15,14 @@
 """Custom Accelerator class for Neuron."""
 
 import collections
+import contextlib
 import inspect
 import os
 import re
 import shutil
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple, Union
 
 import torch
 from accelerate import Accelerator
@@ -34,11 +35,13 @@ from torch.utils.data.distributed import DistributedSampler
 from ...utils import logging
 from ..distributed import Parallelizer, ParallelizersManager
 from ..utils import (
+    DynamicPatch,
     ModelPatcher,
     Patcher,
     is_neuronx_distributed_available,
     is_torch_xla_available,
     patch_within_function,
+    patched_finfo,
 )
 from ..utils.misc import args_and_kwargs_to_kwargs_only
 from ..utils.require_utils import requires_neuronx_distributed
@@ -73,6 +76,23 @@ if is_neuronx_distributed_available():
 
 
 logger = logging.get_logger(__name__)
+
+
+MODEL_PATCHING_SPECS = [
+    ("config.layerdrop", 0),
+    ("no_sync", lambda: contextlib.nullcontext()),
+    (
+        "forward",
+        DynamicPatch(patch_within_function(("torch.finfo", patched_finfo))),
+    ),
+]
+
+NxDPPMODEL_PATCHING_SPECS = [
+    (
+        "forward",
+        DynamicPatch(patch_within_function(("torch.finfo", patched_finfo))),
+    ),
+]
 
 
 # TODO: should we do a XLAFSDPNeuronAccelerator instead?
@@ -283,6 +303,17 @@ class NeuronAccelerator(Accelerator):
     def prepare_scheduler(self, scheduler: "LRScheduler"):
         return super().prepare_scheduler(scheduler)
 
+    def patch_model_for_neuron(
+        self, model: "torch.nn.Module", patching_specs: Optional[List[Tuple[str, Any]]] = None
+    ) -> "torch.nn.Module":
+        if patching_specs is None:
+            patching_specs = MODEL_PATCHING_SPECS
+        prepared_patching_specs = []
+        for spec in patching_specs:
+            prepared_patching_specs.append((model,) + spec)
+        with ModelPatcher(prepared_patching_specs, ignore_missing_attributes=True):
+            return model
+
     def prepare_model_for_xla_fsdp(
         self, model: torch.nn.Module, device_placement: Optional[bool] = None, evaluation_mode: bool = False
     ):
@@ -366,6 +397,14 @@ class NeuronAccelerator(Accelerator):
         # TODO: enable self.device (if needed).
         model = self.state.mp_plugin.parallelize_model(model, device=None)
 
+        if isinstance(model, NxDPPModel):
+            model.local_module = self.patch_model_for_neuron(
+                model.local_module, patching_specs=NxDPPMODEL_PATCHING_SPECS
+            )
+            model_to_cast = model.local_module
+        else:
+            model_to_cast = model
+
         model_to_cast = model.local_module if isinstance(model, NxDPPModel) else model
         if os.environ.get("XLA_USE_BF16", "0") == "1" or os.environ.get("XLA_DOWNCAST_BF16", "0") == "1":
             model_to_cast.to(torch.bfloat16)
@@ -388,12 +427,11 @@ class NeuronAccelerator(Accelerator):
                 cpu_ids[name]: xla_ids[name] for name, _ in model.local_named_parameters()
             }
         else:
-
             with ModelPatcher(patching_specs=[(model, "_tie_or_clone_weights", _tie_or_clone_weights_for_mp)]):
                 # model.tie_weights()
                 move_model_to_device(model, self.device)
                 # model.tie_weights()
-            xla_ids = {name: param for name, param in model.named_parameters()}
+            xla_ids = dict(model.named_parameters())
             self._model_cpu_parameters_to_xla[id(model)] = {
                 cpu_ids[name]: xla_ids[name] for name, _ in model.named_parameters()
             }
@@ -408,6 +446,10 @@ class NeuronAccelerator(Accelerator):
         # If the model was already prepared, we skip.
         if model in self._models:
             return model
+
+        # Patching the model for Neuron.
+        model = self.patch_model_for_neuron(model)
+
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:
             return self.prepare_model_for_xla_fsdp(
                 model, device_placement=device_placement, evaluation_mode=evaluation_mode

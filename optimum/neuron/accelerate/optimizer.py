@@ -14,17 +14,15 @@
 # limitations under the License.
 """Custom AcceleratedOptimizer for Neuron."""
 
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
 import torch
-
 from accelerate.optimizer import AcceleratedOptimizer
 from accelerate.utils import DistributedType
 
-from ..utils import is_neuronx_distributed_available, is_torch_xla_available
+from ..utils import is_torch_xla_available
 from ..utils.require_utils import requires_neuronx_distributed
 from .utils.dataclasses import NeuronDistributedType
-
 
 
 if is_torch_xla_available():
@@ -44,18 +42,20 @@ def allreduce_sequence_parallel_gradients(optimizer):
     https://gitlab-master.nvidia.com/ADLR/megatron-lm/-/blob/3f91f09bb2ab32f9904b47f46f19d2fc3f518ed8/megatron/training.py#L425
     """
     from neuronx_distributed.parallel_layers.mappings import reduce_from_tensor_model_parallel_region
+
     grads = []
-    for param_group in optimizer.__getstate__()['param_groups']:
+    for param_group in optimizer.__getstate__()["param_groups"]:
         for group, params in param_group.items():
-            if group == 'params':
+            if group == "params":
                 for p in params:
                     if isinstance(p, torch.Tensor) and p.grad is not None:
-                        sequence_parallel_param = getattr(p, 'sequence_parallel_enabled', False)
+                        sequence_parallel_param = getattr(p, "sequence_parallel_enabled", False)
                         if sequence_parallel_param:
                             grads.append(p.grad.data)
     for grad in grads:
         # sum v.s. average: sum
         reduce_from_tensor_model_parallel_region(grad)
+
 
 class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
     def __init__(
