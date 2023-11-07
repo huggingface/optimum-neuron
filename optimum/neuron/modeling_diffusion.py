@@ -138,7 +138,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         """
 
         self._internal_dict = config
-        self.device_ids = device_ids
+        self.device_ids = device_ids if device_ids is not None else [0, 1]
         self.configs = configs
         self.neuron_configs = neuron_configs
         self.dynamic_batch_size = all(
