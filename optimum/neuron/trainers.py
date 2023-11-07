@@ -42,6 +42,7 @@ from transformers.trainer_pt_utils import (
 from transformers.trainer_utils import (
     PREFIX_CHECKPOINT_DIR,
     EvalLoopOutput,
+    has_length
 )
 from transformers.utils import WEIGHTS_NAME, is_sagemaker_mp_enabled
 
@@ -265,7 +266,13 @@ class AugmentTrainerForNeuronMixin:
 
     def _get_train_sampler(self) -> Optional[torch.utils.data.Sampler]:
         if self.tp_enabled:
-            return None
+            if self.train_dataset is None or not has_length(self.train_dataset):
+                return None
+
+            if self.args.group_by_length:
+                raise ValueError("LengthGroupedSampler is currently not supported with model parallelism.")
+
+            return torch.utils.data.RandomSampler(self.train_dataset)
         return super()._get_train_sampler()
 
     def _get_eval_sampler(self, eval_dataset: torch.utils.data.Dataset) -> Optional[torch.utils.data.Sampler]:
