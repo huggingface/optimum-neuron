@@ -345,6 +345,9 @@ class NeuronAccelerator(Accelerator):
     def _prepare_model_for_tp(
         self, model: torch.nn.Module, device_placement: Optional[bool] = None, evaluation_mode: bool = False
     ):
+        if model in self._models or Parallelizer.was_parallelized(model):
+            return model
+
         cpu_ids = [id(v) for v in model.parameters()]
         # TODO: enable self.device (if needed).
         model = self.state.tp_plugin.parallelize_model(model, device=None)
