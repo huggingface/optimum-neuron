@@ -305,13 +305,27 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
 
     def _save_config(self, save_directory):
         save_directory = Path(save_directory)
-        config = self.configs[ENCODER_NAME].copy()
-        encoder_neuron_config = self.configs[ENCODER_NAME].neuron
-        decoder_neuron_config = self.configs[DECODER_NAME].neuron
-        # TODO: Combine encoder decoder config and save in root
-        combined_config_args = {}
-        config.__setattr__("neuron", combined_config_args)
-        config.save_pretrained(save_directory / ENCODER_NAME)
+        self.configs[ENCODER_NAME].save_pretrained(save_directory / ENCODER_NAME)
+        self.configs[DECODER_NAME].save_pretrained(save_directory / DECODER_NAME)
+        combined_config = self._combine_encoder_decoder_config(
+            encoder_config=self.configs[ENCODER_NAME],
+            decoder_config=self.configs[DECODER_NAME],
+        )
+        combined_config.save_pretrained(save_directory)
+
+    def _combine_encoder_decoder_config(self, encoder_config: "PretrainedConfig", decoder_config: "PretrainedConfig"):
+        encoder_neuron_config = encoder_config.neuron
+        decoder_neuron_config = decoder_config.neuron
+
+        encoder_neuron_config["encoder_input_names"] = encoder_neuron_config.pop("input_names")
+        encoder_neuron_config["encoder_output_names"] = encoder_neuron_config.pop("output_names")
+        decoder_neuron_config["decoder_input_names"] = decoder_neuron_config.pop("input_names")
+        decoder_neuron_config["decoder_output_names"] = decoder_neuron_config.pop("output_names")
+
+        neuron_config = encoder_neuron_config.update(decoder_neuron_config)
+        encoder_config.__setattr__("neuron", neuron_config)
+
+        return encoder_config
 
 
 class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerationMixin):
