@@ -126,7 +126,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             feature_extractor (`Optional[CLIPFeatureExtractor]`, defaults to `None`):
                 A model extracting features from generated images to be used as inputs for the `safety_checker`
             device_ids (Optional[List[int]], defaults to `None`):
-                A list of integers that specify the NeuronCores to use for parallelization
+                A list of integers that specify the NeuronCores to use for parallelization, by default will load the UNet model into 2 neuron cores.
             configs (Optional[Dict[str, "PretrainedConfig"]], defaults to `None`):
                 A dictionary configurations for components of the pipeline.
             neuron_configs (Optional["NeuronConfig"], defaults to `None`):
