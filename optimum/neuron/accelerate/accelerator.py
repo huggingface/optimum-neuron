@@ -394,8 +394,12 @@ class NeuronAccelerator(Accelerator):
             return model
 
         cpu_ids = {name: id(param) for name, param in model.named_parameters()}
+        model_main_input_name = getattr(model, "main_input_name", None)
         # TODO: enable self.device (if needed).
         model = self.state.mp_plugin.parallelize_model(model, device=None)
+
+        if model_main_input_name is not None:
+            setattr(model, "main_input_name", model_main_input_name)
 
         if isinstance(model, NxDPPModel):
             model.local_module = self.patch_model_for_neuron(

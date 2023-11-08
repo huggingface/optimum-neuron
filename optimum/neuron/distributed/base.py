@@ -21,7 +21,7 @@ from abc import ABC, abstractclassmethod
 from dataclasses import asdict
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any, Dict, List, Mapping, Optional, Set, Tuple, Type, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Set, Tuple, Type, Union
 
 import torch
 from transformers import PreTrainedModel
@@ -31,7 +31,7 @@ from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
 from ..utils.deprecate_utils import deprecate
 from ..utils.patching import Patcher
-from ..utils.require_utils import requires_neuronx_distributed
+from ..utils.require_utils import requires_neuronx_distributed, requires_torch_xla
 from .parallel_layers import (
     IOSequenceParallelizer,
     LayerNormSequenceParallelizer,
@@ -40,6 +40,10 @@ from .parallel_layers import (
 )
 from .utils import TENSOR_PARALLEL_SHARDS_DIR_NAME, ParameterMetadata, WeightInformation, load_tensor_for_weight
 
+
+if TYPE_CHECKING:
+    if is_neuronx_distributed_available():
+        from neuronx_distributed.pipeline import NxDPPModel
 
 logger = logging.get_logger()
 
@@ -106,7 +110,10 @@ class PipelineParallelismSpecs:
     LEAF_MODULE_CLASSES_NAMES: Optional[List[Union[str, Type["torch.nn.Module"]]]] = None
 
     @classmethod
+    @requires_torch_xla
     def create_pipeline_cuts(cls, model: PreTrainedModel, pipeline_parallel_size: int) -> List[str]:
+        import torch_xla.core.xla_model as xm
+
         num_layers = sum(1 if isinstance(mod, cls.TRASNFORMER_LAYER_CLS) else 0 for mod in model.modules())
         if num_layers % pipeline_parallel_size != 0:
             raise ValueError(
@@ -120,7 +127,7 @@ class PipelineParallelismSpecs:
             for cut_idx in range(num_layers_per_partition - 1, num_layers - 1, num_layers_per_partition)
         ]
 
-        if torch.distributed.get_rank() == 0:
+        if xm.get_local_ordinal() == 0:
             logger.info(f"Pipeline parallelism cuts: {pipeline_cuts}.")
 
         return pipeline_cuts
@@ -252,6 +259,8 @@ class Parallelizer(ABC):
         device: Optional["torch.device"] = None,
         parallelize_embeddings: bool = True,
         sequence_parallel_enabled: bool = False,
+        pipeline_parallel_num_microbatches: int = 1,
+        pipeline_parallel_use_zero1_optimizer: bool = False,
         checkpoint_dir: Optional[Union[str, Path]] = None,
     ) -> "PreTrainedModel":
         """
@@ -271,6 +280,11 @@ class Parallelizer(ABC):
                 This can be disabled in the case when the TP size does not divide the vocabulary size.
             sequence_parallel_enabled (`bool`, defaults to `False`):
                 Whether or not sequence parallelism is enabled.
+            pipeline_parallel_num_microbatches (`int`, defaults to 1):
+                The number of microbatches used for pipeline execution.
+            pipeline_parallel_use_zero1_optimizer (`bool`, defaults to `False`):
+                When zero-1 optimizer is used, set this to True, so the PP model will understand that zero-1 optimizer
+                will handle data parallel gradient averaging.
             checkpoint_dir (`Optional[Union[str, Path]]`):
                 Path to a sharded checkpoint. If specified, the checkpoint weights will be loaded to the parallelized
                 model.
@@ -411,12 +425,12 @@ class Parallelizer(ABC):
                 model = NxDPPModel(
                     model,
                     transformer_layer_cls=cls.PIPELINE_PARALLELISM_SPECS_CLS.TRASNFORMER_LAYER_CLS,
-                    num_microbatches=3,
+                    num_microbatches=pipeline_parallel_num_microbatches,
                     output_loss_value_spec=(True, False),
                     input_names=["input_ids", "attention_mask", "labels"],
                     pipeline_cuts=cls.PIPELINE_PARALLELISM_SPECS_CLS.create_pipeline_cuts(model, pp_size),
                     leaf_module_cls=cls.PIPELINE_PARALLELISM_SPECS_CLS.leaf_module_cls(),
-                    use_zero1_optimizer=False,
+                    use_zero1_optimizer=pipeline_parallel_use_zero1_optimizer,
                 )
 
         # TODO: see how it works out with pp.
@@ -433,13 +447,21 @@ class Parallelizer(ABC):
     @requires_neuronx_distributed
     def was_parallelized(cls, model: "PreTrainedModel") -> bool:
         from neuronx_distributed import parallel_layers
+        from neuronx_distributed.parallel_layers.parallel_state import (
+            get_pipeline_model_parallel_size,
+            get_tensor_model_parallel_size,
+        )
+        from neuronx_distributed.pipeline import NxDPPModel
 
+        needs_parallelization_for_pp = get_pipeline_model_parallel_size() > 1 and not isinstance(model, NxDPPModel)
         parallel_layer_classes = (
             parallel_layers.ParallelEmbedding,
             parallel_layers.ColumnParallelLinear,
             parallel_layers.RowParallelLinear,
         )
-        return any(isinstance(mod, parallel_layer_classes) for mod in model.modules())
+        layers_are_parallel = any(isinstance(mod, parallel_layer_classes) for mod in model.modules())
+        needs_parallelization_for_tp = get_tensor_model_parallel_size() > 1 and not layers_are_parallel
+        return (not needs_parallelization_for_pp) and (not needs_parallelization_for_tp)
 
     @classmethod
     def _check_model_was_parallelized(cls, model: "PreTrainedModel"):
@@ -603,7 +625,7 @@ class Parallelizer(ABC):
     @requires_neuronx_distributed
     def save_model_checkpoint_as_sharded(
         cls,
-        model: "PreTrainedModel",
+        model: Union["PreTrainedModel", "NxDPPModel"],
         output_dir: Union[str, Path],
         optimizer: Optional["torch.optim.Optimizer"] = None,
     ):
@@ -611,11 +633,17 @@ class Parallelizer(ABC):
 
         import torch_xla.core.xla_model as xm
         from neuronx_distributed import parallel_layers
+        from neuronx_distributed.pipeline import NxDPPModel
 
         if not isinstance(output_dir, Path):
             output_dir = Path(output_dir)
 
-        state_dict = {"model": model.state_dict()}
+        if isinstance(model, NxDPPModel):
+            model_state_dict = model.local_state_dict()
+        else:
+            model_state_dict = model.state_dict()
+
+        state_dict = {"model": model_state_dict}
         state_dict["sharded_metadata"] = {
             k: asdict(v) for k, v in cls._get_parameters_tp_metadata(dict(model.named_parameters())).items()
         }

@@ -119,7 +119,6 @@ class ModelPatcher(BasePatcher):
     ):
         proccessed_patching_specs = []
         for model, attribute_qualified_name, patch in patching_specs or []:
-            print(attribute_qualified_name)
             module_names = attribute_qualified_name.split(".")
             attribute_name = module_names.pop(-1)
             module = model

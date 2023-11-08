@@ -145,6 +145,8 @@ class ModelParallelismPlugin:
     parallelize_embeddings: bool = True
     sequence_parallel_enabled: bool = False
     pipeline_parallel_size: int = 1
+    pipeline_parallel_num_microbatches: int = 1
+    pipeline_parallel_use_zero1_optimizer: bool = False
     checkpoint_dir: Optional[Union[str, Path]] = None
 
     def __post_init__(self):
@@ -172,6 +174,8 @@ class ModelParallelismPlugin:
             device=device,
             parallelize_embeddings=self.parallelize_embeddings,
             sequence_parallel_enabled=self.sequence_parallel_enabled,
+            pipeline_parallel_num_microbatches=self.pipeline_parallel_num_microbatches,
+            pipeline_parallel_use_zero1_optimizer=self.pipeline_parallel_use_zero1_optimizer,
             checkpoint_dir=self.checkpoint_dir,
         )
         return parallelized_model

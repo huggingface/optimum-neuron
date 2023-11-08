@@ -68,6 +68,10 @@ class NeuronTrainingArgumentsMixin:
         default=1,
         metadata={"help": "The number of pipeline parallel replicas"},
     )
+    pipeline_parallel_num_microbatches: int = field(
+        default=-1,
+        metadata={"help": "The number of microbatches used for pipeline execution."},
+    )
 
     def __post_init__(self):
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
@@ -109,11 +113,27 @@ class NeuronTrainingArgumentsMixin:
             checkpoint = get_last_checkpoint(self.output_dir)
             resume_from_checkpoint = checkpoint
 
+        if self.pipeline_parallel_size > 1:
+            if self.pipeline_parallel_num_microbatches == -1:
+                self.pipeline_parallel_num_microbatches = self.per_device_train_batch_size
+            if self.per_device_train_batch_size % self.pipeline_parallel_num_microbatches != 0:
+                raise ValueError(
+                    f"The number of pipeline microbatches ({self.pipeline_parallel_num_microbatches}) divide the total "
+                    f"per-device train batch size ({self.per_device_train_batch_size})."
+                )
+            if self.per_device_eval_batch_size % self.pipeline_parallel_num_microbatches != 0:
+                raise ValueError(
+                    f"The number of pipeline microbatches ({self.pipeline_parallel_num_microbatches}) divide the total "
+                    f"per-device eval batch size ({self.per_device_eval_batch_size})."
+                )
+
         self.mp_plugin = ModelParallelismPlugin(
             self.tensor_parallel_size,
             not self.disable_embedding_parallelization,
             sequence_parallel_enabled=self.sequence_parallel_enabled,
             pipeline_parallel_size=self.pipeline_parallel_size,
+            pipeline_parallel_num_microbatches=self.pipeline_parallel_num_microbatches,
+            pipeline_parallel_use_zero1_optimizer=self.zero_1,
             checkpoint_dir=resume_from_checkpoint,
         )
         super().__post_init__()
