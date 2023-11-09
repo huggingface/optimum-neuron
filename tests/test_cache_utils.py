@@ -608,6 +608,7 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
     def test_push_to_hub_without_writing_rights(self):
         with TemporaryDirectory() as tmpdirname:
             import torch_xla.core.xla_model as xm
+
             set_neuron_cache_path(tmpdirname)
 
             input_shapes = (("x", (1,)),)
