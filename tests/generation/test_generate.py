@@ -40,17 +40,17 @@ def _test_model_generation(model, tokenizer, batch_size, input_length, **gen_kwa
 )
 @is_inferentia_test
 @requires_neuronx
-def test_model_generation(neuron_model_path, gen_kwargs):
-    model = NeuronModelForCausalLM.from_pretrained(neuron_model_path)
-    tokenizer = AutoTokenizer.from_pretrained(neuron_model_path)
+def test_model_generation(neuron_decoder_path, gen_kwargs):
+    model = NeuronModelForCausalLM.from_pretrained(neuron_decoder_path)
+    tokenizer = AutoTokenizer.from_pretrained(neuron_decoder_path)
     _test_model_generation(model, tokenizer, model.batch_size, 10, **gen_kwargs)
 
 
 @is_inferentia_test
 @requires_neuronx
-def test_model_generation_input_dimensions(neuron_model_path):
-    model = NeuronModelForCausalLM.from_pretrained(neuron_model_path)
-    tokenizer = AutoTokenizer.from_pretrained(neuron_model_path)
+def test_model_generation_input_dimensions(neuron_decoder_path):
+    model = NeuronModelForCausalLM.from_pretrained(neuron_decoder_path)
+    tokenizer = AutoTokenizer.from_pretrained(neuron_decoder_path)
     # Using valid input dimensions
     _test_model_generation(model, tokenizer, model.batch_size, model.max_length // 2)
     # Using an incompatible batch_size

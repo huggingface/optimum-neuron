@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import copy
-import os
 import random
 import unittest
 from pathlib import Path
@@ -22,7 +21,7 @@ from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import Dict, Optional
 
 from parameterized import parameterized
-from transformers import AutoConfig, set_seed
+from transformers import AutoConfig, AutoModelForSeq2SeqLM, set_seed
 from transformers.testing_utils import require_vision
 
 from optimum.exporters.neuron import (
@@ -30,25 +29,17 @@ from optimum.exporters.neuron import (
     build_stable_diffusion_components_mandatory_shapes,
     export,
     export_models,
-    get_stable_diffusion_models_for_export,
     validate_model_outputs,
     validate_models_outputs,
 )
+from optimum.exporters.neuron.__main__ import _get_submodels_and_neuron_configs
 from optimum.exporters.neuron.model_configs import *  # noqa: F403
 from optimum.exporters.tasks import TasksManager
-from optimum.neuron.utils import (
-    DIFFUSION_MODEL_TEXT_ENCODER_2_NAME,
-    DIFFUSION_MODEL_TEXT_ENCODER_NAME,
-    DIFFUSION_MODEL_UNET_NAME,
-    DIFFUSION_MODEL_VAE_DECODER_NAME,
-    DIFFUSION_MODEL_VAE_ENCODER_NAME,
-    NEURON_FILE_NAME,
-)
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 from optimum.utils import DEFAULT_DUMMY_SHAPES, is_diffusers_available, logging
 from optimum.utils.testing_utils import require_diffusers
 
-from .exporters_utils import EXPORT_MODELS_TINY, STABLE_DIFFUSION_MODELS_TINY
+from .exporters_utils import ENCODER_DECODER_MODELS_TINY, EXPORT_MODELS_TINY, STABLE_DIFFUSION_MODELS_TINY
 
 
 if is_diffusers_available():
@@ -164,29 +155,23 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
     """
 
     @parameterized.expand(STABLE_DIFFUSION_MODELS_TINY["stable-diffusion"])
-    def test_export_for_stable_diffusion_models(self, model_name):
+    def test_export_for_stable_diffusion_models(self, model_id):
         set_seed(SEED)
 
         # prepare neuron config / models
-        pipe = StableDiffusionPipeline.from_pretrained(model_name)
+        model = StableDiffusionPipeline.from_pretrained(model_id)
         input_shapes = build_stable_diffusion_components_mandatory_shapes(
-            **{"batch_size": 1, "height": 64, "width": 64}
+            **{"batch_size": 1, "height": 64, "width": 64, "num_images_per_prompt": 4}
         )
-        models_and_neuron_configs = get_stable_diffusion_models_for_export(
-            pipeline=pipe,
-            task="stable-diffusion",
-            dynamic_batch_size=False,
-            **input_shapes,
-        )
-
-        output_model_names = {
-            DIFFUSION_MODEL_TEXT_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_TEXT_ENCODER_NAME, NEURON_FILE_NAME),
-            DIFFUSION_MODEL_UNET_NAME: os.path.join(DIFFUSION_MODEL_UNET_NAME, NEURON_FILE_NAME),
-            DIFFUSION_MODEL_VAE_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_ENCODER_NAME, NEURON_FILE_NAME),
-            DIFFUSION_MODEL_VAE_DECODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_DECODER_NAME, NEURON_FILE_NAME),
-        }
 
         with TemporaryDirectory() as tmpdirname:
+            models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs(
+                model=model,
+                input_shapes=input_shapes,
+                task="stable-diffusion",
+                output=Path(tmpdirname),
+                model_name_or_path=model_id,
+            )
             _, neuron_outputs = export_models(
                 models_and_neuron_configs=models_and_neuron_configs,
                 output_dir=Path(tmpdirname),
@@ -200,30 +185,59 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
             )
 
     @parameterized.expand(STABLE_DIFFUSION_MODELS_TINY["stable-diffusion-xl"])
-    def test_export_for_stable_diffusion_xl_models(self, model_name):
+    def test_export_for_stable_diffusion_xl_models(self, model_id):
         set_seed(SEED)
 
         # prepare neuron config / models
-        pipe = StableDiffusionXLPipeline.from_pretrained(model_name)
+        model = StableDiffusionXLPipeline.from_pretrained(model_id)
         input_shapes = build_stable_diffusion_components_mandatory_shapes(
-            **{"batch_size": 1, "height": 64, "width": 64}
+            **{"batch_size": 1, "height": 64, "width": 64, "num_images_per_prompt": 4}
         )
-        models_and_neuron_configs = get_stable_diffusion_models_for_export(
-            pipeline=pipe,
-            task="stable-diffusion-xl",
-            dynamic_batch_size=False,
-            **input_shapes,
-        )
-
-        output_model_names = {
-            DIFFUSION_MODEL_TEXT_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_TEXT_ENCODER_NAME, NEURON_FILE_NAME),
-            DIFFUSION_MODEL_TEXT_ENCODER_2_NAME: os.path.join(DIFFUSION_MODEL_TEXT_ENCODER_2_NAME, NEURON_FILE_NAME),
-            DIFFUSION_MODEL_UNET_NAME: os.path.join(DIFFUSION_MODEL_UNET_NAME, NEURON_FILE_NAME),
-            DIFFUSION_MODEL_VAE_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_ENCODER_NAME, NEURON_FILE_NAME),
-            DIFFUSION_MODEL_VAE_DECODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_DECODER_NAME, NEURON_FILE_NAME),
-        }
 
         with TemporaryDirectory() as tmpdirname:
+            models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs(
+                model=model,
+                input_shapes=input_shapes,
+                task="stable-diffusion-xl",
+                output=Path(tmpdirname),
+                model_name_or_path=model_id,
+            )
+            _, neuron_outputs = export_models(
+                models_and_neuron_configs=models_and_neuron_configs,
+                output_dir=Path(tmpdirname),
+                output_file_names=output_model_names,
+            )
+            validate_models_outputs(
+                models_and_neuron_configs=models_and_neuron_configs,
+                neuron_named_outputs=neuron_outputs,
+                output_dir=Path(tmpdirname),
+                neuron_files_subpaths=output_model_names,
+            )
+
+
+@is_inferentia_test
+@requires_neuronx
+class NeuronEncoderDecoderExportTestCase(unittest.TestCase):
+    """
+    Integration tests ensuring encoder-decoder models are correctly exported.
+    """
+
+    @parameterized.expand(ENCODER_DECODER_MODELS_TINY.items())
+    def test_export_for_encoder_decoder_models(self, model_name, model_id):
+        set_seed(SEED)
+
+        # prepare neuron config / models
+        model = AutoModelForSeq2SeqLM.from_pretrained(model_id)
+        input_shapes = {"batch_size": 1, "sequence_length": 18, "num_beams": 4}
+
+        with TemporaryDirectory() as tmpdirname:
+            models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs(
+                model=model,
+                input_shapes=input_shapes,
+                task="text2text-generation",
+                output=Path(tmpdirname),
+                model_name_or_path=model_id,
+            )
             _, neuron_outputs = export_models(
                 models_and_neuron_configs=models_and_neuron_configs,
                 output_dir=Path(tmpdirname),

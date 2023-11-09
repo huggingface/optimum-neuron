@@ -16,34 +16,59 @@
 import pytest
 from generation_utils import check_neuron_model
 
-from optimum.neuron import NeuronModelForCausalLM
+from optimum.neuron import NeuronModelForCausalLM, NeuronModelForSeq2SeqLM
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
-@pytest.mark.parametrize(
-    "batch_size, sequence_length, num_cores, auto_cast_type",
-    [
-        [1, 100, 2, "fp32"],
-        [1, 100, 2, "fp16"],
-        [2, 100, 2, "fp16"],
-    ],
-)
-@is_inferentia_test
-@requires_neuronx
-def test_model_export(export_model_id, batch_size, sequence_length, num_cores, auto_cast_type):
-    model = NeuronModelForCausalLM.from_pretrained(
-        export_model_id,
-        export=True,
-        batch_size=batch_size,
-        sequence_length=sequence_length,
-        num_cores=num_cores,
-        auto_cast_type=auto_cast_type,
+class DecoderTests:
+    @pytest.mark.parametrize(
+        "batch_size, sequence_length, num_cores, auto_cast_type",
+        [
+            [1, 100, 2, "fp32"],
+            [1, 100, 2, "fp16"],
+            [2, 100, 2, "fp16"],
+        ],
     )
-    check_neuron_model(model, batch_size, sequence_length, num_cores, auto_cast_type)
+    @is_inferentia_test
+    @requires_neuronx
+    def test_decoder_export(export_decoder_id, batch_size, sequence_length, num_cores, auto_cast_type):
+        model = NeuronModelForCausalLM.from_pretrained(
+            export_decoder_id,
+            export=True,
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            num_cores=num_cores,
+            auto_cast_type=auto_cast_type,
+        )
+        check_neuron_model(model, batch_size, sequence_length, num_cores, auto_cast_type)
+
+    @is_inferentia_test
+    @requires_neuronx
+    def test_model_from_path(neuron_decoder_path):
+        model = NeuronModelForCausalLM.from_pretrained(neuron_decoder_path)
+        check_neuron_model(model)
 
 
-@is_inferentia_test
-@requires_neuronx
-def test_model_from_path(neuron_model_path):
-    model = NeuronModelForCausalLM.from_pretrained(neuron_model_path)
-    check_neuron_model(model)
+class Seq2SeqTests:
+    @pytest.mark.parametrize(
+        "batch_size, sequence_length, num_beams",
+        [
+            [1, 32, 1],
+            [1, 32, 4],
+        ],
+    )
+    @is_inferentia_test
+    @requires_neuronx
+    def test_seq2seq_export(export_seq2seq_id, batch_size, sequence_length, num_beams):
+        model = NeuronModelForSeq2SeqLM.from_pretrained(
+            export_seq2seq_id,
+            export=True,
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            num_beams=num_beams,
+        )
+
+    @is_inferentia_test
+    @requires_neuronx
+    def test_model_from_path(neuron_seq2seq_path):
+        model = NeuronModelForSeq2SeqLM.from_pretrained(neuron_seq2seq_path)

@@ -17,7 +17,7 @@ from tempfile import TemporaryDirectory
 import pytest
 from transformers import AutoTokenizer
 
-from optimum.neuron import NeuronModelForCausalLM
+from optimum.neuron import NeuronModelForCausalLM, NeuronModelForSeq2SeqLM
 from optimum.neuron.utils.testing_utils import requires_neuronx
 from optimum.utils.testing_utils import USER
 
@@ -29,24 +29,32 @@ DECODER_MODEL_NAMES = {
     "llama": "dacorvo/tiny-random-llama",
     "opt": "hf-internal-testing/tiny-random-OPTForCausalLM",
 }
+SEQ2SEQ_MODEL_NAMES = {
+    "t5": "hf-internal-testing/tiny-random-t5",
+}
 
 
 @pytest.fixture(scope="module", params=[DECODER_MODEL_NAMES[model_arch] for model_arch in DECODER_MODEL_ARCHITECTURES])
-def export_model_id(request):
+def export_decoder_id(request):
+    return request.param
+
+
+@pytest.fixture(scope="module", params=[SEQ2SEQ_MODEL_NAMES[model_arch] for model_arch in SEQ2SEQ_MODEL_NAMES])
+def export_seq2seq_id(request):
     return request.param
 
 
 @pytest.fixture(scope="module")
 @requires_neuronx
-def neuron_model_path(export_model_id):
+def neuron_decoder_path(export_decoder_id):
     model = NeuronModelForCausalLM.from_pretrained(
-        export_model_id, export=True, batch_size=1, sequence_length=100, num_cores=2
+        export_decoder_id, export=True, batch_size=1, sequence_length=100, num_cores=2
     )
     model_dir = TemporaryDirectory()
     model_path = model_dir.name
     model.save_pretrained(model_path)
     del model
-    tokenizer = AutoTokenizer.from_pretrained(export_model_id)
+    tokenizer = AutoTokenizer.from_pretrained(export_decoder_id)
     tokenizer.save_pretrained(model_path)
     del tokenizer
     # Yield instead of returning to keep a reference to the temporary directory.
@@ -56,8 +64,31 @@ def neuron_model_path(export_model_id):
 
 
 @pytest.fixture(scope="module")
-def neuron_push_id(export_model_id):
-    model_name = export_model_id.split("/")[-1]
+@requires_neuronx
+def neuron_seq2seq_path(export_seq2seq_id):
+    model = NeuronModelForSeq2SeqLM.from_pretrained(
+        export_seq2seq_id, export=True, batch_size=1, sequence_length=32, num_beams=4
+    )
+    model_dir = TemporaryDirectory()
+    model_path = model_dir.name
+    model.save_pretrained(model_path)
+    del model
+    # Yield instead of returning to keep a reference to the temporary directory.
+    # It will go out of scope and be released only once all tests needing the fixture
+    # have been completed.
+    yield model_path
+
+
+@pytest.fixture(scope="module")
+def neuron_push_decoder_id(export_decoder_id):
+    model_name = export_decoder_id.split("/")[-1]
+    repo_id = f"{USER}/{model_name}-neuronx"
+    return repo_id
+
+
+@pytest.fixture(scope="module")
+def neuron_push_seq2seq_id(export_seq2seq_id):
+    model_name = export_seq2seq_id.split("/")[-1]
     repo_id = f"{USER}/{model_name}-neuronx"
     return repo_id
 

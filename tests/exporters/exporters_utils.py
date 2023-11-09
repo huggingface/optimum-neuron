@@ -32,6 +32,10 @@ EXPORT_MODELS_TINY = {
     "xlm-roberta": "hf-internal-testing/tiny-xlm-roberta",
 }
 
+ENCODER_DECODER_MODELS_TINY = {
+    "t5": "hf-internal-testing/tiny-random-t5",
+}
+
 STABLE_DIFFUSION_MODELS_TINY = {
     "stable-diffusion": ["hf-internal-testing/tiny-stable-diffusion-torch"],
     "stable-diffusion-xl": ["echarlaix/tiny-random-stable-diffusion-xl"],

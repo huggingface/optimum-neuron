@@ -387,11 +387,9 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
         logits_processor: Optional[LogitsProcessorList] = None,
         stopping_criteria: Optional[StoppingCriteriaList] = None,
         prefix_allowed_tokens_fn: Optional[Callable[[int, torch.Tensor], List[int]]] = None,
-        synced_gpus: Optional[bool] = None,
         assistant_model: Optional["PreTrainedModel"] = None,
         streamer: Optional["BaseStreamer"] = None,
         num_return_sequences: Optional[int] = None,
-        device: str = "xla",
         **kwargs,
     ):
         max_length = self.neuron_configs[ENCODER_NAME].sequence_length
@@ -416,14 +414,21 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
 
         output = super().generate(
             **inputs,
+            generation_config=generation_config,
+            logits_processor=logits_processor,
+            stopping_criteria=stopping_criteria,
+            prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
+            assistant_model=assistant_model,
+            streamer=streamer,
+            num_return_sequences=num_return_sequences,
             max_length=max_length,
             num_beams=num_beams,
-            num_return_sequences=num_return_sequences,
-            do_sample=False,
-            use_cache=True,
+            do_sample=kwargs.pop("do_sample", False),
+            use_cache=kwargs.pop("use_cache", True),
             decoder_attention_mask=decoder_attention_mask,
+            # Pass fake encoder_outputs so the transfomers code will not invoke the encoder
             encoder_outputs={"last_hidden_state": torch.ones((batch_size, max_length, 1))},
-        )  # Pass fake encoder_outputs so the transfomers code will not invoke the encoder
+        )
         return output
 
     def beam_search(
@@ -432,7 +437,6 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
         beam_scorer: "BeamScorer",
         logits_processor: Optional[LogitsProcessorList] = None,
         stopping_criteria: Optional[StoppingCriteriaList] = None,
-        max_length: Optional[int] = None,
         pad_token_id: Optional[int] = None,
         eos_token_id: Optional[Union[int, List[int]]] = None,
         output_attentions: Optional[bool] = None,
@@ -443,6 +447,9 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
         seq_length: Optional[int] = None,
         **model_kwargs,
     ) -> Union[BeamSearchOutput, torch.LongTensor]:
+        """
+        Overriding beam search to use next_token_scores returned from neuron device instead of logits.
+        """
         logits_processor = logits_processor if logits_processor is not None else LogitsProcessorList()
         stopping_criteria = stopping_criteria if stopping_criteria is not None else StoppingCriteriaList()
         pad_token_id = pad_token_id if pad_token_id is not None else self.generation_config.pad_token_id
@@ -580,8 +587,6 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
             if stop_criterion_1 or stop_criterion_2:
                 if not synced_gpus:
                     break
-                else:
-                    this_peer_finished = True
 
         sequence_outputs = beam_scorer.finalize(
             input_ids.to("cpu"),
@@ -642,9 +647,6 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
 
         # init attention / hidden states / scores tuples
         scores = () if (return_dict_in_generate and output_scores) else None
-        decoder_attentions = () if (return_dict_in_generate and output_attentions) else None
-        cross_attentions = () if (return_dict_in_generate and output_attentions) else None
-        decoder_hidden_states = () if (return_dict_in_generate and output_hidden_states) else None
 
         # keep track of which sequences are already finished
         unfinished_sequences = torch.ones(input_ids.shape[0], dtype=torch.long, device=input_ids.device)

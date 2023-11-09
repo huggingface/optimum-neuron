@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Optional, Union
 
 from requests.exceptions import ConnectionError as RequestsConnectionError
-from transformers import AutoConfig
+from transformers import AutoConfig, PretrainedConfig
 
 from ...neuron.utils import (
     DECODER_NAME,
@@ -190,7 +190,9 @@ def _get_submodels_and_neuron_configs(
     model_name_or_path: Optional[Union[str, Path]] = None,
 ):
     is_stable_diffusion = "stable-diffusion" in task
-    is_encoder_decoder = model.config.is_encoder_decoder
+    is_encoder_decoder = (
+        getattr(model.config, "is_encoder_decoder", False) if isinstance(model.config, PretrainedConfig) else False
+    )
 
     if is_stable_diffusion:
         models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs_for_stable_diffusion(
