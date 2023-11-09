@@ -17,7 +17,7 @@ import pytest
 import torch
 from transformers import AutoTokenizer
 
-from optimum.neuron import NeuronModelForCausalLM
+from optimum.neuron import NeuronModelForCausalLM, NeuronModelForSeq2SeqLM
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
@@ -40,7 +40,7 @@ def _test_model_generation(model, tokenizer, batch_size, input_length, **gen_kwa
 )
 @is_inferentia_test
 @requires_neuronx
-def test_model_generation(neuron_decoder_path, gen_kwargs):
+def test_decoder_generation(neuron_decoder_path, gen_kwargs):
     model = NeuronModelForCausalLM.from_pretrained(neuron_decoder_path)
     tokenizer = AutoTokenizer.from_pretrained(neuron_decoder_path)
     _test_model_generation(model, tokenizer, model.batch_size, 10, **gen_kwargs)
@@ -59,3 +59,23 @@ def test_model_generation_input_dimensions(neuron_decoder_path):
     # Using an incompatible input length
     with pytest.raises(ValueError, match="The input sequence length"):
         _test_model_generation(model, tokenizer, model.batch_size, input_length=model.max_length * 2)
+
+
+@is_inferentia_test
+@requires_neuronx
+def test_seq2seq_generation_beam(neuron_seq2seq_path):
+    model = NeuronModelForSeq2SeqLM.from_pretrained(neuron_seq2seq_path)
+    tokenizer = AutoTokenizer.from_pretrained(neuron_seq2seq_path)
+    inputs = tokenizer("translate English to German: Lets eat good food.", return_tensors="pt")
+    output = model.generate(**inputs, num_return_sequences=1)
+    return output
+
+
+@is_inferentia_test
+@requires_neuronx
+def test_seq2seq_generation_greedy(neuron_seq2seq_greedy_path):
+    model = NeuronModelForSeq2SeqLM.from_pretrained(neuron_seq2seq_greedy_path)
+    tokenizer = AutoTokenizer.from_pretrained(neuron_seq2seq_greedy_path)
+    inputs = tokenizer("translate English to German: Lets eat good food.", return_tensors="pt")
+    output = model.generate(**inputs, num_return_sequences=1)
+    return output
