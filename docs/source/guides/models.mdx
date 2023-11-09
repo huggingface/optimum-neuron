@@ -249,7 +249,7 @@ Besides, don't hesitate to tweak the compilation configuration to find the best 
 >>> compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
 >>> input_shapes = {"batch_size": 1, "height": 512, "width": 512}
 
->>> stable_diffusion = NeuronStableDiffusionPipeline.from_pretrained(model_id, export=True, **compiler_args, **input_shapes)
+>>> stable_diffusion = NeuronStableDiffusionPipeline.from_pretrained(model_id, export=True, **compiler_args, **input_shapes, device_ids=[0, 1])
 
 # Save locally or upload to the HuggingFace Hub
 >>> save_directory = "sd_neuron/"
@@ -351,7 +351,7 @@ Similar to Stable Diffusion, you will be able to use `NeuronStableDiffusionXLPip
 >>> compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
 >>> input_shapes = {"batch_size": 1, "height": 1024, "width": 1024}
 
->>> stable_diffusion_xl = NeuronStableDiffusionXLPipeline.from_pretrained(model_id, export=True, **compiler_args, **input_shapes)
+>>> stable_diffusion_xl = NeuronStableDiffusionXLPipeline.from_pretrained(model_id, export=True, **compiler_args, **input_shapes, device_ids=[0, 1])
 
 # Save locally or upload to the HuggingFace Hub
 >>> save_directory = "sd_neuron_xl/"
