@@ -37,4 +37,4 @@ jobs:
         run: |
           HF_TOKEN_OPTIMUM_NEURON_CI=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} USE_VENV="false" pytest -m "is_trainium_test" $TESTS_TO_IGNORE_FLAGS tests 
       - name: Run staging tests on Neuron cores 
-        run: HUGGINGFACE_CO_STAGING=1 pytest -m "is_trainium_test and is_staging_test" $TESTS_TO_IGNORE_FLAGS test
+        run: HUGGINGFACE_CO_STAGING=1 pytest -m "is_trainium_test and is_staging_test" $TESTS_TO_IGNORE_FLAGS tests
