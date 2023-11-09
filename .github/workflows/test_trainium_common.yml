@@ -28,7 +28,9 @@ jobs:
       # - name: Install python3.8-venv
       #   run: sudo apt update; sudo apt install -y python3.8-venv
       - name: Set PATH
-        run: echo export PATH=$PATH:/home/ubuntu/.local/bin >>/home/ubuntu/.bashrc
+        run: | 
+          echo export PATH=$PATH:/home/ubuntu/.local/bin >>/home/ubuntu/.bashrc
+          source /home/ubuntu/.bashrc
       - name: Set pip repository pointing to the Neuron repository
         run: pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
       - name: Install Python dependencies
