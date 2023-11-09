@@ -30,7 +30,9 @@ jobs:
       - name: Set pip repository pointing to the Neuron repository
         run: pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
       - name: Install Python dependencies
-        run: pip install .[tests,neuronx]
+        run: |
+          export PATH=$PATH:/home/ubuntu/.local/bin
+          pip install .[tests,neuronx]
       - name: Run tests on Neuron cores
         run: |
           HF_TOKEN_OPTIMUM_NEURON_CI=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} USE_VENV="false" pytest -m "is_trainium_test" $TESTS_TO_IGNORE_FLAGS tests 
