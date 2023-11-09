@@ -193,11 +193,11 @@ def _get_submodels_and_neuron_configs(
     is_encoder_decoder = model.config.is_encoder_decoder
 
     if is_stable_diffusion:
-        return _get_submodels_and_neuron_configs_for_stable_diffusion(
+        models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs_for_stable_diffusion(
             model, input_shapes, task, output, dynamic_batch_size
         )
     elif is_encoder_decoder:
-        return _get_submodels_and_neuron_configs_for_encoder_decoder(
+        models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs_for_encoder_decoder(
             model, input_shapes, task, output, dynamic_batch_size, model_name_or_path
         )
     else:
@@ -209,7 +209,7 @@ def _get_submodels_and_neuron_configs(
         output_model_names = {model_name: "model.neuron"}
         models_and_neuron_configs = {model_name: (model, neuron_config)}
         maybe_save_preprocessors(model_name_or_path, output)
-        return models_and_neuron_configs, output_model_names
+    return models_and_neuron_configs, output_model_names
 
 
 def _get_submodels_and_neuron_configs_for_stable_diffusion(

@@ -13,17 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """NeuroModelForXXX classes for seq2seq models' inference on neuron devices."""
+import copy
 import logging
 import os
 import shutil
 from abc import abstractmethod
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 from huggingface_hub import snapshot_download
-from transformers import AutoConfig, AutoModelForSeq2SeqLM, GenerationConfig, PreTrainedTokenizerBase
+from transformers import AutoConfig, AutoModelForSeq2SeqLM, GenerationConfig
 from transformers.generation.beam_search import BeamScorer
 from transformers.generation.logits_process import (
     LogitsProcessorList,
@@ -37,7 +38,7 @@ from transformers.generation.utils import (
     BeamSearchOutput,
     GreedySearchOutput,
 )
-from transformers.modeling_outputs import ModelOutput, Seq2SeqLMOutput
+from transformers.modeling_outputs import Seq2SeqLMOutput
 
 from ..exporters.neuron import (
     NeuronConfig,
@@ -57,7 +58,8 @@ from .utils import (
 
 
 if TYPE_CHECKING:
-    from transformers import PretrainedConfig
+    from transformers import PretrainedConfig, PreTrainedModel
+    from transformers.generation.streamers import BaseStreamer
 
 if is_neuronx_available():
     import torch_neuronx
@@ -73,18 +75,23 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
         self,
         encoder: torch.jit._script.ScriptModule,
         decoder: torch.jit._script.ScriptModule,
-        configs: Optional[Dict[str, "PretrainedConfig"]] = None,
+        config: "PretrainedConfig",
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
         encoder_file_name: Optional[str] = NEURON_FILE_NAME,
         decoder_file_name: Optional[str] = NEURON_FILE_NAME,
         preprocessors: Optional[List] = None,
         neuron_configs: Optional[Dict[str, "NeuronConfig"]] = None,
+        configs: Optional[Dict[str, "PretrainedConfig"]] = None,
         generation_config: Optional[GenerationConfig] = None,
         model_and_config_save_paths: Optional[Dict[str, Tuple[str, Path]]] = None,
         **kwargs,
     ):
+        self.config = config
         self.configs = configs
         self.neuron_configs = neuron_configs
+        self.input_static_shapes = NeuronModelForConditionalGeneration.get_input_static_shapes(
+            self.neuron_configs[ENCODER_NAME]
+        )  # only for the encoder
         self._attributes_init(model_save_dir, preprocessors, **kwargs)
         self.model_and_config_save_paths = model_and_config_save_paths if model_and_config_save_paths else None
         self.encoder = NeuronEncoder(
@@ -93,7 +100,7 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
             self.configs[ENCODER_NAME],
             self.neuron_configs[ENCODER_NAME],
         )
-        self.decoder = NeuronEncoder(
+        self.decoder = NeuronDecoder(
             decoder,
             self,
             self.configs[DECODER_NAME],
@@ -142,8 +149,8 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
             save_directory / DECODER_NAME / decoder_file_name,
         ]
         src_paths = [
-            Path(self.model_and_config_save_paths[model_name][0])
-            for model_name in set(self.model_and_config_save_paths.keys()).intersection([ENCODER_NAME, DECODER_NAME])
+            Path(self.model_and_config_save_paths[ENCODER_NAME][0]),
+            Path(self.model_and_config_save_paths[DECODER_NAME][0]),
         ]
 
         for src_path, dst_path in zip(src_paths, dst_paths):
@@ -206,8 +213,13 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
                 configs[name] = model_config
                 neuron_configs[name] = cls._neuron_config_init(model_config)
 
-        encoder = cls.load_model(model_and_config_save_paths["encoder"][0])
-        decoder = cls.load_model(model_and_config_save_paths["decoder"][0])
+        # Initialize Neuron Runtime before loading models
+        runtime = torch.classes.neuron.Runtime()
+        runtime.initialize()
+        runtime.set_default_neuron_cores(0, 1)
+
+        encoder = cls.load_model(model_and_config_save_paths[ENCODER_NAME][0])
+        decoder = cls.load_model(model_and_config_save_paths[DECODER_NAME][0])
         torch_neuronx.move_trace_to_device(decoder, 0)
 
         if model_save_dir is None:
@@ -230,12 +242,13 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
         return cls(
             encoder=encoder,
             decoder=decoder,
-            configs=configs,
+            config=config,
             model_save_dir=model_save_dir,
             encoder_file_name=encoder_file_name,
             decoder_file_name=decoder_file_name,
             preprocessors=preprocessors,
             neuron_configs=neuron_configs,
+            configs=configs,
             generation_config=generation_config,
             model_and_config_save_paths=model_and_config_save_paths,
         )
@@ -316,107 +329,29 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
     def _combine_encoder_decoder_config(self, encoder_config: "PretrainedConfig", decoder_config: "PretrainedConfig"):
         encoder_neuron_config = encoder_config.neuron
         decoder_neuron_config = decoder_config.neuron
+        combined_config = copy.deepcopy(encoder_config)
 
         encoder_neuron_config["encoder_input_names"] = encoder_neuron_config.pop("input_names")
         encoder_neuron_config["encoder_output_names"] = encoder_neuron_config.pop("output_names")
         decoder_neuron_config["decoder_input_names"] = decoder_neuron_config.pop("input_names")
         decoder_neuron_config["decoder_output_names"] = decoder_neuron_config.pop("output_names")
 
-        neuron_config = encoder_neuron_config.update(decoder_neuron_config)
-        encoder_config.__setattr__("neuron", neuron_config)
+        encoder_neuron_config.update(decoder_neuron_config)
+        encoder_neuron_config.pop("model_type")
+        combined_config.__setattr__("neuron", encoder_neuron_config)
 
-        return encoder_config
+        return combined_config
+
+    def can_generate(self):
+        logger.warning(
+            "NeuronModelForConditionalGeneration is an abstract class and is not meant to be used for generation. Please use NeuronModelForSeq2SeqLM instead."
+        )
+        return False
 
 
 class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerationMixin):
     auto_model_class = AutoModelForSeq2SeqLM
     main_input_name = "input_ids"
-
-    def _prepare_encoder_decoder_kwargs_for_generation(
-        self, inputs_tensor: torch.Tensor, model_kwargs, model_input_name: Optional[str] = None
-    ) -> Dict[str, Any]:
-        encoder = self.get_encoder()
-        model_kwargs["encoder_outputs"]: ModelOutput = encoder(inputs_tensor, model_kwargs["attention_mask"])
-        return model_kwargs
-
-    def _update_model_kwargs_for_xla_generation(
-        self,
-        model_kwargs: Dict[str, Any],
-        batch_size: int,
-        is_encoder_decoder: bool = False,
-        standardize_cache_format: bool = False,
-        max_length: Optional[int] = None,
-        seq_length: Optional[int] = None,
-        use_cache: bool = True,
-    ) -> Dict[str, Any]:
-        def _update_attention(model_kwargs, is_encoder_decoder):
-            """Updates the appropriate attention mask -- encoder-decoder models use `decoder_attention_mask`"""
-
-            attention_mask_name = "decoder_attention_mask" if is_encoder_decoder else "attention_mask"
-            attention_mask = model_kwargs.pop(attention_mask_name)
-            attention_mask_update_slice = torch.ones(
-                (batch_size, 1), dtype=attention_mask.dtype, device=attention_mask.device
-            )
-            attention_mask = torch.cat([attention_mask[:, 1:], attention_mask_update_slice], dim=-1)
-            mask = {attention_mask_name: attention_mask}
-            return mask
-
-        mask = _update_attention(model_kwargs, is_encoder_decoder)
-        # sets the updated variables (mask and past_key_values)
-        model_kwargs.update(mask)
-
-        # Set a mock cache tensor
-        model_kwargs["past_key_values"] = torch.tensor([])
-
-        return model_kwargs
-
-    def _reorder_cache(self, past_key_values, beam_idx):
-        """
-        This is needed for beam search and not greedy sampling
-        We reorder the cache within the trace so we can skip it in modelling_t5.py. So we override the _reorder_cache
-        """
-        self.beam_idx = beam_idx
-        return past_key_values
-
-    def generate(
-        self,
-        tokenizer: "PreTrainedTokenizerBase",
-        prompt: str,
-        max_length: int,
-        num_beams: int,
-        num_return_sequences: int,
-        device: str,
-    ):
-        batch_encoding = tokenizer(
-            prompt, max_length=max_length, truncation=True, padding="max_length", return_tensors="pt"
-        )
-
-        past_key_values = self.encoder(batch_encoding["input_ids"], batch_encoding["attention_mask"])
-
-        decoder_attention_mask = torch.cat(
-            [torch.zeros((1, max_length - 1), dtype=torch.int32), torch.ones((1, 1), dtype=torch.int32)], axis=1
-        )
-
-        # copy the new cache state to the decoder
-        if device == "xla":
-            for state, tensor in zip(self.decoder.parameters(), past_key_values):
-                state.copy_(tensor)
-        else:
-            # First half of the cache is self attention and the rest is cross attention
-            self.decoder.past_key_values_sa = past_key_values[: len(past_key_values) // 2]
-            self.decoder.past_key_values_ca = past_key_values[len(past_key_values) // 2 :]
-
-        output = super().generate(
-            **batch_encoding,
-            max_length=max_length,
-            num_beams=num_beams,
-            num_return_sequences=num_return_sequences,
-            do_sample=False,
-            use_cache=True,
-            decoder_attention_mask=decoder_attention_mask,
-            encoder_outputs={"last_hidden_state": torch.ones((1, 128, 1))},
-        )  # Pass fake encoder_outputs so the transfomers code will not invoke the encoder
-        return output
 
     def forward(
         self,
@@ -438,12 +373,58 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
             decoder_input_ids, decoder_attention_mask, hidden_states, attention_mask, self.beam_idx, beam_scores
         )
 
-        # lm_logits = decoder_outputs[0]
         next_token_scores = decoder_outputs[0]
         next_tokens = decoder_outputs[1]
         next_indices = decoder_outputs[2]
 
         return next_token_scores, next_tokens, next_indices
+
+    def generate(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        generation_config: Optional[GenerationConfig] = None,
+        logits_processor: Optional[LogitsProcessorList] = None,
+        stopping_criteria: Optional[StoppingCriteriaList] = None,
+        prefix_allowed_tokens_fn: Optional[Callable[[int, torch.Tensor], List[int]]] = None,
+        synced_gpus: Optional[bool] = None,
+        assistant_model: Optional["PreTrainedModel"] = None,
+        streamer: Optional["BaseStreamer"] = None,
+        num_return_sequences: Optional[int] = None,
+        device: str = "xla",
+        **kwargs,
+    ):
+        max_length = self.neuron_configs[ENCODER_NAME].sequence_length
+        num_beams = self.neuron_configs[ENCODER_NAME].num_beams
+        batch_size = self.neuron_configs[ENCODER_NAME].batch_size
+
+        inputs = {"input_ids": input_ids}
+        if attention_mask is not None:
+            inputs["attention_mask"] = attention_mask
+        inputs = self._pad_to_compiled_shape(inputs)
+
+        past_key_values = self.encoder(**inputs)
+
+        decoder_attention_mask = torch.cat(
+            [torch.zeros((batch_size, max_length - 1), dtype=torch.int64), torch.ones((1, 1), dtype=torch.int64)],
+            axis=1,
+        )
+
+        # copy the new cache state to the decoder
+        for state, tensor in zip(self.decoder.model.parameters(), past_key_values):
+            state.copy_(tensor)
+
+        output = super().generate(
+            **inputs,
+            max_length=max_length,
+            num_beams=num_beams,
+            num_return_sequences=num_return_sequences,
+            do_sample=False,
+            use_cache=True,
+            decoder_attention_mask=decoder_attention_mask,
+            encoder_outputs={"last_hidden_state": torch.ones((batch_size, max_length, 1))},
+        )  # Pass fake encoder_outputs so the transfomers code will not invoke the encoder
+        return output
 
     def beam_search(
         self,
@@ -642,6 +623,10 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
         logits_processor = logits_processor if logits_processor is not None else LogitsProcessorList()
         use_cache = model_kwargs["use_cache"] if "use_cache" in model_kwargs else False
         stopping_criteria = stopping_criteria if stopping_criteria is not None else StoppingCriteriaList()
+        if max_length is not None:
+            from transformers.generation.stopping_criteria import validate_stopping_criteria
+
+            stopping_criteria = validate_stopping_criteria(stopping_criteria, max_length)
         pad_token_id = pad_token_id if pad_token_id is not None else self.generation_config.pad_token_id
         eos_token_id = eos_token_id if eos_token_id is not None else self.generation_config.eos_token_id
         if isinstance(eos_token_id, int):
@@ -755,6 +740,86 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
 
         return input_ids
 
+    def _reorder_cache(self, past_key_values, beam_idx):
+        """
+        The cache was reordered during the tracing of the decoder so we can skip it here. This is needed for beam search and not greedy sampling.
+        """
+        self.beam_idx = beam_idx
+        return past_key_values
+
+    def get_encoder(self) -> "NeuronEncoder":
+        return self.encoder
+
+    def _update_model_kwargs_for_xla_generation(
+        self,
+        model_kwargs: Dict[str, Any],
+        batch_size: int,
+        is_encoder_decoder: bool = False,
+        standardize_cache_format: bool = False,
+        max_length: Optional[int] = None,
+        seq_length: Optional[int] = None,
+        use_cache: bool = True,
+    ) -> Dict[str, Any]:
+        def _update_attention(model_kwargs, is_encoder_decoder):
+            """Updates the appropriate attention mask -- encoder-decoder models use `decoder_attention_mask`"""
+
+            attention_mask_name = "decoder_attention_mask" if is_encoder_decoder else "attention_mask"
+            attention_mask = model_kwargs.pop(attention_mask_name)
+            attention_mask_update_slice = torch.ones(
+                (batch_size, 1), dtype=attention_mask.dtype, device=attention_mask.device
+            )
+            attention_mask = torch.cat([attention_mask[:, 1:], attention_mask_update_slice], dim=-1)
+            mask = {attention_mask_name: attention_mask}
+            return mask
+
+        mask = _update_attention(model_kwargs, is_encoder_decoder)
+        # sets the updated variables (mask and past_key_values)
+        model_kwargs.update(mask)
+
+        # Set a mock cache tensor
+        model_kwargs["past_key_values"] = torch.tensor([])
+
+        return model_kwargs
+
+    # Override to cut the input_ids to just last token
+    def prepare_inputs_for_generation(
+        self,
+        input_ids,
+        past_key_values=None,
+        attention_mask=None,
+        head_mask=None,
+        decoder_head_mask=None,
+        decoder_attention_mask=None,
+        cross_attn_head_mask=None,
+        use_cache=None,
+        encoder_outputs=None,
+        **kwargs,
+    ):
+        # cut decoder_input_ids as past is cached
+        input_ids = input_ids[:, -1:]
+
+        return {
+            "decoder_input_ids": input_ids,
+            "past_key_values": past_key_values,
+            "encoder_outputs": encoder_outputs,
+            "attention_mask": attention_mask,
+            "head_mask": head_mask,
+            "decoder_head_mask": decoder_head_mask,
+            "decoder_attention_mask": decoder_attention_mask,
+            "cross_attn_head_mask": cross_attn_head_mask,
+            "use_cache": use_cache,
+        }
+
+    def _validate_static_shape(self, input_shapes: List[int], target_shapes: List[int]) -> bool:
+        """
+        Checks if a input needs to be padded.
+        """
+        return input_shapes == target_shapes
+
+    def can_generate(self):
+        """Returns True to validate the check that the model using `GenerationMixin.generate()` can indeed generate."""
+        return True
+
 
 class _NeuronSeq2SeqModelPart:
     """
@@ -789,6 +854,8 @@ class NeuronEncoder(_NeuronSeq2SeqModelPart):
     """
     Encoder part of the encoder-decoder model for Neuron inference. (Actually it's a monolith of encoder + decoder without past_key_values to workaround the control flow in the decoder).
     """
+
+    main_input_name = "input_ids"
 
     def __init__(
         self,

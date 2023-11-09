@@ -480,10 +480,15 @@ class NeuronBaseModel(OptimizedModel):
 
             # Pad to batch size: dimension 0 (pad_token_id can't be 0)
             padding = (0,) * len(padding)
-            if self.neuron_config.dynamic_batch_size is True and input_tensor.size(0) % target_shapes[0] == 0:
+            is_encoder_decoder = getattr(self.config, "is_encoder_decoder", False)
+            if (
+                not is_encoder_decoder
+                and self.neuron_config.dynamic_batch_size is True
+                and input_tensor.size(0) % target_shapes[0] == 0
+            ):
                 inputs[input_name] = input_tensor
                 continue
-            elif self.neuron_config.dynamic_batch_size is True:
+            elif not is_encoder_decoder and self.neuron_config.dynamic_batch_size is True:
                 target_shape = (input_tensor.size(0) // target_shapes[0] + 1) * target_shapes[0]
                 to_pad = target_shape - input_tensor.size(0)
             else:
