@@ -607,6 +607,7 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
 
     def test_push_to_hub_without_writing_rights(self):
         with TemporaryDirectory() as tmpdirname:
+            import torch_xla.core.xla_model as xm
             set_neuron_cache_path(tmpdirname)
 
             input_shapes = (("x", (1,)),)
@@ -618,7 +619,8 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
 
             public_tiny_model = public_tiny_model.to("xla")
             input_ = torch.rand((32, 1)).to("xla")
-            print(public_tiny_model(input_))
+            public_tiny_model(input_)
+            xm.mark_step()
 
             # This should work because we do have writing access to this repo.
             set_custom_cache_repo_name_in_hf_home(self.CUSTOM_CACHE_REPO)
