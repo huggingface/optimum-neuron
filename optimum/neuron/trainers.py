@@ -39,11 +39,7 @@ from transformers.trainer import (
 from transformers.trainer_pt_utils import (
     reissue_pt_warnings,
 )
-from transformers.trainer_utils import (
-    PREFIX_CHECKPOINT_DIR,
-    EvalLoopOutput,
-    has_length
-)
+from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR, EvalLoopOutput, has_length
 from transformers.utils import WEIGHTS_NAME, is_sagemaker_mp_enabled
 
 from ..utils import check_if_transformers_greater, logging

@@ -151,7 +151,7 @@ class NeuronAccelerator(Accelerator):
 
         orig_sampler = data_loader.sampler
         if hasattr(orig_sampler, "shuffle"):
-              shuffle = orig_sampler.shuffle
+            shuffle = orig_sampler.shuffle
         elif isinstance(orig_sampler, torch.utils.data.SequentialSampler):
             shuffle = False
         else:
