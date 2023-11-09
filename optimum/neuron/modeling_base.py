@@ -317,6 +317,7 @@ class NeuronBaseModel(OptimizedModel):
         save_directory: str,
         repository_id: str,
         private: Optional[bool] = None,
+        revision: Optional[str] = None,
         use_auth_token: Union[bool, str] = True,
         endpoint: Optional[str] = None,
     ) -> str:
@@ -348,6 +349,7 @@ class NeuronBaseModel(OptimizedModel):
                     repo_id=repository_id,
                     path_or_fileobj=os.path.join(os.getcwd(), local_file_path),
                     path_in_repo=hub_file_path,
+                    revision=revision,
                 )
 
     def forward(self, *args, **kwargs):

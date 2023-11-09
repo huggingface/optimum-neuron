@@ -27,8 +27,6 @@ import numpy as np
 import torch
 from packaging import version
 from transformers import PreTrainedModel, Seq2SeqTrainer, Trainer, TrainingArguments
-from transformers.dependency_versions_check import dep_version_check
-from transformers.integrations import is_fairscale_available
 from transformers.modeling_utils import unwrap_model
 from transformers.trainer import (
     OPTIMIZER_NAME,
@@ -79,9 +77,6 @@ if is_sagemaker_mp_enabled():
 
 else:
     IS_SAGEMAKER_MP_POST_1_10 = False
-
-if is_fairscale_available():
-    dep_version_check("fairscale")
 
 
 logger = logging.get_logger("transformers.trainer")
