@@ -128,6 +128,22 @@ def create_tiny_pretrained_model(
     return MyTinyModel(config)
 
 
+class TrainiumTestMixin:
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._token = HfFolder.get_token()
+        cls._cache_repo = load_custom_cache_repo_name_from_hf_home()
+        cls._env = dict(os.environ)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        os.environ = cls._env
+        if cls._token is not None:
+            HfFolder.save_token(cls._token)
+        if cls._cache_repo is not None:
+            set_custom_cache_repo_name_in_hf_home(cls._cache_repo)
+
+
 class StagingTestMixin:
     CUSTOM_CACHE_REPO_NAME = "optimum-neuron-cache-testing"
     CUSTOM_CACHE_REPO = f"{USER}/{CUSTOM_CACHE_REPO_NAME}"
