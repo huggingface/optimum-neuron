@@ -89,8 +89,8 @@ BEAM_SEARCH_TESTDATA = [
 
 @is_trainium_test
 class GenerateTestCase(TrainiumTestMixin, TestCase):
-    @pytest.mark.skip("Remove once generate fix (#262) has been merged.")
     @parameterized.expand(GREEDY_TESTDATA)
+    @pytest.mark.skip("Remove once generate fix (#262) has been merged.")
     def test_greedy_decoding(self, model_name, use_cache, decoder_only, compiler_flags):
         os.environ["NEURON_CC_FLAGS"] = compiler_flags
         os.environ["XLA_USE_BF16"] = "0"
@@ -111,8 +111,8 @@ class GenerateTestCase(TrainiumTestMixin, TestCase):
             cpu_samples, xla_neuron_samples_bf16
         ), "XLA Neuron bf16 output doesn't match CPU only output"
 
-    @pytest.mark.skip("Remove once generate fix (#262) has been merged.")
     @parameterized.expand(BEAM_SEARCH_TESTDATA)
+    @pytest.mark.skip("Remove once generate fix (#262) has been merged.")
     def test_beam_search_decoding(self, model_name, use_cache, decoder_only, compiler_flags):
         os.environ["NEURON_CC_FLAGS"] = compiler_flags
         config_update = {"num_beams": 4, "min_length": 21, "max_length": 21}
