@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Type, Union
 
 import pytest
 import torch
+from huggingface_hub import HfFolder
 from parameterized import parameterized
 from transformers.models.auto.modeling_auto import (
     MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING_NAMES,
@@ -44,7 +45,12 @@ from transformers.models.auto.modeling_auto import (
     MODEL_FOR_ZERO_SHOT_IMAGE_CLASSIFICATION_MAPPING_NAMES,
 )
 
-from optimum.neuron.utils.cache_utils import get_num_neuron_cores, set_neuron_cache_path
+from optimum.neuron.utils.cache_utils import (
+    get_num_neuron_cores,
+    load_custom_cache_repo_name_from_hf_home,
+    set_custom_cache_repo_name_in_hf_home,
+    set_neuron_cache_path,
+)
 from optimum.neuron.utils.import_utils import is_neuronx_available
 from optimum.neuron.utils.runner import run_command_with_realtime_output
 
@@ -150,6 +156,18 @@ class ModelParallelizationTestCase(unittest.TestCase):
         # Since these outputs are not needed during training, we do not want to perform an expensive gather for them.
         "encoder_last_hidden_state",
     }
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._token = HfFolder.get_token()
+        cls._cache_repo = load_custom_cache_repo_name_from_hf_home()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        if cls._token is not None:
+            HfFolder.save_token(cls._token)
+        if cls._cache_repo is not None:
+            set_custom_cache_repo_name_in_hf_home(cls._cache_repo)
 
     def _check_output(self, name: str, original_output, output, lazy_load: bool):
         assert type(original_output) is type(output)
