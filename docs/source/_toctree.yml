@@ -10,6 +10,8 @@
       title: Overview
     - local: tutorials/fine_tune_bert
       title: Fine-tune BERT for Text Classification on AWS Trainium
+    - local: tutorials/stable_diffusion.mdx
+      title: Stable Diffusion on AWS Inferentia
     title: Tutorials
   - sections:
     - local: guides/overview
