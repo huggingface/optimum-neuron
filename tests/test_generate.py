@@ -90,7 +90,7 @@ BEAM_SEARCH_TESTDATA = [
 class GenerateTestCase(TestCase, TrainiumTestMixin):
     @pytest.mark.skip("Remove once generate fix (#262) has been merged.")
     @is_trainium_test
-    @parameterized(GREEDY_TESTDATA)
+    @parameterized.expand(GREEDY_TESTDATA)
     def test_greedy_decoding(self, model_name, use_cache, decoder_only, compiler_flags):
         os.environ["NEURON_CC_FLAGS"] = compiler_flags
         os.environ["XLA_USE_BF16"] = "0"
