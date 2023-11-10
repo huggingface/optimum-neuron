@@ -151,7 +151,8 @@ def is_private_repo(repo_id: str) -> bool:
 def has_write_access_to_repo(repo_id: str) -> bool:
     token = HfFolder.get_token()
     if (token, repo_id) in _WRITING_ACCESS_CACHE:
-        print("HERE")
+        print(repo_id)
+        print("HERE", _WRITING_ACCESS_CACHE[(token, repo_id)])
         return _WRITING_ACCESS_CACHE[(token, repo_id)]
 
     has_access = False

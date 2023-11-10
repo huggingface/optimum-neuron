@@ -320,7 +320,6 @@ class ExampleRunner:
             )
 
         main_repo = get_hf_hub_cache_repos()[0]
-        print("TOKEN", token[-3:])
         has_write_access = has_write_access_to_repo(main_repo)
         if not has_write_access:
             raise RuntimeError(
