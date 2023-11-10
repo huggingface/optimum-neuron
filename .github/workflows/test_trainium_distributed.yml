@@ -66,8 +66,7 @@ jobs:
         run: pip install .[tests,neuronx]
       - name: Run tests on Neuron cores
         run: |
-          # HF_TOKEN_OPTIMUM_NEURON_CI=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m "is_trainium_test" tests/distributed/
-          HF_TOKEN_OPTIMUM_NEURON_CI=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m "is_trainium_test" tests/distributed/test_training.py
+          HF_TOKEN_OPTIMUM_NEURON_CI=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m "is_trainium_test" tests/distributed/
   stop-runner:
     name: Stop self-hosted EC2 runner
     needs:
