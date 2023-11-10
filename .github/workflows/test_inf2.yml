@@ -23,24 +23,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v2
-      - name: Re-install neuronx driver
-        run: |
-          #need to wait a little bit because someting is locking /var/lib/dpkg/lock-frontend at the startup of the instance
-          sleep 1m
-          sudo apt remove aws-neuronx-dkms -y
-          sudo apt remove aws-neuronx-tools -y
-          . /etc/os-release
-          sudo tee /etc/apt/sources.list.d/neuron.list > /dev/null <<EOF
-          deb https://apt.repos.neuron.amazonaws.com ${VERSION_CODENAME} main
-          EOF
-          wget -qO - https://apt.repos.neuron.amazonaws.com/GPG-PUB-KEY-AMAZON-AWS-NEURON.PUB | sudo apt-key add -
-          sudo apt-get update -y
-          sudo apt-get install linux-headers-$(uname -r) -y
-          sudo apt-get install aws-neuronx-dkms=2.* -y
-          sudo apt-get install aws-neuronx-tools=2.* -y
-          sudo apt-get install aws-neuronx-collectives=2.* -y
-          sudo apt-get install aws-neuronx-runtime-lib=2.* -y
-          export PATH=/opt/aws/neuron/bin:$PATH
       - name: Install python dependencies
         run: |
           sudo apt install python3.8-venv -y
