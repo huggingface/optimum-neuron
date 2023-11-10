@@ -498,6 +498,7 @@ class LlamaSequenceParallelismSpecs(SequenceParallelismSpecs):
 
 class LlamaPipelineParallelismSpecs(PipelineParallelismSpecs):
     TRASNFORMER_LAYER_CLS = LlamaDecoderLayer
+    DEFAULT_INPUT_NAMES = ("input_ids", "attention_mask", "labels")
     LEAF_MODULE_CLASSES_NAMES = [LlamaRMSNorm]
 
     @classmethod

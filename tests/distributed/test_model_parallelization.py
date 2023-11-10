@@ -20,6 +20,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Dict, List, Optional, Type, Union
+from optimum.neuron.distributed.parallelizers_manager import ParallelizersManager
 
 import pytest
 import torch
@@ -140,7 +141,9 @@ for entry in MODEL_TYPES_TO_TEST:
     else:
         model_type, model_name_or_path, config_overwrite = entry
     for model_class_name in _generate_supported_model_class_names(model_type):
-        MODELS_TO_TEST.append((model_class_name, model_name_or_path, config_overwrite))
+        entry = (model_type, model_class_name, model_name_or_path, config_overwrite) 
+        if entry not in MODELS_TO_TEST:
+            MODELS_TO_TEST.append(entry)
 
 
 @is_trainium_test
@@ -230,6 +233,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
                 "model_name_or_path": model_name_or_path,
                 "parallelize_embeddings": "True" if parallelize_embeddings else "False",
                 "tp_size": tp_size,
+                "pp_size": pp_size,
                 "output_path": tmpdirname,
             }
             specialized_content = template_content.format(**specialization_data)
@@ -318,49 +322,125 @@ class ModelParallelizationTestCase(unittest.TestCase):
 
     @parameterized.expand(MODELS_TO_TEST)
     def test_model_parallel_from_config_no_lazy_load(
-        self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
+        self, model_type: str, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str],
     ):
-        self._test_model_parallel(
-            num_neuron_cores=8,
-            tp_size=2,
-            run_test_in_parallel=True,
-            model_class_name=model_class_name,
-            model_name_or_path=model_name_or_path,
-            from_config=True,
-            with_lazy_load=False,
-            # TODO: enable once ParallelCrossEntropy works.
-            # parallelize_embeddings=True,
-            parallelize_embeddings=False,
-            sequence_parallel_enabled=True,
-            overwrite_model_config=config_overwrite,
-        )
+        def test_fn(tp_size: int, pp_size: int):
+            self._test_model_parallel(
+                tp_size=tp_size,
+                pp_size=pp_size,
+                num_neuron_cores=8,
+                run_test_in_parallel=False,
+                model_class_name=model_class_name,
+                model_name_or_path=model_name_or_path,
+                from_config=True,
+                with_lazy_load=False,
+                # TODO: enable once ParallelCrossEntropy works.
+                # parallelize_embeddings=True,
+                parallelize_embeddings=False,
+                sequence_parallel_enabled=True,
+                overwrite_model_config=config_overwrite,
+            )
+        
+        with self.subTest("Test TP only"):
+            tp_size = 2
+            pp_size = 1
+            test_fn(tp_size, pp_size)
+
+        is_pp_supported = ParallelizersManager.parallelizer_for_model(model_type).supports_pipeline_parallelism()
+        if is_pp_supported:
+            with self.subTest("Test PP only"):
+                tp_size = 1
+                pp_size = 2
+                test_fn(tp_size, pp_size)
+
+            with self.subTest("Test TP + PP only"):
+                tp_size = 2
+                pp_size = 4
+                test_fn(tp_size, pp_size)
 
     @parameterized.expand(MODELS_TO_TEST)
     def test_model_parallel_from_pretrained_no_lazy_load(
-        self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
+        self, model_type: str, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str],
     ):
-        self._test_model_parallel(
-            num_neuron_cores=8,
-            tp_size=2,
-            run_test_in_parallel=True,
-            model_class_name=model_class_name,
-            model_name_or_path=model_name_or_path,
-            from_config=False,
-            with_lazy_load=False,
-            # TODO: enable once ParallelCrossEntropy works.
-            # parallelize_embeddings=True,
-            parallelize_embeddings=False,
-            sequence_parallel_enabled=True,
-            overwrite_model_config=config_overwrite,
-        )
+        def test_fn(tp_size: int, pp_size: int):
+            self._test_model_parallel(
+                tp_size=tp_size,
+                pp_size=pp_size,
+                num_neuron_cores=8,
+                run_test_in_parallel=True,
+                model_class_name=model_class_name,
+                model_name_or_path=model_name_or_path,
+                from_config=False,
+                with_lazy_load=False,
+                # TODO: enable once ParallelCrossEntropy works.
+                # parallelize_embeddings=True,
+                parallelize_embeddings=False,
+                sequence_parallel_enabled=True,
+                overwrite_model_config=config_overwrite,
+            )
+
+        with self.subTest("Test TP only"):
+            tp_size = 2
+            pp_size = 1
+            test_fn(tp_size, pp_size)
+
+        is_pp_supported = ParallelizersManager.parallelizer_for_model(model_type).supports_pipeline_parallelism()
+        if is_pp_supported:
+            with self.subTest("Test PP only"):
+                tp_size = 1
+                pp_size = 2
+                test_fn(tp_size, pp_size)
+
+            with self.subTest("Test TP + PP only"):
+                tp_size = 2
+                pp_size = 4
+                test_fn(tp_size, pp_size)
+
+    @parameterized.expand(MODELS_TO_TEST)
+    # @pytest.mark.skip("Parallel cross entropy does not work yet.")
+    def test_model_parallel_lazy_load_without_anything(
+        self, model_type: str, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str],
+    ):
+        def test_fn(tp_size: int, pp_size: int):
+            self._test_model_parallel(
+                tp_size=tp_size,
+                pp_size=pp_size,
+                num_neuron_cores=8,
+                run_test_in_parallel=True,
+                model_class_name=model_class_name,
+                model_name_or_path=model_name_or_path,
+                from_config=False,
+                with_lazy_load=True,
+                parallelize_embeddings=False,
+                sequence_parallel_enabled=False,
+                overwrite_model_config=config_overwrite,
+            )
+
+        with self.subTest("Test TP only"):
+            tp_size = 2
+            pp_size = 1
+            test_fn(tp_size, pp_size)
+
+        is_pp_supported = ParallelizersManager.parallelizer_for_model(model_type).supports_pipeline_parallelism()
+        if is_pp_supported:
+            with self.subTest("Test PP only"):
+                tp_size = 1
+                pp_size = 2
+                test_fn(tp_size, pp_size)
+
+            with self.subTest("Test TP + PP only"):
+                tp_size = 2
+                pp_size = 4
+                test_fn(tp_size, pp_size)
 
     @parameterized.expand(MODELS_TO_TEST)
     def test_model_parallel_lazy_load_without_parallelizing_embeddings(
-        self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
+        self, model_type: str, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str],
     ):
         self._test_model_parallel(
-            num_neuron_cores=8,
             tp_size=2,
+            pp_size=1,
+            num_neuron_cores=8,
             run_test_in_parallel=True,
             model_class_name=model_class_name,
             model_name_or_path=model_name_or_path,
@@ -374,11 +454,12 @@ class ModelParallelizationTestCase(unittest.TestCase):
     @parameterized.expand(MODELS_TO_TEST)
     @pytest.mark.skip("Parallel cross entropy does not work yet.")
     def test_model_parallel_lazy_load_without_sequence_parallel(
-        self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
+        self, model_type: str, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str],
     ):
         self._test_model_parallel(
-            num_neuron_cores=8,
             tp_size=2,
+            pp_size=1,
+            num_neuron_cores=8,
             run_test_in_parallel=True,
             model_class_name=model_class_name,
             model_name_or_path=model_name_or_path,
@@ -389,23 +470,6 @@ class ModelParallelizationTestCase(unittest.TestCase):
             overwrite_model_config=config_overwrite,
         )
 
-    @parameterized.expand(MODELS_TO_TEST)
-    @pytest.mark.skip("Parallel cross entropy does not work yet.")
-    def test_model_parallel_lazy_load_without_anything(
-        self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
-    ):
-        self._test_model_parallel(
-            num_neuron_cores=8,
-            tp_size=2,
-            run_test_in_parallel=True,
-            model_class_name=model_class_name,
-            model_name_or_path=model_name_or_path,
-            from_config=False,
-            with_lazy_load=True,
-            parallelize_embeddings=False,
-            sequence_parallel_enabled=False,
-            overwrite_model_config=config_overwrite,
-        )
 
     @pytest.mark.skipif(
         NUM_NEURON_CORES_AVAILABLE < 32,
@@ -416,8 +480,9 @@ class ModelParallelizationTestCase(unittest.TestCase):
         # MHA setup
         # TP size = 2, num_attention_heads = 8, num_key_value_heads = 8
         self._test_model_parallel(
-            num_neuron_cores=8,
             tp_size=2,
+            pp_size=1,
+            num_neuron_cores=8,
             run_test_in_parallel=True,
             model_class_name="LlamaForCausalLM",
             model_name_or_path=llama_v2_model_name,
@@ -435,8 +500,9 @@ class ModelParallelizationTestCase(unittest.TestCase):
         # GQA setup with num_key_value_heads > tp_size.
         # TP size = 2, num_attention_heads = 8, num_key_value_heads = 4
         self._test_model_parallel(
-            num_neuron_cores=8,
             tp_size=2,
+            pp_size=1,
+            num_neuron_cores=8,
             run_test_in_parallel=True,
             model_class_name="LlamaForCausalLM",
             model_name_or_path=llama_v2_model_name,
@@ -454,8 +520,9 @@ class ModelParallelizationTestCase(unittest.TestCase):
         # GQA setup with num_key_value_heads = tp_size.
         # TP size = 8, num_attention_heads = 16, num_key_value_heads = 8
         self._test_model_parallel(
-            num_neuron_cores=8,
             tp_size=8,
+            pp_size=1,
+            num_neuron_cores=8,
             run_test_in_parallel=True,
             model_class_name="LlamaForCausalLM",
             model_name_or_path=llama_v2_model_name,
@@ -474,8 +541,9 @@ class ModelParallelizationTestCase(unittest.TestCase):
         # GQA setup with num_key_value_heads < tp_size.
         # TP size = 8, num_attention_heads = 16, num_key_value_heads = 2
         self._test_model_parallel(
-            num_neuron_cores=8,
             tp_size=8,
+            pp_size=1,
+            num_neuron_cores=8,
             run_test_in_parallel=True,
             model_class_name="LlamaForCausalLM",
             model_name_or_path=llama_v2_model_name,
@@ -494,8 +562,9 @@ class ModelParallelizationTestCase(unittest.TestCase):
         # MQA setup
         # TP size = 8, num_attention_heads = 16, num_key_value_heads = 1
         self._test_model_parallel(
-            num_neuron_cores=8,
             tp_size=8,
+            pp_size=1,
+            num_neuron_cores=8,
             run_test_in_parallel=True,
             model_class_name="LlamaForCausalLM",
             model_name_or_path=llama_v2_model_name,

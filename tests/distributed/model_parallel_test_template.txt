@@ -7,6 +7,12 @@ from inspect import signature
 import torch
 import neuronx_distributed
 from neuronx_distributed import parallel_layers
+from neuronx_distributed.parallel_layers.parallel_state import (
+    get_data_parallel_group,
+    get_data_parallel_size,
+    get_pipeline_model_parallel_group,
+    get_pipeline_model_parallel_size,
+)
 from neuronx_distributed.utils.model_utils import move_model_to_device
 import torch_xla.core.xla_model as xm
 
@@ -39,9 +45,11 @@ computing_loss_is_supported = os.environ["computing_loss_is_supported"] == "true
 if is_parallel and parallelize_embeddings:
     optimum.neuron.distributed.parallel_layers._PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT = True
 
-# Initialize TP
+# Initialize model parallel.
 if is_parallel:
-  neuronx_distributed.parallel_layers.parallel_state.initialize_model_parallel(tensor_model_parallel_size={tp_size})
+    neuronx_distributed.parallel_layers.parallel_state.initialize_model_parallel(
+        tensor_model_parallel_size={tp_size}, pipeline_model_parallel_size={pp_size},
+    )
 
 
 config = AutoConfig.from_pretrained("{model_name_or_path}")
@@ -77,7 +85,11 @@ def load_model_with_seed(seed: int, from_config: bool):
         model = {model_class}(config)
     else:
       tp_size = {tp_size} if is_parallel else 1
-      ctx = lazy_load_for_parallelism(tensor_parallel_size=tp_size) if lazy_load else nullcontext()
+      pp_size = {pp_size} if is_parallel else 1
+      if lazy_load:
+          ctx = lazy_load_for_parallelism(tensor_parallel_size=tp_size, pipeline_model_parallel_size=pp_size)  
+      else:
+          ctx = nullcontext()
       with ctx:
           model = {model_class}.from_pretrained("{model_name_or_path}", config=config, ignore_mismatched_sizes=True)
     return model
@@ -85,6 +97,24 @@ def load_model_with_seed(seed: int, from_config: bool):
 
 model = load_model_with_seed(SEED, from_config)
 model = model.eval()
+sig = signature(model.forward)
+
+xla_inputs = dict()
+if is_parallel and {pp_size} > 1:
+    inputs_device = "cpu"
+else:
+    inputs_device = "xla"
+for k, v in inputs.items():
+    if k not in sig.parameters:
+        continue
+    xla_inputs[k] = v.to(inputs_device)
+    decoder_input_name = "decoder_" + k
+    if model.config.is_encoder_decoder and decoder_input_name in sig.parameters:
+        xla_inputs[decoder_input_name] = v.to(inputs_device)
+
+# We take the shape of the first input to "predict" the shape of the labels.
+# Might not work for every tasks.
+shape = list(xla_inputs.values())[0].shape
 
 vocab_size = getattr(model.config, "vocab_size", None)
 
@@ -93,32 +123,42 @@ if is_parallel:
         model, 
         parallelize_embeddings=parallelize_embeddings, 
         sequence_parallel_enabled=sequence_parallel_enabled,
+        pipeline_parallel_input_names=tuple(xla_inputs.keys()),
     )
-    move_model_to_device(model, "xla")
+    if {pp_size} > 1:
+        model.move_model_to_device()
+    else:
+        move_model_to_device(model, "xla")
     filename = "parallel.bin"
 else:
     model = model.to("xla")
     filename = "original.bin"
 
-xla_inputs = dict()
-sig = signature(model.forward)
-for k, v in inputs.items():
-    if k not in sig.parameters:
-        continue
-    xla_inputs[k] = v.to("xla")
-    decoder_input_name = "decoder_" + k
-    if model.config.is_encoder_decoder and decoder_input_name in sig.parameters:
-        xla_inputs[decoder_input_name] = v.to("xla")
-
-# We take the shape of the first input to "predict" the shape of the labels.
-# Might not work for every tasks.
-shape = list(xla_inputs.values())[0].shape
-
 if computing_loss_is_supported:
     xla_inputs.update(generate_dummy_labels(model, shape, vocab_size=vocab_size, device="xla", seed=SEED))
 
-model_outputs = model(**xla_inputs, return_dict=True)
+
+loss_key_name = "loss"
+model_outputs = dict()
+if is_parallel and {pp_size} > 1:
+    eval_loss = model.run_eval(**xla_inputs)
+    model_outputs[loss_key_name] = eval_loss
+else:
+    model_outputs = model(**xla_inputs, return_dict=True)
+    # When doing PP, we can only compare the losses since `model.run_eval()` only outputs the loss.
+    if {pp_size} > 1:
+        model_outputs = dict((loss_key_name, model_outputs[loss_key_name]))
+
 xm.mark_step()
+
+if is_parallel and {pp_size} > 1:
+    torch.distributed.all_reduce(eval_loss, group=get_data_parallel_group())
+    torch.distributed.broadcast(
+        tr_loss_div,
+        torch.distributed.get_rank(),
+        group=get_pipeline_model_parallel_group(),
+    )
+
 
 axis_to_gather = dict()
 axis_to_gather["default"] = -1

@@ -107,7 +107,9 @@ class SequenceParallelismSpecs:
 
 class PipelineParallelismSpecs:
     TRASNFORMER_LAYER_CLS: Type["torch.nn.Module"]
+    DEFAULT_INPUT_NAMES: Tuple[str, ...]
     LEAF_MODULE_CLASSES_NAMES: Optional[List[Union[str, Type["torch.nn.Module"]]]] = None
+    OUTPUT_LOSS_SPECS: Tuple[bool, ...] = (True, False)
 
     @classmethod
     @requires_torch_xla
@@ -175,6 +177,14 @@ class Parallelizer(ABC):
             yield path
         finally:
             tmpdir.cleanup()
+    
+    @classmethod
+    def supports_sequence_parallelism(cls) -> bool:
+        return cls.SEQUENCE_PARALLELSIM_SPECS_CLS is not None
+    
+    @classmethod
+    def supports_pipeline_parallelism(cls) -> bool:
+        return cls.PIPELINE_PARALLELISM_SPECS_CLS is not None
 
     @classmethod
     @requires_neuronx_distributed
@@ -190,7 +200,7 @@ class Parallelizer(ABC):
         if pp_size == 1:
             return all_parameter_names
 
-        if cls.PIPELINE_PARALLELISM_SPECS_CLS is None:
+        if not cls.supports_pipeline_parallelism():
             raise NotImplementedError(f"{cls} does not support pipeline parallelism.")
 
         cuts = cls.PIPELINE_PARALLELISM_SPECS_CLS.create_pipeline_cuts(model, pp_size)
@@ -259,6 +269,7 @@ class Parallelizer(ABC):
         device: Optional["torch.device"] = None,
         parallelize_embeddings: bool = True,
         sequence_parallel_enabled: bool = False,
+        pipeline_parallel_input_names: Optional[Union[Tuple[str, ...], List[str]]] = None,
         pipeline_parallel_num_microbatches: int = 1,
         pipeline_parallel_use_zero1_optimizer: bool = False,
         checkpoint_dir: Optional[Union[str, Path]] = None,
@@ -292,14 +303,17 @@ class Parallelizer(ABC):
         Returns:
             `PreTrainedModel`: The parallelized model.
         """
-        if sequence_parallel_enabled and cls.SEQUENCE_PARALLELSIM_SPECS_CLS is None:
+        if sequence_parallel_enabled and not cls.supports_sequence_parallelism():
             raise NotImplementedError(f"Sequence parallelism is not supported for {model.__class__}.")
 
         from neuronx_distributed.parallel_layers.parallel_state import (
             get_pipeline_model_parallel_size,
+            get_tensor_model_parallel_size,
             get_tensor_model_parallel_rank,
         )
         from neuronx_distributed.pipeline import NxDPPModel
+
+        sequence_parallel_enabled = sequence_parallel_enabled and get_tensor_model_parallel_size() > 1
 
         # Preparing the model for sequence parallelism:
         sp_specs_cls = cls.SEQUENCE_PARALLELSIM_SPECS_CLS
@@ -413,7 +427,7 @@ class Parallelizer(ABC):
 
         pp_size = get_pipeline_model_parallel_size()
         if pp_size > 1:
-            if cls.PIPELINE_PARALLELISM_SPECS_CLS is None:
+            if not cls.supports_pipeline_parallelism():
                 raise NotImplementedError("{cls} does not support pipeline parallelism.")
 
             model.config.return_dict = False
@@ -422,12 +436,14 @@ class Parallelizer(ABC):
             model.config.output_hidden_states = False
 
             with Patcher(cls.PIPELINE_PARALLELISM_SPECS_CLS.get_patching_specs()):
+                if pipeline_parallel_input_names is None:
+                    pipeline_parallel_input_names = cls.PIPELINE_PARALLELISM_SPECS_CLS.DEFAULT_INPUT_NAMES
                 model = NxDPPModel(
                     model,
                     transformer_layer_cls=cls.PIPELINE_PARALLELISM_SPECS_CLS.TRASNFORMER_LAYER_CLS,
                     num_microbatches=pipeline_parallel_num_microbatches,
-                    output_loss_value_spec=(True, False),
-                    input_names=["input_ids", "attention_mask", "labels"],
+                    output_loss_value_spec=cls.PIPELINE_PARALLELISM_SPECS_CLS.OUTPUT_LOSS_SPECS,
+                    input_names=pipeline_parallel_input_names,
                     pipeline_cuts=cls.PIPELINE_PARALLELISM_SPECS_CLS.create_pipeline_cuts(model, pp_size),
                     leaf_module_cls=cls.PIPELINE_PARALLELISM_SPECS_CLS.leaf_module_cls(),
                     use_zero1_optimizer=pipeline_parallel_use_zero1_optimizer,
