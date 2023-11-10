@@ -150,7 +150,9 @@ class NeuronAccelerator(Accelerator):
             return data_loader
 
         orig_sampler = data_loader.sampler
-        if isinstance(orig_sampler, torch.utils.data.SequentialSampler):
+        if hasattr(orig_sampler, "shuffle"):
+            shuffle = orig_sampler.shuffle
+        elif isinstance(orig_sampler, torch.utils.data.SequentialSampler):
             shuffle = False
         else:
             shuffle = True
@@ -349,7 +351,6 @@ class NeuronAccelerator(Accelerator):
         cpu_ids = [id(v) for v in model.parameters()]
         # TODO: enable self.device (if needed).
         model = self.state.tp_plugin.parallelize_model(model, device=None)
-
         if os.environ.get("XLA_USE_BF16", "0") == "1" or os.environ.get("XLA_DOWNCAST_BF16", "0") == "1":
             model.to(torch.bfloat16)
         else:
