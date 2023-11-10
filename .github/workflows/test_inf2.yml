@@ -25,6 +25,8 @@ jobs:
         uses: actions/checkout@v2
       - name: Re-install neuronx driver
         run: |
+          #need to wait a little bit because someting is locking /var/lib/dpkg/lock-frontend at the startup of the instance
+          sleep 1m
           sudo apt remove aws-neuronx-dkms -y
           sudo apt remove aws-neuronx-tools -y
           . /etc/os-release
