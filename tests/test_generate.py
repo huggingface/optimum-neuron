@@ -87,7 +87,7 @@ BEAM_SEARCH_TESTDATA = [
 ]
 
 
-class GenerateTestCase(TestCase, TrainiumTestMixin):
+class GenerateTestCase(TrainiumTestMixin, TestCase):
     @pytest.mark.skip("Remove once generate fix (#262) has been merged.")
     @is_trainium_test
     @parameterized.expand(GREEDY_TESTDATA)

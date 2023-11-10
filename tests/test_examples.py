@@ -430,7 +430,7 @@ class ExampleTestMeta(type):
         return test
 
 
-class ExampleTesterBase(TestCase, TrainiumTestMixin):
+class ExampleTesterBase(TrainiumTestMixin, TestCase):
     """
     Base example tester class.
     """

@@ -23,7 +23,6 @@ from unittest import TestCase
 
 import pytest
 import torch
-from huggingface_hub import HfFolder
 from parameterized import parameterized
 from transformers.models.auto.modeling_auto import (
     MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING_NAMES,
@@ -47,8 +46,6 @@ from transformers.models.auto.modeling_auto import (
 
 from optimum.neuron.utils.cache_utils import (
     get_num_neuron_cores,
-    load_custom_cache_repo_name_from_hf_home,
-    set_custom_cache_repo_name_in_hf_home,
     set_neuron_cache_path,
 )
 from optimum.neuron.utils.import_utils import is_neuronx_available
@@ -151,24 +148,12 @@ for entry in MODEL_TYPES_TO_TEST:
 
 
 @is_trainium_test
-class ModelParallelizationTestCase(TestCase, TrainiumTestMixin):
+class ModelParallelizationTestCase(TrainiumTestMixin, TestCase):
     OUTPUTS_TO_IGNORE = {
         # It might not match in the sequence parallel setting because of mistmatched shapes.
         # Since these outputs are not needed during training, we do not want to perform an expensive gather for them.
         "encoder_last_hidden_state",
     }
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls._token = HfFolder.get_token()
-        cls._cache_repo = load_custom_cache_repo_name_from_hf_home()
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        if cls._token is not None:
-            HfFolder.save_token(cls._token)
-        if cls._cache_repo is not None:
-            set_custom_cache_repo_name_in_hf_home(cls._cache_repo)
 
     def _check_output(self, name: str, original_output, output, lazy_load: bool):
         assert type(original_output) is type(output)

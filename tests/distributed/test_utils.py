@@ -15,10 +15,10 @@
 """Tests for distributed utility functions and classes."""
 
 import copy
-import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Literal, Union
+from unittest import TestCase
 
 import torch
 from safetensors.torch import save_file
@@ -63,7 +63,7 @@ def test_load_tensor_for_weight():
 
 
 @is_trainium_test
-class ParallelUtilsTestCase(unittest.TestCase, TrainiumTestMixin):
+class ParallelUtilsTestCase(TrainiumTestMixin, TestCase):
     TP_GROUP = 0
     TP_SIZE = 8
     TP_RANK = 0

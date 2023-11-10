@@ -52,7 +52,7 @@ class TestExampleRunner(TestCase):
     CACHE_REPO_NAME = "optimum-internal-testing/optimum-neuron-cache-for-testing"
 
     @classmethod
-    def setUpClass(cls) -> None:
+    def setUpClass(cls):
         cls._token = HfFolder.get_token()
         cls._cache_repo = load_custom_cache_repo_name_from_hf_home()
         cls._env = dict(os.environ)
@@ -64,7 +64,7 @@ class TestExampleRunner(TestCase):
             raise RuntimeError("Please specify the token via the HF_TOKEN_OPTIMUM_NEURON_CI environment variable.")
 
     @classmethod
-    def tearDownClass(cls) -> None:
+    def tearDownClass(cls):
         os.environ = cls._env
         if cls._token is not None:
             HfFolder.save_token(cls._token)

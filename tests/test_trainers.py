@@ -315,7 +315,7 @@ class StagingNeuronTrainerTestCase(StagingTestMixin, TestCase):
 
 
 @is_trainium_test
-class NeuronTrainerTestCase(TestCase, TrainiumTestMixin):
+class NeuronTrainerTestCase(TrainiumTestMixin, TestCase):
     def _test_training_with_fsdp_mode(self, fsdp_mode: str):
         model_name = "prajjwal1/bert-tiny"
         task_name = "sst2"

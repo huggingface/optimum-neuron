@@ -62,7 +62,7 @@ DUMMY_COMPILER_VERSION = "1.2.3"
 
 
 @is_trainium_test
-class NeuronUtilsTestCase(TestCase, TrainiumTestMixin):
+class NeuronUtilsTestCase(TrainiumTestMixin, TestCase):
     def tearDown(self):
         # Cleaning the Neuron compiler flags to avoid breaking other tests.
         os.environ["NEURON_CC_FLAGS"] = ""

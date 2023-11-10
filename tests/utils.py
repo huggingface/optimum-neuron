@@ -130,13 +130,13 @@ def create_tiny_pretrained_model(
 
 class TrainiumTestMixin:
     @classmethod
-    def setUpClass(cls) -> None:
+    def setUpClass(cls):
         cls._token = HfFolder.get_token()
         cls._cache_repo = load_custom_cache_repo_name_from_hf_home()
         cls._env = dict(os.environ)
 
     @classmethod
-    def tearDownClass(cls) -> None:
+    def tearDownClass(cls):
         os.environ = cls._env
         if cls._token is not None:
             HfFolder.save_token(cls._token)
@@ -144,6 +144,7 @@ class TrainiumTestMixin:
             set_custom_cache_repo_name_in_hf_home(cls._cache_repo)
         else:
             delete_custom_cache_repo_name_from_hf_home()
+
 
 class StagingTestMixin:
     CUSTOM_CACHE_REPO_NAME = "optimum-neuron-cache-testing"
@@ -160,7 +161,7 @@ class StagingTestMixin:
         return orig_token
 
     @classmethod
-    def setUpClass(cls) -> None:
+    def setUpClass(cls):
         cls._staging_token = TOKEN
         cls._token = cls.set_hf_hub_token(TOKEN)
         cls._custom_cache_repo_name = load_custom_cache_repo_name_from_hf_home()
@@ -178,7 +179,7 @@ class StagingTestMixin:
         cls.visited_num_linears = set()
 
     @classmethod
-    def tearDownClass(cls) -> None:
+    def tearDownClass(cls):
         delete_repo(repo_id=cls.CUSTOM_CACHE_REPO, repo_type="model")
         delete_repo(repo_id=cls.CUSTOM_PRIVATE_CACHE_REPO, repo_type="model")
         if cls._token:
