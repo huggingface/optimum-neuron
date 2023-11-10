@@ -43,6 +43,7 @@ from optimum.utils.testing_utils import USER
 
 from .utils import (
     StagingTestMixin,
+    TrainiumTestMixin,
     create_dummy_dataset,
     create_dummy_text_classification_dataset,
     create_tiny_pretrained_model,
@@ -314,7 +315,7 @@ class StagingNeuronTrainerTestCase(StagingTestMixin, TestCase):
 
 
 @is_trainium_test
-class NeuronTrainerTestCase(TestCase):
+class NeuronTrainerTestCase(TestCase, TrainiumTestMixin):
     def _test_training_with_fsdp_mode(self, fsdp_mode: str):
         model_name = "prajjwal1/bert-tiny"
         task_name = "sst2"

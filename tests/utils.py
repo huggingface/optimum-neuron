@@ -142,7 +142,8 @@ class TrainiumTestMixin:
             HfFolder.save_token(cls._token)
         if cls._cache_repo is not None:
             set_custom_cache_repo_name_in_hf_home(cls._cache_repo)
-
+        else:
+            delete_custom_cache_repo_name_from_hf_home()
 
 class StagingTestMixin:
     CUSTOM_CACHE_REPO_NAME = "optimum-neuron-cache-testing"

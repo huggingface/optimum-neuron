@@ -46,9 +46,11 @@ class DistributedTrainingTestCase(TestCase):
             set_custom_cache_repo_name_in_hf_home(cls.CACHE_REPO_NAME)
         cls._token = orig_token
         cls._cache_repo = orig_cache_repo
+        cls._env = dict(os.environ)
 
     @classmethod
     def tearDownClass(cls) -> None:
+        os.environ = cls._env
         if cls._token is not None:
             HfFolder.save_token(cls._token)
         if cls._cache_repo is not None:

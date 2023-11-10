@@ -32,6 +32,7 @@ from optimum.neuron.distributed.utils import (
 from optimum.neuron.utils.patching import patch_everywhere
 
 from ..test_utils import is_trainium_test
+from ..utils import TrainiumTestMixin
 
 
 def test_load_tensor_for_weight():
@@ -62,7 +63,7 @@ def test_load_tensor_for_weight():
 
 
 @is_trainium_test
-class ParallelUtilsTestCase(unittest.TestCase):
+class ParallelUtilsTestCase(unittest.TestCase, TrainiumTestMixin):
     TP_GROUP = 0
     TP_SIZE = 8
     TP_RANK = 0

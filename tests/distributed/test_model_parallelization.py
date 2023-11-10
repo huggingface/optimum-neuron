@@ -16,10 +16,10 @@
 
 import os
 import subprocess
-import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Dict, List, Optional, Type, Union
+from unittest import TestCase
 
 import pytest
 import torch
@@ -55,6 +55,7 @@ from optimum.neuron.utils.import_utils import is_neuronx_available
 from optimum.neuron.utils.runner import run_command_with_realtime_output
 
 from ..test_utils import is_trainium_test
+from ..utils import TrainiumTestMixin
 
 
 if TYPE_CHECKING:
@@ -150,7 +151,7 @@ for entry in MODEL_TYPES_TO_TEST:
 
 
 @is_trainium_test
-class ModelParallelizationTestCase(unittest.TestCase):
+class ModelParallelizationTestCase(TestCase, TrainiumTestMixin):
     OUTPUTS_TO_IGNORE = {
         # It might not match in the sequence parallel setting because of mistmatched shapes.
         # Since these outputs are not needed during training, we do not want to perform an expensive gather for them.

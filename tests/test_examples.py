@@ -45,6 +45,8 @@ from optimum.neuron.utils.misc import string_to_bool
 from optimum.neuron.utils.runner import ExampleRunner
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
+from .utils import TrainiumTestMixin
+
 
 # Doing it this way to be able to use this file in tools.
 path_tests = Path(__file__).parent
@@ -428,7 +430,7 @@ class ExampleTestMeta(type):
         return test
 
 
-class ExampleTesterBase(TestCase):
+class ExampleTesterBase(TestCase, TrainiumTestMixin):
     """
     Base example tester class.
     """
