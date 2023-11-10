@@ -107,6 +107,8 @@ class NeuronDecoderModel(OptimizedModel):
         sequence_length: Optional[int] = None,
         num_cores: Optional[int] = 2,
         auto_cast_type: Optional[str] = "fp32",
+        low_cpu_mem_usage: Optional[str] = True,
+        torch_dtype: Optional[Union[str, torch.dtype]] = "auto",
         **kwargs,
     ) -> "NeuronDecoderModel":
         if not is_transformers_neuronx_available():
@@ -127,6 +129,8 @@ class NeuronDecoderModel(OptimizedModel):
             local_files_only=local_files_only,
             force_download=force_download,
             trust_remote_code=trust_remote_code,
+            low_cpu_mem_usage=low_cpu_mem_usage,
+            torch_dtype=torch_dtype,
             **kwargs,
         )
 
