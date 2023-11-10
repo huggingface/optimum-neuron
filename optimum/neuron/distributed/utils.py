@@ -637,7 +637,7 @@ def from_pretrained_for_mp(
 
 
 @contextlib.contextmanager
-def lazy_load_for_parallelism(tensor_parallel_size: int = 1):
+def lazy_load_for_parallelism(tensor_parallel_size: int = 1, pipeline_parallel_size: int = 1):
     """
     Context manager that makes the loading of a model lazy for model parallelism:
 
@@ -647,9 +647,13 @@ def lazy_load_for_parallelism(tensor_parallel_size: int = 1):
         - No state dict is actually loaded, instead a weight map is created and attached to the model. For more
         information, read the [`optimum.neuron.distributed.utils.from_pretrained_for_mp`] docstring.
 
+    If both `tensor_parallel_size` and `pipeline_parallel_size` are set to 1, no lazy loading is performed.
+
     Args:
         tensor_parallel_size (`int`, defaults to 1):
-            The parallel size considered for tensor parallel size. If set to 1, no lazy loading is performed.
+            The tensor parallel size considered. 
+        pipeline_parallel_size (`int`, defaults to 1):
+            The pipeline parallel size considered. 
     """
 
     def meta_init(init_fn):
@@ -667,7 +671,7 @@ def lazy_load_for_parallelism(tensor_parallel_size: int = 1):
         ("torch.nn.Linear.__init__", meta_init_patch),
         ("transformers.modeling_utils.PreTrainedModel.from_pretrained", from_pretrained_for_mp),
     ]
-    if tensor_parallel_size > 1:
+    if tensor_parallel_size > 1 or pipeline_parallel_size > 1:
         patcher = Patcher(patching_specs=patching_specs)
     else:
         patcher = contextlib.nullcontext()

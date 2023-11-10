@@ -174,6 +174,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
     def _test_model_parallel(
         self,
         tp_size: int,
+        pp_size: int,
         model_class_name: str,
         model_name_or_path: str,
         from_config: bool,
