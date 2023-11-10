@@ -17,7 +17,7 @@ concurrency:
 jobs:
   do-the-job:
     name: Run INF1 tests
-    runs-on: [self-hosted, 4-aws-inf, 24-cpu, ci]
+    runs-on: [self-hosted, 4-aws-inf1, 24-cpu, ci]
     env:
       AWS_REGION: us-east-1
     steps:
