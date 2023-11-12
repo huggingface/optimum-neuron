@@ -12,6 +12,8 @@
       title: Fine-tune BERT for Text Classification on AWS Trainium
     - local: tutorials/stable_diffusion
       title: Generate images with Stable Diffusion models on AWS Inferentia
+    - local: tutorials/notebooks
+      title: Notebooks
     title: Tutorials
   - sections:
     - local: guides/overview
