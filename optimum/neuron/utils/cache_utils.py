@@ -162,12 +162,15 @@ def has_write_access_to_repo(repo_id: str) -> bool:
             add_file = CommitOperationAdd(f"write_access_test/{tmpfilename.name}", tmpfilename.as_posix())
             HfApi().create_commit(repo_id, operations=[add_file], commit_message="Check write access")
         except (HfHubHTTPError, RepositoryNotFoundError):
+            print("FAILED here")
             pass
         else:
             delete_file = CommitOperationDelete(f"write_access_test/{tmpfilename.name}")
             HfApi().create_commit(repo_id, operations=[delete_file], commit_message="Check write access [DONE]")
             has_access = True
+            print("HAS_WRITE_ACCESS", has_access)
 
+    print("FNAL HAS_WRITE_ACCESS", has_access)
     _WRITING_ACCESS_CACHE[(token, repo_id)] = has_access
     return has_access
 
