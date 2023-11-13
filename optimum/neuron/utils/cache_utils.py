@@ -153,7 +153,10 @@ def has_write_access_to_repo(repo_id: str) -> bool:
     # case.
     if "/" not in repo_id:
         return False
-    user = whoami()
+    try:
+        user = whoami()
+    except Exception:
+        return False
     # Token role can either be "read" or "write".
     token_role = user["auth"]["accessToken"]["role"]
     if token_role == "read":
