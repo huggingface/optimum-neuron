@@ -405,7 +405,7 @@ def add_in_registry(repo_id: str, neuron_hash: "NeuronHash"):
                     commit_message=f"Add {model_name_or_path} in registry for NeuronHash {overall_hash}",
                     parent_commit=head,
                 )
-            except ValueError as e:
+            except Exception as e:
                 if "A commit has happened since" in str(e):
                     logger.info(
                         "A commit has happened in cache repository since we tried to update the registry, starting again..."

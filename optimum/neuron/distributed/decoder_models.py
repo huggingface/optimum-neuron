@@ -247,7 +247,7 @@ class GPTNeoXParallelizer(Parallelizer):
 
             # Reshape outputs
             if sequence_parallel_enabled:
-                # [batch, seq_len, num_attention_heads, head_size] -> [seq_len, batch, hidden_size]
+                # [batch, num_attention_heads, seq_len, head_size] -> [seq_len, batch, hidden_size]
                 attn_output = attn_output.permute(2, 0, 1, 3).contiguous()
                 attn_output = attn_output.view(*attn_output.shape[:2], -1)
             else:
