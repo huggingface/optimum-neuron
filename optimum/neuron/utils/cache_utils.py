@@ -32,12 +32,12 @@ import numpy as np
 import torch
 from huggingface_hub import (
     CommitOperationAdd,
-    CommitOperationDelete,
     HfApi,
     HfFolder,
     RepoUrl,
     create_repo,
     hf_hub_download,
+    whoami,
 )
 from huggingface_hub.utils import EntryNotFoundError, HfHubHTTPError, RepositoryNotFoundError
 from packaging import version
@@ -78,7 +78,6 @@ NEURON_COMPILE_CACHE_NAME = "neuron-compile-cache"
 _IP_PATTERN = re.compile(r"ip-([0-9]{1,3}-){4}")
 _HF_HUB_HTTP_ERROR_REQUEST_ID_PATTERN = re.compile(r"\(Request ID: Root=[\w-]+\)")
 
-_WRITING_ACCESS_CACHE: Dict[Tuple[str, str], bool] = {}
 _REGISTRY_FILE_EXISTS: Dict[str, bool] = {}
 _ADDED_IN_REGISTRY: Dict[Tuple[str, "NeuronHash"], bool] = {}
 
@@ -149,30 +148,32 @@ def is_private_repo(repo_id: str) -> bool:
 
 
 def has_write_access_to_repo(repo_id: str) -> bool:
-    token = HfFolder.get_token()
-    if (token, repo_id) in _WRITING_ACCESS_CACHE:
-        print(repo_id)
-        print("HERE", _WRITING_ACCESS_CACHE[(token, repo_id)])
-        return _WRITING_ACCESS_CACHE[(token, repo_id)]
-
-    has_access = False
-    with tempfile.NamedTemporaryFile() as fp:
-        tmpfilename = Path(fp.name)
-        try:
-            add_file = CommitOperationAdd(f"write_access_test/{tmpfilename.name}", tmpfilename.as_posix())
-            HfApi().create_commit(repo_id, operations=[add_file], commit_message="Check write access")
-        except (HfHubHTTPError, RepositoryNotFoundError):
-            print("FAILED here")
-            pass
-        else:
-            delete_file = CommitOperationDelete(f"write_access_test/{tmpfilename.name}")
-            HfApi().create_commit(repo_id, operations=[delete_file], commit_message="Check write access [DONE]")
-            has_access = True
-            print("HAS_WRITE_ACCESS", has_access)
-
-    print("FNAL HAS_WRITE_ACCESS", has_access)
-    _WRITING_ACCESS_CACHE[(token, repo_id)] = has_access
-    return has_access
+    # It is assumed that the user does not have write access to a canonical repo.
+    # In any case, since this function is designed to check for write access on cache repos, it should never be the
+    # case.
+    if "/" not in repo_id:
+        return False
+    user = whoami()
+    # Token role can either be "read" or "write".
+    token_role = user["auth"]["accessToken"]["role"]
+    if token_role == "read":
+        return False
+    username_or_organization = repo_id.rsplit("/", maxsplit=1)[0]
+    if user["name"] == username_or_organization:
+        return True
+    has_write_access_in_org = False
+    for org in user["orgs"]:
+        if org["name"] == username_or_organization:
+            # Role in an organization can be either:
+            # "admin", "write", "contributor", "read".
+            if org["roleInOrg"] == "contributor":
+                logger.warning(
+                    f"You are logged in as a contributor to the cache repo {repo_id}. It is not possible to infer "
+                    "whether you have write access on this repo or not, so it will be assumed you do not."
+                )
+            has_write_access_in_org = org["roleInOrg"] in ["admin", "write"]
+            break
+    return has_write_access_in_org
 
 
 def get_hf_hub_cache_repos():
