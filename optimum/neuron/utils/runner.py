@@ -171,7 +171,7 @@ class ExampleRunner:
             ],
         },
         "image-classification": {
-            "dataset_name": "cifar10",
+            "dataset_name": "beans",
             "extra_command_line_arguments": [
                 "--remove_unused_columns false",
                 "--ignore_mismatched_sizes",

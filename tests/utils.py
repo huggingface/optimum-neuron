@@ -212,6 +212,7 @@ class StagingTestMixin:
             pass
 
     def tearDown(self) -> None:
+        HfFolder.save_token(TOKEN)
         self.remove_all_files_in_repo(self.CUSTOM_CACHE_REPO)
         self.remove_all_files_in_repo(self.CUSTOM_PRIVATE_CACHE_REPO)
 
