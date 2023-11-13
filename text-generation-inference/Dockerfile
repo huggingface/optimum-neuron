@@ -125,6 +125,14 @@ COPY --from=builder /usr/src/target/release/text-generation-launcher /usr/local/
 COPY --from=pyserver /pyserver/build/dist dist
 RUN pip install dist/text-generation-server*.tar.gz
 
+# AWS Sagemaker compatible image
+FROM neuron as sagemaker
+
+COPY text-generation-inference/sagemaker-entrypoint.sh entrypoint.sh
+RUN chmod +x entrypoint.sh
+
+ENTRYPOINT ["./entrypoint.sh"]
+
 # Final image
 FROM neuron
 
