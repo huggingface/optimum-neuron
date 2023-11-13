@@ -40,7 +40,11 @@ from optimum.neuron.utils.cache_utils import (
     set_custom_cache_repo_name_in_hf_home,
     set_neuron_cache_path,
 )
+from optimum.utils import logging
 from optimum.utils.testing_utils import TOKEN, USER
+
+
+logger = logging.get_logger(__name__)
 
 
 def get_random_string(length) -> str:
@@ -141,7 +145,10 @@ class TrainiumTestMixin:
         if cls._token is not None:
             HfFolder.save_token(cls._token)
         if cls._cache_repo is not None:
-            set_custom_cache_repo_name_in_hf_home(cls._cache_repo)
+            try:
+                set_custom_cache_repo_name_in_hf_home(cls._cache_repo)
+            except Exception:
+                logger.warning(f"Could not restore the cache repo back to {cls._cache_repo}")
         else:
             delete_custom_cache_repo_name_from_hf_home()
 
@@ -185,6 +192,10 @@ class StagingTestMixin:
         if cls._token:
             cls.set_hf_hub_token(cls._token)
         if cls._custom_cache_repo_name:
+            try:
+                set_custom_cache_repo_name_in_hf_home(cls._custom_cache_repo_name)
+            except Exception:
+                logger.warning(f"Could not restore the cache repo back to {cls._custom_cache_repo_name}")
             set_custom_cache_repo_name_in_hf_home(cls._custom_cache_repo_name, check_repo=False)
 
     def remove_all_files_in_repo(self, repo_id: str):
