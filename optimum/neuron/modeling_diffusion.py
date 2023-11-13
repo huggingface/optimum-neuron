@@ -60,6 +60,7 @@ if is_diffusers_available():
     from diffusers.utils import CONFIG_NAME, is_invisible_watermark_available
 
     from .pipelines import (
+        NeuronLatentConsistencyPipelineMixin,
         NeuronStableDiffusionImg2ImgPipelineMixin,
         NeuronStableDiffusionInpaintPipelineMixin,
         NeuronStableDiffusionPipelineMixin,
@@ -613,7 +614,8 @@ class NeuronModelUnet(_NeuronDiffusionModelPart):
         sample: torch.Tensor,
         timestep: torch.Tensor,
         encoder_hidden_states: torch.Tensor,
-        added_cond_kwargs: Optional[Dict[str, Any]] = None,
+        added_cond_kwargs: Optional[Dict[str, torch.Tensor]] = None,
+        timestep_cond: Optional[torch.Tensor] = None,
     ):
         timestep = timestep.float().expand((sample.shape[0],))
         inputs = {
@@ -624,6 +626,9 @@ class NeuronModelUnet(_NeuronDiffusionModelPart):
         if added_cond_kwargs is not None:
             inputs["text_embeds"] = added_cond_kwargs.pop("text_embeds", None)
             inputs["time_ids"] = added_cond_kwargs.pop("time_ids", None)
+
+        if timestep_cond is not None:
+            inputs["timestep_cond"] = timestep_cond
 
         outputs = self.model(*tuple(inputs.values()))
         return outputs
@@ -686,6 +691,10 @@ class NeuronStableDiffusionInpaintPipeline(
     NeuronStableDiffusionPipelineBase, NeuronStableDiffusionInpaintPipelineMixin
 ):
     __call__ = NeuronStableDiffusionInpaintPipelineMixin.__call__
+
+
+class NeuronLatentConsistencyModelPipeline(NeuronStableDiffusionPipelineBase, NeuronLatentConsistencyPipelineMixin):
+    __call__ = NeuronLatentConsistencyPipelineMixin.__call__
 
 
 class NeuronStableDiffusionXLPipelineBase(NeuronStableDiffusionPipelineBase):

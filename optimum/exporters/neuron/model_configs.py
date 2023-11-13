@@ -248,6 +248,9 @@ class UNetNeuronConfig(VisionNeuronConfig):
             common_inputs.append("text_embeds")
             common_inputs.append("time_ids")
 
+        if getattr(self._normalized_config, "time_cond_proj_dim", None) is not None:
+            common_inputs.append("timestep_cond")
+
         return common_inputs
 
     @property
