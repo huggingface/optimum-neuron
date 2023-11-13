@@ -33,7 +33,7 @@ Please refer to [this reference documentation](https://github.com/huggingface/te
 The service is launched simply by running the neuronx-tgi container with two sets of parameters:
 
 ```
-docker run <system_parameters> ghrc.io/huggingface/neuronx-tgi:latest <service_parameters>
+docker run <system_parameters> ghcr.io/huggingface/neuronx-tgi:latest <service_parameters>
 ```
 
 - system parameters are used to map ports, volumes and devices between the host and the service,
@@ -47,7 +47,7 @@ The snippet below shows how you can deploy a service from a hub neuron model:
 docker run -p 8080:80 \
        -v $(pwd)/data:/data \
        --device=/dev/neuron0 \
-       ghrc.io/huggingface/neuronx-tgi:latest \
+       ghcr.io/huggingface/neuronx-tgi:latest \
        --model-id aws-neuron/Llama-2-7b-hf-neuron-budget \
        --max-concurrent-requests 1 \
        --max-input-length 1024 \
@@ -89,7 +89,7 @@ Alternatively, you can first [export the model to neuron format](https://hugging
 docker run -p 8080:80 \
        -v $(pwd)/data:/data \
        --device=/dev/neuron0 \
-       ghrc.io/huggingface/neuronx-tgi:latest \
+       ghcr.io/huggingface/neuronx-tgi:latest \
        --model-id /data/<neuron_model_path> \
        ...
 ```
