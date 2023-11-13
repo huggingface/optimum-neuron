@@ -43,6 +43,9 @@ $(PACKAGE_DIST) $(PACKAGE_WHEEL): $(PACKAGE_FILES)
 neuronx-tgi: $(PACKAGE_DIST)
 	docker build --rm -f text-generation-inference/Dockerfile --build-arg VERSION=$(VERSION) -t neuronx-tgi:$(VERSION) .
 
+neuronx-tgi-sagemaker: $(PACKAGE_DIST)
+	docker build --rm -f text-generation-inference/Dockerfile --target sagemaker --build-arg VERSION=$(VERSION) -t neuronx-tgi:$(VERSION) .
+
 # Creates example scripts from Transformers
 transformers_examples:
 	rm -f examples/**/*.py
