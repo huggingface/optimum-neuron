@@ -198,7 +198,7 @@ optimum-cli export neuron --model stabilityai/stable-diffusion-xl-base-1.0 \
   --num_images_per_prompt 4 `# number of images to generate per prompt, defaults to 1` \
   --auto_cast matmul `# cast only matrix multiplication operations` \
   --auto_cast_type bf16 `# cast operations from FP32 to BF16` \
-  sd_neuron/
+  sd_neuron_xl/
 ```
 
 We recommend using `inf2.8xlarger` or larger instance for the compilation. You will also be able to compile the model with our CLI on a CPU-only instance with more than ~92 GB memory, and then run the pre-compiled models on `inf2.xlarge` to reduce the expenses. In this case, don't forget to disable validation of inference by adding the `--disable-validation` argument.
