@@ -59,7 +59,7 @@ class NeuronModelIntegrationTestMixin(unittest.TestCase):
     STATIC_INPUTS_SHAPES = {}
 
     @classmethod
-    def setUpClass(cls) -> None:
+    def setUpClass(cls):
         if os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI", None) is not None:
             token = os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI")
             HfFolder.save_token(token)
@@ -80,7 +80,7 @@ class NeuronModelIntegrationTestMixin(unittest.TestCase):
         neuron_model.push_to_hub(model_dir, repository_id=cls.neuron_model_id, use_auth_token=cls._token)
 
     @classmethod
-    def tearDownClass(cls) -> None:
+    def tearDownClass(cls):
         if cls._token is not None:
             HfFolder.save_token(cls._token)
         if cls.local_model_path is not None:

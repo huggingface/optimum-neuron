@@ -171,7 +171,7 @@ class ExampleRunner:
             ],
         },
         "image-classification": {
-            "dataset_name": "cifar10",
+            "dataset_name": "beans",
             "extra_command_line_arguments": [
                 "--remove_unused_columns false",
                 "--ignore_mismatched_sizes",
@@ -302,13 +302,6 @@ class ExampleRunner:
             assert returncode == 0
             self._installed_requirements = True
 
-        if self.use_venv or requirements_filename.exists():
-            # TODO: remove that as soon as possible.
-            cmd_line = f"{self.pip_name} install numpy==1.21.6".split()
-            p = subprocess.Popen(cmd_line)
-            returncode = p.wait()
-            assert returncode == 0
-
     def check_user_logged_in_and_cache_repo_is_set(self):
         token = HfFolder.get_token()
         if not token:
@@ -330,7 +323,7 @@ class ExampleRunner:
         has_write_access = has_write_access_to_repo(main_repo)
         if not has_write_access:
             raise RuntimeError(
-                f"You do not have write access to {main_repo}. Please log in and/or use a custom Tranium cache repo."
+                f"You do not have write access to {main_repo}. Please log in and/or use a custom Neuron cache repo."
             )
 
     def download_model_repo_and_override_config(

@@ -22,6 +22,7 @@ from unittest import TestCase
 from huggingface_hub import HfFolder
 
 from optimum.neuron.utils.cache_utils import (
+    delete_custom_cache_repo_name_from_hf_home,
     load_custom_cache_repo_name_from_hf_home,
     set_custom_cache_repo_name_in_hf_home,
 )
@@ -37,7 +38,7 @@ class DistributedTrainingTestCase(TestCase):
     CACHE_REPO_NAME = "optimum-internal-testing/optimum-neuron-cache-for-testing"
 
     @classmethod
-    def setUpClass(cls) -> None:
+    def setUpClass(cls):
         orig_token = HfFolder.get_token()
         orig_cache_repo = load_custom_cache_repo_name_from_hf_home()
         ci_token = os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI", None)
@@ -46,13 +47,17 @@ class DistributedTrainingTestCase(TestCase):
             set_custom_cache_repo_name_in_hf_home(cls.CACHE_REPO_NAME)
         cls._token = orig_token
         cls._cache_repo = orig_cache_repo
+        cls._env = dict(os.environ)
 
     @classmethod
-    def tearDownClass(cls) -> None:
+    def tearDownClass(cls):
+        os.environ = cls._env
         if cls._token is not None:
             HfFolder.save_token(cls._token)
         if cls._cache_repo is not None:
             set_custom_cache_repo_name_in_hf_home(cls._cache_repo)
+        else:
+            delete_custom_cache_repo_name_from_hf_home()
 
     def test_tp_save_and_resume_from_checkpoint(self):
         num_cores = 8

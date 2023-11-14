@@ -37,10 +37,7 @@ from transformers.trainer import (
 from transformers.trainer_pt_utils import (
     reissue_pt_warnings,
 )
-from transformers.trainer_utils import (
-    PREFIX_CHECKPOINT_DIR,
-    EvalLoopOutput,
-)
+from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR, EvalLoopOutput, has_length
 from transformers.utils import WEIGHTS_NAME, is_sagemaker_mp_enabled
 
 from ..utils import check_if_transformers_greater, logging
@@ -54,7 +51,7 @@ from .utils import (
     is_torch_xla_available,
     patch_within_function,
 )
-from .utils.cache_utils import NEURON_COMPILE_CACHE_NAME, get_neuron_cache_path, set_neuron_cache_path
+from .utils.cache_utils import get_neuron_cache_path, set_neuron_cache_path
 from .utils.training_utils import (
     TRANSFORMERS_MIN_VERSION_USE_ACCELERATE,
     get_model_param_count,
@@ -118,7 +115,7 @@ if os.environ.get("TORCHELASTIC_RUN_ID"):
             else:
                 store = torch.distributed.TCPStore(_TCP_STORE_ADDRESS, _TCP_STORE_PORT, is_master=False)
                 _TMP_NEURON_CACHE_PATH = Path(store.get("tmp_neuron_cache_path").decode("utf-8"))
-            set_neuron_cache_path(_TMP_NEURON_CACHE_PATH / NEURON_COMPILE_CACHE_NAME)
+            set_neuron_cache_path(_TMP_NEURON_CACHE_PATH)
 
         torch.distributed.init_process_group(backend="xla")
         if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
@@ -260,7 +257,13 @@ class AugmentTrainerForNeuronMixin:
 
     def _get_train_sampler(self) -> Optional[torch.utils.data.Sampler]:
         if self.tp_enabled:
-            return None
+            if self.train_dataset is None or not has_length(self.train_dataset):
+                return None
+
+            if self.args.group_by_length:
+                raise ValueError("LengthGroupedSampler is currently not supported with model parallelism.")
+
+            return torch.utils.data.RandomSampler(self.train_dataset)
         return super()._get_train_sampler()
 
     def _get_eval_sampler(self, eval_dataset: torch.utils.data.Dataset) -> Optional[torch.utils.data.Sampler]:
