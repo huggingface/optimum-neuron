@@ -651,9 +651,9 @@ def lazy_load_for_parallelism(tensor_parallel_size: int = 1, pipeline_parallel_s
 
     Args:
         tensor_parallel_size (`int`, defaults to 1):
-            The tensor parallel size considered. 
+            The tensor parallel size considered.
         pipeline_parallel_size (`int`, defaults to 1):
-            The pipeline parallel size considered. 
+            The pipeline parallel size considered.
     """
 
     def meta_init(init_fn):

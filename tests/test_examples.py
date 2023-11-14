@@ -40,6 +40,7 @@ from transformers import (
 )
 from transformers.testing_utils import slow
 
+from optimum.neuron.distributed.parallelizers_manager import ParallelizersManager
 from optimum.neuron.utils.misc import string_to_bool
 from optimum.neuron.utils.runner import ExampleRunner
 from optimum.neuron.utils.testing_utils import is_trainium_test
@@ -256,7 +257,7 @@ class ExampleTestMeta(type):
         for model_type, model_name_or_path, tp_support, config_overrides in models_to_test:
             # Regular training.
             attrs[f"test_{example_name}_{model_type}"] = cls._create_test(
-                model_type, model_name_or_path, 1, True, False, config_overrides
+                model_type, model_name_or_path, 1, 1, True, False, config_overrides
             )
 
             # Training with ZeRO-1.
@@ -266,13 +267,18 @@ class ExampleTestMeta(type):
             # )
 
             tensor_parallel_size = 2 if tp_support is not TPSupport.NONE else 1
+
+            pp_support = ParallelizersManager.parallelizer_for_model(model_type).supports_pipeline_parallelism()
+            pipeline_parallel_size = 4 if pp_support else 1
+
             disable_embedding_parallelization = tp_support is TPSupport.PARTIAL
             if tensor_parallel_size > 1:
                 # Training with TP if supported.
-                attrs[f"test_{example_name}_{model_type}_with_tp"] = cls._create_test(
+                attrs[f"test_{example_name}_{model_type}_with_tp_only"] = cls._create_test(
                     model_type,
                     model_name_or_path,
                     tensor_parallel_size,
+                    1,  # No pipeline parallelism in this test.
                     disable_embedding_parallelization,
                     False,
                     config_overrides,
@@ -283,6 +289,39 @@ class ExampleTestMeta(type):
                 #     model_type,
                 #     model_name_or_path,
                 #     tensor_parallel_size,
+                #     1, # No pipeline parallelism in this test.
+                #     disable_embedding_parallelization,
+                #     True,
+                #     config_overrides,
+                # )
+
+            if pipeline_parallel_size > 1:
+                # Training with PP if supported.
+                attrs[f"test_{example_name}_{model_type}_with_pp_only"] = cls._create_test(
+                    model_type,
+                    model_name_or_path,
+                    1,  # No tensor parallelism in this test.
+                    pipeline_parallel_size,
+                    disable_embedding_parallelization,
+                    False,
+                    config_overrides,
+                )
+
+            if tensor_parallel_size > 1 and pipeline_parallel_size > 1:
+                attrs[f"test_{example_name}_{model_type}_with_tp_and_pp"] = cls._create_test(
+                    model_type,
+                    model_name_or_path,
+                    tensor_parallel_size,
+                    pipeline_parallel_size,
+                    disable_embedding_parallelization,
+                    False,
+                    config_overrides,
+                )
+                # attrs[f"test_{example_name}_{model_type}_with_tp_and_pp_and_zero1"] = cls._create_test(
+                #     model_type,
+                #     model_name_or_path,
+                #     tensor_parallel_size,
+                #     pipeline_parallel_size,
                 #     disable_embedding_parallelization,
                 #     True,
                 #     config_overrides,
@@ -333,15 +372,13 @@ class ExampleTestMeta(type):
         model_type: str,
         model_name_or_path: str,
         tensor_parallel_size: int,
+        pipeline_parallel_size: int,
         disable_embedding_parallelization: bool,
         zero_1: bool,
         config_overrides: Optional[Dict[str, Any]] = None,
     ) -> Callable[["ExampleTesterBase"], None]:
         """
         Creates a test function that runs an example for a model_name.
-
-        Args:
-            model_name (`str`): the model_name_or_path.
 
         Returns:
             `Callable[[ExampleTesterBase], None]`: The test function that runs the example.
@@ -381,6 +418,7 @@ class ExampleTestMeta(type):
                     save_total_limit=1,
                     learning_rate=self.LEARNING_RATE,
                     tensor_parallel_size=tensor_parallel_size,
+                    pipeline_parallel_size=pipeline_parallel_size,
                     disable_embedding_parallelization=disable_embedding_parallelization,
                     zero_1=zero_1,
                     output_dir=tmpdirname,

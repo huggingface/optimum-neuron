@@ -386,6 +386,7 @@ class ExampleRunner:
         save_total_limit: int = -1,
         learning_rate: float = 1e-4,
         tensor_parallel_size: int = 1,
+        pipeline_parallel_size: int = 1,
         disable_embedding_parallelization: bool = False,
         zero_1: bool = False,
         output_dir: Optional[Union[Path, str]] = None,
@@ -423,9 +424,14 @@ class ExampleRunner:
             self.install_requirements(script_path.parent / "requirements.txt")
 
         def compute_max_train_samples(
-            max_steps: int, num_cores: int, tensor_parallel_size: int, per_device_train_batch_size: int
+            max_steps: int,
+            num_cores: int,
+            tensor_parallel_size: int,
+            pipeline_parallel_size: int,
+            per_device_train_batch_size: int,
         ) -> int:
-            total_batch_size = (num_cores // tensor_parallel_size) * per_device_train_batch_size
+            number_of_cores_per_replicas = tensor_parallel_size * pipeline_parallel_size
+            total_batch_size = (num_cores // number_of_cores_per_replicas) * per_device_train_batch_size
             total_num_samples = max_steps * total_batch_size
             # Adding 10% more examples just to make sure.
             return int(total_num_samples * 1.1)
@@ -448,7 +454,9 @@ class ExampleRunner:
         if max_steps is not None:
             cmd.append(f"--max_steps {max_steps}")
             max_steps_idx = len(cmd) - 1
-            max_train_samples = compute_max_train_samples(max_steps, num_cores, tensor_parallel_size, train_batch_size)
+            max_train_samples = compute_max_train_samples(
+                max_steps, num_cores, tensor_parallel_size, pipeline_parallel_size, train_batch_size
+            )
             cmd.append(f"--max_train_samples {max_train_samples}")
 
         cmd.append("--do_train")
@@ -475,6 +483,8 @@ class ExampleRunner:
         # Parallelism
         if tensor_parallel_size > 1:
             cmd.append(f"--tensor_parallel_size {tensor_parallel_size}")
+        if pipeline_parallel_size > 1:
+            cmd.append(f"--pipeline_parallel_size {pipeline_parallel_size}")
         if disable_embedding_parallelization:
             cmd.append("--disable_embedding_parallelization")
         if zero_1:

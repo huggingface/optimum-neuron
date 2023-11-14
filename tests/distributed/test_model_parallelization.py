@@ -20,7 +20,6 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Dict, List, Optional, Type, Union
-from optimum.neuron.distributed.parallelizers_manager import ParallelizersManager
 
 import pytest
 import torch
@@ -45,6 +44,7 @@ from transformers.models.auto.modeling_auto import (
     MODEL_FOR_ZERO_SHOT_IMAGE_CLASSIFICATION_MAPPING_NAMES,
 )
 
+from optimum.neuron.distributed.parallelizers_manager import ParallelizersManager
 from optimum.neuron.utils.cache_utils import get_num_neuron_cores, set_neuron_cache_path
 from optimum.neuron.utils.import_utils import is_neuronx_available
 from optimum.neuron.utils.runner import run_command_with_realtime_output
@@ -141,7 +141,7 @@ for entry in MODEL_TYPES_TO_TEST:
     else:
         model_type, model_name_or_path, config_overwrite = entry
     for model_class_name in _generate_supported_model_class_names(model_type):
-        entry = (model_type, model_class_name, model_name_or_path, config_overwrite) 
+        entry = (model_type, model_class_name, model_name_or_path, config_overwrite)
         if entry not in MODELS_TO_TEST:
             MODELS_TO_TEST.append(entry)
 
@@ -322,7 +322,11 @@ class ModelParallelizationTestCase(unittest.TestCase):
 
     @parameterized.expand(MODELS_TO_TEST)
     def test_model_parallel_from_config_no_lazy_load(
-        self, model_type: str, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str],
+        self,
+        model_type: str,
+        model_class_name: str,
+        model_name_or_path: str,
+        config_overwrite: Dict[str, str],
     ):
         def test_fn(tp_size: int, pp_size: int):
             self._test_model_parallel(
@@ -340,7 +344,7 @@ class ModelParallelizationTestCase(unittest.TestCase):
                 sequence_parallel_enabled=True,
                 overwrite_model_config=config_overwrite,
             )
-        
+
         with self.subTest("Test TP only"):
             tp_size = 2
             pp_size = 1
@@ -360,7 +364,11 @@ class ModelParallelizationTestCase(unittest.TestCase):
 
     @parameterized.expand(MODELS_TO_TEST)
     def test_model_parallel_from_pretrained_no_lazy_load(
-        self, model_type: str, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str],
+        self,
+        model_type: str,
+        model_class_name: str,
+        model_name_or_path: str,
+        config_overwrite: Dict[str, str],
     ):
         def test_fn(tp_size: int, pp_size: int):
             self._test_model_parallel(
@@ -399,7 +407,11 @@ class ModelParallelizationTestCase(unittest.TestCase):
     @parameterized.expand(MODELS_TO_TEST)
     # @pytest.mark.skip("Parallel cross entropy does not work yet.")
     def test_model_parallel_lazy_load_without_anything(
-        self, model_type: str, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str],
+        self,
+        model_type: str,
+        model_class_name: str,
+        model_name_or_path: str,
+        config_overwrite: Dict[str, str],
     ):
         def test_fn(tp_size: int, pp_size: int):
             self._test_model_parallel(
@@ -435,7 +447,11 @@ class ModelParallelizationTestCase(unittest.TestCase):
 
     @parameterized.expand(MODELS_TO_TEST)
     def test_model_parallel_lazy_load_without_parallelizing_embeddings(
-        self, model_type: str, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str],
+        self,
+        model_type: str,
+        model_class_name: str,
+        model_name_or_path: str,
+        config_overwrite: Dict[str, str],
     ):
         self._test_model_parallel(
             tp_size=2,
@@ -454,7 +470,11 @@ class ModelParallelizationTestCase(unittest.TestCase):
     @parameterized.expand(MODELS_TO_TEST)
     @pytest.mark.skip("Parallel cross entropy does not work yet.")
     def test_model_parallel_lazy_load_without_sequence_parallel(
-        self, model_type: str, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str],
+        self,
+        model_type: str,
+        model_class_name: str,
+        model_name_or_path: str,
+        config_overwrite: Dict[str, str],
     ):
         self._test_model_parallel(
             tp_size=2,
@@ -469,7 +489,6 @@ class ModelParallelizationTestCase(unittest.TestCase):
             sequence_parallel_enabled=False,
             overwrite_model_config=config_overwrite,
         )
-
 
     @pytest.mark.skipif(
         NUM_NEURON_CORES_AVAILABLE < 32,

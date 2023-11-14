@@ -177,11 +177,11 @@ class Parallelizer(ABC):
             yield path
         finally:
             tmpdir.cleanup()
-    
+
     @classmethod
     def supports_sequence_parallelism(cls) -> bool:
         return cls.SEQUENCE_PARALLELSIM_SPECS_CLS is not None
-    
+
     @classmethod
     def supports_pipeline_parallelism(cls) -> bool:
         return cls.PIPELINE_PARALLELISM_SPECS_CLS is not None
@@ -308,8 +308,8 @@ class Parallelizer(ABC):
 
         from neuronx_distributed.parallel_layers.parallel_state import (
             get_pipeline_model_parallel_size,
-            get_tensor_model_parallel_size,
             get_tensor_model_parallel_rank,
+            get_tensor_model_parallel_size,
         )
         from neuronx_distributed.pipeline import NxDPPModel
 
