@@ -161,3 +161,7 @@ Other models and tasks supported by the 🤗 Transformers library may also work.
 -->
 
 If you find any issue while using those, please open an issue or a pull request.
+
+## Text-generation-inference
+
+This repository maintains a [text-generation-inference (TGI)](https://github.com/huggingface/optimum-neuron/tree/main/text-generation-inference) docker image for deployment on AWS inferentia2.

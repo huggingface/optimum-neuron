@@ -15,7 +15,6 @@
 """Base class related to `neuronx_distributed` to perform parallelism."""
 
 import contextlib
-import gc
 import shutil
 from abc import ABC, abstractclassmethod
 from dataclasses import asdict
@@ -701,7 +700,7 @@ class Parallelizer(ABC):
 
         if not isinstance(load_dir, Path):
             load_dir = Path(load_dir)
-        parallel_layers.load(load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME, model=model, sharded=True)
+        parallel_layers.load(load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME, model_or_optimizer=model, sharded=True)
 
     @classmethod
     def load_model_checkpoint(cls, model: "PreTrainedModel", load_dir: Union[str, Path]):
@@ -727,37 +726,10 @@ class Parallelizer(ABC):
                 "It is not possible to load a sharded optimizer checkpoint when using ZeRO-1 yet."
             )
 
+        from neuronx_distributed.parallel_layers import load
+
         if not isinstance(load_dir, Path):
             load_dir = Path(load_dir)
-
-        import torch_xla.core.xla_model as xm
-        from neuronx_distributed.parallel_layers.parallel_state import (
-            get_pipeline_model_parallel_rank,
-            get_tensor_model_parallel_rank,
-            get_tensor_model_parallel_size,
+        load(
+            load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME, model_or_optimizer=optimizer, model_key="optimizer_state_dict"
         )
-
-        world_size = get_tensor_model_parallel_size()
-        tp_rank = get_tensor_model_parallel_rank()
-        pp_rank = get_pipeline_model_parallel_rank()
-
-        if not (load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME).is_dir():
-            raise FileNotFoundError(f"Could not find a sharded checkpoint directory under {load_dir.as_posix()}.")
-
-        checkpoint_name = load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME / f"tp_rank_{tp_rank:02d}_pp_rank{pp_rank:02d}.pt"
-
-        device = "xla"
-        for group in optimizer.param_groups:
-            for p in group["params"]:
-                device = p.device
-                break
-
-        for worker_start in range(0, world_size):
-            if tp_rank == worker_start:
-                checkpoint = torch.load(checkpoint_name, map_location="cpu")
-                optimizer_state_dict = checkpoint["optimizer_state_dict"]
-                xm.send_cpu_data_to_device(optimizer_state_dict, device)
-                optimizer.load_state_dict(optimizer_state_dict)
-                del checkpoint
-                gc.collect()
-            xm.rendezvous("neuron.load_checkpoint" + str(worker_start))

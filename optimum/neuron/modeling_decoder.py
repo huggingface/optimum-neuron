@@ -35,7 +35,7 @@ from .utils.version_utils import check_compiler_compatibility, get_neuronxcc_ver
 
 if is_transformers_neuronx_available():
     from transformers_neuronx.module import PretrainedModel as NeuronxPretrainedModel
-    from transformers_neuronx.module import save_pretrained_split
+    from transformers_neuronx.module import save_split
 
 
 if TYPE_CHECKING:
@@ -132,7 +132,9 @@ class NeuronDecoderModel(OptimizedModel):
 
         # Save the model checkpoint in a temporary directory
         checkpoint_dir = TemporaryDirectory()
-        save_pretrained_split(model, checkpoint_dir.name)
+        model.save_pretrained(
+            checkpoint_dir.name, save_function=save_split, safe_serialization=False, max_shard_size="10000GB"
+        )
 
         # If the sequence_length was not specified, deduce it from the model configuration
         if sequence_length is None:
@@ -259,6 +261,7 @@ class NeuronDecoderModel(OptimizedModel):
         save_directory: str,
         repository_id: str,
         private: Optional[bool] = None,
+        revision: Optional[str] = None,
         use_auth_token: Union[bool, str] = True,
         endpoint: Optional[str] = None,
     ) -> str:
@@ -290,4 +293,5 @@ class NeuronDecoderModel(OptimizedModel):
                     repo_id=repository_id,
                     path_or_fileobj=os.path.join(os.getcwd(), local_file_path),
                     path_in_repo=hub_file_path,
+                    revision=revision,
                 )

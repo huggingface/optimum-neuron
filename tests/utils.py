@@ -32,7 +32,6 @@ from transformers.testing_utils import ENDPOINT_STAGING
 from optimum.neuron.utils.cache_utils import (
     _ADDED_IN_REGISTRY,
     _REGISTRY_FILE_EXISTS,
-    NEURON_COMPILE_CACHE_NAME,
     NeuronHash,
     delete_custom_cache_repo_name_from_hf_home,
     load_custom_cache_repo_name_from_hf_home,
@@ -41,7 +40,11 @@ from optimum.neuron.utils.cache_utils import (
     set_custom_cache_repo_name_in_hf_home,
     set_neuron_cache_path,
 )
+from optimum.utils import logging
 from optimum.utils.testing_utils import TOKEN, USER
+
+
+logger = logging.get_logger(__name__)
 
 
 def get_random_string(length) -> str:
@@ -129,6 +132,27 @@ def create_tiny_pretrained_model(
     return MyTinyModel(config)
 
 
+class TrainiumTestMixin:
+    @classmethod
+    def setUpClass(cls):
+        cls._token = HfFolder.get_token()
+        cls._cache_repo = load_custom_cache_repo_name_from_hf_home()
+        cls._env = dict(os.environ)
+
+    @classmethod
+    def tearDownClass(cls):
+        os.environ = cls._env
+        if cls._token is not None:
+            HfFolder.save_token(cls._token)
+        if cls._cache_repo is not None:
+            try:
+                set_custom_cache_repo_name_in_hf_home(cls._cache_repo)
+            except Exception:
+                logger.warning(f"Could not restore the cache repo back to {cls._cache_repo}")
+        else:
+            delete_custom_cache_repo_name_from_hf_home()
+
+
 class StagingTestMixin:
     CUSTOM_CACHE_REPO_NAME = "optimum-neuron-cache-testing"
     CUSTOM_CACHE_REPO = f"{USER}/{CUSTOM_CACHE_REPO_NAME}"
@@ -144,7 +168,7 @@ class StagingTestMixin:
         return orig_token
 
     @classmethod
-    def setUpClass(cls) -> None:
+    def setUpClass(cls):
         cls._staging_token = TOKEN
         cls._token = cls.set_hf_hub_token(TOKEN)
         cls._custom_cache_repo_name = load_custom_cache_repo_name_from_hf_home()
@@ -162,12 +186,16 @@ class StagingTestMixin:
         cls.visited_num_linears = set()
 
     @classmethod
-    def tearDownClass(cls) -> None:
+    def tearDownClass(cls):
         delete_repo(repo_id=cls.CUSTOM_CACHE_REPO, repo_type="model")
         delete_repo(repo_id=cls.CUSTOM_PRIVATE_CACHE_REPO, repo_type="model")
         if cls._token:
             cls.set_hf_hub_token(cls._token)
         if cls._custom_cache_repo_name:
+            try:
+                set_custom_cache_repo_name_in_hf_home(cls._custom_cache_repo_name)
+            except Exception:
+                logger.warning(f"Could not restore the cache repo back to {cls._custom_cache_repo_name}")
             set_custom_cache_repo_name_in_hf_home(cls._custom_cache_repo_name, check_repo=False)
 
     def remove_all_files_in_repo(self, repo_id: str):
@@ -184,6 +212,7 @@ class StagingTestMixin:
             pass
 
     def tearDown(self) -> None:
+        HfFolder.save_token(TOKEN)
         self.remove_all_files_in_repo(self.CUSTOM_CACHE_REPO)
         self.remove_all_files_in_repo(self.CUSTOM_PRIVATE_CACHE_REPO)
 
@@ -223,19 +252,22 @@ class StagingTestMixin:
             tiny_model = self.create_and_run_tiny_pretrained_model(random_num_linears=True)
             neuron_hash = NeuronHash(tiny_model, input_shapes, data_type)
 
-            tmp_cache_dir = Path(tmpdirname) / NEURON_COMPILE_CACHE_NAME
+            tmp_cache_dir = Path(tmpdirname) / neuron_hash.neuron_compiler_version_dir_name
             push_to_cache_on_hub(
                 neuron_hash,
                 tmp_cache_dir,
             )
-
             if cache_dir is not None:
                 for file_or_dir in tmp_cache_dir.iterdir():
                     if file_or_dir.is_file():
-                        shutil.copy(file_or_dir, cache_dir / path_after_folder(file_or_dir, NEURON_COMPILE_CACHE_NAME))
+                        shutil.copy(
+                            file_or_dir,
+                            cache_dir / path_after_folder(file_or_dir, neuron_hash.neuron_compiler_version_dir_name),
+                        )
                     else:
                         shutil.copytree(
-                            file_or_dir, cache_dir / path_after_folder(file_or_dir, NEURON_COMPILE_CACHE_NAME)
+                            file_or_dir,
+                            cache_dir / path_after_folder(file_or_dir, neuron_hash.neuron_compiler_version_dir_name),
                         )
         if orig_repo_id is not None:
             set_custom_cache_repo_name_in_hf_home(orig_repo_id)

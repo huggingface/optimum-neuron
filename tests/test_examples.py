@@ -41,9 +41,12 @@ from transformers import (
 from transformers.testing_utils import slow
 
 from optimum.neuron.distributed.parallelizers_manager import ParallelizersManager
+from optimum.neuron.utils.cache_utils import load_custom_cache_repo_name_from_hf_home
 from optimum.neuron.utils.misc import string_to_bool
 from optimum.neuron.utils.runner import ExampleRunner
 from optimum.neuron.utils.testing_utils import is_trainium_test
+
+from .utils import TrainiumTestMixin
 
 
 # Doing it this way to be able to use this file in tools.
@@ -58,7 +61,11 @@ TOKEN = HfFolder.get_token()
 if os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI", None) is not None:
     TOKEN = os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI")
 
-CACHE_REPO_NAME = "optimum-internal-testing/optimum-neuron-cache-for-testing"
+DEFAULT_CACHE_REPO = "optimum-internal-testing/optimum-neuron-cache-for-testing"
+SAVED_CUSTOM_CACHE_REPO = load_custom_cache_repo_name_from_hf_home()
+CUSTOM_CACHE_REPO = os.environ.get("CUSTOM_CACHE_REPO", None)
+if SAVED_CUSTOM_CACHE_REPO is None and CUSTOM_CACHE_REPO is None:
+    os.environ["CUSTOM_CACHE_REPO"] = DEFAULT_CACHE_REPO
 
 
 class TPSupport(str, Enum):
@@ -402,9 +409,12 @@ class ExampleTestMeta(type):
                 config_overrides=config_overrides if RUN_TINY else None,
             )
 
+            # TP = 2, NUM_CORES = 32 (DP = 16) seems to be an unsupported topology.
+            num_cores = 8 if tensor_parallel_size > 1 else self.NUM_CORES
+
             with TemporaryDirectory() as tmpdirname:
                 returncode, stdout = runner.run(
-                    self.NUM_CORES,
+                    num_cores,
                     "bf16",
                     train_batch_size,
                     sequence_length=sequence_length,
@@ -458,7 +468,7 @@ class ExampleTestMeta(type):
         return test
 
 
-class ExampleTesterBase(TestCase):
+class ExampleTesterBase(TrainiumTestMixin, TestCase):
     """
     Base example tester class.
     """
@@ -568,6 +578,7 @@ class QuestionAnsweringExampleTester(ExampleTesterBase, metaclass=ExampleTestMet
 
     TRAIN_BATCH_SIZE = 2
     EVAL_BATCH_SIZE = 2
+    SEQUENCE_LENGTH = 384
 
     TRAIN_LOSS_THRESHOLD = 0.5
 
