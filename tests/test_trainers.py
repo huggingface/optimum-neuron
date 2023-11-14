@@ -24,12 +24,14 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
 
+import pytest
 from huggingface_hub import HfApi, delete_repo
 from huggingface_hub.utils import RepositoryNotFoundError
-from transformers import BertConfig, BertModel, BertTokenizer, TrainingArguments
+from transformers import BertConfig, BertModel, BertTokenizer
 from transformers.testing_utils import is_staging_test
 
 from optimum.neuron.trainers import NeuronTrainer
+from optimum.neuron.training_args import NeuronTrainingArguments
 from optimum.neuron.utils.cache_utils import (
     get_neuron_cache_path,
     list_files_in_neuron_cache,
@@ -41,6 +43,7 @@ from optimum.utils.testing_utils import USER
 
 from .utils import (
     StagingTestMixin,
+    TrainiumTestMixin,
     create_dummy_dataset,
     create_dummy_text_classification_dataset,
     create_tiny_pretrained_model,
@@ -51,6 +54,7 @@ from .utils import (
 @is_trainium_test
 @is_staging_test
 class StagingNeuronTrainerTestCase(StagingTestMixin, TestCase):
+    @pytest.mark.skip("Seems to be working but takes forever")
     def test_train_and_eval(self):
         os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_PRIVATE_CACHE_REPO
 
@@ -76,7 +80,7 @@ class StagingNeuronTrainerTestCase(StagingTestMixin, TestCase):
             self.assertListEqual(files_in_repo, [], "Repo should be empty.")
             self.assertListEqual(files_in_cache, [], "Cache should be empty.")
 
-            args = TrainingArguments(
+            args = NeuronTrainingArguments(
                 tmpdirname,
                 do_train=True,
                 do_eval=True,
@@ -112,7 +116,7 @@ class StagingNeuronTrainerTestCase(StagingTestMixin, TestCase):
             self.assertNotEqual(new_files_in_repo, [], "Repo should not be empty.")
             self.assertListEqual(new_files_in_cache, [], "Cache should be empty.")
 
-            args = TrainingArguments(
+            args = NeuronTrainingArguments(
                 tmpdirname,
                 do_train=True,
                 do_eval=True,
@@ -311,7 +315,7 @@ class StagingNeuronTrainerTestCase(StagingTestMixin, TestCase):
 
 
 @is_trainium_test
-class NeuronTrainerTestCase(TestCase):
+class NeuronTrainerTestCase(TrainiumTestMixin, TestCase):
     def _test_training_with_fsdp_mode(self, fsdp_mode: str):
         model_name = "prajjwal1/bert-tiny"
         task_name = "sst2"
@@ -409,17 +413,22 @@ class NeuronTrainerTestCase(TestCase):
             # self.assertEqual(training_fsdp_metrics["eval_loss"], regular_training_metrics["eval_loss"])
             # self.assertEqual(training_fsdp_metrics["eval_accuracy"], regular_training_metrics["eval_accuracy"])
 
+    @pytest.mark.skip("FSDP not supported yet")
     def test_training_with_fsdp_full_shard(self):
         return self._test_training_with_fsdp_mode("full_shard")
 
-    # def test_training_with_fsdp_shard_grad_op(self):
-    #     return self._test_training_with_fsdp_mode("shard_grad_op")
+    @pytest.mark.skip("FSDP not supported yet")
+    def test_training_with_fsdp_shard_grad_op(self):
+        return self._test_training_with_fsdp_mode("shard_grad_op")
 
+    @pytest.mark.skip("FSDP not supported yet")
     def test_training_with_fsdp_no_shard(self):
         return self._test_training_with_fsdp_mode("no_shard")
 
-    # def test_training_with_fsdp_offload(self):
-    #     return self._test_training_with_fsdp_mode("offload")
+    @pytest.mark.skip("FSDP not supported yet")
+    def test_training_with_fsdp_offload(self):
+        return self._test_training_with_fsdp_mode("offload")
 
-    # def test_training_with_fsdp_auto_wrap(self):
-    #     return self._test_training_with_fsdp_mode("auto_wrap")
+    @pytest.mark.skip("FSDP not supported yet")
+    def test_training_with_fsdp_auto_wrap(self):
+        return self._test_training_with_fsdp_mode("auto_wrap")

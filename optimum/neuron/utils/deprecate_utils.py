@@ -31,7 +31,14 @@ from .version_utils import (
 )
 
 
+def get_transformers_version() -> str:
+    import transformers
+
+    return transformers.__version__
+
+
 PACKAGE_NAME_TO_GET_VERSION_FUNCTION: Dict[str, Callable[[], str]] = {
+    "transformers": get_transformers_version,
     "optimum-neuron": lambda: __version__,
     "neuroncc": get_neuroncc_version,
     "neuronxcc": get_neuronxcc_version,
