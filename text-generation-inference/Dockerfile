@@ -100,7 +100,7 @@ ENV PATH="/opt/bin/:/opt/aws/neuron/bin:${PATH}"
 
 RUN pip3 install \
     neuronx-cc==2.11.0.34 \
-    torch-neuronx==1.13.1.1.12.0 \
+    torch-neuronx==1.13.1.1.12.1 \
     transformers-neuronx==0.8.268 \
     --extra-index-url=https://pip.repos.neuron.amazonaws.com
 
