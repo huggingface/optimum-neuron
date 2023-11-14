@@ -528,6 +528,7 @@ def from_pretrained_for_tp(
         token=token,
         revision=revision,
         use_safetensors=use_safetensors,
+        use_safetensors_in_priority=True,
         convert_to_safetensors=True,
         **kwargs,
     )

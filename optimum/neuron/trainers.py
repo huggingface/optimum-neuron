@@ -51,7 +51,7 @@ from .utils import (
     is_torch_xla_available,
     patch_within_function,
 )
-from .utils.cache_utils import NEURON_COMPILE_CACHE_NAME, get_neuron_cache_path, set_neuron_cache_path
+from .utils.cache_utils import get_neuron_cache_path, set_neuron_cache_path
 from .utils.training_utils import (
     TRANSFORMERS_MIN_VERSION_USE_ACCELERATE,
     get_model_param_count,
@@ -115,7 +115,7 @@ if os.environ.get("TORCHELASTIC_RUN_ID"):
             else:
                 store = torch.distributed.TCPStore(_TCP_STORE_ADDRESS, _TCP_STORE_PORT, is_master=False)
                 _TMP_NEURON_CACHE_PATH = Path(store.get("tmp_neuron_cache_path").decode("utf-8"))
-            set_neuron_cache_path(_TMP_NEURON_CACHE_PATH / NEURON_COMPILE_CACHE_NAME)
+            set_neuron_cache_path(_TMP_NEURON_CACHE_PATH)
 
         torch.distributed.init_process_group(backend="xla")
         if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
