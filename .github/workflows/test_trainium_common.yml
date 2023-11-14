@@ -17,7 +17,6 @@ concurrency:
 
 jobs:
   optimum-neuron-tests:
-    # needs: start-runner # required to start the main job when the runner is ready
     runs-on: [self-hosted, 1-aws-trn, 8-cpu, ci] # run the job on the newly created runner
     env:
       AWS_REGION: us-east-1
