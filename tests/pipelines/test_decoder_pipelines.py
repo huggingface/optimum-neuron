@@ -1,6 +1,7 @@
 import itertools
 
 import pytest
+from transformers import AutoTokenizer
 
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.pipelines import pipeline
@@ -51,6 +52,15 @@ def test_export_no_parameters(inf_decoder_model):
 @requires_neuronx
 def test_load_no_parameters(inf_decoder_path):
     p = pipeline("text-generation", inf_decoder_path)
+    _test_generation(p)
+
+
+@is_inferentia_test
+@requires_neuronx
+def test_from_model_and_tokenizer(inf_decoder_path):
+    m = NeuronModelForCausalLM.from_pretrained(inf_decoder_path)
+    t = AutoTokenizer.from_pretrained(inf_decoder_path)
+    p = pipeline("text-generation", model=m, tokenizer=t)
     _test_generation(p)
 
 
