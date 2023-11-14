@@ -21,11 +21,16 @@ from huggingface_hub import HfFolder
 from parameterized import parameterized
 
 from optimum.neuron.utils.cache_utils import (
+    delete_custom_cache_repo_name_from_hf_home,
     load_custom_cache_repo_name_from_hf_home,
     set_custom_cache_repo_name_in_hf_home,
 )
 from optimum.neuron.utils.runner import ExampleRunner
 from optimum.neuron.utils.testing_utils import is_trainium_test
+from optimum.utils import logging
+
+
+logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 
 _TINY_BERT_MODEL_NAME = "hf-internal-testing/tiny-random-bert"
@@ -51,26 +56,33 @@ class TestExampleRunner(TestCase):
     CACHE_REPO_NAME = "optimum-internal-testing/optimum-neuron-cache-for-testing"
 
     @classmethod
-    def setUpClass(cls) -> None:
+    def setUpClass(cls):
         cls._token = HfFolder.get_token()
-        cls._cache_repo_name = load_custom_cache_repo_name_from_hf_home()
+        cls._cache_repo = load_custom_cache_repo_name_from_hf_home()
+        cls._env = dict(os.environ)
         if os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI", None) is not None:
             token = os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI")
-            set_custom_cache_repo_name_in_hf_home(cls.CACHE_REPO_NAME)
             HfFolder.save_token(token)
+            set_custom_cache_repo_name_in_hf_home(cls.CACHE_REPO_NAME)
         else:
             raise RuntimeError("Please specify the token via the HF_TOKEN_OPTIMUM_NEURON_CI environment variable.")
 
     @classmethod
-    def tearDownClass(cls) -> None:
+    def tearDownClass(cls):
+        os.environ = cls._env
         if cls._token is not None:
             HfFolder.save_token(cls._token)
-        if cls._cache_repo_name is not None:
-            set_custom_cache_repo_name_in_hf_home(cls._cache_repo_name)
+        if cls._cache_repo is not None:
+            try:
+                set_custom_cache_repo_name_in_hf_home(cls._cache_repo)
+            except Exception:
+                logger.warning(f"Could not restore the cache repo back to {cls._cache_repo}")
+        else:
+            delete_custom_cache_repo_name_from_hf_home()
 
     @parameterized.expand(TO_TEST)
     def test_run_example(self, task, model_name_or_path, sequence_length):
-        runner = ExampleRunner(model_name_or_path, task)
+        runner = ExampleRunner(model_name_or_path, task, use_venv=False)
         returncode, stdout = runner.run(1, "bf16", 1, sequence_length=sequence_length, max_steps=10, save_steps=5)
         print(stdout)
         if returncode != 0:

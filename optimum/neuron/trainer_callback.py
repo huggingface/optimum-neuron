@@ -27,25 +27,24 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 import torch
 from transformers import TrainerCallback, TrainerState
 
-from optimum.neuron.utils.training_utils import is_precompilation
-
 from ..utils import logging
 from .utils import is_torch_xla_available
 from .utils.cache_utils import (
-    NEURON_COMPILE_CACHE_NAME,
     NeuronHash,
     download_cached_model_from_hub,
-    follows_new_cache_naming_convention,
     get_neuron_cache_path,
     list_files_in_neuron_cache,
     path_after_folder,
     push_to_cache_on_hub,
     set_neuron_cache_path,
 )
+from .utils.training_utils import is_precompilation
 
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel, TrainerControl, TrainingArguments
+
+    from .training_args import NeuronTrainingArguments
 
 
 if is_torch_xla_available():
@@ -108,14 +107,13 @@ class NeuronCacheCallback(TrainerCallback):
         else:
             self.tmp_neuron_cache_path = tmp_neuron_cache
 
-        if self.tmp_neuron_cache_path.name != NEURON_COMPILE_CACHE_NAME:
-            self.tmp_neuron_cache_path = self.tmp_neuron_cache_path / NEURON_COMPILE_CACHE_NAME
-
         self.tmp_neuron_cache_state = list_files_in_neuron_cache(self.tmp_neuron_cache_path, only_relevant_files=True)
         self.fetch_files = set()
 
+        # Keys are of format:
+        # (model, input_shapes, data_type, tensor_parallel_size)
         self.neuron_hashes: Dict[
-            Tuple["PreTrainedModel", Tuple[Tuple[str, Tuple[int]], ...], torch.dtype], NeuronHash
+            Tuple["PreTrainedModel", Tuple[Tuple[str, Tuple[int]], ...], torch.dtype, int], NeuronHash
         ] = {}
         self.neuron_hash_to_files: Dict[NeuronHash, List[Path]] = defaultdict(list)
 
@@ -169,14 +167,8 @@ class NeuronCacheCallback(TrainerCallback):
         else:
             neuron_cache_files = []
 
-        if follows_new_cache_naming_convention():
-            tmp_neuron_cache_path = tmp_neuron_cache_path / NEURON_COMPILE_CACHE_NAME
-            set_neuron_cache_path(tmp_neuron_cache_path)
-        else:
-            set_neuron_cache_path(tmp_neuron_cache_path)
-            tmp_neuron_cache_path = tmp_neuron_cache_path / NEURON_COMPILE_CACHE_NAME
-
-        tmp_neuron_cache_path.mkdir()
+        # Setting the Neuron compilation cache to be the temporary Neuron compilation cache.
+        set_neuron_cache_path(tmp_neuron_cache_path)
 
         cache_stats_exists = False
         if neuron_cache_path is not None:
@@ -188,8 +180,6 @@ class NeuronCacheCallback(TrainerCallback):
             if cache_file.name == "cache_stats.json":
                 continue
             path_in_neuron_cache = path_after_folder(cache_file, neuron_cache_path.name)
-            if NEURON_COMPILE_CACHE_NAME in path_in_neuron_cache.parts:
-                path_in_neuron_cache = path_after_folder(path_in_neuron_cache, NEURON_COMPILE_CACHE_NAME)
             tmp_cache_file = tmp_neuron_cache_path / path_in_neuron_cache
             tmp_cache_file.parent.mkdir(parents=True, exist_ok=True)
             # TODO: investigate why it is needed. Minor issue.
@@ -206,7 +196,7 @@ class NeuronCacheCallback(TrainerCallback):
 
     def neuron_hash_for_model(
         self,
-        args: "TrainingArguments",
+        args: "NeuronTrainingArguments",
         model: "PreTrainedModel",
         inputs: Dict[str, Any],
         try_to_fetch_cached_model: bool = False,
@@ -240,17 +230,13 @@ class NeuronCacheCallback(TrainerCallback):
     def try_to_fetch_cached_model(self, neuron_hash: NeuronHash) -> bool:
         # TODO: needs to be called ONLY when absolutely needed.
         files_before_fetching = list_files_in_neuron_cache(self.tmp_neuron_cache_path, only_relevant_files=True)
-        cache_path = neuron_hash.cache_path
-
-        def path_in_repo_to_path_in_target_directory(path):
-            # The last part of cache_path is the overall hash.
-            return Path(neuron_hash.neuron_compiler_version_dir_name) / path_after_folder(path, cache_path.name)
 
         found_in_cache = download_cached_model_from_hub(
             neuron_hash,
             target_directory=self.tmp_neuron_cache_path,
-            path_in_repo_to_path_in_target_directory=path_in_repo_to_path_in_target_directory,
+            path_in_repo_to_path_in_target_directory="default",
         )
+
         if found_in_cache:
             files_after_fetching = list_files_in_neuron_cache(self.tmp_neuron_cache_path, only_relevant_files=True)
             diff = [f for f in files_after_fetching if f not in files_before_fetching]
@@ -277,15 +263,8 @@ class NeuronCacheCallback(TrainerCallback):
 
     def synchronize_temporary_neuron_cache(self):
         for neuron_hash, files in self.neuron_hash_to_files.items():
-
-            def local_path_to_path_in_repo(path):
-                if follows_new_cache_naming_convention():
-                    return path_after_folder(path, f"neuronxcc-{neuron_hash.neuron_compiler_version}")
-                else:
-                    return path_after_folder(path, f"USER_neuroncc-{neuron_hash.neuron_compiler_version}")
-
             for path in files:
-                push_to_cache_on_hub(neuron_hash, path, local_path_to_path_in_repo=local_path_to_path_in_repo)
+                push_to_cache_on_hub(neuron_hash, path, local_path_to_path_in_repo="default")
                 if self.use_neuron_cache:
                     path_in_cache = self.full_path_to_path_in_temporary_cache(path)
                     target_file = self.neuron_cache_path / path_in_cache

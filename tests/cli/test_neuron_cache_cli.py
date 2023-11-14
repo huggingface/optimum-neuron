@@ -52,6 +52,7 @@ class TestNeuronCacheCLI(StagingTestMixin, TestCase):
         self.default_repo_id = f"{USER}/{self.default_repo_name}"
 
     def tearDown(self):
+        super().tearDown()
         os.environ["HF_HOME"] = self._hf_home
 
         try:
@@ -66,8 +67,6 @@ class TestNeuronCacheCLI(StagingTestMixin, TestCase):
 
     def _optimum_neuron_cache_create(self, default_name: bool = True, public: bool = False):
         with TemporaryDirectory() as tmpdirname:
-            os.environ["HF_HOME"] = tmpdirname
-
             repo_id = self.default_repo_id if default_name else self.repo_id
 
             env = dict(self._env, HF_HOME=tmpdirname)
@@ -113,7 +112,7 @@ class TestNeuronCacheCLI(StagingTestMixin, TestCase):
 
             create_repo(self.repo_name, repo_type="model")
 
-            command = f"optimum-cli neuron cache set --name {self.repo_id}".split()
+            command = f"optimum-cli neuron cache set {self.repo_id}".split()
             env = dict(self._env, HF_HOME=tmpdirname)
             p = subprocess.Popen(command, env=env)
             returncode = p.wait()
@@ -149,9 +148,11 @@ class TestNeuronCacheCLI(StagingTestMixin, TestCase):
         # stderr = stderr.decode("utf-8")
         # self.assertIn("Both the encoder_sequence and decoder_sequence_length", stderr)
 
+        bert_model_name = "__DUMMY_OPTIMUM_USER__/tiny-random-BertModel-neuron"
+
         # With wrong precision value, it should fail.
         command = (
-            "optimum-cli neuron cache add -m bert-base-uncased --task text-classification --train_batch_size 1 "
+            f"optimum-cli neuron cache add -m  {bert_model_name} --task text-classification --train_batch_size 1 "
             "--precision wrong --num_cores 2 --sequence_length 128"
         ).split()
         p = subprocess.Popen(command)
@@ -160,7 +161,7 @@ class TestNeuronCacheCLI(StagingTestMixin, TestCase):
 
         # With wrong num_cores value, it should fail.
         command = (
-            "optimum-cli neuron cache add -m bert-base-uncased --task text-classification --train_batch_size 1 "
+            f"optimum-cli neuron cache add -m {bert_model_name} --task text-classification --train_batch_size 1 "
             "--precision bf16 --num_cores 999 --sequence_length 128"
         ).split()
         p = subprocess.Popen(command)
@@ -169,7 +170,7 @@ class TestNeuronCacheCLI(StagingTestMixin, TestCase):
 
         # Non seq2seq model.
         command = (
-            "optimum-cli neuron cache add -m bert-base-uncased --task text-classification --train_batch_size 1 "
+            f"optimum-cli neuron cache add -m {bert_model_name} --task text-classification --train_batch_size 1 "
             "--precision bf16 --num_cores 2 --sequence_length 128"
         ).split()
         p = subprocess.Popen(command)
@@ -178,7 +179,7 @@ class TestNeuronCacheCLI(StagingTestMixin, TestCase):
 
         # seq2seq model.
         command = (
-            "optimum-cli neuron cache add -m t5-small --task translation --train_batch_size 1 --precision bf16 "
+            f"optimum-cli neuron cache add -m {bert_model_name} --task translation --train_batch_size 1 --precision bf16 "
             "--num_cores 2 --encoder_sequence_length 12 --decoder_sequence_length 12"
         ).split()
         p = subprocess.Popen(command)
@@ -186,64 +187,67 @@ class TestNeuronCacheCLI(StagingTestMixin, TestCase):
         self.assertEqual(returncode, 0)
 
     def test_optimum_neuron_cache_list(self):
-        set_custom_cache_repo_name_in_hf_home(self.CUSTOM_CACHE_REPO)
-        create_registry_file_if_does_not_exist(self.CUSTOM_CACHE_REPO)
+        with TemporaryDirectory() as tmpdirname:
+            os.environ["HF_HOME"] = tmpdirname
 
-        # Without specifying the id of the repo, it should used the saved one, here self.CUSTOM_CACHE_REPO.
-        command = ("optimum-cli neuron cache list").split()
-        p = subprocess.Popen(command, stdout=subprocess.PIPE)
-        stdout, _ = p.communicate()
-        stdout = stdout.decode("utf-8")
-        self.assertEqual(p.returncode, 0)
-        self.assertIn("Nothing was found", stdout)
+            set_custom_cache_repo_name_in_hf_home(self.CUSTOM_CACHE_REPO, hf_home=tmpdirname)
+            create_registry_file_if_does_not_exist(self.CUSTOM_CACHE_REPO)
 
-        bert_model = BertModel(BertConfig())
-        neuron_hash = NeuronHash(
-            bert_model,
-            (("x", (4, 12)), ("y", (4, 12))),
-            torch.float32,
-            2,
-            neuron_compiler_version="2.8.0",
-        )
-        add_in_registry(self.CUSTOM_CACHE_REPO, neuron_hash)
-        model_hash = neuron_hash.compute_hash()[0]
+            # Without specifying the id of the repo, it should used the saved one, here self.CUSTOM_CACHE_REPO.
+            command = "optimum-cli neuron cache list".split()
+            p = subprocess.Popen(command, stdout=subprocess.PIPE)
+            stdout, _ = p.communicate()
+            stdout = stdout.decode("utf-8")
+            self.assertEqual(p.returncode, 0)
+            self.assertIn("Nothing was found", stdout)
 
-        # With a repo id.
-        command = (f"optimum-cli neuron cache list -n {self.CUSTOM_CACHE_REPO}").split()
-        p = subprocess.Popen(command, stdout=subprocess.PIPE)
-        stdout, _ = p.communicate()
-        stdout = stdout.decode("utf-8")
-        self.assertEqual(p.returncode, 0)
-        self.assertIn(model_hash, stdout)
+            bert_model = BertModel(BertConfig())
+            neuron_hash = NeuronHash(
+                bert_model,
+                (("x", (4, 12)), ("y", (4, 12))),
+                torch.float32,
+                2,
+                neuron_compiler_version="2.8.0",
+            )
+            add_in_registry(self.CUSTOM_CACHE_REPO, neuron_hash)
+            model_hash = neuron_hash.compute_hash()[0]
 
-        # Filtering with a bad model name or hash, it should not return anything.
-        command = (f"optimum-cli neuron cache list -n {self.CUSTOM_CACHE_REPO} -m bad_model_name_or_hash").split()
-        p = subprocess.Popen(command, stdout=subprocess.PIPE)
-        stdout, _ = p.communicate()
-        stdout = stdout.decode("utf-8")
-        self.assertEqual(p.returncode, 0)
-        self.assertIn("Nothing was found", stdout)
+            # With a repo id.
+            command = f"optimum-cli neuron cache list {self.CUSTOM_CACHE_REPO}".split()
+            p = subprocess.Popen(command, stdout=subprocess.PIPE)
+            stdout, _ = p.communicate()
+            stdout = stdout.decode("utf-8")
+            self.assertEqual(p.returncode, 0)
+            self.assertIn(model_hash, stdout)
 
-        # Filtering with an existing model, it should return it.
-        command = (f"optimum-cli neuron cache list -n {self.CUSTOM_CACHE_REPO} -m {model_hash}").split()
-        p = subprocess.Popen(command, stdout=subprocess.PIPE)
-        stdout, _ = p.communicate()
-        stdout = stdout.decode("utf-8")
-        self.assertEqual(p.returncode, 0)
-        self.assertIn(model_hash, stdout)
+            # Filtering with a bad model name or hash, it should not return anything.
+            command = f"optimum-cli neuron cache list {self.CUSTOM_CACHE_REPO} -m bad_model_name_or_hash".split()
+            p = subprocess.Popen(command, stdout=subprocess.PIPE)
+            stdout, _ = p.communicate()
+            stdout = stdout.decode("utf-8")
+            self.assertEqual(p.returncode, 0)
+            self.assertIn("Nothing was found", stdout)
 
-        # Filtering with an existing version, it should return something.
-        command = (f"optimum-cli neuron cache list -n {self.CUSTOM_CACHE_REPO} -v 2.8.0").split()
-        p = subprocess.Popen(command, stdout=subprocess.PIPE)
-        stdout, _ = p.communicate()
-        stdout = stdout.decode("utf-8")
-        self.assertEqual(p.returncode, 0)
-        self.assertIn(model_hash, stdout)
+            # Filtering with an existing model, it should return it.
+            command = f"optimum-cli neuron cache list {self.CUSTOM_CACHE_REPO} -m {model_hash}".split()
+            p = subprocess.Popen(command, stdout=subprocess.PIPE)
+            stdout, _ = p.communicate()
+            stdout = stdout.decode("utf-8")
+            self.assertEqual(p.returncode, 0)
+            self.assertIn(model_hash, stdout)
 
-        # Filtering with a bad version, it should not return anything.
-        command = (f"optimum-cli neuron cache list -n {self.CUSTOM_CACHE_REPO} -v 1.120.0").split()
-        p = subprocess.Popen(command, stdout=subprocess.PIPE)
-        stdout, _ = p.communicate()
-        stdout = stdout.decode("utf-8")
-        self.assertEqual(p.returncode, 0)
-        self.assertIn("Nothing was found", stdout)
+            # Filtering with an existing version, it should return something.
+            command = f"optimum-cli neuron cache list {self.CUSTOM_CACHE_REPO} -v 2.8.0".split()
+            p = subprocess.Popen(command, stdout=subprocess.PIPE)
+            stdout, _ = p.communicate()
+            stdout = stdout.decode("utf-8")
+            self.assertEqual(p.returncode, 0)
+            self.assertIn(model_hash, stdout)
+
+            # Filtering with a bad version, it should not return anything.
+            command = f"optimum-cli neuron cache list {self.CUSTOM_CACHE_REPO} -v 1.120.0".split()
+            p = subprocess.Popen(command, stdout=subprocess.PIPE)
+            stdout, _ = p.communicate()
+            stdout = stdout.decode("utf-8")
+            self.assertEqual(p.returncode, 0)
+            self.assertIn("Nothing was found", stdout)
