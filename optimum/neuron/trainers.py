@@ -72,8 +72,8 @@ from .utils import (
     is_torch_xla_available,
     patch_within_function,
 )
-from .utils.require_utils import requires_neuronx_distributed
 from .utils.cache_utils import get_neuron_cache_path, set_neuron_cache_path
+from .utils.require_utils import requires_neuronx_distributed
 from .utils.training_utils import (
     TRANSFORMERS_MIN_VERSION_USE_ACCELERATE,
     get_model_param_count,
@@ -385,6 +385,7 @@ class AugmentTrainerForNeuronMixin:
                 pp_size = get_pipeline_model_parallel_size()
                 dp_size = get_data_parallel_size()
                 tr_loss_div = tr_loss / dp_size
+                print("tr_loss_div", tr_loss_div)
 
                 if pp_size > 1:
                     torch.distributed.all_reduce(tr_loss_div, group=get_data_parallel_group())

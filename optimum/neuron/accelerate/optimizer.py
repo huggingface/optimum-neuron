@@ -114,6 +114,8 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
                 if self.clip_grad_norm_to_perform is not None:
                     parallel_layers.clip_grad_norm(self.parameters, **self.clip_grad_norm_to_perform)
                 self.optimizer.step()
+                # How do things work for PP? Do we need this?
+                # self.optimizer.zero_grad()
             elif self.scaler is not None:
                 scale_before = self.scaler.get_scale()
                 self.scaler.step(self.optimizer, closure)

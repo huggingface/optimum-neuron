@@ -244,7 +244,7 @@ class NeuronTrainingArgumentsMixin:
     def world_size(self):
         divisor = 1
         if self.mp_plugin.should_parallelize:
-            divisor = self.mp_plugin.tensor_parallel_size
+            divisor = self.mp_plugin.tensor_parallel_size * self.mp_plugin.pipeline_parallel_size
         return super().world_size // divisor
 
 

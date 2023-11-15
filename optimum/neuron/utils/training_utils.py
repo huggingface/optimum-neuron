@@ -262,7 +262,7 @@ def prepare_environment_for_neuron():
     """
     # Set compiler flag to compile for transformer model type
     os.environ["NEURON_CC_FLAGS"] = (
-        os.environ.get("NEURON_CC_FLAGS", "") + " --model-type=transformer --enable-experimental-O1"
+        os.environ.get("NEURON_CC_FLAGS", "") + " --model-type=transformer"
     )
 
 

@@ -316,26 +316,27 @@ class Parallelizer(ABC):
 
         # Preparing the model for sequence parallelism:
         sp_specs_cls = cls.SEQUENCE_PARALLELSIM_SPECS_CLS
-        # 1. Transforming the LayerNorms.
-        layer_norm_qualified_name_patterns = (
-            sp_specs_cls.SEQUENCE_PARALLEL_LAYERNORM_PATTERNS
-            if sp_specs_cls.SEQUENCE_PARALLEL_LAYERNORM_PATTERNS is not None
-            else []
-        )
-        layer_norm_sequence_parallelizer = LayerNormSequenceParallelizer(
-            sequence_parallel_enabled, layer_norm_qualified_name_patterns
-        )
-        layer_norm_sequence_parallelizer.sequence_parallelize(model, sp_specs_cls.LAYERNORM_TYPE)
 
-        # 2. Taking care of scattering / gathering on the sequence axis in the model via the IOSequenceParallelizer.
-        io_sequence_parallelizer = IOSequenceParallelizer(
-            sequence_parallel_enabled,
-            sequence_collective_op_infos=sp_specs_cls.SEQUENCE_COLLECTIVE_OPS_INFOS,
-        )
-        io_sequence_parallelizer.sequence_parallelize(model)
-
-        # 3. Applying model specific patching for sequence parallelism.
         if sequence_parallel_enabled:
+            # 1. Transforming the LayerNorms.
+            layer_norm_qualified_name_patterns = (
+                sp_specs_cls.SEQUENCE_PARALLEL_LAYERNORM_PATTERNS
+                if sp_specs_cls.SEQUENCE_PARALLEL_LAYERNORM_PATTERNS is not None
+                else []
+            )
+            layer_norm_sequence_parallelizer = LayerNormSequenceParallelizer(
+                sequence_parallel_enabled, layer_norm_qualified_name_patterns
+            )
+            layer_norm_sequence_parallelizer.sequence_parallelize(model, sp_specs_cls.LAYERNORM_TYPE)
+
+            # 2. Taking care of scattering / gathering on the sequence axis in the model via the IOSequenceParallelizer.
+            io_sequence_parallelizer = IOSequenceParallelizer(
+                sequence_parallel_enabled,
+                sequence_collective_op_infos=sp_specs_cls.SEQUENCE_COLLECTIVE_OPS_INFOS,
+            )
+            io_sequence_parallelizer.sequence_parallelize(model)
+
+            # 3. Applying model specific patching for sequence parallelism.
             sp_specs_cls.patch_for_sequence_parallelism(model, sequence_parallel_enabled)
 
         model = cls._parallelize(
