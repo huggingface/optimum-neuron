@@ -102,7 +102,7 @@ class StableDiffusionPipelineMixin(DiffusionBasePipelineMixin):
                 A lora scale that will be applied to all LoRA layers of the text encoder if LoRA layers are loaded.
         """
         if lora_scale is not None and isinstance(self, LoraLoaderMixin):
-            self._lora_scale = lora_scale
+            self._lora_scale = lora_scale  # TODO: remove as lora_scale should static.
 
         if prompt is not None and isinstance(prompt, str):
             batch_size = 1

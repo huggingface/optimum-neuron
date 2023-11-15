@@ -486,6 +486,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         cls,
         model_id: str,
         config: Dict[str, Any],
+        unet_id: Optional[str] = None,
         use_auth_token: Optional[Union[bool, str]] = None,
         revision: str = "main",
         force_download: bool = True,
@@ -534,6 +535,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             local_files_only=local_files_only,
             use_auth_token=use_auth_token,
             do_validation=False,
+            submodels={"unet": unet_id},
             **input_shapes,
         )
 

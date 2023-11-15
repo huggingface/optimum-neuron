@@ -286,11 +286,14 @@ class UNetNeuronConfig(VisionNeuronConfig):
             super().__init__()
             self.model = model
 
-        def forward(self, sample, timestep, encoder_hidden_states, text_embeds=None, time_ids=None):
+        def forward(
+            self, sample, timestep, encoder_hidden_states, timestep_cond=None, text_embeds=None, time_ids=None
+        ):
             out_tuple = self.model(
-                sample,
-                timestep.float().expand((sample.shape[0],)),
-                encoder_hidden_states,
+                sample=sample,
+                timestep=timestep.float().expand((sample.shape[0],)),
+                encoder_hidden_states=encoder_hidden_states,
+                timestep_cond=timestep_cond,
                 added_cond_kwargs={"text_embeds": text_embeds, "time_ids": time_ids},
                 return_dict=False,
             )

@@ -187,7 +187,6 @@ class NeuronLatentConsistencyPipelineMixin(StableDiffusionPipelineMixin, LatentC
             prompt_embeds=prompt_embeds,
             negative_prompt_embeds=None,
             lora_scale=lora_scale,
-            clip_skip=self.clip_skip,
         )
 
         # 4. Prepare timesteps
@@ -232,8 +231,6 @@ class NeuronLatentConsistencyPipelineMixin(StableDiffusionPipelineMixin, LatentC
                     t,
                     timestep_cond=w_embedding,
                     encoder_hidden_states=prompt_embeds,
-                    cross_attention_kwargs=self.cross_attention_kwargs,
-                    return_dict=False,
                 )[0]
 
                 # compute the previous noisy sample x_t -> x_t-1
@@ -255,7 +252,7 @@ class NeuronLatentConsistencyPipelineMixin(StableDiffusionPipelineMixin, LatentC
 
         denoised = denoised.to(prompt_embeds.dtype)
         if not output_type == "latent":
-            image = self.vae.decode(denoised / self.vae.config.scaling_factor, return_dict=False)[0]
+            image = self.vae_decoder(denoised / getattr(self.vae_decoder.config, "scaling_factor", 0.18215))[0]
             image, has_nsfw_concept = self.run_safety_checker(image, prompt_embeds.dtype)
         else:
             image = denoised

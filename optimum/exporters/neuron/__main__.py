@@ -44,6 +44,7 @@ from .model_configs import *  # noqa: F403
 from .utils import (
     build_stable_diffusion_components_mandatory_shapes,
     get_stable_diffusion_models_for_export,
+    replace_stable_diffusion_submodels,
 )
 
 
@@ -187,6 +188,7 @@ def main_export(
     local_files_only: bool = False,
     use_auth_token: Optional[Union[bool, str]] = None,
     do_validation: bool = True,
+    submodels: Dict[str, Union[Path, str]] = None,
     **input_shapes,
 ):
     output = Path(output)
@@ -223,6 +225,7 @@ def main_export(
         maybe_save_preprocessors(model, output.parent)
 
     if is_stable_diffusion:
+        model = replace_stable_diffusion_submodels(model, submodels)
         check_compiler_compatibility_for_stable_diffusion()
         if is_neuron_available():
             raise RuntimeError(
@@ -321,8 +324,10 @@ def main():
 
     if is_stable_diffusion:
         input_shapes = normalize_stable_diffusion_input_shapes(args)
+        submodels = {"unet": args.unet}
     else:
         input_shapes = normalize_input_shapes(task, args)
+        submodels = None
 
     main_export(
         model_name_or_path=args.model,
@@ -334,6 +339,7 @@ def main():
         cache_dir=args.cache_dir,
         trust_remote_code=args.trust_remote_code,
         do_validation=not args.disable_validation,
+        submodels=submodels,
         **input_shapes,
     )
 

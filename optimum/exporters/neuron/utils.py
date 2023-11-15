@@ -50,6 +50,7 @@ if is_diffusers_available():
             f"We found an older version of diffusers {_diffusers_version} but we require diffusers to be >= {DIFFUSERS_MINIMUM_VERSION}. "
             "Please update diffusers by running `pip install --upgrade diffusers`"
         )
+    from diffusers import UNet2DConditionModel
     from diffusers.models.attention_processor import (
         Attention,
         AttnAddedKVProcessor,
@@ -320,3 +321,13 @@ def override_diffusers_2_0_attn_processors(model):
             elif isinstance(submodule.processor, AttnAddedKVProcessor2_0):
                 submodule.set_processor(AttnAddedKVProcessor())
     return model
+
+
+def replace_stable_diffusion_submodels(pipeline, submodels):
+    if submodels is not None:
+        unet_id = submodels.pop("unet", None)
+        if unet_id is not None:
+            unet = UNet2DConditionModel.from_pretrained(unet_id)
+            pipeline.unet = unet
+
+    return pipeline
