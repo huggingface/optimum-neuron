@@ -4,10 +4,12 @@ on:
   push:
     branches: [ main ]
     paths:
+      - "setup.py"
       - "optimum/neuron/distributed/**.py"
   pull_request:
     branches: [ main ]
     paths:
+      - "setup.py"
       - "optimum/neuron/distributed/**.py"
 
 concurrency:
@@ -17,7 +19,7 @@ concurrency:
 
 jobs:
   optimum-neuron-tests:
-    runs-on: [self-hosted, 16-aws-trn, 128-cpu, ci] 
+    runs-on: [self-hosted, 16-aws-trn, 128-cpu, ci]
     env:
       AWS_REGION: us-east-1
     steps:
@@ -32,4 +34,4 @@ jobs:
       - name: Run tests on Neuron cores
         run: |
           HF_TOKEN_OPTIMUM_NEURON_CI=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m "is_trainium_test" tests/distributed/
-  
+
