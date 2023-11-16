@@ -305,6 +305,23 @@ def torch_xla_safe_save_file(
     from safetensors.torch import save_file
     from torch_xla.core.xla_model import _maybe_convert_to_cpu, is_master_ordinal
 
+    def _maybe_convert_to_cpu(data, convert=True):
+        import torch_xla
+        from torch_xla.core.xla_model import ToXlaTensorArena, is_xla_tensor
+
+        def convert_fn(tensors):
+            torch_xla._XLAC._xla_sync_multi(tensors, devices=[], wait=True, sync_xla_data=True)
+            if not convert:
+                return tensors
+            # return torch_xla._XLAC._xla_get_cpu_tensors(tensors)
+            # Doing the same as neuronx_distributed.
+            return [tensor.to("cpu") for tensor in tensors]
+
+        def select_fn(v):
+            return type(v) == torch.Tensor and is_xla_tensor(v)
+
+        return ToXlaTensorArena(convert_fn, select_fn).transform(data)
+
     should_write_data = not master_only or is_master_ordinal(local=not global_master)
     cpu_data = _maybe_convert_to_cpu(tensors, convert=should_write_data)
     if should_write_data:
