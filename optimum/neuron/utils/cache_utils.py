@@ -44,6 +44,7 @@ from packaging import version
 
 from ...utils import logging
 from ...utils.logging import warn_once
+from ..utils.require_utils import requires_torch_xla
 from .constant import NEURON_BINARIES_PATH
 from .misc import string_to_bool
 from .version_utils import get_neuronxcc_version
@@ -622,7 +623,11 @@ class NeuronHash:
         else:
             hash_dict[attribute_name] = attribute
 
+    @requires_torch_xla
     def state_dict_to_bytes(self, state_dict: Dict[str, torch.Tensor]) -> bytes:
+        import torch_xla.core.xla_model as xm
+
+        xm.mark_step()
         cast_to_mapping = {
             torch.bfloat16: torch.float16,
         }
