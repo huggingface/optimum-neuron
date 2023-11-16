@@ -34,6 +34,8 @@ logger = logging.getLogger(__name__)
 
 
 class NeuronStableDiffusionXLInpaintPipelineMixin(StableDiffusionXLPipelineMixin, StableDiffusionXLInpaintPipeline):
+    prepare_latents = StableDiffusionXLInpaintPipeline.prepare_latents
+
     # Adapted from https://github.com/huggingface/diffusers/blob/v0.21.2/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_inpaint.py#L629
     def _encode_vae_image(
         self, image: torch.Tensor, generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None
