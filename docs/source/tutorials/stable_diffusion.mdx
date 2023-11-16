@@ -367,7 +367,7 @@ from optimum.neuron import NeuronStableDiffusionXLPipeline
 
 model_id = "stabilityai/stable-diffusion-xl-base-1.0"
 unet_id = "latent-consistency/lcm-sdxl"
-num_images_per_prompt = 2  # Multiple of 2 to leverage both cores on the Neuron device
+num_images_per_prompt = 1
 input_shapes = {"batch_size": 1, "height": 1024, "width": 1024, "num_images_per_prompt": num_images_per_prompt}
 compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
 
