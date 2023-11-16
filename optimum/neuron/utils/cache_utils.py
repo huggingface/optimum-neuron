@@ -138,11 +138,18 @@ def create_custom_cache_repo(repo_id: str = CACHE_REPO_NAME, private: bool = Tru
 def is_private_repo(repo_id: str) -> bool:
     if _DISABLE_IS_PRIVATE_REPO_CHECK:
         return False
-    HfApi().list_repo_files(repo_id=repo_id, token=HfFolder.get_token())
-    private = False
     try:
-        HfApi().list_repo_files(repo_id=repo_id, token=False)
+        HfApi().model_info(repo_id=repo_id, token=HfFolder.get_token())
+        private_to_user = False
     except RepositoryNotFoundError:
+        private_to_user = True
+    if not private_to_user:
+        try:
+            HfApi().list_repo_files(repo_id=repo_id, token=False)
+            private = False
+        except RepositoryNotFoundError:
+            private = True
+    else:
         private = True
     return private
 
@@ -829,9 +836,16 @@ def push_to_cache_on_hub(
     cache_repo_id: Optional[str] = None,
     overwrite_existing: bool = False,
     local_path_to_path_in_repo: Optional[Union[Literal["default"], Callable[[Path], Path]]] = None,
-) -> CachedModelOnTheHub:
+) -> Optional[CachedModelOnTheHub]:
     if cache_repo_id is None:
         cache_repo_id = get_hf_hub_cache_repos()[0]
+
+    if not has_write_access_to_repo(cache_repo_id):
+        logger.warning(
+            f"The compilation files cannot be pushed to the cache repo {cache_repo_id} because you do not have write "
+            "access."
+        )
+        return
 
     try:
         create_registry_file_if_does_not_exist(cache_repo_id)

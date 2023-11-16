@@ -15,7 +15,7 @@
 """Training utilities"""
 
 import os
-from typing import TYPE_CHECKING, List, Optional, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 import torch
 import transformers
@@ -49,7 +49,7 @@ from transformers.utils.logging import set_verbosity as set_verbosity_transforme
 from ...utils.logging import set_verbosity as set_verbosity_optimum
 from ..generation import NeuronGenerationMixin
 from . import is_torch_xla_available
-from .require_utils import requires_torch_xla
+from .require_utils import requires_safetensors, requires_torch_xla
 
 
 if TYPE_CHECKING:
@@ -291,6 +291,24 @@ def skip_first_batches(dataloader, num_batches=0):
     else:
         dataloader = accelerate_skip_first_batches(dataloader, num_batches=num_batches)
     return dataloader
+
+
+@requires_torch_xla
+@requires_safetensors
+def torch_xla_safe_save_file(
+    tensors: Dict[str, torch.Tensor],
+    filename: Union[str, os.PathLike],
+    metadata: Optional[Dict[str, str]] = None,
+    master_only: bool = True,
+    global_master: bool = False,
+):
+    from safetensors.torch import save_file
+    from torch_xla.core.xla_model import _maybe_convert_to_cpu, is_master_ordinal
+
+    should_write_data = not master_only or is_master_ordinal(local=not global_master)
+    cpu_data = _maybe_convert_to_cpu(tensors, convert=should_write_data)
+    if should_write_data:
+        save_file(cpu_data, filename, metadata=metadata)
 
 
 def get_model_param_count(model, trainable_only=False):
