@@ -50,6 +50,7 @@ if is_neuronx_available():
 if is_diffusers_available():
     from diffusers import (
         DDIMScheduler,
+        LCMScheduler,
         LMSDiscreteScheduler,
         PNDMScheduler,
         StableDiffusionPipeline,
@@ -90,7 +91,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         vae_decoder: Union[torch.jit._script.ScriptModule, "NeuronModelVaeDecoder"],
         config: Dict[str, Any],
         tokenizer: CLIPTokenizer,
-        scheduler: Union[DDIMScheduler, PNDMScheduler, LMSDiscreteScheduler],
+        scheduler: Union[DDIMScheduler, PNDMScheduler, LMSDiscreteScheduler, LCMScheduler],
         vae_encoder: Optional[Union[torch.jit._script.ScriptModule, "NeuronModelVaeEncoder"]] = None,
         text_encoder_2: Optional[Union[torch.jit._script.ScriptModule, "NeuronModelTextEncoder"]] = None,
         tokenizer_2: Optional[CLIPTokenizer] = None,
@@ -486,7 +487,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         cls,
         model_id: str,
         config: Dict[str, Any],
-        unet_id: Optional[str] = None,
+        unet_id: Optional[Union[str, Path]] = None,
         use_auth_token: Optional[Union[bool, str]] = None,
         revision: str = "main",
         force_download: bool = True,
@@ -697,6 +698,10 @@ class NeuronStableDiffusionInpaintPipeline(
 
 class NeuronLatentConsistencyModelPipeline(NeuronStableDiffusionPipelineBase, NeuronLatentConsistencyPipelineMixin):
     __call__ = NeuronLatentConsistencyPipelineMixin.__call__
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.scheduler = LCMScheduler.from_config(self.scheduler.config)
 
 
 class NeuronStableDiffusionXLPipelineBase(NeuronStableDiffusionPipelineBase):

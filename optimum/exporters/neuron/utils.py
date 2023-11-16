@@ -250,9 +250,10 @@ def _get_submodels_for_export_stable_diffusion(
     is_sdxl = "xl" in task
 
     models_for_export = []
-    projection_dim = (
-        pipeline.text_encoder_2.config.projection_dim if is_sdxl else pipeline.text_encoder.config.projection_dim
-    )
+    if hasattr(pipeline, "text_encoder_2"):
+        projection_dim = pipeline.text_encoder_2.config.projection_dim
+    else:
+        projection_dim = pipeline.text_encoder.config.projection_dim
 
     # Text encoders
     if pipeline.text_encoder is not None:

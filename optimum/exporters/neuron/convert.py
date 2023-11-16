@@ -458,27 +458,32 @@ def export_neuronx(
 
 
 def add_stable_diffusion_compiler_args(config, compiler_args):
-    if hasattr(config._config, "_name_or_path"):
-        sd_components = ["text_encoder", "vae", "vae_encoder", "vae_decoder"]
-        if any(component in config._config._name_or_path.lower() for component in sd_components):
+    identifier = (
+        getattr(config._config, "_name_or_path", "").lower() + " " + getattr(config._config, "_class_name", "").lower()
+    )
+    sd_components = ["text_encoder", "vae", "vae_encoder", "vae_decoder"]
+    if any(component in identifier for component in sd_components):
+        compiler_args.extend(["--enable-fast-loading-neuron-binaries"])
+    # unet
+    if "unet" in identifier:
+        sdxl_ids = ["stable-diffusion-xl", "sdxl"]
+        # SDXL unet doesn't support fast loading neuron binaries
+        if not any(sdxl_id in identifier for sdxl_id in sdxl_ids):
             compiler_args.extend(["--enable-fast-loading-neuron-binaries"])
-        # unet
-        if "unet" in config._config._name_or_path.lower():
-            # SDXL unet doesn't support fast loading neuron binaries
-            if "stable-diffusion-xl" not in config._config._name_or_path.lower():
-                compiler_args.extend(["--enable-fast-loading-neuron-binaries"])
-            compiler_args.extend(["--model-type=unet-inference"])
+        compiler_args.extend(["--model-type=unet-inference"])
     return compiler_args
 
 
 def improve_stable_diffusion_loading(config, neuron_model):
-    if hasattr(config._config, "_name_or_path"):
-        sd_components = ["text_encoder", "unet", "vae", "vae_encoder", "vae_decoder"]
-        if any(component in config._config._name_or_path.lower() for component in sd_components):
-            neuronx.async_load(neuron_model)
-        # unet
-        if "unet" in config._config._name_or_path.lower():
-            neuronx.lazy_load(neuron_model)
+    identifier = (
+        getattr(config._config, "_name_or_path", "").lower() + " " + getattr(config._config, "_class_name", "").lower()
+    )
+    sd_components = ["text_encoder", "unet", "vae", "vae_encoder", "vae_decoder"]
+    if any(component in identifier for component in sd_components):
+        neuronx.async_load(neuron_model)
+    # unet
+    if "unet" in identifier:
+        neuronx.lazy_load(neuron_model)
 
 
 def export_neuron(

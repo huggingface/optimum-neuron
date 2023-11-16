@@ -244,7 +244,8 @@ class UNetNeuronConfig(VisionNeuronConfig):
         common_inputs = ["sample", "timestep", "encoder_hidden_states"]
 
         # TODO : add text_image, image and image_embeds
-        if getattr(self._normalized_config, "addition_embed_type", None) == "text_time":
+        is_lcm = "lcm" in getattr(self._config, "_name_or_path", "").lower()
+        if getattr(self._normalized_config, "addition_embed_type", None) == "text_time" and not is_lcm:
             common_inputs.append("text_embeds")
             common_inputs.append("time_ids")
 
@@ -270,7 +271,8 @@ class UNetNeuronConfig(VisionNeuronConfig):
         dummy_inputs["timestep"] = dummy_inputs["timestep"].float()
         dummy_inputs["encoder_hidden_states"] = dummy_inputs["encoder_hidden_states"][0]
 
-        if getattr(self._normalized_config, "addition_embed_type", None) == "text_time":
+        is_lcm = "lcm" in getattr(self._config, "_name_or_path", "").lower()
+        if getattr(self._normalized_config, "addition_embed_type", None) == "text_time" and not is_lcm:
             dummy_inputs["added_cond_kwargs"] = {
                 "text_embeds": dummy_inputs.pop("text_embeds"),
                 "time_ids": dummy_inputs.pop("time_ids"),
@@ -282,29 +284,39 @@ class UNetNeuronConfig(VisionNeuronConfig):
             return dummy_inputs
 
     class ModelWrapper(torch.nn.Module):
-        def __init__(self, model):
+        def __init__(self, model, input_names: List[str]):
             super().__init__()
             self.model = model
+            self.input_names = input_names
 
-        def forward(
-            self, sample, timestep, encoder_hidden_states, timestep_cond=None, text_embeds=None, time_ids=None
-        ):
+        def forward(self, *inputs):
+            if len(inputs) != len(self.input_names):
+                raise ValueError(
+                    f"The model needs {len(self.input_names)} inputs: {self.input_names}."
+                    f" But only {len(input)} inputs are passed."
+                )
+
+            ordered_inputs = dict(zip(self.input_names, inputs))
+
+            added_cond_kwargs = {
+                "text_embeds": ordered_inputs.pop("text_embeds", None),
+                "time_ids": ordered_inputs.pop("time_ids", None),
+            }
+            sample = ordered_inputs.pop("sample", None)
+            timestep = ordered_inputs.pop("timestep").float().expand((sample.shape[0],))
+
             out_tuple = self.model(
                 sample=sample,
-                timestep=timestep.float().expand((sample.shape[0],)),
-                encoder_hidden_states=encoder_hidden_states,
-                timestep_cond=timestep_cond,
-                added_cond_kwargs={"text_embeds": text_embeds, "time_ids": time_ids},
+                timestep=timestep,
+                added_cond_kwargs=added_cond_kwargs,
                 return_dict=False,
+                **ordered_inputs,
             )
 
             return out_tuple
 
     def check_model_inputs_order(self, model, dummy_inputs):
-        return super().check_model_inputs_order(
-            model=model,
-            custom_model_wrapper=self.ModelWrapper,
-        )
+        return self.ModelWrapper(model, list(dummy_inputs.keys()))
 
 
 @register_in_tasks_manager("vae-encoder", *["semantic-segmentation"])

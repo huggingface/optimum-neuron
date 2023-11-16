@@ -239,7 +239,7 @@ def main_export(
             model.tokenizer.save_pretrained(output.joinpath("tokenizer"))
         if hasattr(model, "tokenizer_2") and model.tokenizer_2 is not None:
             model.tokenizer_2.save_pretrained(output.joinpath("tokenizer_2"))
-        if hasattr(model, "feature_extractor"):
+        if hasattr(model, "feature_extractor") and model.feature_extractor is not None:
             model.feature_extractor.save_pretrained(output.joinpath("feature_extractor"))
         model.save_config(output)
 

@@ -296,8 +296,6 @@ class NeuronConfig(ExportConfig, ABC):
         dummy_inputs: Optional[Dict[str, torch.Tensor]] = None,
         forward_with_tuple: bool = False,
         eligible_outputs: Optional[List[Union[str, int]]] = None,
-        custom_model_wrapper: Optional[torch.nn.Module] = None,
-        custom_wrapper_kwargs: Optional[Dict] = None,
     ):
         """
         Checks if inputs order of the model's forward pass correspond to the generated dummy inputs to ensure the dummy inputs tuple used for
@@ -336,14 +334,7 @@ class NeuronConfig(ExportConfig, ABC):
 
                 return outputs
 
-        if custom_model_wrapper:
-            return (
-                custom_model_wrapper(model)
-                if custom_wrapper_kwargs is None
-                else custom_model_wrapper(model, **custom_wrapper_kwargs)
-            )
-        else:
-            return ModelWrapper(model, list(dummy_inputs.keys()))
+        return ModelWrapper(model, list(dummy_inputs.keys()))
 
 
 class NeuronDecoderConfig(ExportConfig):
