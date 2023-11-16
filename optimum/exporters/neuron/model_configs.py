@@ -244,8 +244,7 @@ class UNetNeuronConfig(VisionNeuronConfig):
         common_inputs = ["sample", "timestep", "encoder_hidden_states"]
 
         # TODO : add text_image, image and image_embeds
-        is_lcm = "lcm" in getattr(self._config, "_name_or_path", "").lower()
-        if getattr(self._normalized_config, "addition_embed_type", None) == "text_time" and not is_lcm:
+        if getattr(self._normalized_config, "addition_embed_type", None) == "text_time":
             common_inputs.append("text_embeds")
             common_inputs.append("time_ids")
 
@@ -271,8 +270,7 @@ class UNetNeuronConfig(VisionNeuronConfig):
         dummy_inputs["timestep"] = dummy_inputs["timestep"].float()
         dummy_inputs["encoder_hidden_states"] = dummy_inputs["encoder_hidden_states"][0]
 
-        is_lcm = "lcm" in getattr(self._config, "_name_or_path", "").lower()
-        if getattr(self._normalized_config, "addition_embed_type", None) == "text_time" and not is_lcm:
+        if getattr(self._normalized_config, "addition_embed_type", None) == "text_time":
             dummy_inputs["added_cond_kwargs"] = {
                 "text_embeds": dummy_inputs.pop("text_embeds"),
                 "time_ids": dummy_inputs.pop("time_ids"),

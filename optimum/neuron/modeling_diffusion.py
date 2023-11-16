@@ -193,6 +193,8 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         self.tokenizer = tokenizer
         self.tokenizer_2 = tokenizer_2
         self.scheduler = scheduler
+        if self.is_lcm:
+            self.scheduler = LCMScheduler.from_config(self.scheduler.config)
         self.feature_extractor = feature_extractor
         self.safety_checker = None
         sub_models = {
@@ -228,6 +230,12 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             self.num_images_per_prompt = 1
 
         self.image_processor = VaeImageProcessor(vae_scale_factor=self.vae_scale_factor)
+
+    @property
+    def is_lcm(self):
+        patterns = ["lcm", "latent-consistency"]
+        unet_name_or_path = getattr(self.unet.config, "_name_or_path", "").lower()
+        return any(pattern in unet_name_or_path for pattern in patterns)
 
     @staticmethod
     def load_model(
@@ -626,12 +634,11 @@ class NeuronModelUnet(_NeuronDiffusionModelPart):
             "timestep": timestep,
             "encoder_hidden_states": encoder_hidden_states,
         }
+        if timestep_cond is not None:
+            inputs["timestep_cond"] = timestep_cond
         if added_cond_kwargs is not None:
             inputs["text_embeds"] = added_cond_kwargs.pop("text_embeds", None)
             inputs["time_ids"] = added_cond_kwargs.pop("time_ids", None)
-
-        if timestep_cond is not None:
-            inputs["timestep_cond"] = timestep_cond
 
         outputs = self.model(*tuple(inputs.values()))
         return outputs
@@ -698,10 +705,6 @@ class NeuronStableDiffusionInpaintPipeline(
 
 class NeuronLatentConsistencyModelPipeline(NeuronStableDiffusionPipelineBase, NeuronLatentConsistencyPipelineMixin):
     __call__ = NeuronLatentConsistencyPipelineMixin.__call__
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.scheduler = LCMScheduler.from_config(self.scheduler.config)
 
 
 class NeuronStableDiffusionXLPipelineBase(NeuronStableDiffusionPipelineBase):
