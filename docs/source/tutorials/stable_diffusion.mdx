@@ -358,6 +358,8 @@ Latent Consistency Models (LCMs) were proposed in [Latent Consistency Models: Sy
 
 Here is an example to compile a LCM of Stable Diffusion XL: [latent-consistency/lcm-sdxl](https://huggingface.co/latent-consistency/lcm-sdxl) and run inference on AWS Inferentia 2 :
 
+### Compile LCM
+
 ***Export via APIs***
 
 ```python
@@ -365,7 +367,7 @@ from optimum.neuron import NeuronStableDiffusionXLPipeline
 
 model_id = "stabilityai/stable-diffusion-xl-base-1.0"
 unet_id = "latent-consistency/lcm-sdxl"
-num_images_per_prompt = 2  # Multiple of 2 to leverafe both cores on the Neuron device 
+num_images_per_prompt = 2  # Multiple of 2 to leverage both cores on the Neuron device
 input_shapes = {"batch_size": 1, "height": 1024, "width": 1024, "num_images_per_prompt": num_images_per_prompt}
 compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
 
@@ -378,6 +380,8 @@ stable_diffusion.save_pretrained(save_directory)
 # Push to hub
 stable_diffusion.push_to_hub(save_directory, repository_id="my-neuron-repo", use_auth_token=True)
 ```
+
+### Text-to-Image
 
 Now we can generate images from text prompts on Inf2 using the pre-compiled model:
 
