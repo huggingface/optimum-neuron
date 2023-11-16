@@ -20,6 +20,9 @@ import PIL
 from parameterized import parameterized
 
 from optimum.neuron import (
+    NeuronStableDiffusionImg2ImgPipeline,
+    NeuronStableDiffusionInpaintPipeline,
+    NeuronStableDiffusionPipeline,
     NeuronStableDiffusionXLImg2ImgPipeline,
     NeuronStableDiffusionXLInpaintPipeline,
     NeuronStableDiffusionXLPipeline,
@@ -40,90 +43,90 @@ from .inference_utils import MODEL_NAMES, download_image
 logger = logging.get_logger()
 
 
-# @is_inferentia_test
-# @requires_neuronx
-# @require_diffusers
-# class NeuronStableDiffusionPipelineIntegrationTest(unittest.TestCase):
-#     NEURON_MODEL_CLASS = NeuronStableDiffusionPipeline
-#     STATIC_INPUTS_SHAPES = {"batch_size": 1, "height": 64, "width": 64}
-#     COMPILER_ARGS = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
-#     SUPPORTED_ARCHITECTURES = [
-#         "stable-diffusion",
-#     ]
-#     ATOL_FOR_VALIDATION = 1e-3
+@is_inferentia_test
+@requires_neuronx
+@require_diffusers
+class NeuronStableDiffusionPipelineIntegrationTest(unittest.TestCase):
+    NEURON_MODEL_CLASS = NeuronStableDiffusionPipeline
+    STATIC_INPUTS_SHAPES = {"batch_size": 1, "height": 64, "width": 64}
+    COMPILER_ARGS = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
+    SUPPORTED_ARCHITECTURES = [
+        "stable-diffusion",
+    ]
+    ATOL_FOR_VALIDATION = 1e-3
 
-#     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
-#     def test_export_and_inference_non_dyn(self, model_arch):
-#         num_images_per_prompt = 4
-#         input_shapes = copy.deepcopy(self.STATIC_INPUTS_SHAPES)
-#         input_shapes.update({"num_images_per_prompt": num_images_per_prompt})
-#         neuron_pipeline = self.NEURON_MODEL_CLASS.from_pretrained(
-#             MODEL_NAMES[model_arch],
-#             export=True,
-#             dynamic_batch_size=False,
-#             **input_shapes,
-#             **self.COMPILER_ARGS,
-#             device_ids=[0, 1],
-#         )
-#         self.assertIsInstance(neuron_pipeline.text_encoder, NeuronModelTextEncoder)
-#         self.assertIsInstance(neuron_pipeline.unet, NeuronModelUnet)
-#         self.assertIsInstance(neuron_pipeline.vae_encoder, NeuronModelVaeEncoder)
-#         self.assertIsInstance(neuron_pipeline.vae_decoder, NeuronModelVaeDecoder)
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    def test_export_and_inference_non_dyn(self, model_arch):
+        num_images_per_prompt = 4
+        input_shapes = copy.deepcopy(self.STATIC_INPUTS_SHAPES)
+        input_shapes.update({"num_images_per_prompt": num_images_per_prompt})
+        neuron_pipeline = self.NEURON_MODEL_CLASS.from_pretrained(
+            MODEL_NAMES[model_arch],
+            export=True,
+            dynamic_batch_size=False,
+            **input_shapes,
+            **self.COMPILER_ARGS,
+            device_ids=[0, 1],
+        )
+        self.assertIsInstance(neuron_pipeline.text_encoder, NeuronModelTextEncoder)
+        self.assertIsInstance(neuron_pipeline.unet, NeuronModelUnet)
+        self.assertIsInstance(neuron_pipeline.vae_encoder, NeuronModelVaeEncoder)
+        self.assertIsInstance(neuron_pipeline.vae_decoder, NeuronModelVaeDecoder)
 
-#         prompts = ["sailing ship in storm by Leonardo da Vinci"]
-#         image = neuron_pipeline(prompts, num_images_per_prompt=num_images_per_prompt).images[0]
-#         self.assertIsInstance(image, PIL.Image.Image)
+        prompts = ["sailing ship in storm by Leonardo da Vinci"]
+        image = neuron_pipeline(prompts, num_images_per_prompt=num_images_per_prompt).images[0]
+        self.assertIsInstance(image, PIL.Image.Image)
 
-#     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
-#     def test_export_and_inference_dyn(self, model_arch):
-#         neuron_pipeline = self.NEURON_MODEL_CLASS.from_pretrained(
-#             MODEL_NAMES[model_arch],
-#             export=True,
-#             dynamic_batch_size=True,
-#             **self.STATIC_INPUTS_SHAPES,
-#             **self.COMPILER_ARGS,
-#             device_ids=[0, 1],
-#         )
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    def test_export_and_inference_dyn(self, model_arch):
+        neuron_pipeline = self.NEURON_MODEL_CLASS.from_pretrained(
+            MODEL_NAMES[model_arch],
+            export=True,
+            dynamic_batch_size=True,
+            **self.STATIC_INPUTS_SHAPES,
+            **self.COMPILER_ARGS,
+            device_ids=[0, 1],
+        )
 
-#         prompts = ["sailing ship in storm by Leonardo da Vinci"] * 2
-#         image = neuron_pipeline(prompts, num_images_per_prompt=2).images[0]
-#         self.assertIsInstance(image, PIL.Image.Image)
+        prompts = ["sailing ship in storm by Leonardo da Vinci"] * 2
+        image = neuron_pipeline(prompts, num_images_per_prompt=2).images[0]
+        self.assertIsInstance(image, PIL.Image.Image)
 
-#     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
-#     def test_img2img_export_and_inference(self, model_arch):
-#         neuron_pipeline = NeuronStableDiffusionImg2ImgPipeline.from_pretrained(
-#             MODEL_NAMES[model_arch],
-#             export=True,
-#             dynamic_batch_size=False,
-#             **self.STATIC_INPUTS_SHAPES,
-#             **self.COMPILER_ARGS,
-#             device_ids=[0, 1],
-#         )
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    def test_img2img_export_and_inference(self, model_arch):
+        neuron_pipeline = NeuronStableDiffusionImg2ImgPipeline.from_pretrained(
+            MODEL_NAMES[model_arch],
+            export=True,
+            dynamic_batch_size=False,
+            **self.STATIC_INPUTS_SHAPES,
+            **self.COMPILER_ARGS,
+            device_ids=[0, 1],
+        )
 
-#         url = "https://raw.githubusercontent.com/CompVis/stable-diffusion/main/assets/stable-samples/img2img/sketch-mountains-input.jpg"
-#         init_image = download_image(url)
-#         prompt = "ghibli style, a fantasy landscape with mountain, trees and lake, reflection"
-#         image = neuron_pipeline(prompt=prompt, image=init_image, strength=0.75, guidance_scale=7.5).images[0]
-#         self.assertIsInstance(image, PIL.Image.Image)
+        url = "https://raw.githubusercontent.com/CompVis/stable-diffusion/main/assets/stable-samples/img2img/sketch-mountains-input.jpg"
+        init_image = download_image(url)
+        prompt = "ghibli style, a fantasy landscape with mountain, trees and lake, reflection"
+        image = neuron_pipeline(prompt=prompt, image=init_image, strength=0.75, guidance_scale=7.5).images[0]
+        self.assertIsInstance(image, PIL.Image.Image)
 
-#     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
-#     def test_inpaint_export_and_inference(self, model_arch):
-#         neuron_pipeline = NeuronStableDiffusionInpaintPipeline.from_pretrained(
-#             MODEL_NAMES[model_arch],
-#             export=True,
-#             dynamic_batch_size=False,
-#             **self.STATIC_INPUTS_SHAPES,
-#             **self.COMPILER_ARGS,
-#             device_ids=[0, 1],
-#         )
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    def test_inpaint_export_and_inference(self, model_arch):
+        neuron_pipeline = NeuronStableDiffusionInpaintPipeline.from_pretrained(
+            MODEL_NAMES[model_arch],
+            export=True,
+            dynamic_batch_size=False,
+            **self.STATIC_INPUTS_SHAPES,
+            **self.COMPILER_ARGS,
+            device_ids=[0, 1],
+        )
 
-#         img_url = "https://raw.githubusercontent.com/CompVis/latent-diffusion/main/data/inpainting_examples/overture-creations-5sI6fQgYIuo.png"
-#         mask_url = "https://raw.githubusercontent.com/CompVis/latent-diffusion/main/data/inpainting_examples/overture-creations-5sI6fQgYIuo_mask.png"
-#         init_image = download_image(img_url).resize((512, 512))
-#         mask_image = download_image(mask_url).resize((512, 512))
-#         prompt = "Face of a yellow cat, high resolution, sitting on a park bench"
-#         image = neuron_pipeline(prompt=prompt, image=init_image, mask_image=mask_image).images[0]
-#         self.assertIsInstance(image, PIL.Image.Image)
+        img_url = "https://raw.githubusercontent.com/CompVis/latent-diffusion/main/data/inpainting_examples/overture-creations-5sI6fQgYIuo.png"
+        mask_url = "https://raw.githubusercontent.com/CompVis/latent-diffusion/main/data/inpainting_examples/overture-creations-5sI6fQgYIuo_mask.png"
+        init_image = download_image(img_url).resize((512, 512))
+        mask_image = download_image(mask_url).resize((512, 512))
+        prompt = "Face of a yellow cat, high resolution, sitting on a park bench"
+        image = neuron_pipeline(prompt=prompt, image=init_image, mask_image=mask_image).images[0]
+        self.assertIsInstance(image, PIL.Image.Image)
 
 
 @is_inferentia_test
