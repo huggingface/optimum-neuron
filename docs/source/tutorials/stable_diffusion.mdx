@@ -53,9 +53,9 @@ optimum-cli export neuron --model stabilityai/stable-diffusion-2-1-base \
   sd_neuron/
 ```
 
-We recommend using a `inf2.8xlarge` or larger instance for model compilation. You will also be able to compile the model with the Optimum CLI on a CPU-only instance (needs ~35 GB memory), and then run the pre-compiled model on `inf2.xlarge` to reduce the expenses. In this case, don't forget to disable validation of inference by adding the `--disable-validation` argument.
+We recommend using a `inf2.8xlarge` or a larger instance for the model compilation. You will also be able to compile the model with the Optimum CLI on a CPU-only instance (needs ~35 GB memory), and then run the pre-compiled model on `inf2.xlarge` to reduce the expenses. In this case, don't forget to disable validation of inference by adding the `--disable-validation` argument.
 
-***Export via APIs***
+***Export via Python API***
 
 Here is an example of exporting stable diffusion components with `NeuronStableDiffusionPipeline`:
 
@@ -201,9 +201,9 @@ optimum-cli export neuron --model stabilityai/stable-diffusion-xl-base-1.0 \
   sd_neuron_xl/
 ```
 
-We recommend using `inf2.8xlarge` or larger instance for the compilation. You will also be able to compile the model with Optimum CLI on a CPU-only instance (needs ~92 GB memory), and then run the pre-compiled models on `inf2.xlarge` to reduce the expenses. In this case, don't forget to disable validation of inference by adding the `--disable-validation` argument.
+We recommend using a `inf2.8xlarge` or a larger instance for the model compilation. You will also be able to compile the model with Optimum CLI on a CPU-only instance (needs ~92 GB memory), and then run the pre-compiled models on `inf2.xlarge` to reduce the expenses. In this case, don't forget to disable validation of inference by adding the `--disable-validation` argument.
 
-***Export via APIs***
+***Export via Python API***
 
 Here is an example of exporting stable diffusion components with `NeuronStableDiffusionXLPipeline`:
 
@@ -360,7 +360,7 @@ Here is an example to compile a LCM of Stable Diffusion XL: [latent-consistency/
 
 ### Compile LCM
 
-***Export via APIs***
+***Export via Python API***
 
 ```python
 from optimum.neuron import NeuronStableDiffusionXLPipeline

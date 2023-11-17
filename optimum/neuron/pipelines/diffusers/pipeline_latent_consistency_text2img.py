@@ -39,13 +39,13 @@ class NeuronLatentConsistencyPipelineMixin(StableDiffusionPipelineMixin, LatentC
         height: int,
         width: int,
         prompt_embeds: Optional[torch.FloatTensor] = None,
-        callback_on_step_end_tensor_inputs=None,
+        callback_on_step_end_tensor_inputs: List[str] = None,
     ):
         if height % 8 != 0 or width % 8 != 0:
             raise ValueError(f"`height` and `width` have to be divisible by 8 but are {height} and {width}.")
 
-        if callback_on_step_end_tensor_inputs is not None and not all(
-            k in self._callback_tensor_inputs for k in callback_on_step_end_tensor_inputs
+        if callback_on_step_end_tensor_inputs is not None and not set(callback_on_step_end_tensor_inputs) <= set(
+            self._callback_tensor_inputs
         ):
             raise ValueError(
                 f"`callback_on_step_end_tensor_inputs` has to be in {self._callback_tensor_inputs}, but found {[k for k in callback_on_step_end_tensor_inputs if k not in self._callback_tensor_inputs]}"
@@ -219,8 +219,8 @@ class NeuronLatentConsistencyPipelineMixin(StableDiffusionPipelineMixin, LatentC
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, None)
 
         # 8. LCM MultiStep Sampling Loop:
-        num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
         self._num_timesteps = len(timesteps)
+        num_warmup_steps = self._num_timesteps - num_inference_steps * self.scheduler.order
         with self.progress_bar(total=num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps):
                 latents = latents.to(prompt_embeds.dtype)
