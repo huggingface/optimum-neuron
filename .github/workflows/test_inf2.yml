@@ -4,10 +4,12 @@ on:
   push:
     branches: [ main ]
     paths:
+      - "setup.py"
       - "optimum/**.py"
   pull_request:
     branches: [ main ]
     paths:
+      - "setup.py"
       - "optimum/**.py"
 
 concurrency:
