@@ -20,6 +20,7 @@ import PIL
 from parameterized import parameterized
 
 from optimum.neuron import (
+    NeuronLatentConsistencyModelPipeline,
     NeuronStableDiffusionImg2ImgPipeline,
     NeuronStableDiffusionInpaintPipeline,
     NeuronStableDiffusionPipeline,
@@ -126,6 +127,21 @@ class NeuronStableDiffusionPipelineIntegrationTest(unittest.TestCase):
         mask_image = download_image(mask_url).resize((512, 512))
         prompt = "Face of a yellow cat, high resolution, sitting on a park bench"
         image = neuron_pipeline(prompt=prompt, image=init_image, mask_image=mask_image).images[0]
+        self.assertIsInstance(image, PIL.Image.Image)
+
+    @parameterized.expand(["latent-consistency"], skip_on_empty=True)
+    def test_lcm_export_and_inference(self, model_arch):
+        neuron_pipeline = NeuronLatentConsistencyModelPipeline.from_pretrained(
+            MODEL_NAMES[model_arch],
+            export=True,
+            dynamic_batch_size=False,
+            **self.STATIC_INPUTS_SHAPES,
+            **self.COMPILER_ARGS,
+            device_ids=[0, 1],
+        )
+
+        prompt = "Self-portrait oil painting, a beautiful cyborg with golden hair, 8k"
+        image = neuron_pipeline(prompt, num_inference_steps=4, guidance_scale=8.0).images[0]
         self.assertIsInstance(image, PIL.Image.Image)
 
 
