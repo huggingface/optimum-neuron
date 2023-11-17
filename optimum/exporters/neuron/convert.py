@@ -458,9 +458,8 @@ def export_neuronx(
 
 
 def add_stable_diffusion_compiler_args(config, compiler_args):
-    identifier = (
-        getattr(config._config, "_name_or_path", "").lower() + " " + getattr(config._config, "_class_name", "").lower()
-    )
+    identifier = getattr(config._config, "_name_or_path", "") + " " + getattr(config._config, "_class_name", "")
+    identifier = identifier.lower()
     sd_components = ["text_encoder", "vae", "vae_encoder", "vae_decoder"]
     if any(component in identifier for component in sd_components):
         compiler_args.extend(["--enable-fast-loading-neuron-binaries"])
