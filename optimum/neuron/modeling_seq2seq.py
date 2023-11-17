@@ -485,7 +485,6 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
 
         # initialise score of first beam with 0 and the rest with -1e9. This makes sure that only tokens
         # of the first beam are considered to avoid sampling the exact same tokens across all beams.
-        # beam_scores = torch.zeros((batch_size, num_beams), dtype=torch.float, device=input_ids.device)
         beam_scores_device = "cpu"
         beam_scores = torch.zeros((batch_size, num_beams), dtype=torch.float, device=beam_scores_device)
         beam_scores[:, 1:] = -1e9
