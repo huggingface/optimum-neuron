@@ -388,7 +388,7 @@ Now we can generate images from text prompts on Inf2 using the pre-compiled mode
 ```python
 from optimum.neuron import NeuronStableDiffusionXLPipeline
 
-pipe = NeuronLatentConsistencyModelPipeline.from_pretrained("lcm_sdxl_neuron/")
+pipe = NeuronStableDiffusionXLPipeline.from_pretrained("lcm_sdxl_neuron/")
 prompt = "a close-up picture of an old man standing in the rain"
 
 images = pipe(prompt=prompt, num_inference_steps=4, guidance_scale=8.0).images
