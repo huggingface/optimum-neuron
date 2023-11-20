@@ -140,16 +140,17 @@ tokenized_dataset["test"].save_to_disk(os.path.join(save_dataset_path,"eval"))
 
 Normally you would use the [Trainer](https://huggingface.co/docs/transformers/v4.19.4/en/main_classes/trainer#transformers.Trainer) and [TrainingArguments](https://huggingface.co/docs/transformers/v4.19.4/en/main_classes/trainer#transformers.TrainingArguments) to fine-tune PyTorch-based transformer models.
 
-But together with AWS, we have developed a `NeuronTrainer` to improve performance, robustness, and safety when training on Trainium instances. The `NeuronTrainer` also comes with a [model cache](https://www.notion.so/Getting-started-with-AWS-Trainium-and-Hugging-Face-Transformers-8428c72556194aed9c393de101229dcf), which allows us to use precompiled models and configuration from Hugging Face Hub to skip the compilation step, which would be needed at the beginning of training. This can reduce the training time by ~3x.
+But together with AWS, we have developed a [NeuronTrainer](https://huggingface.co/docs/optimum-neuron/package_reference/trainer) to improve performance, robustness, and safety when training on Trainium or Inferentia2 instances. The `NeuronTrainer` also comes with a [model cache](https://www.notion.so/Getting-started-with-AWS-Trainium-and-Hugging-Face-Transformers-8428c72556194aed9c393de101229dcf), which allows us to use precompiled models and configuration from Hugging Face Hub to skip the compilation step, which would be needed at the beginning of training. This can reduce the training time by ~3x.
 
 The `NeuronTrainer` is part of the `optimum-neuron` library and can be used as a 1-to-1 replacement for the `Trainer`. You only have to adjust the import in your training script.
 
 ```diff
-- from transformers import Trainer
+- from transformers import Trainer, TrainingArguments
 + from optimum.neuron import NeuronTrainer as Trainer
++ from optimum.neuron import NeuronTrainingArguments as TrainingArguments
 ```
 
-We prepared a simple [train.py](https://github.com/philschmid/aws-neuron-samples/blob/main/training/scripts/train.py) training script based on the ["Getting started with Pytorch 2.0 and Hugging Face Transformers”](https://www.philschmid.de/getting-started-pytorch-2-0-transformers#3-fine-tune--evaluate-bert-model-with-the-hugging-face-trainer) blog post with the `NeuronTrainer`. Below is an excerpt
+We prepared a simple [train.py](https://github.com/huggingface/optimum-neuron/blob/main/notebooks/text-classification/scripts/train.py) training script based on the ["Getting started with Pytorch 2.0 and Hugging Face Transformers”](https://www.philschmid.de/getting-started-pytorch-2-0-transformers#3-fine-tune--evaluate-bert-model-with-the-hugging-face-trainer) blog post with the `NeuronTrainer`. Below is an excerpt
 
 ```python
 from transformers import TrainingArguments
@@ -189,7 +190,7 @@ def training_function(args):
 We can load the training script into our environment using the `wget` command or manually copy it into the notebook from [here](https://github.com/huggingface/optimum-neuron/blob/notebooks/text-classification/scripts/train.py).
 
 ```python
-!wget https://raw.githubusercontent.com/huggingface/optimum-neuron/notebooks/text-classification/scripts/train.py
+!wget https://raw.githubusercontent.com/huggingface/optimum-neuron/main/notebooks/text-classification/scripts/train.py
 ```
 
 We will use `torchrun` to launch our training script on both neuron cores for distributed training. `torchrun` is a tool that automatically distributes a PyTorch model across multiple accelerators. We can pass the number of accelerators as `nproc_per_node` arguments alongside our hyperparameters.
@@ -197,7 +198,7 @@ We will use `torchrun` to launch our training script on both neuron cores for di
 We'll use the following command to launch training:
 
 ```bash
-!torchrun --nproc_per_node=2 scripts/train.py \
+!torchrun --nproc_per_node=2 train.py \
  --model_id bert-base-uncased \
  --dataset_path lm_dataset \
  --lr 5e-5 \
