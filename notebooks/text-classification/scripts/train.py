@@ -9,11 +9,11 @@ from huggingface_hub import HfFolder
 from transformers import (
     AutoModelForSequenceClassification,
     AutoTokenizer,
-    TrainingArguments,
     set_seed,
 )
 
 from optimum.neuron import NeuronTrainer as Trainer
+from optimum.neuron import NeuronTrainingArguments as TrainingArguments
 
 
 logger = logging.getLogger(__name__)
