@@ -187,7 +187,7 @@ class NeuronAccelerator(Accelerator):
             rank = xm.get_ordinal()
         if self.state.num_processes > 1:
             data_loader = self._prepare_data_loader_for_distributed(data_loader, num_replicas=num_replicas, rank=rank)
-            data_loader = MpDeviceLoader(data_loader, self.device)
+        data_loader = MpDeviceLoader(data_loader, self.device)
         return data_loader
         # TODO: fix that.
         # return super().prepare_data_loader(data_loader, device_placement=device_placement)
