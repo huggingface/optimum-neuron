@@ -23,9 +23,13 @@ To alleviate that, `optimum-neuron` supports parallelism features enabling your 
 
 The good news is that is it possible to combine those techniques, and `optimum-neuron` makes it very easy!
 
+<Tip>
+All the [example scripts](https://github.com/huggingface/optimum-neuron/tree/main/examples) provided in the `optimum-neuron` repo have those features implemented via the [`NeuronTrainer`].
+</Tip>
+
 ## How to enable ZeRO-1?
 
-Whether you use to [`~optimum.neuron.NeuronTrainer`] or decide to have your own training script that uses the [`~optimum.neuron.NeuronAccelerator`], it is very easy to enable the ZeRO-1 optomization.
+Whether you use to [`NeuronTrainer`] or decide to have your own training script that uses the [`NeuronAccelerator`], it is very easy to enable the ZeRO-1 optomization.
 
 ### Via the `NeuronTrainer`
 
@@ -47,6 +51,27 @@ trainer = NeuronTrainer(
 
 trainer.train()
 ```
+
+<Tip>
+Since the [example scripts](https://github.com/huggingface/optimum-neuron/tree/main/examples) use the [`NeuronTrainer`], you can enable ZeRO-1 when using them by add the `--zero_1` flag
+to your command line.
+
+For example:
+
+```bash
+torchrun --nproc_per_node=2 examples/language-modeling/run_clm.py \
+    --model_name_or_path TinyLlama/TinyLlama-1.1B-Chat-v0.6 \
+    --dataset_name wikitext \
+    --dataset_config_name wikitext-2-raw-v1 \
+    --do_train \
+    --per_device_train_batch_size 1 \
+    --block_size 1024 \
+    --bf16 \
+    --zero_1 \
+    --output_dir my_training/
+
+```
+</Tip>
 
 ### Via the `NeuronAccelerator`
 
@@ -73,7 +98,7 @@ accelerator = NeuronAccelerator(
 
 ## How to enable Tensor Parallelism?
 
-Just as for ZeRO-1, it is possible to use Tensor Parallelism both with the [`~optimum.neuron.NeuronTrainer`] and the [`~optimum.neuron.NeuronAccelerator`].
+Just as for ZeRO-1, it is possible to use Tensor Parallelism both with the [`NeuronTrainer`] and the [`NeuronAccelerator`].
 
 When doing Tensor Parallelism, you have different settings:
   1. The `tensor_parallel_size`. Ideally it should be smallest value for which the model fits. 
@@ -82,7 +107,7 @@ When doing Tensor Parallelism, you have different settings:
   3. Whether or not parallelization of the embedding (and thus the LM head) should be done. **It is not supported yet**.
 
 On top of that, it is very important to make sure that the original model is loaded in an efficient manner: the training script is going to be called by `torchrun`, which will dispatch it to workers. If each worker, there are 32 of them in  a `trn1.32xlarge` instance, loads the full model weights, it can take a lot of time and go out-of-memory really fast.
-To alleviate that `optimum-neuron` provides a context-manager [`~optimum.neuron.distributed.lazy_load_for_parallelism`] that loads the model lazily, only the sharded model will be materialized in each worker.
+To alleviate that `optimum-neuron` provides a context-manager [`distributed.lazy_load_for_parallelism`] that loads the model lazily, only the sharded model will be materialized in each worker.
 
 ## Via the `NeuronTrainer`
 
@@ -111,6 +136,26 @@ trainer = NeuronTrainer(
 
 trainer.train()
 ```
+
+<Tip>
+Since the [example scripts](https://github.com/huggingface/optimum-neuron/tree/main/examples) use the [`NeuronTrainer`], you can enable Tensor Parallelism when using them by specifying the `--tensor_parallel_size` argument, optionally the `disable_embedding_parallelization` and `disable_sequence_parallel` flags.
+to your command line.
+
+For example:
+
+```bash
+torchrun --nproc_per_node=2 examples/language-modeling/run_clm.py \
+    --model_name_or_path TinyLlama/TinyLlama-1.1B-Chat-v0.6 \
+    --dataset_name wikitext \
+    --dataset_config_name wikitext-2-raw-v1 \
+    --do_train \
+    --per_device_train_batch_size 1 \
+    --block_size 1024 \
+    --bf16 \
+    --tensor_parallel_size 2 \
+    --output_dir my_training/
+```
+</Tip>
 
 
 ## Via the `NeuronAccelerator`
