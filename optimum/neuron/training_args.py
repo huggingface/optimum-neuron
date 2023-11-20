@@ -60,9 +60,9 @@ class NeuronTrainingArgumentsMixin:
         default=True,
         metadata={"help": "Whether or not the embedding parallelization when doing TP should be disabled."},
     )
-    sequence_parallel_enabled: bool = field(
+    disable_sequence_parallel: bool = field(
         default=False,
-        metadata={"help": "Whether or not to enable sequence parallelism."},
+        metadata={"help": "Whether or not to disable sequence parallelism."},
     )
 
     def __post_init__(self):
@@ -108,7 +108,7 @@ class NeuronTrainingArgumentsMixin:
         self.tp_plugin = TensorParallelismPlugin(
             self.tensor_parallel_size,
             not self.disable_embedding_parallelization,
-            sequence_parallel_enabled=self.sequence_parallel_enabled,
+            sequence_parallel_enabled=not self.disable_sequence_parallel,
             checkpoint_dir=resume_from_checkpoint,
         )
         super().__post_init__()
