@@ -15,9 +15,11 @@ The `optimum.neuron.distributed` module provides a set of tools to perform distr
 
 ## Parallelization
 
+The main task in distributed training / inference is being able to shard things such as the model weights, the gradient and the optimizer state. The `Parallelizer` classes handle that.
+
 ### Base `Parallelizer`
 
-The [`~optimum.neuron.distributed.Parallelizer`] class is the abstract base class being derived for every model supporting model parallelism. It provides methods to parallelize the model and save and load sharded checkpoints.
+The [`~optimum.neuron.distributed.Parallelizer`] class is the base abstract class being derived for every model supporting model parallelism. It provides methods to parallelize the model and save and load sharded checkpoints.
 
 [[autodoc]] distributed.Parallelizer
   - _parallelize
@@ -26,11 +28,11 @@ The [`~optimum.neuron.distributed.Parallelizer`] class is the abstract base clas
   - save_model_checkpoint
   - load_model_checkpoint
 
-### Model-specific `Parallelizer`s
+### Selecting Model-Specific Parallelizer Classes
 
 Each model that supports parallelization in `optimum-neuron` has its own derived `Parallelizer` class. The factory class [`~optimum.neuron.distributed.ParallelizersManager`] allows you to retrieve such model-specific `Parallelizer`s easily. 
 
-[[autodoc] distributed.parallelizers_manager.ParallelizersManager
+[[autodoc]] distributed.parallelizers_manager.ParallelizersManager
   - get_supported_model_types
   - is_model_supported
   - parallelizer_for_model
@@ -38,11 +40,10 @@ Each model that supports parallelization in `optimum-neuron` has its own derived
 
 ## Utils
 
+### Lazy Loading
 
+Distributed training / inference is usually needed when the model is too big to fit in one device. Tools that allow for lazy loading of model weights and optimizer states are thus needed to avoid going out-of-memory before parallelization.
 
+[[autodoc]] distributed.utils.lazy_load_for_parallelism
 
-
-
-
-
-
+[[autodoc]] distributed.utils.make_optimizer_constructor_lazy

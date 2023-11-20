@@ -11,8 +11,9 @@ specific language governing permissions and limitations under the License.
 -->
 # Distributed Training with `optimum-neuron`
 
-[AWS Trainium instances](https://aws.amazon.com/machine-learning/trainium/) are great to train models. They can contain up to 16 Neuron devices, each device containing 2 Neuron cores and has 32GB of memory (16GB per core). For example a `trn1.32xlarge` instance has 32 x 16 = 512GB of memory, that is a lot of memory to train models!
-But there is a caveat: each Neuron core is an independent data-parallel workers by default. It means that the model, the gradient state and the optimizer state, amounting to approximately 4 times the model size, must fit in each of the Neuron cores (16GB) to be able to train, and if that is the case, then the activations must also fit in the remaining memory.
+[AWS Trainium instances](https://aws.amazon.com/machine-learning/trainium/) are great to train models. They can contain up to 16 Neuron devices, each device containing 2 Neuron cores and has 32GB of memory (16GB per core). For example a `trn1.32xlarge` instance has 32 x 16 = 512GB of memory.
+
+But there is a caveat: each Neuron core is an independent data-parallel worker by default. It means that the model, the gradient state and the optimizer state, amounting to approximately 4 times the model size, must fit in each of the Neuron cores (16GB) to be able to train. If that is the case, then the activations must also fit in the remaining memory.
 
 To alleviate that, `optimum-neuron` supports parallelism features enabling your to harness the full power of your Trainium instance:
 
@@ -104,10 +105,11 @@ When doing Tensor Parallelism, you have different settings:
   1. The `tensor_parallel_size`. Ideally it should be smallest value for which the model fits. 
   2. Whether or not sequence parallelism should be enabled. [Sequence parallelism](https://arxiv.org/pdf/2205.05198.pdf) shards the activations on the sequence axis outside of the tensor parallel regions.
   It is useful because it saves memory by sharding the activations.
-  3. Whether or not parallelization of the embedding (and thus the LM head) should be done. **It is not supported yet**.
+  3. Whether or not parallelization of the embedding (and thus the LM head for decoder / seq2seq models) should be done. **It is not supported yet**.
 
-On top of that, it is very important to make sure that the original model is loaded in an efficient manner: the training script is going to be called by `torchrun`, which will dispatch it to workers. If each worker, there are 32 of them in  a `trn1.32xlarge` instance, loads the full model weights, it can take a lot of time and go out-of-memory really fast.
-To alleviate that `optimum-neuron` provides a context-manager [`distributed.lazy_load_for_parallelism`] that loads the model lazily, only the sharded model will be materialized in each worker.
+On top of that, it is very important to make sure that the original model is loaded in an efficient manner: the training script is going to be called by `torchrun`, which will dispatch it to workers. If each worker (there are 32 of them in  a `trn1.32xlarge` instance) loads the full model weights, it can take a lot of time and go out-of-memory really fast.
+
+`optimum-neuron` provides a context-manager [`distributed.lazy_load_for_parallelism`] that loads the model lazily to prevent that, only the sharded model will be materialized in each worker.
 
 ## Via the `NeuronTrainer`
 
@@ -160,7 +162,7 @@ torchrun --nproc_per_node=2 examples/language-modeling/run_clm.py \
 
 ## Via the `NeuronAccelerator`
 
-Just as for ZeRO-1, it is possible to wrap the optimizer class to make it lazy. Since the model parameters are going to be sharded, it is not needed to materialize the optimizer state prior to model parallelization, the wrapper makes sure that it stays unmaterialized.
+Just as for ZeRO-1, it is possible to wrap the optimizer class to make it lazy. Since the model parameters are going to be sharded, it is not needed to materialize the optimizer state prior to model parallelization: the wrapper makes sure that it stays unmaterialized.
 
 ```python
 from torch.optim import AdamW
