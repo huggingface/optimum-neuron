@@ -212,8 +212,7 @@ class ModelParallelizationTestCase(TrainiumTestMixin, TestCase):
             "lazy_load": "true" if with_lazy_load else "false",
             "parallelize_embeddings": "true" if parallelize_embeddings else "false",
             "sequence_parallel_enabled": "true" if sequence_parallel_enabled else "false",
-            # TODO: disable that once that loss computation compilation for LLama does not take forever.
-            "computing_loss_is_supported": "true" if not model_class_name.startswith("Llama") else "true",
+            "computing_loss_is_supported": "true",
             **os.environ,
         }
 
@@ -330,7 +329,7 @@ class ModelParallelizationTestCase(TrainiumTestMixin, TestCase):
         #   3. Do not enable sequence parallelism => this feature should not depend on whether the model is initialized
         #      lazily or not.
         self._test_model_parallel(
-            num_neuron_cores=2,
+            num_neuron_cores=8,
             tp_size=2,
             run_test_in_parallel=True,
             model_class_name=model_class_name,

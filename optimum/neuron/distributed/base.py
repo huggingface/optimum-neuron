@@ -198,6 +198,7 @@ class Parallelizer(ABC):
         from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_rank
 
         # Parallelizing the model.
+        # This needs to be done prior to preparing the model for sequence parallelism because modules can be overriden.
         model = cls._parallelize(
             model,
             device=device,
@@ -543,7 +544,9 @@ class Parallelizer(ABC):
 
         if not isinstance(load_dir, Path):
             load_dir = Path(load_dir)
-        neuronx_distributed.parallel_layers.load(load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME, model=model, sharded=True)
+        neuronx_distributed.parallel_layers.load(
+            load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME, model_or_optimizer=model, sharded=True
+        )
 
     @classmethod
     def load_model_checkpoint(cls, model: "PreTrainedModel", load_dir: Union[str, Path]):
