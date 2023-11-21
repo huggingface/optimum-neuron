@@ -521,6 +521,7 @@ class LlamaParallelizer(Parallelizer):
                 model, layer.mlp, sequence_parallel_enabled=sequence_parallel_enabled, device=device
             )
         if parallelize_embeddings:
+            LlamaParallelEmbedding.overwrite_vocab_size_value_for_cross_entropy_computation(model)
             model = LlamaParallelCrossEntropy.transform(
                 model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device
             )
