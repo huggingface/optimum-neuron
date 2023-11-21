@@ -197,6 +197,14 @@ class Parallelizer(ABC):
 
         from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_rank
 
+        # Parallelizing the model.
+        model = cls._parallelize(
+            model,
+            device=device,
+            parallelize_embeddings=parallelize_embeddings,
+            sequence_parallel_enabled=sequence_parallel_enabled,
+        )
+
         # Preparing the model for sequence parallelism:
         # 1. Transforming the LayerNorms.
         layer_norm_qualified_name_patterns = (
@@ -218,15 +226,7 @@ class Parallelizer(ABC):
         if sequence_parallel_enabled:
             cls.patch_for_sequence_parallelism(model, sequence_parallel_enabled)
 
-        model = cls._parallelize(
-            model,
-            device=device,
-            parallelize_embeddings=parallelize_embeddings,
-            sequence_parallel_enabled=sequence_parallel_enabled,
-        )
-
         weight_map = getattr(model, "_weight_map", None)
-
         # The model was not loaded lazily, it is already ready.
         if weight_map is None:
             return model
