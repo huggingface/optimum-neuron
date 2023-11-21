@@ -168,12 +168,7 @@ class ModelParallelizationTestCase(TrainiumTestMixin, TestCase):
         elif isinstance(original_output, torch.Tensor):
             print(f"Original {name}:\nShape: {original_output.shape}\nValue: {original_output}")
             print(f"Parallel {name}:\nShape: {output.shape}\nValue: {output}")
-
-            # TODO: Remove that once lazy load initializew the weights the same way as no lazy load.
-            if not lazy_load:
-                torch.testing.assert_close(original_output, output)
-            else:
-                self.skipTest("Output comparison is not yet working with lazy loading.")
+            torch.testing.assert_close(original_output, output)
         else:
             assert original_output == output, f"Output named {name} do not match."
 
