@@ -14,12 +14,14 @@
       title: Generate images with Stable Diffusion models on AWS Inferentia
     - local: tutorials/notebooks
       title: Notebooks
+    - local: tutorials/llama2-13b-chatbot
+      title: Create your own chatbot with llama-2-13B on AWS Inferentia
     title: Tutorials
   - sections:
     - local: guides/overview
       title: Overview
     - local: guides/setup_aws_instance
-      title: Set up AWS Trainium instance            
+      title: Set up AWS Trainium instance
     - local: guides/cache_system
       title: Neuron model cache
     - local: guides/fine_tune

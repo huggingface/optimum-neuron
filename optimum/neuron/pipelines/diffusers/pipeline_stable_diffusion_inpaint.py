@@ -33,6 +33,8 @@ logger = logging.getLogger(__name__)
 
 
 class NeuronStableDiffusionInpaintPipelineMixin(StableDiffusionPipelineMixin, StableDiffusionInpaintPipeline):
+    prepare_latents = StableDiffusionInpaintPipeline.prepare_latents
+
     # Adapted from https://github.com/huggingface/diffusers/blob/v0.21.2/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_inpaint.py#L629
     def _encode_vae_image(
         self, image: torch.Tensor, generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None
@@ -387,9 +389,6 @@ class NeuronStableDiffusionInpaintPipelineMixin(StableDiffusionPipelineMixin, St
             do_denormalize = [not has_nsfw for has_nsfw in has_nsfw_concept]
 
         image = self.image_processor.postprocess(image, output_type=output_type, do_denormalize=do_denormalize)
-
-        # Offload all models
-        self.maybe_free_model_hooks()
 
         if not return_dict:
             return (image, has_nsfw_concept)

@@ -128,6 +128,13 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         default=1,
         help=f"Stable diffusion only. Number of images per prompt {doc_input}",
     )
+    optional_group.add_argument(
+        "--unet",
+        default=None,
+        help=(
+            "UNet model ID on huggingface.co or path on disk to load model from. This will replace the unet in the original Stable Diffusion pipeline."
+        ),
+    )
 
 
 class NeuronxExportCommand(BaseOptimumCLICommand):
