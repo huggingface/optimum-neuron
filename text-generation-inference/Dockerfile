@@ -86,22 +86,22 @@ RUN apt-get update -y \
 RUN echo "deb https://apt.repos.neuron.amazonaws.com jammy main" > /etc/apt/sources.list.d/neuron.list
 RUN wget -qO - https://apt.repos.neuron.amazonaws.com/GPG-PUB-KEY-AMAZON-AWS-NEURON.PUB | apt-key add -
 
-# Install neuronx 2.12.2 packages
+# Install neuronx packages
 RUN apt-get update -y \
  && apt-get install -y --no-install-recommends \
-    aws-neuronx-dkms=2.13.4.0 \
-    aws-neuronx-collectives=2.17.9.0-fb6d14044 \
-    aws-neuronx-runtime-lib=2.17.7.0-df62e3f70 \
-    aws-neuronx-tools=2.14.6.0 \
+    aws-neuronx-dkms=2.14.5.0 \
+    aws-neuronx-collectives=2.18.18.0-f7a1f7a35 \
+    aws-neuronx-runtime-lib=2.18.14.0-0678cafac \
+    aws-neuronx-tools=2.15.4.0 \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
 ENV PATH="/opt/bin/:/opt/aws/neuron/bin:${PATH}"
 
 RUN pip3 install \
-    neuronx-cc==2.10.0.34 \
-    torch-neuronx==1.13.1.1.11.0 \
-    transformers-neuronx==0.7.84 \
+    neuronx-cc==2.11.0.34 \
+    torch-neuronx==1.13.1.1.12.1 \
+    transformers-neuronx==0.8.268 \
     --extra-index-url=https://pip.repos.neuron.amazonaws.com
 
 # Install HuggingFace packages
@@ -124,6 +124,14 @@ COPY --from=builder /usr/src/target/release/text-generation-launcher /usr/local/
 # Install python server
 COPY --from=pyserver /pyserver/build/dist dist
 RUN pip install dist/text-generation-server*.tar.gz
+
+# AWS Sagemaker compatible image
+FROM neuron as sagemaker
+
+COPY text-generation-inference/sagemaker-entrypoint.sh entrypoint.sh
+RUN chmod +x entrypoint.sh
+
+ENTRYPOINT ["./entrypoint.sh"]
 
 # Final image
 FROM neuron

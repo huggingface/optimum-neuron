@@ -623,11 +623,11 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
         if self.cur_len > 0:
             # Only pass the last tokens of each sample
             input_ids = input_ids[:, -1:]
-            # Specifiy the single index at which the new keys and values need to be stored
+            # Specify the single index at which the new keys and values need to be stored
             cache_ids = torch.as_tensor([self.cur_len], dtype=torch.int32)
         else:
-            # All tokens will be processed: initialize the cached with all intermediate keys and values
-            cache_ids = torch.arange(input_ids.shape[-1], dtype=torch.int32)
+            # cache_ids will be set directly by the parallel context encoding code
+            cache_ids = None
 
         # Increment the current cache index
         self.cur_len += input_ids.shape[-1]

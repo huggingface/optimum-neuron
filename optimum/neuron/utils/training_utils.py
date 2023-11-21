@@ -50,13 +50,12 @@ from transformers.utils.logging import set_verbosity as set_verbosity_transforme
 from ...utils.logging import set_verbosity as set_verbosity_optimum
 from ..generation import NeuronGenerationMixin
 from . import is_torch_xla_available
+from .require_utils import requires_torch_xla
 
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
 
-if is_torch_xla_available():
-    import torch_xla.distributed.parallel_loader as pl
 
 TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP = "4.30.0.dev0"
 TRANSFORMERS_MIN_VERSION_USE_ACCELERATE = "4.30.0.dev0"
@@ -150,6 +149,15 @@ def is_model_officially_supported(model: "PreTrainedModel") -> bool:
     else:
         class_name = model.__class__.__name__
     return class_name in _SUPPORTED_MODEL_NAMES
+
+
+@requires_torch_xla
+def is_topology_supported() -> bool:
+    import torch_xla.core.xla_model as xm
+
+    num_devices = xm.xrt_world_size()
+    allowed_number_of_devices = [1, 2, 8]
+    return num_devices in allowed_number_of_devices or num_devices % 32 == 0
 
 
 class FirstAndLastDataset(Dataset):
@@ -292,12 +300,15 @@ def patch_transformers_for_neuron_sdk():
     transformers.utils.logging.set_verbosity = set_verbosity
 
 
+@requires_torch_xla
 def skip_first_batches(dataloader, num_batches=0):
     """
     Wrapper around `accelerate.data_loader.skip_first_batches` to handle `pl.ParallelLoader` when using
     `torch_xla.distributed`, for XLA FSDP for instance.
     """
-    if isinstance(dataloader, (pl.ParallelLoader, pl.PerDeviceLoader)):
+    import torch_xla.distributed.parallel_loader as pl
+
+    if isinstance(dataloader, (pl.ParallelLoader, pl.PerDeviceLoader, pl.MpDeviceLoader)):
         dataloader._loader = skip_first_batches(dataloader._loader, num_batches=num_batches)
     else:
         dataloader = accelerate_skip_first_batches(dataloader, num_batches=num_batches)

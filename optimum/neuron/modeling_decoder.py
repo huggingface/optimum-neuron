@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Optional, Tuple, Union
 import torch
 from huggingface_hub import HfApi, HfFolder, snapshot_download
 from huggingface_hub.utils import is_google_colab
-from transformers import GenerationConfig
+from transformers import AutoConfig, AutoModel, GenerationConfig
 
 from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..exporters.tasks import TasksManager
@@ -35,7 +35,7 @@ from .utils.version_utils import check_compiler_compatibility, get_neuronxcc_ver
 
 if is_transformers_neuronx_available():
     from transformers_neuronx.module import PretrainedModel as NeuronxPretrainedModel
-    from transformers_neuronx.module import save_pretrained_split
+    from transformers_neuronx.module import save_split
 
 
 if TYPE_CHECKING:
@@ -63,6 +63,9 @@ class NeuronDecoderModel(OptimizedModel):
         - generation_config ([`~transformers.GenerationConfig`]) -- The generation configuration used by default when calling `generate()`.
     """
 
+    model_type = "neuron_model"
+    auto_model_class = AutoModel
+
     CHECKPOINT_DIR = "checkpoint"
     COMPILED_DIR = "compiled"
 
@@ -81,6 +84,11 @@ class NeuronDecoderModel(OptimizedModel):
         if generation_config is None:
             generation_config = GenerationConfig.from_model_config(config)
         self.generation_config = generation_config
+        # Registers the NeuronModelForXXX classes into the transformers AutoModel classes to avoid warnings when creating
+        # a pipeline https://github.com/huggingface/transformers/blob/3d3204c025b6b5de013e07dd364208e28b4d9589/src/transformers/pipelines/base.py#L940
+        AutoConfig.register(self.model_type, AutoConfig)
+        if hasattr(self.auto_model_class, "register"):
+            self.auto_model_class.register(AutoConfig, self.__class__)
 
     @classmethod
     def _from_transformers(
@@ -96,8 +104,9 @@ class NeuronDecoderModel(OptimizedModel):
         trust_remote_code: bool = False,
         task: Optional[str] = None,
         batch_size: Optional[int] = 1,
+        sequence_length: Optional[int] = None,
         num_cores: Optional[int] = 2,
-        auto_cast_type: Optional[str] = "f32",
+        auto_cast_type: Optional[str] = "fp32",
         **kwargs,
     ) -> "NeuronDecoderModel":
         if not is_transformers_neuronx_available():
@@ -105,12 +114,6 @@ class NeuronDecoderModel(OptimizedModel):
 
         if task is None:
             task = TasksManager.infer_task_from_model(cls.auto_model_class)
-
-        # Instantiate the exporter for the specified configuration and task
-        exporter = get_exporter(config, task)
-
-        # Split kwargs between model and neuron args
-        model_kwargs, neuron_kwargs = exporter.split_kwargs(**kwargs)
 
         # Instantiate the transformers model checkpoint
         model = TasksManager.get_model_from_task(
@@ -124,12 +127,19 @@ class NeuronDecoderModel(OptimizedModel):
             local_files_only=local_files_only,
             force_download=force_download,
             trust_remote_code=trust_remote_code,
-            **model_kwargs,
+            **kwargs,
         )
 
         # Save the model checkpoint in a temporary directory
         checkpoint_dir = TemporaryDirectory()
-        save_pretrained_split(model, checkpoint_dir.name)
+        model.save_pretrained(
+            checkpoint_dir.name, save_function=save_split, safe_serialization=False, max_shard_size="10000GB"
+        )
+
+        # If the sequence_length was not specified, deduce it from the model configuration
+        if sequence_length is None:
+            # Note: for older models, max_position_embeddings is an alias for n_positions
+            sequence_length = config.max_position_embeddings
 
         # Update the config
         config.neuron = {
@@ -137,7 +147,7 @@ class NeuronDecoderModel(OptimizedModel):
             "batch_size": batch_size,
             "num_cores": num_cores,
             "auto_cast_type": auto_cast_type,
-            "neuron_kwargs": neuron_kwargs,
+            "sequence_length": sequence_length,
             "compiler_type": "neuronx-cc",
             "compiler_version": get_neuronxcc_version(),
         }
@@ -186,9 +196,9 @@ class NeuronDecoderModel(OptimizedModel):
         # Evaluate the configuration passed during export
         task = neuron_config["task"]
         batch_size = neuron_config["batch_size"]
+        sequence_length = neuron_config["sequence_length"]
         num_cores = neuron_config["num_cores"]
         auto_cast_type = neuron_config["auto_cast_type"]
-        neuron_kwargs = neuron_config["neuron_kwargs"]
 
         check_compiler_compatibility(neuron_config["compiler_type"], neuron_config["compiler_version"])
 
@@ -196,8 +206,14 @@ class NeuronDecoderModel(OptimizedModel):
 
         model_path, checkpoint_path, compiled_path = cls._get_neuron_paths(model_id, use_auth_token)
 
+        # transformers-neuronx uses f32/f16 instead of fp32/fp16
+        auto_cast_type = auto_cast_type.replace("p", "")
         neuronx_model = exporter.neuronx_class.from_pretrained(
-            checkpoint_path, batch_size=batch_size, tp_degree=num_cores, amp=auto_cast_type, **neuron_kwargs
+            checkpoint_path,
+            batch_size=batch_size,
+            n_positions=sequence_length,
+            tp_degree=num_cores,
+            amp=auto_cast_type,
         )
 
         if compiled_path is not None:
@@ -245,6 +261,7 @@ class NeuronDecoderModel(OptimizedModel):
         save_directory: str,
         repository_id: str,
         private: Optional[bool] = None,
+        revision: Optional[str] = None,
         use_auth_token: Union[bool, str] = True,
         endpoint: Optional[str] = None,
     ) -> str:
@@ -276,4 +293,5 @@ class NeuronDecoderModel(OptimizedModel):
                     repo_id=repository_id,
                     path_or_fileobj=os.path.join(os.getcwd(), local_file_path),
                     path_in_repo=hub_file_path,
+                    revision=revision,
                 )

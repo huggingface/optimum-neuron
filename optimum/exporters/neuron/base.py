@@ -296,8 +296,6 @@ class NeuronConfig(ExportConfig, ABC):
         dummy_inputs: Optional[Dict[str, torch.Tensor]] = None,
         forward_with_tuple: bool = False,
         eligible_outputs: Optional[List[Union[str, int]]] = None,
-        custom_model_wrapper: Optional[torch.nn.Module] = None,
-        custom_wrapper_kwargs: Optional[Dict] = None,
     ):
         """
         Checks if inputs order of the model's forward pass correspond to the generated dummy inputs to ensure the dummy inputs tuple used for
@@ -336,14 +334,7 @@ class NeuronConfig(ExportConfig, ABC):
 
                 return outputs
 
-        if custom_model_wrapper:
-            return (
-                custom_model_wrapper(model)
-                if custom_wrapper_kwargs is None
-                else custom_model_wrapper(model, **custom_wrapper_kwargs)
-            )
-        else:
-            return ModelWrapper(model, list(dummy_inputs.keys()))
+        return ModelWrapper(model, list(dummy_inputs.keys()))
 
 
 class NeuronDecoderConfig(ExportConfig):
@@ -355,19 +346,14 @@ class NeuronDecoderConfig(ExportConfig):
     - NEURONX_CLASS (`str`) -- the name of the transformers-neuronx class to instantiate for the model.
     It is a full class name defined relatively to the transformers-neuronx module, e.g. `gpt2.model.GPT2ForSampling`
     [`~optimum.utils.DummyInputGenerator`] specifying how to create dummy inputs.
-    - NEURONX_ARGS (`List[str]`) -- a list of optional arguments to be passed when instantiating the transformers-neuronx
-    model class.
 
     The NEURONX_CLASS must always be defined in each model configuration.
-    The NEURONX_ARGS list is required only to identify specific parameters passed to the pre_trained method that must not be
-     passed to the transformers checkpoint model during export, but only to the transformers-neuronx model. By default it is empty.
 
     Args:
         task (`str`): The task the model should be exported for.
     """
 
     NEURONX_CLASS = None
-    NEURONX_ARGS = []
 
     def __init__(self, task):
         if not is_transformers_neuronx_available():
@@ -379,19 +365,6 @@ class NeuronDecoderConfig(ExportConfig):
         self._neuronx_class = getattr(module, class_name, None)
         if self._neuronx_class is None:
             raise ImportError(f"{class_name} not found in {module_name}. Please check transformers-neuronx version.")
-
-    def split_kwargs(self, **kwargs):
-        """Splits between kwargs that need to be passed when loading the transformers model during export
-        and those that need to be passed to the neuron optimizer.
-        """
-        model_kwargs = {}
-        neuron_kwargs = {}
-        for arg, value in kwargs.items():
-            if arg in self.NEURONX_ARGS:
-                neuron_kwargs[arg] = value
-            else:
-                model_kwargs[arg] = value
-        return model_kwargs, neuron_kwargs
 
     @property
     def neuronx_class(self):

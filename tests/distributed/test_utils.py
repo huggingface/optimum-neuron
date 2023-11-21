@@ -15,10 +15,10 @@
 """Tests for distributed utility functions and classes."""
 
 import copy
-import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Literal, Union
+from unittest import TestCase
 
 import torch
 from safetensors.torch import save_file
@@ -32,6 +32,7 @@ from optimum.neuron.distributed.utils import (
 from optimum.neuron.utils.patching import patch_everywhere
 
 from ..test_utils import is_trainium_test
+from ..utils import TrainiumTestMixin
 
 
 def test_load_tensor_for_weight():
@@ -39,7 +40,7 @@ def test_load_tensor_for_weight():
         tmpdir = Path(tmpdirname)
         filename = tmpdir / "tensors.safetensors"
 
-        t1 = torch.empty((24, 24), dtype=torch.bfloat16)
+        t1 = torch.randn((24, 24), dtype=torch.bfloat16)
         # Creating a slice from t1, meaning that it shares the same storage as t1.
         # It is important to make sure that the resulting loaded file does not have a bigger storage than needed.
         t2 = t1[:2, :2].contiguous()
@@ -62,7 +63,7 @@ def test_load_tensor_for_weight():
 
 
 @is_trainium_test
-class ParallelUtilsTestCase(unittest.TestCase):
+class ParallelUtilsTestCase(TrainiumTestMixin, TestCase):
     TP_GROUP = 0
     TP_SIZE = 8
     TP_RANK = 0

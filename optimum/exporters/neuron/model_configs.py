@@ -248,6 +248,9 @@ class UNetNeuronConfig(VisionNeuronConfig):
             common_inputs.append("text_embeds")
             common_inputs.append("time_ids")
 
+        if getattr(self._normalized_config, "time_cond_proj_dim", None) is not None:
+            common_inputs.append("timestep_cond")
+
         return common_inputs
 
     @property
@@ -279,26 +282,39 @@ class UNetNeuronConfig(VisionNeuronConfig):
             return dummy_inputs
 
     class ModelWrapper(torch.nn.Module):
-        def __init__(self, model):
+        def __init__(self, model, input_names: List[str]):
             super().__init__()
             self.model = model
+            self.input_names = input_names
 
-        def forward(self, sample, timestep, encoder_hidden_states, text_embeds=None, time_ids=None):
+        def forward(self, *inputs):
+            if len(inputs) != len(self.input_names):
+                raise ValueError(
+                    f"The model needs {len(self.input_names)} inputs: {self.input_names}."
+                    f" But only {len(input)} inputs are passed."
+                )
+
+            ordered_inputs = dict(zip(self.input_names, inputs))
+
+            added_cond_kwargs = {
+                "text_embeds": ordered_inputs.pop("text_embeds", None),
+                "time_ids": ordered_inputs.pop("time_ids", None),
+            }
+            sample = ordered_inputs.pop("sample", None)
+            timestep = ordered_inputs.pop("timestep").float().expand((sample.shape[0],))
+
             out_tuple = self.model(
-                sample,
-                timestep.float().expand((sample.shape[0],)),
-                encoder_hidden_states,
-                added_cond_kwargs={"text_embeds": text_embeds, "time_ids": time_ids},
+                sample=sample,
+                timestep=timestep,
+                added_cond_kwargs=added_cond_kwargs,
                 return_dict=False,
+                **ordered_inputs,
             )
 
             return out_tuple
 
     def check_model_inputs_order(self, model, dummy_inputs):
-        return super().check_model_inputs_order(
-            model=model,
-            custom_model_wrapper=self.ModelWrapper,
-        )
+        return self.ModelWrapper(model, list(dummy_inputs.keys()))
 
 
 @register_in_tasks_manager("vae-encoder", *["semantic-segmentation"])
@@ -366,11 +382,19 @@ class VaeDecoderNeuronConfig(VisionNeuronConfig):
 
 @register_in_tasks_manager("gpt2", "text-generation")
 class GPT2NeuronConfig(TextNeuronDecoderConfig):
-    NEURONX_ARGS = ["n_positions"]
     NEURONX_CLASS = "gpt2.model.GPT2ForSampling"
 
 
 @register_in_tasks_manager("llama", "text-generation")
 class LLamaNeuronConfig(TextNeuronDecoderConfig):
-    NEURONX_ARGS = ["n_positions"]
     NEURONX_CLASS = "llama.model.LlamaForSampling"
+
+
+@register_in_tasks_manager("opt", "text-generation")
+class OPTNeuronConfig(TextNeuronDecoderConfig):
+    NEURONX_CLASS = "opt.model.OPTForSampling"
+
+
+@register_in_tasks_manager("bloom", "text-generation")
+class BloomNeuronConfig(TextNeuronDecoderConfig):
+    NEURONX_CLASS = "bloom.model.BloomForSampling"

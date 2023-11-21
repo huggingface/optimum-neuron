@@ -6,14 +6,16 @@ on:
   push:
     branches: [ main ]
     paths:
+      - "setup.py"
       - "optimum/neuron/**.py"
       - "tests/**.py"
       - "examples/**.py"
       - "tools/**.py"
-      
+
   pull_request:
     branches: [ main ]
     paths:
+      - "setup.py"
       - "optimum/neuron/**.py"
       - "tests/**.py"
       - "examples/**.py"

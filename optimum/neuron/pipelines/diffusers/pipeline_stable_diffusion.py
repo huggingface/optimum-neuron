@@ -21,7 +21,6 @@ import torch
 from diffusers import StableDiffusionPipeline
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import rescale_noise_cfg
-from diffusers.utils.torch_utils import randn_tensor
 
 from .pipeline_utils import StableDiffusionPipelineMixin
 
@@ -30,24 +29,6 @@ logger = logging.getLogger(__name__)
 
 
 class NeuronStableDiffusionPipelineMixin(StableDiffusionPipelineMixin, StableDiffusionPipeline):
-    # Adapted from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.StableDiffusionPipeline.prepare_latents
-    def prepare_latents(self, batch_size, num_channels_latents, height, width, dtype, generator, latents=None):
-        shape = (batch_size, num_channels_latents, height // self.vae_scale_factor, width // self.vae_scale_factor)
-        if isinstance(generator, list) and len(generator) != batch_size:
-            raise ValueError(
-                f"You have passed a list of generators of length {len(generator)}, but requested an effective batch"
-                f" size of {batch_size}. Make sure the batch size matches the length of the generators."
-            )
-
-        if latents is None:
-            latents = randn_tensor(shape, generator=generator, dtype=dtype)
-        elif latents.shape != shape:
-            raise ValueError(f"Unexpected latents shape, got {latents.shape}, expected {shape}")
-
-        # scale the initial noise by the standard deviation required by the scheduler
-        latents = latents * self.scheduler.init_noise_sigma
-        return latents
-
     # Adapted from https://github.com/huggingface/diffusers/blob/v0.18.2/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L566
     def __call__(
         self,
@@ -145,17 +126,19 @@ class NeuronStableDiffusionPipelineMixin(StableDiffusionPipelineMixin, StableDif
                 second element is a list of `bool`s indicating whether the corresponding generated image contains
                 "not-safe-for-work" (nsfw) content.
         """
-        # 0. Height and width to unet (static shapes)
-        height = self.unet.config.neuron["static_height"] * self.vae_scale_factor
-        width = self.unet.config.neuron["static_width"] * self.vae_scale_factor
-
-        # 1. Check inputs. Raise error if not correct
+        # -1. Check `num_images_per_prompt`
         if self.num_images_per_prompt != num_images_per_prompt and not self.dynamic_batch_size:
             logger.warning(
                 f"Overriding `num_images_per_prompt({num_images_per_prompt})` to {self.num_images_per_prompt} used for the compilation. Please recompile the models with your "
                 f"custom `num_images_per_prompt` or turn on `dynamic_batch_size`, if you wish generating {num_images_per_prompt} per prompt."
             )
             num_images_per_prompt = self.num_images_per_prompt
+
+        # 0. Height and width to unet (static shapes)
+        height = self.unet.config.neuron["static_height"] * self.vae_scale_factor
+        width = self.unet.config.neuron["static_width"] * self.vae_scale_factor
+
+        # 1. Check inputs. Raise error if not correct
         self.check_inputs(
             prompt, height, width, callback_steps, negative_prompt, prompt_embeds, negative_prompt_embeds
         )
@@ -248,7 +231,7 @@ class NeuronStableDiffusionPipelineMixin(StableDiffusionPipelineMixin, StableDif
                         callback(i, t, latents)
 
         if not output_type == "latent":
-            # [Modified] Replace with pre-compiled
+            # [Modified] Replace with pre-compiled vae decoder
             image = self.vae_decoder(latents / getattr(self.vae_decoder.config, "scaling_factor", 0.18215))[0]
             image, has_nsfw_concept = self.run_safety_checker(image, prompt_embeds.dtype)
         else:

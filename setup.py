@@ -13,11 +13,11 @@ except Exception as error:
 
 
 INSTALL_REQUIRES = [
-    "transformers >= 4.32.1",
+    "transformers == 4.35.0",
     "accelerate == 0.23.0",
     "optimum >= 1.13.0",
     "huggingface_hub >= 0.14.0",
-    "numpy>=1.18.5, <=1.21.6",
+    "numpy>=1.22.2, <=1.25.2",
     "protobuf<4",
 ]
 
@@ -29,7 +29,7 @@ TESTS_REQUIRE = [
     "sentencepiece",
     "datasets",
     "sacremoses",
-    "diffusers >= 0.20.0",
+    "diffusers >= 0.23.0",
     "safetensors",
 ]
 
@@ -45,22 +45,22 @@ EXTRAS_REQUIRE = {
     "quality": QUALITY_REQUIRES,
     "neuron": [
         "wheel",
-        "torch-neuron==1.13.1.*",
+        "torch-neuron==1.13.1.2.9.6",
         "torch==1.13.1.*",
-        "neuron-cc[tensorflow]==1.18.*",
+        "neuron-cc[tensorflow]==1.20.3",
         "protobuf",
         "torchvision",
     ],
     "neuronx": [
         "wheel",
-        "neuronx-cc>=2.10",
-        "torch-neuronx>=1.13.1.1.11.0",
-        "transformers-neuronx>=0.7.84",
+        "neuronx-cc==2.11.0.34",
+        "torch-neuronx==1.13.1.1.12.1",
+        "transformers-neuronx==0.8.268",
         "torch==1.13.1.*",
         "torchvision==0.14.*",
-        "neuronx_distributed>=0.4.0",
+        "neuronx_distributed==0.5.0",
     ],
-    "diffusers": ["diffusers"],
+    "diffusers": ["diffusers >= 0.23.0"],
 }
 
 setup(

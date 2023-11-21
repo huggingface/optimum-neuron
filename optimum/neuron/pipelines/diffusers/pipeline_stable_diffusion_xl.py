@@ -11,6 +11,7 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+"""Override some diffusers API for NeuronStableDiffusionXLPipelineMixin"""
 
 import logging
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
@@ -19,7 +20,6 @@ import torch
 from diffusers import StableDiffusionXLPipeline
 from diffusers.pipelines.stable_diffusion_xl import StableDiffusionXLPipelineOutput
 from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl import rescale_noise_cfg
-from diffusers.utils.torch_utils import randn_tensor
 
 from .pipeline_utils import StableDiffusionXLPipelineMixin
 
@@ -28,23 +28,11 @@ logger = logging.getLogger(__name__)
 
 
 class NeuronStableDiffusionXLPipelineMixin(StableDiffusionXLPipelineMixin, StableDiffusionXLPipeline):
-    # Adapted from https://github.com/huggingface/diffusers/blob/v0.20.2/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py#L502
-    def prepare_latents(self, batch_size, num_channels_latents, height, width, dtype, generator, latents=None):
-        shape = (batch_size, num_channels_latents, height // self.vae_scale_factor, width // self.vae_scale_factor)
-        if isinstance(generator, list) and len(generator) != batch_size:
-            raise ValueError(
-                f"You have passed a list of generators of length {len(generator)}, but requested an effective batch"
-                f" size of {batch_size}. Make sure the batch size matches the length of the generators."
-            )
-
-        if latents is None:
-            latents = randn_tensor(shape, generator=generator, dtype=dtype)
-        elif latents.shape != shape:
-            raise ValueError(f"Unexpected latents shape, got {latents.shape}, expected {shape}")
-
-        # scale the initial noise by the standard deviation required by the scheduler
-        latents = latents * self.scheduler.init_noise_sigma
-        return latents
+    # Adapted from https://github.com/huggingface/diffusers/blob/v0.23.0/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py#L573
+    def _get_add_time_ids(self, original_size, crops_coords_top_left, target_size, dtype):
+        add_time_ids = list(original_size + crops_coords_top_left + target_size)
+        add_time_ids = torch.tensor([add_time_ids], dtype=dtype)
+        return add_time_ids
 
     # Adapted from https://github.com/huggingface/diffusers/blob/v0.20.2/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py#L557
     def __call__(
@@ -73,6 +61,10 @@ class NeuronStableDiffusionXLPipelineMixin(StableDiffusionXLPipelineMixin, Stabl
         original_size: Optional[Tuple[int, int]] = None,
         crops_coords_top_left: Tuple[int, int] = (0, 0),
         target_size: Optional[Tuple[int, int]] = None,
+        negative_original_size: Optional[Tuple[int, int]] = None,
+        negative_crops_coords_top_left: Tuple[int, int] = (0, 0),
+        negative_target_size: Optional[Tuple[int, int]] = None,
+        clip_skip: Optional[int] = None,
     ):
         r"""
         Function invoked when calling the pipeline for generation.
@@ -169,6 +161,24 @@ class NeuronStableDiffusionXLPipelineMixin(StableDiffusionXLPipelineMixin, Stabl
                 For most cases, `target_size` should be set to the desired height and width of the generated image. If
                 not specified it will default to `(width, height)`. Part of SDXL's micro-conditioning as explained in
                 section 2.2 of [https://huggingface.co/papers/2307.01952](https://huggingface.co/papers/2307.01952).
+            negative_original_size (`Tuple[int]`, defaults to (1024, 1024)):
+                To negatively condition the generation process based on a specific image resolution. Part of SDXL's
+                micro-conditioning as explained in section 2.2 of
+                [https://huggingface.co/papers/2307.01952](https://huggingface.co/papers/2307.01952). For more
+                information, refer to this issue thread: https://github.com/huggingface/diffusers/issues/4208.
+            negative_crops_coords_top_left (`Tuple[int]`, defaults to (0, 0)):
+                To negatively condition the generation process based on a specific crop coordinates. Part of SDXL's
+                micro-conditioning as explained in section 2.2 of
+                [https://huggingface.co/papers/2307.01952](https://huggingface.co/papers/2307.01952). For more
+                information, refer to this issue thread: https://github.com/huggingface/diffusers/issues/4208.
+            negative_target_size (`Tuple[int]`, defaults to (1024, 1024)):
+                To negatively condition the generation process based on a target image resolution. It should be as same
+                as the `target_size` for most cases. Part of SDXL's micro-conditioning as explained in section 2.2 of
+                [https://huggingface.co/papers/2307.01952](https://huggingface.co/papers/2307.01952). For more
+                information, refer to this issue thread: https://github.com/huggingface/diffusers/issues/4208.
+            clip_skip (`Optional[int]`, defaults to `None`):
+                Number of layers to be skipped from CLIP while computing the prompt embeddings. A value of 1 means that
+                the output of the pre-final layer will be used for computing the prompt embeddings.
 
         Examples:
 
@@ -192,15 +202,17 @@ class NeuronStableDiffusionXLPipelineMixin(StableDiffusionXLPipelineMixin, Stabl
             [`diffusers.pipelines.stable_diffusion_xl.StableDiffusionXLPipelineOutput`] if `return_dict` is True, otherwise a
             `tuple`. When returning a tuple, the first element is a list with the generated images.
         """
-        # 0. Default height and width to unet (static shapes)
-        height = self.unet.config.neuron["static_height"] * self.vae_scale_factor
-        width = self.unet.config.neuron["static_width"] * self.vae_scale_factor
+        # -1. Check `num_images_per_prompt`
         if self.num_images_per_prompt != num_images_per_prompt and not self.dynamic_batch_size:
             logger.warning(
                 f"Overriding `num_images_per_prompt({num_images_per_prompt})` to {self.num_images_per_prompt} used for the compilation. Please recompile the models with your "
                 f"custom `num_images_per_prompt` or turn on `dynamic_batch_size`, if you wish generating {num_images_per_prompt} per prompt."
             )
             num_images_per_prompt = self.num_images_per_prompt
+
+        # 0. Default height and width to unet (static shapes)
+        height = self.unet.config.neuron["static_height"] * self.vae_scale_factor
+        width = self.unet.config.neuron["static_width"] * self.vae_scale_factor
 
         original_size = original_size or (height, width)
         target_size = target_size or (height, width)
@@ -233,12 +245,14 @@ class NeuronStableDiffusionXLPipelineMixin(StableDiffusionXLPipelineMixin, Stabl
         # here `guidance_scale` is defined analog to the guidance weight `w` of equation (2)
         # of the Imagen paper: https://arxiv.org/pdf/2205.11487.pdf . `guidance_scale = 1`
         # corresponds to doing no classifier free guidance.
-        do_classifier_free_guidance = guidance_scale > 1.0 and (self.dynamic_batch_size or len(self.device_ids) == 2)
+        do_classifier_free_guidance = (
+            guidance_scale > 1.0
+            and (self.dynamic_batch_size or len(self.device_ids) == 2)
+            and self.unet.config.time_cond_proj_dim is None
+        )
 
         # 3. Encode input prompt
-        text_encoder_lora_scale = (
-            cross_attention_kwargs.get("scale", None) if cross_attention_kwargs is not None else None
-        )
+        lora_scale = cross_attention_kwargs.get("scale", None) if cross_attention_kwargs is not None else None
         (
             prompt_embeds,
             negative_prompt_embeds,
@@ -255,7 +269,8 @@ class NeuronStableDiffusionXLPipelineMixin(StableDiffusionXLPipelineMixin, Stabl
             negative_prompt_embeds=negative_prompt_embeds,
             pooled_prompt_embeds=pooled_prompt_embeds,
             negative_pooled_prompt_embeds=negative_pooled_prompt_embeds,
-            lora_scale=text_encoder_lora_scale,
+            lora_scale=lora_scale,
+            clip_skip=clip_skip,
         )
 
         # 4. Prepare timesteps
@@ -280,20 +295,34 @@ class NeuronStableDiffusionXLPipelineMixin(StableDiffusionXLPipelineMixin, Stabl
 
         # 7. Prepare added time ids & embeddings
         add_text_embeds = pooled_prompt_embeds
-        add_time_ids = (original_size + crops_coords_top_left + target_size,)
-        add_time_ids = torch.tensor(add_time_ids, dtype=prompt_embeds.dtype)
+
+        add_time_ids = self._get_add_time_ids(
+            original_size,
+            crops_coords_top_left,
+            target_size,
+            dtype=prompt_embeds.dtype,
+        )
+        if negative_original_size is not None and negative_target_size is not None:
+            negative_add_time_ids = self._get_add_time_ids(
+                negative_original_size,
+                negative_crops_coords_top_left,
+                negative_target_size,
+                dtype=prompt_embeds.dtype,
+            )
+        else:
+            negative_add_time_ids = add_time_ids
 
         if do_classifier_free_guidance:
             prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds], dim=0)
             add_text_embeds = torch.cat([negative_pooled_prompt_embeds, add_text_embeds], dim=0)
-            add_time_ids = torch.cat([add_time_ids, add_time_ids], dim=0)
+            add_time_ids = torch.cat([negative_add_time_ids, add_time_ids], dim=0)
 
         add_time_ids = add_time_ids.repeat(batch_size * num_images_per_prompt, 1)
 
         # 8. Denoising loop
         num_warmup_steps = max(len(timesteps) - num_inference_steps * self.scheduler.order, 0)
 
-        # 7.1 Apply denoising_end
+        # 8.1 Apply denoising_end
         if denoising_end is not None and isinstance(denoising_end, float) and denoising_end > 0 and denoising_end < 1:
             discrete_timestep_cutoff = int(
                 round(
@@ -304,10 +333,17 @@ class NeuronStableDiffusionXLPipelineMixin(StableDiffusionXLPipelineMixin, Stabl
             num_inference_steps = len(list(filter(lambda ts: ts >= discrete_timestep_cutoff, timesteps)))
             timesteps = timesteps[:num_inference_steps]
 
+        # 9. Optionally get Guidance Scale Embedding
+        timestep_cond = None
+        if self.unet.config.time_cond_proj_dim is not None:
+            guidance_scale_tensor = torch.tensor(guidance_scale - 1).repeat(batch_size * num_images_per_prompt)
+            timestep_cond = self.get_guidance_scale_embedding(
+                guidance_scale_tensor, embedding_dim=self.unet.config.time_cond_proj_dim
+            ).to(dtype=latents.dtype)
+
+        self._num_timesteps = len(timesteps)
         with self.progress_bar(total=num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps):
-                # import pdb
-                # pdb.set_trace()
                 # expand the latents if we are doing classifier free guidance
                 latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
 
@@ -315,10 +351,12 @@ class NeuronStableDiffusionXLPipelineMixin(StableDiffusionXLPipelineMixin, Stabl
 
                 # predict the noise residual
                 added_cond_kwargs = {"text_embeds": add_text_embeds, "time_ids": add_time_ids}
+                # [modified for neuronx] Remove not traced inputs: cross_attention_kwargs, return_dict
                 noise_pred = self.unet(
                     sample=latent_model_input,
                     timestep=t,
                     encoder_hidden_states=prompt_embeds,
+                    timestep_cond=timestep_cond,
                     added_cond_kwargs=added_cond_kwargs,
                 )[0]
 
@@ -341,6 +379,7 @@ class NeuronStableDiffusionXLPipelineMixin(StableDiffusionXLPipelineMixin, Stabl
                         callback(i, t, latents)
 
         if not output_type == "latent":
+            # [Modified] Replace with pre-compiled vae decoder
             image = self.vae_decoder(latents / getattr(self.vae_decoder.config, "scaling_factor", 0.18215))[0]
         else:
             image = latents

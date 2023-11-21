@@ -17,6 +17,7 @@
 import enum
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Optional, Tuple, Union
 
 import torch
@@ -143,10 +144,13 @@ class TensorParallelismPlugin:
     tensor_parallel_size: int = 1
     parallelize_embeddings: bool = True
     sequence_parallel_enabled: bool = False
+    checkpoint_dir: Optional[Union[str, Path]] = None
 
     def __post_init__(self):
         if self.tensor_parallel_size < 1:
             raise ValueError(f"The tensor parallel size must be >= 1, but {self.tensor_parallel_size} was given here.")
+        if isinstance(self.checkpoint_dir, str):
+            self.checkpoint_dir = Path(self.checkpoint_dir)
 
     @property
     def should_parallelize(self):
@@ -163,5 +167,6 @@ class TensorParallelismPlugin:
             device=device,
             parallelize_embeddings=self.parallelize_embeddings,
             sequence_parallel_enabled=self.sequence_parallel_enabled,
+            checkpoint_dir=self.checkpoint_dir,
         )
         return parallelized_model

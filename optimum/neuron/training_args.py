@@ -24,6 +24,7 @@ from datetime import timedelta
 import torch
 from accelerate.utils import DistributedType
 from packaging import version
+from transformers.trainer_utils import get_last_checkpoint
 from transformers.training_args import ParallelMode, TrainingArguments
 from transformers.training_args_seq2seq import Seq2SeqTrainingArguments
 from transformers.utils import (
@@ -104,9 +105,21 @@ class NeuronTrainingArgumentsMixin:
                     "The minimal required Transformers version to perform XLA FSDP is "
                     f"{TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP} but {transformers.__version__} is installed."
                 )
-        self.tp_plugin = TensorParallelismPlugin(self.tensor_parallel_size, not self.disable_embedding_parallelization)
         if self.neuron_cc_optlevel != "auto":
             self.neuron_cc_optlevel = f"-O{self.neuron_cc_optlevel}"
+
+        resume_from_checkpoint = self.resume_from_checkpoint
+        if resume_from_checkpoint is None and os.path.isdir(self.output_dir):
+            # If checkpoint is None, then there was no checkpoint in output dir, otherwise we use it.
+            checkpoint = get_last_checkpoint(self.output_dir)
+            resume_from_checkpoint = checkpoint
+
+        self.tp_plugin = TensorParallelismPlugin(
+            self.tensor_parallel_size,
+            not self.disable_embedding_parallelization,
+            sequence_parallel_enabled=self.sequence_parallel_enabled,
+            checkpoint_dir=resume_from_checkpoint,
+        )
         super().__post_init__()
 
     # Needed only to specialize the warning message for FSDP.

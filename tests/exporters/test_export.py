@@ -163,7 +163,9 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
     Integration tests ensuring stable diffusion models are correctly exported.
     """
 
-    @parameterized.expand(STABLE_DIFFUSION_MODELS_TINY["stable-diffusion"])
+    @parameterized.expand(
+        [STABLE_DIFFUSION_MODELS_TINY["stable-diffusion"], STABLE_DIFFUSION_MODELS_TINY["stable-diffusion"]]
+    )
     def test_export_for_stable_diffusion_models(self, model_name):
         set_seed(SEED)
 
@@ -199,7 +201,7 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
                 neuron_files_subpaths=output_model_names,
             )
 
-    @parameterized.expand(STABLE_DIFFUSION_MODELS_TINY["stable-diffusion-xl"])
+    @parameterized.expand([STABLE_DIFFUSION_MODELS_TINY["stable-diffusion-xl"]])
     def test_export_for_stable_diffusion_xl_models(self, model_name):
         set_seed(SEED)
 

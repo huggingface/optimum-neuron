@@ -36,7 +36,10 @@ _import_structure = {
         "NeuronStableDiffusionPipeline",
         "NeuronStableDiffusionImg2ImgPipeline",
         "NeuronStableDiffusionInpaintPipeline",
+        "NeuronLatentConsistencyModelPipeline",
         "NeuronStableDiffusionXLPipeline",
+        "NeuronStableDiffusionXLImg2ImgPipeline",
+        "NeuronStableDiffusionXLInpaintPipeline",
     ],
     "modeling_decoder": ["NeuronDecoderModel"],
     "accelerate": [
@@ -62,9 +65,12 @@ if TYPE_CHECKING:
     from .modeling_base import NeuronBaseModel
     from .modeling_decoder import NeuronDecoderModel
     from .modeling_diffusion import (
+        NeuronLatentConsistencyModelPipeline,
         NeuronStableDiffusionImg2ImgPipeline,
         NeuronStableDiffusionInpaintPipeline,
         NeuronStableDiffusionPipeline,
+        NeuronStableDiffusionXLImg2ImgPipeline,
+        NeuronStableDiffusionXLInpaintPipeline,
         NeuronStableDiffusionXLPipeline,
     )
     from .pipelines import pipeline

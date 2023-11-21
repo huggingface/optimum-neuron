@@ -171,7 +171,7 @@ class ExampleRunner:
             ],
         },
         "image-classification": {
-            "dataset_name": "cifar10",
+            "dataset_name": "beans",
             "extra_command_line_arguments": [
                 "--remove_unused_columns false",
                 "--ignore_mismatched_sizes",
@@ -185,7 +185,7 @@ class ExampleRunner:
         task: str,
         example_dir: Optional[Union[str, Path]] = None,
         config_overrides: Optional[Dict[str, Any]] = None,
-        use_venv: bool = True,
+        use_venv: bool = False,
         install_requirements: bool = True,
     ):
         self.model_name_or_path = model_name_or_path
@@ -302,13 +302,6 @@ class ExampleRunner:
             assert returncode == 0
             self._installed_requirements = True
 
-        if self.use_venv or requirements_filename.exists():
-            # TODO: remove that as soon as possible.
-            cmd_line = f"{self.pip_name} install numpy==1.21.6".split()
-            p = subprocess.Popen(cmd_line)
-            returncode = p.wait()
-            assert returncode == 0
-
     def check_user_logged_in_and_cache_repo_is_set(self):
         token = HfFolder.get_token()
         if not token:
@@ -330,7 +323,7 @@ class ExampleRunner:
         has_write_access = has_write_access_to_repo(main_repo)
         if not has_write_access:
             raise RuntimeError(
-                f"You do not have write access to {main_repo}. Please log in and/or use a custom Tranium cache repo."
+                f"You do not have write access to {main_repo}. Please log in and/or use a custom Neuron cache repo."
             )
 
     def download_model_repo_and_override_config(
@@ -383,6 +376,7 @@ class ExampleRunner:
         max_eval_samples: Optional[int] = None,
         logging_steps: int = 1,
         save_steps: int = -1,
+        save_total_limit: int = -1,
         learning_rate: float = 1e-4,
         tensor_parallel_size: int = 1,
         disable_embedding_parallelization: bool = False,
@@ -390,6 +384,7 @@ class ExampleRunner:
         output_dir: Optional[Union[Path, str]] = None,
         do_precompilation: bool = False,
         print_outputs: bool = False,
+        resume_from_checkpoint: Optional[Union[str, Path]] = None,
         _disable_is_private_model_repo_check: bool = False,
     ) -> Tuple[int, str]:
         if num_cores <= 0 or num_cores > 32:
@@ -453,7 +448,7 @@ class ExampleRunner:
         if do_eval:
             cmd.append("--do_eval")
             if max_eval_samples is not None:
-                cmd.append("--max_eval_samples {max_eval_samples}")
+                cmd.append(f"--max_eval_samples {max_eval_samples}")
         cmd.append(f"--learning_rate {learning_rate}")
         cmd.append(f"--per_device_train_batch_size {train_batch_size}")
         if do_eval:
@@ -468,7 +463,7 @@ class ExampleRunner:
         cmd.append(f"--logging_steps {logging_steps}")
         cmd.append("--save_strategy steps")
         cmd.append(f"--save_steps {save_steps}")
-        cmd.append("--save_total_limit 1")
+        cmd.append(f"--save_total_limit {save_total_limit}")
 
         # Parallelism
         if tensor_parallel_size > 1:
@@ -517,6 +512,9 @@ class ExampleRunner:
                 cmd.append(f"--output_dir {tmpdirname}")
             else:
                 cmd.append(f"--output_dir {output_dir}")
+
+            if resume_from_checkpoint is not None:
+                cmd.append(f"--resume_from_checkpoint {resume_from_checkpoint}")
 
             env = dict(os.environ)
             if _disable_is_private_model_repo_check:
