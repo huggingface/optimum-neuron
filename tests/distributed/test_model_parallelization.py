@@ -172,6 +172,8 @@ class ModelParallelizationTestCase(TrainiumTestMixin, TestCase):
             # TODO: Remove that once lazy load initializew the weights the same way as no lazy load.
             if not lazy_load:
                 torch.testing.assert_close(original_output, output)
+            else:
+                self.skipTest("Output comparison is not yet working with lazy loading.")
         else:
             assert original_output == output, f"Output named {name} do not match."
 
@@ -216,7 +218,7 @@ class ModelParallelizationTestCase(TrainiumTestMixin, TestCase):
             "parallelize_embeddings": "true" if parallelize_embeddings else "false",
             "sequence_parallel_enabled": "true" if sequence_parallel_enabled else "false",
             # TODO: disable that once that loss computation compilation for LLama does not take forever.
-            "computing_loss_is_supported": "true" if not model_class_name.startswith("Llama") else "false",
+            "computing_loss_is_supported": "true" if not model_class_name.startswith("Llama") else "true",
             **os.environ,
         }
 
@@ -334,7 +336,7 @@ class ModelParallelizationTestCase(TrainiumTestMixin, TestCase):
             model_name_or_path=model_name_or_path,
             from_config=True,
             with_lazy_load=False,
-            parallelize_embeddings=True,
+            parallelize_embeddings=False,
             sequence_parallel_enabled=False,
             overwrite_model_config=config_overwrite,
         )
@@ -351,9 +353,7 @@ class ModelParallelizationTestCase(TrainiumTestMixin, TestCase):
             model_name_or_path=model_name_or_path,
             from_config=False,
             with_lazy_load=False,
-            # TODO: enable once ParallelCrossEntropy works.
-            # parallelize_embeddings=True,
-            parallelize_embeddings=False,
+            parallelize_embeddings=True,
             sequence_parallel_enabled=True,
             overwrite_model_config=config_overwrite,
         )

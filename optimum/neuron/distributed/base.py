@@ -434,16 +434,12 @@ class Parallelizer(ABC):
     ):
         import neuronx_distributed
         import torch_xla.core.xla_model as xm
-        from neuronx_distributed import parallel_layers
-
-        cls._check_model_was_parallelized(model)
-
-        import neuronx_distributed
-        import torch_xla.core.xla_model as xm
         from neuronx_distributed.parallel_layers.parallel_state import (
             get_data_parallel_rank,
             get_tensor_model_parallel_rank,
         )
+
+        cls._check_model_was_parallelized(model)
 
         data_parallel_rank = get_data_parallel_rank()
         tensor_parallel_rank = get_tensor_model_parallel_rank()
@@ -498,13 +494,6 @@ class Parallelizer(ABC):
 
         cls._check_model_was_parallelized(model)
 
-        import torch_xla.core.xla_model as xm
-        from neuronx_distributed import parallel_layers
-        from neuronx_distributed.parallel_layers.parallel_state import (
-            get_data_parallel_rank,
-            get_tensor_model_parallel_rank,
-        )
-
         data_parallel_rank = get_data_parallel_rank()
         tensor_parallel_rank = get_tensor_model_parallel_rank()
 
@@ -548,7 +537,7 @@ class Parallelizer(ABC):
     @classmethod
     @requires_neuronx_distributed
     def load_model_sharded_checkpoint(cls, model: "PreTrainedModel", load_dir: Union[str, Path]):
-        from neuronx_distributed import parallel_layers
+        import neuronx_distributed
 
         cls._check_model_was_parallelized(model)
 

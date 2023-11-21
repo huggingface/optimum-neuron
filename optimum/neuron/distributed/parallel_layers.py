@@ -803,10 +803,7 @@ class ParallelCrossEntropy(ParallelLayer):
             else:
                 linear_projection_name = cls.LAST_LINEAR_PROJECTION_NAME
 
-        if linear_projection_name is None:
-            return layer
-
-        if not cls.is_eligible_for_cross_entropy_parallelization(model):
+        if linear_projection_name is None or not cls.is_eligible_for_cross_entropy_parallelization(model):
             return layer
 
         linear_projection_parent, linear_projection_attr_name = cls._get_module_and_attribute_name(
@@ -842,7 +839,9 @@ class ParallelCrossEntropy(ParallelLayer):
             axis="column",
             linear_layer_weight_info=linear_projection_weight_info,
             linear_layer_bias_weight_info=linear_projection_bias_weight_info,
+            # The output will be kept parallel.
             gather_output=False,
+            # Since it is the last linear projection, we do not want the output to be sequence parallel.
             sequence_parallel_enabled=False,
             device=device,
         )

@@ -63,7 +63,7 @@ class GPTNeoParallelMLP(ParallelMLP):
 
 
 class GPTNeoParallelCrossEntropy(ParallelCrossEntropy):
-    LAST_LINEAR_PROJECTION_NAME = "lm_head"
+    LAST_LINEAR_PROJECTION_NAME = {"GPTNeoForCausalLM": "lm_head"}
 
 
 class GPTNeoParallelizer(Parallelizer):
@@ -150,7 +150,7 @@ class GPTNeoXParallelMLP(ParallelMLP):
 
 
 class GPTNeoXParallelCrossEntropy(ParallelCrossEntropy):
-    LAST_LINEAR_PROJECTION_NAME = "embed_out"
+    LAST_LINEAR_PROJECTION_NAME = {"GPTNeoXForCausalLM": "embed_out"}
 
 
 class GPTNeoXParallelizer(Parallelizer):
@@ -356,7 +356,9 @@ class LLamaParallelMLP(ParallelMLP):
 
 
 class LlamaParallelCrossEntropy(ParallelCrossEntropy):
-    LAST_LINEAR_PROJECTION_NAME = "lm_head"
+    LAST_LINEAR_PROJECTION_NAME = {
+        "LlamaForCausalLM": "lm_head",
+    }
 
 
 class LlamaParallelizer(Parallelizer):

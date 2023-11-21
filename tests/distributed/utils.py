@@ -14,7 +14,7 @@
 # limitations under the License.
 """Utilities for tests distributed."""
 
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 import torch
 from transformers.models.auto import get_values
@@ -48,7 +48,7 @@ def generate_dummy_labels(
     shape: List[int],
     vocab_size: Optional[int] = None,
     seed: Optional[int] = None,
-    device: Optional[torch.device] = None,
+    device: Optional[Union[str, torch.device]] = None,
 ) -> Dict[str, torch.Tensor]:
     """Generates dummy labels."""
 
@@ -114,7 +114,10 @@ def generate_dummy_labels(
         if seed is not None:
             orig_seed = torch.seed()
             torch.manual_seed(seed)
-        labels["labels"] = torch.randint(0, vocab_size, shape, dtype=torch.long, device=device)
+        random_labels = torch.randint(0, vocab_size, shape, dtype=torch.long)
+        if device is not None:
+            random_labels = random_labels.to(device)
+        labels["labels"] = random_labels
         if seed is not None:
             torch.manual_seed(orig_seed)
     elif model_class_name in [*get_values(MODEL_FOR_CTC_MAPPING_NAMES)]:

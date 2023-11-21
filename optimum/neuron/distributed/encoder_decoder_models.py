@@ -151,7 +151,7 @@ class T5ParallelMLP(ParallelMLP):
 
 
 class T5ParallelCrossEntropy(ParallelCrossEntropy):
-    LAST_LINEAR_PROJECTION_NAME = "lm_head"
+    LAST_LINEAR_PROJECTION_NAME = {"T5ForConditionalGeneration": "lm_head"}
 
 
 class T5Parallelizer(Parallelizer):
