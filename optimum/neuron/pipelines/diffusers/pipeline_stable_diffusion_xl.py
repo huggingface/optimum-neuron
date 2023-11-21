@@ -240,7 +240,7 @@ class NeuronStableDiffusionXLPipelineMixin(StableDiffusionXLPipelineMixin, Stabl
         else:
             batch_size = prompt_embeds.shape[0]
         neuron_batch_size = self.unet.config.neuron["static_batch_size"]
-        self.check_num_images_per_prompt(batch_size, neuron_batch_size, num_images_per_prompt)
+        # self.check_num_images_per_prompt(batch_size, neuron_batch_size, num_images_per_prompt)
 
         # here `guidance_scale` is defined analog to the guidance weight `w` of equation (2)
         # of the Imagen paper: https://arxiv.org/pdf/2205.11487.pdf . `guidance_scale = 1`

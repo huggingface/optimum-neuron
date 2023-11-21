@@ -270,19 +270,46 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         if device_ids is None:
             device_ids = [0, 1]
 
-        text_encoder = NeuronBaseModel.load_model(text_encoder_path)
-        if len(device_ids) > 1:
-            unet = torch_neuronx.DataParallel(
-                torch.jit.load(unet_path),
-                device_ids,
-                set_dynamic_batching=dynamic_batch_size,
-            )
-        else:
-            unet = NeuronBaseModel.load_model(unet_path)
+        # text_encoder = NeuronBaseModel.load_model(text_encoder_path)
+        # if len(device_ids) > 1:
+        #     unet = torch_neuronx.DataParallel(
+        #         torch.jit.load(unet_path),
+        #         device_ids,
+        #         set_dynamic_batching=dynamic_batch_size,
+        #     )
+        # else:
+        #     unet = NeuronBaseModel.load_model(unet_path)
 
-        vae_decoder = NeuronBaseModel.load_model(vae_decoder_path) if vae_decoder_path is not None else None
-        vae_encoder = NeuronBaseModel.load_model(vae_encoder_path) if vae_encoder_path is not None else None
-        text_encoder_2 = NeuronBaseModel.load_model(text_encoder_2_path) if text_encoder_2_path is not None else None
+        # vae_decoder = NeuronBaseModel.load_model(vae_decoder_path) if vae_decoder_path is not None else None
+        # vae_encoder = NeuronBaseModel.load_model(vae_encoder_path) if vae_encoder_path is not None else None
+        # text_encoder_2 = NeuronBaseModel.load_model(text_encoder_2_path) if text_encoder_2_path is not None else None
+        
+        device_ids = [0, 1]
+        text_encoder = torch_neuronx.DataParallel(
+            torch.jit.load(text_encoder_path),
+            device_ids,
+            set_dynamic_batching=dynamic_batch_size,
+        )
+        unet = torch_neuronx.DataParallel(
+            torch.jit.load(unet_path),
+            device_ids,
+            set_dynamic_batching=dynamic_batch_size,
+        )
+        vae_decoder = torch_neuronx.DataParallel(
+            torch.jit.load(vae_decoder_path),
+            device_ids,
+            set_dynamic_batching=dynamic_batch_size,
+        ) if vae_decoder_path is not None else None
+        vae_encoder = torch_neuronx.DataParallel(
+            torch.jit.load(vae_encoder_path),
+            device_ids,
+            set_dynamic_batching=dynamic_batch_size,
+        ) if vae_encoder_path is not None else None
+        text_encoder_2 = torch_neuronx.DataParallel(
+            torch.jit.load(text_encoder_2_path),
+            device_ids,
+            set_dynamic_batching=dynamic_batch_size,
+        ) if text_encoder_2_path is not None else None
 
         return {
             "text_encoder": text_encoder,
