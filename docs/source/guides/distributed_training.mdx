@@ -30,7 +30,7 @@ All the [example scripts](https://github.com/huggingface/optimum-neuron/tree/mai
 
 ## How to enable ZeRO-1?
 
-Whether you use to [`NeuronTrainer`] or decide to have your own training script that uses the [`NeuronAccelerator`], it is very easy to enable the ZeRO-1 optomization.
+Whether you use the [`NeuronTrainer`] or decide to have your own training script that uses the [`NeuronAccelerator`], it is very easy to enable the ZeRO-1 optimization.
 
 ### Via the `NeuronTrainer`
 
@@ -94,6 +94,12 @@ accelerator = NeuronAccelerator(
     ...
     zero_1=True,
 )
+
+model = ...
+lazy_optimizer = lazy_adamw(...) # Actually instantiate the optimizer.
+
+
+model, optimizer = accelerator.prepare(model, lazy_optimizer)
 ```
 
 
@@ -107,9 +113,9 @@ When doing Tensor Parallelism, you have different settings:
   It is useful because it saves memory by sharding the activations.
   3. Whether or not parallelization of the embedding (and thus the LM head for decoder / seq2seq models) should be done. **It is not supported yet**.
 
-On top of that, it is very important to make sure that the original model is loaded in an efficient manner: the training script is going to be called by `torchrun`, which will dispatch it to workers. If each worker (there are 32 of them in  a `trn1.32xlarge` instance) loads the full model weights, it can take a lot of time and go out-of-memory really fast.
+On top of that, it is very important to make sure that the original model is loaded in an efficient manner: the training script is going to be called by `torchrun`, which will dispatch it to workers, one worker per core. If each worker (there are 32 of them in  a `trn1.32xlarge` instance) loads the full model weights, it can take a lot of time and go out-of-memory really fast.
 
-`optimum-neuron` provides a context-manager [`distributed.lazy_load_for_parallelism`] that loads the model lazily to prevent that, only the sharded model will be materialized in each worker.
+`optimum-neuron` provides a context-manager [`distributed.lazy_load_for_parallelism`] that loads the model lazily to prevent that, only the parameters of the corresponding model shard will be materialized in each worker.
 
 ## Via the `NeuronTrainer`
 
