@@ -74,7 +74,7 @@ Besides, don't hesitate to tweak the compilation configuration to find the best 
 >>> compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
 >>> input_shapes = {"batch_size": 1, "height": 512, "width": 512}
 
->>> stable_diffusion = NeuronStableDiffusionPipeline.from_pretrained(model_id, export=True, **compiler_args, **input_shapes, device_ids=[0, 1])
+>>> stable_diffusion = NeuronStableDiffusionPipeline.from_pretrained(model_id, export=True, **compiler_args, **input_shapes)
 
 # Save locally or upload to the HuggingFace Hub
 >>> save_directory = "sd_neuron/"
@@ -118,7 +118,7 @@ from optimum.neuron import NeuronStableDiffusionImg2ImgPipeline
 # compile & save
 model_id = "nitrosocke/Ghibli-Diffusion"
 input_shapes = {"batch_size": 1, "height": 512, "width": 512}
-pipeline = NeuronStableDiffusionImg2ImgPipeline.from_pretrained(model_id, export=True, **input_shapes, device_ids=[0, 1])
+pipeline = NeuronStableDiffusionImg2ImgPipeline.from_pretrained(model_id, export=True, **input_shapes)
 pipeline.save_pretrained("sd_img2img/")
 
 url = "https://raw.githubusercontent.com/CompVis/stable-diffusion/main/assets/stable-samples/img2img/sketch-mountains-input.jpg"
@@ -149,7 +149,7 @@ from optimum.neuron import NeuronStableDiffusionInpaintPipeline
 
 model_id = "runwayml/stable-diffusion-inpainting"
 input_shapes = {"batch_size": 1, "height": 512, "width": 512}
-pipeline = NeuronStableDiffusionInpaintPipeline.from_pretrained(model_id, export=True, **input_shapes, device_ids=[0, 1])
+pipeline = NeuronStableDiffusionInpaintPipeline.from_pretrained(model_id, export=True, **input_shapes)
 pipeline.save_pretrained("sd_inpaint/")
 
 def download_image(url):
@@ -214,7 +214,7 @@ Here is an example of exporting stable diffusion components with `NeuronStableDi
 >>> compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
 >>> input_shapes = {"batch_size": 1, "height": 1024, "width": 1024}
 
->>> stable_diffusion_xl = NeuronStableDiffusionXLPipeline.from_pretrained(model_id, export=True, **compiler_args, **input_shapes, device_ids=[0, 1])
+>>> stable_diffusion_xl = NeuronStableDiffusionXLPipeline.from_pretrained(model_id, export=True, **compiler_args, **input_shapes)
 
 # Save locally or upload to the HuggingFace Hub
 >>> save_directory = "sd_neuron_xl/"
@@ -255,7 +255,7 @@ prompt = "a dog running, lake, moat"
 url = "https://huggingface.co/datasets/optimum/documentation-images/resolve/main/intel/openvino/sd_xl/castle_friedrich.png"
 init_image = load_image(url).convert("RGB")
 
-pipe = NeuronStableDiffusionXLImg2ImgPipeline.from_pretrained("sd_neuron_xl/", device_ids=[0, 1])
+pipe = NeuronStableDiffusionXLImg2ImgPipeline.from_pretrained("sd_neuron_xl/")
 image = pipe(prompt=prompt, image=init_image).images[0]
 ```
 
@@ -280,7 +280,7 @@ init_image = load_image(img_url).convert("RGB")
 mask_image = load_image(mask_url).convert("RGB")
 prompt = "A deep sea diver floating"
 
-pipe = NeuronStableDiffusionXLInpaintPipeline.from_pretrained("sd_neuron_xl/", device_ids=[0, 1])
+pipe = NeuronStableDiffusionXLInpaintPipeline.from_pretrained("sd_neuron_xl/")
 image = pipe(prompt=prompt, image=init_image, mask_image=mask_image, strength=0.85, guidance_scale=12.5).images[0]
 ```
 
@@ -301,7 +301,7 @@ SDXL includes a [refiner model](https://huggingface.co/stabilityai/stable-diffus
 from optimum.neuron import NeuronStableDiffusionXLPipeline, NeuronStableDiffusionXLImg2ImgPipeline
 
 prompt = "A majestic lion jumping from a big stone at night"
-base = NeuronStableDiffusionXLPipeline.from_pretrained("sd_neuron_xl/", device_ids=[0, 1])
+base = NeuronStableDiffusionXLPipeline.from_pretrained("sd_neuron_xl/")
 image = base(
     prompt=prompt,
     num_images_per_prompt=num_images_per_prompt,
@@ -311,7 +311,7 @@ image = base(
 ).images[0]
 del base  # To avoid neuron device OOM
 
-refiner = NeuronStableDiffusionXLImg2ImgPipeline.from_pretrained("sd_neuron_xl_refiner/", device_ids=[0, 1])
+refiner = NeuronStableDiffusionXLImg2ImgPipeline.from_pretrained("sd_neuron_xl_refiner/")
 image = image = refiner(
     prompt=prompt,
     num_inference_steps=40,
@@ -333,11 +333,11 @@ image = image = refiner(
 from optimum.neuron import NeuronStableDiffusionXLPipeline, NeuronStableDiffusionXLImg2ImgPipeline
 
 prompt = "A majestic lion jumping from a big stone at night"
-base = NeuronStableDiffusionXLPipeline.from_pretrained("sd_neuron_xl/", device_ids=[0, 1])
+base = NeuronStableDiffusionXLPipeline.from_pretrained("sd_neuron_xl/")
 image = base(prompt=prompt, output_type="latent").images[0]
 del base  # To avoid neuron device OOM
 
-refiner = NeuronStableDiffusionXLImg2ImgPipeline.from_pretrained("sd_neuron_xl_refiner/", device_ids=[0, 1])
+refiner = NeuronStableDiffusionXLImg2ImgPipeline.from_pretrained("sd_neuron_xl_refiner/")
 image = refiner(prompt=prompt, image=image[None, :]).images[0]
 ```
 

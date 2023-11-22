@@ -316,6 +316,14 @@ class UNetNeuronConfig(VisionNeuronConfig):
     def check_model_inputs_order(self, model, dummy_inputs):
         return self.ModelWrapper(model, list(dummy_inputs.keys()))
 
+    @property
+    def is_sdxl(self) -> bool:
+        return self._is_sdxl
+
+    @is_sdxl.setter
+    def is_sdxl(self, is_sdxl: bool):
+        self._is_sdxl = is_sdxl
+
 
 @register_in_tasks_manager("vae-encoder", *["semantic-segmentation"])
 class VaeEncoderNeuronConfig(VisionNeuronConfig):

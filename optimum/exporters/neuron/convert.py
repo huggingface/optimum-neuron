@@ -467,9 +467,8 @@ def add_stable_diffusion_compiler_args(config, compiler_args):
         compiler_args.append("--enable-fast-loading-neuron-binaries")
     # unet
     if "unet" in identifier:
-        sdxl_ids = ["stable-diffusion-xl", "sdxl"]
         # SDXL unet doesn't support fast loading neuron binaries
-        if not any(sdxl_id in identifier for sdxl_id in sdxl_ids):
+        if not getattr(config, "is_sdxl", False):
             compiler_args.append("--enable-fast-loading-neuron-binaries")
         compiler_args.append("--model-type=unet-inference")
     return compiler_args

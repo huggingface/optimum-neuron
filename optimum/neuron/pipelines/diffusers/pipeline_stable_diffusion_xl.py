@@ -247,7 +247,7 @@ class NeuronStableDiffusionXLPipelineMixin(StableDiffusionXLPipelineMixin, Stabl
         # corresponds to doing no classifier free guidance.
         do_classifier_free_guidance = (
             guidance_scale > 1.0
-            and (self.dynamic_batch_size or len(self.device_ids) == 2)
+            and (self.dynamic_batch_size or self.data_parallel_mode == "unet")
             and self.unet.config.time_cond_proj_dim is None
         )
 

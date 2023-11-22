@@ -67,7 +67,6 @@ class NeuronStableDiffusionPipelineIntegrationTest(unittest.TestCase):
             dynamic_batch_size=False,
             **input_shapes,
             **self.COMPILER_ARGS,
-            device_ids=[0, 1],
         )
         self.assertIsInstance(neuron_pipeline.text_encoder, NeuronModelTextEncoder)
         self.assertIsInstance(neuron_pipeline.unet, NeuronModelUnet)
@@ -86,7 +85,6 @@ class NeuronStableDiffusionPipelineIntegrationTest(unittest.TestCase):
             dynamic_batch_size=True,
             **self.STATIC_INPUTS_SHAPES,
             **self.COMPILER_ARGS,
-            device_ids=[0, 1],
         )
 
         prompts = ["sailing ship in storm by Leonardo da Vinci"] * 2
@@ -101,7 +99,6 @@ class NeuronStableDiffusionPipelineIntegrationTest(unittest.TestCase):
             dynamic_batch_size=False,
             **self.STATIC_INPUTS_SHAPES,
             **self.COMPILER_ARGS,
-            device_ids=[0, 1],
         )
 
         url = "https://raw.githubusercontent.com/CompVis/stable-diffusion/main/assets/stable-samples/img2img/sketch-mountains-input.jpg"
@@ -118,7 +115,6 @@ class NeuronStableDiffusionPipelineIntegrationTest(unittest.TestCase):
             dynamic_batch_size=False,
             **self.STATIC_INPUTS_SHAPES,
             **self.COMPILER_ARGS,
-            device_ids=[0, 1],
         )
 
         img_url = "https://raw.githubusercontent.com/CompVis/latent-diffusion/main/data/inpainting_examples/overture-creations-5sI6fQgYIuo.png"
@@ -137,7 +133,6 @@ class NeuronStableDiffusionPipelineIntegrationTest(unittest.TestCase):
             dynamic_batch_size=False,
             **self.STATIC_INPUTS_SHAPES,
             **self.COMPILER_ARGS,
-            device_ids=[0, 1],
         )
 
         prompt = "Self-portrait oil painting, a beautiful cyborg with golden hair, 8k"
@@ -168,7 +163,6 @@ class NeuronStableDiffusionXLPipelineIntegrationTest(unittest.TestCase):
             dynamic_batch_size=False,
             **input_shapes,
             **self.COMPILER_ARGS,
-            device_ids=[0, 1],
         )
         self.assertIsInstance(neuron_pipeline.text_encoder, NeuronModelTextEncoder)
         self.assertIsInstance(neuron_pipeline.text_encoder_2, NeuronModelTextEncoder)
@@ -198,7 +192,6 @@ class NeuronStableDiffusionXLPipelineIntegrationTest(unittest.TestCase):
             dynamic_batch_size=True,
             **self.STATIC_INPUTS_SHAPES,
             **self.COMPILER_ARGS,
-            device_ids=[0, 1],
         )
 
         prompt = ["Astronaut in a jungle, cold color palette, muted colors, detailed, 8k"] * 2
@@ -222,7 +215,6 @@ class NeuronStableDiffusionXLPipelineIntegrationTest(unittest.TestCase):
             dynamic_batch_size=False,
             **self.STATIC_INPUTS_SHAPES,
             **self.COMPILER_ARGS,
-            device_ids=[0, 1],
         )
 
         url = "https://huggingface.co/datasets/optimum/documentation-images/resolve/main/intel/openvino/sd_xl/castle_friedrich.png"
@@ -239,7 +231,6 @@ class NeuronStableDiffusionXLPipelineIntegrationTest(unittest.TestCase):
             dynamic_batch_size=False,
             **self.STATIC_INPUTS_SHAPES,
             **self.COMPILER_ARGS,
-            device_ids=[0, 1],
         )
 
         img_url = (
