@@ -28,10 +28,10 @@
       title: Fine-tune Transformers with AWS Trainium
     - local: guides/distributed_training
       title: Distributed Training
-    - local: guides/models
-      title: Neuron models for inference 
     - local: guides/export_model
       title: Export a model to Inferentia
+    - local: guides/models
+      title: Neuron models for inference 
     - local: guides/pipelines
       title: Inference pipelines with AWS Neuron
     title: How-To Guides
