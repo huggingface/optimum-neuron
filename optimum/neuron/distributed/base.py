@@ -42,6 +42,7 @@ from .utils import (
     WeightInformation,
     delete_tensor_model_parallel_attributes,
     load_tensor_for_weight,
+    try_to_hf_initialize,
 )
 
 
@@ -302,20 +303,6 @@ class Parallelizer(ABC):
                 )
                 tied_weights[parameter] = new_parameter
                 new_parameters.add(new_parameter)
-
-            def try_to_hf_initialize(model, mod, parameter_names: List[str]) -> List[str]:
-                cached_params_data = {name: param.data.clone() for name, param in mod.named_parameters()}
-                model._init_weights(mod)
-                left_uninitialized = []
-                with torch.no_grad():
-                    for name in parameter_names:
-                        if torch.all(cached_params_data[name] == getattr(mod, name).data):
-                            left_uninitialized.append(name)
-                    for name, cached_data in cached_params_data.items():
-                        if name not in parameter_names:
-                            param = getattr(mod, name)
-                            param.data = cached_data
-                return left_uninitialized
 
             for mod, parameter_names in modules_to_initialize.items():
                 if isinstance(mod, torch.nn.Embedding):
