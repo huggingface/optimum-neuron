@@ -14,7 +14,10 @@
 # limitations under the License.
 """Utilities for tests distributed."""
 
-from typing import TYPE_CHECKING, Dict, List, Optional, Union
+import functools
+import inspect
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Type, Union
 
 import torch
 from transformers.models.auto import get_values
@@ -36,6 +39,7 @@ from transformers.models.auto.modeling_auto import (
     MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING_NAMES,
 )
 
+from optimum.neuron.utils.patching import DynamicPatch, Patcher
 from optimum.neuron.utils.require_utils import requires_neuronx_distributed, requires_torch_xla
 
 
@@ -194,3 +198,42 @@ def gather_along_dim(input_: torch.Tensor, dim: int) -> torch.Tensor:
         t = input_.transpose(0, dim).contiguous()
         gathered_t = gather_along_first_dim(t)
         return gathered_t.transpose(0, dim).contiguous()
+
+
+def static_initializer_seed(initialization_function: Callable, seed: int):
+    @functools.wraps(initialization_function)
+    def wrapper(*args, **kwargs):
+        from transformers import set_seed
+
+        set_seed(seed)
+        return initialization_function(*args, **kwargs)
+
+    return wrapper
+
+
+@contextmanager
+def create_static_seed_patcher(model_class: Type["PreTrainedModel"], seed: int):
+    """
+    Context manager that resets the seed to a given value for every initialization function.
+    This is useful because lazy initialization works but does not respect the random state of the non-lazy case.
+    This allows us to test that lazy initialization works if we ignore the random seed.
+    """
+    specialized_static_initializer_seed = functools.partial(static_initializer_seed, seed=seed)
+
+    class_module_name = inspect.getmodule(model_class).__name__
+    fully_qualified_method_name = f"{class_module_name}.{model_class.__name__}._init_weights"
+    dynamic_patch = DynamicPatch(specialized_static_initializer_seed)
+    patcher = Patcher(
+        [
+            (fully_qualified_method_name, dynamic_patch),
+            ("torch.nn.Embedding.reset_parameters", dynamic_patch),
+            ("torch.nn.Linear.reset_parameters", dynamic_patch),
+            ("neuronx_distributed.parallel_layers.layers.ColumnParallelLinear.init_weight_cpu", dynamic_patch),
+            ("neuronx_distributed.parallel_layers.layers.RowParallelLinear.init_weight_cpu", dynamic_patch),
+        ]
+    )
+    with patcher:
+        try:
+            yield
+        finally:
+            pass

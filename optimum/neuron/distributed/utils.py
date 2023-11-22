@@ -21,7 +21,7 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, Literal, Optional, Tuple, Type, Union
+from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Tuple, Type, Union
 
 import torch
 from transformers import PretrainedConfig
@@ -33,8 +33,11 @@ from ..utils.misc import download_checkpoints_in_cache
 from ..utils.require_utils import requires_neuronx_distributed, requires_safetensors, requires_torch_xla
 
 
-if TYPE_CHECKING and is_neuronx_distributed_available():
-    from neuronx_distributed.parallel_layers import layers
+if TYPE_CHECKING:
+    from transformers import PreTrainedModel
+
+    if is_neuronx_distributed_available():
+        from neuronx_distributed.parallel_layers import layers
 
 
 TENSOR_PARALLEL_SHARDS_DIR_NAME = "tensor_parallel_shards"
@@ -468,6 +471,35 @@ def gqa_key_value_slicing_when_tp_size_greater_than_num_key_value_heads(
                     linear_layer.bias[key_value_head_index * head_dim : (key_value_head_index + 1) * head_dim]
                 )
     return sliced_linear_layer
+
+
+@requires_neuronx_distributed
+def delete_tensor_model_parallel_attributes(tensor: torch.Tensor):
+    from neuronx_distributed.parallel_layers.utils import _MODEL_PARALLEL_ATTRIBUTE_DEFAULTS
+
+    for attr_name in _MODEL_PARALLEL_ATTRIBUTE_DEFAULTS:
+        if hasattr(tensor, attr_name):
+            delattr(tensor, attr_name)
+
+
+def try_to_hf_initialize(model: "PreTrainedModel", mod: torch.nn.Module, parameter_names: List[str]) -> List[str]:
+    """
+    Tries to initialize the parameters in `parameter_names` that belong to the module `mod` by using the
+    `model._init_weights` method. It returns the names of the parameters that were left uninitialized.
+
+    """
+    cached_params_data = {name: param.data.clone() for name, param in mod.named_parameters()}
+    model._init_weights(mod)
+    left_uninitialized = []
+    with torch.no_grad():
+        for name in parameter_names:
+            if torch.all(cached_params_data[name] == getattr(mod, name).data):
+                left_uninitialized.append(name)
+        for name, cached_data in cached_params_data.items():
+            if name not in parameter_names:
+                param = getattr(mod, name)
+                param.data = cached_data
+    return left_uninitialized
 
 
 @classmethod

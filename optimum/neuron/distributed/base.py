@@ -17,6 +17,7 @@
 import contextlib
 import shutil
 from abc import ABC, abstractclassmethod
+from collections import defaultdict
 from dataclasses import asdict
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -35,7 +36,13 @@ from .parallel_layers import (
     LayerNormType,
     SequenceCollectiveOpInfo,
 )
-from .utils import TENSOR_PARALLEL_SHARDS_DIR_NAME, ParameterMetadata, WeightInformation, load_tensor_for_weight
+from .utils import (
+    TENSOR_PARALLEL_SHARDS_DIR_NAME,
+    ParameterMetadata,
+    WeightInformation,
+    delete_tensor_model_parallel_attributes,
+    load_tensor_for_weight,
+)
 
 
 if TYPE_CHECKING:
@@ -235,7 +242,7 @@ class Parallelizer(ABC):
         with torch.no_grad():
             tied_weights = {}
             new_parameters = set()
-            modules_to_initialize = []
+            modules_to_initialize = defaultdict(list)
             for name, parameter in named_parameters(model, remove_duplicate=False):
                 split = name.rsplit(".", maxsplit=1)
                 module = model.get_submodule(split[0])
@@ -286,7 +293,7 @@ class Parallelizer(ABC):
                     # This means that there is no information about where to find the weights for this parameter.
                     device = torch.device("cpu") if device is None else device
                     new_parameter = torch.nn.Parameter(torch.empty_like(current_weight, device=device))
-                    modules_to_initialize.append(module)
+                    modules_to_initialize[module].append(attribute_name)
 
                 setattr(
                     module,
@@ -296,15 +303,58 @@ class Parallelizer(ABC):
                 tied_weights[parameter] = new_parameter
                 new_parameters.add(new_parameter)
 
-            for mod in modules_to_initialize:
-                if isinstance(mod, (torch.nn.Embedding, torch.nn.Linear)):
+            def try_to_hf_initialize(model, mod, parameter_names: List[str]) -> List[str]:
+                cached_params_data = {name: param.data.clone() for name, param in mod.named_parameters()}
+                model._init_weights(mod)
+                left_uninitialized = []
+                with torch.no_grad():
+                    for name in parameter_names:
+                        if torch.all(cached_params_data[name] == getattr(mod, name).data):
+                            left_uninitialized.append(name)
+                    for name, cached_data in cached_params_data.items():
+                        if name not in parameter_names:
+                            param = getattr(mod, name)
+                            param.data = cached_data
+                return left_uninitialized
+
+            for mod, parameter_names in modules_to_initialize.items():
+                if isinstance(mod, torch.nn.Embedding):
                     # This module has not pre-trained weights, it must be fine-tuned, we initialize it with the
-                    # `reset_parameters()` method.
-                    mod.reset_parameters()
-                elif isinstance(mod, parallel_layers.layers.BaseParallelLinear):
-                    mod._init_weight(mod.weight)
+                    # `reset_parameters()` method since there is only one parameter in torch.nn.Embedding.
+                    left_uninitialized = try_to_hf_initialize(model, mod, parameter_names)
+                    if left_uninitialized:
+                        mod.reset_parameters()
+                elif isinstance(mod, torch.nn.Linear):
+                    # This module has not pre-trained weights, it must be fine-tuned, we initialize it with the
+                    # `reset_parameters()` method but we need to be careful because one of the parameters might not
+                    # need initialization.
+                    left_uninitialized = try_to_hf_initialize(model, mod, parameter_names)
+                    if not left_uninitialized:
+                        continue
+                    parameter_names = left_uninitialized
+                    cached_parameters = [mod.weight.data]
                     if mod.bias is not None:
-                        mod._init_bias()
+                        cached_parameters.append(mod.bias.data)
+                    mod.reset_parameters()
+                    if "weight" not in parameter_names:
+                        mod.weight.data = cached_parameters[0]
+                    if mod.bias is not None and "bias" not in parameter_names:
+                        mod.bias.data = cached_parameters[1]
+                elif isinstance(mod, parallel_layers.layers.BaseParallelLinear):
+                    orig_class = mod.__class__
+                    mod.__class__ = torch.nn.Linear
+                    left_uninitialized = try_to_hf_initialize(model, mod, parameter_names)
+                    mod.__class__ = orig_class
+                    parameter_names = left_uninitialized
+                    if "weight" in parameter_names:
+                        delete_tensor_model_parallel_attributes(mod.weight)
+                        # It is needed to use `init_weight_cpu` instead of `_init_weights` because the initialization
+                        # needs to happen on the full parameter and then scatter it accross TP ranks otherwise it will
+                        # not be equivalent to the non-parallel case.
+                        mod.init_weight_cpu()
+                    if mod.bias is not None and "bias" in parameter_names:
+                        # mod._init_bias()
+                        mod.bias.data.zero_()
                 else:
                     raise ValueError(f"Do not know how to initialize a module of type {mod.__class__}")
 
