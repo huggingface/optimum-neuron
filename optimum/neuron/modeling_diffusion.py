@@ -295,6 +295,8 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             for submodel_name, submodel_path in submodels.items():
                 if submodel_path is not None and submodel_path.is_file():
                     submodels[submodel_name] = NeuronBaseModel.load_model(submodel_path)
+                else:
+                    submodels[submodel_name] = None
             submodels["unet"] = torch_neuronx.DataParallel(
                 torch.jit.load(unet_path),
                 [0, 1],
