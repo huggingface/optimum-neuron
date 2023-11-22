@@ -502,6 +502,36 @@ def try_to_hf_initialize(model: "PreTrainedModel", mod: torch.nn.Module, paramet
     return left_uninitialized
 
 
+def initialize_linear(mod: torch.nn.Linear, parameter_names: List[str]):
+    """
+    Initializes the parameters in `parameter_names` of a `torch.nn.Linear` module.
+    """
+    cached_parameters = [mod.weight.data]
+    if mod.bias is not None:
+        cached_parameters.append(mod.bias.data)
+    mod.reset_parameters()
+    with torch.no_grad():
+        if "weight" not in parameter_names:
+            mod.weight.data = cached_parameters[0]
+        if mod.bias is not None and "bias" not in parameter_names:
+            mod.bias.data = cached_parameters[1]
+
+
+def initialize_parallel_linear(mod: "layers.BaseParallelLinear", parameter_names: List[str]):
+    """
+    Initializes the parameters in `parameter_names` of a parallel linear module.
+    """
+    if "weight" in parameter_names:
+        delete_tensor_model_parallel_attributes(mod.weight)
+        # It is needed to use `init_weight_cpu` instead of `_init_weights` because the initialization
+        # needs to happen on the full parameter and then scatter it accross TP ranks otherwise it will
+        # not be equivalent to the non-parallel case.
+        mod.init_weight_cpu()
+    if mod.bias is not None and "bias" in parameter_names:
+        mod._init_bias()
+        # mod.bias.data.zero_()
+
+
 @classmethod
 @requires_torch_xla
 def from_pretrained_for_tp(

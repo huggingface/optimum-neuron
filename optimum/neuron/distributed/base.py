@@ -40,7 +40,8 @@ from .utils import (
     TENSOR_PARALLEL_SHARDS_DIR_NAME,
     ParameterMetadata,
     WeightInformation,
-    delete_tensor_model_parallel_attributes,
+    initialize_linear,
+    initialize_parallel_linear,
     load_tensor_for_weight,
     try_to_hf_initialize,
 )
@@ -318,30 +319,18 @@ class Parallelizer(ABC):
                     left_uninitialized = try_to_hf_initialize(model, mod, parameter_names)
                     if not left_uninitialized:
                         continue
-                    parameter_names = left_uninitialized
-                    cached_parameters = [mod.weight.data]
-                    if mod.bias is not None:
-                        cached_parameters.append(mod.bias.data)
-                    mod.reset_parameters()
-                    if "weight" not in parameter_names:
-                        mod.weight.data = cached_parameters[0]
-                    if mod.bias is not None and "bias" not in parameter_names:
-                        mod.bias.data = cached_parameters[1]
+                    initialize_linear(mod, left_uninitialized)
+
                 elif isinstance(mod, parallel_layers.layers.BaseParallelLinear):
+                    # First, we try to initialize the layer similarly as it would be done with the model.
+                    # To do that it is necessary to change the model class to that the `model._init_weights` method
+                    # considers this module as a `torch.nn.Linear` instance.
                     orig_class = mod.__class__
                     mod.__class__ = torch.nn.Linear
                     left_uninitialized = try_to_hf_initialize(model, mod, parameter_names)
                     mod.__class__ = orig_class
-                    parameter_names = left_uninitialized
-                    if "weight" in parameter_names:
-                        delete_tensor_model_parallel_attributes(mod.weight)
-                        # It is needed to use `init_weight_cpu` instead of `_init_weights` because the initialization
-                        # needs to happen on the full parameter and then scatter it accross TP ranks otherwise it will
-                        # not be equivalent to the non-parallel case.
-                        mod.init_weight_cpu()
-                    if mod.bias is not None and "bias" in parameter_names:
-                        # mod._init_bias()
-                        mod.bias.data.zero_()
+
+                    initialize_parallel_linear(mod, left_uninitialized)
                 else:
                     raise ValueError(f"Do not know how to initialize a module of type {mod.__class__}")
 
