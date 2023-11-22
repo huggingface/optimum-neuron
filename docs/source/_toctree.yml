@@ -22,6 +22,8 @@
       title: Overview
     - local: guides/setup_aws_instance
       title: Set up AWS Trainium instance
+    - local: guides/sagemaker
+      title: Using Amazon SageMaker
     - local: guides/cache_system
       title: Neuron model cache
     - local: guides/fine_tune
