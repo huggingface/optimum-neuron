@@ -233,7 +233,7 @@ class UNetNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
     MANDATORY_AXES = ("batch_size", "sequence_length", "num_channels", "width", "height")
     MODEL_TYPE = "unet"
-
+    CUSTOM_MODEL_WRAPPER = UnetNeuronWrapper
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
         image_size="sample_size",
         num_channels="in_channels",
@@ -256,6 +256,9 @@ class UNetNeuronConfig(VisionNeuronConfig):
         if getattr(self._normalized_config, "addition_embed_type", None) == "text_time":
             common_inputs.append("text_embeds")
             common_inputs.append("time_ids")
+
+        if getattr(self._normalized_config, "time_cond_proj_dim", None) is not None:
+            common_inputs.append("timestep_cond")
 
         return common_inputs
 
@@ -287,11 +290,8 @@ class UNetNeuronConfig(VisionNeuronConfig):
         else:
             return dummy_inputs
 
-    def patch_model(self, model, dummy_inputs):
-        return super().patch_model(
-            model=model,
-            custom_model_wrapper=UnetNeuronWrapper,
-        )
+    def patch_model_for_export(self, model, dummy_inputs):
+        return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
 
 
 @register_in_tasks_manager("vae-encoder", *["semantic-segmentation"])
@@ -388,11 +388,7 @@ class T5EncoderNeuronConfig(TextSeq2SeqNeuronConfig):
 
     def patch_model_for_export(self, model, device="xla", **kwargs):
         num_beams = kwargs.pop("num_beams", 1)
-        return super().patch_model_for_export(
-            model=model,
-            custom_model_wrapper=self.CUSTOM_MODEL_WRAPPER,
-            custom_wrapper_kwargs={"num_beams": num_beams, "device": device},
-        )
+        return self.CUSTOM_MODEL_WRAPPER(model, num_beams=num_beams, device=device)
 
 
 @register_in_tasks_manager("opt", "text-generation")
@@ -451,16 +447,10 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
         return dummy_inputs_generators
 
     def patch_model_for_export(self, model, device="xla", **kwargs):
-        return super().patch_model_for_export(
-            model=model,
-            custom_model_wrapper=self.CUSTOM_MODEL_WRAPPER,
-            custom_wrapper_kwargs={
-                "device": device,
-                "batch_size": kwargs.pop("batch_size", 1),
-                "sequence_length": kwargs.pop("sequence_length", 1),
-                "num_beams": kwargs.pop("num_beams", 1),
-            },
-        )
+        batch_size = kwargs.pop("batch_size", 1)
+        sequence_length = kwargs.pop("sequence_length", 1)
+        num_beams = kwargs.pop("num_beams", 1)
+        return self.CUSTOM_MODEL_WRAPPER(model, batch_size=batch_size, sequence_length=sequence_length, num_beams=num_beams, device=device)
 
     def generate_io_aliases(self, model):
         num_outputs_from_trace = 3 if model.num_beams > 1 else 1

@@ -154,7 +154,39 @@ class TestExportCLI(unittest.TestCase):
 
     @requires_neuronx
     def test_stable_diffusion(self):
-        model_id = "hf-internal-testing/tiny-stable-diffusion-torch"
+        model_ids = ["hf-internal-testing/tiny-stable-diffusion-torch", "echarlaix/tiny-random-latent-consistency"]
+        for model_id in model_ids:
+            with tempfile.TemporaryDirectory() as tempdir:
+                subprocess.run(
+                    [
+                        "optimum-cli",
+                        "export",
+                        "neuron",
+                        "--model",
+                        model_id,
+                        "--task",
+                        "stable-diffusion",
+                        "--batch_size",
+                        "1",
+                        "--height",
+                        "64",
+                        "--width",
+                        "64",
+                        "--num_images_per_prompt",
+                        "4",
+                        "--auto_cast",
+                        "matmul",
+                        "--auto_cast_type",
+                        "bf16",
+                        tempdir,
+                    ],
+                    shell=False,
+                    check=True,
+                )
+
+    @requires_neuronx
+    def test_stable_diffusion_xl(self):
+        model_id = "echarlaix/tiny-random-stable-diffusion-xl"
         with tempfile.TemporaryDirectory() as tempdir:
             subprocess.run(
                 [
@@ -164,7 +196,7 @@ class TestExportCLI(unittest.TestCase):
                     "--model",
                     model_id,
                     "--task",
-                    "stable-diffusion",
+                    "stable-diffusion-xl",
                     "--batch_size",
                     "1",
                     "--height",
@@ -184,8 +216,9 @@ class TestExportCLI(unittest.TestCase):
             )
 
     @requires_neuronx
-    def test_stable_diffusion_xl(self):
+    def test_replace_unet(self):
         model_id = "echarlaix/tiny-random-stable-diffusion-xl"
+        unet_id = "Jingya/tiny-random-sdxl-unet"
         with tempfile.TemporaryDirectory() as tempdir:
             subprocess.run(
                 [
@@ -194,6 +227,8 @@ class TestExportCLI(unittest.TestCase):
                     "neuron",
                     "--model",
                     model_id,
+                    "--unet",
+                    unet_id,
                     "--task",
                     "stable-diffusion-xl",
                     "--batch_size",

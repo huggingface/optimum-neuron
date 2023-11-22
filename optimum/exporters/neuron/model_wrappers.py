@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Model wrappers for Neuron export."""
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 
 import torch
 from transformers.models.t5.modeling_t5 import T5LayerCrossAttention
@@ -24,17 +24,33 @@ if TYPE_CHECKING:
 
 
 class UnetNeuronWrapper(torch.nn.Module):
-    def __init__(self, model):
-        super().__init__()
-        self.model = model
+    def __init__(self, model, input_names: List[str]):
+            super().__init__()
+            self.model = model
+            self.input_names = input_names
 
-    def forward(self, sample, timestep, encoder_hidden_states, text_embeds=None, time_ids=None):
+    def forward(self, *inputs):
+        if len(inputs) != len(self.input_names):
+            raise ValueError(
+                f"The model needs {len(self.input_names)} inputs: {self.input_names}."
+                f" But only {len(input)} inputs are passed."
+            )
+
+        ordered_inputs = dict(zip(self.input_names, inputs))
+
+        added_cond_kwargs = {
+            "text_embeds": ordered_inputs.pop("text_embeds", None),
+            "time_ids": ordered_inputs.pop("time_ids", None),
+        }
+        sample = ordered_inputs.pop("sample", None)
+        timestep = ordered_inputs.pop("timestep").float().expand((sample.shape[0],))
+
         out_tuple = self.model(
-            sample,
-            timestep.float().expand((sample.shape[0],)),
-            encoder_hidden_states,
-            added_cond_kwargs={"text_embeds": text_embeds, "time_ids": time_ids},
+            sample=sample,
+            timestep=timestep,
+            added_cond_kwargs=added_cond_kwargs,
             return_dict=False,
+            **ordered_inputs,
         )
 
         return out_tuple

@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from .pipeline_latent_consistency_text2img import NeuronLatentConsistencyPipelineMixin
 from .pipeline_stable_diffusion import NeuronStableDiffusionPipelineMixin
 from .pipeline_stable_diffusion_img2img import NeuronStableDiffusionImg2ImgPipelineMixin
 from .pipeline_stable_diffusion_inpaint import NeuronStableDiffusionInpaintPipelineMixin

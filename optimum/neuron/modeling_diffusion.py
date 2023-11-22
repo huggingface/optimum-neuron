@@ -50,6 +50,7 @@ if is_neuronx_available():
 if is_diffusers_available():
     from diffusers import (
         DDIMScheduler,
+        LCMScheduler,
         LMSDiscreteScheduler,
         PNDMScheduler,
         StableDiffusionPipeline,
@@ -60,6 +61,7 @@ if is_diffusers_available():
     from diffusers.utils import CONFIG_NAME, is_invisible_watermark_available
 
     from .pipelines import (
+        NeuronLatentConsistencyPipelineMixin,
         NeuronStableDiffusionImg2ImgPipelineMixin,
         NeuronStableDiffusionInpaintPipelineMixin,
         NeuronStableDiffusionPipelineMixin,
@@ -89,7 +91,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         vae_decoder: Union[torch.jit._script.ScriptModule, "NeuronModelVaeDecoder"],
         config: Dict[str, Any],
         tokenizer: CLIPTokenizer,
-        scheduler: Union[DDIMScheduler, PNDMScheduler, LMSDiscreteScheduler],
+        scheduler: Union[DDIMScheduler, PNDMScheduler, LMSDiscreteScheduler, LCMScheduler],
         vae_encoder: Optional[Union[torch.jit._script.ScriptModule, "NeuronModelVaeEncoder"]] = None,
         text_encoder_2: Optional[Union[torch.jit._script.ScriptModule, "NeuronModelTextEncoder"]] = None,
         tokenizer_2: Optional[CLIPTokenizer] = None,
@@ -191,6 +193,8 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         self.tokenizer = tokenizer
         self.tokenizer_2 = tokenizer_2
         self.scheduler = scheduler
+        if self.is_lcm:
+            self.scheduler = LCMScheduler.from_config(self.scheduler.config)
         self.feature_extractor = feature_extractor
         self.safety_checker = None
         sub_models = {
@@ -226,6 +230,12 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             self.num_images_per_prompt = 1
 
         self.image_processor = VaeImageProcessor(vae_scale_factor=self.vae_scale_factor)
+
+    @property
+    def is_lcm(self):
+        patterns = ["lcm", "latent-consistency"]
+        unet_name_or_path = getattr(self.unet.config, "_name_or_path", "").lower()
+        return any(pattern in unet_name_or_path for pattern in patterns)
 
     @staticmethod
     def load_model(
@@ -487,6 +497,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         cls,
         model_id: str,
         config: Dict[str, Any],
+        unet_id: Optional[Union[str, Path]] = None,
         use_auth_token: Optional[Union[bool, str]] = None,
         revision: str = "main",
         force_download: bool = True,
@@ -535,6 +546,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             local_files_only=local_files_only,
             use_auth_token=use_auth_token,
             do_validation=False,
+            submodels={"unet": unet_id},
             **input_shapes,
         )
 
@@ -615,7 +627,8 @@ class NeuronModelUnet(_NeuronDiffusionModelPart):
         sample: torch.Tensor,
         timestep: torch.Tensor,
         encoder_hidden_states: torch.Tensor,
-        added_cond_kwargs: Optional[Dict[str, Any]] = None,
+        added_cond_kwargs: Optional[Dict[str, torch.Tensor]] = None,
+        timestep_cond: Optional[torch.Tensor] = None,
     ):
         timestep = timestep.float().expand((sample.shape[0],))
         inputs = {
@@ -623,6 +636,8 @@ class NeuronModelUnet(_NeuronDiffusionModelPart):
             "timestep": timestep,
             "encoder_hidden_states": encoder_hidden_states,
         }
+        if timestep_cond is not None:
+            inputs["timestep_cond"] = timestep_cond
         if added_cond_kwargs is not None:
             inputs["text_embeds"] = added_cond_kwargs.pop("text_embeds", None)
             inputs["time_ids"] = added_cond_kwargs.pop("time_ids", None)
@@ -688,6 +703,10 @@ class NeuronStableDiffusionInpaintPipeline(
     NeuronStableDiffusionPipelineBase, NeuronStableDiffusionInpaintPipelineMixin
 ):
     __call__ = NeuronStableDiffusionInpaintPipelineMixin.__call__
+
+
+class NeuronLatentConsistencyModelPipeline(NeuronStableDiffusionPipelineBase, NeuronLatentConsistencyPipelineMixin):
+    __call__ = NeuronLatentConsistencyPipelineMixin.__call__
 
 
 class NeuronStableDiffusionXLPipelineBase(NeuronStableDiffusionPipelineBase):

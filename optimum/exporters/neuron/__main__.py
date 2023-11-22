@@ -47,6 +47,7 @@ from .utils import (
     build_stable_diffusion_components_mandatory_shapes,
     get_encoder_decoder_models_for_export,
     get_stable_diffusion_models_for_export,
+    replace_stable_diffusion_submodels,
 )
 
 
@@ -188,6 +189,7 @@ def _get_submodels_and_neuron_configs(
     output: Path,
     dynamic_batch_size: bool = False,
     model_name_or_path: Optional[Union[str, Path]] = None,
+    submodels: Dict[str, Union[Path, str]] = None,
 ):
     is_stable_diffusion = "stable-diffusion" in task
     is_encoder_decoder = (
@@ -196,7 +198,7 @@ def _get_submodels_and_neuron_configs(
 
     if is_stable_diffusion:
         models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs_for_stable_diffusion(
-            model, input_shapes, task, output, dynamic_batch_size
+            model, input_shapes, task, output, dynamic_batch_size, submodels
         )
     elif is_encoder_decoder:
         models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs_for_encoder_decoder(
@@ -220,7 +222,9 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
     task: str,
     output: Path,
     dynamic_batch_size: bool = False,
-):
+    submodels: Dict[str, Union[Path, str]] = None,
+):  
+    model = replace_stable_diffusion_submodels(model, submodels)
     check_compiler_compatibility_for_stable_diffusion()
     if is_neuron_available():
         raise RuntimeError(
@@ -234,7 +238,7 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
         model.tokenizer.save_pretrained(output.joinpath("tokenizer"))
     if hasattr(model, "tokenizer_2") and model.tokenizer_2 is not None:
         model.tokenizer_2.save_pretrained(output.joinpath("tokenizer_2"))
-    if hasattr(model, "feature_extractor"):
+    if hasattr(model, "feature_extractor") and model.feature_extractor is not None:
         model.feature_extractor.save_pretrained(output.joinpath("feature_extractor"))
     model.save_config(output)
 
@@ -305,6 +309,7 @@ def main_export(
     local_files_only: bool = False,
     use_auth_token: Optional[Union[bool, str]] = None,
     do_validation: bool = True,
+    submodels: Dict[str, Union[Path, str]] = None,
     **input_shapes,
 ):
     output = Path(output)
@@ -335,6 +340,7 @@ def main_export(
         output=output,
         dynamic_batch_size=dynamic_batch_size,
         model_name_or_path=model_name_or_path,
+        submodels=submodels,
     )
 
     _, neuron_outputs = export_models(
@@ -397,8 +403,10 @@ def main():
 
     if is_stable_diffusion:
         input_shapes = normalize_stable_diffusion_input_shapes(args)
+        submodels = {"unet": args.unet}
     else:
         input_shapes = normalize_input_shapes(task, args)
+        submodels = None
 
     main_export(
         model_name_or_path=args.model,
@@ -410,6 +418,7 @@ def main():
         cache_dir=args.cache_dir,
         trust_remote_code=args.trust_remote_code,
         do_validation=not args.disable_validation,
+        submodels=submodels,
         **input_shapes,
     )
 

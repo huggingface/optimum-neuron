@@ -52,6 +52,7 @@ if is_diffusers_available():
             f"We found an older version of diffusers {_diffusers_version} but we require diffusers to be >= {DIFFUSERS_MINIMUM_VERSION}. "
             "Please update diffusers by running `pip install --upgrade diffusers`"
         )
+    from diffusers import UNet2DConditionModel
     from diffusers.models.attention_processor import (
         Attention,
         AttnAddedKVProcessor,
@@ -251,9 +252,10 @@ def _get_submodels_for_export_stable_diffusion(
     is_sdxl = "xl" in task
 
     models_for_export = []
-    projection_dim = (
-        pipeline.text_encoder_2.config.projection_dim if is_sdxl else pipeline.text_encoder.config.projection_dim
-    )
+    if hasattr(pipeline, "text_encoder_2"):
+        projection_dim = pipeline.text_encoder_2.config.projection_dim
+    else:
+        projection_dim = pipeline.text_encoder.config.projection_dim
 
     # Text encoders
     if pipeline.text_encoder is not None:
@@ -332,6 +334,14 @@ def check_mandatory_input_shapes(neuron_config_constructor, task, input_shapes):
                 f"Cannot find the value of `{name}` which is mandatory for exporting the model to the neuron format, please set the value explicitly."
             )
 
+def replace_stable_diffusion_submodels(pipeline, submodels):
+    if submodels is not None:
+        unet_id = submodels.pop("unet", None)
+        if unet_id is not None:
+            unet = UNet2DConditionModel.from_pretrained(unet_id)
+            pipeline.unet = unet
+
+    return pipeline
 
 def get_encoder_decoder_models_for_export(
     model: "PreTrainedModel",
@@ -388,3 +398,4 @@ def get_encoder_decoder_models_for_export(
     models_for_export[DECODER_NAME] = (model, decoder_neuron_config)
 
     return models_for_export
+
