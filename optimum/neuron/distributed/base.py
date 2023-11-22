@@ -329,7 +329,8 @@ class Parallelizer(ABC):
                     mod.__class__ = torch.nn.Linear
                     left_uninitialized = try_to_hf_initialize(model, mod, parameter_names)
                     mod.__class__ = orig_class
-
+                    if not left_uninitialized:
+                        continue
                     initialize_parallel_linear(mod, left_uninitialized)
                 else:
                     raise ValueError(f"Do not know how to initialize a module of type {mod.__class__}")
