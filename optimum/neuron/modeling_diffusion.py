@@ -21,7 +21,7 @@ import shutil
 from abc import abstractmethod
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
 
 import torch
 from huggingface_hub import snapshot_download
@@ -92,11 +92,11 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         config: Dict[str, Any],
         tokenizer: CLIPTokenizer,
         scheduler: Union[DDIMScheduler, PNDMScheduler, LMSDiscreteScheduler, LCMScheduler],
+        data_parallel_mode: str,
         vae_encoder: Optional[Union[torch.jit._script.ScriptModule, "NeuronModelVaeEncoder"]] = None,
         text_encoder_2: Optional[Union[torch.jit._script.ScriptModule, "NeuronModelTextEncoder"]] = None,
         tokenizer_2: Optional[CLIPTokenizer] = None,
         feature_extractor: Optional[CLIPFeatureExtractor] = None,
-        device_ids: Optional[List[int]] = None,
         configs: Optional[Dict[str, "PretrainedConfig"]] = None,
         neuron_configs: Optional[Dict[str, "NeuronConfig"]] = None,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
@@ -118,6 +118,9 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 [CLIPTokenizer](https://huggingface.co/docs/transformers/v4.21.0/en/model_doc/clip#transformers.CLIPTokenizer).
             scheduler (`Union[DDIMScheduler, PNDMScheduler, LMSDiscreteScheduler]`):
                 A scheduler to be used in combination with the U-NET component to denoise the encoded image latents.
+            data_parallel_mode (`str`):
+                Mode to decide what components to load into both NeuronCores of a Neuron device. Can be "none"(no data parallel), "unet"(only
+                load unet into both cores of each device), "all"(load the whole pipeline into both cores).
             vae_encoder (`Optional[torch.jit._script.ScriptModule]`, defaults to `None`):
                 The Neuron TorchScript module associated to the VAE encoder.
             text_encoder_2 (`Optional[torch.jit._script.ScriptModule]`, defaults to `None`):
@@ -127,8 +130,6 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 [CLIPTokenizer](https://huggingface.co/docs/transformers/v4.21.0/en/model_doc/clip#transformers.CLIPTokenizer).
             feature_extractor (`Optional[CLIPFeatureExtractor]`, defaults to `None`):
                 A model extracting features from generated images to be used as inputs for the `safety_checker`
-            device_ids (Optional[List[int]], defaults to `None`):
-                A list of integers that specify the NeuronCores to use for parallelization, by default will load the UNet model into 2 neuron cores.
             configs (Optional[Dict[str, "PretrainedConfig"]], defaults to `None`):
                 A dictionary configurations for components of the pipeline.
             neuron_configs (Optional["NeuronConfig"], defaults to `None`):
@@ -140,7 +141,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         """
 
         self._internal_dict = config
-        self.device_ids = device_ids if device_ids is not None else [0, 1]
+        self.data_parallel_mode = data_parallel_mode
         self.configs = configs
         self.neuron_configs = neuron_configs
         self.dynamic_batch_size = all(
@@ -193,7 +194,9 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         self.tokenizer = tokenizer
         self.tokenizer_2 = tokenizer_2
         self.scheduler = scheduler
-        if self.is_lcm:
+        self.is_lcm = False
+        if NeuronStableDiffusionPipelineBase.is_lcm(self.unet.config):
+            self.is_lcm = True
             self.scheduler = LCMScheduler.from_config(self.scheduler.config)
         self.feature_extractor = feature_extractor
         self.safety_checker = None
@@ -231,20 +234,20 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
 
         self.image_processor = VaeImageProcessor(vae_scale_factor=self.vae_scale_factor)
 
-    @property
-    def is_lcm(self):
+    @staticmethod
+    def is_lcm(unet_config):
         patterns = ["lcm", "latent-consistency"]
-        unet_name_or_path = getattr(self.unet.config, "_name_or_path", "").lower()
+        unet_name_or_path = getattr(unet_config, "_name_or_path", "").lower()
         return any(pattern in unet_name_or_path for pattern in patterns)
 
     @staticmethod
     def load_model(
+        data_parallel_mode: Optional[str],
         text_encoder_path: Union[str, Path],
         unet_path: Union[str, Path],
         vae_decoder_path: Optional[Union[str, Path]] = None,
         vae_encoder_path: Optional[Union[str, Path]] = None,
         text_encoder_2_path: Optional[Union[str, Path]] = None,
-        device_ids: Optional[List[int]] = None,
         dynamic_batch_size: bool = False,
     ):
         """
@@ -252,6 +255,9 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         one or multiple [NeuronCore](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/neuroncores-arch.html).
 
         Args:
+            data_parallel_mode (`Optional[str]`):
+                Mode to decide what components to load into both NeuronCores of a Neuron device. Can be "none"(no data parallel), "unet"(only
+                load unet into both cores of each device), "all"(load the whole pipeline into both cores).
             text_encoder_path (`Union[str, Path]`):
                 Path of the compiled text encoder.
             unet_path (`Union[str, Path]`):
@@ -262,62 +268,56 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 Path of the compiled VAE encoder. It is optional, only used for tasks taking images as input.
             text_encoder_2_path (`Optional[Union[str, Path]]`, defaults to `None`):
                 Path of the compiled second frozen text encoder. SDXL only.
-            device_ids (`Optional[List[int]]`, defaults to `None`):
-                The ID of neuron cores to load a model, in the case of stable diffusion, it is only used for loading unet, and by default unet will be loaded onto both neuron cores of a device.
             dynamic_batch_size (`bool`, defaults to `False`):
                 Whether enable dynamic batch size for neuron compiled model. If `True`, the input batch size can be a multiple of the batch size during the compilation.
         """
-        if device_ids is None:
-            device_ids = [0, 1]
-
-        # text_encoder = NeuronBaseModel.load_model(text_encoder_path)
-        # if len(device_ids) > 1:
-        #     unet = torch_neuronx.DataParallel(
-        #         torch.jit.load(unet_path),
-        #         device_ids,
-        #         set_dynamic_batching=dynamic_batch_size,
-        #     )
-        # else:
-        #     unet = NeuronBaseModel.load_model(unet_path)
-
-        # vae_decoder = NeuronBaseModel.load_model(vae_decoder_path) if vae_decoder_path is not None else None
-        # vae_encoder = NeuronBaseModel.load_model(vae_encoder_path) if vae_encoder_path is not None else None
-        # text_encoder_2 = NeuronBaseModel.load_model(text_encoder_2_path) if text_encoder_2_path is not None else None
-        
-        device_ids = [0, 1]
-        text_encoder = torch_neuronx.DataParallel(
-            torch.jit.load(text_encoder_path),
-            device_ids,
-            set_dynamic_batching=dynamic_batch_size,
-        )
-        unet = torch_neuronx.DataParallel(
-            torch.jit.load(unet_path),
-            device_ids,
-            set_dynamic_batching=dynamic_batch_size,
-        )
-        vae_decoder = torch_neuronx.DataParallel(
-            torch.jit.load(vae_decoder_path),
-            device_ids,
-            set_dynamic_batching=dynamic_batch_size,
-        ) if vae_decoder_path is not None else None
-        vae_encoder = torch_neuronx.DataParallel(
-            torch.jit.load(vae_encoder_path),
-            device_ids,
-            set_dynamic_batching=dynamic_batch_size,
-        ) if vae_encoder_path is not None else None
-        text_encoder_2 = torch_neuronx.DataParallel(
-            torch.jit.load(text_encoder_2_path),
-            device_ids,
-            set_dynamic_batching=dynamic_batch_size,
-        ) if text_encoder_2_path is not None else None
-
-        return {
-            "text_encoder": text_encoder,
-            "unet": unet,
-            "vae_decoder": vae_decoder,
-            "vae_encoder": vae_encoder,
-            "text_encoder_2": text_encoder_2,
+        submodels = {
+            "text_encoder": text_encoder_path,
+            "unet": unet_path,
+            "vae_decoder": vae_decoder_path,
+            "vae_encoder": vae_encoder_path,
+            "text_encoder_2": text_encoder_2_path,
         }
+        if data_parallel_mode == "all":
+            logger.info("Loading the whole pipeline into both Neuron Cores...")
+            for submodel_name, submodel_path in submodels.items():
+                if submodel_path is not None and submodel_path.is_file():
+                    submodels[submodel_name] = torch_neuronx.DataParallel(
+                        torch.jit.load(submodel_path),
+                        [0, 1],
+                        set_dynamic_batching=dynamic_batch_size,
+                    )
+                else:
+                    submodels[submodel_name] = None
+        elif data_parallel_mode == "unet":
+            logger.info("Loading only U-Net into both Neuron Cores...")
+            submodels.pop("unet")
+            for submodel_name, submodel_path in submodels.items():
+                if submodel_path is not None and submodel_path.is_file():
+                    submodels[submodel_name] = NeuronBaseModel.load_model(submodel_path)
+            submodels["unet"] = torch_neuronx.DataParallel(
+                torch.jit.load(unet_path),
+                [0, 1],
+                set_dynamic_batching=dynamic_batch_size,
+            )
+        elif data_parallel_mode == "none":
+            logger.info("Loading the pipeline without any data parallelism...")
+            for submodel_name, submodel_path in submodels.items():
+                if submodel_path is not None and submodel_path.is_file():
+                    submodels[submodel_name] = NeuronBaseModel.load_model(submodel_path)
+        else:
+            raise ValueError("You need to pass `data_parallel_mode` to define Neuron Core allocation.")
+
+        return submodels
+
+    @staticmethod
+    def set_default_dp_mode(unet_config):
+        if NeuronStableDiffusionPipelineBase.is_lcm(unet_config) is True:
+            # LCM applies guidance using guidance embeddings, so we can load the whole pipeline into both cores.
+            return "all"
+        else:
+            # Load U-Net into both cores for classifier-free guidance which doubles batch size of inputs passed to the U-Net.
+            return "unet"
 
     def _save_pretrained(
         self,
@@ -408,7 +408,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         vae_decoder: Optional["NeuronModelVaeDecoder"] = None,
         local_files_only: bool = False,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
-        device_ids: Optional[List[int]] = None,
+        data_parallel_mode: Optional[str] = None,
         **kwargs,  # To share kwargs only available for `_from_transformers`
     ):
         model_id = str(model_id)
@@ -486,13 +486,16 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 configs[name] = model_config
                 neuron_configs[name] = cls._neuron_config_init(model_config)
 
+        if data_parallel_mode is None:
+            data_parallel_mode = cls.set_default_dp_mode(configs["unet"])
+
         pipe = cls.load_model(
+            data_parallel_mode=data_parallel_mode,
             text_encoder_path=model_and_config_save_paths["text_encoder"][0],
             unet_path=model_and_config_save_paths["unet"][0],
             vae_decoder_path=model_and_config_save_paths["vae_decoder"][0] if vae_decoder is None else None,
             vae_encoder_path=model_and_config_save_paths["vae_encoder"][0] if vae_encoder is None else None,
             text_encoder_2_path=model_and_config_save_paths["text_encoder_2"][0] if text_encoder_2 is None else None,
-            device_ids=device_ids,
             dynamic_batch_size=neuron_configs[DIFFUSION_MODEL_UNET_NAME].dynamic_batch_size,
         )
 
@@ -510,7 +513,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             text_encoder_2=text_encoder_2 or pipe.get("text_encoder_2"),
             tokenizer_2=sub_models.get("tokenizer_2", None),
             feature_extractor=sub_models.get("feature_extractor", None),
-            device_ids=device_ids,
+            data_parallel_mode=data_parallel_mode,
             configs=configs,
             neuron_configs=neuron_configs,
             model_save_dir=model_save_dir,
@@ -520,7 +523,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
     @classmethod
     def _from_transformers(
         cls,
-        model_id: str,
+        model_id: Union[str, Path],
         config: Dict[str, Any],
         unet_id: Optional[Union[str, Path]] = None,
         use_auth_token: Optional[Union[bool, str]] = None,
@@ -536,9 +539,63 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         disable_fast_relayout: Optional[bool] = False,
         disable_fallback: bool = False,
         dynamic_batch_size: bool = False,
-        device_ids: Optional[List[int]] = None,
+        data_parallel_mode: Optional[str] = None,
         **kwargs_shapes,
     ) -> "NeuronStableDiffusionPipelineBase":
+        """
+        Args:
+            model_id (`Union[str, Path]`):
+                Can be either:
+                - A string, the *model id* of a pretrained model hosted inside a model repo on huggingface.co.
+                    Valid model ids can be located at the root-level, like `bert-base-uncased`, or namespaced under a
+                    user or organization name, like `dbmdz/bert-base-german-cased`.
+                - A path to a *directory* containing a model saved using [`~OptimizedModel.save_pretrained`],
+                    e.g., `./my_model_directory/`.
+            config (`Dict[str, Any]`):
+                A config dictionary from which the model components will be instantiated. Make sure to only load
+                configuration files of compatible classes.
+            unet_id (`Optional[Union[str, Path]]`, defaults to `None`):
+                A string or a path point to the U-NET model to replace the one in the original pipeline.
+            use_auth_token (`Optional[Union[bool, str]]`, defaults to `None`):
+                The token to use as HTTP bearer authorization for remote files. If `True`, will use the token generated
+                when running `transformers-cli login` (stored in `~/.huggingface`).
+            revision (`str`, defaults to `"main"`):
+                The specific model version to use (can be a branch name, tag name or commit id).
+            force_download (`bool`, defaults to `True`):
+                Whether or not to force the (re-)download of the model weights and configuration files, overriding the
+                cached versions if they exist.
+            cache_dir (`Optional[str]`, defaults to `None`):
+                Path to a directory in which a downloaded pretrained model configuration should be cached if the
+                standard cache should not be used.
+            subfolder (`str`, defaults to `""`):
+                In case the relevant files are located inside a subfolder of the model repo either locally or on huggingface.co, you can
+                specify the folder name here.
+            local_files_only (`bool`, defaults to `False`):
+                Whether or not to only look at local files (i.e., do not try to download the model).
+            trust_remote_code (`bool`, defaults to `False`):
+                Whether or not to allow for custom code defined on the Hub in their own modeling. This option should only be set
+                to `True` for repositories you trust and in which you have read the code, as it will execute code present on
+                the Hub on your local machine.
+            task (`Optional[str]`, defaults to `None`):
+                The task to export the model for. If not specified, the task will be auto-inferred based on the model.
+            auto_cast (`Optional[str]`, defaults to `"matmul"`):
+                Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `"none"`, `"matmul"` or `"all"`.
+            auto_cast_type (`Optional[str]`, defaults to `"bf16"`):
+                The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"` or `"tf32"`.
+            disable_fast_relayout (`Optional[str]`, defaults to `None`):
+                (INF1 ONLY) Whether to disable fast relayout optimization which improves performance by using the matrix multiplier for tensor transpose.
+            disable_fallback (`bool`, defaults to `False`):
+                (INF1 ONLY) Whether to disable CPU partitioning to force operations to Neuron. Defaults to `False`, as without fallback, there could be
+                some compilation failures or performance problems.
+            dynamic_batch_size (`bool`, defaults to `False`):
+                Whether to enable dynamic batch size for neuron compiled model. If this option is enabled, the input batch size can be a multiple of the
+                batch size during the compilation, but it comes with a potential tradeoff in terms of latency.
+            data_parallel_mode (`Optional[str]`, defaults to `None`):
+                Mode to decide what components to load into both NeuronCores of a Neuron device. Can be "none"(no data parallel), "unet"(only
+                load unet into both cores of each device), "all"(load the whole pipeline into both cores).
+            kwargs_shapes (`Dict[str, int]`):
+                Shapes to use during inference. This argument allows to override the default shapes used during the export.
+        """
         if task is None:
             task = TasksManager.infer_task_from_model(cls.auto_model_class)
 
@@ -579,7 +636,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             model_id=save_dir_path,
             config=config,
             model_save_dir=save_dir,
-            device_ids=device_ids,
+            data_parallel_mode=data_parallel_mode,
         )
 
     @classmethod
@@ -746,11 +803,11 @@ class NeuronStableDiffusionXLPipelineBase(NeuronStableDiffusionPipelineBase):
         config: Dict[str, Any],
         tokenizer: CLIPTokenizer,
         scheduler: Union[DDIMScheduler, PNDMScheduler, LMSDiscreteScheduler],
+        data_parallel_mode: str,
         vae_encoder: Optional[torch.jit._script.ScriptModule] = None,
         text_encoder_2: Optional[torch.jit._script.ScriptModule] = None,
         tokenizer_2: Optional[CLIPTokenizer] = None,
         feature_extractor: Optional[CLIPFeatureExtractor] = None,
-        device_ids: Optional[List[int]] = None,
         configs: Optional[Dict[str, "PretrainedConfig"]] = None,
         neuron_configs: Optional[Dict[str, "NeuronConfig"]] = None,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
@@ -764,11 +821,11 @@ class NeuronStableDiffusionXLPipelineBase(NeuronStableDiffusionPipelineBase):
             config=config,
             tokenizer=tokenizer,
             scheduler=scheduler,
+            data_parallel_mode=data_parallel_mode,
             vae_encoder=vae_encoder,
             text_encoder_2=text_encoder_2,
             tokenizer_2=tokenizer_2,
             feature_extractor=feature_extractor,
-            device_ids=device_ids,
             configs=configs,
             neuron_configs=neuron_configs,
             model_save_dir=model_save_dir,

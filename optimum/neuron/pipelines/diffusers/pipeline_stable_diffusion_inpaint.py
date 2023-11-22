@@ -155,7 +155,7 @@ class NeuronStableDiffusionInpaintPipelineMixin(StableDiffusionPipelineMixin, St
         >>> compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
         >>> input_shapes = {"batch_size": 1, "height": 1024, "width": 1024}
         >>> pipeline = NeuronStableDiffusionInpaintPipeline.from_pretrained(
-        ...     "runwayml/stable-diffusion-inpainting", export=True, **compiler_args, **input_shapes, device_ids=[0, 1])
+        ...     "runwayml/stable-diffusion-inpainting", export=True, **compiler_args, **input_shapes,
         ... )
         >>> pipeline.save_pretrained("sd_inpaint/")
 
@@ -207,7 +207,9 @@ class NeuronStableDiffusionInpaintPipelineMixin(StableDiffusionPipelineMixin, St
         # here `guidance_scale` is defined analog to the guidance weight `w` of equation (2)
         # of the Imagen paper: https://arxiv.org/pdf/2205.11487.pdf . `guidance_scale = 1`
         # corresponds to doing no classifier free guidance.
-        do_classifier_free_guidance = guidance_scale > 1.0 and (self.dynamic_batch_size or len(self.device_ids) == 2)
+        do_classifier_free_guidance = guidance_scale > 1.0 and (
+            self.dynamic_batch_size or self.data_parallel_mode == "unet"
+        )
 
         # 3. Encode input prompt
         text_encoder_lora_scale = (

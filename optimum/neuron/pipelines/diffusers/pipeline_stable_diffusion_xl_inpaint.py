@@ -266,7 +266,7 @@ class NeuronStableDiffusionXLInpaintPipelineMixin(StableDiffusionXLPipelineMixin
         >>> compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
         >>> input_shapes = {"batch_size": 1, "height": 1024, "width": 1024}
         >>> pipeline = NeuronStableDiffusionXLInpaintPipeline.from_pretrained(
-        ...     "stabilityai/stable-diffusion-xl-base-1.0", export=True, **compiler_args, **input_shapes, device_ids=[0, 1])
+        ...     "stabilityai/stable-diffusion-xl-base-1.0", export=True, **compiler_args, **input_shapes,
         ... )
         >>> pipeline.save_pretrained("sdxl_inpaint/")
 
