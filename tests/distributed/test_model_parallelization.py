@@ -147,6 +147,14 @@ for entry in MODEL_TYPES_TO_TEST:
         MODELS_TO_TEST.append((model_class_name, model_name_or_path, config_overwrite))
 
 
+# When doing from pretrained + lazy loading, it is not always easy to initiliazed the remaining weights in a similar
+# fashion than in the regular model. So we do not check for them under this specific setting. It does not mean that
+# parallelization does not work for them, only that some weights cannot be initialized exactly the same way.
+MODEL_CLASSES_TO_IGNORE_ON_LAZY_LOAD_FOR_FROM_PRETRAINED = [
+    "T5ForQuestionAnswering",
+]
+
+
 @is_trainium_test
 class ModelParallelizationTestCase(TrainiumTestMixin, TestCase):
     OUTPUTS_TO_IGNORE = {
@@ -293,6 +301,16 @@ class ModelParallelizationTestCase(TrainiumTestMixin, TestCase):
             temporary_dir = Path(tmpdirname)
             original_model_outputs = torch.load(temporary_dir / "original.bin")
             parallel_model_outputs = torch.load(temporary_dir / "parallel.bin")
+
+            if (
+                not from_config
+                and with_lazy_load
+                and model_class_name in MODEL_CLASSES_TO_IGNORE_ON_LAZY_LOAD_FOR_FROM_PRETRAINED
+            ):
+                self.skipTest(
+                    f"Cannot compare outputs for {model_class_name} when doing from_pretrained + lazy loading."
+                )
+
             for name, t in original_model_outputs.items():
                 if name in self.OUTPUTS_TO_IGNORE:
                     continue
