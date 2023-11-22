@@ -223,7 +223,7 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
     output: Path,
     dynamic_batch_size: bool = False,
     submodels: Dict[str, Union[Path, str]] = None,
-):  
+):
     model = replace_stable_diffusion_submodels(model, submodels)
     check_compiler_compatibility_for_stable_diffusion()
     if is_neuron_available():

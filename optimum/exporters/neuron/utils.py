@@ -334,6 +334,7 @@ def check_mandatory_input_shapes(neuron_config_constructor, task, input_shapes):
                 f"Cannot find the value of `{name}` which is mandatory for exporting the model to the neuron format, please set the value explicitly."
             )
 
+
 def replace_stable_diffusion_submodels(pipeline, submodels):
     if submodels is not None:
         unet_id = submodels.pop("unet", None)
@@ -342,6 +343,7 @@ def replace_stable_diffusion_submodels(pipeline, submodels):
             pipeline.unet = unet
 
     return pipeline
+
 
 def get_encoder_decoder_models_for_export(
     model: "PreTrainedModel",
@@ -398,4 +400,3 @@ def get_encoder_decoder_models_for_export(
     models_for_export[DECODER_NAME] = (model, decoder_neuron_config)
 
     return models_for_export
-

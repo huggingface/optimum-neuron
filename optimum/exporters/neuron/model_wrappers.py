@@ -25,9 +25,9 @@ if TYPE_CHECKING:
 
 class UnetNeuronWrapper(torch.nn.Module):
     def __init__(self, model, input_names: List[str]):
-            super().__init__()
-            self.model = model
-            self.input_names = input_names
+        super().__init__()
+        self.model = model
+        self.input_names = input_names
 
     def forward(self, *inputs):
         if len(inputs) != len(self.input_names):

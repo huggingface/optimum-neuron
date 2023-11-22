@@ -154,7 +154,9 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
     Integration tests ensuring stable diffusion models are correctly exported.
     """
 
-    @parameterized.expand([STABLE_DIFFUSION_MODELS_TINY["stable-diffusion"], STABLE_DIFFUSION_MODELS_TINY["latent-consistency"]])
+    @parameterized.expand(
+        [STABLE_DIFFUSION_MODELS_TINY["stable-diffusion"], STABLE_DIFFUSION_MODELS_TINY["latent-consistency"]]
+    )
     def test_export_for_stable_diffusion_models(self, model_id):
         set_seed(SEED)
 

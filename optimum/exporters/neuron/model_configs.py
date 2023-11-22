@@ -450,7 +450,9 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
         batch_size = kwargs.pop("batch_size", 1)
         sequence_length = kwargs.pop("sequence_length", 1)
         num_beams = kwargs.pop("num_beams", 1)
-        return self.CUSTOM_MODEL_WRAPPER(model, batch_size=batch_size, sequence_length=sequence_length, num_beams=num_beams, device=device)
+        return self.CUSTOM_MODEL_WRAPPER(
+            model, batch_size=batch_size, sequence_length=sequence_length, num_beams=num_beams, device=device
+        )
 
     def generate_io_aliases(self, model):
         num_outputs_from_trace = 3 if model.num_beams > 1 else 1
