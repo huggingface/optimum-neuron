@@ -228,7 +228,62 @@ It is also possible to specify the output format of the consolidated checkpoints
 
 Example:
 
-TODO: add example tree
+Training with Tensor Parallelism just completed and the output dir is called `my_training`. The directory looks like the following:
+
+```
+my_training/                                                                                                                                                                              
+├── README.md                                                                                                                                                                                 
+├── all_results.json                                                                                                                                                                          
+├── checkpoint-10                                                                                                                                                                             
+│   ├── config.json
+│   ├── scheduler.pt
+│   ├── special_tokens_map.json
+│   ├── tensor_parallel_shards
+│   ├── tokenizer.json
+│   ├── tokenizer.model
+│   ├── tokenizer_config.json
+│   ├── trainer_state.json
+│   └── training_args.bin
+├── checkpoint-20
+│   ├── config.json
+│   ├── scheduler.pt
+│   ├── special_tokens_map.json
+│   ├── tensor_parallel_shards
+│   ├── tokenizer.json
+│   ├── tokenizer.model
+│   ├── tokenizer_config.json
+│   ├── trainer_state.json
+│   └── training_args.bin
+├── checkpoint-30
+│   ├── config.json
+│   ├── scheduler.pt
+│   ├── special_tokens_map.json
+│   ├── tensor_parallel_shards
+│   ├── tokenizer.json
+│   ├── tokenizer.model
+│   ├── tokenizer_config.json
+│   ├── trainer_state.json
+│   └── training_args.bin
+├── config.json
+├── special_tokens_map.json
+├── tensor_parallel_shards
+│   ├── tp_rank_00_pp_rank_00
+│   ├── tp_rank_01_pp_rank_00
+│   ├── tp_rank_02_pp_rank_00
+│   ├── tp_rank_03_pp_rank_00
+│   ├── tp_rank_04_pp_rank_00
+│   ├── tp_rank_05_pp_rank_00
+│   ├── tp_rank_06_pp_rank_00
+│   └── tp_rank_07_pp_rank_00
+├── tokenizer.json
+├── tokenizer.model
+├── tokenizer_config.json
+├── train_results.json
+├── trainer_state.json
+└── training_args.bin
+```
+
+It is possible to consolidate the sharded checkpoints in `my_training/tensor_parallel_shards`, which correspond to the sharded checkpoints saved at the end of the training, by running the following command:
 
 ```
 optimum-cli neuron consolidate my_training my_training_consolidated_checkpoint
