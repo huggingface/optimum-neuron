@@ -151,7 +151,7 @@ class T5ParallelMLP(ParallelMLP):
 
 
 class T5ParallelCrossEntropy(ParallelCrossEntropy):
-    LAST_LINEAR_PROJECTION_NAME = "lm_head"
+    LAST_LINEAR_PROJECTION_NAME = {"T5ForConditionalGeneration": "lm_head"}
 
 
 class T5Parallelizer(Parallelizer):
@@ -164,7 +164,7 @@ class T5Parallelizer(Parallelizer):
 
     LAYERNORM_TYPE = LayerNormType.RMS_NORM
     SEQUENCE_COLLECTIVE_OPS_INFOS = [
-        SequenceCollectiveOpInfo("scatter", torch.nn.Embedding, "output", "first"),
+        SequenceCollectiveOpInfo("scatter", "shared", "output", "first"),
         SequenceCollectiveOpInfo("gather", T5LayerNorm, "output", "last"),
     ]
 
@@ -331,7 +331,9 @@ class T5Parallelizer(Parallelizer):
                 "(https://github.com/huggingface/optimum-neuron)."
             )
         if parallelize_embeddings:
-            model = T5ParallelEmbedding.transform(model, model, device=device)
+            model = T5ParallelEmbedding.transform(
+                model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+            )
         if parallelize_embeddings and model.encoder.embed_tokens is not None:
             model.encoder.embed_tokens = model.shared
         if parallelize_embeddings and model.decoder.embed_tokens is not None:
@@ -344,7 +346,10 @@ class T5Parallelizer(Parallelizer):
                 device=device,
             )
             block.layer[1].DenseReluDense = T5ParallelMLP.transform(
-                model, block.layer[1].DenseReluDense, device=device
+                model,
+                block.layer[1].DenseReluDense,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                device=device,
             )
         for block in model.decoder.block:
             block.layer[0].SelfAttention = T5ParallelSelfAttention.transform(

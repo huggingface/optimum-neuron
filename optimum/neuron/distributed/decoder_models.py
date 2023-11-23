@@ -63,7 +63,7 @@ class GPTNeoParallelMLP(ParallelMLP):
 
 
 class GPTNeoParallelCrossEntropy(ParallelCrossEntropy):
-    LAST_LINEAR_PROJECTION_NAME = "lm_head"
+    LAST_LINEAR_PROJECTION_NAME = {"GPTNeoForCausalLM": "lm_head"}
 
 
 class GPTNeoParallelizer(Parallelizer):
@@ -133,7 +133,7 @@ class GPTNeoParallelizer(Parallelizer):
 
 
 class GPTNeoXParallelEmbedding(ParallelEmbedding):
-    EMBEDDING_NAME = "embed_in"
+    EMBEDDING_NAME = "gpt_neox.embed_in"
     LM_HEAD_NAME = "embed_out"
 
 
@@ -150,7 +150,7 @@ class GPTNeoXParallelMLP(ParallelMLP):
 
 
 class GPTNeoXParallelCrossEntropy(ParallelCrossEntropy):
-    LAST_LINEAR_PROJECTION_NAME = "embed_out"
+    LAST_LINEAR_PROJECTION_NAME = {"GPTNeoXForCausalLM": "embed_out"}
 
 
 class GPTNeoXParallelizer(Parallelizer):
@@ -356,7 +356,9 @@ class LLamaParallelMLP(ParallelMLP):
 
 
 class LlamaParallelCrossEntropy(ParallelCrossEntropy):
-    LAST_LINEAR_PROJECTION_NAME = "lm_head"
+    LAST_LINEAR_PROJECTION_NAME = {
+        "LlamaForCausalLM": "lm_head",
+    }
 
 
 class LlamaParallelizer(Parallelizer):
@@ -519,6 +521,7 @@ class LlamaParallelizer(Parallelizer):
                 model, layer.mlp, sequence_parallel_enabled=sequence_parallel_enabled, device=device
             )
         if parallelize_embeddings:
+            LlamaParallelEmbedding.overwrite_vocab_size_value_for_cross_entropy_computation(model)
             model = LlamaParallelCrossEntropy.transform(
                 model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device
             )
