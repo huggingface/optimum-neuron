@@ -529,7 +529,6 @@ def initialize_parallel_linear(mod: "layers.BaseParallelLinear", parameter_names
         mod.init_weight_cpu()
     if mod.bias is not None and "bias" in parameter_names:
         mod._init_bias()
-        # mod.bias.data.zero_()
 
 
 @classmethod
