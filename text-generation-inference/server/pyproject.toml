@@ -18,5 +18,8 @@ dependencies = [
     'loguru == 0.6.0'
 ]
 
+[tool.setuptools]
+packages = ["text_generation_server", "text_generation_server.pb"]
+
 [project.scripts]
 text-generation-server = 'text_generation_server.cli:app'

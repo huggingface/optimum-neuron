@@ -13,14 +13,6 @@ src_dir := $(mkfile_dir)/$(pkg_name)
 sources := $(wildcard $(src_dir)/*.py)
 deployed_sources := $(subst $(src_dir), $(pkg_dir), $(sources))
 
-# Three python files are generated for each protobuf
-protobufs := $(wildcard $(PROTODIR)/*.proto)
-pkg_pb_dir := $(pkg_dir)/pb
-generated_sources_base := $(foreach proto, $(protobufs), $(proto:.proto=_pb2.py))
-generated_sources := $(subst $(PROTODIR), $(pkg_pb_dir), $(generated_sources_base))
-generated_sources += $(subst $(PROTODIR), $(pkg_pb_dir), $(generated_sources_base:.py=.pyi))
-generated_sources += $(subst $(PROTODIR), $(pkg_pb_dir), $(generated_sources_base:.py=_grpc.py))
-
 # Static files are just copied
 
 define COPY
@@ -37,6 +29,24 @@ $(pkg_dir)/%.py: $(src_dir)/%.py
 
 # Generated files are produced by grpcio tools
 
+# If not provided, fetch proto files from TGI
+ifndef PROTODIR
+PROTODIR := $(BUILDDIR)/tgi/proto
+endif
+
+$(BUILDDIR)/tgi/proto/%.proto:
+	install -d $(BUILDDIR)/tgi
+	curl -L https://github.com/huggingface/text-generation-inference/archive/refs/tags/v1.0.2.tar.gz --output $(BUILDDIR)/tgi/sources.tar.gz
+	tar -C $(BUILDDIR)/tgi -xf $(BUILDDIR)/tgi/sources.tar.gz --strip-components=1
+
+# Three python files are generated for each protobuf
+protobufs := $(PROTODIR)/generate.proto
+pkg_pb_dir := $(pkg_dir)/pb
+generated_sources_base := $(foreach proto, $(protobufs), $(proto:.proto=_pb2.py))
+generated_sources := $(subst $(PROTODIR), $(pkg_pb_dir), $(generated_sources_base))
+generated_sources += $(subst $(PROTODIR), $(pkg_pb_dir), $(generated_sources_base:.py=.pyi))
+generated_sources += $(subst $(PROTODIR), $(pkg_pb_dir), $(generated_sources_base:.py=_grpc.py))
+
 $(pkg_pb_dir)/%_pb2.py $(pkg_pb_dir)/%_pb2.pyi $(pkg_pb_dir)/%_pb2_grpc.py: $(PROTODIR)/%.proto
 	mkdir -p $(pkg_pb_dir)
 	python -m grpc_tools.protoc -I$(PROTODIR) --python_out=$(pkg_pb_dir) \
@@ -44,4 +54,4 @@ $(pkg_pb_dir)/%_pb2.py $(pkg_pb_dir)/%_pb2.pyi $(pkg_pb_dir)/%_pb2_grpc.py: $(PR
 	sed -i -e 's/^\(import.*pb2\)/from . \1/g' $(pkg_pb_dir)/$*_pb2_grpc.py
 
 gen-server: $(BUILDDIR)/pyproject.toml $(deployed_sources) $(generated_sources)
-	python -m build $(BUILDDIR) --sdist
+	python -m build $(BUILDDIR)
