@@ -356,7 +356,9 @@ To avoid Neuron device out of memory, it's suggested to finish all base inferenc
 
 Latent Consistency Models (LCMs) were proposed in [Latent Consistency Models: Synthesizing High-Resolution Images with Few-Step Inference by Simian Luo, Yiqin Tan, Longbo Huang, Jian Li, and Hang Zhao](https://huggingface.co/papers/2310.04378). LCMs enable inference with fewer steps on any pre-trained LDMs, including Stable Diffusion and SDXL.
 
-In `Optimum-Neuron`, you can use the class `NeuronLatentConsistencyModelPipeline` to compile and run inference of LCMs distilled from Stable Diffusion (SD) models, and continue to use the class `NeuronStableDiffusionXLPipeline` for LCMs distilled from SDXL models.
+In `optimum-neuron`, you can:
+  - Use the class `NeuronLatentConsistencyModelPipeline` to compile and run inference of LCMs distilled from Stable Diffusion (SD) models, 
+  - And continue to use the class `NeuronStableDiffusionXLPipeline` for LCMs distilled from SDXL models.
 
 Here are examples to compile the LCMs of Stable Diffusion ( [SimianLuo/LCM_Dreamshaper_v7](https://huggingface.co/SimianLuo/LCM_Dreamshaper_v7) ) and Stable Diffusion XL( [latent-consistency/lcm-sdxl](https://huggingface.co/latent-consistency/lcm-sdxl) ), and then run inference on AWS Inferentia 2 :
 
