@@ -38,12 +38,10 @@ def consolidate_tensor_parallel_checkpoints(checkpoint_dir: Union[str, Path]) ->
 
     state_dicts = []
 
-    for sharded_checkpoint in checkpoint_dir.glob("tp_rank_*"):
+    for sharded_checkpoint in sorted(checkpoint_dir.glob("tp_rank_*/checkpoint.pt")):
         if not sharded_checkpoint.is_file():
             continue
         state_dicts.append(torch.load(sharded_checkpoint))
-
-    state_dicts = sorted(state_dicts, key=lambda d: d["tp_rank"])
 
     parameter_names = state_dicts[0]["model"].keys()
     sharded_metadatas = {

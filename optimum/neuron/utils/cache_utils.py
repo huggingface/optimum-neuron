@@ -14,6 +14,7 @@
 # limitations under the License.
 """Utilities for caching."""
 
+import functools
 import hashlib
 import io
 import json
@@ -24,19 +25,19 @@ import subprocess
 import tempfile
 from dataclasses import InitVar, asdict, dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Literal, Optional, Tuple, Union
 
 import huggingface_hub
 import numpy as np
 import torch
 from huggingface_hub import (
     CommitOperationAdd,
-    CommitOperationDelete,
     HfApi,
     HfFolder,
     RepoUrl,
     create_repo,
     hf_hub_download,
+    whoami,
 )
 from huggingface_hub.utils import EntryNotFoundError, HfHubHTTPError, RepositoryNotFoundError
 from packaging import version
@@ -77,11 +78,8 @@ NEURON_COMPILE_CACHE_NAME = "neuron-compile-cache"
 _IP_PATTERN = re.compile(r"ip-([0-9]{1,3}-){4}")
 _HF_HUB_HTTP_ERROR_REQUEST_ID_PATTERN = re.compile(r"\(Request ID: Root=[\w-]+\)")
 
-_WRITING_ACCESS_CACHE: Dict[Tuple[str, str], bool] = {}
 _REGISTRY_FILE_EXISTS: Dict[str, bool] = {}
 _ADDED_IN_REGISTRY: Dict[Tuple[str, "NeuronHash"], bool] = {}
-
-_NEW_CACHE_NAMING_CONVENTION_NEURONXCC_VERSION = "2.7.0.40+f7c6cf2a3"
 
 # For testing purposes.
 _DISABLE_IS_PRIVATE_REPO_CHECK: bool = string_to_bool(
@@ -92,18 +90,6 @@ if _DISABLE_IS_PRIVATE_REPO_CHECK:
         "The check that prevents you from pushing compiled files from private models is disabled. This is allowed only "
         "for testing purposes."
     )
-
-
-def follows_new_cache_naming_convention(neuronxcc_version: Optional[str] = None) -> bool:
-    """
-    The ways the cache is handled differs starting from `_NEW_CACHE_NAMING_CONVENTION_NEURONXCC_VERSION`.
-    This helper functions returns `True` if `neuronxcc_version` follows the new way the cache is handled and `False`
-    otherwise.
-    """
-    if neuronxcc_version is None:
-        neuronxcc_version = get_neuronxcc_version()
-    neuronxcc_version = version.parse(neuronxcc_version)
-    return neuronxcc_version >= version.parse(_NEW_CACHE_NAMING_CONVENTION_NEURONXCC_VERSION)
 
 
 def load_custom_cache_repo_name_from_hf_home(
@@ -144,7 +130,7 @@ def delete_custom_cache_repo_name_from_hf_home(hf_home_cache_repo_file: str = HF
 
 def create_custom_cache_repo(repo_id: str = CACHE_REPO_NAME, private: bool = True) -> RepoUrl:
     repo_url = create_repo(repo_id, private=private, repo_type="model")
-    create_registry_file_if_does_not_exist(repo_id)
+    create_registry_file_if_does_not_exist(repo_url.repo_id)
     set_custom_cache_repo_name_in_hf_home(repo_url.repo_id)
     return repo_url
 
@@ -162,45 +148,55 @@ def is_private_repo(repo_id: str) -> bool:
 
 
 def has_write_access_to_repo(repo_id: str) -> bool:
-    token = HfFolder.get_token()
-    if (token, repo_id) in _WRITING_ACCESS_CACHE:
-        return _WRITING_ACCESS_CACHE[(token, repo_id)]
-
-    has_access = False
-    with tempfile.NamedTemporaryFile() as fp:
-        tmpfilename = Path(fp.name)
-        try:
-            add_file = CommitOperationAdd(f"write_access_test/{tmpfilename.name}", tmpfilename.as_posix())
-            HfApi().create_commit(repo_id, operations=[add_file], commit_message="Check write access")
-        except (HfHubHTTPError, RepositoryNotFoundError):
-            pass
-        else:
-            delete_file = CommitOperationDelete(f"write_access_test/{tmpfilename.name}")
-            HfApi().create_commit(repo_id, operations=[delete_file], commit_message="Check write access [DONE]")
-            has_access = True
-
-    _WRITING_ACCESS_CACHE[(token, repo_id)] = has_access
-    return has_access
+    # It is assumed that the user does not have write access to a canonical repo.
+    # In any case, since this function is designed to check for write access on cache repos, it should never be the
+    # case.
+    if "/" not in repo_id:
+        return False
+    try:
+        user = whoami()
+    except Exception:
+        return False
+    # Token role can either be "read" or "write".
+    token_role = user["auth"]["accessToken"]["role"]
+    if token_role == "read":
+        return False
+    username_or_organization = repo_id.rsplit("/", maxsplit=1)[0]
+    if user["name"] == username_or_organization:
+        return True
+    has_write_access_in_org = False
+    for org in user["orgs"]:
+        if org["name"] == username_or_organization:
+            # Role in an organization can be either:
+            # "admin", "write", "contributor", "read".
+            if org["roleInOrg"] == "contributor":
+                logger.warning(
+                    f"You are logged in as a contributor to the cache repo {repo_id}. It is not possible to infer "
+                    "whether you have write access on this repo or not, so it will be assumed you do not."
+                )
+            has_write_access_in_org = org["roleInOrg"] in ["admin", "write"]
+            break
+    return has_write_access_in_org
 
 
 def get_hf_hub_cache_repos():
     hf_hub_repos = HF_HUB_CACHE_REPOS
-
     saved_custom_cache_repo = load_custom_cache_repo_name_from_hf_home()
-    if saved_custom_cache_repo is None:
-        warn_once(
-            logger,
-            "No Neuron cache name is saved locally. This means that only the official Neuron cache, and "
-            "potentially a cache defined in $CUSTOM_CACHE_REPO will be used. You can create a Neuron cache repo by "
-            "running the following command: `optimum-cli neuron cache create`. If the Neuron cache already exists "
-            "you can set it by running the following command: `optimum-cli neuron cache set -n [name]`.",
-        )
-    else:
+    if saved_custom_cache_repo is not None and saved_custom_cache_repo not in hf_hub_repos:
         hf_hub_repos = [saved_custom_cache_repo] + hf_hub_repos
 
     custom_cache_repo = os.environ.get("CUSTOM_CACHE_REPO", None)
-    if custom_cache_repo is not None:
+    if custom_cache_repo is not None and custom_cache_repo not in hf_hub_repos:
         hf_hub_repos = [custom_cache_repo] + hf_hub_repos
+
+    if saved_custom_cache_repo is None and custom_cache_repo is None:
+        warn_once(
+            logger,
+            "No Neuron cache name is saved locally. This means that only the official Neuron cache will be used. You "
+            "can create a Neuron cache repo by running the following command: `optimum-cli neuron cache create`. If "
+            "the Neuron cache already exists you can set it by running the following command: `optimum-cli neuron cache "
+            "set -n [name]`.",
+        )
 
     # TODO: this is a quick fix.
     # Cache utils should not be aware of the multiprocessing side of things.
@@ -237,10 +233,6 @@ def get_neuron_cache_path() -> Optional[Path]:
             path = Path(match_.group(1))
         else:
             path = Path("/var/tmp")
-
-        # TODO: is that correct?
-        if not follows_new_cache_naming_convention():
-            path = path / NEURON_COMPILE_CACHE_NAME
 
         return path
 
@@ -285,7 +277,9 @@ def get_num_neuron_cores_used() -> int:
     return int(os.environ.get("LOCAL_WORLD_SIZE", "1"))
 
 
-def list_files_in_neuron_cache(neuron_cache_path: Path, only_relevant_files: bool = False) -> List[Path]:
+def list_files_in_neuron_cache(neuron_cache_path: Union[str, Path], only_relevant_files: bool = False) -> List[Path]:
+    if isinstance(neuron_cache_path, str):
+        neuron_cache_path = Path(neuron_cache_path)
     files = [path for path in neuron_cache_path.glob("**/*") if path.is_file()]
     if only_relevant_files:
         files = [p for p in files if p.suffix in [".neff", ".pb", ".txt"]]
@@ -301,6 +295,12 @@ def path_after_folder(path: Path, folder: Union[str, Path], include_folder: bool
         index = len(path.parts)
     index = index + 1 if not include_folder else index
     return Path("").joinpath(*path.parts[index:])
+
+
+def path_after_neuron_compiler_version_dir(
+    path: Path, neuron_compiler_version: str, include_folder: bool = False
+) -> Path:
+    return path_after_folder(path, f"neuronxcc-{neuron_compiler_version}", include_folder=include_folder)
 
 
 def remove_ip_adress_from_path(path: Path) -> Path:
@@ -405,7 +405,7 @@ def add_in_registry(repo_id: str, neuron_hash: "NeuronHash"):
                     commit_message=f"Add {model_name_or_path} in registry for NeuronHash {overall_hash}",
                     parent_commit=head,
                 )
-            except ValueError as e:
+            except Exception as e:
                 if "A commit has happened since" in str(e):
                     logger.info(
                         "A commit has happened in cache repository since we tried to update the registry, starting again..."
@@ -687,9 +687,7 @@ class NeuronHash:
 
     @property
     def neuron_compiler_version_dir_name(self):
-        if follows_new_cache_naming_convention():
-            return f"neuronxcc-{self.neuron_compiler_version}"
-        return f"USER_neuroncc-{self.neuron_compiler_version}"
+        return f"neuronxcc-{self.neuron_compiler_version}"
 
     @property
     def is_private(self):
@@ -719,7 +717,10 @@ def get_cached_model_on_the_hub(neuron_hash: NeuronHash) -> Optional[CachedModel
             repo_id, revision = repo_id
         else:
             revision = "main"
-        repo_filenames = HfApi().list_repo_files(repo_id, revision=revision, token=HfFolder.get_token())
+        try:
+            repo_filenames = HfApi().list_repo_files(repo_id, revision=revision, token=HfFolder.get_token())
+        except Exception:
+            continue
         model_files_on_the_hub = []
         was_found_in_repo = False
         for repo_filename in repo_filenames:
@@ -742,10 +743,20 @@ def get_cached_model_on_the_hub(neuron_hash: NeuronHash) -> Optional[CachedModel
     return cached_model
 
 
+def default_path_in_repo_to_path_in_target_directory(path: Path, neuron_hash: NeuronHash):
+    cache_path = neuron_hash.cache_path
+    # The last part of cache_path is the overall hash.
+    return Path(neuron_hash.neuron_compiler_version_dir_name) / path_after_folder(path, cache_path.name)
+
+
+def default_local_path_to_path_in_repo(path: Path, neuron_hash: NeuronHash):
+    return path_after_neuron_compiler_version_dir(path, neuron_hash.neuron_compiler_version)
+
+
 def download_cached_model_from_hub(
     neuron_hash: NeuronHash,
     target_directory: Optional[Union[str, Path]] = None,
-    path_in_repo_to_path_in_target_directory: Optional[Callable[[Path], Path]] = None,
+    path_in_repo_to_path_in_target_directory: Optional[Union[Literal["default"], Callable[[Path], Path]]] = None,
 ) -> bool:
     if target_directory is None:
         target_directory = get_neuron_cache_path()
@@ -753,6 +764,16 @@ def download_cached_model_from_hub(
             raise ValueError("A target directory must be specified when no caching directory is used.")
     elif isinstance(target_directory, str):
         target_directory = Path(target_directory)
+
+    if path_in_repo_to_path_in_target_directory == "default":
+        path_in_repo_to_path_in_target_directory = functools.partial(
+            default_path_in_repo_to_path_in_target_directory, neuron_hash=neuron_hash
+        )
+
+    if path_in_repo_to_path_in_target_directory is None:
+
+        def path_in_repo_to_path_in_target_directory(x):
+            return x
 
     cached_model = get_cached_model_on_the_hub(neuron_hash)
     if cached_model is not None:
@@ -788,17 +809,16 @@ def download_cached_model_from_hub(
                 tqdm_class=None,
             )
 
-            if path_in_repo_to_path_in_target_directory is not None:
-                local_folder = target_directory / folder
-                for path in local_folder.glob("**/*"):
-                    if path.is_dir():
-                        continue
-                    if path in files_before_downloading:
-                        continue
-                    target_path = target_directory / path_in_repo_to_path_in_target_directory(path)
-                    target_path.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.move(path, target_path)
-                # TODO: remove old directories.
+            local_folder = target_directory / folder
+            for path in local_folder.glob("**/*"):
+                if path.is_dir():
+                    continue
+                if path in files_before_downloading:
+                    continue
+                target_path = target_directory / path_in_repo_to_path_in_target_directory(path)
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(path, target_path)
+            # TODO: remove old directories.
 
     return cached_model is not None
 
@@ -808,7 +828,7 @@ def push_to_cache_on_hub(
     local_cache_dir_or_file: Path,
     cache_repo_id: Optional[str] = None,
     overwrite_existing: bool = False,
-    local_path_to_path_in_repo: Optional[Callable[[Path], Path]] = None,
+    local_path_to_path_in_repo: Optional[Union[Literal["default"], Callable[[Path], Path]]] = None,
 ) -> CachedModelOnTheHub:
     if cache_repo_id is None:
         cache_repo_id = get_hf_hub_cache_repos()[0]
@@ -826,6 +846,9 @@ def push_to_cache_on_hub(
             "coming from private repo."
         )
 
+    if local_path_to_path_in_repo == "default":
+        local_path_to_path_in_repo = functools.partial(default_local_path_to_path_in_repo, neuron_hash=neuron_hash)
+
     if local_path_to_path_in_repo is not None:
         path_in_repo = local_path_to_path_in_repo(local_cache_dir_or_file)
     else:
@@ -836,11 +859,12 @@ def push_to_cache_on_hub(
         path_in_repo = Path().joinpath(*path_in_repo.parts[1:])
     path_in_repo = neuron_hash.cache_path / path_in_repo
 
-    repo_filenames = map(Path, HfApi().list_repo_files(cache_repo_id, token=HfFolder.get_token()))
+    repo_filenames = HfApi().list_repo_files(cache_repo_id, token=HfFolder.get_token())
+    path_in_repo_str = path_in_repo.as_posix()
     if local_cache_dir_or_file.is_dir():
-        exists = any(filename.parent == path_in_repo for filename in repo_filenames)
+        exists = any(filename.startswith(path_in_repo_str) for filename in repo_filenames)
     else:
-        exists = any(filename == path_in_repo for filename in repo_filenames)
+        exists = any(filename == path_in_repo_str for filename in repo_filenames)
     if exists:
         if not overwrite_existing:
             logger.info(
@@ -860,49 +884,24 @@ def push_to_cache_on_hub(
     )
     if local_cache_dir_or_file.is_dir():
         try:
-            with tempfile.TemporaryDirectory() as tmpdirname:
-                local_anynonymous_cache_dir = remove_ip_adress_from_path(
-                    Path(tmpdirname) / local_cache_dir_or_file.name
-                )
-                shutil.copytree(local_cache_dir_or_file, local_anynonymous_cache_dir)
-
-                for file_or_dir in sorted(local_anynonymous_cache_dir.glob("**/*"), reverse=True):
-                    if file_or_dir.is_dir():
-                        if not list(file_or_dir.iterdir()):
-                            file_or_dir.rmdir()
-                        continue
-                    anonymous_file = remove_ip_adress_from_path(file_or_dir)
-                    anonymous_file.parent.mkdir(parents=True, exist_ok=True)
-                    if file_or_dir != anonymous_file:
-                        shutil.move(file_or_dir, anonymous_file)
-
-                HfApi().upload_folder(
-                    folder_path=local_anynonymous_cache_dir.as_posix(),
-                    path_in_repo=path_in_repo.as_posix(),
-                    repo_id=cache_repo_id,
-                    repo_type="model",
-                )
+            HfApi().upload_folder(
+                folder_path=local_cache_dir_or_file.as_posix(),
+                path_in_repo=path_in_repo.as_posix(),
+                repo_id=cache_repo_id,
+                repo_type="model",
+            )
         except HfHubHTTPError as e:
             msg = could_not_push_message.format(cache_repo_id=cache_repo_id, error=e)
             msg = re.sub(_HF_HUB_HTTP_ERROR_REQUEST_ID_PATTERN, "", msg)
             warn_once(logger, msg)
     else:
         try:
-            with tempfile.TemporaryDirectory() as tmpdirname:
-                local_anynonymous_cache_file = remove_ip_adress_from_path(local_cache_dir_or_file)
-                if local_cache_dir_or_file != local_anynonymous_cache_file:
-                    local_anynonymous_cache_file = Path(tmpdirname) / path_after_folder(
-                        local_anynonymous_cache_file, NEURON_COMPILE_CACHE_NAME
-                    )
-                    local_anynonymous_cache_file.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy(local_cache_dir_or_file, local_anynonymous_cache_file)
-
-                HfApi().upload_file(
-                    path_or_fileobj=local_anynonymous_cache_file.as_posix(),
-                    path_in_repo=path_in_repo.as_posix(),
-                    repo_id=cache_repo_id,
-                    repo_type="model",
-                )
+            HfApi().upload_file(
+                path_or_fileobj=local_cache_dir_or_file.as_posix(),
+                path_in_repo=path_in_repo.as_posix(),
+                repo_id=cache_repo_id,
+                repo_type="model",
+            )
         except HfHubHTTPError as e:
             msg = could_not_push_message.format(cache_repo_id=cache_repo_id, error=e)
             msg = re.sub(_HF_HUB_HTTP_ERROR_REQUEST_ID_PATTERN, "", msg)

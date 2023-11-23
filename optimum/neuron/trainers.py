@@ -51,7 +51,7 @@ from .utils import (
     is_torch_xla_available,
     patch_within_function,
 )
-from .utils.cache_utils import NEURON_COMPILE_CACHE_NAME, get_neuron_cache_path, set_neuron_cache_path
+from .utils.cache_utils import get_neuron_cache_path, set_neuron_cache_path
 from .utils.training_utils import (
     TRANSFORMERS_MIN_VERSION_USE_ACCELERATE,
     get_model_param_count,
@@ -60,6 +60,7 @@ from .utils.training_utils import (
     patch_generation_mixin_to_neuron_generation_mixin,
     patched_finfo,
     prepare_environment_for_neuron,
+    set_neuron_cc_optlevel_for_model,
     skip_first_batches,
 )
 
@@ -115,7 +116,7 @@ if os.environ.get("TORCHELASTIC_RUN_ID"):
             else:
                 store = torch.distributed.TCPStore(_TCP_STORE_ADDRESS, _TCP_STORE_PORT, is_master=False)
                 _TMP_NEURON_CACHE_PATH = Path(store.get("tmp_neuron_cache_path").decode("utf-8"))
-            set_neuron_cache_path(_TMP_NEURON_CACHE_PATH / NEURON_COMPILE_CACHE_NAME)
+            set_neuron_cache_path(_TMP_NEURON_CACHE_PATH)
 
         torch.distributed.init_process_group(backend="xla")
         if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
@@ -181,6 +182,8 @@ class AugmentTrainerForNeuronMixin:
 
         # Make the model Neuron-compatible for generation.
         patch_generation_mixin_to_neuron_generation_mixin(self.model)
+
+        set_neuron_cc_optlevel_for_model(self.model, optlevel=self.args.neuron_cc_optlevel)
 
     @property
     def tp_enabled(self):

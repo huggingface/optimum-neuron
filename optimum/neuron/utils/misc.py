@@ -186,6 +186,7 @@ def download_checkpoints_in_cache(
     token: Optional[Union[str, bool]] = None,
     revision: str = "main",
     use_safetensors: Optional[bool] = None,
+    use_safetensors_in_priority: Optional[bool] = None,
     convert_to_safetensors: bool = False,
     **kwargs,
 ):
@@ -224,8 +225,8 @@ def download_checkpoints_in_cache(
     # index of the files.
     is_sharded = False
     sharded_metadata = None
-    # Load model
 
+    # Load model
     user_agent = {"file_type": "model", "framework": "pytorch", "from_auto_class": from_auto_class}
     if from_pipeline is not None:
         user_agent["using_pipeline"] = from_pipeline
@@ -255,6 +256,21 @@ def download_checkpoints_in_cache(
                     pretrained_model_name_or_path, subfolder, _add_variant(SAFE_WEIGHTS_NAME, variant)
                 )
             elif use_safetensors is not False and os.path.isfile(
+                os.path.join(pretrained_model_name_or_path, subfolder, _add_variant(SAFE_WEIGHTS_INDEX_NAME, variant))
+            ):
+                # Load from a sharded safetensors checkpoint
+                archive_file = os.path.join(
+                    pretrained_model_name_or_path, subfolder, _add_variant(SAFE_WEIGHTS_INDEX_NAME, variant)
+                )
+                is_sharded = True
+            elif use_safetensors_in_priority is not False and os.path.isfile(
+                os.path.join(pretrained_model_name_or_path, subfolder, _add_variant(SAFE_WEIGHTS_NAME, variant))
+            ):
+                # Load from a safetensors checkpoint
+                archive_file = os.path.join(
+                    pretrained_model_name_or_path, subfolder, _add_variant(SAFE_WEIGHTS_NAME, variant)
+                )
+            elif use_safetensors_in_priority is not False and os.path.isfile(
                 os.path.join(pretrained_model_name_or_path, subfolder, _add_variant(SAFE_WEIGHTS_INDEX_NAME, variant))
             ):
                 # Load from a sharded safetensors checkpoint
@@ -324,6 +340,8 @@ def download_checkpoints_in_cache(
             elif from_flax:
                 filename = FLAX_WEIGHTS_NAME
             elif use_safetensors is not False:
+                filename = _add_variant(SAFE_WEIGHTS_NAME, variant)
+            elif use_safetensors_in_priority is not False:
                 filename = _add_variant(SAFE_WEIGHTS_NAME, variant)
             else:
                 filename = _add_variant(WEIGHTS_NAME, variant)

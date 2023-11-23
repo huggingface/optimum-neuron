@@ -123,7 +123,7 @@ def load_pipeline(
             model, export=export, **compiler_args, **input_shapes, **hub_kwargs, **kwargs
         )
     # uses neuron model
-    elif isinstance(model, NeuronBaseModel):
+    elif isinstance(model, (NeuronBaseModel, NeuronModelForCausalLM)):
         if tokenizer is None and load_tokenizer:
             for preprocessor in model.preprocessors:
                 if isinstance(preprocessor, (PreTrainedTokenizer, PreTrainedTokenizerFast)):

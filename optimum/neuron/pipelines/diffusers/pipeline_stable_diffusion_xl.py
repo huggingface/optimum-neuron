@@ -20,7 +20,6 @@ import torch
 from diffusers import StableDiffusionXLPipeline
 from diffusers.pipelines.stable_diffusion_xl import StableDiffusionXLPipelineOutput
 from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl import rescale_noise_cfg
-from diffusers.utils.torch_utils import randn_tensor
 
 from .pipeline_utils import StableDiffusionXLPipelineMixin
 
@@ -29,25 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 class NeuronStableDiffusionXLPipelineMixin(StableDiffusionXLPipelineMixin, StableDiffusionXLPipeline):
-    # Adapted from https://github.com/huggingface/diffusers/blob/v0.20.2/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py#L502
-    def prepare_latents(self, batch_size, num_channels_latents, height, width, dtype, generator, latents=None):
-        shape = (batch_size, num_channels_latents, height // self.vae_scale_factor, width // self.vae_scale_factor)
-        if isinstance(generator, list) and len(generator) != batch_size:
-            raise ValueError(
-                f"You have passed a list of generators of length {len(generator)}, but requested an effective batch"
-                f" size of {batch_size}. Make sure the batch size matches the length of the generators."
-            )
-
-        if latents is None:
-            latents = randn_tensor(shape, generator=generator, dtype=dtype)
-        elif latents.shape != shape:
-            raise ValueError(f"Unexpected latents shape, got {latents.shape}, expected {shape}")
-
-        # scale the initial noise by the standard deviation required by the scheduler
-        latents = latents * self.scheduler.init_noise_sigma
-        return latents
-
-    # Adapted from https://github.com/huggingface/diffusers/blob/v0.21.2/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py#L506
+    # Adapted from https://github.com/huggingface/diffusers/blob/v0.23.0/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py#L573
     def _get_add_time_ids(self, original_size, crops_coords_top_left, target_size, dtype):
         add_time_ids = list(original_size + crops_coords_top_left + target_size)
         add_time_ids = torch.tensor([add_time_ids], dtype=dtype)
@@ -264,12 +245,14 @@ class NeuronStableDiffusionXLPipelineMixin(StableDiffusionXLPipelineMixin, Stabl
         # here `guidance_scale` is defined analog to the guidance weight `w` of equation (2)
         # of the Imagen paper: https://arxiv.org/pdf/2205.11487.pdf . `guidance_scale = 1`
         # corresponds to doing no classifier free guidance.
-        do_classifier_free_guidance = guidance_scale > 1.0 and (self.dynamic_batch_size or len(self.device_ids) == 2)
+        do_classifier_free_guidance = (
+            guidance_scale > 1.0
+            and (self.dynamic_batch_size or self.data_parallel_mode == "unet")
+            and self.unet.config.time_cond_proj_dim is None
+        )
 
         # 3. Encode input prompt
-        text_encoder_lora_scale = (
-            cross_attention_kwargs.get("scale", None) if cross_attention_kwargs is not None else None
-        )
+        lora_scale = cross_attention_kwargs.get("scale", None) if cross_attention_kwargs is not None else None
         (
             prompt_embeds,
             negative_prompt_embeds,
@@ -286,7 +269,7 @@ class NeuronStableDiffusionXLPipelineMixin(StableDiffusionXLPipelineMixin, Stabl
             negative_prompt_embeds=negative_prompt_embeds,
             pooled_prompt_embeds=pooled_prompt_embeds,
             negative_pooled_prompt_embeds=negative_pooled_prompt_embeds,
-            lora_scale=text_encoder_lora_scale,
+            lora_scale=lora_scale,
             clip_skip=clip_skip,
         )
 
@@ -312,8 +295,12 @@ class NeuronStableDiffusionXLPipelineMixin(StableDiffusionXLPipelineMixin, Stabl
 
         # 7. Prepare added time ids & embeddings
         add_text_embeds = pooled_prompt_embeds
+
         add_time_ids = self._get_add_time_ids(
-            original_size, crops_coords_top_left, target_size, dtype=prompt_embeds.dtype
+            original_size,
+            crops_coords_top_left,
+            target_size,
+            dtype=prompt_embeds.dtype,
         )
         if negative_original_size is not None and negative_target_size is not None:
             negative_add_time_ids = self._get_add_time_ids(
@@ -335,7 +322,7 @@ class NeuronStableDiffusionXLPipelineMixin(StableDiffusionXLPipelineMixin, Stabl
         # 8. Denoising loop
         num_warmup_steps = max(len(timesteps) - num_inference_steps * self.scheduler.order, 0)
 
-        # 7.1 Apply denoising_end
+        # 8.1 Apply denoising_end
         if denoising_end is not None and isinstance(denoising_end, float) and denoising_end > 0 and denoising_end < 1:
             discrete_timestep_cutoff = int(
                 round(
@@ -346,6 +333,15 @@ class NeuronStableDiffusionXLPipelineMixin(StableDiffusionXLPipelineMixin, Stabl
             num_inference_steps = len(list(filter(lambda ts: ts >= discrete_timestep_cutoff, timesteps)))
             timesteps = timesteps[:num_inference_steps]
 
+        # 9. Optionally get Guidance Scale Embedding
+        timestep_cond = None
+        if self.unet.config.time_cond_proj_dim is not None:
+            guidance_scale_tensor = torch.tensor(guidance_scale - 1).repeat(batch_size * num_images_per_prompt)
+            timestep_cond = self.get_guidance_scale_embedding(
+                guidance_scale_tensor, embedding_dim=self.unet.config.time_cond_proj_dim
+            ).to(dtype=latents.dtype)
+
+        self._num_timesteps = len(timesteps)
         with self.progress_bar(total=num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps):
                 # expand the latents if we are doing classifier free guidance
@@ -360,6 +356,7 @@ class NeuronStableDiffusionXLPipelineMixin(StableDiffusionXLPipelineMixin, Stabl
                     sample=latent_model_input,
                     timestep=t,
                     encoder_hidden_states=prompt_embeds,
+                    timestep_cond=timestep_cond,
                     added_cond_kwargs=added_cond_kwargs,
                 )[0]
 

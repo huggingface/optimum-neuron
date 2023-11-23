@@ -68,7 +68,7 @@ class GPTNeoParallelMLP(ParallelMLP):
 
 
 class GPTNeoParallelCrossEntropy(ParallelCrossEntropy):
-    LAST_LINEAR_PROJECTION_NAME = "lm_head"
+    LAST_LINEAR_PROJECTION_NAME = {"GPTNeoForCausalLM": "lm_head"}
 
 
 class GPTNeoParallelizer(Parallelizer):
@@ -138,7 +138,7 @@ class GPTNeoParallelizer(Parallelizer):
 
 
 class GPTNeoXParallelEmbedding(ParallelEmbedding):
-    EMBEDDING_NAME = "embed_in"
+    EMBEDDING_NAME = "gpt_neox.embed_in"
     LM_HEAD_NAME = "embed_out"
 
 
@@ -155,7 +155,7 @@ class GPTNeoXParallelMLP(ParallelMLP):
 
 
 class GPTNeoXParallelCrossEntropy(ParallelCrossEntropy):
-    LAST_LINEAR_PROJECTION_NAME = "embed_out"
+    LAST_LINEAR_PROJECTION_NAME = {"GPTNeoXForCausalLM": "embed_out"}
 
 
 class GPTNeoXParallelizer(Parallelizer):
@@ -173,6 +173,19 @@ class GPTNeoXParallelizer(Parallelizer):
     def patch_for_sequence_parallelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
         if not sequence_parallel_enabled:
             return
+
+        def rotate_half(x):
+            x1 = x[..., : x.shape[-1] // 2]
+            x2 = x[..., x.shape[-1] // 2 :]
+            return torch.cat((-x2, x1), dim=-1)
+
+        # Remove this function once Transformers >= 4.36.0 is supported.
+        def apply_rotary_pos_emb(q, k, cos, sin, position_ids, unsqueeze_dim=1):
+            cos = cos[position_ids].unsqueeze(unsqueeze_dim)
+            sin = sin[position_ids].unsqueeze(unsqueeze_dim)
+            q_embed = (q * cos) + (rotate_half(q) * sin)
+            k_embed = (k * cos) + (rotate_half(k) * sin)
+            return q_embed, k_embed
 
         def sequence_parallel_forward(
             self,
@@ -239,7 +252,7 @@ class GPTNeoXParallelizer(Parallelizer):
 
             # Reshape outputs
             if sequence_parallel_enabled:
-                # [batch, seq_len, num_attention_heads, head_size] -> [seq_len, batch, hidden_size]
+                # [batch, num_attention_heads, seq_len, head_size] -> [seq_len, batch, hidden_size]
                 attn_output = attn_output.permute(2, 0, 1, 3).contiguous()
                 attn_output = attn_output.view(*attn_output.shape[:2], -1)
             else:
@@ -348,7 +361,9 @@ class LLamaParallelMLP(ParallelMLP):
 
 
 class LlamaParallelCrossEntropy(ParallelCrossEntropy):
-    LAST_LINEAR_PROJECTION_NAME = "lm_head"
+    LAST_LINEAR_PROJECTION_NAME = {
+        "LlamaForCausalLM": "lm_head",
+    }
 
 
 class LlamaParallelizer(Parallelizer):
@@ -510,6 +525,7 @@ class LlamaParallelizer(Parallelizer):
                 model, layer.mlp, sequence_parallel_enabled=sequence_parallel_enabled, device=device
             )
         if parallelize_embeddings:
+            LlamaParallelEmbedding.overwrite_vocab_size_value_for_cross_entropy_computation(model)
             model = LlamaParallelCrossEntropy.transform(
                 model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device
             )
