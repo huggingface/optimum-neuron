@@ -232,9 +232,9 @@ Training with Tensor Parallelism just completed and the output dir is called `my
 
 ```
 my_training/                                                                                                                                                                              
-├── README.md                                                                                                                                                                                 
-├── all_results.json                                                                                                                                                                          
-├── checkpoint-10                                                                                                                                                                             
+├── README.md
+├── all_results.json 
+├── checkpoint-10 
 │   ├── config.json
 │   ├── scheduler.pt
 │   ├── special_tokens_map.json
@@ -245,16 +245,6 @@ my_training/
 │   ├── trainer_state.json
 │   └── training_args.bin
 ├── checkpoint-20
-│   ├── config.json
-│   ├── scheduler.pt
-│   ├── special_tokens_map.json
-│   ├── tensor_parallel_shards
-│   ├── tokenizer.json
-│   ├── tokenizer.model
-│   ├── tokenizer_config.json
-│   ├── trainer_state.json
-│   └── training_args.bin
-├── checkpoint-30
 │   ├── config.json
 │   ├── scheduler.pt
 │   ├── special_tokens_map.json
@@ -285,7 +275,7 @@ my_training/
 
 It is possible to consolidate the sharded checkpoints in `my_training/tensor_parallel_shards`, which correspond to the sharded checkpoints saved at the end of the training, by running the following command:
 
-```
+```bash
 optimum-cli neuron consolidate my_training my_training_consolidated_checkpoint
 ```
 
