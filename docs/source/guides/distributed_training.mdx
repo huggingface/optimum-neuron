@@ -111,7 +111,10 @@ When doing Tensor Parallelism, you have different settings:
   1. The `tensor_parallel_size`. Ideally it should be smallest value for which the model fits. 
   2. Whether or not sequence parallelism should be enabled. [Sequence parallelism](https://arxiv.org/pdf/2205.05198.pdf) shards the activations on the sequence axis outside of the tensor parallel regions.
   It is useful because it saves memory by sharding the activations.
-  3. Whether or not parallelization of the embedding (and thus the LM head for decoder / seq2seq models) should be done. **It is not supported yet**.
+  3. Whether or not parallelization of the embedding layer should be done. By default it is done because it offers multiple benefits:
+    - Parallelizing the embedding layer saves memory, which can enable fitting a bigger batch size and/or sequence length.
+    - For language models, where the embedding layer weights and the language-modeling head weights are usually tied, the language-modeling head ends up parallel
+    and does not require to `all-gather` its output since it is fed to a cross entropy loss compatible with parallelism, saving expensive communication.
 
 On top of that, it is very important to make sure that the original model is loaded in an efficient manner: the training script is going to be called by `torchrun`, which will dispatch it to workers, one worker per core. If each worker (there are 32 of them in  a `trn1.32xlarge` instance) loads the full model weights, it can take a lot of time and go out-of-memory really fast.
 
@@ -127,7 +130,7 @@ from optimum.neuron.distributed import lazy_load_for_parallelism
 training_args = NeuronTrainingArguments(
     ...,
     tensor_parallel_size=8,
-    disable_embedding_parallelization=True, # It is `True` because the feature is not supported yet.
+    disable_embedding_parallelization=False, # It is `False` by default.
     disable_sequence_parallel=False, # It is `False` by default.
 )
 
@@ -179,7 +182,7 @@ from optimum.neuron.distributed import lazy_load_for_parallelism
 tensor_parallel_size = 8
 tp_plugin = TensorParallelismPlugin(
     tensor_parallel_size,
-    not self.disable_embedding_parallelization,
+    parallelize_embeddings=True,
     sequence_parallel_enabled=True,
     checkpoint_dir=None, # Can be specified when resuming from checkpoint.
 )
