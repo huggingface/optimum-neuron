@@ -168,7 +168,7 @@ class NeuronCacheCallback(TrainerCallback):
             neuron_cache_files = list_files_in_neuron_cache(neuron_cache_path)
             # `neuron_parallel_compile` will still put files under the `neuron_cache_path / neuron-compile-cache`
             # directory, even though `neuronx-cc` puts the compilation files under `neuron_cache_path` only.
-            # If find files under this directory are found, they were produced by `neuron_parallel_compile` and can be
+            # If files under this directory are found, they were produced by `neuron_parallel_compile` and can be
             # needed for current training.
             neuron_compile_cache_dir = neuron_cache_path / "neuron-compile-cache"
             if neuron_compile_cache_dir.is_dir():
@@ -341,7 +341,7 @@ class NeuronCacheCallback(TrainerCallback):
                 if file_or_dir.name.startswith("checkpoint-") or file_or_dir.name == TENSOR_PARALLEL_SHARDS_DIR_NAME:
                     if xm.get_local_ordinal() == 0:
                         logger.info(
-                            f"Removing {file_or_dir} since the weights were produced by `neuron_parallel_compile`, and "
+                            f"Removing {file_or_dir} since the weights were produced by `neuron_parallel_compile`, "
                             "thus cannot be used."
                         )
                     shutil.rmtree(file_or_dir, ignore_errors=True)
