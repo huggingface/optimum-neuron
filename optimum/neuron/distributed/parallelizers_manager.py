@@ -62,6 +62,9 @@ class ParallelizersManager:
 
     @classmethod
     def get_supported_model_types(cls) -> List[str]:
+        """
+        Provides the list of supported model types for parallelization.
+        """
         return list(cls._MODEL_TYPE_TO_PARALLEL_MODEL_CLASS.keys())
 
     @classmethod
@@ -74,11 +77,26 @@ class ParallelizersManager:
 
     @classmethod
     def is_model_supported(cls, model_type_or_model: Union[str, PreTrainedModel]) -> bool:
+        """
+        Returns `True` if the model can be parallelized, `False` otherwise.
+
+        Args:
+            model_type_or_model (`Union[str, PreTrainedModel]`):
+                Either the model type or an instance of the model.
+        """
         model_type = cls._get_model_type(model_type_or_model)
         return model_type in cls._MODEL_TYPE_TO_PARALLEL_MODEL_CLASS
 
     @classmethod
     def parallelizer_for_model(cls, model_type_or_model: Union[str, PreTrainedModel]) -> Type[Parallelizer]:
+        """
+        Returns the parallelizer class associated to the model.
+
+        Args:
+            model_type_or_model (`Union[str, PreTrainedModel]`):
+                Either the model type or an instance of the model.
+
+        """
         model_type = cls._get_model_type(model_type_or_model)
         if not cls.is_model_supported(model_type_or_model):
             supported_models = ", ".join(cls._MODEL_TYPE_TO_PARALLEL_MODEL_CLASS.keys())

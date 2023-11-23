@@ -19,4 +19,4 @@ from .checkpointing import (
     consolidate_tensor_parallel_checkpoints_to_unified_checkpoint,
 )
 from .parallelizers_manager import ParallelizersManager
-from .utils import lazy_load_for_parallelism
+from .utils import lazy_load_for_parallelism, make_optimizer_constructor_lazy

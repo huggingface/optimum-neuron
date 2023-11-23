@@ -28,6 +28,8 @@
       title: Neuron model cache
     - local: guides/fine_tune
       title: Fine-tune Transformers with AWS Trainium
+    - local: guides/distributed_training
+      title: Distributed Training
     - local: guides/export_model
       title: Export a model to Inferentia
     - local: guides/models
@@ -38,6 +40,8 @@
   - sections:
     - local: package_reference/trainer
       title: Neuron Trainer
+    - local: package_reference/distributed
+      title: Neuron Distributed
     - local: package_reference/export
       title: Neuron Exporter
     - local: package_reference/modeling
