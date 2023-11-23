@@ -17,6 +17,7 @@ INSTALL_REQUIRES = [
     "accelerate == 0.23.0",
     "optimum >= 1.13.0",
     "huggingface_hub >= 0.14.0",
+    "numpy>=1.22.2, <=1.25.2",
     "protobuf<4",
 ]
 
