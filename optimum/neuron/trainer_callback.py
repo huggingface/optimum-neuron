@@ -28,6 +28,7 @@ import torch
 from transformers import TrainerCallback, TrainerState
 
 from ..utils import logging
+from .distributed.utils import TENSOR_PARALLEL_SHARDS_DIR_NAME
 from .utils import is_torch_xla_available
 from .utils.cache_utils import (
     NeuronHash,
@@ -332,6 +333,18 @@ class NeuronCacheCallback(TrainerCallback):
         Event called at the end of training.
         """
         self.on_save(args, state, control, **kwargs)
+        if is_precompilation():
+            output_dir = Path(args.output_dir)
+            for file_or_dir in output_dir.glob("**/*"):
+                if file_or_dir.is_file():
+                    continue
+                if file_or_dir.name.startswith("checkpoint-") or file_or_dir.name == TENSOR_PARALLEL_SHARDS_DIR_NAME:
+                    if xm.get_local_ordinal() == 0:
+                        logger.info(
+                            f"Removing {file_or_dir} since the weights were produced by `neuron_parallel_compile`, and "
+                            "thus cannot be used."
+                        )
+                    shutil.rmtree(file_or_dir, ignore_errors=True)
 
     def on_evaluate(self, args: "TrainingArguments", state: TrainerState, control: "TrainerControl", **kwargs):
         """
