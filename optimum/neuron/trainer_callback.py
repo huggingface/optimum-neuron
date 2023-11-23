@@ -33,6 +33,7 @@ from .utils.cache_utils import (
     NeuronHash,
     download_cached_model_from_hub,
     get_neuron_cache_path,
+    get_neuron_compiler_version_dir_name,
     list_files_in_neuron_cache,
     path_after_folder,
     push_to_cache_on_hub,
@@ -186,7 +187,15 @@ class NeuronCacheCallback(TrainerCallback):
         for cache_file in neuron_cache_files:
             if cache_file.name == "cache_stats.json":
                 continue
-            path_in_neuron_cache = path_after_folder(cache_file, neuron_cache_path.name)
+            try:
+                path_in_neuron_cache = path_after_folder(
+                    cache_file,
+                    get_neuron_compiler_version_dir_name(),
+                    include_folder=True,
+                    fail_when_folder_not_found=True,
+                )
+            except Exception:
+                continue
             tmp_cache_file = tmp_neuron_cache_path / path_in_neuron_cache
             tmp_cache_file.parent.mkdir(parents=True, exist_ok=True)
             # TODO: investigate why it is needed. Minor issue.
