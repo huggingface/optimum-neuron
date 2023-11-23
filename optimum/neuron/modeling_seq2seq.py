@@ -12,12 +12,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""NeuroModelForXXX classes for seq2seq models' inference on neuron devices."""
+"""NeuroModelForXXX classes for seq2seq models' inference on Neuron devices."""
+
 import copy
 import logging
 import os
 import shutil
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
@@ -44,7 +45,6 @@ from ..exporters.neuron import (
     NeuronConfig,
     main_export,
 )
-from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..exporters.tasks import TasksManager
 from ..utils.save_utils import maybe_load_preprocessors
 from .generation import NeuronGenerationMixin
@@ -67,7 +67,7 @@ if is_neuronx_available():
 logger = logging.getLogger(__name__)
 
 
-class NeuronModelForConditionalGeneration(NeuronBaseModel):
+class NeuronModelForConditionalGeneration(NeuronBaseModel, ABC):
     base_model_prefix = "neuron_model"
     config_name = "config.json"
 
@@ -130,6 +130,10 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
         Args:
             save_directory (`Union[str, Path`]):
                 The directory where to save the model files.
+            encoder_file_name (`str`, defaults to `NEURON_FILE_NAME`]):
+                The file name to save the encoder.
+            decoder_file_name (`str`, defaults to `NEURON_FILE_NAME`]):
+                The file name to save the decoder.
         """
         if self.model_and_config_save_paths is None:
             logger.warning(
@@ -342,12 +346,6 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel):
 
         return combined_config
 
-    def can_generate(self):
-        logger.warning(
-            "NeuronModelForConditionalGeneration is an abstract class and is not meant to be used for generation. Please use NeuronModelForSeq2SeqLM instead."
-        )
-        return False
-
 
 class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerationMixin):
     auto_model_class = AutoModelForSeq2SeqLM
@@ -360,7 +358,6 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
         decoder_attention_mask: Optional[torch.BoolTensor] = None,
         encoder_outputs: Optional[Tuple[Tuple[torch.Tensor]]] = None,
         beam_scores=None,
-        **kwargs,
     ) -> Union[Tuple[torch.FloatTensor], Seq2SeqLMOutput]:
         hidden_states = encoder_outputs["last_hidden_state"]
 
@@ -439,8 +436,6 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
         stopping_criteria: Optional[StoppingCriteriaList] = None,
         pad_token_id: Optional[int] = None,
         eos_token_id: Optional[Union[int, List[int]]] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
         output_scores: Optional[bool] = None,
         return_dict_in_generate: Optional[bool] = None,
         synced_gpus: Optional[bool] = False,
@@ -450,19 +445,16 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
         """
         Overriding beam search to use next_token_scores returned from neuron device instead of logits.
         """
-        logits_processor = logits_processor if logits_processor is not None else LogitsProcessorList()
+        if logits_processor is not None:
+            logger.warning(
+                "`logits_processor` will not be neglected because in `optimum-neuron`, `next_tokens` is computed inside the compiled decoder. If you want us to support custom logits_processor during the compilation, please file an issue to https://github.com/huggingface/optimum-neuron."
+            )
         stopping_criteria = stopping_criteria if stopping_criteria is not None else StoppingCriteriaList()
         pad_token_id = pad_token_id if pad_token_id is not None else self.generation_config.pad_token_id
         eos_token_id = eos_token_id if eos_token_id is not None else self.generation_config.eos_token_id
         if isinstance(eos_token_id, int):
             eos_token_id = [eos_token_id]
         output_scores = output_scores if output_scores is not None else self.generation_config.output_scores
-        output_attentions = (
-            output_attentions if output_attentions is not None else self.generation_config.output_attentions
-        )
-        output_hidden_states = (
-            output_hidden_states if output_hidden_states is not None else self.generation_config.output_hidden_states
-        )
 
         batch_size = len(beam_scorer._beam_hyps)
         num_beams = beam_scorer.num_beams
@@ -500,13 +492,7 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
             input_ids_ = input_ids[update_indices[:, 0], update_indices[:, 1], None]
             model_inputs = self.prepare_inputs_for_generation(input_ids_, **model_kwargs)
 
-            next_token_scores, next_tokens, next_indices = self(
-                **model_inputs,
-                return_dict=True,
-                output_attentions=output_attentions,
-                output_hidden_states=output_hidden_states,
-                beam_scores=beam_scores,
-            )
+            next_token_scores, next_tokens, next_indices = self(**model_inputs, beam_scores=beam_scores)
 
             # stateless
             beam_outputs = beam_scorer.process(
@@ -545,14 +531,8 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
                 model_kwargs,
                 batch_size=batch_beam_size,
                 is_encoder_decoder=self.config.is_encoder_decoder,
-                max_length=stopping_criteria.max_length,
-                seq_length=cur_len,
-                use_cache=model_kwargs["use_cache"],
             )
-            if model_kwargs["past_key_values"] is not None:
-                model_kwargs["past_key_values"] = self._reorder_cache(
-                    model_kwargs["past_key_values"], beam_idx.to(torch.int64)
-                )
+            self._reorder_cache(beam_idx.to(torch.int64))
 
             if return_dict_in_generate and output_scores:
                 beam_indices = tuple((beam_indices[beam_idx[i]] + (beam_idx[i],) for i in range(len(beam_indices))))
@@ -612,8 +592,6 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
         max_length: Optional[int] = None,
         pad_token_id: Optional[int] = None,
         eos_token_id: Optional[Union[int, List[int]]] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
         output_scores: Optional[bool] = None,
         return_dict_in_generate: Optional[bool] = None,
         seq_length: Optional[int] = int,
@@ -624,8 +602,10 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
         Overriding greedy sampling to use next tokens returned from neuron device instead of logits.
         """
         # init values
-        logits_processor = logits_processor if logits_processor is not None else LogitsProcessorList()
-        use_cache = model_kwargs["use_cache"] if "use_cache" in model_kwargs else False
+        if logits_processor is not None:
+            logger.warning(
+                "`logits_processor` will not be neglected because in `optimum-neuron`, `next_tokens` is computed inside the compiled decoder. If you want us to support custom logits_processor during the compilation, please file an issue to https://github.com/huggingface/optimum-neuron."
+            )
         stopping_criteria = stopping_criteria if stopping_criteria is not None else StoppingCriteriaList()
         if max_length is not None:
             from transformers.generation.stopping_criteria import validate_stopping_criteria
@@ -637,12 +617,6 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
             eos_token_id = [eos_token_id]
         eos_token_id_tensor = torch.tensor(eos_token_id).to(input_ids.device) if eos_token_id is not None else None
         output_scores = output_scores if output_scores is not None else self.generation_config.output_scores
-        output_attentions = (
-            output_attentions if output_attentions is not None else self.generation_config.output_attentions
-        )
-        output_hidden_states = (
-            output_hidden_states if output_hidden_states is not None else self.generation_config.output_hidden_states
-        )
 
         # init attention / hidden states / scores tuples
         scores = () if (return_dict_in_generate and output_scores) else None
@@ -668,12 +642,7 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
             model_inputs = self.prepare_inputs_for_generation(input_ids_, **model_kwargs)
 
             # forward pass to get next token
-            output = self(
-                **model_inputs,
-                return_dict=True,
-                output_attentions=output_attentions,
-                output_hidden_states=output_hidden_states,
-            )
+            output = self(**model_inputs)
             next_tokens = output[0]
 
             # finished sentences should have their next token be a padding token
@@ -693,9 +662,6 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
                 model_kwargs,
                 batch_size=batch_size,
                 is_encoder_decoder=self.config.is_encoder_decoder,
-                max_length=stopping_criteria.max_length,
-                seq_length=seq_length,
-                use_cache=use_cache,
             )
 
             seq_length += 1
@@ -741,12 +707,11 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
 
         return input_ids
 
-    def _reorder_cache(self, past_key_values, beam_idx):
+    def _reorder_cache(self, beam_idx):
         """
         The cache was reordered during the tracing of the decoder so we can skip it here. This is needed for beam search and not greedy sampling.
         """
         self.beam_idx = beam_idx
-        return past_key_values
 
     def get_encoder(self) -> "NeuronEncoder":
         return self.encoder
@@ -756,29 +721,10 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
         model_kwargs: Dict[str, Any],
         batch_size: int,
         is_encoder_decoder: bool = False,
-        standardize_cache_format: bool = False,
-        max_length: Optional[int] = None,
-        seq_length: Optional[int] = None,
-        use_cache: bool = True,
     ) -> Dict[str, Any]:
-        def _update_attention(model_kwargs, is_encoder_decoder):
-            """Updates the appropriate attention mask -- encoder-decoder models use `decoder_attention_mask`"""
-
-            attention_mask_name = "decoder_attention_mask" if is_encoder_decoder else "attention_mask"
-            attention_mask = model_kwargs.pop(attention_mask_name)
-            attention_mask_update_slice = torch.ones(
-                (batch_size, 1), dtype=attention_mask.dtype, device=attention_mask.device
-            )
-            attention_mask = torch.cat([attention_mask[:, 1:], attention_mask_update_slice], dim=-1)
-            mask = {attention_mask_name: attention_mask}
-            return mask
-
-        mask = _update_attention(model_kwargs, is_encoder_decoder)
+        mask = self._update_attention(model_kwargs, batch_size, is_encoder_decoder)
         # sets the updated variables (mask and past_key_values)
         model_kwargs.update(mask)
-
-        # Set a mock cache tensor
-        model_kwargs["past_key_values"] = torch.tensor([])
 
         return model_kwargs
 
@@ -786,13 +732,8 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
     def prepare_inputs_for_generation(
         self,
         input_ids,
-        past_key_values=None,
         attention_mask=None,
-        head_mask=None,
-        decoder_head_mask=None,
         decoder_attention_mask=None,
-        cross_attn_head_mask=None,
-        use_cache=None,
         encoder_outputs=None,
         **kwargs,
     ):
@@ -801,14 +742,9 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
 
         return {
             "decoder_input_ids": input_ids,
-            "past_key_values": past_key_values,
             "encoder_outputs": encoder_outputs,
             "attention_mask": attention_mask,
-            "head_mask": head_mask,
-            "decoder_head_mask": decoder_head_mask,
             "decoder_attention_mask": decoder_attention_mask,
-            "cross_attn_head_mask": cross_attn_head_mask,
-            "use_cache": use_cache,
         }
 
     def _validate_static_shape(self, input_shapes: List[int], target_shapes: List[int]) -> bool:

@@ -82,6 +82,91 @@ class NeuronGenerationMixin(GenerationMixin):
     learn more about decoding strategies refer to the [text generation strategies guide](../generation_strategies).
     """
 
+    @staticmethod
+    def _initialize_attention(
+        model_kwargs,
+        num_padding_values,
+        batch_size,
+        device,
+        is_encoder_decoder,
+    ):
+        """Initializes the appropriate attention mask -- encoder-decoder models use `decoder_attention_mask`"""
+        if is_encoder_decoder:
+            # One 1 for decoder_start_token_id, 0s for the currently-unfilled locations in the past_key_values tensor,
+            # 1s for the actual input_ids
+            decoder_attention_mask = torch.cat(
+                [
+                    torch.zeros((batch_size, num_padding_values), dtype=torch.int32),
+                    torch.ones((batch_size, 2), dtype=torch.int32),
+                ],
+                axis=1,
+            ).to(device)
+            mask = {"decoder_attention_mask": decoder_attention_mask}
+        else:
+            attention_mask = model_kwargs.pop("attention_mask")
+            # 0s for the currently-unfilled locations in the past_key_values tensor, 1s for the actual input_ids
+            attention_mask = torch.cat(
+                [
+                    torch.zeros(
+                        (batch_size, num_padding_values), dtype=attention_mask.dtype, device=attention_mask.device
+                    ),
+                    attention_mask,
+                    torch.ones((batch_size, 1), dtype=attention_mask.dtype, device=attention_mask.device),
+                ],
+                axis=1,
+            )
+            mask = {"attention_mask": attention_mask}
+
+        return mask
+
+    @staticmethod
+    def _update_attention(model_kwargs, batch_size, is_encoder_decoder):
+        """Updates the appropriate attention mask -- encoder-decoder models use `decoder_attention_mask`"""
+
+        attention_mask_name = "decoder_attention_mask" if is_encoder_decoder else "attention_mask"
+        attention_mask = model_kwargs.pop(attention_mask_name)
+        attention_mask_update_slice = torch.ones(
+            (batch_size, 1), dtype=attention_mask.dtype, device=attention_mask.device
+        )
+        attention_mask = torch.cat([attention_mask[:, 1:], attention_mask_update_slice], dim=-1)
+        mask = {attention_mask_name: attention_mask}
+        return mask
+
+    @staticmethod
+    def _initialize_past(past_key_values, num_padding_values):
+        """Initialize past_key_values with zeros -- the structure depends on `batch_axis`"""
+
+        new_past = ()
+        for past_layer in past_key_values:
+            new_past_layer = list(past_layer)
+            for i in range(len(new_past_layer[:2])):
+                b, n_heads, _, head_dim = past_layer[i].shape
+                new_past_layer[i] = torch.cat(
+                    [
+                        torch.zeros(
+                            (b, n_heads, num_padding_values, head_dim),
+                            dtype=past_layer[i].dtype,
+                            device=past_layer[i].device,
+                        ),
+                        past_layer[i],
+                    ],
+                    dim=2,
+                )
+            new_past += (tuple(new_past_layer),)
+
+        return new_past
+
+    @staticmethod
+    def _update_past(past_key_values):
+        new_past = ()
+        for past_layer in past_key_values:
+            new_past_layer = list(past_layer)
+            for i, _ in enumerate(new_past_layer[:2]):
+                new_past_layer[i] = past_layer[i][:, :, 1:]
+            new_past += (tuple(new_past_layer),)
+
+        return new_past
+
     def _update_model_kwargs_for_xla_generation(
         self,
         outputs: ModelOutput,
@@ -93,81 +178,6 @@ class NeuronGenerationMixin(GenerationMixin):
         seq_length: Optional[int] = None,
         use_cache: bool = True,
     ) -> Dict[str, Any]:
-        def _initialize_attention(model_kwargs, num_padding_values, is_encoder_decoder):
-            """Initializes the appropriate attention mask -- encoder-decoder models use `decoder_attention_mask`"""
-            if is_encoder_decoder:
-                # One 1 for decoder_start_token_id, 0s for the currently-unfilled locations in the past_key_values tensor,
-                # 1s for the actual input_ids
-                decoder_attention_mask = torch.cat(
-                    [
-                        torch.zeros((batch_size, num_padding_values), dtype=torch.int32),
-                        torch.ones((batch_size, 2), dtype=torch.int32),
-                    ],
-                    axis=1,
-                ).to(outputs.logits.device)
-                mask = {"decoder_attention_mask": decoder_attention_mask}
-            else:
-                attention_mask = model_kwargs.pop("attention_mask")
-                # 0s for the currently-unfilled locations in the past_key_values tensor, 1s for the actual input_ids
-                attention_mask = torch.cat(
-                    [
-                        torch.zeros(
-                            (batch_size, num_padding_values), dtype=attention_mask.dtype, device=attention_mask.device
-                        ),
-                        attention_mask,
-                        torch.ones((batch_size, 1), dtype=attention_mask.dtype, device=attention_mask.device),
-                    ],
-                    axis=1,
-                )
-                mask = {"attention_mask": attention_mask}
-
-            return mask
-
-        def _update_attention(model_kwargs, is_encoder_decoder):
-            """Updates the appropriate attention mask -- encoder-decoder models use `decoder_attention_mask`"""
-
-            attention_mask_name = "decoder_attention_mask" if is_encoder_decoder else "attention_mask"
-            attention_mask = model_kwargs.pop(attention_mask_name)
-            attention_mask_update_slice = torch.ones(
-                (batch_size, 1), dtype=attention_mask.dtype, device=attention_mask.device
-            )
-            attention_mask = torch.cat([attention_mask[:, 1:], attention_mask_update_slice], dim=-1)
-            mask = {attention_mask_name: attention_mask}
-            return mask
-
-        def _initialize_past(past_key_values, num_padding_values):
-            """Initialize past_key_values with zeros -- the structure depends on `batch_axis`"""
-
-            new_past = ()
-            for past_layer in past_key_values:
-                new_past_layer = list(past_layer)
-                for i in range(len(new_past_layer[:2])):
-                    b, n_heads, _, head_dim = past_layer[i].shape
-                    new_past_layer[i] = torch.cat(
-                        [
-                            torch.zeros(
-                                (b, n_heads, num_padding_values, head_dim),
-                                dtype=past_layer[i].dtype,
-                                device=past_layer[i].device,
-                            ),
-                            past_layer[i],
-                        ],
-                        dim=2,
-                    )
-                new_past += (tuple(new_past_layer),)
-
-            return new_past
-
-        def _update_past(past_key_values):
-            new_past = ()
-            for past_layer in past_key_values:
-                new_past_layer = list(past_layer)
-                for i, _ in enumerate(new_past_layer[:2]):
-                    new_past_layer[i] = past_layer[i][:, :, 1:]
-                new_past += (tuple(new_past_layer),)
-
-            return new_past
-
         if use_cache:
             past_key_values = self._extract_past_from_model_output(outputs)
             if past_key_values is None:
@@ -182,11 +192,13 @@ class NeuronGenerationMixin(GenerationMixin):
                 # previous autoregressive generation steps (step 0 has no past_key_values, step 1 has 1 past_key_values value, ..., the last step
                 # has `max_length - 1` past_key_values values).
                 num_padding_values = max_length - seq_length
-                mask = _initialize_attention(model_kwargs, num_padding_values, is_encoder_decoder)
-                new_past = _initialize_past(past_key_values, num_padding_values)
+                mask = self._initialize_attention(
+                    model_kwargs, num_padding_values, batch_size, outputs.logits.device, is_encoder_decoder
+                )
+                new_past = self._initialize_past(past_key_values, num_padding_values)
             else:
-                mask = _update_attention(model_kwargs, is_encoder_decoder)
-                new_past = _update_past(past_key_values)
+                mask = self._update_attention(model_kwargs, batch_size, is_encoder_decoder)
+                new_past = self._update_past(past_key_values)
 
             # sets the updated variables (mask and past_key_values)
             model_kwargs.update(mask)
