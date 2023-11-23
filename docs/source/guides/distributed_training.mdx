@@ -25,7 +25,7 @@ To alleviate that, `optimum-neuron` supports parallelism features enabling you t
 The good news is that is it possible to combine those techniques, and `optimum-neuron` makes it very easy!
 
 <Tip>
-All the example scripts provided in the optimum-neuron repo have those features implemented via the NeuronTrainer.
+All the example scripts provided in the optimum-neuron repo have those features implemented via the `NeuronTrainer`.
 </Tip>
 
 ## How to enable ZeRO-1?
@@ -54,7 +54,7 @@ trainer.train()
 ```
 
 <Tip>
-Since the example scripts use the NeuronTrainer, you can enable ZeRO-1 when using them by add the --zero_1 flag
+Since the example scripts use the `NeuronTrainer`, you can enable ZeRO-1 when using them by add the `--zero_1` flag
 to your command line.
 
 For example:
@@ -149,7 +149,7 @@ trainer.train()
 ```
 
 <Tip>
-Since the example scripts use the NeuronTrainer, you can enable Tensor Parallelism when using them by specifying the --tensor_parallel_size argument, and optionally the disable_embedding_parallelization and disable_sequence_parallel flags.
+Since the example scripts use the `NeuronTrainer`, you can enable Tensor Parallelism when using them by specifying the `--tensor_parallel_size` argument, and optionally the `disable_embedding_parallelization` and `disable_sequence_parallel` flags.
 to your command line.
 
 For example:
