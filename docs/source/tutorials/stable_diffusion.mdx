@@ -356,11 +356,35 @@ To avoid Neuron device out of memory, it's suggested to finish all base inferenc
 
 Latent Consistency Models (LCMs) were proposed in [Latent Consistency Models: Synthesizing High-Resolution Images with Few-Step Inference by Simian Luo, Yiqin Tan, Longbo Huang, Jian Li, and Hang Zhao](https://huggingface.co/papers/2310.04378). LCMs enable inference with fewer steps on any pre-trained LDMs, including Stable Diffusion and SDXL.
 
-Here is an example to compile a LCM of Stable Diffusion XL: [latent-consistency/lcm-sdxl](https://huggingface.co/latent-consistency/lcm-sdxl) and run inference on AWS Inferentia 2 :
+In `optimum-neuron`, you can:
+  - Use the class `NeuronLatentConsistencyModelPipeline` to compile and run inference of LCMs distilled from Stable Diffusion (SD) models, 
+  - And continue to use the class `NeuronStableDiffusionXLPipeline` for LCMs distilled from SDXL models.
+
+Here are examples to compile the LCMs of Stable Diffusion ( [SimianLuo/LCM_Dreamshaper_v7](https://huggingface.co/SimianLuo/LCM_Dreamshaper_v7) ) and Stable Diffusion XL( [latent-consistency/lcm-sdxl](https://huggingface.co/latent-consistency/lcm-sdxl) ), and then run inference on AWS Inferentia 2 :
 
 ### Compile LCM
 
-***Export via Python API***
+***LCM of Stable Diffusion***
+
+```python
+from optimum.neuron import NeuronLatentConsistencyModelPipeline
+
+model_id = "SimianLuo/LCM_Dreamshaper_v7"
+num_images_per_prompt = 1
+input_shapes = {"batch_size": 1, "height": 768, "width": 768, "num_images_per_prompt": num_images_per_prompt}
+compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
+
+stable_diffusion = NeuronLatentConsistencyModelPipeline.from_pretrained(
+    model_id, export=True, **compiler_args, **input_shapes
+)
+save_directory = "lcm_sd_neuron/"
+stable_diffusion.save_pretrained(save_directory)
+
+# Push to hub
+stable_diffusion.push_to_hub(save_directory, repository_id="Jingya/LCM_Dreamshaper_v7_neuronx", use_auth_token=True)
+```
+
+***LCM of Stable Diffusion XL***
 
 ```python
 from optimum.neuron import NeuronStableDiffusionXLPipeline
@@ -378,20 +402,39 @@ save_directory = "lcm_sdxl_neuron/"
 stable_diffusion.save_pretrained(save_directory)
 
 # Push to hub
-stable_diffusion.push_to_hub(save_directory, repository_id="my-neuron-repo", use_auth_token=True)
+stable_diffusion.push_to_hub(save_directory, repository_id="Jingya/lcm-sdxl-neuronx", use_auth_token=True)
 ```
 
 ### Text-to-Image
 
 Now we can generate images from text prompts on Inf2 using the pre-compiled model:
 
+***LCM of Stable Diffusion***
+
+```python
+from optimum.neuron import NeuronLatentConsistencyModelPipeline
+
+pipe = NeuronLatentConsistencyModelPipeline.from_pretrained("Jingya/LCM_Dreamshaper_v7_neuronx")
+prompts = ["Self-portrait oil painting, a beautiful cyborg with golden hair, 8k"] * 2
+
+images = pipe(prompt=prompts, num_inference_steps=4, guidance_scale=8.0).images
+```
+
+***LCM of Stable Diffusion XL***
+
 ```python
 from optimum.neuron import NeuronStableDiffusionXLPipeline
 
-pipe = NeuronStableDiffusionXLPipeline.from_pretrained("lcm_sdxl_neuron/")
-prompt = "a close-up picture of an old man standing in the rain"
+pipe = NeuronStableDiffusionXLPipeline.from_pretrained("Jingya/lcm-sdxl-neuronx")
+prompts = ["a close-up picture of an old man standing in the rain"] * 2
 
-images = pipe(prompt=prompt, num_inference_steps=4, guidance_scale=8.0).images
+images = pipe(prompt=prompts, num_inference_steps=4, guidance_scale=8.0).images
 ```
+
+<Tip>
+
+Inf2 instances contain one or more Neuron devices, and each Neuron device includes 2 NeuronCore-v2. By default, we load the whole pipeline of LCM to both Neuron cores. It means that when the batch size is divisible by 2, you can fully leverage the compute power of both cores.
+
+</Tip>
 
 Are there any other stable diffusion features that you want us to support in 🤗`Optimum-neuron`? Please file an issue to [`Optimum-neuron` Github repo](https://github.com/huggingface/optimum-neuron) or discuss with us on [HuggingFace’s community forum](https://discuss.huggingface.co/c/optimum/), cheers 🤗 !
