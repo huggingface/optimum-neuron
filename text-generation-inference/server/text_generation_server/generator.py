@@ -94,8 +94,9 @@ class Slot:
         PAUSE = 1
         READY = 2
 
-    def __init__(self, id: int):
+    def __init__(self, id: int, tokenizer: PreTrainedTokenizerBase):
         self._id = id
+        self._tokenizer = tokenizer
         self.clear()
 
     def clear(self):
@@ -108,7 +109,9 @@ class Slot:
         self._mask = []
         self._selector = None
         self._generated_tokens = 0
-        self._next_token_text = ""
+        self._next_text_token_start = 0
+        self._next_text_token_end = 0
+        self._next_text = ""
 
     @property
     def id(self) -> int:
@@ -131,7 +134,7 @@ class Slot:
         return self._generation_config
 
     @property
-    def generated_tokens(self) -> torch.LongTensor:
+    def generated_tokens(self) -> int:
         return self._generated_tokens
 
     def assign(self, request: Request, generation_config: GenerationConfig):
@@ -170,6 +173,8 @@ class Slot:
                 An object implementing the updated token selection logic.
         """
         self._tokens = input_ids.clone()
+        self._next_text_token_start = 0
+        self._next_text_token_end = torch.numel(self._tokens)
         self._mask = attention_mask.clone()
         self._selector = selector
 
@@ -188,7 +193,32 @@ class Slot:
             self._mask = torch.cat([self._mask, torch.LongTensor([1])])
         self._state = Slot.State.READY
 
-    def append(self, next_token: int, next_token_text: str):
+    def _decode_next_tokens(
+        self,
+    ) -> str:
+        """Hack to hopefully support generate_stream for the maximum number of tokenizers"""
+        # We need to include the tokens that produced the last text to defeat cleanup algorithms in the decode
+        # which decide to add a space or not depending on the surrounding ids.
+        new_text = self._tokenizer.decode(self._tokens[self._next_text_token_start :], skip_special_tokens=False)
+        if new_text.endswith("�"):
+            # utf-8 char at the end means it's a potential unfinished byte sequence
+            # from byte fallback tokenization.
+            return ""
+
+        # Compare the generated text with the one using only the tokens producing the last one
+        last_text = self._tokenizer.decode(
+            self._tokens[self._next_text_token_start : self._next_text_token_end],
+            skip_special_tokens=False,
+        )
+        if len(new_text) == len(last_text):
+            # Nothing new was actually generated
+            return ""
+        # Return the decoded text and store its token offsets
+        self._next_text_token_start = self._next_text_token_end
+        self._next_text_token_end = torch.numel(self._tokens)
+        return new_text[len(last_text) :]
+
+    def append(self, next_token: int) -> str:
         """Append a new generated token to this slot
 
         The new token is added to the list of generated tokens, which impacts
@@ -200,15 +230,18 @@ class Slot:
         Args:
             next_token (`int`):
                 The newly generated token.
-            next_token_test (`str`):
-                The corresponding decoded text.
+
+        Return:
+            The corresponding decoded text (if any).
         """
         self._tokens = torch.cat([self._tokens, torch.LongTensor([next_token])])
         self._mask = torch.cat([self._mask, torch.LongTensor([1])])
         self._generated_tokens += 1
+        next_text = self._decode_next_tokens()
         # Now that a new token has been generated, we can append the previous one to the inputs
-        self._inputs += self._next_token_text
-        self._next_token_text = next_token_text
+        self._inputs += self._next_text
+        self._next_text = next_text
+        return next_text
 
     def select(self, input_ids: torch.LongTensor, logits: torch.Tensor) -> torch.LongTensor:
         """Select the next token from the candidate logits.
@@ -230,7 +263,7 @@ class Slot:
 
     @property
     def generated_text(self) -> str:
-        return self._inputs + self._next_token_text
+        return self._inputs + self._next_text
 
     @property
     def next_token(self) -> int:
@@ -259,7 +292,7 @@ class NeuronGenerator(Generator):
         tokenizer.padding_side = "left"
         self.tokenizer = tokenizer
         self.special_tokens = [self.tokenizer.eos_token_id, self.tokenizer.pad_token_id]
-        self.slots = [Slot(i) for i in range(self.model.batch_size)]
+        self.slots = [Slot(i, tokenizer) for i in range(self.model.batch_size)]
 
     @property
     def info(self) -> InfoResponse:
@@ -402,13 +435,7 @@ class NeuronGenerator(Generator):
             next_token_logits = outputs.logits[i : i + 1, -1, :]
             slot_input_ids = input_ids[i : i + 1, :]
             next_token = slot.select(slot_input_ids, next_token_logits)
-            next_token_text = self.tokenizer.decode(next_token)
-            if not slot.generated_text.endswith(" ") and not next_token_text.startswith(" "):
-                # Some tokenizers do not prepend spaces automatically when decoding a single token
-                contextual_text = self.tokenizer.decode([slot.next_token, next_token])
-                if contextual_text[: -len(next_token_text)].endswith(" "):
-                    next_token_text = " " + next_token_text
-            slot.append(next_token, next_token_text)
+            next_token_text = slot.append(next_token)
             generated_text = None
             finish_reason = None
             if next_token == self.tokenizer.eos_token_id:
