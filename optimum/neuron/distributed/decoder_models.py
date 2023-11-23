@@ -595,7 +595,7 @@ class MistralParallelMLP(ParallelMLP):
 
 
 class MistralParallelCrossEntropy(ParallelCrossEntropy):
-    LAST_LINEAR_PROJECTION_NAME = "lm_head"
+    LAST_LINEAR_PROJECTION_NAME = {"MistralForCausalLM": "lm_head"}
 
 
 class MistralParallelizer(Parallelizer):
@@ -733,6 +733,7 @@ class MistralParallelizer(Parallelizer):
                 model, layer.mlp, sequence_parallel_enabled=sequence_parallel_enabled, device=device
             )
         if parallelize_embeddings:
+            MistralParallelEmbedding.overwrite_vocab_size_value_for_cross_entropy_computation(model)
             model = MistralParallelCrossEntropy.transform(
                 model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device
             )
