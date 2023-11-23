@@ -293,6 +293,14 @@ class UNetNeuronConfig(VisionNeuronConfig):
     def patch_model_for_export(self, model, dummy_inputs):
         return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
 
+    @property
+    def is_sdxl(self) -> bool:
+        return self._is_sdxl
+
+    @is_sdxl.setter
+    def is_sdxl(self, is_sdxl: bool):
+        self._is_sdxl = is_sdxl
+
 
 @register_in_tasks_manager("vae-encoder", *["semantic-segmentation"])
 class VaeEncoderNeuronConfig(VisionNeuronConfig):

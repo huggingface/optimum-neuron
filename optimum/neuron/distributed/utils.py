@@ -21,7 +21,7 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, Literal, Optional, Tuple, Type, Union
+from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Tuple, Type, Union
 
 import torch
 from transformers import PretrainedConfig
@@ -33,8 +33,11 @@ from ..utils.misc import download_checkpoints_in_cache
 from ..utils.require_utils import requires_neuronx_distributed, requires_safetensors, requires_torch_xla
 
 
-if TYPE_CHECKING and is_neuronx_distributed_available():
-    from neuronx_distributed.parallel_layers import layers
+if TYPE_CHECKING:
+    from transformers import PreTrainedModel
+
+    if is_neuronx_distributed_available():
+        from neuronx_distributed.parallel_layers import layers
 
 
 TENSOR_PARALLEL_SHARDS_DIR_NAME = "tensor_parallel_shards"
@@ -186,8 +189,13 @@ def embedding_to_parallel_embedding(
     parallel_embedding_layer = layers.ParallelEmbedding(
         embedding_layer.num_embeddings,
         embedding_layer.embedding_dim,
-        dtype=embedding_layer.weight.dtype,
+        padding_idx=embedding_layer.padding_idx,
+        max_norm=embedding_layer.max_norm,
+        norm_type=embedding_layer.norm_type,
+        scale_grad_by_freq=embedding_layer.scale_grad_by_freq,
+        sparse=embedding_layer.sparse,
         device=device,
+        dtype=embedding_layer.weight.dtype,
     )
 
     tp_rank = get_tensor_model_parallel_rank()
@@ -352,7 +360,6 @@ def linear_to_parallel_linear(
                     ),
                 )
                 parallel_linear_layer.weight.copy_(weight_data)
-
             elif linear_layer.weight.device != torch.device("meta"):
                 parallel_linear_layer.weight.copy_(
                     linear_layer.weight[tp_rank * row_size : (tp_rank + 1) * row_size, :]
@@ -464,6 +471,64 @@ def gqa_key_value_slicing_when_tp_size_greater_than_num_key_value_heads(
                     linear_layer.bias[key_value_head_index * head_dim : (key_value_head_index + 1) * head_dim]
                 )
     return sliced_linear_layer
+
+
+@requires_neuronx_distributed
+def delete_tensor_model_parallel_attributes(tensor: torch.Tensor):
+    from neuronx_distributed.parallel_layers.utils import _MODEL_PARALLEL_ATTRIBUTE_DEFAULTS
+
+    for attr_name in _MODEL_PARALLEL_ATTRIBUTE_DEFAULTS:
+        if hasattr(tensor, attr_name):
+            delattr(tensor, attr_name)
+
+
+def try_to_hf_initialize(model: "PreTrainedModel", mod: torch.nn.Module, parameter_names: List[str]) -> List[str]:
+    """
+    Tries to initialize the parameters in `parameter_names` that belong to the module `mod` by using the
+    `model._init_weights` method. It returns the names of the parameters that were left uninitialized.
+
+    """
+    cached_params_data = {name: param.data.clone() for name, param in mod.named_parameters()}
+    model._init_weights(mod)
+    left_uninitialized = []
+    with torch.no_grad():
+        for name in parameter_names:
+            if torch.all(cached_params_data[name] == getattr(mod, name).data):
+                left_uninitialized.append(name)
+        for name, cached_data in cached_params_data.items():
+            if name not in parameter_names:
+                param = getattr(mod, name)
+                param.data = cached_data
+    return left_uninitialized
+
+
+def initialize_linear(mod: torch.nn.Linear, parameter_names: List[str]):
+    """
+    Initializes the parameters in `parameter_names` of a `torch.nn.Linear` module.
+    """
+    cached_parameters = [mod.weight.data]
+    if mod.bias is not None:
+        cached_parameters.append(mod.bias.data)
+    mod.reset_parameters()
+    with torch.no_grad():
+        if "weight" not in parameter_names:
+            mod.weight.data = cached_parameters[0]
+        if mod.bias is not None and "bias" not in parameter_names:
+            mod.bias.data = cached_parameters[1]
+
+
+def initialize_parallel_linear(mod: "layers.BaseParallelLinear", parameter_names: List[str]):
+    """
+    Initializes the parameters in `parameter_names` of a parallel linear module.
+    """
+    if "weight" in parameter_names:
+        delete_tensor_model_parallel_attributes(mod.weight)
+        # It is needed to use `init_weight_cpu` instead of `_init_weights` because the initialization
+        # needs to happen on the full parameter and then scatter it accross TP ranks otherwise it will
+        # not be equivalent to the non-parallel case.
+        mod.init_weight_cpu()
+    if mod.bias is not None and "bias" in parameter_names:
+        mod._init_bias()
 
 
 @classmethod
