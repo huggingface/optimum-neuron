@@ -25,7 +25,9 @@ To alleviate that, `optimum-neuron` supports parallelism features enabling you t
 The good news is that is it possible to combine those techniques, and `optimum-neuron` makes it very easy!
 
 <Tip>
+
 All the example scripts provided in the optimum-neuron repo have those features implemented via the `NeuronTrainer`.
+
 </Tip>
 
 ## How to enable ZeRO-1?
@@ -54,6 +56,7 @@ trainer.train()
 ```
 
 <Tip>
+
 Since the example scripts use the `NeuronTrainer`, you can enable ZeRO-1 when using them by add the `--zero_1` flag
 to your command line.
 
@@ -72,6 +75,7 @@ torchrun --nproc_per_node=2 examples/language-modeling/run_clm.py \
     --output_dir my_training/
 
 ```
+
 </Tip>
 
 ### Via the `NeuronAccelerator`
@@ -149,6 +153,7 @@ trainer.train()
 ```
 
 <Tip>
+
 Since the example scripts use the `NeuronTrainer`, you can enable Tensor Parallelism when using them by specifying the `--tensor_parallel_size` argument, and optionally the `disable_embedding_parallelization` and `disable_sequence_parallel` flags.
 to your command line.
 
@@ -166,6 +171,7 @@ torchrun --nproc_per_node=2 examples/language-modeling/run_clm.py \
     --tensor_parallel_size 2 \
     --output_dir my_training/
 ```
+
 </Tip>
 
 
@@ -270,5 +276,7 @@ optimum-cli neuron consolidate my_training my_training_consolidated_checkpoint
 ```
 
 <Tip>
+
 The sharded checkpoints are saved under a directory called `tensor_parallel_shards`. The `optimum-cli neuron consolidate` command accept as input both a directory that contains a `tensor_parallel_shards` directory, or the `tensor_parallel_shards` directory itself.
+
 </Tip>
