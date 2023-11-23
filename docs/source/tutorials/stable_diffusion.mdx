@@ -413,11 +413,9 @@ Now we can generate images from text prompts on Inf2 using the pre-compiled mode
 from optimum.neuron import NeuronLatentConsistencyModelPipeline
 
 pipe = NeuronLatentConsistencyModelPipeline.from_pretrained("Jingya/LCM_Dreamshaper_v7_neuronx")
+prompts = ["Self-portrait oil painting, a beautiful cyborg with golden hair, 8k"] * 2
 
-num_images_per_prompt = 2
-prompt = ["Self-portrait oil painting, a beautiful cyborg with golden hair, 8k"] * num_images_per_prompt
-
-images = pipe(prompt=prompt, num_inference_steps=4, guidance_scale=8.0).images
+images = pipe(prompt=prompts, num_inference_steps=4, guidance_scale=8.0).images
 ```
 
 ***LCM of Stable Diffusion XL***
@@ -426,11 +424,9 @@ images = pipe(prompt=prompt, num_inference_steps=4, guidance_scale=8.0).images
 from optimum.neuron import NeuronStableDiffusionXLPipeline
 
 pipe = NeuronStableDiffusionXLPipeline.from_pretrained("Jingya/lcm-sdxl-neuronx")
+prompts = ["a close-up picture of an old man standing in the rain"] * 2
 
-num_images_per_prompt = 2
-prompt = ["a close-up picture of an old man standing in the rain"] * num_images_per_prompt 
-
-images = pipe(prompt=prompt, num_inference_steps=4, guidance_scale=8.0).images
+images = pipe(prompt=prompts, num_inference_steps=4, guidance_scale=8.0).images
 ```
 
 <Tip>
