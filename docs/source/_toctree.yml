@@ -23,7 +23,7 @@
     - local: guides/setup_aws_instance
       title: Set up AWS Trainium instance
     - local: guides/sagemaker
-      title: Using Amazon SageMaker
+      title: Training and Deployment using Amazon Sagemaker
     - local: guides/cache_system
       title: Neuron model cache
     - local: guides/fine_tune
