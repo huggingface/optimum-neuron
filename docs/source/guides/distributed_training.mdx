@@ -120,7 +120,7 @@ On top of that, it is very important to make sure that the original model is loa
 
 `optimum-neuron` provides a context-manager [`distributed.lazy_load_for_parallelism`] that loads the model lazily to prevent that, only the parameters of the corresponding model shard will be materialized in each worker.
 
-## Via the `NeuronTrainer`
+### Via the `NeuronTrainer`
 
 ```python
 from optimum.neuron import NeuronTrainingArguments, NeuronTrainer
@@ -169,7 +169,7 @@ torchrun --nproc_per_node=2 examples/language-modeling/run_clm.py \
 </Tip>
 
 
-## Via the `NeuronAccelerator`
+### Via the `NeuronAccelerator`
 
 Just as for ZeRO-1, it is possible to wrap the optimizer class to make it lazy. Since the model parameters are going to be sharded, it is not needed to materialize the optimizer state prior to model parallelization: the wrapper makes sure that it stays unmaterialized.
 
@@ -200,3 +200,40 @@ lazy_optimizer = lazy_adamw(...) # Actually instantiate the optimizer.
 
 model, optimizer = accelerator.prepare(model, lazy_optimizer)
 ```
+
+### Checkpoint consolidation
+
+Since Tensor Parallelism consists in sharding the model weights accross different workers, only sharded checkpoints will be saved during training. It is necessary to consolidate the sharded checkpoints to be able to share and use them outside of the specific training configuration there were created under.
+
+The Optimum CLI provides a way of doing that very easily via the `optimum neuron consolidate` command:
+
+```
+optimum-cli neuron consolidate --help
+
+usage: optimum-cli neuron consolidate [-h] [-f {pytorch,safetensors}] checkpoint_dir output_dir
+
+positional arguments:
+  checkpoint_dir        The path to the directory containing the checkpoints.
+  output_dir            The path to the output directory containing the consolidated checkpoint.
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -f {pytorch,safetensors}, --format {pytorch,safetensors}
+                        The format used to save the consolidated checkpoint.
+
+```
+
+All you need to do is specify the sharded checkpoints directory and the output directory that will contain the consolidated checkpoints, and the command takes care of the rest.
+It is also possible to specify the output format of the consolidated checkpoints, by default it will export them to the `safetensors` format, which is the recommend format to use.
+
+Example:
+
+TODO: add example tree
+
+```
+optimum-cli neuron consolidate my_training my_training_consolidated_checkpoint
+```
+
+<Tip>
+The sharded checkpoints are saved under a directory called `tensor_parallel_shards`. The `optimum-cli neuron consolidate` command accept as input both a directory that contains a `tensor_parallel_shards` directory, or the `tensor_parallel_shards` directory itself.
+</Tip>
