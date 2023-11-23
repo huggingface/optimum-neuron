@@ -203,6 +203,8 @@ def get_stable_diffusion_models_for_export(
         dynamic_batch_size=dynamic_batch_size,
         **unet_input_shapes,
     )
+    if task == "stable-diffusion-xl":
+        unet_neuron_config.is_sdxl = True
     models_for_export[DIFFUSION_MODEL_UNET_NAME] = (unet, unet_neuron_config)
 
     # VAE Encoder
