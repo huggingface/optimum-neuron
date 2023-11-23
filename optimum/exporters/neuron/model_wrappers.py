@@ -13,7 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Model wrappers for Neuron export."""
-from typing import TYPE_CHECKING, List
+
+from typing import TYPE_CHECKING, List, Optional
 
 import torch
 from transformers.models.t5.modeling_t5 import T5LayerCrossAttention
@@ -65,7 +66,7 @@ class T5EncoderWrapper(torch.nn.Module):
         model: "PreTrainedModel",
         num_beams: int = 1,
         device: str = "xla",
-        tp_degree=None,
+        tp_degree: Optional[int] = None,
     ):
         super().__init__()
         self.model = model
@@ -143,7 +144,7 @@ class T5DecoderWrapper(torch.nn.Module):
         sequence_length: int,
         num_beams: int = 1,
         device: str = "xla",
-        tp_degree=None,
+        tp_degree: Optional[int] = None,
     ):
         super().__init__()
         self.model = model

@@ -432,7 +432,6 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
     @property
     def inputs(self) -> List[str]:
         common_inputs = super().inputs + ["beam_idx", "beam_scores"]
-
         return common_inputs
 
     def generate_dummy_inputs(self, **kwargs):

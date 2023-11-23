@@ -171,9 +171,7 @@ def validate_model_outputs(
         ref_inputs = config.generate_dummy_inputs(return_tuple=False, **input_shapes)
         if reference_model.config.is_encoder_decoder:
             reference_model = config.patch_model_for_export(reference_model, device="cpu", **input_shapes)
-        if (
-            hasattr(config._config, "_class_name") and "AutoencoderKL" in config._config._class_name
-        ) or reference_model.config.is_encoder_decoder:
+        if "AutoencoderKL" in getattr(config._config, "_class_name", "") or reference_model.config.is_encoder_decoder:
             # VAE components for stable diffusion or Encoder-Decoder models
             ref_inputs = tuple(ref_inputs.values())
             ref_outputs = reference_model(*ref_inputs)

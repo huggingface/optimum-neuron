@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Dummy input generation classes."""
+
 import torch
 
 from ...utils import DTYPE_MAPPER, DummyInputGenerator, NormalizedTextConfig

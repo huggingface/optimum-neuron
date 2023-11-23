@@ -16,7 +16,7 @@
 Common Neuron configuration classes that handle most of the features for building model specific
 configurations.
 """
-from typing import Dict, List
+from typing import List
 
 from ...utils import (
     DummyBboxInputGenerator,
@@ -79,11 +79,7 @@ class TextSeq2SeqNeuronConfig(NeuronConfig):
     )
 
     @property
-    def is_decoder(self) -> bool:
-        raise NotImplementedError()
-
-    @property
-    def inputs(self) -> Dict[str, Dict[int, str]]:
+    def inputs(self) -> List[str]:
         common_inputs = []
         # encoder + decoder without past
         if "encoder" in self.MODEL_TYPE:
@@ -100,7 +96,7 @@ class TextSeq2SeqNeuronConfig(NeuronConfig):
         return common_inputs
 
     @property
-    def outputs(self) -> Dict[str, Dict[int, str]]:
+    def outputs(self) -> List[str]:
         common_outputs = []
         # encoder + decoder without past
         if "encoder" in self.MODEL_TYPE:
@@ -115,7 +111,6 @@ class TextSeq2SeqNeuronConfig(NeuronConfig):
             beam_outputs = (
                 ["next_token_scores", "next_tokens", "next_indices"] if self.num_beams > 1 else ["next_tokens"]
             )
-            # for i in range(self._config.num_decoder_layers):
             common_outputs = (
                 beam_outputs
                 + [f"past.{idx}.self.key" for idx in range(self._config.num_decoder_layers)]

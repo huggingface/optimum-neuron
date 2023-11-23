@@ -119,7 +119,7 @@ class NeuronConfig(ExportConfig, ABC):
         audio_sequence_length: Optional[int] = None,
         point_batch_size: Optional[int] = None,
         nb_points_per_image: Optional[int] = None,
-        num_beams: Optional[int] = None,
+        num_beams: int = 1,
         # TODO: add custom dtype after optimum 1.13 release
         # int_dtype: str = "int64",
         # float_dtype: str = "fp32",
