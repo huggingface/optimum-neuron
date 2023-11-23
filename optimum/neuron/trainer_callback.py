@@ -164,6 +164,9 @@ class NeuronCacheCallback(TrainerCallback):
         tmp_neuron_cache_path = Path(tmp_neuron_cache.name)
         if neuron_cache_path is not None:
             neuron_cache_files = list_files_in_neuron_cache(neuron_cache_path)
+            neuron_compile_cache_dir = neuron_cache_path / "neuron-compile-cache"
+            if neuron_compile_cache_dir.is_dir():
+                neuron_cache_files += list_files_in_neuron_cache(neuron_compile_cache_dir)
         else:
             neuron_cache_files = []
 

@@ -73,7 +73,6 @@ else:
 
 HASH_FILENAME = "pytorch_model.bin"
 REGISTRY_FILENAME = "registry.json"
-NEURON_COMPILE_CACHE_NAME = "neuron-compile-cache"
 
 _IP_PATTERN = re.compile(r"ip-([0-9]{1,3}-){4}")
 _HF_HUB_HTTP_ERROR_REQUEST_ID_PATTERN = re.compile(r"\(Request ID: Root=[\w-]+\)")
