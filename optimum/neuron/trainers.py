@@ -107,7 +107,7 @@ if os.environ.get("TORCHELASTIC_RUN_ID"):
     if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
         _ORIGINAL_NEURON_CACHE_PATH = get_neuron_cache_path()
 
-        # _ORIGINAL_NEURON_CACHE_PATH is None when the `--no-cache` flag is set.
+        # _ORIGINAL_NEURON_CACHE_PATH is `None` when the `--no-cache` flag is set.
         if _ORIGINAL_NEURON_CACHE_PATH is not None:
             if is_precompilation():
                 # During precompilation, we make sure to set the cache path to the defined compile cache path by the
