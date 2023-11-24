@@ -45,7 +45,7 @@ from .require_utils import requires_safetensors
 logger = logging.get_logger()
 
 
-def should_current_worker_log() -> bool:
+def is_main_worker() -> bool:
     if torch.distributed.is_initialized() and is_torch_xla_available():
         import torch_xla.core.xla_model as xm
 
