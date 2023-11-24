@@ -46,11 +46,13 @@ from transformers import PretrainedConfig, PreTrainedModel
 from ...utils import logging
 from ...utils.logging import warn_once
 from .constant import NEURON_BINARIES_PATH
-from .misc import string_to_bool
+from .misc import should_log, string_to_bool
 from .version_utils import get_neuronxcc_version
 
 
 logger = logging.get_logger()
+
+SHOULD_LOG = should_log()
 
 HOME = Path.home()
 DEFAULT_HF_HOME = f"{HOME}/.cache/huggingface"
@@ -83,10 +85,11 @@ _DISABLE_IS_PRIVATE_REPO_CHECK: bool = string_to_bool(
     os.environ.get("OPTIMUM_NEURON_DISABLE_IS_PRIVATE_REPO_CHECK", "false")
 )
 if _DISABLE_IS_PRIVATE_REPO_CHECK:
-    logger.warning(
-        "The check that prevents you from pushing compiled files from private models is disabled. This is allowed only "
-        "for testing purposes."
-    )
+    if SHOULD_LOG:
+        logger.warning(
+            "The check that prevents you from pushing compiled files from private models is disabled. This is allowed "
+            "only for testing purposes."
+        )
 
 
 def load_custom_cache_repo_name_from_hf_home(
@@ -111,7 +114,7 @@ def set_custom_cache_repo_name_in_hf_home(repo_id: str, hf_home: str = HF_HOME, 
             )
 
     existing_custom_cache_repo = load_custom_cache_repo_name_from_hf_home(hf_home_cache_repo_file)
-    if existing_custom_cache_repo is not None:
+    if SHOULD_LOG and existing_custom_cache_repo is not None:
         logger.warning(
             f"A custom cache repo was already registered: {existing_custom_cache_repo}. It will be overwritten to "
             f"{repo_id}."
@@ -166,7 +169,7 @@ def has_write_access_to_repo(repo_id: str) -> bool:
         if org["name"] == username_or_organization:
             # Role in an organization can be either:
             # "admin", "write", "contributor", "read".
-            if org["roleInOrg"] == "contributor":
+            if SHOULD_LOG and org["roleInOrg"] == "contributor":
                 logger.warning(
                     f"You are logged in as a contributor to the cache repo {repo_id}. It is not possible to infer "
                     "whether you have write access on this repo or not, so it will be assumed you do not."
@@ -186,7 +189,7 @@ def get_hf_hub_cache_repos():
     if custom_cache_repo is not None and custom_cache_repo not in hf_hub_repos:
         hf_hub_repos = [custom_cache_repo] + hf_hub_repos
 
-    if saved_custom_cache_repo is None and custom_cache_repo is None:
+    if SHOULD_LOG and saved_custom_cache_repo is None and custom_cache_repo is None:
         warn_once(
             logger,
             "No Neuron cache name is saved locally. This means that only the official Neuron cache will be used. You "
@@ -201,15 +204,8 @@ def get_hf_hub_cache_repos():
     # Pushing stuff to the HF Hub should be limited to the `push_to_cache_on_hub` function,
     # making it easier for higher-level abstractions using the cache utils to reason on which
     # parts should only run on the master process and which parts should run on everyone.
-    from . import is_torch_xla_available
 
-    process_index = 0
-    if is_torch_xla_available():
-        import torch_xla.core.xla_model as xm
-
-        process_index = xm.get_ordinal()
-
-    if process_index == 0 and hf_hub_repos and not has_write_access_to_repo(hf_hub_repos[0]):
+    if SHOULD_LOG and hf_hub_repos and not has_write_access_to_repo(hf_hub_repos[0]):
         warn_once(
             logger,
             f"You do not have write access to {hf_hub_repos[0]} so you will not be able to push any cached compilation "
@@ -348,7 +344,7 @@ def create_or_append_to_neuron_parallel_compile_report(
     neuron_cache_path: Union[str, Path], neuron_hash_to_files: Dict["NeuronHash", List[Path]]
 ):
     report_content = get_neuron_parallel_compile_report(neuron_cache_path)
-    inserted =  set()
+    inserted = set()
     for neuron_hash, filenames in neuron_hash_to_files.items():
         for filename in filenames:
             directory = filename.parent
@@ -477,9 +473,11 @@ def add_in_registry(repo_id: str, neuron_hash: "NeuronHash"):
                 )
             except Exception as e:
                 if "A commit has happened since" in str(e):
-                    logger.info(
-                        "A commit has happened in cache repository since we tried to update the registry, starting again..."
-                    )
+                    if SHOULD_LOG:
+                        logger.info(
+                            "A commit has happened in cache repository since we tried to update the registry, starting "
+                            "again..."
+                        )
                 else:
                     raise e
             else:
@@ -960,9 +958,8 @@ def push_to_cache_on_hub(
         exists = any(filename.startswith(path_in_repo_str) for filename in repo_filenames)
     else:
         exists = any(filename == path_in_repo_str for filename in repo_filenames)
-    if exists:
+    if SHOULD_LOG and exists:
         if not overwrite_existing:
-            # TODO: logg only for master rank
             logger.info(
                 f"Did not push the cached model located at {local_cache_dir_or_file} to the repo named {cache_repo_id} "
                 "because it already exists there. Use overwrite_existing=True if you want to overwrite the cache on the "
@@ -991,7 +988,8 @@ def push_to_cache_on_hub(
                 raise e
             msg = could_not_push_message.format(cache_repo_id=cache_repo_id, error=e)
             msg = re.sub(_HF_HUB_HTTP_ERROR_REQUEST_ID_PATTERN, "", msg)
-            warn_once(logger, msg)
+            if SHOULD_LOG:
+                warn_once(logger, msg)
     else:
         try:
             HfApi().upload_file(
@@ -1005,7 +1003,8 @@ def push_to_cache_on_hub(
                 raise e
             msg = could_not_push_message.format(cache_repo_id=cache_repo_id, error=e)
             msg = re.sub(_HF_HUB_HTTP_ERROR_REQUEST_ID_PATTERN, "", msg)
-            warn_once(logger, msg)
+            if SHOULD_LOG:
+                warn_once(logger, msg)
 
     # Adding the model to the registry.
     try:

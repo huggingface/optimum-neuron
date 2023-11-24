@@ -38,10 +38,19 @@ from transformers.utils import (
 from transformers.utils.hub import get_checkpoint_shard_files
 
 from ...utils import logging
+from .import_utils import is_torch_xla_available
 from .require_utils import requires_safetensors
 
 
 logger = logging.get_logger()
+
+
+def should_log() -> bool:
+    if is_torch_xla_available():
+        import torch_xla.core.xla_model as xm
+
+        return xm.get_local_ordinal() == 0
+    return True
 
 
 # From https://stackoverflow.com/questions/15008758/parsing-boolean-values-with-argparse
