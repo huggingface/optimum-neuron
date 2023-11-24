@@ -326,6 +326,8 @@ class NeuronCacheCallback(TrainerCallback):
         """
         if xm.get_local_ordinal() == 0 and is_precompilation() and self.tmp_neuron_cache_path is not None:
             create_or_append_to_neuron_parallel_compile_report(self.tmp_neuron_cache_path, self.neuron_hash_to_files)
+            for neuron_hash in self.neuron_hash_to_files:
+                self.neuron_hash_to_files[neuron_hash] = []
         if self.push:
             self.synchronize_temporary_neuron_cache()
         if self.wait_for_everyone_on_push:

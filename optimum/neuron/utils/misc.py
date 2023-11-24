@@ -46,7 +46,7 @@ logger = logging.get_logger()
 
 
 def should_log() -> bool:
-    if is_torch_xla_available():
+    if torch.distributed.is_initialized() and is_torch_xla_available():
         import torch_xla.core.xla_model as xm
 
         return xm.get_local_ordinal() == 0

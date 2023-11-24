@@ -52,7 +52,7 @@ from .version_utils import get_neuronxcc_version
 
 logger = logging.get_logger()
 
-SHOULD_LOG = should_log()
+# SHOULD_LOG = should_log()
 
 HOME = Path.home()
 DEFAULT_HF_HOME = f"{HOME}/.cache/huggingface"
@@ -85,11 +85,10 @@ _DISABLE_IS_PRIVATE_REPO_CHECK: bool = string_to_bool(
     os.environ.get("OPTIMUM_NEURON_DISABLE_IS_PRIVATE_REPO_CHECK", "false")
 )
 if _DISABLE_IS_PRIVATE_REPO_CHECK:
-    if SHOULD_LOG:
-        logger.warning(
-            "The check that prevents you from pushing compiled files from private models is disabled. This is allowed "
-            "only for testing purposes."
-        )
+    logger.warning(
+        "The check that prevents you from pushing compiled files from private models is disabled. This is allowed "
+        "only for testing purposes."
+    )
 
 
 def load_custom_cache_repo_name_from_hf_home(
@@ -114,7 +113,7 @@ def set_custom_cache_repo_name_in_hf_home(repo_id: str, hf_home: str = HF_HOME, 
             )
 
     existing_custom_cache_repo = load_custom_cache_repo_name_from_hf_home(hf_home_cache_repo_file)
-    if SHOULD_LOG and existing_custom_cache_repo is not None:
+    if should_log() and existing_custom_cache_repo is not None:
         logger.warning(
             f"A custom cache repo was already registered: {existing_custom_cache_repo}. It will be overwritten to "
             f"{repo_id}."
@@ -169,7 +168,7 @@ def has_write_access_to_repo(repo_id: str) -> bool:
         if org["name"] == username_or_organization:
             # Role in an organization can be either:
             # "admin", "write", "contributor", "read".
-            if SHOULD_LOG and org["roleInOrg"] == "contributor":
+            if should_log() and org["roleInOrg"] == "contributor":
                 logger.warning(
                     f"You are logged in as a contributor to the cache repo {repo_id}. It is not possible to infer "
                     "whether you have write access on this repo or not, so it will be assumed you do not."
@@ -189,7 +188,7 @@ def get_hf_hub_cache_repos():
     if custom_cache_repo is not None and custom_cache_repo not in hf_hub_repos:
         hf_hub_repos = [custom_cache_repo] + hf_hub_repos
 
-    if SHOULD_LOG and saved_custom_cache_repo is None and custom_cache_repo is None:
+    if should_log() and saved_custom_cache_repo is None and custom_cache_repo is None:
         warn_once(
             logger,
             "No Neuron cache name is saved locally. This means that only the official Neuron cache will be used. You "
@@ -205,7 +204,7 @@ def get_hf_hub_cache_repos():
     # making it easier for higher-level abstractions using the cache utils to reason on which
     # parts should only run on the master process and which parts should run on everyone.
 
-    if SHOULD_LOG and hf_hub_repos and not has_write_access_to_repo(hf_hub_repos[0]):
+    if should_log() and hf_hub_repos and not has_write_access_to_repo(hf_hub_repos[0]):
         warn_once(
             logger,
             f"You do not have write access to {hf_hub_repos[0]} so you will not be able to push any cached compilation "
@@ -376,7 +375,7 @@ def remove_entries_in_neuron_parallel_compile_report(
             else:
                 overall_hash = neuron_hash["overall_hash"]
             directory = entry_to_remove["directory"]
-            if entry_neuron_hash["neuron_hash"]["overal_hash"] == overall_hash and entry_directory == directory:
+            if entry_neuron_hash["overall_hash"] == overall_hash and entry_directory == directory:
                 should_keep = False
         if should_keep:
             new_report.append(entry)
@@ -473,7 +472,7 @@ def add_in_registry(repo_id: str, neuron_hash: "NeuronHash"):
                 )
             except Exception as e:
                 if "A commit has happened since" in str(e):
-                    if SHOULD_LOG:
+                    if should_log():
                         logger.info(
                             "A commit has happened in cache repository since we tried to update the registry, starting "
                             "again..."
@@ -958,7 +957,7 @@ def push_to_cache_on_hub(
         exists = any(filename.startswith(path_in_repo_str) for filename in repo_filenames)
     else:
         exists = any(filename == path_in_repo_str for filename in repo_filenames)
-    if SHOULD_LOG and exists:
+    if should_log() and exists:
         if not overwrite_existing:
             logger.info(
                 f"Did not push the cached model located at {local_cache_dir_or_file} to the repo named {cache_repo_id} "
@@ -975,6 +974,7 @@ def push_to_cache_on_hub(
         "Could not push the cached model to the repo {cache_repo_id}, most likely due to not having the write permission "
         "for this repo. Exact error:\n{error}."
     )
+    success = True
     if local_cache_dir_or_file.is_dir():
         try:
             HfApi().upload_folder(
@@ -988,8 +988,9 @@ def push_to_cache_on_hub(
                 raise e
             msg = could_not_push_message.format(cache_repo_id=cache_repo_id, error=e)
             msg = re.sub(_HF_HUB_HTTP_ERROR_REQUEST_ID_PATTERN, "", msg)
-            if SHOULD_LOG:
+            if should_log():
                 warn_once(logger, msg)
+            success = False
     else:
         try:
             HfApi().upload_file(
@@ -1003,13 +1004,15 @@ def push_to_cache_on_hub(
                 raise e
             msg = could_not_push_message.format(cache_repo_id=cache_repo_id, error=e)
             msg = re.sub(_HF_HUB_HTTP_ERROR_REQUEST_ID_PATTERN, "", msg)
-            if SHOULD_LOG:
+            if should_log():
                 warn_once(logger, msg)
+            success = False
 
-    # Adding the model to the registry.
-    try:
-        add_in_registry(cache_repo_id, neuron_hash)
-    except HfHubHTTPError:
-        pass
+    # Adding the model to the registry if the upload was successful.
+    if success:
+        try:
+            add_in_registry(cache_repo_id, neuron_hash)
+        except HfHubHTTPError:
+            pass
 
     return CachedModelOnTheHub(cache_repo_id, path_in_repo)
