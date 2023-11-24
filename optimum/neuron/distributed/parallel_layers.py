@@ -290,8 +290,7 @@ class ParallelSelfAttention(ParallelLayer):
     NUM_ATTENTION_HEADS_NAME: Optional[str] = None
     NUM_KEY_VALUE_HEADS_NAME: Optional[str] = None
     NUM_KEY_VALUE_GROUPS_NAME: Optional[str] = None
-    # TODO: add this in NormalizedConfig
-    ALL_HEAD_SIZE_NAME: Optional[str] = None  # "all_head_size"
+    ALL_HEAD_SIZE_NAME: Optional[str] = None
 
     @classmethod
     @requires_neuronx_distributed

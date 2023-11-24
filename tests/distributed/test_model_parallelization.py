@@ -134,6 +134,7 @@ MODEL_TYPES_TO_TEST = [
         "hf-internal-testing/tiny-random-T5Model",
         {"d_ff": "36", "num_layers": "2", "num_decoder_layers": "2"},
     ),
+    ("mistral", "michaelbenayoun/mistral-tiny-4layers-8kv-heads-random"),
 ]
 
 MODELS_TO_TEST = []
