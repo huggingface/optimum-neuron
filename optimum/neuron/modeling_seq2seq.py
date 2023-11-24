@@ -421,7 +421,9 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
             max_length=max_length,
             num_beams=num_beams,
             do_sample=kwargs.pop("do_sample", False),
-            use_cache=kwargs.pop("use_cache", True),
+            use_cache=kwargs.pop(
+                "use_cache", False
+            ),  # `use_cache` is supported by default in `optimum-neuron`, set to False to avoid warning
             decoder_attention_mask=decoder_attention_mask,
             # Pass fake encoder_outputs so the transfomers code will not invoke the encoder
             encoder_outputs={"last_hidden_state": torch.ones((batch_size, max_length, 1))},
@@ -447,7 +449,7 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
         """
         if logits_processor is not None:
             logger.warning(
-                "`logits_processor` will not be neglected because in `optimum-neuron`, `next_tokens` is computed inside the compiled decoder. If you want us to support custom logits_processor during the compilation, please file an issue to https://github.com/huggingface/optimum-neuron."
+                "`logits_processor` will be neglected because in `optimum-neuron`, `next_tokens` is computed inside the compiled decoder. If you want us to support custom logits_processor during the compilation, please file an issue to https://github.com/huggingface/optimum-neuron."
             )
         stopping_criteria = stopping_criteria if stopping_criteria is not None else StoppingCriteriaList()
         pad_token_id = pad_token_id if pad_token_id is not None else self.generation_config.pad_token_id

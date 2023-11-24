@@ -20,7 +20,7 @@ import shutil
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Union
 
 import torch
 from huggingface_hub import HfApi, HfFolder, hf_hub_download
@@ -451,10 +451,19 @@ class NeuronBaseModel(OptimizedModel):
                 f" than the static shapes used for compilation: {target_shapes}{extra}."
             )
 
-    def _pad_to_compiled_shape(self, inputs: Dict[str, "torch.Tensor"]):
+    def _pad_to_compiled_shape(
+        self, inputs: Dict[str, "torch.Tensor"], padding_side: Literal["right", "left"] = "right"
+    ):
         """
         Pads input tensors if they are not in valid shape.
+
+        Args:
+            inputs (`Dict[str, "torch.Tensor"]`):
+                Dictionary of input torch tensors.
+            padding_side (`Literal["right", "left"]`, defaults to "right"):
+                The side on which to apply the padding.
         """
+        logger.info(f"Padding input tensors, the padding side is: {padding_side}.")
         for input_name, input_tensor in inputs.items():
             target_shapes = self.input_static_shapes[input_name]
             padding = ()
@@ -466,7 +475,7 @@ class NeuronBaseModel(OptimizedModel):
                 to_pad = target_shapes[i] - input_tensor.size(i)
 
                 self._raise_if_invalid_padding(input_name, input_tensor, target_shapes, to_pad, i)
-                padding += (0, to_pad)
+                padding += (0, to_pad) if padding_side == "right" else (to_pad, 0)
 
             if (
                 self.preprocessors is not None
@@ -496,7 +505,7 @@ class NeuronBaseModel(OptimizedModel):
             else:
                 to_pad = target_shapes[0] - input_tensor.size(0)
                 self._raise_if_invalid_padding(input_name, input_tensor, target_shapes, to_pad, 0)
-            padding += (0, to_pad)
+            padding += (0, to_pad) if padding_side == "right" else (to_pad, 0)
 
             pad_id = 1
             inputs[input_name] = torch.nn.functional.pad(input_tensor, padding, mode="constant", value=pad_id)
@@ -508,7 +517,13 @@ class NeuronBaseModel(OptimizedModel):
         inputs = tuple(self._pad_to_compiled_shape(inputs).values())
         yield inputs
 
-    def remove_padding(self, outputs: List[torch.Tensor], dims: List[int], indices: List[int]) -> List[torch.Tensor]:
+    @staticmethod
+    def remove_padding(
+        outputs: List[torch.Tensor],
+        dims: List[int],
+        indices: List[int],
+        padding_side: Literal["right", "left"] = "right",
+    ) -> List[torch.Tensor]:
         """
         Removes padding from output tensors.
 
@@ -519,12 +534,26 @@ class NeuronBaseModel(OptimizedModel):
                 List of dimensions in which we slice a tensor.
             indices (`List[int]`):
                 List of indices in which we slice a tensor along an axis.
+            padding_side (`Literal["right", "left"]`, defaults to "right"):
+                The side on which the padding has been applied.
         """
         if len(dims) != len(indices):
             raise ValueError(f"The size of `dims`({len(dims)}) and indices`({len(indices)}) must be equal.")
+
         for dim, indice in zip(dims, indices):
-            outputs = [
-                torch.index_select(output_tensor, dim, torch.LongTensor(range(indice))) for output_tensor in outputs
-            ]
+            if padding_side == "right":
+                outputs = [
+                    torch.index_select(output_tensor, dim, torch.LongTensor(range(indice)))
+                    for output_tensor in outputs
+                ]
+            elif padding_side == "left":
+                outputs = [
+                    torch.index_select(
+                        output_tensor,
+                        dim,
+                        torch.LongTensor(range(output_tensor.shape[dim] - indice, output_tensor.shape[dim])),
+                    )
+                    for output_tensor in outputs
+                ]
 
         return outputs
