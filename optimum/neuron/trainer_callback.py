@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import torch
 from huggingface_hub.utils import HfHubHTTPError
+from packaging import version
 from transformers import TrainerCallback, TrainerState
 
 from ..utils import logging
@@ -46,6 +47,7 @@ from .utils.cache_utils import (
     set_neuron_cache_path,
 )
 from .utils.training_utils import is_precompilation
+from .version import __version__
 
 
 if TYPE_CHECKING:
@@ -224,9 +226,15 @@ class NeuronCacheCallback(TrainerCallback):
             (input_name, tuple(input_.shape)) for input_name, input_ in inputs.items() if input_name in input_names
         )
 
-        use_bf16 = (
-            args.bf16 or os.environ.get("XLA_USE_BF16", "0") == "1" or os.environ.get("XLA_DOWNCAST_BF16", "0") == "1"
-        )
+        # For backward compatibility, to not break the cache for users for now.
+        if version.parse(__version__) <= version.parse("0.0.14"):
+            use_bf16 = args.bf16
+        else:
+            use_bf16 = (
+                args.bf16
+                or os.environ.get("XLA_USE_BF16", "0") == "1"
+                or os.environ.get("XLA_DOWNCAST_BF16", "0") == "1"
+            )
         if args.fp16:
             data_type = torch.float16
         elif use_bf16:
