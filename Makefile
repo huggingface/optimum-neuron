@@ -24,7 +24,7 @@ clean:
 
 rwildcard=$(wildcard $1) $(foreach d,$1,$(call rwildcard,$(addsuffix /$(notdir $d),$(wildcard $(dir $d)*))))
 
-VERSION := $(shell python -W ignore -c "from optimum.neuron.version import __version__; print(__version__)")
+VERSION := $(shell gawk 'match($$0, /__version__ = "(.*)"/, a) {print a[1]}' optimum/neuron/version.py)
 
 PACKAGE_DIST = dist/optimum-neuron-$(VERSION).tar.gz
 PACKAGE_WHEEL = dist/optimum_neuron-$(VERSION)-py3-none-any.whl
@@ -71,6 +71,20 @@ build_dist: ${PACKAGE_DIST} ${PACKAGE_WHEEL}
 pypi_upload: ${PACKAGE_DIST} ${PACKAGE_WHEEL}
 	python -m twine upload ${PACKAGE_DIST} ${PACKAGE_WHEEL}
 
+# Tests
+
 test_installs:
 	python -m pip install .[tests]
 	python -m pip install git+https://github.com/huggingface/transformers.git
+
+# Stand-alone TGI server for unit tests outside of TGI container
+tgi_server:
+	python -m pip install -r text-generation-inference/server/build-requirements.txt
+	make -C text-generation-inference/server clean
+	VERSION=${VERSION} make -C text-generation-inference/server gen-server
+
+tgi_test: tgi_server
+	python -m pip install .[neuronx] pytest
+	find text-generation-inference -name "text_generation_server-$(VERSION)-py3-none-any.whl" \
+	                               -exec python -m pip install --force-reinstall {} \;
+	python -m pytest -s text-generation-inference/tests
