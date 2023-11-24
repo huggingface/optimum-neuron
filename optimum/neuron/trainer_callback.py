@@ -25,6 +25,7 @@ from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import torch
+from huggingface_hub.utils import HfHubHTTPError
 from transformers import TrainerCallback, TrainerState
 
 from ..utils import logging
@@ -32,12 +33,15 @@ from .distributed.utils import TENSOR_PARALLEL_SHARDS_DIR_NAME
 from .utils import is_torch_xla_available
 from .utils.cache_utils import (
     NeuronHash,
+    create_or_append_to_neuron_parallel_compile_report,
     download_cached_model_from_hub,
     get_neuron_cache_path,
     get_neuron_compiler_version_dir_name,
+    get_neuron_parallel_compile_report,
     list_files_in_neuron_cache,
     path_after_folder,
     push_to_cache_on_hub,
+    remove_entries_in_neuron_parallel_compile_report,
     set_neuron_cache_path,
 )
 from .utils.training_utils import is_precompilation
@@ -302,7 +306,8 @@ class NeuronCacheCallback(TrainerCallback):
         Event called at the end of a training step. If using gradient accumulation, one training step might take
         several inputs.
         """
-        if self.push:
+
+        if self.push or (xm.get_local_ordinal() == 0 and is_precompilation()):
             model = kwargs["model"]
             state = self.prepare_state(state)
             neuron_hash = self.neuron_hash_for_model(args, model, state.last_inputs, try_to_fetch_cached_model=True)
@@ -319,8 +324,42 @@ class NeuronCacheCallback(TrainerCallback):
         """
         Event called after a checkpoint save.
         """
+        if xm.get_local_ordinal() == 0 and is_precompilation() and self.tmp_neuron_cache_path is not None:
+            create_or_append_to_neuron_parallel_compile_report(self.tmp_neuron_cache_path, self.neuron_hash_to_files)
         if self.push:
             self.synchronize_temporary_neuron_cache()
+        if self.wait_for_everyone_on_push:
+            xm.rendezvous("wait for everyone after pushing")
+
+    def on_train_begin(self, args: "TrainingArguments", state: TrainerState, control: "TrainerControl", **kwargs):
+        """
+        Event called at the beginning of training.
+        """
+        if is_precompilation() or self.neuron_cache_path is None:
+            return
+        if self.push:
+            neuron_parallel_compile_report = get_neuron_parallel_compile_report(
+                self.neuron_cache_path, as_neuron_hash=True
+            )
+            entries_to_remove = []
+            for entry in neuron_parallel_compile_report:
+                neuron_hash = entry["neuron_hash"]
+                path = entry["directory"]
+                filenames = list_files_in_neuron_cache(path, only_relevant_files=True)
+                success = True
+                for path in filenames:
+                    try:
+                        push_to_cache_on_hub(
+                            neuron_hash, path, local_path_to_path_in_repo="default", fail_when_could_not_push=True
+                        )
+                    except HfHubHTTPError:
+                        # It means that we could not push, so we do not remove this entry from the report.
+                        success = False
+                if success:
+                    entries_to_remove.append(entry)
+
+            # Removing the entries that were uploaded.
+            remove_entries_in_neuron_parallel_compile_report(self.neuron_cache_path, entries_to_remove)
         if self.wait_for_everyone_on_push:
             xm.rendezvous("wait for everyone after pushing")
 
