@@ -73,7 +73,6 @@ else:
 
 HASH_FILENAME = "pytorch_model.bin"
 REGISTRY_FILENAME = "registry.json"
-NEURON_COMPILE_CACHE_NAME = "neuron-compile-cache"
 
 _IP_PATTERN = re.compile(r"ip-([0-9]{1,3}-){4}")
 _HF_HUB_HTTP_ERROR_REQUEST_ID_PATTERN = re.compile(r"\(Request ID: Root=[\w-]+\)")
@@ -232,7 +231,7 @@ def get_neuron_cache_path() -> Optional[Path]:
         if match_:
             path = Path(match_.group(1))
         else:
-            path = Path("/var/tmp")
+            path = Path("/var/tmp/neuron-compile-cache")
 
         return path
 
@@ -277,6 +276,12 @@ def get_num_neuron_cores_used() -> int:
     return int(os.environ.get("LOCAL_WORLD_SIZE", "1"))
 
 
+def get_neuron_compiler_version_dir_name(neuron_compiler_version: Optional[str] = None) -> str:
+    if neuron_compiler_version is None:
+        neuron_compiler_version = get_neuronxcc_version()
+    return f"neuronxcc-{neuron_compiler_version}"
+
+
 def list_files_in_neuron_cache(neuron_cache_path: Union[str, Path], only_relevant_files: bool = False) -> List[Path]:
     if isinstance(neuron_cache_path, str):
         neuron_cache_path = Path(neuron_cache_path)
@@ -286,12 +291,16 @@ def list_files_in_neuron_cache(neuron_cache_path: Union[str, Path], only_relevan
     return files
 
 
-def path_after_folder(path: Path, folder: Union[str, Path], include_folder: bool = False) -> Path:
+def path_after_folder(
+    path: Path, folder: Union[str, Path], include_folder: bool = False, fail_when_folder_not_found: bool = False
+) -> Path:
     if isinstance(folder, Path):
         folder = folder.name
     try:
         index = path.parts.index(folder)
-    except ValueError:
+    except ValueError as e:
+        if fail_when_folder_not_found:
+            raise e
         index = len(path.parts)
     index = index + 1 if not include_folder else index
     return Path("").joinpath(*path.parts[index:])
@@ -687,7 +696,7 @@ class NeuronHash:
 
     @property
     def neuron_compiler_version_dir_name(self):
-        return f"neuronxcc-{self.neuron_compiler_version}"
+        return get_neuron_compiler_version_dir_name(self.neuron_compiler_version)
 
     @property
     def is_private(self):

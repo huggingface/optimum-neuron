@@ -28,11 +28,13 @@ import torch
 from transformers import TrainerCallback, TrainerState
 
 from ..utils import logging
+from .distributed.utils import TENSOR_PARALLEL_SHARDS_DIR_NAME
 from .utils import is_torch_xla_available
 from .utils.cache_utils import (
     NeuronHash,
     download_cached_model_from_hub,
     get_neuron_cache_path,
+    get_neuron_compiler_version_dir_name,
     list_files_in_neuron_cache,
     path_after_folder,
     push_to_cache_on_hub,
@@ -179,7 +181,18 @@ class NeuronCacheCallback(TrainerCallback):
         for cache_file in neuron_cache_files:
             if cache_file.name == "cache_stats.json":
                 continue
-            path_in_neuron_cache = path_after_folder(cache_file, neuron_cache_path.name)
+            try:
+                path_in_neuron_cache = path_after_folder(
+                    cache_file,
+                    get_neuron_compiler_version_dir_name(),
+                    include_folder=True,
+                    fail_when_folder_not_found=True,
+                )
+            except Exception:
+                # Here only when the folder `get_neuron_compiler_version_dir_name()` was not in the path of
+                # `cache_file`. In this case, no symlink is created because it is interpreted as not being a
+                # compilation file.
+                continue
             tmp_cache_file = tmp_neuron_cache_path / path_in_neuron_cache
             tmp_cache_file.parent.mkdir(parents=True, exist_ok=True)
             # TODO: investigate why it is needed. Minor issue.
@@ -316,6 +329,18 @@ class NeuronCacheCallback(TrainerCallback):
         Event called at the end of training.
         """
         self.on_save(args, state, control, **kwargs)
+        if is_precompilation():
+            output_dir = Path(args.output_dir)
+            for file_or_dir in output_dir.glob("**/*"):
+                if file_or_dir.is_file():
+                    continue
+                if file_or_dir.name.startswith("checkpoint-") or file_or_dir.name == TENSOR_PARALLEL_SHARDS_DIR_NAME:
+                    if xm.get_local_ordinal() == 0:
+                        logger.info(
+                            f"Removing {file_or_dir} since the weights were produced by `neuron_parallel_compile`, "
+                            "thus cannot be used."
+                        )
+                    shutil.rmtree(file_or_dir, ignore_errors=True)
 
     def on_evaluate(self, args: "TrainingArguments", state: TrainerState, control: "TrainerControl", **kwargs):
         """
