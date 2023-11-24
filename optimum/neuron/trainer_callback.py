@@ -166,13 +166,6 @@ class NeuronCacheCallback(TrainerCallback):
         tmp_neuron_cache_path = Path(tmp_neuron_cache.name)
         if neuron_cache_path is not None:
             neuron_cache_files = list_files_in_neuron_cache(neuron_cache_path)
-            # `neuron_parallel_compile` will still put files under the `neuron_cache_path / neuron-compile-cache`
-            # directory, even though `neuronx-cc` puts the compilation files under `neuron_cache_path` only.
-            # If files under this directory are found, they were produced by `neuron_parallel_compile` and can be
-            # needed for current training.
-            neuron_compile_cache_dir = neuron_cache_path / "neuron-compile-cache"
-            if neuron_compile_cache_dir.is_dir():
-                neuron_cache_files += list_files_in_neuron_cache(neuron_compile_cache_dir)
         else:
             neuron_cache_files = []
 
@@ -196,6 +189,9 @@ class NeuronCacheCallback(TrainerCallback):
                     fail_when_folder_not_found=True,
                 )
             except Exception:
+                # Here only when the folder `get_neuron_compiler_version_dir_name()` was not in the path of
+                # `cache_file`. In this case, no symlink is created because it is interpreted as not being a
+                # compilation file.
                 continue
             tmp_cache_file = tmp_neuron_cache_path / path_in_neuron_cache
             tmp_cache_file.parent.mkdir(parents=True, exist_ok=True)

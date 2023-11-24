@@ -231,7 +231,7 @@ def get_neuron_cache_path() -> Optional[Path]:
         if match_:
             path = Path(match_.group(1))
         else:
-            path = Path("/var/tmp")
+            path = Path("/var/tmp/neuron-compile-cache")
 
         return path
 
