@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "text-generation-server"
-version = "0.0.1"
+version = "VERSION"
 authors = [{name="David Corvoysier", email="david@huggingface.co" }]
 description = "TGI compatible inference server for AWS Neuronx platforms"
 dependencies = [

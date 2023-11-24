@@ -1,6 +1,7 @@
 # Initialize base variables
 pkg_name := text_generation_server
 BUILDDIR ?= $(CURDIR)/build_$(pkg_name)
+VERSION ?= 0.0.1
 mkfile_path := $(abspath $(lastword $(MAKEFILE_LIST)))
 mkfile_dir := $(dir $(mkfile_path))
 pkg_dir := $(BUILDDIR)/$(pkg_name)
@@ -22,6 +23,7 @@ endef
 $(BUILDDIR)/pyproject.toml: $(mkfile_dir)/pyproject.toml
 	mkdir -p $(BUILDDIR)
 	$(COPY)
+	sed -i -e 's/version = "VERSION"/version = \"${VERSION}\"/' $@
 
 $(pkg_dir)/%.py: $(src_dir)/%.py
 	mkdir -p $(pkg_dir)
