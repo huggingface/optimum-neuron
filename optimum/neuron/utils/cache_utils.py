@@ -348,7 +348,7 @@ def create_or_append_to_neuron_parallel_compile_report(
     neuron_cache_path: Union[str, Path], neuron_hash_to_files: Dict["NeuronHash", List[Path]]
 ):
     report_content = get_neuron_parallel_compile_report(neuron_cache_path)
-    inserted = {}
+    inserted =  set()
     for neuron_hash, filenames in neuron_hash_to_files.items():
         for filename in filenames:
             directory = filename.parent
@@ -357,6 +357,7 @@ def create_or_append_to_neuron_parallel_compile_report(
             report_content.append(
                 {"neuron_hash": neuron_hash.to_dict_for_neuron_compile_report(), "directory": directory.as_posix()}
             )
+            inserted.add(directory)
 
     report_file = Path(neuron_cache_path) / NEURON_PARALLEL_COMPILE_REPORT_FILENAME
     with open(report_file, "w") as fp:
