@@ -344,6 +344,7 @@ class StagingNeuronUtilsTestCase(StagingTestMixin, TestCase):
         _test_list_in_registry(True)
 
 
+@is_trainium_test
 class NeuronHashTestCase(TestCase):
     def test_neuron_hash_is_not_mutable(self):
         bert_model = BertModel(BertConfig())

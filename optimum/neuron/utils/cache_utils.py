@@ -721,13 +721,17 @@ class NeuronHash:
             torch.bfloat16: torch.float16,
         }
 
+        # Materialize all tensors before copying them to the CPU.
+        # This will prevent from triggering a graph compilation for each tensor.
         xm.mark_step()
+
+        # It is actually important to first move the tensor to CPU then cast, because all XLA tensor operations,
+        # and in particular `to()` behave differently when doing `neuron_parallel_compile`.
         cpu_state_dict = move_all_tensor_to_cpu(state_dict)
+
         bytes_to_join = []
         for name, tensor in cpu_state_dict.items():
             memfile = io.BytesIO()
-            # It is actually important to first move the tensor to CPU then cast, because all XLA tensor operations,
-            # and in particular `to()` behave differently when doing `neuron_parallel_compile`.
             np.save(memfile, tensor.to(cast_to_mapping.get(tensor.dtype, tensor.dtype)).numpy())
             bytes_to_join.append(name.encode("utf-8"))
             bytes_to_join.append(memfile.getvalue())
