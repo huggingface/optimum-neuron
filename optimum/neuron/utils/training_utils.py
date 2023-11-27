@@ -324,6 +324,9 @@ def torch_xla_safe_save_file(
     master_only: bool = True,
     global_master: bool = False,
 ):
+    """
+    Torch XLA compatible implementation of `safetensors.torch.save_file`.
+    """
     from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
     from safetensors.torch import save_file
     from torch_xla.core.xla_model import is_master_ordinal
