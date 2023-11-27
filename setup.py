@@ -15,7 +15,7 @@ except Exception as error:
 INSTALL_REQUIRES = [
     "transformers == 4.35.0",
     "accelerate == 0.23.0",
-    "optimum >= 1.13.0",
+    "optimum >= 1.14.0",
     "huggingface_hub >= 0.14.0",
     "numpy>=1.22.2, <=1.25.2",
     "protobuf<4",
@@ -29,7 +29,7 @@ TESTS_REQUIRE = [
     "sentencepiece",
     "datasets",
     "sacremoses",
-    "diffusers >= 0.20.0",
+    "diffusers >= 0.23.0",
     "safetensors",
 ]
 
@@ -60,7 +60,7 @@ EXTRAS_REQUIRE = {
         "torchvision==0.14.*",
         "neuronx_distributed==0.5.0",
     ],
-    "diffusers": ["diffusers"],
+    "diffusers": ["diffusers >= 0.23.0"],
 }
 
 setup(

@@ -15,6 +15,7 @@
 """Training utilities"""
 
 import os
+import re
 from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 import torch
@@ -121,6 +122,12 @@ for model_type in _SUPPORTED_MODEL_TYPES:
     if isinstance(model_type, str):
         model_type = (model_type, None)
     _SUPPORTED_MODEL_NAMES.update(_generate_supported_model_class_names(*model_type))
+
+
+_MODEL_TYPE_TO_OPTLEVEL: Dict[str, str] = {
+    "default": "-O2",
+    "llama": "-O1",
+}
 
 
 def is_precompilation() -> bool:
@@ -261,9 +268,24 @@ def prepare_environment_for_neuron():
     Prepares the system environment for Transformers models training on AWS Neuron.
     """
     # Set compiler flag to compile for transformer model type
-    os.environ["NEURON_CC_FLAGS"] = (
-        os.environ.get("NEURON_CC_FLAGS", "") + " --model-type=transformer --enable-experimental-O1"
-    )
+    os.environ["NEURON_CC_FLAGS"] = os.environ.get("NEURON_CC_FLAGS", "") + " --model-type=transformer"
+
+
+def set_neuron_cc_optlevel_for_model(model: "PreTrainedModel", optlevel: str = "auto"):
+    """
+    Sets the Neuron compiler optimization level considering both `model` and `optlevel`.
+    If `optlevel` is different than `"auto"`, it will be set to that value, otherwise the default value for a given
+    model is used.
+    """
+    if optlevel == "auto":
+        optlevel = _MODEL_TYPE_TO_OPTLEVEL.get(model.config.model_type, _MODEL_TYPE_TO_OPTLEVEL["default"])
+    neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
+    match_ = re.search(r"-O[123]", neuron_cc_flags)
+    if match_:
+        neuron_cc_flags = neuron_cc_flags[: match_.start(0)] + f"{optlevel}" + neuron_cc_flags[match_.end(1) + 1 :]
+    else:
+        neuron_cc_flags += f"{optlevel} "
+    os.environ["NEURON_CC_FLAGS"] = neuron_cc_flags
 
 
 def set_verbosity(verbosity: int):

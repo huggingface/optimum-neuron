@@ -61,6 +61,7 @@ from .utils.training_utils import (
     patch_generation_mixin_to_neuron_generation_mixin,
     patched_finfo,
     prepare_environment_for_neuron,
+    set_neuron_cc_optlevel_for_model,
     skip_first_batches,
     torch_xla_safe_save_file,
 )
@@ -108,16 +109,23 @@ if os.environ.get("TORCHELASTIC_RUN_ID"):
     if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
         _ORIGINAL_NEURON_CACHE_PATH = get_neuron_cache_path()
 
-        if not is_precompilation():
-            if os.environ["RANK"] == "0":
-                _TMP_NEURON_CACHE_DIR = NeuronCacheCallback.create_temporary_neuron_cache(get_neuron_cache_path())
-                store = torch.distributed.TCPStore(_TCP_STORE_ADDRESS, _TCP_STORE_PORT, is_master=True)
-                store.set("tmp_neuron_cache_path", _TMP_NEURON_CACHE_DIR.name)
-                _TMP_NEURON_CACHE_PATH = Path(_TMP_NEURON_CACHE_DIR.name)
+        # _ORIGINAL_NEURON_CACHE_PATH is `None` when the `--no-cache` flag is set.
+        if _ORIGINAL_NEURON_CACHE_PATH is not None:
+            if is_precompilation():
+                # During precompilation, we make sure to set the cache path to the defined compile cache path by the
+                # user. If nothing is specified, it is set to the default compile cache used by the Neuron compiler:
+                # /var/tmp/neuron-compile-cache
+                set_neuron_cache_path(_ORIGINAL_NEURON_CACHE_PATH)
             else:
-                store = torch.distributed.TCPStore(_TCP_STORE_ADDRESS, _TCP_STORE_PORT, is_master=False)
-                _TMP_NEURON_CACHE_PATH = Path(store.get("tmp_neuron_cache_path").decode("utf-8"))
-            set_neuron_cache_path(_TMP_NEURON_CACHE_PATH)
+                if os.environ["RANK"] == "0":
+                    _TMP_NEURON_CACHE_DIR = NeuronCacheCallback.create_temporary_neuron_cache(get_neuron_cache_path())
+                    store = torch.distributed.TCPStore(_TCP_STORE_ADDRESS, _TCP_STORE_PORT, is_master=True)
+                    store.set("tmp_neuron_cache_path", _TMP_NEURON_CACHE_DIR.name)
+                    _TMP_NEURON_CACHE_PATH = Path(_TMP_NEURON_CACHE_DIR.name)
+                else:
+                    store = torch.distributed.TCPStore(_TCP_STORE_ADDRESS, _TCP_STORE_PORT, is_master=False)
+                    _TMP_NEURON_CACHE_PATH = Path(store.get("tmp_neuron_cache_path").decode("utf-8"))
+                set_neuron_cache_path(_TMP_NEURON_CACHE_PATH)
 
         torch.distributed.init_process_group(backend="xla")
         if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
@@ -183,6 +191,8 @@ class AugmentTrainerForNeuronMixin:
 
         # Make the model Neuron-compatible for generation.
         patch_generation_mixin_to_neuron_generation_mixin(self.model)
+
+        set_neuron_cc_optlevel_for_model(self.model, optlevel=self.args.neuron_cc_optlevel)
 
     @property
     def tp_enabled(self):

@@ -34,6 +34,8 @@ logger = logging.getLogger(__name__)
 
 
 class NeuronStableDiffusionXLInpaintPipelineMixin(StableDiffusionXLPipelineMixin, StableDiffusionXLInpaintPipeline):
+    prepare_latents = StableDiffusionXLInpaintPipeline.prepare_latents
+
     # Adapted from https://github.com/huggingface/diffusers/blob/v0.21.2/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_inpaint.py#L629
     def _encode_vae_image(
         self, image: torch.Tensor, generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None
@@ -264,7 +266,7 @@ class NeuronStableDiffusionXLInpaintPipelineMixin(StableDiffusionXLPipelineMixin
         >>> compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
         >>> input_shapes = {"batch_size": 1, "height": 1024, "width": 1024}
         >>> pipeline = NeuronStableDiffusionXLInpaintPipeline.from_pretrained(
-        ...     "stabilityai/stable-diffusion-xl-base-1.0", export=True, **compiler_args, **input_shapes, device_ids=[0, 1])
+        ...     "stabilityai/stable-diffusion-xl-base-1.0", export=True, **compiler_args, **input_shapes,
         ... )
         >>> pipeline.save_pretrained("sdxl_inpaint/")
 
@@ -316,7 +318,9 @@ class NeuronStableDiffusionXLInpaintPipelineMixin(StableDiffusionXLPipelineMixin
         # here `guidance_scale` is defined analog to the guidance weight `w` of equation (2)
         # of the Imagen paper: https://arxiv.org/pdf/2205.11487.pdf . `guidance_scale = 1`
         # corresponds to doing no classifier free guidance.
-        do_classifier_free_guidance = guidance_scale > 1.0 and (self.dynamic_batch_size or len(self.device_ids) == 2)
+        do_classifier_free_guidance = guidance_scale > 1.0 and (
+            self.dynamic_batch_size or self.data_parallel_mode == "unet"
+        )
 
         # 3. Encode input prompt
         text_encoder_lora_scale = (
@@ -563,9 +567,6 @@ class NeuronStableDiffusionXLInpaintPipelineMixin(StableDiffusionXLPipelineMixin
             image = self.watermark.apply_watermark(image)
 
         image = self.image_processor.postprocess(image, output_type=output_type)
-
-        # Offload all models
-        self.maybe_free_model_hooks()
 
         if not return_dict:
             return (image,)

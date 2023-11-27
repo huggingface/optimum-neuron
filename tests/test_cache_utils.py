@@ -89,7 +89,7 @@ class NeuronUtilsTestCase(TrainiumTestMixin, TestCase):
         self.assertEqual(get_neuron_cache_path(), custom_cache_dir_name)
 
         os.environ["NEURON_CC_FLAGS"] = "--some --parameters --here --other --paremeters --here"
-        self.assertEqual(get_neuron_cache_path(), Path("/var/tmp"))
+        self.assertEqual(get_neuron_cache_path(), Path("/var/tmp/neuron-compile-cache"))
 
     def _test_set_neuron_cache_path(self, new_cache_path):
         os.environ["NEURON_CC_FLAGS"] = "--some --parameters --here --no-cache --other --paremeters --here"
