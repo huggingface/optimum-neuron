@@ -45,7 +45,7 @@ from transformers import PretrainedConfig, PreTrainedModel
 
 from ...utils import logging
 from ...utils.logging import warn_once
-from ..utils.require_utils import requires_torch_xla
+from ..utils.require_utils import requires_neuronx_distributed
 from .constant import NEURON_BINARIES_PATH
 from .misc import is_main_worker, string_to_bool
 from .version_utils import get_neuronxcc_version
@@ -712,20 +712,23 @@ class NeuronHash:
         else:
             hash_dict[attribute_name] = attribute
 
-    @requires_torch_xla
+    @requires_neuronx_distributed
     def state_dict_to_bytes(self, state_dict: Dict[str, torch.Tensor]) -> bytes:
         import torch_xla.core.xla_model as xm
+        from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
 
-        xm.mark_step()
         cast_to_mapping = {
             torch.bfloat16: torch.float16,
         }
+
+        xm.mark_step()
+        cpu_state_dict = move_all_tensor_to_cpu(state_dict)
         bytes_to_join = []
-        for name, tensor in state_dict.items():
+        for name, tensor in cpu_state_dict.items():
             memfile = io.BytesIO()
             # It is actually important to first move the tensor to CPU then cast, because all XLA tensor operations,
             # and in particular `to()` behave differently when doing `neuron_parallel_compile`.
-            np.save(memfile, tensor.cpu().to(cast_to_mapping.get(tensor.dtype, tensor.dtype)).numpy())
+            np.save(memfile, tensor.to(cast_to_mapping.get(tensor.dtype, tensor.dtype)).numpy())
             bytes_to_join.append(name.encode("utf-8"))
             bytes_to_join.append(memfile.getvalue())
         return b"".join(bytes_to_join)
