@@ -25,7 +25,7 @@ import subprocess
 import tempfile
 from dataclasses import InitVar, asdict, dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
 
 import huggingface_hub
 import numpy as np
@@ -41,17 +41,14 @@ from huggingface_hub import (
 )
 from huggingface_hub.utils import EntryNotFoundError, HfHubHTTPError, RepositoryNotFoundError
 from packaging import version
+from transformers import PretrainedConfig, PreTrainedModel
 
 from ...utils import logging
 from ...utils.logging import warn_once
 from ..utils.require_utils import requires_torch_xla
 from .constant import NEURON_BINARIES_PATH
-from .misc import string_to_bool
+from .misc import is_main_worker, string_to_bool
 from .version_utils import get_neuronxcc_version
-
-
-if TYPE_CHECKING:
-    from transformers import PretrainedConfig, PreTrainedModel
 
 
 logger = logging.get_logger()
@@ -74,7 +71,7 @@ else:
 
 HASH_FILENAME = "pytorch_model.bin"
 REGISTRY_FILENAME = "registry.json"
-NEURON_COMPILE_CACHE_NAME = "neuron-compile-cache"
+NEURON_PARALLEL_COMPILE_REPORT_FILENAME = "neuron_parallel_compile_report.json"
 
 _IP_PATTERN = re.compile(r"ip-([0-9]{1,3}-){4}")
 _HF_HUB_HTTP_ERROR_REQUEST_ID_PATTERN = re.compile(r"\(Request ID: Root=[\w-]+\)")
@@ -88,8 +85,8 @@ _DISABLE_IS_PRIVATE_REPO_CHECK: bool = string_to_bool(
 )
 if _DISABLE_IS_PRIVATE_REPO_CHECK:
     logger.warning(
-        "The check that prevents you from pushing compiled files from private models is disabled. This is allowed only "
-        "for testing purposes."
+        "The check that prevents you from pushing compiled files from private models is disabled. This is allowed "
+        "only for testing purposes."
     )
 
 
@@ -115,7 +112,7 @@ def set_custom_cache_repo_name_in_hf_home(repo_id: str, hf_home: str = HF_HOME, 
             )
 
     existing_custom_cache_repo = load_custom_cache_repo_name_from_hf_home(hf_home_cache_repo_file)
-    if existing_custom_cache_repo is not None:
+    if is_main_worker() and existing_custom_cache_repo is not None:
         logger.warning(
             f"A custom cache repo was already registered: {existing_custom_cache_repo}. It will be overwritten to "
             f"{repo_id}."
@@ -170,7 +167,7 @@ def has_write_access_to_repo(repo_id: str) -> bool:
         if org["name"] == username_or_organization:
             # Role in an organization can be either:
             # "admin", "write", "contributor", "read".
-            if org["roleInOrg"] == "contributor":
+            if is_main_worker() and org["roleInOrg"] == "contributor":
                 logger.warning(
                     f"You are logged in as a contributor to the cache repo {repo_id}. It is not possible to infer "
                     "whether you have write access on this repo or not, so it will be assumed you do not."
@@ -190,7 +187,7 @@ def get_hf_hub_cache_repos():
     if custom_cache_repo is not None and custom_cache_repo not in hf_hub_repos:
         hf_hub_repos = [custom_cache_repo] + hf_hub_repos
 
-    if saved_custom_cache_repo is None and custom_cache_repo is None:
+    if is_main_worker() and saved_custom_cache_repo is None and custom_cache_repo is None:
         warn_once(
             logger,
             "No Neuron cache name is saved locally. This means that only the official Neuron cache will be used. You "
@@ -205,15 +202,8 @@ def get_hf_hub_cache_repos():
     # Pushing stuff to the HF Hub should be limited to the `push_to_cache_on_hub` function,
     # making it easier for higher-level abstractions using the cache utils to reason on which
     # parts should only run on the master process and which parts should run on everyone.
-    from . import is_torch_xla_available
 
-    process_index = 0
-    if is_torch_xla_available():
-        import torch_xla.core.xla_model as xm
-
-        process_index = xm.get_ordinal()
-
-    if process_index == 0 and hf_hub_repos and not has_write_access_to_repo(hf_hub_repos[0]):
+    if is_main_worker() and hf_hub_repos and not has_write_access_to_repo(hf_hub_repos[0]):
         warn_once(
             logger,
             f"You do not have write access to {hf_hub_repos[0]} so you will not be able to push any cached compilation "
@@ -233,7 +223,7 @@ def get_neuron_cache_path() -> Optional[Path]:
         if match_:
             path = Path(match_.group(1))
         else:
-            path = Path("/var/tmp")
+            path = Path("/var/tmp/neuron-compile-cache")
 
         return path
 
@@ -278,6 +268,12 @@ def get_num_neuron_cores_used() -> int:
     return int(os.environ.get("LOCAL_WORLD_SIZE", "1"))
 
 
+def get_neuron_compiler_version_dir_name(neuron_compiler_version: Optional[str] = None) -> str:
+    if neuron_compiler_version is None:
+        neuron_compiler_version = get_neuronxcc_version()
+    return f"neuronxcc-{neuron_compiler_version}"
+
+
 def list_files_in_neuron_cache(neuron_cache_path: Union[str, Path], only_relevant_files: bool = False) -> List[Path]:
     if isinstance(neuron_cache_path, str):
         neuron_cache_path = Path(neuron_cache_path)
@@ -287,12 +283,16 @@ def list_files_in_neuron_cache(neuron_cache_path: Union[str, Path], only_relevan
     return files
 
 
-def path_after_folder(path: Path, folder: Union[str, Path], include_folder: bool = False) -> Path:
+def path_after_folder(
+    path: Path, folder: Union[str, Path], include_folder: bool = False, fail_when_folder_not_found: bool = False
+) -> Path:
     if isinstance(folder, Path):
         folder = folder.name
     try:
         index = path.parts.index(folder)
-    except ValueError:
+    except ValueError as e:
+        if fail_when_folder_not_found:
+            raise e
         index = len(path.parts)
     index = index + 1 if not include_folder else index
     return Path("").joinpath(*path.parts[index:])
@@ -319,6 +319,69 @@ def _get_model_name_or_path(config: "PretrainedConfig") -> Optional[str]:
     if model_name_or_path == "":
         model_name_or_path = None
     return model_name_or_path
+
+
+def get_neuron_parallel_compile_report(
+    neuron_cache_path: Union[str, Path], as_neuron_hash: bool = False
+) -> List[Dict[str, Any]]:
+    report_file = Path(neuron_cache_path) / NEURON_PARALLEL_COMPILE_REPORT_FILENAME
+    report_content = []
+    if report_file.is_file():
+        try:
+            with open(report_file) as fp:
+                report_content = json.load(fp)
+        except json.JSONDecodeError:
+            pass
+    if as_neuron_hash:
+        for entry in report_content:
+            entry["neuron_hash"] = NeuronHash.from_neuron_compile_report(entry.pop("neuron_hash"))
+    return report_content
+
+
+def create_or_append_to_neuron_parallel_compile_report(
+    neuron_cache_path: Union[str, Path], neuron_hash_to_files: Dict["NeuronHash", List[Path]]
+):
+    report_content = get_neuron_parallel_compile_report(neuron_cache_path)
+    inserted = set()
+    for neuron_hash, filenames in neuron_hash_to_files.items():
+        for filename in filenames:
+            directory = filename.parent
+            if directory in inserted:
+                continue
+            report_content.append(
+                {"neuron_hash": neuron_hash.to_dict_for_neuron_compile_report(), "directory": directory.as_posix()}
+            )
+            inserted.add(directory)
+
+    report_file = Path(neuron_cache_path) / NEURON_PARALLEL_COMPILE_REPORT_FILENAME
+    with open(report_file, "w") as fp:
+        json.dump(report_content, fp)
+
+
+def remove_entries_in_neuron_parallel_compile_report(
+    neuron_cache_path: Union[str, Path], entries_to_remove: List[Dict[str, Any]]
+):
+    report = get_neuron_parallel_compile_report(neuron_cache_path, as_neuron_hash=False)
+    new_report = []
+    for entry in report:
+        entry_neuron_hash = entry["neuron_hash"]
+        entry_directory = entry["directory"]
+        should_keep = True
+        for entry_to_remove in entries_to_remove:
+            neuron_hash = entry_to_remove["neuron_hash"]
+            if isinstance(neuron_hash, NeuronHash):
+                overall_hash = neuron_hash._hash.overall_hash
+            else:
+                overall_hash = neuron_hash["overall_hash"]
+            directory = entry_to_remove["directory"]
+            if entry_neuron_hash["overall_hash"] == overall_hash and entry_directory == directory:
+                should_keep = False
+        if should_keep:
+            new_report.append(entry)
+
+    report_file = Path(neuron_cache_path) / NEURON_PARALLEL_COMPILE_REPORT_FILENAME
+    with open(report_file, "w") as fp:
+        json.dump(new_report, fp)
 
 
 def create_registry_file_if_does_not_exist(repo_id: str):
@@ -408,9 +471,11 @@ def add_in_registry(repo_id: str, neuron_hash: "NeuronHash"):
                 )
             except Exception as e:
                 if "A commit has happened since" in str(e):
-                    logger.info(
-                        "A commit has happened in cache repository since we tried to update the registry, starting again..."
-                    )
+                    if is_main_worker():
+                        logger.info(
+                            "A commit has happened in cache repository since we tried to update the registry, starting "
+                            "again..."
+                        )
                 else:
                     raise e
             else:
@@ -612,6 +677,30 @@ class NeuronHash:
 
         self.compute_hash(model)
 
+    def to_dict_for_neuron_compile_report(self) -> Dict[str, Any]:
+        return {
+            "model_hash": self._hash.model_hash,
+            "overall_hash": self._hash.overall_hash,
+            "neuron_compiler_version": self.neuron_compiler_version,
+            "model_name_or_path": self._model_name_or_path,
+            "is_private": self._is_private,
+            "model_type": self._model_type,
+        }
+
+    @classmethod
+    def from_neuron_compile_report(cls, data: Dict[str, Any]) -> "NeuronHash":
+        # Creating a dummy neuron hash.
+        neuron_hash = cls(PreTrainedModel(PretrainedConfig()), (), torch.float32)
+        # Populate it with data.
+        super(cls, neuron_hash).__setattr__(
+            "_hash", _MutableHashAttribute(model_hash=data["model_hash"], overall_hash=data["overall_hash"])
+        )
+        super(cls, neuron_hash).__setattr__("neuron_compiler_version", data["neuron_compiler_version"])
+        super(cls, neuron_hash).__setattr__("_model_name_or_path", data["model_name_or_path"])
+        super(cls, neuron_hash).__setattr__("_is_private", data["is_private"])
+        super(cls, neuron_hash).__setattr__("_model_type", data["model_type"])
+        return neuron_hash
+
     def _insert_potential_unspecified_hash_attribute(
         self, attribute_name: str, attribute: Any, hash_dict: Dict[str, Any]
     ):
@@ -634,7 +723,9 @@ class NeuronHash:
         bytes_to_join = []
         for name, tensor in state_dict.items():
             memfile = io.BytesIO()
-            np.save(memfile, tensor.to(cast_to_mapping.get(tensor.dtype, tensor.dtype)).cpu().numpy())
+            # It is actually important to first move the tensor to CPU then cast, because all XLA tensor operations,
+            # and in particular `to()` behave differently when doing `neuron_parallel_compile`.
+            np.save(memfile, tensor.cpu().to(cast_to_mapping.get(tensor.dtype, tensor.dtype)).numpy())
             bytes_to_join.append(name.encode("utf-8"))
             bytes_to_join.append(memfile.getvalue())
         return b"".join(bytes_to_join)
@@ -692,7 +783,7 @@ class NeuronHash:
 
     @property
     def neuron_compiler_version_dir_name(self):
-        return f"neuronxcc-{self.neuron_compiler_version}"
+        return get_neuron_compiler_version_dir_name(self.neuron_compiler_version)
 
     @property
     def is_private(self):
@@ -834,6 +925,7 @@ def push_to_cache_on_hub(
     cache_repo_id: Optional[str] = None,
     overwrite_existing: bool = False,
     local_path_to_path_in_repo: Optional[Union[Literal["default"], Callable[[Path], Path]]] = None,
+    fail_when_could_not_push: bool = False,
 ) -> CachedModelOnTheHub:
     if cache_repo_id is None:
         cache_repo_id = get_hf_hub_cache_repos()[0]
@@ -870,7 +962,7 @@ def push_to_cache_on_hub(
         exists = any(filename.startswith(path_in_repo_str) for filename in repo_filenames)
     else:
         exists = any(filename == path_in_repo_str for filename in repo_filenames)
-    if exists:
+    if is_main_worker() and exists:
         if not overwrite_existing:
             logger.info(
                 f"Did not push the cached model located at {local_cache_dir_or_file} to the repo named {cache_repo_id} "
@@ -887,6 +979,7 @@ def push_to_cache_on_hub(
         "Could not push the cached model to the repo {cache_repo_id}, most likely due to not having the write permission "
         "for this repo. Exact error:\n{error}."
     )
+    success = True
     if local_cache_dir_or_file.is_dir():
         try:
             HfApi().upload_folder(
@@ -896,9 +989,13 @@ def push_to_cache_on_hub(
                 repo_type="model",
             )
         except HfHubHTTPError as e:
+            if fail_when_could_not_push:
+                raise e
             msg = could_not_push_message.format(cache_repo_id=cache_repo_id, error=e)
             msg = re.sub(_HF_HUB_HTTP_ERROR_REQUEST_ID_PATTERN, "", msg)
-            warn_once(logger, msg)
+            if is_main_worker():
+                warn_once(logger, msg)
+            success = False
     else:
         try:
             HfApi().upload_file(
@@ -908,14 +1005,19 @@ def push_to_cache_on_hub(
                 repo_type="model",
             )
         except HfHubHTTPError as e:
+            if fail_when_could_not_push:
+                raise e
             msg = could_not_push_message.format(cache_repo_id=cache_repo_id, error=e)
             msg = re.sub(_HF_HUB_HTTP_ERROR_REQUEST_ID_PATTERN, "", msg)
-            warn_once(logger, msg)
+            if is_main_worker():
+                warn_once(logger, msg)
+            success = False
 
-    # Adding the model to the registry.
-    try:
-        add_in_registry(cache_repo_id, neuron_hash)
-    except HfHubHTTPError:
-        pass
+    # Adding the model to the registry if the upload was successful.
+    if success:
+        try:
+            add_in_registry(cache_repo_id, neuron_hash)
+        except HfHubHTTPError:
+            pass
 
     return CachedModelOnTheHub(cache_repo_id, path_in_repo)

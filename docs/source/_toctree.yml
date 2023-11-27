@@ -14,26 +14,34 @@
       title: Generate images with Stable Diffusion models on AWS Inferentia
     - local: tutorials/notebooks
       title: Notebooks
+    - local: tutorials/llama2-13b-chatbot
+      title: Create your own chatbot with llama-2-13B on AWS Inferentia
     title: Tutorials
   - sections:
     - local: guides/overview
       title: Overview
     - local: guides/setup_aws_instance
-      title: Set up AWS Trainium instance            
+      title: Set up AWS Trainium instance
+    - local: guides/sagemaker
+      title: Training and Deployment using Amazon Sagemaker
     - local: guides/cache_system
       title: Neuron model cache
     - local: guides/fine_tune
       title: Fine-tune Transformers with AWS Trainium
+    - local: guides/distributed_training
+      title: Distributed Training
     - local: guides/export_model
       title: Export a model to Inferentia
     - local: guides/models
-      title: Neuron models for inference 
+      title: Neuron models for inference
     - local: guides/pipelines
       title: Inference pipelines with AWS Neuron
     title: How-To Guides
   - sections:
     - local: package_reference/trainer
       title: Neuron Trainer
+    - local: package_reference/distributed
+      title: Neuron Distributed
     - local: package_reference/export
       title: Neuron Exporter
     - local: package_reference/modeling

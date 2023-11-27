@@ -16,6 +16,7 @@
 
 import inspect
 import json
+import os
 import shutil
 import subprocess
 from collections import defaultdict
@@ -25,20 +26,28 @@ from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import torch
+from huggingface_hub.utils import HfHubHTTPError
+from packaging import version
 from transformers import TrainerCallback, TrainerState
 
 from ..utils import logging
+from .distributed.utils import TENSOR_PARALLEL_SHARDS_DIR_NAME
 from .utils import is_torch_xla_available
 from .utils.cache_utils import (
     NeuronHash,
+    create_or_append_to_neuron_parallel_compile_report,
     download_cached_model_from_hub,
     get_neuron_cache_path,
+    get_neuron_compiler_version_dir_name,
+    get_neuron_parallel_compile_report,
     list_files_in_neuron_cache,
     path_after_folder,
     push_to_cache_on_hub,
+    remove_entries_in_neuron_parallel_compile_report,
     set_neuron_cache_path,
 )
 from .utils.training_utils import is_precompilation
+from .version import __version__
 
 
 if TYPE_CHECKING:
@@ -179,7 +188,18 @@ class NeuronCacheCallback(TrainerCallback):
         for cache_file in neuron_cache_files:
             if cache_file.name == "cache_stats.json":
                 continue
-            path_in_neuron_cache = path_after_folder(cache_file, neuron_cache_path.name)
+            try:
+                path_in_neuron_cache = path_after_folder(
+                    cache_file,
+                    get_neuron_compiler_version_dir_name(),
+                    include_folder=True,
+                    fail_when_folder_not_found=True,
+                )
+            except Exception:
+                # Here only when the folder `get_neuron_compiler_version_dir_name()` was not in the path of
+                # `cache_file`. In this case, no symlink is created because it is interpreted as not being a
+                # compilation file.
+                continue
             tmp_cache_file = tmp_neuron_cache_path / path_in_neuron_cache
             tmp_cache_file.parent.mkdir(parents=True, exist_ok=True)
             # TODO: investigate why it is needed. Minor issue.
@@ -206,9 +226,18 @@ class NeuronCacheCallback(TrainerCallback):
             (input_name, tuple(input_.shape)) for input_name, input_ in inputs.items() if input_name in input_names
         )
 
+        # For backward compatibility, to not break the cache for users for now.
+        if version.parse(__version__) <= version.parse("0.0.14"):
+            use_bf16 = args.bf16
+        else:
+            use_bf16 = (
+                args.bf16
+                or os.environ.get("XLA_USE_BF16", "0") == "1"
+                or os.environ.get("XLA_DOWNCAST_BF16", "0") == "1"
+            )
         if args.fp16:
             data_type = torch.float16
-        elif args.bf16:
+        elif use_bf16:
             data_type = torch.bfloat16
         else:
             data_type = torch.float32
@@ -289,7 +318,8 @@ class NeuronCacheCallback(TrainerCallback):
         Event called at the end of a training step. If using gradient accumulation, one training step might take
         several inputs.
         """
-        if self.push:
+
+        if self.push or (xm.get_local_ordinal() == 0 and is_precompilation()):
             model = kwargs["model"]
             state = self.prepare_state(state)
             neuron_hash = self.neuron_hash_for_model(args, model, state.last_inputs, try_to_fetch_cached_model=True)
@@ -306,8 +336,44 @@ class NeuronCacheCallback(TrainerCallback):
         """
         Event called after a checkpoint save.
         """
+        if xm.get_local_ordinal() == 0 and is_precompilation() and self.tmp_neuron_cache_path is not None:
+            create_or_append_to_neuron_parallel_compile_report(self.tmp_neuron_cache_path, self.neuron_hash_to_files)
+            for neuron_hash in self.neuron_hash_to_files:
+                self.neuron_hash_to_files[neuron_hash] = []
         if self.push:
             self.synchronize_temporary_neuron_cache()
+        if self.wait_for_everyone_on_push:
+            xm.rendezvous("wait for everyone after pushing")
+
+    def on_train_begin(self, args: "TrainingArguments", state: TrainerState, control: "TrainerControl", **kwargs):
+        """
+        Event called at the beginning of training.
+        """
+        if is_precompilation() or self.neuron_cache_path is None:
+            return
+        if self.push:
+            neuron_parallel_compile_report = get_neuron_parallel_compile_report(
+                self.neuron_cache_path, as_neuron_hash=True
+            )
+            entries_to_remove = []
+            for entry in neuron_parallel_compile_report:
+                neuron_hash = entry["neuron_hash"]
+                path = entry["directory"]
+                filenames = list_files_in_neuron_cache(path, only_relevant_files=True)
+                success = True
+                for path in filenames:
+                    try:
+                        push_to_cache_on_hub(
+                            neuron_hash, path, local_path_to_path_in_repo="default", fail_when_could_not_push=True
+                        )
+                    except HfHubHTTPError:
+                        # It means that we could not push, so we do not remove this entry from the report.
+                        success = False
+                if success:
+                    entries_to_remove.append(entry)
+
+            # Removing the entries that were uploaded.
+            remove_entries_in_neuron_parallel_compile_report(self.neuron_cache_path, entries_to_remove)
         if self.wait_for_everyone_on_push:
             xm.rendezvous("wait for everyone after pushing")
 
@@ -316,6 +382,22 @@ class NeuronCacheCallback(TrainerCallback):
         Event called at the end of training.
         """
         self.on_save(args, state, control, **kwargs)
+        if is_precompilation():
+            if xm.get_local_ordinal() == 0:
+                output_dir = Path(args.output_dir)
+                for file_or_dir in output_dir.glob("**/*"):
+                    if file_or_dir.is_file():
+                        continue
+                    if (
+                        file_or_dir.name.startswith("checkpoint-")
+                        or file_or_dir.name == TENSOR_PARALLEL_SHARDS_DIR_NAME
+                    ):
+                        logger.info(
+                            f"Removing {file_or_dir} since the weights were produced by `neuron_parallel_compile`, "
+                            "thus cannot be used."
+                        )
+                        shutil.rmtree(file_or_dir, ignore_errors=True)
+            xm.rendezvous("wait for everyone after end of training cleanup during precompilation")
 
     def on_evaluate(self, args: "TrainingArguments", state: TrainerState, control: "TrainerControl", **kwargs):
         """

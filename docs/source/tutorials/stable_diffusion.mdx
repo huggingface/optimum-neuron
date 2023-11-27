@@ -53,9 +53,9 @@ optimum-cli export neuron --model stabilityai/stable-diffusion-2-1-base \
   sd_neuron/
 ```
 
-We recommend using `inf2.8xlarger` or larger instance for the compilation. You will also be able to compile the model with our CLI on a CPU-only instance with more than ~35 GB memory, and then run the pre-compiled models on `inf2.xlarge` to reduce the expenses. In this case, don't forget to disable validation of inference by adding the `--disable-validation` argument.
+We recommend using a `inf2.8xlarge` or a larger instance for the model compilation. You will also be able to compile the model with the Optimum CLI on a CPU-only instance (needs ~35 GB memory), and then run the pre-compiled model on `inf2.xlarge` to reduce the expenses. In this case, don't forget to disable validation of inference by adding the `--disable-validation` argument.
 
-***Export via APIs***
+***Export via Python API***
 
 Here is an example of exporting stable diffusion components with `NeuronStableDiffusionPipeline`:
 
@@ -74,7 +74,7 @@ Besides, don't hesitate to tweak the compilation configuration to find the best 
 >>> compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
 >>> input_shapes = {"batch_size": 1, "height": 512, "width": 512}
 
->>> stable_diffusion = NeuronStableDiffusionPipeline.from_pretrained(model_id, export=True, **compiler_args, **input_shapes, device_ids=[0, 1])
+>>> stable_diffusion = NeuronStableDiffusionPipeline.from_pretrained(model_id, export=True, **compiler_args, **input_shapes)
 
 # Save locally or upload to the HuggingFace Hub
 >>> save_directory = "sd_neuron/"
@@ -118,7 +118,7 @@ from optimum.neuron import NeuronStableDiffusionImg2ImgPipeline
 # compile & save
 model_id = "nitrosocke/Ghibli-Diffusion"
 input_shapes = {"batch_size": 1, "height": 512, "width": 512}
-pipeline = NeuronStableDiffusionImg2ImgPipeline.from_pretrained(model_id, export=True, **input_shapes, device_ids=[0, 1])
+pipeline = NeuronStableDiffusionImg2ImgPipeline.from_pretrained(model_id, export=True, **input_shapes)
 pipeline.save_pretrained("sd_img2img/")
 
 url = "https://raw.githubusercontent.com/CompVis/stable-diffusion/main/assets/stable-samples/img2img/sketch-mountains-input.jpg"
@@ -149,7 +149,7 @@ from optimum.neuron import NeuronStableDiffusionInpaintPipeline
 
 model_id = "runwayml/stable-diffusion-inpainting"
 input_shapes = {"batch_size": 1, "height": 512, "width": 512}
-pipeline = NeuronStableDiffusionInpaintPipeline.from_pretrained(model_id, export=True, **input_shapes, device_ids=[0, 1])
+pipeline = NeuronStableDiffusionInpaintPipeline.from_pretrained(model_id, export=True, **input_shapes)
 pipeline.save_pretrained("sd_inpaint/")
 
 def download_image(url):
@@ -201,9 +201,9 @@ optimum-cli export neuron --model stabilityai/stable-diffusion-xl-base-1.0 \
   sd_neuron_xl/
 ```
 
-We recommend using `inf2.8xlarger` or larger instance for the compilation. You will also be able to compile the model with our CLI on a CPU-only instance with more than ~92 GB memory, and then run the pre-compiled models on `inf2.xlarge` to reduce the expenses. In this case, don't forget to disable validation of inference by adding the `--disable-validation` argument.
+We recommend using a `inf2.8xlarge` or a larger instance for the model compilation. You will also be able to compile the model with Optimum CLI on a CPU-only instance (needs ~92 GB memory), and then run the pre-compiled models on `inf2.xlarge` to reduce the expenses. In this case, don't forget to disable validation of inference by adding the `--disable-validation` argument.
 
-***Export via APIs***
+***Export via Python API***
 
 Here is an example of exporting stable diffusion components with `NeuronStableDiffusionXLPipeline`:
 
@@ -214,7 +214,7 @@ Here is an example of exporting stable diffusion components with `NeuronStableDi
 >>> compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
 >>> input_shapes = {"batch_size": 1, "height": 1024, "width": 1024}
 
->>> stable_diffusion_xl = NeuronStableDiffusionXLPipeline.from_pretrained(model_id, export=True, **compiler_args, **input_shapes, device_ids=[0, 1])
+>>> stable_diffusion_xl = NeuronStableDiffusionXLPipeline.from_pretrained(model_id, export=True, **compiler_args, **input_shapes)
 
 # Save locally or upload to the HuggingFace Hub
 >>> save_directory = "sd_neuron_xl/"
@@ -255,7 +255,7 @@ prompt = "a dog running, lake, moat"
 url = "https://huggingface.co/datasets/optimum/documentation-images/resolve/main/intel/openvino/sd_xl/castle_friedrich.png"
 init_image = load_image(url).convert("RGB")
 
-pipe = NeuronStableDiffusionXLImg2ImgPipeline.from_pretrained("sd_neuron_xl/", device_ids=[0, 1])
+pipe = NeuronStableDiffusionXLImg2ImgPipeline.from_pretrained("sd_neuron_xl/")
 image = pipe(prompt=prompt, image=init_image).images[0]
 ```
 
@@ -280,7 +280,7 @@ init_image = load_image(img_url).convert("RGB")
 mask_image = load_image(mask_url).convert("RGB")
 prompt = "A deep sea diver floating"
 
-pipe = NeuronStableDiffusionXLInpaintPipeline.from_pretrained("sd_neuron_xl/", device_ids=[0, 1])
+pipe = NeuronStableDiffusionXLInpaintPipeline.from_pretrained("sd_neuron_xl/")
 image = pipe(prompt=prompt, image=init_image, mask_image=mask_image, strength=0.85, guidance_scale=12.5).images[0]
 ```
 
@@ -301,7 +301,7 @@ SDXL includes a [refiner model](https://huggingface.co/stabilityai/stable-diffus
 from optimum.neuron import NeuronStableDiffusionXLPipeline, NeuronStableDiffusionXLImg2ImgPipeline
 
 prompt = "A majestic lion jumping from a big stone at night"
-base = NeuronStableDiffusionXLPipeline.from_pretrained("sd_neuron_xl/", device_ids=[0, 1])
+base = NeuronStableDiffusionXLPipeline.from_pretrained("sd_neuron_xl/")
 image = base(
     prompt=prompt,
     num_images_per_prompt=num_images_per_prompt,
@@ -311,7 +311,7 @@ image = base(
 ).images[0]
 del base  # To avoid neuron device OOM
 
-refiner = NeuronStableDiffusionXLImg2ImgPipeline.from_pretrained("sd_neuron_xl_refiner/", device_ids=[0, 1])
+refiner = NeuronStableDiffusionXLImg2ImgPipeline.from_pretrained("sd_neuron_xl_refiner/")
 image = image = refiner(
     prompt=prompt,
     num_inference_steps=40,
@@ -333,11 +333,11 @@ image = image = refiner(
 from optimum.neuron import NeuronStableDiffusionXLPipeline, NeuronStableDiffusionXLImg2ImgPipeline
 
 prompt = "A majestic lion jumping from a big stone at night"
-base = NeuronStableDiffusionXLPipeline.from_pretrained("sd_neuron_xl/", device_ids=[0, 1])
+base = NeuronStableDiffusionXLPipeline.from_pretrained("sd_neuron_xl/")
 image = base(prompt=prompt, output_type="latent").images[0]
 del base  # To avoid neuron device OOM
 
-refiner = NeuronStableDiffusionXLImg2ImgPipeline.from_pretrained("sd_neuron_xl_refiner/", device_ids=[0, 1])
+refiner = NeuronStableDiffusionXLImg2ImgPipeline.from_pretrained("sd_neuron_xl_refiner/")
 image = refiner(prompt=prompt, image=image[None, :]).images[0]
 ```
 
@@ -351,5 +351,90 @@ To avoid Neuron device out of memory, it's suggested to finish all base inferenc
 
 </Tip>
 
+
+## Latent Consistency Models
+
+Latent Consistency Models (LCMs) were proposed in [Latent Consistency Models: Synthesizing High-Resolution Images with Few-Step Inference by Simian Luo, Yiqin Tan, Longbo Huang, Jian Li, and Hang Zhao](https://huggingface.co/papers/2310.04378). LCMs enable inference with fewer steps on any pre-trained LDMs, including Stable Diffusion and SDXL.
+
+In `optimum-neuron`, you can:
+  - Use the class `NeuronLatentConsistencyModelPipeline` to compile and run inference of LCMs distilled from Stable Diffusion (SD) models, 
+  - And continue to use the class `NeuronStableDiffusionXLPipeline` for LCMs distilled from SDXL models.
+
+Here are examples to compile the LCMs of Stable Diffusion ( [SimianLuo/LCM_Dreamshaper_v7](https://huggingface.co/SimianLuo/LCM_Dreamshaper_v7) ) and Stable Diffusion XL( [latent-consistency/lcm-sdxl](https://huggingface.co/latent-consistency/lcm-sdxl) ), and then run inference on AWS Inferentia 2 :
+
+### Compile LCM
+
+***LCM of Stable Diffusion***
+
+```python
+from optimum.neuron import NeuronLatentConsistencyModelPipeline
+
+model_id = "SimianLuo/LCM_Dreamshaper_v7"
+num_images_per_prompt = 1
+input_shapes = {"batch_size": 1, "height": 768, "width": 768, "num_images_per_prompt": num_images_per_prompt}
+compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
+
+stable_diffusion = NeuronLatentConsistencyModelPipeline.from_pretrained(
+    model_id, export=True, **compiler_args, **input_shapes
+)
+save_directory = "lcm_sd_neuron/"
+stable_diffusion.save_pretrained(save_directory)
+
+# Push to hub
+stable_diffusion.push_to_hub(save_directory, repository_id="Jingya/LCM_Dreamshaper_v7_neuronx", use_auth_token=True)
+```
+
+***LCM of Stable Diffusion XL***
+
+```python
+from optimum.neuron import NeuronStableDiffusionXLPipeline
+
+model_id = "stabilityai/stable-diffusion-xl-base-1.0"
+unet_id = "latent-consistency/lcm-sdxl"
+num_images_per_prompt = 1
+input_shapes = {"batch_size": 1, "height": 1024, "width": 1024, "num_images_per_prompt": num_images_per_prompt}
+compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
+
+stable_diffusion = NeuronStableDiffusionXLPipeline.from_pretrained(
+    model_id, unet_id=unet_id, export=True, **compiler_args, **input_shapes
+)
+save_directory = "lcm_sdxl_neuron/"
+stable_diffusion.save_pretrained(save_directory)
+
+# Push to hub
+stable_diffusion.push_to_hub(save_directory, repository_id="Jingya/lcm-sdxl-neuronx", use_auth_token=True)
+```
+
+### Text-to-Image
+
+Now we can generate images from text prompts on Inf2 using the pre-compiled model:
+
+***LCM of Stable Diffusion***
+
+```python
+from optimum.neuron import NeuronLatentConsistencyModelPipeline
+
+pipe = NeuronLatentConsistencyModelPipeline.from_pretrained("Jingya/LCM_Dreamshaper_v7_neuronx")
+prompts = ["Self-portrait oil painting, a beautiful cyborg with golden hair, 8k"] * 2
+
+images = pipe(prompt=prompts, num_inference_steps=4, guidance_scale=8.0).images
+```
+
+***LCM of Stable Diffusion XL***
+
+```python
+from optimum.neuron import NeuronStableDiffusionXLPipeline
+
+pipe = NeuronStableDiffusionXLPipeline.from_pretrained("Jingya/lcm-sdxl-neuronx")
+prompts = ["a close-up picture of an old man standing in the rain"] * 2
+
+images = pipe(prompt=prompts, num_inference_steps=4, guidance_scale=8.0).images
+```
+
+<Tip>
+
+Inf2 instances contain one or more Neuron devices, and each Neuron device includes 2 NeuronCore-v2. By default, we load the whole pipeline of LCM to both Neuron cores. It means that when the batch size is divisible by 2, you can fully leverage the compute power of both cores.
+
+</Tip>
 
 Are there any other stable diffusion features that you want us to support in 🤗`Optimum-neuron`? Please file an issue to [`Optimum-neuron` Github repo](https://github.com/huggingface/optimum-neuron) or discuss with us on [HuggingFace’s community forum](https://discuss.huggingface.co/c/optimum/), cheers 🤗 !
