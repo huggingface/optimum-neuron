@@ -244,6 +244,7 @@ class NeuronUtilsTestCase(TrainiumTestMixin, TestCase):
 
 
 @is_staging_test
+@is_trainium_test
 class StagingNeuronUtilsTestCase(StagingTestMixin, TestCase):
     def test_set_custom_cache_repo_name_in_hf_home(self):
         orig_token = HfFolder.get_token()
