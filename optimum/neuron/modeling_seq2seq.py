@@ -59,7 +59,6 @@ from .utils import (
 
 if TYPE_CHECKING:
     from transformers import PretrainedConfig, PreTrainedModel
-    from transformers.generation.streamers import BaseStreamer
 
 if is_neuronx_available():
     import torch_neuronx
@@ -385,7 +384,6 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
         stopping_criteria: Optional[StoppingCriteriaList] = None,
         prefix_allowed_tokens_fn: Optional[Callable[[int, torch.Tensor], List[int]]] = None,
         assistant_model: Optional["PreTrainedModel"] = None,
-        streamer: Optional["BaseStreamer"] = None,
         num_return_sequences: Optional[int] = None,
         **kwargs,
     ):
@@ -416,9 +414,8 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
             stopping_criteria=stopping_criteria,
             prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
             assistant_model=assistant_model,
-            streamer=streamer,
             num_return_sequences=num_return_sequences,
-            max_length=max_length,
+            max_length=kwargs.pop("max_length", None) or max_length,
             num_beams=num_beams,
             do_sample=kwargs.pop("do_sample", False),
             use_cache=kwargs.pop(
@@ -597,7 +594,6 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
         output_scores: Optional[bool] = None,
         return_dict_in_generate: Optional[bool] = None,
         seq_length: Optional[int] = int,
-        streamer: Optional["BaseStreamer"] = None,
         **model_kwargs,
     ) -> Union[GreedySearchOutput, torch.LongTensor]:
         """
@@ -703,9 +699,6 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
 
             if this_peer_finished:
                 break
-
-        if streamer is not None:
-            streamer.end()
 
         return input_ids
 
