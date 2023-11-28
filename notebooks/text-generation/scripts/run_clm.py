@@ -26,6 +26,7 @@ def training_function(script_args, training_args):
             script_args.model_id,
             torch_dtype="auto",
             low_cpu_mem_usage=True,
+            use_cache=False if training_args.gradient_checkpointing else True,
         )
 
     # Create Trainer instance
