@@ -26,18 +26,11 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Un
 import torch
 from huggingface_hub import snapshot_download
 from transformers import AutoConfig, AutoModelForSeq2SeqLM, GenerationConfig
-from transformers.generation.beam_search import BeamScorer
 from transformers.generation.logits_process import (
     LogitsProcessorList,
 )
 from transformers.generation.stopping_criteria import (
-    MaxLengthCriteria,
-    MaxTimeCriteria,
     StoppingCriteriaList,
-)
-from transformers.generation.utils import (
-    BeamSearchOutput,
-    GreedySearchOutput,
 )
 from transformers.modeling_outputs import Seq2SeqLMOutput
 
@@ -59,6 +52,7 @@ from .utils import (
 
 if TYPE_CHECKING:
     from transformers import PretrainedConfig, PreTrainedModel
+    from transformers.utils import ModelOutput
 
 if is_neuronx_available():
     import torch_neuronx
@@ -357,6 +351,10 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
         decoder_attention_mask: Optional[torch.BoolTensor] = None,
         encoder_outputs: Optional[Tuple[Tuple[torch.Tensor]]] = None,
         beam_scores=None,
+        # Leave following kwargs for compatibility, will not have any effect.
+        return_dict: bool = False,
+        output_attentions: bool = False,
+        output_hidden_states: bool = False,
     ) -> Union[Tuple[torch.FloatTensor], Seq2SeqLMOutput]:
         hidden_states = encoder_outputs["last_hidden_state"]
 
@@ -418,289 +416,13 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
             max_length=kwargs.pop("max_length", None) or max_length,
             num_beams=num_beams,
             do_sample=kwargs.pop("do_sample", False),
-            use_cache=kwargs.pop(
-                "use_cache", False
-            ),  # `use_cache` is supported by default in `optimum-neuron`, set to False to avoid warning
+            use_cache=True,  # pkv is cached by default
             decoder_attention_mask=decoder_attention_mask,
             # Pass fake encoder_outputs so the transfomers code will not invoke the encoder
             encoder_outputs={"last_hidden_state": torch.ones((batch_size, max_length, 1))},
+            is_traced_inference=True,
         )
         return output
-
-    def beam_search(
-        self,
-        input_ids: torch.LongTensor,
-        beam_scorer: "BeamScorer",
-        logits_processor: Optional[LogitsProcessorList] = None,
-        stopping_criteria: Optional[StoppingCriteriaList] = None,
-        pad_token_id: Optional[int] = None,
-        eos_token_id: Optional[Union[int, List[int]]] = None,
-        output_scores: Optional[bool] = None,
-        return_dict_in_generate: Optional[bool] = None,
-        synced_gpus: Optional[bool] = False,
-        seq_length: Optional[int] = None,
-        **model_kwargs,
-    ) -> Union[BeamSearchOutput, torch.LongTensor]:
-        """
-        Overriding beam search to use next_token_scores returned from neuron device instead of logits.
-        """
-        if logits_processor is not None:
-            logger.warning(
-                "`logits_processor` will be neglected because in `optimum-neuron`, `next_tokens` is computed inside the compiled decoder. If you want us to support custom logits_processor during the compilation, please file an issue to https://github.com/huggingface/optimum-neuron."
-            )
-        stopping_criteria = stopping_criteria if stopping_criteria is not None else StoppingCriteriaList()
-        pad_token_id = pad_token_id if pad_token_id is not None else self.generation_config.pad_token_id
-        eos_token_id = eos_token_id if eos_token_id is not None else self.generation_config.eos_token_id
-        if isinstance(eos_token_id, int):
-            eos_token_id = [eos_token_id]
-        output_scores = output_scores if output_scores is not None else self.generation_config.output_scores
-
-        batch_size = len(beam_scorer._beam_hyps)
-        num_beams = beam_scorer.num_beams
-
-        batch_beam_size, cur_len = input_ids.shape
-
-        # Overwrite cur_len
-        cur_len = seq_length
-
-        if num_beams * batch_size != batch_beam_size:
-            raise ValueError(
-                f"Batch dimension of `input_ids` should be {num_beams * batch_size}, but is {batch_beam_size}."
-            )
-
-        # init attention / hidden states / scores tuples
-        scores = () if (return_dict_in_generate and output_scores) else None
-        beam_indices = (
-            tuple(() for _ in range(batch_beam_size)) if (return_dict_in_generate and output_scores) else None
-        )
-
-        # initialise score of first beam with 0 and the rest with -1e9. This makes sure that only tokens
-        # of the first beam are considered to avoid sampling the exact same tokens across all beams.
-        beam_scores_device = "cpu"
-        beam_scores = torch.zeros((batch_size, num_beams), dtype=torch.float, device=beam_scores_device)
-        beam_scores[:, 1:] = -1e9
-        beam_scores = beam_scores.view((batch_size * num_beams,))
-
-        while True:
-            # prepare model inputs
-            # From max_length-sized input_ids, select first
-            # cur_len - 1 values.
-            update_indices = torch.stack(
-                [torch.arange(input_ids.size(0)), torch.tensor(cur_len - 1).repeat(input_ids.size(0))], dim=-1
-            )
-            input_ids_ = input_ids[update_indices[:, 0], update_indices[:, 1], None]
-            model_inputs = self.prepare_inputs_for_generation(input_ids_, **model_kwargs)
-
-            next_token_scores, next_tokens, next_indices = self(**model_inputs, beam_scores=beam_scores)
-
-            # stateless
-            beam_outputs = beam_scorer.process(
-                input_ids.to("cpu")[:, :cur_len],
-                next_token_scores.to("cpu"),
-                next_tokens.to("cpu"),
-                next_indices.to("cpu"),
-                pad_token_id=pad_token_id,
-                eos_token_id=eos_token_id,
-                beam_indices=beam_indices,
-            )
-
-            beam_scores = beam_outputs["next_beam_scores"]
-            beam_next_tokens = beam_outputs["next_beam_tokens"]
-            beam_idx = beam_outputs["next_beam_indices"]
-
-            update_indices = torch.stack(
-                [torch.arange(batch_beam_size), torch.tensor(cur_len - 1).repeat(batch_beam_size)], dim=-1
-            )
-            update_indices_2 = torch.stack(
-                [torch.arange(batch_beam_size), torch.tensor(cur_len).repeat(batch_beam_size)], dim=-1
-            )
-            # First select beam_indices
-            device = input_ids.device
-            beam_idx_device = beam_idx.to(device=input_ids.device)
-            input_ids[:, :] = input_ids[beam_idx_device.long(), :]
-
-            # Then append new tokens
-            input_ids[update_indices_2[:, 0], update_indices_2[:, 1], None] = (
-                beam_next_tokens.unsqueeze(-1).to(device).to(torch.long)
-            )
-            input_ids = input_ids * 1  # Hack to materialize tensor
-
-            # update generated ids, model inputs, and length for next step
-            model_kwargs = self._update_model_kwargs_for_xla_generation(
-                model_kwargs,
-                batch_size=batch_beam_size,
-                is_encoder_decoder=self.config.is_encoder_decoder,
-            )
-            self._reorder_cache(beam_idx.to(torch.int64))
-
-            if return_dict_in_generate and output_scores:
-                beam_indices = tuple((beam_indices[beam_idx[i]] + (beam_idx[i],) for i in range(len(beam_indices))))
-
-            # increase cur_len
-            cur_len = cur_len + 1
-
-            # stop when each sentence is finished, or if we exceed the maximum length
-            stop_criterion_1 = beam_scorer.is_done
-            if isinstance(stopping_criteria, list):
-                if len(stopping_criteria) == 1:
-                    stopping_criteria = stopping_criteria[0]
-
-            # Cases that can be handled in XLA without requiring
-            # non-padded input_ids
-            if isinstance(stopping_criteria, MaxLengthCriteria):
-                stop_criterion_2 = cur_len >= stopping_criteria.max_length
-            elif isinstance(stopping_criteria, MaxTimeCriteria):
-                stop_criterion_2 = stopping_criteria(input_ids, scores)
-            else:
-                # Other cases will be handled on CPU
-                batch_size, _ = input_ids.shape
-                input_ids_cpu = input_ids.to("cpu")
-                mask = torch.cat(
-                    [torch.ones(batch_size, cur_len), torch.zeros(batch_size, input_ids.shape[1] - cur_len)], dim=1
-                ).bool()
-                input_ids_cpu = torch.masked_select(input_ids_cpu, mask).reshape((batch_size, cur_len))
-                scores_cpu = scores.to("cpu") if torch.is_tensor(scores) else scores
-                stop_criterion_2 = stopping_criteria(input_ids_cpu, scores_cpu)
-
-            if stop_criterion_1 or stop_criterion_2:
-                if not synced_gpus:
-                    break
-
-        sequence_outputs = beam_scorer.finalize(
-            input_ids.to("cpu"),
-            beam_scores.to("cpu"),
-            next_tokens.to("cpu"),
-            next_indices.to("cpu"),
-            pad_token_id=pad_token_id,
-            eos_token_id=eos_token_id,
-            max_length=stopping_criteria.max_length,
-            beam_indices=beam_indices,
-        )
-
-        for k, v in sequence_outputs.items():
-            if type(v) == torch.Tensor:
-                sequence_outputs[k] = sequence_outputs[k].to(input_ids.device)
-
-        return sequence_outputs["sequences"]
-
-    def greedy_search(
-        self,
-        input_ids: torch.LongTensor,
-        logits_processor: Optional["LogitsProcessorList"] = None,
-        stopping_criteria: Optional["StoppingCriteriaList"] = None,
-        max_length: Optional[int] = None,
-        pad_token_id: Optional[int] = None,
-        eos_token_id: Optional[Union[int, List[int]]] = None,
-        output_scores: Optional[bool] = None,
-        return_dict_in_generate: Optional[bool] = None,
-        seq_length: Optional[int] = int,
-        **model_kwargs,
-    ) -> Union[GreedySearchOutput, torch.LongTensor]:
-        """
-        Overriding greedy sampling to use next tokens returned from neuron device instead of logits.
-        """
-        # init values
-        if logits_processor is not None:
-            logger.warning(
-                "`logits_processor` will not be neglected because in `optimum-neuron`, `next_tokens` is computed inside the compiled decoder. If you want us to support custom logits_processor during the compilation, please file an issue to https://github.com/huggingface/optimum-neuron."
-            )
-        stopping_criteria = stopping_criteria if stopping_criteria is not None else StoppingCriteriaList()
-        if max_length is not None:
-            from transformers.generation.stopping_criteria import validate_stopping_criteria
-
-            stopping_criteria = validate_stopping_criteria(stopping_criteria, max_length)
-        pad_token_id = pad_token_id if pad_token_id is not None else self.generation_config.pad_token_id
-        eos_token_id = eos_token_id if eos_token_id is not None else self.generation_config.eos_token_id
-        if isinstance(eos_token_id, int):
-            eos_token_id = [eos_token_id]
-        eos_token_id_tensor = torch.tensor(eos_token_id).to(input_ids.device) if eos_token_id is not None else None
-        output_scores = output_scores if output_scores is not None else self.generation_config.output_scores
-
-        # init attention / hidden states / scores tuples
-        scores = () if (return_dict_in_generate and output_scores) else None
-
-        # keep track of which sequences are already finished
-        unfinished_sequences = torch.ones(input_ids.shape[0], dtype=torch.long, device=input_ids.device)
-
-        this_peer_finished = False  # used by synced_gpus only
-        while True:
-            # prepare model inputs
-            # From max_length-sized input_ids, select first
-            # seq_length - 1 values.
-
-            if model_kwargs.get("past_key_values") is None:
-                input_ids_ = input_ids[:, :seq_length]
-            else:
-                update_indices = torch.stack(
-                    [torch.arange(input_ids.size(0)), torch.tensor(seq_length - 1).repeat(input_ids.size(0))],
-                    dim=-1,
-                )
-                input_ids_ = input_ids[update_indices[:, 0], update_indices[:, 1], None]
-
-            model_inputs = self.prepare_inputs_for_generation(input_ids_, **model_kwargs)
-
-            # forward pass to get next token
-            output = self(**model_inputs)
-            next_tokens = output[0]
-
-            # finished sentences should have their next token be a padding token
-            if eos_token_id is not None:
-                if pad_token_id is None:
-                    raise ValueError("If `eos_token_id` is defined, make sure that `pad_token_id` is defined.")
-                next_tokens = next_tokens * unfinished_sequences + pad_token_id * (1 - unfinished_sequences)
-
-            # update generated ids, model inputs, and length for next step
-
-            batch_size, _ = input_ids.shape
-            update_indices = torch.stack(
-                [torch.arange(batch_size), torch.tensor(seq_length).repeat(batch_size)], dim=-1
-            )
-            input_ids[update_indices[:, 0], update_indices[:, 1]] = next_tokens[:]
-            model_kwargs = self._update_model_kwargs_for_xla_generation(
-                model_kwargs,
-                batch_size=batch_size,
-                is_encoder_decoder=self.config.is_encoder_decoder,
-            )
-
-            seq_length += 1
-
-            # if eos_token was found in one sentence, set sentence to finished
-            if eos_token_id_tensor is not None:
-                unfinished_sequences = unfinished_sequences.mul(
-                    next_tokens.tile(eos_token_id_tensor.shape[0], 1).ne(eos_token_id_tensor.unsqueeze(1)).prod(dim=0)
-                )
-
-            # stop when each sentence is finished, or if we exceed the maximum length
-            stop_criterion_1 = unfinished_sequences.max() == 0
-
-            if isinstance(stopping_criteria, list):
-                if len(stopping_criteria) == 1:
-                    stopping_criteria = stopping_criteria[0]
-
-            # Cases that can be handled in XLA without requiring
-            # non-padded input_ids
-            if isinstance(stopping_criteria, MaxLengthCriteria):
-                stop_criterion_2 = seq_length >= stopping_criteria.max_length
-            elif isinstance(stopping_criteria, MaxTimeCriteria):
-                stop_criterion_2 = stopping_criteria(input_ids, scores)
-            else:
-                # Other cases will be handled on CPU
-                batch_size, _ = input_ids.shape
-                mask = torch.cat(
-                    [torch.ones(batch_size, seq_length), torch.zeros(batch_size, input_ids.shape[1] - seq_length)],
-                    dim=1,
-                ).bool()
-                input_ids_cpu = torch.masked_select(input_ids, mask).reshape((batch_size, seq_length)).to("cpu")
-                scores_cpu = scores.to("cpu") if torch.is_tensor(scores) else scores
-                stop_criterion_2 = stopping_criteria(input_ids_cpu, scores_cpu)
-
-            if stop_criterion_1 or stop_criterion_2:
-                this_peer_finished = True
-
-            if this_peer_finished:
-                break
-
-        return input_ids
 
     def _reorder_cache(self, beam_idx):
         """
@@ -716,6 +438,12 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
         model_kwargs: Dict[str, Any],
         batch_size: int,
         is_encoder_decoder: bool = False,
+        # Leave following kwargs for compatibility, will not have any effect.
+        outputs: "ModelOutput" = None,
+        standardize_cache_format: bool = False,
+        max_length: Optional[int] = None,
+        seq_length: Optional[int] = None,
+        use_cache: bool = True,
     ) -> Dict[str, Any]:
         mask = self._update_attention(model_kwargs, batch_size, is_encoder_decoder)
         # sets the updated variables (mask and past_key_values)
