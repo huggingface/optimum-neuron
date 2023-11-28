@@ -155,6 +155,7 @@ class BertParallelizer(Parallelizer):
         # Valid because we currently parallelize the cross-entropy loss only for language-modeling tasks where the
         # embeddings and the LM head are tied.
         if parallelize_embeddings:
+            BertParallelEmbedding.overwrite_vocab_size_value_for_cross_entropy_computation(model)
             model = BertParallelCrossEntropy.transform(
                 model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device
             )
@@ -249,6 +250,7 @@ class RobertaParallelizer(Parallelizer):
         # Valid because we currently parallelize the cross-entropy loss only for language-modeling tasks where the
         # embeddings and the LM head are tied.
         if parallelize_embeddings:
+            RobertaParallelEmbedding.overwrite_vocab_size_value_for_cross_entropy_computation(model)
             model = RobertaParallelCrossEntropy.transform(
                 model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device
             )

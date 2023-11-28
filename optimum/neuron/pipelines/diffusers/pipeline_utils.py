@@ -16,6 +16,7 @@ from typing import List, Optional, Union
 
 import torch
 from diffusers.loaders import LoraLoaderMixin, TextualInversionLoaderMixin
+from diffusers.utils.torch_utils import randn_tensor
 
 
 logger = logging.getLogger(__name__)
@@ -23,7 +24,11 @@ logger = logging.getLogger(__name__)
 
 class DiffusionBasePipelineMixin:
     def check_num_images_per_prompt(self, prompt_batch_size: int, neuron_batch_size: int, num_images_per_prompt: int):
-        if not self.dynamic_batch_size and neuron_batch_size != prompt_batch_size * num_images_per_prompt:
+        if (
+            not self.data_parallel_mode == "all"
+            and not self.dynamic_batch_size
+            and neuron_batch_size != prompt_batch_size * num_images_per_prompt
+        ):
             raise ValueError(
                 f"Models in the pipeline were compiled with `batch_size` {neuron_batch_size} which does not equal the number of"
                 f" prompt({prompt_batch_size}) multiplied by `num_images_per_prompt`({num_images_per_prompt}). You need to enable"
@@ -47,6 +52,24 @@ class DiffusionBasePipelineMixin:
 
 
 class StableDiffusionPipelineMixin(DiffusionBasePipelineMixin):
+    # Adapted from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.StableDiffusionPipeline.prepare_latents
+    def prepare_latents(self, batch_size, num_channels_latents, height, width, dtype, generator, latents=None):
+        shape = (batch_size, num_channels_latents, height // self.vae_scale_factor, width // self.vae_scale_factor)
+        if isinstance(generator, list) and len(generator) != batch_size:
+            raise ValueError(
+                f"You have passed a list of generators of length {len(generator)}, but requested an effective batch"
+                f" size of {batch_size}. Make sure the batch size matches the length of the generators."
+            )
+
+        if latents is None:
+            latents = randn_tensor(shape, generator=generator, dtype=dtype)
+        elif latents.shape != shape:
+            raise ValueError(f"Unexpected latents shape, got {latents.shape}, expected {shape}")
+
+        # scale the initial noise by the standard deviation required by the scheduler
+        latents = latents * self.scheduler.init_noise_sigma
+        return latents
+
     # Adapted from https://github.com/huggingface/diffusers/blob/v0.18.2/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L302
     def encode_prompt(
         self,
@@ -83,7 +106,7 @@ class StableDiffusionPipelineMixin(DiffusionBasePipelineMixin):
                 A lora scale that will be applied to all LoRA layers of the text encoder if LoRA layers are loaded.
         """
         if lora_scale is not None and isinstance(self, LoraLoaderMixin):
-            self._lora_scale = lora_scale
+            self._lora_scale = lora_scale  # TODO: remove as lora_scale should static.
 
         if prompt is not None and isinstance(prompt, str):
             batch_size = 1
@@ -175,6 +198,24 @@ class StableDiffusionPipelineMixin(DiffusionBasePipelineMixin):
 
 
 class StableDiffusionXLPipelineMixin(DiffusionBasePipelineMixin):
+    # Adapted from https://github.com/huggingface/diffusers/blob/v0.20.2/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py#L502
+    def prepare_latents(self, batch_size, num_channels_latents, height, width, dtype, generator, latents=None):
+        shape = (batch_size, num_channels_latents, height // self.vae_scale_factor, width // self.vae_scale_factor)
+        if isinstance(generator, list) and len(generator) != batch_size:
+            raise ValueError(
+                f"You have passed a list of generators of length {len(generator)}, but requested an effective batch"
+                f" size of {batch_size}. Make sure the batch size matches the length of the generators."
+            )
+
+        if latents is None:
+            latents = randn_tensor(shape, generator=generator, dtype=dtype)
+        elif latents.shape != shape:
+            raise ValueError(f"Unexpected latents shape, got {latents.shape}, expected {shape}")
+
+        # scale the initial noise by the standard deviation required by the scheduler
+        latents = latents * self.scheduler.init_noise_sigma
+        return latents
+
     # Adapted from https://github.com/huggingface/diffusers/blob/v0.20.2/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py#L219
     def encode_prompt(
         self,

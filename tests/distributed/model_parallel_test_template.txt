@@ -20,9 +20,10 @@ from transformers import AutoConfig, AutoTokenizer, {model_class}
 from transformers.trainer_utils import set_seed
 
 import optimum
+from optimum.neuron.utils.training_utils import set_neuron_cc_optlevel_for_model
 from optimum.neuron.distributed import ParallelizersManager, lazy_load_for_parallelism
 
-from utils import gather_along_dim, generate_dummy_labels
+from utils import gather_along_dim, generate_dummy_labels, create_static_seed_patcher
 
 
 if os.environ.get("TORCHELASTIC_RUN_ID"):
@@ -94,8 +95,25 @@ def load_model_with_seed(seed: int, from_config: bool):
           model = {model_class}.from_pretrained("{model_name_or_path}", config=config, ignore_mismatched_sizes=True)
     return model
 
+static_seed_patcher = create_static_seed_patcher({model_class}, SEED)
+with static_seed_patcher:
+    model = load_model_with_seed(SEED, from_config)
+    
+    set_neuron_cc_optlevel_for_model(model)
+    
+    vocab_size = getattr(model.config, "vocab_size", None)
+    
+    if is_parallel:
+        model = ParallelizersManager.parallelizer_for_model(model).parallelize(
+            model, 
+            parallelize_embeddings=parallelize_embeddings, 
+            sequence_parallel_enabled=sequence_parallel_enabled,
+        )
+        filename = "parallel.bin"
+    else:
+        filename = "original.bin"
 
-model = load_model_with_seed(SEED, from_config)
+move_model_to_device(model, "xla")
 model = model.eval()
 sig = signature(model.forward)
 
@@ -174,7 +192,7 @@ def gather_output(output, gather_dim):
     else:
         result = gather_along_dim(output, gather_dim)
     return result
-      
+
 if is_parallel:
     # Because of parallelism (embeddings and sequence parallelism), some outputs need to be gathered.
     # Since it is not possible to generically know which one, we save both the "regular" output and the gathered 

@@ -57,12 +57,25 @@ class NeuronTrainingArgumentsMixin:
         default=1, metadata={"help": "The number of replicas the model will be sharded on."}
     )
     disable_embedding_parallelization: bool = field(
-        default=True,
-        metadata={"help": "Whether or not the embedding parallelization when doing TP should be disabled."},
-    )
-    sequence_parallel_enabled: bool = field(
         default=False,
-        metadata={"help": "Whether or not to enable sequence parallelism."},
+        metadata={
+            "help": (
+                "If set, the embeddings will not be parallelized when doing model parallelism. When embeddings are not "
+                "parallelized in decoder and seq2seq models, the language modeling head cannot be parallelized either "
+                "or need an all-gather, which can be costly."
+            )
+        },
+    )
+    disable_sequence_parallel: bool = field(
+        default=False,
+        metadata={"help": "Whether or not to disable sequence parallelism."},
+    )
+    neuron_cc_optlevel: str = field(
+        default="auto",
+        metadata={
+            "choices": ["auto", "1", "2", "3"],
+            "help": "Specify the level of optimization the Neuron compiler should perform.",
+        },
     )
     pipeline_parallel_size: int = field(
         default=1,
@@ -76,9 +89,6 @@ class NeuronTrainingArgumentsMixin:
     def __post_init__(self):
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
         patch_accelerate_is_tpu_available()
-
-        if not self.disable_embedding_parallelization:
-            raise NotImplementedError("Disabling the parallelization of the embeddings is not fully supported yet.")
 
         if self.fsdp != "":
             # Disabling FSDP until next release because it is still very experimental and not validated.
@@ -106,6 +116,8 @@ class NeuronTrainingArgumentsMixin:
                     "The minimal required Transformers version to perform XLA FSDP is "
                     f"{TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP} but {transformers.__version__} is installed."
                 )
+        if self.neuron_cc_optlevel != "auto":
+            self.neuron_cc_optlevel = f"-O{self.neuron_cc_optlevel}"
 
         resume_from_checkpoint = self.resume_from_checkpoint
         if resume_from_checkpoint is None and os.path.isdir(self.output_dir):
@@ -129,8 +141,8 @@ class NeuronTrainingArgumentsMixin:
 
         self.mp_plugin = ModelParallelismPlugin(
             self.tensor_parallel_size,
-            not self.disable_embedding_parallelization,
-            sequence_parallel_enabled=self.sequence_parallel_enabled,
+            parallelize_embeddings=not self.disable_embedding_parallelization,
+            sequence_parallel_enabled=not self.disable_sequence_parallel,
             pipeline_parallel_size=self.pipeline_parallel_size,
             pipeline_parallel_num_microbatches=self.pipeline_parallel_num_microbatches,
             pipeline_parallel_use_zero1_optimizer=self.zero_1,

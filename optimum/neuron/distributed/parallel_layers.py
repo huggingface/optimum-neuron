@@ -71,14 +71,23 @@ class ParallelLayer(ABC):
         weight_map: Dict[str, Union[Path, str]],
         linear_layer_qualified_name: str,
         device: Optional["torch.device"] = None,
-    ) -> Tuple[WeightInformation, Optional[WeightInformation]]:
+        fail_if_not_found: bool = True,
+    ) -> Tuple[Optional[WeightInformation], Optional[WeightInformation]]:
         linear_layer_weight_qualified_name = f"{linear_layer_qualified_name}.weight"
-        linear_layer_weight_info = WeightInformation(
-            weight_map[linear_layer_weight_qualified_name],
-            linear_layer_weight_qualified_name,
-            weight_map=weight_map,
-            device=device,
-        )
+        if linear_layer_weight_qualified_name not in weight_map:
+            if fail_if_not_found:
+                raise ValueError(
+                    f"Could not find the linear weight called {linear_layer_weight_qualified_name} in the weight map."
+                )
+            else:
+                linear_layer_weight_info = None
+        else:
+            linear_layer_weight_info = WeightInformation(
+                weight_map[linear_layer_weight_qualified_name],
+                linear_layer_weight_qualified_name,
+                weight_map=weight_map,
+                device=device,
+            )
 
         linear_layer_bias_qualified_name = f"{linear_layer_qualified_name}.bias"
         linear_layer_bias_filename = weight_map.get(linear_layer_bias_qualified_name, None)
@@ -136,6 +145,21 @@ class ParallelEmbedding(ParallelLayer):
     EMBEDDING_NAME: str
     VOCAB_SIZE_NAME: Optional[str] = "config.vocab_size"
     LM_HEAD_NAME: Optional[Union[str, Dict[str, str]]] = None
+
+    @classmethod
+    @requires_neuronx_distributed
+    def overwrite_vocab_size_value_for_cross_entropy_computation(cls, layer: "torch.nn.Module"):
+        from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
+
+        tp_size = get_tensor_model_parallel_size()
+        if cls.VOCAB_SIZE_NAME is not None:
+            attribute_names = cls.VOCAB_SIZE_NAME.split(".")
+            obj = layer
+            for name in attribute_names[:-1]:
+                obj = getattr(obj, name)
+            vocab_size_attribute_name = attribute_names[-1]
+            new_vocab_size = getattr(obj, vocab_size_attribute_name) // tp_size
+            setattr(obj, vocab_size_attribute_name, new_vocab_size)
 
     @classmethod
     @requires_neuronx_distributed
@@ -227,15 +251,6 @@ class ParallelEmbedding(ParallelLayer):
         else:
             setattr(parent_embedding_module, embedding_attribute_name, parallel_layers)
 
-        if cls.VOCAB_SIZE_NAME is not None:
-            attribute_names = cls.VOCAB_SIZE_NAME.split(".")
-            obj = layer
-            for name in attribute_names[:-1]:
-                obj = getattr(obj, name)
-            vocab_size_attribute_name = attribute_names[-1]
-            new_vocab_size = getattr(obj, vocab_size_attribute_name) // tp_size
-            setattr(obj, vocab_size_attribute_name, new_vocab_size)
-
         return layer
 
 
@@ -275,8 +290,7 @@ class ParallelSelfAttention(ParallelLayer):
     NUM_ATTENTION_HEADS_NAME: Optional[str] = None
     NUM_KEY_VALUE_HEADS_NAME: Optional[str] = None
     NUM_KEY_VALUE_GROUPS_NAME: Optional[str] = None
-    # TODO: add this in NormalizedConfig
-    ALL_HEAD_SIZE_NAME: Optional[str] = None  # "all_head_size"
+    ALL_HEAD_SIZE_NAME: Optional[str] = None
 
     @classmethod
     @requires_neuronx_distributed
@@ -788,10 +802,7 @@ class ParallelCrossEntropy(ParallelLayer):
             else:
                 linear_projection_name = cls.LAST_LINEAR_PROJECTION_NAME
 
-        if linear_projection_name is None:
-            return layer
-
-        if not cls.is_eligible_for_cross_entropy_parallelization(model):
+        if linear_projection_name is None or not cls.is_eligible_for_cross_entropy_parallelization(model):
             return layer
 
         linear_projection_parent, linear_projection_attr_name = cls._get_module_and_attribute_name(
@@ -817,15 +828,20 @@ class ParallelCrossEntropy(ParallelLayer):
             layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
             linear_projection_qualified_name = layer_to_fully_qualified_name[id(linear_projection)]
             linear_projection_weight_info, linear_projection_bias_weight_info = cls._get_linear_weight_info(
-                weight_map, linear_projection_qualified_name, device=device
+                weight_map,
+                linear_projection_qualified_name,
+                device=device,
             )
 
         parallel_linear_projection = linear_to_parallel_linear(
             getattr(linear_projection_parent, linear_projection_attr_name),
             axis="column",
-            gather_output=False,
             linear_layer_weight_info=linear_projection_weight_info,
             linear_layer_bias_weight_info=linear_projection_bias_weight_info,
+            # The output will be kept parallel.
+            gather_output=False,
+            # Since it is the last linear projection, we do not want the output to be sequence parallel.
+            sequence_parallel_enabled=False,
             device=device,
         )
         setattr(linear_projection_parent, linear_projection_attr_name, parallel_linear_projection)

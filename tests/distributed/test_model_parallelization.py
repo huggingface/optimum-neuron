@@ -135,6 +135,7 @@ MODEL_TYPES_TO_TEST = [
         "hf-internal-testing/tiny-random-T5Model",
         {"d_ff": "36", "num_layers": "2", "num_decoder_layers": "2"},
     ),
+    ("mistral", "michaelbenayoun/mistral-tiny-4layers-8kv-heads-random"),
 ]
 
 MODELS_TO_TEST = []
@@ -148,6 +149,14 @@ for entry in MODEL_TYPES_TO_TEST:
         entry = (model_type, model_class_name, model_name_or_path, config_overwrite)
         if entry not in MODELS_TO_TEST:
             MODELS_TO_TEST.append(entry)
+
+
+# When doing from pretrained + lazy loading, it is not always easy to initiliazed the remaining weights in a similar
+# fashion than in the regular model. So we do not check for them under this specific setting. It does not mean that
+# parallelization does not work for them, only that some weights cannot be initialized exactly the same way.
+MODEL_CLASSES_TO_IGNORE_ON_LAZY_LOAD_FOR_FROM_PRETRAINED = [
+    "T5ForQuestionAnswering",
+]
 
 
 @is_trainium_test
@@ -171,10 +180,7 @@ class ModelParallelizationTestCase(TrainiumTestMixin, TestCase):
         elif isinstance(original_output, torch.Tensor):
             print(f"Original {name}:\nShape: {original_output.shape}\nValue: {original_output}")
             print(f"Parallel {name}:\nShape: {output.shape}\nValue: {output}")
-
-            # TODO: Remove that once lazy load initializew the weights the same way as no lazy load.
-            if not lazy_load:
-                torch.testing.assert_close(original_output, output)
+            torch.testing.assert_close(original_output, output)
         else:
             assert original_output == output, f"Output named {name} do not match."
 
@@ -219,8 +225,7 @@ class ModelParallelizationTestCase(TrainiumTestMixin, TestCase):
             "lazy_load": "true" if with_lazy_load else "false",
             "parallelize_embeddings": "true" if parallelize_embeddings else "false",
             "sequence_parallel_enabled": "true" if sequence_parallel_enabled else "false",
-            # TODO: disable that once that loss computation compilation for LLama does not take forever.
-            "computing_loss_is_supported": "true" if not model_class_name.startswith("Llama") else "false",
+            "computing_loss_is_supported": "true",
             **os.environ,
         }
 
@@ -302,6 +307,16 @@ class ModelParallelizationTestCase(TrainiumTestMixin, TestCase):
             temporary_dir = Path(tmpdirname)
             original_model_outputs = torch.load(temporary_dir / "original.bin")
             parallel_model_outputs = torch.load(temporary_dir / "parallel.bin")
+
+            if (
+                not from_config
+                and with_lazy_load
+                and model_class_name in MODEL_CLASSES_TO_IGNORE_ON_LAZY_LOAD_FOR_FROM_PRETRAINED
+            ):
+                self.skipTest(
+                    f"Cannot compare outputs for {model_class_name} when doing from_pretrained + lazy loading."
+                )
+
             for name, t in original_model_outputs.items():
                 if name in self.OUTPUTS_TO_IGNORE:
                     continue
@@ -335,19 +350,63 @@ class ModelParallelizationTestCase(TrainiumTestMixin, TestCase):
         model_name_or_path: str,
         config_overwrite: Dict[str, str],
     ):
+        # In this test, we:
+        #   1. Test parallelism when initializing from a config.
+        #   2. Do not enable embedding parallelization => while behaviour could differ between a model initialized
+        #      lazily or not, the risk is minimal. This feature is tested on the next test with lazy loading.
+        #   3. Do not enable sequence parallelism => this feature should not depend on whether the model is initialized
+        #      lazily or not.
         def test_fn(tp_size: int, pp_size: int):
             self._test_model_parallel(
                 tp_size=tp_size,
                 pp_size=pp_size,
                 num_neuron_cores=8,
-                run_test_in_parallel=False,
+                run_test_in_parallel=True,
                 model_class_name=model_class_name,
                 model_name_or_path=model_name_or_path,
                 from_config=True,
                 with_lazy_load=False,
-                # TODO: enable once ParallelCrossEntropy works.
-                # parallelize_embeddings=True,
                 parallelize_embeddings=False,
+                sequence_parallel_enabled=False,
+                overwrite_model_config=config_overwrite,
+            )
+
+        with self.subTest("Test TP only"):
+            tp_size = 2
+            pp_size = 1
+            test_fn(tp_size, pp_size)
+
+        is_pp_supported = ParallelizersManager.parallelizer_for_model(model_type).supports_pipeline_parallelism()
+        if is_pp_supported:
+            with self.subTest("Test PP only"):
+                tp_size = 1
+                pp_size = 2
+                test_fn(tp_size, pp_size)
+
+            with self.subTest("Test TP + PP only"):
+                tp_size = 2
+                pp_size = 4
+                test_fn(tp_size, pp_size)
+
+    @parameterized.expand(MODELS_TO_TEST)
+    def test_model_parallel_from_config_lazy_load(
+        self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
+    ):
+        # In this test, we:
+        #   1. Test parallelism when initializing lazily from a config.
+        #   2. Enable embedding parallelization.
+        #   3. Enable sequence parallelism.
+        def test_fn(tp_size: int, pp_size: int):
+            self._test_model_parallel(
+                tp_size=tp_size,
+                pp_size=pp_size,
+                num_neuron_cores=8,
+                run_test_in_parallel=True,
+                model_class_name=model_class_name,
+                model_name_or_path=model_name_or_path,
+                from_config=True,
+                with_lazy_load=True,
+                parallelize_embeddings=True,
                 sequence_parallel_enabled=True,
                 overwrite_model_config=config_overwrite,
             )
@@ -377,6 +436,12 @@ class ModelParallelizationTestCase(TrainiumTestMixin, TestCase):
         model_name_or_path: str,
         config_overwrite: Dict[str, str],
     ):
+        # In this test, we:
+        #   1. Test parallelism when initializing from pretrained weights.
+        #   2. Do not enable embedding parallelization => while behaviour could differ between a model initialized
+        #      lazily or not, the risk is minimal. This feature is tested on the next test with lazy loading.
+        #   3. Do not enable sequence parallelism => this feature should not depend on whether the model is initialized
+        #      lazily or not.
         def test_fn(tp_size: int, pp_size: int):
             self._test_model_parallel(
                 tp_size=tp_size,
@@ -387,49 +452,6 @@ class ModelParallelizationTestCase(TrainiumTestMixin, TestCase):
                 model_name_or_path=model_name_or_path,
                 from_config=False,
                 with_lazy_load=False,
-                # TODO: enable once ParallelCrossEntropy works.
-                # parallelize_embeddings=True,
-                parallelize_embeddings=False,
-                sequence_parallel_enabled=True,
-                overwrite_model_config=config_overwrite,
-            )
-
-        with self.subTest("Test TP only"):
-            tp_size = 2
-            pp_size = 1
-            test_fn(tp_size, pp_size)
-
-        is_pp_supported = ParallelizersManager.parallelizer_for_model(model_type).supports_pipeline_parallelism()
-        if is_pp_supported:
-            with self.subTest("Test PP only"):
-                tp_size = 1
-                pp_size = 2
-                test_fn(tp_size, pp_size)
-
-            with self.subTest("Test TP + PP only"):
-                tp_size = 2
-                pp_size = 4
-                test_fn(tp_size, pp_size)
-
-    @parameterized.expand(MODELS_TO_TEST)
-    # @pytest.mark.skip("Parallel cross entropy does not work yet.")
-    def test_model_parallel_lazy_load_without_anything(
-        self,
-        model_type: str,
-        model_class_name: str,
-        model_name_or_path: str,
-        config_overwrite: Dict[str, str],
-    ):
-        def test_fn(tp_size: int, pp_size: int):
-            self._test_model_parallel(
-                tp_size=tp_size,
-                pp_size=pp_size,
-                num_neuron_cores=8,
-                run_test_in_parallel=True,
-                model_class_name=model_class_name,
-                model_name_or_path=model_name_or_path,
-                from_config=False,
-                with_lazy_load=True,
                 parallelize_embeddings=False,
                 sequence_parallel_enabled=False,
                 overwrite_model_config=config_overwrite,
@@ -452,50 +474,45 @@ class ModelParallelizationTestCase(TrainiumTestMixin, TestCase):
                 pp_size = 4
                 test_fn(tp_size, pp_size)
 
-    @parameterized.expand(MODELS_TO_TEST)
-    def test_model_parallel_lazy_load_without_parallelizing_embeddings(
-        self,
-        model_type: str,
-        model_class_name: str,
-        model_name_or_path: str,
-        config_overwrite: Dict[str, str],
-    ):
-        self._test_model_parallel(
-            tp_size=2,
-            pp_size=1,
-            num_neuron_cores=8,
-            run_test_in_parallel=True,
-            model_class_name=model_class_name,
-            model_name_or_path=model_name_or_path,
-            from_config=False,
-            with_lazy_load=True,
-            parallelize_embeddings=False,
-            sequence_parallel_enabled=True,
-            overwrite_model_config=config_overwrite,
-        )
 
     @parameterized.expand(MODELS_TO_TEST)
-    @pytest.mark.skip("Parallel cross entropy does not work yet.")
-    def test_model_parallel_lazy_load_without_sequence_parallel(
-        self,
-        model_type: str,
-        model_class_name: str,
-        model_name_or_path: str,
-        config_overwrite: Dict[str, str],
+    def test_model_parallel_from_pretrained_lazy_load(
+        self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
     ):
-        self._test_model_parallel(
-            tp_size=2,
-            pp_size=1,
-            num_neuron_cores=8,
-            run_test_in_parallel=True,
-            model_class_name=model_class_name,
-            model_name_or_path=model_name_or_path,
-            from_config=False,
-            with_lazy_load=True,
-            parallelize_embeddings=True,
-            sequence_parallel_enabled=False,
-            overwrite_model_config=config_overwrite,
-        )
+        # In this test, we:
+        #   1. Test parallelism when initializing lazily from pretrained weights.
+        #   2. Enable embedding parallelization.
+        #   3. Enable sequence parallelism.
+        def test_fn(tp_size: int, pp_size: int):
+            self._test_model_parallel(
+                tp_size=tp_size,
+                pp_size=pp_size,
+                num_neuron_cores=8,
+                run_test_in_parallel=True,
+                model_class_name=model_class_name,
+                model_name_or_path=model_name_or_path,
+                from_config=False,
+                with_lazy_load=True,
+                parallelize_embeddings=True,
+                sequence_parallel_enabled=True,
+                overwrite_model_config=config_overwrite,
+            )
+        with self.subTest("Test TP only"):
+            tp_size = 2
+            pp_size = 1
+            test_fn(tp_size, pp_size)
+
+        is_pp_supported = ParallelizersManager.parallelizer_for_model(model_type).supports_pipeline_parallelism()
+        if is_pp_supported:
+            with self.subTest("Test PP only"):
+                tp_size = 1
+                pp_size = 2
+                test_fn(tp_size, pp_size)
+
+            with self.subTest("Test TP + PP only"):
+                tp_size = 2
+                pp_size = 4
+                test_fn(tp_size, pp_size)
 
     @pytest.mark.skipif(
         NUM_NEURON_CORES_AVAILABLE < 32,

@@ -1,0 +1,49 @@
+<!--Copyright 2023 The HuggingFace Team. All rights reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+the License. You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+specific language governing permissions and limitations under the License.
+-->
+# Optimum Neuron Distributed
+
+The `optimum.neuron.distributed` module provides a set of tools to perform distributed training and inference.
+
+## Parallelization
+
+The main task in distributed training / inference is being able to shard things such as the model weights, the gradient, and/or the optimizer state. We built `Parallelizer` classes to handle the sharding.
+
+### Base `Parallelizer`
+
+The [`~optimum.neuron.distributed.Parallelizer`] class is the base abstract class being derived for every model supporting model parallelism. It provides methods to parallelize the model and save and load sharded checkpoints.
+
+[[autodoc]] distributed.Parallelizer
+  - _parallelize
+  - parallelize
+  - optimizer_for_tp
+  - save_model_checkpoint
+  - load_model_checkpoint
+
+### Selecting Model-Specific Parallelizer Classes
+
+Each model that supports parallelization in `optimum-neuron` has its own derived `Parallelizer` class. The factory class [`~optimum.neuron.distributed.ParallelizersManager`] allows you to retrieve such model-specific `Parallelizer`s easily. 
+
+[[autodoc]] distributed.parallelizers_manager.ParallelizersManager
+  - get_supported_model_types
+  - is_model_supported
+  - parallelizer_for_model
+
+
+## Utils
+
+### Lazy Loading
+
+Distributed training / inference is usually needed when the model is too big to fit in one device. Tools that allow for lazy loading of model weights and optimizer states are thus needed to avoid going out-of-memory before parallelization.
+
+[[autodoc]] distributed.utils.lazy_load_for_parallelism
+
+[[autodoc]] distributed.utils.make_optimizer_constructor_lazy

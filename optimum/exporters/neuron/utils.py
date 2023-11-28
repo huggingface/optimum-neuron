@@ -50,6 +50,7 @@ if is_diffusers_available():
             f"We found an older version of diffusers {_diffusers_version} but we require diffusers to be >= {DIFFUSERS_MINIMUM_VERSION}. "
             "Please update diffusers by running `pip install --upgrade diffusers`"
         )
+    from diffusers import UNet2DConditionModel
     from diffusers.models.attention_processor import (
         Attention,
         AttnAddedKVProcessor,
@@ -202,6 +203,8 @@ def get_stable_diffusion_models_for_export(
         dynamic_batch_size=dynamic_batch_size,
         **unet_input_shapes,
     )
+    if task == "stable-diffusion-xl":
+        unet_neuron_config.is_sdxl = True
     models_for_export[DIFFUSION_MODEL_UNET_NAME] = (unet, unet_neuron_config)
 
     # VAE Encoder
@@ -249,9 +252,10 @@ def _get_submodels_for_export_stable_diffusion(
     is_sdxl = "xl" in task
 
     models_for_export = []
-    projection_dim = (
-        pipeline.text_encoder_2.config.projection_dim if is_sdxl else pipeline.text_encoder.config.projection_dim
-    )
+    if hasattr(pipeline, "text_encoder_2"):
+        projection_dim = pipeline.text_encoder_2.config.projection_dim
+    else:
+        projection_dim = pipeline.text_encoder.config.projection_dim
 
     # Text encoders
     if pipeline.text_encoder is not None:
@@ -320,3 +324,13 @@ def override_diffusers_2_0_attn_processors(model):
             elif isinstance(submodule.processor, AttnAddedKVProcessor2_0):
                 submodule.set_processor(AttnAddedKVProcessor())
     return model
+
+
+def replace_stable_diffusion_submodels(pipeline, submodels):
+    if submodels is not None:
+        unet_id = submodels.pop("unet", None)
+        if unet_id is not None:
+            unet = UNet2DConditionModel.from_pretrained(unet_id)
+            pipeline.unet = unet
+
+    return pipeline

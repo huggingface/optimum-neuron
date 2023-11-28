@@ -17,6 +17,7 @@
 import contextlib
 import shutil
 from abc import ABC, abstractclassmethod
+from collections import defaultdict
 from dataclasses import asdict
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -37,7 +38,15 @@ from .parallel_layers import (
     LayerNormType,
     SequenceCollectiveOpInfo,
 )
-from .utils import TENSOR_PARALLEL_SHARDS_DIR_NAME, ParameterMetadata, WeightInformation, load_tensor_for_weight
+from .utils import (
+    TENSOR_PARALLEL_SHARDS_DIR_NAME,
+    ParameterMetadata,
+    WeightInformation,
+    initialize_linear,
+    initialize_parallel_linear,
+    load_tensor_for_weight,
+    try_to_hf_initialize,
+)
 
 
 if TYPE_CHECKING:
@@ -302,6 +311,7 @@ class Parallelizer(ABC):
         Returns:
             `PreTrainedModel`: The parallelized model.
         """
+        from neuronx_distributed import parallel_layers
         if sequence_parallel_enabled and not cls.supports_sequence_parallelism():
             raise NotImplementedError(f"Sequence parallelism is not supported for {model.__class__}.")
 
@@ -313,6 +323,15 @@ class Parallelizer(ABC):
         from neuronx_distributed.pipeline import NxDPPModel
 
         sequence_parallel_enabled = sequence_parallel_enabled and get_tensor_model_parallel_size() > 1
+
+        # Parallelizing the model.
+        # This needs to be done prior to preparing the model for sequence parallelism because modules can be overriden.
+        model = cls._parallelize(
+            model,
+            device=device,
+            parallelize_embeddings=parallelize_embeddings,
+            sequence_parallel_enabled=sequence_parallel_enabled,
+        )
 
         # Preparing the model for sequence parallelism:
         sp_specs_cls = cls.SEQUENCE_PARALLELSIM_SPECS_CLS
@@ -339,17 +358,7 @@ class Parallelizer(ABC):
             # 3. Applying model specific patching for sequence parallelism.
             sp_specs_cls.patch_for_sequence_parallelism(model, sequence_parallel_enabled)
 
-        model = cls._parallelize(
-            model,
-            device=device,
-            parallelize_embeddings=parallelize_embeddings,
-            sequence_parallel_enabled=sequence_parallel_enabled,
-        )
-
-        names_of_the_parameters_to_consider = cls._get_parameter_names_for_current_pipeline(model)
-
         weight_map = getattr(model, "_weight_map", None)
-
         # The model was not loaded lazily, it is already ready.
         if weight_map is not None:
             with torch.no_grad():
@@ -360,11 +369,6 @@ class Parallelizer(ABC):
                     # Skipping the parameters that will not end-up in this pipeline rank.
                     if name not in names_of_the_parameters_to_consider:
                         continue
-
-                    split = name.rsplit(".", maxsplit=1)
-                    module = model.get_submodule(split[0])
-                    attribute_name = split[1]
-                    current_weight = getattr(module, attribute_name)
 
                     try:
                         weight_info = WeightInformation(weight_map[name], name, weight_map=weight_map, device=device)
@@ -410,7 +414,7 @@ class Parallelizer(ABC):
                         # This means that there is no information about where to find the weights for this parameter.
                         device = torch.device("cpu") if device is None else device
                         new_parameter = torch.nn.Parameter(torch.empty_like(current_weight, device=device))
-                        modules_to_initialize.append(module)
+                        modules_to_initialize[module].append(attribute_name)
 
                     setattr(
                         module,
@@ -419,6 +423,36 @@ class Parallelizer(ABC):
                     )
                     tied_weights[parameter] = new_parameter
                     new_parameters.add(new_parameter)
+
+            for mod, parameter_names in modules_to_initialize.items():
+                if isinstance(mod, torch.nn.Embedding):
+                    # This module has not pre-trained weights, it must be fine-tuned, we initialize it with the
+                    # `reset_parameters()` method since there is only one parameter in torch.nn.Embedding.
+                    left_uninitialized = try_to_hf_initialize(model, mod, parameter_names)
+                    if left_uninitialized:
+                        mod.reset_parameters()
+                elif isinstance(mod, torch.nn.Linear):
+                    # This module has not pre-trained weights, it must be fine-tuned, we initialize it with the
+                    # `reset_parameters()` method but we need to be careful because one of the parameters might not
+                    # need initialization.
+                    left_uninitialized = try_to_hf_initialize(model, mod, parameter_names)
+                    if not left_uninitialized:
+                        continue
+                    initialize_linear(mod, left_uninitialized)
+
+                elif isinstance(mod, parallel_layers.layers.BaseParallelLinear):
+                    # First, we try to initialize the layer similarly as it would be done with the model.
+                    # To do that it is necessary to change the model class to that the `model._init_weights` method
+                    # considers this module as a `torch.nn.Linear` instance.
+                    orig_class = mod.__class__
+                    mod.__class__ = torch.nn.Linear
+                    left_uninitialized = try_to_hf_initialize(model, mod, parameter_names)
+                    mod.__class__ = orig_class
+                    if not left_uninitialized:
+                        continue
+                    initialize_parallel_linear(mod, left_uninitialized)
+                else:
+                    raise ValueError(f"Do not know how to initialize a module of type {mod.__class__}")
 
                 for mod in modules_to_initialize:
                     # This module has not pre-trained weights, it must be fine-tuned, we initialize it with the
@@ -462,7 +496,7 @@ class Parallelizer(ABC):
     @classmethod
     @requires_neuronx_distributed
     def was_parallelized(cls, model: "PreTrainedModel") -> bool:
-        from neuronx_distributed import parallel_layers
+        import neuronx_distributed
         from neuronx_distributed.parallel_layers.parallel_state import (
             get_pipeline_model_parallel_size,
             get_tensor_model_parallel_size,
@@ -471,9 +505,9 @@ class Parallelizer(ABC):
 
         needs_parallelization_for_pp = get_pipeline_model_parallel_size() > 1 and not isinstance(model, NxDPPModel)
         parallel_layer_classes = (
-            parallel_layers.ParallelEmbedding,
-            parallel_layers.ColumnParallelLinear,
-            parallel_layers.RowParallelLinear,
+            neuronx_distributed.parallel_layers.ParallelEmbedding,
+            neuronx_distributed.parallel_layers.ColumnParallelLinear,
+            neuronx_distributed.parallel_layers.RowParallelLinear,
         )
         layers_are_parallel = any(isinstance(mod, parallel_layer_classes) for mod in model.modules())
         needs_parallelization_for_tp = get_tensor_model_parallel_size() > 1 and not layers_are_parallel
@@ -592,14 +626,14 @@ class Parallelizer(ABC):
         output_dir: Union[str, Path],
         optimizer: Optional["torch.optim.Optimizer"] = None,
     ):
-        cls._check_model_was_parallelized(model)
-
         import neuronx_distributed
         import torch_xla.core.xla_model as xm
         from neuronx_distributed.parallel_layers.parallel_state import (
             get_data_parallel_rank,
             get_tensor_model_parallel_rank,
         )
+
+        cls._check_model_was_parallelized(model)
 
         data_parallel_rank = get_data_parallel_rank()
         tensor_parallel_rank = get_tensor_model_parallel_rank()
@@ -645,11 +679,15 @@ class Parallelizer(ABC):
         output_dir: Union[str, Path],
         optimizer: Optional["torch.optim.Optimizer"] = None,
     ):
-        cls._check_model_was_parallelized(model)
-
         import torch_xla.core.xla_model as xm
         from neuronx_distributed import parallel_layers
         from neuronx_distributed.pipeline import NxDPPModel
+        from neuronx_distributed.parallel_layers.parallel_state import (
+            get_data_parallel_rank,
+            get_tensor_model_parallel_rank,
+        )
+
+        cls._check_model_was_parallelized(model)
 
         if not isinstance(output_dir, Path):
             output_dir = Path(output_dir)
@@ -696,12 +734,15 @@ class Parallelizer(ABC):
     @classmethod
     @requires_neuronx_distributed
     def load_model_sharded_checkpoint(cls, model: "PreTrainedModel", load_dir: Union[str, Path]):
+        import neuronx_distributed
+
         cls._check_model_was_parallelized(model)
-        from neuronx_distributed import parallel_layers
 
         if not isinstance(load_dir, Path):
             load_dir = Path(load_dir)
-        parallel_layers.load(load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME, model_or_optimizer=model, sharded=True)
+        neuronx_distributed.parallel_layers.load(
+            load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME, model_or_optimizer=model, sharded=True
+        )
 
     @classmethod
     def load_model_checkpoint(cls, model: "PreTrainedModel", load_dir: Union[str, Path]):
