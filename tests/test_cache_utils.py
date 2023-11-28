@@ -491,7 +491,7 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
 
             # The model being loaded locally is assumed to be private, push to hub should prevent from pushing to a
             # public repo.
-            with self.assertRaisesRegex(ValueError, "Cannot push the cached model"):
+            with self.assertRaisesRegex(ValueError, "Could not push the cached model"):
                 push_to_cache_on_hub(
                     neuron_hash, cached_files[0], self.CUSTOM_CACHE_REPO, fail_when_could_not_push=True
                 )

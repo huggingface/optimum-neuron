@@ -133,7 +133,7 @@ def create_custom_cache_repo(repo_id: str = CACHE_REPO_NAME, private: bool = Tru
 
 
 def is_private_repo(repo_id: str) -> bool:
-    """Tells whether `repo_id` is private to the current user logged-in."""
+    """Tells whether `repo_id` is private."""
     if _DISABLE_IS_PRIVATE_REPO_CHECK:
         return False
     try:
@@ -141,7 +141,15 @@ def is_private_repo(repo_id: str) -> bool:
         private_to_user = False
     except RepositoryNotFoundError:
         private_to_user = True
-    return private_to_user
+    if private_to_user:
+        private = True
+    else:
+        try:
+            HfApi().model_info(repo_id=repo_id, token=False)
+            private = False
+        except RepositoryNotFoundError:
+            private = True
+    return private
 
 
 def has_write_access_to_repo(repo_id: str) -> bool:
