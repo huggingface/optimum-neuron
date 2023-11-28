@@ -474,7 +474,6 @@ class ModelParallelizationTestCase(TrainiumTestMixin, TestCase):
                 pp_size = 4
                 test_fn(tp_size, pp_size)
 
-
     @parameterized.expand(MODELS_TO_TEST)
     def test_model_parallel_from_pretrained_lazy_load(
         self, model_class_name: str, model_name_or_path: str, config_overwrite: Dict[str, str]
@@ -497,6 +496,7 @@ class ModelParallelizationTestCase(TrainiumTestMixin, TestCase):
                 sequence_parallel_enabled=True,
                 overwrite_model_config=config_overwrite,
             )
+
         with self.subTest("Test TP only"):
             tp_size = 2
             pp_size = 1

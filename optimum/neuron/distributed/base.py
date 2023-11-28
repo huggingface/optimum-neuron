@@ -312,6 +312,7 @@ class Parallelizer(ABC):
             `PreTrainedModel`: The parallelized model.
         """
         from neuronx_distributed import parallel_layers
+
         if sequence_parallel_enabled and not cls.supports_sequence_parallelism():
             raise NotImplementedError(f"Sequence parallelism is not supported for {model.__class__}.")
 
@@ -358,14 +359,21 @@ class Parallelizer(ABC):
             # 3. Applying model specific patching for sequence parallelism.
             sp_specs_cls.patch_for_sequence_parallelism(model, sequence_parallel_enabled)
 
+        names_of_the_parameters_to_consider = cls._get_parameter_names_for_current_pipeline(model)
+
         weight_map = getattr(model, "_weight_map", None)
         # The model was not loaded lazily, it is already ready.
         if weight_map is not None:
             with torch.no_grad():
                 tied_weights = {}
                 new_parameters = set()
-                modules_to_initialize = []
+                modules_to_initialize = defaultdict(list)
                 for name, parameter in named_parameters(model, remove_duplicate=False):
+                    split = name.rsplit(".", maxsplit=1)
+                    module = model.get_submodule(split[0])
+                    attribute_name = split[1]
+                    current_weight = getattr(module, attribute_name)
+
                     # Skipping the parameters that will not end-up in this pipeline rank.
                     if name not in names_of_the_parameters_to_consider:
                         continue
@@ -682,10 +690,6 @@ class Parallelizer(ABC):
         import torch_xla.core.xla_model as xm
         from neuronx_distributed import parallel_layers
         from neuronx_distributed.pipeline import NxDPPModel
-        from neuronx_distributed.parallel_layers.parallel_state import (
-            get_data_parallel_rank,
-            get_tensor_model_parallel_rank,
-        )
 
         cls._check_model_was_parallelized(model)
 
