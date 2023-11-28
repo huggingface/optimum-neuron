@@ -1150,9 +1150,6 @@ class NeuronGenerationMixin(GenerationMixin):
 
             # prepare model inputs
             if model_kwargs["use_cache"]:
-                import pdb
-
-                pdb.set_trace()
                 # From max_length-sized input_ids, select first
                 # cur_len - 1 values.
                 update_indices = torch.stack(
@@ -1164,7 +1161,8 @@ class NeuronGenerationMixin(GenerationMixin):
                 model_inputs = self.prepare_inputs_for_generation(input_ids, **model_kwargs)
 
             if is_traced_inference:
-                next_token_scores, next_tokens, next_indices = self(**model_inputs, beam_scores=beam_scores)
+                outputs = self(**model_inputs, beam_scores=beam_scores)
+                next_token_scores, next_tokens, next_indices = outputs
             else:
                 outputs = self(
                     **model_inputs,
@@ -1270,13 +1268,21 @@ class NeuronGenerationMixin(GenerationMixin):
             input_ids[:, :] = input_ids[beam_idx_device.long(), :]
 
             # Then append new tokens
-            input_ids[update_indices_2[:, 0], update_indices_2[:, 1], None] = beam_next_tokens.unsqueeze(-1).to(device)
+            if is_traced_inference:
+                # int64 is not natively supported by inf2 and has been cast down to int32
+                input_ids[update_indices_2[:, 0], update_indices_2[:, 1], None] = (
+                    beam_next_tokens.unsqueeze(-1).to(device).to(torch.long)
+                )
+            else:
+                input_ids[update_indices_2[:, 0], update_indices_2[:, 1], None] = beam_next_tokens.unsqueeze(-1).to(
+                    device
+                )
             input_ids = input_ids * 1  # Hack to materialize tensor
 
             # update generated ids, model inputs, and length for next step
             model_kwargs = self._update_model_kwargs_for_xla_generation(
-                outputs,
-                model_kwargs,
+                outputs=outputs,
+                model_kwargs=model_kwargs,
                 batch_size=batch_beam_size,
                 is_encoder_decoder=self.config.is_encoder_decoder,
                 max_length=stopping_criteria.max_length,
