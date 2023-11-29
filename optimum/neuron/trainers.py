@@ -15,7 +15,6 @@
 """Defines Trainer subclasses to perform training on AWS Neuron instances."""
 
 import contextlib
-import glob
 import os
 import random
 import warnings
@@ -163,13 +162,6 @@ class AugmentTrainerForNeuronMixin:
 
         prepare_environment_for_neuron()
         super().__init__(*args, **kwargs)
-
-        # That's the case for Transformers < 4.30.0
-        if not hasattr(self, "is_fsdp_enabled"):
-            self.is_fsdp_enabled = False
-
-        if self.is_fsdp_enabled and self.args.do_eval:
-            raise ValueError("Evaluation is not supported with XLA FSDP yet.")
 
         if self.args.local_rank <= 0:
             logger.setLevel(logging.INFO)
@@ -509,29 +501,10 @@ class AugmentTrainerForNeuronMixin:
             return
         super()._load_from_checkpoint(self, resume_from_checkpoint, model=model)
 
-    def _load_optimizer_and_scheduler_for_xla_fsdp(self, checkpoint):
-        checkpoint_file_exists = (
-            glob.glob(os.path.join(checkpoint, OPTIMIZER_NAME) + "_*")
-            if is_sagemaker_mp_enabled()
-            else os.path.isfile(os.path.join(checkpoint, OPTIMIZER_NAME))
-        )
-        if checkpoint_file_exists and os.path.isfile(os.path.join(checkpoint, SCHEDULER_NAME)):
-            self.accelerator.state.fsdp_plugin.load_optimizer(self.accelerator, self.optimizer, self.model, checkpoint)
-
-            with warnings.catch_warnings(record=True) as caught_warnings:
-                lr_scheduler_state = torch.load(os.path.join(checkpoint, SCHEDULER_NAME), map_location="cpu")
-            reissue_pt_warnings(caught_warnings)
-            xm.send_cpu_data_to_device(lr_scheduler_state, self.args.device)
-            self.lr_scheduler.load_state_dict(lr_scheduler_state)
-
-        # TODO: load grad scaling?
-
     def _load_optimizer_and_scheduler(self, checkpoint):
         if checkpoint is None:
             return
-        if self.accelerator.distributed_type is NeuronDistributedType.XLA_FSDP:
-            return self._load_optimizer_and_scheduler_for_xla_fsdp(checkpoint)
-        elif self.accelerator.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
+        if self.accelerator.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
             lr_scheduler_state = torch.load(os.path.join(checkpoint, SCHEDULER_NAME), map_location="cpu")
             xm.send_cpu_data_to_device(lr_scheduler_state, self.args.device)
             self.lr_scheduler.load_state_dict(lr_scheduler_state)

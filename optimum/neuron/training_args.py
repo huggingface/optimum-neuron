@@ -14,8 +14,6 @@
 # limitations under the License.
 """Defines a TrainingArguments class compatible with Neuron."""
 
-import io
-import json
 import os
 import warnings
 from dataclasses import dataclass, field
@@ -38,7 +36,6 @@ from ..utils import check_if_transformers_greater, logging
 from .accelerate import NeuronAcceleratorState, NeuronPartialState
 from .accelerate.utils import TensorParallelismPlugin, patch_accelerate_is_tpu_available
 from .utils import is_accelerate_available, is_torch_xla_available
-from .utils.training_utils import TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP
 
 
 if is_sagemaker_mp_enabled():
@@ -83,31 +80,8 @@ class NeuronTrainingArgumentsMixin:
         patch_accelerate_is_tpu_available()
 
         if self.fsdp != "":
-            # Disabling FSDP until next release because it is still very experimental and not validated.
             raise RuntimeError("FSDP is not supported yet.")
-            if self.fsdp_config is None:
-                self.fsdp_config = {"xla": True}
-            elif isinstance(self.fsdp_config, str):
-                with io.open(self.fsdp_config, "r", encoding="utf-8") as f:
-                    self.fsdp_config = json.load(f)
 
-            if "xla" in self.fsdp_config and not self.fsdp_config["xla"]:
-                raise ValueError(
-                    "XLA FSDP is the only supported FSDP implementation by `optimum-neuron` but the provided FSDP "
-                    "config specified it should not be used."
-                )
-            else:
-                self.fsdp_config["xla"] = True
-
-            os.environ["ACCELERATE_USE_FSDP"] = "true"
-
-            if not check_if_transformers_greater(TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP):
-                import transformers
-
-                raise RuntimeError(
-                    "The minimal required Transformers version to perform XLA FSDP is "
-                    f"{TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP} but {transformers.__version__} is installed."
-                )
         if self.neuron_cc_optlevel != "auto":
             self.neuron_cc_optlevel = f"-O{self.neuron_cc_optlevel}"
 
