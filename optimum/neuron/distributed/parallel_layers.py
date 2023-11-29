@@ -693,6 +693,7 @@ class ParallelMLP(ParallelLayer):
 
 
 @requires_neuronx_distributed
+@torch.fx.wrap
 def safe_parallel_cross_entropy(*args, **kwargs):
     if kwargs.pop("weight", None) is not None:
         raise ValueError("The weight keyword argument is not supported when using parallel cross entropy")

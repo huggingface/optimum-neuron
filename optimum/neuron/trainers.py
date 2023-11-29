@@ -392,17 +392,16 @@ class AugmentTrainerForNeuronMixin:
                     get_pipeline_model_parallel_size,
                 )
 
-                pp_size = get_pipeline_model_parallel_size()
                 dp_size = get_data_parallel_size()
+                pp_size = get_pipeline_model_parallel_size()
                 tr_loss_div = tr_loss / dp_size
-                print("tr_loss_div", tr_loss_div)
 
                 if pp_size > 1:
-                    torch.distributed.all_reduce(tr_loss_div, group=get_data_parallel_group())
-                    torch.distributed.broadcast(
+                    tr_loss_div = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_group(as_list=True))
+                    tr_loss_div = xm.all_reduce(
+                        xm.REDUCE_SUM,
                         tr_loss_div,
-                        torch.distributed.get_rank(),
-                        group=get_pipeline_model_parallel_group(),
+                        groups=get_pipeline_model_parallel_group(as_list=True),
                     )
                     xm.mark_step()
                     tr_loss_scalar = tr_loss_div.item()

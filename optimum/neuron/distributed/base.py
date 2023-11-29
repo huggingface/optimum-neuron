@@ -323,16 +323,19 @@ class Parallelizer(ABC):
         )
         from neuronx_distributed.pipeline import NxDPPModel
 
-        sequence_parallel_enabled = sequence_parallel_enabled and get_tensor_model_parallel_size() > 1
+        tp_size = get_tensor_model_parallel_size()
+
+        sequence_parallel_enabled = sequence_parallel_enabled and tp_size > 1
 
         # Parallelizing the model.
         # This needs to be done prior to preparing the model for sequence parallelism because modules can be overriden.
-        model = cls._parallelize(
-            model,
-            device=device,
-            parallelize_embeddings=parallelize_embeddings,
-            sequence_parallel_enabled=sequence_parallel_enabled,
-        )
+        if tp_size > 1:
+            model = cls._parallelize(
+                model,
+                device=device,
+                parallelize_embeddings=parallelize_embeddings,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+            )
 
         # Preparing the model for sequence parallelism:
         sp_specs_cls = cls.SEQUENCE_PARALLELSIM_SPECS_CLS
@@ -375,8 +378,9 @@ class Parallelizer(ABC):
                     current_weight = getattr(module, attribute_name)
 
                     # Skipping the parameters that will not end-up in this pipeline rank.
-                    if name not in names_of_the_parameters_to_consider:
-                        continue
+                    # TODO: enable this.
+                    # if name not in names_of_the_parameters_to_consider:
+                    #     continue
 
                     try:
                         weight_info = WeightInformation(weight_map[name], name, weight_map=weight_map, device=device)
@@ -462,11 +466,6 @@ class Parallelizer(ABC):
                 else:
                     raise ValueError(f"Do not know how to initialize a module of type {mod.__class__}")
 
-                for mod in modules_to_initialize:
-                    # This module has not pre-trained weights, it must be fine-tuned, we initialize it with the
-                    # `reset_parameters()` method.
-                    mod.reset_parameters()
-
         pp_size = get_pipeline_model_parallel_size()
         if pp_size > 1:
             if not cls.supports_pipeline_parallelism():
@@ -491,7 +490,6 @@ class Parallelizer(ABC):
                     use_zero1_optimizer=pipeline_parallel_use_zero1_optimizer,
                 )
 
-        # TODO: see how it works out with pp.
         if checkpoint_dir is not None:
             cls.load_model_checkpoint(model, checkpoint_dir)
 
@@ -717,7 +715,7 @@ class Parallelizer(ABC):
                 shutil.rmtree(output_path, ignore_errors=True)
             output_path.mkdir()
         xm.rendezvous("waiting before saving")
-        parallel_layers.save(state_dict, output_path.as_posix())
+        parallel_layers.save(state_dict, output_path.as_posix(), save_xser=True)
 
     @classmethod
     def save_model_checkpoint(
@@ -745,7 +743,7 @@ class Parallelizer(ABC):
         if not isinstance(load_dir, Path):
             load_dir = Path(load_dir)
         neuronx_distributed.parallel_layers.load(
-            load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME, model_or_optimizer=model, sharded=True
+            load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME, model_or_optimizer=model, load_xser=True, sharded=True,
         )
 
     @classmethod
