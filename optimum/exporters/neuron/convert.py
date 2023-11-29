@@ -169,9 +169,11 @@ def validate_model_outputs(
     with torch.no_grad():
         reference_model.eval()
         ref_inputs = config.generate_dummy_inputs(return_tuple=False, **input_shapes)
-        if reference_model.config.is_encoder_decoder:
+        if getattr(reference_model.config, "is_encoder_decoder", False):
             reference_model = config.patch_model_for_export(reference_model, device="cpu", **input_shapes)
-        if "AutoencoderKL" in getattr(config._config, "_class_name", "") or reference_model.config.is_encoder_decoder:
+        if "AutoencoderKL" in getattr(config._config, "_class_name", "") or getattr(
+            reference_model.config, "is_encoder_decoder", False
+        ):
             # VAE components for stable diffusion or Encoder-Decoder models
             ref_inputs = tuple(ref_inputs.values())
             ref_outputs = reference_model(*ref_inputs)
@@ -428,7 +430,7 @@ def export_neuronx(
     dummy_inputs_tuple = tuple(dummy_inputs.values())
 
     aliases = {}
-    if model.config.is_encoder_decoder:
+    if getattr(model.config, "is_encoder_decoder", False):
         checked_model = config.patch_model_for_export(model, **input_shapes)
         if getattr(config, "is_decoder", False):
             aliases = config.generate_io_aliases(checked_model)
