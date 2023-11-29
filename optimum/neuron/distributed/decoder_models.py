@@ -630,7 +630,7 @@ class MistralParallelCrossEntropy(ParallelCrossEntropy):
     LAST_LINEAR_PROJECTION_NAME = {"MistralForCausalLM": "lm_head"}
 
 
-class MistralParallelizer(Parallelizer):
+class MistralSequenceParallelismSpecs(SequenceParallelismSpecs):
     SEQUENCE_PARALLEL_LAYERNORM_PATTERNS = [
         "model.layers.[0-9]+.input_layernorm",
         "model.layers.[0-9]+.post_attention_layernorm",
@@ -744,6 +744,9 @@ class MistralParallelizer(Parallelizer):
         for module in model.modules():
             if isinstance(module, MistralAttention):
                 module.forward = attention_forward.__get__(module)
+
+class MistralParallelizer(Parallelizer):
+    SEQUENCE_PARALLELSIM_SPECS_CLS = MistralSequenceParallelismSpecs
 
     @classmethod
     def _parallelize(
