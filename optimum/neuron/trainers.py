@@ -366,17 +366,17 @@ class AugmentTrainerForNeuronMixin:
             return (loss, None, None)
         return super().prediction_step(model, inputs, prediction_loss_only, ignore_keys=ignore_keys)
 
-    @patch_within_function(("transformers.trainer.get_model_param_count", get_model_param_count))
-    def _inner_training_loop(
-        self, batch_size=None, args=None, resume_from_checkpoint=None, trial=None, ignore_keys_for_eval=None
-    ):
-        return super()._inner_training_loop(
-            batch_size=batch_size,
-            args=args,
-            resume_from_checkpoint=resume_from_checkpoint,
-            trial=trial,
-            ignore_keys_for_eval=ignore_keys_for_eval,
-        )
+    # @patch_within_function(("transformers.trainer.get_model_param_count", get_model_param_count))
+    # def _inner_training_loop(
+    #     self, batch_size=None, args=None, resume_from_checkpoint=None, trial=None, ignore_keys_for_eval=None
+    # ):
+    #     return super()._inner_training_loop(
+    #         batch_size=batch_size,
+    #         args=args,
+    #         resume_from_checkpoint=resume_from_checkpoint,
+    #         trial=trial,
+    #         ignore_keys_for_eval=ignore_keys_for_eval,
+    #     )
 
     def _maybe_log_save_evaluate(self, tr_loss, model, trial, epoch, ignore_keys_for_eval):
         if self.control.should_log:
@@ -397,7 +397,9 @@ class AugmentTrainerForNeuronMixin:
                 tr_loss_div = tr_loss / dp_size
 
                 if pp_size > 1:
-                    tr_loss_div = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_group(as_list=True))
+                    tr_loss_div = xm.all_reduce(
+                        xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_group(as_list=True)
+                    )
                     tr_loss_div = xm.all_reduce(
                         xm.REDUCE_SUM,
                         tr_loss_div,
@@ -617,40 +619,6 @@ class AugmentTrainerForNeuronMixin:
         else:
             return super()._load_optimizer_and_scheduler(checkpoint)
 
-    # @patch_within_function(("transformers.trainer.skip_first_batches", skip_first_batches))
-    # def _inner_training_loop(
-    #     self, batch_size=None, args=None, resume_from_checkpoint=None, trial=None, ignore_keys_for_eval=None
-    # ):
-    #     return super()._inner_training_loop(
-    #         batch_size=batch_size,
-    #         args=args,
-    #         resume_from_checkpoint=resume_from_checkpoint,
-    #         trial=trial,
-    #         ignore_keys_for_eval=ignore_keys_for_eval,
-    #     )
-
-    # def evaluation_loop(
-    #     self,
-    #     dataloader: torch.utils.data.DataLoader,
-    #     description: str,
-    #     prediction_loss_only: Optional[bool] = None,
-    #     ignore_keys: Optional[List[str]] = None,
-    #     metric_key_prefix: str = "eval",
-    # ) -> EvalLoopOutput:
-    #     # This will prepare the model if it was not prepared before.
-    #     # This is needed for example for TP when we performing only evaluation (no training):
-    #     #   1. The model needs to be loaded if it was lazy loaded.
-    #     #   2. The model needs to be parallelized.
-    #     self.accelerator.prepare_model(self.model)
-
-    #     return super().evaluation_loop(
-    #         dataloader,
-    #         description,
-    #         prediction_loss_only=prediction_loss_only,
-    #         ignore_keys=ignore_keys,
-    #         metric_key_prefix=metric_key_prefix,
-    #     )
-
     @requires_neuronx_distributed
     def _inner_training_loop(
         self, batch_size=None, args=None, resume_from_checkpoint=None, trial=None, ignore_keys_for_eval=None
@@ -868,7 +836,13 @@ class AugmentTrainerForNeuronMixin:
         # _total_loss_scalar is updated everytime .item() has to be called on tr_loss and stores the sum of all losses
         self._total_loss_scalar = 0.0
         self._globalstep_last_logged = self.state.global_step
-        model.zero_grad()
+
+        # It should be equivalent but prefer to use the `zero_grad` method from the optimizer when doing pipeline
+        # parallelism.
+        if isinstance(model, NxDPPModel):
+            self.optimizer.zero_grad()
+        else:
+            model.zero_grad()
 
         self.control = self.callback_handler.on_train_begin(args, self.state, self.control)
 
@@ -1000,7 +974,13 @@ class AugmentTrainerForNeuronMixin:
                         if not isinstance(self.lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
                             self.lr_scheduler.step()
 
-                    model.zero_grad()
+                    # It should be equivalent but prefer to use the `zero_grad` method from the optimizer when doing
+                    # pipeline parallelism.
+                    if isinstance(model, NxDPPModel):
+                        self.optimizer.zero_grad()
+                    else:
+                        model.zero_grad()
+
                     self.state.global_step += 1
                     self.state.epoch = epoch + (step + 1 + steps_skipped) / steps_in_epoch
                     self.control = self.callback_handler.on_step_end(args, self.state, self.control)

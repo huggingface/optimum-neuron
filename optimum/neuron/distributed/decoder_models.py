@@ -745,6 +745,7 @@ class MistralSequenceParallelismSpecs(SequenceParallelismSpecs):
             if isinstance(module, MistralAttention):
                 module.forward = attention_forward.__get__(module)
 
+
 class MistralParallelizer(Parallelizer):
     SEQUENCE_PARALLELSIM_SPECS_CLS = MistralSequenceParallelismSpecs
 

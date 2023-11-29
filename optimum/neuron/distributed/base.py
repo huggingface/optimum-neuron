@@ -362,7 +362,7 @@ class Parallelizer(ABC):
             # 3. Applying model specific patching for sequence parallelism.
             sp_specs_cls.patch_for_sequence_parallelism(model, sequence_parallel_enabled)
 
-        names_of_the_parameters_to_consider = cls._get_parameter_names_for_current_pipeline(model)
+        cls._get_parameter_names_for_current_pipeline(model)
 
         weight_map = getattr(model, "_weight_map", None)
         # The model was not loaded lazily, it is already ready.
@@ -743,7 +743,10 @@ class Parallelizer(ABC):
         if not isinstance(load_dir, Path):
             load_dir = Path(load_dir)
         neuronx_distributed.parallel_layers.load(
-            load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME, model_or_optimizer=model, load_xser=True, sharded=True,
+            load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME,
+            model_or_optimizer=model,
+            load_xser=True,
+            sharded=True,
         )
 
     @classmethod

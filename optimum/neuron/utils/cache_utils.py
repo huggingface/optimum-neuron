@@ -258,9 +258,13 @@ def get_num_neuron_cores() -> int:
         os.environ["PATH"] = path
     proc = subprocess.Popen(["neuron-ls", "-j"], stdout=subprocess.PIPE)
     stdout, _ = proc.communicate()
-    stdout = stdout.decode("utf-8")
-    json_stdout = json.loads(stdout)
-    return sum(neuron_device_info["nc_count"] for neuron_device_info in json_stdout)
+    if proc.returncode != 0:
+        num_cores = 0
+    else:
+        stdout = stdout.decode("utf-8")
+        json_stdout = json.loads(stdout)
+        num_cores = sum(neuron_device_info["nc_count"] for neuron_device_info in json_stdout)
+    return num_cores
 
 
 def get_num_neuron_cores_used() -> int:
