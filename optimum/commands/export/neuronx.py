@@ -141,6 +141,16 @@ def parse_args_neuronx(parser: "ArgumentParser"):
             "UNet model ID on huggingface.co or path on disk to load model from. This will replace the unet in the original Stable Diffusion pipeline."
         ),
     )
+    optional_group.add_argument(
+        "--output_hidden_states",
+        action="store_true",
+        help=("Whether or not for the traced model to return the hidden states of all layers."),
+    )
+    optional_group.add_argument(
+        "--output_attentions",
+        action="store_true",
+        help=("Whether or not for the traced model to return the attentions tensors of all attention layers."),
+    )
 
 
 class NeuronxExportCommand(BaseOptimumCLICommand):

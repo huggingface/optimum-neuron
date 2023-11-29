@@ -143,6 +143,8 @@ class T5DecoderWrapper(torch.nn.Module):
         batch_size: int,
         sequence_length: int,
         num_beams: int = 1,
+        output_hidden_states: bool = False,
+        output_attentions: bool = False,
         device: str = "xla",
         tp_degree: Optional[int] = None,
     ):
@@ -152,6 +154,8 @@ class T5DecoderWrapper(torch.nn.Module):
         self.batch_size = batch_size
         self.sequence_length = sequence_length
         self.num_beams = num_beams
+        self.output_hidden_states = output_hidden_states
+        self.output_attentions = output_attentions
         self.device = device
         self.tp_degree = tp_degree
 
@@ -259,12 +263,21 @@ class T5DecoderWrapper(torch.nn.Module):
             encoder_hidden_states=encoder_hidden_states,
             encoder_attention_mask=encoder_attention_mask,
             use_cache=True,
-            output_attentions=False,
-            output_hidden_states=False,
+            output_attentions=self.output_attentions,
+            output_hidden_states=self.output_hidden_states,
         )
 
         last_hidden_state = decoder_output["last_hidden_state"]
         past_key_values = decoder_output["past_key_values"]
+        if self.output_hidden_states:
+            decoder_hidden_states = [
+                hidden_state for hidden_state in decoder_output["hidden_states"]
+            ]  # flatten `hidden_states` which is a tuple of tensors
+
+        if self.output_attentions:
+            decoder_attentions = [
+                attention for attention in decoder_output["attentions"]
+            ]  # flatten `hidden_states` which is a tuple of tensors
 
         if self.config.tie_word_embeddings:
             # Rescale output before projecting on vocab
@@ -307,8 +320,18 @@ class T5DecoderWrapper(torch.nn.Module):
             next_indices = torch.div(next_tokens, vocab_size, rounding_mode="floor")
             next_tokens = next_tokens % vocab_size
 
-            return [next_token_scores, next_tokens, next_indices] + past_key_values_sa + past_key_values_ca
+            neuron_outputs = [next_token_scores, next_tokens, next_indices] + past_key_values_sa + past_key_values_ca
+
         else:
             # Greedy
             next_tokens = torch.argmax(next_token_logits, dim=-1)
-            return [next_tokens] + past_key_values_sa + past_key_values_ca
+
+            neuron_outputs = [next_tokens] + past_key_values_sa + past_key_values_ca
+
+        if self.output_hidden_states:
+            neuron_outputs += decoder_hidden_states
+
+        if self.output_attentions:
+            neuron_outputs += decoder_attentions
+
+        return neuron_outputs

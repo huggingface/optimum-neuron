@@ -147,6 +147,7 @@ def store_compilation_config(
     compiler_version: str,
     model_type: Optional[str] = None,
     task: str = None,
+    optional_outputs: Dict[str, bool] = None,
     **kwargs,
 ):
     if isinstance(config, OrderedDict):
@@ -181,6 +182,9 @@ def store_compilation_config(
         )  # Add model_type to the config if it doesn't exist before, eg. submodel of Stable Diffusion.
     elif neuron_model_type != original_model_type:
         config_args["model_type"] = neuron_model_type  # Neuron custom model_type, eg. `t5-encoder`.
+
+    if optional_outputs is not None:
+        config_args["optional_outputs"] = optional_outputs
 
     update_func("neuron", config_args)
 

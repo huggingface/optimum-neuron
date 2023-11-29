@@ -121,6 +121,18 @@ def normalize_input_shapes(task: str, args: argparse.Namespace) -> Dict[str, int
     return input_shapes
 
 
+def customize_optional_outputs(args: argparse.Namespace) -> Dict[str, bool]:
+    """
+    Customize optional outputs of the traced model, eg. if `output_attentions=True`, the attentions tensors will be traced.
+    """
+    possible_outputs = ["output_attentions", "output_hidden_states"]
+
+    customized_outputs = {}
+    for name in possible_outputs:
+        customized_outputs[name] = getattr(args, name, False)
+    return customized_outputs
+
+
 def normalize_stable_diffusion_input_shapes(
     args: argparse.Namespace,
 ) -> Dict[str, Dict[str, int]]:
@@ -190,6 +202,7 @@ def _get_submodels_and_neuron_configs(
     dynamic_batch_size: bool = False,
     model_name_or_path: Optional[Union[str, Path]] = None,
     submodels: Dict[str, Union[Path, str]] = None,
+    optional_outputs: Dict[str, bool] = None,
 ):
     is_stable_diffusion = "stable-diffusion" in task
     is_encoder_decoder = (
@@ -202,7 +215,7 @@ def _get_submodels_and_neuron_configs(
         )
     elif is_encoder_decoder:
         models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs_for_encoder_decoder(
-            model, input_shapes, task, output, dynamic_batch_size, model_name_or_path
+            model, input_shapes, task, output, dynamic_batch_size, model_name_or_path, optional_outputs
         )
     else:
         neuron_config_constructor = TasksManager.get_exporter_config_constructor(
@@ -273,6 +286,7 @@ def _get_submodels_and_neuron_configs_for_encoder_decoder(
     output: Path,
     dynamic_batch_size: bool = False,
     model_name_or_path: Optional[Union[str, Path]] = None,
+    optional_outputs: Dict[str, bool] = None,
 ):
     if is_neuron_available():
         raise RuntimeError(
@@ -284,6 +298,7 @@ def _get_submodels_and_neuron_configs_for_encoder_decoder(
         task=task,
         dynamic_batch_size=dynamic_batch_size,
         input_shapes=input_shapes,
+        optional_outputs=optional_outputs,
     )
     output_model_names = {
         ENCODER_NAME: os.path.join(ENCODER_NAME, NEURON_FILE_NAME),
@@ -310,6 +325,7 @@ def main_export(
     use_auth_token: Optional[Union[bool, str]] = None,
     do_validation: bool = True,
     submodels: Dict[str, Union[Path, str]] = None,
+    optional_outputs: Dict[str, bool] = None,
     **input_shapes,
 ):
     output = Path(output)
@@ -341,6 +357,7 @@ def main_export(
         dynamic_batch_size=dynamic_batch_size,
         model_name_or_path=model_name_or_path,
         submodels=submodels,
+        optional_outputs=optional_outputs,
     )
 
     _, neuron_outputs = export_models(
@@ -408,6 +425,8 @@ def main():
         input_shapes = normalize_input_shapes(task, args)
         submodels = None
 
+    optional_outputs = customize_optional_outputs(args)
+
     main_export(
         model_name_or_path=args.model,
         output=args.output,
@@ -419,6 +438,7 @@ def main():
         trust_remote_code=args.trust_remote_code,
         do_validation=not args.disable_validation,
         submodels=submodels,
+        optional_outputs=optional_outputs,
         **input_shapes,
     )
 

@@ -17,7 +17,7 @@
 import copy
 import inspect
 import warnings
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.distributed as dist
@@ -50,9 +50,6 @@ from transformers.generation.utils import (
 )
 from transformers.utils import ModelOutput, logging
 
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.get_logger(__name__)
 
@@ -873,6 +870,11 @@ class NeuronGenerationMixin(GenerationMixin):
             else:
                 next_tokens = outputs[0]
 
+                if return_dict_in_generate and output_scores:
+                    logger.warning(
+                        "`output_scores` will be neglected because currently we do not trace `next_token_scores` for greedy search. If you want us to support the option during the compilation, please file an issue to https://github.com/huggingface/optimum-neuron."
+                    )
+
             # finished sentences should have their next token be a padding token
             if eos_token_id is not None:
                 if pad_token_id is None:
@@ -1068,7 +1070,7 @@ class NeuronGenerationMixin(GenerationMixin):
         # init values
         if logits_processor is not None and is_traced_inference:
             logger.warning(
-                "`logits_processor` will not be neglected because in `optimum-neuron`, `next_tokens` is computed inside the compiled decoder. If you want us to support custom logits_processor during the compilation, please file an issue to https://github.com/huggingface/optimum-neuron."
+                "`logits_processor` will be neglected because in `optimum-neuron`, `next_tokens` is computed inside the compiled decoder. If you want us to support custom logits_processor during the compilation, please file an issue to https://github.com/huggingface/optimum-neuron."
             )
         elif logits_processor is None:
             logits_processor = LogitsProcessorList()
@@ -1130,7 +1132,6 @@ class NeuronGenerationMixin(GenerationMixin):
 
         # initialise score of first beam with 0 and the rest with -1e9. This makes sure that only tokens
         # of the first beam are considered to avoid sampling the exact same tokens across all beams.
-        # beam_scores = torch.zeros((batch_size, num_beams), dtype=torch.float, device=input_ids.device)
         beam_scores_device = "cpu"
         beam_scores = torch.zeros((batch_size, num_beams), dtype=torch.float, device=beam_scores_device)
         beam_scores[:, 1:] = -1e9
@@ -1203,7 +1204,7 @@ class NeuronGenerationMixin(GenerationMixin):
                 xm.mark_step()
 
                 # We don't want to change every single logit processor, so
-                # we peform this processing on CPU.
+                # we perform this processing on CPU.
                 input_ids_ = input_ids.to("cpu")[:, :cur_len]
                 next_token_scores_ = next_token_scores.to("cpu")
                 next_token_scores_processed = logits_processor(input_ids_, next_token_scores_)

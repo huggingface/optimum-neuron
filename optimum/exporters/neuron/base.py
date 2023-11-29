@@ -120,6 +120,8 @@ class NeuronConfig(ExportConfig, ABC):
         point_batch_size: Optional[int] = None,
         nb_points_per_image: Optional[int] = None,
         num_beams: int = 1,
+        output_attentions: bool = False,
+        output_hidden_states: bool = False,
         # TODO: add custom dtype after optimum 1.13 release
         # int_dtype: str = "int64",
         # float_dtype: str = "fp32",
@@ -156,6 +158,11 @@ class NeuronConfig(ExportConfig, ABC):
                 input_shapes[name] = value
             setattr(self, name, value)
         setattr(self, "input_shapes", input_shapes)
+        setattr(
+            self,
+            "optional_outputs",
+            {"output_attentions": output_attentions, "output_hidden_states": output_hidden_states},
+        )
         setattr(self, "compiler_type", compiler_type)
         setattr(self, "compiler_version", compiler_version)
 
