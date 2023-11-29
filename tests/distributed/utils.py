@@ -27,6 +27,7 @@ import neuronx_distributed
 import pytest
 import torch
 import torch.distributed as dist
+import torch_xla.distributed.xla_backend as xbn
 import torch.multiprocessing as mp
 from _pytest.fixtures import FixtureFunctionMarker, FixtureLookupError
 from _pytest.outcomes import Skipped
@@ -57,6 +58,7 @@ from optimum.neuron.utils.require_utils import requires_neuronx_distributed, req
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
 
+
 TEST_TIMEOUT = 600
 
 
@@ -66,7 +68,6 @@ def is_neuron_environment_available() -> bool:
 
 # The following code related to distributed test is copied from the DeepSpeed repo:
 # https://github.com/microsoft/DeepSpeed/blob/master/tests/unit/common.py
-
 
 def get_xdist_worker_id():
     xdist_worker = os.environ.get("PYTEST_XDIST_WORKER", None)
@@ -201,12 +202,15 @@ class DistributedExec(ABC):
         if self.init_distributed:
             # Initializing the process group.
             dist.init_process_group(backend=self.backend, rank=local_rank, world_size=self.world_size)
+            if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
+                raise AssertionError("Failed to initialize torch.distributed process group using XLA backend.")
+
             dist.barrier()
 
             # Intializing NxD.
             neuronx_distributed.parallel_layers.parallel_state.initialize_model_parallel(
                 tensor_model_parallel_size=self.tp_size,
-                pipeline_model_parallel_size=self.tp_size,
+                pipeline_model_parallel_size=self.pp_size,
             )
 
         try:
