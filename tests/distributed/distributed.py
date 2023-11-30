@@ -19,6 +19,7 @@
 
 import inspect
 import os
+from random import randint
 import socket
 import time
 from abc import ABC, abstractmethod
@@ -29,6 +30,7 @@ import pytest
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
+import torch_xla.distributed.xla_multiprocessing as xmp
 import torch_xla.distributed.xla_backend as xbn
 from _pytest.fixtures import FixtureFunctionMarker, FixtureLookupError
 from _pytest.outcomes import Skipped
@@ -127,6 +129,8 @@ class DistributedExec(ABC):
             )
 
         # Set start method to `forkserver` (or `fork`)
+        # mp.set_start_method("forkserver", force=True)
+        os.environ["TORCHELASTIC_RUN_ID"] = "alakd" + str(randint(1, 100))
         mp.set_start_method("forkserver", force=True)
 
         # Create process pool or use cached one
@@ -143,12 +147,6 @@ class DistributedExec(ABC):
         # Run the test
         args = [(local_rank, num_procs, master_port) for local_rank in range(num_procs)]
         skip_msgs_async = pool.starmap_async(self._dist_run, args)
-        # proc_args = [(local_rank, num_procs, master_port) for local_rank in range(num_procs)]
-        # contexts = []
-        # for args in proc_args:
-        #     contexts.append(xmp.spawn(self._dist_run, args, nprocs=1, join=False))
-        # for context in contexts:
-        #     context.join()
 
         try:
             skip_msgs = skip_msgs_async.get(self.exec_timeout)
@@ -157,9 +155,12 @@ class DistributedExec(ABC):
             # usually means an environment error and the rest of tests will
             # hang (causing super long unit test runtimes)
             pytest.exit("Test hanged, exiting", returncode=0)
-
-        # Tear down distributed environment and close process pools
-        self._close_pool(pool, num_procs)
+        except Exception as e:
+            self._close_pool(pool, num_procs)
+            raise e
+        finally:
+            # Tear down distributed environment and close process pools
+            self._close_pool(pool, num_procs)
 
         # If we skipped a test, propagate that to this process
         if any(skip_msgs):
@@ -182,12 +183,8 @@ class DistributedExec(ABC):
                 # Unit tests do not support multi-node so there is only one group in our case
                 os.environ["GROUP_RANK"] = "0"
 
+
             if self.init_distributed:
-                # Initializing the process group.
-                from torch_neuronx.distributed.xrt_init import _init_xrt_context
-
-                _init_xrt_context()
-
                 dist.init_process_group(backend=self.backend, rank=local_rank, world_size=self.world_size)
                 if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
                     raise AssertionError("Failed to initialize torch.distributed process group using XLA backend.")
