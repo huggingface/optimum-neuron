@@ -278,10 +278,11 @@ class NeuronAcceleratorState(AcceleratorState):
                             "`ModelParallelismPlugin` was provided."
                         )
                     if mp_plugin.should_parallelize:
-                        parallel_state.initialize_model_parallel(
-                            tensor_model_parallel_size=mp_plugin.tensor_parallel_size,
-                            pipeline_model_parallel_size=mp_plugin.pipeline_parallel_size,
-                        )
+                        if not parallel_state.model_parallel_is_initialized():
+                            parallel_state.initialize_model_parallel(
+                                tensor_model_parallel_size=mp_plugin.tensor_parallel_size,
+                                pipeline_model_parallel_size=mp_plugin.pipeline_parallel_size,
+                            )
                         self.distributed_type = NeuronDistributedType.MODEL_PARALLELISM
                     else:
                         logger.warning(

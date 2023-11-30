@@ -71,6 +71,7 @@ def inf_decoder_model(request):
 def inf_diffuser_model(request):
     return request.param
 
+
 # This hook is run before the default pytest_runtest_call
 @pytest.hookimpl(tryfirst=True)
 def pytest_runtest_call(item):
@@ -80,6 +81,7 @@ def pytest_runtest_call(item):
         dist_test_class(item._request)
         item.runtest = lambda: True  # Dummy function so test is not run twice
 
+
 # We allow DistributedTest to reuse distributed environments. When the last
 # test for a class is run, we want to make sure those distributed environments
 # are destroyed.
@@ -88,6 +90,7 @@ def pytest_runtest_teardown(item, nextitem):
         dist_test_class = item.cls()
         for num_procs, pool in dist_test_class._pool_cache.items():
             dist_test_class._close_pool(pool, num_procs, force=True)
+
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_fixture_setup(fixturedef, request):

@@ -16,21 +16,10 @@
 
 import functools
 import inspect
-import os
-import socket
-import time
-from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Type, Union
 
-import neuronx_distributed
-import pytest
 import torch
-import torch.distributed as dist
-import torch_xla.distributed.xla_backend as xbn
-import torch.multiprocessing as mp
-from _pytest.fixtures import FixtureFunctionMarker, FixtureLookupError
-from _pytest.outcomes import Skipped
 from transformers.models.auto import get_values
 from transformers.models.auto.modeling_auto import (
     MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING_NAMES,
@@ -50,7 +39,6 @@ from transformers.models.auto.modeling_auto import (
     MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING_NAMES,
 )
 
-from optimum.neuron.utils.cache_utils import get_num_neuron_cores
 from optimum.neuron.utils.patching import DynamicPatch, Patcher
 from optimum.neuron.utils.require_utils import requires_neuronx_distributed, requires_torch_xla
 

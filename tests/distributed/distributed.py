@@ -14,52 +14,26 @@
 # limitations under the License.
 """Defines classes to enable running tests in a distributed setting."""
 
-# The following code is copied and adapted from the DeepSpeed repo: 
+# The following code is copied and adapted from the DeepSpeed repo:
 # https://github.com/microsoft/DeepSpeed/blob/master/tests/unit/common.py
 
-import functools
 import inspect
 import os
 import socket
 import time
 from abc import ABC, abstractmethod
-from contextlib import contextmanager
-from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Type, Union
+from typing import List, Union
 
 import neuronx_distributed
 import pytest
 import torch
 import torch.distributed as dist
-import torch_xla.distributed.xla_backend as xbn
 import torch.multiprocessing as mp
+import torch_xla.distributed.xla_backend as xbn
 from _pytest.fixtures import FixtureFunctionMarker, FixtureLookupError
 from _pytest.outcomes import Skipped
-from transformers.models.auto import get_values
-from transformers.models.auto.modeling_auto import (
-    MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING_NAMES,
-    MODEL_FOR_BACKBONE_MAPPING_NAMES,
-    MODEL_FOR_CAUSAL_LM_MAPPING_NAMES,
-    MODEL_FOR_CTC_MAPPING_NAMES,
-    MODEL_FOR_DOCUMENT_QUESTION_ANSWERING_MAPPING_NAMES,
-    MODEL_FOR_IMAGE_CLASSIFICATION_MAPPING_NAMES,
-    MODEL_FOR_MASKED_LM_MAPPING_NAMES,
-    MODEL_FOR_MULTIPLE_CHOICE_MAPPING_NAMES,
-    MODEL_FOR_NEXT_SENTENCE_PREDICTION_MAPPING_NAMES,
-    MODEL_FOR_PRETRAINING_MAPPING_NAMES,
-    MODEL_FOR_QUESTION_ANSWERING_MAPPING_NAMES,
-    MODEL_FOR_SEMANTIC_SEGMENTATION_MAPPING_NAMES,
-    MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING_NAMES,
-    MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING_NAMES,
-    MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING_NAMES,
-)
 
 from optimum.neuron.utils.cache_utils import get_num_neuron_cores
-from optimum.neuron.utils.patching import DynamicPatch, Patcher
-from optimum.neuron.utils.require_utils import requires_neuronx_distributed, requires_torch_xla
-
-
-if TYPE_CHECKING:
-    from transformers import PreTrainedModel
 
 
 TEST_TIMEOUT = 600
@@ -67,7 +41,6 @@ TEST_TIMEOUT = 600
 
 def is_neuron_environment_available() -> bool:
     return get_num_neuron_cores() > 0
-
 
 
 def get_xdist_worker_id():
@@ -104,16 +77,16 @@ class DistributedExec(ABC):
     methods needed for DistributedTest and DistributedFixture.
     """
 
-    world_size: int = 2
-    tp_size: int = 1
-    pp_size: int = 1
+    world_size: Union[int, List[int]] = 2
+    tp_size: Union[int, List[int]] = 1
+    pp_size: Union[int, List[int]] = 1
     backend: str = "xla"
     init_distributed: bool = True
     set_dist_env: bool = True
-    requires_neuron_environment = True
-    reuse_dist_env = False
+    requires_neuron_environment: bool = True
+    reuse_dist_env: bool = False
     _pool_cache = {}
-    exec_timeout = TEST_TIMEOUT
+    exec_timeout: int = TEST_TIMEOUT
 
     @abstractmethod
     def run(self):
@@ -170,6 +143,12 @@ class DistributedExec(ABC):
         # Run the test
         args = [(local_rank, num_procs, master_port) for local_rank in range(num_procs)]
         skip_msgs_async = pool.starmap_async(self._dist_run, args)
+        # proc_args = [(local_rank, num_procs, master_port) for local_rank in range(num_procs)]
+        # contexts = []
+        # for args in proc_args:
+        #     contexts.append(xmp.spawn(self._dist_run, args, nprocs=1, join=False))
+        # for context in contexts:
+        #     context.join()
 
         try:
             skip_msgs = skip_msgs_async.get(self.exec_timeout)
@@ -194,25 +173,30 @@ class DistributedExec(ABC):
             if self.set_dist_env:
                 os.environ["MASTER_ADDR"] = "127.0.0.1"
                 os.environ["MASTER_PORT"] = str(master_port)
+                # Unit tests do not support multi-node so local_rank == global rank
                 os.environ["LOCAL_RANK"] = str(local_rank)
-                # NOTE: unit tests don't support multi-node so local_rank == global rank
                 os.environ["RANK"] = str(local_rank)
                 os.environ["LOCAL_SIZE"] = str(num_procs)
                 os.environ["WORLD_SIZE"] = str(num_procs)
+                os.environ["LOCAL_WORLD_SIZE"] = str(num_procs)
+                # Unit tests do not support multi-node so there is only one group in our case
+                os.environ["GROUP_RANK"] = "0"
 
-        if self.init_distributed:
-            # Initializing the process group.
-            dist.init_process_group(backend=self.backend, rank=local_rank, world_size=self.world_size)
-            if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
-                raise AssertionError("Failed to initialize torch.distributed process group using XLA backend.")
+            if self.init_distributed:
+                # Initializing the process group.
+                from torch_neuronx.distributed.xrt_init import _init_xrt_context
 
-            dist.barrier()
+                _init_xrt_context()
 
-            # Intializing NxD.
-            neuronx_distributed.parallel_layers.parallel_state.initialize_model_parallel(
-                tensor_model_parallel_size=self.tp_size,
-                pipeline_model_parallel_size=self.pp_size,
-            )
+                dist.init_process_group(backend=self.backend, rank=local_rank, world_size=self.world_size)
+                if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
+                    raise AssertionError("Failed to initialize torch.distributed process group using XLA backend.")
+
+                # Intializing NxD.
+                neuronx_distributed.parallel_layers.parallel_state.initialize_model_parallel(
+                    tensor_model_parallel_size=self.tp_size,
+                    pipeline_model_parallel_size=self.pp_size,
+                )
 
         try:
             self.run(**self._fixture_kwargs)
