@@ -65,9 +65,31 @@ def neuron_decoder_path(export_decoder_id):
 
 @pytest.fixture(scope="module")
 @requires_neuronx
-def neuron_seq2seq_path(export_seq2seq_id):
+def neuron_seq2seq_beam_path(export_seq2seq_id):
     model = NeuronModelForSeq2SeqLM.from_pretrained(
         export_seq2seq_id, export=True, batch_size=1, sequence_length=64, num_beams=4
+    )
+    model_dir = TemporaryDirectory()
+    model_path = model_dir.name
+    model.save_pretrained(model_path)
+    del model
+    # Yield instead of returning to keep a reference to the temporary directory.
+    # It will go out of scope and be released only once all tests needing the fixture
+    # have been completed.
+    yield model_path
+
+
+@pytest.fixture(scope="module")
+@requires_neuronx
+def neuron_seq2seq_beam_path_with_optional_outputs(export_seq2seq_id):
+    model = NeuronModelForSeq2SeqLM.from_pretrained(
+        export_seq2seq_id,
+        export=True,
+        batch_size=1,
+        sequence_length=64,
+        num_beams=4,
+        output_attentions=True,
+        output_hidden_states=True,
     )
     model_dir = TemporaryDirectory()
     model_path = model_dir.name
@@ -84,6 +106,28 @@ def neuron_seq2seq_path(export_seq2seq_id):
 def neuron_seq2seq_greedy_path(export_seq2seq_id):
     model = NeuronModelForSeq2SeqLM.from_pretrained(
         export_seq2seq_id, export=True, batch_size=1, sequence_length=64, num_beams=1
+    )
+    model_dir = TemporaryDirectory()
+    model_path = model_dir.name
+    model.save_pretrained(model_path)
+    del model
+    # Yield instead of returning to keep a reference to the temporary directory.
+    # It will go out of scope and be released only once all tests needing the fixture
+    # have been completed.
+    yield model_path
+
+
+@pytest.fixture(scope="module")
+@requires_neuronx
+def neuron_seq2seq_greedy_path_with_optional_outputs(export_seq2seq_id):
+    model = NeuronModelForSeq2SeqLM.from_pretrained(
+        export_seq2seq_id,
+        export=True,
+        batch_size=1,
+        sequence_length=64,
+        num_beams=1,
+        output_attentions=True,
+        output_hidden_states=True,
     )
     model_dir = TemporaryDirectory()
     model_path = model_dir.name

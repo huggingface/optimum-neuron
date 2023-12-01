@@ -63,11 +63,47 @@ def test_model_generation_input_dimensions(neuron_decoder_path):
 
 @is_inferentia_test
 @requires_neuronx
-def test_seq2seq_generation_beam(neuron_seq2seq_path):
-    model = NeuronModelForSeq2SeqLM.from_pretrained(neuron_seq2seq_path)
-    tokenizer = AutoTokenizer.from_pretrained(neuron_seq2seq_path)
+def test_seq2seq_generation_beam(neuron_seq2seq_beam_path):
+    model = NeuronModelForSeq2SeqLM.from_pretrained(neuron_seq2seq_beam_path)
+    tokenizer = AutoTokenizer.from_pretrained(neuron_seq2seq_beam_path)
     inputs = tokenizer("translate English to German: Lets eat good food.", return_tensors="pt")
-    output = model.generate(**inputs, num_return_sequences=1)
+
+    # 1. max length
+    output = model.generate(**inputs, num_return_sequences=2, max_length=5)
+    assert len(output[0]) <= 5
+
+    # 2. min length
+    output = model.generate(**inputs, num_return_sequences=2, min_length=10)
+    assert len(output[0]) >= 10
+
+    # 3. max new tokens
+    output = model.generate(**inputs, num_return_sequences=2, max_new_tokens=5)
+    assert len(output[0].unique()) <= 5
+
+    return output
+
+
+@is_inferentia_test
+@requires_neuronx
+def test_seq2seq_generation_beam_with_optional_outputs(neuron_seq2seq_beam_path_with_optional_outputs):
+    model = NeuronModelForSeq2SeqLM.from_pretrained(neuron_seq2seq_beam_path_with_optional_outputs)
+    tokenizer = AutoTokenizer.from_pretrained(neuron_seq2seq_beam_path_with_optional_outputs)
+    inputs = tokenizer("translate English to German: Lets eat good food.", return_tensors="pt")
+
+    output = model.generate(
+        **inputs,
+        num_return_sequences=1,
+        max_length=20,
+        output_scores=True,
+        output_attentions=True,
+        output_hidden_states=True,
+        return_dict_in_generate=True,
+    )
+    assert "scores" in output
+    assert "decoder_attentions" in output
+    assert "cross_attentions" in output
+    assert "decoder_hidden_states" in output
+
     return output
 
 
@@ -77,5 +113,39 @@ def test_seq2seq_generation_greedy(neuron_seq2seq_greedy_path):
     model = NeuronModelForSeq2SeqLM.from_pretrained(neuron_seq2seq_greedy_path)
     tokenizer = AutoTokenizer.from_pretrained(neuron_seq2seq_greedy_path)
     inputs = tokenizer("translate English to German: Lets eat good food.", return_tensors="pt")
-    output = model.generate(**inputs, num_return_sequences=1)
+
+    # 1. max length
+    output = model.generate(**inputs, num_return_sequences=1, max_length=5)
+    assert len(output[0]) <= 5
+
+    # 2. min length
+    output = model.generate(**inputs, num_return_sequences=1, min_length=10)
+    assert len(output[0]) >= 10
+
+    # 3. max new tokens
+    output = model.generate(**inputs, num_return_sequences=1, max_new_tokens=5)
+    assert len(output[0].unique()) <= 5
+
+    return output
+
+
+@is_inferentia_test
+@requires_neuronx
+def test_seq2seq_generation_greedy_with_optional_outputs(neuron_seq2seq_greedy_path_with_optional_outputs):
+    model = NeuronModelForSeq2SeqLM.from_pretrained(neuron_seq2seq_greedy_path_with_optional_outputs)
+    tokenizer = AutoTokenizer.from_pretrained(neuron_seq2seq_greedy_path_with_optional_outputs)
+    inputs = tokenizer("translate English to German: Lets eat good food.", return_tensors="pt")
+
+    output = model.generate(
+        **inputs,
+        num_return_sequences=1,
+        max_length=20,
+        output_attentions=True,
+        output_hidden_states=True,
+        return_dict_in_generate=True,
+    )
+    assert "decoder_attentions" in output
+    assert "cross_attentions" in output
+    assert "decoder_hidden_states" in output
+
     return output

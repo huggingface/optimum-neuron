@@ -416,7 +416,7 @@ class NeuronGenerationMixin(GenerationMixin):
             model_kwargs["use_cache"] = generation_config.use_cache
 
         accepts_attention_mask = "attention_mask" in set(inspect.signature(self.forward).parameters.keys())
-        requires_attention_mask = "encoder_outputs" not in model_kwargs
+        requires_attention_mask = "encoder_outputs" not in model_kwargs and not is_traced_inference
 
         if model_kwargs.get("attention_mask", None) is None and requires_attention_mask and accepts_attention_mask:
             model_kwargs["attention_mask"] = self._prepare_attention_mask_for_generation(
@@ -434,7 +434,7 @@ class NeuronGenerationMixin(GenerationMixin):
                     "generation results, please set `padding_side='left'` when initializing the tokenizer."
                 )
 
-        if self.config.is_encoder_decoder and "encoder_outputs" not in model_kwargs:
+        if self.config.is_encoder_decoder and "encoder_outputs" not in model_kwargs and not is_traced_inference:
             # if model is encoder decoder encoder_outputs are created
             # and added to `model_kwargs`
             model_kwargs = self._prepare_encoder_decoder_kwargs_for_generation(
@@ -767,7 +767,14 @@ class NeuronGenerationMixin(GenerationMixin):
         )
 
         # init attention / hidden states / scores tuples
-        scores = () if (return_dict_in_generate and output_scores) else None
+        scores = None
+        if return_dict_in_generate and output_scores:
+            if is_traced_inference:
+                logger.warning(
+                    "`output_scores` will be neglected because currently we do not trace `next_token_scores` for greedy search (we do only in beam search). If you want us to support the option during the compilation, please file an issue to https://github.com/huggingface/optimum-neuron."
+                )
+            else:
+                scores = ()
         decoder_attentions = () if (return_dict_in_generate and output_attentions) else None
         cross_attentions = () if (return_dict_in_generate and output_attentions) else None
         decoder_hidden_states = () if (return_dict_in_generate and output_hidden_states) else None
@@ -847,32 +854,28 @@ class NeuronGenerationMixin(GenerationMixin):
                 next_tokens_scores = logits_processor(input_ids.to("cpu")[:, :seq_length], next_token_logits.to("cpu"))
                 next_tokens_scores = next_tokens_scores.to(input_ids.device)
 
-                # Store scores, attentions and hidden_states when required
-                if return_dict_in_generate:
-                    if output_scores:
-                        scores += (next_tokens_scores,)
-                    if output_attentions:
-                        decoder_attentions += (
-                            (outputs.decoder_attentions,) if self.config.is_encoder_decoder else (outputs.attentions,)
-                        )
-                        if self.config.is_encoder_decoder:
-                            cross_attentions += (outputs.cross_attentions,)
-
-                    if output_hidden_states:
-                        decoder_hidden_states += (
-                            (outputs.decoder_hidden_states,)
-                            if self.config.is_encoder_decoder
-                            else (outputs.hidden_states,)
-                        )
-
                 # argmax
                 next_tokens = torch.argmax(next_tokens_scores, dim=-1)
+
+                if return_dict_in_generate and output_scores:
+                    scores += (next_tokens_scores,)
             else:
                 next_tokens = outputs[0]
 
-                if return_dict_in_generate and output_scores:
-                    logger.warning(
-                        "`output_scores` will be neglected because currently we do not trace `next_token_scores` for greedy search. If you want us to support the option during the compilation, please file an issue to https://github.com/huggingface/optimum-neuron."
+            # Store scores, attentions and hidden_states when required
+            if return_dict_in_generate:
+                if output_attentions:
+                    decoder_attentions += (
+                        (outputs.decoder_attentions,) if self.config.is_encoder_decoder else (outputs.attentions,)
+                    )
+                    if self.config.is_encoder_decoder:
+                        cross_attentions += (outputs.cross_attentions,)
+
+                if output_hidden_states:
+                    decoder_hidden_states += (
+                        (outputs.decoder_hidden_states,)
+                        if self.config.is_encoder_decoder
+                        else (outputs.hidden_states,)
                     )
 
             # finished sentences should have their next token be a padding token
@@ -1162,8 +1165,19 @@ class NeuronGenerationMixin(GenerationMixin):
                 model_inputs = self.prepare_inputs_for_generation(input_ids, **model_kwargs)
 
             if is_traced_inference:
-                outputs = self(**model_inputs, beam_scores=beam_scores)
-                next_token_scores, next_tokens, next_indices = outputs
+                outputs = self(
+                    **model_inputs,
+                    beam_scores=beam_scores,
+                    return_dict=True,
+                    output_attentions=output_attentions,
+                    output_hidden_states=output_hidden_states,
+                )
+                next_token_scores = outputs.next_token_scores
+                next_tokens = outputs.next_tokens
+                next_indices = outputs.next_indices
+
+                if return_dict_in_generate and output_scores:
+                    scores += (next_token_scores,)
             else:
                 outputs = self(
                     **model_inputs,
@@ -1211,24 +1225,6 @@ class NeuronGenerationMixin(GenerationMixin):
 
                 next_token_scores = next_token_scores_processed + beam_scores[:, None].expand_as(next_token_scores)
 
-                # Store scores, attentions and hidden_states when required
-                if return_dict_in_generate:
-                    if output_scores:
-                        scores += (next_token_scores_processed,)
-                    if output_attentions:
-                        decoder_attentions += (
-                            (outputs.decoder_attentions,) if self.config.is_encoder_decoder else (outputs.attentions,)
-                        )
-                        if self.config.is_encoder_decoder:
-                            cross_attentions += (outputs.cross_attentions,)
-
-                    if output_hidden_states:
-                        decoder_hidden_states += (
-                            (outputs.decoder_hidden_states,)
-                            if self.config.is_encoder_decoder
-                            else (outputs.hidden_states,)
-                        )
-
                 # reshape for beam search
                 vocab_size = next_token_scores.shape[-1]
                 next_token_scores = next_token_scores.view(batch_size, num_beams * vocab_size)
@@ -1242,6 +1238,24 @@ class NeuronGenerationMixin(GenerationMixin):
                 next_indices = torch.div(next_tokens, vocab_size, rounding_mode="floor")
                 next_tokens = next_tokens % vocab_size
 
+                if return_dict_in_generate and output_scores:
+                    scores += (next_token_scores_processed,)
+
+            # Store scores, attentions and hidden_states when required
+            if return_dict_in_generate:
+                if output_attentions:
+                    decoder_attentions += (
+                        (outputs.decoder_attentions,) if self.config.is_encoder_decoder else (outputs.attentions,)
+                    )
+                    if self.config.is_encoder_decoder:
+                        cross_attentions += (outputs.cross_attentions,)
+
+                if output_hidden_states:
+                    decoder_hidden_states += (
+                        (outputs.decoder_hidden_states,)
+                        if self.config.is_encoder_decoder
+                        else (outputs.hidden_states,)
+                    )
             # stateless
             beam_outputs = beam_scorer.process(
                 input_ids.to("cpu")[:, :cur_len],

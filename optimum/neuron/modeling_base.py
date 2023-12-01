@@ -297,14 +297,15 @@ class NeuronBaseModel(OptimizedModel):
         )
 
         store_compilation_config(
-            config,
-            input_shapes,
-            compiler_kwargs,
-            input_names,
-            output_names,
-            dynamic_batch_size,
-            compiler_type,
-            compiler_version,
+            config=config,
+            input_shapes=input_shapes,
+            compiler_kwargs=compiler_kwargs,
+            input_names=input_names,
+            output_names=output_names,
+            dynamic_batch_size=dynamic_batch_size,
+            compiler_type=compiler_type,
+            compiler_version=compiler_version,
+            task=task,
         )
 
         config.save_pretrained(save_dir_path)

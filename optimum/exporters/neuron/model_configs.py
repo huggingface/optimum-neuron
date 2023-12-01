@@ -463,8 +463,8 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
             batch_size=batch_size,
             sequence_length=sequence_length,
             num_beams=num_beams,
-            output_hidden_states=self.optional_outputs["output_hidden_states"],
-            output_attentions=self.optional_outputs["output_attentions"],
+            output_hidden_states=self.output_hidden_states,
+            output_attentions=self.output_attentions,
             device=device,
         )
 

@@ -340,7 +340,8 @@ def export_models(
                 compiler_version=NEURON_COMPILER_VERSION,
                 model_type=getattr(sub_neuron_config, "MODEL_TYPE", None),
                 task=getattr(sub_neuron_config, "task", None),
-                optional_outputs=getattr(sub_neuron_config, "optional_outputs", None),
+                output_attentions=getattr(sub_neuron_config, "output_attentions", False),
+                output_hidden_states=getattr(sub_neuron_config, "output_hidden_states", False),
             )
             if isinstance(model_config, PretrainedConfig):
                 model_config = DiffusersPretrainedConfig.from_dict(model_config.__dict__)

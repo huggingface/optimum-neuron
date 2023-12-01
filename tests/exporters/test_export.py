@@ -225,7 +225,7 @@ class NeuronEncoderDecoderExportTestCase(unittest.TestCase):
     """
 
     @parameterized.expand(ENCODER_DECODER_MODELS_TINY.items())
-    def test_export_for_encoder_decoder_models(self, model_name, model_id):
+    def test_export_encoder_decoder_models(self, model_name, model_id):
         set_seed(SEED)
 
         # prepare neuron config / models
@@ -239,6 +239,8 @@ class NeuronEncoderDecoderExportTestCase(unittest.TestCase):
                 task="text2text-generation",
                 output=Path(tmpdirname),
                 model_name_or_path=model_id,
+                output_attentions=True,
+                output_hidden_states=True,
             )
             _, neuron_outputs = export_models(
                 models_and_neuron_configs=models_and_neuron_configs,

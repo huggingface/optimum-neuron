@@ -201,8 +201,9 @@ def _get_submodels_and_neuron_configs(
     output: Path,
     dynamic_batch_size: bool = False,
     model_name_or_path: Optional[Union[str, Path]] = None,
-    submodels: Dict[str, Union[Path, str]] = None,
-    optional_outputs: Dict[str, bool] = None,
+    submodels: Optional[Dict[str, Union[Path, str]]] = None,
+    output_attentions: bool = False,
+    output_hidden_states: bool = False,
 ):
     is_stable_diffusion = "stable-diffusion" in task
     is_encoder_decoder = (
@@ -210,14 +211,25 @@ def _get_submodels_and_neuron_configs(
     )
 
     if is_stable_diffusion:
+        # TODO: Enable optional outputs for Stable Diffusion
+        if output_attentions or output_hidden_states:
+            raise ValueError(
+                f"`output_attentions` and `output_hidden_states` are not supported by the {task} task yet."
+            )
         models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs_for_stable_diffusion(
             model, input_shapes, task, output, dynamic_batch_size, submodels
         )
     elif is_encoder_decoder:
+        optional_outputs = {"output_attentions": output_attentions, "output_hidden_states": output_hidden_states}
         models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs_for_encoder_decoder(
-            model, input_shapes, task, output, dynamic_batch_size, model_name_or_path, optional_outputs
+            model, input_shapes, task, output, dynamic_batch_size, model_name_or_path, **optional_outputs
         )
     else:
+        # TODO: Enable optional outputs for encoders
+        if output_attentions or output_hidden_states:
+            raise ValueError(
+                f"`output_attentions` and `output_hidden_states` are not supported by the {task} task yet."
+            )
         neuron_config_constructor = TasksManager.get_exporter_config_constructor(
             model=model, exporter="neuron", task=task
         )
@@ -235,7 +247,7 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
     task: str,
     output: Path,
     dynamic_batch_size: bool = False,
-    submodels: Dict[str, Union[Path, str]] = None,
+    submodels: Optional[Dict[str, Union[Path, str]]] = None,
 ):
     model = replace_stable_diffusion_submodels(model, submodels)
     check_compiler_compatibility_for_stable_diffusion()
@@ -286,7 +298,8 @@ def _get_submodels_and_neuron_configs_for_encoder_decoder(
     output: Path,
     dynamic_batch_size: bool = False,
     model_name_or_path: Optional[Union[str, Path]] = None,
-    optional_outputs: Dict[str, bool] = None,
+    output_attentions: bool = False,
+    output_hidden_states: bool = False,
 ):
     if is_neuron_available():
         raise RuntimeError(
@@ -298,7 +311,8 @@ def _get_submodels_and_neuron_configs_for_encoder_decoder(
         task=task,
         dynamic_batch_size=dynamic_batch_size,
         input_shapes=input_shapes,
-        optional_outputs=optional_outputs,
+        output_attentions=output_attentions,
+        output_hidden_states=output_hidden_states,
     )
     output_model_names = {
         ENCODER_NAME: os.path.join(ENCODER_NAME, NEURON_FILE_NAME),
@@ -324,8 +338,9 @@ def main_export(
     local_files_only: bool = False,
     use_auth_token: Optional[Union[bool, str]] = None,
     do_validation: bool = True,
-    submodels: Dict[str, Union[Path, str]] = None,
-    optional_outputs: Dict[str, bool] = None,
+    submodels: Optional[Dict[str, Union[Path, str]]] = None,
+    output_attentions: bool = False,
+    output_hidden_states: bool = False,
     **input_shapes,
 ):
     output = Path(output)
@@ -357,7 +372,8 @@ def main_export(
         dynamic_batch_size=dynamic_batch_size,
         model_name_or_path=model_name_or_path,
         submodels=submodels,
-        optional_outputs=optional_outputs,
+        output_attentions=output_attentions,
+        output_hidden_states=output_hidden_states,
     )
 
     _, neuron_outputs = export_models(
@@ -438,7 +454,7 @@ def main():
         trust_remote_code=args.trust_remote_code,
         do_validation=not args.disable_validation,
         submodels=submodels,
-        optional_outputs=optional_outputs,
+        **optional_outputs,
         **input_shapes,
     )
 

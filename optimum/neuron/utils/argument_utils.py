@@ -147,7 +147,8 @@ def store_compilation_config(
     compiler_version: str,
     model_type: Optional[str] = None,
     task: str = None,
-    optional_outputs: Dict[str, bool] = None,
+    output_attentions: bool = False,
+    output_hidden_states: bool = False,
     **kwargs,
 ):
     if isinstance(config, OrderedDict):
@@ -183,8 +184,9 @@ def store_compilation_config(
     elif neuron_model_type != original_model_type:
         config_args["model_type"] = neuron_model_type  # Neuron custom model_type, eg. `t5-encoder`.
 
-    if optional_outputs is not None:
-        config_args["optional_outputs"] = optional_outputs
+    # Add args of optional outputs
+    config_args["output_attentions"] = output_attentions
+    config_args["output_hidden_states"] = output_hidden_states
 
     update_func("neuron", config_args)
 

@@ -32,7 +32,7 @@ from transformers.generation.logits_process import (
 from transformers.generation.stopping_criteria import (
     StoppingCriteriaList,
 )
-from transformers.modeling_outputs import Seq2SeqLMOutput
+from transformers.modeling_outputs import ModelOutput
 
 from ..exporters.neuron import (
     NeuronConfig,
@@ -268,6 +268,8 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel, ABC):
         disable_fast_relayout: Optional[bool] = False,
         disable_fallback: bool = False,
         dynamic_batch_size: bool = False,
+        output_attentions: bool = False,
+        output_hidden_states: bool = False,
         **kwargs_shapes,
     ) -> "NeuronModelForConditionalGeneration":
         if dynamic_batch_size is True:
@@ -304,6 +306,8 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel, ABC):
             local_files_only=local_files_only,
             use_auth_token=use_auth_token,
             do_validation=False,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
             **kwargs_shapes,
         )
 
@@ -350,12 +354,11 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
         decoder_input_ids: Optional[torch.LongTensor] = None,
         decoder_attention_mask: Optional[torch.BoolTensor] = None,
         encoder_outputs: Optional[Tuple[Tuple[torch.Tensor]]] = None,
-        beam_scores=None,
-        # Leave following kwargs for compatibility, will not have any effect.
+        beam_scores: Optional[torch.FloatTensor] = None,
         return_dict: bool = False,
         output_attentions: bool = False,
         output_hidden_states: bool = False,
-    ) -> Union[Tuple[torch.FloatTensor], Seq2SeqLMOutput]:
+    ) -> Union[Tuple[torch.FloatTensor], ModelOutput]:
         hidden_states = encoder_outputs["last_hidden_state"]
 
         if not hasattr(self, "beam_idx"):
@@ -363,15 +366,40 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
             num_beams = attention_mask.shape[0]
             self.beam_idx = torch.arange(0, num_beams, dtype=torch.int64)
 
-        decoder_outputs = self.decoder(
+        outputs = self.decoder(
             decoder_input_ids, decoder_attention_mask, hidden_states, attention_mask, self.beam_idx, beam_scores
         )
 
-        next_token_scores = decoder_outputs[0]
-        next_tokens = decoder_outputs[1]
-        next_indices = decoder_outputs[2]
+        # Fetch optional outputs
+        cur_idx = 0
+        cross_attentions = None
+        decoder_attentions = None
+        decoder_hidden_states = None
 
-        return next_token_scores, next_tokens, next_indices
+        # Skip pkv which can't be copied from memory to buffer
+        if output_attentions and self.config.neuron.get("output_attentions"):
+            if self.config.is_encoder_decoder:
+                cross_attentions = outputs[-self.config.num_decoder_layers :]
+                cur_idx += self.config.num_decoder_layers
+            decoder_attentions = outputs[-(self.config.num_decoder_layers + cur_idx) : -cur_idx]
+            cur_idx += self.config.num_decoder_layers
+
+        if output_hidden_states and self.config.neuron.get("output_hidden_states"):
+            decoder_hidden_states = outputs[-(self.config.num_decoder_layers + 1 + cur_idx) : -cur_idx]
+
+        decoder_outputs = ModelOutput(
+            next_token_scores=outputs[0],
+            next_tokens=outputs[1],
+            next_indices=outputs[2],
+            cross_attentions=cross_attentions,
+            decoder_attentions=decoder_attentions,
+            decoder_hidden_states=decoder_hidden_states,
+        )
+
+        if return_dict:
+            return decoder_outputs
+        else:
+            return decoder_outputs.to_tuple()
 
     def generate(
         self,
@@ -382,7 +410,7 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
         stopping_criteria: Optional[StoppingCriteriaList] = None,
         prefix_allowed_tokens_fn: Optional[Callable[[int, torch.Tensor], List[int]]] = None,
         assistant_model: Optional["PreTrainedModel"] = None,
-        num_return_sequences: Optional[int] = None,
+        num_return_sequences: int = 1,
         **kwargs,
     ):
         max_length = self.neuron_configs[ENCODER_NAME].sequence_length
@@ -414,9 +442,14 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
             assistant_model=assistant_model,
             num_return_sequences=num_return_sequences,
             max_length=kwargs.pop("max_length", None) or max_length,
+            max_new_tokens=kwargs.pop("max_new_tokens", None),
+            output_attentions=kwargs.pop("output_attentions", False),
+            output_hidden_states=kwargs.pop("output_hidden_states", False),
+            output_scores=kwargs.pop("output_scores", False),
+            return_dict_in_generate=kwargs.pop("return_dict_in_generate", False),
             num_beams=num_beams,
             do_sample=kwargs.pop("do_sample", False),
-            use_cache=True,  # pkv is cached by default
+            use_cache=True,  # pkv is cached by default in
             decoder_attention_mask=decoder_attention_mask,
             # Pass fake encoder_outputs so the transfomers code will not invoke the encoder
             encoder_outputs={"last_hidden_state": torch.ones((batch_size, max_length, 1))},

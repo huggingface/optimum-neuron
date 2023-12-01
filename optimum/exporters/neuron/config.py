@@ -118,14 +118,18 @@ class TextSeq2SeqNeuronConfig(NeuronConfig):
                 + [f"past.{idx}.cross.key" for idx in range(self._config.num_decoder_layers)]
                 + [f"past.{idx}.cross.value" for idx in range(self._config.num_decoder_layers)]
             )
-            if self.optional_outputs["output_attentions"]:
-                # Flatten attentions tensors of all attention layers
-                common_outputs += [f"decoder_attention.{idx}" for idx in range(self._config.num_decoder_layers)]
-            if self.optional_outputs["output_hidden_states"]:
+
+            if self.output_hidden_states:
                 # Flatten hidden states of all layers
                 common_outputs += [
                     f"decoder_hidden_state.{idx}" for idx in range(self._config.num_decoder_layers + 1)
                 ]  # +1 for the embedding layer
+
+            if self.output_attentions:
+                # Flatten attentions tensors of all attention layers
+                common_outputs += [f"decoder_attention.{idx}" for idx in range(self._config.num_decoder_layers)]
+                if getattr(self._config, "is_encoder_decoder", False) is True:
+                    common_outputs += [f"cross_attention.{idx}" for idx in range(self._config.num_decoder_layers)]
 
         return common_outputs
 

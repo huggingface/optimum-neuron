@@ -352,7 +352,8 @@ def get_encoder_decoder_models_for_export(
     task: str,
     input_shapes: Dict[str, int],
     dynamic_batch_size: Optional[bool] = False,
-    optional_outputs: Dict[str, bool] = None,
+    output_attentions: bool = False,
+    output_hidden_states: bool = False,
 ) -> Dict[str, Tuple["PreTrainedModel", "NeuronConfig"]]:
     """
     Returns the components of an encoder-decoder model and their subsequent neuron configs.
@@ -367,8 +368,10 @@ def get_encoder_decoder_models_for_export(
             Static shapes used for compiling the encoder and the decoder.
         dynamic_batch_size (`bool`, defaults to `False`):
             Whether the Neuron compiled model supports dynamic batch size.
-        optional_outputs (`Dict[str, bool]`, defaults to `None`)
-            Whether to trace some optional output tensors.
+        output_attentions (`bool`, defaults to `False`):
+            Whether or not for the traced model to return the attentions tensors of all attention layers.
+        output_hidden_states (`bool`, defaults to `False`):
+            Whether or not for the traced model to return the hidden states of all layers.
 
     Returns:
         `Dict[str, Tuple["PreTrainedModel", "NeuronConfig"]]`: A Dict containing the model and
@@ -400,7 +403,8 @@ def get_encoder_decoder_models_for_export(
         config=model.config,
         task=task,
         dynamic_batch_size=dynamic_batch_size,
-        **optional_outputs,
+        output_attentions=output_attentions,
+        output_hidden_states=output_hidden_states,
         **input_shapes,
     )
     models_for_export[DECODER_NAME] = (model, decoder_neuron_config)
