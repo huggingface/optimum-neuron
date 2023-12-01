@@ -284,14 +284,6 @@ class NeuronDecoderModel(OptimizedModel):
             exist_ok=True,
             private=private,
         )
-        for path, subdirs, files in os.walk(save_directory):
-            for name in files:
-                local_file_path = os.path.join(path, name)
-                hub_file_path = os.path.relpath(local_file_path, save_directory)
-                api.upload_file(
-                    token=huggingface_token,
-                    repo_id=repository_id,
-                    path_or_fileobj=os.path.join(os.getcwd(), local_file_path),
-                    path_in_repo=hub_file_path,
-                    revision=revision,
-                )
+        api.upload_folder(
+            repo_id=repository_id, folder_path=save_directory, token=huggingface_token, revision=revision
+        )
