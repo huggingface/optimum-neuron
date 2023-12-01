@@ -32,7 +32,6 @@ from transformers.generation.logits_process import (
 from transformers.generation.stopping_criteria import (
     StoppingCriteriaList,
 )
-from transformers.modeling_outputs import ModelOutput
 
 from ..exporters.neuron import (
     NeuronConfig,
@@ -358,7 +357,7 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
         return_dict: bool = False,
         output_attentions: bool = False,
         output_hidden_states: bool = False,
-    ) -> Union[Tuple[torch.FloatTensor], ModelOutput]:
+    ) -> Union[Tuple[torch.FloatTensor], "ModelOutput"]:
         hidden_states = encoder_outputs["last_hidden_state"]
 
         if not hasattr(self, "beam_idx"):
