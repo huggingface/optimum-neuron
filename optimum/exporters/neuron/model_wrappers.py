@@ -270,17 +270,17 @@ class T5DecoderWrapper(torch.nn.Module):
         last_hidden_state = decoder_output["last_hidden_state"]
         past_key_values = decoder_output["past_key_values"]
         if self.output_hidden_states:
-            decoder_hidden_states = [
-                hidden_state for hidden_state in decoder_output["hidden_states"]
-            ]  # flatten `hidden_states` which is a tuple of tensors
+            decoder_hidden_states = list(
+                decoder_output["hidden_states"]
+            )  # flatten `hidden_states` which is a tuple of tensors
 
         if self.output_attentions:
-            decoder_attentions = [
-                attention for attention in decoder_output["attentions"]
-            ]  # flatten `decoder_attentions` which is a tuple of tensors
-            cross_attentions = [
-                attention for attention in decoder_output["cross_attentions"]
-            ]  # flatten `cross_attentions` which is a tuple of tensors
+            decoder_attentions = list(
+                decoder_output["attentions"]
+            )  # flatten `decoder_attentions` which is a tuple of tensors
+            cross_attentions = list(
+                decoder_output["cross_attentions"]
+            )  # flatten `cross_attentions` which is a tuple of tensors
 
         if self.config.tie_word_embeddings:
             # Rescale output before projecting on vocab
