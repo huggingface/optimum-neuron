@@ -18,19 +18,20 @@
 # https://github.com/microsoft/DeepSpeed/blob/master/tests/unit/common.py
 
 import inspect
+import multiprocessing
 import os
-from random import randint
 import socket
 import time
 from abc import ABC, abstractmethod
+from random import randint
 from typing import List, Union
 
 import neuronx_distributed
+import psutil
 import pytest
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
-import torch_xla.distributed.xla_multiprocessing as xmp
 import torch_xla.distributed.xla_backend as xbn
 from _pytest.fixtures import FixtureFunctionMarker, FixtureLookupError
 from _pytest.outcomes import Skipped
@@ -129,9 +130,8 @@ class DistributedExec(ABC):
             )
 
         # Set start method to `forkserver` (or `fork`)
-        # mp.set_start_method("forkserver", force=True)
-        os.environ["TORCHELASTIC_RUN_ID"] = "alakd" + str(randint(1, 100))
         mp.set_start_method("forkserver", force=True)
+        os.environ["TORCHELASTIC_RUN_ID"] = "alakd" + str(randint(1, 100))
 
         # Create process pool or use cached one
         master_port = None
@@ -148,6 +148,7 @@ class DistributedExec(ABC):
         args = [(local_rank, num_procs, master_port) for local_rank in range(num_procs)]
         skip_msgs_async = pool.starmap_async(self._dist_run, args)
 
+        skip_msgs = ""  # Otherwise the linter complains.
         try:
             skip_msgs = skip_msgs_async.get(self.exec_timeout)
         except mp.TimeoutError:
@@ -157,10 +158,12 @@ class DistributedExec(ABC):
             pytest.exit("Test hanged, exiting", returncode=0)
         except Exception as e:
             self._close_pool(pool, num_procs)
+            self._terminate_xrt_server()
             raise e
         finally:
             # Tear down distributed environment and close process pools
             self._close_pool(pool, num_procs)
+            self._terminate_xrt_server()
 
         # If we skipped a test, propagate that to this process
         if any(skip_msgs):
@@ -183,7 +186,6 @@ class DistributedExec(ABC):
                 # Unit tests do not support multi-node so there is only one group in our case
                 os.environ["GROUP_RANK"] = "0"
 
-
             if self.init_distributed:
                 dist.init_process_group(backend=self.backend, rank=local_rank, world_size=self.world_size)
                 if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
@@ -194,7 +196,6 @@ class DistributedExec(ABC):
                     tensor_model_parallel_size=self.tp_size,
                     pipeline_model_parallel_size=self.pp_size,
                 )
-
         try:
             self.run(**self._fixture_kwargs)
         except BaseException as e:
@@ -212,9 +213,33 @@ class DistributedExec(ABC):
 
     def _close_pool(self, pool, num_procs, force=False):
         if force or not self.reuse_dist_env:
-            _ = pool.starmap(self._dist_destroy, [() for _ in range(num_procs)])
-            pool.close()
-            pool.join()
+            try:
+                _ = pool.starmap(self._dist_destroy, [() for _ in range(num_procs)])
+                pool.close()
+                pool.join()
+            except ValueError:
+                pass
+
+    def _terminate_xrt_server(self):
+        xrt_server_str = "torch_neuronx.distributed._xrt_run_server"
+        startmethod = mp.get_start_method(allow_none=True)
+        # Rules:
+        # - `startmethod is None`: the XRT server tracks pytest's PID.
+        # - `startmethod="spawn"`: the parent process of the pool's processes is pytest, so the XRT server tracks
+        # pytest's PID.
+        # - `startmethod="fork"`: same as `startmethod="spawn"`.
+        # - `startmethod="forkserver"`: the parent process of the pool's processes is the forkserver, so the XRT server tracks
+        # the forkserver's PID.
+        if startmethod == "forkserver":
+            target_pid = multiprocessing.forkserver._forkserver._forkserver_pid
+        else:
+            target_pid = os.getpid()
+
+        for p in psutil.process_iter():
+            if "python3" in p.name() and len(p.cmdline()) == 7:
+                cmdline = p.cmdline()
+                if cmdline[2] == xrt_server_str and cmdline[-1] == str(target_pid):
+                    p.terminate()
 
 
 class DistributedFixture(DistributedExec):
