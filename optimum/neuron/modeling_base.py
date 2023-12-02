@@ -393,10 +393,10 @@ class NeuronBaseModel(OptimizedModel):
             )
             return
 
-        neuron_configs = config.neuron
+        neuron_config = config.neuron
         # Fetch compiler information
-        compiler_type = neuron_configs.get("compiler_type")
-        compiler_version = neuron_configs.get("compiler_version")
+        compiler_type = neuron_config.get("compiler_type")
+        compiler_version = neuron_config.get("compiler_version")
 
         # Fetch mandatory shapes from config
         compile_shapes = {
@@ -408,16 +408,14 @@ class NeuronBaseModel(OptimizedModel):
         # Neuron config constructuor
         task = getattr(config, "task") or TasksManager.infer_task_from_model(cls.auto_model_class)
         task = TasksManager.map_from_synonym(task)
-        model_type = neuron_configs.get("model_type", None)
-        if not (model_type and model_type != "None"):
-            model_type = config.model_type
+        model_type = neuron_config.get("model_type", None) or config.model_type
         neuron_config_constructor = TasksManager.get_exporter_config_constructor(
             model_type=model_type, exporter="neuron", task=task
         )
 
         return neuron_config_constructor(
             config,
-            dynamic_batch_size=neuron_configs.get("dynamic_batch_size", False),
+            dynamic_batch_size=neuron_config.get("dynamic_batch_size", False),
             compiler_type=compiler_type,
             compiler_version=compiler_version,
             **compile_shapes,

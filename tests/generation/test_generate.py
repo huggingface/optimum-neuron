@@ -78,9 +78,7 @@ def test_seq2seq_generation_beam(neuron_seq2seq_beam_path):
 
     # 3. max new tokens
     output = model.generate(**inputs, num_return_sequences=2, max_new_tokens=5)
-    assert len(output[0].unique()) <= 5
-
-    return output
+    assert len(output[0].unique()) <= 5 + 1  # +1 for `decoder_start_token_id`
 
 
 @is_inferentia_test
@@ -104,8 +102,6 @@ def test_seq2seq_generation_beam_with_optional_outputs(neuron_seq2seq_beam_path_
     assert "cross_attentions" in output
     assert "decoder_hidden_states" in output
 
-    return output
-
 
 @is_inferentia_test
 @requires_neuronx
@@ -124,9 +120,7 @@ def test_seq2seq_generation_greedy(neuron_seq2seq_greedy_path):
 
     # 3. max new tokens
     output = model.generate(**inputs, num_return_sequences=1, max_new_tokens=5)
-    assert len(output[0].unique()) <= 5
-
-    return output
+    assert len(output[0]) <= 5 + 1  # +1 for `decoder_start_token_id`
 
 
 @is_inferentia_test
@@ -147,5 +141,3 @@ def test_seq2seq_generation_greedy_with_optional_outputs(neuron_seq2seq_greedy_p
     assert "decoder_attentions" in output
     assert "cross_attentions" in output
     assert "decoder_hidden_states" in output
-
-    return output

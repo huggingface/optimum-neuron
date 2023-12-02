@@ -176,13 +176,15 @@ def store_compilation_config(
     config_args["output_names"] = output_names
 
     original_model_type = getattr(config, "model_type", None)
-    neuron_model_type = str(model_type).replace("_", "-")
+    neuron_model_type = str(model_type).replace("_", "-") if model_type is not None else model_type
     if original_model_type is None:
         update_func(
             "model_type", neuron_model_type
         )  # Add model_type to the config if it doesn't exist before, eg. submodel of Stable Diffusion.
-    elif neuron_model_type != original_model_type:
-        config_args["model_type"] = neuron_model_type  # Neuron custom model_type, eg. `t5-encoder`.
+    else:
+        config_args["model_type"] = (
+            neuron_model_type or original_model_type
+        )  # Prioritize Neuron custom model_type, eg. `t5-encoder`.
 
     # Add args of optional outputs
     config_args["output_attentions"] = output_attentions

@@ -249,8 +249,8 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
     dynamic_batch_size: bool = False,
     submodels: Optional[Dict[str, Union[Path, str]]] = None,
 ):
-    model = replace_stable_diffusion_submodels(model, submodels)
     check_compiler_compatibility_for_stable_diffusion()
+    model = replace_stable_diffusion_submodels(model, submodels)
     if is_neuron_available():
         raise RuntimeError(
             "Stable diffusion export is not supported by neuron-cc on inf1, please use neuronx-cc on either inf2/trn1 instead."
@@ -259,11 +259,11 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
 
     # Saving the model config and preprocessor as this is needed sometimes.
     model.scheduler.save_pretrained(output.joinpath("scheduler"))
-    if hasattr(model, "tokenizer") and model.tokenizer is not None:
+    if getattr(model, "tokenizer", None) is not None:
         model.tokenizer.save_pretrained(output.joinpath("tokenizer"))
-    if hasattr(model, "tokenizer_2") and model.tokenizer_2 is not None:
+    if getattr(model, "tokenizer_2", None) is not None:
         model.tokenizer_2.save_pretrained(output.joinpath("tokenizer_2"))
-    if hasattr(model, "feature_extractor") and model.feature_extractor is not None:
+    if getattr(model, "feature_extractor", None) is not None:
         model.feature_extractor.save_pretrained(output.joinpath("feature_extractor"))
     model.save_config(output)
 
@@ -278,11 +278,11 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
         DIFFUSION_MODEL_VAE_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_ENCODER_NAME, NEURON_FILE_NAME),
         DIFFUSION_MODEL_VAE_DECODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_DECODER_NAME, NEURON_FILE_NAME),
     }
-    if hasattr(model, "text_encoder") and model.text_encoder is not None:
+    if getattr(model, "text_encoder", None) is not None:
         output_model_names[DIFFUSION_MODEL_TEXT_ENCODER_NAME] = os.path.join(
             DIFFUSION_MODEL_TEXT_ENCODER_NAME, NEURON_FILE_NAME
         )
-    if hasattr(model, "text_encoder_2") and model.text_encoder_2 is not None:
+    if getattr(model, "text_encoder_2", None) is not None:
         output_model_names[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME] = os.path.join(
             DIFFUSION_MODEL_TEXT_ENCODER_2_NAME, NEURON_FILE_NAME
         )

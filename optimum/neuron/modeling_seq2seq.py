@@ -26,12 +26,9 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Un
 import torch
 from huggingface_hub import snapshot_download
 from transformers import AutoConfig, AutoModelForSeq2SeqLM, GenerationConfig
-from transformers.generation.logits_process import (
-    LogitsProcessorList,
-)
-from transformers.generation.stopping_criteria import (
-    StoppingCriteriaList,
-)
+from transformers.generation.logits_process import LogitsProcessorList
+from transformers.generation.stopping_criteria import StoppingCriteriaList
+from transformers.utils import ModelOutput
 
 from ..exporters.neuron import (
     NeuronConfig,
@@ -51,7 +48,6 @@ from .utils import (
 
 if TYPE_CHECKING:
     from transformers import PretrainedConfig, PreTrainedModel
-    from transformers.utils import ModelOutput
 
 if is_neuronx_available():
     import torch_neuronx
@@ -357,7 +353,7 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
         return_dict: bool = False,
         output_attentions: bool = False,
         output_hidden_states: bool = False,
-    ) -> Union[Tuple[torch.FloatTensor], "ModelOutput"]:
+    ) -> Union[Tuple[torch.FloatTensor], ModelOutput]:
         hidden_states = encoder_outputs["last_hidden_state"]
 
         if not hasattr(self, "beam_idx"):
@@ -424,7 +420,10 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
         past_key_values = self.encoder(**inputs)
 
         decoder_attention_mask = torch.cat(
-            [torch.zeros((batch_size, max_length - 1), dtype=torch.int64), torch.ones((1, 1), dtype=torch.int64)],
+            [
+                torch.zeros((batch_size, max_length - 1), dtype=torch.int64),
+                torch.ones((batch_size, 1), dtype=torch.int64),
+            ],
             axis=1,
         )
 

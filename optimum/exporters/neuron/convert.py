@@ -223,7 +223,7 @@ def validate_model_outputs(
     value_failures = []
     for i, (name, output) in enumerate(zip(neuron_output_names_list, neuron_outputs)):
         if isinstance(output, torch.Tensor):
-            ref_output = ref_outputs[name].numpy() if isinstance(ref_outputs, Dict) else ref_outputs[i].numpy()
+            ref_output = ref_outputs[name].numpy() if isinstance(ref_outputs, dict) else ref_outputs[i].numpy()
             output = output.numpy()
         elif isinstance(output, tuple):  # eg. `hidden_states` of `AutoencoderKL` is a tuple of tensors.
             ref_output = torch.stack(ref_outputs[name]).numpy()
