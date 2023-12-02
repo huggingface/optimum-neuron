@@ -71,6 +71,6 @@ def test_seq2seq_export(export_seq2seq_id, batch_size, sequence_length, num_beam
 
 @is_inferentia_test
 @requires_neuronx
-def test_seq2seq_model_from_path(neuron_seq2seq_path):
-    model = NeuronModelForSeq2SeqLM.from_pretrained(neuron_seq2seq_path)
+def test_seq2seq_model_from_path(neuron_seq2seq_greedy_path):
+    model = NeuronModelForSeq2SeqLM.from_pretrained(neuron_seq2seq_greedy_path)
     return model
