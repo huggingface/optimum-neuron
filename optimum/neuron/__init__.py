@@ -42,6 +42,7 @@ _import_structure = {
         "NeuronStableDiffusionXLInpaintPipeline",
     ],
     "modeling_decoder": ["NeuronDecoderModel"],
+    "modeling_seq2seq": ["NeuronModelForSeq2SeqLM"],
     "accelerate": [
         "NeuronAccelerator",
         "NeuronAcceleratorState",
@@ -73,6 +74,7 @@ if TYPE_CHECKING:
         NeuronStableDiffusionXLInpaintPipeline,
         NeuronStableDiffusionXLPipeline,
     )
+    from .modeling_seq2seq import NeuronModelForSeq2SeqLM
     from .pipelines import pipeline
     from .trainers import NeuronTrainer, Seq2SeqNeuronTrainer
     from .training_args import NeuronTrainingArguments, Seq2SeqNeuronTrainingArguments

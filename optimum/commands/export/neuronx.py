@@ -103,6 +103,12 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         help=f"Sequence length {doc_input}",
     )
     input_group.add_argument(
+        "--num_beams",
+        type=int,
+        default=1,
+        help=f"Number of beams for beam search {doc_input}",
+    )
+    input_group.add_argument(
         "--num_choices",
         type=int,
         help=f"Only for the multiple-choice task. Num choices {doc_input}",
@@ -134,6 +140,16 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         help=(
             "UNet model ID on huggingface.co or path on disk to load model from. This will replace the unet in the original Stable Diffusion pipeline."
         ),
+    )
+    optional_group.add_argument(
+        "--output_hidden_states",
+        action="store_true",
+        help=("Whether or not for the traced model to return the hidden states of all layers."),
+    )
+    optional_group.add_argument(
+        "--output_attentions",
+        action="store_true",
+        help=("Whether or not for the traced model to return the attentions tensors of all attention layers."),
     )
 
 

@@ -147,6 +147,8 @@ def store_compilation_config(
     compiler_version: str,
     model_type: Optional[str] = None,
     task: str = None,
+    output_attentions: bool = False,
+    output_hidden_states: bool = False,
     **kwargs,
 ):
     if isinstance(config, OrderedDict):
@@ -173,6 +175,21 @@ def store_compilation_config(
     config_args["input_names"] = input_names
     config_args["output_names"] = output_names
 
+    original_model_type = getattr(config, "model_type", None)
+    neuron_model_type = str(model_type).replace("_", "-") if model_type is not None else model_type
+    if original_model_type is None:
+        update_func(
+            "model_type", neuron_model_type
+        )  # Add model_type to the config if it doesn't exist before, eg. submodel of Stable Diffusion.
+    else:
+        config_args["model_type"] = (
+            neuron_model_type or original_model_type
+        )  # Prioritize Neuron custom model_type, eg. `t5-encoder`.
+
+    # Add args of optional outputs
+    config_args["output_attentions"] = output_attentions
+    config_args["output_hidden_states"] = output_hidden_states
+
     update_func("neuron", config_args)
 
     if hasattr(config, "_diffusers_version"):
@@ -180,9 +197,6 @@ def store_compilation_config(
 
         update_func("_diffusers_version", diffusers.__version__)
 
-    model_type = getattr(config, "model_type", None) or model_type
-    model_type = str(model_type).replace("_", "-")
-    update_func("model_type", model_type)
     update_func("task", task)
 
     return config

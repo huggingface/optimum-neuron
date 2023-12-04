@@ -18,7 +18,7 @@ from generation_utils import check_neuron_model
 from huggingface_hub import HfApi
 from transformers.testing_utils import ENDPOINT_STAGING
 
-from optimum.neuron import NeuronModelForCausalLM
+from optimum.neuron import NeuronModelForCausalLM, NeuronModelForSeq2SeqLM
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 from optimum.utils.testing_utils import TOKEN
 
@@ -34,17 +34,46 @@ def test_model_from_hub():
 
 @is_inferentia_test
 @requires_neuronx
-def test_push_to_hub(neuron_model_path, neuron_push_id):
-    model = NeuronModelForCausalLM.from_pretrained(neuron_model_path)
-    model.push_to_hub(neuron_model_path, neuron_push_id, use_auth_token=TOKEN, endpoint=ENDPOINT_STAGING)
+def test_push_to_hub(neuron_decoder_path, neuron_push_decoder_id):
+    model = NeuronModelForCausalLM.from_pretrained(neuron_decoder_path)
+    model.push_to_hub(neuron_decoder_path, neuron_push_decoder_id, use_auth_token=TOKEN, endpoint=ENDPOINT_STAGING)
     api = HfApi(endpoint=ENDPOINT_STAGING, token=TOKEN)
     try:
-        hub_files_info = api.list_files_info(neuron_push_id)
+        hub_files_info = api.list_files_info(neuron_push_decoder_id)
         hub_files_path = [info.rfilename for info in hub_files_info]
-        for path, _, files in os.walk(neuron_model_path):
+        for path, _, files in os.walk(neuron_decoder_path):
             for name in files:
                 local_file_path = os.path.join(path, name)
-                hub_file_path = os.path.relpath(local_file_path, neuron_model_path)
+                hub_file_path = os.path.relpath(local_file_path, neuron_decoder_path)
                 assert hub_file_path in hub_files_path
     finally:
-        api.delete_repo(neuron_push_id)
+        api.delete_repo(neuron_push_decoder_id)
+
+
+@is_inferentia_test
+@requires_neuronx
+def test_seq2seq_model_from_hub():
+    model = NeuronModelForSeq2SeqLM.from_pretrained(
+        "Jingya/tiny-random-t5-neuronx", revision="ce617676ce12a19df7c6bd523c69b83447fa036b"
+    )
+    return model
+
+
+@is_inferentia_test
+@requires_neuronx
+def test_push_seq2seq_to_hub(neuron_seq2seq_greedy_path, neuron_push_seq2seq_id):
+    model = NeuronModelForSeq2SeqLM.from_pretrained(neuron_seq2seq_greedy_path)
+    model.push_to_hub(
+        neuron_seq2seq_greedy_path, neuron_push_seq2seq_id, use_auth_token=TOKEN, endpoint=ENDPOINT_STAGING
+    )
+    api = HfApi(endpoint=ENDPOINT_STAGING, token=TOKEN)
+    try:
+        hub_files_info = api.list_files_info(neuron_push_seq2seq_id)
+        hub_files_path = [info.rfilename for info in hub_files_info]
+        for path, _, files in os.walk(neuron_seq2seq_greedy_path):
+            for name in files:
+                local_file_path = os.path.join(path, name)
+                hub_file_path = os.path.relpath(local_file_path, neuron_seq2seq_greedy_path)
+                assert hub_file_path in hub_files_path
+    finally:
+        api.delete_repo(neuron_push_seq2seq_id)

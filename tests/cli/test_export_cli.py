@@ -248,3 +248,63 @@ class TestExportCLI(unittest.TestCase):
                 shell=False,
                 check=True,
             )
+
+    @requires_neuronx
+    def test_encoder_decoder(self):
+        model_id = "hf-internal-testing/tiny-random-t5"
+        with tempfile.TemporaryDirectory() as tempdir:
+            subprocess.run(
+                [
+                    "optimum-cli",
+                    "export",
+                    "neuron",
+                    "--model",
+                    model_id,
+                    "--task",
+                    "text2text-generation",
+                    "--batch_size",
+                    "1",
+                    "--sequence_length",
+                    "18",
+                    "--num_beams",
+                    "4",
+                    "--auto_cast",
+                    "matmul",
+                    "--auto_cast_type",
+                    "bf16",
+                    tempdir,
+                ],
+                shell=False,
+                check=True,
+            )
+
+    @requires_neuronx
+    def test_encoder_decoder_optional_outputs(self):
+        model_id = "hf-internal-testing/tiny-random-t5"
+        with tempfile.TemporaryDirectory() as tempdir:
+            subprocess.run(
+                [
+                    "optimum-cli",
+                    "export",
+                    "neuron",
+                    "--model",
+                    model_id,
+                    "--task",
+                    "text2text-generation",
+                    "--batch_size",
+                    "1",
+                    "--sequence_length",
+                    "18",
+                    "--num_beams",
+                    "4",
+                    "--auto_cast",
+                    "matmul",
+                    "--auto_cast_type",
+                    "bf16",
+                    "--output_hidden_states",
+                    "--output_attentions",
+                    tempdir,
+                ],
+                shell=False,
+                check=True,
+            )

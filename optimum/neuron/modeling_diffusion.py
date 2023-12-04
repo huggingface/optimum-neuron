@@ -333,6 +333,12 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         """
         Saves the model to the serialized format optimized for Neuron devices.
         """
+        if self.model_and_config_save_paths is None:
+            logger.warning(
+                "`model_save_paths` is None which means that no path of Neuron model is defined. Nothing will be saved."
+            )
+            return
+
         save_directory = Path(save_directory)
         if not self.model_and_config_save_paths.get(DIFFUSION_MODEL_VAE_ENCODER_NAME)[0].is_file():
             self.model_and_config_save_paths.pop(DIFFUSION_MODEL_VAE_ENCODER_NAME)
@@ -343,13 +349,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         if not self.model_and_config_save_paths.get(DIFFUSION_MODEL_TEXT_ENCODER_2_NAME)[0].is_file():
             self.model_and_config_save_paths.pop(DIFFUSION_MODEL_TEXT_ENCODER_2_NAME)
 
-        if self.model_and_config_save_paths is None:
-            logger.warning(
-                "`model_save_paths` is None which means that no path of Neuron model is defined. Nothing will be saved."
-            )
-            return
-        else:
-            logger.info(f"Saving the {tuple(self.model_and_config_save_paths.keys())}...")
+        logger.info(f"Saving the {tuple(self.model_and_config_save_paths.keys())}...")
 
         dst_paths = {
             DIFFUSION_MODEL_TEXT_ENCODER_NAME: save_directory
@@ -399,6 +399,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         config: Dict[str, Any],
         use_auth_token: Optional[Union[bool, str]] = None,
         revision: Optional[str] = None,
+        force_download: bool = False,
         cache_dir: Optional[str] = None,
         text_encoder_file_name: Optional[str] = NEURON_FILE_NAME,
         text_encoder_2_file_name: Optional[str] = NEURON_FILE_NAME,
@@ -439,6 +440,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 local_files_only=local_files_only,
                 use_auth_token=use_auth_token,
                 revision=revision,
+                force_download=force_download,
                 allow_patterns=allow_patterns,
                 ignore_patterns=["*.msgpack", "*.safetensors", "*.bin"],
             )
