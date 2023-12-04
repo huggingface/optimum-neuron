@@ -757,6 +757,10 @@ def make_optimizer_constructor_lazy(optimizer_cls: Type["torch.optim.Optimizer"]
 
     def optimizer_constructor(*args, **kwargs):
         optimizer_with_no_parameters = optimizer_cls([torch.nn.Parameter(torch.empty(1))], *args[1:], **kwargs)
+        # It is necessary to make sure that args[0], which holds the parameters, is not an iterator, otherwise it
+        # can lead to unsuspected behaviour since it will be evaluated at iteration time.
+        if not isinstance(args[0], list):
+            args = (list(args[0]),) + args[1:]
         optimizer_with_no_parameters._args_to_recreate = (args, kwargs)
         return optimizer_with_no_parameters
 

@@ -250,7 +250,8 @@ class DistributedFixture(DistributedExec):
 
     There are 2 parameters that can be modified:
         - world_size: int = 2 -- the number of processes to launch
-        - backend: Literal['nccl','mpi','gloo'] = 'nccl' -- which backend to use
+        - tp_size: int = 1 -- the tensor parallelism size
+        - pp_size: int = 1 -- the pipeline parallelism size
 
     Features:
         - able to call pytest.skip() inside fixture

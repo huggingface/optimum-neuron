@@ -428,18 +428,18 @@ class NeuronAccelerator(Accelerator):
                 # model.tie_weights()
                 model.move_model_to_device()
                 # model.tie_weights()
-            xla_ids = dict(model.local_named_parameters())
+            xla_params = dict(model.local_named_parameters())
             self._model_cpu_parameters_to_xla[id(model)] = {
-                cpu_ids[name]: xla_ids[name] for name, _ in model.local_named_parameters()
+                cpu_ids[name]: xla_params[name] for name, _ in model.local_named_parameters()
             }
         else:
             with ModelPatcher(patching_specs=[(model, "_tie_or_clone_weights", _tie_or_clone_weights_for_mp)]):
                 # model.tie_weights()
                 move_model_to_device(model, self.device)
                 # model.tie_weights()
-            xla_ids = dict(model.named_parameters())
+            xla_params = dict(model.named_parameters())
             self._model_cpu_parameters_to_xla[id(model)] = {
-                cpu_ids[name]: xla_ids[name] for name, _ in model.named_parameters()
+                cpu_ids[name]: xla_params[name] for name, _ in model.named_parameters()
             }
 
         device_placement = False

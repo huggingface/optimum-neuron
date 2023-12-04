@@ -364,8 +364,9 @@ class Parallelizer(ABC):
 
         cls._get_parameter_names_for_current_pipeline(model)
 
-        weight_map = getattr(model, "_weight_map", None)
         # The model was not loaded lazily, it is already ready.
+        weight_map = getattr(model, "_weight_map", None)
+
         if weight_map is not None:
             with torch.no_grad():
                 tied_weights = {}
@@ -534,24 +535,35 @@ class Parallelizer(ABC):
         need_to_create_new_optimizer = False
         if hasattr(optimizer, "_args_to_recreate"):
             args, _ = optimizer._args_to_recreate
-            parameters = args[0]
-            for param in parameters:
-                if isinstance(param, dict):
-                    new_param = {k: v for k, v in param.items() if k != "params"}
-                    params = []
-                    for p in param["params"]:
+
+            # parameter_groups can either be an iterable of dictionaries (groups), or of parameters, in which case
+            # there is only one group.
+            parameter_groups = args[0]
+            parameter_groups = list(parameter_groups)
+            # parameter_groups cannot be empty
+            if isinstance(parameter_groups[0], dict):
+                for group in parameter_groups:
+                    new_group = {k: v for k, v in group.items() if k != "params"}
+                    params_on_xla = []
+                    for p in group["params"]:
                         # This can be the case with pipeline parallelism.
                         if id(p) not in orig_param_to_parallel_param_on_xla:
                             continue
-                        params.append(orig_param_to_parallel_param_on_xla[id(p)])
-                    new_param["params"] = params
-                else:
-                    new_param = []
-                    for p in param:
-                        # This can be the case with pipeline parallelism.
-                        if id(p) not in orig_param_to_parallel_param_on_xla:
-                            continue
-                        new_param.append(orig_param_to_parallel_param_on_xla[id(p)])
+                        params_on_xla.append(orig_param_to_parallel_param_on_xla[id(p)])
+                    new_group["params"] = params_on_xla
+                    parameters_on_xla.append(new_group)
+            else:
+                new_param = {}
+                params_on_xla = []
+                for param in parameter_groups:
+                    # This can be the case with pipeline parallelism.
+                    if (
+                        id(param) not in orig_param_to_parallel_param_on_xla
+                        and param not in orig_param_to_parallel_param_on_xla.values()
+                    ):
+                        continue
+                    params_on_xla.append(orig_param_to_parallel_param_on_xla[id(param)])
+                new_param["params"] = params_on_xla
                 parameters_on_xla.append(new_param)
         else:
             for param_group in optimizer.param_groups:
@@ -562,7 +574,7 @@ class Parallelizer(ABC):
                         need_to_create_new_optimizer = True
                         continue
                     param_on_xla = orig_param_to_parallel_param_on_xla[id(params[idx])]
-                    if params[idx] != param_on_xla:
+                    if params[idx] is not param_on_xla:
                         need_to_create_new_optimizer = True
                     new_params.append(param_on_xla)
                 new_group = {k: v for k, v in param_group.items() if k != "params"}
