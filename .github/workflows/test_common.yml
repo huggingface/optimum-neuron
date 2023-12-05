@@ -48,7 +48,8 @@ jobs:
       shell: bash
       run: |
         pytest -m "not is_staging_test and not is_trainium_test and not is_inferentia_test" tests
-    - name: Staging Test with Pytest
-      shell: bash
-      run: |
-        HUGGINGFACE_CO_STAGING="1" pytest -m "is_staging_test and not is_trainium_test and not is_inferentia_test" tests
+    # Commenting because there is no such test for now, but couuld be useful one day.
+    # - name: Staging Test with Pytest
+    #   shell: bash
+    #   run: |
+    #     HUGGINGFACE_CO_STAGING="1" pytest -m "is_staging_test and not is_trainium_test and not is_inferentia_test" tests
