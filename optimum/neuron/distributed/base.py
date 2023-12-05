@@ -557,10 +557,7 @@ class Parallelizer(ABC):
                 params_on_xla = []
                 for param in parameter_groups:
                     # This can be the case with pipeline parallelism.
-                    if (
-                        id(param) not in orig_param_to_parallel_param_on_xla
-                        and param not in orig_param_to_parallel_param_on_xla.values()
-                    ):
+                    if id(param) not in orig_param_to_parallel_param_on_xla:
                         continue
                     params_on_xla.append(orig_param_to_parallel_param_on_xla[id(param)])
                 new_param["params"] = params_on_xla

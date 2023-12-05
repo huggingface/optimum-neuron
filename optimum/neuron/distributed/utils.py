@@ -757,10 +757,21 @@ def make_optimizer_constructor_lazy(optimizer_cls: Type["torch.optim.Optimizer"]
 
     def optimizer_constructor(*args, **kwargs):
         optimizer_with_no_parameters = optimizer_cls([torch.nn.Parameter(torch.empty(1))], *args[1:], **kwargs)
-        # It is necessary to make sure that args[0], which holds the parameters, is not an iterator, otherwise it
-        # can lead to unsuspected behaviour since it will be evaluated at iteration time.
-        if not isinstance(args[0], list):
-            args = (list(args[0]),) + args[1:]
+        # It is necessary to make sure that what's holding the parameters is not an iterator, otherwise it can lead to
+        # unsuspected behaviour since each entry will be evaluated at iteration time. There are 2 possibilities:
+        #   1. args[0] holds the parameters
+        #   2. args[0] holds a list of parameter groups
+        parameters_or_parameter_groups = args[0]
+        if not isinstance(parameters_or_parameter_groups, list):
+            parameters_or_parameter_groups = list(parameters_or_parameter_groups)
+        if isinstance(parameters_or_parameter_groups[0], dict):
+            # It means that parameter groups were provided. We iterate over each group and make sure that the 
+            # `"params"` entry is not an iterator.
+            for group in parameters_or_parameter_groups:
+                if not isinstance(group["params"], list):
+                    group["params"] = list(group["params"])
+
+        args = (parameters_or_parameter_groups, ) + args[1:]
         optimizer_with_no_parameters._args_to_recreate = (args, kwargs)
         return optimizer_with_no_parameters
 
