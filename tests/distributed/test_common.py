@@ -355,7 +355,10 @@ class TestCommonDistributed(DistributedTest):
             model_parameters = move_params_to_cpu(model.local_parameters())
             new_model_parameters = move_params_to_cpu(new_model.local_parameters())
 
-        assert any(torch.all(p1 == 0.0) or torch.all(p1 == 1.0) or torch.all(p1 != p2) for p1, p2 in zip(model_parameters, new_model_parameters))
+        assert any(
+            torch.all(p1 == 0.0) or torch.all(p1 == 1.0) or torch.all(p1 != p2)
+            for p1, p2 in zip(model_parameters, new_model_parameters)
+        )
 
         # Checking that when providing a checkpoint, we end-up with the same model as the original.
         new_model = get_model(tp_size=tp_size, pp_size=pp_size, lazy_load=False)
