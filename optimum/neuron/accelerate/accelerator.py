@@ -514,7 +514,7 @@ class NeuronAccelerator(Accelerator):
 
     def _custom_save_state(
         self,
-        save_model_func: Callable[["Accelerator", "PreTrainedModel", Union[str, Path], int], Any],
+        save_model_func: Optional[Callable[["Accelerator", "PreTrainedModel", Union[str, Path], int], Any]],
         save_optimizer_func: Callable[
             ["Accelerator", "torch.optim.Optimizer", "PreTrainedModel", Union[str, Path], int], Any
         ],
@@ -555,17 +555,24 @@ class NeuronAccelerator(Accelerator):
         xm.mark_step()
 
         # Save the models
-        weights = []
-        for i, model in enumerate(self._models):
-            save_model_func(self, model, output_dir, i)
+        if save_model_func is not None:
+            for i, model in enumerate(self._models):
+                save_model_func(self, model, output_dir, i)
 
         # Save the optimizers
-        optimizers = []
-        for i, opt in enumerate(self._optimizers):
+        if not self._optimizers and save_model_func is None:
+            optimizers = [None] * len(self._models)
+        else:
+            optimizers = self._optimizers
+        for i, opt in enumerate(optimizers):
             save_optimizer_func(self, opt, self._models[i], output_dir, i)
 
         # Save the lr schedulers taking care of DeepSpeed nuances
         schedulers = self._schedulers
+
+        # Setting those to be empty list so that `save_accelerator_state` does not redo the job.
+        weights = []
+        optimizers = []
 
         # Call model loading hooks that might have been registered with
         # accelerator.register_model_state_hook
@@ -596,8 +603,8 @@ class NeuronAccelerator(Accelerator):
         )
 
     def save_state_for_mp(self, output_dir: Optional[str] = None, **save_model_func_kwargs):
-        def save_model_func(accelelerator, model, output_dir, i):
-            return
+        # The model is saved at the same time as the optimizer.
+        save_model_func = None
 
         def save_optimizer_func(accelerator, optimizer, model, output_dir, i):
             logger.info("Saving parallel model and optimizer")
@@ -614,7 +621,6 @@ class NeuronAccelerator(Accelerator):
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:
             return self.save_state_for_xla_fsdp(output_dir=output_dir, **save_model_func_kwargs)
         elif self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
-            # TODO: how to handle pp?
             return self.save_state_for_mp(output_dir=output_dir, **save_model_func_kwargs)
         return super().save_state(output_dir=output_dir, **save_model_func_kwargs)
 

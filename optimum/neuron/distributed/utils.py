@@ -765,13 +765,13 @@ def make_optimizer_constructor_lazy(optimizer_cls: Type["torch.optim.Optimizer"]
         if not isinstance(parameters_or_parameter_groups, list):
             parameters_or_parameter_groups = list(parameters_or_parameter_groups)
         if isinstance(parameters_or_parameter_groups[0], dict):
-            # It means that parameter groups were provided. We iterate over each group and make sure that the 
+            # It means that parameter groups were provided. We iterate over each group and make sure that the
             # `"params"` entry is not an iterator.
             for group in parameters_or_parameter_groups:
                 if not isinstance(group["params"], list):
                     group["params"] = list(group["params"])
 
-        args = (parameters_or_parameter_groups, ) + args[1:]
+        args = (parameters_or_parameter_groups,) + args[1:]
         optimizer_with_no_parameters._args_to_recreate = (args, kwargs)
         return optimizer_with_no_parameters
 
