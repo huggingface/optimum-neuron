@@ -421,14 +421,17 @@ class AugmentTrainerForNeuronMixin:
             self.tokenizer.save_pretrained(output_dir)
 
     def save_model(self, output_dir: Optional[str] = None, _internal_call: bool = False):
-        if output_dir is None:
-            output_dir = self.args.output_dir
+        if not os.environ.get("NEURON_PARALLEL_COMPILE"):  # Avoid unnecessary model saving during precompilation 
+            if output_dir is None:
+                output_dir = self.args.output_dir
 
-        self._save_xla(output_dir)
+            self._save_xla(output_dir)
 
-        # Push to the Hub when `save_model` is called by the user.
-        if self.args.push_to_hub and not _internal_call:
-            self.push_to_hub(commit_message="Model save")
+            # Push to the Hub when `save_model` is called by the user.
+            if self.args.push_to_hub and not _internal_call:
+                self.push_to_hub(commit_message="Model save")
+        else:
+            logger.info("Skipping trainer.save_model() while running under neuron_parallel_compile")
 
     def _save_checkpoint(self, model, trial, metrics=None):
         # In all cases, including ddp/dp/deepspeed, self.model is always a reference to the model we
