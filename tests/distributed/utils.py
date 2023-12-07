@@ -14,12 +14,14 @@
 # limitations under the License.
 """Utilities for tests distributed."""
 
+import contextlib
 import functools
 import inspect
-from contextlib import contextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Type, Union
 
 import torch
+from transformers import AutoConfig, AutoTokenizer
 from transformers.models.auto import get_values
 from transformers.models.auto.modeling_auto import (
     MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING_NAMES,
@@ -39,6 +41,8 @@ from transformers.models.auto.modeling_auto import (
     MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING_NAMES,
 )
 
+from optimum.neuron import ModelParallelismPlugin, NeuronAccelerator
+from optimum.neuron.distributed import lazy_load_for_parallelism
 from optimum.neuron.utils.patching import DynamicPatch, Patcher
 from optimum.neuron.utils.require_utils import requires_neuronx_distributed, requires_torch_xla
 
@@ -113,7 +117,7 @@ def generate_dummy_labels(
     ]:
         if vocab_size is None:
             raise ValueError(
-                "The vocabulary size needs to be specified to generte dummy labels for language-modeling tasks."
+                "The vocabulary size needs to be specified to generate dummy labels for language-modeling tasks."
             )
         if seed is not None:
             orig_seed = torch.seed()
@@ -211,7 +215,7 @@ def static_initializer_seed(initialization_function: Callable, seed: int):
     return wrapper
 
 
-@contextmanager
+@contextlib.contextmanager
 def create_static_seed_patcher(model_class: Type["PreTrainedModel"], seed: int):
     """
     Context manager that resets the seed to a given value for every initialization function.
@@ -237,3 +241,98 @@ def create_static_seed_patcher(model_class: Type["PreTrainedModel"], seed: int):
             yield
         finally:
             pass
+
+
+def get_model(
+    model_class: Type["PreTrainedModel"],
+    model_name_or_path: str,
+    tp_size: int = 1,
+    pp_size: int = 1,
+    lazy_load: bool = False,
+    from_config: bool = False,
+    use_static_seed_patcher: bool = False,
+    config_overwrite: Optional[Dict[str, str]] = None,
+) -> "PreTrainedModel":
+    if lazy_load:
+        ctx = lazy_load_for_parallelism(tensor_parallel_size=tp_size, pipeline_parallel_size=pp_size)
+    else:
+        ctx = contextlib.nullcontext()
+    if use_static_seed_patcher:
+        seed_patcher = create_static_seed_patcher(model_class, 42)
+    else:
+        seed_patcher = contextlib.nullcontext()
+    with ctx:
+        with seed_patcher:
+            config = AutoConfig.from_pretrained(model_name_or_path)
+            if config_overwrite is not None:
+                for key, value in config_overwrite.items():
+                    attr_type = type(getattr(config, key))
+                    setattr(config, key, attr_type(value))
+            if from_config:
+                model = model_class.from_config(config)
+            else:
+                model = model_class.from_pretrained(model_name_or_path, config=config, ignore_mismatched_sizes=True)
+
+            if getattr(model.config, "problem_type", None) is None:
+                model.config.problem_type = "single_label_classification"
+            return model
+
+
+def get_model_inputs(
+    model: "PreTrainedModel",
+    model_name_or_path: str,
+    include_labels: bool = True,
+    random_labels: bool = True,
+    pad_to_multiple_of: Optional[int] = None,
+):
+    input_str = "Hello there, I'm Michael and I live in Paris!"
+    tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
+
+    inputs = tokenizer(input_str, return_tensors="pt")
+
+    if model.config.is_encoder_decoder:
+        sig = inspect.signature(model.forward)
+        for input_name in inputs:
+            decoder_input_name = f"decoder_{input_name}"
+            if decoder_input_name in sig.parameters:
+                inputs[decoder_input_name] = inputs[input_name].clone()
+
+    if include_labels:
+        if random_labels:
+            labels = generate_dummy_labels(model, inputs["input_ids"].shape, vocab_size=model.config.vocab_size)
+            inputs.update(**labels)
+        else:
+            labels = tokenizer(input_str, return_tensors="pt")["input_ids"]
+            inputs["labels"] = labels
+
+    if pad_to_multiple_of is not None:
+        for name, tensor in inputs.items():
+            if tensor.dim() == 2 and tensor.shape[1] % pad_to_multiple_of != 0:
+                tensor = torch.nn.functional.pad(
+                    tensor,
+                    pad=(0, tensor.shape[1] % pad_to_multiple_of),
+                    value=1,
+                )
+                inputs[name] = tensor
+    return inputs
+
+
+def create_accelerator_for_mp(
+    tp_size: int,
+    pp_size: int,
+    zero_1: bool = False,
+    gradient_accumulation_steps: int = 1,
+    parallelize_embeddings: bool = True,
+    sequence_parallel_enabled: bool = True,
+    checkpoint_dir: Optional[Union[Path, str]] = None,
+) -> NeuronAccelerator:
+    mp_plugin = ModelParallelismPlugin(
+        tensor_parallel_size=tp_size,
+        parallelize_embeddings=parallelize_embeddings,
+        sequence_parallel_enabled=sequence_parallel_enabled,
+        pipeline_parallel_size=pp_size,
+        checkpoint_dir=checkpoint_dir,
+    )
+    return NeuronAccelerator(
+        mp_plugin=mp_plugin, zero_1=zero_1, gradient_accumulation_steps=gradient_accumulation_steps
+    )
