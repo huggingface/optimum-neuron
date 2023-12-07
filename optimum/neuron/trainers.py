@@ -421,7 +421,7 @@ class AugmentTrainerForNeuronMixin:
             self.tokenizer.save_pretrained(output_dir)
 
     def save_model(self, output_dir: Optional[str] = None, _internal_call: bool = False):
-        if not os.environ.get("NEURON_PARALLEL_COMPILE"):  # Avoid unnecessary model saving during precompilation 
+        if not os.environ.get("NEURON_PARALLEL_COMPILE"):  # Avoid unnecessary model saving during precompilation
             if output_dir is None:
                 output_dir = self.args.output_dir
 
