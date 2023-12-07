@@ -23,6 +23,7 @@ import torch
 import torch.distributed as dist
 
 from optimum.neuron.utils.import_utils import is_torch_xla_available
+from optimum.neuron.utils.generation_utils import get_fwd_for_general_sampling
 
 
 if is_torch_xla_available():
@@ -52,6 +53,92 @@ from transformers.utils import ModelOutput, logging
 
 
 logger = logging.get_logger(__name__)
+
+
+class GeneralNeuronGenerationMixin(GenerationMixin):
+    """
+    A class containing all functions for auto-regressive text generation on Trn1, to be used as a mixin in [`PreTrainedModel`].
+    The generation will be handled on both CPU and TRN1 in the following way:
+      1. Model forward pass will be executed on TRN1
+      2. All other logics including padding, searching, and sampling will be handled by general device (CPU).
+    This implementation allows us to support general searching and sampling methods with minimal code changes.
+    """
+
+    @torch.no_grad()
+    def generate(
+        self,
+        inputs: Optional[torch.Tensor] = None,
+        generation_config: Optional[GenerationConfig] = None,
+        **kwargs,
+    ):
+        # 1. Handle `generation_config` and kwargs that might update it, and validate the `.generate()` call
+        self._validate_model_class()
+
+        # priority: `generation_config` argument > `model.generation_config` (the default generation config)
+        if generation_config is None:
+            # legacy: users may modify the model configuration to control generation. To trigger this legacy behavior,
+            # two conditions must be met
+            # 1) the generation config must have been created from the model config (`_from_model_config` field);
+            # 2) the generation config must have seen no modification since its creation (the hash is the same).
+            if self.generation_config._from_model_config:
+                new_generation_config = GenerationConfig.from_model_config(self.config)
+                if new_generation_config != self.generation_config:
+                    warnings.warn(
+                        "You have modified the pretrained model configuration to control generation. This is a"
+                        " deprecated strategy to control generation and will be removed soon, in a future version."
+                        " Please use and modify the model generation configuration (see"
+                        " https://huggingface.co/docs/transformers/generation_strategies#default-text-generation-configuration )"
+                    )
+                    self.generation_config = new_generation_config
+            generation_config = self.generation_config
+
+        generation_config = copy.deepcopy(generation_config)
+        model_kwargs = generation_config.update(**kwargs)  # All unused kwargs must be model kwargs
+        generation_config.validate()
+        self._validate_model_kwargs(model_kwargs.copy())
+
+        # 2. Set generation parameters if not already defined
+        if generation_config.pad_token_id is None and generation_config.eos_token_id is not None:
+            if model_kwargs.get("attention_mask", None) is None:
+                logger.warning(
+                    "The attention mask and the pad token id were not set. As a consequence, you may observe "
+                    "unexpected behavior. Please pass your input's `attention_mask` to obtain reliable results."
+                )
+            eos_token_id = generation_config.eos_token_id
+            if isinstance(eos_token_id, list):
+                eos_token_id = eos_token_id[0]
+            logger.warning(f"Setting `pad_token_id` to `eos_token_id`:{eos_token_id} for open-end generation.")
+            generation_config.pad_token_id = eos_token_id
+
+        # 3. Define model inputs and move to CPU
+        general_device = 'cpu'
+        if 'input_ids' in kwargs and kwargs['input_ids'] is not None:
+            kwargs['input_ids'] = kwargs['input_ids'].to(general_device)
+        if inputs is not None:
+            inputs = inputs.to(general_device)
+        _, model_input_name, model_kwargs = self._prepare_model_inputs(
+            inputs, generation_config.bos_token_id, model_kwargs
+        )
+
+        # 4. Set Neuron spefic generation configurations
+        general_forward = get_fwd_for_general_sampling(
+            self.forward, generation_config, self.config.is_encoder_decoder, self.config.vocab_size, self.device, "cpu",
+        )
+        self.forward = general_forward
+        if generation_config.use_cache:
+            warnings.warn("use_cache is not supported for generation on Neuron devices, switching to use_cache=False.")
+            # decoder-only models with inputs_embeds forwarding must use caching (otherwise we can't detect whether we are
+            # generating the first new token or not, and we only want to use the embeddings for the first new token)
+            if not self.config.is_encoder_decoder and model_input_name == "inputs_embeds":
+                raise ValueError("Decoder-only models with inputs_embeds forwarding must use `use_cache=True`")
+        generation_config.use_cache = False
+
+        # 5. Run HuggingFace generate function
+        return super().generate(
+            inputs,
+            generation_config,
+            **kwargs
+        )
 
 
 class NeuronGenerationMixin(GenerationMixin):
