@@ -26,6 +26,7 @@ from neuronx_distributed.parallel_layers.parallel_state import (
 )
 from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
 from neuronx_distributed.utils.model_utils import move_model_to_device
+from transformers import LlamaForCausalLM
 from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 from transformers.models.auto.modeling_auto import (
     MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING,
@@ -48,6 +49,7 @@ from transformers.models.auto.modeling_auto import (
 )
 
 import optimum
+from optimum.neuron.distributed.parallelizers_manager import ParallelizersManager
 from optimum.neuron.utils.cache_utils import (
     get_num_neuron_cores,
 )
@@ -162,6 +164,64 @@ MODEL_CLASSES_TO_IGNORE_ON_LAZY_LOAD_FOR_FROM_PRETRAINED = [
 ]
 
 
+LLAMA_GQA_VARIANTS_TO_TEST = {
+    "MHA-setup": (
+        8,
+        2,
+        1,
+        {
+            "num_hidden_layers": "2",
+            "num_attention_heads": "8",
+            "num_key_value_heads": "8",
+        },
+    ),
+    "num_key_value_heads > tp_size": (
+        8,
+        2,
+        1,
+        {
+            "num_hidden_layers": "2",
+            "num_attention_heads": "8",
+            "num_key_value_heads": "4",
+        },
+    ),
+    "num_key_value_heads = tp_size": (
+        8,
+        8,
+        1,
+        {
+            "num_hidden_layers": "2",
+            "hidden_size": "32",
+            "num_attention_heads": "16",
+            "num_key_value_heads": "8",
+        },
+    ),
+    "num_key_value_heads < tp_size": (
+        8,
+        8,
+        1,
+        {
+            "num_hidden_layers": "2",
+            "hidden_size": "32",
+            "num_attention_heads": "16",
+            "num_key_value_heads": "2",
+        },
+    ),
+    "MQA-setup": (
+        8,
+        8,
+        1,
+        {
+            "num_hidden_layers": "2",
+            "hidden_size": "32",
+            "num_attention_heads": "16",
+            "num_key_value_heads": "1",
+        },
+    ),
+}
+LLAMA_V2_MODEL_NAME = "anushehchaudry/llama-2-tiny-random"
+
+
 @is_trainium_test
 class TestModelParallelization(DistributedTest):
     OUTPUTS_TO_IGNORE = {
@@ -227,6 +287,14 @@ class TestModelParallelization(DistributedTest):
         )
         move_model_to_device(orig_model, xm.xla_device())
         orig_model = orig_model.eval()
+
+        manager = ParallelizersManager.parallelizer_for_model(orig_model)
+
+        if pp_size > 1 and not manager.supports_pipeline_parallelism():
+            pytest.skip(f"Pipeline parallelism is not supported for {model_class.__name__}.")
+
+        if sequence_parallel_enabled and not manager.supports_sequence_parallelism():
+            pytest.skip(f"Sequence parallelism is not supported for {model_class.__name__}.")
 
         model = get_model(
             model_class,
@@ -294,7 +362,7 @@ class TestModelParallelization(DistributedTest):
                 continue
             self._check_output(output_name, outputs[0], outputs[1])
 
-    def test_parallel_model_matches_original_model_from_pretrained_with_sequence_parallel(
+    def test_parallel_model_matches_original_model_from_pretrained_with_parallel_embeddings_and_sequence_parallel(
         self,
         model_specs,
         parallel_sizes,
@@ -306,6 +374,41 @@ class TestModelParallelization(DistributedTest):
         )
         return self._parallel_model_matches_original_model(
             model_class, model_name_or_path, config_overwrite, parallel_sizes, True, True, True, True
+        )
+
+    def test_parallel_model_matches_original_model_from_config(
+        self,
+        model_specs,
+        parallel_sizes,
+        monkeypatch,
+    ):
+        _, model_class, model_name_or_path, config_overwrite = model_specs
+        monkeypatch.setattr(
+            optimum.neuron.distributed.parallel_layers, "_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT", True
+        )
+        return self._parallel_model_matches_original_model(
+            model_class, model_name_or_path, config_overwrite, parallel_sizes, False, True, False, False
+        )
+
+    @pytest.mark.skipif(
+        NUM_NEURON_CORES_AVAILABLE < 32,
+        reason=f"This test requires 32 Neuron cores, but only {NUM_NEURON_CORES_AVAILABLE} are available",
+    )
+    @pytest.mark.parametrize(
+        "world_size,tp_size,pp_size,config_overwrite",
+        LLAMA_GQA_VARIANTS_TO_TEST.values(),
+        ids=LLAMA_GQA_VARIANTS_TO_TEST.keys(),
+    )
+    def test_llama_v2_gqa_variants(self, world_size, tp_size, pp_size, config_overwrite):
+        return self._parallel_model_matches_original_model(
+            LlamaForCausalLM,
+            LLAMA_V2_MODEL_NAME,
+            config_overwrite,
+            (world_size, tp_size, pp_size),
+            False,
+            False,
+            False,
+            False,
         )
 
     # def _test_model_parallel(
