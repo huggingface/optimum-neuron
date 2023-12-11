@@ -121,12 +121,12 @@ class TestExportCLI(unittest.TestCase):
         for command in commands:
             subprocess.run(command, shell=True, check=True)
 
-    # @parameterized.expand(_get_commands_to_test(_get_models_to_test(EXPORT_MODELS_TINY)), skip_on_empty=True)
-    # def test_export_commands(self, test_name, command_content):
-    #     with tempfile.TemporaryDirectory() as tempdir:
-    #         command = command_content + f" {tempdir}"
+    @parameterized.expand(_get_commands_to_test(_get_models_to_test(EXPORT_MODELS_TINY)), skip_on_empty=True)
+    def test_export_commands(self, test_name, command_content):
+        with tempfile.TemporaryDirectory() as tempdir:
+            command = command_content + f" {tempdir}"
 
-    #         subprocess.run(command, shell=True, check=True)
+            subprocess.run(command, shell=True, check=True)
 
     @requires_neuronx
     def test_dynamic_batching(self):
@@ -146,6 +146,57 @@ class TestExportCLI(unittest.TestCase):
                     "1",
                     "--task",
                     "text-classification",
+                    tempdir,
+                ],
+                shell=False,
+                check=True,
+            )
+
+    @requires_neuronx
+    def test_opt_level(self):
+        model_id = "hf-internal-testing/tiny-random-BertModel"
+        optlevels = ["-O1", "-O2", "-O3"]
+        for optlevel in optlevels:
+            with tempfile.TemporaryDirectory() as tempdir:
+                subprocess.run(
+                    [
+                        "optimum-cli",
+                        "export",
+                        "neuron",
+                        "--model",
+                        model_id,
+                        "--sequence_length",
+                        "16",
+                        "--batch_size",
+                        "1",
+                        "--task",
+                        "text-classification",
+                        optlevel,
+                        tempdir,
+                    ],
+                    shell=False,
+                    check=True,
+                )
+
+    @requires_neuronx
+    def test_store_intemediary(self):
+        model_id = "hf-internal-testing/tiny-random-BertModel"
+        with tempfile.TemporaryDirectory() as tempdir:
+            subprocess.run(
+                [
+                    "optimum-cli",
+                    "export",
+                    "neuron",
+                    "--model",
+                    model_id,
+                    "--sequence_length",
+                    "16",
+                    "--batch_size",
+                    "1",
+                    "--task",
+                    "text-classification",
+                    "--compiler_workdir",
+                    f"{tempdir}/neff",
                     tempdir,
                 ],
                 shell=False,

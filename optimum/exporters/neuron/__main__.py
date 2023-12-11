@@ -133,6 +133,21 @@ def customize_optional_outputs(args: argparse.Namespace) -> Dict[str, bool]:
     return customized_outputs
 
 
+def parse_optlevel(args: argparse.Namespace) -> Dict[str, bool]:
+    """
+    Parse the level of optimization the compiler should perform. If not specified apply `O2`(the best balance between model performance and compile time).
+    """
+    if args.O1:
+        optlevel = "1"
+    elif args.O2:
+        optlevel = "2"
+    elif args.O3:
+        optlevel = "3"
+    else:
+        optlevel = "2"
+    return optlevel
+
+
 def normalize_stable_diffusion_input_shapes(
     args: argparse.Namespace,
 ) -> Dict[str, Dict[str, int]]:
@@ -332,6 +347,7 @@ def main_export(
     atol: Optional[float] = None,
     cache_dir: Optional[str] = None,
     compiler_workdir: Optional[Union[str, Path]] = None,
+    optlevel: str = "2",
     trust_remote_code: bool = False,
     subfolder: str = "",
     revision: str = "main",
@@ -381,6 +397,7 @@ def main_export(
         models_and_neuron_configs=models_and_neuron_configs,
         output_dir=output,
         compiler_workdir=compiler_workdir,
+        optlevel=optlevel,
         output_file_names=output_model_names,
         compiler_kwargs=compiler_kwargs,
     )
@@ -444,6 +461,7 @@ def main():
         submodels = None
 
     optional_outputs = customize_optional_outputs(args)
+    optlevel = parse_optlevel(args)
 
     main_export(
         model_name_or_path=args.model,
@@ -454,6 +472,7 @@ def main():
         atol=args.atol,
         cache_dir=args.cache_dir,
         compiler_workdir=args.compiler_workdir,
+        optlevel=optlevel,
         trust_remote_code=args.trust_remote_code,
         do_validation=not args.disable_validation,
         submodels=submodels,

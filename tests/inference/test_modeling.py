@@ -123,6 +123,14 @@ class NeuronModelIntegrationTest(NeuronModelIntegrationTestMixin):
         self.assertIsInstance(model.model, torch.jit._script.ScriptModule)
         self.assertIsInstance(model.config, PretrainedConfig)
 
+    def test_save_compiler_intermediary_files(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            save_path = f"{tempdir}/neff"
+            _ = NeuronModelForSequenceClassification.from_pretrained(
+                self.neuron_model_id, export=True, compiler_workdir=save_path, **self.STATIC_INPUTS_SHAPES
+            )
+            self.assertTrue(os.path.isdir(save_path))
+
 
 @is_inferentia_test
 class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):

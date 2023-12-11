@@ -94,6 +94,23 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         action="store_true",
         help="Enable dynamic batch size for neuron compiled model. If this option is enabled, the input batch size can be a multiple of the batch size during the compilation, but it comes with a potential tradeoff in terms of latency.",
     )
+    optional_group.add_argument(
+        "--unet",
+        default=None,
+        help=(
+            "UNet model ID on huggingface.co or path on disk to load model from. This will replace the unet in the original Stable Diffusion pipeline."
+        ),
+    )
+    optional_group.add_argument(
+        "--output_hidden_states",
+        action="store_true",
+        help=("Whether or not for the traced model to return the hidden states of all layers."),
+    )
+    optional_group.add_argument(
+        "--output_attentions",
+        action="store_true",
+        help=("Whether or not for the traced model to return the attentions tensors of all attention layers."),
+    )
 
     input_group = parser.add_argument_group("Input shapes")
     doc_input = "that the Neuronx-cc compiler exported model will be able to take as input."
@@ -139,22 +156,22 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         default=1,
         help=f"Stable diffusion only. Number of images per prompt {doc_input}",
     )
-    optional_group.add_argument(
-        "--unet",
-        default=None,
-        help=(
-            "UNet model ID on huggingface.co or path on disk to load model from. This will replace the unet in the original Stable Diffusion pipeline."
-        ),
-    )
-    optional_group.add_argument(
-        "--output_hidden_states",
+
+    level_group = parser.add_mutually_exclusive_group()
+    level_group.add_argument(
+        "-O1",
         action="store_true",
-        help=("Whether or not for the traced model to return the hidden states of all layers."),
+        help="Enables the core performance optimizations in the compiler, while also minimizing compile time.",
     )
-    optional_group.add_argument(
-        "--output_attentions",
+    level_group.add_argument(
+        "-O2",
         action="store_true",
-        help=("Whether or not for the traced model to return the attentions tensors of all attention layers."),
+        help="[Default] Provides the best balance between model performance and compile time.",
+    )
+    level_group.add_argument(
+        "-O3",
+        action="store_true",
+        help="May provide additional model execution performance but may incur longer compile times and higher host memory usage during model compilation.",
     )
 
 
