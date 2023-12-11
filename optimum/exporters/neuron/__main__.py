@@ -331,6 +331,7 @@ def main_export(
     dynamic_batch_size: bool = False,
     atol: Optional[float] = None,
     cache_dir: Optional[str] = None,
+    compiler_workdir: Optional[Union[str, Path]] = None,
     trust_remote_code: bool = False,
     subfolder: str = "",
     revision: str = "main",
@@ -379,6 +380,7 @@ def main_export(
     _, neuron_outputs = export_models(
         models_and_neuron_configs=models_and_neuron_configs,
         output_dir=output,
+        compiler_workdir=compiler_workdir,
         output_file_names=output_model_names,
         compiler_kwargs=compiler_kwargs,
     )
@@ -451,6 +453,7 @@ def main():
         dynamic_batch_size=args.dynamic_batch_size,
         atol=args.atol,
         cache_dir=args.cache_dir,
+        compiler_workdir=args.compiler_workdir,
         trust_remote_code=args.trust_remote_code,
         do_validation=not args.disable_validation,
         submodels=submodels,

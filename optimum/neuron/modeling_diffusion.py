@@ -534,6 +534,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         revision: str = "main",
         force_download: bool = True,
         cache_dir: Optional[str] = None,
+        compiler_workdir: Optional[str] = None,
         subfolder: str = "",
         local_files_only: bool = False,
         trust_remote_code: bool = False,
@@ -571,6 +572,8 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             cache_dir (`Optional[str]`, defaults to `None`):
                 Path to a directory in which a downloaded pretrained model configuration should be cached if the
                 standard cache should not be used.
+            compiler_workdir (`Optional[str]`, defaults to `None`):
+                Path to a directory in which the neuron compiler will store all intermediary files during the compilation(neff, weight, hlo graph...).
             subfolder (`str`, defaults to `""`):
                 In case the relevant files are located inside a subfolder of the model repo either locally or on huggingface.co, you can
                 specify the folder name here.
@@ -625,6 +628,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             task=task,
             dynamic_batch_size=dynamic_batch_size,
             cache_dir=cache_dir,
+            compiler_workdir=compiler_workdir,
             trust_remote_code=trust_remote_code,
             subfolder=subfolder,
             revision=revision,
