@@ -263,6 +263,8 @@ def export_models(
         str, Tuple[Union["PreTrainedModel", "ModelMixin", torch.nn.Module], "NeuronConfig"]
     ],
     output_dir: Path,
+    compiler_workdir: Optional[Path] = None,
+    optlevel: str = "2",
     output_file_names: Optional[Dict[str, str]] = None,
     compiler_kwargs: Optional[Dict[str, Any]] = {},
     configs: Optional[Dict[str, Any]] = {},
@@ -275,6 +277,13 @@ def export_models(
             A dictionnary containing the models to export and their corresponding neuron configs.
         output_dir (`Path`):
             Output directory to store the exported Neuron models.
+        compiler_workdir (`Optional[Path]`, defaults to `None`):
+            The directory to store intermediary outputs of the neuron compiler.
+        optlevel (`str`, defaults to `"2"`):
+            The level of optimization the compiler should perform. Can be `"1"`, `"2"` or `"3"`, defaults to "2".
+                1: enables the core performance optimizations in the compiler, while also minimizing compile time.
+                2: provides the best balance between model performance and compile time.
+                3: may provide additional model execution performance but may incur longer compile times and higher host memory usage during model compilation.
         output_file_names (`Optional[List[str]]`, defaults to `None`):
             The names to use for the exported Neuron files. The order must be the same as the order of submodels in the ordered dict `models_and_neuron_configs`.
             If None, will use the keys from `models_and_neuron_configs` as names.
@@ -287,6 +296,8 @@ def export_models(
         outputs from the Neuron configuration.
     """
     outputs = []
+    if compiler_workdir is not None:
+        compiler_workdir = Path(compiler_workdir)
 
     if output_file_names is not None and len(output_file_names) != len(models_and_neuron_configs):
         raise ValueError(
@@ -305,12 +316,16 @@ def export_models(
         output_path = output_dir / output_file_name
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
+        compiler_workdir_path = compiler_workdir / model_name if compiler_workdir is not None else None
+
         try:
             start_time = time.time()
             neuron_inputs, neuron_outputs = export(
                 model=submodel,
                 config=sub_neuron_config,
                 output=output_path,
+                compiler_workdir=compiler_workdir_path,
+                optlevel=optlevel,
                 **compiler_kwargs,
             )
             compilation_time = time.time() - start_time
@@ -338,6 +353,7 @@ def export_models(
                 dynamic_batch_size=sub_neuron_config.dynamic_batch_size,
                 compiler_type=NEURON_COMPILER_TYPE,
                 compiler_version=NEURON_COMPILER_VERSION,
+                optlevel=optlevel,
                 model_type=getattr(sub_neuron_config, "MODEL_TYPE", None),
                 task=getattr(sub_neuron_config, "task", None),
                 output_attentions=getattr(sub_neuron_config, "output_attentions", False),
@@ -368,6 +384,8 @@ def export(
     model: "PreTrainedModel",
     config: "NeuronConfig",
     output: Path,
+    compiler_workdir: Optional[Path] = None,
+    optlevel: str = "2",
     auto_cast: Optional[str] = None,
     auto_cast_type: str = "bf16",
     disable_fast_relayout: bool = False,
@@ -376,7 +394,15 @@ def export(
     if is_neuron_available():
         return export_neuron(model, config, output, auto_cast, auto_cast_type, disable_fast_relayout, disable_fallback)
     elif is_neuronx_available():
-        return export_neuronx(model, config, output, auto_cast, auto_cast_type)
+        return export_neuronx(
+            model=model,
+            config=config,
+            output=output,
+            compiler_workdir=compiler_workdir,
+            optlevel=optlevel,
+            auto_cast=auto_cast,
+            auto_cast_type=auto_cast_type,
+        )
     else:
         raise RuntimeError(
             "Cannot export the model because the neuron(x) compiler is not installed. See https://awsdocs-neuron.readthedocs-hosted.com/en/latest/frameworks/torch/torch-setup.html."
@@ -387,6 +413,8 @@ def export_neuronx(
     model: "PreTrainedModel",
     config: "NeuronConfig",
     output: Path,
+    compiler_workdir: Optional[Path] = None,
+    optlevel: str = "2",
     auto_cast: Optional[str] = None,
     auto_cast_type: str = "bf16",
 ) -> Tuple[List[str], List[str]]:
@@ -400,6 +428,13 @@ def export_neuronx(
             The Neuron configuration associated with the exported model.
         output (`Path`):
             Directory to store the exported Neuron model.
+        compiler_workdir (`Optional[Path]`, defaults to `None`):
+            The directory used by neuronx-cc, where you can find intermediary outputs (neff, weight, hlo...).
+        optlevel (`str`, defaults to `"2"`):
+            The level of optimization the compiler should perform. Can be `"1"`, `"2"` or `"3"`, defaults to "2".
+                1: enables the core performance optimizations in the compiler, while also minimizing compile time.
+                2: provides the best balance between model performance and compile time.
+                3: may provide additional model execution performance but may incur longer compile times and higher host memory usage during model compilation.
         auto_cast (`Optional[str]`, defaults to `None`):
             Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `None`, `"matmul"` or `"all"`, you should use `None` to disable any auto-casting, use `"matmul"` to cast FP32 matrix multiplication operations, and use `"all"` to cast all FP32 operations.
         auto_cast_type (`str`, defaults to `"bf16"`):
@@ -410,6 +445,8 @@ def export_neuronx(
         the Neuron configuration.
     """
     output.parent.mkdir(parents=True, exist_ok=True)
+    if isinstance(compiler_workdir, Path):
+        compiler_workdir = compiler_workdir.as_posix()
 
     if hasattr(model, "config"):
         model.config.return_dict = True
@@ -450,6 +487,8 @@ def export_neuronx(
     else:
         compiler_args = ["--auto-cast", "none"]
 
+    compiler_args.extend(["--optlevel", optlevel])
+
     # diffusers specific
     compiler_args = add_stable_diffusion_compiler_args(config, compiler_args)
 
@@ -458,6 +497,7 @@ def export_neuronx(
         dummy_inputs_tuple,
         compiler_args=compiler_args,
         input_output_aliases=aliases,
+        compiler_workdir=compiler_workdir,
     )
 
     if config.dynamic_batch_size is True:
