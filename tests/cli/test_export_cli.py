@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import os
 import random
 import subprocess
 import tempfile
@@ -182,6 +182,8 @@ class TestExportCLI(unittest.TestCase):
     def test_store_intemediary(self):
         model_id = "hf-internal-testing/tiny-random-BertModel"
         with tempfile.TemporaryDirectory() as tempdir:
+            save_path = f"{tempdir}/neff"
+            neff_path = os.path.join(save_path, model_id.split("/")[-1], "graph.neff")
             subprocess.run(
                 [
                     "optimum-cli",
@@ -196,12 +198,13 @@ class TestExportCLI(unittest.TestCase):
                     "--task",
                     "text-classification",
                     "--compiler_workdir",
-                    f"{tempdir}/neff",
+                    save_path,
                     tempdir,
                 ],
                 shell=False,
                 check=True,
             )
+            self.assertTrue(os.path.exists(neff_path))
 
     @requires_neuronx
     def test_stable_diffusion(self):

@@ -127,10 +127,12 @@ class NeuronModelIntegrationTest(NeuronModelIntegrationTestMixin):
     def test_save_compiler_intermediary_files(self):
         with tempfile.TemporaryDirectory() as tempdir:
             save_path = f"{tempdir}/neff"
+            neff_path = os.path.join(save_path, "graph.neff")
             _ = NeuronModelForSequenceClassification.from_pretrained(
                 self.MODEL_ID, export=True, compiler_workdir=save_path, **self.STATIC_INPUTS_SHAPES
             )
             self.assertTrue(os.path.isdir(save_path))
+            self.assertTrue(os.path.exists(neff_path))
 
 
 @is_inferentia_test
