@@ -174,7 +174,7 @@ class Parallelizer(ABC):
     @requires_neuronx_distributed
     def _get_parameter_names_for_current_pipeline(cls, model: "torch.nn.Module") -> Set[str]:
         """
-        Retrieves the names of the parameters that will be in the current pipeline stage by using the pipeline 
+        Retrieves the names of the parameters that will be in the current pipeline stage by using the pipeline
         parallelism rank.
         """
         from neuronx_distributed.parallel_layers.parallel_state import (

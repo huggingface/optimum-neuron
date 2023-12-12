@@ -33,7 +33,7 @@ import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 import torch_xla.distributed.xla_backend as xbn
-from _pytest.fixtures import FixtureFunctionMarker, FixtureLookupError
+from _pytest.fixtures import FixtureLookupError
 from _pytest.outcomes import Skipped
 
 from optimum.neuron.utils.cache_utils import get_num_neuron_cores
@@ -243,7 +243,6 @@ class DistributedExec(ABC):
                         p.terminate()
             except psutil.ZombieProcess:
                 continue
-
 
 
 class DistributedTest(DistributedExec):
