@@ -296,7 +296,6 @@ class NeuronAccelerator(Accelerator):
     @patch_within_function(("accelerate.accelerator.AcceleratedOptimizer", NeuronAcceleratedOptimizer))
     def prepare_optimizer(self, optimizer: torch.optim.Optimizer, device_placement: Optional[bool] = None):
         if self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
-            # TODO: how to handle pp?
             optimizer = self._prepare_optimizer_for_mp(optimizer, device_placement=device_placement)
         if self.zero_1:
             optimizer = self._prepare_optimizer_for_zero_1(optimizer, device_placement=device_placement)
@@ -467,7 +466,6 @@ class NeuronAccelerator(Accelerator):
                 model, device_placement=device_placement, evaluation_mode=evaluation_mode
             )
         elif self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
-            # TODO: how to handle pp?
             return self._prepare_model_for_mp(
                 model, device_placement=device_placement, evaluation_mode=evaluation_mode
             )
@@ -510,7 +508,6 @@ class NeuronAccelerator(Accelerator):
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:
             return self.clip_grad_norm_for_xla_fsdp(parameters, max_norm, norm_type=norm_type)
         elif self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM or self.zero_1:
-            # TODO: how to handle pp?
             return self._prepare_clip_grad_norm(parameters, max_norm, norm_type=norm_type)
         return super().clip_grad_norm_(parameters, max_norm, norm_type=norm_type)
 

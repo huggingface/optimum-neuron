@@ -268,7 +268,7 @@ class NeuronAcceleratorState(AcceleratorState):
                 ):
                     if not is_neuronx_distributed_available():
                         raise RuntimeError(
-                            "Tensor parallelism requires the neuronx_distributed package. You can install it by "
+                            "Model parallelism requires the neuronx_distributed package. You can install it by "
                             "running: python -m pip install neuronx_distributed --extra-index-url "
                             "https://pip.repos.neuron.amazonaws.com"
                         )

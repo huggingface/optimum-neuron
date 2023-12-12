@@ -95,6 +95,9 @@ class PipelineParallelismSpecs:
     @classmethod
     @requires_torch_xla
     def create_pipeline_cuts(cls, model: PreTrainedModel, pipeline_parallel_size: int) -> List[str]:
+        """
+        Creates the pipeline cuts, e.g. the name of the layers at each the cuts happen for pipeline parallelism.
+        """
         import torch_xla.core.xla_model as xm
 
         num_layers = sum(1 if isinstance(mod, cls.TRASNFORMER_LAYER_CLS) else 0 for mod in model.modules())
@@ -170,6 +173,10 @@ class Parallelizer(ABC):
     @classmethod
     @requires_neuronx_distributed
     def _get_parameter_names_for_current_pipeline(cls, model: "torch.nn.Module") -> Set[str]:
+        """
+        Retrieves the names of the parameters that will be in the current pipeline stage by using the pipeline 
+        parallelism rank.
+        """
         from neuronx_distributed.parallel_layers.parallel_state import (
             get_pipeline_model_parallel_rank,
             get_pipeline_model_parallel_size,

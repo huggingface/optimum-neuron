@@ -366,18 +366,6 @@ class AugmentTrainerForNeuronMixin:
             return (loss, None, None)
         return super().prediction_step(model, inputs, prediction_loss_only, ignore_keys=ignore_keys)
 
-    # @patch_within_function(("transformers.trainer.get_model_param_count", get_model_param_count))
-    # def _inner_training_loop(
-    #     self, batch_size=None, args=None, resume_from_checkpoint=None, trial=None, ignore_keys_for_eval=None
-    # ):
-    #     return super()._inner_training_loop(
-    #         batch_size=batch_size,
-    #         args=args,
-    #         resume_from_checkpoint=resume_from_checkpoint,
-    #         trial=trial,
-    #         ignore_keys_for_eval=ignore_keys_for_eval,
-    #     )
-
     def _maybe_log_save_evaluate(self, tr_loss, model, trial, epoch, ignore_keys_for_eval):
         if self.control.should_log:
             logs: Dict[str, float] = {}
@@ -609,7 +597,6 @@ class AugmentTrainerForNeuronMixin:
         if self.accelerator.distributed_type is NeuronDistributedType.XLA_FSDP:
             return self._load_optimizer_and_scheduler_for_xla_fsdp(checkpoint)
         elif self.accelerator.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
-            # TODO: how to handle pp?
             lr_scheduler_state = torch.load(os.path.join(checkpoint, SCHEDULER_NAME), map_location="cpu")
             xm.send_cpu_data_to_device(lr_scheduler_state, self.args.device)
             self.lr_scheduler.load_state_dict(lr_scheduler_state)
