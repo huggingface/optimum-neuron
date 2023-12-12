@@ -77,7 +77,7 @@ def get_master_port(base_port=29500, port_range_size=1000):
 class DistributedExec(ABC):
     """
     Base class for distributed execution of functions/methods. Contains common
-    methods needed for DistributedTest and DistributedFixture.
+    methods needed for DistributedTest and DistributedFixture (not included in this file).
     """
 
     world_size: Union[int, List[int]] = 2
@@ -245,114 +245,10 @@ class DistributedExec(ABC):
                 continue
 
 
-class DistributedFixture(DistributedExec):
-    """
-    Implementation that extends @pytest.fixture to allow for distributed execution.
-    This is primarily meant to be used when a test requires executing two pieces of
-    code with different world sizes.
-
-    There are 2 parameters that can be modified:
-        - world_size: int = 2 -- the number of processes to launch
-        - tp_size: int = 1 -- the tensor parallelism size
-        - pp_size: int = 1 -- the pipeline parallelism size
-
-    Features:
-        - able to call pytest.skip() inside fixture
-        - can be reused by multiple tests
-        - can accept other fixtures as input
-
-    Limitations:
-        - cannot use @pytest.mark.parametrize
-        - world_size cannot be modified after definition and only one world_size value is accepted
-        - any fixtures used must also be used in the test that uses this fixture (see example below)
-        - return values cannot be returned. Passing values to a DistributedTest
-          object can be achieved using class_tmpdir and writing to file (see example below)
-
-    Usage:
-        - must implement a run(self, ...) method
-        - fixture can be used by making the class name input to a test function
-
-    Example:
-        @pytest.fixture(params=[10,20])
-        def regular_pytest_fixture(request):
-            return request.param
-
-        class distributed_fixture_example(DistributedFixture):
-            world_size = 4
-
-            def run(self, regular_pytest_fixture, class_tmpdir):
-                assert int(os.environ["WORLD_SIZE"]) == self.world_size
-                local_rank = os.environ["LOCAL_RANK"]
-                print(f"Rank {local_rank} with value {regular_pytest_fixture}")
-                with open(os.path.join(class_tmpdir, f"{local_rank}.txt"), "w") as f:
-                    f.write(f"{local_rank},{regular_pytest_fixture}")
-
-        class TestExample(DistributedTest):
-            world_size = 1
-
-            def test(self, distributed_fixture_example, regular_pytest_fixture, class_tmpdir):
-                assert int(os.environ["WORLD_SIZE"]) == self.world_size
-                for rank in range(4):
-                    with open(os.path.join(class_tmpdir, f"{rank}.txt"), "r") as f:
-                        assert f.read() == f"{rank},{regular_pytest_fixture}"
-    """
-
-    is_dist_fixture = True
-
-    # These values are just placeholders so that pytest recognizes this as a fixture
-    _pytestfixturefunction = FixtureFunctionMarker(scope="function", params=None)
-    __name__ = ""
-
-    def __init__(self):
-        assert isinstance(self.world_size, int), "Only one world size is allowed for distributed fixtures"
-        self.__name__ = type(self).__name__
-        _pytestfixturefunction = FixtureFunctionMarker(scope="function", params=None, name=self.__name__)
-
 
 class DistributedTest(DistributedExec):
     """
     Implementation for running pytest with distributed execution.
-
-    There are 2 parameters that can be modified:
-        - world_size: Union[int,List[int]] = 2 -- the number of processes to launch
-        - backend: Literal['nccl','mpi','gloo'] = 'nccl' -- which backend to use
-
-    Features:
-        - able to call pytest.skip() inside tests
-        - works with pytest fixtures, parametrize, mark, etc.
-        - can contain multiple tests (each of which can be parametrized separately)
-        - class methods can be fixtures (usable by tests in this class only)
-        - world_size can be changed for individual tests using @pytest.mark.world_size(world_size)
-        - class_tmpdir is a fixture that can be used to get a tmpdir shared among
-          all tests (including DistributedFixture)
-
-    Usage:
-        - class name must start with "Test"
-        - must implement one or more test*(self, ...) methods
-
-    Example:
-        @pytest.fixture(params=[10,20])
-        def val1(request):
-            return request.param
-
-        @pytest.mark.fast
-        @pytest.mark.parametrize("val2", [30,40])
-        class TestExample(DistributedTest):
-            world_size = 2
-
-            @pytest.fixture(params=[50,60])
-            def val3(self, request):
-                return request.param
-
-            def test_1(self, val1, val2, str1="hello world"):
-                assert int(os.environ["WORLD_SIZE"]) == self.world_size
-                assert all(val1, val2, str1)
-
-            @pytest.mark.world_size(1)
-            @pytest.mark.parametrize("val4", [70,80])
-            def test_2(self, val1, val2, val3, val4):
-                assert int(os.environ["WORLD_SIZE"]) == 1
-                assert all(val1, val2, val3, val4)
     """
 
     is_dist_test = True
