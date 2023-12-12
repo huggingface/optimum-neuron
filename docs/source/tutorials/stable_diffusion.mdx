@@ -431,6 +431,34 @@ prompts = ["a close-up picture of an old man standing in the rain"] * 2
 images = pipe(prompt=prompts, num_inference_steps=4, guidance_scale=8.0).images
 ```
 
+## Stable Diffusion XL Turbo
+
+SDXL Turbo is an adversarial time-distilled Stable Diffusion XL (SDXL) model capable of running inference in as little as 1 step ([check `🤗diffusers` for more details](https://huggingface.co/docs/diffusers/using-diffusers/sdxl_turbo)).
+
+In `optimum-neuron`, you can:
+  - Use the class `NeuronStableDiffusionXLPipeline` to compile and run inference.
+
+Here we will compile the [`stabilityai/sdxl-turbo`](https://huggingface.co/stabilityai/sdxl-turbo) model with Optimum CLI.
+
+### Compile SDXL Turbo
+
+```bash
+optimum-cli export neuron --model stabilityai/sdxl-turbo --task stable-diffusion-xl --batch_size 1 --height 512 --width 512 --auto_cast matmul --auto_cast_type bf16 sdxl_turbo_neuron/
+```
+
+### Text-to-Image
+
+Now we can generate images from text prompts on Inf2 using the pre-compiled model:
+
+```python
+from optimum.neuron import NeuronStableDiffusionXLPipeline
+
+pipe = NeuronStableDiffusionXLPipeline.from_pretrained("sdxl_turbo_neuron/", data_parallel_mode="all")
+prompt = ["Self-portrait oil painting, a beautiful cyborg with golden hair, 8k"] * 2
+
+images = pipe(prompt=prompt, guidance_scale=0.0, num_inference_steps=1).images
+```
+
 <Tip>
 
 Inf2 instances contain one or more Neuron devices, and each Neuron device includes 2 NeuronCore-v2. By default, we load the whole pipeline of LCM to both Neuron cores. It means that when the batch size is divisible by 2, you can fully leverage the compute power of both cores.
