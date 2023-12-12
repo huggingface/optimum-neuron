@@ -52,7 +52,9 @@ from .utils import (
     ModelParallelismPlugin,
     NeuronDistributedType,
     NeuronFullyShardedDataParallelPlugin,
+    get_tied_parameters_dict,
     patch_accelerate_is_tpu_available,
+    tie_parameters,
 )
 from .utils.operations import _xla_gather
 
@@ -422,21 +424,26 @@ class NeuronAccelerator(Accelerator):
             if hasattr(output_embeddings, "out_features") and hasattr(input_embeddings, "num_embeddings"):
                 output_embeddings.out_features = input_embeddings.num_embeddings
 
+        tied_parameters_dict = get_tied_parameters_dict(model)
         if isinstance(model, NxDPPModel):
             with ModelPatcher(patching_specs=[(model, "_tie_or_clone_weights", _tie_or_clone_weights_for_mp)]):
-                # model.tie_weights()
                 model.move_model_to_device()
-                # model.tie_weights()
+                tie_parameters(model, tied_parameters_dict)
             xla_params = dict(model.local_named_parameters())
             self._model_cpu_parameters_to_xla[id(model)] = {
                 cpu_ids[name]: xla_params[name] for name, _ in model.local_named_parameters()
             }
         else:
             with ModelPatcher(patching_specs=[(model, "_tie_or_clone_weights", _tie_or_clone_weights_for_mp)]):
-                # model.tie_weights()
                 move_model_to_device(model, self.device)
-                # model.tie_weights()
+                tie_parameters(model, tied_parameters_dict)
             xla_params = dict(model.named_parameters())
+            symmetric_diff = set(cpu_ids.keys()).symmetric_difference((xla_params.keys()))
+            if symmetric_diff:
+                raise ValueError(
+                    f"The parameters on CPU do not match the parameters on the XLA device: {', '.join(symmetric_diff)}."
+                )
+
             self._model_cpu_parameters_to_xla[id(model)] = {
                 cpu_ids[name]: xla_params[name] for name, _ in model.named_parameters()
             }

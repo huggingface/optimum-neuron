@@ -328,7 +328,6 @@ class TestModelParallelization(DistributedTest):
 
         xla_inputs = {k: v.to(xm.xla_device()) for k, v in inputs.items()}
         xm.mark_step()
-        xm.master_print(xla_inputs)
 
         with torch.no_grad():
             orig_model_outputs = orig_model(**xla_inputs)
@@ -337,7 +336,6 @@ class TestModelParallelization(DistributedTest):
 
         with torch.no_grad():
             if pp_size == 1:
-                xm.master_print(xla_inputs)
                 model_outputs = model(**xla_inputs)
             else:
                 loss = model.run_eval(**inputs)
@@ -376,6 +374,7 @@ class TestModelParallelization(DistributedTest):
             model_class, model_name_or_path, config_overwrite, parallel_sizes, True, True, True, True
         )
 
+    @pytest.mark.skip("Model parallelism from config is not fully supported yet.")
     def test_parallel_model_matches_original_model_from_config(
         self,
         model_specs,

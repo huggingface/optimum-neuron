@@ -269,7 +269,7 @@ def get_model(
                     attr_type = type(getattr(config, key))
                     setattr(config, key, attr_type(value))
             if from_config:
-                model = model_class.from_config(config)
+                model = model_class(config)
             else:
                 model = model_class.from_pretrained(model_name_or_path, config=config, ignore_mismatched_sizes=True)
 

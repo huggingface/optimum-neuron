@@ -28,6 +28,7 @@ from transformers import PretrainedConfig
 from transformers.utils import is_peft_available
 
 from ..utils import DynamicPatch, Patcher
+from ..utils.deprecate_utils import deprecate
 from ..utils.import_utils import is_neuronx_distributed_available
 from ..utils.misc import download_checkpoints_in_cache
 from ..utils.require_utils import requires_neuronx_distributed, requires_safetensors, requires_torch_xla
@@ -41,6 +42,33 @@ if TYPE_CHECKING:
 
 
 TENSOR_PARALLEL_SHARDS_DIR_NAME = "tensor_parallel_shards"
+
+
+@deprecate(
+    "2.0.0",
+    package_name="torch",
+    reason="torch.nn.Module._named_members takes a `remove_duplicate` parameter starting from 2.0.0",
+)
+def _named_members(module, get_members_fn, prefix="", recurse=True, remove_duplicate: bool = True):
+    r"""Helper method for yielding various names + members of modules."""
+    memo = set()
+    modules = module.named_modules(prefix=prefix, remove_duplicate=remove_duplicate) if recurse else [(prefix, module)]
+    for module_prefix, mod in modules:
+        members = get_members_fn(mod)
+        for k, v in members:
+            if v is None or v in memo:
+                continue
+            if remove_duplicate:
+                memo.add(v)
+            name = module_prefix + ("." if module_prefix else "") + k
+            yield name, v
+
+
+def named_parameters(module: "torch.nn.Module", prefix: str = "", recurse: bool = True, remove_duplicate: bool = True):
+    gen = _named_members(
+        module, lambda mod: mod._parameters.items(), prefix=prefix, recurse=recurse, remove_duplicate=remove_duplicate
+    )
+    yield from gen
 
 
 @dataclass
@@ -338,14 +366,12 @@ def linear_to_parallel_linear(
                 parallel_linear_layer.weight.copy_(
                     linear_layer.weight[:, tp_rank * col_size : (tp_rank + 1) * col_size]
                 )
-            else:
-                raise ValueError("Could not find data for the linear layer to parellelize.")
 
             if linear_layer.bias is not None:
                 if linear_layer_bias_weight_info is not None:
                     bias_weight_data = load_tensor_for_weight(linear_layer_bias_weight_info)
                     parallel_linear_layer.bias.copy_(bias_weight_data)
-                else:
+                elif linear_layer.bias.device != torch.device("meta"):
                     parallel_linear_layer.bias.copy_(linear_layer.bias)
 
         else:
@@ -364,8 +390,6 @@ def linear_to_parallel_linear(
                 parallel_linear_layer.weight.copy_(
                     linear_layer.weight[tp_rank * row_size : (tp_rank + 1) * row_size, :]
                 )
-            else:
-                raise ValueError("Could not find data for the linear layer to parellelize.")
 
             if linear_layer.bias is not None:
                 if linear_layer_bias_weight_info is not None:
@@ -383,7 +407,7 @@ def linear_to_parallel_linear(
                         tensor_slices=tensor_slices,
                     )
                     parallel_linear_layer.bias.copy_(bias_weight_data)
-                else:
+                elif linear_layer.bias.device != torch.device("meta"):
                     if gather_output:
                         parallel_linear_layer.bias.copy_(linear_layer.bias)
                     else:
@@ -456,8 +480,6 @@ def gqa_key_value_slicing_when_tp_size_greater_than_num_key_value_heads(
             sliced_linear_layer.weight.copy_(
                 linear_layer.weight[key_value_head_index * head_dim : (key_value_head_index + 1) * head_dim, :]
             )
-        else:
-            raise ValueError("Could not find data for the linear layer to slice.")
 
         if linear_layer.bias is not None:
             if linear_layer_bias_weight_info is not None:
@@ -502,19 +524,18 @@ def try_to_hf_initialize(model: "PreTrainedModel", mod: torch.nn.Module, paramet
     return left_uninitialized
 
 
-def initialize_linear(mod: torch.nn.Linear, parameter_names: List[str]):
+def initialize_torch_nn_module(mod: torch.nn.Module, parameter_names: List[str]):
     """
     Initializes the parameters in `parameter_names` of a `torch.nn.Linear` module.
     """
-    cached_parameters = [mod.weight.data]
-    if mod.bias is not None:
-        cached_parameters.append(mod.bias.data)
+    if not hasattr(mod, "reset_parameters"):
+        raise ValueError(f"{mod} does not have a `reset_parameters` method.")
+    cached_parameters = {name: param.data.clone() for name, param in mod.named_parameters()}
     mod.reset_parameters()
     with torch.no_grad():
-        if "weight" not in parameter_names:
-            mod.weight.data = cached_parameters[0]
-        if mod.bias is not None and "bias" not in parameter_names:
-            mod.bias.data = cached_parameters[1]
+        for name, param in mod.named_parameters():
+            if param is not None and name not in parameter_names:
+                param.data = cached_parameters[name]
 
 
 def initialize_parallel_linear(mod: "layers.BaseParallelLinear", parameter_names: List[str]):
