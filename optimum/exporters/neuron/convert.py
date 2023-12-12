@@ -445,7 +445,7 @@ def export_neuronx(
         the Neuron configuration.
     """
     output.parent.mkdir(parents=True, exist_ok=True)
-    if compiler_workdir is not None:
+    if isinstance(compiler_workdir, Path):
         compiler_workdir = compiler_workdir.as_posix()
 
     if hasattr(model, "config"):
