@@ -46,7 +46,7 @@ def get_tied_parameters_dict(model: Union["torch.nn.Module", "NxDPPModel"]) -> D
     unique_parameters = {}
     tied_parameters = {}
     if isinstance(model, NxDPPModel):
-        module = model.local_module()
+        module = model.local_module
     else:
         module = model
     for name, param in named_parameters(module, remove_duplicate=False):
@@ -63,7 +63,7 @@ def tie_parameters(model: Union["torch.nn.Module", "NxDPPModel"], tied_parameter
     from neuronx_distributed.pipeline import NxDPPModel
 
     if isinstance(model, NxDPPModel):
-        module = model.local_module()
+        module = model.local_module
     else:
         module = model
 

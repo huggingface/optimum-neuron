@@ -22,8 +22,8 @@ import multiprocessing
 import os
 import socket
 import time
+import uuid
 from abc import ABC, abstractmethod
-from random import randint
 from typing import List, Union
 
 import neuronx_distributed
@@ -131,7 +131,7 @@ class DistributedExec(ABC):
 
         # Set start method to `forkserver` (or `fork`)
         mp.set_start_method("forkserver", force=True)
-        os.environ["TORCHELASTIC_RUN_ID"] = "alakd" + str(randint(1, 100))
+        os.environ["TORCHELASTIC_RUN_ID"] = str(uuid.uuid4())
 
         # Create process pool or use cached one
         master_port = None
@@ -187,7 +187,7 @@ class DistributedExec(ABC):
                 os.environ["GROUP_RANK"] = "0"
 
             if self.init_distributed:
-                dist.init_process_group(backend=self.backend, rank=local_rank, world_size=self.world_size)
+                dist.init_process_group(backend=self.backend, rank=local_rank, world_size=num_procs)
                 if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
                     raise AssertionError("Failed to initialize torch.distributed process group using XLA backend.")
 

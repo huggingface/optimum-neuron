@@ -303,7 +303,6 @@ class Parallelizer(ABC):
         # Parallelizing the model.
         # This needs to be done prior to preparing the model for sequence parallelism because modules can be overriden.
         if tp_size > 1:
-            print("MDR", "cls.predictions.decoder.bias" in dict(model.named_parameters()))
             model = cls._parallelize(
                 model,
                 device=device,

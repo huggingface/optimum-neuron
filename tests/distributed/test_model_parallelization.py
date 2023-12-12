@@ -21,6 +21,7 @@ import torch
 import torch.utils._pytree as pytree
 import torch_xla.core.xla_model as xm
 from neuronx_distributed.parallel_layers.parallel_state import (
+    get_pipeline_model_parallel_rank,
     get_tensor_model_parallel_group,
     get_tensor_model_parallel_size,
 )
@@ -277,6 +278,7 @@ class TestModelParallelization(DistributedTest):
         parallelize_embeddings,
     ):
         _, tp_size, pp_size = parallel_sizes
+        pp_rank = get_pipeline_model_parallel_rank()
 
         orig_model = get_model(
             model_class,
@@ -313,15 +315,9 @@ class TestModelParallelization(DistributedTest):
             parallelize_embeddings=parallelize_embeddings,
             sequence_parallel_enabled=sequence_parallel_enabled,
         )
-        # from optimum.neuron.distributed import ParallelizersManager
-        # model = ParallelizersManager.parallelizer_for_model(model).parallelize(
-        #     model,
-        #     parallelize_embeddings=parallelize_embeddings,
-        #     sequence_parallel_enabled=sequence_parallel_enabled,
-        # )
-        # move_model_to_device(model, xm.xla_device())
         model = accelerator.prepare(model)
-        model = model.eval()
+        if pp_size == 1:
+            model = model.eval()
 
         pad_to_multiple_of = None if not sequence_parallel_enabled else tp_size
         inputs = get_model_inputs(orig_model, model_name_or_path, pad_to_multiple_of=pad_to_multiple_of)
@@ -358,7 +354,8 @@ class TestModelParallelization(DistributedTest):
         for output_name, outputs in zip(outputs_to_consider, outputs_to_check):
             if all(output is None for output in outputs):
                 continue
-            self._check_output(output_name, outputs[0], outputs[1])
+            if pp_size == 1 or pp_rank == pp_size - 1:
+                self._check_output(output_name, outputs[0], outputs[1])
 
     def test_parallel_model_matches_original_model_from_pretrained_with_parallel_embeddings_and_sequence_parallel(
         self,
