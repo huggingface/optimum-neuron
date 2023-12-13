@@ -52,7 +52,9 @@ logger = logging.get_logger(__name__)
 
 @dataclass
 class NeuronTrainingArgumentsMixin:
-    skip_cache_push: bool = field(default=False, metadata={"help": "Whether to skip pushing Neuron artifacts to hub cache"})
+    skip_cache_push: bool = field(
+        default=False, metadata={"help": "Whether to skip pushing Neuron artifacts to hub cache"}
+    )
     zero_1: bool = field(default=False, metadata={"help": "Whether to use  ZeRO Stage 1 Optimization."})
     tensor_parallel_size: int = field(
         default=1, metadata={"help": "The number of replicas the model will be sharded on."}
