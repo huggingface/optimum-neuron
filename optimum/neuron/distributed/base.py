@@ -184,7 +184,7 @@ class Parallelizer(ABC):
 
         pp_size = get_pipeline_model_parallel_size()
         pp_rank = get_pipeline_model_parallel_rank()
-        all_parameter_names = {n for n, _ in model.named_parameters()}
+        all_parameter_names = {n for n, _ in named_parameters(model, remove_duplicate=False)}
         if pp_size == 1:
             return all_parameter_names
 

@@ -313,6 +313,20 @@ class TestModelParallelization(DistributedTest):
         if sequence_parallel_enabled and not manager.supports_sequence_parallelism():
             pytest.skip(f"Sequence parallelism is not supported for {model_class.__name__}.")
 
+
+        pad_to_multiple_of = None if not sequence_parallel_enabled else tp_size
+        inputs = get_model_inputs(orig_model, model_name_or_path, pad_to_multiple_of=pad_to_multiple_of)
+
+        xla_inputs = {k: v.to(xm.xla_device()) for k, v in inputs.items()}
+        xm.mark_step()
+
+        with torch.no_grad():
+            orig_model_outputs = orig_model(**xla_inputs)
+
+        xm.mark_step()
+
+        # The parallel model needs to be define after the forward pass of the first model because there is a 
+        # global monkey patching of the `torch.nn.CrossEntropyLoss` class when doing sequence parallelism.
         model = get_model(
             model_class,
             model_name_or_path,
@@ -331,22 +345,10 @@ class TestModelParallelization(DistributedTest):
             sequence_parallel_enabled=sequence_parallel_enabled,
         )
         model = accelerator.prepare(model)
-        if pp_size == 1:
-            model = model.eval()
-
-        pad_to_multiple_of = None if not sequence_parallel_enabled else tp_size
-        inputs = get_model_inputs(orig_model, model_name_or_path, pad_to_multiple_of=pad_to_multiple_of)
-
-        xla_inputs = {k: v.to(xm.xla_device()) for k, v in inputs.items()}
-        xm.mark_step()
-
-        with torch.no_grad():
-            orig_model_outputs = orig_model(**xla_inputs)
-
-        xm.mark_step()
 
         with torch.no_grad():
             if pp_size == 1:
+                model = model.eval()
                 model_outputs = model(**xla_inputs)
             else:
                 loss = model.run_eval(**inputs)

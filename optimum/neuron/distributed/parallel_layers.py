@@ -715,6 +715,7 @@ def safe_parallel_cross_entropy(*args, **kwargs):
     input_ = args[0]
     if _PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT:
         input_ = input_.clone()
+
     loss = parallel_cross_entropy(input_, *args[1:], **kwargs)
 
     if reduction == "mean":
