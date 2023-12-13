@@ -174,7 +174,7 @@ class AugmentTrainerForNeuronMixin:
         if self.args.local_rank <= 0:
             logger.setLevel(logging.INFO)
 
-        push = self.args.local_rank <= 0 and not is_precompilation()
+        push = self.args.local_rank <= 0 and not is_precompilation() and not self.args.skip_cache_push
         fetch = self.args.local_rank <= 0 or self.args.tp_plugin.should_parallelize
 
         callback = NeuronCacheCallback(
