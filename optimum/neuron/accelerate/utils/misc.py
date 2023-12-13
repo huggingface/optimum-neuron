@@ -81,8 +81,4 @@ def tie_parameters(model: Union["torch.nn.Module", "NxDPPModel"], tied_parameter
 
         if param_to_tie is not param:
             del param_to_tie
-            setattr(
-                param_to_tie_parent_module,
-                param_to_tie_name[1],
-                param
-            )
+            setattr(param_to_tie_parent_module, param_to_tie_name[1], param)

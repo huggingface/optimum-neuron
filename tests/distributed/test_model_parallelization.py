@@ -313,7 +313,6 @@ class TestModelParallelization(DistributedTest):
         if sequence_parallel_enabled and not manager.supports_sequence_parallelism():
             pytest.skip(f"Sequence parallelism is not supported for {model_class.__name__}.")
 
-
         pad_to_multiple_of = None if not sequence_parallel_enabled else tp_size
         inputs = get_model_inputs(orig_model, model_name_or_path, pad_to_multiple_of=pad_to_multiple_of)
 
@@ -325,7 +324,7 @@ class TestModelParallelization(DistributedTest):
 
         xm.mark_step()
 
-        # The parallel model needs to be define after the forward pass of the first model because there is a 
+        # The parallel model needs to be define after the forward pass of the first model because there is a
         # global monkey patching of the `torch.nn.CrossEntropyLoss` class when doing sequence parallelism.
         model = get_model(
             model_class,
