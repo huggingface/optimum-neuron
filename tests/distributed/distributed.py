@@ -252,6 +252,12 @@ class DistributedTest(DistributedExec):
 
     is_dist_test = True
 
+    def early_skip(self, fixtures_kwargs):
+        """
+        Override to enable early test skipping (before processes creation).
+        """
+        pass
+
     # Temporary directory that is shared among test methods in a class
     @pytest.fixture(autouse=True, scope="class")
     def class_tmpdir(self, tmpdir_factory):
@@ -267,6 +273,8 @@ class DistributedTest(DistributedExec):
 
         if self.requires_neuron_environment and not is_neuron_environment_available():
             pytest.skip("Only supported in a Neuron environment.")
+
+        self.early_skip(self._fixture_kwargs)
 
         world_size = tp_size = pp_size = parallel_sizes = None
 
