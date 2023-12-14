@@ -103,7 +103,7 @@ class PipelineParallelismSpecs:
         num_layers = sum(1 if isinstance(mod, cls.TRASNFORMER_LAYER_CLS) else 0 for mod in model.modules())
         if num_layers % pipeline_parallel_size != 0:
             raise ValueError(
-                "The number of transformer layers ({num_layers}) is not divisible by the pipeline parallel size "
+                f"The number of transformer layers ({num_layers}) is not divisible by the pipeline parallel size "
                 f"({pipeline_parallel_size})"
             )
         num_layers_per_partition = num_layers // pipeline_parallel_size
@@ -172,7 +172,7 @@ class Parallelizer(ABC):
 
     @classmethod
     @requires_neuronx_distributed
-    def _get_parameter_names_for_current_pipeline(cls, model: "torch.nn.Module") -> Set[str]:
+    def _get_parameter_names_for_current_pipeline(cls, model: "torch.nn.Module", remove_duplicate: bool = True) -> Set[str]:
         """
         Retrieves the names of the parameters that will be in the current pipeline stage by using the pipeline
         parallelism rank.
@@ -184,7 +184,7 @@ class Parallelizer(ABC):
 
         pp_size = get_pipeline_model_parallel_size()
         pp_rank = get_pipeline_model_parallel_rank()
-        all_parameter_names = {n for n, _ in named_parameters(model, remove_duplicate=False)}
+        all_parameter_names = {n for n, _ in named_parameters(model, remove_duplicate=remove_duplicate)}
         if pp_size == 1:
             return all_parameter_names
 
@@ -195,7 +195,7 @@ class Parallelizer(ABC):
 
         start_module_name = cuts[pp_rank - 1] if pp_rank > 1 else None
         end_module_name = None if pp_rank == pp_size - 1 else cuts[pp_rank]
-        parameter2name = {p: n for n, p in model.named_parameters()}
+        parameter2name = {p: n for n, p in named_parameters(model, remove_duplicate=remove_duplicate)}
         parameter_names = set()
         should_add = False
         for name, mod in model.named_modules():
@@ -206,7 +206,7 @@ class Parallelizer(ABC):
             if name == end_module_name:
                 break
             if should_add:
-                for param in mod.parameters():
+                for _, param in named_parameters(mod, remove_duplicate=remove_duplicate):
                     # It is important to use this dictionary (built with `model.named_parameters()`) instead of using
                     # `mod.named_parameters()` to get the fully qualified names.
                     param_name = parameter2name[param]
@@ -216,10 +216,10 @@ class Parallelizer(ABC):
             p
             for mod in model.modules()
             if isinstance(mod, cls.PIPELINE_PARALLELISM_SPECS_CLS.TRASNFORMER_LAYER_CLS)
-            for p in mod.parameters()
+            for _, p in named_parameters(mod, remove_duplicate=remove_duplicate)
         }
         parameter_outside_of_transformer_layers_names = {
-            name for name, param in model.named_parameters() if param not in parameters_inside_transformer_layers
+            name for name, param in named_parameters(model, remove_duplicate=remove_duplicate) if param not in parameters_inside_transformer_layers
         }
         return parameter_names | parameter_outside_of_transformer_layers_names
 
@@ -347,7 +347,7 @@ class Parallelizer(ABC):
         # The model was not loaded lazily, it is already ready.
         weight_map = getattr(model, "_weight_map", {})
 
-        names_of_the_parameters_to_consider = cls._get_parameter_names_for_current_pipeline(model)
+        names_of_the_parameters_to_consider = cls._get_parameter_names_for_current_pipeline(model, remove_duplicate=True)
 
         with torch.no_grad():
             tied_weights = {}
@@ -422,6 +422,7 @@ class Parallelizer(ABC):
                 new_parameters.add(new_parameter)
 
             for mod, parameter_names in modules_to_initialize.items():
+                print(mod)
                 if isinstance(mod, torch.nn.Embedding):
                     # This module has not pre-trained weights, it must be fine-tuned, we initialize it with the
                     # `reset_parameters()` method since there is only one parameter in torch.nn.Embedding.
