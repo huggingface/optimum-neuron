@@ -15,6 +15,7 @@
 """Defines Trainer subclasses to perform training on AWS Neuron instances."""
 
 import contextlib
+import copy
 import glob
 import os
 import random
@@ -395,7 +396,12 @@ class AugmentTrainerForNeuronMixin:
         if self.accelerator.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
             logger.info("Model parallelism is enabled, only saving the model sharded state dict.")
             if isinstance(self.model, PreTrainedModel):
-                self.model.config.save_pretrained(output_dir)
+                from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
+
+                config = copy.deepcopy(self.model.config)
+                if self.args.tp_plugin.parallelize_embeddings:
+                    config.vocab_size = config.vocab_size * get_tensor_model_parallel_size()
+                config.save_pretrained(output_dir)
 
             parallelizer = ParallelizersManager.parallelizer_for_model(self.model)
             # This mark_step is needed to avoid hang issues.
