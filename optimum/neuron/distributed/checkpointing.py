@@ -95,6 +95,6 @@ def consolidate_tensor_parallel_checkpoints_to_unified_checkpoint(
             torch.save(shard, output_dir / shard_file)
     if index is not None:
         save_index_file = SAFE_WEIGHTS_INDEX_NAME if save_format == "safetensors" else WEIGHTS_INDEX_NAME
-        with open(save_index_file, "w") as fp:
+        with open(output_dir / save_index_file, "w") as fp:
             content = json.dumps(index, indent=2, sort_keys=True) + "\n"
             fp.write(content)
