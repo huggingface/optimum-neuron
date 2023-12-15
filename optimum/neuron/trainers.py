@@ -14,6 +14,8 @@
 # limitations under the License.
 """Defines Trainer subclasses to perform training on AWS Neuron instances."""
 
+import contextlib
+import copy
 import glob
 import math
 import os
@@ -191,7 +193,7 @@ class AugmentTrainerForNeuronMixin:
         if self.args.local_rank <= 0:
             logger.setLevel(logging.INFO)
 
-        push = self.args.local_rank <= 0 and not is_precompilation()
+        push = self.args.local_rank <= 0 and not is_precompilation() and not self.args.skip_cache_push
         fetch = self.args.local_rank <= 0 or self.args.mp_plugin.should_parallelize
 
         NeuronCacheCallback(
@@ -459,7 +461,12 @@ class AugmentTrainerForNeuronMixin:
             logger.info("Model parallelism is enabled, only saving the model sharded state dict.")
             # TODO: how to handle pp?
             if isinstance(self.model, PreTrainedModel):
-                self.model.config.save_pretrained(output_dir)
+                from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
+
+                config = copy.deepcopy(self.model.config)
+                if self.args.tp_plugin.parallelize_embeddings:
+                    config.vocab_size = config.vocab_size * get_tensor_model_parallel_size()
+                config.save_pretrained(output_dir)
 
             # This mark_step is needed to avoid hang issues.
             xm.mark_step()
@@ -484,14 +491,17 @@ class AugmentTrainerForNeuronMixin:
             self.tokenizer.save_pretrained(output_dir)
 
     def save_model(self, output_dir: Optional[str] = None, _internal_call: bool = False):
-        if output_dir is None:
-            output_dir = self.args.output_dir
+        if not os.environ.get("NEURON_PARALLEL_COMPILE"):  # Avoid unnecessary model saving during precompilation
+            if output_dir is None:
+                output_dir = self.args.output_dir
 
-        self._save_xla(output_dir)
+            self._save_xla(output_dir)
 
-        # Push to the Hub when `save_model` is called by the user.
-        if self.args.push_to_hub and not _internal_call:
-            self.push_to_hub(commit_message="Model save")
+            # Push to the Hub when `save_model` is called by the user.
+            if self.args.push_to_hub and not _internal_call:
+                self.push_to_hub(commit_message="Model save")
+        else:
+            logger.info("Skipping trainer.save_model() while running under neuron_parallel_compile")
 
     def _save_checkpoint(self, model, trial, metrics=None):
         # In all cases, including ddp/dp/deepspeed, self.model is always a reference to the model we

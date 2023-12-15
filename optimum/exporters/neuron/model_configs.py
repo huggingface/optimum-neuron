@@ -19,21 +19,31 @@ from typing import TYPE_CHECKING, Dict, List
 
 import torch
 
+from ...neuron.utils import DummyBeamValuesGenerator
 from ...utils import (
+    DummyInputGenerator,
     DummySeq2SeqDecoderTextInputGenerator,
     DummyTimestepInputGenerator,
     DummyVisionInputGenerator,
     NormalizedConfig,
     NormalizedConfigManager,
+    NormalizedSeq2SeqConfig,
     NormalizedTextAndVisionConfig,
     is_diffusers_available,
 )
+from ...utils.normalized_config import T5LikeNormalizedTextConfig
 from ..tasks import TasksManager
 from .config import (
     TextAndVisionNeuronConfig,
     TextEncoderNeuronConfig,
     TextNeuronDecoderConfig,
+    TextSeq2SeqNeuronConfig,
     VisionNeuronConfig,
+)
+from .model_wrappers import (
+    T5DecoderWrapper,
+    T5EncoderWrapper,
+    UnetNeuronWrapper,
 )
 
 
@@ -224,7 +234,7 @@ class UNetNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
     MANDATORY_AXES = ("batch_size", "sequence_length", "num_channels", "width", "height")
     MODEL_TYPE = "unet"
-
+    CUSTOM_MODEL_WRAPPER = UnetNeuronWrapper
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
         image_size="sample_size",
         num_channels="in_channels",
@@ -281,40 +291,8 @@ class UNetNeuronConfig(VisionNeuronConfig):
         else:
             return dummy_inputs
 
-    class ModelWrapper(torch.nn.Module):
-        def __init__(self, model, input_names: List[str]):
-            super().__init__()
-            self.model = model
-            self.input_names = input_names
-
-        def forward(self, *inputs):
-            if len(inputs) != len(self.input_names):
-                raise ValueError(
-                    f"The model needs {len(self.input_names)} inputs: {self.input_names}."
-                    f" But only {len(input)} inputs are passed."
-                )
-
-            ordered_inputs = dict(zip(self.input_names, inputs))
-
-            added_cond_kwargs = {
-                "text_embeds": ordered_inputs.pop("text_embeds", None),
-                "time_ids": ordered_inputs.pop("time_ids", None),
-            }
-            sample = ordered_inputs.pop("sample", None)
-            timestep = ordered_inputs.pop("timestep").float().expand((sample.shape[0],))
-
-            out_tuple = self.model(
-                sample=sample,
-                timestep=timestep,
-                added_cond_kwargs=added_cond_kwargs,
-                return_dict=False,
-                **ordered_inputs,
-            )
-
-            return out_tuple
-
-    def check_model_inputs_order(self, model, dummy_inputs):
-        return self.ModelWrapper(model, list(dummy_inputs.keys()))
+    def patch_model_for_export(self, model, dummy_inputs):
+        return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
 
     @property
     def is_sdxl(self) -> bool:
@@ -379,13 +357,13 @@ class VaeDecoderNeuronConfig(VisionNeuronConfig):
     def outputs(self) -> List[str]:
         return ["sample"]
 
-    def check_model_inputs_order(
+    def patch_model_for_export(
         self,
         model: "VaeDecoder",
         dummy_inputs: Dict[str, torch.Tensor],
         **kwargs,
     ):
-        return super().check_model_inputs_order(model=model, dummy_inputs=dummy_inputs, forward_with_tuple=True)
+        return super().patch_model_for_export(model=model, dummy_inputs=dummy_inputs, forward_with_tuple=True)
 
 
 @register_in_tasks_manager("gpt2", "text-generation")
@@ -398,6 +376,30 @@ class LLamaNeuronConfig(TextNeuronDecoderConfig):
     NEURONX_CLASS = "llama.model.LlamaForSampling"
 
 
+@register_in_tasks_manager("t5-encoder", "text2text-generation")
+class T5EncoderNeuronConfig(TextSeq2SeqNeuronConfig):
+    ATOL_FOR_VALIDATION = 1e-3
+    MANDATORY_AXES = ("batch_size", "sequence_length", "num_beams")
+    MODEL_TYPE = "t5-encoder"
+    CUSTOM_MODEL_WRAPPER = T5EncoderWrapper
+    NORMALIZED_CONFIG_CLASS = NormalizedSeq2SeqConfig.with_args(
+        hidden_size="d_model",
+        num_attention_heads="num_heads",
+        encoder_num_layers="num_layers",
+        decoder_num_layers="num_decoder_layers",
+        key_value_dim="d_kv",
+        allow_new=True,
+    )
+
+    @property
+    def is_decoder(self) -> bool:
+        return False
+
+    def patch_model_for_export(self, model, device="xla", **kwargs):
+        num_beams = kwargs.pop("num_beams", 1)
+        return self.CUSTOM_MODEL_WRAPPER(model, num_beams=num_beams, device=device)
+
+
 @register_in_tasks_manager("opt", "text-generation")
 class OPTNeuronConfig(TextNeuronDecoderConfig):
     NEURONX_CLASS = "opt.model.OPTForSampling"
@@ -406,3 +408,66 @@ class OPTNeuronConfig(TextNeuronDecoderConfig):
 @register_in_tasks_manager("bloom", "text-generation")
 class BloomNeuronConfig(TextNeuronDecoderConfig):
     NEURONX_CLASS = "bloom.model.BloomForSampling"
+
+
+@register_in_tasks_manager("t5-decoder", "text2text-generation")
+class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
+    ATOL_FOR_VALIDATION = 1e-3
+    DUMMY_INPUT_GENERATOR_CLASSES = TextSeq2SeqNeuronConfig.DUMMY_INPUT_GENERATOR_CLASSES + (DummyBeamValuesGenerator,)
+    MANDATORY_AXES = ("batch_size", "sequence_length", "num_beams")
+    MODEL_TYPE = "t5-decoder"
+    CUSTOM_MODEL_WRAPPER = T5DecoderWrapper
+    NORMALIZED_CONFIG_CLASS = T5LikeNormalizedTextConfig
+
+    @property
+    def is_decoder(self) -> bool:
+        return True
+
+    @property
+    def inputs(self) -> List[str]:
+        common_inputs = super().inputs + ["beam_idx", "beam_scores"]
+        return common_inputs
+
+    def generate_dummy_inputs(self, **kwargs):
+        batch_size = kwargs.pop("batch_size") * kwargs.get("num_beams")
+        dummy_inputs = super().generate_dummy_inputs(batch_size=batch_size, **kwargs)
+        dummy_inputs["decoder_input_ids"] = dummy_inputs["decoder_input_ids"][:, :1]  # sequence_length = 1
+        dummy_inputs["encoder_hidden_states"] = dummy_inputs["encoder_hidden_states"][0]
+
+        return dummy_inputs
+
+    def _create_dummy_input_generator_classes(self, **kwargs) -> List["DummyInputGenerator"]:
+        dummy_inputs_generators = super()._create_dummy_input_generator_classes(**kwargs)
+        dummy_beam_values_generator = self.DUMMY_INPUT_GENERATOR_CLASSES[-1](
+            self.task,
+            self._normalized_config,
+            num_beams=kwargs.pop("num_beams", 1),
+            **kwargs,
+        )
+        dummy_inputs_generators.append(dummy_beam_values_generator)
+        return dummy_inputs_generators
+
+    def patch_model_for_export(self, model, device="xla", **kwargs):
+        batch_size = kwargs.pop("batch_size", 1)
+        sequence_length = kwargs.pop("sequence_length", 1)
+        num_beams = kwargs.pop("num_beams", 1)
+
+        return self.CUSTOM_MODEL_WRAPPER(
+            model,
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            num_beams=num_beams,
+            output_hidden_states=self.output_hidden_states,
+            output_attentions=self.output_attentions,
+            device=device,
+        )
+
+    def generate_io_aliases(self, model):
+        num_outputs_from_trace = 3 if model.num_beams > 1 else 1
+        aliases = {}
+        for i in range(len(model.past_key_values_sa)):
+            aliases[model.past_key_values_sa[i]] = i + num_outputs_from_trace
+        for i in range(len(model.past_key_values_ca)):
+            aliases[model.past_key_values_ca[i]] = len(model.past_key_values_sa) + i + num_outputs_from_trace
+
+        return aliases

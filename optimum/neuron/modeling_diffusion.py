@@ -333,6 +333,12 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         """
         Saves the model to the serialized format optimized for Neuron devices.
         """
+        if self.model_and_config_save_paths is None:
+            logger.warning(
+                "`model_save_paths` is None which means that no path of Neuron model is defined. Nothing will be saved."
+            )
+            return
+
         save_directory = Path(save_directory)
         if not self.model_and_config_save_paths.get(DIFFUSION_MODEL_VAE_ENCODER_NAME)[0].is_file():
             self.model_and_config_save_paths.pop(DIFFUSION_MODEL_VAE_ENCODER_NAME)
@@ -343,13 +349,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         if not self.model_and_config_save_paths.get(DIFFUSION_MODEL_TEXT_ENCODER_2_NAME)[0].is_file():
             self.model_and_config_save_paths.pop(DIFFUSION_MODEL_TEXT_ENCODER_2_NAME)
 
-        if self.model_and_config_save_paths is None:
-            logger.warning(
-                "`model_save_paths` is None which means that no path of Neuron model is defined. Nothing will be saved."
-            )
-            return
-        else:
-            logger.info(f"Saving the {tuple(self.model_and_config_save_paths.keys())}...")
+        logger.info(f"Saving the {tuple(self.model_and_config_save_paths.keys())}...")
 
         dst_paths = {
             DIFFUSION_MODEL_TEXT_ENCODER_NAME: save_directory
@@ -399,6 +399,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         config: Dict[str, Any],
         use_auth_token: Optional[Union[bool, str]] = None,
         revision: Optional[str] = None,
+        force_download: bool = False,
         cache_dir: Optional[str] = None,
         text_encoder_file_name: Optional[str] = NEURON_FILE_NAME,
         text_encoder_2_file_name: Optional[str] = NEURON_FILE_NAME,
@@ -439,6 +440,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 local_files_only=local_files_only,
                 use_auth_token=use_auth_token,
                 revision=revision,
+                force_download=force_download,
                 allow_patterns=allow_patterns,
                 ignore_patterns=["*.msgpack", "*.safetensors", "*.bin"],
             )
@@ -532,6 +534,8 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         revision: str = "main",
         force_download: bool = True,
         cache_dir: Optional[str] = None,
+        compiler_workdir: Optional[str] = None,
+        optlevel: str = "2",
         subfolder: str = "",
         local_files_only: bool = False,
         trust_remote_code: bool = False,
@@ -569,6 +573,13 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             cache_dir (`Optional[str]`, defaults to `None`):
                 Path to a directory in which a downloaded pretrained model configuration should be cached if the
                 standard cache should not be used.
+            compiler_workdir (`Optional[str]`, defaults to `None`):
+                Path to a directory in which the neuron compiler will store all intermediary files during the compilation(neff, weight, hlo graph...).
+            optlevel (`str`, defaults to `"2"`):
+            The level of optimization the compiler should perform. Can be `"1"`, `"2"` or `"3"`, defaults to "2".
+                1: enables the core performance optimizations in the compiler, while also minimizing compile time.
+                2: provides the best balance between model performance and compile time.
+                3: may provide additional model execution performance but may incur longer compile times and higher host memory usage during model compilation.
             subfolder (`str`, defaults to `""`):
                 In case the relevant files are located inside a subfolder of the model repo either locally or on huggingface.co, you can
                 specify the folder name here.
@@ -623,6 +634,8 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             task=task,
             dynamic_batch_size=dynamic_batch_size,
             cache_dir=cache_dir,
+            compiler_workdir=compiler_workdir,
+            optlevel=optlevel,
             trust_remote_code=trust_remote_code,
             subfolder=subfolder,
             revision=revision,

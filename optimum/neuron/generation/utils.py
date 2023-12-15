@@ -17,7 +17,7 @@
 import copy
 import inspect
 import warnings
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.distributed as dist
@@ -51,10 +51,6 @@ from transformers.generation.utils import (
 from transformers.utils import ModelOutput, logging
 
 
-if TYPE_CHECKING:
-    from transformers.generation.streamers import BaseStreamer
-    from transformers.modeling_utils import PreTrainedModel
-
 logger = logging.get_logger(__name__)
 
 
@@ -82,6 +78,91 @@ class NeuronGenerationMixin(GenerationMixin):
     learn more about decoding strategies refer to the [text generation strategies guide](../generation_strategies).
     """
 
+    @staticmethod
+    def _initialize_attention(
+        model_kwargs,
+        num_padding_values,
+        batch_size,
+        device,
+        is_encoder_decoder,
+    ):
+        """Initializes the appropriate attention mask -- encoder-decoder models use `decoder_attention_mask`"""
+        if is_encoder_decoder:
+            # One 1 for decoder_start_token_id, 0s for the currently-unfilled locations in the past_key_values tensor,
+            # 1s for the actual input_ids
+            decoder_attention_mask = torch.cat(
+                [
+                    torch.zeros((batch_size, num_padding_values), dtype=torch.int32),
+                    torch.ones((batch_size, 2), dtype=torch.int32),
+                ],
+                axis=1,
+            ).to(device)
+            mask = {"decoder_attention_mask": decoder_attention_mask}
+        else:
+            attention_mask = model_kwargs.pop("attention_mask")
+            # 0s for the currently-unfilled locations in the past_key_values tensor, 1s for the actual input_ids
+            attention_mask = torch.cat(
+                [
+                    torch.zeros(
+                        (batch_size, num_padding_values), dtype=attention_mask.dtype, device=attention_mask.device
+                    ),
+                    attention_mask,
+                    torch.ones((batch_size, 1), dtype=attention_mask.dtype, device=attention_mask.device),
+                ],
+                axis=1,
+            )
+            mask = {"attention_mask": attention_mask}
+
+        return mask
+
+    @staticmethod
+    def _update_attention(model_kwargs, batch_size, is_encoder_decoder):
+        """Updates the appropriate attention mask -- encoder-decoder models use `decoder_attention_mask`"""
+
+        attention_mask_name = "decoder_attention_mask" if is_encoder_decoder else "attention_mask"
+        attention_mask = model_kwargs.pop(attention_mask_name)
+        attention_mask_update_slice = torch.ones(
+            (batch_size, 1), dtype=attention_mask.dtype, device=attention_mask.device
+        )
+        attention_mask = torch.cat([attention_mask[:, 1:], attention_mask_update_slice], dim=-1)
+        mask = {attention_mask_name: attention_mask}
+        return mask
+
+    @staticmethod
+    def _initialize_past(past_key_values, num_padding_values):
+        """Initialize past_key_values with zeros -- the structure depends on `batch_axis`"""
+
+        new_past = ()
+        for past_layer in past_key_values:
+            new_past_layer = list(past_layer)
+            for i in range(len(new_past_layer[:2])):
+                b, n_heads, _, head_dim = past_layer[i].shape
+                new_past_layer[i] = torch.cat(
+                    [
+                        torch.zeros(
+                            (b, n_heads, num_padding_values, head_dim),
+                            dtype=past_layer[i].dtype,
+                            device=past_layer[i].device,
+                        ),
+                        past_layer[i],
+                    ],
+                    dim=2,
+                )
+            new_past += (tuple(new_past_layer),)
+
+        return new_past
+
+    @staticmethod
+    def _update_past(past_key_values):
+        new_past = ()
+        for past_layer in past_key_values:
+            new_past_layer = list(past_layer)
+            for i, _ in enumerate(new_past_layer[:2]):
+                new_past_layer[i] = past_layer[i][:, :, 1:]
+            new_past += (tuple(new_past_layer),)
+
+        return new_past
+
     def _update_model_kwargs_for_xla_generation(
         self,
         outputs: ModelOutput,
@@ -93,81 +174,6 @@ class NeuronGenerationMixin(GenerationMixin):
         seq_length: Optional[int] = None,
         use_cache: bool = True,
     ) -> Dict[str, Any]:
-        def _initialize_attention(model_kwargs, num_padding_values, is_encoder_decoder):
-            """Initializes the appropriate attention mask -- encoder-decoder models use `decoder_attention_mask`"""
-            if is_encoder_decoder:
-                # One 1 for decoder_start_token_id, 0s for the currently-unfilled locations in the past_key_values tensor,
-                # 1s for the actual input_ids
-                decoder_attention_mask = torch.cat(
-                    [
-                        torch.zeros((batch_size, num_padding_values), dtype=torch.int32),
-                        torch.ones((batch_size, 2), dtype=torch.int32),
-                    ],
-                    axis=1,
-                ).to(outputs.logits.device)
-                mask = {"decoder_attention_mask": decoder_attention_mask}
-            else:
-                attention_mask = model_kwargs.pop("attention_mask")
-                # 0s for the currently-unfilled locations in the past_key_values tensor, 1s for the actual input_ids
-                attention_mask = torch.cat(
-                    [
-                        torch.zeros(
-                            (batch_size, num_padding_values), dtype=attention_mask.dtype, device=attention_mask.device
-                        ),
-                        attention_mask,
-                        torch.ones((batch_size, 1), dtype=attention_mask.dtype, device=attention_mask.device),
-                    ],
-                    axis=1,
-                )
-                mask = {"attention_mask": attention_mask}
-
-            return mask
-
-        def _update_attention(model_kwargs, is_encoder_decoder):
-            """Updates the appropriate attention mask -- encoder-decoder models use `decoder_attention_mask`"""
-
-            attention_mask_name = "decoder_attention_mask" if is_encoder_decoder else "attention_mask"
-            attention_mask = model_kwargs.pop(attention_mask_name)
-            attention_mask_update_slice = torch.ones(
-                (batch_size, 1), dtype=attention_mask.dtype, device=attention_mask.device
-            )
-            attention_mask = torch.cat([attention_mask[:, 1:], attention_mask_update_slice], dim=-1)
-            mask = {attention_mask_name: attention_mask}
-            return mask
-
-        def _initialize_past(past_key_values, num_padding_values):
-            """Initialize past_key_values with zeros -- the structure depends on `batch_axis`"""
-
-            new_past = ()
-            for past_layer in past_key_values:
-                new_past_layer = list(past_layer)
-                for i in range(len(new_past_layer[:2])):
-                    b, n_heads, _, head_dim = past_layer[i].shape
-                    new_past_layer[i] = torch.cat(
-                        [
-                            torch.zeros(
-                                (b, n_heads, num_padding_values, head_dim),
-                                dtype=past_layer[i].dtype,
-                                device=past_layer[i].device,
-                            ),
-                            past_layer[i],
-                        ],
-                        dim=2,
-                    )
-                new_past += (tuple(new_past_layer),)
-
-            return new_past
-
-        def _update_past(past_key_values):
-            new_past = ()
-            for past_layer in past_key_values:
-                new_past_layer = list(past_layer)
-                for i, _ in enumerate(new_past_layer[:2]):
-                    new_past_layer[i] = past_layer[i][:, :, 1:]
-                new_past += (tuple(new_past_layer),)
-
-            return new_past
-
         if use_cache:
             past_key_values = self._extract_past_from_model_output(outputs)
             if past_key_values is None:
@@ -182,11 +188,13 @@ class NeuronGenerationMixin(GenerationMixin):
                 # previous autoregressive generation steps (step 0 has no past_key_values, step 1 has 1 past_key_values value, ..., the last step
                 # has `max_length - 1` past_key_values values).
                 num_padding_values = max_length - seq_length
-                mask = _initialize_attention(model_kwargs, num_padding_values, is_encoder_decoder)
-                new_past = _initialize_past(past_key_values, num_padding_values)
+                mask = self._initialize_attention(
+                    model_kwargs, num_padding_values, batch_size, outputs.logits.device, is_encoder_decoder
+                )
+                new_past = self._initialize_past(past_key_values, num_padding_values)
             else:
-                mask = _update_attention(model_kwargs, is_encoder_decoder)
-                new_past = _update_past(past_key_values)
+                mask = self._update_attention(model_kwargs, batch_size, is_encoder_decoder)
+                new_past = self._update_past(past_key_values)
 
             # sets the updated variables (mask and past_key_values)
             model_kwargs.update(mask)
@@ -260,419 +268,6 @@ class NeuronGenerationMixin(GenerationMixin):
 
         return input_ids, model_kwargs
 
-    def beam_search(
-        self,
-        input_ids: torch.LongTensor,
-        beam_scorer: BeamScorer,
-        logits_processor: Optional[LogitsProcessorList] = None,
-        stopping_criteria: Optional[StoppingCriteriaList] = None,
-        max_length: Optional[int] = None,
-        pad_token_id: Optional[int] = None,
-        eos_token_id: Optional[Union[int, List[int]]] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        output_scores: Optional[bool] = None,
-        return_dict_in_generate: Optional[bool] = None,
-        synced_gpus: Optional[bool] = False,
-        seq_length: Optional[int] = None,
-        **model_kwargs,
-    ) -> Union[BeamSearchOutput, torch.LongTensor]:
-        r"""
-        Generates sequences of token ids for models with a language modeling head using **beam search decoding** and
-        can be used for text-decoder, text-to-text, speech-to-text, and vision-to-text models.
-
-        <Tip warning={true}>
-
-        In most cases, you do not need to call [`~generation.GenerationMixin.beam_search`] directly. Use generate()
-        instead. For an overview of generation strategies and code examples, check the [following
-        guide](../generation_strategies).
-
-        </Tip>
-
-        Parameters:
-            input_ids (`torch.LongTensor` of shape `(batch_size, sequence_length)`):
-                The sequence used as a prompt for the generation.
-            beam_scorer (`BeamScorer`):
-                An derived instance of [`BeamScorer`] that defines how beam hypotheses are constructed, stored and
-                sorted during generation. For more information, the documentation of [`BeamScorer`] should be read.
-            logits_processor (`LogitsProcessorList`, *optional*):
-                An instance of [`LogitsProcessorList`]. List of instances of class derived from [`LogitsProcessor`]
-                used to modify the prediction scores of the language modeling head applied at each generation step.
-            stopping_criteria (`StoppingCriteriaList`, *optional*):
-                An instance of [`StoppingCriteriaList`]. List of instances of class derived from [`StoppingCriteria`]
-                used to tell if the generation loop should stop.
-            max_length (`int`, *optional*, defaults to 20):
-                **DEPRECATED**. Use `logits_processor` or `stopping_criteria` directly to cap the number of generated
-                tokens. The maximum length of the sequence to be generated.
-            pad_token_id (`int`, *optional*):
-                The id of the *padding* token.
-            eos_token_id (`Union[int, List[int]]`, *optional*):
-                The id of the *end-of-sequence* token. Optionally, use a list to set multiple *end-of-sequence* tokens.
-            output_attentions (`bool`, *optional*, defaults to `False`):
-                Whether or not to return the attentions tensors of all attention layers. See `attentions` under
-                returned tensors for more details.
-            output_hidden_states (`bool`, *optional*, defaults to `False`):
-                Whether or not to return the hidden states of all layers. See `hidden_states` under returned tensors
-                for more details.
-            output_scores (`bool`, *optional*, defaults to `False`):
-                Whether or not to return the prediction scores. See `scores` under returned tensors for more details.
-            return_dict_in_generate (`bool`, *optional*, defaults to `False`):
-                Whether or not to return a [`~utils.ModelOutput`] instead of a plain tuple.
-            synced_gpus (`bool`, *optional*, defaults to `False`):
-                Whether to continue running the while loop until max_length (needed for ZeRO stage 3)
-            seq_length:
-                Length of current input_ids sequence
-            model_kwargs:
-                Additional model specific kwargs will be forwarded to the `forward` function of the model. If model is
-                an encoder-decoder model the kwargs should include `encoder_outputs`.
-
-        Return:
-            [`generation.BeamSearchDecoderOnlyOutput`], [`~generation.BeamSearchEncoderDecoderOutput`] or
-            `torch.LongTensor`: A `torch.LongTensor` containing the generated tokens (default behaviour) or a
-            [`~generation.BeamSearchDecoderOnlyOutput`] if `model.config.is_encoder_decoder=False` and
-            `return_dict_in_generate=True` or a [`~generation.BeamSearchEncoderDecoderOutput`] if
-            `model.config.is_encoder_decoder=True`.
-
-
-        Examples:
-
-        ```python
-        >>> from transformers import (
-        ...     AutoTokenizer,
-        ...     AutoModelForSeq2SeqLM,
-        ...     LogitsProcessorList,
-        ...     MinLengthLogitsProcessor,
-        ...     BeamSearchScorer,
-        ... )
-        >>> import torch
-
-        >>> tokenizer = AutoTokenizer.from_pretrained("t5-base")
-        >>> model = AutoModelForSeq2SeqLM.from_pretrained("t5-base")
-
-        >>> encoder_input_str = "translate English to German: How old are you?"
-        >>> encoder_input_ids = tokenizer(encoder_input_str, return_tensors="pt").input_ids
-
-
-        >>> # lets run beam search using 3 beams
-        >>> num_beams = 3
-        >>> # define decoder start token ids
-        >>> input_ids = torch.ones((num_beams, 1), device=model.device, dtype=torch.long)
-        >>> input_ids = input_ids * model.config.decoder_start_token_id
-
-        >>> # add encoder_outputs to model keyword arguments
-        >>> model_kwargs = {
-        ...     "encoder_outputs": model.get_encoder()(
-        ...         encoder_input_ids.repeat_interleave(num_beams, dim=0), return_dict=True
-        ...     )
-        ... }
-
-        >>> # instantiate beam scorer
-        >>> beam_scorer = BeamSearchScorer(
-        ...     batch_size=1,
-        ...     num_beams=num_beams,
-        ...     device=model.device,
-        ... )
-
-        >>> # instantiate logits processors
-        >>> logits_processor = LogitsProcessorList(
-        ...     [
-        ...         MinLengthLogitsProcessor(5, eos_token_id=model.config.eos_token_id),
-        ...     ]
-        ... )
-
-        >>> outputs = model.beam_search(input_ids, beam_scorer, logits_processor=logits_processor, **model_kwargs)
-
-        >>> tokenizer.batch_decode(outputs, skip_special_tokens=True)
-        ['Wie alt bist du?']
-        ```"""
-        # init values
-        logits_processor = logits_processor if logits_processor is not None else LogitsProcessorList()
-        stopping_criteria = stopping_criteria if stopping_criteria is not None else StoppingCriteriaList()
-        if max_length is not None:
-            warnings.warn(
-                "`max_length` is deprecated in this function, use"
-                " `stopping_criteria=StoppingCriteriaList(MaxLengthCriteria(max_length=max_length))` instead.",
-                UserWarning,
-            )
-            stopping_criteria = validate_stopping_criteria(stopping_criteria, max_length)
-        if len(stopping_criteria) == 0:
-            warnings.warn("You don't have defined any stopping_criteria, this will likely loop forever", UserWarning)
-        pad_token_id = pad_token_id if pad_token_id is not None else self.generation_config.pad_token_id
-        eos_token_id = eos_token_id if eos_token_id is not None else self.generation_config.eos_token_id
-        if isinstance(eos_token_id, int):
-            eos_token_id = [eos_token_id]
-        output_scores = output_scores if output_scores is not None else self.generation_config.output_scores
-        output_attentions = (
-            output_attentions if output_attentions is not None else self.generation_config.output_attentions
-        )
-        output_hidden_states = (
-            output_hidden_states if output_hidden_states is not None else self.generation_config.output_hidden_states
-        )
-        return_dict_in_generate = (
-            return_dict_in_generate
-            if return_dict_in_generate is not None
-            else self.generation_config.return_dict_in_generate
-        )
-
-        batch_size = len(beam_scorer._beam_hyps)
-        num_beams = beam_scorer.num_beams
-
-        batch_beam_size, cur_len = input_ids.shape
-
-        # Overwrite cur_len
-        cur_len = seq_length
-
-        if num_beams * batch_size != batch_beam_size:
-            raise ValueError(
-                f"Batch dimension of `input_ids` should be {num_beams * batch_size}, but is {batch_beam_size}."
-            )
-
-        # init attention / hidden states / scores tuples
-        scores = () if (return_dict_in_generate and output_scores) else None
-        beam_indices = (
-            tuple(() for _ in range(batch_beam_size)) if (return_dict_in_generate and output_scores) else None
-        )
-        decoder_attentions = () if (return_dict_in_generate and output_attentions) else None
-        cross_attentions = () if (return_dict_in_generate and output_attentions) else None
-        decoder_hidden_states = () if (return_dict_in_generate and output_hidden_states) else None
-
-        # if model is an encoder-decoder, retrieve encoder attention weights and hidden states
-        if return_dict_in_generate and self.config.is_encoder_decoder:
-            encoder_attentions = model_kwargs["encoder_outputs"].get("attentions") if output_attentions else None
-            encoder_hidden_states = (
-                model_kwargs["encoder_outputs"].get("hidden_states") if output_hidden_states else None
-            )
-
-        # initialise score of first beam with 0 and the rest with -1e9. This makes sure that only tokens
-        # of the first beam are considered to avoid sampling the exact same tokens across all beams.
-        # beam_scores = torch.zeros((batch_size, num_beams), dtype=torch.float, device=input_ids.device)
-        beam_scores_device = "cpu"
-        beam_scores = torch.zeros((batch_size, num_beams), dtype=torch.float, device=beam_scores_device)
-        beam_scores[:, 1:] = -1e9
-        beam_scores = beam_scores.view((batch_size * num_beams,))
-
-        this_peer_finished = False  # used by synced_gpus only
-        while True:
-            if synced_gpus:
-                # Under synced_gpus the `forward` call must continue until all gpus complete their sequence.
-                # The following logic allows an early break if all peers finished generating their sequence
-                this_peer_finished_flag = torch.tensor(0.0 if this_peer_finished else 1.0).to(input_ids.device)
-                # send 0.0 if we finished, 1.0 otherwise
-                dist.all_reduce(this_peer_finished_flag, op=dist.ReduceOp.SUM)
-                # did all peers finish? the reduced sum will be 0.0 then
-                if this_peer_finished_flag.item() == 0.0:
-                    break
-
-            # prepare model inputs
-            if model_kwargs["use_cache"]:
-                # From max_length-sized input_ids, select first
-                # cur_len - 1 values.
-                update_indices = torch.stack(
-                    [torch.arange(input_ids.size(0)), torch.tensor(cur_len - 1).repeat(input_ids.size(0))], dim=-1
-                )
-                input_ids_ = input_ids[update_indices[:, 0], update_indices[:, 1], None]
-                model_inputs = self.prepare_inputs_for_generation(input_ids_, **model_kwargs)
-            else:
-                model_inputs = self.prepare_inputs_for_generation(input_ids, **model_kwargs)
-
-            outputs = self(
-                **model_inputs,
-                return_dict=True,
-                output_attentions=output_attentions,
-                output_hidden_states=output_hidden_states,
-            )
-
-            if synced_gpus and this_peer_finished:
-                cur_len = cur_len + 1
-                continue  # don't waste resources running the code we don't need
-
-            if not model_kwargs["use_cache"]:
-                one_hot = (
-                    torch.cat(
-                        [
-                            torch.tensor([0]).repeat(1, cur_len - 1),
-                            torch.tensor([1]).repeat(1, 1),
-                            torch.tensor([0]).repeat(1, input_ids.size(1) - cur_len),
-                        ],
-                        dim=1,
-                    )
-                    .to(device=outputs.logits.device)
-                    .float()
-                )
-                next_token_logits = torch.matmul(one_hot, outputs.logits)
-                next_token_logits = next_token_logits.squeeze(1)
-            else:
-                next_token_logits = outputs.logits[:, -1, :]
-
-            # Manually compute log softmax
-            # log_softmax(vi) = vi - max(vi) - log(sum(exp(vi - max(vi))))
-            logit_max, _ = torch.max(next_token_logits, dim=-1, keepdim=True)
-            logsumexp = torch.log(torch.exp(next_token_logits - logit_max).sum(dim=-1, keepdim=True))
-            next_token_scores = next_token_logits - logit_max - logsumexp
-            # (batch_size * num_beams, vocab_size)
-
-            xm.mark_step()
-
-            # We don't want to change every single logit processor, so
-            # we peform this processing on CPU.
-            input_ids_ = input_ids.to("cpu")[:, :cur_len]
-            next_token_scores_ = next_token_scores.to("cpu")
-            next_token_scores_processed = logits_processor(input_ids_, next_token_scores_)
-
-            next_token_scores = next_token_scores_processed + beam_scores[:, None].expand_as(next_token_scores)
-
-            # Store scores, attentions and hidden_states when required
-            if return_dict_in_generate:
-                if output_scores:
-                    scores += (next_token_scores_processed,)
-                if output_attentions:
-                    decoder_attentions += (
-                        (outputs.decoder_attentions,) if self.config.is_encoder_decoder else (outputs.attentions,)
-                    )
-                    if self.config.is_encoder_decoder:
-                        cross_attentions += (outputs.cross_attentions,)
-
-                if output_hidden_states:
-                    decoder_hidden_states += (
-                        (outputs.decoder_hidden_states,)
-                        if self.config.is_encoder_decoder
-                        else (outputs.hidden_states,)
-                    )
-
-            # reshape for beam search
-            vocab_size = next_token_scores.shape[-1]
-            next_token_scores = next_token_scores.view(batch_size, num_beams * vocab_size)
-            next_token_scores = next_token_scores * 1
-
-            # Sample 2 next tokens for each beam (so we have some spare tokens and match output of beam search)
-            next_token_scores, next_tokens = torch.topk(
-                next_token_scores, 2 * num_beams, dim=1, largest=True, sorted=True
-            )
-
-            next_indices = torch.div(next_tokens, vocab_size, rounding_mode="floor")
-            next_tokens = next_tokens % vocab_size
-
-            # stateless
-            beam_outputs = beam_scorer.process(
-                input_ids.to("cpu")[:, :cur_len],
-                next_token_scores.to("cpu"),
-                next_tokens.to("cpu"),
-                next_indices.to("cpu"),
-                pad_token_id=pad_token_id,
-                eos_token_id=eos_token_id,
-                beam_indices=beam_indices,
-            )
-
-            beam_scores = beam_outputs["next_beam_scores"]
-            beam_next_tokens = beam_outputs["next_beam_tokens"]
-            beam_idx = beam_outputs["next_beam_indices"]
-
-            update_indices = torch.stack(
-                [torch.arange(batch_beam_size), torch.tensor(cur_len - 1).repeat(batch_beam_size)], dim=-1
-            )
-            update_indices_2 = torch.stack(
-                [torch.arange(batch_beam_size), torch.tensor(cur_len).repeat(batch_beam_size)], dim=-1
-            )
-            # First select beam_indices
-            device = input_ids.device
-            beam_idx_device = beam_idx.to(device=input_ids.device)
-            input_ids[:, :] = input_ids[beam_idx_device.long(), :]
-
-            # Then append new tokens
-            input_ids[update_indices_2[:, 0], update_indices_2[:, 1], None] = beam_next_tokens.unsqueeze(-1).to(device)
-            input_ids = input_ids * 1  # Hack to materialize tensor
-
-            # update generated ids, model inputs, and length for next step
-            model_kwargs = self._update_model_kwargs_for_xla_generation(
-                outputs,
-                model_kwargs,
-                batch_size=batch_beam_size,
-                is_encoder_decoder=self.config.is_encoder_decoder,
-                max_length=stopping_criteria.max_length,
-                seq_length=cur_len,
-                use_cache=model_kwargs["use_cache"],
-            )
-            if model_kwargs["past_key_values"] is not None:
-                model_kwargs["past_key_values"] = self._reorder_cache(model_kwargs["past_key_values"], beam_idx)
-
-            if return_dict_in_generate and output_scores:
-                beam_indices = tuple((beam_indices[beam_idx[i]] + (beam_idx[i],) for i in range(len(beam_indices))))
-
-            # increase cur_len
-            cur_len = cur_len + 1
-
-            # stop when each sentence is finished, or if we exceed the maximum length
-            stop_criterion_1 = beam_scorer.is_done
-            if isinstance(stopping_criteria, list):
-                if len(stopping_criteria) == 1:
-                    stopping_criteria = stopping_criteria[0]
-
-            # Cases that can be handled in XLA without requiring
-            # non-padded input_ids
-            if isinstance(stopping_criteria, MaxLengthCriteria):
-                stop_criterion_2 = cur_len >= stopping_criteria.max_length
-            elif isinstance(stopping_criteria, MaxTimeCriteria):
-                stop_criterion_2 = stopping_criteria(input_ids, scores)
-            else:
-                # Other cases will be handled on CPU
-                batch_size, _ = input_ids.shape
-                input_ids_cpu = input_ids.to("cpu")
-                mask = torch.cat(
-                    [torch.ones(batch_size, cur_len), torch.zeros(batch_size, input_ids.shape[1] - cur_len)], dim=1
-                ).bool()
-                input_ids_cpu = torch.masked_select(input_ids_cpu, mask).reshape((batch_size, cur_len))
-                scores_cpu = scores.to("cpu") if torch.is_tensor(scores) else scores
-                stop_criterion_2 = stopping_criteria(input_ids_cpu, scores_cpu)
-
-            if stop_criterion_1 or stop_criterion_2:
-                if not synced_gpus:
-                    break
-                else:
-                    this_peer_finished = True
-
-        sequence_outputs = beam_scorer.finalize(
-            input_ids.to("cpu"),
-            beam_scores.to("cpu"),
-            next_tokens.to("cpu"),
-            next_indices.to("cpu"),
-            pad_token_id=pad_token_id,
-            eos_token_id=eos_token_id,
-            max_length=stopping_criteria.max_length,
-            beam_indices=beam_indices,
-        )
-
-        for k, v in sequence_outputs.items():
-            if type(v) == torch.Tensor:
-                sequence_outputs[k] = sequence_outputs[k].to(input_ids.device)
-
-        if return_dict_in_generate:
-            if not output_scores:
-                sequence_outputs["sequence_scores"] = None
-
-            if self.config.is_encoder_decoder:
-                return BeamSearchEncoderDecoderOutput(
-                    sequences=sequence_outputs["sequences"],
-                    sequences_scores=sequence_outputs["sequence_scores"],
-                    scores=scores,
-                    beam_indices=sequence_outputs["beam_indices"],
-                    encoder_attentions=encoder_attentions,
-                    encoder_hidden_states=encoder_hidden_states,
-                    decoder_attentions=decoder_attentions,
-                    cross_attentions=cross_attentions,
-                    decoder_hidden_states=decoder_hidden_states,
-                )
-            else:
-                return BeamSearchDecoderOnlyOutput(
-                    sequences=sequence_outputs["sequences"],
-                    sequences_scores=sequence_outputs["sequence_scores"],
-                    scores=scores,
-                    beam_indices=sequence_outputs["beam_indices"],
-                    attentions=decoder_attentions,
-                    hidden_states=decoder_hidden_states,
-                )
-        else:
-            return sequence_outputs["sequences"]
-
     @torch.no_grad()
     def generate(
         self,
@@ -682,8 +277,7 @@ class NeuronGenerationMixin(GenerationMixin):
         stopping_criteria: Optional[StoppingCriteriaList] = None,
         prefix_allowed_tokens_fn: Optional[Callable[[int, torch.Tensor], List[int]]] = None,
         synced_gpus: Optional[bool] = None,
-        assistant_model: Optional["PreTrainedModel"] = None,
-        streamer: Optional["BaseStreamer"] = None,
+        is_traced_inference: bool = False,
         **kwargs,
     ) -> Union[GenerateOutput, torch.LongTensor]:
         r"""
@@ -702,23 +296,23 @@ class NeuronGenerationMixin(GenerationMixin):
         </Tip>
 
         Parameters:
-            inputs (`torch.Tensor` of varying shape depending on the modality, *optional*):
+            inputs (`Optional[torch.Tensor]`, defaults to `None`):
                 The sequence used as a prompt for the generation or as model inputs to the encoder. If `None` the
                 method initializes it with `bos_token_id` and a batch size of 1. For decoder-only models `inputs`
                 should of in the format of `input_ids`. For encoder-decoder models *inputs* can represent any of
                 `input_ids`, `input_values`, `input_features`, or `pixel_values`.
-            generation_config (`~generation.GenerationConfig`, *optional*):
+            generation_config (`Optional[GenerationConfig]`, defaults to `None`):
                 The generation configuration to be used as base parametrization for the generation call. `**kwargs`
                 passed to generate matching the attributes of `generation_config` will override them. If
                 `generation_config` is not provided, the default will be used, which had the following loading
                 priority: 1) from the `generation_config.json` model file, if it exists; 2) from the model
                 configuration. Please note that unspecified parameters will inherit [`~generation.GenerationConfig`]'s
                 default values, whose documentation should be checked to parameterize generation.
-            logits_processor (`LogitsProcessorList`, *optional*):
+            logits_processor (`Optional[LogitsProcessorList]`, defaults to `None`):
                 Custom logits processors that complement the default logits processors built from arguments and
                 generation config. If a logit processor is passed that is already created with the arguments or a
                 generation config an error is thrown. This feature is intended for advanced users.
-            stopping_criteria (`StoppingCriteriaList`, *optional*):
+            stopping_criteria (`Optional[StoppingCriteriaList]`, defaults to `None`):
                 Custom stopping criteria that complement the default stopping criteria built from arguments and a
                 generation config. If a stopping criteria is passed that is already created with the arguments or a
                 generation config an error is thrown. This feature is intended for advanced users.
@@ -729,18 +323,13 @@ class NeuronGenerationMixin(GenerationMixin):
                 on the batch ID `batch_id` and the previously generated tokens `inputs_ids`. This argument is useful
                 for constrained generation conditioned on the prefix, as described in [Autoregressive Entity
                 Retrieval](https://arxiv.org/abs/2010.00904).
-            synced_gpus (`bool`, *optional*):
+            synced_gpus (`Optional[bool]`, defaults to `None`):
                 Whether to continue running the while loop until max_length. Unless overridden this flag will be set to
                 `True` under DeepSpeed ZeRO Stage 3 multiple GPUs environment to avoid hanging if one GPU finished
                 generating before other GPUs. Otherwise it'll be set to `False`.
-            assistant_model (`PreTrainedModel`, *optional*):
-                An assistant model that can be used to accelerate generation. The assistant model must have the exact
-                same tokenizer. The acceleration is achieved when forecasting candidate tokens with the assistent model
-                is much faster than running generation with the model you're calling generate from. As such, the
-                assistant model should be much smaller.
-            streamer (`BaseStreamer`, *optional*):
-                Streamer object that will be used to stream the generated sequences. Generated tokens are passed
-                through `streamer.put(token_ids)` and the streamer is responsible for any further processing.
+            is_traced_inference (`bool`, defaults to `False`):
+                Whether the decoder is traced or using XLA lazy tensor. If the decoder is traced, next tokens and the beam scores
+                are computed inside the decoder.
             kwargs:
                 Ad hoc parametrization of `generate_config` and/or additional model-specific kwargs that will be
                 forwarded to the `forward` function of the model. If the model is an encoder-decoder model, encoder
@@ -820,12 +409,14 @@ class NeuronGenerationMixin(GenerationMixin):
         # 4. Define other model kwargs
         model_kwargs["output_attentions"] = generation_config.output_attentions
         model_kwargs["output_hidden_states"] = generation_config.output_hidden_states
-        if generation_config.use_cache:
+        if generation_config.use_cache and not is_traced_inference:
             warnings.warn("use_cache is not supported for generation on Neuron devices, switching to use_cache=False.")
-        model_kwargs["use_cache"] = False
+            model_kwargs["use_cache"] = False
+        else:
+            model_kwargs["use_cache"] = generation_config.use_cache
 
         accepts_attention_mask = "attention_mask" in set(inspect.signature(self.forward).parameters.keys())
-        requires_attention_mask = "encoder_outputs" not in model_kwargs
+        requires_attention_mask = "encoder_outputs" not in model_kwargs and not is_traced_inference
 
         if model_kwargs.get("attention_mask", None) is None and requires_attention_mask and accepts_attention_mask:
             model_kwargs["attention_mask"] = self._prepare_attention_mask_for_generation(
@@ -843,7 +434,7 @@ class NeuronGenerationMixin(GenerationMixin):
                     "generation results, please set `padding_side='left'` when initializing the tokenizer."
                 )
 
-        if self.config.is_encoder_decoder and "encoder_outputs" not in model_kwargs:
+        if self.config.is_encoder_decoder and "encoder_outputs" not in model_kwargs and not is_traced_inference:
             # if model is encoder decoder encoder_outputs are created
             # and added to `model_kwargs`
             model_kwargs = self._prepare_encoder_decoder_kwargs_for_generation(
@@ -862,9 +453,6 @@ class NeuronGenerationMixin(GenerationMixin):
             )
         else:
             input_ids = inputs_tensor if model_input_name == "input_ids" else model_kwargs.pop("input_ids")
-
-        if streamer is not None:
-            streamer.put(input_ids.cpu())
 
         # 6. Prepare `max_length` depending on other stopping criteria.
         input_ids_seq_length = input_ids.shape[-1]
@@ -962,12 +550,7 @@ class NeuronGenerationMixin(GenerationMixin):
         if generation_config.num_beam_groups > generation_config.num_beams:
             raise ValueError("`num_beam_groups` has to be smaller or equal to `num_beams`")
 
-        if streamer is not None and (generation_config.num_beams > 1):
-            raise ValueError(
-                "`streamer` cannot be used with beam search (yet!). Make sure that `num_beams` is set to 1."
-            )
-
-        if self.device.type != input_ids.device.type:
+        if hasattr(self, "device") and self.device.type != input_ids.device.type:
             warnings.warn(
                 "You are calling .generate() with the `input_ids` being on a device type different"
                 f" than your model's device. `input_ids` is on {input_ids.device.type}, whereas the model"
@@ -1010,7 +593,7 @@ class NeuronGenerationMixin(GenerationMixin):
                 return_dict_in_generate=generation_config.return_dict_in_generate,
                 synced_gpus=synced_gpus,
                 seq_length=input_ids_seq_length,
-                streamer=streamer,
+                is_traced_inference=is_traced_inference,
                 **model_kwargs,
             )
         elif is_beam_gen_mode:
@@ -1049,6 +632,7 @@ class NeuronGenerationMixin(GenerationMixin):
                 return_dict_in_generate=generation_config.return_dict_in_generate,
                 synced_gpus=synced_gpus,
                 seq_length=input_ids_seq_length,
+                is_traced_inference=is_traced_inference,
                 **model_kwargs,
             )
 
@@ -1069,7 +653,7 @@ class NeuronGenerationMixin(GenerationMixin):
         return_dict_in_generate: Optional[bool] = None,
         synced_gpus: bool = False,
         seq_length: Optional[int] = None,
-        streamer: Optional["BaseStreamer"] = None,
+        is_traced_inference: bool = False,
         **model_kwargs,
     ) -> Union[GreedySearchOutput, torch.LongTensor]:
         r"""
@@ -1114,12 +698,11 @@ class NeuronGenerationMixin(GenerationMixin):
                 Whether or not to return a [`~utils.ModelOutput`] instead of a plain tuple.
             synced_gpus (`bool`, *optional*, defaults to `False`):
                 Whether to continue running the while loop until max_length (needed for ZeRO stage 3)
-            seq_length:
+            seq_length (`Optional[int]`, defaults to `False`):
                 Length of current input_ids sequence
-            streamer (`BaseStreamer`, *optional*):
-                Streamer object that will be used to stream the generated sequences. Generated tokens are passed
-                through `streamer.put(token_ids)` and the streamer is responsible for any further processing.
-                Unsupported for XLA devices
+            is_traced_inference (`bool`, defaults to `False`):
+                Whether the decoder is traced or using XLA lazy tensor. If the decoder is traced, next tokens and the beam scores
+                are computed inside the decoder.
             model_kwargs:
                 Additional model specific keyword arguments will be forwarded to the `forward` function of the model.
                 If model is an encoder-decoder model the kwargs should include `encoder_outputs`.
@@ -1134,42 +717,29 @@ class NeuronGenerationMixin(GenerationMixin):
         Examples:
 
         ```python
-        >>> from transformers import (
-        ...     AutoTokenizer,
-        ...     AutoModelForCausalLM,
-        ...     LogitsProcessorList,
-        ...     MinLengthLogitsProcessor,
-        ...     StoppingCriteriaList,
-        ...     MaxLengthCriteria,
-        ... )
+        >>> from transformers import AutoTokenizer
+        >>> from optimum.neuron import NeuronModelForSeq2SeqLM
 
-        >>> tokenizer = AutoTokenizer.from_pretrained("gpt2")
-        >>> model = AutoModelForCausalLM.from_pretrained("gpt2")
+        >>> tokenizer = AutoTokenizer.from_pretrained("t5-small")
+        >>> input_shapes = {"batch_size": 1, "sequence_length": 128, "num_beams": 1}
+        >>> model = NeuronModelForSeq2SeqLM.from_pretrained("t5-small", export=True, dynamic_batch_size=False, **input_shapes)
 
-        >>> # set pad_token_id to eos_token_id because GPT2 does not have a PAD token
-        >>> model.generation_config.pad_token_id = model.generation_config.eos_token_id
+        >>> input_prompt = "translate English to German: Lets eat good food."
+        >>> inputs = tokenizer(input_prompt, return_tensors="pt")
 
-        >>> input_prompt = "It might be possible to"
-        >>> input_ids = tokenizer(input_prompt, return_tensors="pt").input_ids
+        >>> outputs = model.greedy_search(input_ids)
 
-        >>> # instantiate logits processors
-        >>> logits_processor = LogitsProcessorList(
-        ...     [
-        ...         MinLengthLogitsProcessor(10, eos_token_id=model.generation_config.eos_token_id),
-        ...     ]
-        ... )
-        >>> stopping_criteria = StoppingCriteriaList([MaxLengthCriteria(max_length=20)])
-
-        >>> outputs = model.greedy_search(
-        ...     input_ids, logits_processor=logits_processor, stopping_criteria=stopping_criteria
-        ... )
-
-        >>> tokenizer.batch_decode(outputs, skip_special_tokens=True)
-        ["It might be possible to get a better understanding of the nature of the problem, but it's not"]
-        ```"""
+        >>> results = [tokenizer.decode(t, skip_special_tokens=True) for t in outputs]
+        ```
+        """
         # init values
-        logits_processor = logits_processor if logits_processor is not None else LogitsProcessorList()
-        use_cache = model_kwargs["use_cache"] if "use_cache" in model_kwargs else False
+        if logits_processor is not None and is_traced_inference:
+            logger.warning(
+                "`logits_processor` will not be neglected because in `optimum-neuron`, `next_tokens` is computed inside the compiled decoder. If you want us to support custom logits_processor during the compilation, please file an issue to https://github.com/huggingface/optimum-neuron."
+            )
+        elif logits_processor is None:
+            logits_processor = LogitsProcessorList()
+        use_cache = model_kwargs.pop("use_cache", False)
         stopping_criteria = stopping_criteria if stopping_criteria is not None else StoppingCriteriaList()
         if max_length is not None:
             warnings.warn(
@@ -1197,7 +767,14 @@ class NeuronGenerationMixin(GenerationMixin):
         )
 
         # init attention / hidden states / scores tuples
-        scores = () if (return_dict_in_generate and output_scores) else None
+        scores = None
+        if return_dict_in_generate and output_scores:
+            if is_traced_inference:
+                logger.warning(
+                    "`output_scores` will be neglected because currently we do not trace `next_token_scores` for greedy search (we do only in beam search). If you want us to support the option during the compilation, please file an issue to https://github.com/huggingface/optimum-neuron."
+                )
+            else:
+                scores = ()
         decoder_attentions = () if (return_dict_in_generate and output_attentions) else None
         cross_attentions = () if (return_dict_in_generate and output_attentions) else None
         decoder_hidden_states = () if (return_dict_in_generate and output_hidden_states) else None
@@ -1253,33 +830,40 @@ class NeuronGenerationMixin(GenerationMixin):
             if synced_gpus and this_peer_finished:
                 continue  # don't waste resources running the code we don't need
 
-            if not use_cache:
-                one_hot = (
-                    torch.cat(
-                        [
-                            torch.tensor([0]).repeat(1, seq_length - 1),
-                            torch.tensor([1]).repeat(1, 1),
-                            torch.tensor([0]).repeat(1, input_ids.size(1) - seq_length),
-                        ],
-                        dim=1,
+            if not is_traced_inference:
+                if not use_cache:
+                    one_hot = (
+                        torch.cat(
+                            [
+                                torch.tensor([0]).repeat(1, seq_length - 1),
+                                torch.tensor([1]).repeat(1, 1),
+                                torch.tensor([0]).repeat(1, input_ids.size(1) - seq_length),
+                            ],
+                            dim=1,
+                        )
+                        .to(device=outputs.logits.device)
+                        .float()
                     )
-                    .to(device=outputs.logits.device)
-                    .float()
-                )
-                next_token_logits = torch.matmul(one_hot, outputs.logits)
-                next_token_logits = next_token_logits.squeeze(1)
-            else:
-                next_token_logits = outputs.logits[:, -1, :]
+                    next_token_logits = torch.matmul(one_hot, outputs.logits)
+                    next_token_logits = next_token_logits.squeeze(1)
+                else:
+                    next_token_logits = outputs.logits[:, -1, :]
 
-            # pre-process distribution
-            # Move to cpu to handle arbitrary logits_processor
-            next_tokens_scores = logits_processor(input_ids.to("cpu")[:, :seq_length], next_token_logits.to("cpu"))
-            next_tokens_scores = next_tokens_scores.to(input_ids.device)
+                # pre-process distribution
+                # Move to cpu to handle arbitrary logits_processor
+                next_tokens_scores = logits_processor(input_ids.to("cpu")[:, :seq_length], next_token_logits.to("cpu"))
+                next_tokens_scores = next_tokens_scores.to(input_ids.device)
+
+                # argmax
+                next_tokens = torch.argmax(next_tokens_scores, dim=-1)
+
+                if return_dict_in_generate and output_scores:
+                    scores += (next_tokens_scores,)
+            else:
+                next_tokens = outputs[0]
 
             # Store scores, attentions and hidden_states when required
             if return_dict_in_generate:
-                if output_scores:
-                    scores += (next_tokens_scores,)
                 if output_attentions:
                     decoder_attentions += (
                         (outputs.decoder_attentions,) if self.config.is_encoder_decoder else (outputs.attentions,)
@@ -1294,9 +878,6 @@ class NeuronGenerationMixin(GenerationMixin):
                         else (outputs.hidden_states,)
                     )
 
-            # argmax
-            next_tokens = torch.argmax(next_tokens_scores, dim=-1)
-
             # finished sentences should have their next token be a padding token
             if eos_token_id is not None:
                 if pad_token_id is None:
@@ -1310,8 +891,8 @@ class NeuronGenerationMixin(GenerationMixin):
             )
             input_ids[update_indices[:, 0], update_indices[:, 1]] = next_tokens[:]
             model_kwargs = self._update_model_kwargs_for_xla_generation(
-                outputs,
-                model_kwargs,
+                outputs=outputs,
+                model_kwargs=model_kwargs,
                 batch_size=batch_size,
                 is_encoder_decoder=self.config.is_encoder_decoder,
                 max_length=stopping_criteria.max_length,
@@ -1327,7 +908,8 @@ class NeuronGenerationMixin(GenerationMixin):
                     next_tokens.tile(eos_token_id_tensor.shape[0], 1).ne(eos_token_id_tensor.unsqueeze(1)).prod(dim=0)
                 )
 
-            xm.mark_step()
+            if not is_traced_inference:
+                xm.mark_step()
 
             # stop when each sentence is finished, or if we exceed the maximum length
             stop_criterion_1 = unfinished_sequences.max() == 0
@@ -1359,9 +941,6 @@ class NeuronGenerationMixin(GenerationMixin):
             if this_peer_finished and not synced_gpus:
                 break
 
-        if streamer is not None:
-            streamer.end()
-
         if return_dict_in_generate:
             if self.config.is_encoder_decoder:
                 return GreedySearchEncoderDecoderOutput(
@@ -1382,3 +961,428 @@ class NeuronGenerationMixin(GenerationMixin):
                 )
         else:
             return input_ids
+
+    def beam_search(
+        self,
+        input_ids: torch.LongTensor,
+        beam_scorer: BeamScorer,
+        logits_processor: Optional[LogitsProcessorList] = None,
+        stopping_criteria: Optional[StoppingCriteriaList] = None,
+        max_length: Optional[int] = None,
+        pad_token_id: Optional[int] = None,
+        eos_token_id: Optional[Union[int, List[int]]] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        output_scores: Optional[bool] = None,
+        return_dict_in_generate: Optional[bool] = None,
+        synced_gpus: Optional[bool] = False,
+        seq_length: Optional[int] = None,
+        is_traced_inference: bool = False,
+        **model_kwargs,
+    ) -> Union[BeamSearchOutput, torch.LongTensor]:
+        r"""
+        Generates sequences of token ids for models with a language modeling head using **beam search decoding** and
+        can be used for text-decoder, text-to-text, speech-to-text, and vision-to-text models.
+
+        <Tip warning={true}>
+
+        In most cases, you do not need to call [`~generation.GenerationMixin.beam_search`] directly. Use generate()
+        instead. For an overview of generation strategies and code examples, check the [following
+        guide](../generation_strategies).
+
+        </Tip>
+
+        Parameters:
+            input_ids (`torch.LongTensor` of shape `(batch_size, sequence_length)`):
+                The sequence used as a prompt for the generation.
+            beam_scorer (`BeamScorer`):
+                An derived instance of [`BeamScorer`] that defines how beam hypotheses are constructed, stored and
+                sorted during generation. For more information, the documentation of [`BeamScorer`] should be read.
+            logits_processor (`LogitsProcessorList`, *optional*):
+                An instance of [`LogitsProcessorList`]. List of instances of class derived from [`LogitsProcessor`]
+                used to modify the prediction scores of the language modeling head applied at each generation step.
+            stopping_criteria (`StoppingCriteriaList`, *optional*):
+                An instance of [`StoppingCriteriaList`]. List of instances of class derived from [`StoppingCriteria`]
+                used to tell if the generation loop should stop.
+            max_length (`int`, *optional*, defaults to 20):
+                **DEPRECATED**. Use `logits_processor` or `stopping_criteria` directly to cap the number of generated
+                tokens. The maximum length of the sequence to be generated.
+            pad_token_id (`int`, *optional*):
+                The id of the *padding* token.
+            eos_token_id (`Union[int, List[int]]`, *optional*):
+                The id of the *end-of-sequence* token. Optionally, use a list to set multiple *end-of-sequence* tokens.
+            output_attentions (`bool`, *optional*, defaults to `False`):
+                Whether or not to return the attentions tensors of all attention layers. See `attentions` under
+                returned tensors for more details.
+            output_hidden_states (`bool`, *optional*, defaults to `False`):
+                Whether or not to return the hidden states of all layers. See `hidden_states` under returned tensors
+                for more details.
+            output_scores (`bool`, *optional*, defaults to `False`):
+                Whether or not to return the prediction scores. See `scores` under returned tensors for more details.
+            return_dict_in_generate (`bool`, *optional*, defaults to `False`):
+                Whether or not to return a [`~utils.ModelOutput`] instead of a plain tuple.
+            synced_gpus (`bool`, *optional*, defaults to `False`):
+                Whether to continue running the while loop until max_length (needed for ZeRO stage 3)
+            seq_length (`Optional[int]`, defaults to `False`):
+                Length of current input_ids sequence
+            is_traced_inference (`bool`, defaults to `False`):
+                Whether the decoder is traced or using XLA lazy tensor. If the decoder is traced, next tokens and the beam scores
+                are computed inside the decoder.
+            model_kwargs:
+                Additional model specific kwargs will be forwarded to the `forward` function of the model. If model is
+                an encoder-decoder model the kwargs should include `encoder_outputs`.
+
+        Return:
+            [`generation.BeamSearchDecoderOnlyOutput`], [`~generation.BeamSearchEncoderDecoderOutput`] or
+            `torch.LongTensor`: A `torch.LongTensor` containing the generated tokens (default behaviour) or a
+            [`~generation.BeamSearchDecoderOnlyOutput`] if `model.config.is_encoder_decoder=False` and
+            `return_dict_in_generate=True` or a [`~generation.BeamSearchEncoderDecoderOutput`] if
+            `model.config.is_encoder_decoder=True`.
+
+
+        Examples:
+
+        ```python
+        >>> from transformers import AutoTokenizer
+        >>> from optimum.neuron import NeuronModelForSeq2SeqLM
+
+        >>> tokenizer = AutoTokenizer.from_pretrained("t5-small")
+        >>> input_shapes = {"batch_size": 1, "sequence_length": 128, "num_beams": 4}
+        >>> model = NeuronModelForSeq2SeqLM.from_pretrained("t5-small", export=True, dynamic_batch_size=False, **input_shapes)
+
+        >>> input_prompt = "translate English to German: Lets eat good food."
+        >>> inputs = tokenizer(input_prompt, return_tensors="pt")
+
+        >>> # add encoder_outputs to model keyword arguments
+        >>> model_kwargs = {
+        ...     "encoder_outputs": model.get_encoder()(
+        ...         encoder_input_ids.repeat_interleave(num_beams, dim=0), return_dict=True
+        ...     )
+        ... }
+        >>> # instantiate beam scorer
+        >>> beam_scorer = BeamSearchScorer(
+        ...     batch_size=1,
+        ...     num_beams=num_beams,
+        ...     device=model.device,
+        ... )
+
+        >>> outputs = model.beam_search(input_ids, beam_scorer)
+        >>> tokenizer.batch_decode(outputs, skip_special_tokens=True)
+        ```
+        """
+        # init values
+        if logits_processor is not None and is_traced_inference:
+            logger.warning(
+                "`logits_processor` will be neglected because in `optimum-neuron`, `next_tokens` is computed inside the compiled decoder. If you want us to support custom logits_processor during the compilation, please file an issue to https://github.com/huggingface/optimum-neuron."
+            )
+        elif logits_processor is None:
+            logits_processor = LogitsProcessorList()
+        stopping_criteria = stopping_criteria if stopping_criteria is not None else StoppingCriteriaList()
+        if max_length is not None:
+            warnings.warn(
+                "`max_length` is deprecated in this function, use"
+                " `stopping_criteria=StoppingCriteriaList(MaxLengthCriteria(max_length=max_length))` instead.",
+                UserWarning,
+            )
+            stopping_criteria = validate_stopping_criteria(stopping_criteria, max_length)
+        if len(stopping_criteria) == 0:
+            warnings.warn("You don't have defined any stopping_criteria, this will likely loop forever", UserWarning)
+        pad_token_id = pad_token_id if pad_token_id is not None else self.generation_config.pad_token_id
+        eos_token_id = eos_token_id if eos_token_id is not None else self.generation_config.eos_token_id
+        if isinstance(eos_token_id, int):
+            eos_token_id = [eos_token_id]
+        output_scores = output_scores if output_scores is not None else self.generation_config.output_scores
+        output_attentions = (
+            output_attentions if output_attentions is not None else self.generation_config.output_attentions
+        )
+        output_hidden_states = (
+            output_hidden_states if output_hidden_states is not None else self.generation_config.output_hidden_states
+        )
+        return_dict_in_generate = (
+            return_dict_in_generate
+            if return_dict_in_generate is not None
+            else self.generation_config.return_dict_in_generate
+        )
+
+        batch_size = len(beam_scorer._beam_hyps)
+        num_beams = beam_scorer.num_beams
+
+        batch_beam_size, cur_len = input_ids.shape
+
+        # Overwrite cur_len
+        cur_len = seq_length
+
+        if num_beams * batch_size != batch_beam_size:
+            raise ValueError(
+                f"Batch dimension of `input_ids` should be {num_beams * batch_size}, but is {batch_beam_size}."
+            )
+
+        # init attention / hidden states / scores tuples
+        scores = () if (return_dict_in_generate and output_scores) else None
+        beam_indices = (
+            tuple(() for _ in range(batch_beam_size)) if (return_dict_in_generate and output_scores) else None
+        )
+        decoder_attentions = () if (return_dict_in_generate and output_attentions) else None
+        cross_attentions = () if (return_dict_in_generate and output_attentions) else None
+        decoder_hidden_states = () if (return_dict_in_generate and output_hidden_states) else None
+
+        # if model is an encoder-decoder, retrieve encoder attention weights and hidden states
+        if return_dict_in_generate and self.config.is_encoder_decoder:
+            encoder_attentions = model_kwargs["encoder_outputs"].get("attentions") if output_attentions else None
+            encoder_hidden_states = (
+                model_kwargs["encoder_outputs"].get("hidden_states") if output_hidden_states else None
+            )
+
+        # initialise score of first beam with 0 and the rest with -1e9. This makes sure that only tokens
+        # of the first beam are considered to avoid sampling the exact same tokens across all beams.
+        beam_scores_device = "cpu"
+        beam_scores = torch.zeros((batch_size, num_beams), dtype=torch.float, device=beam_scores_device)
+        beam_scores[:, 1:] = -1e9
+        beam_scores = beam_scores.view((batch_size * num_beams,))
+
+        this_peer_finished = False  # used by synced_gpus only
+        while True:
+            if synced_gpus:
+                # Under synced_gpus the `forward` call must continue until all gpus complete their sequence.
+                # The following logic allows an early break if all peers finished generating their sequence
+                this_peer_finished_flag = torch.tensor(0.0 if this_peer_finished else 1.0).to(input_ids.device)
+                # send 0.0 if we finished, 1.0 otherwise
+                dist.all_reduce(this_peer_finished_flag, op=dist.ReduceOp.SUM)
+                # did all peers finish? the reduced sum will be 0.0 then
+                if this_peer_finished_flag.item() == 0.0:
+                    break
+
+            # prepare model inputs
+            if model_kwargs["use_cache"]:
+                # From max_length-sized input_ids, select first
+                # cur_len - 1 values.
+                update_indices = torch.stack(
+                    [torch.arange(input_ids.size(0)), torch.tensor(cur_len - 1).repeat(input_ids.size(0))], dim=-1
+                )
+                input_ids_ = input_ids[update_indices[:, 0], update_indices[:, 1], None]
+                model_inputs = self.prepare_inputs_for_generation(input_ids_, **model_kwargs)
+            else:
+                model_inputs = self.prepare_inputs_for_generation(input_ids, **model_kwargs)
+
+            if is_traced_inference:
+                outputs = self(
+                    **model_inputs,
+                    beam_scores=beam_scores,
+                    return_dict=True,
+                    output_attentions=output_attentions,
+                    output_hidden_states=output_hidden_states,
+                )
+                next_token_scores = outputs.next_token_scores
+                next_tokens = outputs.next_tokens
+                next_indices = outputs.next_indices
+
+                if return_dict_in_generate and output_scores:
+                    scores += (next_token_scores,)
+            else:
+                outputs = self(
+                    **model_inputs,
+                    return_dict=True,
+                    output_attentions=output_attentions,
+                    output_hidden_states=output_hidden_states,
+                )
+
+                if synced_gpus and this_peer_finished:
+                    cur_len = cur_len + 1
+                    continue  # don't waste resources running the code we don't need
+
+                if not model_kwargs["use_cache"]:
+                    one_hot = (
+                        torch.cat(
+                            [
+                                torch.tensor([0]).repeat(1, cur_len - 1),
+                                torch.tensor([1]).repeat(1, 1),
+                                torch.tensor([0]).repeat(1, input_ids.size(1) - cur_len),
+                            ],
+                            dim=1,
+                        )
+                        .to(device=outputs.logits.device)
+                        .float()
+                    )
+                    next_token_logits = torch.matmul(one_hot, outputs.logits)
+                    next_token_logits = next_token_logits.squeeze(1)
+                else:
+                    next_token_logits = outputs.logits[:, -1, :]
+
+                # Manually compute log softmax
+                # log_softmax(vi) = vi - max(vi) - log(sum(exp(vi - max(vi))))
+                logit_max, _ = torch.max(next_token_logits, dim=-1, keepdim=True)
+                logsumexp = torch.log(torch.exp(next_token_logits - logit_max).sum(dim=-1, keepdim=True))
+                next_token_scores = next_token_logits - logit_max - logsumexp
+                # (batch_size * num_beams, vocab_size)
+
+                xm.mark_step()
+
+                # We don't want to change every single logit processor, so
+                # we perform this processing on CPU.
+                input_ids_ = input_ids.to("cpu")[:, :cur_len]
+                next_token_scores_ = next_token_scores.to("cpu")
+                next_token_scores_processed = logits_processor(input_ids_, next_token_scores_)
+
+                next_token_scores = next_token_scores_processed + beam_scores[:, None].expand_as(next_token_scores)
+
+                # reshape for beam search
+                vocab_size = next_token_scores.shape[-1]
+                next_token_scores = next_token_scores.view(batch_size, num_beams * vocab_size)
+                next_token_scores = next_token_scores * 1
+
+                # Sample 2 next tokens for each beam (so we have some spare tokens and match output of beam search)
+                next_token_scores, next_tokens = torch.topk(
+                    next_token_scores, 2 * num_beams, dim=1, largest=True, sorted=True
+                )
+
+                next_indices = torch.div(next_tokens, vocab_size, rounding_mode="floor")
+                next_tokens = next_tokens % vocab_size
+
+                if return_dict_in_generate and output_scores:
+                    scores += (next_token_scores_processed,)
+
+            # Store scores, attentions and hidden_states when required
+            if return_dict_in_generate:
+                if output_attentions:
+                    decoder_attentions += (
+                        (outputs.decoder_attentions,) if self.config.is_encoder_decoder else (outputs.attentions,)
+                    )
+                    if self.config.is_encoder_decoder:
+                        cross_attentions += (outputs.cross_attentions,)
+
+                if output_hidden_states:
+                    decoder_hidden_states += (
+                        (outputs.decoder_hidden_states,)
+                        if self.config.is_encoder_decoder
+                        else (outputs.hidden_states,)
+                    )
+            # stateless
+            beam_outputs = beam_scorer.process(
+                input_ids.to("cpu")[:, :cur_len],
+                next_token_scores.to("cpu"),
+                next_tokens.to("cpu"),
+                next_indices.to("cpu"),
+                pad_token_id=pad_token_id,
+                eos_token_id=eos_token_id,
+                beam_indices=beam_indices,
+            )
+
+            beam_scores = beam_outputs["next_beam_scores"]
+            beam_next_tokens = beam_outputs["next_beam_tokens"]
+            beam_idx = beam_outputs["next_beam_indices"]
+
+            update_indices = torch.stack(
+                [torch.arange(batch_beam_size), torch.tensor(cur_len - 1).repeat(batch_beam_size)], dim=-1
+            )
+            update_indices_2 = torch.stack(
+                [torch.arange(batch_beam_size), torch.tensor(cur_len).repeat(batch_beam_size)], dim=-1
+            )
+            # First select beam_indices
+            device = input_ids.device
+            beam_idx_device = beam_idx.to(device=input_ids.device)
+            input_ids[:, :] = input_ids[beam_idx_device.long(), :]
+
+            # Then append new tokens
+            if is_traced_inference:
+                # int64 is not natively supported by inf2 and has been cast down to int32
+                input_ids[update_indices_2[:, 0], update_indices_2[:, 1], None] = (
+                    beam_next_tokens.unsqueeze(-1).to(device).to(torch.long)
+                )
+            else:
+                input_ids[update_indices_2[:, 0], update_indices_2[:, 1], None] = beam_next_tokens.unsqueeze(-1).to(
+                    device
+                )
+            input_ids = input_ids * 1  # Hack to materialize tensor
+
+            # update generated ids, model inputs, and length for next step
+            model_kwargs = self._update_model_kwargs_for_xla_generation(
+                outputs=outputs,
+                model_kwargs=model_kwargs,
+                batch_size=batch_beam_size,
+                is_encoder_decoder=self.config.is_encoder_decoder,
+                max_length=stopping_criteria.max_length,
+                seq_length=cur_len,
+                use_cache=model_kwargs["use_cache"],
+            )
+            if is_traced_inference:
+                self._reorder_cache(beam_idx.to(torch.int64))
+            elif model_kwargs["past_key_values"] is not None:
+                model_kwargs["past_key_values"] = self._reorder_cache(model_kwargs["past_key_values"], beam_idx)
+
+            if return_dict_in_generate and output_scores:
+                beam_indices = tuple((beam_indices[beam_idx[i]] + (beam_idx[i],) for i in range(len(beam_indices))))
+
+            # increase cur_len
+            cur_len = cur_len + 1
+
+            # stop when each sentence is finished, or if we exceed the maximum length
+            stop_criterion_1 = beam_scorer.is_done
+            if isinstance(stopping_criteria, list):
+                if len(stopping_criteria) == 1:
+                    stopping_criteria = stopping_criteria[0]
+
+            # Cases that can be handled in XLA without requiring
+            # non-padded input_ids
+            if isinstance(stopping_criteria, MaxLengthCriteria):
+                stop_criterion_2 = cur_len >= stopping_criteria.max_length
+            elif isinstance(stopping_criteria, MaxTimeCriteria):
+                stop_criterion_2 = stopping_criteria(input_ids, scores)
+            else:
+                # Other cases will be handled on CPU
+                batch_size, _ = input_ids.shape
+                input_ids_cpu = input_ids.to("cpu")
+                mask = torch.cat(
+                    [torch.ones(batch_size, cur_len), torch.zeros(batch_size, input_ids.shape[1] - cur_len)], dim=1
+                ).bool()
+                input_ids_cpu = torch.masked_select(input_ids_cpu, mask).reshape((batch_size, cur_len))
+                scores_cpu = scores.to("cpu") if torch.is_tensor(scores) else scores
+                stop_criterion_2 = stopping_criteria(input_ids_cpu, scores_cpu)
+
+            if stop_criterion_1 or stop_criterion_2:
+                if not synced_gpus:
+                    break
+                else:
+                    this_peer_finished = True
+
+        sequence_outputs = beam_scorer.finalize(
+            input_ids.to("cpu"),
+            beam_scores.to("cpu"),
+            next_tokens.to("cpu"),
+            next_indices.to("cpu"),
+            pad_token_id=pad_token_id,
+            eos_token_id=eos_token_id,
+            max_length=stopping_criteria.max_length,
+            beam_indices=beam_indices,
+        )
+
+        for k, v in sequence_outputs.items():
+            if type(v) == torch.Tensor:
+                sequence_outputs[k] = sequence_outputs[k].to(input_ids.device)
+
+        if return_dict_in_generate:
+            if not output_scores:
+                sequence_outputs["sequence_scores"] = None
+
+            if self.config.is_encoder_decoder:
+                return BeamSearchEncoderDecoderOutput(
+                    sequences=sequence_outputs["sequences"],
+                    sequences_scores=sequence_outputs["sequence_scores"],
+                    scores=scores,
+                    beam_indices=sequence_outputs["beam_indices"],
+                    encoder_attentions=encoder_attentions,
+                    encoder_hidden_states=encoder_hidden_states,
+                    decoder_attentions=decoder_attentions,
+                    cross_attentions=cross_attentions,
+                    decoder_hidden_states=decoder_hidden_states,
+                )
+            else:
+                return BeamSearchDecoderOnlyOutput(
+                    sequences=sequence_outputs["sequences"],
+                    sequences_scores=sequence_outputs["sequence_scores"],
+                    scores=scores,
+                    beam_indices=sequence_outputs["beam_indices"],
+                    attentions=decoder_attentions,
+                    hidden_states=decoder_hidden_states,
+                )
+        else:
+            return sequence_outputs["sequences"]

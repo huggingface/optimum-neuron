@@ -119,6 +119,9 @@ class NeuronConfig(ExportConfig, ABC):
         audio_sequence_length: Optional[int] = None,
         point_batch_size: Optional[int] = None,
         nb_points_per_image: Optional[int] = None,
+        num_beams: int = 1,
+        output_attentions: bool = False,
+        output_hidden_states: bool = False,
         # TODO: add custom dtype after optimum 1.13 release
         # int_dtype: str = "int64",
         # float_dtype: str = "fp32",
@@ -147,6 +150,7 @@ class NeuronConfig(ExportConfig, ABC):
             "audio_sequence_length": audio_sequence_length,
             "point_batch_size": point_batch_size,
             "nb_points_per_image": nb_points_per_image,
+            "num_beams": num_beams,
         }
         input_shapes = {}
         for name, value in axes_values.items():
@@ -154,6 +158,8 @@ class NeuronConfig(ExportConfig, ABC):
                 input_shapes[name] = value
             setattr(self, name, value)
         setattr(self, "input_shapes", input_shapes)
+        setattr(self, "output_attentions", output_attentions)
+        setattr(self, "output_hidden_states", output_hidden_states)
         setattr(self, "compiler_type", compiler_type)
         setattr(self, "compiler_version", compiler_version)
 
@@ -290,7 +296,7 @@ class NeuronConfig(ExportConfig, ABC):
                 flatten[name] = value
         return flatten
 
-    def check_model_inputs_order(
+    def patch_model_for_export(
         self,
         model: "PreTrainedModel",
         dummy_inputs: Optional[Dict[str, torch.Tensor]] = None,

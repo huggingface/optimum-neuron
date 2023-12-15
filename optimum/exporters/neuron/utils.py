@@ -23,11 +23,13 @@ import torch
 from transformers import PretrainedConfig
 
 from ...neuron.utils import (
+    DECODER_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_2_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_NAME,
     DIFFUSION_MODEL_UNET_NAME,
     DIFFUSION_MODEL_VAE_DECODER_NAME,
     DIFFUSION_MODEL_VAE_ENCODER_NAME,
+    ENCODER_NAME,
     get_attention_scores_sd,
     get_attention_scores_sdxl,
 )
@@ -157,7 +159,7 @@ def get_stable_diffusion_models_for_export(
             Whether the Neuron compiled model supports dynamic batch size.
 
     Returns:
-        `Dict[str, Tuple[Union[`PreTrainedModel`, `ModelMixin`], `NeuronConfig`]: A Dict containing the model and
+        `Dict[str, Tuple[Union[`PreTrainedModel`, `ModelMixin`], `NeuronConfig`]`: A Dict containing the model and
         Neuron configs for the different components of the model.
     """
     models_for_export = _get_submodels_for_export_stable_diffusion(pipeline=pipeline, task=task)
@@ -326,6 +328,15 @@ def override_diffusers_2_0_attn_processors(model):
     return model
 
 
+def check_mandatory_input_shapes(neuron_config_constructor, task, input_shapes):
+    mandatory_shapes = neuron_config_constructor.func.get_mandatory_axes_for_task(task)
+    for name in mandatory_shapes:
+        if input_shapes.get(name, None) is None:
+            raise AttributeError(
+                f"Cannot find the value of `{name}` which is mandatory for exporting the model to the neuron format, please set the value explicitly."
+            )
+
+
 def replace_stable_diffusion_submodels(pipeline, submodels):
     if submodels is not None:
         unet_id = submodels.pop("unet", None)
@@ -334,3 +345,68 @@ def replace_stable_diffusion_submodels(pipeline, submodels):
             pipeline.unet = unet
 
     return pipeline
+
+
+def get_encoder_decoder_models_for_export(
+    model: "PreTrainedModel",
+    task: str,
+    input_shapes: Dict[str, int],
+    dynamic_batch_size: Optional[bool] = False,
+    output_attentions: bool = False,
+    output_hidden_states: bool = False,
+) -> Dict[str, Tuple["PreTrainedModel", "NeuronConfig"]]:
+    """
+    Returns the components of an encoder-decoder model and their subsequent neuron configs.
+    The encoder includes the compute of encoder hidden states and the initialization of KV
+    cache. The decoder the autoprogressive process of generating tokens, which takes past
+    key values as inputs to save the compute.
+
+    Args:
+        model ("PreTrainedModel"):
+            The model to export.
+        input_shapes (`Dict[str, int]`):
+            Static shapes used for compiling the encoder and the decoder.
+        dynamic_batch_size (`bool`, defaults to `False`):
+            Whether the Neuron compiled model supports dynamic batch size.
+        output_attentions (`bool`, defaults to `False`):
+            Whether or not for the traced model to return the attentions tensors of all attention layers.
+        output_hidden_states (`bool`, defaults to `False`):
+            Whether or not for the traced model to return the hidden states of all layers.
+
+    Returns:
+        `Dict[str, Tuple["PreTrainedModel", "NeuronConfig"]]`: A Dict containing the model and
+        Neuron configs for the different components of the model.
+    """
+    models_for_export = {}
+
+    # Encoder
+    model_type = getattr(model.config, "model_type") + "-encoder"
+    encoder_config_constructor = TasksManager.get_exporter_config_constructor(
+        exporter="neuron", model_type=model_type, task=task
+    )
+    check_mandatory_input_shapes(encoder_config_constructor, task, input_shapes)
+    encoder_neuron_config = encoder_config_constructor(
+        config=model.config,
+        task=task,
+        dynamic_batch_size=dynamic_batch_size,
+        **input_shapes,
+    )
+    models_for_export[ENCODER_NAME] = (model, encoder_neuron_config)
+
+    # Decoder
+    model_type = getattr(model.config, "model_type") + "-decoder"
+    decoder_config_constructor = TasksManager.get_exporter_config_constructor(
+        exporter="neuron", model_type=model_type, task=task
+    )
+    check_mandatory_input_shapes(encoder_config_constructor, task, input_shapes)
+    decoder_neuron_config = decoder_config_constructor(
+        config=model.config,
+        task=task,
+        dynamic_batch_size=dynamic_batch_size,
+        output_attentions=output_attentions,
+        output_hidden_states=output_hidden_states,
+        **input_shapes,
+    )
+    models_for_export[DECODER_NAME] = (model, decoder_neuron_config)
+
+    return models_for_export

@@ -20,7 +20,7 @@ import shutil
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Union
 
 import torch
 from huggingface_hub import HfApi, HfFolder, hf_hub_download
@@ -209,6 +209,8 @@ class NeuronBaseModel(OptimizedModel):
         revision: Optional[str] = None,
         force_download: bool = False,
         cache_dir: Optional[str] = None,
+        compiler_workdir: Optional[Union[str, Path]] = None,
+        optlevel: str = "2",
         subfolder: str = "",
         local_files_only: bool = False,
         trust_remote_code: bool = False,
@@ -293,18 +295,22 @@ class NeuronBaseModel(OptimizedModel):
             model=model,
             config=neuron_config,
             output=save_dir_path / NEURON_FILE_NAME,
+            compiler_workdir=compiler_workdir,
+            optlevel=optlevel,
             **compiler_kwargs,
         )
 
         store_compilation_config(
-            config,
-            input_shapes,
-            compiler_kwargs,
-            input_names,
-            output_names,
-            dynamic_batch_size,
-            compiler_type,
-            compiler_version,
+            config=config,
+            input_shapes=input_shapes,
+            compiler_kwargs=compiler_kwargs,
+            input_names=input_names,
+            output_names=output_names,
+            dynamic_batch_size=dynamic_batch_size,
+            compiler_type=compiler_type,
+            compiler_version=compiler_version,
+            optlevel=optlevel,
+            task=task,
         )
 
         config.save_pretrained(save_dir_path)
@@ -375,9 +381,6 @@ class NeuronBaseModel(OptimizedModel):
 
         self.preprocessors = preprocessors if preprocessors is not None else []
 
-        self.input_names = getattr(self.config, "input_names", [])
-        self.output_names = getattr(self.config, "output_names", [])
-
         # Registers the NeuronModelForXXX classes into the transformers AutoModel classes to avoid warnings when creating
         # a pipeline https://github.com/huggingface/transformers/blob/3d3204c025b6b5de013e07dd364208e28b4d9589/src/transformers/pipelines/base.py#L940
         AutoConfig.register(self.model_type, AutoConfig)
@@ -395,10 +398,10 @@ class NeuronBaseModel(OptimizedModel):
             )
             return
 
-        neuron_configs = config.neuron
+        neuron_config = config.neuron
         # Fetch compiler information
-        compiler_type = neuron_configs.get("compiler_type")
-        compiler_version = neuron_configs.get("compiler_version")
+        compiler_type = neuron_config.get("compiler_type")
+        compiler_version = neuron_config.get("compiler_version")
 
         # Fetch mandatory shapes from config
         compile_shapes = {
@@ -410,13 +413,14 @@ class NeuronBaseModel(OptimizedModel):
         # Neuron config constructuor
         task = getattr(config, "task") or TasksManager.infer_task_from_model(cls.auto_model_class)
         task = TasksManager.map_from_synonym(task)
+        model_type = neuron_config.get("model_type", None) or config.model_type
         neuron_config_constructor = TasksManager.get_exporter_config_constructor(
-            model_type=config.model_type, exporter="neuron", task=task
+            model_type=model_type, exporter="neuron", task=task
         )
 
         return neuron_config_constructor(
             config,
-            dynamic_batch_size=neuron_configs.get("dynamic_batch_size", False),
+            dynamic_batch_size=neuron_config.get("dynamic_batch_size", False),
             compiler_type=compiler_type,
             compiler_version=compiler_version,
             **compile_shapes,
@@ -453,10 +457,19 @@ class NeuronBaseModel(OptimizedModel):
                 f" than the static shapes used for compilation: {target_shapes}{extra}."
             )
 
-    def _pad_to_compiled_shape(self, inputs: Dict[str, "torch.Tensor"]):
+    def _pad_to_compiled_shape(
+        self, inputs: Dict[str, "torch.Tensor"], padding_side: Literal["right", "left"] = "right"
+    ):
         """
         Pads input tensors if they are not in valid shape.
+
+        Args:
+            inputs (`Dict[str, "torch.Tensor"]`):
+                Dictionary of input torch tensors.
+            padding_side (`Literal["right", "left"]`, defaults to "right"):
+                The side on which to apply the padding.
         """
+        logger.info(f"Padding input tensors, the padding side is: {padding_side}.")
         for input_name, input_tensor in inputs.items():
             target_shapes = self.input_static_shapes[input_name]
             padding = ()
@@ -468,7 +481,7 @@ class NeuronBaseModel(OptimizedModel):
                 to_pad = target_shapes[i] - input_tensor.size(i)
 
                 self._raise_if_invalid_padding(input_name, input_tensor, target_shapes, to_pad, i)
-                padding += (0, to_pad)
+                padding += (0, to_pad) if padding_side == "right" else (to_pad, 0)
 
             if (
                 self.preprocessors is not None
@@ -484,16 +497,21 @@ class NeuronBaseModel(OptimizedModel):
 
             # Pad to batch size: dimension 0 (pad_token_id can't be 0)
             padding = (0,) * len(padding)
-            if self.neuron_config.dynamic_batch_size is True and input_tensor.size(0) % target_shapes[0] == 0:
+            is_encoder_decoder = getattr(self.config, "is_encoder_decoder", False)
+            if (
+                not is_encoder_decoder
+                and self.neuron_config.dynamic_batch_size is True
+                and input_tensor.size(0) % target_shapes[0] == 0
+            ):
                 inputs[input_name] = input_tensor
                 continue
-            elif self.neuron_config.dynamic_batch_size is True:
+            elif not is_encoder_decoder and self.neuron_config.dynamic_batch_size is True:
                 target_shape = (input_tensor.size(0) // target_shapes[0] + 1) * target_shapes[0]
                 to_pad = target_shape - input_tensor.size(0)
             else:
                 to_pad = target_shapes[0] - input_tensor.size(0)
                 self._raise_if_invalid_padding(input_name, input_tensor, target_shapes, to_pad, 0)
-            padding += (0, to_pad)
+            padding += (0, to_pad) if padding_side == "right" else (to_pad, 0)
 
             pad_id = 1
             inputs[input_name] = torch.nn.functional.pad(input_tensor, padding, mode="constant", value=pad_id)
@@ -505,7 +523,13 @@ class NeuronBaseModel(OptimizedModel):
         inputs = tuple(self._pad_to_compiled_shape(inputs).values())
         yield inputs
 
-    def remove_padding(self, outputs: List[torch.Tensor], dims: List[int], indices: List[int]) -> List[torch.Tensor]:
+    @staticmethod
+    def remove_padding(
+        outputs: List[torch.Tensor],
+        dims: List[int],
+        indices: List[int],
+        padding_side: Literal["right", "left"] = "right",
+    ) -> List[torch.Tensor]:
         """
         Removes padding from output tensors.
 
@@ -516,12 +540,26 @@ class NeuronBaseModel(OptimizedModel):
                 List of dimensions in which we slice a tensor.
             indices (`List[int]`):
                 List of indices in which we slice a tensor along an axis.
+            padding_side (`Literal["right", "left"]`, defaults to "right"):
+                The side on which the padding has been applied.
         """
         if len(dims) != len(indices):
             raise ValueError(f"The size of `dims`({len(dims)}) and indices`({len(indices)}) must be equal.")
+
         for dim, indice in zip(dims, indices):
-            outputs = [
-                torch.index_select(output_tensor, dim, torch.LongTensor(range(indice))) for output_tensor in outputs
-            ]
+            if padding_side == "right":
+                outputs = [
+                    torch.index_select(output_tensor, dim, torch.LongTensor(range(indice)))
+                    for output_tensor in outputs
+                ]
+            elif padding_side == "left":
+                outputs = [
+                    torch.index_select(
+                        output_tensor,
+                        dim,
+                        torch.LongTensor(range(output_tensor.shape[dim] - indice, output_tensor.shape[dim])),
+                    )
+                    for output_tensor in outputs
+                ]
 
         return outputs

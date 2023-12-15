@@ -16,7 +16,7 @@
 import pytest
 from generation_utils import check_neuron_model
 
-from optimum.neuron import NeuronModelForCausalLM
+from optimum.neuron import NeuronModelForCausalLM, NeuronModelForSeq2SeqLM
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
@@ -30,9 +30,9 @@ from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neur
 )
 @is_inferentia_test
 @requires_neuronx
-def test_model_export(export_model_id, batch_size, sequence_length, num_cores, auto_cast_type):
+def test_decoder_export(export_decoder_id, batch_size, sequence_length, num_cores, auto_cast_type):
     model = NeuronModelForCausalLM.from_pretrained(
-        export_model_id,
+        export_decoder_id,
         export=True,
         batch_size=batch_size,
         sequence_length=sequence_length,
@@ -44,6 +44,33 @@ def test_model_export(export_model_id, batch_size, sequence_length, num_cores, a
 
 @is_inferentia_test
 @requires_neuronx
-def test_model_from_path(neuron_model_path):
-    model = NeuronModelForCausalLM.from_pretrained(neuron_model_path)
+def test_model_from_path(neuron_decoder_path):
+    model = NeuronModelForCausalLM.from_pretrained(neuron_decoder_path)
     check_neuron_model(model)
+
+
+@pytest.mark.parametrize(
+    "batch_size, sequence_length, num_beams",
+    [
+        [1, 64, 1],
+        [1, 64, 4],
+    ],
+)
+@is_inferentia_test
+@requires_neuronx
+def test_seq2seq_export(export_seq2seq_id, batch_size, sequence_length, num_beams):
+    model = NeuronModelForSeq2SeqLM.from_pretrained(
+        export_seq2seq_id,
+        export=True,
+        batch_size=batch_size,
+        sequence_length=sequence_length,
+        num_beams=num_beams,
+    )
+    return model
+
+
+@is_inferentia_test
+@requires_neuronx
+def test_seq2seq_model_from_path(neuron_seq2seq_greedy_path):
+    model = NeuronModelForSeq2SeqLM.from_pretrained(neuron_seq2seq_greedy_path)
+    return model

@@ -357,7 +357,7 @@ To avoid Neuron device out of memory, it's suggested to finish all base inferenc
 Latent Consistency Models (LCMs) were proposed in [Latent Consistency Models: Synthesizing High-Resolution Images with Few-Step Inference by Simian Luo, Yiqin Tan, Longbo Huang, Jian Li, and Hang Zhao](https://huggingface.co/papers/2310.04378). LCMs enable inference with fewer steps on any pre-trained LDMs, including Stable Diffusion and SDXL.
 
 In `optimum-neuron`, you can:
-  - Use the class `NeuronLatentConsistencyModelPipeline` to compile and run inference of LCMs distilled from Stable Diffusion (SD) models, 
+  - Use the class `NeuronLatentConsistencyModelPipeline` to compile and run inference of LCMs distilled from Stable Diffusion (SD) models.
   - And continue to use the class `NeuronStableDiffusionXLPipeline` for LCMs distilled from SDXL models.
 
 Here are examples to compile the LCMs of Stable Diffusion ( [SimianLuo/LCM_Dreamshaper_v7](https://huggingface.co/SimianLuo/LCM_Dreamshaper_v7) ) and Stable Diffusion XL( [latent-consistency/lcm-sdxl](https://huggingface.co/latent-consistency/lcm-sdxl) ), and then run inference on AWS Inferentia 2 :
@@ -429,6 +429,34 @@ pipe = NeuronStableDiffusionXLPipeline.from_pretrained("Jingya/lcm-sdxl-neuronx"
 prompts = ["a close-up picture of an old man standing in the rain"] * 2
 
 images = pipe(prompt=prompts, num_inference_steps=4, guidance_scale=8.0).images
+```
+
+## Stable Diffusion XL Turbo
+
+SDXL Turbo is an adversarial time-distilled Stable Diffusion XL (SDXL) model capable of running inference in as little as 1 step ([check `🤗diffusers` for more details](https://huggingface.co/docs/diffusers/using-diffusers/sdxl_turbo)).
+
+In `optimum-neuron`, you can:
+  - Use the class `NeuronStableDiffusionXLPipeline` to compile and run inference.
+
+Here we will compile the [`stabilityai/sdxl-turbo`](https://huggingface.co/stabilityai/sdxl-turbo) model with Optimum CLI.
+
+### Compile SDXL Turbo
+
+```bash
+optimum-cli export neuron --model stabilityai/sdxl-turbo --task stable-diffusion-xl --batch_size 1 --height 512 --width 512 --auto_cast matmul --auto_cast_type bf16 sdxl_turbo_neuron/
+```
+
+### Text-to-Image
+
+Now we can generate images from text prompts on Inf2 using the pre-compiled model:
+
+```python
+from optimum.neuron import NeuronStableDiffusionXLPipeline
+
+pipe = NeuronStableDiffusionXLPipeline.from_pretrained("sdxl_turbo_neuron/", data_parallel_mode="all")
+prompt = ["Self-portrait oil painting, a beautiful cyborg with golden hair, 8k"] * 2
+
+images = pipe(prompt=prompt, guidance_scale=0.0, num_inference_steps=1).images
 ```
 
 <Tip>
