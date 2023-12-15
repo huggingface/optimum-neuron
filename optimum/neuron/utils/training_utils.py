@@ -269,6 +269,10 @@ def prepare_environment_for_neuron():
     """
     # Set compiler flag to compile for transformer model type
     os.environ["NEURON_CC_FLAGS"] = os.environ.get("NEURON_CC_FLAGS", "") + " --model-type=transformer"
+    # Setting MALLOC_ARENA_MAX is needed because of a memory issue in XLA/glic, otherwise OOM can happen during
+    # checkpointing. More information here:
+    # https://awsdocs-neuron.readthedocs-hosted.com/en/latest/release-notes/torch/torch-neuronx/index.html#memory-leaking-in-glibc
+    os.environ["MALLOC_ARENA_MAX"] = "64"
 
 
 def set_neuron_cc_optlevel_for_model(model: "PreTrainedModel", optlevel: str = "auto"):
