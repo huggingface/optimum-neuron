@@ -993,7 +993,7 @@ def push_to_cache_on_hub(
                 f"{local_cache_dir_or_file}"
             )
 
-    could_not_push_message = "Could not push the cached model to the repo {cache_repo_id}. Exact error:\n{error}."
+    could_not_push_message = "Could not push the cached model to the repo {cache_repo_id}. Error message:\n{error}."
     success = True
     if local_cache_dir_or_file.is_dir():
         try:
