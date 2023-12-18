@@ -229,6 +229,29 @@ class CLIPTextNeuronConfig(CLIPTextWithProjectionNeuronConfig):
         return common_outputs
 
 
+@register_in_tasks_manager("clip-vision-model", *["feature-extraction"])
+class CLIPVisionWithProjectionNeuronConfig(VisionNeuronConfig):
+    MODEL_TYPE = "clip-vision-model"
+    ATOL_FOR_VALIDATION = 1e-3
+    NORMALIZED_CONFIG_CLASS = CLIPNormalizedConfig
+
+    @property
+    def inputs(self) -> List[str]:
+        return ["pixel_values"]
+
+    @property
+    def outputs(self) -> List[str]:
+        common_outputs = ["image_embeds", "last_hidden_state"]
+
+        if self._normalized_config.output_hidden_states:
+            common_outputs.append("hidden_states")
+
+        if self._normalized_config.output_attentions:
+            common_outputs.append("attentions")
+
+        return common_outputs
+
+
 @register_in_tasks_manager("unet", *["semantic-segmentation"])
 class UNetNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
