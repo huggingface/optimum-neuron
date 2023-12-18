@@ -135,7 +135,10 @@ MODEL_TYPES_TO_TEST = [
         "hf-tiny-model-private/tiny-random-GPTNeoXModel",
         {"num_hidden_layers": "2", "intermediate_size": "36"},
     ),
-    ("llama", "michaelbenayoun/llama-2-tiny-16layers-random",),
+    (
+        "llama",
+        "michaelbenayoun/llama-2-tiny-16layers-random",
+    ),
     (
         "t5",
         "hf-internal-testing/tiny-random-T5Model",

@@ -51,6 +51,7 @@ if TYPE_CHECKING:
     from transformers import PreTrainedModel
 
 
+@requires_neuronx_distributed
 def generate_dummy_labels(
     model: "PreTrainedModel",
     shape: List[int],
@@ -59,8 +60,13 @@ def generate_dummy_labels(
     device: Optional[Union[str, torch.device]] = None,
 ) -> Dict[str, torch.Tensor]:
     """Generates dummy labels."""
+    from neuronx_distributed.pipeline import NxDPPModel
 
-    model_class_name = model.__class__.__name__
+    if isinstance(model, NxDPPModel):
+        model_class_name = model.original_torch_module.__class__.__name__
+    else:
+        model_class_name = model.__class__.__name__
+
     labels = {}
 
     batch_size = shape[0]

@@ -136,7 +136,8 @@ class TestCommonDistributed(DistributedTest):
         optimizer = get_optimizer(model, lazy_optimizer, with_groups)
 
         accelerator = create_accelerator_for_mp(tp_size, pp_size, zero_1=zero_1)
-        assert accelerator.state.distributed_type is NeuronDistributedType.MODEL_PARALLELISM
+        if tp_size > 1 or pp_size > 1:
+            assert accelerator.state.distributed_type is NeuronDistributedType.MODEL_PARALLELISM
 
         model, optimizer = accelerator.prepare(model, optimizer)
         assert isinstance(optimizer, NeuronAcceleratedOptimizer)
@@ -156,11 +157,14 @@ class TestCommonDistributed(DistributedTest):
             pytest.skip("zero_1 needs to be tested only for dp_size > 1")
 
         model = get_tiny_llama_model(tp_size=tp_size, pp_size=pp_size)
-        optimizer = get_optimizer(model)
+        optimizer = get_optimizer(model, with_groups=False)
 
         accelerator = create_accelerator_for_mp(
             tp_size, pp_size, zero_1=zero_1, gradient_accumulation_steps=gradient_accumulation_steps
         )
+
+        if tp_size == pp_size == 1:
+            move_model_to_device(model, xm.xla_device())
 
         model, optimizer = accelerator.prepare(model, optimizer)
         assert isinstance(optimizer, NeuronAcceleratedOptimizer)
@@ -169,39 +173,42 @@ class TestCommonDistributed(DistributedTest):
 
         def move_grads_to_cpu(parameters):
             grads = [p.grad for p in parameters]
-            # xm.mark_step()
             grads = move_all_tensor_to_cpu(grads)
-            # grads = [grad.to("cpu") for grad in grads]
             return grads
 
-        inputs = {k: v.to(xm.xla_device()) for k, v in inputs.items()}
+        if pp_size == 1:
+            inputs = {k: v.to(xm.xla_device()) for k, v in inputs.items()}
+
         current_parameters = move_params_to_cpu(
-            model.parameters() if isinstance(model, torch.nn.Module) else model.local_parameters()
+            model.local_parameters() if isinstance(model, NxDPPModel) else model.parameters()
         )
 
         for step in range(2 * gradient_accumulation_steps):
-            xm.mark_step()
-            with accelerator.accumulate():
+            with accelerator.accumulate(model):
                 if pp_size > 1:
                     orig_parameters = current_parameters
                     loss = model.run_train(**inputs)
-                    xm.mark_step()
 
                     if max_grad_norm is not None:
                         accelerator.clip_grad_norm_(model.local_parameters(), max_norm=max_grad_norm, norm_type=2)
-                        for param in model.local_parameters():
-                            assert torch.linalg.norm(param.grad, p=2) <= max_grad_norm
 
                     # Checking that at least some of the parameters have a gradient.
-                    assert any(torch.any(param.grad != 0) for param in model.local_parameters())
+                    grads_on_cpu = move_grads_to_cpu(model.local_parameters())
+                    assert any(torch.all(grad != 0) for grad in grads_on_cpu)
 
                     optimizer.step()
+
+                    # Checking here that the norm has been clipped because it happens during the optimizer steps in some cases.
+                    if max_grad_norm is not None:
+                        assert all(torch.linalg.norm(grad, ord=2) <= max_grad_norm for grad in grads_on_cpu)
+
                     model.zero_grad()
 
                     # At this point, no parameter should have a gradient.
-                    assert all(torch.all(param.grad == 0) for param in model.local_parameters())
+                    grads_on_cpu = move_grads_to_cpu(model.local_parameters())
+                    assert all(torch.all(grad == 0) for grad in grads_on_cpu)
 
-                    current_parameters = list(model.local_parameters())
+                    current_parameters = move_params_to_cpu(model.local_parameters())
                 else:
                     orig_parameters = current_parameters
                     outputs = model(**inputs)
@@ -213,14 +220,14 @@ class TestCommonDistributed(DistributedTest):
 
                     # Checking that at least some of the parameters have a gradient.
                     grads_on_cpu = move_grads_to_cpu(model.parameters())
-                    # assert any(torch.any(grad != 0) for grad in grads_on_cpu)
+                    assert any(torch.all(grad != 0) for grad in grads_on_cpu)
 
                     optimizer.step()
 
                     # Checking here that the norm has been clipped because it happens during the optimizer steps in some cases.
                     if max_grad_norm is not None:
                         grads_on_cpu = move_grads_to_cpu(model.parameters())
-                        assert all(torch.linalg.norm(grad, p=2) <= max_grad_norm for grad in grads_on_cpu)
+                        assert all(torch.linalg.norm(grad, ord=2) <= max_grad_norm for grad in grads_on_cpu)
 
                     model.zero_grad()
 
@@ -230,11 +237,10 @@ class TestCommonDistributed(DistributedTest):
 
                     current_parameters = move_params_to_cpu(model.parameters())
 
-                with torch.no_grad():
-                    if step % gradient_accumulation_steps != 0:
-                        assert all(torch.all(p1 == p2) for (p1, p2) in zip(orig_parameters, current_parameters))
-                    else:
-                        assert all(torch.all(p1 != p2) for (p1, p2) in zip(orig_parameters, current_parameters))
+                if (step + 1) % gradient_accumulation_steps != 0:
+                    assert all(torch.all(p1 == p2) for (p1, p2) in zip(orig_parameters, current_parameters))
+                else:
+                    assert any(torch.all(p1 != p2) for (p1, p2) in zip(orig_parameters, current_parameters))
 
     def test_lazy_load(self, from_config, parallel_sizes):
         _, tp_size, pp_size = parallel_sizes

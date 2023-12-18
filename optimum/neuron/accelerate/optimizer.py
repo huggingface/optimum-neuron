@@ -102,6 +102,7 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
                     self.optimizer.grad_clipping = False
                 optimizer_args = {"closure": closure} if closure is not None else {}
                 self.optimizer.step(closure)
+                self.optimizer.grad_clipping = False  # Restoring to default value.
             elif self.accelerator_state.distributed_type is DistributedType.TPU:
                 optimizer_args = {"closure": closure} if closure is not None else {}
                 # By default barrier=False, but making sure it's the case here since we use ParalleLoader.

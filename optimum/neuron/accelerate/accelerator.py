@@ -267,6 +267,7 @@ class NeuronAccelerator(Accelerator):
             args, kwargs = optimizer._args_to_recreate
             params = args[0]
             defaults = args_and_kwargs_to_kwargs_only(optimizer.__class__, args[1:], kwargs)
+
             zero_1_optimizer = NeuronZero1Optimizer(
                 params,
                 optimizer.__class__,

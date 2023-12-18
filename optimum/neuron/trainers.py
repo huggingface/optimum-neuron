@@ -14,7 +14,6 @@
 # limitations under the License.
 """Defines Trainer subclasses to perform training on AWS Neuron instances."""
 
-import contextlib
 import copy
 import glob
 import math

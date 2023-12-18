@@ -172,7 +172,9 @@ class Parallelizer(ABC):
 
     @classmethod
     @requires_neuronx_distributed
-    def _get_parameter_names_for_current_pipeline(cls, model: "torch.nn.Module", remove_duplicate: bool = True) -> Set[str]:
+    def _get_parameter_names_for_current_pipeline(
+        cls, model: "torch.nn.Module", remove_duplicate: bool = True
+    ) -> Set[str]:
         """
         Retrieves the names of the parameters that will be in the current pipeline stage by using the pipeline
         parallelism rank.
@@ -219,7 +221,9 @@ class Parallelizer(ABC):
             for _, p in named_parameters(mod, remove_duplicate=remove_duplicate)
         }
         parameter_outside_of_transformer_layers_names = {
-            name for name, param in named_parameters(model, remove_duplicate=remove_duplicate) if param not in parameters_inside_transformer_layers
+            name
+            for name, param in named_parameters(model, remove_duplicate=remove_duplicate)
+            if param not in parameters_inside_transformer_layers
         }
         return parameter_names | parameter_outside_of_transformer_layers_names
 
@@ -347,7 +351,9 @@ class Parallelizer(ABC):
         # The model was not loaded lazily, it is already ready.
         weight_map = getattr(model, "_weight_map", {})
 
-        names_of_the_parameters_to_consider = cls._get_parameter_names_for_current_pipeline(model, remove_duplicate=True)
+        names_of_the_parameters_to_consider = cls._get_parameter_names_for_current_pipeline(
+            model, remove_duplicate=True
+        )
 
         with torch.no_grad():
             tied_weights = {}
@@ -516,11 +522,14 @@ class Parallelizer(ABC):
             raise ValueError("The model needs to be parallelized first.")
 
     @classmethod
+    @requires_torch_xla
     def optimizer_cpu_params_to_xla_params(
         cls,
         optimizer: "torch.optim.Optimizer",
         orig_param_to_parallel_param_on_xla: Mapping[int, "torch.nn.Parameter"],
     ) -> Tuple[List[Dict[str, Any]], bool]:
+        import torch_xla.core.xla_model as xm
+
         parameters_on_xla = []
         need_to_create_new_optimizer = False
         if hasattr(optimizer, "_args_to_recreate"):
@@ -536,20 +545,26 @@ class Parallelizer(ABC):
                     new_group = {k: v for k, v in group.items() if k != "params"}
                     params_on_xla = []
                     for p in group["params"]:
-                        # This can be the case with pipeline parallelism.
-                        if id(p) not in orig_param_to_parallel_param_on_xla:
+                        if p.device == xm.xla_device():
+                            params_on_xla.append(p)
+                        elif id(p) not in orig_param_to_parallel_param_on_xla:
+                            # This can be the case with pipeline parallelism.
                             continue
-                        params_on_xla.append(orig_param_to_parallel_param_on_xla[id(p)])
+                        else:
+                            params_on_xla.append(orig_param_to_parallel_param_on_xla[id(p)])
                     new_group["params"] = params_on_xla
                     parameters_on_xla.append(new_group)
             else:
                 new_param = {}
                 params_on_xla = []
                 for param in parameter_groups:
-                    # This can be the case with pipeline parallelism.
-                    if id(param) not in orig_param_to_parallel_param_on_xla:
+                    if param.device == xm.xla_device():
+                        params_on_xla.append(param)
+                    elif id(param) not in orig_param_to_parallel_param_on_xla:
+                        # This can be the case with pipeline parallelism.
                         continue
-                    params_on_xla.append(orig_param_to_parallel_param_on_xla[id(param)])
+                    else:
+                        params_on_xla.append(orig_param_to_parallel_param_on_xla[id(param)])
                 new_param["params"] = params_on_xla
                 parameters_on_xla.append(new_param)
         else:
@@ -557,10 +572,13 @@ class Parallelizer(ABC):
                 new_params = []
                 params = param_group["params"]
                 for idx in range(len(params)):
-                    if id(params[idx]) not in orig_param_to_parallel_param_on_xla:
+                    if params[idx].device == xm.xla_device():
+                        param_on_xla = params[idx]
+                    elif id(params[idx]) not in orig_param_to_parallel_param_on_xla:
                         need_to_create_new_optimizer = True
                         continue
-                    param_on_xla = orig_param_to_parallel_param_on_xla[id(params[idx])]
+                    else:
+                        param_on_xla = orig_param_to_parallel_param_on_xla[id(params[idx])]
                     if params[idx] is not param_on_xla:
                         need_to_create_new_optimizer = True
                     new_params.append(param_on_xla)
