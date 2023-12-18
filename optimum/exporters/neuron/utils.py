@@ -127,6 +127,53 @@ def build_stable_diffusion_components_mandatory_shapes(
     return components_shapes
 
 
+def build_stable_video_diffusion_components_mandatory_shapes(
+    batch_size: Optional[int] = None,
+    num_frames: Optional[int] = None,
+    image_encoder_num_channels: Optional[int] = None,
+    unet_num_channels: Optional[int] = None,
+    vae_encoder_num_channels: Optional[int] = None,
+    vae_decoder_num_channels: Optional[int] = None,
+    height: Optional[int] = None,
+    width: Optional[int] = None,
+):
+    image_encoder_input_shapes = {
+        "batch_size": batch_size,
+        "num_channels": image_encoder_num_channels,
+        "height": height,
+        "width": width,
+    }
+    vae_encoder_input_shapes = {
+        "batch_size": batch_size,
+        "num_channels": vae_encoder_num_channels,
+        "height": height,
+        "width": width,
+    }
+    vae_decoder_input_shapes = {
+        "batch_size": batch_size,
+        "num_frames": num_frames,
+        "num_channels": vae_decoder_num_channels,
+        "height": height,
+        "width": width,
+    }
+    unet_input_shapes = {
+        "batch_size": batch_size,
+        "num_frames": num_frames,
+        "num_channels": unet_num_channels,
+        "height": height,
+        "width": width,
+    }
+
+    components_shapes = {
+        "image_encoder_input_shapes": image_encoder_input_shapes,
+        "unet_input_shapes": unet_input_shapes,
+        "vae_encoder_input_shapes": vae_encoder_input_shapes,
+        "vae_decoder_input_shapes": vae_decoder_input_shapes,
+    }
+
+    return components_shapes
+
+
 def get_stable_diffusion_models_for_export(
     pipeline: Union["StableDiffusionPipeline", "StableDiffusionXLImg2ImgPipeline"],
     task: str,

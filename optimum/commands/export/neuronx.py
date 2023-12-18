@@ -156,6 +156,12 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         default=1,
         help=f"Stable diffusion only. Number of images per prompt {doc_input}",
     )
+    input_group.add_argument(
+        "--num_frames",
+        type=int,
+        default=None,
+        help="Stable video diffusion only. The number of video frames to generate.",
+    )
 
     level_group = parser.add_mutually_exclusive_group()
     level_group.add_argument(

@@ -45,6 +45,7 @@ from .convert import export_models, validate_models_outputs
 from .model_configs import *  # noqa: F403
 from .utils import (
     build_stable_diffusion_components_mandatory_shapes,
+    build_stable_video_diffusion_components_mandatory_shapes,
     get_encoder_decoder_models_for_export,
     get_stable_diffusion_models_for_export,
     replace_stable_diffusion_submodels,
@@ -106,21 +107,6 @@ def infer_task(task: str, model_name_or_path: str) -> str:
     return task
 
 
-def normalize_input_shapes(task: str, args: argparse.Namespace) -> Dict[str, int]:
-    config = AutoConfig.from_pretrained(args.model)
-
-    model_type = config.model_type.replace("_", "-")
-    if config.is_encoder_decoder:
-        model_type = model_type + "-encoder"
-
-    neuron_config_constructor = TasksManager.get_exporter_config_constructor(
-        model_type=model_type, exporter="neuron", task=task
-    )
-    mandatory_axes = neuron_config_constructor.func.get_mandatory_axes_for_task(task)
-    input_shapes = {name: getattr(args, name) for name in mandatory_axes}
-    return input_shapes
-
-
 def customize_optional_outputs(args: argparse.Namespace) -> Dict[str, bool]:
     """
     Customize optional outputs of the traced model, eg. if `output_attentions=True`, the attentions tensors will be traced.
@@ -148,7 +134,32 @@ def parse_optlevel(args: argparse.Namespace) -> Dict[str, bool]:
     return optlevel
 
 
-def normalize_stable_diffusion_input_shapes(
+def normalize_input_shapes(task: str, args: argparse.Namespace) -> Dict[str, int]:
+    if task == "stable-video-diffusion":
+        input_shapes = _normalize_stable_video_diffusion_input_shapes(args)
+    elif "stable-diffusion" in task:
+        input_shapes = _normalize_stable_diffusion_input_shapes(args)
+    else:
+        input_shapes = _normalize_input_shapes(task, args)
+    return input_shapes
+
+
+def _normalize_input_shapes(task: str, args: argparse.Namespace) -> Dict[str, int]:
+    config = AutoConfig.from_pretrained(args.model)
+
+    model_type = config.model_type.replace("_", "-")
+    if config.is_encoder_decoder:
+        model_type = model_type + "-encoder"
+
+    neuron_config_constructor = TasksManager.get_exporter_config_constructor(
+        model_type=model_type, exporter="neuron", task=task
+    )
+    mandatory_axes = neuron_config_constructor.func.get_mandatory_axes_for_task(task)
+    input_shapes = {name: getattr(args, name) for name in mandatory_axes}
+    return input_shapes
+
+
+def _normalize_stable_diffusion_input_shapes(
     args: argparse.Namespace,
 ) -> Dict[str, Dict[str, int]]:
     args = vars(args) if isinstance(args, argparse.Namespace) else args
@@ -168,6 +179,31 @@ def normalize_stable_diffusion_input_shapes(
     mandatory_shapes = {name: args[name] for name in mandatory_axes}
     mandatory_shapes["num_images_per_prompt"] = args.get("num_images_per_prompt", 1)
     input_shapes = build_stable_diffusion_components_mandatory_shapes(**mandatory_shapes)
+    return input_shapes
+
+
+def _normalize_stable_video_diffusion_input_shapes(
+    args: argparse.Namespace,
+) -> Dict[str, Dict[str, int]]:
+    args = vars(args) if isinstance(args, argparse.Namespace) else args
+    mandatory_axes = set(
+        getattr(inspect.getfullargspec(build_stable_video_diffusion_components_mandatory_shapes), "args")
+    )
+    # Remove `num_frames` as there are default values for each model and remove number of channels.
+    mandatory_axes = mandatory_axes - {
+        "image_encoder_num_channels",
+        "unet_num_channels",
+        "vae_encoder_num_channels",
+        "vae_decoder_num_channels",
+        "num_frames",  # default to 14 or 25
+    }
+    if not mandatory_axes.issubset(set(args.keys())):
+        raise AttributeError(
+            f"Shape of {mandatory_axes} are mandatory for neuron compilation, while {mandatory_axes.difference(args.keys())} are not given."
+        )
+    mandatory_shapes = {name: args[name] for name in mandatory_axes}
+    mandatory_shapes["num_frames"] = args.get("num_frames", None)
+    input_shapes = build_stable_video_diffusion_components_mandatory_shapes(**mandatory_shapes)
     return input_shapes
 
 
@@ -254,6 +290,15 @@ def _get_submodels_and_neuron_configs(
         models_and_neuron_configs = {model_name: (model, neuron_config)}
         maybe_save_preprocessors(model_name_or_path, output)
     return models_and_neuron_configs, output_model_names
+
+
+def get_submodels_id(task: str, args: argparse.Namespace) -> Dict[str, str]:
+    is_stable_diffusion = "stable-diffusion" in task
+    if is_stable_diffusion:
+        submodels = {"unet": args.unet}
+    else:
+        submodels = None
+    return submodels
 
 
 def _get_submodels_and_neuron_configs_for_stable_diffusion(
@@ -450,15 +495,11 @@ def main():
     args = parser.parse_args()
 
     task = infer_task(args.task, args.model)
-    is_stable_diffusion = "stable-diffusion" in task
+
     compiler_kwargs = infer_compiler_kwargs(args)
 
-    if is_stable_diffusion:
-        input_shapes = normalize_stable_diffusion_input_shapes(args)
-        submodels = {"unet": args.unet}
-    else:
-        input_shapes = normalize_input_shapes(task, args)
-        submodels = None
+    input_shapes = normalize_input_shapes(task, args)
+    submodels = get_submodels_id(task, args)
 
     optional_outputs = customize_optional_outputs(args)
     optlevel = parse_optlevel(args)
