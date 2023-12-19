@@ -195,7 +195,7 @@ class Parallelizer(ABC):
 
         cuts = cls.PIPELINE_PARALLELISM_SPECS_CLS.create_pipeline_cuts(model, pp_size)
 
-        start_module_name = cuts[pp_rank - 1] if pp_rank > 1 else None
+        start_module_name = cuts[pp_rank - 1] if pp_rank >= 1 else None
         end_module_name = None if pp_rank == pp_size - 1 else cuts[pp_rank]
         parameter2name = {p: n for n, p in named_parameters(model, remove_duplicate=remove_duplicate)}
         parameter_names = set()
@@ -203,16 +203,21 @@ class Parallelizer(ABC):
         for name, mod in model.named_modules():
             if not isinstance(mod, cls.PIPELINE_PARALLELISM_SPECS_CLS.TRASNFORMER_LAYER_CLS):
                 continue
-            if start_module_name is None or start_module_name == name:
+            # If start_module_name is None, it means we are on the first rank, we should add right from the beginning.
+            if start_module_name is None:
                 should_add = True
-            if name == end_module_name:
-                break
             if should_add:
                 for _, param in named_parameters(mod, remove_duplicate=remove_duplicate):
                     # It is important to use this dictionary (built with `model.named_parameters()`) instead of using
                     # `mod.named_parameters()` to get the fully qualified names.
                     param_name = parameter2name[param]
                     parameter_names.add(param_name)
+
+            # We consider the parameters inside ]start_module_name, end_module_name].
+            if start_module_name == name:
+                should_add = True
+            if name == end_module_name:
+                break
 
         parameters_inside_transformer_layers = {
             p
@@ -346,8 +351,6 @@ class Parallelizer(ABC):
             # 3. Applying model specific patching for sequence parallelism.
             sp_specs_cls.patch_for_sequence_parallelism(model, sequence_parallel_enabled)
 
-        cls._get_parameter_names_for_current_pipeline(model)
-
         # The model was not loaded lazily, it is already ready.
         weight_map = getattr(model, "_weight_map", {})
 
@@ -428,7 +431,6 @@ class Parallelizer(ABC):
                 new_parameters.add(new_parameter)
 
             for mod, parameter_names in modules_to_initialize.items():
-                print(mod)
                 if isinstance(mod, torch.nn.Embedding):
                     # This module has not pre-trained weights, it must be fine-tuned, we initialize it with the
                     # `reset_parameters()` method since there is only one parameter in torch.nn.Embedding.

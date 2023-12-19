@@ -157,14 +157,15 @@ class TestCommonDistributed(DistributedTest):
             pytest.skip("zero_1 needs to be tested only for dp_size > 1")
 
         model = get_tiny_llama_model(tp_size=tp_size, pp_size=pp_size)
+
+        if tp_size == pp_size == 1:
+            move_model_to_device(model, xm.xla_device())
+
         optimizer = get_optimizer(model, with_groups=False)
 
         accelerator = create_accelerator_for_mp(
             tp_size, pp_size, zero_1=zero_1, gradient_accumulation_steps=gradient_accumulation_steps
         )
-
-        if tp_size == pp_size == 1:
-            move_model_to_device(model, xm.xla_device())
 
         model, optimizer = accelerator.prepare(model, optimizer)
         assert isinstance(optimizer, NeuronAcceleratedOptimizer)
@@ -240,7 +241,7 @@ class TestCommonDistributed(DistributedTest):
                 if (step + 1) % gradient_accumulation_steps != 0:
                     assert all(torch.all(p1 == p2) for (p1, p2) in zip(orig_parameters, current_parameters))
                 else:
-                    assert any(torch.all(p1 != p2) for (p1, p2) in zip(orig_parameters, current_parameters))
+                    assert any(torch.any(p1 != p2) for (p1, p2) in zip(orig_parameters, current_parameters))
 
     def test_lazy_load(self, from_config, parallel_sizes):
         _, tp_size, pp_size = parallel_sizes
