@@ -15,6 +15,7 @@
 """Defines Trainer subclasses to perform training on AWS Neuron instances."""
 
 import contextlib
+import copy
 import glob
 import os
 import random
@@ -48,6 +49,7 @@ from .trainer_callback import NeuronCacheCallback
 from .utils import (
     DynamicPatch,
     ModelPatcher,
+    Patcher,
     is_torch_xla_available,
     patch_within_function,
 )
@@ -62,6 +64,7 @@ from .utils.training_utils import (
     prepare_environment_for_neuron,
     set_neuron_cc_optlevel_for_model,
     skip_first_batches,
+    torch_xla_safe_save_file,
 )
 
 
@@ -174,7 +177,7 @@ class AugmentTrainerForNeuronMixin:
         if self.args.local_rank <= 0:
             logger.setLevel(logging.INFO)
 
-        push = self.args.local_rank <= 0 and not is_precompilation()
+        push = self.args.local_rank <= 0 and not is_precompilation() and not self.args.skip_cache_push
         fetch = self.args.local_rank <= 0 or self.args.tp_plugin.should_parallelize
 
         callback = NeuronCacheCallback(
@@ -395,40 +398,55 @@ class AugmentTrainerForNeuronMixin:
         if self.accelerator.distributed_type is NeuronDistributedType.TENSOR_PARALLELISM:
             logger.info("Model parallelism is enabled, only saving the model sharded state dict.")
             if isinstance(self.model, PreTrainedModel):
-                self.model.config.save_pretrained(output_dir)
+                from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
+
+                config = copy.deepcopy(self.model.config)
+                if self.args.tp_plugin.parallelize_embeddings:
+                    config.vocab_size = config.vocab_size * get_tensor_model_parallel_size()
+                config.save_pretrained(output_dir)
 
             parallelizer = ParallelizersManager.parallelizer_for_model(self.model)
             # This mark_step is needed to avoid hang issues.
             xm.mark_step()
             parallelizer.save_model_checkpoint(self.model, output_dir, as_sharded=True, optimizer=self.optimizer)
         else:
+            safe_save_function_patcher = Patcher(
+                [("transformers.modeling_utils.safe_save_file", torch_xla_safe_save_file)]
+            )
             if not isinstance(self.model, PreTrainedModel):
                 if isinstance(unwrap_model(self.model), PreTrainedModel):
-                    unwrap_model(self.model).save_pretrained(
-                        output_dir,
-                        is_main_process=self.args.should_save,
-                        state_dict=self.model.state_dict(),
-                        save_function=xm.save,
-                    )
+                    with safe_save_function_patcher:
+                        unwrap_model(self.model).save_pretrained(
+                            output_dir,
+                            is_main_process=self.args.should_save,
+                            state_dict=self.model.state_dict(),
+                            save_function=xm.save,
+                        )
                 else:
                     logger.info("Trainer.model is not a `PreTrainedModel`, only saving its state dict.")
                     state_dict = self.model.state_dict()
                     xm.save(state_dict, os.path.join(output_dir, WEIGHTS_NAME))
             else:
-                self.model.save_pretrained(output_dir, is_main_process=self.args.should_save, save_function=xm.save)
+                with safe_save_function_patcher:
+                    self.model.save_pretrained(
+                        output_dir, is_main_process=self.args.should_save, save_function=xm.save
+                    )
 
         if self.tokenizer is not None and self.args.should_save:
             self.tokenizer.save_pretrained(output_dir)
 
     def save_model(self, output_dir: Optional[str] = None, _internal_call: bool = False):
-        if output_dir is None:
-            output_dir = self.args.output_dir
+        if not os.environ.get("NEURON_PARALLEL_COMPILE"):  # Avoid unnecessary model saving during precompilation
+            if output_dir is None:
+                output_dir = self.args.output_dir
 
-        self._save_xla(output_dir)
+            self._save_xla(output_dir)
 
-        # Push to the Hub when `save_model` is called by the user.
-        if self.args.push_to_hub and not _internal_call:
-            self.push_to_hub(commit_message="Model save")
+            # Push to the Hub when `save_model` is called by the user.
+            if self.args.push_to_hub and not _internal_call:
+                self.push_to_hub(commit_message="Model save")
+        else:
+            logger.info("Skipping trainer.save_model() while running under neuron_parallel_compile")
 
     def _save_checkpoint(self, model, trial, metrics=None):
         # In all cases, including ddp/dp/deepspeed, self.model is always a reference to the model we

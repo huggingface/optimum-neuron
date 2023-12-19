@@ -256,6 +256,7 @@ class StagingTestMixin:
             push_to_cache_on_hub(
                 neuron_hash,
                 tmp_cache_dir,
+                fail_when_could_not_push=True,
             )
             if cache_dir is not None:
                 for file_or_dir in tmp_cache_dir.iterdir():

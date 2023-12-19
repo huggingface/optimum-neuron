@@ -133,14 +133,22 @@ def create_custom_cache_repo(repo_id: str = CACHE_REPO_NAME, private: bool = Tru
 
 
 def is_private_repo(repo_id: str) -> bool:
+    """Tells whether `repo_id` is private."""
     if _DISABLE_IS_PRIVATE_REPO_CHECK:
         return False
-    HfApi().list_repo_files(repo_id=repo_id, token=HfFolder.get_token())
-    private = False
     try:
-        HfApi().list_repo_files(repo_id=repo_id, token=False)
+        HfApi().model_info(repo_id=repo_id, token=HfFolder.get_token())
+        private_to_user = False
     except RepositoryNotFoundError:
+        private_to_user = True
+    if private_to_user:
         private = True
+    else:
+        try:
+            HfApi().model_info(repo_id=repo_id, token=False)
+            private = False
+        except RepositoryNotFoundError:
+            private = True
     return private
 
 
@@ -921,9 +929,19 @@ def push_to_cache_on_hub(
     overwrite_existing: bool = False,
     local_path_to_path_in_repo: Optional[Union[Literal["default"], Callable[[Path], Path]]] = None,
     fail_when_could_not_push: bool = False,
-) -> CachedModelOnTheHub:
+) -> Optional[CachedModelOnTheHub]:
     if cache_repo_id is None:
         cache_repo_id = get_hf_hub_cache_repos()[0]
+
+    if not has_write_access_to_repo(cache_repo_id):
+        error_message = (
+            f"Could not push the cached model to {cache_repo_id} because you do not have write access to this repo."
+        )
+        if fail_when_could_not_push:
+            raise ValueError(error_message)
+        if is_main_worker():
+            logger.warning(error_message)
+        return
 
     try:
         create_registry_file_if_does_not_exist(cache_repo_id)
@@ -933,10 +951,15 @@ def push_to_cache_on_hub(
 
     is_cache_repo_private = is_private_repo(cache_repo_id)
     if neuron_hash.is_private and not is_cache_repo_private:
-        raise ValueError(
-            f"Cannot push the cached model to {cache_repo_id} because this repo is not private but the original model is "
-            "coming from private repo."
+        error_message = (
+            f"Could not push the cached model to {cache_repo_id} because this repo is not private but the original "
+            "model is coming from private repo."
         )
+        if fail_when_could_not_push:
+            raise ValueError(error_message)
+        if is_main_worker():
+            logger.warning(error_message)
+        return
 
     if local_path_to_path_in_repo == "default":
         local_path_to_path_in_repo = functools.partial(default_local_path_to_path_in_repo, neuron_hash=neuron_hash)
@@ -970,10 +993,7 @@ def push_to_cache_on_hub(
                 f"{local_cache_dir_or_file}"
             )
 
-    could_not_push_message = (
-        "Could not push the cached model to the repo {cache_repo_id}, most likely due to not having the write permission "
-        "for this repo. Exact error:\n{error}."
-    )
+    could_not_push_message = "Could not push the cached model to the repo {cache_repo_id}. Error message:\n{error}."
     success = True
     if local_cache_dir_or_file.is_dir():
         try:

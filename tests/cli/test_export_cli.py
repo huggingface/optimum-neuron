@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import os
 import random
 import subprocess
 import tempfile
@@ -151,6 +151,60 @@ class TestExportCLI(unittest.TestCase):
                 shell=False,
                 check=True,
             )
+
+    @requires_neuronx
+    def test_opt_level(self):
+        model_id = "hf-internal-testing/tiny-random-BertModel"
+        optlevels = ["-O1", "-O2", "-O3"]
+        for optlevel in optlevels:
+            with tempfile.TemporaryDirectory() as tempdir:
+                subprocess.run(
+                    [
+                        "optimum-cli",
+                        "export",
+                        "neuron",
+                        "--model",
+                        model_id,
+                        "--sequence_length",
+                        "16",
+                        "--batch_size",
+                        "1",
+                        "--task",
+                        "text-classification",
+                        optlevel,
+                        tempdir,
+                    ],
+                    shell=False,
+                    check=True,
+                )
+
+    @requires_neuronx
+    def test_store_intemediary(self):
+        model_id = "hf-internal-testing/tiny-random-BertModel"
+        with tempfile.TemporaryDirectory() as tempdir:
+            save_path = f"{tempdir}/neff"
+            neff_path = os.path.join(save_path, model_id.split("/")[-1], "graph.neff")
+            subprocess.run(
+                [
+                    "optimum-cli",
+                    "export",
+                    "neuron",
+                    "--model",
+                    model_id,
+                    "--sequence_length",
+                    "16",
+                    "--batch_size",
+                    "1",
+                    "--task",
+                    "text-classification",
+                    "--compiler_workdir",
+                    save_path,
+                    tempdir,
+                ],
+                shell=False,
+                check=True,
+            )
+            self.assertTrue(os.path.exists(neff_path))
 
     @requires_neuronx
     def test_stable_diffusion(self):

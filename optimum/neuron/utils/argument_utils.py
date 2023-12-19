@@ -145,6 +145,7 @@ def store_compilation_config(
     dynamic_batch_size: bool,
     compiler_type: str,
     compiler_version: str,
+    optlevel: str,
     model_type: Optional[str] = None,
     task: str = None,
     output_attentions: bool = False,
@@ -169,6 +170,7 @@ def store_compilation_config(
     config_args["dynamic_batch_size"] = dynamic_batch_size
 
     # Add compilation args to the config
+    config_args["optlevel"] = optlevel
     for arg, value in compiler_kwargs.items():
         config_args[arg] = value
 
