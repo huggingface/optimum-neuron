@@ -245,7 +245,7 @@ def embedding_to_parallel_embedding(
                 ),
             )
             parallel_embedding_layer.weight.copy_(weight_data)
-        else:
+        elif embedding_layer.weight.device != torch.device("meta"):
             parallel_embedding_layer.weight.copy_(
                 embedding_layer.weight[tp_rank * row_size : (tp_rank + 1) * row_size, :]
             )

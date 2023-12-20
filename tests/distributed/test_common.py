@@ -100,7 +100,7 @@ class TestCommonDistributed(DistributedTest):
     def lazy_load(self, request):
         return request.param
 
-    @pytest.fixture(scope="class", params=[False, True], ids=["from_config", "from_pretrained"])
+    @pytest.fixture(scope="class", params=[False, True], ids=["from_pretrained", "from_config"])
     def from_config(self, request):
         return request.param
 
@@ -246,10 +246,13 @@ class TestCommonDistributed(DistributedTest):
     def test_lazy_load(self, from_config, parallel_sizes):
         _, tp_size, pp_size = parallel_sizes
 
+        if from_config and (tp_size > 1 or pp_size > 1):
+            pytest.skip("It is not easy to compare parameters value in this case because of initialization.")
+
         model = get_tiny_llama_model(
-            tp_size=tp_size, pp_size=pp_size, lazy_load=False, from_config=from_config, use_static_seed_patcher=True
+            tp_size=1, pp_size=1, lazy_load=False, from_config=from_config, use_static_seed_patcher=True
         )
-        move_model_to_device(model, xm.xla_device())
+
         orig_parameters: Dict[str, torch.nn.Parameter] = dict(model.named_parameters())
 
         accelerator = create_accelerator_for_mp(tp_size, pp_size)
@@ -258,14 +261,14 @@ class TestCommonDistributed(DistributedTest):
         )
         lazy_model = accelerator.prepare(lazy_model)
 
+        if pp_size > 1:
+            named_parameters = dict(lazy_model.local_named_parameters())
+        else:
+            named_parameters = dict(lazy_model.named_parameters())
+
         xm.mark_step()
 
-        if pp_size > 1:
-            named_parameters = lazy_model.local_named_parameters()
-        else:
-            named_parameters = lazy_model.named_parameters()
-
-        for name, param in named_parameters:
+        for name, param in named_parameters.items():
             orig = orig_parameters[name]
             if orig.shape != param.shape:
                 if orig.dim() == 1:
@@ -277,10 +280,13 @@ class TestCommonDistributed(DistributedTest):
                 gathered = [torch.empty(param.shape) for _ in range(tp_size)]
                 torch.distributed.all_gather(gathered, param, group=get_tensor_model_parallel_group())
                 gathered_param = torch.cat(gathered, dim=gather_dim)
-                orig = orig.to("cpu")
-                xm.mark_step()
             else:
                 gathered_param = param
+
+            orig = orig.to("cpu")
+            gathered_param = gathered_param.to("cpu")
+            xm.mark_step()
+
             print(f"Comparing parameter named {name}")
             torch.testing.assert_close(orig, gathered_param)
 
