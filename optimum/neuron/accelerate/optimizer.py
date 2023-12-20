@@ -116,6 +116,7 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
                     bucket_allreduce_gradients(xm._fetch_gradients(self.optimizer))
                 if self.clip_grad_norm_to_perform is not None:
                     parallel_layers.clip_grad_norm(self.parameters, **self.clip_grad_norm_to_perform)
+                    self.clip_grad_norm_to_perform = None
                 self.optimizer.step()
             elif self.scaler is not None:
                 scale_before = self.scaler.get_scale()

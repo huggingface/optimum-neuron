@@ -120,7 +120,7 @@ class TestCommonDistributed(DistributedTest):
     def gradient_accumulation_steps(self, request):
         return request.param
 
-    @pytest.fixture(scope="class", params=[None, 0.25], ids=["no_clip_grad_norm", "clip_grad_norm"])
+    @pytest.fixture(scope="class", params=[None, 0.01], ids=["no_clip_grad_norm", "clip_grad_norm"])
     def max_grad_norm(self, request):
         return request.param
 
@@ -184,11 +184,13 @@ class TestCommonDistributed(DistributedTest):
             model.local_parameters() if isinstance(model, NxDPPModel) else model.parameters()
         )
 
-        for step in range(2 * gradient_accumulation_steps):
+        for step in range(int(1.5 * gradient_accumulation_steps)):
+            is_optimizer_update_step = (step + 1) % gradient_accumulation_steps == 0
             with accelerator.accumulate(model):
                 if pp_size > 1:
                     orig_parameters = current_parameters
                     loss = model.run_train(**inputs)
+                    xm.mark_step()
 
                     if max_grad_norm is not None:
                         accelerator.clip_grad_norm_(model.local_parameters(), max_norm=max_grad_norm, norm_type=2)
@@ -199,21 +201,28 @@ class TestCommonDistributed(DistributedTest):
 
                     optimizer.step()
 
-                    # Checking here that the norm has been clipped because it happens during the optimizer steps in some cases.
-                    if max_grad_norm is not None:
-                        assert all(torch.linalg.norm(grad, ord=2) <= max_grad_norm for grad in grads_on_cpu)
+                    # Checking only after an actual optimizer step that the norm has been clipped because it happens
+                    # during the optimizer step in some cases.
+                    if is_optimizer_update_step and max_grad_norm is not None:
+                        grads_on_cpu = move_grads_to_cpu(model.local_parameters())
+                        norms = [torch.linalg.vector_norm(grad, 2) for grad in grads_on_cpu]
+                        total_norm = torch.linalg.vector_norm(torch.stack(norms), 2)
+                        assert total_norm <= max_grad_norm
+                        # assert all(torch.linalg.norm(grad, ord=2) <= max_grad_norm for grad in grads_on_cpu)
 
-                    model.zero_grad()
+                    optimizer.zero_grad()
 
-                    # At this point, no parameter should have a gradient.
                     grads_on_cpu = move_grads_to_cpu(model.local_parameters())
-                    assert all(torch.all(grad == 0) for grad in grads_on_cpu)
+                    if is_optimizer_update_step:
+                        # At this point, no parameter should have a gradient.
+                        assert all(torch.all(grad == 0) for grad in grads_on_cpu)
 
                     current_parameters = move_params_to_cpu(model.local_parameters())
                 else:
                     orig_parameters = current_parameters
                     outputs = model(**inputs)
                     loss = outputs["loss"]
+                    xm.mark_step()
                     loss.backward()
 
                     if max_grad_norm is not None:
@@ -225,23 +234,27 @@ class TestCommonDistributed(DistributedTest):
 
                     optimizer.step()
 
-                    # Checking here that the norm has been clipped because it happens during the optimizer steps in some cases.
-                    if max_grad_norm is not None:
+                    # Checking only after an actual optimizer step that the norm has been clipped because it happens
+                    # during the optimizer step in some cases.
+                    if is_optimizer_update_step and max_grad_norm is not None:
                         grads_on_cpu = move_grads_to_cpu(model.parameters())
-                        assert all(torch.linalg.norm(grad, ord=2) <= max_grad_norm for grad in grads_on_cpu)
+                        norms = [torch.linalg.vector_norm(grad, 2) for grad in grads_on_cpu]
+                        total_norm = torch.linalg.vector_norm(torch.stack(norms), 2)
+                        assert total_norm <= max_grad_norm
 
-                    model.zero_grad()
+                    optimizer.zero_grad()
 
                     # At this point, no parameter should have a gradient.
-                    grads_on_cpu = move_grads_to_cpu(model.parameters())
-                    assert all(torch.all(grad == 0) for grad in grads_on_cpu)
+                    if is_optimizer_update_step:
+                        grads_on_cpu = move_grads_to_cpu(model.parameters())
+                        assert all(torch.all(grad == 0) for grad in grads_on_cpu)
 
                     current_parameters = move_params_to_cpu(model.parameters())
 
-                if (step + 1) % gradient_accumulation_steps != 0:
-                    assert all(torch.all(p1 == p2) for (p1, p2) in zip(orig_parameters, current_parameters))
-                else:
+                if is_optimizer_update_step:
                     assert any(torch.any(p1 != p2) for (p1, p2) in zip(orig_parameters, current_parameters))
+                else:
+                    assert all(torch.all(p1 == p2) for (p1, p2) in zip(orig_parameters, current_parameters))
 
     def test_lazy_load(self, from_config, parallel_sizes):
         _, tp_size, pp_size = parallel_sizes

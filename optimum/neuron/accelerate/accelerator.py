@@ -495,11 +495,15 @@ class NeuronAccelerator(Accelerator):
             if parameters == list(model.parameters()):
                 return model.clip_grad_norm_(max_norm, norm_type)
 
+    @requires_neuronx_distributed
     def _prepare_clip_grad_norm(self, parameters, max_norm, norm_type: int = 2):
+        from neuronx_distributed.pipeline import NxDPPModel
+
         self.unscale_gradients()
         parameters = list(parameters)
         for model in self._models:
-            if parameters == list(model.parameters()):
+            model_parameters = model.local_parameters() if isinstance(model, NxDPPModel) else model.parameters()
+            if parameters == list(model_parameters):
                 for opt in self._optimizers:
                     # Under this setting, the gradient clipping will be deferred to the optimizer step.
                     # It will happen after the gradients have been reduced and before the optimizer step.
