@@ -70,8 +70,6 @@ from .distributed import Parallelizer, ParallelizersManager
 from .distributed.utils import make_optimizer_constructor_lazy
 from .trainer_callback import NeuronCacheCallback
 from .utils import (
-    DynamicPatch,
-    ModelPatcher,
     Patcher,
     is_torch_xla_available,
     patch_within_function,
