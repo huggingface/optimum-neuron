@@ -278,7 +278,6 @@ class StagingNeuronUtilsTestCase(StagingTestMixin, TestCase):
             if orig_token:
                 HfFolder.save_token(orig_token)
 
-    @is_staging_test
     def test_has_write_access_to_repo(self):
         orig_token = HfFolder.get_token()
         wrong_token = "random_string"
@@ -292,7 +291,6 @@ class StagingNeuronUtilsTestCase(StagingTestMixin, TestCase):
         self.assertTrue(has_write_access_to_repo(self.CUSTOM_CACHE_REPO))
         self.assertTrue(has_write_access_to_repo(self.CUSTOM_PRIVATE_CACHE_REPO))
 
-    @is_staging_test
     def test_list_in_registry(self):
         def _test_list_in_registry(use_private_cache_repo: bool):
             if use_private_cache_repo:
@@ -466,7 +464,6 @@ class NeuronHashTestCase(TestCase):
 
         bert_model = BertModel.from_pretrained("hf-internal-testing/tiny-random-bert")
         neuron_hash = NeuronHash(bert_model, input_shapes, data_type, neuron_compiler_version=DUMMY_COMPILER_VERSION)
-
         self.assertFalse(neuron_hash.is_private)
 
         with TemporaryDirectory() as tmpdirname:
@@ -494,8 +491,10 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
 
             # The model being loaded locally is assumed to be private, push to hub should prevent from pushing to a
             # public repo.
-            with self.assertRaisesRegex(ValueError, "Cannot push the cached model"):
-                push_to_cache_on_hub(neuron_hash, cached_files[0], self.CUSTOM_CACHE_REPO)
+            with self.assertRaisesRegex(ValueError, "Could not push the cached model"):
+                push_to_cache_on_hub(
+                    neuron_hash, cached_files[0], self.CUSTOM_CACHE_REPO, fail_when_could_not_push=True
+                )
 
             # It should work when using a private repo.
             cached_model_on_the_hub = push_to_cache_on_hub(
@@ -547,7 +546,6 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
             # With a directory
             with self.assertLogs("optimum", level="INFO") as cm:
                 push_to_cache_on_hub(neuron_hash, cache_dir, self.CUSTOM_PRIVATE_CACHE_REPO)
-                print(cm.output)
                 self.assertIn("Did not push the cached model located at", cm.output[0])
 
             with self.assertLogs("optimum", level="WARNING") as cm:
@@ -636,7 +634,7 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
             set_custom_cache_repo_name_in_hf_home(f"{TRANSFORMERS_USER}/{repo_name}")
             with self.assertLogs("optimum", "WARNING") as cm:
                 push_to_cache_on_hub(neuron_hash, get_neuron_cache_path())
-                self.assertTrue(any("Could not push the cached model to the repo" in output for output in cm.output))
+                self.assertTrue(any("Could not push the cached model to" in output for output in cm.output))
 
             self.set_hf_hub_token(TRANSFORMERS_TOKEN)
             delete_repo(repo_name, repo_type="model")
