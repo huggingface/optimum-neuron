@@ -348,7 +348,16 @@ class TestModelParallelization(DistributedTest):
             parallelize_embeddings=parallelize_embeddings,
             sequence_parallel_enabled=sequence_parallel_enabled,
         )
-        model = accelerator.prepare(model)
+        from .utils import create_static_seed_patcher
+
+        static_seed_patcher = create_static_seed_patcher(model.__class__, 42)
+        with static_seed_patcher:
+            model = accelerator.prepare(model)
+        if xm.get_ordinal() == 0:
+            pass
+            # print(model.gpt_neox.embed_in.weight, orig_model.gpt_neox.embed_in.weight)
+            # print(model.embed_out.weight, orig_model.embed_out.weight)
+            # print(model.gpt_neox.embed_in.weight, model.embed_out.weight)
 
         with torch.no_grad():
             if pp_size == 1:

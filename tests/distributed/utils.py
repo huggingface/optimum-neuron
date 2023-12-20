@@ -238,6 +238,7 @@ def create_static_seed_patcher(model_class: Type["PreTrainedModel"], seed: int):
             (fully_qualified_method_name, dynamic_patch),
             ("torch.nn.Embedding.reset_parameters", dynamic_patch),
             ("torch.nn.Linear.reset_parameters", dynamic_patch),
+            ("torch.Tensor.normal_", dynamic_patch),
             ("neuronx_distributed.parallel_layers.layers.ColumnParallelLinear.init_weight_cpu", dynamic_patch),
             ("neuronx_distributed.parallel_layers.layers.RowParallelLinear.init_weight_cpu", dynamic_patch),
         ]

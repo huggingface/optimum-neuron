@@ -170,7 +170,7 @@ class GPTNeoXSequenceParallelismSpecs(SequenceParallelismSpecs):
         "gpt_neox.final_layer_norm",
     ]
     SEQUENCE_COLLECTIVE_OPS_INFOS = [
-        SequenceCollectiveOpInfo("scatter", torch.nn.Embedding, "output", "first"),
+        SequenceCollectiveOpInfo("scatter", "gpt_neox.embed_in", "output", "first"),
         SequenceCollectiveOpInfo("gather", torch.nn.LayerNorm, "output", "last"),
     ]
 

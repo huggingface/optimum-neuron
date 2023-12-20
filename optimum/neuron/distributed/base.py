@@ -46,6 +46,7 @@ from .utils import (
     load_tensor_for_weight,
     named_parameters,
     try_to_hf_initialize,
+    was_already_initialized_during_parallelization,
 )
 
 
@@ -412,7 +413,9 @@ class Parallelizer(ABC):
                     new_parameter = torch.nn.Parameter(
                         load_tensor_for_weight(weight_info, tensor_slices=slices).to(parameter.dtype)
                     )
-                elif parameter.device != torch.device("meta"):
+                elif parameter.device != torch.device("meta") and was_already_initialized_during_parallelization(
+                    parameter
+                ):
                     tied_weights[parameter] = parameter
                     new_parameters.add(parameter)
                     continue
@@ -445,12 +448,12 @@ class Parallelizer(ABC):
                     if not left_uninitialized:
                         continue
                     initialize_torch_nn_module(mod, left_uninitialized)
-
                 elif isinstance(mod, parallel_layers.layers.BaseParallelLinear):
                     # First, we try to initialize the layer similarly as it would be done with the model.
                     # To do that it is necessary to change the model class to that the `model._init_weights` method
                     # considers this module as a `torch.nn.Linear` instance.
                     orig_class = mod.__class__
+                    # TODO BEFORE MERGING (GPT NEOX MODEL TEST FAILURE): initialize here as linear with full size and scatter.
                     mod.__class__ = torch.nn.Linear
                     left_uninitialized = try_to_hf_initialize(model, mod, parameter_names)
                     mod.__class__ = orig_class

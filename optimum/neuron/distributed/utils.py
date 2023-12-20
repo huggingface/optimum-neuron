@@ -168,6 +168,14 @@ def _validate_weight_info_device_matches_specified_device(device: "torch.device"
         )
 
 
+def mark_parameter_init_status_during_parallelization(parameter: "torch.nn.Parameter", initialized: bool):
+    setattr(parameter, "_was_initialized_during_parallelization", initialized)
+
+
+def was_already_initialized_during_parallelization(parameter: "torch.nn.Parameter") -> bool:
+    return getattr(parameter, "_was_initialized_during_parallelization", False)
+
+
 @requires_neuronx_distributed
 def embedding_to_parallel_embedding(
     embedding_layer: "torch.nn.Embedding",
@@ -245,10 +253,14 @@ def embedding_to_parallel_embedding(
                 ),
             )
             parallel_embedding_layer.weight.copy_(weight_data)
+            mark_parameter_init_status_during_parallelization(parallel_embedding_layer.weight, True)
         elif embedding_layer.weight.device != torch.device("meta"):
             parallel_embedding_layer.weight.copy_(
                 embedding_layer.weight[tp_rank * row_size : (tp_rank + 1) * row_size, :]
             )
+            mark_parameter_init_status_during_parallelization(parallel_embedding_layer.weight, True)
+        else:
+            mark_parameter_init_status_during_parallelization(parallel_embedding_layer.weight, False)
 
         if lm_head_layer is not None:
             parallel_lm_head_layer = linear_to_parallel_linear(
@@ -362,17 +374,25 @@ def linear_to_parallel_linear(
                     ),
                 )
                 parallel_linear_layer.weight.copy_(weight_data)
+                mark_parameter_init_status_during_parallelization(parallel_linear_layer.weight, True)
             elif linear_layer.weight.device != torch.device("meta"):
                 parallel_linear_layer.weight.copy_(
                     linear_layer.weight[:, tp_rank * col_size : (tp_rank + 1) * col_size]
                 )
+                mark_parameter_init_status_during_parallelization(parallel_linear_layer.weight, True)
+            else:
+                mark_parameter_init_status_during_parallelization(parallel_linear_layer.weight, False)
 
             if linear_layer.bias is not None:
                 if linear_layer_bias_weight_info is not None:
                     bias_weight_data = load_tensor_for_weight(linear_layer_bias_weight_info)
                     parallel_linear_layer.bias.copy_(bias_weight_data)
+                    mark_parameter_init_status_during_parallelization(parallel_linear_layer.bias, True)
                 elif linear_layer.bias.device != torch.device("meta"):
                     parallel_linear_layer.bias.copy_(linear_layer.bias)
+                    mark_parameter_init_status_during_parallelization(parallel_linear_layer.bias, True)
+                else:
+                    mark_parameter_init_status_during_parallelization(parallel_linear_layer.bias, False)
 
         else:
             if embedding_weight_to_tie is not None:
@@ -386,10 +406,14 @@ def linear_to_parallel_linear(
                     ),
                 )
                 parallel_linear_layer.weight.copy_(weight_data)
+                mark_parameter_init_status_during_parallelization(parallel_linear_layer.weight, True)
             elif linear_layer.weight.device != torch.device("meta"):
                 parallel_linear_layer.weight.copy_(
                     linear_layer.weight[tp_rank * row_size : (tp_rank + 1) * row_size, :]
                 )
+                mark_parameter_init_status_during_parallelization(parallel_linear_layer.weight, True)
+            else:
+                mark_parameter_init_status_during_parallelization(parallel_linear_layer.weight, False)
 
             if linear_layer.bias is not None:
                 if linear_layer_bias_weight_info is not None:
@@ -407,6 +431,7 @@ def linear_to_parallel_linear(
                         tensor_slices=tensor_slices,
                     )
                     parallel_linear_layer.bias.copy_(bias_weight_data)
+                    mark_parameter_init_status_during_parallelization(parallel_linear_layer.bias, True)
                 elif linear_layer.bias.device != torch.device("meta"):
                     if gather_output:
                         parallel_linear_layer.bias.copy_(linear_layer.bias)
@@ -414,6 +439,9 @@ def linear_to_parallel_linear(
                         parallel_linear_layer.bias.copy_(
                             linear_layer.bias[tp_rank * row_size : (tp_rank + 1) * row_size]
                         )
+                    mark_parameter_init_status_during_parallelization(parallel_linear_layer.bias, True)
+                else:
+                    mark_parameter_init_status_during_parallelization(parallel_linear_layer.bias, False)
 
     return parallel_linear_layer
 
