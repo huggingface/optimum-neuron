@@ -20,7 +20,6 @@ from typing import TYPE_CHECKING, Dict
 import pytest
 import safetensors
 import torch
-import torch_xla.core.xla_model as xm
 from neuronx_distributed.parallel_layers.parallel_state import (
     get_pipeline_model_parallel_rank,
     get_tensor_model_parallel_group,
@@ -37,10 +36,14 @@ from optimum.neuron.distributed.utils import (
     TENSOR_PARALLEL_SHARDS_DIR_NAME,
     make_optimizer_constructor_lazy,
 )
+from optimum.neuron.utils.import_utils import is_torch_xla_available
 
 from .distributed import DistributedTest
 from .utils import create_accelerator_for_mp, get_model, get_model_inputs
 
+
+if is_torch_xla_available():
+    import torch_xla.core.xla_model as xm
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel

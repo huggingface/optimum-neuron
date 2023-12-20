@@ -19,7 +19,6 @@ from typing import TYPE_CHECKING, List, Optional, Type, Union
 import pytest
 import torch
 import torch.utils._pytree as pytree
-import torch_xla.core.xla_model as xm
 from neuronx_distributed.parallel_layers.parallel_state import (
     get_pipeline_model_parallel_rank,
     get_tensor_model_parallel_group,
@@ -54,12 +53,15 @@ from optimum.neuron.distributed.parallelizers_manager import ParallelizersManage
 from optimum.neuron.utils.cache_utils import (
     get_num_neuron_cores,
 )
-from optimum.neuron.utils.import_utils import is_neuronx_available
+from optimum.neuron.utils.import_utils import is_neuronx_available, is_torch_xla_available
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
 from .distributed import DistributedTest
 from .utils import create_accelerator_for_mp, get_model, get_model_inputs
 
+
+if is_torch_xla_available():
+    import torch_xla.core.xla_model as xm
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel

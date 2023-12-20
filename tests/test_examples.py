@@ -42,6 +42,7 @@ from transformers.testing_utils import slow
 
 from optimum.neuron.distributed.parallelizers_manager import ParallelizersManager
 from optimum.neuron.utils.cache_utils import load_custom_cache_repo_name_from_hf_home
+from optimum.neuron.utils.import_utils import is_neuronx_distributed_available
 from optimum.neuron.utils.misc import string_to_bool
 from optimum.neuron.utils.runner import ExampleRunner
 from optimum.neuron.utils.testing_utils import is_trainium_test
@@ -281,7 +282,10 @@ class ExampleTestMeta(type):
 
             tensor_parallel_size = 2 if tp_support is not TPSupport.NONE else 1
 
-            pp_support = ParallelizersManager.parallelizer_for_model(model_type).supports_pipeline_parallelism()
+            if not is_neuronx_distributed_available():
+                pp_support = False
+            else:
+                pp_support = ParallelizersManager.parallelizer_for_model(model_type).supports_pipeline_parallelism()
             pipeline_parallel_size = 4 if pp_support else 1
 
             disable_embedding_parallelization = tp_support is TPSupport.PARTIAL
