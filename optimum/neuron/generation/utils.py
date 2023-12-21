@@ -17,14 +17,13 @@
 import copy
 import inspect
 import warnings
+from functools import wraps
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.distributed as dist
 
 from optimum.neuron.utils.import_utils import is_torch_xla_available
-from optimum.neuron.utils.generation_utils import get_fwd_for_general_sampling
-
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
@@ -54,6 +53,172 @@ from transformers.utils import ModelOutput, logging
 
 logger = logging.get_logger(__name__)
 
+from ..utils.import_utils import is_neuronx_distributed_available
+from ..utils.misc import args_and_kwargs_to_kwargs_only
+
+if is_neuronx_distributed_available():
+    from neuronx_distributed.parallel_layers import parallel_state
+
+
+def _move_dict_args_to_device(kwargs: Dict[str, Any], device: str = "cpu") -> Dict[str, Any]:
+    """
+    Takes keyword arguments which will be passed to a model's forward function
+    and moves its values to `device` if
+    they are of type `torch.Tensor`. If the key is a dictionary it does the same to the
+    respective values.
+    Args:
+        kwargs: (`Dict[str, Any]`):
+            The kwargs to be passed to the models forward function.
+        device: (`str`, defaults to `cpu`):
+            The target device to which tensors should be moved.
+    Returns:
+        `Dict[str, Any]`: The kwargs dict with its tensors moved to `device`.
+    """
+
+    def needs_move(src_device, tgt_device):
+        return src_device != tgt_device
+
+    for k, v in kwargs.items():
+        # Handle nested dicts
+        if isinstance(v, dict):
+            for k_, v_ in v.items():
+                if isinstance(v_, torch.Tensor):
+                    if needs_move(v_.device, device):
+                        v[k_] = v_.to(device=device)
+
+        # Handle tensor types
+        elif isinstance(v, torch.Tensor):
+            if needs_move(v.device, device):
+                kwargs[k] = v.to(device=device)
+
+        # Handle past_key_value tuples
+        elif k == "past_key_values":
+            if v is not None:
+                new_past_key_values = ()
+                for layer_past in v:
+                    new_layer_past = ()
+                    for past_state in layer_past:
+                        if needs_move(past_state.device, device):
+                            new_layer_past += (past_state.to(device=device),)
+                        else:
+                            new_layer_past += (past_state,)
+                    new_past_key_values += (new_layer_past,)
+                kwargs[k] = new_past_key_values
+
+    return kwargs
+
+
+def _pad_input_ids_for_general_sampling(
+    input_ids: torch.Tensor,
+    num_padding_values: int,
+    pad_token_id: int
+) -> torch.Tensor:
+    """
+    Pads `input_ids` with `num_padding_values` padding tokens along the second dimension.
+    Args:
+        input_ids (`torch.Tensor`):
+            Input ids to be padded.
+        num_padding_values (`int`):
+            Number of padding values to add.
+        pad_token_id (`int`):
+            Token ID of padding token.
+    Returns:
+        `torch.Tensor`: Padded `input_ids`.
+    """
+    bsz = input_ids.size(0)
+    input_ids = torch.cat(
+        [input_ids, torch.ones((bsz, num_padding_values), device=input_ids.device, dtype=torch.long) * pad_token_id], 1
+    )
+    return input_ids
+
+def _get_fwd_for_general_sampling(
+    current_fwd: Callable,
+    generation_config: GenerationConfig,
+    is_encoder_decoder: bool,
+    vocab_size: int,
+    input_dtype: str,
+    main_device: str,
+    to_device: str = "cpu"
+) -> Callable:
+    """
+    Wraps the passed forward function and extends it such that before each forward call
+    the `decoder_input_ids` are padded and all tensors are moved to `main_device` (e.g. XLA).
+    Then the original forward passed is called followed by a `xm.mark_step`. Subsequently,
+    an "unpadding" of the logits is performed. This way, all functions that process the logits
+    can be called without making any changes.
+    Args:
+        current_fwd (`Callable`):
+            The current forward function of the model.
+        generation_config (`GenerationConfig`):
+            The GenerationConfig of the model.
+        main_device (`str`):
+            The device on which the forward pass should be executed.
+        to_device (`str`, defaults to `cpu`):
+            The device on which all other processing should be executed.
+    Returns:
+        `Callable`: The extended forward function.
+    """
+
+    @wraps(current_fwd)
+    def new_fwd(*args, **kwargs):
+        # Pad input to max length
+        cur_len = None
+        input_ids_string = "decoder_input_ids" if is_encoder_decoder else "input_ids"
+        if input_ids_string in kwargs:
+            current_input_ids = kwargs[input_ids_string]
+            batch_size, cur_len = current_input_ids.shape
+            num_padding_values = generation_config.max_length - cur_len
+            kwargs[input_ids_string] = _pad_input_ids_for_general_sampling(
+                current_input_ids, num_padding_values, generation_config.pad_token_id
+            )
+
+            # For decoder only models, pad decoder attention mask in addition to prompts
+            if (
+                "attention_mask" in kwargs
+                and not is_encoder_decoder
+                and num_padding_values > 0
+            ):
+                kwargs["attention_mask"] = torch.cat(
+                    [
+                        kwargs["attention_mask"],
+                        torch.zeros((batch_size, (generation_config.max_length - cur_len)))
+                        .long()
+                        .to(kwargs["attention_mask"].device),
+                    ],
+                    1,
+                )
+                # create position_ids on the fly for batch generation
+                position_ids = kwargs["attention_mask"].long().cumsum(-1) - 1
+                position_ids.masked_fill_(kwargs["attention_mask"] == 0, 1)
+                kwargs["position_ids"] = position_ids
+
+        # Move inputs to device
+        _move_dict_args_to_device(kwargs, main_device)
+
+        # Forward
+        kwargs = args_and_kwargs_to_kwargs_only(current_fwd, args, kwargs)
+        outputs = current_fwd(**kwargs)
+        # Gather outputs if NxD tensor parallelism is applied and the output logits have not been gathered.
+        if is_neuronx_distributed_available() and \
+           parallel_state.model_parallel_is_initialized() and \
+           parallel_state.get_tensor_model_parallel_size() > 1 and \
+           outputs["logits"].shape[-1] != vocab_size:
+            outputs["logits"] = xm.all_gather(
+                outputs["logits"],
+                dim=-1,
+                groups=parallel_state.get_tensor_model_parallel_group(as_list=True),
+            )
+        xm.mark_step()
+
+        # Move to CPU
+        _move_dict_args_to_device(outputs, to_device)
+
+         # Post-process output as a function of cur_len
+        outputs["logits"] = outputs["logits"][:, :cur_len, ...].to(input_dtype)
+
+        return outputs
+
+    return new_fwd
 
 class GeneralNeuronGenerationMixin(GenerationMixin):
     """
@@ -112,33 +277,52 @@ class GeneralNeuronGenerationMixin(GenerationMixin):
 
         # 3. Define model inputs and move to CPU
         general_device = 'cpu'
+        input_dtype = None
         if 'input_ids' in kwargs and kwargs['input_ids'] is not None:
             kwargs['input_ids'] = kwargs['input_ids'].to(general_device)
         if inputs is not None:
             inputs = inputs.to(general_device)
+            input_dtype = inputs.dtype
         _, model_input_name, model_kwargs = self._prepare_model_inputs(
             inputs, generation_config.bos_token_id, model_kwargs
         )
 
-        # 4. Set Neuron spefic generation configurations
-        general_forward = get_fwd_for_general_sampling(
-            self.forward, generation_config, self.config.is_encoder_decoder, self.config.vocab_size, self.device, "cpu",
-        )
-        self.forward = general_forward
-        if generation_config.use_cache:
-            warnings.warn("use_cache is not supported for generation on Neuron devices, switching to use_cache=False.")
-            # decoder-only models with inputs_embeds forwarding must use caching (otherwise we can't detect whether we are
-            # generating the first new token or not, and we only want to use the embeddings for the first new token)
-            if not self.config.is_encoder_decoder and model_input_name == "inputs_embeds":
-                raise ValueError("Decoder-only models with inputs_embeds forwarding must use `use_cache=True`")
-        generation_config.use_cache = False
+        # 4. Set Neuron specific generation configurations
+        original_forward = copy.deepcopy(self.forward)
+        try:
+            general_forward = _get_fwd_for_general_sampling(
+                self.forward, generation_config, self.config.is_encoder_decoder, self.config.vocab_size, input_dtype, self.device, general_device,
+            )
+            self.forward = general_forward
+            if generation_config.use_cache:
+                warnings.warn("use_cache is not supported for generation on Neuron devices, switching to use_cache=False.")
+                # decoder-only models with inputs_embeds forwarding must use caching (otherwise we can't detect whether we are
+                # generating the first new token or not, and we only want to use the embeddings for the first new token)
+                if not self.config.is_encoder_decoder and model_input_name == "inputs_embeds":
+                    raise ValueError("Decoder-only models with inputs_embeds forwarding must use `use_cache=True`")
+            generation_config.use_cache = False
 
-        # 5. Run HuggingFace generate function
-        return super().generate(
-            inputs,
-            generation_config,
-            **kwargs
+            # 5. Run HuggingFace generate function
+            return super().generate(
+                inputs,
+                generation_config,
+                **kwargs
+            )
+        finally:
+            self.forward = original_forward
+
+
+    def _prepare_encoder_decoder_kwargs_for_generation(
+        self, inputs_tensor: torch.Tensor, model_kwargs, model_input_name: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """ Move the input tensor to XLA device and move the output tensors back to CPU. """
+        output = super()._prepare_encoder_decoder_kwargs_for_generation(
+            inputs_tensor.to(self.device),
+            model_kwargs,
+            model_input_name
         )
+        _move_dict_args_to_device(output, "cpu")
+        return output
 
 
 class NeuronGenerationMixin(GenerationMixin):
