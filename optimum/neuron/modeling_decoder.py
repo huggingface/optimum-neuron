@@ -218,7 +218,7 @@ class NeuronDecoderModel(OptimizedModel):
 
         if compiled_path is not None:
             # Specify the path where compiled artifacts are stored before conversion
-            neuronx_model._load_compiled_artifacts(compiled_path)
+            neuronx_model.load(compiled_path)
 
         # Compile the Neuron model (if present compiled artifacts will be reloaded instead of compiled)
         neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
