@@ -1,5 +1,6 @@
-from itertools import chain
 from functools import partial
+from itertools import chain
+
 
 remainder = {"input_ids": [], "attention_mask": [], "token_type_ids": []}
 

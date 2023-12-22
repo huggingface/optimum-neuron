@@ -1,14 +1,13 @@
 from dataclasses import dataclass, field
-import os
+
+from datasets import load_from_disk
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
-    set_seed,
     default_data_collator,
+    set_seed,
 )
-from datasets import load_from_disk
-import torch
-from huggingface_hub import login
+
 from optimum.neuron import NeuronHfArgumentParser as HfArgumentParser
 from optimum.neuron import NeuronTrainer as Trainer
 from optimum.neuron import NeuronTrainingArguments as TrainingArguments
