@@ -246,7 +246,7 @@ class NeuronDecoderModel(OptimizedModel):
 
         if src_compiled_path is None:
             # The compiled model has never been serialized: do it now
-            self.model._save_compiled_artifacts(dst_compiled_path)
+            self.model.save(dst_compiled_path)
         else:
             shutil.copytree(src_compiled_path, dst_compiled_path)
 
