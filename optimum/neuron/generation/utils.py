@@ -136,9 +136,9 @@ def _get_fwd_for_general_sampling(
     generation_config: GenerationConfig,
     is_encoder_decoder: bool,
     vocab_size: int,
-    input_dtype: str,
     main_device: str,
-    to_device: str = "cpu"
+    to_device: str = "cpu",
+    output_dtype: torch.dtype = torch.float32,
 ) -> Callable:
     """
     Wraps the passed forward function and extends it such that before each forward call
@@ -151,10 +151,16 @@ def _get_fwd_for_general_sampling(
             The current forward function of the model.
         generation_config (`GenerationConfig`):
             The GenerationConfig of the model.
+        is_encoder_decoder (`bool`):
+            Defines if this is a encoder-decoder model.
+        vocab_size (`int`):
+            The total number of vocabs of the current model.
         main_device (`str`):
             The device on which the forward pass should be executed.
         to_device (`str`, defaults to `cpu`):
             The device on which all other processing should be executed.
+        output_dtype (`torch.dtype`, defaults to `torch.float32`):
+            The expected data type of the output logits.
     Returns:
         `Callable`: The extended forward function.
     """
@@ -188,9 +194,10 @@ def _get_fwd_for_general_sampling(
                     1,
                 )
                 # create position_ids on the fly for batch generation
-                position_ids = kwargs["attention_mask"].long().cumsum(-1) - 1
-                position_ids.masked_fill_(kwargs["attention_mask"] == 0, 1)
-                kwargs["position_ids"] = position_ids
+                if "position_ids" in set(inspect.signature(current_fwd).parameters.keys()):
+                    position_ids = kwargs["attention_mask"].long().cumsum(-1) - 1
+                    position_ids.masked_fill_(kwargs["attention_mask"] == 0, 1)
+                    kwargs["position_ids"] = position_ids
 
         # Move inputs to device
         _move_dict_args_to_device(kwargs, main_device)
@@ -213,8 +220,8 @@ def _get_fwd_for_general_sampling(
         # Move to CPU
         _move_dict_args_to_device(outputs, to_device)
 
-         # Post-process output as a function of cur_len
-        outputs["logits"] = outputs["logits"][:, :cur_len, ...].to(input_dtype)
+        # Post-process output as a function of cur_len
+        outputs["logits"] = outputs["logits"][:, :cur_len, ...].to(output_dtype)
 
         return outputs
 
@@ -291,7 +298,7 @@ class GeneralNeuronGenerationMixin(GenerationMixin):
         original_forward = copy.deepcopy(self.forward)
         try:
             general_forward = _get_fwd_for_general_sampling(
-                self.forward, generation_config, self.config.is_encoder_decoder, self.config.vocab_size, input_dtype, self.device, general_device,
+                self.forward, generation_config, self.config.is_encoder_decoder, self.config.vocab_size, self.device,
             )
             self.forward = general_forward
             if generation_config.use_cache:

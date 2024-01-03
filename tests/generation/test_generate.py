@@ -15,10 +15,11 @@
 
 import pytest
 import torch
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
 from optimum.neuron import NeuronModelForCausalLM, NeuronModelForSeq2SeqLM
-from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
+from optimum.neuron.utils.testing_utils import is_inferentia_test, is_trainium_test, requires_neuronx
+from optimum.neuron.utils.training_utils import patch_generation_mixin_to_general_neuron_generation_mixin
 
 
 def _test_model_generation(model, tokenizer, batch_size, input_length, **gen_kwargs):
@@ -141,3 +142,45 @@ def test_seq2seq_generation_greedy_with_optional_outputs(neuron_seq2seq_greedy_p
     assert "decoder_attentions" in output
     assert "cross_attentions" in output
     assert "decoder_hidden_states" in output
+
+
+@pytest.mark.parametrize(
+    "gen_kwargs",
+    [
+        {"do_sample": True},
+        {"do_sample": True, "temperature": 0.7},
+        {"do_sample": False},
+        {"do_sample": False, "repetition_penalty": 1.2},
+        {"num_beams": 4},
+        {"num_beams": 4, "num_beam_groups": 2, "diversity_penalty": 0.1},
+    ],
+    ids=["sample", "sample-with-temp", "greedy", "greedy_no-repeat", "beam", "group-beam"],
+)
+@is_trainium_test
+@requires_neuronx
+def test_general_decoder_generation(export_decoder_id, gen_kwargs):
+    model = AutoModelForCausalLM.from_pretrained(export_decoder_id)
+    patch_generation_mixin_to_general_neuron_generation_mixin(model)
+    tokenizer = AutoTokenizer.from_pretrained(export_decoder_id)
+    _test_model_generation(model, tokenizer, 1, 10, **gen_kwargs)
+
+
+@pytest.mark.parametrize(
+    "gen_kwargs",
+    [
+        {"do_sample": True},
+        {"do_sample": True, "temperature": 0.7},
+        {"do_sample": False},
+        {"do_sample": False, "repetition_penalty": 1.2},
+        {"num_beams": 4},
+        {"num_beams": 4, "num_beam_groups": 2, "diversity_penalty": 0.1},
+    ],
+    ids=["sample", "sample-with-temp", "greedy", "greedy_no-repeat", "beam", "group-beam"],
+)
+@is_trainium_test
+@requires_neuronx
+def test_general_seq2seq_generation(export_seq2seq_id, export_seq2seq_model_class, gen_kwargs):
+    model = export_seq2seq_model_class.from_pretrained(export_seq2seq_id)
+    patch_generation_mixin_to_general_neuron_generation_mixin(model)
+    tokenizer = AutoTokenizer.from_pretrained(export_seq2seq_id)
+    _test_model_generation(model, tokenizer, 1, 10, **gen_kwargs)

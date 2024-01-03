@@ -15,7 +15,7 @@
 from tempfile import TemporaryDirectory
 
 import pytest
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, T5ForConditionalGeneration
 
 from optimum.neuron import NeuronModelForCausalLM, NeuronModelForSeq2SeqLM
 from optimum.neuron.utils.testing_utils import requires_neuronx
@@ -32,6 +32,9 @@ DECODER_MODEL_NAMES = {
 SEQ2SEQ_MODEL_NAMES = {
     "t5": "hf-internal-testing/tiny-random-t5",
 }
+SEQ2SEQ_MODEL_CLASSES = {
+    "t5": T5ForConditionalGeneration,
+}
 
 
 @pytest.fixture(scope="module", params=[DECODER_MODEL_NAMES[model_arch] for model_arch in DECODER_MODEL_ARCHITECTURES])
@@ -43,6 +46,9 @@ def export_decoder_id(request):
 def export_seq2seq_id(request):
     return request.param
 
+@pytest.fixture(scope="module", params=[SEQ2SEQ_MODEL_CLASSES[model_arch] for model_arch in SEQ2SEQ_MODEL_NAMES])
+def export_seq2seq_model_class(request):
+    return request.param
 
 @pytest.fixture(scope="module")
 @requires_neuronx
