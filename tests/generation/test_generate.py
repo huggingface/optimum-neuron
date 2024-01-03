@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import pytest
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
@@ -27,6 +28,17 @@ def _test_model_generation(model, tokenizer, batch_size, input_length, **gen_kwa
     with torch.inference_mode():
         sample_output = model.generate(input_ids, **gen_kwargs)
         assert sample_output.shape[0] == batch_size
+
+
+def _test_model_generation_trn(model, tokenizer, batch_size, input_length, **gen_kwargs):
+    os.environ["NEURON_CC_FLAGS"] = "-O1 --model-type=transformer"
+    import torch_xla.core.xla_model as xm
+    device = xm.xla_device()
+    model = model.to(device)
+    patch_generation_mixin_to_general_neuron_generation_mixin(model)
+    input_ids = torch.ones((batch_size, input_length), dtype=torch.int64)
+    sample_output = model.generate(input_ids, **gen_kwargs)
+    assert sample_output.shape[0] == batch_size
 
 
 @pytest.mark.parametrize(
@@ -158,11 +170,10 @@ def test_seq2seq_generation_greedy_with_optional_outputs(neuron_seq2seq_greedy_p
 )
 @is_trainium_test
 @requires_neuronx
-def test_general_decoder_generation(export_decoder_id, gen_kwargs):
-    model = AutoModelForCausalLM.from_pretrained(export_decoder_id)
-    patch_generation_mixin_to_general_neuron_generation_mixin(model)
-    tokenizer = AutoTokenizer.from_pretrained(export_decoder_id)
-    _test_model_generation(model, tokenizer, 1, 10, **gen_kwargs)
+def test_general_decoder_generation(export_trn_decoder_id, gen_kwargs):
+    model = AutoModelForCausalLM.from_pretrained(export_trn_decoder_id)
+    tokenizer = AutoTokenizer.from_pretrained(export_trn_decoder_id)
+    _test_model_generation_trn(model, tokenizer, 1, 10, **gen_kwargs)
 
 
 @pytest.mark.parametrize(
@@ -181,6 +192,5 @@ def test_general_decoder_generation(export_decoder_id, gen_kwargs):
 @requires_neuronx
 def test_general_seq2seq_generation(export_seq2seq_id, export_seq2seq_model_class, gen_kwargs):
     model = export_seq2seq_model_class.from_pretrained(export_seq2seq_id)
-    patch_generation_mixin_to_general_neuron_generation_mixin(model)
     tokenizer = AutoTokenizer.from_pretrained(export_seq2seq_id)
-    _test_model_generation(model, tokenizer, 1, 10, **gen_kwargs)
+    _test_model_generation_trn(model, tokenizer, 1, 10, **gen_kwargs)

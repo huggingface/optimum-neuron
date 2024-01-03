@@ -29,6 +29,12 @@ DECODER_MODEL_NAMES = {
     "llama": "dacorvo/tiny-random-llama",
     "opt": "hf-internal-testing/tiny-random-OPTForCausalLM",
 }
+TRN_DECODER_MODEL_NAMES = {
+    "bloom": "bigscience/bloom-560m",
+    "gpt2": "gpt2",
+    "llama": "dacorvo/tiny-random-llama",
+    "opt": "facebook/opt-125m",
+}
 SEQ2SEQ_MODEL_NAMES = {
     "t5": "hf-internal-testing/tiny-random-t5",
 }
@@ -41,6 +47,9 @@ SEQ2SEQ_MODEL_CLASSES = {
 def export_decoder_id(request):
     return request.param
 
+@pytest.fixture(scope="module", params=[TRN_DECODER_MODEL_NAMES[model_arch] for model_arch in DECODER_MODEL_ARCHITECTURES])
+def export_trn_decoder_id(request):
+    return request.param
 
 @pytest.fixture(scope="module", params=[SEQ2SEQ_MODEL_NAMES[model_arch] for model_arch in SEQ2SEQ_MODEL_NAMES])
 def export_seq2seq_id(request):
