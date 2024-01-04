@@ -284,13 +284,11 @@ class GeneralNeuronGenerationMixin(GenerationMixin):
 
         # 3. Define model inputs and move to CPU
         general_device = 'cpu'
-        input_dtype = None
         if 'input_ids' in kwargs and kwargs['input_ids'] is not None:
             kwargs['input_ids'] = kwargs['input_ids'].to(general_device)
         if inputs is not None:
             inputs = inputs.to(general_device)
-            input_dtype = inputs.dtype
-        _, model_input_name, model_kwargs = self._prepare_model_inputs(
+        input_ids, model_input_name, model_kwargs = self._prepare_model_inputs(
             inputs, generation_config.bos_token_id, model_kwargs
         )
 
@@ -308,6 +306,8 @@ class GeneralNeuronGenerationMixin(GenerationMixin):
                 if not self.config.is_encoder_decoder and model_input_name == "inputs_embeds":
                     raise ValueError("Decoder-only models with inputs_embeds forwarding must use `use_cache=True`")
             generation_config.use_cache = False
+            if generation_config.max_new_tokens is not None:
+                generation_config.max_length = generation_config.max_new_tokens + input_ids.shape[-1]
 
             # 5. Run HuggingFace generate function
             return super().generate(
