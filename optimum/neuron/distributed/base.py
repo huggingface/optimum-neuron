@@ -43,6 +43,7 @@ from .utils import (
     WeightInformation,
     initialize_parallel_linear,
     initialize_torch_nn_module,
+    linear_to_parallel_linear,
     load_tensor_for_weight,
     named_parameters,
     try_to_hf_initialize,
@@ -422,7 +423,7 @@ class Parallelizer(ABC):
                 else:
                     # This means that there is no information about where to find the weights for this parameter.
                     device = torch.device("cpu") if device is None else device
-                    new_parameter = torch.nn.Parameter(torch.empty_like(current_weight, device=device))
+                    new_parameter = torch.nn.Parameter(-100 * torch.empty_like(current_weight, device=device))
                     modules_to_initialize[module].append(attribute_name)
 
                 setattr(
@@ -445,28 +446,39 @@ class Parallelizer(ABC):
                     # `reset_parameters()` method but we need to be careful because one of the parameters might not
                     # need initialization.
                     left_uninitialized = try_to_hf_initialize(model, mod, parameter_names)
-                    if not left_uninitialized:
-                        continue
-                    initialize_torch_nn_module(mod, left_uninitialized)
+                    if left_uninitialized:
+                        initialize_torch_nn_module(mod, left_uninitialized)
                 elif isinstance(mod, parallel_layers.layers.BaseParallelLinear):
                     # First, we try to initialize the layer similarly as it would be done with the model.
-                    # To do that it is necessary to change the model class to that the `model._init_weights` method
-                    # considers this module as a `torch.nn.Linear` instance.
-                    orig_class = mod.__class__
-                    # TODO BEFORE MERGING (GPT NEOX MODEL TEST FAILURE): initialize here as linear with full size and scatter.
-                    mod.__class__ = torch.nn.Linear
-                    left_uninitialized = try_to_hf_initialize(model, mod, parameter_names)
-                    mod.__class__ = orig_class
-                    if not left_uninitialized:
-                        continue
-                    initialize_parallel_linear(mod, left_uninitialized)
+                    # To do that we initialize a `torch.nn.Linear` with the full shape, and then scatter the weights.
+                    input_is_parallel = gather_output = False
+                    if isinstance(mod, parallel_layers.layers.RowParallelLinear):
+                        axis = "row"
+                        input_is_parallel = mod.input_is_parallel
+                    else:
+                        axis = "column"
+                        gather_output = mod.gather_output
+                    fake_linear_mod = torch.nn.Linear(mod.input_size, mod.output_size)
+                    left_uninitialized = try_to_hf_initialize(model, fake_linear_mod, parameter_names)
+                    if left_uninitialized:
+                        initialize_parallel_linear(mod, left_uninitialized)
+                    else:
+                        fake_parallel_linear_mod = linear_to_parallel_linear(
+                            fake_linear_mod,
+                            axis,
+                            input_is_parallel=input_is_parallel,
+                            gather_output=gather_output,
+                            sequence_parallel_enabled=mod.sequence_parallel_enabled,
+                        )
+                        mod.weight.data = fake_parallel_linear_mod.weight.data.clone()
+                        if mod.bias is not None:
+                            mod.bias.data = fake_parallel_linear_mod.bias.data.clone()
+                        del fake_linear_mod
+                        del fake_parallel_linear_mod
                 else:
                     left_uninitialized = try_to_hf_initialize(model, mod, parameter_names)
-                    if left_uninitialized:
-                        if hasattr(mod, "reset_parameters"):
-                            initialize_torch_nn_module(mod, parameter_names)
-                        else:
-                            raise ValueError(f"Do not know how to initialize a module of type {mod.__class__}")
+                    if left_uninitialized and hasattr(mod, "reset_parameters"):
+                        initialize_torch_nn_module(mod, parameter_names)
 
         pp_size = get_pipeline_model_parallel_size()
         if pp_size > 1:

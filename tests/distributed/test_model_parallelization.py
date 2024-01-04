@@ -140,8 +140,8 @@ MODEL_TYPES_TO_TEST = [
     ),
     (
         "gpt_neox",
-        "hf-tiny-model-private/tiny-random-GPTNeoXModel",
-        {"num_hidden_layers": "2", "intermediate_size": "36"},
+        "michaelbenayoun/gpt-neox-tiny-4layers-random",
+        {"num_hidden_layers": "2"},
     ),
     (
         "llama",
@@ -313,6 +313,7 @@ class TestModelParallelization(DistributedTest):
             config_overwrite=config_overwrite,
             use_static_seed_patcher=True,
         )
+    
         move_model_to_device(orig_model, xm.xla_device())
         orig_model = orig_model.eval()
 
@@ -359,6 +360,9 @@ class TestModelParallelization(DistributedTest):
         static_seed_patcher = create_static_seed_patcher(model.__class__, 42)
         with static_seed_patcher:
             model = accelerator.prepare(model)
+
+        # print(orig_model.cls.predictions.decoder)
+        # print(model.cls.predictions.decoder)
 
         with torch.no_grad():
             if pp_size == 1:

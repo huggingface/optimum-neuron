@@ -109,10 +109,9 @@ def generate_dummy_labels(
                 f', or "multi_label_classification", but "{model.config.problem_type}" was provided.'
             )
         labels["labels"] = torch.zeros(*labels_shape, dtype=labels_dtype, device=device)
-
     elif model_class_name in [
-        *get_values(MODEL_FOR_PRETRAINING_MAPPING_NAMES),
         *get_values(MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING_NAMES),
+        *get_values(MODEL_FOR_PRETRAINING_MAPPING_NAMES),
         *get_values(MODEL_FOR_CAUSAL_LM_MAPPING_NAMES),
         *get_values(MODEL_FOR_MASKED_LM_MAPPING_NAMES),
         *get_values(MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING_NAMES),
@@ -128,7 +127,11 @@ def generate_dummy_labels(
         if seed is not None:
             orig_seed = torch.seed()
             torch.manual_seed(seed)
-        random_labels = torch.randint(0, vocab_size, shape, dtype=torch.long)
+        if model_class_name in get_values(MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING_NAMES):
+            max_value = model.config.num_labels
+        else:
+            max_value = vocab_size
+        random_labels = torch.randint(0, max_value, shape, dtype=torch.long)
         if device is not None:
             random_labels = random_labels.to(device)
         labels["labels"] = random_labels
@@ -235,7 +238,7 @@ def create_static_seed_patcher(model_class: Type["PreTrainedModel"], seed: int):
     dynamic_patch = DynamicPatch(specialized_static_initializer_seed)
     patcher = Patcher(
         [
-            (fully_qualified_method_name, dynamic_patch),
+            # (fully_qualified_method_name, dynamic_patch),
             ("torch.nn.Embedding.reset_parameters", dynamic_patch),
             ("torch.nn.Linear.reset_parameters", dynamic_patch),
             ("torch.Tensor.normal_", dynamic_patch),
@@ -280,9 +283,9 @@ def get_model(
             else:
                 model = model_class.from_pretrained(model_name_or_path, config=config, ignore_mismatched_sizes=True)
 
-            if getattr(model.config, "problem_type", None) is None:
-                model.config.problem_type = "single_label_classification"
-            return model
+    if getattr(model.config, "problem_type", None) is None:
+        model.config.problem_type = "single_label_classification"
+    return model
 
 
 def get_model_inputs(

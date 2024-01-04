@@ -49,8 +49,8 @@ class BasePatcher(ABC):
             setattr(module, attribute_name, patch)
 
     def __exit__(self, exc_type, exc_value, traceback):
-        for module, attribute_name, _, patch in self.patching_specs:
-            setattr(module, attribute_name, patch)
+        for module, attribute_name, orig, _ in self.patching_specs:
+            setattr(module, attribute_name, orig)
 
 
 class DynamicPatch:
