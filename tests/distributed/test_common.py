@@ -20,14 +20,6 @@ from typing import TYPE_CHECKING, Dict
 import pytest
 import safetensors
 import torch
-from neuronx_distributed.parallel_layers.parallel_state import (
-    get_pipeline_model_parallel_rank,
-    get_tensor_model_parallel_group,
-    get_tensor_model_parallel_rank,
-)
-from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
-from neuronx_distributed.pipeline import NxDPPModel
-from neuronx_distributed.utils.model_utils import move_model_to_device
 from transformers import LlamaForCausalLM
 
 from optimum.neuron.accelerate.optimizer import NeuronAcceleratedOptimizer
@@ -36,7 +28,11 @@ from optimum.neuron.distributed.utils import (
     TENSOR_PARALLEL_SHARDS_DIR_NAME,
     make_optimizer_constructor_lazy,
 )
-from optimum.neuron.utils.import_utils import is_torch_xla_available
+from optimum.neuron.utils.import_utils import (
+    is_neuronx_distributed_available,
+    is_torch_xla_available,
+)
+from optimum.neuron.utils.testing_utils import is_trainium_test
 
 from .distributed import DistributedTest
 from .utils import create_accelerator_for_mp, get_model, get_model_inputs
@@ -44,6 +40,16 @@ from .utils import create_accelerator_for_mp, get_model, get_model_inputs
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
+
+if is_neuronx_distributed_available():
+    from neuronx_distributed.parallel_layers.parallel_state import (
+        get_pipeline_model_parallel_rank,
+        get_tensor_model_parallel_group,
+        get_tensor_model_parallel_rank,
+    )
+    from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
+    from neuronx_distributed.pipeline import NxDPPModel
+    from neuronx_distributed.utils.model_utils import move_model_to_device
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
@@ -93,6 +99,7 @@ def move_params_to_cpu(parameters):
     return cpu_params
 
 
+@is_trainium_test
 class TestCommonDistributed(DistributedTest):
     # TODO: add dp + tp + pp configuration.
     @pytest.fixture(scope="class", params=[[2, 1, 1], [2, 2, 1], [2, 1, 2]], ids=["dp=2", "tp=2", "pp=2"])

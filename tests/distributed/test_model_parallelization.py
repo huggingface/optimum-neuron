@@ -19,13 +19,6 @@ from typing import TYPE_CHECKING, List, Optional, Type, Union
 import pytest
 import torch
 import torch.utils._pytree as pytree
-from neuronx_distributed.parallel_layers.parallel_state import (
-    get_pipeline_model_parallel_rank,
-    get_tensor_model_parallel_group,
-    get_tensor_model_parallel_size,
-)
-from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
-from neuronx_distributed.utils.model_utils import move_model_to_device
 from transformers import LlamaForCausalLM
 from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 from transformers.models.auto.modeling_auto import (
@@ -53,7 +46,11 @@ from optimum.neuron.distributed.parallelizers_manager import ParallelizersManage
 from optimum.neuron.utils.cache_utils import (
     get_num_neuron_cores,
 )
-from optimum.neuron.utils.import_utils import is_neuronx_available, is_torch_xla_available
+from optimum.neuron.utils.import_utils import (
+    is_neuronx_available,
+    is_neuronx_distributed_available,
+    is_torch_xla_available,
+)
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
 from .distributed import DistributedTest
@@ -62,6 +59,15 @@ from .utils import create_accelerator_for_mp, get_model, get_model_inputs
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
+
+if is_neuronx_distributed_available():
+    from neuronx_distributed.parallel_layers.parallel_state import (
+        get_pipeline_model_parallel_rank,
+        get_tensor_model_parallel_group,
+        get_tensor_model_parallel_size,
+    )
+    from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
+    from neuronx_distributed.utils.model_utils import move_model_to_device
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
