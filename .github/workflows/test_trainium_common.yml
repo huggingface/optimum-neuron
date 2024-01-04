@@ -32,6 +32,8 @@ jobs:
         run: echo "/home/ubuntu/.local/bin" >> $GITHUB_PATH
       - name: Set pip repository pointing to the Neuron repository
         run: pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
+      - name: Update pip
+        run: pip install -U pip
       - name: Install Python dependencies
         run: pip install .[tests,neuronx]
       - name: Run tests on Neuron cores
