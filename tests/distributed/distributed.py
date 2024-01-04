@@ -26,7 +26,6 @@ import uuid
 from abc import ABC, abstractmethod
 from typing import List, Union
 
-import neuronx_distributed
 import psutil
 import pytest
 import torch
@@ -37,7 +36,10 @@ from _pytest.fixtures import FixtureLookupError
 from _pytest.outcomes import Skipped
 
 from optimum.neuron.utils.cache_utils import get_num_neuron_cores
+from optimum.neuron.utils.import_utils import is_neuronx_distributed_available
 
+if is_neuronx_distributed_available():
+    import neuronx_distributed
 
 TEST_TIMEOUT = 600
 
@@ -121,6 +123,9 @@ class DistributedExec(ABC):
         return fixture_kwargs
 
     def _launch_procs(self, num_procs, tp_size, pp_size):
+        if not is_neuronx_distributed_available():
+            raise RuntimeError("The `neuronx_distributed` package is required to run a distributed test.")
+
         # Verify we have enough accelerator devices to run this test
         num_cores = get_num_neuron_cores()
         if 0 < num_cores < num_procs:
