@@ -660,6 +660,9 @@ class NeuronHash:
     tensor_parallel_size: Union[int, _UnspecifiedHashAttribute] = field(
         default_factory=_UnspecifiedHashAttribute.with_args(min_optimum_neuron_version="0.0.8", default=1)
     )
+    pipeline_parallel_size: Union[int, _UnspecifiedHashAttribute] = field(
+        default_factory=_UnspecifiedHashAttribute.with_args(min_optimum_neuron_version="0.0.17", default=1)
+    )
     _model_name_or_path: Optional[str] = None
     _is_private: Optional[bool] = None
     _model_type: Optional[str] = None
@@ -759,6 +762,9 @@ class NeuronHash:
 
             self._insert_potential_unspecified_hash_attribute(
                 "tensor_parallel_size", self.tensor_parallel_size, hash_dict
+            )
+            self._insert_potential_unspecified_hash_attribute(
+                "pipeline_parallel_size", self.tensor_parallel_size, hash_dict
             )
             self._insert_potential_unspecified_hash_attribute("fsdp", self.fsdp, hash_dict)
 

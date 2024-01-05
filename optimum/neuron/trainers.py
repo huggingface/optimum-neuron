@@ -205,6 +205,7 @@ class AugmentTrainerForNeuronMixin:
             wait_for_everyone_on_fetch=True,
             wait_for_everyone_on_push=True,
         )
+        # TODO: activate that.
         # self.add_callback(callback)
 
         # Make the model Neuron-compatible for generation.
