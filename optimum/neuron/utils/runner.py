@@ -171,7 +171,7 @@ class ExampleRunner:
             ],
         },
         "image-classification": {
-            "dataset_name": "beans",
+            "dataset_name": "mnist",
             "extra_command_line_arguments": [
                 "--remove_unused_columns false",
                 "--ignore_mismatched_sizes",

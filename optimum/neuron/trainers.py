@@ -465,7 +465,7 @@ class AugmentTrainerForNeuronMixin:
                 from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 
                 config = copy.deepcopy(self.model.config)
-                if self.args.tp_plugin.parallelize_embeddings:
+                if self.args.mp_plugin.parallelize_embeddings:
                     config.vocab_size = config.vocab_size * get_tensor_model_parallel_size()
                 config.save_pretrained(output_dir)
 
