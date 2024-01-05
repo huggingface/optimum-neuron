@@ -179,7 +179,7 @@ MODEL_CLASSES_TO_IGNORE_ON_LAZY_LOAD_FOR_FROM_PRETRAINED = [
 
 LLAMA_GQA_VARIANTS_TO_TEST = {
     "MHA-setup": (
-        8,
+        2,
         2,
         1,
         {
@@ -232,9 +232,9 @@ LLAMA_GQA_VARIANTS_TO_TEST = {
         },
     ),
 }
-# LLAMA_V2_MODEL_NAME = "anushehchaudry/llama-2-tiny-random"
+LLAMA_V2_MODEL_NAME = "anushehchaudry/llama-2-tiny-random"
 # LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-random"
-LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-32kv-heads-random"
+# LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-32kv-heads-random"
 
 
 @is_trainium_test
@@ -363,6 +363,7 @@ class TestModelParallelization(DistributedTest):
             parallelize_embeddings=parallelize_embeddings,
             sequence_parallel_enabled=sequence_parallel_enabled,
         )
+
         from .utils import create_static_seed_patcher
 
         static_seed_patcher = create_static_seed_patcher(model.__class__, 42)

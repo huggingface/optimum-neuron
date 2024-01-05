@@ -218,7 +218,6 @@ class TestCommonDistributed(DistributedTest):
                         norms = [torch.linalg.vector_norm(grad, 2) for grad in grads_on_cpu]
                         total_norm = torch.linalg.vector_norm(torch.stack(norms), 2)
                         assert total_norm <= max_grad_norm
-                        # assert all(torch.linalg.norm(grad, ord=2) <= max_grad_norm for grad in grads_on_cpu)
 
                     optimizer.zero_grad()
 

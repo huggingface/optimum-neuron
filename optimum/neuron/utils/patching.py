@@ -41,16 +41,19 @@ class BasePatcher(ABC):
     @abstractmethod
     def process_patching_specs(
         self, patching_specs: Optional[List[Tuple[Any, Any]]] = None, ignore_missing_attributes: bool = False
-    ) -> List[Tuple[Any, str, Any, Any]]:
+    ) -> List[Tuple[Any, str, Any, Any, bool]]:
         pass
 
     def __enter__(self):
-        for module, attribute_name, _, patch in self.patching_specs:
+        for module, attribute_name, _, patch, _ in self.patching_specs:
             setattr(module, attribute_name, patch)
 
     def __exit__(self, exc_type, exc_value, traceback):
-        for module, attribute_name, orig, _ in self.patching_specs:
-            setattr(module, attribute_name, orig)
+        for module, attribute_name, orig, _, should_delete_attribute_at_restore in self.patching_specs:
+            if should_delete_attribute_at_restore:
+                delattr(module, attribute_name)
+            else:
+                setattr(module, attribute_name, orig)
 
 
 class DynamicPatch:
@@ -103,7 +106,7 @@ class Patcher(BasePatcher):
                 )
             if isinstance(patch, DynamicPatch):
                 patch = patch(attribute)
-            proccessed_patching_specs.append((module, attribute_name, attribute, patch))
+            proccessed_patching_specs.append((module, attribute_name, attribute, patch, not module_has_attr))
         return proccessed_patching_specs
 
 
@@ -144,7 +147,7 @@ class ModelPatcher(BasePatcher):
             if inspect.ismethod(attribute):
                 patch = patch.__get__(model)
 
-            proccessed_patching_specs.append((module, attribute_name, attribute, patch))
+            proccessed_patching_specs.append((module, attribute_name, attribute, patch, not module_has_attr))
 
         return proccessed_patching_specs
 

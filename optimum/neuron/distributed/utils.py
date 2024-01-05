@@ -15,6 +15,7 @@
 """Utilities for performing parallelism with `neuronx_distributed`"""
 
 import contextlib
+import copy
 import functools
 import itertools
 import json
@@ -34,11 +35,11 @@ from ..utils.misc import download_checkpoints_in_cache
 from ..utils.require_utils import requires_neuronx_distributed, requires_safetensors, requires_torch_xla
 
 
+if is_neuronx_distributed_available():
+    from neuronx_distributed.parallel_layers import layers
+
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
-
-    if is_neuronx_distributed_available():
-        from neuronx_distributed.parallel_layers import layers
 
 
 TENSOR_PARALLEL_SHARDS_DIR_NAME = "tensor_parallel_shards"
@@ -540,10 +541,19 @@ def try_to_hf_initialize(model: "PreTrainedModel", mod: torch.nn.Module, paramet
     """
     cached_params_data = {name: param.data.clone() for name, param in mod.named_parameters()}
     model._init_weights(mod)
+
+    dummy_mod = copy.deepcopy(mod)
+    for name in parameter_names:
+        getattr(dummy_mod, name).random_()
+    model._init_weights(dummy_mod)
+
     left_uninitialized = []
     with torch.no_grad():
         for name in parameter_names:
-            if torch.all(cached_params_data[name] == getattr(mod, name).data):
+            dummy_param_was_changed = torch.all(getattr(dummy_mod, name).data == getattr(mod, name).data)
+            # We check if a dummy copy of the module, filled with random values is modified to know if weights were
+            # actually initialized.
+            if not dummy_param_was_changed:
                 left_uninitialized.append(name)
         for name, cached_data in cached_params_data.items():
             if name not in parameter_names:
@@ -578,6 +588,15 @@ def initialize_parallel_linear(mod: "layers.BaseParallelLinear", parameter_names
         mod.init_weight_cpu()
     if mod.bias is not None and "bias" in parameter_names:
         mod._init_bias()
+
+
+def parameter_can_be_initialized(model: torch.nn.Module, parent_module: torch.nn.Module, parameter_name: str) -> bool:
+    clone = copy.deepcopy(parent_module)
+    left_uninitialized = try_to_hf_initialize(model, clone, [parameter_name])
+    is_parallel_linear = isinstance(parent_module, layers.BaseParallelLinear)
+    return (
+        hasattr(parent_module, "reset_parameters") or is_parallel_linear or (parameter_name not in left_uninitialized)
+    )
 
 
 @classmethod

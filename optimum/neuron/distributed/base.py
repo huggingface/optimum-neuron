@@ -46,6 +46,7 @@ from .utils import (
     linear_to_parallel_linear,
     load_tensor_for_weight,
     named_parameters,
+    parameter_can_be_initialized,
     try_to_hf_initialize,
     was_already_initialized_during_parallelization,
 )
@@ -365,10 +366,12 @@ class Parallelizer(ABC):
             new_parameters = set()
             modules_to_initialize = defaultdict(list)
             for name, parameter in named_parameters(model, remove_duplicate=False):
+                # TODO: replace current_weight by parameter in the following part of the function.
+                current_weight = parameter
                 split = name.rsplit(".", maxsplit=1)
                 module = model.get_submodule(split[0])
                 attribute_name = split[1]
-                current_weight = getattr(module, attribute_name)
+                # current_weight = getattr(module, attribute_name)
 
                 # Skipping the parameters that will not end-up in this pipeline rank.
                 if name not in names_of_the_parameters_to_consider:
@@ -414,8 +417,9 @@ class Parallelizer(ABC):
                     new_parameter = torch.nn.Parameter(
                         load_tensor_for_weight(weight_info, tensor_slices=slices).to(parameter.dtype)
                     )
-                elif parameter.device != torch.device("meta") and was_already_initialized_during_parallelization(
-                    parameter
+                elif parameter.device != torch.device("meta") and (
+                    was_already_initialized_during_parallelization(parameter)
+                    or not parameter_can_be_initialized(model, module, attribute_name)
                 ):
                     tied_weights[parameter] = parameter
                     new_parameters.add(parameter)
