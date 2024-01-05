@@ -233,8 +233,7 @@ def create_static_seed_patcher(model_class: Type["PreTrainedModel"], seed: int):
     """
     specialized_static_initializer_seed = functools.partial(static_initializer_seed, seed=seed)
 
-    class_module_name = inspect.getmodule(model_class).__name__
-    fully_qualified_method_name = f"{class_module_name}.{model_class.__name__}._init_weights"
+    inspect.getmodule(model_class).__name__
     dynamic_patch = DynamicPatch(specialized_static_initializer_seed)
     patcher = Patcher(
         [
@@ -293,6 +292,7 @@ def get_model_inputs(
     model_name_or_path: str,
     include_labels: bool = True,
     random_labels: bool = True,
+    batch_size: int = 1,
     pad_to_multiple_of: Optional[int] = None,
 ):
     input_str = "Hello there, I'm Michael and I live in Paris!"
@@ -315,13 +315,20 @@ def get_model_inputs(
             labels = tokenizer(input_str, return_tensors="pt")["input_ids"]
             inputs["labels"] = labels
 
+    if batch_size > 1:
+        for name, tensor in inputs.items():
+            repeat = [batch_size] + [1] * (tensor.dim() - 1)
+            tensor = tensor.repeat(*repeat)
+            inputs[name] = tensor
+
     if pad_to_multiple_of is not None:
+        pad_token_id = getattr(model.config, "pad_token_id", 1)
         for name, tensor in inputs.items():
             if tensor.dim() == 2 and tensor.shape[1] % pad_to_multiple_of != 0:
                 tensor = torch.nn.functional.pad(
                     tensor,
-                    pad=(0, tensor.shape[1] % pad_to_multiple_of),
-                    value=1,
+                    pad=(0, pad_to_multiple_of - tensor.shape[1] % pad_to_multiple_of),
+                    value=pad_token_id,
                 )
                 inputs[name] = tensor
     return inputs

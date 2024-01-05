@@ -52,6 +52,7 @@ from optimum.neuron.utils.import_utils import (
     is_torch_xla_available,
 )
 from optimum.neuron.utils.testing_utils import is_trainium_test
+from optimum.neuron.utils.training_utils import set_neuron_cc_optlevel_for_model
 
 from .distributed import DistributedTest
 from .utils import create_accelerator_for_mp, get_model, get_model_inputs
@@ -231,7 +232,9 @@ LLAMA_GQA_VARIANTS_TO_TEST = {
         },
     ),
 }
-LLAMA_V2_MODEL_NAME = "anushehchaudry/llama-2-tiny-random"
+# LLAMA_V2_MODEL_NAME = "anushehchaudry/llama-2-tiny-random"
+# LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-random"
+LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-32kv-heads-random"
 
 
 @is_trainium_test
@@ -303,7 +306,8 @@ class TestModelParallelization(DistributedTest):
         sequence_parallel_enabled,
         parallelize_embeddings,
     ):
-        _, tp_size, pp_size = parallel_sizes
+        world_size, tp_size, pp_size = parallel_sizes
+        dp_size = world_size // (tp_size * pp_size)
         pp_rank = get_pipeline_model_parallel_rank()
 
         orig_model = get_model(
@@ -313,7 +317,9 @@ class TestModelParallelization(DistributedTest):
             config_overwrite=config_overwrite,
             use_static_seed_patcher=True,
         )
-    
+
+        set_neuron_cc_optlevel_for_model(orig_model)
+
         move_model_to_device(orig_model, xm.xla_device())
         orig_model = orig_model.eval()
 
@@ -326,7 +332,9 @@ class TestModelParallelization(DistributedTest):
             pytest.skip(f"Sequence parallelism is not supported for {model_class.__name__}.")
 
         pad_to_multiple_of = None if not sequence_parallel_enabled else tp_size
-        inputs = get_model_inputs(orig_model, model_name_or_path, pad_to_multiple_of=pad_to_multiple_of)
+        inputs = get_model_inputs(
+            orig_model, model_name_or_path, batch_size=dp_size, pad_to_multiple_of=pad_to_multiple_of
+        )
 
         xla_inputs = {k: v.to(xm.xla_device()) for k, v in inputs.items()}
         xm.mark_step()
@@ -360,9 +368,6 @@ class TestModelParallelization(DistributedTest):
         static_seed_patcher = create_static_seed_patcher(model.__class__, 42)
         with static_seed_patcher:
             model = accelerator.prepare(model)
-
-        # print(orig_model.cls.predictions.decoder)
-        # print(model.cls.predictions.decoder)
 
         with torch.no_grad():
             if pp_size == 1:
@@ -430,7 +435,10 @@ class TestModelParallelization(DistributedTest):
         LLAMA_GQA_VARIANTS_TO_TEST.values(),
         ids=LLAMA_GQA_VARIANTS_TO_TEST.keys(),
     )
-    def test_llama_v2_gqa_variants(self, world_size, tp_size, pp_size, config_overwrite):
+    def test_llama_v2_gqa_variants(self, world_size, tp_size, pp_size, config_overwrite, monkeypatch):
+        monkeypatch.setattr(
+            optimum.neuron.distributed.parallel_layers, "_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT", True
+        )
         return self._parallel_model_matches_original_model(
             LlamaForCausalLM,
             LLAMA_V2_MODEL_NAME,
