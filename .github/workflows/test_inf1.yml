@@ -23,11 +23,15 @@ jobs:
     env:
       AWS_REGION: us-east-1
     steps:
+      - name: Check AMI
+        run: dpkg -l | grep neuron
       - name: Checkout
         uses: actions/checkout@v2
-      - name: Install python dependencies
+      - name: Install system packages
         run: |
           sudo apt install python3.8-venv -y
+      - name: Install python packages
+        run: |
           python3 -m venv aws_neuron_venv_pytorch
           source aws_neuron_venv_pytorch/bin/activate
           python -m pip install -U pip
