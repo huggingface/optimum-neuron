@@ -311,16 +311,19 @@ class NeuronAccelerator(Accelerator):
     def prepare_scheduler(self, scheduler: "LRScheduler"):
         return super().prepare_scheduler(scheduler)
 
+    @staticmethod
     def patch_model_for_neuron(
-        self, model: "torch.nn.Module", patching_specs: Optional[List[Tuple[str, Any]]] = None
+        model: "torch.nn.Module", patching_specs: Optional[List[Tuple[str, Any]]] = None
     ) -> "torch.nn.Module":
         if patching_specs is None:
             patching_specs = MODEL_PATCHING_SPECS
         prepared_patching_specs = []
         for spec in patching_specs:
             prepared_patching_specs.append((model,) + spec)
-        with ModelPatcher(prepared_patching_specs, ignore_missing_attributes=True):
-            return model
+
+        model_patcher = ModelPatcher(prepared_patching_specs, ignore_missing_attributes=True)
+        model_patcher.patch()
+        return model
 
     def prepare_model_for_xla_fsdp(
         self, model: torch.nn.Module, device_placement: Optional[bool] = None, evaluation_mode: bool = False

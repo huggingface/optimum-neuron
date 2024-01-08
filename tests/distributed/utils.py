@@ -331,10 +331,14 @@ def get_model_inputs(
         pad_token_id = getattr(model.config, "pad_token_id", 1)
         for name, tensor in inputs.items():
             if tensor.dim() == 2 and tensor.shape[1] % pad_to_multiple_of != 0:
+                if "attention_mask" not in name:
+                    pad_value = pad_token_id
+                else:
+                    pad_value = 1
                 tensor = torch.nn.functional.pad(
                     tensor,
                     pad=(0, pad_to_multiple_of - tensor.shape[1] % pad_to_multiple_of),
-                    value=pad_token_id,
+                    value=pad_value,
                 )
                 inputs[name] = tensor
     return inputs

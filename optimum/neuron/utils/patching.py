@@ -37,6 +37,7 @@ class BasePatcher(ABC):
         self.patching_specs = self.process_patching_specs(
             patching_specs, ignore_missing_attributes=ignore_missing_attributes
         )
+        self.already_patched = False
 
     @abstractmethod
     def process_patching_specs(
@@ -44,16 +45,28 @@ class BasePatcher(ABC):
     ) -> List[Tuple[Any, str, Any, Any, bool]]:
         pass
 
-    def __enter__(self):
+    def patch(self):
+        if self.already_patched:
+            return
         for module, attribute_name, _, patch, _ in self.patching_specs:
             setattr(module, attribute_name, patch)
+        self.already_patched = True
 
-    def __exit__(self, exc_type, exc_value, traceback):
+    def restore(self):
+        if not self.already_patched:
+            return
         for module, attribute_name, orig, _, should_delete_attribute_at_restore in self.patching_specs:
             if should_delete_attribute_at_restore:
                 delattr(module, attribute_name)
             else:
                 setattr(module, attribute_name, orig)
+        self.already_patched = False
+
+    def __enter__(self):
+        return self.patch()
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        return self.restore()
 
 
 class DynamicPatch:

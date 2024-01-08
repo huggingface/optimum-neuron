@@ -550,15 +550,23 @@ def try_to_hf_initialize(model: "PreTrainedModel", mod: torch.nn.Module, paramet
     left_uninitialized = []
     with torch.no_grad():
         for name in parameter_names:
-            dummy_param_was_changed = torch.all(getattr(dummy_mod, name).data == getattr(mod, name).data)
-            # We check if a dummy copy of the module, filled with random values is modified to know if weights were
-            # actually initialized.
-            if not dummy_param_was_changed:
-                left_uninitialized.append(name)
+            # The parameter was left unchanged.
+            if torch.all(getattr(mod, name).data == cached_params_data[name]):
+                # There are two possible reasons:
+                #   1. The model cannot initialize the module that owns the parameter.
+                #   2. The parameter already had the proper value.
+
+                # We check if a dummy copy of the module, filled with random values is modified to know if the model
+                # can initialize the module.
+                dummy_param_was_changed = torch.all(getattr(dummy_mod, name).data == getattr(mod, name).data)
+                if not dummy_param_was_changed:
+                    left_uninitialized.append(name)
+
         for name, cached_data in cached_params_data.items():
             if name not in parameter_names:
                 param = getattr(mod, name)
                 param.data = cached_data
+
     return left_uninitialized
 
 
