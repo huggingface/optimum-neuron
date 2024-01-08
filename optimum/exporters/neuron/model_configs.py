@@ -471,3 +471,8 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
             aliases[model.past_key_values_ca[i]] = len(model.past_key_values_sa) + i + num_outputs_from_trace
 
         return aliases
+
+
+@register_in_tasks_manager("mistral", "text-generation")
+class MistralNeuronConfig(TextNeuronDecoderConfig):
+    NEURONX_CLASS = "mistral.model.MistralForSampling"

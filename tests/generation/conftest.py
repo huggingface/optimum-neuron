@@ -22,11 +22,12 @@ from optimum.neuron.utils.testing_utils import requires_neuronx
 from optimum.utils.testing_utils import USER
 
 
-DECODER_MODEL_ARCHITECTURES = ["bloom", "gpt2", "llama", "opt"]
+DECODER_MODEL_ARCHITECTURES = ["bloom", "gpt2", "llama", "mistral", "opt"]
 DECODER_MODEL_NAMES = {
     "bloom": "hf-internal-testing/tiny-random-BloomForCausalLM",
     "gpt2": "hf-internal-testing/tiny-random-gpt2",
     "llama": "dacorvo/tiny-random-llama",
+    "mistral": "hf-internal-testing/tiny-random-MistralForCausalLM",
     "opt": "hf-internal-testing/tiny-random-OPTForCausalLM",
 }
 SEQ2SEQ_MODEL_NAMES = {
