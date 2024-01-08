@@ -98,7 +98,6 @@ NxDPPMODEL_PATCHING_SPECS = [
 
 
 class NeuronAccelerator(Accelerator):
-    # @patch_within_function(("accelerate.accelerator.AcceleratorState", NeuronAcceleratorState))
     def __init__(self, *args, mp_plugin: Optional[ModelParallelismPlugin] = None, zero_1: bool = False, **kwargs):
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
         patch_accelerate_is_tpu_available()

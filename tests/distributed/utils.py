@@ -260,6 +260,7 @@ def get_model(
     lazy_load: bool = False,
     from_config: bool = False,
     use_static_seed_patcher: bool = False,
+    add_random_noise: bool = False,
     config_overwrite: Optional[Dict[str, str]] = None,
 ) -> "PreTrainedModel":
     if lazy_load:
@@ -284,6 +285,11 @@ def get_model(
 
     if getattr(model.config, "problem_type", None) is None:
         model.config.problem_type = "single_label_classification"
+
+    if add_random_noise:
+        for param in model.parameters():
+            param.data.add_(torch.randn_like(param))
+
     return model
 
 

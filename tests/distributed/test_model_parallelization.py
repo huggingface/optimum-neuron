@@ -232,6 +232,7 @@ LLAMA_GQA_VARIANTS_TO_TEST = {
         },
     ),
 }
+# LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-32kv-heads-random"
 LLAMA_V2_MODEL_NAME = "anushehchaudry/llama-2-tiny-random"
 # LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-random"
 # LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-32kv-heads-random"

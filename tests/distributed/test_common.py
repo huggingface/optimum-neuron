@@ -43,6 +43,7 @@ if is_torch_xla_available():
 
 if is_neuronx_distributed_available():
     from neuronx_distributed.parallel_layers.parallel_state import (
+        get_data_parallel_rank,
         get_pipeline_model_parallel_rank,
         get_tensor_model_parallel_group,
         get_tensor_model_parallel_rank,
@@ -63,6 +64,7 @@ def get_tiny_llama_model(
     lazy_load: bool = False,
     from_config: bool = False,
     use_static_seed_patcher: bool = False,
+    add_random_noise: bool = False,
 ) -> "PreTrainedModel":
     return get_model(
         LlamaForCausalLM,
@@ -72,6 +74,7 @@ def get_tiny_llama_model(
         lazy_load=lazy_load,
         from_config=from_config,
         use_static_seed_patcher=use_static_seed_patcher,
+        add_random_noise=add_random_noise,
     )
 
 
@@ -313,16 +316,20 @@ class TestCommonDistributed(DistributedTest):
             torch.testing.assert_close(orig, gathered_param)
 
     def test_save_model_and_load_model(self, parallel_sizes, tmpdir, monkeypatch):
-        tmpdir = Path(tmpdir)
         _, tp_size, pp_size = parallel_sizes
+        dp_rank = get_data_parallel_rank()
         tp_rank = get_tensor_model_parallel_rank()
         pp_rank = get_pipeline_model_parallel_rank()
 
-        model = get_tiny_llama_model(tp_size=tp_size, pp_size=pp_size, lazy_load=False)
+        tmpdir = Path(tmpdir)
+
+        model = get_tiny_llama_model(tp_size=tp_size, pp_size=pp_size, lazy_load=False, add_random_noise=True)
 
         accelerator = create_accelerator_for_mp(tp_size, pp_size)
         model = accelerator.prepare(model)
         accelerator.save_state(tmpdir.as_posix())
+        accelerator.state._reset_state(reset_partial_state=True)
+        del accelerator
 
         if pp_size > 1:
             # We need to disable `NxDPPModel._set_distributed` since it is already done during the creation of the
@@ -345,9 +352,11 @@ class TestCommonDistributed(DistributedTest):
             assert pytorch_checkpoint_exists or safetensors_checkpoint_exists
 
         # Making sure that we end-up with a different model when starting over.
-        new_model = get_tiny_llama_model(tp_size=tp_size, pp_size=pp_size, lazy_load=False)
+        new_model = get_tiny_llama_model(tp_size=tp_size, pp_size=pp_size, lazy_load=False, add_random_noise=True)
         new_accelerator = create_accelerator_for_mp(tp_size, pp_size)
         new_model = new_accelerator.prepare(new_model)
+        new_accelerator.state._reset_state(reset_partial_state=True)
+        del new_accelerator
 
         if pp_size == 1:
             model_parameters = move_params_to_cpu(model.parameters())
@@ -362,13 +371,13 @@ class TestCommonDistributed(DistributedTest):
         )
 
         # Checking that when providing a checkpoint, we end-up with the same model as the original.
-        new_model = get_tiny_llama_model(tp_size=tp_size, pp_size=pp_size, lazy_load=False)
+        new_model = get_tiny_llama_model(tp_size=tp_size, pp_size=pp_size, lazy_load=False, add_random_noise=True)
         new_accelerator = create_accelerator_for_mp(tp_size, pp_size, checkpoint_dir=tmpdir)
         new_model = new_accelerator.prepare(new_model)
 
         # If there is no model parallelism, the checkpoint weights will not be loaded automatically since we do not
         # call parallelize, so we do it manually.
-        if tp_size == 1 and pp_size == 1:
+        if tp_size == pp_size == 1:
             if pytorch_checkpoint_exists:
                 filename = "pytorch_model.bin"
                 checkpoint_path = tmpdir / filename
@@ -385,4 +394,5 @@ class TestCommonDistributed(DistributedTest):
             model_parameters = move_params_to_cpu(model.local_parameters())
             new_model_parameters = move_params_to_cpu(new_model.local_parameters())
 
-        assert all(torch.all(p1 == p2) for p1, p2 in zip(model_parameters, new_model_parameters))
+        if dp_rank == 0:
+            assert all(torch.all(p1 == p2) for p1, p2 in zip(model_parameters, new_model_parameters))
