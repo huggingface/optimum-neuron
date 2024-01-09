@@ -8,14 +8,16 @@
   - sections:
     - local: tutorials/overview
       title: Overview
+    - local: tutorials/notebooks
+      title: Notebooks
     - local: tutorials/fine_tune_bert
       title: Fine-tune BERT for Text Classification on AWS Trainium
     - local: tutorials/stable_diffusion
       title: Generate images with Stable Diffusion models on AWS Inferentia
-    - local: tutorials/notebooks
-      title: Notebooks
     - local: tutorials/llama2-13b-chatbot
       title: Create your own chatbot with llama-2-13B on AWS Inferentia
+    - local: tutorials/fine_tune_llama_7b
+      title: Fine-tune Llama 2 7B on AWS Trainium 
     title: Tutorials
   - sections:
     - local: guides/overview
