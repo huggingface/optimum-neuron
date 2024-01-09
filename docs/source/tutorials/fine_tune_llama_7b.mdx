@@ -43,7 +43,7 @@ _Note: This tutorial was created on a trn1.32xlarge AWS EC2 Instance._
 
 In this example, we will use the `trn1.32xlarge` instance on AWS with 16 Accelerator, including 32 Neuron Cores and the [Hugging Face Neuron Deep Learning AMI](https://aws.amazon.com/marketplace/pp/prodview-gr3e6yiscria2). The Hugging Face AMI comes with all important libraries, like Transformers, Datasets, Optimum and Neuron packages pre-installed this makes it super easy to get started, since there is no need for environment management.
 
-This blog post doesn’t cover how to create the instance in detail. You can check out my previous blog about [“Setting up AWS Trainium for Hugging Face Transformers”](https://www.philschmid.de/setup-aws-trainium), which includes a step-by-step guide on setting up the environment.
+This blog post doesn’t cover how to create the instance in detail. You can check out my previous blog about [“Setting up AWS Trainium for Hugging Face Transformers”](https://huggingface.co/docs/optimum-neuron/guides/setup_aws_instance), which includes a step-by-step guide on setting up the environment.
 
 Once the instance is up and running, we can ssh into it. But instead of developing inside a terminal we want to use a `Jupyter` environment, which we can use for preparing our dataset and launching the training. For this, we need to add a port for forwarding in the `ssh` command, which will tunnel our localhost traffic to the Trainium instance.
 
