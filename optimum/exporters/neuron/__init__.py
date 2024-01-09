@@ -15,6 +15,7 @@
 
 from .__main__ import (
     infer_stable_diffusion_shapes_from_diffusers,
+    infer_stable_video_diffusion_shapes_from_diffusers,
     main_export,
     normalize_input_shapes,
 )

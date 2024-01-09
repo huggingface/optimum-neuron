@@ -18,6 +18,7 @@ import copy
 import os
 from collections import OrderedDict
 from typing import TYPE_CHECKING, Dict, Optional, Tuple, Union
+from requests.exceptions import ConnectionError as RequestsConnectionError
 
 import torch
 from transformers import PretrainedConfig
@@ -26,6 +27,7 @@ from ...neuron.utils import (
     DECODER_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_2_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_NAME,
+    DIFFUSION_MODEL_IMAGE_ENCODER_NAME,
     DIFFUSION_MODEL_UNET_NAME,
     DIFFUSION_MODEL_VAE_DECODER_NAME,
     DIFFUSION_MODEL_VAE_ENCODER_NAME,
@@ -52,7 +54,11 @@ if is_diffusers_available():
             f"We found an older version of diffusers {_diffusers_version} but we require diffusers to be >= {DIFFUSERS_MINIMUM_VERSION}. "
             "Please update diffusers by running `pip install --upgrade diffusers`"
         )
-    from diffusers import UNet2DConditionModel
+    from diffusers import (
+        UNet2DConditionModel, 
+        StableDiffusionXLPipeline,
+        StableVideoDiffusionPipeline,
+    )
     from diffusers.models.attention_processor import (
         Attention,
         AttnAddedKVProcessor,
@@ -84,6 +90,96 @@ class DiffusersPretrainedConfig(PretrainedConfig):
         """
         output = copy.deepcopy(self.__dict__)
         return output
+
+
+def infer_task(task: str, model_name_or_path: str) -> str:
+    if task == "auto":
+        try:
+            task = TasksManager.infer_task_from_model(model_name_or_path)
+        except KeyError as e:
+            raise KeyError(
+                "The task could not be automatically inferred. Please provide the argument --task with the task "
+                f"from {', '.join(TasksManager.get_all_tasks())}. Detailed error: {e}"
+            )
+        except RequestsConnectionError as e:
+            raise RequestsConnectionError(
+                f"The task could not be automatically inferred as this is available only for models hosted on the Hugging Face Hub. Please provide the argument --task with the relevant task from {', '.join(TasksManager.get_all_tasks())}. Detailed error: {e}"
+            )
+    return task
+
+
+def infer_stable_diffusion_shapes_from_diffusers(
+    input_shapes: Dict[str, Dict[str, int]],
+    model: Union["StableDiffusionPipeline", "StableDiffusionXLPipeline"],
+):
+    if getattr(model, "tokenizer", None):
+        sequence_length = model.tokenizer.model_max_length
+    elif hasattr(model, "tokenizer_2") and model.tokenizer_2 is not None:
+        sequence_length = model.tokenizer_2.model_max_length
+    else:
+        raise AttributeError(f"Cannot infer sequence_length from {type(model)} as there is no tokenizer as attribute.")
+    unet_num_channels = model.unet.config.in_channels
+    vae_encoder_num_channels = model.vae.config.in_channels
+    vae_decoder_num_channels = model.vae.config.latent_channels
+    vae_scale_factor = 2 ** (len(model.vae.config.block_out_channels) - 1) or 8
+    height = input_shapes["unet_input_shapes"]["height"]
+    scaled_height = height // vae_scale_factor
+    width = input_shapes["unet_input_shapes"]["width"]
+    scaled_width = width // vae_scale_factor
+
+    input_shapes["text_encoder_input_shapes"].update({"sequence_length": sequence_length})
+    input_shapes["unet_input_shapes"].update(
+        {
+            "sequence_length": sequence_length,
+            "num_channels": unet_num_channels,
+            "height": scaled_height,
+            "width": scaled_width,
+        }
+    )
+    input_shapes["vae_encoder_input_shapes"].update(
+        {"num_channels": vae_encoder_num_channels, "height": height, "width": width}
+    )
+    input_shapes["vae_decoder_input_shapes"].update(
+        {"num_channels": vae_decoder_num_channels, "height": scaled_height, "width": scaled_width}
+    )
+
+    return input_shapes
+
+
+def infer_stable_video_diffusion_shapes_from_diffusers(
+    input_shapes: Dict[str, Dict[str, int]],
+    model: "StableVideoDiffusionPipeline",
+):
+    image_encoder_num_channels = model.image_encoder.config.num_channels
+    unet_num_channels = model.unet.config.in_channels
+    vae_encoder_num_channels = model.vae.config.in_channels
+    vae_decoder_num_channels = model.vae.config.latent_channels
+    vae_scale_factor = 2 ** (len(model.vae.config.block_out_channels) - 1) or 8
+    height = input_shapes["unet_input_shapes"]["height"]
+    scaled_height = height // vae_scale_factor
+    width = input_shapes["unet_input_shapes"]["width"]
+    scaled_width = width // vae_scale_factor
+    import pdb
+    pdb.set_trace()
+
+    input_shapes["image_encoder_input_shapes"].update({"num_channels": image_encoder_num_channels})
+    input_shapes["unet_input_shapes"].update(
+        {"num_channels": unet_num_channels, "height": scaled_height, "width": scaled_width}
+    )
+    input_shapes["vae_encoder_input_shapes"].update(
+        {"num_channels": vae_encoder_num_channels, "height": height, "width": width}
+    )
+    input_shapes["vae_decoder_input_shapes"].update(
+        {"num_channels": vae_decoder_num_channels, "height": scaled_height, "width": scaled_width}
+    )
+    
+    default_num_frames = model.unet.config.num_frames
+    if input_shapes["unet_input_shapes"]["num_frames"] is None:
+        input_shapes["unet_input_shapes"]["num_frames"] = default_num_frames
+        input_shapes["vae_decoder_input_shapes"]["num_frames"] = default_num_frames
+    
+
+    return input_shapes
 
 
 def build_stable_diffusion_components_mandatory_shapes(
@@ -177,10 +273,11 @@ def build_stable_video_diffusion_components_mandatory_shapes(
 def get_stable_diffusion_models_for_export(
     pipeline: Union["StableDiffusionPipeline", "StableDiffusionXLImg2ImgPipeline"],
     task: str,
-    text_encoder_input_shapes: Dict[str, int],
     unet_input_shapes: Dict[str, int],
     vae_encoder_input_shapes: Dict[str, int],
     vae_decoder_input_shapes: Dict[str, int],
+    text_encoder_input_shapes: Optional[Dict[str, int]] = None,
+    image_encoder_input_shapes: Optional[Dict[str, int]] = None,
     dynamic_batch_size: Optional[bool] = False,
 ) -> Dict[str, Tuple[Union["PreTrainedModel", "ModelMixin"], "NeuronConfig"]]:
     """
@@ -194,14 +291,16 @@ def get_stable_diffusion_models_for_export(
             The model to export.
         task (`str`):
             Task name, should be either "stable-diffusion" or "stable-diffusion-xl".
-        text_encoder_input_shapes (`Dict[str, int]`):
-            Static shapes used for compiling text encoder.
         unet_input_shapes (`Dict[str, int]`):
             Static shapes used for compiling unet.
         vae_encoder_input_shapes (`Dict[str, int]`):
             Static shapes used for compiling vae encoder.
         vae_decoder_input_shapes (`Dict[str, int]`):
             Static shapes used for compiling vae decoder.
+        text_encoder_input_shapes (`Optional[Dict[str, int]]`, defaults to `None`):
+            Static shapes used for compiling text encoder.
+        image_encoder_input_shapes (`Optional[Dict[str, int]]`, defaults to `None`):
+            Static shapes used for compiling image encoder.
         dynamic_batch_size (`bool`, defaults to `False`):
             Whether the Neuron compiled model supports dynamic batch size.
 
@@ -240,6 +339,22 @@ def get_stable_diffusion_models_for_export(
             **text_encoder_input_shapes,
         )
         models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME] = (text_encoder_2, text_encoder_neuron_config_2)
+    
+    # Image encoder
+    if DIFFUSION_MODEL_IMAGE_ENCODER_NAME in models_for_export:
+        image_encoder = models_for_export[DIFFUSION_MODEL_IMAGE_ENCODER_NAME]
+        image_encoder_config_constructor = TasksManager.get_exporter_config_constructor(
+            model=image_encoder, exporter="neuron", task="feature-extraction"
+        )
+        import pdb
+        pdb.set_trace()
+        image_encoder_neuron_config = image_encoder_config_constructor(
+            image_encoder.config,
+            task="feature-extraction",
+            dynamic_batch_size=dynamic_batch_size,
+            **image_encoder_input_shapes,
+        )
+        models_for_export[DIFFUSION_MODEL_IMAGE_ENCODER_NAME] = (image_encoder, image_encoder_neuron_config)
 
     # U-NET
     unet = models_for_export[DIFFUSION_MODEL_UNET_NAME]
@@ -292,7 +407,7 @@ def get_stable_diffusion_models_for_export(
 
 
 def _get_submodels_for_export_stable_diffusion(
-    pipeline: Union["StableDiffusionPipeline", "StableDiffusionXLImg2ImgPipeline"],
+    pipeline: Union["StableDiffusionPipeline", "StableDiffusionXLImg2ImgPipeline", "StableVideoDiffusionPipeline"],
     task: str,
 ) -> Dict[str, Union["PreTrainedModel", "ModelMixin"]]:
     """
@@ -307,7 +422,8 @@ def _get_submodels_for_export_stable_diffusion(
         projection_dim = pipeline.text_encoder.config.projection_dim
 
     # Text encoders
-    if pipeline.text_encoder is not None:
+    text_encoder = getattr(pipeline, "text_encoder", None)
+    if text_encoder is not None:
         if is_sdxl:
             pipeline.text_encoder.config.output_hidden_states = True
         models_for_export.append((DIFFUSION_MODEL_TEXT_ENCODER_NAME, copy.deepcopy(pipeline.text_encoder)))
@@ -316,6 +432,12 @@ def _get_submodels_for_export_stable_diffusion(
     if text_encoder_2 is not None:
         text_encoder_2.config.output_hidden_states = True
         models_for_export.append((DIFFUSION_MODEL_TEXT_ENCODER_2_NAME, copy.deepcopy(text_encoder_2)))
+    
+    # Image encoder
+    image_encoder = getattr(pipeline, "image_encoder", None)
+    if image_encoder is not None:
+        image_encoder.config.output_hidden_states = True
+        models_for_export.append((DIFFUSION_MODEL_IMAGE_ENCODER_NAME, copy.deepcopy(image_encoder)))
 
     # U-NET
     pipeline.unet.set_attn_processor(AttnProcessor())
