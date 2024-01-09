@@ -44,3 +44,7 @@ from .training_utils import (
     patched_finfo,
     prepare_environment_for_neuron,
 )
+
+
+if is_neuronx_available():
+    from .hf_neuronx_cache import hf_neuronx_cache
