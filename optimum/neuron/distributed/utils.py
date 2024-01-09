@@ -748,8 +748,8 @@ def from_pretrained_for_mp(
                 if not sharing_same_suffix_as_name:
                     continue
                 names_of_weights_not_in_model.add(name)
-                longest_sharing_parameter_name = max(sharing_same_suffix_as_name, key=lambda s: len(s))
-                prefixes.add(longest_sharing_parameter_name.replace(name, ""))
+                shortest_sharing_parameter_name = min(sharing_same_suffix_as_name, key=lambda s: len(s))
+                prefixes.add(shortest_sharing_parameter_name.replace(name, ""))
             else:
                 weight_map_for_model[name] = filename
         if names_of_weights_not_in_model:

@@ -169,7 +169,7 @@ class TestCommonDistributed(DistributedTest):
         if dp_size == 1 and zero_1:
             pytest.skip("zero_1 needs to be tested only for dp_size > 1")
 
-        model = get_tiny_llama_model(tp_size=tp_size, pp_size=pp_size)
+        model = get_tiny_llama_model(tp_size=tp_size, pp_size=pp_size, use_static_seed_patcher=True)
 
         if tp_size == pp_size == 1:
             move_model_to_device(model, xm.xla_device())

@@ -177,7 +177,7 @@ MODEL_CLASSES_TO_IGNORE = [
 
 LLAMA_GQA_VARIANTS_TO_TEST = {
     "MHA-setup": (
-        2,
+        8,
         2,
         1,
         {
@@ -372,6 +372,8 @@ class TestModelParallelization(DistributedTest):
         static_seed_patcher = create_static_seed_patcher(model.__class__, 42)
         with static_seed_patcher:
             model = accelerator.prepare(model)
+
+        xm.mark_step()
 
         model = accelerator.patch_model_for_neuron(model)
         with torch.no_grad():

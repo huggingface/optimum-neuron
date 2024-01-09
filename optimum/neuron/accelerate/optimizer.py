@@ -79,7 +79,7 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
 
     def prepare_clip_grad_norm(self, parameters, max_norm, norm_type=2):
         parameter_ids = {id(p) for p in parameters}
-        if parameter_ids == self.parameter_ids:
+        if parameter_ids == self.parameter_ids or isinstance(self.optimizer, ZeroRedundancyOptimizer):
             self.clip_grad_norm_to_perform = {"max_norm": max_norm, "norm_type": norm_type}
 
     @requires_neuronx_distributed

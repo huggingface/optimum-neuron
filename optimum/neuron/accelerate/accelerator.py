@@ -405,6 +405,7 @@ class NeuronAccelerator(Accelerator):
             return model
 
         cpu_ids = {name: id(param) for name, param in model.named_parameters()}
+        tied_parameters_dict = get_tied_parameters_dict(model)
         model_main_input_name = getattr(model, "main_input_name", None)
         # TODO: enable self.device (if needed).
         model = self.state.mp_plugin.parallelize_model(model, device=None)
@@ -432,7 +433,6 @@ class NeuronAccelerator(Accelerator):
             if hasattr(output_embeddings, "out_features") and hasattr(input_embeddings, "num_embeddings"):
                 output_embeddings.out_features = input_embeddings.num_embeddings
 
-        tied_parameters_dict = get_tied_parameters_dict(model)
         if isinstance(model, NxDPPModel):
             with ModelPatcher(patching_specs=[(model, "_tie_or_clone_weights", _tie_or_clone_weights_for_mp)]):
                 model.move_model_to_device()
@@ -511,7 +511,7 @@ class NeuronAccelerator(Accelerator):
         parameters = list(parameters)
         for model in self._models:
             model_parameters = model.local_parameters() if isinstance(model, NxDPPModel) else model.parameters()
-            if parameters == list(model_parameters):
+            if parameters == list(model_parameters) or self.zero_1:
                 for opt in self._optimizers:
                     # Under this setting, the gradient clipping will be deferred to the optimizer step.
                     # It will happen after the gradients have been reduced and before the optimizer step.
