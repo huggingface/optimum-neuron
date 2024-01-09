@@ -21,13 +21,13 @@ from argparse import ArgumentParser
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Optional, Union
 
-from requests.exceptions import ConnectionError as RequestsConnectionError
 from transformers import AutoConfig, PretrainedConfig
 
 from ...neuron.utils import (
     DECODER_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_2_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_NAME,
+    DIFFUSION_MODEL_IMAGE_ENCODER_NAME,
     DIFFUSION_MODEL_UNET_NAME,
     DIFFUSION_MODEL_VAE_DECODER_NAME,
     DIFFUSION_MODEL_VAE_ENCODER_NAME,
@@ -44,7 +44,11 @@ from ..tasks import TasksManager
 from .convert import export_models, validate_models_outputs
 from .model_configs import *  # noqa: F403
 from .utils import (
+    infer_task,
+    infer_stable_diffusion_shapes_from_diffusers,
+    infer_stable_video_diffusion_shapes_from_diffusers,
     build_stable_diffusion_components_mandatory_shapes,
+    build_stable_video_diffusion_components_mandatory_shapes,
     get_encoder_decoder_models_for_export,
     get_stable_diffusion_models_for_export,
     replace_stable_diffusion_submodels,
@@ -62,15 +66,12 @@ if is_neuronx_available():
 
     NEURON_COMPILER = "Neuronx"
 
-if is_diffusers_available():
-    from diffusers import StableDiffusionXLPipeline
-
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
 
     if is_diffusers_available():
-        from diffusers import DiffusionPipeline, StableDiffusionPipeline
+        from diffusers import DiffusionPipeline
 
 
 logger = logging.get_logger()
@@ -88,37 +89,6 @@ def infer_compiler_kwargs(args: argparse.Namespace) -> Dict[str, Any]:
         compiler_kwargs["disable_fallback"] = getattr(args, "disable_fallback")
 
     return compiler_kwargs
-
-
-def infer_task(task: str, model_name_or_path: str) -> str:
-    if task == "auto":
-        try:
-            task = TasksManager.infer_task_from_model(model_name_or_path)
-        except KeyError as e:
-            raise KeyError(
-                "The task could not be automatically inferred. Please provide the argument --task with the task "
-                f"from {', '.join(TasksManager.get_all_tasks())}. Detailed error: {e}"
-            )
-        except RequestsConnectionError as e:
-            raise RequestsConnectionError(
-                f"The task could not be automatically inferred as this is available only for models hosted on the Hugging Face Hub. Please provide the argument --task with the relevant task from {', '.join(TasksManager.get_all_tasks())}. Detailed error: {e}"
-            )
-    return task
-
-
-def normalize_input_shapes(task: str, args: argparse.Namespace) -> Dict[str, int]:
-    config = AutoConfig.from_pretrained(args.model)
-
-    model_type = config.model_type.replace("_", "-")
-    if config.is_encoder_decoder:
-        model_type = model_type + "-encoder"
-
-    neuron_config_constructor = TasksManager.get_exporter_config_constructor(
-        model_type=model_type, exporter="neuron", task=task
-    )
-    mandatory_axes = neuron_config_constructor.func.get_mandatory_axes_for_task(task)
-    input_shapes = {name: getattr(args, name) for name in mandatory_axes}
-    return input_shapes
 
 
 def customize_optional_outputs(args: argparse.Namespace) -> Dict[str, bool]:
@@ -148,7 +118,32 @@ def parse_optlevel(args: argparse.Namespace) -> Dict[str, bool]:
     return optlevel
 
 
-def normalize_stable_diffusion_input_shapes(
+def normalize_input_shapes(task: str, args: argparse.Namespace) -> Dict[str, int]:
+    if task == "stable-video-diffusion":
+        input_shapes = _normalize_stable_video_diffusion_input_shapes(args)
+    elif "stable-diffusion" in task:
+        input_shapes = _normalize_stable_diffusion_input_shapes(args)
+    else:
+        input_shapes = _normalize_input_shapes(task, args)
+    return input_shapes
+
+
+def _normalize_input_shapes(task: str, args: argparse.Namespace) -> Dict[str, int]:
+    config = AutoConfig.from_pretrained(args.model)
+
+    model_type = config.model_type.replace("_", "-")
+    if config.is_encoder_decoder:
+        model_type = model_type + "-encoder"
+
+    neuron_config_constructor = TasksManager.get_exporter_config_constructor(
+        model_type=model_type, exporter="neuron", task=task
+    )
+    mandatory_axes = neuron_config_constructor.func.get_mandatory_axes_for_task(task)
+    input_shapes = {name: getattr(args, name) for name in mandatory_axes}
+    return input_shapes
+
+
+def _normalize_stable_diffusion_input_shapes(
     args: argparse.Namespace,
 ) -> Dict[str, Dict[str, int]]:
     args = vars(args) if isinstance(args, argparse.Namespace) else args
@@ -171,41 +166,28 @@ def normalize_stable_diffusion_input_shapes(
     return input_shapes
 
 
-def infer_stable_diffusion_shapes_from_diffusers(
-    input_shapes: Dict[str, Dict[str, int]],
-    model: Union["StableDiffusionPipeline", "StableDiffusionXLPipeline"],
-):
-    if model.tokenizer is not None:
-        sequence_length = model.tokenizer.model_max_length
-    elif hasattr(model, "tokenizer_2") and model.tokenizer_2 is not None:
-        sequence_length = model.tokenizer_2.model_max_length
-    else:
-        raise AttributeError(f"Cannot infer sequence_length from {type(model)} as there is no tokenizer as attribute.")
-    unet_num_channels = model.unet.config.in_channels
-    vae_encoder_num_channels = model.vae.config.in_channels
-    vae_decoder_num_channels = model.vae.config.latent_channels
-    vae_scale_factor = 2 ** (len(model.vae.config.block_out_channels) - 1) or 8
-    height = input_shapes["unet_input_shapes"]["height"]
-    scaled_height = height // vae_scale_factor
-    width = input_shapes["unet_input_shapes"]["width"]
-    scaled_width = width // vae_scale_factor
-
-    input_shapes["text_encoder_input_shapes"].update({"sequence_length": sequence_length})
-    input_shapes["unet_input_shapes"].update(
-        {
-            "sequence_length": sequence_length,
-            "num_channels": unet_num_channels,
-            "height": scaled_height,
-            "width": scaled_width,
-        }
+def _normalize_stable_video_diffusion_input_shapes(
+    args: argparse.Namespace,
+) -> Dict[str, Dict[str, int]]:
+    args = vars(args) if isinstance(args, argparse.Namespace) else args
+    mandatory_axes = set(
+        getattr(inspect.getfullargspec(build_stable_video_diffusion_components_mandatory_shapes), "args")
     )
-    input_shapes["vae_encoder_input_shapes"].update(
-        {"num_channels": vae_encoder_num_channels, "height": height, "width": width}
-    )
-    input_shapes["vae_decoder_input_shapes"].update(
-        {"num_channels": vae_decoder_num_channels, "height": scaled_height, "width": scaled_width}
-    )
-
+    # Remove `num_frames` as there are default values for each model and remove number of channels.
+    mandatory_axes = mandatory_axes - {
+        "image_encoder_num_channels",
+        "unet_num_channels",
+        "vae_encoder_num_channels",
+        "vae_decoder_num_channels",
+        "num_frames",  # default to 14 or 25
+    }
+    if not mandatory_axes.issubset(set(args.keys())):
+        raise AttributeError(
+            f"Shape of {mandatory_axes} are mandatory for neuron compilation, while {mandatory_axes.difference(args.keys())} are not given."
+        )
+    mandatory_shapes = {name: args[name] for name in mandatory_axes}
+    mandatory_shapes["num_frames"] = args.get("num_frames", None)
+    input_shapes = build_stable_video_diffusion_components_mandatory_shapes(**mandatory_shapes)
     return input_shapes
 
 
@@ -225,7 +207,16 @@ def _get_submodels_and_neuron_configs(
         getattr(model.config, "is_encoder_decoder", False) if isinstance(model.config, PretrainedConfig) else False
     )
 
-    if is_stable_diffusion:
+    if task == "stable-video-diffusion":
+        # TODO: Enable optional outputs for Stable Video Diffusion
+        if output_attentions or output_hidden_states:
+            raise ValueError(
+                f"`output_attentions` and `output_hidden_states` are not supported by the {task} task yet."
+            )
+        models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs_for_stable_video_diffusion(
+            model, input_shapes, task, output, dynamic_batch_size,
+        )
+    elif is_stable_diffusion:
         # TODO: Enable optional outputs for Stable Diffusion
         if output_attentions or output_hidden_states:
             raise ValueError(
@@ -254,6 +245,15 @@ def _get_submodels_and_neuron_configs(
         models_and_neuron_configs = {model_name: (model, neuron_config)}
         maybe_save_preprocessors(model_name_or_path, output)
     return models_and_neuron_configs, output_model_names
+
+
+def get_submodels_id(task: str, args: argparse.Namespace) -> Dict[str, str]:
+    is_stable_diffusion = "stable-diffusion" in task
+    if is_stable_diffusion:
+        submodels = {"unet": args.unet}
+    else:
+        submodels = None
+    return submodels
 
 
 def _get_submodels_and_neuron_configs_for_stable_diffusion(
@@ -300,6 +300,45 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
     if getattr(model, "text_encoder_2", None) is not None:
         output_model_names[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME] = os.path.join(
             DIFFUSION_MODEL_TEXT_ENCODER_2_NAME, NEURON_FILE_NAME
+        )
+    del model
+
+    return models_and_neuron_configs, output_model_names
+
+
+def _get_submodels_and_neuron_configs_for_stable_video_diffusion(
+    model: Union["PreTrainedModel", "DiffusionPipeline"],
+    input_shapes: Dict[str, int],
+    task: str,
+    output: Path,
+    dynamic_batch_size: bool = False,
+):
+    if is_neuron_available():
+        raise RuntimeError(
+            "Stable diffusion export is not supported by neuron-cc on inf1, please use neuronx-cc on either inf2/trn1 instead."
+        )
+    input_shapes = infer_stable_video_diffusion_shapes_from_diffusers(input_shapes, model)
+
+    # Saving the model config and preprocessor as this is needed sometimes.
+    model.scheduler.save_pretrained(output.joinpath("scheduler"))
+    if getattr(model, "feature_extractor", None) is not None:
+        model.feature_extractor.save_pretrained(output.joinpath("feature_extractor"))
+    model.save_config(output)
+
+    models_and_neuron_configs = get_stable_diffusion_models_for_export(
+        pipeline=model,
+        task=task,
+        dynamic_batch_size=dynamic_batch_size,
+        **input_shapes,
+    )
+    output_model_names = {
+        DIFFUSION_MODEL_UNET_NAME: os.path.join(DIFFUSION_MODEL_UNET_NAME, NEURON_FILE_NAME),
+        DIFFUSION_MODEL_VAE_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_ENCODER_NAME, NEURON_FILE_NAME),
+        DIFFUSION_MODEL_VAE_DECODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_DECODER_NAME, NEURON_FILE_NAME),
+    }
+    if getattr(model, "image_encoder", None) is not None:
+        output_model_names[DIFFUSION_MODEL_IMAGE_ENCODER_NAME] = os.path.join(
+            DIFFUSION_MODEL_IMAGE_ENCODER_NAME, NEURON_FILE_NAME
         )
     del model
 
@@ -450,15 +489,11 @@ def main():
     args = parser.parse_args()
 
     task = infer_task(args.task, args.model)
-    is_stable_diffusion = "stable-diffusion" in task
+
     compiler_kwargs = infer_compiler_kwargs(args)
 
-    if is_stable_diffusion:
-        input_shapes = normalize_stable_diffusion_input_shapes(args)
-        submodels = {"unet": args.unet}
-    else:
-        input_shapes = normalize_input_shapes(task, args)
-        submodels = None
+    input_shapes = normalize_input_shapes(task, args)
+    submodels = get_submodels_id(task, args)
 
     optional_outputs = customize_optional_outputs(args)
     optlevel = parse_optlevel(args)

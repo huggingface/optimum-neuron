@@ -27,7 +27,7 @@ import torch
 from huggingface_hub import snapshot_download
 from transformers import CLIPFeatureExtractor, CLIPTokenizer, PretrainedConfig
 
-from ..exporters.neuron import DiffusersPretrainedConfig, main_export, normalize_stable_diffusion_input_shapes
+from ..exporters.neuron import DiffusersPretrainedConfig, main_export, normalize_input_shapes
 from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..exporters.tasks import TasksManager
 from ..utils import is_diffusers_available
@@ -613,7 +613,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             task = TasksManager.infer_task_from_model(cls.auto_model_class)
 
         # mandatory shapes
-        input_shapes = normalize_stable_diffusion_input_shapes(kwargs_shapes)
+        input_shapes = normalize_input_shapes(task, kwargs_shapes)
 
         # Get compilation arguments
         auto_cast_type = None if auto_cast is None else auto_cast_type
