@@ -36,6 +36,7 @@ from accelerate.utils.dataclasses import FullyShardedDataParallelPlugin, SageMak
 from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
 from .utils import NeuronDistributedType, NeuronFullyShardedDataParallelPlugin
+from .utils.dataclasses import ModelParallelismPlugin
 
 
 if is_torch_xla_available():
@@ -290,6 +291,8 @@ class NeuronAcceleratorState(AcceleratorState):
                             "the pipeline parallel size are set to 1."
                         )
                     self.mp_plugin = mp_plugin
+                else:
+                    self.mp_plugin = ModelParallelismPlugin()
                 if os.environ.get("ACCELERATE_USE_FSDP", "false") == "true":
                     self.distributed_type = NeuronDistributedType.XLA_FSDP
                     if self._mixed_precision != "no":
