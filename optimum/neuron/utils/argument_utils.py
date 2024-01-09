@@ -145,6 +145,7 @@ def store_compilation_config(
     dynamic_batch_size: bool,
     compiler_type: str,
     compiler_version: str,
+    inline_weights_to_neff: bool,
     optlevel: str,
     model_type: Optional[str] = None,
     task: str = None,
@@ -161,6 +162,7 @@ def store_compilation_config(
     # Add neuron version to the config, so it can be checked at load time
     config_args["compiler_type"] = compiler_type
     config_args["compiler_version"] = compiler_version
+    config_args["inline_weights_to_neff"] = inline_weights_to_neff
 
     # Add input shapes during compilation to the config
     for axis, shape in input_shapes.items():
