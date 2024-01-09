@@ -18,6 +18,7 @@ import codecs
 import os
 import re
 import subprocess
+import sys
 from enum import Enum
 from pathlib import Path
 from subprocess import PIPE
@@ -213,7 +214,7 @@ class ExampleRunner:
         self.use_venv = use_venv
         self.should_install_requirements = install_requirements
         self.venv_dir = TemporaryDirectory()
-        self.python_name = "python"
+        self.python_name = sys.executable
         self.pip_name = "pip"
         self.torchrun_name = "torchrun"
         if use_venv:
