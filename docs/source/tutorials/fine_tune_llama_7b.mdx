@@ -313,7 +313,7 @@ def format_dolly_inference(sample):
 
 
 def generate(sample):
-    prompt = format_dolly_infernece(sample)
+    prompt = format_dolly_inference(sample)
     inputs = tokenizer(prompt, return_tensors="pt")
     outputs = model.generate(**inputs,
                          max_new_tokens=512,
