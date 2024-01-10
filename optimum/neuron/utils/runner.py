@@ -27,7 +27,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import requests
 from huggingface_hub import (
     HfApi,
-    HfFolder,
+    get_token,
     snapshot_download,
 )
 from transformers import AutoConfig
@@ -303,7 +303,7 @@ class ExampleRunner:
             self._installed_requirements = True
 
     def check_user_logged_in_and_cache_repo_is_set(self):
-        token = HfFolder.get_token()
+        token = get_token()
         if not token:
             raise RuntimeError(
                 "You need to log in the Hugging Face Hub otherwise you will not be able to push anything. "
@@ -332,7 +332,7 @@ class ExampleRunner:
         if not config_overrides:
             return model_name_or_path
 
-        filenames = HfApi().list_repo_files(repo_id=model_name_or_path, token=HfFolder.get_token())
+        filenames = HfApi().list_repo_files(repo_id=model_name_or_path, token=get_token())
         safetensors_model_file_pattern = re.compile(r"\w+(-[0-9]*-of-[0-9]*)?\.safetensors")
         allow_patterns = ["*.json", "*.txt"]
         if any(re.match(safetensors_model_file_pattern, filename) for filename in filenames):

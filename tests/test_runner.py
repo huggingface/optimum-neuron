@@ -17,7 +17,7 @@
 import os
 from unittest import TestCase
 
-from huggingface_hub import HfFolder
+from huggingface_hub import get_token, login
 from parameterized import parameterized
 
 from optimum.neuron.utils.cache_utils import (
@@ -57,12 +57,13 @@ class TestExampleRunner(TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls._token = HfFolder.get_token()
+        cls._token = get_token()
         cls._cache_repo = load_custom_cache_repo_name_from_hf_home()
         cls._env = dict(os.environ)
         if os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI", None) is not None:
             token = os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI")
-            HfFolder.save_token(token)
+
+            login(token)
             set_custom_cache_repo_name_in_hf_home(cls.CACHE_REPO_NAME)
         else:
             raise RuntimeError("Please specify the token via the HF_TOKEN_OPTIMUM_NEURON_CI environment variable.")
@@ -71,7 +72,7 @@ class TestExampleRunner(TestCase):
     def tearDownClass(cls):
         os.environ = cls._env
         if cls._token is not None:
-            HfFolder.save_token(cls._token)
+            login(cls._token)
         if cls._cache_repo is not None:
             try:
                 set_custom_cache_repo_name_in_hf_home(cls._cache_repo)

@@ -33,9 +33,9 @@ import torch
 from huggingface_hub import (
     CommitOperationAdd,
     HfApi,
-    HfFolder,
     RepoUrl,
     create_repo,
+    get_token,
     hf_hub_download,
     whoami,
 )
@@ -137,7 +137,7 @@ def is_private_repo(repo_id: str) -> bool:
     if _DISABLE_IS_PRIVATE_REPO_CHECK:
         return False
     try:
-        HfApi().model_info(repo_id=repo_id, token=HfFolder.get_token())
+        HfApi().model_info(repo_id=repo_id, token=get_token())
         private_to_user = False
     except RepositoryNotFoundError:
         private_to_user = True
@@ -827,7 +827,7 @@ def get_cached_model_on_the_hub(neuron_hash: NeuronHash) -> Optional[CachedModel
         else:
             revision = "main"
         try:
-            repo_filenames = HfApi().list_repo_files(repo_id, revision=revision, token=HfFolder.get_token())
+            repo_filenames = HfApi().list_repo_files(repo_id, revision=revision, token=get_token())
         except Exception:
             continue
         model_files_on_the_hub = []
@@ -984,7 +984,7 @@ def push_to_cache_on_hub(
         path_in_repo = Path().joinpath(*path_in_repo.parts[1:])
     path_in_repo = neuron_hash.cache_path / path_in_repo
 
-    repo_filenames = HfApi().list_repo_files(cache_repo_id, token=HfFolder.get_token())
+    repo_filenames = HfApi().list_repo_files(cache_repo_id, token=get_token())
     path_in_repo_str = path_in_repo.as_posix()
     if local_cache_dir_or_file.is_dir():
         exists = any(filename.startswith(path_in_repo_str) for filename in repo_filenames)

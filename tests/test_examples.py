@@ -24,7 +24,7 @@ from tempfile import TemporaryDirectory
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TypeVar, Union
 from unittest import TestCase
 
-from huggingface_hub import HfFolder
+from huggingface_hub import get_token
 from transformers import (
     CONFIG_MAPPING,
     MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING,
@@ -58,7 +58,7 @@ T = TypeVar("T")
 TypeOrDictOfType = Union[T, Dict[str, T]]
 
 
-TOKEN = HfFolder.get_token()
+TOKEN = get_token()
 if os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI", None) is not None:
     TOKEN = os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI")
 
