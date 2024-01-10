@@ -15,4 +15,4 @@
 
 from .logits_process import FusedLogitsWarper
 from .token_selector import TokenSelector
-from .utils import NeuronGenerationMixin, GeneralNeuronGenerationMixin
+from .utils import GeneralNeuronGenerationMixin, NeuronGenerationMixin

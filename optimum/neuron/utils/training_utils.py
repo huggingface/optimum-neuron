@@ -48,7 +48,7 @@ from transformers.trainer_pt_utils import get_model_param_count as transformers_
 from transformers.utils.logging import set_verbosity as set_verbosity_transformers
 
 from ...utils.logging import set_verbosity as set_verbosity_optimum
-from ..generation import NeuronGenerationMixin, GeneralNeuronGenerationMixin
+from ..generation import GeneralNeuronGenerationMixin, NeuronGenerationMixin
 from . import is_torch_xla_available
 from .require_utils import requires_neuronx_distributed, requires_safetensors, requires_torch_xla
 

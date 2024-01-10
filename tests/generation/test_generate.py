@@ -14,9 +14,10 @@
 # limitations under the License.
 
 import os
+
 import pytest
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from optimum.neuron import NeuronModelForCausalLM, NeuronModelForSeq2SeqLM
 from optimum.neuron.utils.testing_utils import is_inferentia_test, is_trainium_test, requires_neuronx

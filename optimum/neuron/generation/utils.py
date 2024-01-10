@@ -25,6 +25,10 @@ import torch.distributed as dist
 
 from optimum.neuron.utils.import_utils import is_torch_xla_available
 
+from ..utils.import_utils import is_neuronx_distributed_available
+from ..utils.misc import args_and_kwargs_to_kwargs_only
+
+
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
 from transformers import GenerationMixin
@@ -53,8 +57,6 @@ from transformers.utils import ModelOutput, logging
 
 logger = logging.get_logger(__name__)
 
-from ..utils.import_utils import is_neuronx_distributed_available
-from ..utils.misc import args_and_kwargs_to_kwargs_only
 
 if is_neuronx_distributed_available():
     from neuronx_distributed.parallel_layers import parallel_state
