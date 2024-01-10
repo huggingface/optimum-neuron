@@ -467,7 +467,6 @@ class NeuronAccelerator(Accelerator):
         if model in self._models:
             return model
 
-        # Patching the model for Neuron.
         model = self.patch_model_for_neuron(model)
 
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:

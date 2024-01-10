@@ -366,12 +366,9 @@ class Parallelizer(ABC):
             new_parameters = set()
             modules_to_initialize = defaultdict(list)
             for name, parameter in named_parameters(model, remove_duplicate=False):
-                # TODO: replace current_weight by parameter in the following part of the function.
-                current_weight = parameter
                 split = name.rsplit(".", maxsplit=1)
                 module = model.get_submodule(split[0])
                 attribute_name = split[1]
-                # current_weight = getattr(module, attribute_name)
 
                 # Skipping the parameters that will not end-up in this pipeline rank.
                 if name not in names_of_the_parameters_to_consider:
@@ -391,14 +388,14 @@ class Parallelizer(ABC):
                     # It can be the case when weights are tied. For example between the embeddings and the LM head.
                     new_parameter = tied_weights[parameter]
                 elif weight_info is not None:
-                    if getattr(current_weight, "tensor_model_parallel", False):
+                    if getattr(parameter, "tensor_model_parallel", False):
                         if parameter.device == torch.device("meta"):
                             # This must either be a torch.nn.Embedding or a torch.nn.Linear that was not handled during
                             # parallelization since those are the only classes that we initialize on the `meta` device.
-                            num_dims = current_weight.dim()
-                            partition_dim = getattr(current_weight, "partition_dim")
+                            num_dims = parameter.dim()
+                            partition_dim = getattr(parameter, "partition_dim")
                             tp_rank = get_tensor_model_parallel_rank()
-                            size_per_rank = current_weight.size(partition_dim)
+                            size_per_rank = parameter.size(partition_dim)
                             slices = [
                                 None
                                 if idx != partition_dim
@@ -427,7 +424,7 @@ class Parallelizer(ABC):
                 else:
                     # This means that there is no information about where to find the weights for this parameter.
                     device = torch.device("cpu") if device is None else device
-                    new_parameter = torch.nn.Parameter(torch.empty_like(current_weight, device=device))
+                    new_parameter = torch.nn.Parameter(torch.empty_like(parameter, device=device))
                     modules_to_initialize[module].append(attribute_name)
 
                 setattr(
