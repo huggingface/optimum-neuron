@@ -104,10 +104,11 @@ def move_params_to_cpu(parameters):
 
 @is_trainium_test
 class TestCommonDistributed(DistributedTest):
+    # TODO: enable dp=4,tp=pp=2 when working on the multi-node training PR.
     @pytest.fixture(
         scope="class",
-        params=[[2, 1, 1], [2, 2, 1], [2, 1, 2], [16, 2, 2]],
-        ids=["dp=2", "tp=2", "pp=2", "dp=4,tp=pp=2"],
+        params=[[2, 1, 1], [2, 2, 1], [2, 1, 2]],
+        ids=["dp=2", "tp=2", "pp=2"],
     )
     def parallel_sizes(self, request):
         return request.param
