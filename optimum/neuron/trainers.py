@@ -197,7 +197,7 @@ class AugmentTrainerForNeuronMixin:
         push = self.args.local_rank <= 0 and not is_precompilation() and not self.args.skip_cache_push
         fetch = self.args.local_rank <= 0 or self.args.mp_plugin.should_parallelize
 
-        NeuronCacheCallback(
+        callback = NeuronCacheCallback(
             tmp_neuron_cache=_TMP_NEURON_CACHE_PATH,
             original_neuron_cache_path=_ORIGINAL_NEURON_CACHE_PATH,
             fetch=fetch,
@@ -205,8 +205,7 @@ class AugmentTrainerForNeuronMixin:
             wait_for_everyone_on_fetch=True,
             wait_for_everyone_on_push=True,
         )
-        # TODO: activate that.
-        # self.add_callback(callback)
+        self.add_callback(callback)
 
         # Make the model Neuron-compatible for generation.
         patch_generation_mixin_to_neuron_generation_mixin(self.model)

@@ -47,6 +47,7 @@ from ...utils import logging
 from ...utils.logging import warn_once
 from .constant import NEURON_BINARIES_PATH
 from .misc import is_main_worker, string_to_bool
+from .require_utils import requires_neuronx_distributed
 from .version_utils import get_neuronxcc_version
 
 
@@ -746,11 +747,19 @@ class NeuronHash:
             hash_.update(buffer)
         return hash_.hexdigest()
 
+    @requires_neuronx_distributed
     def compute_hash(self, model: Optional["PreTrainedModel"] = None) -> Tuple[str, str]:
         if self._hash.is_empty:
             if model is None:
                 raise ValueError("A model must be specified the first time the hash is computed.")
-            model_hash = self.compute_sha512_hash(self.state_dict_to_bytes(model.state_dict()))
+
+            from neuronx_distributed.pipeline import NxDPPModel
+
+            if isinstance(model, NxDPPModel):
+                state_dict = model.local_state_dict()
+            else:
+                state_dict = model.state_dict()
+            model_hash = self.compute_sha512_hash(self.state_dict_to_bytes(state_dict))
 
             hash_dict = asdict(self)
             hash_dict["model"] = model_hash

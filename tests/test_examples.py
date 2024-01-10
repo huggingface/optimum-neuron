@@ -334,6 +334,7 @@ class ExampleTestMeta(type):
                     False,
                     config_overrides,
                 )
+                # TODO: enable when working on the multi-node training PR.
                 # attrs[f"test_{example_name}_{model_type}_with_tp_and_pp_and_zero1"] = cls._create_test(
                 #     model_type,
                 #     model_name_or_path,

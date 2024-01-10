@@ -104,7 +104,6 @@ def move_params_to_cpu(parameters):
 
 @is_trainium_test
 class TestCommonDistributed(DistributedTest):
-    # TODO: add dp + tp + pp configuration.
     @pytest.fixture(
         scope="class",
         params=[[2, 1, 1], [2, 2, 1], [2, 1, 2], [16, 2, 2]],
