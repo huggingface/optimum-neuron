@@ -33,6 +33,7 @@ def _test_model_generation(model, tokenizer, batch_size, input_length, **gen_kwa
 def _test_model_generation_trn(model, tokenizer, batch_size, input_length, **gen_kwargs):
     os.environ["NEURON_CC_FLAGS"] = "-O1 --model-type=transformer"
     import torch_xla.core.xla_model as xm
+
     device = xm.xla_device()
     model = model.to(device)
     patch_generation_mixin_to_general_neuron_generation_mixin(model)

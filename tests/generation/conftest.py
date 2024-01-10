@@ -47,17 +47,23 @@ SEQ2SEQ_MODEL_CLASSES = {
 def export_decoder_id(request):
     return request.param
 
-@pytest.fixture(scope="module", params=[TRN_DECODER_MODEL_NAMES[model_arch] for model_arch in DECODER_MODEL_ARCHITECTURES])
+
+@pytest.fixture(
+    scope="module", params=[TRN_DECODER_MODEL_NAMES[model_arch] for model_arch in DECODER_MODEL_ARCHITECTURES]
+)
 def export_trn_decoder_id(request):
     return request.param
+
 
 @pytest.fixture(scope="module", params=[SEQ2SEQ_MODEL_NAMES[model_arch] for model_arch in SEQ2SEQ_MODEL_NAMES])
 def export_seq2seq_id(request):
     return request.param
 
+
 @pytest.fixture(scope="module", params=[SEQ2SEQ_MODEL_CLASSES[model_arch] for model_arch in SEQ2SEQ_MODEL_NAMES])
 def export_seq2seq_model_class(request):
     return request.param
+
 
 @pytest.fixture(scope="module")
 @requires_neuronx

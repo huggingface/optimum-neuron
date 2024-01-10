@@ -109,9 +109,7 @@ def _move_dict_args_to_device(kwargs: Dict[str, Any], device: str = "cpu") -> Di
 
 
 def _pad_input_ids_for_general_sampling(
-    input_ids: torch.Tensor,
-    num_padding_values: int,
-    pad_token_id: int
+    input_ids: torch.Tensor, num_padding_values: int, pad_token_id: int
 ) -> torch.Tensor:
     """
     Pads `input_ids` with `num_padding_values` padding tokens along the second dimension.
@@ -130,6 +128,7 @@ def _pad_input_ids_for_general_sampling(
         [input_ids, torch.ones((bsz, num_padding_values), device=input_ids.device, dtype=torch.long) * pad_token_id], 1
     )
     return input_ids
+
 
 def _get_fwd_for_general_sampling(
     current_fwd: Callable,
@@ -179,11 +178,7 @@ def _get_fwd_for_general_sampling(
             )
 
             # For decoder only models, pad decoder attention mask in addition to prompts
-            if (
-                "attention_mask" in kwargs
-                and not is_encoder_decoder
-                and num_padding_values > 0
-            ):
+            if "attention_mask" in kwargs and not is_encoder_decoder and num_padding_values > 0:
                 kwargs["attention_mask"] = torch.cat(
                     [
                         kwargs["attention_mask"],
@@ -206,10 +201,12 @@ def _get_fwd_for_general_sampling(
         kwargs = args_and_kwargs_to_kwargs_only(current_fwd, args, kwargs)
         outputs = current_fwd(**kwargs)
         # Gather outputs if NxD tensor parallelism is applied and the output logits have not been gathered.
-        if is_neuronx_distributed_available() and \
-           parallel_state.model_parallel_is_initialized() and \
-           parallel_state.get_tensor_model_parallel_size() > 1 and \
-           outputs["logits"].shape[-1] != vocab_size:
+        if (
+            is_neuronx_distributed_available()
+            and parallel_state.model_parallel_is_initialized()
+            and parallel_state.get_tensor_model_parallel_size() > 1
+            and outputs["logits"].shape[-1] != vocab_size
+        ):
             outputs["logits"] = xm.all_gather(
                 outputs["logits"],
                 dim=-1,
@@ -226,6 +223,7 @@ def _get_fwd_for_general_sampling(
         return outputs
 
     return new_fwd
+
 
 class GeneralNeuronGenerationMixin(GenerationMixin):
     """
@@ -283,9 +281,9 @@ class GeneralNeuronGenerationMixin(GenerationMixin):
             generation_config.pad_token_id = eos_token_id
 
         # 3. Define model inputs and move to CPU
-        general_device = 'cpu'
-        if 'input_ids' in kwargs and kwargs['input_ids'] is not None:
-            kwargs['input_ids'] = kwargs['input_ids'].to(general_device)
+        general_device = "cpu"
+        if "input_ids" in kwargs and kwargs["input_ids"] is not None:
+            kwargs["input_ids"] = kwargs["input_ids"].to(general_device)
         if inputs is not None:
             inputs = inputs.to(general_device)
         input_ids, model_input_name, model_kwargs = self._prepare_model_inputs(
@@ -296,11 +294,17 @@ class GeneralNeuronGenerationMixin(GenerationMixin):
         original_forward = copy.deepcopy(self.forward)
         try:
             general_forward = _get_fwd_for_general_sampling(
-                self.forward, generation_config, self.config.is_encoder_decoder, self.config.vocab_size, self.device,
+                self.forward,
+                generation_config,
+                self.config.is_encoder_decoder,
+                self.config.vocab_size,
+                self.device,
             )
             self.forward = general_forward
             if generation_config.use_cache:
-                warnings.warn("use_cache is not supported for generation on Neuron devices, switching to use_cache=False.")
+                warnings.warn(
+                    "use_cache is not supported for generation on Neuron devices, switching to use_cache=False."
+                )
                 # decoder-only models with inputs_embeds forwarding must use caching (otherwise we can't detect whether we are
                 # generating the first new token or not, and we only want to use the embeddings for the first new token)
                 if not self.config.is_encoder_decoder and model_input_name == "inputs_embeds":
@@ -310,23 +314,16 @@ class GeneralNeuronGenerationMixin(GenerationMixin):
                 generation_config.max_length = generation_config.max_new_tokens + input_ids.shape[-1]
 
             # 5. Run HuggingFace generate function
-            return super().generate(
-                inputs,
-                generation_config,
-                **kwargs
-            )
+            return super().generate(inputs, generation_config, **kwargs)
         finally:
             self.forward = original_forward
-
 
     def _prepare_encoder_decoder_kwargs_for_generation(
         self, inputs_tensor: torch.Tensor, model_kwargs, model_input_name: Optional[str] = None
     ) -> Dict[str, Any]:
-        """ Move the input tensor to XLA device and move the output tensors back to CPU. """
+        """Move the input tensor to XLA device and move the output tensors back to CPU."""
         output = super()._prepare_encoder_decoder_kwargs_for_generation(
-            inputs_tensor.to(self.device),
-            model_kwargs,
-            model_input_name
+            inputs_tensor.to(self.device), model_kwargs, model_input_name
         )
         _move_dict_args_to_device(output, "cpu")
         return output
