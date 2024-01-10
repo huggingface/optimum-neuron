@@ -201,7 +201,7 @@ When it comes to distributed training on AWS Trainium there are a few things we 
 - [Sequence parallelism](https://arxiv.org/pdf/2205.05198.pdf) shards the activations on the sequence axis outside of the tensor parallel regions. It is useful because it saves memory by sharding the activations.
 - [Pipeline Parallelism](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/libraries/neuronx-distributed/pipeline_parallelism_overview.html): _coming soon_
 
-We prepared a [run_clm.py](https://github.com/huggingface/optimum-neuron/blob/main/notebooks/text-generation/scripts/run_clm.py), which implements those distributed training strategies for you already. If you want to more about the details you can take a look at the [documentation](https://huggingface.co/docs/optimum-neuron/guides/distributed_training). When training models on AWS Accelerators we first need to compile our model with our training arguments.
+We prepared a [run_clm.py](https://github.com/huggingface/optimum-neuron/blob/main/notebooks/text-generation/scripts/run_clm.py), which implements those distributed training strategies for you already. If you want to know more about the details you can take a look at the [documentation](https://huggingface.co/docs/optimum-neuron/guides/distributed_training). When training models on AWS Accelerators we first need to compile our model with our training arguments.
 
 To overcome this we added a [model cache](https://huggingface.co/docs/optimum-neuron/guides/cache_system), which allows us to use precompiled models and configuration from Hugging Face Hub to skip the compilation step. But every change in the config, will lead to a new compilation, which could result in some cache misses.
 
