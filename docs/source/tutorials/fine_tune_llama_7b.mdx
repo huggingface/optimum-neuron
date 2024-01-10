@@ -303,7 +303,7 @@ _Note: Inference compilation can take ~25minutes. Luckily, you need to only run 
 We can now test inference, but have to make sure we format our input to our prompt format we used for fine-tuning. Therefore we created a helper method, which accepts a `dict` with our `instruction` and optionally a `context`.
 
 ```python
-def format_dolly_infernece(sample):
+def format_dolly_inference(sample):
     instruction = f"### Instruction\n{sample['instruction']}"
     context = f"### Context\n{sample['context']}" if "context" in sample else None
     response = f"### Answer\n"
