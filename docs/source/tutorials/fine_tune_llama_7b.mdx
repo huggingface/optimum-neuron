@@ -194,7 +194,7 @@ Normally you would use the **[Trainer](https://huggingface.co/docs/transformers/
 
 But together with AWS, we have developed a `NeuronTrainer` to improve performance, robustness, and safety when training on Trainium instances. The `NeuronTrainer` is part of the `optimum-neuron` library and can be used as a 1-to-1 replacement for the `Trainer`.
 
-When it comes to distributed training on AWS Trainium there is a few things we need to take care of. Since Llama is a big model it might not fit on a single accelerator, thats why we added support for different distributed training strategies to the `NeuronTrainer` including:
+When it comes to distributed training on AWS Trainium there are a few things we need to take care of. Since Llama is a big model it might not fit on a single accelerator, thats why we added support for different distributed training strategies to the `NeuronTrainer` including:
 
 - [ZeRO-1](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/frameworks/torch/torch-neuronx/tutorials/training/zero1_gpt2.html): shards the optimizer state over multiple devices.
 - [Tensor Parallelism](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/libraries/neuronx-distributed/tensor_parallelism_overview.html): shards the model parameters along a given dimension on multiple devices, defined with `tensor_parallel_size`
