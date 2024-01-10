@@ -133,7 +133,7 @@ from random import randrange
 print(format_dolly(dataset[randrange(len(dataset))]))
 ```
 
-In addition, to formatting our samples we also want to pack multiple samples to one sequence to have a more efficient training. This means that we are stacking multiple samples to one sequence and split them with an EOS Token. This makes the training more efficient. Packing/stacking samples can be done during training or before. We will do it before training to save time. We created a utility method [pack_dataset](./scripts/utils/pack_dataset.py) that takes a dataset and a packing function and returns a packed dataset.
+In addition, to formatting our samples we also want to pack multiple samples to one sequence to have a more efficient training. This means that we are stacking multiple samples to one sequence and split them with an EOS Token. This makes the training more efficient. Packing/stacking samples can be done during training or before. We will do it before training to save time. We created a utility method [pack_dataset](https://github.com/huggingface/optimum-neuron/tree/main/notebooks/text-generation/scripts/utils/pack_dataset.py) that takes a dataset and a packing function and returns a packed dataset.
 
 ```python
 from transformers import AutoTokenizer
