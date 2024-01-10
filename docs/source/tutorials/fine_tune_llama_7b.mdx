@@ -190,7 +190,7 @@ lm_dataset.save_to_disk(dataset_path)
 
 ## 3. Fine-tune Llama on AWS Trainium using the `NeuronTrainer`
 
-Normally you would use the **[Trainer](https://huggingface.co/docs/transformers/v4.19.4/en/main_classes/trainer#transformers.Trainer)** and **[TrainingArguments](https://huggingface.co/docs/transformers/v4.19.4/en/main_classes/trainer#transformers.TrainingArguments)** to fine-tune PyTorch-based transformer models.
+Normally you would use the **[Trainer](https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.Trainer)** and **[TrainingArguments](https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments)** to fine-tune PyTorch-based transformer models.
 
 But together with AWS, we have developed a `NeuronTrainer` to improve performance, robustness, and safety when training on Trainium instances. The `NeuronTrainer` is part of the `optimum-neuron` library and can be used as a 1-to-1 replacement for the `Trainer`.
 
