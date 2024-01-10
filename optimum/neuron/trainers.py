@@ -591,7 +591,7 @@ class AugmentTrainerForNeuronMixin:
         # TODO: how to handle pp?
         if self.accelerator.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
             return
-        super()._load_from_checkpoint(self, resume_from_checkpoint, model=model)
+        super()._load_from_checkpoint(resume_from_checkpoint, model=model)
 
     def _load_optimizer_and_scheduler_for_xla_fsdp(self, checkpoint):
         checkpoint_file_exists = (

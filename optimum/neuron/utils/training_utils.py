@@ -286,7 +286,7 @@ def set_neuron_cc_optlevel_for_model(model: "PreTrainedModel", optlevel: str = "
     neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
     match_ = re.search(r"-O[123]", neuron_cc_flags)
     if match_:
-        neuron_cc_flags = neuron_cc_flags[: match_.start(0)] + f"{optlevel}" + neuron_cc_flags[match_.end(1) + 1 :]
+        neuron_cc_flags = neuron_cc_flags[: match_.start(0)] + f"{optlevel}" + neuron_cc_flags[match_.end(0) + 1 :]
     else:
         neuron_cc_flags += f"{optlevel} "
     os.environ["NEURON_CC_FLAGS"] = neuron_cc_flags

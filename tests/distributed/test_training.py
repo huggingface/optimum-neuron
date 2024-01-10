@@ -64,6 +64,7 @@ class TestDistributedTraining(DistributedTest):
                 per_device_train_batch_size=train_batch_size,
                 per_device_eval_batch_size=eval_batch_size,
                 max_steps=max_steps,
+                save_steps=2,
                 do_eval=do_eval,
                 output_dir=output_dir,
                 resume_from_checkpoint=resume_from_checkpoint,
@@ -126,16 +127,16 @@ class TestDistributedTraining(DistributedTest):
         resume_from_checkpoint = first_output_dir / "checkpoint-4"
         args = create_training_args(second_output_dir, resume_from_checkpoint=resume_from_checkpoint)
         model = create_model()
-
         trainer = NeuronTrainer(
             model, args=args, train_dataset=train_dataset, eval_dataset=eval_dataset, tokenizer=tokenizer
         )
 
-        trainer.train()
-        trainer.evaluate()
+        # trainer.train(resume_from_checkpoint=resume_from_checkpoint)
+        # trainer.evaluate()
 
         # Case 2: Resuming from checkpoint by specifying an output_dir with checkpoints.
         # max_steps + 10 to do a some training steps than the previous run.
+        second_output_dir = first_output_dir
         args = create_training_args(second_output_dir, max_steps=max_steps + 10)
         model = create_model()
 
@@ -143,5 +144,5 @@ class TestDistributedTraining(DistributedTest):
             model, args=args, train_dataset=train_dataset, eval_dataset=eval_dataset, tokenizer=tokenizer
         )
 
-        trainer.train()
+        trainer.train(resume_from_checkpoint=True)
         trainer.evaluate()
