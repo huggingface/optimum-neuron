@@ -32,7 +32,6 @@ def _test_model_generation(model, tokenizer, batch_size, input_length, **gen_kwa
 
 
 def _test_model_generation_trn(model, tokenizer, batch_size, input_length, **gen_kwargs):
-    os.environ["NEURON_CC_FLAGS"] = "-O1 --model-type=transformer"
     import torch_xla.core.xla_model as xm
 
     device = xm.xla_device()
@@ -173,6 +172,7 @@ def test_seq2seq_generation_greedy_with_optional_outputs(neuron_seq2seq_greedy_p
 @is_trainium_test
 @requires_neuronx
 def test_general_decoder_generation(export_trn_decoder_id, gen_kwargs):
+    os.environ["NEURON_CC_FLAGS"] = "-O1 --model-type=transformer"
     model = AutoModelForCausalLM.from_pretrained(export_trn_decoder_id)
     tokenizer = AutoTokenizer.from_pretrained(export_trn_decoder_id)
     _test_model_generation_trn(model, tokenizer, 1, 10, **gen_kwargs)
@@ -193,6 +193,7 @@ def test_general_decoder_generation(export_trn_decoder_id, gen_kwargs):
 @is_trainium_test
 @requires_neuronx
 def test_general_seq2seq_generation(export_seq2seq_id, export_seq2seq_model_class, gen_kwargs):
+    os.environ["NEURON_CC_FLAGS"] = "-O1 --model-type=transformer"
     model = export_seq2seq_model_class.from_pretrained(export_seq2seq_id)
     tokenizer = AutoTokenizer.from_pretrained(export_seq2seq_id)
     _test_model_generation_trn(model, tokenizer, 1, 10, **gen_kwargs)
