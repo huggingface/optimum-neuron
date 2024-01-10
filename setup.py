@@ -16,7 +16,7 @@ INSTALL_REQUIRES = [
     "transformers == 4.35.0",
     "accelerate == 0.23.0",
     "optimum >= 1.14.0",
-    "huggingface_hub >= 0.14.0",
+    "huggingface_hub >= 0.20.1",
     "numpy>=1.22.2, <=1.25.2",
     "protobuf<4",
 ]
