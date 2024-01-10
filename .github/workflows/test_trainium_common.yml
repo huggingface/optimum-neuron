@@ -24,10 +24,10 @@ jobs:
       AWS_REGION: us-east-1
       TESTS_TO_IGNORE_FLAGS: --ignore tests/distributed/ --ignore tests/test_examples.py
     steps:
+      - name: Check AMI
+        run: dpkg -l | grep neuron
       - name: Checkout
         uses: actions/checkout@v2
-      # - name: Install python3.8-venv
-      #   run: sudo apt update; sudo apt install -y python3.8-venv
       - name: Setup PATH
         run: echo "/home/ubuntu/.local/bin" >> $GITHUB_PATH
       - name: Set pip repository pointing to the Neuron repository

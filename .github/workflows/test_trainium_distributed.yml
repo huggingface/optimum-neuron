@@ -23,6 +23,8 @@ jobs:
     env:
       AWS_REGION: us-east-1
     steps:
+      - name: Check AMI
+        run: dpkg -l | grep neuron
       - name: Checkout
         uses: actions/checkout@v2
       - name: Setup PATH

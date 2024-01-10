@@ -14,11 +14,12 @@
 # limitations under the License.
 
 import copy
+import os
 import random
 import unittest
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
-from typing import Dict, Optional
+from typing import Dict
 
 from parameterized import parameterized
 from transformers import AutoConfig, AutoModelForSeq2SeqLM, set_seed
@@ -50,7 +51,7 @@ SEED = 42
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 
-def _get_models_to_test(export_models_dict: Dict, random_pick: Optional[int] = None):
+def _get_models_to_test(export_models_dict: Dict):
     models_to_test = []
     for model_type, model_names_tasks in export_models_dict.items():
         model_type = model_type.replace("_", "-")
@@ -80,8 +81,9 @@ def _get_models_to_test(export_models_dict: Dict, random_pick: Optional[int] = N
                     (f"{model_type}_{task}", model_type, model_name, task, neuron_config_constructor)
                 )
 
+    random_pick = os.environ.get("MAX_EXPORT_TEST_COMBINATIONS", None)
     if random_pick is not None:
-        return sorted(random.choices(models_to_test, k=random_pick))
+        return sorted(random.choices(models_to_test, k=int(random_pick)))
     else:
         return sorted(models_to_test)
 
@@ -138,7 +140,7 @@ class NeuronExportTestCase(unittest.TestCase):
     def test_export(self, test_name, name, model_name, task, neuron_config_constructor):
         self._neuronx_export(test_name, name, model_name, task, neuron_config_constructor)
 
-    @parameterized.expand(_get_models_to_test(EXPORT_MODELS_TINY), skip_on_empty=True)  # , random_pick=1
+    @parameterized.expand(_get_models_to_test(EXPORT_MODELS_TINY), skip_on_empty=True)
     @is_inferentia_test
     @requires_neuronx
     def test_export_with_dynamic_batch_size(self, test_name, name, model_name, task, neuron_config_constructor):
