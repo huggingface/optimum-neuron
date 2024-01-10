@@ -27,7 +27,7 @@ from optimum.utils.testing_utils import TOKEN
 @requires_neuronx
 def test_model_from_hub():
     model = NeuronModelForCausalLM.from_pretrained(
-        "dacorvo/tiny-random-gpt2-neuronx", revision="6cb671b50db5cecb7abead9e2ec7099d4bab44a8"
+        "dacorvo/tiny-random-gpt2-neuronx", revision="1b3456cf877cc42c053ee8464f1067021eccde4b"
     )
     check_neuron_model(model, batch_size=16, sequence_length=512, num_cores=2, auto_cast_type="fp32")
 
@@ -54,7 +54,7 @@ def test_push_to_hub(neuron_decoder_path, neuron_push_decoder_id):
 @requires_neuronx
 def test_seq2seq_model_from_hub():
     model = NeuronModelForSeq2SeqLM.from_pretrained(
-        "Jingya/tiny-random-t5-neuronx", revision="ce617676ce12a19df7c6bd523c69b83447fa036b"
+        "Jingya/tiny-random-t5-neuronx", revision="43ea08d54b0a972e74b5bd22bc8112de021ece0c"
     )
     return model
 
