@@ -797,6 +797,7 @@ class Parallelizer(ABC):
     @classmethod
     @requires_neuronx_distributed
     def load_optimizer_sharded_checkpoint(cls, optimizer: "torch.optim.Optimizer", load_dir: Union[str, Path]):
+        import neuronx_distributed
         from neuronx_distributed.optimizer import NeuronZero1Optimizer
 
         is_zero_1_optimizer = optimizer.__class__.__name__ == "NeuronAcceleratedOptimizer" and isinstance(
@@ -808,10 +809,13 @@ class Parallelizer(ABC):
                 "It is not possible to load a sharded optimizer checkpoint when using ZeRO-1 yet."
             )
 
-        from neuronx_distributed.parallel_layers import load
-
         if not isinstance(load_dir, Path):
             load_dir = Path(load_dir)
-        load(
-            load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME, model_or_optimizer=optimizer, model_key="optimizer_state_dict"
+
+        neuronx_distributed.parallel_layers.load(
+            load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME,
+            model_or_optimizer=optimizer,
+            model_key="optimizer_state_dict",
+            load_xser=True,
+            sharded=True,
         )

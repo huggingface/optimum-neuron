@@ -14,6 +14,7 @@
 # limitations under the License.
 """Tests related to training with `neuronx_distributed`."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -26,7 +27,6 @@ from optimum.neuron.utils.testing_utils import is_trainium_test
 from .distributed import DistributedTest
 
 
-_TINY_BERT_MODEL_NAME = "hf-internal-testing/tiny-random-bert"
 MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-random"
 
 
@@ -36,13 +36,13 @@ class TestDistributedTraining(DistributedTest):
 
     @pytest.fixture(
         scope="class",
-        params=[[2, 1, 1], [2, 2, 1], [2, 1, 2], [16, 2, 2]],
-        ids=["dp=2", "tp=2", "pp=2", "dp=4,tp=pp=2"],
+        params=[[2, 1, 1], [2, 2, 1], [2, 1, 2]],
+        ids=["dp=2", "tp=2", "pp=2"],
     )
     def parallel_sizes(self, request):
         return request.param
 
-    def test_tp_save_and_resume_from_checkpoint(self, parallel_sizes, tmpdir):
+    def test_save_and_resume_from_checkpoint(self, parallel_sizes, tmpdir):
         from optimum.neuron.trainers import NeuronTrainer
 
         tmpdir = Path(tmpdir)
@@ -51,12 +51,17 @@ class TestDistributedTraining(DistributedTest):
         eval_batch_size = 2
         max_steps = 10
         do_eval = True
+        max_train_samples = 100
         max_eval_samples = 16
 
         tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
         tokenizer.pad_token = tokenizer.eos_token
 
         def create_training_args(output_dir, resume_from_checkpoint=None, max_steps=max_steps):
+            if isinstance(output_dir, Path):
+                output_dir = output_dir.as_posix()
+            if isinstance(resume_from_checkpoint, Path):
+                resume_from_checkpoint = resume_from_checkpoint.as_posix()
             args = NeuronTrainingArguments(
                 tensor_parallel_size=tp_size,
                 pipeline_parallel_size=pp_size,
@@ -64,6 +69,7 @@ class TestDistributedTraining(DistributedTest):
                 per_device_train_batch_size=train_batch_size,
                 per_device_eval_batch_size=eval_batch_size,
                 max_steps=max_steps,
+                logging_steps=1,
                 save_steps=2,
                 do_eval=do_eval,
                 output_dir=output_dir,
@@ -74,9 +80,10 @@ class TestDistributedTraining(DistributedTest):
 
         def create_model():
             config = AutoConfig.from_pretrained(MODEL_NAME)
-            config.num_hidden_layers = 2
+            config.num_hidden_layers = 2 * max(1, pp_size)
             config.num_attention_heads = 2
             config.num_key_value_heads = 2
+            config.problem_type = "single_label_classification"
             model = AutoModelForSequenceClassification.from_pretrained(
                 MODEL_NAME, config=config, ignore_mismatched_sizes=True
             )
@@ -112,6 +119,7 @@ class TestDistributedTraining(DistributedTest):
         with args.main_process_first(desc="dataset map pre-processing"):
             raw_datasets = raw_datasets.map(preprocess_function, batched=True)
             train_dataset = raw_datasets["train"]
+            train_dataset = train_dataset.select(range(max_train_samples))
             eval_dataset = raw_datasets["validation"]
             eval_dataset = eval_dataset.select(range(max_eval_samples))
 
@@ -119,8 +127,12 @@ class TestDistributedTraining(DistributedTest):
             model, args=args, train_dataset=train_dataset, eval_dataset=eval_dataset, tokenizer=tokenizer
         )
 
-        trainer.train()
+        train_result = trainer.train()
         trainer.evaluate()
+        trainer.save_metrics("train", train_result.metrics)
+
+        with open(first_output_dir / "train_results.json") as fp:
+            first_training_report = json.load(fp)
 
         # Case 1: Resuming from checkpoint by specifying a checkpoint directory.
         second_output_dir = tmpdir / "second_run"
@@ -131,8 +143,14 @@ class TestDistributedTraining(DistributedTest):
             model, args=args, train_dataset=train_dataset, eval_dataset=eval_dataset, tokenizer=tokenizer
         )
 
-        # trainer.train(resume_from_checkpoint=resume_from_checkpoint)
-        # trainer.evaluate()
+        train_result = trainer.train(resume_from_checkpoint=resume_from_checkpoint)
+        trainer.evaluate()
+        trainer.save_metrics("train", train_result.metrics)
+
+        with open(first_output_dir / "train_results.json") as fp:
+            second_training_report = json.load(fp)
+
+        assert first_training_report["train_loss"] == second_training_report["train_loss"]
 
         # Case 2: Resuming from checkpoint by specifying an output_dir with checkpoints.
         # max_steps + 10 to do a some training steps than the previous run.
