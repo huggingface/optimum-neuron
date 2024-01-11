@@ -210,6 +210,7 @@ class NeuronBaseModel(OptimizedModel):
         force_download: bool = False,
         cache_dir: Optional[str] = None,
         compiler_workdir: Optional[Union[str, Path]] = None,
+        inline_weights_to_neff: bool = False,
         optlevel: str = "2",
         subfolder: str = "",
         local_files_only: bool = False,
@@ -296,6 +297,7 @@ class NeuronBaseModel(OptimizedModel):
             config=neuron_config,
             output=save_dir_path / NEURON_FILE_NAME,
             compiler_workdir=compiler_workdir,
+            inline_weights_to_neff=inline_weights_to_neff,
             optlevel=optlevel,
             **compiler_kwargs,
         )
@@ -309,6 +311,7 @@ class NeuronBaseModel(OptimizedModel):
             dynamic_batch_size=dynamic_batch_size,
             compiler_type=compiler_type,
             compiler_version=compiler_version,
+            inline_weights_to_neff=inline_weights_to_neff,
             optlevel=optlevel,
             task=task,
         )
