@@ -185,6 +185,8 @@ class NeuronStableDiffusionInpaintPipelineMixin(StableDiffusionPipelineMixin, St
         # 1. Check inputs
         self.check_inputs(
             prompt,
+            image,
+            mask_image,
             height,
             width,
             strength,
