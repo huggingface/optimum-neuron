@@ -186,9 +186,10 @@ def test_general_decoder_generation(export_trn_decoder_id, gen_kwargs):
         {"do_sample": False},
         {"do_sample": False, "repetition_penalty": 1.2},
         {"num_beams": 4},
+        {"num_beams": 4, "do_sample": True, "temperature": 0.7},
         {"num_beams": 4, "num_beam_groups": 2, "diversity_penalty": 0.1},
     ],
-    ids=["sample", "sample-with-temp", "greedy", "greedy_no-repeat", "beam", "group-beam"],
+    ids=["sample", "sample-with-temp", "greedy", "greedy_no-repeat", "beam", "beam-sample", "group-beam"],
 )
 @is_trainium_test
 @requires_neuronx
