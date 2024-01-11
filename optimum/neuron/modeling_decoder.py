@@ -218,7 +218,7 @@ class NeuronDecoderModel(OptimizedModel):
 
         if compiled_path is not None:
             # Specify the path where compiled artifacts are stored before conversion
-            neuronx_model._load_compiled_artifacts(compiled_path)
+            neuronx_model.load(compiled_path)
 
         # Compile the Neuron model (if present compiled artifacts will be reloaded instead of compiled)
         neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
@@ -246,7 +246,7 @@ class NeuronDecoderModel(OptimizedModel):
 
         if src_compiled_path is None:
             # The compiled model has never been serialized: do it now
-            self.model._save_compiled_artifacts(dst_compiled_path)
+            self.model.save(dst_compiled_path)
         else:
             shutil.copytree(src_compiled_path, dst_compiled_path)
 
