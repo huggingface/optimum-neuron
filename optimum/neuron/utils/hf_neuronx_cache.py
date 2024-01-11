@@ -18,7 +18,7 @@ from contextlib import contextmanager
 from typing import Optional
 
 import libneuronxla
-from huggingface_hub import HfApi
+from huggingface_hub import CommitOperationAdd, HfApi
 from libneuronxla.neuron_cc_cache import CompileCache, CompileCacheFs, CompileCacheS3
 
 from ..version import __version__
@@ -59,6 +59,10 @@ class CompileCacheHfProxy(CompileCache):
             raise ValueError(f"The {repo_id} repository does not exist or you don't have access to it.")
         self.repo_id = repo_id
         self.token = token
+        self.pending_uploads = []
+
+    def __del__(self):
+        self.synchronize()
 
     def get_cache_dir(self, model_hash, compile_flags_str):
         return self.default_cache.get_cache_dir(model_hash, compile_flags_str)
@@ -105,33 +109,44 @@ class CompileCacheHfProxy(CompileCache):
             local_path = self.api.hf_hub_download(self.repo_id, self._rel_path(filename))
             os.symlink(local_path, dst_path)
 
+    def _prepare_for_upload(self, path_in_repo, path_or_fileobj):
+        addition = CommitOperationAdd(path_in_repo=path_in_repo, path_or_fileobj=path_or_fileobj)
+        self.api.preupload_lfs_files(self.repo_id, additions=[addition], token=self.token)
+        self.pending_uploads.append(addition)
+
+    def synchronize(self):
+        """Commit all prepared uploads"""
+        if len(self.pending_uploads) == 0:
+            return
+        self.api.create_commit(
+            self.repo_id,
+            operations=self.pending_uploads,
+            commit_message="Commit compilation artifacts.",
+            token=self.token,
+        )
+        self.pending_uploads = []
+
     def upload_file(self, cache_path, src_path):
         # Always upload first to the default cache for faster retrieval
         self.default_cache.upload_file(cache_path, src_path)
         try:
-            # Try to upload to the Hf cache
             path_in_repo = self._rel_path(cache_path)
-            self.api.upload_file(
-                path_or_fileobj=src_path, path_in_repo=path_in_repo, repo_id=self.repo_id, token=self.token
-            )
+            self._prepare_for_upload(path_in_repo=path_in_repo, path_or_fileobj=src_path)
         except Exception as e:
-            print(f"Upload failed for {path_in_repo}. {e}")
+            print(f"Upload preparation failed for {path_in_repo}. {e}")
 
     def upload_string_to_file(self, cache_path, data):
         # Always upload first to the default cache for faster retrieval
         self.default_cache.upload_string_to_file(cache_path, data)
-        # Try to upload to the Hf cache
         try:
             # The HfHub library only accepts binary objects for upload
             fileobj = io.BytesIO()
             fileobj.write(data.encode())
             fileobj.seek(0)
             path_in_repo = self._rel_path(cache_path)
-            self.api.upload_file(
-                path_or_fileobj=fileobj, path_in_repo=path_in_repo, repo_id=self.repo_id, token=self.token
-            )
+            self._prepare_for_upload(path_in_repo=path_in_repo, path_or_fileobj=fileobj)
         except Exception as e:
-            print(f"Upload failed for {path_in_repo}. {e}")
+            print(f"Upload preparation failed for {path_in_repo}. {e}")
 
     def download_file_to_string(self, filename, limit=None):
         # Always prioritize the default cache for faster retrieval
