@@ -24,7 +24,7 @@ from tempfile import TemporaryDirectory
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TypeVar, Union
 from unittest import TestCase
 
-from huggingface_hub import HfFolder
+import huggingface_hub
 from transformers import (
     CONFIG_MAPPING,
     MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING,
@@ -56,9 +56,7 @@ T = TypeVar("T")
 TypeOrDictOfType = Union[T, Dict[str, T]]
 
 
-TOKEN = HfFolder.get_token()
-if os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI", None) is not None:
-    TOKEN = os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI")
+TOKEN = huggingface_hub.get_token()
 
 DEFAULT_CACHE_REPO = "optimum-internal-testing/optimum-neuron-cache-for-testing"
 SAVED_CUSTOM_CACHE_REPO = load_custom_cache_repo_name_from_hf_home()

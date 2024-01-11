@@ -13,15 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
 import shutil
 import tempfile
 import unittest
 from io import BytesIO
 from typing import Dict
 
+import huggingface_hub
 import requests
-from huggingface_hub import HfFolder
 from PIL import Image
 from transformers import set_seed
 
@@ -61,12 +60,7 @@ class NeuronModelIntegrationTestMixin(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        if os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI", None) is not None:
-            token = os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI")
-            HfFolder.save_token(token)
-        else:
-            raise RuntimeError("Please specify the token via the HF_TOKEN_OPTIMUM_NEURON_CI environment variable.")
-        cls._token = HfFolder.get_token()
+        cls._token = huggingface_hub.get_token()
 
         model_name = cls.MODEL_ID.split("/")[-1]
         model_dir = tempfile.mkdtemp(prefix=f"{model_name}_")
@@ -82,8 +76,6 @@ class NeuronModelIntegrationTestMixin(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        if cls._token is not None:
-            HfFolder.save_token(cls._token)
         if cls.local_model_path is not None:
             shutil.rmtree(cls.local_model_path)
 
