@@ -59,8 +59,8 @@ TypeOrDictOfType = Union[T, Dict[str, T]]
 
 
 TOKEN = get_token()
-if os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI", None) is not None:
-    TOKEN = os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI")
+if os.environ.get("HF_TOKEN", None) is not None:
+    TOKEN = os.environ.get("HF_TOKEN")
 
 DEFAULT_CACHE_REPO = "optimum-internal-testing/optimum-neuron-cache-for-testing"
 SAVED_CUSTOM_CACHE_REPO = load_custom_cache_repo_name_from_hf_home()

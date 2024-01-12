@@ -14,9 +14,11 @@
 # limitations under the License.
 """Classes related to `neuronx-distributed` to perform parallelism."""
 
+import warnings
 from typing import TYPE_CHECKING, Any, List, Optional, Tuple
 
 import torch
+from transformers.cache_utils import Cache
 from transformers.models.gpt_neo.modeling_gpt_neo import GPTNeoBlock, GPTNeoSelfAttention
 from transformers.models.gpt_neox.modeling_gpt_neox import GPTNeoXAttention
 from transformers.models.llama.modeling_llama import (
@@ -400,13 +402,19 @@ class LlamaSequenceParallelismSpecs(SequenceParallelismSpecs):
 
         def attention_forward(
             self,
-            hidden_states: "torch.Tensor",
-            attention_mask: Optional["torch.Tensor"] = None,
-            position_ids: Optional["torch.LongTensor"] = None,
-            past_key_value: Optional[Tuple["torch.Tensor"]] = None,
+            hidden_states: torch.Tensor,
+            attention_mask: Optional[torch.Tensor] = None,
+            position_ids: Optional[torch.LongTensor] = None,
+            past_key_value: Optional[Cache] = None,
             output_attentions: bool = False,
             use_cache: bool = False,
-        ) -> Tuple["torch.Tensor", Optional["torch.Tensor"], Optional[Tuple["torch.Tensor"]]]:
+            **kwargs,
+        ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+            if "padding_mask" in kwargs:
+                warnings.warn(
+                    "Passing `padding_mask` is deprecated and will be removed in v4.37. Please make sure use `attention_mask` instead.`"
+                )
+
             if self.config.pretraining_tp > 1:
                 key_value_slicing = (self.num_key_value_heads * self.head_dim) // self.config.pretraining_tp
                 query_slices = self.q_proj.weight.split(
@@ -448,16 +456,21 @@ class LlamaSequenceParallelismSpecs(SequenceParallelismSpecs):
 
             kv_seq_len = key_states.shape[-2]
             if past_key_value is not None:
-                kv_seq_len += past_key_value[0].shape[-2]
+                if self.layer_idx is None:
+                    raise ValueError(
+                        f"The cache structure has changed since version v4.36. If you are using {self.__class__.__name__} "
+                        "for auto-regressive decoding with k/v caching, please make sure to initialize the attention class "
+                        "with a layer index."
+                    )
+                kv_seq_len += past_key_value.get_usable_length(kv_seq_len, self.layer_idx)
             cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
             query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
 
             if past_key_value is not None:
-                # reuse k, v, self_attention
-                key_states = torch.cat([past_key_value[0], key_states], dim=2)
-                value_states = torch.cat([past_key_value[1], value_states], dim=2)
-
-            past_key_value = (key_states, value_states) if use_cache else None
+                cache_kwargs = {"sin": sin, "cos": cos}  # Specific to RoPE models
+                key_states, value_states = past_key_value.update(
+                    key_states, value_states, self.layer_idx, cache_kwargs
+                )
 
             # repeat k/v heads if n_kv_heads < n_heads
             key_states = repeat_kv(key_states, self.num_key_value_groups)
@@ -657,11 +670,15 @@ class MistralSequenceParallelismSpecs(SequenceParallelismSpecs):
             hidden_states: torch.Tensor,
             attention_mask: Optional[torch.Tensor] = None,
             position_ids: Optional[torch.LongTensor] = None,
-            past_key_value: Optional[Tuple[torch.Tensor]] = None,
+            past_key_value: Optional[Cache] = None,
             output_attentions: bool = False,
             use_cache: bool = False,
             **kwargs,
         ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+            if "padding_mask" in kwargs:
+                warnings.warn(
+                    "Passing `padding_mask` is deprecated and will be removed in v4.37. Please make sure use `attention_mask` instead.`"
+                )
             query_states = self.q_proj(hidden_states)
             key_states = self.k_proj(hidden_states)
             value_states = self.v_proj(hidden_states)
@@ -685,16 +702,21 @@ class MistralSequenceParallelismSpecs(SequenceParallelismSpecs):
 
             kv_seq_len = key_states.shape[-2]
             if past_key_value is not None:
-                kv_seq_len += past_key_value[0].shape[-2]
+                if self.layer_idx is None:
+                    raise ValueError(
+                        f"The cache structure has changed since version v4.36. If you are using {self.__class__.__name__} "
+                        "for auto-regressive decoding with k/v caching, please make sure to initialize the attention class "
+                        "with a layer index."
+                    )
+                kv_seq_len += past_key_value.get_usable_length(kv_seq_len, self.layer_idx)
             cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
             query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
 
             if past_key_value is not None:
-                # reuse k, v, self_attention
-                key_states = torch.cat([past_key_value[0], key_states], dim=2)
-                value_states = torch.cat([past_key_value[1], value_states], dim=2)
-
-            past_key_value = (key_states, value_states) if use_cache else None
+                cache_kwargs = {"sin": sin, "cos": cos}  # Specific to RoPE models
+                key_states, value_states = past_key_value.update(
+                    key_states, value_states, self.layer_idx, cache_kwargs
+                )
 
             # repeat k/v heads if n_kv_heads < n_heads
             key_states = repeat_kv(key_states, self.num_key_value_groups)

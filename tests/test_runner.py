@@ -61,13 +61,13 @@ class TestExampleRunner(TestCase):
         cls._token = get_token()
         cls._cache_repo = load_custom_cache_repo_name_from_hf_home()
         cls._env = dict(os.environ)
-        if os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI", None) is not None:
-            token = os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI")
+        if os.environ.get("HF_TOKEN", None) is not None:
+            token = os.environ.get("HF_TOKEN")
 
             login(token)
             set_custom_cache_repo_name_in_hf_home(cls.CACHE_REPO_NAME)
         else:
-            raise RuntimeError("Please specify the token via the HF_TOKEN_OPTIMUM_NEURON_CI environment variable.")
+            raise RuntimeError("Please specify the token via the HF_TOKEN environment variable.")
 
     @classmethod
     def tearDownClass(cls):

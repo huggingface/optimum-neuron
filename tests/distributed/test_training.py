@@ -84,6 +84,7 @@ class TestDistributedTraining(DistributedTest):
             config.num_attention_heads = 2
             config.num_key_value_heads = 2
             config.problem_type = "single_label_classification"
+            # config.use_cache = False
             model = AutoModelForSequenceClassification.from_pretrained(
                 MODEL_NAME, config=config, ignore_mismatched_sizes=True
             )
