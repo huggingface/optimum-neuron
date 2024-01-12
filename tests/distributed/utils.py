@@ -51,6 +51,9 @@ if TYPE_CHECKING:
     from transformers import PreTrainedModel
 
 
+SEED = 42
+
+
 @requires_neuronx_distributed
 def generate_dummy_labels(
     model: "PreTrainedModel",
@@ -268,7 +271,7 @@ def get_model(
     else:
         ctx = contextlib.nullcontext()
     if use_static_seed_patcher:
-        seed_patcher = create_static_seed_patcher(model_class, 42)
+        seed_patcher = create_static_seed_patcher(model_class, SEED)
     else:
         seed_patcher = contextlib.nullcontext()
     with ctx:

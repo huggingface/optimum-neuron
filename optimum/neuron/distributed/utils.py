@@ -504,11 +504,15 @@ def gqa_key_value_slicing_when_tp_size_greater_than_num_key_value_heads(
                 ),
             )
             sliced_linear_layer.weight.copy_(weight_data)
+            mark_parameter_init_status_during_parallelization(sliced_linear_layer.weight, True)
 
         elif linear_layer.weight.device != torch.device("meta"):
             sliced_linear_layer.weight.copy_(
                 linear_layer.weight[key_value_head_index * head_dim : (key_value_head_index + 1) * head_dim, :]
             )
+            mark_parameter_init_status_during_parallelization(sliced_linear_layer.weight, True)
+        else:
+            mark_parameter_init_status_during_parallelization(sliced_linear_layer.weight, False)
 
         if linear_layer.bias is not None:
             if linear_layer_bias_weight_info is not None:
@@ -517,10 +521,14 @@ def gqa_key_value_slicing_when_tp_size_greater_than_num_key_value_heads(
                     tensor_slices=((key_value_head_index * head_dim, (key_value_head_index + 1) * head_dim),),
                 )
                 sliced_linear_layer.bias.copy_(bias_weight_data)
-            else:
+                mark_parameter_init_status_during_parallelization(sliced_linear_layer.bias, True)
+            elif sliced_linear_layer.bias.device != torch.device("meta"):
                 sliced_linear_layer.bias.copy_(
                     linear_layer.bias[key_value_head_index * head_dim : (key_value_head_index + 1) * head_dim]
                 )
+                mark_parameter_init_status_during_parallelization(sliced_linear_layer.bias, True)
+            else:
+                mark_parameter_init_status_during_parallelization(sliced_linear_layer.bias, False)
     return sliced_linear_layer
 
 
