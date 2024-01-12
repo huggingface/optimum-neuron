@@ -24,6 +24,7 @@ from tempfile import TemporaryDirectory
 from typing import List
 from unittest import TestCase
 
+import huggingface_hub
 import torch
 from huggingface_hub import HfApi, create_repo, delete_repo, get_token, hf_hub_download, login
 from transformers import BertConfig, BertModel, set_seed
@@ -280,8 +281,11 @@ class StagingNeuronUtilsTestCase(StagingTestMixin, TestCase):
 
     def test_has_write_access_to_repo(self):
         orig_token = get_token()
+
         wrong_token = "random_string"
-        login(wrong_token)
+        path = Path(huggingface_hub.constants.HF_TOKEN_PATH)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(wrong_token)
 
         self.assertFalse(has_write_access_to_repo(self.CUSTOM_CACHE_REPO))
         self.assertFalse(has_write_access_to_repo(self.CUSTOM_PRIVATE_CACHE_REPO))
@@ -291,6 +295,7 @@ class StagingNeuronUtilsTestCase(StagingTestMixin, TestCase):
         self.assertTrue(has_write_access_to_repo(self.CUSTOM_CACHE_REPO))
         self.assertTrue(has_write_access_to_repo(self.CUSTOM_PRIVATE_CACHE_REPO))
 
+    @is_trainium_test
     def test_list_in_registry(self):
         def _test_list_in_registry(use_private_cache_repo: bool):
             if use_private_cache_repo:
