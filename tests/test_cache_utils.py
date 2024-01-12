@@ -279,14 +279,13 @@ class StagingNeuronUtilsTestCase(StagingTestMixin, TestCase):
                 HfFolder.save_token(orig_token)
 
     def test_has_write_access_to_repo(self):
-        orig_token = HfFolder.get_token()
         wrong_token = "random_string"
         HfFolder.save_token(wrong_token)
 
         self.assertFalse(has_write_access_to_repo(self.CUSTOM_CACHE_REPO))
         self.assertFalse(has_write_access_to_repo(self.CUSTOM_PRIVATE_CACHE_REPO))
 
-        HfFolder.save_token(orig_token)
+        HfFolder.save_token(self._staging_token)
 
         self.assertTrue(has_write_access_to_repo(self.CUSTOM_CACHE_REPO))
         self.assertTrue(has_write_access_to_repo(self.CUSTOM_PRIVATE_CACHE_REPO))
