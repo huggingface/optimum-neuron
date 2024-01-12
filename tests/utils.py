@@ -24,7 +24,7 @@ from typing import Dict, Optional, Set, Tuple, Union
 
 import torch
 from datasets import Dataset, DatasetDict
-from huggingface_hub import CommitOperationDelete, HfApi, HfFolder, create_repo, delete_repo
+from huggingface_hub import CommitOperationDelete, HfApi, HfFolder, create_repo, delete_repo, logout
 from huggingface_hub.utils import RepositoryNotFoundError
 from transformers import PretrainedConfig, PreTrainedModel
 from transformers.testing_utils import ENDPOINT_STAGING
@@ -163,7 +163,10 @@ class StagingTestMixin:
     @classmethod
     def set_hf_hub_token(cls, token: str) -> str:
         orig_token = HfFolder.get_token()
-        HfFolder.save_token(token)
+        if token is not None:
+            HfFolder.save_token(token)
+        else:
+            logout()
         cls._env = dict(os.environ, HF_ENDPOINT=ENDPOINT_STAGING)
         return orig_token
 

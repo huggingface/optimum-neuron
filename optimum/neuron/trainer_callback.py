@@ -96,13 +96,18 @@ class NeuronCacheCallback(TrainerCallback):
         self.wait_for_everyone_on_fetch = is_torch_xla_available() and wait_for_everyone_on_fetch
         self.wait_for_everyone_on_push = is_torch_xla_available() and wait_for_everyone_on_push
 
-        self.cache_repo_id = get_hf_hub_cache_repos()[0]
-        has_write_access = has_write_access_to_repo(self.cache_repo_id)
-        if self.push and not has_write_access:
-            logger.warning(
-                f"Pushing to the remote cache repo {self.cache_repo_id} is disabled because you do not have write access to it."
-            )
-            self.push = False
+        cache_repo_ids = get_hf_hub_cache_repos()
+        if cache_repo_ids:
+            self.cache_repo_id = cache_repo_ids[0]
+            has_write_access = has_write_access_to_repo(self.cache_repo_id)
+            if self.push and not has_write_access:
+                logger.warning(
+                    f"Pushing to the remote cache repo {self.cache_repo_id} is disabled because you do not have write "
+                    "access to it."
+                )
+                self.push = False
+        else:
+            self.cache_repo_id = None
 
         # Real Neuron compile cache if it exists.
         if original_neuron_cache_path is None:
