@@ -249,7 +249,8 @@ def _get_submodels_and_neuron_configs(
             model=model, exporter="neuron", task=task
         )
         neuron_config = neuron_config_constructor(model.config, dynamic_batch_size=dynamic_batch_size, **input_shapes)
-        model_name = model.name_or_path.split("/")[-1]
+        model_name = getattr(model, "name_or_path", None) or model_name_or_path
+        model_name = model_name.split("/")[-1] if model_name else model.config.model_type
         output_model_names = {model_name: "model.neuron"}
         models_and_neuron_configs = {model_name: (model, neuron_config)}
         maybe_save_preprocessors(model_name_or_path, output)

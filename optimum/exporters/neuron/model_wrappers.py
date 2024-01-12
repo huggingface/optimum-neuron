@@ -339,3 +339,15 @@ class T5DecoderWrapper(torch.nn.Module):
             neuron_outputs += cross_attentions
 
         return neuron_outputs
+
+
+class SentenceTransformersTransformerNeuronWrapper(torch.nn.Module):
+    def __init__(self, model, input_names: List[str]):
+        super().__init__()
+        self.model = model
+        self.input_names = input_names
+
+    def forward(self, input_ids, attention_mask):
+        out_tuple = self.model({"input_ids": input_ids, "attention_mask": attention_mask})
+
+        return out_tuple

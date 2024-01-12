@@ -29,7 +29,9 @@ from ...utils import (
     NormalizedConfigManager,
     NormalizedSeq2SeqConfig,
     NormalizedTextAndVisionConfig,
+    NormalizedTextConfig,
     is_diffusers_available,
+    is_sentence_transformers_available,
 )
 from ...utils.normalized_config import T5LikeNormalizedTextConfig
 from ..tasks import TasksManager
@@ -41,6 +43,7 @@ from .config import (
     VisionNeuronConfig,
 )
 from .model_wrappers import (
+    SentenceTransformersTransformerNeuronWrapper,
     T5DecoderWrapper,
     T5EncoderWrapper,
     UnetNeuronWrapper,
@@ -50,6 +53,8 @@ from .model_wrappers import (
 if TYPE_CHECKING:
     if is_diffusers_available():
         from diffusers.models.vae import Decoder as VaeDecoder
+    if is_sentence_transformers_available():
+        pass
 
 
 COMMON_TEXT_TASKS = [
@@ -169,6 +174,24 @@ class DebertaNeuronConfig(BertNeuronConfig):
 @register_in_tasks_manager("deberta-v2", *COMMON_TEXT_TASKS)
 class DebertaV2NeuronConfig(DebertaNeuronConfig):
     pass
+
+
+@register_in_tasks_manager("sentence-transformers-transformer", *["feature-extraction", "sentence-similarity"])
+class SentenceTransformersTransformerNeuronConfig(TextEncoderNeuronConfig):
+    NORMALIZED_CONFIG_CLASS = NormalizedTextConfig
+    CUSTOM_MODEL_WRAPPER = SentenceTransformersTransformerNeuronWrapper
+    ATOL_FOR_VALIDATION = 1e-3
+
+    @property
+    def inputs(self) -> List[str]:
+        return ["input_ids", "attention_mask"]
+
+    @property
+    def outputs(self) -> List[str]:
+        return ["input_ids", "attention_mask", "token_embeddings", "sentence_embedding"]
+
+    def patch_model_for_export(self, model, dummy_inputs):
+        return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
 
 
 class CLIPNormalizedConfig(NormalizedTextAndVisionConfig):

@@ -179,6 +179,7 @@ def validate_model_outputs(
             ref_outputs = reference_model(*ref_inputs)
             neuron_inputs = ref_inputs
         else:
+            reference_model = config.patch_model_for_export(reference_model, ref_inputs)
             ref_outputs = reference_model(**ref_inputs)
             neuron_inputs = tuple(config.flatten_inputs(ref_inputs).values())
 
