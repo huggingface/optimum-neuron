@@ -15,7 +15,7 @@
 """Model specific Neuron configurations."""
 
 
-from typing import TYPE_CHECKING, Dict, List
+from typing import TYPE_CHECKING, Optional, Any, Dict, List
 
 import torch
 
@@ -26,6 +26,8 @@ from ...utils import (
     DummyTimestepInputGenerator,
     DummyVisionInputGenerator,
     NormalizedConfig,
+    NormalizedTextConfig,
+    NormalizedVisionConfig,
     NormalizedConfigManager,
     NormalizedSeq2SeqConfig,
     NormalizedTextAndVisionConfig,
@@ -48,6 +50,7 @@ from .model_wrappers import (
 
 
 if TYPE_CHECKING:
+    from transformers import PretrainedConfig
     if is_diffusers_available():
         from diffusers.models.vae import Decoder as VaeDecoder
 
@@ -62,6 +65,7 @@ COMMON_TEXT_TASKS = [
 ]
 register_in_tasks_manager = TasksManager.create_register("neuron")
 
+# [Text]
 
 @register_in_tasks_manager("bert", *COMMON_TEXT_TASKS)
 class BertNeuronConfig(TextEncoderNeuronConfig):
@@ -170,6 +174,45 @@ class DebertaNeuronConfig(BertNeuronConfig):
 class DebertaV2NeuronConfig(DebertaNeuronConfig):
     pass
 
+
+# [Vision]
+
+class ViTNeuronConfig(VisionNeuronConfig):
+    NORMALIZED_CONFIG_CLASS = NormalizedVisionConfig
+
+    @property
+    def inputs(self) -> Dict[str, Dict[int, str]]:
+        return ["pixel_values"]
+
+
+class ResNetNeuronConfig(ViTNeuronConfig):
+    ATOL_FOR_VALIDATION = 1e-3
+
+
+# [Text & Vision]
+
+class PerceiverNeuronConfig(TextAndVisionNeuronConfig):
+    NORMALIZED_CONFIG_CLASS = NormalizedTextConfig
+
+    @property
+    def inputs_name(self):
+        if self.is_generating_dummy_inputs:
+            if self.task in ["fill-mask", "text-classification"]:
+                return "input_ids"
+            else:
+                return "pixel_values"
+        else:
+            return "inputs"
+    
+    @property
+    def inputs(self) -> Dict[str, Dict[int, str]]:
+        if self.task in ["fill-mask", "text-classification"]:
+            return ["input_ids"]
+        else:
+            return ["pixel_values"]
+
+
+# [Stable Diffusion]
 
 class CLIPNormalizedConfig(NormalizedTextAndVisionConfig):
     TEXT_CONFIG = "text_config"
@@ -365,6 +408,7 @@ class VaeDecoderNeuronConfig(VisionNeuronConfig):
     ):
         return super().patch_model_for_export(model=model, dummy_inputs=dummy_inputs, forward_with_tuple=True)
 
+# [Text Generative]
 
 @register_in_tasks_manager("gpt2", "text-generation")
 class GPT2NeuronConfig(TextNeuronDecoderConfig):
