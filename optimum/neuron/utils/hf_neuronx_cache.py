@@ -13,8 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import io
+import logging
 import os
 from contextlib import contextmanager
+from threading import Lock
 from typing import Optional
 
 import libneuronxla
@@ -24,6 +26,10 @@ from libneuronxla.neuron_cc_cache import CompileCache, CompileCacheFs, CompileCa
 from ..version import __version__
 from .patching import patch_everywhere
 
+
+logger = logging.getLogger(__name__)
+
+GLOBAL_COMMIT_LOCK = Lock()
 
 class CompileCacheHfProxy(CompileCache):
     """A HuggingFace Hub proxy cache implementing the CompileCache API
@@ -37,7 +43,7 @@ class CompileCacheHfProxy(CompileCache):
         default_cache (`CompileCache`):
             The default neuron compiler cache (can be either a local file or S3 cache).
         endpoint (`Optional[str]`):
-            The HuggingFaceHub endpoint: only required for unit tests to swith to the staging Hub.
+            The HuggingFaceHub endpoint: only required for unit tests to switch to the staging Hub.
         token (`Optional[str]`):
             The HuggingFace token to use to fetch/push artifacts. If not specified it will correspond
             to the current user token.
@@ -55,14 +61,15 @@ class CompileCacheHfProxy(CompileCache):
         self.default_cache = default_cache
         self.api = HfApi(endpoint=endpoint, token=token, library_name="optimum-neuron", library_version=__version__)
         # Check if the HF cache id is valid
-        if not self.api.repo_exists(repo_id, token=token):
+        if not self.api.repo_exists(repo_id):
             raise ValueError(f"The {repo_id} repository does not exist or you don't have access to it.")
         self.repo_id = repo_id
-        self.token = token
         self.pending_uploads = []
 
     def __del__(self):
+        logger.debug(f"Synchronizing CompileCacheHfProxy ({len(self.pending_uploads)} pending uploads)")
         self.synchronize()
+        logger.debug(f"Done synchronizing CompileCacheHfProxy ({len(self.pending_uploads)} pending uploads)")
 
     def get_cache_dir(self, model_hash, compile_flags_str):
         return self.default_cache.get_cache_dir(model_hash, compile_flags_str)
@@ -99,7 +106,7 @@ class CompileCacheHfProxy(CompileCache):
         # Always prioritize the default cache
         if self.default_cache.exists(path):
             return True
-        return self.api.file_exists(self.repo_id, self._rel_path(path), token=self.token)
+        return self.api.file_exists(self.repo_id, self._rel_path(path))
 
     def download_file(self, filename, dst_path):
         # Always prioritize the default cache for faster retrieval
@@ -111,19 +118,19 @@ class CompileCacheHfProxy(CompileCache):
 
     def _prepare_for_upload(self, path_in_repo, path_or_fileobj):
         addition = CommitOperationAdd(path_in_repo=path_in_repo, path_or_fileobj=path_or_fileobj)
-        self.api.preupload_lfs_files(self.repo_id, additions=[addition], token=self.token)
+        self.api.preupload_lfs_files(self.repo_id, additions=[addition])
         self.pending_uploads.append(addition)
 
     def synchronize(self):
         """Commit all prepared uploads"""
         if len(self.pending_uploads) == 0:
             return
-        self.api.create_commit(
-            self.repo_id,
-            operations=self.pending_uploads,
-            commit_message="Commit compilation artifacts.",
-            token=self.token,
-        )
+        with GLOBAL_COMMIT_LOCK:
+            self.api.create_commit(
+                self.repo_id,
+                operations=self.pending_uploads,
+                commit_message="Commit compilation artifacts.",
+            )
         self.pending_uploads = []
 
     def upload_file(self, cache_path, src_path):
