@@ -359,6 +359,7 @@ def main_export(
     submodels: Optional[Dict[str, Union[Path, str]]] = None,
     output_attentions: bool = False,
     output_hidden_states: bool = False,
+    library_name: Optional[str] = None,
     **input_shapes,
 ):
     output = Path(output)
@@ -379,6 +380,7 @@ def main_export(
         "force_download": force_download,
         "trust_remote_code": trust_remote_code,
         "framework": "pt",
+        "library_name": library_name,
     }
     model = TasksManager.get_model_from_task(**model_kwargs)
 
@@ -477,6 +479,7 @@ def main():
         trust_remote_code=args.trust_remote_code,
         do_validation=not args.disable_validation,
         submodels=submodels,
+        library_name=args.library_name,
         **optional_outputs,
         **input_shapes,
     )

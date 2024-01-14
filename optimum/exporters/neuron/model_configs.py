@@ -31,7 +31,6 @@ from ...utils import (
     NormalizedTextAndVisionConfig,
     NormalizedTextConfig,
     is_diffusers_available,
-    is_sentence_transformers_available,
 )
 from ...utils.normalized_config import T5LikeNormalizedTextConfig
 from ..tasks import TasksManager
@@ -44,6 +43,7 @@ from .config import (
 )
 from .model_wrappers import (
     SentenceTransformersTransformerNeuronWrapper,
+    SentenceTransformersCLIPNeuronWrapper,
     T5DecoderWrapper,
     T5EncoderWrapper,
     UnetNeuronWrapper,
@@ -53,8 +53,6 @@ from .model_wrappers import (
 if TYPE_CHECKING:
     if is_diffusers_available():
         from diffusers.models.vae import Decoder as VaeDecoder
-    if is_sentence_transformers_available():
-        pass
 
 
 COMMON_TEXT_TASKS = [
@@ -251,6 +249,18 @@ class CLIPTextNeuronConfig(CLIPTextWithProjectionNeuronConfig):
 
         return common_outputs
 
+
+@register_in_tasks_manager("sentence-transformers-clip", *["feature-extraction", "sentence-similarity"])
+class SentenceTransformersCLIPOnnxConfig(CLIPNeuronConfig):
+    CUSTOM_MODEL_WRAPPER = SentenceTransformersCLIPNeuronWrapper
+    ATOL_FOR_VALIDATION = 1e-3
+    
+    @property
+    def outputs(self) -> List[str]:
+        return ["image_embeds", "text_embeds"]
+
+    def patch_model_for_export(self, model, dummy_inputs):
+        return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
 
 @register_in_tasks_manager("unet", *["semantic-segmentation"])
 class UNetNeuronConfig(VisionNeuronConfig):

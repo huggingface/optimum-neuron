@@ -351,3 +351,26 @@ class SentenceTransformersTransformerNeuronWrapper(torch.nn.Module):
         out_tuple = self.model({"input_ids": input_ids, "attention_mask": attention_mask})
 
         return out_tuple
+
+
+class SentenceTransformersCLIPNeuronWrapper(torch.nn.Module):
+    def __init__(self, model, input_names: List[str]):
+        super().__init__()
+        self.model = model
+        self.input_names = input_names
+
+    def forward(self, input_ids, attention_mask, pixel_values):
+        vision_outputs = self.model[0].model.vision_model(pixel_values=pixel_values)
+        image_embeds = self.model[0].model.visual_projection(vision_outputs[1])
+        
+        text_outputs = self.model[0].model.text_model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+            )
+        text_embeds = self.model[0].model.text_projection(text_outputs[1])
+
+        if len(self.model) > 1:
+            image_embeds = self.model[1:](image_embeds)
+            text_embeds = self.model[1:](text_embeds)
+
+        return {"text_embeds": text_embeds, "image_embeds": image_embeds}

@@ -54,6 +54,13 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         ),
     )
     optional_group.add_argument(
+        "--library-name",
+        type=str,
+        choices=["transformers", "diffusers", "sentence_transformers"],
+        default=None,
+        help=("The library on the model." " If not provided, will attempt to infer the local checkpoint's library"),
+    )
+    optional_group.add_argument(
         "--atol",
         type=float,
         default=None,
