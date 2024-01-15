@@ -16,6 +16,7 @@ import glob
 import os
 import shutil
 import socket
+import subprocess
 from tempfile import TemporaryDirectory
 
 import pytest
@@ -139,3 +140,18 @@ def test_decoder_cache_wrong_url():
             os.environ.pop("CUSTOM_CACHE_REPO")
         else:
             os.environ["OPTIMUM_NEURON_HUB_CACHE"] = previous_hub_cache
+
+
+@is_inferentia_test
+@requires_neuronx
+def test_optimum_neuron_cli_cache_synchronize(cache_repos):
+    cache_path, cache_repo_id = cache_repos
+    # Export a model to populate the local cache
+    export_decoder_model("hf-internal-testing/tiny-random-gpt2")
+    # Synchronize the hub cache with the local cache
+    command = "optimum-cli neuron cache synchronize".split()
+    p = subprocess.Popen(command, stdout=subprocess.PIPE)
+    stdout, _ = p.communicate()
+    stdout = stdout.decode("utf-8")
+    assert p.returncode == 0
+    assert_local_and_hub_cache_sync(cache_path, cache_repo_id)

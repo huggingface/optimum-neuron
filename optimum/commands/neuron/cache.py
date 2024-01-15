@@ -16,6 +16,7 @@
 
 from typing import TYPE_CHECKING
 
+from ...neuron.utils import is_neuronx_available
 from ...neuron.utils.cache_utils import (
     CACHE_REPO_NAME,
     HF_HOME_CACHE_REPO_FILE,
@@ -27,6 +28,10 @@ from ...neuron.utils.cache_utils import (
 from ...neuron.utils.runner import ExampleRunner
 from ...utils import logging
 from ..base import BaseOptimumCLICommand, CommandInfo
+
+
+if is_neuronx_available():
+    from ...neuron.utils import synchronize_hub_cache
 
 
 if TYPE_CHECKING:
@@ -208,6 +213,15 @@ class ListRepoCommand(BaseOptimumCLICommand):
         print(f"\n*** Repo id: {self.args.name} ***\n\n{result}")
 
 
+class SynchronizeRepoCommand(BaseOptimumCLICommand):
+    @staticmethod
+    def parse_args(parser: "ArgumentParser"):
+        parser.add_argument("--repo_id", type=str, default=None, help="The name of the repo to use as remote cache.")
+
+    def run(self):
+        synchronize_hub_cache(self.args.repo_id)
+
+
 class CustomCacheRepoCommand(BaseOptimumCLICommand):
     SUBCOMMANDS = (
         CommandInfo(
@@ -229,5 +243,10 @@ class CustomCacheRepoCommand(BaseOptimumCLICommand):
             name="list",
             help="List models in a cache repo.",
             subcommand_class=ListRepoCommand,
+        ),
+        CommandInfo(
+            name="synchronize",
+            help="Synchronize neuronx compiler cache with a hub cache repo.",
+            subcommand_class=SynchronizeRepoCommand,
         ),
     )
