@@ -42,8 +42,8 @@ from .config import (
     VisionNeuronConfig,
 )
 from .model_wrappers import (
-    SentenceTransformersTransformerNeuronWrapper,
     SentenceTransformersCLIPNeuronWrapper,
+    SentenceTransformersTransformerNeuronWrapper,
     T5DecoderWrapper,
     T5EncoderWrapper,
     UnetNeuronWrapper,
@@ -254,13 +254,15 @@ class CLIPTextNeuronConfig(CLIPTextWithProjectionNeuronConfig):
 class SentenceTransformersCLIPOnnxConfig(CLIPNeuronConfig):
     CUSTOM_MODEL_WRAPPER = SentenceTransformersCLIPNeuronWrapper
     ATOL_FOR_VALIDATION = 1e-3
-    
+    MANDATORY_AXES = ("batch_size", "sequence_length", "num_channels", "width", "height")
+
     @property
     def outputs(self) -> List[str]:
-        return ["image_embeds", "text_embeds"]
+        return ["text_embeds", "image_embeds"]
 
     def patch_model_for_export(self, model, dummy_inputs):
         return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
+
 
 @register_in_tasks_manager("unet", *["semantic-segmentation"])
 class UNetNeuronConfig(VisionNeuronConfig):

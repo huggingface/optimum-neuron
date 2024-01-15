@@ -359,14 +359,14 @@ class SentenceTransformersCLIPNeuronWrapper(torch.nn.Module):
         self.model = model
         self.input_names = input_names
 
-    def forward(self, input_ids, attention_mask, pixel_values):
+    def forward(self, input_ids, pixel_values, attention_mask):
         vision_outputs = self.model[0].model.vision_model(pixel_values=pixel_values)
         image_embeds = self.model[0].model.visual_projection(vision_outputs[1])
-        
+
         text_outputs = self.model[0].model.text_model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-            )
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+        )
         text_embeds = self.model[0].model.text_projection(text_outputs[1])
 
         if len(self.model) > 1:

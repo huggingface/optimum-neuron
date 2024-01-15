@@ -21,7 +21,6 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
-from transformers import PretrainedConfig
 
 from ...exporters.error_utils import OutputMatchError, ShapeError
 from ...neuron.utils import (
@@ -188,7 +187,7 @@ def validate_model_outputs(
             ref_inputs = tuple(ref_inputs.values())
             ref_outputs = reference_model(*ref_inputs)
             neuron_inputs = ref_inputs
-        else:  
+        else:
             ref_outputs = reference_model(**ref_inputs)
             neuron_inputs = tuple(config.flatten_inputs(ref_inputs).values())
 
@@ -369,8 +368,6 @@ def export_models(
                 output_attentions=getattr(sub_neuron_config, "output_attentions", False),
                 output_hidden_states=getattr(sub_neuron_config, "output_hidden_states", False),
             )
-            if isinstance(model_config, PretrainedConfig):
-                model_config = DiffusersPretrainedConfig.from_dict(model_config.__dict__)
             model_config.save_pretrained(output_path.parent)
         except Exception as e:
             failed_models.append((i, model_name))

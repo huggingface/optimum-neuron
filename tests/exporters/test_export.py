@@ -40,7 +40,12 @@ from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neur
 from optimum.utils import DEFAULT_DUMMY_SHAPES, is_diffusers_available, logging
 from optimum.utils.testing_utils import require_diffusers
 
-from .exporters_utils import ENCODER_DECODER_MODELS_TINY, EXPORT_MODELS_TINY, STABLE_DIFFUSION_MODELS_TINY
+from .exporters_utils import (
+    ENCODER_DECODER_MODELS_TINY,
+    EXPORT_MODELS_TINY,
+    SENTENCE_TRANSFORMERS_MODELS,
+    STABLE_DIFFUSION_MODELS_TINY,
+)
 
 
 if is_diffusers_available():
@@ -102,9 +107,17 @@ class NeuronExportTestCase(unittest.TestCase):
         neuron_config_constructor: "NeuronConfig",
         dynamic_batch_size: bool = False,
     ):
-        model_class = TasksManager.get_model_class_for_task(task, framework="pt")
-        config = AutoConfig.from_pretrained(model_name)
-        model = model_class.from_config(config)
+        if "sentence-transformers" in model_type:
+            model_class = TasksManager.get_model_class_for_task(task, framework="pt", library="sentence_transformers")
+            model = model_class(model_name)
+            if "clip" in model[0].__class__.__name__.lower():
+                config = model[0].model.config
+            else:
+                config = model[0].auto_model.config
+        else:
+            model_class = TasksManager.get_model_class_for_task(task, framework="pt")
+            config = AutoConfig.from_pretrained(model_name)
+            model = model_class.from_config(config)
         reference_model = copy.deepcopy(model)
 
         mandatory_shapes = {
@@ -112,7 +125,7 @@ class NeuronExportTestCase(unittest.TestCase):
             for name in neuron_config_constructor.func.get_mandatory_axes_for_task(task)
         }
         neuron_config = neuron_config_constructor(
-            config=model.config, task=task, dynamic_batch_size=dynamic_batch_size, **mandatory_shapes
+            config=config, task=task, dynamic_batch_size=dynamic_batch_size, **mandatory_shapes
         )
 
         atol = neuron_config.ATOL_FOR_VALIDATION
@@ -138,6 +151,11 @@ class NeuronExportTestCase(unittest.TestCase):
     @parameterized.expand(_get_models_to_test(EXPORT_MODELS_TINY))
     @is_inferentia_test
     def test_export(self, test_name, name, model_name, task, neuron_config_constructor):
+        self._neuronx_export(test_name, name, model_name, task, neuron_config_constructor)
+
+    @parameterized.expand(_get_models_to_test(SENTENCE_TRANSFORMERS_MODELS))
+    @is_inferentia_test
+    def test_export_sentence_transformers(self, test_name, name, model_name, task, neuron_config_constructor):
         self._neuronx_export(test_name, name, model_name, task, neuron_config_constructor)
 
     @parameterized.expand(_get_models_to_test(EXPORT_MODELS_TINY), skip_on_empty=True)

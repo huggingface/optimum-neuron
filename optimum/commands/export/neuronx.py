@@ -58,7 +58,15 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         type=str,
         choices=["transformers", "diffusers", "sentence_transformers"],
         default=None,
-        help=("The library on the model." " If not provided, will attempt to infer the local checkpoint's library"),
+        help=("The library on the model." " If not provided, will attempt to infer the local checkpoint's library."),
+    )
+    optional_group.add_argument(
+        "--subfolder",
+        type=str,
+        default="",
+        help=(
+            "In case the relevant files are located inside a subfolder of the model repo either locally or on huggingface.co, specify the folder name here."
+        ),
     )
     optional_group.add_argument(
         "--atol",
