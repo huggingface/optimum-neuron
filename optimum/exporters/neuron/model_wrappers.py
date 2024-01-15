@@ -373,4 +373,4 @@ class SentenceTransformersCLIPNeuronWrapper(torch.nn.Module):
             image_embeds = self.model[1:](image_embeds)
             text_embeds = self.model[1:](text_embeds)
 
-        return {"text_embeds": text_embeds, "image_embeds": image_embeds}
+        return (text_embeds, image_embeds)

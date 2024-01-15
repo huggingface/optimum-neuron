@@ -38,7 +38,7 @@ from optimum.exporters.neuron.model_configs import *  # noqa: F403
 from optimum.exporters.tasks import TasksManager
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 from optimum.utils import DEFAULT_DUMMY_SHAPES, is_diffusers_available, logging
-from optimum.utils.testing_utils import require_diffusers
+from optimum.utils.testing_utils import require_diffusers, require_sentence_transformers
 
 from .exporters_utils import (
     ENCODER_DECODER_MODELS_TINY,
@@ -155,6 +155,8 @@ class NeuronExportTestCase(unittest.TestCase):
 
     @parameterized.expand(_get_models_to_test(SENTENCE_TRANSFORMERS_MODELS))
     @is_inferentia_test
+    @require_vision
+    @require_sentence_transformers
     def test_export_sentence_transformers(self, test_name, name, model_name, task, neuron_config_constructor):
         self._neuronx_export(test_name, name, model_name, task, neuron_config_constructor)
 
