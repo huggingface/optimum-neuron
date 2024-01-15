@@ -27,7 +27,7 @@ DECODER_MODEL_NAMES = {
     "bloom": "hf-internal-testing/tiny-random-BloomForCausalLM",
     "gpt2": "hf-internal-testing/tiny-random-gpt2",
     "llama": "dacorvo/tiny-random-llama",
-    "mistral": "hf-internal-testing/tiny-random-MistralForCausalLM",
+    "mistral": "dacorvo/tiny-random-MistralForCausalLM",
     "opt": "hf-internal-testing/tiny-random-OPTForCausalLM",
 }
 SEQ2SEQ_MODEL_NAMES = {
