@@ -31,6 +31,7 @@ TESTS_REQUIRE = [
     "sacremoses",
     "diffusers >= 0.25.0",
     "safetensors",
+    "sentence-transformers >= 2.2.0"
 ]
 
 QUALITY_REQUIRES = [
@@ -60,7 +61,8 @@ EXTRAS_REQUIRE = {
         "torchvision==0.14.*",
         "neuronx_distributed==0.6.0",
     ],
-    "diffusers": ["diffusers >= 0.23.0"],
+    "diffusers": ["diffusers >= 0.25.0"],
+    "sentence-transformers": ["sentence-transformers >= 2.2.0"],
 }
 
 setup(
