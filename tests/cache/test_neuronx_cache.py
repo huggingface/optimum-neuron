@@ -24,7 +24,7 @@ from huggingface_hub import HfApi
 from transformers.testing_utils import ENDPOINT_STAGING
 
 from optimum.neuron import NeuronModelForCausalLM
-from optimum.neuron.utils import hub_neuronx_cache, synchronize_hub_cache
+from optimum.neuron.utils import synchronize_hub_cache
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 from optimum.utils.testing_utils import TOKEN
 
@@ -119,8 +119,7 @@ def test_decoder_cache(cache_repos):
             shutil.rmtree(os.path.join(root, d))
     assert local_cache_size(cache_path) == 0
     # Export the model again: the compilation artifacts should be fetched from the Hub
-    with hub_neuronx_cache():
-        model = export_decoder_model("hf-internal-testing/tiny-random-gpt2")
+    model = export_decoder_model("hf-internal-testing/tiny-random-gpt2")
     check_decoder_generation(model)
     # Verify the local cache directory has not been populated
     assert local_cache_size(cache_path) == 0
@@ -134,8 +133,7 @@ def test_decoder_cache_wrong_url():
     os.environ["CUSTOM_CACHE_REPO"] = repo_id
     try:
         with pytest.raises(ValueError, match=f"The {repo_id} repository does not exist"):
-            with hub_neuronx_cache():
-                export_decoder_model("hf-internal-testing/tiny-random-gpt2")
+            export_decoder_model("hf-internal-testing/tiny-random-gpt2")
     finally:
         if previous_hub_cache is None:
             os.environ.pop("CUSTOM_CACHE_REPO")
