@@ -31,7 +31,7 @@ TESTS_REQUIRE = [
     "sacremoses",
     "diffusers >= 0.25.0",
     "safetensors",
-    "sentence-transformers >= 2.2.0"
+    "sentence-transformers >= 2.2.0",
 ]
 
 QUALITY_REQUIRES = [
