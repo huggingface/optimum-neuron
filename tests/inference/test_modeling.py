@@ -172,6 +172,7 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
             "mobilebert",
             "roberta",
             "roformer",
+            "sentence-transformers-transformer",
             # "xlm",  # accuracy off compared to pytorch (not due to the padding)
             "xlm-roberta",
         ]
