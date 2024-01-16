@@ -287,7 +287,7 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
         self._setup(model_args)
 
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
-        neuron_model = NeuronModelForFeatureExtractionIntegrationTest.from_pretrained(
+        neuron_model = NeuronModelForFeatureExtraction.from_pretrained(
             self.neuron_model_dirs[model_arch + "_dyn_bs_false"]
         )
         tokenizer = get_preprocessor(model_id)
@@ -514,9 +514,7 @@ class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
         self._setup(model_args)
 
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
-        neuron_model = NeuronModelForMaskedLMIntegrationTest.from_pretrained(
-            self.neuron_model_dirs[model_arch + "_dyn_bs_false"]
-        )
+        neuron_model = NeuronModelForMaskedLM.from_pretrained(self.neuron_model_dirs[model_arch + "_dyn_bs_false"])
         tokenizer = get_preprocessor(model_id)
         MASK_TOKEN = tokenizer.mask_token
         pipe = pipeline(self.TASK, model=neuron_model, tokenizer=tokenizer)
