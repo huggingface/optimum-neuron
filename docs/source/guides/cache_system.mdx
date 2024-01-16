@@ -33,14 +33,15 @@ Many factors can trigger compilation among which:
 - The input shapes,
 - The precision of the model, full-precision or bf16,
 - The version of the Neuron X compiler,
-- The number of Neuron cores used,
-- Subtle modifications in the model graph.
+- The number of Neuron cores used.
 
-These parameters are used to compute a hash that uniquely identify each compilation file.
+These parameters are used to compute a hash that uniquely identifies each compilation file.
+
+**It is important to keep in mind that even a small change in the Neuron configuration will trigger a recompilation.**
 
 ### How to use the Neuron model cache
 
-The Public model cache will be used when you use the [`NeuronTrainer` or `NeuronModelForCausalLM] classes. There are no additional changes needed.
+The public model cache will be used when you use the [`NeuronTrainer` or `NeuronModelForCausalLM] classes. There are no additional changes needed.
 
 ### How to use a private Neuron model cache (trainium only)
 
@@ -158,7 +159,7 @@ positional arguments:
     set                 Set the name of the Neuron cache repo to use locally (trainium only).
     add                 Add a model to the cache of your choice (trainium only).
     list                List models in a cache repo (trainium only).
-    synchronize         Synchronize local compiler cache with the hub cache.
+    synchronize         Synchronize local compiler cache with the hub cache (inferentia only).
 
 optional arguments:
   -h, --help            show this help message and exit

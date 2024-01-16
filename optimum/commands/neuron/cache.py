@@ -246,7 +246,7 @@ class CustomCacheRepoCommand(BaseOptimumCLICommand):
         ),
         CommandInfo(
             name="synchronize",
-            help="Synchronize neuronx compiler cache with a hub cache repo.",
+            help="Synchronize the neuronx compiler cache with a hub cache repo.",
             subcommand_class=SynchronizeRepoCommand,
         ),
     )

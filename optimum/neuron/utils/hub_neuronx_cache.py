@@ -54,19 +54,19 @@ logger = logging.getLogger(__name__)
 
 
 class CompileCacheHfProxy(CompileCache):
-    """A HuggingFace Hub proxy cache implementing the CompileCache API
+    """A HuggingFace Hub proxy cache implementing the CompileCache API.
 
     This cache first looks for compilation artifacts into the default cache, then the
-    specified HuggingFace cache repository.
+    specified Hugging Face cache repository.
 
     Args:
         repo_id (`str`):
-            The id of the HuggingFace cache repository, in the form 'org|user/name'.
+            The id of the Hugging Face cache repository, in the form 'org|user/name'.
         default_cache (`CompileCache`):
             The default neuron compiler cache (can be either a local file or S3 cache).
-        endpoint (`Optional[str]`):
+        endpoint (`Optional[str]`, defaults to None):
             The HuggingFaceHub endpoint: only required for unit tests to switch to the staging Hub.
-        token (`Optional[str]`):
+        token (`Optional[str]`, defaults to None):
             The HuggingFace token to use to fetch/push artifacts. If not specified it will correspond
             to the current user token.
     """
@@ -90,38 +90,37 @@ class CompileCacheHfProxy(CompileCache):
             raise ValueError(f"Error while accessing the {repo_id} cache repository: {e}")
         self.repo_id = repo_id
 
-    def get_cache_dir(self, model_hash, compile_flags_str):
+    def get_cache_dir(self, model_hash: str, compile_flags_str: str):
         return self.default_cache.get_cache_dir(model_hash, compile_flags_str)
 
     def clean(self):
-        # Should we clean the Hf Hub cache also ?
         self.default_cache.clean()
 
     def clear_locks(self):
         # Clear locks in the default cache only, as the Hf already deals with concurrency
         self.default_cache.clear_locks()
 
-    def get_hlos(self, failed_neff_str=""):
+    def get_hlos(self, failed_neff_str: str = ""):
         return self.default_cache.get_hlos(failed_neff_str)
 
-    def hlo_acquire_lock(self, h):
+    def hlo_acquire_lock(self, h: str):
         # Put a lock in the default cache only, as the Hf already deals with concurrency
         return self.default_cache.hlo_acquire_lock(h)
 
-    def hlo_release_lock(self, h):
+    def hlo_release_lock(self, h: str):
         # Release lock in the default cache only, as the Hf already deals with concurrency
         return self.default_cache.hlo_release_lock(h)
 
-    def remove(self, path):
+    def remove(self, path: str):
         # Only remove in the default cache
         return self.default_cache.remove(path)
 
-    def _rel_path(self, path):
+    def _rel_path(self, path: str):
         # Remove the default cache url from the path
         if path.startswith(self.default_cache.cache_path):
             return path[len(self.default_cache.cache_path) :].lstrip("/")
 
-    def exists(self, path):
+    def exists(self, path: str):
         # Always prioritize the default cache
         if self.default_cache.exists(path):
             return True
@@ -134,7 +133,7 @@ class CompileCacheHfProxy(CompileCache):
             )
         return exists
 
-    def download_file(self, filename, dst_path):
+    def download_file(self, filename: str, dst_path: str):
         # Always prioritize the default cache for faster retrieval
         if self.default_cache.exists(filename):
             self.default_cache.download_file(filename, dst_path)
@@ -146,7 +145,7 @@ class CompileCacheHfProxy(CompileCache):
 
     def synchronize(self):
         if isinstance(self.default_cache, CompileCacheS3):
-            raise ValueError("HuggingFace hub compiler cache synchronization is not supported for S3.")
+            raise ValueError("Hugging Face hub compiler cache synchronization is not supported for S3.")
         logger.info(f"Synchronizing {self.repo_id} Hub cache with {self.default_cache.cache_path} local cache")
         self.api.upload_folder(
             repo_id=self.repo_id,
@@ -156,15 +155,15 @@ class CompileCacheHfProxy(CompileCache):
         )
         logger.info("Synchronization complete.")
 
-    def upload_file(self, cache_path, src_path):
+    def upload_file(self, cache_path: str, src_path: str):
         # Only upload to the default cache: use synchronize to populate the Hub cache
         self.default_cache.upload_file(cache_path, src_path)
 
-    def upload_string_to_file(self, cache_path, data):
+    def upload_string_to_file(self, cache_path: str, data: str):
         # Only upload to the default cache: use synchronize to populate the Hub cache
         self.default_cache.upload_string_to_file(cache_path, data)
 
-    def download_file_to_string(self, filename, limit=None):
+    def download_file_to_string(self, filename: str, limit: int = None):
         # Always prioritize the default cache for faster retrieval
         if self.default_cache.exists(filename):
             return self.default_cache.download_file_to_string(filename, limit)
@@ -198,9 +197,9 @@ def _create_hub_compile_cache_proxy(
 
 @contextmanager
 def hub_neuronx_cache():
-    """A context manager to trigger the HuggingFace Hub proxy compiler cache"""
+    """A context manager to trigger the Hugging Face Hub proxy compiler cache"""
     if not is_neuronx_available():
-        raise ImportError("Neuronx compiler is not avilable: please reinstall optimum-neuron[neuronx]")
+        raise ImportError("Neuronx compiler is not available: please reinstall optimum-neuron[neuronx]")
 
     def hf_create_compile_cache(cache_url):
         try:
@@ -220,10 +219,10 @@ def synchronize_hub_cache(cache_repo_id: Optional[str] = None):
     """Synchronize the neuronx compiler cache with the optimum-neuron hub cache.
 
     Args:
-        repo_id (`Optional[str]`):
+        repo_id (`Optional[str]`, default to None):
             The id of the HuggingFace cache repository, in the form 'org|user/name'.
     """
     if not is_neuronx_available():
-        raise ImportError("Neuronx compiler is not avilable: please reinstall optimum-neuron[neuronx]")
+        raise ImportError("Neuronx compiler is not available: please reinstall optimum-neuron[neuronx]")
     hub_cache_proxy = _create_hub_compile_cache_proxy(cache_repo_id=cache_repo_id)
     hub_cache_proxy.synchronize()
