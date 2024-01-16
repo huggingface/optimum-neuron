@@ -42,4 +42,9 @@ STABLE_DIFFUSION_MODELS_TINY = {
     "latent-consistency": "echarlaix/tiny-random-latent-consistency",
 }
 
+SENTENCE_TRANSFORMERS_MODELS = {
+    "sentence-transformers-transformer": "sentence-transformers/all-MiniLM-L6-v2",
+    "sentence-transformers-clip": "sentence-transformers/clip-ViT-B-32",
+}
+
 SEED = 42

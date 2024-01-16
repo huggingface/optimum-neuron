@@ -29,6 +29,7 @@ from ...utils import (
     NormalizedConfigManager,
     NormalizedSeq2SeqConfig,
     NormalizedTextAndVisionConfig,
+    NormalizedTextConfig,
     is_diffusers_available,
 )
 from ...utils.normalized_config import T5LikeNormalizedTextConfig
@@ -41,6 +42,8 @@ from .config import (
     VisionNeuronConfig,
 )
 from .model_wrappers import (
+    SentenceTransformersCLIPNeuronWrapper,
+    SentenceTransformersTransformerNeuronWrapper,
     T5DecoderWrapper,
     T5EncoderWrapper,
     UnetNeuronWrapper,
@@ -171,6 +174,24 @@ class DebertaV2NeuronConfig(DebertaNeuronConfig):
     pass
 
 
+@register_in_tasks_manager("sentence-transformers-transformer", *["feature-extraction", "sentence-similarity"])
+class SentenceTransformersTransformerNeuronConfig(TextEncoderNeuronConfig):
+    NORMALIZED_CONFIG_CLASS = NormalizedTextConfig
+    CUSTOM_MODEL_WRAPPER = SentenceTransformersTransformerNeuronWrapper
+    ATOL_FOR_VALIDATION = 1e-3
+
+    @property
+    def inputs(self) -> List[str]:
+        return ["input_ids", "attention_mask"]
+
+    @property
+    def outputs(self) -> List[str]:
+        return ["token_embeddings", "sentence_embedding"]
+
+    def patch_model_for_export(self, model, dummy_inputs):
+        return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
+
+
 class CLIPNormalizedConfig(NormalizedTextAndVisionConfig):
     TEXT_CONFIG = "text_config"
     VISION_CONFIG = "vision_config"
@@ -227,6 +248,22 @@ class CLIPTextNeuronConfig(CLIPTextWithProjectionNeuronConfig):
             common_outputs.append("hidden_states")
 
         return common_outputs
+
+
+# TODO: We should decouple clip text and vision, this would need fix on Optimum main. For the current workaround
+# users can pass dummy text inputs when encoding image, vice versa.
+@register_in_tasks_manager("sentence-transformers-clip", *["feature-extraction", "sentence-similarity"])
+class SentenceTransformersCLIPNeuronConfig(CLIPNeuronConfig):
+    CUSTOM_MODEL_WRAPPER = SentenceTransformersCLIPNeuronWrapper
+    ATOL_FOR_VALIDATION = 1e-3
+    MANDATORY_AXES = ("batch_size", "sequence_length", "num_channels", "width", "height")
+
+    @property
+    def outputs(self) -> List[str]:
+        return ["text_embeds", "image_embeds"]
+
+    def patch_model_for_export(self, model, dummy_inputs):
+        return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
 
 
 @register_in_tasks_manager("unet", *["semantic-segmentation"])
