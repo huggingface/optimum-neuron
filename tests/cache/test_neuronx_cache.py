@@ -39,7 +39,7 @@ def cache_repos():
     cache_repo_id = f"{user}/{hostname}-optimum-neuron-cache"
     if api.repo_exists(cache_repo_id):
         api.delete_repo(cache_repo_id)
-    cache_repo_id = api.create_repo(cache_repo_id).repo_id
+    cache_repo_id = api.create_repo(cache_repo_id, private=True).repo_id
     cache_dir = TemporaryDirectory()
     cache_path = cache_dir.name
     # Modify environment to force neuronx cache to use temporary caches
@@ -128,21 +128,24 @@ def test_decoder_cache(cache_repos):
 
 @is_inferentia_test
 @requires_neuronx
-def test_decoder_cache_wrong_url():
-    repo_id = "foo/bar"
-    previous_hub_cache = os.getenv("CUSTOM_CACHE_REPO")
-    os.environ["CUSTOM_CACHE_REPO"] = repo_id
-    try:
-        # Just exporting the model will only emit a warning
-        export_decoder_model("hf-internal-testing/tiny-random-gpt2")
-        with pytest.raises(ValueError, match=f"The {repo_id} repository does not exist"):
-            # Trying to synchronize will in the contrary raise an exception
-            synchronize_hub_cache()
-    finally:
-        if previous_hub_cache is None:
-            os.environ.pop("CUSTOM_CACHE_REPO")
-        else:
-            os.environ["OPTIMUM_NEURON_HUB_CACHE"] = previous_hub_cache
+@pytest.mark.parametrize(
+    "var, value, match",
+    [
+        ("CUSTOM_CACHE_REPO", "foo/bar", "The foo/bar repository does not exist"),
+        ("HF_ENDPOINT", "https://foo.bar.baz", "Name or service not known"),
+        ("HF_TOKEN", "foo", "repository does not exist or you don't have access to it."),
+    ],
+    ids=["invalid_repo", "invalid_endpoint", "invalid_token"],
+)
+def test_decoder_cache_unavailable(cache_repos, var, value, match):
+    # Modify the specified environment variable to trigger an error
+    os.environ[var] = value
+    # Just exporting the model will only emit a warning
+    export_decoder_model("hf-internal-testing/tiny-random-gpt2")
+    with pytest.raises(ValueError, match=match):
+        # Trying to synchronize will in the contrary raise an exception
+        synchronize_hub_cache()
+    # No need to restore environment as it is already done by the cache_repos fixture
 
 
 @is_inferentia_test

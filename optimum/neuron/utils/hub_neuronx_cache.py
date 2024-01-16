@@ -83,8 +83,11 @@ class CompileCacheHfProxy(CompileCache):
         self.default_cache = default_cache
         self.api = HfApi(endpoint=endpoint, token=token, library_name="optimum-neuron", library_version=__version__)
         # Check if the HF cache id is valid
-        if not self.api.repo_exists(repo_id):
-            raise ValueError(f"The {repo_id} repository does not exist or you don't have access to it.")
+        try:
+            if not self.api.repo_exists(repo_id):
+                raise ValueError(f"The {repo_id} repository does not exist or you don't have access to it.")
+        except Exception as e:
+            raise ValueError(f"Error while accessing the {repo_id} cache repository: {e}")
         self.repo_id = repo_id
 
     def get_cache_dir(self, model_hash, compile_flags_str):
