@@ -125,7 +125,14 @@ class CompileCacheHfProxy(CompileCache):
         # Always prioritize the default cache
         if self.default_cache.exists(path):
             return True
-        return self.api.file_exists(self.repo_id, self._rel_path(path))
+        rel_path = self._rel_path(path)
+        exists = self.api.file_exists(self.repo_id, rel_path)
+        if not exists:
+            logger.warning(
+                f"{rel_path} not found in {self.repo_id}: the corresponding graph will be recompiled."
+                " This may take up to one hour for large models."
+            )
+        return exists
 
     def download_file(self, filename, dst_path):
         # Always prioritize the default cache for faster retrieval
