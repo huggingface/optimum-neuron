@@ -193,7 +193,11 @@ def hub_neuronx_cache():
         raise ImportError("Neuronx compiler is not avilable: please reinstall optimum-neuron[neuronx]")
 
     def hf_create_compile_cache(cache_url):
-        return _create_hub_compile_cache_proxy(cache_url)
+        try:
+            return _create_hub_compile_cache_proxy(cache_url)
+        except Exception as e:
+            logger.warning(f"Bypassing Hub cache because of the following error: {e}")
+            return create_compile_cache(cache_url)
 
     try:
         patch_everywhere("create_compile_cache", hf_create_compile_cache, "libneuronxla")

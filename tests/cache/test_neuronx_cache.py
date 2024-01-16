@@ -133,8 +133,11 @@ def test_decoder_cache_wrong_url():
     previous_hub_cache = os.getenv("CUSTOM_CACHE_REPO")
     os.environ["CUSTOM_CACHE_REPO"] = repo_id
     try:
+        # Just exporting the model will only emit a warning
+        export_decoder_model("hf-internal-testing/tiny-random-gpt2")
         with pytest.raises(ValueError, match=f"The {repo_id} repository does not exist"):
-            export_decoder_model("hf-internal-testing/tiny-random-gpt2")
+            # Trying to synchronize will in the contrary raise an exception
+            synchronize_hub_cache()
     finally:
         if previous_hub_cache is None:
             os.environ.pop("CUSTOM_CACHE_REPO")
