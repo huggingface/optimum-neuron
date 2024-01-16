@@ -350,7 +350,7 @@ class SentenceTransformersTransformerNeuronWrapper(torch.nn.Module):
     def forward(self, input_ids, attention_mask):
         out_tuple = self.model({"input_ids": input_ids, "attention_mask": attention_mask})
 
-        return out_tuple
+        return out_tuple["token_embeddings"], out_tuple["sentence_embedding"]
 
 
 class SentenceTransformersCLIPNeuronWrapper(torch.nn.Module):

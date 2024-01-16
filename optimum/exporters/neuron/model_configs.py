@@ -186,7 +186,7 @@ class SentenceTransformersTransformerNeuronConfig(TextEncoderNeuronConfig):
 
     @property
     def outputs(self) -> List[str]:
-        return ["input_ids", "attention_mask", "token_embeddings", "sentence_embedding"]
+        return ["token_embeddings", "sentence_embedding"]
 
     def patch_model_for_export(self, model, dummy_inputs):
         return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
@@ -250,8 +250,10 @@ class CLIPTextNeuronConfig(CLIPTextWithProjectionNeuronConfig):
         return common_outputs
 
 
+# TODO: We should decouple clip text and vision, this would need fix on Optimum main. For the current workaround
+# users can pass dummy text inputs when encoding image, vice versa.
 @register_in_tasks_manager("sentence-transformers-clip", *["feature-extraction", "sentence-similarity"])
-class SentenceTransformersCLIPOnnxConfig(CLIPNeuronConfig):
+class SentenceTransformersCLIPNeuronConfig(CLIPNeuronConfig):
     CUSTOM_MODEL_WRAPPER = SentenceTransformersCLIPNeuronWrapper
     ATOL_FOR_VALIDATION = 1e-3
     MANDATORY_AXES = ("batch_size", "sequence_length", "num_channels", "width", "height")
