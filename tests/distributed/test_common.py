@@ -141,7 +141,7 @@ class TestCommonDistributed(DistributedTest):
     def max_grad_norm(self, request):
         return request.param
 
-    def test_optimizer_parameters_match_models_parameters(
+    def test_optimizer_parameters_match_model_parameters(
         self, lazy_load, lazy_optimizer, with_groups, zero_1, parallel_sizes
     ):
         num_workers, tp_size, pp_size = parallel_sizes
@@ -156,7 +156,14 @@ class TestCommonDistributed(DistributedTest):
         if tp_size > 1 or pp_size > 1:
             assert accelerator.state.distributed_type is NeuronDistributedType.MODEL_PARALLELISM
 
-        model, optimizer = accelerator.prepare(model, optimizer)
+        model = accelerator.prepare(model)
+
+        # Under DDP only setting, the optimizer needs to be created after the model has been moved.
+        if tp_size == 1 and pp_size == 1:
+            optimizer = get_optimizer(model, lazy_optimizer, with_groups)
+
+        optimizer = accelerator.prepare(optimizer)
+
         assert isinstance(optimizer, NeuronAcceleratedOptimizer)
 
         if isinstance(model, NxDPPModel):
