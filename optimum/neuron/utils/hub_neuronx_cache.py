@@ -22,6 +22,7 @@ from huggingface_hub import HfApi, get_token
 from ..version import __version__
 from .import_utils import is_neuronx_available
 from .patching import patch_everywhere
+from .require_utils import requires_torch_neuronx
 
 
 if is_neuronx_available():
@@ -195,11 +196,10 @@ def _create_hub_compile_cache_proxy(
     return CompileCacheHfProxy(cache_repo_id, default_cache, endpoint=endpoint, token=token)
 
 
+@requires_torch_neuronx
 @contextmanager
 def hub_neuronx_cache():
     """A context manager to trigger the Hugging Face Hub proxy compiler cache"""
-    if not is_neuronx_available():
-        raise ImportError("Neuronx compiler is not available: please reinstall optimum-neuron[neuronx]")
 
     def hf_create_compile_cache(cache_url):
         try:
@@ -215,6 +215,7 @@ def hub_neuronx_cache():
         patch_everywhere("create_compile_cache", create_compile_cache, "libneuronxla")
 
 
+@requires_torch_neuronx
 def synchronize_hub_cache(cache_repo_id: Optional[str] = None):
     """Synchronize the neuronx compiler cache with the optimum-neuron hub cache.
 
@@ -222,7 +223,5 @@ def synchronize_hub_cache(cache_repo_id: Optional[str] = None):
         repo_id (`Optional[str]`, default to None):
             The id of the HuggingFace cache repository, in the form 'org|user/name'.
     """
-    if not is_neuronx_available():
-        raise ImportError("Neuronx compiler is not available: please reinstall optimum-neuron[neuronx]")
     hub_cache_proxy = _create_hub_compile_cache_proxy(cache_repo_id=cache_repo_id)
     hub_cache_proxy.synchronize()
