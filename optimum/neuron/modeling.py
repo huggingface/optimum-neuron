@@ -155,14 +155,14 @@ class NeuronModelForFeatureExtraction(NeuronBaseModel):
 
         with self.neuron_padding_manager(neuron_inputs) as inputs:
             outputs = self.model(*inputs)
-            # last_hidden_state / token_embeddings -> (batch_size, sequencen_len, hidden_size)
+            # last_hidden_state -> (batch_size, sequencen_len, hidden_size)
             last_hidden_state = self.remove_padding(
                 [outputs[0]], dims=[0, 1], indices=[input_ids.shape[0], input_ids.shape[1]]
             )[
                 0
             ]  # Remove padding on batch_size(0), and sequence_length(1)
             if len(outputs) > 1:
-                # pooler_output / sentence_embedding -> (batch_size, hidden_size)
+                # pooler_output -> (batch_size, hidden_size)
                 pooler_output = self.remove_padding([outputs[1]], dims=[0], indices=[input_ids.shape[0]])[
                     0
                 ]  # Remove padding on batch_size(0)
@@ -170,6 +170,74 @@ class NeuronModelForFeatureExtraction(NeuronBaseModel):
                 pooler_output = None
 
         return BaseModelOutputWithPooling(last_hidden_state=last_hidden_state, pooler_output=pooler_output)
+
+
+SENTENCE_TRANSFORMERS_EXAMPLE = r"""
+    Example of TEXT Sentence Transformers:
+
+    ```python
+    >>> from transformers import {processor_class}
+    >>> from optimum.neuron import {model_class}
+
+    >>> tokenizer = {processor_class}.from_pretrained("{checkpoint}")
+    >>> model = {model_class}.from_pretrained("{checkpoint}")
+
+    >>> inputs = tokenizer("In the smouldering promise of the fall of Troy, a mythical world of gods and mortals rises from the ashes.", return_tensors="pt")
+
+    >>> outputs = model(**inputs)
+    >>> token_embeddings = outputs.token_embeddings
+    >>> sentence_embedding = = outputs.sentence_embedding
+    ```
+"""
+
+
+@add_start_docstrings(
+    """
+    Neuron Model for Sentence Transformers.
+    """,
+    NEURON_MODEL_START_DOCSTRING,
+)
+class NeuronModelForSenetenceTransformers(NeuronBaseModel):
+    """
+    Sentence Transformers model on Neuron devices.
+    """
+
+    auto_model_class = AutoModel
+
+    @add_start_docstrings_to_model_forward(
+        NEURON_TEXT_INPUTS_DOCSTRING.format("batch_size, sequence_length")
+        + SENTENCE_TRANSFORMERS_EXAMPLE.format(
+            processor_class=_TOKENIZER_FOR_DOC,
+            model_class="NeuronModelForSenetenceTransformers",
+            checkpoint="optimum/bge-base-en-v1.5-neuronx",
+        )
+    )
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        token_type_ids: Optional[torch.Tensor] = None,
+        **kwargs,
+    ):
+        neuron_inputs = {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+        }
+
+        with self.neuron_padding_manager(neuron_inputs) as inputs:
+            outputs = self.model(*inputs)
+            # token_embeddings -> (batch_size, sequencen_len, hidden_size)
+            token_embeddings = self.remove_padding(
+                [outputs[0]], dims=[0, 1], indices=[input_ids.shape[0], input_ids.shape[1]]
+            )[
+                0
+            ]  # Remove padding on batch_size(0), and sequence_length(1)
+            # sentence_embedding -> (batch_size, hidden_size)
+            sentence_embedding = self.remove_padding([outputs[1]], dims=[0], indices=[input_ids.shape[0]])[
+                0
+            ]  # Remove padding on batch_size(0)
+
+        return ModelOutput(token_embeddings=token_embeddings, sentence_embedding=sentence_embedding)
 
 
 MASKED_LM_EXAMPLE = r"""

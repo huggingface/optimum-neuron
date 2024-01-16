@@ -20,6 +20,7 @@ import tempfile
 import torch
 from huggingface_hub.constants import default_cache_path
 from parameterized import parameterized
+from sentence_transformers import SentenceTransformer
 from transformers import (
     AutoModel,
     AutoModelForMaskedLM,
@@ -39,6 +40,7 @@ from optimum.neuron import (
     NeuronModelForMaskedLM,
     NeuronModelForMultipleChoice,
     NeuronModelForQuestionAnswering,
+    NeuronModelForSenetenceTransformers,
     NeuronModelForSequenceClassification,
     NeuronModelForTokenClassification,
     pipeline,
@@ -172,7 +174,6 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
             "mobilebert",
             "roberta",
             "roformer",
-            "sentence-transformers-transformer",
             # "xlm",  # accuracy off compared to pytorch (not due to the padding)
             "xlm-roberta",
         ]
@@ -286,7 +287,7 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
         self._setup(model_args)
 
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
-        neuron_model = NeuronModelForSequenceClassification.from_pretrained(
+        neuron_model = NeuronModelForFeatureExtractionIntegrationTest.from_pretrained(
             self.neuron_model_dirs[model_arch + "_dyn_bs_false"]
         )
         tokenizer = get_preprocessor(model_id)
@@ -295,6 +296,67 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
         outputs = pipe(text)
 
         self.assertTrue(all(all(isinstance(item, float) for item in row) for row in outputs[0]))
+
+        gc.collect()
+
+
+@is_inferentia_test
+class NeuronModelForSenetenceTransformersIntegrationTest(NeuronModelTestMixin):
+    NEURON_MODEL_CLASS = NeuronModelForSenetenceTransformers
+    TASK = "feature-extraction"
+    ATOL_FOR_VALIDATION = 1e-2
+    # TODO: only support text models so far, will support vision next
+    SUPPORTED_ARCHITECTURES = ["sentence-transformers-transformer"]
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @requires_neuronx
+    def test_sentence_transformers_dyn_bs(self, model_arch):
+        # Neuron model with dynamic batching
+        model_args = {
+            "test_name": model_arch + "_dyn_bs_true",
+            "model_arch": model_arch,
+            "dynamic_batch_size": True,
+        }
+        self._setup(model_args)
+
+        model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
+
+        neuron_model_dyn = self.NEURON_MODEL_CLASS.from_pretrained(self.neuron_model_dirs[model_arch + "_dyn_bs_true"])
+        self.assertIsInstance(neuron_model_dyn.model, torch.jit._script.ScriptModule)
+        self.assertIsInstance(neuron_model_dyn.config, PretrainedConfig)
+
+        set_seed(SEED)
+        sentence_transformers_model = SentenceTransformer(model_id)
+        tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+        text = ["This is a sample output"] * 2
+        tokens = tokenizer(text, return_tensors="pt")
+        with torch.no_grad():
+            sentence_transformers_outputs = sentence_transformers_model(tokens)
+
+        neuron_outputs_dyn = neuron_model_dyn(**tokens)
+
+        # Validate token_embeddings
+        self.assertIn("token_embeddings", neuron_outputs_dyn)
+        self.assertIsInstance(neuron_outputs_dyn.token_embeddings, torch.Tensor)
+        self.assertTrue(
+            torch.allclose(
+                neuron_outputs_dyn.token_embeddings,
+                sentence_transformers_outputs.token_embeddings,
+                atol=self.ATOL_FOR_VALIDATION,
+            )
+        )
+
+        # Validate sentence_embedding
+        self.assertIn("sentence_embedding", neuron_outputs_dyn)
+        self.assertIsInstance(neuron_outputs_dyn.sentence_embedding, torch.Tensor)
+        self.assertTrue(
+            torch.allclose(
+                neuron_outputs_dyn.sentence_embedding,
+                sentence_transformers_outputs.sentence_embedding,
+                atol=self.ATOL_FOR_VALIDATION,
+            )
+        )
 
         gc.collect()
 
@@ -452,7 +514,7 @@ class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
         self._setup(model_args)
 
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
-        neuron_model = NeuronModelForSequenceClassification.from_pretrained(
+        neuron_model = NeuronModelForMaskedLMIntegrationTest.from_pretrained(
             self.neuron_model_dirs[model_arch + "_dyn_bs_false"]
         )
         tokenizer = get_preprocessor(model_id)
