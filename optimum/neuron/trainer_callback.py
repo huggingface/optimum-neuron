@@ -37,9 +37,11 @@ from .utils.cache_utils import (
     NeuronHash,
     create_or_append_to_neuron_parallel_compile_report,
     download_cached_model_from_hub,
+    get_hf_hub_cache_repos,
     get_neuron_cache_path,
     get_neuron_compiler_version_dir_name,
     get_neuron_parallel_compile_report,
+    has_write_access_to_repo,
     list_files_in_neuron_cache,
     path_after_folder,
     push_to_cache_on_hub,
@@ -93,6 +95,19 @@ class NeuronCacheCallback(TrainerCallback):
         self.push = push
         self.wait_for_everyone_on_fetch = is_torch_xla_available() and wait_for_everyone_on_fetch
         self.wait_for_everyone_on_push = is_torch_xla_available() and wait_for_everyone_on_push
+
+        cache_repo_ids = get_hf_hub_cache_repos()
+        if cache_repo_ids:
+            self.cache_repo_id = cache_repo_ids[0]
+            has_write_access = has_write_access_to_repo(self.cache_repo_id)
+            if self.push and not has_write_access:
+                logger.warning(
+                    f"Pushing to the remote cache repo {self.cache_repo_id} is disabled because you do not have write "
+                    "access to it."
+                )
+                self.push = False
+        else:
+            self.cache_repo_id = None
 
         # Real Neuron compile cache if it exists.
         if original_neuron_cache_path is None:
@@ -293,7 +308,9 @@ class NeuronCacheCallback(TrainerCallback):
     def synchronize_temporary_neuron_cache(self):
         for neuron_hash, files in self.neuron_hash_to_files.items():
             for path in files:
-                push_to_cache_on_hub(neuron_hash, path, local_path_to_path_in_repo="default")
+                push_to_cache_on_hub(
+                    neuron_hash, path, cache_repo_id=self.cache_repo_id, local_path_to_path_in_repo="default"
+                )
                 if self.use_neuron_cache:
                     path_in_cache = self.full_path_to_path_in_temporary_cache(path)
                     target_file = self.neuron_cache_path / path_in_cache
@@ -364,7 +381,11 @@ class NeuronCacheCallback(TrainerCallback):
                 for path in filenames:
                     try:
                         push_to_cache_on_hub(
-                            neuron_hash, path, local_path_to_path_in_repo="default", fail_when_could_not_push=True
+                            neuron_hash,
+                            path,
+                            cache_repo_id=self.cache_repo_id,
+                            local_path_to_path_in_repo="default",
+                            fail_when_could_not_push=True,
                         )
                     except HfHubHTTPError:
                         # It means that we could not push, so we do not remove this entry from the report.
