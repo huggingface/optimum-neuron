@@ -172,6 +172,13 @@ for entry in MODEL_TYPES_TO_TEST:
 
 MODEL_CLASSES_TO_IGNORE = [
     "BertForPreTraining",  # There is a compilation issue, and testing TP for BertForPretraining is not really important.
+    # TODO
+    # GPTNeo's attention mechanism is broken in transformers==4.36.2, this should be re-enabled once there is a release
+    # containing this PR: https://github.com/huggingface/transformers/pull/28533
+    "GPTNeoForSequenceClassification",
+    "GPTNeoForTokenClassification",
+    "GPTNeoForQuestionAnswering",
+    "GPTNeoForCausalLM",
 ]
 
 
