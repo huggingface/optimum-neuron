@@ -22,7 +22,7 @@ from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Optional, Tuple, Union
 
 import torch
-from huggingface_hub import HfApi, HfFolder, snapshot_download
+from huggingface_hub import HfApi, get_token, snapshot_download
 from huggingface_hub.utils import is_google_colab
 from transformers import AutoConfig, AutoModel, GenerationConfig
 
@@ -269,7 +269,7 @@ class NeuronDecoderModel(OptimizedModel):
         if isinstance(use_auth_token, str):
             huggingface_token = use_auth_token
         elif use_auth_token:
-            huggingface_token = HfFolder.get_token()
+            huggingface_token = get_token()
         else:
             raise ValueError("You need to provide `use_auth_token` to be able to push to the hub")
         api = HfApi(endpoint=endpoint)
