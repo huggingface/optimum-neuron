@@ -16,7 +16,7 @@
 
 from typing import TYPE_CHECKING
 
-from ...neuron.utils import is_neuronx_available
+from ...neuron.utils import synchronize_hub_cache
 from ...neuron.utils.cache_utils import (
     CACHE_REPO_NAME,
     HF_HOME_CACHE_REPO_FILE,
@@ -28,10 +28,6 @@ from ...neuron.utils.cache_utils import (
 from ...neuron.utils.runner import ExampleRunner
 from ...utils import logging
 from ..base import BaseOptimumCLICommand, CommandInfo
-
-
-if is_neuronx_available():
-    from ...neuron.utils import synchronize_hub_cache
 
 
 if TYPE_CHECKING:
