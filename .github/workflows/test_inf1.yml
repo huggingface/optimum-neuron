@@ -38,7 +38,7 @@ jobs:
           python -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
           python -m pip install .[neuron,tests]
           python -m pip uninstall optimum -y
-          python -m pip install optimum
+          python -m pip install git+https://github.com/fxmarty/optimum.git@do-not-override-modeltype
       - name: Run CLI tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate

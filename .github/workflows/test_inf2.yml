@@ -34,6 +34,7 @@ jobs:
           source aws_neuron_venv_pytorch/bin/activate
           python -m pip install -U pip
           python -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
+          python -m pip install git+https://github.com/fxmarty/optimum.git@do-not-override-modeltype
           python -m pip install .[neuronx,tests]
       - name: Run cache tests
         run: |
