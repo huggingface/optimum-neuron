@@ -29,6 +29,7 @@ from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..exporters.tasks import TasksManager
 from ..modeling_base import OptimizedModel
 from .utils import hub_neuronx_cache, is_transformers_neuronx_available
+from .utils.require_utils import requires_transformers_neuronx
 from .utils.version_utils import check_compiler_compatibility, get_neuronxcc_version
 
 
@@ -67,6 +68,7 @@ class NeuronDecoderModel(OptimizedModel):
     CHECKPOINT_DIR = "checkpoint"
     COMPILED_DIR = "compiled"
 
+    @requires_transformers_neuronx
     def __init__(
         self,
         config: "PretrainedConfig",
@@ -165,6 +167,7 @@ class NeuronDecoderModel(OptimizedModel):
         return checkpoint_dir
 
     @classmethod
+    @requires_transformers_neuronx
     def _from_transformers(
         cls,
         model_id: str,
@@ -178,9 +181,6 @@ class NeuronDecoderModel(OptimizedModel):
         auto_cast_type: Optional[str] = "fp32",
         **kwargs,
     ) -> "NeuronDecoderModel":
-        if not is_transformers_neuronx_available():
-            raise ModuleNotFoundError("The transformers_neuronx package is required to export the model.")
-
         if task is None:
             task = TasksManager.infer_task_from_model(cls.auto_model_class)
 
@@ -238,6 +238,7 @@ class NeuronDecoderModel(OptimizedModel):
         return checkpoint_dir, compiled_dir
 
     @classmethod
+    @requires_transformers_neuronx
     def _from_pretrained(
         cls,
         model_id: Union[str, Path],
