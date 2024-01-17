@@ -25,7 +25,7 @@ _import_structure = {
     "modeling_base": ["NeuronBaseModel"],
     "modeling": [
         "NeuronModelForFeatureExtraction",
-        "NeuronModelForSenetenceTransformers",
+        "NeuronModelForSentenceTransformers",
         "NeuronModelForMaskedLM",
         "NeuronModelForQuestionAnswering",
         "NeuronModelForSequenceClassification",
@@ -61,7 +61,7 @@ if TYPE_CHECKING:
         NeuronModelForMaskedLM,
         NeuronModelForMultipleChoice,
         NeuronModelForQuestionAnswering,
-        NeuronModelForSenetenceTransformers,
+        NeuronModelForSentenceTransformers,
         NeuronModelForSequenceClassification,
         NeuronModelForTokenClassification,
     )
