@@ -19,7 +19,7 @@ from typing import Any, Callable, Dict
 
 from transformers.utils import is_safetensors_available
 
-from . import is_neuronx_distributed_available, is_torch_neuronx_available, is_torch_xla_available
+from .import_utils import is_neuronx_distributed_available, is_torch_neuronx_available, is_torch_xla_available
 
 
 _AVAILABILITIES: Dict[str, Callable[[], bool]] = {
