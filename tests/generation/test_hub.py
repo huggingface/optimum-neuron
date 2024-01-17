@@ -13,7 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import os
+import re
 
+import pytest
 from generation_utils import check_neuron_model
 from huggingface_hub import HfApi
 from transformers.testing_utils import ENDPOINT_STAGING
@@ -25,14 +27,20 @@ from optimum.utils.testing_utils import TOKEN
 
 @is_inferentia_test
 @requires_neuronx
-def test_model_from_hub():
-    model = NeuronModelForCausalLM.from_pretrained(
-        "dacorvo/tiny-random-gpt2-neuronx", revision="1b3456cf877cc42c053ee8464f1067021eccde4b"
-    )
+@pytest.mark.parametrize(
+    "model_id, revision",
+    [
+        ["dacorvo/tiny-random-gpt2-neuronx", "1b3456cf877cc42c053ee8464f1067021eccde4b"],
+        ["dacorvo/tiny-random-gpt2-neuronx-no-checkpoint", "78eb2313ab7e149bbc22ff32257db93ba09e3033"],
+    ],
+    ids=["checkpoint", "no-checkpoint"],
+)
+def test_decoder_model_from_hub(model_id, revision):
+    model = NeuronModelForCausalLM.from_pretrained(model_id, revision=revision)
     check_neuron_model(model, batch_size=16, sequence_length=512, num_cores=2, auto_cast_type="fp32")
 
 
-def _test_push_to_hub(model, model_path, repo_id):
+def _test_push_to_hub(model, model_path, repo_id, ignore_patterns=[]):
     model.push_to_hub(model_path, repo_id, use_auth_token=TOKEN, endpoint=ENDPOINT_STAGING)
     api = HfApi(endpoint=ENDPOINT_STAGING, token=TOKEN)
     try:
@@ -42,7 +50,12 @@ def _test_push_to_hub(model, model_path, repo_id):
             for name in files:
                 local_file_path = os.path.join(path, name)
                 hub_file_path = os.path.relpath(local_file_path, model_path)
-                assert hub_file_path in hub_files_path
+                excluded = False
+                for pattern in ignore_patterns:
+                    if re.compile(pattern).match(hub_file_path) is not None:
+                        excluded = True
+                        break
+                assert excluded or hub_file_path in hub_files_path
     finally:
         api.delete_repo(repo_id)
 
@@ -51,7 +64,8 @@ def _test_push_to_hub(model, model_path, repo_id):
 @requires_neuronx
 def test_push_decoder_to_hub(neuron_decoder_path, neuron_push_decoder_id):
     model = NeuronModelForCausalLM.from_pretrained(neuron_decoder_path)
-    _test_push_to_hub(model, neuron_decoder_path, neuron_push_decoder_id)
+    ignore_patterns = [model.CHECKPOINT_DIR + "/*"]
+    _test_push_to_hub(model, neuron_decoder_path, neuron_push_decoder_id, ignore_patterns)
 
 
 @is_inferentia_test

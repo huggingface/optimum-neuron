@@ -77,7 +77,7 @@ class NeuronDecoderModel(OptimizedModel):
         neuron_config = getattr(config, "neuron", None)
         if neuron_config is None:
             raise ValueError(
-                "The specified model is not a neuron model. "
+                "The specified model is not a neuron model."
                 "Please convert your model to neuron format by passing export=True."
             )
 
@@ -169,6 +169,8 @@ class NeuronDecoderModel(OptimizedModel):
         cls,
         model_id: str,
         config: "PretrainedConfig",
+        use_auth_token: Optional[str] = None,
+        revision: Optional[str] = None,
         task: Optional[str] = None,
         batch_size: Optional[int] = 1,
         sequence_length: Optional[int] = None,
@@ -186,8 +188,19 @@ class NeuronDecoderModel(OptimizedModel):
         checkpoint_dir = cls._create_checkpoint(
             model_id,
             task=task,
+            revision=revision,
             **kwargs,
         )
+
+        if os.path.isdir(model_id):
+            checkpoint_id = None
+            checkpoint_revision = None
+        else:
+            checkpoint_id = model_id
+            # Get the exact checkpoint revision (SHA1)
+            api = HfApi(token=use_auth_token)
+            model_info = api.repo_info(model_id, revision=revision)
+            checkpoint_revision = model_info.sha
 
         # If the sequence_length was not specified, deduce it from the model configuration
         if sequence_length is None:
@@ -203,6 +216,8 @@ class NeuronDecoderModel(OptimizedModel):
             "sequence_length": sequence_length,
             "compiler_type": "neuronx-cc",
             "compiler_version": get_neuronxcc_version(),
+            "checkpoint_id": checkpoint_id,
+            "checkpoint_revision": checkpoint_revision,
         }
 
         # Try to reload the generation config (if any)
@@ -235,7 +250,7 @@ class NeuronDecoderModel(OptimizedModel):
         neuron_config = getattr(config, "neuron", None)
         if neuron_config is None:
             raise ValueError(
-                "The specified directory does not contain a neuron model. "
+                "The specified directory does not contain a neuron model."
                 "Please convert your model to neuron format by passing export=True."
             )
         check_compiler_compatibility(neuron_config["compiler_type"], neuron_config["compiler_version"])
@@ -245,7 +260,20 @@ class NeuronDecoderModel(OptimizedModel):
             model_path = snapshot_download(model_id, token=use_auth_token, revision=revision)
 
         checkpoint_dir, compiled_dir = cls._get_neuron_dirs(model_path)
-        assert os.path.isdir(checkpoint_dir)
+        if not os.path.isdir(checkpoint_dir):
+            # Try to recreate checkpoint from neuron config
+            task = neuron_config["task"]
+            checkpoint_id = neuron_config.get("checkpoint_id", None)
+            if checkpoint_id is None:
+                raise ValueError("Unable to fetch the neuron model weights files.")
+            checkpoint_revision = neuron_config["checkpoint_revision"]
+            checkpoint_dir = cls._create_checkpoint(
+                checkpoint_id,
+                task=task,
+                revision=checkpoint_revision,
+                use_auth_token=use_auth_token,
+                **kwargs,
+            )
         assert os.path.isdir(compiled_dir)
 
         # Try to reload the generation config (if any)
@@ -309,6 +337,16 @@ class NeuronDecoderModel(OptimizedModel):
             exist_ok=True,
             private=private,
         )
+        ignore_patterns = []
+        neuron_config = getattr(self.config, "neuron")
+        checkpoint_id = neuron_config.get("checkpoint_id", None)
+        if checkpoint_id is not None:
+            # Avoid uploading checkpoints when the original model is available on the hub
+            ignore_patterns = [self.CHECKPOINT_DIR + "/*"]
         api.upload_folder(
-            repo_id=repository_id, folder_path=save_directory, token=huggingface_token, revision=revision
+            repo_id=repository_id,
+            folder_path=save_directory,
+            token=huggingface_token,
+            revision=revision,
+            ignore_patterns=ignore_patterns,
         )
