@@ -15,7 +15,7 @@
 from tempfile import TemporaryDirectory
 
 import pytest
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, T5ForConditionalGeneration
 
 from optimum.neuron import NeuronModelForCausalLM, NeuronModelForSeq2SeqLM
 from optimum.neuron.utils.testing_utils import requires_neuronx
@@ -30,8 +30,17 @@ DECODER_MODEL_NAMES = {
     "mistral": "dacorvo/tiny-random-MistralForCausalLM",
     "opt": "hf-internal-testing/tiny-random-OPTForCausalLM",
 }
+TRN_DECODER_MODEL_ARCHITECTURES = ["bloom", "llama", "opt"]
+TRN_DECODER_MODEL_NAMES = {
+    "bloom": "bigscience/bloom-560m",
+    "llama": "dacorvo/tiny-random-llama",
+    "opt": "facebook/opt-125m",
+}
 SEQ2SEQ_MODEL_NAMES = {
     "t5": "hf-internal-testing/tiny-random-t5",
+}
+SEQ2SEQ_MODEL_CLASSES = {
+    "t5": T5ForConditionalGeneration,
 }
 
 
@@ -40,8 +49,20 @@ def export_decoder_id(request):
     return request.param
 
 
+@pytest.fixture(
+    scope="module", params=[TRN_DECODER_MODEL_NAMES[model_arch] for model_arch in TRN_DECODER_MODEL_ARCHITECTURES]
+)
+def export_trn_decoder_id(request):
+    return request.param
+
+
 @pytest.fixture(scope="module", params=[SEQ2SEQ_MODEL_NAMES[model_arch] for model_arch in SEQ2SEQ_MODEL_NAMES])
 def export_seq2seq_id(request):
+    return request.param
+
+
+@pytest.fixture(scope="module", params=[SEQ2SEQ_MODEL_CLASSES[model_arch] for model_arch in SEQ2SEQ_MODEL_NAMES])
+def export_seq2seq_model_class(request):
     return request.param
 
 

@@ -48,7 +48,7 @@ from transformers.trainer_pt_utils import get_model_param_count as transformers_
 from transformers.utils.logging import set_verbosity as set_verbosity_transformers
 
 from ...utils.logging import set_verbosity as set_verbosity_optimum
-from ..generation import NeuronGenerationMixin
+from ..generation import GeneralNeuronGenerationMixin, NeuronGenerationMixin
 from . import is_torch_xla_available
 from .require_utils import requires_neuronx_distributed, requires_safetensors, requires_torch_xla
 
@@ -256,6 +256,32 @@ def patch_generation_mixin_to_neuron_generation_mixin(model: "PreTrainedModel"):
                 new_bases.append(NeuronGenerationMixin)
                 should_stop = True
             elif base == NeuronGenerationMixin:
+                should_stop = True
+                new_bases.append(base)
+            else:
+                new_bases.append(base)
+        cls.__bases__ = tuple(new_bases)
+
+
+def patch_generation_mixin_to_general_neuron_generation_mixin(model: "PreTrainedModel"):
+    """
+    Changes the vanilla `GenerationMixin` class from Transformers to `GeneralNeuronGenerationMixin` in the model's
+    inheritance. This allows to make the model Neuron-compatible for generation without much hassle.
+    """
+    to_visit = [model.__class__]
+    should_stop = False
+    while to_visit and not should_stop:
+        cls = to_visit.pop(0)
+        if cls is object:
+            continue
+        bases = cls.__bases__
+        new_bases = []
+        for base in bases:
+            to_visit.append(base)
+            if base == GenerationMixin:
+                new_bases.append(GeneralNeuronGenerationMixin)
+                should_stop = True
+            elif base == GeneralNeuronGenerationMixin:
                 should_stop = True
                 new_bases.append(base)
             else:
