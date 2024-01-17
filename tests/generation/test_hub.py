@@ -32,22 +32,26 @@ def test_model_from_hub():
     check_neuron_model(model, batch_size=16, sequence_length=512, num_cores=2, auto_cast_type="fp32")
 
 
-@is_inferentia_test
-@requires_neuronx
-def test_push_to_hub(neuron_decoder_path, neuron_push_decoder_id):
-    model = NeuronModelForCausalLM.from_pretrained(neuron_decoder_path)
-    model.push_to_hub(neuron_decoder_path, neuron_push_decoder_id, use_auth_token=TOKEN, endpoint=ENDPOINT_STAGING)
+def _test_push_to_hub(model, model_path, repo_id):
+    model.push_to_hub(model_path, repo_id, use_auth_token=TOKEN, endpoint=ENDPOINT_STAGING)
     api = HfApi(endpoint=ENDPOINT_STAGING, token=TOKEN)
     try:
-        hub_files_info = api.list_files_info(neuron_push_decoder_id)
+        hub_files_info = api.list_files_info(repo_id)
         hub_files_path = [info.rfilename for info in hub_files_info]
-        for path, _, files in os.walk(neuron_decoder_path):
+        for path, _, files in os.walk(model_path):
             for name in files:
                 local_file_path = os.path.join(path, name)
-                hub_file_path = os.path.relpath(local_file_path, neuron_decoder_path)
+                hub_file_path = os.path.relpath(local_file_path, model_path)
                 assert hub_file_path in hub_files_path
     finally:
-        api.delete_repo(neuron_push_decoder_id)
+        api.delete_repo(repo_id)
+
+
+@is_inferentia_test
+@requires_neuronx
+def test_push_decoder_to_hub(neuron_decoder_path, neuron_push_decoder_id):
+    model = NeuronModelForCausalLM.from_pretrained(neuron_decoder_path)
+    _test_push_to_hub(model, neuron_decoder_path, neuron_push_decoder_id)
 
 
 @is_inferentia_test
@@ -63,17 +67,4 @@ def test_seq2seq_model_from_hub():
 @requires_neuronx
 def test_push_seq2seq_to_hub(neuron_seq2seq_greedy_path, neuron_push_seq2seq_id):
     model = NeuronModelForSeq2SeqLM.from_pretrained(neuron_seq2seq_greedy_path)
-    model.push_to_hub(
-        neuron_seq2seq_greedy_path, neuron_push_seq2seq_id, use_auth_token=TOKEN, endpoint=ENDPOINT_STAGING
-    )
-    api = HfApi(endpoint=ENDPOINT_STAGING, token=TOKEN)
-    try:
-        hub_files_info = api.list_files_info(neuron_push_seq2seq_id)
-        hub_files_path = [info.rfilename for info in hub_files_info]
-        for path, _, files in os.walk(neuron_seq2seq_greedy_path):
-            for name in files:
-                local_file_path = os.path.join(path, name)
-                hub_file_path = os.path.relpath(local_file_path, neuron_seq2seq_greedy_path)
-                assert hub_file_path in hub_files_path
-    finally:
-        api.delete_repo(neuron_push_seq2seq_id)
+    _test_push_to_hub(model, neuron_seq2seq_greedy_path, neuron_push_seq2seq_id)
