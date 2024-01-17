@@ -40,7 +40,7 @@ from optimum.neuron import (
     NeuronModelForMaskedLM,
     NeuronModelForMultipleChoice,
     NeuronModelForQuestionAnswering,
-    NeuronModelForSenetenceTransformers,
+    NeuronModelForSentenceTransformers,
     NeuronModelForSequenceClassification,
     NeuronModelForTokenClassification,
     pipeline,
@@ -301,8 +301,8 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
 
 
 @is_inferentia_test
-class NeuronModelForSenetenceTransformersIntegrationTest(NeuronModelTestMixin):
-    NEURON_MODEL_CLASS = NeuronModelForSenetenceTransformers
+class NeuronModelForSentenceTransformersIntegrationTest(NeuronModelTestMixin):
+    NEURON_MODEL_CLASS = NeuronModelForSentenceTransformers
     TASK = "feature-extraction"
     ATOL_FOR_VALIDATION = 1e-2
     # TODO: only support text models so far, will support vision next

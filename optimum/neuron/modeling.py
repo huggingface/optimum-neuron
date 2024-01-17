@@ -197,7 +197,7 @@ SENTENCE_TRANSFORMERS_EXAMPLE = r"""
     """,
     NEURON_MODEL_START_DOCSTRING,
 )
-class NeuronModelForSenetenceTransformers(NeuronBaseModel):
+class NeuronModelForSentenceTransformers(NeuronBaseModel):
     """
     Sentence Transformers model on Neuron devices.
     """
@@ -208,7 +208,7 @@ class NeuronModelForSenetenceTransformers(NeuronBaseModel):
         NEURON_TEXT_INPUTS_DOCSTRING.format("batch_size, sequence_length")
         + SENTENCE_TRANSFORMERS_EXAMPLE.format(
             processor_class=_TOKENIZER_FOR_DOC,
-            model_class="NeuronModelForSenetenceTransformers",
+            model_class="NeuronModelForSentenceTransformers",
             checkpoint="optimum/bge-base-en-v1.5-neuronx",
         )
     )
