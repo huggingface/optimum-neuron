@@ -183,7 +183,7 @@ class NeuronDecoderModel(OptimizedModel):
         task: Optional[str] = None,
         batch_size: Optional[int] = None,
         sequence_length: Optional[int] = None,
-        num_cores: Optional[int] = 2,
+        num_cores: Optional[int] = None,
         auto_cast_type: Optional[str] = "fp32",
         **kwargs,
     ) -> "NeuronDecoderModel":
@@ -214,6 +214,9 @@ class NeuronDecoderModel(OptimizedModel):
         if sequence_length is None:
             # Note: for older models, max_position_embeddings is an alias for n_positions
             sequence_length = config.max_position_embeddings
+        if num_cores is None:
+            # Use all available cores
+            num_cores = len(os.listdir("/sys/class/neuron_device/")) * 2
 
         # Update the config
         config.neuron = {
