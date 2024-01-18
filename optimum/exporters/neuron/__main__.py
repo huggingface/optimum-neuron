@@ -121,6 +121,19 @@ def normalize_input_shapes(task: str, args: argparse.Namespace) -> Dict[str, int
     return input_shapes
 
 
+def normalize_sentence_transformers_input_shapes(args: argparse.Namespace) -> Dict[str, int]:
+    args = vars(args) if isinstance(args, argparse.Namespace) else args
+    mandatory_axes = {"batch_size", "sequence_length"}
+    if "clip" in args.get("model", "").lower():
+        mandatory_axes.update(["num_channels", "width", "height"])
+    if not mandatory_axes.issubset(set(args.keys())):
+        raise AttributeError(
+            f"Shape of {mandatory_axes} are mandatory for neuron compilation, while {mandatory_axes.difference(args.keys())} are not given."
+        )
+    mandatory_shapes = {name: args[name] for name in mandatory_axes}
+    return mandatory_shapes
+
+
 def customize_optional_outputs(args: argparse.Namespace) -> Dict[str, bool]:
     """
     Customize optional outputs of the traced model, eg. if `output_attentions=True`, the attentions tensors will be traced.
@@ -249,7 +262,8 @@ def _get_submodels_and_neuron_configs(
             model=model, exporter="neuron", task=task
         )
         neuron_config = neuron_config_constructor(model.config, dynamic_batch_size=dynamic_batch_size, **input_shapes)
-        model_name = model.name_or_path.split("/")[-1]
+        model_name = getattr(model, "name_or_path", None) or model_name_or_path
+        model_name = model_name.split("/")[-1] if model_name else model.config.model_type
         output_model_names = {model_name: "model.neuron"}
         models_and_neuron_configs = {model_name: (model, neuron_config)}
         maybe_save_preprocessors(model_name_or_path, output)
@@ -359,6 +373,7 @@ def main_export(
     submodels: Optional[Dict[str, Union[Path, str]]] = None,
     output_attentions: bool = False,
     output_hidden_states: bool = False,
+    library_name: Optional[str] = None,
     **input_shapes,
 ):
     output = Path(output)
@@ -379,6 +394,7 @@ def main_export(
         "force_download": force_download,
         "trust_remote_code": trust_remote_code,
         "framework": "pt",
+        "library_name": library_name,
     }
     model = TasksManager.get_model_from_task(**model_kwargs)
 
@@ -453,11 +469,15 @@ def main():
 
     task = infer_task(args.task, args.model)
     is_stable_diffusion = "stable-diffusion" in task
+    is_sentence_transformers = args.library_name == "sentence_transformers"
     compiler_kwargs = infer_compiler_kwargs(args)
 
     if is_stable_diffusion:
         input_shapes = normalize_stable_diffusion_input_shapes(args)
         submodels = {"unet": args.unet}
+    elif is_sentence_transformers:
+        input_shapes = normalize_sentence_transformers_input_shapes(args)
+        submodels = None
     else:
         input_shapes = normalize_input_shapes(task, args)
         submodels = None
@@ -477,8 +497,10 @@ def main():
         inline_weights_to_neff=args.enable_weights_neff_inline,
         optlevel=optlevel,
         trust_remote_code=args.trust_remote_code,
+        subfolder=args.subfolder,
         do_validation=not args.disable_validation,
         submodels=submodels,
+        library_name=args.library_name,
         **optional_outputs,
         **input_shapes,
     )

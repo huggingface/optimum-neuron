@@ -12,52 +12,52 @@ specific language governing permissions and limitations under the License.
 
 # Neuron Model Cache
 
-The Neuron Model Cache is a remote cache for compiled Neuron models in the `neff` format. 
-It is integrated into the [`NeuronTrainer`] class to enable loading pretrained models from the cache instead of compiling them locally. 
-This can speed up the training process by about –3x.
+The Neuron Model Cache is a remote cache for compiled Neuron models in the `neff` format.
+It is integrated into the [`NeuronTrainer` and `NeuronModelForCausalLM] classes to enable loading pretrained models from the cache instead of compiling them locally.
 
-The Neuron Model Cache is hosted on the [Hugging Face Hub](https://huggingface.co/aws-neuron/optimum-neuron-cache) and includes compiled files for all popular and supported pre-trained models `optimum-neuron`.
+The Neuron Model Cache is hosted on the [Hugging Face Hub](https://huggingface.co/aws-neuron/optimum-neuron-cache) and includes compiled files for all popular and supported `optimum-neuron` pre-trained models.
 
-When training a Transformers or Diffusion model with vanilla [`torch-neuronx`](https://github.com/aws-neuron/aws-neuron-samples/tree/master/torch-neuronx), the models needs to be first compiled. The compiled version is stored in a local directory, usually `/var/tmp/neuron-compile-cache`. 
-This means that every time you train a new model in a new environment, you need to recompile it, which takes a lot of time. 
+When loading a Transformers or Diffusion model, it needs to be compiled to neuron format with [`torch-neuronx`](https://github.com/aws-neuron/aws-neuron-samples/tree/master/torch-neuronx),
+in order to run on Neuron platforms.
+The compilation produces several compilation files stored in a local directory, usually `/var/tmp/neuron-compile-cache`.
+This means that every time you train or export a model on a new host, you need to recompile it, which takes a lot of time.
 
 We created the Neuron Model Cache to solve this limitation by providing a public cache of precompiled available models and a private cache to create your private, secured, remote model cache.
-
-The Neuron Model Cache plugs into the local cache directory of the Hugging Face Hub. During training, the [`NeuronTrainer`] will check if compilation files are available on the Hub and download them if they are found, allowing you to save both time and cost by skipping the compilation phase.
 
 ## How the caching system works
 
 ### Hash computation
 
-Many factors can trigger compilation among which: 
+Many factors can trigger compilation among which:
 
-- The model weights
-- The input shapes
-- The precision of the model, full-precision or bf16
-- The version of the Neuron X compiler
-- The number of Neuron cores used
+- The input shapes,
+- The precision of the model, full-precision or bf16,
+- The version of the Neuron X compiler,
+- The number of Neuron cores used.
 
-These parameters are used to compute a hash. This hash is then used to compare local hashes for our training session against hashes stored on the Hugging Face Hub, and act accordingly (download or push).
+These parameters are used to compute a hash that uniquely identifies each compilation file.
+
+**It is important to keep in mind that even a small change in the model configuration will trigger a recompilation.**
 
 ### How to use the Neuron model cache
 
-The Public model cache will be used when your training script uses the [`NeuronTrainer`]. There are no additional changes needed.
+The public model cache will be used when you use the [`NeuronTrainer` or `NeuronModelForCausalLM] classes. There are no additional changes needed.
 
-### How to use a private Neuron model cache
+### How to use a private Neuron model cache (trainium only)
 
 The repository for the public cache is `aws-neuron/optimum-neuron-cache`. This repository includes all precompiled files for commonly used models so that it is publicly available and free to use for everyone. But there are two limitations:
 
-1. You will not be able to push your own compiled files on this repo 
+1. You will not be able to push your own compiled files on this repo
 2. It is public and you might want to use a private repo for private models
 
 To alleviate that you can create your own private cache repository using the `optimum-cli` or set the environment variable `CUSTOM_CACHE_REPO`.
 
 #### Using the Optimum CLI
 
-The Optimum CLI offers 2 subcommands for cache creation and setting: 
+The Optimum CLI offers 2 subcommands for cache creation and setting:
 
-- `create`: To create a new cache repository that you can use as a private Neuron Model cache. 
-- `set`: To set the name of the Nueron cache repository locally, the repository needs to exists 
+- `create`: To create a new cache repository that you can use as a private Neuron Model cache.
+- `set`: To set the name of the Neuron cache repository locally, the repository needs to exists
 and will be used by default by `optimum-neuron`.
 
 Create a new Neuron cache repository:
@@ -115,7 +115,7 @@ The `optimum-cli neuron cache set` command is useful when working on a new insta
 
 Using the CLI is not always feasible, and not very practical for small testing. In this case, you can simply set the environment variable `CUSTOM_CACHE_REPO`.
 
-For example, if you cache repo is called `michaelbenayoun/my_custom_cache_repo`, you just need to do:
+For example, if your cache repo is called `michaelbenayoun/my_custom_cache_repo`, you just need to do:
 
 ```bash
 CUSTOM_CACHE_REPO="michaelbenayoun/my_custom_cache_repo" torchrun ...
@@ -139,11 +139,11 @@ You have to be [logged into the Hugging Face Hub](https://huggingface.co/docs/hu
 </p>
 
 
-At each the beginning of each training step, the  [`NeuronTrainer`] computes a `NeuronHash` and checks the cache repo(s) (official and custom) on the Hugging Face Hub to see if there are compiled files associated to this hash. 
+At each the beginning of each training step, the  [`NeuronTrainer`] computes a `NeuronHash` and checks the cache repo(s) (official and custom) on the Hugging Face Hub to see if there are compiled files associated to this hash.
 If that is the case, the files are downloaded directly to the local cache directory and no compilation is needed. Otherwise compilation is performed.
 
 
-Just as for downloading compiled files, the [`NeuronTrainer`] will keep track of the newly created compilation files at each training step, and upload them to the Hugging Face Hub at save time or when training ends. This assumes that you have writing access to the cache repo, otherwise nothing will be pushed. 
+Just as for downloading compiled files, the [`NeuronTrainer`] will keep track of the newly created compilation files at each training step, and upload them to the Hugging Face Hub at save time or when training ends. This assumes that you have writing access to the cache repo, otherwise nothing will be pushed.
 
 
 ## Optimum CLI
@@ -156,15 +156,16 @@ usage: optimum-cli neuron cache [-h] {create,set,add,list} ...
 positional arguments:
   {create,set,add,list}
     create              Create a model repo on the Hugging Face Hub to store Neuron X compilation files.
-    set                 Set the name of the Neuron cache repo to use locally.
-    add                 Add a model to the cache of your choice.
-    list                List models in a cache repo.
+    set                 Set the name of the Neuron cache repo to use locally (trainium only).
+    add                 Add a model to the cache of your choice (trainium only).
+    list                List models in a cache repo (trainium only).
+    synchronize         Synchronize local compiler cache with the hub cache (inferentia only).
 
 optional arguments:
   -h, --help            show this help message and exit
 ```
 
-### Add a model to the cache
+### Add a model to the cache (trainium only)
 
 It is possible to add a model compilation files to a cache repo via the `optimum-cli neuron cache add` command:
 
@@ -178,7 +179,7 @@ usage: optimum-cli neuron cache add [-h] -m MODEL --task TASK --train_batch_size
 When running this command a small training session will be run and the resulting compilation files will be pushed.
 
 <Tip warning={true}>
-Make sure that the Neuron cache repo to use is set up locally, this can be done by running the `optimum-cli neuron cache set` command. 
+Make sure that the Neuron cache repo to use is set up locally, this can be done by running the `optimum-cli neuron cache set` command.
 You also need to make sure that you are logged in to the Hugging Face Hub and that you have the writing rights for the specified cache repo,
 this can be done via the `huggingface-cli login` command.
 

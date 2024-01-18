@@ -21,7 +21,6 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
-from transformers import PretrainedConfig
 
 from ...exporters.error_utils import OutputMatchError, ShapeError
 from ...neuron.utils import (
@@ -31,7 +30,11 @@ from ...neuron.utils import (
     store_compilation_config,
 )
 from ...neuron.utils.version_utils import get_neuroncc_version, get_neuronxcc_version
-from ...utils import is_diffusers_available, logging
+from ...utils import (
+    is_diffusers_available,
+    is_sentence_transformers_available,
+    logging,
+)
 from .utils import DiffusersPretrainedConfig
 
 
@@ -56,6 +59,8 @@ if is_diffusers_available():
     from diffusers import ModelMixin
     from diffusers.configuration_utils import FrozenDict
 
+if is_sentence_transformers_available():
+    from sentence_transformers import SentenceTransformer
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -130,7 +135,7 @@ def validate_models_outputs(
 
 def validate_model_outputs(
     config: "NeuronConfig",
-    reference_model: Union["PreTrainedModel", "ModelMixin"],
+    reference_model: Union["PreTrainedModel", "SentenceTransformer", "ModelMixin"],
     neuron_model_path: Path,
     neuron_named_outputs: List[str],
     atol: Optional[float] = None,
@@ -141,7 +146,7 @@ def validate_model_outputs(
     Args:
         config ([`~optimum.neuron.exporter.NeuronConfig`]:
             The configuration used to export the model.
-        reference_model ([`Union["PreTrainedModel", "ModelMixin"]`]):
+        reference_model ([`Union["PreTrainedModel", "SentenceTransformer", "ModelMixin"]`]):
             The model used for the export.
         neuron_model_path (`Path`):
             The path to the exported model.
@@ -169,9 +174,13 @@ def validate_model_outputs(
     with torch.no_grad():
         reference_model.eval()
         ref_inputs = config.generate_dummy_inputs(return_tuple=False, **input_shapes)
-        if getattr(reference_model.config, "is_encoder_decoder", False):
+        if hasattr(reference_model, "config") and getattr(reference_model.config, "is_encoder_decoder", False):
             reference_model = config.patch_model_for_export(reference_model, device="cpu", **input_shapes)
-        if "AutoencoderKL" in getattr(config._config, "_class_name", "") or getattr(
+        if "SentenceTransformer" in reference_model.__class__.__name__:
+            reference_model = config.patch_model_for_export(reference_model, ref_inputs)
+            ref_outputs = reference_model(**ref_inputs)
+            neuron_inputs = tuple(config.flatten_inputs(ref_inputs).values())
+        elif "AutoencoderKL" in getattr(config._config, "_class_name", "") or getattr(
             reference_model.config, "is_encoder_decoder", False
         ):
             # VAE components for stable diffusion or Encoder-Decoder models
@@ -364,8 +373,6 @@ def export_models(
                 output_attentions=getattr(sub_neuron_config, "output_attentions", False),
                 output_hidden_states=getattr(sub_neuron_config, "output_hidden_states", False),
             )
-            if isinstance(model_config, PretrainedConfig):
-                model_config = DiffusersPretrainedConfig.from_dict(model_config.__dict__)
             model_config.save_pretrained(output_path.parent)
         except Exception as e:
             failed_models.append((i, model_name))
@@ -479,7 +486,7 @@ def export_neuronx(
     dummy_inputs_tuple = tuple(dummy_inputs.values())
 
     aliases = {}
-    if getattr(model.config, "is_encoder_decoder", False):
+    if hasattr(model, "config") and getattr(model.config, "is_encoder_decoder", False):
         checked_model = config.patch_model_for_export(model, **input_shapes)
         if getattr(config, "is_decoder", False):
             aliases = config.generate_io_aliases(checked_model)
