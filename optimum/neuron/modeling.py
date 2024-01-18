@@ -648,15 +648,15 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
 
     def __init__(
         self,
-        model: torch.nn.Module,
         config: "PretrainedConfig",
-        model_path: Union[str, "Path", "TemporaryDirectory"],
+        checkpoint_dir: Union[str, "Path", "TemporaryDirectory"],
+        compiled_dir: Optional[Union[str, "Path", "TemporaryDirectory"]] = None,
         generation_config: Optional["GenerationConfig"] = None,
     ):
-        super().__init__(model, config, model_path, generation_config)
+        super().__init__(config, checkpoint_dir, compiled_dir=compiled_dir, generation_config=generation_config)
         self.cur_len = 0
-        self.batch_size = model.config.batch_size
-        self.max_length = model.config.n_positions
+        self.batch_size = self.model.config.batch_size
+        self.max_length = self.model.config.n_positions
         # The generate method from GenerationMixin expects the device attribute to be set
         self.device = torch.device("cpu")
 

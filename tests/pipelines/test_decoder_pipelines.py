@@ -82,6 +82,6 @@ def test_error_needs_export(inf_decoder_model):
 @requires_neuronx
 def test_from_hub():
     model_id = "dacorvo/tiny-random-gpt2-neuronx"
-    revision = "b8f1aec89f9b278721068bfe616fa9227c1d0238"
+    revision = "1b3456cf877cc42c053ee8464f1067021eccde4b"
     p = pipeline("text-generation", model_id, revision=revision)
     _test_generation(p)
