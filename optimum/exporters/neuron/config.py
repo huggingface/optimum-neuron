@@ -39,7 +39,7 @@ class TextEncoderNeuronConfig(NeuronDefaultConfig):
     """
 
     DUMMY_INPUT_GENERATOR_CLASSES = (DummyTextInputGenerator,)
-    MANDATORY_AXES = ("batch_size", "sequence_length", ("multiple-choice", "num_choices"))
+    INPUT_ARGS = ("batch_size", "sequence_length", ("multiple-choice", "num_choices"))
 
 
 class VisionNeuronConfig(NeuronDefaultConfig):
@@ -48,7 +48,7 @@ class VisionNeuronConfig(NeuronDefaultConfig):
     """
 
     DUMMY_INPUT_GENERATOR_CLASSES = (DummyVisionInputGenerator,)
-    MANDATORY_AXES = ("batch_size", "num_channels", "width", "height")
+    INPUT_ARGS = ("batch_size", "num_channels", "width", "height")
 
 
 class TextAndVisionNeuronConfig(NeuronDefaultConfig):

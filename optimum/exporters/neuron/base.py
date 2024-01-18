@@ -40,8 +40,39 @@ class MissingMandatoryAxisDimension(ValueError):
 
 class NeuronConfig(ExportConfig):
     """Base class for Neuron exportable models
+
+    Class attributes:
+
+    - INPUT_ARGS (`Tuple[Union[str, Tuple[Union[str, Tuple[str]]]]]`) -- A tuple where each element is either:
+        - An argument  name, for instance "batch_size" or "sequence_length", that indicates that the argument can
+        be passed to export the model,
+        - Or a tuple containing two elements:
+            - The first one is either a string or a tuple of strings and specifies for which task(s) the argument is relevant
+            - The second one is the argument name.
+
+    Input arguments can be mandatory for some export types, as specified in child classes.
+
+    Args:
+        task (`str`):
+            The task the model should be exported for.
     """
-    pass
+
+    INPUT_ARGS = ()
+
+    @classmethod
+    def get_input_args_for_task(cls, task: str) -> Tuple[str]:
+        axes = []
+        for axis in cls.INPUT_ARGS:
+            if isinstance(axis, tuple):
+                tasks, name = axis
+                if not isinstance(tasks, tuple):
+                    tasks = (tasks,)
+                if task not in tasks:
+                    continue
+            else:
+                name = axis
+            axes.append(name)
+        return tuple(axes)
 
 
 class NeuronDefaultConfig(NeuronConfig, ABC):
@@ -56,14 +87,14 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
     [`~optimum.utils.DummyInputGenerator`] specifying how to create dummy inputs.
     - ATOL_FOR_VALIDATION (`Union[float, Dict[str, float]]`) -- A float or a dictionary mapping task names to float,
     where the float values represent the absolute tolerance value to use during model conversion validation.
-    - MANDATORY_AXES (`Tuple[Union[str, Tuple[Union[str, Tuple[str]]]]]`) -- A tuple where each element is either:
-        - An axis  name, for instance "batch_size" or "sequence_length", that indicates that the axis dimension is
-        needed to export the model,
+    - INPUT_ARGS (`Tuple[Union[str, Tuple[Union[str, Tuple[str]]]]]`) -- A tuple where each element is either:
+        - An argument  name, for instance "batch_size" or "sequence_length", that indicates that the argument MUST
+        be passed to export the model,
         - Or a tuple containing two elements:
-            - The first one is either a string or a tuple of strings and specifies for which task(s) the axis is needed
-            - The second one is the axis name.
+            - The first one is either a string or a tuple of strings and specifies for which task(s) the argument must be passed
+            - The second one is the argument name.
 
-        For example: `MANDATORY_AXES = ("batch_size", "sequence_length", ("multiple-choice", "num_choices"))` means that
+        For example: `INPUT_ARGS = ("batch_size", "sequence_length", ("multiple-choice", "num_choices"))` means that
         to export the model, the batch size and sequence length values always need to be specified, and that a value
         for the number of possible choices is needed when the task is multiple-choice.
 
@@ -80,13 +111,12 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
             The data type of float tensors, could be ["fp32", "fp16", "bf16"], default to "fp32".
 
         The rest of the arguments are used to specify the shape of the inputs the model can take.
-        They are required or not depending on the model the `NeuronConfig` is designed for.
+        They are required or not depending on the model the `NeuronDefaultConfig` is designed for.
     """
 
     NORMALIZED_CONFIG_CLASS = None
     DUMMY_INPUT_GENERATOR_CLASSES = ()
     ATOL_FOR_VALIDATION: Union[float, Dict[str, float]] = 1e-5
-    MANDATORY_AXES = ()
     MODEL_TYPE = None
 
     _TASK_TO_COMMON_OUTPUTS = {
@@ -171,18 +201,7 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
 
     @classmethod
     def get_mandatory_axes_for_task(cls, task: str) -> Tuple[str]:
-        axes = []
-        for axis in cls.MANDATORY_AXES:
-            if isinstance(axis, tuple):
-                tasks, name = axis
-                if not isinstance(tasks, tuple):
-                    tasks = (tasks,)
-                if task not in tasks:
-                    continue
-            else:
-                name = axis
-            axes.append(name)
-        return tuple(axes)
+        return cls.get_input_args_for_task(task)
 
     @property
     def task(self) -> str:
@@ -355,6 +374,9 @@ class NeuronDecoderConfig(NeuronConfig):
 
     Class attributes:
 
+    - INPUT_ARGS (`Tuple[Union[str, Tuple[Union[str, Tuple[str]]]]]`) -- A tuple where each element is either:
+        - An argument  name, for instance "batch_size" or "sequence_length", that indicates that the argument can
+        be passed to export the model,
     - NEURONX_CLASS (`str`) -- the name of the transformers-neuronx class to instantiate for the model.
     It is a full class name defined relatively to the transformers-neuronx module, e.g. `gpt2.model.GPT2ForSampling`
     [`~optimum.utils.DummyInputGenerator`] specifying how to create dummy inputs.
@@ -365,9 +387,10 @@ class NeuronDecoderConfig(NeuronConfig):
         task (`str`): The task the model should be exported for.
     """
 
+    INPUT_ARGS = ("batch_size", "sequence_length")
     NEURONX_CLASS = None
 
-    def __init__(self, task):
+    def __init__(self, task: str):
         if not is_transformers_neuronx_available():
             raise ModuleNotFoundError(
                 "The mandatory transformers-neuronx package is missing. Please install optimum[neuronx]."
