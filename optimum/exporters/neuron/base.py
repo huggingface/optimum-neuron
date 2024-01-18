@@ -38,9 +38,15 @@ class MissingMandatoryAxisDimension(ValueError):
     pass
 
 
-class NeuronConfig(ExportConfig, ABC):
+class NeuronConfig(ExportConfig):
+    """Base class for Neuron exportable models
     """
-    Base class for Neuron exportable model describing metadata on how to export the model through the TorchScript format.
+    pass
+
+
+class NeuronDefaultConfig(NeuronConfig, ABC):
+    """
+    Base class for configuring the export of Neuron TorchScript models.
 
     Class attributes:
 
@@ -343,7 +349,7 @@ class NeuronConfig(ExportConfig, ABC):
         return ModelWrapper(model, list(dummy_inputs.keys()))
 
 
-class NeuronDecoderConfig(ExportConfig):
+class NeuronDecoderConfig(NeuronConfig):
     """
     Base class for configuring the export of Neuron Decoder models
 
