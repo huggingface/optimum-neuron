@@ -174,7 +174,9 @@ class DebertaV2NeuronConfig(DebertaNeuronConfig):
     pass
 
 
-@register_in_tasks_manager("transformer", *["feature-extraction", "sentence-similarity"], library_name="sentence_transformers")
+@register_in_tasks_manager(
+    "transformer", *["feature-extraction", "sentence-similarity"], library_name="sentence_transformers"
+)
 class SentenceTransformersTransformerNeuronConfig(TextEncoderNeuronConfig):
     NORMALIZED_CONFIG_CLASS = NormalizedTextConfig
     CUSTOM_MODEL_WRAPPER = SentenceTransformersTransformerNeuronWrapper
@@ -252,7 +254,9 @@ class CLIPTextNeuronConfig(CLIPTextWithProjectionNeuronConfig):
 
 # TODO: We should decouple clip text and vision, this would need fix on Optimum main. For the current workaround
 # users can pass dummy text inputs when encoding image, vice versa.
-@register_in_tasks_manager("clip", *["feature-extraction", "sentence-similarity"], library_name="sentence_transformers")
+@register_in_tasks_manager(
+    "clip", *["feature-extraction", "sentence-similarity"], library_name="sentence_transformers"
+)
 class SentenceTransformersCLIPNeuronConfig(CLIPNeuronConfig):
     CUSTOM_MODEL_WRAPPER = SentenceTransformersCLIPNeuronWrapper
     ATOL_FOR_VALIDATION = 1e-3

@@ -107,8 +107,9 @@ class NeuronExportTestCase(unittest.TestCase):
         neuron_config_constructor: "NeuronConfig",
         dynamic_batch_size: bool = False,
     ):
-        if "sentence-transformers" in model_type:
-            model_class = TasksManager.get_model_class_for_task(task, framework="pt", library="sentence_transformers")
+        library_name = TasksManager.infer_library_from_model(model_name)
+        if library_name == "sentence-transformers":
+            model_class = TasksManager.get_model_class_for_task(task, framework="pt", library=library_name)
             model = model_class(model_name)
             if "clip" in model[0].__class__.__name__.lower():
                 config = model[0].model.config
