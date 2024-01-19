@@ -19,7 +19,12 @@ from typing import Any, Callable, Dict
 
 from transformers.utils import is_safetensors_available
 
-from .import_utils import is_neuronx_distributed_available, is_torch_neuronx_available, is_torch_xla_available
+from .import_utils import (
+    is_neuronx_distributed_available,
+    is_torch_neuronx_available,
+    is_torch_xla_available,
+    is_transformers_neuronx_available,
+)
 
 
 _AVAILABILITIES: Dict[str, Callable[[], bool]] = {
@@ -27,6 +32,7 @@ _AVAILABILITIES: Dict[str, Callable[[], bool]] = {
     "torch_xla": is_torch_xla_available,
     "neuronx_distributed": is_neuronx_distributed_available,
     "torch_neuronx": is_torch_neuronx_available,
+    "transformers_neuronx": is_transformers_neuronx_available,
 }
 
 
@@ -52,3 +58,4 @@ requires_safetensors = _create_requires_function("safetensors")
 requires_torch_xla = _create_requires_function("torch_xla")
 requires_neuronx_distributed = _create_requires_function("neuronx_distributed")
 requires_torch_neuronx = _create_requires_function("torch_neuronx")
+requires_transformers_neuronx = _create_requires_function("transformers_neuronx")

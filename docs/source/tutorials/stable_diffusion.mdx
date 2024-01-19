@@ -381,7 +381,7 @@ save_directory = "lcm_sd_neuron/"
 stable_diffusion.save_pretrained(save_directory)
 
 # Push to hub
-stable_diffusion.push_to_hub(save_directory, repository_id="Jingya/LCM_Dreamshaper_v7_neuronx", use_auth_token=True)
+stable_diffusion.push_to_hub(save_directory, repository_id="my-neuron-repo", use_auth_token=True)  # Replace with your repo id, eg. "Jingya/LCM_Dreamshaper_v7_neuronx"
 ```
 
 ***LCM of Stable Diffusion XL***
@@ -402,7 +402,7 @@ save_directory = "lcm_sdxl_neuron/"
 stable_diffusion.save_pretrained(save_directory)
 
 # Push to hub
-stable_diffusion.push_to_hub(save_directory, repository_id="Jingya/lcm-sdxl-neuronx", use_auth_token=True)
+stable_diffusion.push_to_hub(save_directory, repository_id="my-neuron-repo", use_auth_token=True)   # Replace with your repo id, eg. "Jingya/lcm-sdxl-neuronx"
 ```
 
 ### Text-to-Image
