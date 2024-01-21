@@ -13,7 +13,7 @@ specific language governing permissions and limitations under the License.
 # Neuron Model Cache
 
 The Neuron Model Cache is a remote cache for compiled Neuron models in the `neff` format.
-It is integrated into the [`NeuronTrainer` and `NeuronModelForCausalLM] classes to enable loading pretrained models from the cache instead of compiling them locally.
+It is integrated into the [`NeuronTrainer` and `NeuronModelForCausalLM`] classes to enable loading pretrained models from the cache instead of compiling them locally.
 
 The Neuron Model Cache is hosted on the [Hugging Face Hub](https://huggingface.co/aws-neuron/optimum-neuron-cache) and includes compiled files for all popular and supported `optimum-neuron` pre-trained models.
 
@@ -41,7 +41,7 @@ These parameters are used to compute a hash that uniquely identifies each compil
 
 ### How to use the Neuron model cache
 
-The public model cache will be used when you use the [`NeuronTrainer` or `NeuronModelForCausalLM] classes. There are no additional changes needed.
+The public model cache will be used when you use the [`NeuronTrainer` or `NeuronModelForCausalLM`] classes. There are no additional changes needed.
 
 ### How to use a private Neuron model cache (trainium only)
 
