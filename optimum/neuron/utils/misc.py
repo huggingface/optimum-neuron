@@ -508,3 +508,28 @@ def download_checkpoints_in_cache(
             resolved_archive_file = filenames_to_safetensors_filenames[Path(resolved_archive_file).name]
 
     return resolved_archive_file, sharded_metadata
+
+
+def replace_weights(
+    neuron_model, 
+    weights, 
+    prefix: str = "model"
+):
+    """
+    TODO
+    """
+    if isinstance(weights, torch.nn.Module):
+        weights = weights.state_dict()
+
+    # extract module paths from the weights c module
+    code = neuron_model.weights._c.code
+    start_str = "__parameters__ = ["
+    end_str = "]\n"
+    module_paths = code.split(start_str)[1].split(end_str)[0].strip()[:-1:].replace('"', "").split(", ")
+    module_paths = [module_path for module_path in module_paths if module_path != ""]
+
+    for module_path in module_paths:
+        if len(re.findall("\w\d+", module_path))>0:
+            continue
+        else:
+            neuron_model.weights._c.setattr(module_path, weights[module_path.replace(prefix + "->", "").replace("->", ".")])
