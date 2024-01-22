@@ -107,7 +107,7 @@ class PipelineParallelismSpecs:
         if num_layers % pipeline_parallel_size != 0:
             raise ValueError(
                 f"The number of transformer layers ({num_layers}) is not divisible by the pipeline parallel size "
-                f"({pipeline_parallel_size})"
+                f"({pipeline_parallel_size})."
             )
         num_layers_per_partition = num_layers // pipeline_parallel_size
         layers_names = [name for (name, mod) in model.named_modules() if isinstance(mod, cls.TRASNFORMER_LAYER_CLS)]

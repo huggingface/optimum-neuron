@@ -354,7 +354,7 @@ class TestModelParallelization(DistributedTest):
 
         xm.mark_step()
 
-        # The parallel model needs to be define after the forward pass of the first model because there is a
+        # The parallel model needs to be defined after the forward pass of the first model because there is a
         # global monkey patching of the `torch.nn.CrossEntropyLoss` class when doing sequence parallelism.
         model = get_model(
             model_class,

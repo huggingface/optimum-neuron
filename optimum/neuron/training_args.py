@@ -82,7 +82,7 @@ class NeuronTrainingArgumentsMixin:
     )
     pipeline_parallel_size: int = field(
         default=1,
-        metadata={"help": "The number of pipeline parallel replicas"},
+        metadata={"help": "The number of pipeline parallel replicas."},
     )
     pipeline_parallel_num_microbatches: int = field(
         default=-1,
