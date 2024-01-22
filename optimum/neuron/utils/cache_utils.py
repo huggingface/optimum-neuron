@@ -21,7 +21,6 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import tempfile
 from dataclasses import InitVar, asdict, dataclass, field
 from pathlib import Path
@@ -45,7 +44,6 @@ from transformers import PretrainedConfig, PreTrainedModel
 
 from ...utils import logging
 from ...utils.logging import warn_once
-from .constant import NEURON_BINARIES_PATH
 from .misc import is_main_worker, string_to_bool
 from .require_utils import requires_neuronx_distributed
 from .version_utils import get_neuronxcc_version
@@ -261,18 +259,11 @@ def set_neuron_cache_path(neuron_cache_path: Union[str, Path], ignore_no_cache: 
 
 
 def get_num_neuron_cores() -> int:
-    path = os.environ["PATH"]
-    if NEURON_BINARIES_PATH not in path:
-        path = f"{NEURON_BINARIES_PATH}:{path}"
-        os.environ["PATH"] = path
-    proc = subprocess.Popen(["neuron-ls", "-j"], stdout=subprocess.PIPE)
-    stdout, _ = proc.communicate()
-    if proc.returncode != 0:
+    neuron_devices_path = Path("/sys/class/neuron_device/")
+    if not neuron_devices_path.is_dir():
         num_cores = 0
     else:
-        stdout = stdout.decode("utf-8")
-        json_stdout = json.loads(stdout)
-        num_cores = sum(neuron_device_info["nc_count"] for neuron_device_info in json_stdout)
+        num_cores = len(list(neuron_devices_path.iterdir())) * 2
     return num_cores
 
 

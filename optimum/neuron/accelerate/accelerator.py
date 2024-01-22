@@ -299,7 +299,7 @@ class NeuronAccelerator(Accelerator):
             optimizer = self._prepare_optimizer_for_mp(optimizer, device_placement=device_placement)
         if self.zero_1:
             optimizer = self._prepare_optimizer_for_zero_1(optimizer, device_placement=device_placement)
-        # Edge case: if the optimizer was created lazily outsie of the Model Parallelism and/or ZeRO-1 setting, we make
+        # Edge case: if the optimizer was created lazily outside of the Model Parallelism and/or ZeRO-1 setting, we make
         # sure to actully load the proper parameters.
         if hasattr(optimizer, "_args_to_recreate"):
             args, kwargs = optimizer._args_to_recreate

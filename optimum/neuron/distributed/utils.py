@@ -842,7 +842,7 @@ def make_optimizer_constructor_lazy(optimizer_cls: Type["torch.optim.Optimizer"]
     def optimizer_constructor(*args, **kwargs):
         optimizer_with_no_parameters = optimizer_cls([torch.nn.Parameter(torch.empty(1))], *args[1:], **kwargs)
         # It is necessary to make sure that what's holding the parameters is not an iterator, otherwise it can lead to
-        # unsuspected behaviour since each entry will be evaluated at iteration time. There are 2 possibilities:
+        # unexpected behaviour since each entry will be evaluated at iteration time. There are 2 possibilities:
         #   1. args[0] holds the parameters
         #   2. args[0] holds a list of parameter groups
         parameters_or_parameter_groups = args[0]
