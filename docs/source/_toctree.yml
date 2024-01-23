@@ -18,6 +18,8 @@
       title: Create your own chatbot with llama-2-13B on AWS Inferentia
     - local: tutorials/fine_tune_llama_7b
       title: Fine-tune Llama 2 7B on AWS Trainium 
+    - local: tutorials/sentence_transformers
+      title: Sentence Transformers on AWS Inferentia
     title: Tutorials
   - sections:
     - local: guides/overview
