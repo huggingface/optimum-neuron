@@ -1,0 +1,76 @@
+<!---
+Copyright 2023 The HuggingFace Team. All rights reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+# Sentence Transformers on AWS Inferentia with Optimum Neuron
+
+_There is a notebook version of that tutorial [here](https://github.com/huggingface/optimum-neuron/blob/main/notebooks/sentence-transformers/getting-started.ipynb)._
+
+This guide explains how to convert, load, and use [Sentence Transformers (SBERT)](https://www.sbert.net/) models on AWS Inferentia2 using Optimum Neuron, enabling efficient calculation of embeddings. Sentence Transformers are powerful model for generating sentence embeddings. You can use this Sentence Transformers to compute sentence / text embeddings for more than 100 languages. These embeddings can then be compared e.g. with cosine-similarity to find sentences with a similar meaning. This can be useful for semantic textual similar, semantic search, or paraphrase mining.
+
+_Note: Currently only text models are supported, we are working on vision support for CLIP._
+
+## Convert Sentence Transformers model to AWS Inferentia2  
+
+First, you need to convert your Sentence Transformers model to a format compatible with AWS Inferentia2. You can compile Sentence Transformers models with Optimum Neuron using the `optimum-cli` or `NeuronModelForSentenceTransformers` class. Below you will find an example for both approaches.
+
+Here we will use the `NeuronModelForSentenceTransformers`, which can be used to convert any Sntence Transformers model to a format compatible with AWS Inferentia2 or load already converted models. When exporting models with the `NeuronModelForSentenceTransformers` you need to set `export=True` and define the input shape and batch size. The input shape is defined by the `sequence_length` and the batch size by `batch_size`. 
+
+```python
+from optimum.neuron import NeuronModelForSentenceTransformers
+
+# Sentence Transformers model from HuggingFace
+model_id = "BAAI/bge-small-en-v1.5"
+input_shapes = {"batch_size": 1, "sequence_length": 384}  # mandatory shapes
+
+# Load Transformers model and export it to AWS Inferentia2
+model = NeuronModelForSentenceTransformers.from_pretrained(model_id, export=True, **input_shapes)
+
+# Save model to disk
+model.save_pretrained("bge_emb_inf2/")
+```
+
+Here we will use the `optimum-cli` to convert the model. Similar to the `NeuronModelForSentenceTransformers` we need to define our input shape and batch size. The input shape is defined by the `sequence_length` and the batch size by `batch_size`. The `optimum-cli` will automatically convert the model to a format compatible with AWS Inferentia2 and save it to the specified output directory.
+
+```bash
+optimum-cli export neuron -m BAAI/bge-small-en-v1.5 ----library-name sentence_transformers --sequence_length 384 --batch_size 1 --task feature-extraction bge_emb_inf2/
+```
+
+## Load compiled Sentence Transformers model and run inference
+
+Once we have a compiled Sentence Transformers model, which we either exported ourselves or is available on the Hugging Face Hub, we can load it and run inference. For loading the model we can use the `NeuronModelForSentenceTransformers` class, which is an abstraction layer for the `SentenceTransformer` class. The `NeuronModelForSentenceTransformers` class will automatically pad the input to the specified `sequence_length` and run inference on AWS Inferentia2.
+
+```python
+from optimum.neuron import NeuronModelForSentenceTransformers
+from transformers import AutoTokenizer
+
+model_id_or_path = "bge_emb_inf2/"
+tokenizer_id = "BAAI/bge-small-en-v1.5"
+
+# Load model and tokenizer
+model = NeuronModelForSentenceTransformers.from_pretrained(model_id_or_path)
+tokenizer = AutoTokenizer.from_pretrained(tokenizer_id)
+
+# Run inference
+prompt = "I like to eat apples"
+encoded_input = tokenizer(prompt, return_tensors='pt')
+outputs = model(**encoded_input)
+
+token_embeddings = outputs.token_embeddings
+sentence_embedding = outputs.sentence_embedding
+```
+
+## Production Usage
+
+For deploying these models in a production environment, refer to the [Amazon SageMaker Blog](https://www.philschmid.de/inferentia2-embeddings).
