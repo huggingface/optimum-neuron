@@ -36,7 +36,7 @@ from transformers.utils import (
 
 from ..utils import check_if_transformers_greater, logging
 from .accelerate import NeuronAcceleratorState, NeuronPartialState
-from .accelerate.utils import TensorParallelismPlugin, patch_accelerate_is_tpu_available
+from .accelerate.utils import ModelParallelismPlugin, patch_accelerate_is_tpu_available
 from .utils import is_accelerate_available, is_torch_xla_available
 from .utils.training_utils import TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP
 
@@ -80,6 +80,14 @@ class NeuronTrainingArgumentsMixin:
             "help": "Specify the level of optimization the Neuron compiler should perform.",
         },
     )
+    pipeline_parallel_size: int = field(
+        default=1,
+        metadata={"help": "The number of pipeline parallel replicas."},
+    )
+    pipeline_parallel_num_microbatches: int = field(
+        default=-1,
+        metadata={"help": "The number of microbatches used for pipeline execution."},
+    )
 
     def __post_init__(self):
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
@@ -120,10 +128,27 @@ class NeuronTrainingArgumentsMixin:
             checkpoint = get_last_checkpoint(self.output_dir)
             resume_from_checkpoint = checkpoint
 
-        self.tp_plugin = TensorParallelismPlugin(
+        if self.pipeline_parallel_size > 1:
+            if self.pipeline_parallel_num_microbatches == -1:
+                self.pipeline_parallel_num_microbatches = self.per_device_train_batch_size
+            if self.per_device_train_batch_size % self.pipeline_parallel_num_microbatches != 0:
+                raise ValueError(
+                    f"The number of pipeline microbatches ({self.pipeline_parallel_num_microbatches}) divide the total "
+                    f"per-device train batch size ({self.per_device_train_batch_size})."
+                )
+            if self.per_device_eval_batch_size % self.pipeline_parallel_num_microbatches != 0:
+                raise ValueError(
+                    f"The number of pipeline microbatches ({self.pipeline_parallel_num_microbatches}) divide the total "
+                    f"per-device eval batch size ({self.per_device_eval_batch_size})."
+                )
+
+        self.mp_plugin = ModelParallelismPlugin(
             self.tensor_parallel_size,
-            not self.disable_embedding_parallelization,
+            parallelize_embeddings=not self.disable_embedding_parallelization,
             sequence_parallel_enabled=not self.disable_sequence_parallel,
+            pipeline_parallel_size=self.pipeline_parallel_size,
+            pipeline_parallel_num_microbatches=self.pipeline_parallel_num_microbatches,
+            pipeline_parallel_use_zero1_optimizer=self.zero_1,
             checkpoint_dir=resume_from_checkpoint,
         )
         super().__post_init__()
@@ -228,13 +253,13 @@ class NeuronTrainingArgumentsMixin:
 
     @property
     def place_model_on_device(self):
-        return not self.tp_plugin.should_parallelize and super().place_model_on_device
+        return not self.mp_plugin.should_parallelize and super().place_model_on_device
 
     @property
     def world_size(self):
         divisor = 1
-        if self.tp_plugin.should_parallelize:
-            divisor = self.tp_plugin.tensor_parallel_size
+        if self.mp_plugin.should_parallelize:
+            divisor = self.mp_plugin.tensor_parallel_size * self.mp_plugin.pipeline_parallel_size
         return super().world_size // divisor
 
 

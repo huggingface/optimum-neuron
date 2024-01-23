@@ -24,8 +24,9 @@ from tempfile import TemporaryDirectory
 from typing import List
 from unittest import TestCase
 
+import huggingface_hub
 import torch
-from huggingface_hub import HfApi, HfFolder, create_repo, delete_repo, hf_hub_download
+from huggingface_hub import HfApi, create_repo, delete_repo, get_token, hf_hub_download, login
 from transformers import BertConfig, BertModel, set_seed
 from transformers.testing_utils import TOKEN as TRANSFORMERS_TOKEN
 from transformers.testing_utils import USER as TRANSFORMERS_USER
@@ -246,8 +247,8 @@ class NeuronUtilsTestCase(TrainiumTestMixin, TestCase):
 @is_staging_test
 class StagingNeuronUtilsTestCase(StagingTestMixin, TestCase):
     def test_set_custom_cache_repo_name_in_hf_home(self):
-        orig_token = HfFolder.get_token()
-        HfFolder.save_token(TOKEN)
+        orig_token = get_token()
+        login(TOKEN)
 
         repo_name = f"blablabla-{self.seed}"
         repo_id = f"{USER}/{repo_name}"
@@ -262,7 +263,7 @@ class StagingNeuronUtilsTestCase(StagingTestMixin, TestCase):
             except ValueError as e:
                 remove_repo()
                 if orig_token:
-                    HfFolder.save_token(orig_token)
+                    login(orig_token)
                 self.fail(str(e))
 
             with open(f"{tmpdirname}/{CACHE_REPO_FILENAME}", "r") as fp:
@@ -276,20 +277,25 @@ class StagingNeuronUtilsTestCase(StagingTestMixin, TestCase):
 
             remove_repo()
             if orig_token:
-                HfFolder.save_token(orig_token)
+                login(orig_token)
 
     def test_has_write_access_to_repo(self):
+        orig_token = get_token()
+
         wrong_token = "random_string"
-        HfFolder.save_token(wrong_token)
+        path = Path(huggingface_hub.constants.HF_TOKEN_PATH)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(wrong_token)
 
         self.assertFalse(has_write_access_to_repo(self.CUSTOM_CACHE_REPO))
         self.assertFalse(has_write_access_to_repo(self.CUSTOM_PRIVATE_CACHE_REPO))
 
-        HfFolder.save_token(self._staging_token)
+        login(orig_token)
 
         self.assertTrue(has_write_access_to_repo(self.CUSTOM_CACHE_REPO))
         self.assertTrue(has_write_access_to_repo(self.CUSTOM_PRIVATE_CACHE_REPO))
 
+    @is_trainium_test
     def test_list_in_registry(self):
         def _test_list_in_registry(use_private_cache_repo: bool):
             if use_private_cache_repo:
@@ -341,6 +347,7 @@ class StagingNeuronUtilsTestCase(StagingTestMixin, TestCase):
         _test_list_in_registry(True)
 
 
+@is_trainium_test
 class NeuronHashTestCase(TestCase):
     def test_neuron_hash_is_not_mutable(self):
         bert_model = BertModel(BertConfig())
