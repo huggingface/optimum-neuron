@@ -21,9 +21,14 @@ This guide explains how to convert, load, and use [Sentence Transformers (SBERT)
 
 _Note: Currently only text models are supported, we are working on vision support for CLIP._
 
+
 ## Convert Sentence Transformers model to AWS Inferentia2  
 
-First, you need to convert your Sentence Transformers model to a format compatible with AWS Inferentia2. You can compile Sentence Transformers models with Optimum Neuron using the `optimum-cli` or `NeuronModelForSentenceTransformers` class. Below you will find an example for both approaches.
+First, you need to convert your Sentence Transformers model to a format compatible with AWS Inferentia2. You can compile Sentence Transformers models with Optimum Neuron using the `optimum-cli` or `NeuronModelForSentenceTransformers` class. Below you will find an example for both approaches. We have to make sure `sentence-transformers` is installed. Thats only needed for exporting the model. 
+
+```bash
+pip install sentence-transformers
+```
 
 Here we will use the `NeuronModelForSentenceTransformers`, which can be used to convert any Sntence Transformers model to a format compatible with AWS Inferentia2 or load already converted models. When exporting models with the `NeuronModelForSentenceTransformers` you need to set `export=True` and define the input shape and batch size. The input shape is defined by the `sequence_length` and the batch size by `batch_size`. 
 
@@ -44,7 +49,7 @@ model.save_pretrained("bge_emb_inf2/")
 Here we will use the `optimum-cli` to convert the model. Similar to the `NeuronModelForSentenceTransformers` we need to define our input shape and batch size. The input shape is defined by the `sequence_length` and the batch size by `batch_size`. The `optimum-cli` will automatically convert the model to a format compatible with AWS Inferentia2 and save it to the specified output directory.
 
 ```bash
-optimum-cli export neuron -m BAAI/bge-small-en-v1.5 ----library-name sentence_transformers --sequence_length 384 --batch_size 1 --task feature-extraction bge_emb_inf2/
+!optimum-cli export neuron -m BAAI/bge-small-en-v1.5 --library-name sentence_transformers --sequence_length 384 --batch_size 1 --task feature-extraction bge_emb_inf2/
 ```
 
 ## Load compiled Sentence Transformers model and run inference
@@ -69,6 +74,9 @@ outputs = model(**encoded_input)
 
 token_embeddings = outputs.token_embeddings
 sentence_embedding = outputs.sentence_embedding
+
+print(f"token embeddings: {token_embeddings.shape}") # torch.Size([1, 7, 384])
+print(f"sentence_embedding: {sentence_embedding.shape}") # torch.Size([1, 384])
 ```
 
 ## Production Usage
