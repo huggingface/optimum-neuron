@@ -459,7 +459,7 @@ class NeuronGenerator(Generator):
                     token_id=next_token,
                     token_logprob=None,
                     token_text=next_token_text,
-                    token_is_special=(next_token in [self.special_tokens]),
+                    token_is_special=(next_token in self.special_tokens),
                     generated_text=generated_text,
                 )
             )
