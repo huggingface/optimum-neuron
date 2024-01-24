@@ -49,7 +49,7 @@ To understand a little bit more about the compilation, here are general steps ex
 </Tip>
 
 Although pre-compilation avoids overhead during the inference, traced Neuron module has some limitations:
-* Traced Neuron module will be static, which requires fixed input shapes and data types used passed during the compilation. As the model won't be dynamically recompiled, the inference will fail if any of the above conditions change.
+* Traced Neuron module will be static, which requires fixed input shapes and data types used during the compilation. As the model won't be dynamically recompiled, the inference will fail if any of the above conditions change.
   (*But these limitations could be bypass with [dynamic batching](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/frameworks/torch/torch-neuronx/api-reference-guide/inference/api-torch-neuronx-trace.html#dynamic-batching) and [bucketing](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/appnotes/torch-neuron/bucketing-app-note.html#bucketing-app-note)*).
 * Neuron models are hardware-specialized, which means:
   *  Models traced with Neuron can no longer be executed in non-Neuron environment.
