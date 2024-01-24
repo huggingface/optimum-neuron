@@ -32,7 +32,13 @@ from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..exporters.tasks import TasksManager
 from ..modeling_base import OptimizedModel
 from ..utils.save_utils import maybe_load_preprocessors, maybe_save_preprocessors
-from .utils import NEURON_FILE_NAME, is_neuron_available, store_compilation_config
+from .utils import (
+    NEURON_FILE_NAME,
+    check_if_weights_replacable,
+    is_neuron_available,
+    replace_weights,
+    store_compilation_config,
+)
 from .utils.import_utils import is_neuronx_available
 from .utils.version_utils import check_compiler_compatibility, get_neuroncc_version, get_neuronxcc_version
 
@@ -90,7 +96,9 @@ class NeuronBaseModel(OptimizedModel):
         self._attributes_init(model_save_dir, preprocessors, **kwargs)
 
     @staticmethod
-    def load_model(path: Union[str, Path]) -> torch.jit._script.ScriptModule:
+    def load_model(
+        path: Union[str, Path], weights: Union[Dict[str, torch.Tensor], torch.nn.Module] = None
+    ) -> torch.jit._script.ScriptModule:
         """
         Loads a TorchScript module compiled by neuron(x)-cc compiler. It will be first loaded onto CPU and then moved to
         one or multiple [NeuronCore](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/neuroncores-arch.html).
@@ -103,7 +111,10 @@ class NeuronBaseModel(OptimizedModel):
             path = Path(path)
 
         if path.is_file():
-            return torch.jit.load(path)
+            model = torch.jit.load(path)
+            if weights is not None:
+                replace_weights(model, weights)
+            return model
 
     def _save_pretrained(self, save_directory: Union[str, Path]):
         """
@@ -133,6 +144,7 @@ class NeuronBaseModel(OptimizedModel):
         local_files_only: bool = False,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
         neuron_config: Optional["NeuronConfig"] = None,
+        weights: Union[Dict[str, torch.Tensor], torch.nn.Module] = None,
         **kwargs,
     ) -> "NeuronBaseModel":
         model_path = Path(model_id)
@@ -164,10 +176,11 @@ class NeuronBaseModel(OptimizedModel):
             model_compiler_type = config.neuron.get("compiler_type")
             model_compiler_version = config.neuron.get("compiler_version")
             check_compiler_compatibility(model_compiler_type, model_compiler_version)
+        check_if_weights_replacable(config, weights)
 
         preprocessors = None
         if model_path.is_dir():
-            model = NeuronBaseModel.load_model(model_path / file_name)
+            model = NeuronBaseModel.load_model(model_path / file_name, weights)
             new_model_save_dir = model_path
         else:
             model_cache_path = hf_hub_download(
@@ -181,7 +194,7 @@ class NeuronBaseModel(OptimizedModel):
                 local_files_only=local_files_only,
             )
 
-            model = NeuronBaseModel.load_model(model_cache_path)
+            model = NeuronBaseModel.load_model(model_cache_path, weights)
             new_model_save_dir = Path(model_cache_path).parent
 
         preprocessors = maybe_load_preprocessors(model_id, subfolder=subfolder)
@@ -573,3 +586,10 @@ class NeuronBaseModel(OptimizedModel):
                 ]
 
         return outputs
+
+    @property
+    def is_weights_neff_separated(self) -> bool:
+        """
+        Whether the Neuron model has separated weights and neff graph (by setting `inline_weights_to_neff=False` during the compilation).
+        """
+        return not self.config.neuron.get("inline_weights_to_neff", True)
