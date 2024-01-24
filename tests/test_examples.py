@@ -24,7 +24,7 @@ from tempfile import TemporaryDirectory
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TypeVar, Union
 from unittest import TestCase
 
-import huggingface_hub
+from huggingface_hub import get_token
 from transformers import (
     CONFIG_MAPPING,
     MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING,
@@ -40,7 +40,9 @@ from transformers import (
 )
 from transformers.testing_utils import slow
 
+from optimum.neuron.distributed.parallelizers_manager import ParallelizersManager
 from optimum.neuron.utils.cache_utils import load_custom_cache_repo_name_from_hf_home
+from optimum.neuron.utils.import_utils import is_neuronx_distributed_available
 from optimum.neuron.utils.misc import string_to_bool
 from optimum.neuron.utils.runner import ExampleRunner
 from optimum.neuron.utils.testing_utils import is_trainium_test
@@ -56,7 +58,9 @@ T = TypeVar("T")
 TypeOrDictOfType = Union[T, Dict[str, T]]
 
 
-TOKEN = huggingface_hub.get_token()
+TOKEN = get_token()
+if os.environ.get("HF_TOKEN", None) is not None:
+    TOKEN = os.environ.get("HF_TOKEN")
 
 DEFAULT_CACHE_REPO = "optimum-internal-testing/optimum-neuron-cache-for-testing"
 SAVED_CUSTOM_CACHE_REPO = load_custom_cache_repo_name_from_hf_home()
@@ -267,7 +271,7 @@ class ExampleTestMeta(type):
         for model_type, model_name_or_path, tp_support, config_overrides in models_to_test:
             # Regular training.
             attrs[f"test_{example_name}_{model_type}"] = cls._create_test(
-                model_type, model_name_or_path, 1, True, False, config_overrides
+                model_type, model_name_or_path, 1, 1, True, False, config_overrides
             )
 
             # Training with ZeRO-1.
@@ -277,13 +281,21 @@ class ExampleTestMeta(type):
             # )
 
             tensor_parallel_size = 2 if tp_support is not TPSupport.NONE else 1
+
+            if not is_neuronx_distributed_available():
+                pp_support = False
+            else:
+                pp_support = ParallelizersManager.parallelizer_for_model(model_type).supports_pipeline_parallelism()
+            pipeline_parallel_size = 4 if pp_support else 1
+
             disable_embedding_parallelization = tp_support is TPSupport.PARTIAL
             if tensor_parallel_size > 1:
                 # Training with TP if supported.
-                attrs[f"test_{example_name}_{model_type}_with_tp"] = cls._create_test(
+                attrs[f"test_{example_name}_{model_type}_with_tp_only"] = cls._create_test(
                     model_type,
                     model_name_or_path,
                     tensor_parallel_size,
+                    1,  # No pipeline parallelism in this test.
                     disable_embedding_parallelization,
                     False,
                     config_overrides,
@@ -294,6 +306,40 @@ class ExampleTestMeta(type):
                 #     model_type,
                 #     model_name_or_path,
                 #     tensor_parallel_size,
+                #     1, # No pipeline parallelism in this test.
+                #     disable_embedding_parallelization,
+                #     True,
+                #     config_overrides,
+                # )
+
+            if pipeline_parallel_size > 1:
+                # Training with PP if supported.
+                attrs[f"test_{example_name}_{model_type}_with_pp_only"] = cls._create_test(
+                    model_type,
+                    model_name_or_path,
+                    1,  # No tensor parallelism in this test.
+                    pipeline_parallel_size,
+                    disable_embedding_parallelization,
+                    False,
+                    config_overrides,
+                )
+
+            if tensor_parallel_size > 1 and pipeline_parallel_size > 1:
+                attrs[f"test_{example_name}_{model_type}_with_tp_and_pp"] = cls._create_test(
+                    model_type,
+                    model_name_or_path,
+                    tensor_parallel_size,
+                    pipeline_parallel_size,
+                    disable_embedding_parallelization,
+                    False,
+                    config_overrides,
+                )
+                # TODO: enable when working on the multi-node training PR.
+                # attrs[f"test_{example_name}_{model_type}_with_tp_and_pp_and_zero1"] = cls._create_test(
+                #     model_type,
+                #     model_name_or_path,
+                #     tensor_parallel_size,
+                #     pipeline_parallel_size,
                 #     disable_embedding_parallelization,
                 #     True,
                 #     config_overrides,
@@ -344,15 +390,13 @@ class ExampleTestMeta(type):
         model_type: str,
         model_name_or_path: str,
         tensor_parallel_size: int,
+        pipeline_parallel_size: int,
         disable_embedding_parallelization: bool,
         zero_1: bool,
         config_overrides: Optional[Dict[str, Any]] = None,
     ) -> Callable[["ExampleTesterBase"], None]:
         """
         Creates a test function that runs an example for a model_name.
-
-        Args:
-            model_name (`str`): the model_name_or_path.
 
         Returns:
             `Callable[[ExampleTesterBase], None]`: The test function that runs the example.
@@ -395,6 +439,7 @@ class ExampleTestMeta(type):
                     save_total_limit=1,
                     learning_rate=self.LEARNING_RATE,
                     tensor_parallel_size=tensor_parallel_size,
+                    pipeline_parallel_size=pipeline_parallel_size,
                     disable_embedding_parallelization=disable_embedding_parallelization,
                     zero_1=zero_1,
                     output_dir=tmpdirname,

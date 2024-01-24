@@ -21,7 +21,6 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import tempfile
 from dataclasses import InitVar, asdict, dataclass, field
 from pathlib import Path
@@ -33,9 +32,9 @@ import torch
 from huggingface_hub import (
     CommitOperationAdd,
     HfApi,
-    HfFolder,
     RepoUrl,
     create_repo,
+    get_token,
     hf_hub_download,
     whoami,
 )
@@ -45,8 +44,8 @@ from transformers import PretrainedConfig, PreTrainedModel
 
 from ...utils import logging
 from ...utils.logging import warn_once
-from .constant import NEURON_BINARIES_PATH
 from .misc import is_main_worker, string_to_bool
+from .require_utils import requires_neuronx_distributed
 from .version_utils import get_neuronxcc_version
 
 
@@ -137,7 +136,7 @@ def is_private_repo(repo_id: str) -> bool:
     if _DISABLE_IS_PRIVATE_REPO_CHECK:
         return False
     try:
-        HfApi().model_info(repo_id=repo_id, token=HfFolder.get_token())
+        HfApi().model_info(repo_id=repo_id, token=get_token())
         private_to_user = False
     except RepositoryNotFoundError:
         private_to_user = True
@@ -260,15 +259,12 @@ def set_neuron_cache_path(neuron_cache_path: Union[str, Path], ignore_no_cache: 
 
 
 def get_num_neuron_cores() -> int:
-    path = os.environ["PATH"]
-    if NEURON_BINARIES_PATH not in path:
-        path = f"{NEURON_BINARIES_PATH}:{path}"
-        os.environ["PATH"] = path
-    proc = subprocess.Popen(["neuron-ls", "-j"], stdout=subprocess.PIPE)
-    stdout, _ = proc.communicate()
-    stdout = stdout.decode("utf-8")
-    json_stdout = json.loads(stdout)
-    return sum(neuron_device_info["nc_count"] for neuron_device_info in json_stdout)
+    neuron_devices_path = Path("/sys/class/neuron_device/")
+    if not neuron_devices_path.is_dir():
+        num_cores = 0
+    else:
+        num_cores = len(list(neuron_devices_path.iterdir())) * 2
+    return num_cores
 
 
 def get_num_neuron_cores_used() -> int:
@@ -656,6 +652,9 @@ class NeuronHash:
     tensor_parallel_size: Union[int, _UnspecifiedHashAttribute] = field(
         default_factory=_UnspecifiedHashAttribute.with_args(min_optimum_neuron_version="0.0.8", default=1)
     )
+    pipeline_parallel_size: Union[int, _UnspecifiedHashAttribute] = field(
+        default_factory=_UnspecifiedHashAttribute.with_args(min_optimum_neuron_version="0.0.17", default=1)
+    )
     _model_name_or_path: Optional[str] = None
     _is_private: Optional[bool] = None
     _model_type: Optional[str] = None
@@ -739,11 +738,19 @@ class NeuronHash:
             hash_.update(buffer)
         return hash_.hexdigest()
 
+    @requires_neuronx_distributed
     def compute_hash(self, model: Optional["PreTrainedModel"] = None) -> Tuple[str, str]:
         if self._hash.is_empty:
             if model is None:
                 raise ValueError("A model must be specified the first time the hash is computed.")
-            model_hash = self.compute_sha512_hash(self.state_dict_to_bytes(model.state_dict()))
+
+            from neuronx_distributed.pipeline import NxDPPModel
+
+            if isinstance(model, NxDPPModel):
+                state_dict = model.local_state_dict()
+            else:
+                state_dict = model.state_dict()
+            model_hash = self.compute_sha512_hash(self.state_dict_to_bytes(state_dict))
 
             hash_dict = asdict(self)
             hash_dict["model"] = model_hash
@@ -755,6 +762,9 @@ class NeuronHash:
 
             self._insert_potential_unspecified_hash_attribute(
                 "tensor_parallel_size", self.tensor_parallel_size, hash_dict
+            )
+            self._insert_potential_unspecified_hash_attribute(
+                "pipeline_parallel_size", self.tensor_parallel_size, hash_dict
             )
             self._insert_potential_unspecified_hash_attribute("fsdp", self.fsdp, hash_dict)
 
@@ -817,7 +827,7 @@ def get_cached_model_on_the_hub(neuron_hash: NeuronHash) -> Optional[CachedModel
         else:
             revision = "main"
         try:
-            repo_filenames = HfApi().list_repo_files(repo_id, revision=revision, token=HfFolder.get_token())
+            repo_filenames = HfApi().list_repo_files(repo_id, revision=revision, token=get_token())
         except Exception:
             continue
         model_files_on_the_hub = []
@@ -974,7 +984,7 @@ def push_to_cache_on_hub(
         path_in_repo = Path().joinpath(*path_in_repo.parts[1:])
     path_in_repo = neuron_hash.cache_path / path_in_repo
 
-    repo_filenames = HfApi().list_repo_files(cache_repo_id, token=HfFolder.get_token())
+    repo_filenames = HfApi().list_repo_files(cache_repo_id, token=get_token())
     path_in_repo_str = path_in_repo.as_posix()
     if local_cache_dir_or_file.is_dir():
         exists = any(filename.startswith(path_in_repo_str) for filename in repo_filenames)

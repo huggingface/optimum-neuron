@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import requests
 from huggingface_hub import (
     HfApi,
-    HfFolder,
+    get_token,
     snapshot_download,
 )
 from transformers import AutoConfig
@@ -172,7 +172,7 @@ class ExampleRunner:
             ],
         },
         "image-classification": {
-            "dataset_name": "beans",
+            "dataset_name": "mnist",
             "extra_command_line_arguments": [
                 "--remove_unused_columns false",
                 "--ignore_mismatched_sizes",
@@ -304,7 +304,7 @@ class ExampleRunner:
             self._installed_requirements = True
 
     def check_user_logged_in_and_cache_repo_is_set(self):
-        token = HfFolder.get_token()
+        token = get_token()
         if not token:
             raise RuntimeError(
                 "You need to log in the Hugging Face Hub otherwise you will not be able to push anything. "
@@ -333,7 +333,7 @@ class ExampleRunner:
         if not config_overrides:
             return model_name_or_path
 
-        filenames = HfApi().list_repo_files(repo_id=model_name_or_path, token=HfFolder.get_token())
+        filenames = HfApi().list_repo_files(repo_id=model_name_or_path, token=get_token())
         safetensors_model_file_pattern = re.compile(r"\w+(-[0-9]*-of-[0-9]*)?\.safetensors")
         allow_patterns = ["*.json", "*.txt"]
         if any(re.match(safetensors_model_file_pattern, filename) for filename in filenames):
@@ -380,6 +380,7 @@ class ExampleRunner:
         save_total_limit: int = -1,
         learning_rate: float = 1e-4,
         tensor_parallel_size: int = 1,
+        pipeline_parallel_size: int = 1,
         disable_embedding_parallelization: bool = False,
         zero_1: bool = False,
         output_dir: Optional[Union[Path, str]] = None,
@@ -417,9 +418,14 @@ class ExampleRunner:
             self.install_requirements(script_path.parent / "requirements.txt")
 
         def compute_max_train_samples(
-            max_steps: int, num_cores: int, tensor_parallel_size: int, per_device_train_batch_size: int
+            max_steps: int,
+            num_cores: int,
+            tensor_parallel_size: int,
+            pipeline_parallel_size: int,
+            per_device_train_batch_size: int,
         ) -> int:
-            total_batch_size = (num_cores // tensor_parallel_size) * per_device_train_batch_size
+            number_of_cores_per_replicas = tensor_parallel_size * pipeline_parallel_size
+            total_batch_size = (num_cores // number_of_cores_per_replicas) * per_device_train_batch_size
             total_num_samples = max_steps * total_batch_size
             # Adding 10% more examples just to make sure.
             return int(total_num_samples * 1.1)
@@ -442,7 +448,9 @@ class ExampleRunner:
         if max_steps is not None:
             cmd.append(f"--max_steps {max_steps}")
             max_steps_idx = len(cmd) - 1
-            max_train_samples = compute_max_train_samples(max_steps, num_cores, tensor_parallel_size, train_batch_size)
+            max_train_samples = compute_max_train_samples(
+                max_steps, num_cores, tensor_parallel_size, pipeline_parallel_size, train_batch_size
+            )
             cmd.append(f"--max_train_samples {max_train_samples}")
 
         cmd.append("--do_train")
@@ -469,6 +477,8 @@ class ExampleRunner:
         # Parallelism
         if tensor_parallel_size > 1:
             cmd.append(f"--tensor_parallel_size {tensor_parallel_size}")
+        if pipeline_parallel_size > 1:
+            cmd.append(f"--pipeline_parallel_size {pipeline_parallel_size}")
         if disable_embedding_parallelization:
             cmd.append("--disable_embedding_parallelization")
         if zero_1:

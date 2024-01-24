@@ -201,7 +201,12 @@ class NeuronBaseModel(OptimizedModel):
         )
 
     @classmethod
-    def _from_transformers(
+    def _from_transformers(cls, *args, **kwargs):
+        # Deprecate it when optimum uses `_export` as from_pretrained_method in a stable release.
+        return cls._export(*args, **kwargs)
+
+    @classmethod
+    def _export(
         cls,
         model_id: str,
         config: "PretrainedConfig",
