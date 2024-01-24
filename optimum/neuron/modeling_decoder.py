@@ -187,6 +187,9 @@ class NeuronDecoderModel(OptimizedModel):
         auto_cast_type: Optional[str] = "fp32",
         **kwargs,
     ) -> "NeuronDecoderModel":
+        if not os.path.isdir("/sys/class/neuron_device/"):
+            raise SystemError("Decoder models can only be exported on a neuron platform.")
+
         if task is None:
             task = TasksManager.infer_task_from_model(cls.auto_model_class)
 
