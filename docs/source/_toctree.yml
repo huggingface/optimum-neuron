@@ -53,7 +53,7 @@
     title: Reference
   - sections:
     - local: benchmarks/inferentia-llama2
-      title: Llama-2 models on AWS Inferentia2
+      title: Llama on AWS Inferentia2
     title: Benchmarks
   title: Optimum Neuron
   isExpanded: true

@@ -14,9 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-# Llama-2 models on AWS Inferentia2
+# Llama performance on AWS Inferentia2 (Latency & Througput)
 
-How much efficient is text-generation on Inferentia2?  Let's figure out!
+How fast is Llama on Inferentia2?  Let's figure out!
 
 For this benchmark we will use the LLama 2 7B and 13B models with different configurations:
 
@@ -33,16 +33,14 @@ All models are compiled to use the full extent of cores available on the `inf2.4
 
 *Note: please refer to the [inferentia2 product page](https://aws.amazon.com/ec2/instance-types/inf2/) for details on the available instances.*
 
-We created two "latency" oriented configurations for the `llama2 7B` and `llama2 13B` models that can serve only one request at a time, but at full speed.
-
-We also created two "throughput" oriented configurations to serve up to four requests in parallel.
+We created two "latency" oriented configurations for the `llama2 7B` and `llama2 13B` models that can serve only one request at a time, but at full speed and two "throughput" oriented configurations to serve up to four requests in parallel.
 
 To evaluate the models, we generate tokens up to a total sequence length of 1024, starting from
 256 input tokens (i.e. we generate 256, 512 and 768 tokens).
 
-### Encoding time
+## Encoding time (time to first token)
 
-The encoding time is the time required to process the input tokens and generate the first output token.
+The encoding time or time to first token is the time required to process the input tokens and generate the first output token.
 It is a very important metric, as it corresponds to the latency directly perceived by the user when streaming generated tokens.
 
 We test the encoding time for increasing context sizes, 256 input tokens corresponding roughly to a typical Q/A usage,
@@ -54,7 +52,7 @@ Encoding time is expressed in **seconds**.
 
 We can see that all deployed models exhibit excellent response times, even for long contexts.
 
-### End-to-end Latency
+## End-to-end Latency
 
 The end-to-end latency corresponds to the total time to reach a sequence length of 1024 tokens.
 
