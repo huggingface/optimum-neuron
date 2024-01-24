@@ -291,7 +291,7 @@ class NeuronGenerator(Generator):
         tokenizer.pad_token_id = tokenizer.eos_token_id
         tokenizer.padding_side = "left"
         self.tokenizer = tokenizer
-        self.special_tokens = [self.tokenizer.eos_token_id, self.tokenizer.pad_token_id]
+        self.special_tokens = self.tokenizer.all_special_ids
         self.slots = [Slot(i, tokenizer) for i in range(self.model.batch_size)]
 
     @property
