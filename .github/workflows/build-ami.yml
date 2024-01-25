@@ -1,0 +1,50 @@
+name: Build AWS Neuron AMI
+
+on:
+    push:
+      branches:
+        - main
+      paths:
+        - 'aws-ami-creation/**'
+  workflow_dispatch:
+  schedule:
+    # Schedule the workflow to run every second day at midnight UTC
+    - cron: '0 0 */2 * *'
+
+jobs:
+    build-ami:
+        defaults:
+          run:
+            working-directory: aws-ami-creation
+        runs-on: ubuntu-latest
+        steps:
+
+        - uses: actions/checkout@v3
+        - uses: hashicorp/setup-packer@main
+        
+        - name: configure aws credentials
+          uses: aws-actions/configure-aws-credentials@v1
+          with:
+            aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+            aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+            aws-region: us-east-1
+        
+        - name: Packer format
+          id: format
+          run: packer fmt hcl2-files
+          continue-on-error: true
+        
+        - name: Packer Init
+          id: init
+          run: packer init hcl2-files
+          continue-on-error: true
+        
+        - name: Packer Validate
+          id: validate
+          run: packer validate hcl2
+          continue-on-error: true
+        
+        - name: Packer Build
+          id: build
+          run: packer build hcl2
+        

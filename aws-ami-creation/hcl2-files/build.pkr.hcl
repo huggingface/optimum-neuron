@@ -3,11 +3,6 @@ build {
   sources = [
     "source.amazon-ebs.ubuntu"
   ]
-  // provisioner "shell" {
-  //   inline = [
-  //     "echo foo"
-  //   ]
-  // }
   provisioner "shell" {
     script = "scripts/validate_neuron_exist.sh"
   }

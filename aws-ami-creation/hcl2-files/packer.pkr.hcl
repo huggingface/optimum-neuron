@@ -1,6 +1,6 @@
 packer {
   required_plugins {
-    docker = {
+    amazon = {
       version = ">= 1.2.8"
       source  = "github.com/hashicorp/amazon"
     }
