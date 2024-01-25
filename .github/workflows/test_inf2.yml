@@ -43,6 +43,10 @@ jobs:
         run: |
           source aws_neuron_venv_pytorch/bin/activate
           HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m is_inferentia_test tests/cli
+      - name: Run generation tests
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m is_inferentia_test tests/generation
       - name: Run exporters tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
@@ -51,10 +55,6 @@ jobs:
         run: |
           source aws_neuron_venv_pytorch/bin/activate
           HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m is_inferentia_test tests/inference
-      - name: Run generation tests
-        run: |
-          source aws_neuron_venv_pytorch/bin/activate
-          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m is_inferentia_test tests/generation
       - name: Run pipelines tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
