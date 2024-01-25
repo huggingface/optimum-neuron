@@ -165,12 +165,19 @@ def test_decoder_cache_unavailable(cache_repos, var, value, match):
 @requires_neuronx
 def test_optimum_neuron_cli_cache_synchronize(cache_repos):
     cache_path, cache_repo_id = cache_repos
+    model_id = "hf-internal-testing/tiny-random-gpt2"
     # Export a model to populate the local cache
-    export_decoder_model("hf-internal-testing/tiny-random-gpt2")
+    export_decoder_model(model_id)
     # Synchronize the hub cache with the local cache
     command = "optimum-cli neuron cache synchronize".split()
+    p = subprocess.Popen(command, stdout=subprocess.PIPE)
+    p.communicate()
+    assert p.returncode == 0
+    assert_local_and_hub_cache_sync(cache_path, cache_repo_id)
+    # Check the model entry in the hub
+    command = f"optimum-cli neuron cache lookup {model_id}".split()
     p = subprocess.Popen(command, stdout=subprocess.PIPE)
     stdout, _ = p.communicate()
     stdout = stdout.decode("utf-8")
     assert p.returncode == 0
-    assert_local_and_hub_cache_sync(cache_path, cache_repo_id)
+    assert f"1 entrie(s) found in cache for {model_id}" in stdout
