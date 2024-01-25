@@ -156,8 +156,8 @@ class XLMRobertaNeuronConfig(CamembertNeuronConfig):
 
 # https://github.com/aws-neuron/aws-neuron-sdk/issues/642
 # Failed only for INF1: 'XSoftmax'
-@register_in_tasks_manager("deberta", *COMMON_TEXT_TASKS)
-class DebertaNeuronConfig(BertNeuronConfig):
+@register_in_tasks_manager("deberta", *([task for task in COMMON_TEXT_TASKS if task != "multiple-choice"]))
+class DebertaNeuronConfig(ConvBertNeuronConfig):
     @property
     def inputs(self) -> List[str]:
         common_inputs = super().inputs
@@ -169,8 +169,8 @@ class DebertaNeuronConfig(BertNeuronConfig):
 
 # https://github.com/aws-neuron/aws-neuron-sdk/issues/642
 # Failed only for INF1: 'XSoftmax'
-@register_in_tasks_manager("deberta-v2", *COMMON_TEXT_TASKS)
-class DebertaV2NeuronConfig(DebertaNeuronConfig):
+@register_in_tasks_manager("deberta-v2", *([task for task in COMMON_TEXT_TASKS if task != "multiple-choice"]))
+class DebertaV2NeuronConfig(ConvBertNeuronConfig):
     pass
 
 

@@ -260,7 +260,7 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel, ABC):
         force_download: bool = True,
         cache_dir: Optional[str] = None,
         compiler_workdir: Optional[str] = None,
-        inline_weights_to_neff: bool = False,
+        inline_weights_to_neff: bool = True,
         optlevel: str = "2",
         subfolder: str = "",
         local_files_only: bool = False,

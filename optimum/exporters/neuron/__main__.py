@@ -361,7 +361,7 @@ def main_export(
     atol: Optional[float] = None,
     cache_dir: Optional[str] = None,
     compiler_workdir: Optional[Union[str, Path]] = None,
-    inline_weights_to_neff: bool = False,
+    inline_weights_to_neff: bool = True,
     optlevel: str = "2",
     trust_remote_code: bool = False,
     subfolder: str = "",

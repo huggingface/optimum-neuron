@@ -273,7 +273,7 @@ def export_models(
     ],
     output_dir: Path,
     compiler_workdir: Optional[Path] = None,
-    inline_weights_to_neff: bool = False,
+    inline_weights_to_neff: bool = True,
     optlevel: str = "2",
     output_file_names: Optional[Dict[str, str]] = None,
     compiler_kwargs: Optional[Dict[str, Any]] = {},
@@ -289,7 +289,7 @@ def export_models(
             Output directory to store the exported Neuron models.
         compiler_workdir (`Optional[Path]`, defaults to `None`):
             The directory to store intermediary outputs of the neuron compiler.
-        inline_weights_to_neff (`bool`, defaults to `False`):
+        inline_weights_to_neff (`bool`, defaults to `True`):
             Whether to inline the weights to the neff graph. If set to False, weights will be seperated from the neff.
         optlevel (`str`, defaults to `"2"`):
             The level of optimization the compiler should perform. Can be `"1"`, `"2"` or `"3"`, defaults to "2".
@@ -397,7 +397,7 @@ def export(
     config: "NeuronConfig",
     output: Path,
     compiler_workdir: Optional[Path] = None,
-    inline_weights_to_neff: bool = False,
+    inline_weights_to_neff: bool = True,
     optlevel: str = "2",
     auto_cast: Optional[str] = None,
     auto_cast_type: str = "bf16",
@@ -428,7 +428,7 @@ def export_neuronx(
     config: "NeuronConfig",
     output: Path,
     compiler_workdir: Optional[Path] = None,
-    inline_weights_to_neff: bool = False,
+    inline_weights_to_neff: bool = True,
     optlevel: str = "2",
     auto_cast: Optional[str] = None,
     auto_cast_type: str = "bf16",
@@ -445,7 +445,7 @@ def export_neuronx(
             Directory to store the exported Neuron model.
         compiler_workdir (`Optional[Path]`, defaults to `None`):
             The directory used by neuronx-cc, where you can find intermediary outputs (neff, weight, hlo...).
-        inline_weights_to_neff (`bool`, defaults to `False`):
+        inline_weights_to_neff (`bool`, defaults to `True`):
             Whether to inline the weights to the neff graph. If set to False, weights will be seperated from the neff.
         optlevel (`str`, defaults to `"2"`):
             The level of optimization the compiler should perform. Can be `"1"`, `"2"` or `"3"`, defaults to "2".
@@ -519,6 +519,10 @@ def export_neuronx(
     )
 
     if config.dynamic_batch_size is True:
+        if not inline_weights_to_neff:
+            raise ValueError(
+                "Dynamic batching is not yet compatible with the weights/neff non-inlined model. Please set `dynamic_batch_size=False` or `inline_weights_to_neff=True`."
+            )
         neuron_model = neuronx.dynamic_batch(neuron_model)
 
     # diffusers specific
