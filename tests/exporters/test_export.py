@@ -65,7 +65,7 @@ def _get_models_to_test(
     models_to_test = []
     for model_type, model_names_tasks in export_models_dict.items():
         model_type = model_type.replace("_", "-")
-        if model_type not in exclude_model_types:
+        if exclude_model_types is None or (model_type not in exclude_model_types):
             task_config_mapping = TasksManager.get_supported_tasks_for_model_type(model_type, "neuron")
 
             if isinstance(model_names_tasks, str):  # test export of all tasks on the same model
