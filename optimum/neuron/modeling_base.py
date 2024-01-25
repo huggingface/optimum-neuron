@@ -46,7 +46,7 @@ from .utils.version_utils import check_compiler_compatibility, get_neuroncc_vers
 if TYPE_CHECKING:
     from transformers import PretrainedConfig
 
-    from ..exporters.neuron import NeuronConfig
+    from ..exporters.neuron import NeuronDefaultConfig
 
 
 logger = logging.getLogger(__name__)
@@ -83,7 +83,7 @@ class NeuronBaseModel(OptimizedModel):
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
         model_file_name: Optional[str] = None,
         preprocessors: Optional[List] = None,
-        neuron_config: Optional["NeuronConfig"] = None,
+        neuron_config: Optional["NeuronDefaultConfig"] = None,
         **kwargs,
     ):
         super().__init__(model, config)
@@ -144,7 +144,7 @@ class NeuronBaseModel(OptimizedModel):
         subfolder: str = "",
         local_files_only: bool = False,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
-        neuron_config: Optional["NeuronConfig"] = None,
+        neuron_config: Optional["NeuronDefaultConfig"] = None,
         **kwargs,
     ) -> "NeuronBaseModel":
         model_path = Path(model_id)
@@ -410,9 +410,9 @@ class NeuronBaseModel(OptimizedModel):
             self.auto_model_class.register(AutoConfig, self.__class__)
 
     @classmethod
-    def _neuron_config_init(cls, config: "PretrainedConfig") -> "NeuronConfig":
+    def _neuron_config_init(cls, config: "PretrainedConfig") -> "NeuronDefaultConfig":
         """
-        Builds a `NeuronConfig` with an instance of the `PretrainedConfig` and the task.
+        Builds a `NeuronDefaultConfig` with an instance of the `PretrainedConfig` and the task.
         """
         if not hasattr(config, "neuron"):
             logger.warning(
@@ -449,7 +449,7 @@ class NeuronBaseModel(OptimizedModel):
         )
 
     @classmethod
-    def get_input_static_shapes(cls, neuron_config: "NeuronConfig") -> Dict[str, int]:
+    def get_input_static_shapes(cls, neuron_config: "NeuronDefaultConfig") -> Dict[str, int]:
         """
         Gets a dictionary of inputs with their valid static shapes.
         """

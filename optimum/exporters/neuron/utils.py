@@ -67,7 +67,7 @@ if is_diffusers_available():
 if TYPE_CHECKING:
     from transformers.modeling_utils import PreTrainedModel
 
-    from .base import NeuronConfig
+    from .base import NeuronDefaultConfig
 
     if is_diffusers_available():
         from diffusers import ModelMixin, StableDiffusionPipeline, StableDiffusionXLImg2ImgPipeline
@@ -135,7 +135,7 @@ def get_stable_diffusion_models_for_export(
     vae_encoder_input_shapes: Dict[str, int],
     vae_decoder_input_shapes: Dict[str, int],
     dynamic_batch_size: Optional[bool] = False,
-) -> Dict[str, Tuple[Union["PreTrainedModel", "ModelMixin"], "NeuronConfig"]]:
+) -> Dict[str, Tuple[Union["PreTrainedModel", "ModelMixin"], "NeuronDefaultConfig"]]:
     """
     Returns the components of a Stable Diffusion model and their subsequent neuron configs.
     These components are chosen because they represent the bulk of the compute in the pipeline,
@@ -159,7 +159,7 @@ def get_stable_diffusion_models_for_export(
             Whether the Neuron compiled model supports dynamic batch size.
 
     Returns:
-        `Dict[str, Tuple[Union[`PreTrainedModel`, `ModelMixin`], `NeuronConfig`]`: A Dict containing the model and
+        `Dict[str, Tuple[Union[`PreTrainedModel`, `ModelMixin`], `NeuronDefaultConfig`]`: A Dict containing the model and
         Neuron configs for the different components of the model.
     """
     models_for_export = _get_submodels_for_export_stable_diffusion(pipeline=pipeline, task=task)
@@ -354,7 +354,7 @@ def get_encoder_decoder_models_for_export(
     dynamic_batch_size: Optional[bool] = False,
     output_attentions: bool = False,
     output_hidden_states: bool = False,
-) -> Dict[str, Tuple["PreTrainedModel", "NeuronConfig"]]:
+) -> Dict[str, Tuple["PreTrainedModel", "NeuronDefaultConfig"]]:
     """
     Returns the components of an encoder-decoder model and their subsequent neuron configs.
     The encoder includes the compute of encoder hidden states and the initialization of KV
@@ -374,7 +374,7 @@ def get_encoder_decoder_models_for_export(
             Whether or not for the traced model to return the hidden states of all layers.
 
     Returns:
-        `Dict[str, Tuple["PreTrainedModel", "NeuronConfig"]]`: A Dict containing the model and
+        `Dict[str, Tuple["PreTrainedModel", "NeuronDefaultConfig"]]`: A Dict containing the model and
         Neuron configs for the different components of the model.
     """
     models_for_export = {}

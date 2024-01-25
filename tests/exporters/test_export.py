@@ -26,7 +26,7 @@ from transformers import AutoConfig, AutoModelForSeq2SeqLM, set_seed
 from transformers.testing_utils import require_vision
 
 from optimum.exporters.neuron import (
-    NeuronConfig,
+    NeuronDefaultConfig,
     build_stable_diffusion_components_mandatory_shapes,
     export,
     export_models,
@@ -115,7 +115,7 @@ class NeuronExportTestCase(unittest.TestCase):
         model_type: str,
         model_name: str,
         task: str,
-        neuron_config_constructor: "NeuronConfig",
+        neuron_config_constructor: "NeuronDefaultConfig",
         dynamic_batch_size: bool = False,
         inline_weights_to_neff: bool = True,
     ):

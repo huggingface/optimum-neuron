@@ -181,12 +181,15 @@ class NeuronDecoderModel(OptimizedModel):
         use_auth_token: Optional[str] = None,
         revision: Optional[str] = None,
         task: Optional[str] = None,
-        batch_size: Optional[int] = 1,
+        batch_size: Optional[int] = None,
         sequence_length: Optional[int] = None,
-        num_cores: Optional[int] = 2,
+        num_cores: Optional[int] = None,
         auto_cast_type: Optional[str] = "fp32",
         **kwargs,
     ) -> "NeuronDecoderModel":
+        if not os.path.isdir("/sys/class/neuron_device/"):
+            raise SystemError("Decoder models can only be exported on a neuron platform.")
+
         if task is None:
             task = TasksManager.infer_task_from_model(cls.auto_model_class)
 
@@ -208,10 +211,15 @@ class NeuronDecoderModel(OptimizedModel):
             model_info = api.repo_info(model_id, revision=revision)
             checkpoint_revision = model_info.sha
 
+        if batch_size is None:
+            batch_size = 1
         # If the sequence_length was not specified, deduce it from the model configuration
         if sequence_length is None:
             # Note: for older models, max_position_embeddings is an alias for n_positions
             sequence_length = config.max_position_embeddings
+        if num_cores is None:
+            # Use all available cores
+            num_cores = len(os.listdir("/sys/class/neuron_device/")) * 2
 
         # Update the config
         config.neuron = {
