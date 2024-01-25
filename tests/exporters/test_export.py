@@ -106,7 +106,8 @@ class NeuronExportTestCase(unittest.TestCase):
 
     if is_neuron_available():
         # Deberta has 'XSoftmax' unsupported on INF1
-        map(lambda x: EXPORT_MODELS_TINY.pop(x), ["deberta", "deberta-v2"])
+        for model in ["deberta", "deberta-v2"]:
+            EXPORT_MODELS_TINY.pop(model)
 
     def _neuronx_export(
         self,
