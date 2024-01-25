@@ -44,7 +44,9 @@ SEQ2SEQ_MODEL_CLASSES = {
 }
 
 
-@pytest.fixture(scope="module", params=[DECODER_MODEL_NAMES[model_arch] for model_arch in DECODER_MODEL_ARCHITECTURES])
+@pytest.fixture(
+    scope="session", params=[DECODER_MODEL_NAMES[model_arch] for model_arch in DECODER_MODEL_ARCHITECTURES]
+)
 def export_decoder_id(request):
     return request.param
 
@@ -66,7 +68,7 @@ def export_seq2seq_model_class(request):
     return request.param
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 @requires_neuronx
 def neuron_decoder_path(export_decoder_id):
     model = NeuronModelForCausalLM.from_pretrained(
@@ -161,7 +163,7 @@ def neuron_seq2seq_greedy_path_with_optional_outputs(export_seq2seq_id):
     yield model_path
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def neuron_push_decoder_id(export_decoder_id):
     model_name = export_decoder_id.split("/")[-1]
     repo_id = f"{USER}/{model_name}-neuronx"
