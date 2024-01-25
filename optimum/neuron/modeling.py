@@ -747,6 +747,12 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
                 priority: 1) from the `generation_config.json` model file, if it exists; 2) from the model
                 configuration. Please note that unspecified parameters will inherit [`~transformers.generation.GenerationConfig`]'s
                 default values, whose documentation should be checked to parameterize generation.
+            stopping_criteria (`StoppingCriteriaList`, *optional*):
+                Custom stopping criteria that complement the default stopping criteria built from arguments and a
+                generation config. If a stopping criteria is passed that is already created with the arguments or a
+                generation config an error is thrown. If your stopping criteria depends on the `scores` input, make
+                sure you pass `return_dict_in_generate=True, output_scores=True` to `generate`. This feature is
+                intended for advanced users.
 
         Returns:
             `torch.Tensor`: A  `torch.FloatTensor`.
@@ -759,7 +765,8 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
 
         # Instantiate a TokenSelector for the specified configuration
         selector = TokenSelector.create(input_ids, generation_config, self, self.max_length)
-
+        if stopping_criteria is not None:
+            selector.stopping_criteria.append(stopping_criteria)
         # Verify that the inputs are compatible with the model static input dimensions
         batch_size, sequence_length = input_ids.shape
         if sequence_length > self.max_length:
