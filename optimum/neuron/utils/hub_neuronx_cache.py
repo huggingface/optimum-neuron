@@ -12,10 +12,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import hashlib
+import json
 import logging
 import os
 from contextlib import contextmanager
-from typing import Optional
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 from huggingface_hub import HfApi, get_token
 
@@ -196,10 +200,25 @@ def _create_hub_compile_cache_proxy(
     return CompileCacheHfProxy(cache_repo_id, default_cache, endpoint=endpoint, token=token)
 
 
+@dataclass
+class CacheEntry:
+    key: str
+    metadata: Dict[str, Any]
+
+
+REGISTRY_FOLDER = "registry"
+
+
 @requires_torch_neuronx
 @contextmanager
-def hub_neuronx_cache():
-    """A context manager to trigger the Hugging Face Hub proxy compiler cache"""
+def hub_neuronx_cache(entry: Optional[CacheEntry] = None):
+    """A context manager to activate the Hugging Face Hub proxy compiler cache.
+
+    Args:
+        entry (`CacheEntry`):
+            An optional dataclass containing metadata associated with the cache session.
+            Will create a dedicated entry in the cache registry.
+    """
 
     def hf_create_compile_cache(cache_url):
         try:
@@ -209,8 +228,27 @@ def hub_neuronx_cache():
             return create_compile_cache(cache_url)
 
     try:
+        default_cache = create_compile_cache(CacheUrl.get_cache_url())
         patch_everywhere("create_compile_cache", hf_create_compile_cache, "libneuronxla")
         yield
+        # The cache session ended without error
+        if entry is not None:
+            if isinstance(default_cache, CompileCacheS3):
+                logger.warning("Skipping cache metadata update on S3 cache.")
+            else:
+                # Create cache entry in local cache: it can be later synchronized with the hub cache
+                registry_path = default_cache.get_cache_dir_with_cache_key(REGISTRY_FOLDER)
+                entry_path = f"{registry_path}/{entry.key}"
+                metadata_json = json.dumps(entry.metadata, indent=4)
+                hash_gen = hashlib.sha512()
+                hash_gen.update(metadata_json.encode("utf-8"))
+                metadata_key = str(hash_gen.hexdigest())[:20]
+                metadata_path = f"{entry_path}/{metadata_key}.json"
+                if not default_cache.exists(metadata_path):
+                    oldmask = os.umask(000)
+                    Path(entry_path).mkdir(parents=True, exist_ok=True)
+                    os.umask(oldmask)
+                    default_cache.upload_string_to_file(metadata_path, metadata_json)
     finally:
         patch_everywhere("create_compile_cache", create_compile_cache, "libneuronxla")
 

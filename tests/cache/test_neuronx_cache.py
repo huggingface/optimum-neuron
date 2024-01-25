@@ -84,8 +84,15 @@ def check_decoder_generation(model):
         assert sample_output.shape[0] == batch_size
 
 
-def get_local_cached_files(cache_path):
-    return glob.glob(f"{cache_path}/**/*/*.*", recursive=True)
+def get_local_cached_files(cache_path, extension="*"):
+    return glob.glob(f"{cache_path}/**/*/*.{extension}", recursive=True)
+
+
+def check_cache_entry(model, cache_path):
+    local_files = get_local_cached_files(cache_path, "json")
+    model_id = model.config.neuron["checkpoint_id"]
+    model_configurations = [path for path in local_files if model_id in path]
+    assert len(model_configurations) > 0
 
 
 def assert_local_and_hub_cache_sync(cache_path, cache_repo_id):
@@ -109,6 +116,7 @@ def test_decoder_cache(cache_repos):
     # Export the model a first time to populate the local cache
     model = export_decoder_model("hf-internal-testing/tiny-random-gpt2")
     check_decoder_generation(model)
+    check_cache_entry(model, cache_path)
     # Synchronize the hub cache with the local cache
     synchronize_hub_cache(cache_repo_id=cache_repo_id)
     assert_local_and_hub_cache_sync(cache_path, cache_repo_id)
@@ -123,7 +131,7 @@ def test_decoder_cache(cache_repos):
     model = export_decoder_model("hf-internal-testing/tiny-random-gpt2")
     check_decoder_generation(model)
     # Verify the local cache directory has not been populated
-    assert local_cache_size(cache_path) == 0
+    assert len(get_local_cached_files(cache_path, "neff")) == 0
 
 
 @is_inferentia_test
