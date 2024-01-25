@@ -722,6 +722,7 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
         input_ids: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
         generation_config: Optional["GenerationConfig"] = None,
+        stopping_criteria: Optional["StoppingCriteriaList"] = None,
         **kwargs,
     ) -> torch.LongTensor:
         r"""
