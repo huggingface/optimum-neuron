@@ -19,6 +19,7 @@ import os
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any, Dict, Optional
 
 from huggingface_hub import HfApi, get_token
@@ -263,3 +264,24 @@ def synchronize_hub_cache(cache_repo_id: Optional[str] = None):
     """
     hub_cache_proxy = _create_hub_compile_cache_proxy(cache_repo_id=cache_repo_id)
     hub_cache_proxy.synchronize()
+
+
+def get_hub_cached_entries(model_id: str, cache_repo_id: Optional[str] = None):
+    if os.path.isdir(model_id):
+        raise ValueError("Please pass a hub model_id in the form <user>/<model>.")
+    if cache_repo_id is None:
+        cache_repo_id = get_hub_cache()
+    # Allocate a Hub API with refreshed information (required for tests altering the env)
+    endpoint = os.getenv("HF_ENDPOINT")
+    token = get_token()
+    api = HfApi(endpoint=endpoint, token=token)
+    repo_files = api.list_repo_files(cache_repo_id)
+    registry_pattern = REGISTRY_FOLDER + "/" + model_id
+    model_files = [path for path in repo_files if registry_pattern in path]
+    model_entries = []
+    with TemporaryDirectory() as tmpdir:
+        for model_path in model_files:
+            local_path = api.hf_hub_download(cache_repo_id, model_path, local_dir=tmpdir)
+            with open(local_path) as f:
+                model_entries.append(json.load(f))
+    return model_entries
