@@ -14,6 +14,7 @@
 # limitations under the License.
 import os
 import re
+from tempfile import TemporaryDirectory
 
 import pytest
 from generation_utils import check_neuron_model
@@ -22,7 +23,7 @@ from transformers.testing_utils import ENDPOINT_STAGING
 
 from optimum.neuron import NeuronModelForCausalLM, NeuronModelForSeq2SeqLM
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
-from optimum.utils.testing_utils import TOKEN
+from optimum.utils.testing_utils import TOKEN, USER
 
 
 @is_inferentia_test
@@ -60,12 +61,22 @@ def _test_push_to_hub(model, model_path, repo_id, ignore_patterns=[]):
         api.delete_repo(repo_id)
 
 
+def neuron_push_model_id(model_id):
+    model_name = model_id.split("/")[-1]
+    repo_id = f"{USER}/{model_name}-neuronx"
+    return repo_id
+
+
 @is_inferentia_test
 @requires_neuronx
-def test_push_decoder_to_hub(neuron_decoder_path, neuron_push_decoder_id):
-    model = NeuronModelForCausalLM.from_pretrained(neuron_decoder_path)
-    ignore_patterns = [model.CHECKPOINT_DIR + "/*"]
-    _test_push_to_hub(model, neuron_decoder_path, neuron_push_decoder_id, ignore_patterns)
+def test_push_decoder_to_hub():
+    model_id = "hf-internal-testing/tiny-random-gpt2"
+    model = NeuronModelForCausalLM.from_pretrained(model_id, export=True)
+    with TemporaryDirectory() as tmpdir:
+        model.save_pretrained(tmpdir)
+        ignore_patterns = [model.CHECKPOINT_DIR + "/*"]
+        neuron_push_decoder_id = neuron_push_model_id(model_id)
+        _test_push_to_hub(model, tmpdir, neuron_push_decoder_id, ignore_patterns)
 
 
 @is_inferentia_test
