@@ -110,6 +110,12 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         help="Enable dynamic batch size for neuron compiled model. If this option is enabled, the input batch size can be a multiple of the batch size during the compilation, but it comes with a potential tradeoff in terms of latency.",
     )
     optional_group.add_argument(
+        "--num_cores",
+        type=int,
+        default=None,
+        help="The number of cores on which the model should be deployed (text-generation only).",
+    )
+    optional_group.add_argument(
         "--unet",
         default=None,
         help=(

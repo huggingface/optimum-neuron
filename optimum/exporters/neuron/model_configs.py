@@ -256,7 +256,7 @@ class CLIPTextNeuronConfig(CLIPTextWithProjectionNeuronConfig):
 class SentenceTransformersCLIPNeuronConfig(CLIPNeuronConfig):
     CUSTOM_MODEL_WRAPPER = SentenceTransformersCLIPNeuronWrapper
     ATOL_FOR_VALIDATION = 1e-3
-    MANDATORY_AXES = ("batch_size", "sequence_length", "num_channels", "width", "height")
+    INPUT_ARGS = ("batch_size", "sequence_length", "num_channels", "width", "height")
 
     @property
     def outputs(self) -> List[str]:
@@ -269,7 +269,7 @@ class SentenceTransformersCLIPNeuronConfig(CLIPNeuronConfig):
 @register_in_tasks_manager("unet", *["semantic-segmentation"])
 class UNetNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
-    MANDATORY_AXES = ("batch_size", "sequence_length", "num_channels", "width", "height")
+    INPUT_ARGS = ("batch_size", "sequence_length", "num_channels", "width", "height")
     MODEL_TYPE = "unet"
     CUSTOM_MODEL_WRAPPER = UnetNeuronWrapper
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
@@ -416,7 +416,7 @@ class LLamaNeuronConfig(TextNeuronDecoderConfig):
 @register_in_tasks_manager("t5-encoder", "text2text-generation")
 class T5EncoderNeuronConfig(TextSeq2SeqNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
-    MANDATORY_AXES = ("batch_size", "sequence_length", "num_beams")
+    INPUT_ARGS = ("batch_size", "sequence_length", "num_beams")
     MODEL_TYPE = "t5-encoder"
     CUSTOM_MODEL_WRAPPER = T5EncoderWrapper
     NORMALIZED_CONFIG_CLASS = NormalizedSeq2SeqConfig.with_args(
@@ -451,7 +451,7 @@ class BloomNeuronConfig(TextNeuronDecoderConfig):
 class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
     DUMMY_INPUT_GENERATOR_CLASSES = TextSeq2SeqNeuronConfig.DUMMY_INPUT_GENERATOR_CLASSES + (DummyBeamValuesGenerator,)
-    MANDATORY_AXES = ("batch_size", "sequence_length", "num_beams")
+    INPUT_ARGS = ("batch_size", "sequence_length", "num_beams")
     MODEL_TYPE = "t5-decoder"
     CUSTOM_MODEL_WRAPPER = T5DecoderWrapper
     NORMALIZED_CONFIG_CLASS = T5LikeNormalizedTextConfig

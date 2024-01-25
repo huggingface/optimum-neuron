@@ -27,31 +27,31 @@ from ...utils import (
     DummyVisionInputGenerator,
     logging,
 )
-from .base import NeuronConfig, NeuronDecoderConfig
+from .base import NeuronDecoderConfig, NeuronDefaultConfig
 
 
 logger = logging.get_logger(__name__)
 
 
-class TextEncoderNeuronConfig(NeuronConfig):
+class TextEncoderNeuronConfig(NeuronDefaultConfig):
     """
     Handles encoder-based text architectures.
     """
 
     DUMMY_INPUT_GENERATOR_CLASSES = (DummyTextInputGenerator,)
-    MANDATORY_AXES = ("batch_size", "sequence_length", ("multiple-choice", "num_choices"))
+    INPUT_ARGS = ("batch_size", "sequence_length", ("multiple-choice", "num_choices"))
 
 
-class VisionNeuronConfig(NeuronConfig):
+class VisionNeuronConfig(NeuronDefaultConfig):
     """
     Handles vision architectures.
     """
 
     DUMMY_INPUT_GENERATOR_CLASSES = (DummyVisionInputGenerator,)
-    MANDATORY_AXES = ("batch_size", "num_channels", "width", "height")
+    INPUT_ARGS = ("batch_size", "num_channels", "width", "height")
 
 
-class TextAndVisionNeuronConfig(NeuronConfig):
+class TextAndVisionNeuronConfig(NeuronDefaultConfig):
     """
     Handles multi-modal text and vision architectures.
     """
@@ -67,7 +67,7 @@ class TextNeuronDecoderConfig(NeuronDecoderConfig):
     pass
 
 
-class TextSeq2SeqNeuronConfig(NeuronConfig):
+class TextSeq2SeqNeuronConfig(NeuronDefaultConfig):
     """
     Handles encoder-decoder-based text architectures.
     """

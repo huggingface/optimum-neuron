@@ -41,7 +41,7 @@ from .utils import DiffusersPretrainedConfig
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
 
-    from .base import NeuronConfig
+    from .base import NeuronDefaultConfig
 
 if is_neuron_available():
     import torch.neuron as neuron  # noqa: F811
@@ -67,7 +67,7 @@ logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 def validate_models_outputs(
     models_and_neuron_configs: Dict[
-        str, Tuple[Union["PreTrainedModel", "ModelMixin", torch.nn.Module], "NeuronConfig"]
+        str, Tuple[Union["PreTrainedModel", "ModelMixin", torch.nn.Module], "NeuronDefaultConfig"]
     ],
     neuron_named_outputs: List[List[str]],
     output_dir: Path,
@@ -79,7 +79,7 @@ def validate_models_outputs(
     The following method validates the Neuron models exported using the `export_models` method.
 
     Args:
-        models_and_neuron_configs (`Dict[str, Tuple[Union[`PreTrainedModel`, `ModelMixin`, `torch.nn.Module`], `NeuronConfig`]]):
+        models_and_neuron_configs (`Dict[str, Tuple[Union[`PreTrainedModel`, `ModelMixin`, `torch.nn.Module`], `NeuronDefaultConfig`]]):
             A dictionnary containing the models to export and their corresponding neuron configs.
         neuron_named_outputs (`List[List[str]]`):
             The names of the outputs to check.
@@ -134,7 +134,7 @@ def validate_models_outputs(
 
 
 def validate_model_outputs(
-    config: "NeuronConfig",
+    config: "NeuronDefaultConfig",
     reference_model: Union["PreTrainedModel", "SentenceTransformer", "ModelMixin"],
     neuron_model_path: Path,
     neuron_named_outputs: List[str],
@@ -144,7 +144,7 @@ def validate_model_outputs(
     Validates the export by checking that the outputs from both the reference and the exported model match.
 
     Args:
-        config ([`~optimum.neuron.exporter.NeuronConfig`]:
+        config ([`~optimum.neuron.exporter.NeuronDefaultConfig`]:
             The configuration used to export the model.
         reference_model ([`Union["PreTrainedModel", "SentenceTransformer", "ModelMixin"]`]):
             The model used for the export.
@@ -269,7 +269,7 @@ def validate_model_outputs(
 
 def export_models(
     models_and_neuron_configs: Dict[
-        str, Tuple[Union["PreTrainedModel", "ModelMixin", torch.nn.Module], "NeuronConfig"]
+        str, Tuple[Union["PreTrainedModel", "ModelMixin", torch.nn.Module], "NeuronDefaultConfig"]
     ],
     output_dir: Path,
     compiler_workdir: Optional[Path] = None,
@@ -282,7 +282,7 @@ def export_models(
     Exports a Pytorch model with multiple component models to separate files.
 
     Args:
-        models_and_neuron_configs (`Dict[str, Tuple[Union["PreTrainedModel", "ModelMixin", torch.nn.Module], `NeuronConfig`]]):
+        models_and_neuron_configs (`Dict[str, Tuple[Union["PreTrainedModel", "ModelMixin", torch.nn.Module], `NeuronDefaultConfig`]]):
             A dictionnary containing the models to export and their corresponding neuron configs.
         output_dir (`Path`):
             Output directory to store the exported Neuron models.
@@ -389,7 +389,7 @@ def export_models(
 
 def export(
     model: "PreTrainedModel",
-    config: "NeuronConfig",
+    config: "NeuronDefaultConfig",
     output: Path,
     compiler_workdir: Optional[Path] = None,
     optlevel: str = "2",
@@ -418,7 +418,7 @@ def export(
 
 def export_neuronx(
     model: "PreTrainedModel",
-    config: "NeuronConfig",
+    config: "NeuronDefaultConfig",
     output: Path,
     compiler_workdir: Optional[Path] = None,
     optlevel: str = "2",
@@ -431,7 +431,7 @@ def export_neuronx(
     Args:
         model ([`PreTrainedModel`]):
             The model to export.
-        config ([`~exporter.NeuronConfig`]):
+        config ([`~exporter.NeuronDefaultConfig`]):
             The Neuron configuration associated with the exported model.
         output (`Path`):
             Directory to store the exported Neuron model.
@@ -553,7 +553,7 @@ def improve_stable_diffusion_loading(config, neuron_model):
 
 def export_neuron(
     model: "PreTrainedModel",
-    config: "NeuronConfig",
+    config: "NeuronDefaultConfig",
     output: Path,
     auto_cast: Optional[str] = None,
     auto_cast_type: str = "bf16",
@@ -566,7 +566,7 @@ def export_neuron(
     Args:
         model ([`PreTrainedModel`]):
             The model to export.
-        config ([`~exporter.NeuronConfig`]):
+        config ([`~exporter.NeuronDefaultConfig`]):
             The Neuron configuration associated with the exported model.
         output (`Path`):
             Directory to store the exported Neuron model.
