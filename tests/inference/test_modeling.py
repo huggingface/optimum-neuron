@@ -136,6 +136,26 @@ class NeuronModelIntegrationTest(NeuronModelIntegrationTestMixin):
             self.assertTrue(os.path.isdir(save_path))
             self.assertTrue(os.path.exists(neff_path))
 
+    @requires_neuronx
+    def test_decouple_weights_neff_and_replace_weight(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            # compile
+            save_path = f"{tempdir}/neff"
+            neuron_model = NeuronModelForSequenceClassification.from_pretrained(
+                self.MODEL_ID,
+                export=True,
+                compiler_workdir=save_path,
+                inline_weights_to_neff=False,
+                **self.STATIC_INPUTS_SHAPES,
+            )
+            self.assertFalse(neuron_model.config.neuron.get("inline_weights_to_neff"))
+
+            # replace weights
+            model = AutoModelForSequenceClassification.from_pretrained(self.MODEL_ID)
+            neuron_model.replace_wights(weights=model)
+
+            self.assertIsInstance(neuron_model.model, torch.jit._script.ScriptModule)
+
 
 @is_inferentia_test
 class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
@@ -149,7 +169,7 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
             "camembert",
             # "convbert",  # accuracy off compared to pytorch: atol=1e-1
             # "deberta",  # INF2 only
-            # "deberta_v2",  # INF2 only
+            # "deberta-v2",  # INF2 only
             # "distilbert",  # accuracy off compared to pytorch: atol=1e-1
             "electra",
             # "flaubert",  # accuracy off compared to pytorch (not due to the padding)
@@ -165,16 +185,16 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
             "albert",
             "bert",
             "camembert",
-            # "convbert",  # accuracy off compared to pytorch: atol=1e-2
-            # "deberta",  # INF2 only
-            # "deberta_v2",  # INF2 only
+            "convbert",
+            "deberta",
+            "deberta-v2",
             "distilbert",
             "electra",
-            # "flaubert",  # accuracy off compared to pytorch (not due to the padding)
+            "flaubert",
             "mobilebert",
             "roberta",
             "roformer",
-            # "xlm",  # accuracy off compared to pytorch (not due to the padding)
+            "xlm",
             "xlm-roberta",
         ]
     else:
@@ -217,7 +237,7 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
             torch.allclose(
                 neuron_outputs_dyn.last_hidden_state,
                 transformers_outputs.last_hidden_state,
-                atol=self.ATOL_FOR_VALIDATION,
+                atol=neuron_model_dyn.neuron_config.ATOL_FOR_VALIDATION or self.ATOL_FOR_VALIDATION,
             )
         )
 
@@ -265,7 +285,7 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
             torch.allclose(
                 neuron_outputs_non_dyn.last_hidden_state,
                 transformers_outputs.last_hidden_state,
-                atol=self.ATOL_FOR_VALIDATION,
+                atol=neuron_model_non_dyn.neuron_config.ATOL_FOR_VALIDATION or self.ATOL_FOR_VALIDATION,
             )
         )
 
@@ -372,8 +392,6 @@ class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
             "bert",
             "camembert",
             # "convbert",  # accuracy off compared to pytorch: atol=1e-1
-            # "deberta",  # INF2 only
-            # "deberta_v2",  # INF2 only
             # "distilbert",  # accuracy off compared to pytorch: atol=1e-1
             "electra",
             # "flaubert",  # accuracy off compared to pytorch (not due to the padding)
@@ -389,16 +407,16 @@ class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
             "albert",
             "bert",
             "camembert",
-            # "convbert",  # accuracy off compared to pytorch: atol=1e-2
-            # "deberta",  # INF2 only
-            # "deberta_v2",  # INF2 only
+            "convbert",
+            "deberta",
+            "deberta-v2",
             "distilbert",
             "electra",
-            # "flaubert",  # accuracy off compared to pytorch (not due to the padding)
+            "flaubert",
             "mobilebert",
             "roberta",
             "roformer",
-            # "xlm",  # accuracy off compared to pytorch (not due to the padding)
+            "xlm",
             "xlm-roberta",
         ]
     else:
@@ -538,8 +556,6 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
             "bert",
             "camembert",
             # "convbert",  # accuracy off compared to pytorch: atol=1e-1
-            # "deberta",  # INF2 only
-            # "deberta_v2",  # INF2 only
             # "distilbert",  # accuracy off compared to pytorch: atol=1e-1
             "electra",
             # "flaubert",  # accuracy off compared to pytorch (not due to the padding)
@@ -555,16 +571,16 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
             "albert",
             "bert",
             "camembert",
-            # "convbert",  # accuracy off compared to pytorch: atol=1e-2
-            # "deberta",  # INF2 only
-            # "deberta_v2",  # INF2 only
+            "convbert",
+            "deberta",
+            "deberta-v2",
             "distilbert",
             "electra",
-            # "flaubert",  # accuracy off compared to pytorch (not due to the padding)
+            "flaubert",
             "mobilebert",
             "roberta",
             "roformer",
-            # "xlm",  # accuracy off compared to pytorch (not due to the padding)
+            "xlm",
             "xlm-roberta",
         ]
     else:
@@ -739,7 +755,7 @@ class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
             "camembert",
             # "convbert",  # accuracy off compared to pytorch: atol=1e-1
             # "deberta",  # INF2 only
-            # "deberta_v2",  # INF2 only
+            # "deberta-v2",  # INF2 only
             # "distilbert",  # accuracy off compared to pytorch: atol=1e-1
             "electra",
             # "flaubert",  # accuracy off compared to pytorch (not due to the padding)
@@ -755,16 +771,16 @@ class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
             "albert",
             "bert",
             "camembert",
-            # "convbert",  # accuracy off compared to pytorch: atol=1e-2
-            # "deberta",  # INF2 only
-            # "deberta_v2",  # INF2 only
+            "convbert",
+            "deberta",
+            "deberta-v2",
             "distilbert",
             "electra",
-            # "flaubert",  # accuracy off compared to pytorch (not due to the padding)
+            "flaubert",
             "mobilebert",
             "roberta",
             "roformer",
-            # "xlm",  # accuracy off compared to pytorch (not due to the padding)
+            "xlm",
             "xlm-roberta",
         ]
     else:
@@ -908,7 +924,7 @@ class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
             "camembert",
             # "convbert",  # accuracy off compared to pytorch: atol=1e-1
             # "deberta",  # INF2 only
-            # "deberta_v2",  # INF2 only
+            # "deberta-v2",  # INF2 only
             # "distilbert",  # accuracy off compared to pytorch: atol=1e-1
             "electra",
             # "flaubert",  # accuracy off compared to pytorch (not due to the padding)
@@ -924,16 +940,16 @@ class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
             "albert",
             "bert",
             "camembert",
-            # "convbert",  # accuracy off compared to pytorch: atol=1e-2
-            # "deberta",  # INF2 only
-            # "deberta_v2",  # INF2 only
+            "convbert",
+            "deberta",
+            "deberta-v2",
             "distilbert",
             "electra",
-            # "flaubert",  # accuracy off compared to pytorch (not due to the padding)
+            "flaubert",
             "mobilebert",
             "roberta",
             "roformer",
-            # "xlm",  # accuracy off compared to pytorch (not due to the padding)
+            "xlm",
             "xlm-roberta",
         ]
     else:
@@ -1077,7 +1093,7 @@ class NeuronModelForMultipleChoiceIntegrationTest(NeuronModelTestMixin):
             "camembert",
             # "convbert",  # accuracy off compared to pytorch: atol=1e-1
             # "deberta",  # INF2 only
-            # "deberta_v2",  # INF2 only
+            # "deberta-v2",  # INF2 only
             # "distilbert",  # accuracy off compared to pytorch: atol=1e-1
             "electra",
             # "flaubert",  # accuracy off compared to pytorch (not due to the padding)
@@ -1093,16 +1109,14 @@ class NeuronModelForMultipleChoiceIntegrationTest(NeuronModelTestMixin):
             "albert",
             "bert",
             "camembert",
-            # "convbert",  # accuracy off compared to pytorch: atol=1e-2
-            # "deberta",  # INF2 only
-            # "deberta_v2",  # INF2 only
+            "convbert",
             "distilbert",
             "electra",
-            # "flaubert",  # accuracy off compared to pytorch (not due to the padding)
+            "flaubert",
             "mobilebert",
             "roberta",
-            # "roformer",  # accuracy off compared to pytorch: atol=1e-1
-            # "xlm",  # accuracy off compared to pytorch (not due to the padding)
+            "roformer",
+            "xlm",
             # "xlm-roberta",  # Aborted (core dumped)
         ]
     else:
