@@ -1,9 +1,78 @@
+# Building AMI with Packer
+
+This directory contains the files for building AMI using [Packer](https://github.com/hashicorp/packer) that is later published as a AWS Marketplace asset.
+
+
+
 ## Folder Structure
 
-- `hcl2-files/`: This directory contains various files related to packer.
-- `scripts/`: This directory contains scripts used by packer provisner for installing additonal packages/softwares.
+- [hcl2-files](./hcl2-files/) - Includes different files which are used by a Packer pipeline to build an AMI. The files are:
+  - [build.pkr.hcl](./hcl2-files/build.pkr.hcl): contains the [build](https://developer.hashicorp.com/packer/docs/templates/hcl_templates/blocks/build) defines what builders are started, how to provision them using [provisioner](https://developer.hashicorp.com/packer/docs/templates/hcl_templates/blocks/build/provisioner) and if necessary what to do with their artifacts using `post-process`.
+  - [variables.pkr.hcl](./hcl2-files/variables.pkr.hcl): contains [variables](https://developer.hashicorp.com/packer/docs/templates/hcl_templates/blocks/variable) block that defines variables within your Packer configuration.
+  - [sources.pkr.hcl](./hcl2-files/sources.pkr.hcl): contains the [source](https://developer.hashicorp.com/packer/docs/templates/hcl_templates/blocks/source) block that defines reusable builder configuration blocks.
+  - [packer.pkr.hcl](./hcl2-files/packer.pkr.hcl): contains the [packer](https://developer.hashicorp.com/packer/docs/templates/hcl_templates/blocks/packer) block that is used to configure some behaviors of Packer itself, such as the minimum required Packer version needed to apply your configuration.
+- [scripts](./scripts): contains scripts used by [provisioner](https://developer.hashicorp.com/packer/docs/templates/hcl_templates/blocks/build/provisioner) for installing additonal packages/softwares.
 
 
-## Usage
+### Prerequisites
+ - [Packer](https://developer.hashicorp.com/packer/docs/intro): Packer is an open source tool for creating identical machine images for multiple platforms from a single source configuration.
 
-[Add instructions or usage guidelines here if applicable]
+ - AWS Credentials: You need to have AWS credentials configured on your machine. You can configure AWS credentials using [AWS CLI](https://github.com/aws/aws-cli) or by setting environment variables.
+
+ #### Install Packer on Ubuntu/Debian
+ ```bash
+ curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo apt-key add -
+ sudo apt-add-repository "deb [arch=amd64] https://apt.releases.hashicorp.com $(lsb_release -cs) main"
+ sudo apt-get update && sudo apt-get install packer
+ ```
+
+You can also install Packer for other OS from [here](https://developer.hashicorp.com/packer/tutorials/docker-get-started/get-started-install-cli).
+
+#### Configure AWS Credentials
+
+Using Environment Variables:
+```bash
+export AWS_ACCESS_KEY_ID=<access_key>
+export AWS_SECRET_ACCESS_KEY=<secret_key>
+````
+
+Using AWS CLI:
+```bash
+aws configure
+```
+
+There are other ways to configure AWS credentials. You can read more about it [here](https://github.com/aws/aws-cli?tab=readme-ov-file#configuration).
+
+### Build AMI
+
+#### Format Packer blocks
+You can format your HCL2 files locally. This command will update your files in place.
+
+Format a single file:
+```bash
+packer fmt build.pkr.hcl 
+```
+
+Format all files in a directory:
+```bash
+packer fmt ./hcl2-files
+```
+
+#### Validate Packer blocks
+You can validate the syntax and configuration of your files locally. This command will return a zero exit status on success, and a non-zero exit status on failure. 
+
+```bash
+packer validate ./hcl2-files
+```
+
+#### Run Packer build
+You can run Packer locally. This command will build the AMI and upload it to AWS.
+
+```bash
+packer build ./hcl2-files
+```
+
+You can also override variables using `-var` flag. For example, to override `region` variable:
+```bash
+packer build -var 'region=us-west-2' ./hcl2-files
+```
