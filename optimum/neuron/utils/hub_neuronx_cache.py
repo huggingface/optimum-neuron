@@ -207,7 +207,7 @@ class CacheEntry:
     metadata: Dict[str, Any]
 
 
-REGISTRY_FOLDER = "registry"
+REGISTRY_FOLDER = "0_REGISTRY"
 
 
 @requires_torch_neuronx
