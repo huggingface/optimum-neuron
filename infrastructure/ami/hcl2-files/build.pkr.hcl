@@ -4,9 +4,9 @@ build {
     "source.amazon-ebs.ubuntu"
   ]
   provisioner "shell" {
-    script = "scripts/validate_neuron_exist.sh"
+    script = "scripts/setup-neuron.sh"
   }
   provisioner "shell" {
-    script = "scripts/install_huggingface_libraries.sh"
+    script = "scripts/install-huggingface-libraries.sh"
   }
 }

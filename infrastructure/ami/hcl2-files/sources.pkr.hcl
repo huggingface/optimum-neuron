@@ -1,5 +1,5 @@
 source "amazon-ebs" "ubuntu" {
-  ami_name      = "huggingface-neuron-dl-ami-ubuntu-22.04_{{timestamp}}"
+  ami_name      = "huggingface-neuron-dl-ami-ubuntu-20.04_{{timestamp}}"
   instance_type = var.instance_type
   region        = var.region
   source_ami    = var.source_ami
@@ -7,7 +7,7 @@ source "amazon-ebs" "ubuntu" {
   launch_block_device_mappings {
     device_name           = "/dev/sda1"
     encrypted             = true
-    volume_size           = 100
+    volume_size           = 512
     volume_type           = "gp2"
     delete_on_termination = true
   }
