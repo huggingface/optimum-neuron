@@ -248,27 +248,27 @@ class CustomCacheRepoCommand(BaseOptimumCLICommand):
         ),
         CommandInfo(
             name="set",
-            help="Set the name of the Neuron cache repo to use locally.",
+            help="Set the name of the Neuron cache repo to use locally (trainium only).",
             subcommand_class=SetCustomCacheRepoCommand,
         ),
         CommandInfo(
             name="add",
-            help="Add a model to the cache of your choice.",
+            help="Add a model to the cache of your choice (trainium only).",
             subcommand_class=AddToCacheRepoCommand,
         ),
         CommandInfo(
             name="list",
-            help="List models in a cache repo.",
+            help="List models in a cache repo (trainium only).",
             subcommand_class=ListRepoCommand,
         ),
         CommandInfo(
             name="synchronize",
-            help="Synchronize the neuronx compiler cache with a hub cache repo.",
+            help="Synchronize the neuronx compiler cache with a hub cache repo (inferentia only).",
             subcommand_class=SynchronizeRepoCommand,
         ),
         CommandInfo(
             name="lookup",
-            help="Lookup the neuronx compiler hub cache for the specified model id.",
+            help="Lookup the neuronx compiler hub cache for the specified model id (inferentia only).",
             subcommand_class=LookupRepoCommand,
         ),
     )
