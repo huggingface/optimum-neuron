@@ -93,12 +93,16 @@ class ConvBertNeuronConfig(BertNeuronConfig):
 
 
 @register_in_tasks_manager("electra", *COMMON_TEXT_TASKS)
-class ElectraNeuronConfig(ConvBertNeuronConfig):
-    pass
+class ElectraNeuronConfig(BertNeuronConfig):
+    @property
+    def outputs(self) -> List[str]:
+        if self.task == "feature-extraction":
+            return ["last_hidden_state"]
+        return self._TASK_TO_COMMON_OUTPUTS[self.task]
 
 
 @register_in_tasks_manager("flaubert", *COMMON_TEXT_TASKS)
-class FlaubertNeuronConfig(ConvBertNeuronConfig):
+class FlaubertNeuronConfig(ElectraNeuronConfig):
     pass
 
 
@@ -108,12 +112,12 @@ class MobileBertNeuronConfig(BertNeuronConfig):
 
 
 @register_in_tasks_manager("roformer", *COMMON_TEXT_TASKS)
-class RoFormerNeuronConfig(ConvBertNeuronConfig):
+class RoFormerNeuronConfig(ElectraNeuronConfig):
     pass
 
 
 @register_in_tasks_manager("xlm", *COMMON_TEXT_TASKS)
-class XLMNeuronConfig(ConvBertNeuronConfig):
+class XLMNeuronConfig(ElectraNeuronConfig):
     pass
 
 
@@ -159,7 +163,7 @@ class XLMRobertaNeuronConfig(CamembertNeuronConfig):
 # https://github.com/aws-neuron/aws-neuron-sdk/issues/642
 # Failed only for INF1: 'XSoftmax'
 @register_in_tasks_manager("deberta", *([task for task in COMMON_TEXT_TASKS if task != "multiple-choice"]))
-class DebertaNeuronConfig(ConvBertNeuronConfig):
+class DebertaNeuronConfig(ElectraNeuronConfig):
     @property
     def inputs(self) -> List[str]:
         common_inputs = super().inputs
@@ -172,7 +176,7 @@ class DebertaNeuronConfig(ConvBertNeuronConfig):
 # https://github.com/aws-neuron/aws-neuron-sdk/issues/642
 # Failed only for INF1: 'XSoftmax'
 @register_in_tasks_manager("deberta-v2", *([task for task in COMMON_TEXT_TASKS if task != "multiple-choice"]))
-class DebertaV2NeuronConfig(ConvBertNeuronConfig):
+class DebertaV2NeuronConfig(ElectraNeuronConfig):
     pass
 
 
