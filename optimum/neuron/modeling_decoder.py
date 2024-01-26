@@ -28,7 +28,7 @@ from transformers import AutoConfig, AutoModel, GenerationConfig
 from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..exporters.tasks import TasksManager
 from ..modeling_base import OptimizedModel
-from .utils import hub_neuronx_cache, is_transformers_neuronx_available
+from .utils import CacheEntry, hub_neuronx_cache, is_transformers_neuronx_available
 from .utils.require_utils import requires_transformers_neuronx
 from .utils.version_utils import check_compiler_compatibility, get_neuronxcc_version
 
@@ -124,7 +124,10 @@ class NeuronDecoderModel(OptimizedModel):
         # Compile the Neuron model (if present compiled artifacts will be reloaded instead of compiled)
         neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
         os.environ["NEURON_CC_FLAGS"] = neuron_cc_flags + " --model-type=transformer"
-        with hub_neuronx_cache():
+        checkpoint_id = neuron_config.get("checkpoint_id", None)
+        # Only create a cache entry if the model comes from the hub
+        cache_entry = None if checkpoint_id is None else CacheEntry(neuron_config["checkpoint_id"], neuron_config)
+        with hub_neuronx_cache(entry=cache_entry):
             neuronx_model.to_neuron()
         os.environ["NEURON_CC_FLAGS"] = neuron_cc_flags
 
