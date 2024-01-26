@@ -154,12 +154,13 @@ The Optimum CLI can be used to perform various cache-related tasks, as described
 usage: optimum-cli neuron cache [-h] {create,set,add,list} ...
 
 positional arguments:
-  {create,set,add,list}
+  {create,set,add,list,synchronize,lookup}
     create              Create a model repo on the Hugging Face Hub to store Neuron X compilation files.
     set                 Set the name of the Neuron cache repo to use locally (trainium only).
     add                 Add a model to the cache of your choice (trainium only).
     list                List models in a cache repo (trainium only).
     synchronize         Synchronize local compiler cache with the hub cache (inferentia only).
+    lookup              Lookup the neuronx compiler hub cache for the specified model id (inferentia only).
 
 optional arguments:
   -h, --help            show this help message and exit
