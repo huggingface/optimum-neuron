@@ -525,7 +525,7 @@ def main():
         atol=args.atol,
         cache_dir=args.cache_dir,
         compiler_workdir=args.compiler_workdir,
-        inline_weights_to_neff=args.enable_weights_neff_inline,
+        inline_weights_to_neff=not args.disable_weights_neff_inline,
         optlevel=optlevel,
         trust_remote_code=args.trust_remote_code,
         subfolder=args.subfolder,
