@@ -216,7 +216,7 @@ def hub_neuronx_cache(entry: Optional[CacheEntry] = None):
     """A context manager to activate the Hugging Face Hub proxy compiler cache.
 
     Args:
-        entry (`CacheEntry`):
+        entry (`Optional[CacheEntry]`, defaults to `None`):
             An optional dataclass containing metadata associated with the cache session.
             Will create a dedicated entry in the cache registry.
     """
