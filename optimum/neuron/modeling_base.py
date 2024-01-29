@@ -112,7 +112,7 @@ class NeuronBaseModel(OptimizedModel):
             model = torch.jit.load(path)
             return model
 
-    def replace_wights(self, weights: Union[Dict[str, torch.Tensor], torch.nn.Module] = None):
+    def replace_weights(self, weights: Optional[Union[Dict[str, torch.Tensor], torch.nn.Module]] = None):
         check_if_weights_replacable(self.config, weights)
         if weights is not None:
             replace_weights(self.model, weights)
