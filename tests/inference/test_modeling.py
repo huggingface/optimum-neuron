@@ -152,7 +152,7 @@ class NeuronModelIntegrationTest(NeuronModelIntegrationTestMixin):
 
             # replace weights
             model = AutoModelForSequenceClassification.from_pretrained(self.MODEL_ID)
-            neuron_model.replace_wights(weights=model)
+            neuron_model.replace_weights(weights=model)
 
             self.assertIsInstance(neuron_model.model, torch.jit._script.ScriptModule)
 
