@@ -17,12 +17,12 @@ import json
 import logging
 import os
 from contextlib import contextmanager
-from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from huggingface_hub import HfApi, get_token
+from transformers import AutoConfig, PretrainedConfig
 
 from ..version import __version__
 from .import_utils import is_neuronx_available
@@ -201,10 +201,33 @@ def _create_hub_compile_cache_proxy(
     return CompileCacheHfProxy(cache_repo_id, default_cache, endpoint=endpoint, token=token)
 
 
-@dataclass
-class CacheEntry:
-    key: str
-    metadata: Dict[str, Any]
+class ModelCacheEntry:
+    """A class describing a model cache entry
+
+    Args:
+        model_id (`str`):
+            The model id, used as a key for the cache entry.
+        config (`~transformers.PretrainedConfig`):
+            The configuration of the model.
+
+    """
+
+    def __init__(self, model_id: str, config: PretrainedConfig):
+        self.model_id = model_id
+        # Remove keys set to default values
+        self.config = config.to_diff_dict()
+        excluded_keys = ["_name_or_path", "transformers_version"]
+        for key in excluded_keys:
+            self.config.pop(key, None)
+
+    def to_json(self) -> str:
+        return json.dumps(self.config)
+
+    @property
+    def hash(self):
+        hash_gen = hashlib.sha512()
+        hash_gen.update(self.to_json().encode("utf-8"))
+        return str(hash_gen.hexdigest())[:20]
 
 
 REGISTRY_FOLDER = f"0_REGISTRY/{__version__}"
@@ -212,13 +235,13 @@ REGISTRY_FOLDER = f"0_REGISTRY/{__version__}"
 
 @requires_torch_neuronx
 @contextmanager
-def hub_neuronx_cache(entry: Optional[CacheEntry] = None):
+def hub_neuronx_cache(entry: Optional[ModelCacheEntry] = None):
     """A context manager to activate the Hugging Face Hub proxy compiler cache.
 
     Args:
-        entry (`Optional[CacheEntry]`, defaults to `None`):
-            An optional dataclass containing metadata associated with the cache session.
-            Will create a dedicated entry in the cache registry.
+        entry (`Optional[ModelCacheEntry]`, defaults to `None`):
+            An optional dataclass containing metadata associated with the model corresponding
+            to the cache session. Will create a dedicated entry in the cache registry.
     """
 
     def hf_create_compile_cache(cache_url):
@@ -239,17 +262,14 @@ def hub_neuronx_cache(entry: Optional[CacheEntry] = None):
             else:
                 # Create cache entry in local cache: it can be later synchronized with the hub cache
                 registry_path = default_cache.get_cache_dir_with_cache_key(REGISTRY_FOLDER)
-                entry_path = f"{registry_path}/{entry.key}"
-                metadata_json = json.dumps(entry.metadata, indent=4)
-                hash_gen = hashlib.sha512()
-                hash_gen.update(metadata_json.encode("utf-8"))
-                metadata_key = str(hash_gen.hexdigest())[:20]
-                metadata_path = f"{entry_path}/{metadata_key}.json"
-                if not default_cache.exists(metadata_path):
+                model_type = entry.config["model_type"]
+                entry_path = f"{registry_path}/{model_type}/{entry.model_id}"
+                config_path = f"{entry_path}/{entry.hash}.json"
+                if not default_cache.exists(config_path):
                     oldmask = os.umask(000)
                     Path(entry_path).mkdir(parents=True, exist_ok=True)
                     os.umask(oldmask)
-                    default_cache.upload_string_to_file(metadata_path, metadata_json)
+                    default_cache.upload_string_to_file(config_path, entry.to_json())
     finally:
         patch_everywhere("create_compile_cache", create_compile_cache, "libneuronxla")
 
@@ -267,8 +287,6 @@ def synchronize_hub_cache(cache_repo_id: Optional[str] = None):
 
 
 def get_hub_cached_entries(model_id: str, cache_repo_id: Optional[str] = None):
-    if os.path.isdir(model_id):
-        raise ValueError("Please pass a hub model_id in the form <user>/<model>.")
     if cache_repo_id is None:
         cache_repo_id = get_hub_cache()
     # Allocate a Hub API with refreshed information (required for tests altering the env)
@@ -276,12 +294,20 @@ def get_hub_cached_entries(model_id: str, cache_repo_id: Optional[str] = None):
     token = get_token()
     api = HfApi(endpoint=endpoint, token=token)
     repo_files = api.list_repo_files(cache_repo_id)
-    registry_pattern = REGISTRY_FOLDER + "/" + model_id
+    # Get the config corresponding to the model
+    target_entry = ModelCacheEntry(model_id, (AutoConfig.from_pretrained(model_id)))
+    # Extract model type: it will be used as primary key for lookup
+    model_type = target_entry.config["model_type"]
+    registry_pattern = REGISTRY_FOLDER + "/" + model_type
     model_files = [path for path in repo_files if registry_pattern in path]
     model_entries = []
     with TemporaryDirectory() as tmpdir:
         for model_path in model_files:
             local_path = api.hf_hub_download(cache_repo_id, model_path, local_dir=tmpdir)
             with open(local_path) as f:
-                model_entries.append(json.load(f))
+                entry_config = json.load(f)
+                # All config parameters but neuron config must match
+                neuron_config = entry_config.pop("neuron")
+                if entry_config == target_entry.config:
+                    model_entries.append(neuron_config)
     return model_entries
