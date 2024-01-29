@@ -538,7 +538,9 @@ def replace_weights(
             model.weights._c.setattr(module_path, weights[module_path.replace(prefix + "->", "").replace("->", ".")])
 
 
-def check_if_weights_replacable(config: "PretrainedConfig", weights: Optional[Union[Dict[str, torch.Tensor], torch.nn.Module]]):
+def check_if_weights_replacable(
+    config: "PretrainedConfig", weights: Optional[Union[Dict[str, torch.Tensor], torch.nn.Module]]
+):
     is_weights_neff_separated = (
         not config.neuron.get("inline_weights_to_neff", True) if hasattr(config, "neuron") else False
     )

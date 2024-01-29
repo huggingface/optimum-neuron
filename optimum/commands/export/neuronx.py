@@ -88,7 +88,7 @@ def parse_args_neuronx(parser: "ArgumentParser"):
     optional_group.add_argument(
         "--disable-weights-neff-inline",
         action="store_true",
-        help="Whether to inline the weights to the neff graph.",
+        help="Whether to disable the weights / neff graph inline. You can only replace weights of neuron-compiled models when the weights-neff inlining has been disabled during the compilation.",
     )
     optional_group.add_argument(
         "--disable-validation",
