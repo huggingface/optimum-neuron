@@ -7,6 +7,9 @@ on:
       paths:
         - 'aws-ami-creation/**'
   workflow_dispatch:
+    inputs: 
+      tag: 
+        description: 'Tag to use for the AMI'
   schedule:
     # Schedule the workflow to run every second day at midnight UTC
     - cron: '0 0 */2 * *'
@@ -15,13 +18,20 @@ jobs:
     build-ami:
         defaults:
           run:
-            working-directory: aws-ami-creation
+            working-directory: infrastructure/ami
         runs-on: ubuntu-latest
         steps:
 
         - uses: actions/checkout@v3
         - uses: hashicorp/setup-packer@main
-        
+
+        - name: Determine tag
+          id: determine-tag
+          run: echo "::set-output name=TAG::${{ github.event.inputs.tag || github.ref }}"
+
+        - name: Use specific tag
+          run: echo "Building tag ${{ steps.determine-tag.outputs.TAG }}"
+
         - name: configure aws credentials
           uses: aws-actions/configure-aws-credentials@v1
           with:
@@ -41,10 +51,12 @@ jobs:
         
         - name: Packer Validate
           id: validate
-          run: packer validate hcl2
+          run: packer validate hcl2-files
           continue-on-error: true
         
         - name: Packer Build
           id: build
-          run: packer build hcl2
+          run:  | 
+            SOURCE_AMI=ami-077399be2d0ae7e0c
+            packer build -var "source_ami=$SOURCE_AMI" -var "tag_name=${{ steps.determine-tag.outputs.TAG }}" hcl2-files
         

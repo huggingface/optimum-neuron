@@ -21,3 +21,9 @@ variable "ssh_username" {
   description = "Username to connect to SSH with"
   type        = string
 }
+
+variable "tag_name" {
+  default     = "develop"
+  description = "Name tag for AMI"
+  type        = string
+}

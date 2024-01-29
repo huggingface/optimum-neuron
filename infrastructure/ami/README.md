@@ -76,3 +76,8 @@ You can also override variables using `-var` flag. For example, to override `reg
 ```bash
 packer build -var 'region=us-west-2' ./hcl2-files
 ```
+
+To trigger a github action workflow manually, you can use GitHub CLI:
+```bash
+gh workflow run build-ami.yml -f tag=<tag>
+```
