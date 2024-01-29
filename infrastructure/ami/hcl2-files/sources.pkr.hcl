@@ -11,4 +11,7 @@ source "amazon-ebs" "ubuntu" {
     volume_type           = "gp2"
     delete_on_termination = true
   }
+  tags = {
+    tag_name = var.tag_name
+  }
 }
