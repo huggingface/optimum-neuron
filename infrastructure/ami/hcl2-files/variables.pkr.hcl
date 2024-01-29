@@ -22,7 +22,6 @@ variable "ssh_username" {
 }
 
 variable "optimum_neuron_tag" {
-  default     = "v0.0.17"
   description = "Optimum Neuron version to install"
   type        = string
 }
