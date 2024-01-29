@@ -72,7 +72,7 @@ if is_diffusers_available():
 
 
 if TYPE_CHECKING:
-    from ..exporters.neuron import NeuronConfig
+    from ..exporters.neuron import NeuronDefaultConfig
 
 
 logger = logging.getLogger(__name__)
@@ -98,7 +98,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         tokenizer_2: Optional[CLIPTokenizer] = None,
         feature_extractor: Optional[CLIPFeatureExtractor] = None,
         configs: Optional[Dict[str, "PretrainedConfig"]] = None,
-        neuron_configs: Optional[Dict[str, "NeuronConfig"]] = None,
+        neuron_configs: Optional[Dict[str, "NeuronDefaultConfig"]] = None,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
         model_and_config_save_paths: Optional[Dict[str, Tuple[str, Path]]] = None,
     ):
@@ -132,7 +132,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 A model extracting features from generated images to be used as inputs for the `safety_checker`
             configs (Optional[Dict[str, "PretrainedConfig"]], defaults to `None`):
                 A dictionary configurations for components of the pipeline.
-            neuron_configs (Optional["NeuronConfig"], defaults to `None`):
+            neuron_configs (Optional["NeuronDefaultConfig"], defaults to `None`):
                 A list of Neuron configurations.
             model_save_dir (`Optional[Union[str, Path, TemporaryDirectory]]`, defaults to `None`):
                 The directory under which the exported Neuron models were saved.
@@ -525,7 +525,12 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         )
 
     @classmethod
-    def _from_transformers(
+    def _from_transformers(cls, *args, **kwargs):
+        # Deprecate it when optimum uses `_export` as from_pretrained_method in a stable release.
+        return cls._export(*args, **kwargs)
+
+    @classmethod
+    def _export(
         cls,
         model_id: Union[str, Path],
         config: Dict[str, Any],
@@ -672,7 +677,7 @@ class _NeuronDiffusionModelPart:
         model: torch.jit._script.ScriptModule,
         parent_model: NeuronBaseModel,
         config: Optional[Union[DiffusersPretrainedConfig, PretrainedConfig]] = None,
-        neuron_config: Optional["NeuronConfig"] = None,
+        neuron_config: Optional["NeuronDefaultConfig"] = None,
         model_type: str = "unet",
         device: Optional[int] = None,
     ):
@@ -824,7 +829,7 @@ class NeuronStableDiffusionXLPipelineBase(NeuronStableDiffusionPipelineBase):
         tokenizer_2: Optional[CLIPTokenizer] = None,
         feature_extractor: Optional[CLIPFeatureExtractor] = None,
         configs: Optional[Dict[str, "PretrainedConfig"]] = None,
-        neuron_configs: Optional[Dict[str, "NeuronConfig"]] = None,
+        neuron_configs: Optional[Dict[str, "NeuronDefaultConfig"]] = None,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
         model_and_config_save_paths: Optional[Dict[str, Tuple[str, Path]]] = None,
         add_watermarker: Optional[bool] = None,

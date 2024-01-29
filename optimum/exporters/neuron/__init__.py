@@ -24,7 +24,7 @@ _import_structure = {
         "normalize_input_shapes",
         "normalize_stable_diffusion_input_shapes",
     ],
-    "base": ["NeuronConfig"],
+    "base": ["NeuronDefaultConfig"],
     "convert": ["export", "export_models", "validate_model_outputs", "validate_models_outputs"],
     "utils": [
         "DiffusersPretrainedConfig",
@@ -40,7 +40,7 @@ if TYPE_CHECKING:
         normalize_input_shapes,
         normalize_stable_diffusion_input_shapes,
     )
-    from .base import NeuronConfig
+    from .base import NeuronDefaultConfig
     from .convert import export, export_models, validate_model_outputs, validate_models_outputs
     from .utils import (
         DiffusersPretrainedConfig,

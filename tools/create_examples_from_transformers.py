@@ -177,7 +177,10 @@ def wrap_with_lazy_load_for_parallelism(file_content: str) -> str:
         # Adding one tab to indent from the lazy_load_for_parallelism context manager.
         number_of_spaces += 4
         model_loading_content = " " * number_of_spaces + model_loading_content
-        new_content = f"with lazy_load_for_parallelism(tensor_parallel_size=training_args.tensor_parallel_size):\n{model_loading_content}\n"
+        new_content = (
+            "with lazy_load_for_parallelism(tensor_parallel_size=training_args.tensor_parallel_size, "
+            f"pipeline_parallel_size=training_args.pipeline_parallel_size):\n{model_loading_content}\n"
+        )
         file_content = file_content[:start] + new_content + file_content[position + 1 :]
         shift += len(new_content) - initial_length
 

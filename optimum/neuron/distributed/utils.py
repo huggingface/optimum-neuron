@@ -15,6 +15,7 @@
 """Utilities for performing parallelism with `neuronx_distributed`"""
 
 import contextlib
+import copy
 import functools
 import itertools
 import json
@@ -28,19 +29,47 @@ from transformers import PretrainedConfig
 from transformers.utils import is_peft_available
 
 from ..utils import DynamicPatch, Patcher
+from ..utils.deprecate_utils import deprecate
 from ..utils.import_utils import is_neuronx_distributed_available
 from ..utils.misc import download_checkpoints_in_cache
 from ..utils.require_utils import requires_neuronx_distributed, requires_safetensors, requires_torch_xla
 
 
+if is_neuronx_distributed_available():
+    from neuronx_distributed.parallel_layers import layers
+
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
 
-    if is_neuronx_distributed_available():
-        from neuronx_distributed.parallel_layers import layers
-
 
 TENSOR_PARALLEL_SHARDS_DIR_NAME = "tensor_parallel_shards"
+
+
+@deprecate(
+    "2.0.0",
+    package_name="torch",
+    reason="torch.nn.Module._named_members takes a `remove_duplicate` parameter starting from 2.0.0",
+)
+def _named_members(module, get_members_fn, prefix="", recurse=True, remove_duplicate: bool = True):
+    r"""Helper method for yielding various names + members of modules."""
+    memo = set()
+    modules = module.named_modules(prefix=prefix, remove_duplicate=remove_duplicate) if recurse else [(prefix, module)]
+    for module_prefix, mod in modules:
+        members = get_members_fn(mod)
+        for k, v in members:
+            if v is None or v in memo:
+                continue
+            if remove_duplicate:
+                memo.add(v)
+            name = module_prefix + ("." if module_prefix else "") + k
+            yield name, v
+
+
+def named_parameters(module: "torch.nn.Module", prefix: str = "", recurse: bool = True, remove_duplicate: bool = True):
+    gen = _named_members(
+        module, lambda mod: mod._parameters.items(), prefix=prefix, recurse=recurse, remove_duplicate=remove_duplicate
+    )
+    yield from gen
 
 
 @dataclass
@@ -140,6 +169,14 @@ def _validate_weight_info_device_matches_specified_device(device: "torch.device"
         )
 
 
+def mark_parameter_init_status_during_parallelization(parameter: "torch.nn.Parameter", initialized: bool):
+    setattr(parameter, "_was_initialized_during_parallelization", initialized)
+
+
+def was_already_initialized_during_parallelization(parameter: "torch.nn.Parameter") -> bool:
+    return getattr(parameter, "_was_initialized_during_parallelization", False)
+
+
 @requires_neuronx_distributed
 def embedding_to_parallel_embedding(
     embedding_layer: "torch.nn.Embedding",
@@ -217,10 +254,14 @@ def embedding_to_parallel_embedding(
                 ),
             )
             parallel_embedding_layer.weight.copy_(weight_data)
-        else:
+            mark_parameter_init_status_during_parallelization(parallel_embedding_layer.weight, True)
+        elif embedding_layer.weight.device != torch.device("meta"):
             parallel_embedding_layer.weight.copy_(
                 embedding_layer.weight[tp_rank * row_size : (tp_rank + 1) * row_size, :]
             )
+            mark_parameter_init_status_during_parallelization(parallel_embedding_layer.weight, True)
+        else:
+            mark_parameter_init_status_during_parallelization(parallel_embedding_layer.weight, False)
 
         if lm_head_layer is not None:
             parallel_lm_head_layer = linear_to_parallel_linear(
@@ -334,19 +375,25 @@ def linear_to_parallel_linear(
                     ),
                 )
                 parallel_linear_layer.weight.copy_(weight_data)
+                mark_parameter_init_status_during_parallelization(parallel_linear_layer.weight, True)
             elif linear_layer.weight.device != torch.device("meta"):
                 parallel_linear_layer.weight.copy_(
                     linear_layer.weight[:, tp_rank * col_size : (tp_rank + 1) * col_size]
                 )
+                mark_parameter_init_status_during_parallelization(parallel_linear_layer.weight, True)
             else:
-                raise ValueError("Could not find data for the linear layer to parellelize.")
+                mark_parameter_init_status_during_parallelization(parallel_linear_layer.weight, False)
 
             if linear_layer.bias is not None:
                 if linear_layer_bias_weight_info is not None:
                     bias_weight_data = load_tensor_for_weight(linear_layer_bias_weight_info)
                     parallel_linear_layer.bias.copy_(bias_weight_data)
-                else:
+                    mark_parameter_init_status_during_parallelization(parallel_linear_layer.bias, True)
+                elif linear_layer.bias.device != torch.device("meta"):
                     parallel_linear_layer.bias.copy_(linear_layer.bias)
+                    mark_parameter_init_status_during_parallelization(parallel_linear_layer.bias, True)
+                else:
+                    mark_parameter_init_status_during_parallelization(parallel_linear_layer.bias, False)
 
         else:
             if embedding_weight_to_tie is not None:
@@ -360,12 +407,14 @@ def linear_to_parallel_linear(
                     ),
                 )
                 parallel_linear_layer.weight.copy_(weight_data)
+                mark_parameter_init_status_during_parallelization(parallel_linear_layer.weight, True)
             elif linear_layer.weight.device != torch.device("meta"):
                 parallel_linear_layer.weight.copy_(
                     linear_layer.weight[tp_rank * row_size : (tp_rank + 1) * row_size, :]
                 )
+                mark_parameter_init_status_during_parallelization(parallel_linear_layer.weight, True)
             else:
-                raise ValueError("Could not find data for the linear layer to parellelize.")
+                mark_parameter_init_status_during_parallelization(parallel_linear_layer.weight, False)
 
             if linear_layer.bias is not None:
                 if linear_layer_bias_weight_info is not None:
@@ -383,13 +432,17 @@ def linear_to_parallel_linear(
                         tensor_slices=tensor_slices,
                     )
                     parallel_linear_layer.bias.copy_(bias_weight_data)
-                else:
+                    mark_parameter_init_status_during_parallelization(parallel_linear_layer.bias, True)
+                elif linear_layer.bias.device != torch.device("meta"):
                     if gather_output:
                         parallel_linear_layer.bias.copy_(linear_layer.bias)
                     else:
                         parallel_linear_layer.bias.copy_(
                             linear_layer.bias[tp_rank * row_size : (tp_rank + 1) * row_size]
                         )
+                    mark_parameter_init_status_during_parallelization(parallel_linear_layer.bias, True)
+                else:
+                    mark_parameter_init_status_during_parallelization(parallel_linear_layer.bias, False)
 
     return parallel_linear_layer
 
@@ -451,13 +504,15 @@ def gqa_key_value_slicing_when_tp_size_greater_than_num_key_value_heads(
                 ),
             )
             sliced_linear_layer.weight.copy_(weight_data)
+            mark_parameter_init_status_during_parallelization(sliced_linear_layer.weight, True)
 
         elif linear_layer.weight.device != torch.device("meta"):
             sliced_linear_layer.weight.copy_(
                 linear_layer.weight[key_value_head_index * head_dim : (key_value_head_index + 1) * head_dim, :]
             )
+            mark_parameter_init_status_during_parallelization(sliced_linear_layer.weight, True)
         else:
-            raise ValueError("Could not find data for the linear layer to slice.")
+            mark_parameter_init_status_during_parallelization(sliced_linear_layer.weight, False)
 
         if linear_layer.bias is not None:
             if linear_layer_bias_weight_info is not None:
@@ -466,10 +521,14 @@ def gqa_key_value_slicing_when_tp_size_greater_than_num_key_value_heads(
                     tensor_slices=((key_value_head_index * head_dim, (key_value_head_index + 1) * head_dim),),
                 )
                 sliced_linear_layer.bias.copy_(bias_weight_data)
-            else:
+                mark_parameter_init_status_during_parallelization(sliced_linear_layer.bias, True)
+            elif sliced_linear_layer.bias.device != torch.device("meta"):
                 sliced_linear_layer.bias.copy_(
                     linear_layer.bias[key_value_head_index * head_dim : (key_value_head_index + 1) * head_dim]
                 )
+                mark_parameter_init_status_during_parallelization(sliced_linear_layer.bias, True)
+            else:
+                mark_parameter_init_status_during_parallelization(sliced_linear_layer.bias, False)
     return sliced_linear_layer
 
 
@@ -490,31 +549,47 @@ def try_to_hf_initialize(model: "PreTrainedModel", mod: torch.nn.Module, paramet
     """
     cached_params_data = {name: param.data.clone() for name, param in mod.named_parameters()}
     model._init_weights(mod)
+
+    dummy_mod = copy.deepcopy(mod)
+    for name in parameter_names:
+        getattr(dummy_mod, name).random_()
+    model._init_weights(dummy_mod)
+
     left_uninitialized = []
     with torch.no_grad():
         for name in parameter_names:
-            if torch.all(cached_params_data[name] == getattr(mod, name).data):
-                left_uninitialized.append(name)
+            # The parameter was left unchanged.
+            if torch.all(getattr(mod, name).data == cached_params_data[name]):
+                # There are two possible reasons:
+                #   1. The model cannot initialize the module that owns the parameter.
+                #   2. The parameter already had the proper value.
+
+                # We check if a dummy copy of the module, filled with random values is modified to know if the model
+                # can initialize the module.
+                dummy_param_was_changed = torch.all(getattr(dummy_mod, name).data == getattr(mod, name).data)
+                if not dummy_param_was_changed:
+                    left_uninitialized.append(name)
+
         for name, cached_data in cached_params_data.items():
             if name not in parameter_names:
                 param = getattr(mod, name)
                 param.data = cached_data
+
     return left_uninitialized
 
 
-def initialize_linear(mod: torch.nn.Linear, parameter_names: List[str]):
+def initialize_torch_nn_module(mod: torch.nn.Module, parameter_names: List[str]):
     """
     Initializes the parameters in `parameter_names` of a `torch.nn.Linear` module.
     """
-    cached_parameters = [mod.weight.data]
-    if mod.bias is not None:
-        cached_parameters.append(mod.bias.data)
+    if not hasattr(mod, "reset_parameters"):
+        raise ValueError(f"{mod} does not have a `reset_parameters` method.")
+    cached_parameters = {name: param.data.clone() for name, param in mod.named_parameters()}
     mod.reset_parameters()
     with torch.no_grad():
-        if "weight" not in parameter_names:
-            mod.weight.data = cached_parameters[0]
-        if mod.bias is not None and "bias" not in parameter_names:
-            mod.bias.data = cached_parameters[1]
+        for name, param in mod.named_parameters():
+            if param is not None and name not in parameter_names:
+                param.data = cached_parameters[name]
 
 
 def initialize_parallel_linear(mod: "layers.BaseParallelLinear", parameter_names: List[str]):
@@ -531,9 +606,18 @@ def initialize_parallel_linear(mod: "layers.BaseParallelLinear", parameter_names
         mod._init_bias()
 
 
+def parameter_can_be_initialized(model: torch.nn.Module, parent_module: torch.nn.Module, parameter_name: str) -> bool:
+    clone = copy.deepcopy(parent_module)
+    left_uninitialized = try_to_hf_initialize(model, clone, [parameter_name])
+    is_parallel_linear = isinstance(parent_module, layers.BaseParallelLinear)
+    return (
+        hasattr(parent_module, "reset_parameters") or is_parallel_linear or (parameter_name not in left_uninitialized)
+    )
+
+
 @classmethod
 @requires_torch_xla
-def from_pretrained_for_tp(
+def from_pretrained_for_mp(
     cls,
     pretrained_model_name_or_path: Optional[Union[str, os.PathLike]],
     *model_args,
@@ -672,8 +756,8 @@ def from_pretrained_for_tp(
                 if not sharing_same_suffix_as_name:
                     continue
                 names_of_weights_not_in_model.add(name)
-                longest_sharing_parameter_name = max(sharing_same_suffix_as_name, key=lambda s: len(s))
-                prefixes.add(longest_sharing_parameter_name.replace(name, ""))
+                shortest_sharing_parameter_name = min(sharing_same_suffix_as_name, key=lambda s: len(s))
+                prefixes.add(shortest_sharing_parameter_name.replace(name, ""))
             else:
                 weight_map_for_model[name] = filename
         if names_of_weights_not_in_model:
@@ -703,7 +787,7 @@ def from_pretrained_for_tp(
 
 
 @contextlib.contextmanager
-def lazy_load_for_parallelism(tensor_parallel_size: int = 1):
+def lazy_load_for_parallelism(tensor_parallel_size: int = 1, pipeline_parallel_size: int = 1):
     """
     Context manager that makes the loading of a model lazy for model parallelism:
 
@@ -711,11 +795,15 @@ def lazy_load_for_parallelism(tensor_parallel_size: int = 1):
         instantiate.
         - Every `torch.nn.Embedding` is also put on the `torch.device("meta")` device.
         - No state dict is actually loaded, instead a weight map is created and attached to the model. For more
-        information, read the [`optimum.neuron.distributed.utils.from_pretrained_for_tp`] docstring.
+        information, read the [`optimum.neuron.distributed.utils.from_pretrained_for_mp`] docstring.
+
+    If both `tensor_parallel_size` and `pipeline_parallel_size` are set to 1, no lazy loading is performed.
 
     Args:
         tensor_parallel_size (`int`, defaults to 1):
-            The parallel size considered for tensor parallel size. If set to 1, no lazy loading is performed.
+            The tensor parallel size considered.
+        pipeline_parallel_size (`int`, defaults to 1):
+            The pipeline parallel size considered.
     """
 
     def meta_init(init_fn):
@@ -731,9 +819,9 @@ def lazy_load_for_parallelism(tensor_parallel_size: int = 1):
     patching_specs = [
         ("torch.nn.Embedding.__init__", meta_init_patch),
         ("torch.nn.Linear.__init__", meta_init_patch),
-        ("transformers.modeling_utils.PreTrainedModel.from_pretrained", from_pretrained_for_tp),
+        ("transformers.modeling_utils.PreTrainedModel.from_pretrained", from_pretrained_for_mp),
     ]
-    if tensor_parallel_size > 1:
+    if tensor_parallel_size > 1 or pipeline_parallel_size > 1:
         patcher = Patcher(patching_specs=patching_specs)
     else:
         patcher = contextlib.nullcontext()
@@ -753,6 +841,21 @@ def make_optimizer_constructor_lazy(optimizer_cls: Type["torch.optim.Optimizer"]
 
     def optimizer_constructor(*args, **kwargs):
         optimizer_with_no_parameters = optimizer_cls([torch.nn.Parameter(torch.empty(1))], *args[1:], **kwargs)
+        # It is necessary to make sure that what's holding the parameters is not an iterator, otherwise it can lead to
+        # unexpected behaviour since each entry will be evaluated at iteration time. There are 2 possibilities:
+        #   1. args[0] holds the parameters
+        #   2. args[0] holds a list of parameter groups
+        parameters_or_parameter_groups = args[0]
+        if not isinstance(parameters_or_parameter_groups, list):
+            parameters_or_parameter_groups = list(parameters_or_parameter_groups)
+        if isinstance(parameters_or_parameter_groups[0], dict):
+            # It means that parameter groups were provided. We iterate over each group and make sure that the
+            # `"params"` entry is not an iterator.
+            for group in parameters_or_parameter_groups:
+                if not isinstance(group["params"], list):
+                    group["params"] = list(group["params"])
+
+        args = (parameters_or_parameter_groups,) + args[1:]
         optimizer_with_no_parameters._args_to_recreate = (args, kwargs)
         return optimizer_with_no_parameters
 

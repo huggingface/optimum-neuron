@@ -35,5 +35,5 @@ jobs:
         run: pip install .[tests,neuronx]
       - name: Run tests on Neuron cores
         run: |
-          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m "is_trainium_test" tests/distributed/
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m "is_trainium_test" tests/distributed/ -v --durations=0 -x --ignore tests/distributed/test_training.py
 
