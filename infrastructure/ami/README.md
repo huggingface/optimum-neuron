@@ -3,7 +3,6 @@
 This directory contains the files for building AMI using [Packer](https://github.com/hashicorp/packer) that is later published as a AWS Marketplace asset.
 
 
-
 ## Folder Structure
 
 - [hcl2-files](./hcl2-files/) - Includes different files which are used by a Packer pipeline to build an AMI. The files are:
@@ -34,11 +33,11 @@ Using Environment Variables:
 ```bash
 export AWS_ACCESS_KEY_ID=<access_key>
 export AWS_SECRET_ACCESS_KEY=<secret_key>
-````
+```
 
 Using AWS CLI:
 ```bash
-aws configure
+aws configure sso
 ```
 
 There are other ways to configure AWS credentials. You can read more about it [here](https://github.com/aws/aws-cli?tab=readme-ov-file#configuration).
@@ -62,19 +61,15 @@ packer fmt ./hcl2-files
 You can validate the syntax and configuration of your files locally. This command will return a zero exit status on success, and a non-zero exit status on failure. 
 
 ```bash
-packer validate ./hcl2-files
+packer validate -var 'region=us-west-2' -var 'optimum_neuron_version=v0.0.17' ./hcl2-files
 ```
 
 #### Run Packer build
 You can run Packer locally. This command will build the AMI and upload it to AWS.
 
+You need to set variables with no default values using `-var` flag. For example:
 ```bash
-packer build ./hcl2-files
-```
-
-You can also override variables using `-var` flag. For example, to override `region` variable:
-```bash
-packer build -var 'region=us-west-2' ./hcl2-files
+packer build -var 'region=us-west-2' -var 'optimum_neuron_version=v0.0.17' ./hcl2-files
 ```
 
 To trigger a github action workflow manually, you can use GitHub CLI:

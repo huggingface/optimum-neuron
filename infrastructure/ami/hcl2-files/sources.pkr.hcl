@@ -6,12 +6,11 @@ source "amazon-ebs" "ubuntu" {
   ssh_username  = var.ssh_username
   launch_block_device_mappings {
     device_name           = "/dev/sda1"
-    encrypted             = true
+    // encrypted             = true
     volume_size           = 512
     volume_type           = "gp2"
     delete_on_termination = true
   }
-  tags = {
-    tag_name = var.tag_name
-  }
+  ami_users   = var.ami_users
+  ami_regions = var.ami_regions
 }
