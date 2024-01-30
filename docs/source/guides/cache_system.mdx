@@ -13,19 +13,25 @@ specific language governing permissions and limitations under the License.
 # Neuron Model Cache
 
 The Neuron Model Cache is a remote cache for compiled Neuron models in the `neff` format.
-It is integrated into the [`NeuronTrainer` and `NeuronModelForCausalLM`] classes to enable loading pretrained models from the cache instead of compiling them locally.
+It is integrated into the `NeuronTrainer` and `NeuronModelForCausalLM` classes to enable loading pretrained models from the cache instead of compiling them locally.
+
+**Note: it is not available for models exported using any other NeuronModelXX classes, that use a different export mechanism.**
 
 The Neuron Model Cache is hosted on the [Hugging Face Hub](https://huggingface.co/aws-neuron/optimum-neuron-cache) and includes compiled files for all popular and supported `optimum-neuron` pre-trained models.
 
-Before loading a Transformers or Diffusion model on Neuron platforms, it needs to be exported to neuron format with [`torch-neuronx`](https://github.com/aws-neuron/aws-neuron-samples/tree/master/torch-neuronx).
-When exporting a model, [`torch-neuronx`] will:
-- convert it to a set of [TorchScript](https://pytorch.org/docs/stable/jit.html) subgraphs, stored as `model.hlo.pb` files,
+Before training a Transformers or Diffusion model or loading a NeuronModelForCausalLM on Neuron platforms, it needs to be exported to neuron format
+with [`torch-neuronx`](https://github.com/aws-neuron/aws-neuron-samples/tree/master/torch-neuronx).
+
+When exporting a model, [`torch-neuronx`](https://github.com/aws-neuron/aws-neuron-samples/tree/master/torch-neuronx) will:
+
+- convert it to a set of [XLA](https://github.com/pytorch/xla/) subgraphs,
 - compile each subgraph with the neuronx compiler into a Neuron Executable File Format (NEFF) binary file.
 
-During inference, the [`torch-neuronx`](https://github.com/aws-neuron/aws-neuron-samples/tree/master/torch-neuronx) module will reload the graph files, and (by default) always recompile the corresponding NEFF files.
-To avoid these recompilations, [`torch-neuronx`](https://github.com/aws-neuron/aws-neuron-samples/tree/master/torch-neuronx) stores NEFF files in a local directory, usually `/var/tmp/neuron-compile-cache`.
+The first step is relatively fast, but the compilation takes a lot of time.
+To avoid recompiling all NEFF files every time a model is loaded on a NeuronX host, [`torch-neuronx`](https://github.com/aws-neuron/aws-neuron-samples/tree/master/torch-neuronx)
+ stores NEFF files in a local directory, usually `/var/tmp/neuron-compile-cache`.
 
-However, this local cache is not shared between platforms, which means that every time you train or export a model on a new host, you need to recompile it, which takes a lot of time.
+However, this local cache is not shared between platforms, which means that every time you train or export a model on a new host, you need to recompile it.
 
 We created the Neuron Model Cache to solve this limitation by providing a public repository of precompiled model graphs.
 
@@ -33,10 +39,10 @@ Note: we also support the creation of private, secured, remote model cache.
 
 ## How to use the Neuron model cache
 
-The public model cache will be used when you use the [`NeuronTrainer` or `NeuronModelForCausalLM`] classes. There are no additional changes needed.
+The public model cache will be used when you use the `NeuronTrainer` or `NeuronModelForCausalLM` classes. There are no additional changes needed.
 
 When exporting a model to neuron format, `optimum-neuron` will simply look for cached NEFF files in the hub repository during the compilation of the
-model converted to [TorchScript](https://pytorch.org/docs/stable/jit.html) subgraphs.
+model subgraphs.
 
 If the NEFF files are cached, they will be fetched from the hub and directly loaded instead of being recompiled.
 
@@ -46,7 +52,7 @@ The Optimum Neuron Cache is built on top of the [NeuronX compiler cache](https:/
 
 It is important to understand that the cache operates on NEFF binaries, and not on the model itself.
 
-As explained previously, each model is first converted to a set of [TorchScript](https://pytorch.org/docs/stable/jit.html) subgraphs.
+As explained previously, each model exported to Neuron using the `NeuronTrainer` or `NeuronModelForCausalLM` is composed of [XLA](https://github.com/pytorch/xla/) subgraphs.
 
 Each subgraph is unique, and results from the combination of:
 - the `transformers` or `transformers_neuronx` python modeling code,
