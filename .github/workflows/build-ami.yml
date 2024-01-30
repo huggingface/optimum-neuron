@@ -11,14 +11,14 @@ on:
         - main
       paths:
         - 'infrastructure/ami/**'
-  workflow_dispatch:
-    inputs: 
-      tag: 
-        description: 'Tag to use for the AMI build'
-        default: 'main'
-  schedule:
-    # Schedule the workflow to run every second day at midnight UTC
-    - cron: '0 0 */2 * *'
+    workflow_dispatch:
+      inputs: 
+        tag: 
+          description: 'Tag to use for the AMI build'
+          default: 'main'
+    schedule:
+      # Schedule the workflow to run every second day at midnight UTC
+      - cron: '0 0 */2 * *'
 
 jobs:
     build-ami:
