@@ -74,5 +74,5 @@ jobs:
                 {
                   "text": "GitHub Action HuggingFace Neuron AMI Build result: ${{job.status}}"
                 }
-              env:
-                SLACK_BOT_TOKEN: ${{ secrets.SLACK_CIFEEDBACK_BOT_TOKEN }}
+            env:
+              SLACK_BOT_TOKEN: ${{ secrets.SLACK_CIFEEDBACK_BOT_TOKEN }}
