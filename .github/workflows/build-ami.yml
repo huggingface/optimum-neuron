@@ -5,12 +5,12 @@ on:
       branches:
         - main
       paths:
-        - 'aws-ami-creation/**'
+        - 'infrastructure/ami/**'
     pull_request:
       branches:
         - main
       paths:
-        - 'aws-ami-creation/**'
+        - 'infrastructure/ami/**'
   workflow_dispatch:
     inputs: 
       tag: 
