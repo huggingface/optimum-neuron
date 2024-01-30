@@ -61,7 +61,7 @@ packer fmt ./hcl2-files
 You can validate the syntax and configuration of your files locally. This command will return a zero exit status on success, and a non-zero exit status on failure. 
 
 ```bash
-packer validate -var 'region=us-west-2' -var 'optimum_neuron_version=v0.0.17' ./hcl2-files
+packer validate -var 'region=us-west-2' -var 'optimum_version=v0.0.17' ./hcl2-files
 ```
 
 #### Run Packer build
@@ -69,7 +69,7 @@ You can run Packer locally. This command will build the AMI and upload it to AWS
 
 You need to set variables with no default values using `-var` flag. For example:
 ```bash
-packer build -var 'region=us-west-2' -var 'optimum_neuron_version=v0.0.17' ./hcl2-files
+packer build -var 'region=us-west-2' -var 'optimum_version=v0.0.17' ./hcl2-files
 ```
 
 To trigger a github action workflow manually, you can use GitHub CLI:

@@ -26,6 +26,8 @@ jobs:
           run:
             working-directory: infrastructure/ami
         runs-on: ubuntu-latest
+        env:
+          AWS_DEFAULT_REGION: us-east-1
         steps:
           - name: Checkout
             uses: actions/checkout@v3
@@ -33,14 +35,14 @@ jobs:
               ref: ${{ github.event.inputs.tag}}
           
           - name: Setup Packer
-          - uses: hashicorp/setup-packer@main
+            uses: hashicorp/setup-packer@main
 
           - name: configure aws credentials
             uses: aws-actions/configure-aws-credentials@v1
             with:
               aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
               aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-              aws-region: us-east-1
+              aws-region: ${{ env.AWS_DEFAULT_REGION }}
           
           - name: Packer format
             id: format
@@ -60,15 +62,17 @@ jobs:
           - name: Packer Build
             id: build
             run:  | 
-              packer build -var "optimum_neuron_tag=${{ steps.determine-tag.outputs.TAG }}" hcl2-files
+              packer build -var "optimum_version=${{ steps.determine-tag.outputs.TAG }}" -var "region=${{ env.AWS_DEFAULT_REGION }}" hcl2-files
 
           - name: Slack Notification on Failure
-          if: ${{ failure() && github.event_name == 'schedule' }}
-          uses: rtCamp/action-slack-notify@v2
-          env:
-            SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-            SLACK_CHANNEL: ${{ secrets.SLACK_CHANNEL }}
-            SLACK_USERNAME: 'GitHub Action Optimum Neuron AMI'
-            SLACK_ICON_EMOJI: ':bell:'
-            SLACK_COLOR: 'danger'
-            SLACK_TITLE: 'Build AWS Neuron AMI Failed'
+            id: slack
+            uses: slackapi/slack-github-action@v1.25.0
+            if: ${{ failure() && github.event_name == 'schedule' }}
+            with:
+              channel-id: 'C06GAEQJLNN' #copied from slack channel
+              payload: |
+                {
+                  "text": "GitHub Action HuggingFace Neuron AMI Build result: ${{job.status}}"
+                }
+              env:
+                SLACK_BOT_TOKEN: ${{ secrets.SLACK_CIFEEDBACK_BOT_TOKEN }}

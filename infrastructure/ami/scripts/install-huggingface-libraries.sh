@@ -6,7 +6,7 @@ source /opt/aws_neuron_venv_pytorch/bin/activate
 echo "Step: install-hugging-face-libraries"
 
 echo "TRANSFORMERS_VERSION: $TRANSFORMERS_VERSION"
-echo "OPTIMUM_NEURON_TAG: $OPTIMUM_NEURON_TAG"
+echo "OPTIMUM_VERSION: $OPTIMUM_VERSION"
 
 pip install --upgrade --no-cache-dir \
     "transformers[sklearn,sentencepiece,vision]==$TRANSFORMERS_VERSION" \
@@ -23,7 +23,7 @@ pip install --upgrade --no-cache-dir \
 echo 'export PATH="${HOME}/.local/bin:$PATH"' >> "${HOME}/.bashrc"
 
 echo "Step: install-and-copy-optimum-neuron-examples"
-git clone -b $OPTIMUM_NEURON_TAG https://github.com/huggingface/optimum-neuron.git
+git clone -b $OPTIMUM_VERSION https://github.com/huggingface/optimum-neuron.git
 
 cd optimum-neuron
 python setup.py install

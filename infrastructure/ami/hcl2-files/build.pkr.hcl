@@ -10,7 +10,7 @@ build {
     script = "scripts/install-huggingface-libraries.sh"
     environment_vars = [
       "TRANSFORMERS_VERSION=${var.transformers_version}",
-      "OPTIMUM_NEURON_TAG=${var.optimum_neuron_tag}",
+      "OPTIMUM_VERSION=${var.optimum_version}",
     ]
   }
   provisioner "shell" {

@@ -10,7 +10,7 @@ variable "instance_type" {
 }
 
 variable "source_ami" {
-  default     = "ami-0fbea04d7389bcd4e"
+  default     = "ami-0fbea04d7389bcd4e" # To get latest AMI use: aws ec2 describe-images --region us-east-1 --owners amazon --filters 'Name=name,Values=Deep Learning AMI Neuron PyTorch 1.13 (Ubuntu 20.04) ????????' 'Name=state,Values=available' --query 'reverse(sort_by(Images, &CreationDate))[:1].ImageId' --output text
   description = "Base Image"
   type        = string
 }
@@ -21,7 +21,7 @@ variable "ssh_username" {
   type        = string
 }
 
-variable "optimum_neuron_tag" {
+variable "optimum_version" {
   description = "Optimum Neuron version to install"
   type        = string
 }
