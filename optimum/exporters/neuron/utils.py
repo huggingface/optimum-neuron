@@ -168,7 +168,10 @@ def get_stable_diffusion_models_for_export(
     if DIFFUSION_MODEL_TEXT_ENCODER_NAME in models_for_export:
         text_encoder = models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_NAME]
         text_encoder_config_constructor = TasksManager.get_exporter_config_constructor(
-            model=text_encoder, exporter="neuron", task="feature-extraction"
+            model=text_encoder,
+            exporter="neuron",
+            task="feature-extraction",
+            library_name="transformers",
         )
         text_encoder_neuron_config = text_encoder_config_constructor(
             text_encoder.config,
@@ -185,6 +188,7 @@ def get_stable_diffusion_models_for_export(
             exporter="neuron",
             task="feature-extraction",
             model_type="clip-text-with-projection",
+            library_name="transformers",
         )
         text_encoder_neuron_config_2 = text_encoder_config_constructor_2(
             text_encoder_2.config,

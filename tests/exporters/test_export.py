@@ -56,11 +56,13 @@ SEED = 42
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 
-def _get_models_to_test(export_models_dict: Dict):
+def _get_models_to_test(export_models_dict: Dict, library_name: str = "transformers"):
     models_to_test = []
     for model_type, model_names_tasks in export_models_dict.items():
         model_type = model_type.replace("_", "-")
-        task_config_mapping = TasksManager.get_supported_tasks_for_model_type(model_type, "neuron")
+        task_config_mapping = TasksManager.get_supported_tasks_for_model_type(
+            model_type, "neuron", library_name=library_name
+        )
 
         if isinstance(model_names_tasks, str):  # test export of all tasks on the same model
             tasks = list(task_config_mapping.keys())
@@ -77,6 +79,7 @@ def _get_models_to_test(export_models_dict: Dict):
                 neuron_config_constructor = TasksManager.get_exporter_config_constructor(
                     model_type=model_type,
                     exporter="neuron",
+                    library_name=library_name,
                     task=task,
                     model_name=model_name,
                     exporter_config_kwargs={**default_shapes},
@@ -108,7 +111,7 @@ class NeuronExportTestCase(unittest.TestCase):
         dynamic_batch_size: bool = False,
     ):
         library_name = TasksManager.infer_library_from_model(model_name)
-        if library_name == "sentence-transformers":
+        if library_name == "sentence_transformers":
             model_class = TasksManager.get_model_class_for_task(task, framework="pt", library=library_name)
             model = model_class(model_name)
             if "clip" in model[0].__class__.__name__.lower():
@@ -149,12 +152,12 @@ class NeuronExportTestCase(unittest.TestCase):
             except (RuntimeError, ValueError) as e:
                 self.fail(f"{model_type}, {task} -> {e}")
 
-    @parameterized.expand(_get_models_to_test(EXPORT_MODELS_TINY))
+    @parameterized.expand(_get_models_to_test(EXPORT_MODELS_TINY, library_name="transformers"))
     @is_inferentia_test
     def test_export(self, test_name, name, model_name, task, neuron_config_constructor):
         self._neuronx_export(test_name, name, model_name, task, neuron_config_constructor)
 
-    @parameterized.expand(_get_models_to_test(SENTENCE_TRANSFORMERS_MODELS))
+    @parameterized.expand(_get_models_to_test(SENTENCE_TRANSFORMERS_MODELS, library_name="sentence_transformers"))
     @is_inferentia_test
     @require_vision
     @require_sentence_transformers
@@ -162,7 +165,7 @@ class NeuronExportTestCase(unittest.TestCase):
     def test_export_sentence_transformers(self, test_name, name, model_name, task, neuron_config_constructor):
         self._neuronx_export(test_name, name, model_name, task, neuron_config_constructor)
 
-    @parameterized.expand(_get_models_to_test(EXPORT_MODELS_TINY), skip_on_empty=True)
+    @parameterized.expand(_get_models_to_test(EXPORT_MODELS_TINY, library_name="transformers"), skip_on_empty=True)
     @is_inferentia_test
     @requires_neuronx
     def test_export_with_dynamic_batch_size(self, test_name, name, model_name, task, neuron_config_constructor):

@@ -108,6 +108,7 @@ def infer_task(task: str, model_name_or_path: str) -> str:
     return task
 
 
+# This function is not applicable for diffusers / sentence transformers models
 def get_input_shapes_and_config_class(task: str, args: argparse.Namespace) -> Dict[str, int]:
     config = AutoConfig.from_pretrained(args.model)
 
@@ -116,7 +117,10 @@ def get_input_shapes_and_config_class(task: str, args: argparse.Namespace) -> Di
         model_type = model_type + "-encoder"
 
     neuron_config_constructor = TasksManager.get_exporter_config_constructor(
-        model_type=model_type, exporter="neuron", task=task
+        model_type=model_type,
+        exporter="neuron",
+        task=task,
+        library_name="transformers",
     )
     input_args = neuron_config_constructor.func.get_input_args_for_task(task)
     input_shapes = {name: getattr(args, name) for name in input_args}
