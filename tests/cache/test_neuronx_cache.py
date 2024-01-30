@@ -85,7 +85,8 @@ def check_decoder_generation(model):
 
 
 def get_local_cached_files(cache_path, extension="*"):
-    return glob.glob(f"{cache_path}/**/*/*.{extension}", recursive=True)
+    links = glob.glob(f"{cache_path}/**/*/*.{extension}", recursive=True)
+    return [link for link in links if os.path.isfile(link)]
 
 
 def check_cache_entry(model, cache_path):

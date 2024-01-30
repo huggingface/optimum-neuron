@@ -1,5 +1,6 @@
 import copy
 import logging
+import time
 from abc import ABC
 from enum import Enum
 from typing import List, Optional, Tuple
@@ -12,7 +13,6 @@ from transformers.generation import GenerationConfig
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.generation import TokenSelector
 
-from .model import fetch_model
 from .pb.generate_pb2 import (
     Batch,
     CachedBatch,
@@ -504,22 +504,21 @@ class NeuronGenerator(Generator):
     @classmethod
     def from_pretrained(
         cls,
-        model_id: str,
-        revision: Optional[str],
+        model_path: str,
     ):
         """Instantiate a NeuronGenerator.
 
         Args:
-            model_id (`str`):
-                The *model_id* of a model on the HuggingFace hub or the path to a local model.
-                In either case, the hub or local path must also contain a Tokenizer.
-            revision (`str`):
-                The revision of the model on the HuggingFace hub.
+            model_path (`str`):
+                The path to a local neuron model. This path must also contain a Tokenizer.
 
         Returns:
             A NeuronGenerator.
         """
-        model_path = fetch_model(model_id, revision)
-        model = NeuronModelForCausalLM.from_pretrained(model_path, revision=revision)
-        tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision)
+        logger.info("Loading model on neuron devices (this can take a few minutes).")
+        start = time.time()
+        model = NeuronModelForCausalLM.from_pretrained(model_path)
+        end = time.time()
+        logger.info(f"Model successfully loaded in {end - start:.2f} s.")
+        tokenizer = AutoTokenizer.from_pretrained(model_path)
         return cls(model, tokenizer)

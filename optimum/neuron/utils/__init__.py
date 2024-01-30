@@ -24,7 +24,7 @@ from .constant import (
     ENCODER_NAME,
     NEURON_FILE_NAME,
 )
-from .hub_neuronx_cache import CacheEntry, get_hub_cached_entries, hub_neuronx_cache, synchronize_hub_cache
+from .hub_neuronx_cache import ModelCacheEntry, get_hub_cached_entries, hub_neuronx_cache, synchronize_hub_cache
 from .import_utils import (
     is_accelerate_available,
     is_neuron_available,

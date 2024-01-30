@@ -39,29 +39,32 @@ docker run <system_parameters> ghcr.io/huggingface/neuronx-tgi:latest <service_p
 - system parameters are used to map ports, volumes and devices between the host and the service,
 - service parameters are forwarded to the `text-generation-launcher`.
 
-### From the 🤗 [HuggingFace Hub](https://huggingface.co/aws-neuron) (recommended)
+When deploying a service, you will need a working Neuron model. The NeuronX TGI service supports two main modes of operation:
 
-The snippet below shows how you can deploy a service from a hub neuron model:
+- you can either deploy the service on a model that has already been exported to Neuron,
+- or alternatively you can take advantage of the Neuron Model Cache to export your own model.
+
+### Common system parameters
+
+Whenever you launch a TGI service, we highly recommend you to mount a shared volume mounted as `/data` in the container: this is where
+the models will be cached to speed up further instantiations of the service.
+
+Note also that all neuron devices have to be explicitly made visible to the container.
+
+Finally, you might want to export the `HF_TOKEN` if you want to access gated repository.
+
+Here is an example of a service instantiation:
 
 ```
 docker run -p 8080:80 \
        -v $(pwd)/data:/data \
        --device=/dev/neuron0 \
+       -e HF_TOKEN=${HF_TOKEN} \
        ghcr.io/huggingface/neuronx-tgi:latest \
-       --model-id aws-neuron/Llama-2-7b-hf-neuron-budget \
-       --max-concurrent-requests 1 \
-       --max-input-length 1024 \
-       --max-total-tokens 2048 \
-       --max-batch-prefill-tokens 1024 \
-       --max-batch-total-tokens 2048
+       <service_parameters>
 ```
 
-Note that we export a shared volume mounted as `/data` in the container: this is where the hub model will be cached to
-speed up further instantiations of the service.
-
-Note also that all neuron devices have to be explicitly made visible to the container.
-
-For instance, if your instance has 12 neuron devices, the launch command becomes:
+If your instance has 12 neuron devices, the launch command becomes:
 
 ```
 docker run -p 8080:80 \
@@ -78,10 +81,63 @@ docker run -p 8080:80 \
        --device=/dev/neuron9 \
        --device=/dev/neuron10 \
        --device=/dev/neuron11 \
-       ...
+       -e HF_TOKEN=${HF_TOKEN} \
+       ghcr.io/huggingface/neuronx-tgi:latest \
+       <service_parameters>
 ```
 
-### From a local path
+
+### Using a neuron model from the 🤗 [HuggingFace Hub](https://huggingface.co/aws-neuron) (recommended)
+
+There are plenty of already exported neuron models on the hub, under the [aws-neuron](https://huggingface.co/aws-neuron) organization.
+
+The snippet below shows how you can deploy a service from a hub neuron model:
+
+```
+docker run -p 8080:80 \
+       -v $(pwd)/data:/data \
+       --device=/dev/neuron0 \
+       -e HF_TOKEN=${HF_TOKEN} \
+       ghcr.io/huggingface/neuronx-tgi:latest \
+       --model-id aws-neuron/Llama-2-7b-hf-neuron-budget \
+       --max-concurrent-requests 1 \
+       --max-input-length 1024 \
+       --max-total-tokens 2048 \
+       --max-batch-prefill-tokens 1024 \
+       --max-batch-total-tokens 2048
+```
+
+### Using a standard model from the 🤗 [HuggingFace Hub](https://huggingface.co/aws-neuron)
+
+
+We maintain a Neuron Model Cache of the most popular architecture and deployment parameters under [aws-neuron/optimum-neuron-cache](https://huggingface.co/aws-neuron/optimum-neuron-cache).
+
+If you just want to try the service quickly using a model that has not bee exported yet, it is thus still
+possible to export it dynamically, pending some conditions:
+- you must specify the export parameters when launching the service (or use default parameters),
+- the model configuration must be cached.
+
+The snippet below shows how you can deploy a service from a hub standard model:
+
+```
+docker run -p 8080:80 \
+       -v $(pwd)/data:/data \
+       --device=/dev/neuron0 \
+       -e HF_TOKEN=${HF_TOKEN} \
+       -e HF_BATCH_SIZE=1 \
+       -e HF_SEQUENCE_LENGTH=1024 \
+       -e HF_AUTO_CAST_TYPE="fp16" \
+       -e HF_NUM_CORES=2 \
+       ghcr.io/huggingface/neuronx-tgi:latest \
+       --model-id aws-neuron/Llama-2-7b-hf-neuron-budget \
+       --max-concurrent-requests 1 \
+       --max-input-length 512 \
+       --max-total-tokens 1024 \
+       --max-batch-prefill-tokens 512 \
+       --max-batch-total-tokens 1024
+```
+
+### Using a model exported to a local path
 
 Alternatively, you can first [export the model to neuron format](https://huggingface.co/docs/optimum-neuron/main/en/guides/models#configuring-the-export-of-a-generative-model) locally, and deploy the service inside the shared volume:
 
