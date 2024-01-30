@@ -61,4 +61,14 @@ jobs:
             id: build
             run:  | 
               packer build -var "optimum_neuron_tag=${{ steps.determine-tag.outputs.TAG }}" hcl2-files
-        
+
+          - name: Slack Notification on Failure
+          if: ${{ failure() && github.event_name == 'schedule' }}
+          uses: rtCamp/action-slack-notify@v2
+          env:
+            SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+            SLACK_CHANNEL: ${{ secrets.SLACK_CHANNEL }}
+            SLACK_USERNAME: 'GitHub Action Optimum Neuron AMI'
+            SLACK_ICON_EMOJI: ':bell:'
+            SLACK_COLOR: 'danger'
+            SLACK_TITLE: 'Build AWS Neuron AMI Failed'
