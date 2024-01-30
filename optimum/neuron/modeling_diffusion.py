@@ -540,6 +540,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         force_download: bool = True,
         cache_dir: Optional[str] = None,
         compiler_workdir: Optional[str] = None,
+        inline_weights_to_neff: bool = True,
         optlevel: str = "2",
         subfolder: str = "",
         local_files_only: bool = False,
@@ -580,6 +581,8 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 standard cache should not be used.
             compiler_workdir (`Optional[str]`, defaults to `None`):
                 Path to a directory in which the neuron compiler will store all intermediary files during the compilation(neff, weight, hlo graph...).
+            inline_weights_to_neff (`bool`, defaults to `True`):
+                Whether to inline the weights to the neff graph. If set to False, weights will be seperated from the neff.
             optlevel (`str`, defaults to `"2"`):
             The level of optimization the compiler should perform. Can be `"1"`, `"2"` or `"3"`, defaults to "2".
                 1: enables the core performance optimizations in the compiler, while also minimizing compile time.
@@ -640,6 +643,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             dynamic_batch_size=dynamic_batch_size,
             cache_dir=cache_dir,
             compiler_workdir=compiler_workdir,
+            inline_weights_to_neff=inline_weights_to_neff,
             optlevel=optlevel,
             trust_remote_code=trust_remote_code,
             subfolder=subfolder,
