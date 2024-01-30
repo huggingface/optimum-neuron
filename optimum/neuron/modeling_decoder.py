@@ -123,14 +123,11 @@ class NeuronDecoderModel(OptimizedModel):
             neuronx_model.load(compiled_dir)
 
         # Compile the Neuron model (if present compiled artifacts will be reloaded instead of compiled)
-        neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
-        os.environ["NEURON_CC_FLAGS"] = neuron_cc_flags + " --model-type=transformer"
         checkpoint_id = neuron_config.get("checkpoint_id", None)
         # Only create a cache entry if the model comes from the hub
         cache_entry = None if checkpoint_id is None else ModelCacheEntry(checkpoint_id, config)
         with hub_neuronx_cache(entry=cache_entry):
             neuronx_model.to_neuron()
-        os.environ["NEURON_CC_FLAGS"] = neuron_cc_flags
 
         super().__init__(neuronx_model, config)
 
