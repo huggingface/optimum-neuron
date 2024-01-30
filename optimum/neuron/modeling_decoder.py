@@ -49,6 +49,28 @@ def get_exporter(config, task):
     return TasksManager.get_exporter_config_constructor(model_type=config.model_type, exporter="neuron", task=task)()
 
 
+@requires_transformers_neuronx
+def get_available_cores() -> int:
+    """A helper to get the number of available cores.
+
+    This number depends first on the actual number of cores, then on the
+    content of the NEURON_RT_NUM_CORES and NEURON_RT_VISIBLE_CORES variables.
+    """
+    max_cores = len(os.listdir("/sys/class/neuron_device/")) * 2
+    num_cores = os.environ.get("NEURON_RT_NUM_CORES", max_cores)
+    if num_cores != max_cores:
+        num_cores = int(num_cores)
+    visible_cores = os.environ.get("NEURON_RT_VISIBLE_CORES", num_cores)
+    if visible_cores != num_cores:
+        # Assume NEURON_RT_VISIBLE_CORES is in the form '4' or '7-15'
+        if "-" in visible_cores:
+            start, end = visible_cores.split("-")
+            visible_cores = int(end) - int(start) + 1
+        else:
+            visible_cores = 1
+    return visible_cores
+
+
 class NeuronDecoderModel(OptimizedModel):
     """
     Base class to convert and run pre-trained transformers decoder models on Neuron devices.
@@ -122,12 +144,27 @@ class NeuronDecoderModel(OptimizedModel):
             # Specify the path where compiled artifacts are stored before conversion
             neuronx_model.load(compiled_dir)
 
-        # Compile the Neuron model (if present compiled artifacts will be reloaded instead of compiled)
+        # When compiling, only create a cache entry if the model comes from the hub
         checkpoint_id = neuron_config.get("checkpoint_id", None)
-        # Only create a cache entry if the model comes from the hub
         cache_entry = None if checkpoint_id is None else ModelCacheEntry(checkpoint_id, config)
+
+        # Export the model using the Optimum Neuron Cache
         with hub_neuronx_cache(entry=cache_entry):
+            available_cores = get_available_cores()
+            if num_cores > available_cores:
+                raise ValueError(
+                    f"The specified number of cores ({num_cores}) exceeds the number of cores available ({available_cores})."
+                )
+            neuron_rt_num_cores = os.environ.get("NEURON_RT_NUM_CORES", None)
+            # Restrict the number of cores used to allow multiple models on the same host
+            os.environ["NEURON_RT_NUM_CORES"] = str(num_cores)
+            # Load the model on neuron cores (if found in cache or compiled directory, the NEFF files
+            # will be reloaded instead of compiled)
             neuronx_model.to_neuron()
+            if neuron_rt_num_cores is None:
+                os.environ.pop("NEURON_RT_NUM_CORES")
+            else:
+                os.environ["NEURON_RT_NUM_CORES"] = neuron_rt_num_cores
 
         super().__init__(neuronx_model, config)
 
