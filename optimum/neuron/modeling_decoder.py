@@ -182,7 +182,7 @@ class NeuronDecoderModel(OptimizedModel):
         sequence_length: Optional[int] = None,
         num_cores: Optional[int] = None,
         auto_cast_type: Optional[str] = None,
-    ) -> Dict[str, Any]:
+    ) -> "PretrainedConfig":
         if task is None:
             task = TasksManager.infer_task_from_model(cls.auto_model_class)
 

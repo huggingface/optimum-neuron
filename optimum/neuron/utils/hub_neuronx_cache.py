@@ -207,7 +207,7 @@ class ModelCacheEntry:
     Args:
         model_id (`str`):
             The model id, used as a key for the cache entry.
-        config (`~transformers.PretrainedConfig`):
+        config (`transformers.PretrainedConfig`):
             The configuration of the model.
 
     """
