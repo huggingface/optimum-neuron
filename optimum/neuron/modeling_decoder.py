@@ -379,7 +379,7 @@ class NeuronDecoderModel(OptimizedModel):
 
         def copy_dir_to_path(src_dir: Union[str, Path, TemporaryDirectory], dst_path: Union[str, Path]):
             if isinstance(src_dir, TemporaryDirectory):
-                shutil.copytree(src_dir.name, dst_path)
+                shutil.copytree(src_dir.name, dst_path, dirs_exist_ok=True)
             elif not os.path.samefile(src_dir, dst_path):
                 os.symlink(dst_path, src_dir)
 
