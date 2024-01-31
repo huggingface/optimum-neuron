@@ -314,6 +314,12 @@ class NeuronGenerator(Generator):
         Return:
             The maximum number of tokens the model supports.
         """
+        # Just check that the warmup request parameters match the model capacity
+        batch_size = self.model.batch_size
+        if len(batch.requests) > batch_size:
+            raise ValueError(
+                f"Inconsistent server configuration: please make sure max-prefill-tokens does not exceed {batch_size} x max-input-length."
+            )
         self.prefill(batch)
         return self.model.batch_size * self.model.max_length
 
