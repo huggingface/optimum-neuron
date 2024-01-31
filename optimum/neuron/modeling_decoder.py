@@ -60,6 +60,7 @@ def get_available_cores() -> int:
     num_cores = os.environ.get("NEURON_RT_NUM_CORES", max_cores)
     if num_cores != max_cores:
         num_cores = int(num_cores)
+    num_cores = min(num_cores, max_cores)
     visible_cores = os.environ.get("NEURON_RT_VISIBLE_CORES", num_cores)
     if visible_cores != num_cores:
         # Assume NEURON_RT_VISIBLE_CORES is in the form '4' or '7-15'
@@ -68,6 +69,7 @@ def get_available_cores() -> int:
             visible_cores = int(end) - int(start) + 1
         else:
             visible_cores = 1
+    visible_cores = min(visible_cores, num_cores)
     return visible_cores
 
 
