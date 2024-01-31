@@ -52,6 +52,7 @@ if TYPE_CHECKING:
     from tempfile import TemporaryDirectory
 
     from transformers import GenerationConfig, PretrainedConfig
+    from transformers.generation import StoppingCriteriaList
 
 
 logger = logging.getLogger(__name__)
@@ -722,6 +723,7 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
         input_ids: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
         generation_config: Optional["GenerationConfig"] = None,
+        stopping_criteria: Optional["StoppingCriteriaList"] = None,
         **kwargs,
     ) -> torch.LongTensor:
         r"""
@@ -747,6 +749,9 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
                 priority: 1) from the `generation_config.json` model file, if it exists; 2) from the model
                 configuration. Please note that unspecified parameters will inherit [`~transformers.generation.GenerationConfig`]'s
                 default values, whose documentation should be checked to parameterize generation.
+            stopping_criteria (`Optional[transformers.generation.StoppingCriteriaList]):
+                Custom stopping criteria that complement the default stopping criteria built from arguments and a
+                generation config.
 
         Returns:
             `torch.Tensor`: A  `torch.FloatTensor`.
@@ -758,7 +763,9 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
         self._validate_model_kwargs(model_kwargs)
 
         # Instantiate a TokenSelector for the specified configuration
-        selector = TokenSelector.create(input_ids, generation_config, self, self.max_length)
+        selector = TokenSelector.create(
+            input_ids, generation_config, self, self.max_length, stopping_criteria=stopping_criteria
+        )
 
         # Verify that the inputs are compatible with the model static input dimensions
         batch_size, sequence_length = input_ids.shape
