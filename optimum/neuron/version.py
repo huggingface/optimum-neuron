@@ -13,3 +13,5 @@
 #  limitations under the License.
 
 __version__ = "0.0.18.dev0"
+
+__sdk_version__ = "2.16.1"
