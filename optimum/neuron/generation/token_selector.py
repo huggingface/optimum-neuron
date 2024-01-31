@@ -71,7 +71,7 @@ class TokenSelector:
                 The model provides the internal helpers allowing to select the logits processors and stopping criterias.
             max_seq_length (`int`):
                 The maximum number of input + generated tokens for this model. It depends on the model compilation parameters.
-            stopping_criteria (`Optional[transformers.generation.StoppingCriteriaList]):
+            stopping_criteria (`Optional[transformers.generation.StoppingCriteriaList], defaults to `None`):
                 Custom stopping criteria that complement the default stopping criteria built from arguments and a
                 generation config.
         Return:

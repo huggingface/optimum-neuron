@@ -749,7 +749,7 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
                 priority: 1) from the `generation_config.json` model file, if it exists; 2) from the model
                 configuration. Please note that unspecified parameters will inherit [`~transformers.generation.GenerationConfig`]'s
                 default values, whose documentation should be checked to parameterize generation.
-            stopping_criteria (`Optional[transformers.generation.StoppingCriteriaList]):
+            stopping_criteria (`Optional[transformers.generation.StoppingCriteriaList], defaults to `None`):
                 Custom stopping criteria that complement the default stopping criteria built from arguments and a
                 generation config.
 
