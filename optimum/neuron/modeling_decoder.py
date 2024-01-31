@@ -238,7 +238,7 @@ class NeuronDecoderModel(OptimizedModel):
             sequence_length = config.max_position_embeddings
         if num_cores is None:
             # Use all available cores
-            num_cores = len(os.listdir("/sys/class/neuron_device/")) * 2
+            num_cores = get_available_cores()
         if auto_cast_type is None:
             auto_cast_type = "fp32"
             if config.torch_dtype == "float16":
