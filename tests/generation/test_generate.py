@@ -18,6 +18,7 @@ import os
 import pytest
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers.generation import StoppingCriteria
 
 from optimum.neuron import NeuronModelForCausalLM, NeuronModelForSeq2SeqLM
 from optimum.neuron.utils.testing_utils import is_inferentia_test, is_trainium_test, requires_neuronx
@@ -73,6 +74,25 @@ def test_model_generation_input_dimensions(neuron_decoder_path):
     # Using an incompatible input length
     with pytest.raises(ValueError, match="The input sequence length"):
         _test_model_generation(model, tokenizer, model.batch_size, input_length=model.max_length * 2)
+
+
+@is_inferentia_test
+@requires_neuronx
+def test_decoder_generation_custom_stopping_criteria():
+    model_id = "hf-internal-testing/tiny-random-gpt2"
+    model = NeuronModelForCausalLM.from_pretrained(model_id, export=True, batch_size=1)
+
+    class CustomStoppingCriteria(StoppingCriteria):
+        def __init__(self):
+            self.called = False
+
+        def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor, **kwargs) -> bool:
+            self.called = True
+            return True
+
+    criteria = CustomStoppingCriteria()
+    model.generate(input_ids=torch.ones([1, 10], dtype=torch.int64), stopping_criteria=[criteria])
+    assert criteria.called, "Custom StoppingCriteria should have been called"
 
 
 @is_inferentia_test

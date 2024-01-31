@@ -169,7 +169,7 @@ This adds several restrictions to the following parameters:
 - `--max-concurrent-requests` must be set to `batch size`,
 - `--max-input-length` must be lower than `max_length`,
 - `--max-total-tokens` must be set to `max_length` (it is per-request),
-- `--max-batch-prefill-tokens` must be lower than `max_tokens`,
+- `--max-batch-prefill-tokens` must be set to `batch_size * max_input_length`,
 - `--max-batch-total-tokens` must be set to `max_tokens`.
 
 ### Choosing the correct batch size

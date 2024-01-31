@@ -38,8 +38,7 @@ def serve(
             Use JSON format for log serialization.
     """
     if sharded:
-        raise ValueError("Sharding cannot be modified after the Neuron model has been compiled.")
-
+        raise ValueError("Sharding is not supported.")
     # Remove default handler
     logger.remove()
     logger.add(

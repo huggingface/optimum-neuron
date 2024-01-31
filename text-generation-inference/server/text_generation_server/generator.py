@@ -111,6 +111,7 @@ class Slot:
         self._generated_tokens = 0
         self._next_text_token_start = 0
         self._next_text_token_end = 0
+        self._generated_text = ""
         self._next_text = ""
 
     @property
@@ -126,8 +127,8 @@ class Slot:
         return self._request_id
 
     @property
-    def inputs(self) -> str:
-        return self._inputs
+    def cached_text(self) -> str:
+        return self._inputs + self._generated_text
 
     @property
     def generation_config(self) -> GenerationConfig:
@@ -238,8 +239,8 @@ class Slot:
         self._mask = torch.cat([self._mask, torch.LongTensor([1])])
         self._generated_tokens += 1
         next_text = self._decode_next_tokens()
-        # Now that a new token has been generated, we can append the previous one to the inputs
-        self._inputs += self._next_text
+        # Now that a new token has been generated, we can append the previous one to the generated text
+        self._generated_text += self._next_text
         self._next_text = next_text
         return next_text
 
@@ -263,7 +264,7 @@ class Slot:
 
     @property
     def generated_text(self) -> str:
-        return self._inputs + self._next_text
+        return self._generated_text + self._next_text
 
     @property
     def next_token(self) -> int:
@@ -314,6 +315,12 @@ class NeuronGenerator(Generator):
         Return:
             The maximum number of tokens the model supports.
         """
+        # Just check that the warmup request parameters match the model capacity
+        batch_size = self.model.batch_size
+        if len(batch.requests) > batch_size:
+            raise ValueError(
+                f"Inconsistent server configuration: please make sure max-prefill-tokens does not exceed {batch_size} x max-input-length."
+            )
         self.prefill(batch)
         return self.model.batch_size * self.model.max_length
 
@@ -343,8 +350,12 @@ class NeuronGenerator(Generator):
             slot = empty_slots.pop()
             slot.assign(request, self.model.generation_config)
             logger.debug(f"Request {slot.request_id} assigned to slot {slot.id}")
-        # Reconstruct the full inputs (without padding)
-        inputs = [slot.inputs for slot in self.slots]
+        # Reconstruct the full inputs (without padding) as seen by the model.
+        # This comprises:
+        # - the inputs for new requests,
+        # - the inputs and the generated text that has already been cached (i.e. excluding the last generated token)
+        #   for unfinished requests.
+        inputs = [slot.cached_text for slot in self.slots]
         # Tokenize with padding
         padded_inputs = self.tokenizer(inputs, return_tensors="pt", padding=True)
         #  If needed truncate sequences to fit into the static dimensions
