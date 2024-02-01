@@ -46,9 +46,11 @@ def consolidate_tensor_parallel_checkpoints(checkpoint_dir: Union[str, Path]) ->
     parameter_names = state_dicts[0]["model"].keys()
     sharded_metadatas = {
         name: [
-            ParameterMetadata(**state_dict["sharded_metadata"][name])
-            if name in state_dict["sharded_metadata"]
-            else ParameterMetadata("tied")
+            (
+                ParameterMetadata(**state_dict["sharded_metadata"][name])
+                if name in state_dict["sharded_metadata"]
+                else ParameterMetadata("tied")
+            )
             for state_dict in state_dicts
         ]
         for name in parameter_names

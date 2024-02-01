@@ -397,9 +397,11 @@ class Parallelizer(ABC):
                             tp_rank = get_tensor_model_parallel_rank()
                             size_per_rank = parameter.size(partition_dim)
                             slices = [
-                                None
-                                if idx != partition_dim
-                                else (size_per_rank * tp_rank, size_per_rank * (tp_rank + 1))
+                                (
+                                    None
+                                    if idx != partition_dim
+                                    else (size_per_rank * tp_rank, size_per_rank * (tp_rank + 1))
+                                )
                                 for idx in range(num_dims)
                             ]
                         else:

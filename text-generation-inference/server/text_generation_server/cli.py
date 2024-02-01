@@ -38,8 +38,7 @@ def serve(
             Use JSON format for log serialization.
     """
     if sharded:
-        raise ValueError("Sharding cannot be modified after the Neuron model has been compiled.")
-
+        raise ValueError("Sharding is not supported.")
     # Remove default handler
     logger.remove()
     logger.add(
@@ -56,9 +55,11 @@ def serve(
         logger.warning("'trust_remote_code' argument is not supported and will be ignored.")
 
     # Import here after the logger is added to log potential import exceptions
+    from .model import fetch_model
     from .server import serve
 
-    serve(model_id, revision, uds_path)
+    model_path = fetch_model(model_id, revision)
+    serve(model_path, uds_path)
 
 
 @app.command()

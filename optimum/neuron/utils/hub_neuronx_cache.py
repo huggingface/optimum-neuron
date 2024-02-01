@@ -12,12 +12,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import hashlib
+import json
 import logging
 import os
 from contextlib import contextmanager
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Optional
 
 from huggingface_hub import HfApi, get_token
+from transformers import AutoConfig, PretrainedConfig
 
 from ..version import __version__
 from .import_utils import is_neuronx_available
@@ -196,10 +201,48 @@ def _create_hub_compile_cache_proxy(
     return CompileCacheHfProxy(cache_repo_id, default_cache, endpoint=endpoint, token=token)
 
 
+class ModelCacheEntry:
+    """A class describing a model cache entry
+
+    Args:
+        model_id (`str`):
+            The model id, used as a key for the cache entry.
+        config (`transformers.PretrainedConfig`):
+            The configuration of the model.
+
+    """
+
+    def __init__(self, model_id: str, config: PretrainedConfig):
+        self.model_id = model_id
+        # Remove keys set to default values
+        self.config = config.to_diff_dict()
+        excluded_keys = ["_name_or_path", "transformers_version"]
+        for key in excluded_keys:
+            self.config.pop(key, None)
+
+    def to_json(self) -> str:
+        return json.dumps(self.config)
+
+    @property
+    def hash(self):
+        hash_gen = hashlib.sha512()
+        hash_gen.update(self.to_json().encode("utf-8"))
+        return str(hash_gen.hexdigest())[:20]
+
+
+REGISTRY_FOLDER = f"0_REGISTRY/{__version__}"
+
+
 @requires_torch_neuronx
 @contextmanager
-def hub_neuronx_cache():
-    """A context manager to trigger the Hugging Face Hub proxy compiler cache"""
+def hub_neuronx_cache(entry: Optional[ModelCacheEntry] = None):
+    """A context manager to activate the Hugging Face Hub proxy compiler cache.
+
+    Args:
+        entry (`Optional[ModelCacheEntry]`, defaults to `None`):
+            An optional dataclass containing metadata associated with the model corresponding
+            to the cache session. Will create a dedicated entry in the cache registry.
+    """
 
     def hf_create_compile_cache(cache_url):
         try:
@@ -209,8 +252,24 @@ def hub_neuronx_cache():
             return create_compile_cache(cache_url)
 
     try:
+        default_cache = create_compile_cache(CacheUrl.get_cache_url())
         patch_everywhere("create_compile_cache", hf_create_compile_cache, "libneuronxla")
         yield
+        # The cache session ended without error
+        if entry is not None:
+            if isinstance(default_cache, CompileCacheS3):
+                logger.warning("Skipping cache metadata update on S3 cache.")
+            else:
+                # Create cache entry in local cache: it can be later synchronized with the hub cache
+                registry_path = default_cache.get_cache_dir_with_cache_key(REGISTRY_FOLDER)
+                model_type = entry.config["model_type"]
+                entry_path = f"{registry_path}/{model_type}/{entry.model_id}"
+                config_path = f"{entry_path}/{entry.hash}.json"
+                if not default_cache.exists(config_path):
+                    oldmask = os.umask(000)
+                    Path(entry_path).mkdir(parents=True, exist_ok=True)
+                    os.umask(oldmask)
+                    default_cache.upload_string_to_file(config_path, entry.to_json())
     finally:
         patch_everywhere("create_compile_cache", create_compile_cache, "libneuronxla")
 
@@ -225,3 +284,30 @@ def synchronize_hub_cache(cache_repo_id: Optional[str] = None):
     """
     hub_cache_proxy = _create_hub_compile_cache_proxy(cache_repo_id=cache_repo_id)
     hub_cache_proxy.synchronize()
+
+
+def get_hub_cached_entries(model_id: str, cache_repo_id: Optional[str] = None):
+    if cache_repo_id is None:
+        cache_repo_id = get_hub_cache()
+    # Allocate a Hub API with refreshed information (required for tests altering the env)
+    endpoint = os.getenv("HF_ENDPOINT")
+    token = get_token()
+    api = HfApi(endpoint=endpoint, token=token)
+    repo_files = api.list_repo_files(cache_repo_id)
+    # Get the config corresponding to the model
+    target_entry = ModelCacheEntry(model_id, (AutoConfig.from_pretrained(model_id)))
+    # Extract model type: it will be used as primary key for lookup
+    model_type = target_entry.config["model_type"]
+    registry_pattern = REGISTRY_FOLDER + "/" + model_type
+    model_files = [path for path in repo_files if registry_pattern in path]
+    model_entries = []
+    with TemporaryDirectory() as tmpdir:
+        for model_path in model_files:
+            local_path = api.hf_hub_download(cache_repo_id, model_path, local_dir=tmpdir)
+            with open(local_path) as f:
+                entry_config = json.load(f)
+                # All config parameters but neuron config must match
+                neuron_config = entry_config.pop("neuron")
+                if entry_config == target_entry.config:
+                    model_entries.append(neuron_config)
+    return model_entries

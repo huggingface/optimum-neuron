@@ -1,5 +1,6 @@
 import copy
 import logging
+import time
 from abc import ABC
 from enum import Enum
 from typing import List, Optional, Tuple
@@ -12,7 +13,6 @@ from transformers.generation import GenerationConfig
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.generation import TokenSelector
 
-from .model import fetch_model
 from .pb.generate_pb2 import (
     Batch,
     CachedBatch,
@@ -111,6 +111,7 @@ class Slot:
         self._generated_tokens = 0
         self._next_text_token_start = 0
         self._next_text_token_end = 0
+        self._generated_text = ""
         self._next_text = ""
 
     @property
@@ -126,8 +127,8 @@ class Slot:
         return self._request_id
 
     @property
-    def inputs(self) -> str:
-        return self._inputs
+    def cached_text(self) -> str:
+        return self._inputs + self._generated_text
 
     @property
     def generation_config(self) -> GenerationConfig:
@@ -238,8 +239,8 @@ class Slot:
         self._mask = torch.cat([self._mask, torch.LongTensor([1])])
         self._generated_tokens += 1
         next_text = self._decode_next_tokens()
-        # Now that a new token has been generated, we can append the previous one to the inputs
-        self._inputs += self._next_text
+        # Now that a new token has been generated, we can append the previous one to the generated text
+        self._generated_text += self._next_text
         self._next_text = next_text
         return next_text
 
@@ -263,7 +264,7 @@ class Slot:
 
     @property
     def generated_text(self) -> str:
-        return self._inputs + self._next_text
+        return self._generated_text + self._next_text
 
     @property
     def next_token(self) -> int:
@@ -314,6 +315,12 @@ class NeuronGenerator(Generator):
         Return:
             The maximum number of tokens the model supports.
         """
+        # Just check that the warmup request parameters match the model capacity
+        batch_size = self.model.batch_size
+        if len(batch.requests) > batch_size:
+            raise ValueError(
+                f"Inconsistent server configuration: please make sure max-prefill-tokens does not exceed {batch_size} x max-input-length."
+            )
         self.prefill(batch)
         return self.model.batch_size * self.model.max_length
 
@@ -343,8 +350,12 @@ class NeuronGenerator(Generator):
             slot = empty_slots.pop()
             slot.assign(request, self.model.generation_config)
             logger.debug(f"Request {slot.request_id} assigned to slot {slot.id}")
-        # Reconstruct the full inputs (without padding)
-        inputs = [slot.inputs for slot in self.slots]
+        # Reconstruct the full inputs (without padding) as seen by the model.
+        # This comprises:
+        # - the inputs for new requests,
+        # - the inputs and the generated text that has already been cached (i.e. excluding the last generated token)
+        #   for unfinished requests.
+        inputs = [slot.cached_text for slot in self.slots]
         # Tokenize with padding
         padded_inputs = self.tokenizer(inputs, return_tensors="pt", padding=True)
         #  If needed truncate sequences to fit into the static dimensions
@@ -504,22 +515,21 @@ class NeuronGenerator(Generator):
     @classmethod
     def from_pretrained(
         cls,
-        model_id: str,
-        revision: Optional[str],
+        model_path: str,
     ):
         """Instantiate a NeuronGenerator.
 
         Args:
-            model_id (`str`):
-                The *model_id* of a model on the HuggingFace hub or the path to a local model.
-                In either case, the hub or local path must also contain a Tokenizer.
-            revision (`str`):
-                The revision of the model on the HuggingFace hub.
+            model_path (`str`):
+                The path to a local neuron model. This path must also contain a Tokenizer.
 
         Returns:
             A NeuronGenerator.
         """
-        model_path = fetch_model(model_id, revision)
-        model = NeuronModelForCausalLM.from_pretrained(model_path, revision=revision)
-        tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision)
+        logger.info("Loading model on neuron devices (this can take a few minutes).")
+        start = time.time()
+        model = NeuronModelForCausalLM.from_pretrained(model_path)
+        end = time.time()
+        logger.info(f"Model successfully loaded in {end - start:.2f} s.")
+        tokenizer = AutoTokenizer.from_pretrained(model_path)
         return cls(model, tokenizer)

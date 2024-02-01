@@ -16,7 +16,7 @@
 
 from typing import TYPE_CHECKING
 
-from ...neuron.utils import synchronize_hub_cache
+from ...neuron.utils import get_hub_cached_entries, synchronize_hub_cache
 from ...neuron.utils.cache_utils import (
     CACHE_REPO_NAME,
     HF_HOME_CACHE_REPO_FILE,
@@ -218,6 +218,27 @@ class SynchronizeRepoCommand(BaseOptimumCLICommand):
         synchronize_hub_cache(self.args.repo_id)
 
 
+class LookupRepoCommand(BaseOptimumCLICommand):
+    @staticmethod
+    def parse_args(parser: "ArgumentParser"):
+        parser.add_argument(
+            "model_id",
+            type=str,
+            help="The model_id to lookup cached versions for.",
+        )
+        parser.add_argument("--repo_id", type=str, default=None, help="The name of the repo to use as remote cache.")
+
+    def run(self):
+        entries = get_hub_cached_entries(self.args.model_id, cache_repo_id=self.args.repo_id)
+        n_entries = len(entries)
+        output = f"\n*** {n_entries} entrie(s) found in cache for {self.args.model_id} ***\n\n"
+        for entry in entries:
+            for key, value in entry.items():
+                output += f"\n{key}: {value}"
+            output += "\n"
+        print(output)
+
+
 class CustomCacheRepoCommand(BaseOptimumCLICommand):
     SUBCOMMANDS = (
         CommandInfo(
@@ -227,22 +248,27 @@ class CustomCacheRepoCommand(BaseOptimumCLICommand):
         ),
         CommandInfo(
             name="set",
-            help="Set the name of the Neuron cache repo to use locally.",
+            help="Set the name of the Neuron cache repo to use locally (trainium only).",
             subcommand_class=SetCustomCacheRepoCommand,
         ),
         CommandInfo(
             name="add",
-            help="Add a model to the cache of your choice.",
+            help="Add a model to the cache of your choice (trainium only).",
             subcommand_class=AddToCacheRepoCommand,
         ),
         CommandInfo(
             name="list",
-            help="List models in a cache repo.",
+            help="List models in a cache repo (trainium only).",
             subcommand_class=ListRepoCommand,
         ),
         CommandInfo(
             name="synchronize",
-            help="Synchronize the neuronx compiler cache with a hub cache repo.",
+            help="Synchronize the neuronx compiler cache with a hub cache repo (inferentia only).",
             subcommand_class=SynchronizeRepoCommand,
+        ),
+        CommandInfo(
+            name="lookup",
+            help="Lookup the neuronx compiler hub cache for the specified model id (inferentia only).",
+            subcommand_class=LookupRepoCommand,
         ),
     )

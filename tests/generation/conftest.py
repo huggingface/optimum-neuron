@@ -163,13 +163,6 @@ def neuron_seq2seq_greedy_path_with_optional_outputs(export_seq2seq_id):
     yield model_path
 
 
-@pytest.fixture(scope="session")
-def neuron_push_decoder_id(export_decoder_id):
-    model_name = export_decoder_id.split("/")[-1]
-    repo_id = f"{USER}/{model_name}-neuronx"
-    return repo_id
-
-
 @pytest.fixture(scope="module")
 def neuron_push_seq2seq_id(export_seq2seq_id):
     model_name = export_seq2seq_id.split("/")[-1]

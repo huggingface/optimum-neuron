@@ -19,7 +19,7 @@ import random
 import unittest
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
-from typing import Dict
+from typing import Dict, List, Optional
 
 from parameterized import parameterized
 from transformers import AutoConfig, AutoModelForSeq2SeqLM, set_seed
@@ -36,6 +36,7 @@ from optimum.exporters.neuron import (
 from optimum.exporters.neuron.__main__ import _get_submodels_and_neuron_configs
 from optimum.exporters.neuron.model_configs import *  # noqa: F403
 from optimum.exporters.tasks import TasksManager
+from optimum.neuron.utils import is_neuron_available
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 from optimum.utils import DEFAULT_DUMMY_SHAPES, is_diffusers_available, logging
 from optimum.utils.testing_utils import require_diffusers, require_sentence_transformers
@@ -45,6 +46,7 @@ from .exporters_utils import (
     EXPORT_MODELS_TINY,
     SENTENCE_TRANSFORMERS_MODELS,
     STABLE_DIFFUSION_MODELS_TINY,
+    WEIGHTS_NEFF_SEPARATION_UNSUPPORTED_ARCH,
 )
 
 
@@ -56,38 +58,43 @@ SEED = 42
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 
-def _get_models_to_test(export_models_dict: Dict, library_name: str = "transformers"):
+def _get_models_to_test(
+    export_models_dict: Dict,
+    exclude_model_types: Optional[List[str]] = None,
+    library_name: str = "transformers",
+):
     models_to_test = []
     for model_type, model_names_tasks in export_models_dict.items():
         model_type = model_type.replace("_", "-")
-        task_config_mapping = TasksManager.get_supported_tasks_for_model_type(
+        if exclude_model_types is None or (model_type not in exclude_model_types):
+            task_config_mapping = TasksManager.get_supported_tasks_for_model_type(
             model_type, "neuron", library_name=library_name
         )
 
-        if isinstance(model_names_tasks, str):  # test export of all tasks on the same model
-            tasks = list(task_config_mapping.keys())
-            model_tasks = {model_names_tasks: tasks}
-        else:
-            n_tested_tasks = sum(len(tasks) for tasks in model_names_tasks.values())
-            if n_tested_tasks != len(task_config_mapping):
-                logger.warning(f"Not all tasks are tested for {model_type}.")
-            model_tasks = model_names_tasks  # possibly, test different tasks on different models
+            if isinstance(model_names_tasks, str):  # test export of all tasks on the same model
+                tasks = list(task_config_mapping.keys())
+                model_tasks = {model_names_tasks: tasks}
+            else:
+                n_tested_tasks = sum(len(tasks) for tasks in model_names_tasks.values())
+                if n_tested_tasks != len(task_config_mapping):
+                    logger.warning(f"Not all tasks are tested for {model_type}.")
+                model_tasks = model_names_tasks  # possibly, test different tasks on different models
 
-        for model_name, tasks in model_tasks.items():
-            for task in tasks:
-                default_shapes = dict(DEFAULT_DUMMY_SHAPES)
-                neuron_config_constructor = TasksManager.get_exporter_config_constructor(
-                    model_type=model_type,
-                    exporter="neuron",
-                    library_name=library_name,
-                    task=task,
-                    model_name=model_name,
-                    exporter_config_kwargs={**default_shapes},
-                )
+            for model_name, tasks in model_tasks.items():
+                for task in tasks:
+                    default_shapes = dict(DEFAULT_DUMMY_SHAPES)
+                    neuron_config_constructor = TasksManager.get_exporter_config_constructor(
+                        model_type=model_type,
+                        exporter="neuron",
+                        library_name=library_name,
+                        task=task,
+                        model_name=model_name,
+                        exporter_config_kwargs={**default_shapes},
+                    )
 
-                models_to_test.append(
-                    (f"{model_type}_{task}", model_type, model_name, task, neuron_config_constructor)
-                )
+                    models_to_test.append(
+                        (f"{model_type}_{task}", model_type, model_name, task, neuron_config_constructor)
+                    )
 
     random_pick = os.environ.get("MAX_EXPORT_TEST_COMBINATIONS", None)
     if random_pick is not None:
@@ -101,6 +108,11 @@ class NeuronExportTestCase(unittest.TestCase):
     Integration tests ensuring supported models are correctly exported.
     """
 
+    if is_neuron_available():
+        # Deberta has 'XSoftmax' unsupported on INF1
+        for model in ["deberta", "deberta-v2"]:
+            EXPORT_MODELS_TINY.pop(model)
+
     def _neuronx_export(
         self,
         test_name: str,
@@ -109,6 +121,7 @@ class NeuronExportTestCase(unittest.TestCase):
         task: str,
         neuron_config_constructor: "NeuronDefaultConfig",
         dynamic_batch_size: bool = False,
+        inline_weights_to_neff: bool = True,
     ):
         library_name = TasksManager.infer_library_from_model(model_name)
         if library_name == "sentence_transformers":
@@ -140,6 +153,7 @@ class NeuronExportTestCase(unittest.TestCase):
                     model=model,
                     config=neuron_config,
                     output=Path(output.name),
+                    inline_weights_to_neff=inline_weights_to_neff,
                 )
 
                 validate_model_outputs(
@@ -157,7 +171,21 @@ class NeuronExportTestCase(unittest.TestCase):
     def test_export(self, test_name, name, model_name, task, neuron_config_constructor):
         self._neuronx_export(test_name, name, model_name, task, neuron_config_constructor)
 
+<<<<<<< HEAD
     @parameterized.expand(_get_models_to_test(SENTENCE_TRANSFORMERS_MODELS, library_name="sentence_transformers"))
+=======
+    @parameterized.expand(
+        _get_models_to_test(EXPORT_MODELS_TINY, exclude_model_types=WEIGHTS_NEFF_SEPARATION_UNSUPPORTED_ARCH)
+    )
+    @is_inferentia_test
+    @requires_neuronx
+    def test_export_separated_weights(self, test_name, name, model_name, task, neuron_config_constructor):
+        self._neuronx_export(
+            test_name, name, model_name, task, neuron_config_constructor, inline_weights_to_neff=False
+        )
+
+    @parameterized.expand(_get_models_to_test(SENTENCE_TRANSFORMERS_MODELS))
+>>>>>>> main
     @is_inferentia_test
     @require_vision
     @require_sentence_transformers
