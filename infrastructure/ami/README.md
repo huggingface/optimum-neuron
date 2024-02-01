@@ -6,10 +6,10 @@ This directory contains the files for building AMI using [Packer](https://github
 ## Folder Structure
 
 - [hcl2-files](./hcl2-files/) - Includes different files which are used by a Packer pipeline to build an AMI. The files are:
-  - [build.pkr.hcl](./hcl2-files/build.pkr.hcl): contains the [build](https://developer.hashicorp.com/packer/docs/templates/hcl_templates/blocks/build) defines what builders are started, how to provision them using [provisioner](https://developer.hashicorp.com/packer/docs/templates/hcl_templates/blocks/build/provisioner) and if necessary what to do with their artifacts using `post-process`.
-  - [variables.pkr.hcl](./hcl2-files/variables.pkr.hcl): contains [variables](https://developer.hashicorp.com/packer/docs/templates/hcl_templates/blocks/variable) block that defines variables within your Packer configuration.
-  - [sources.pkr.hcl](./hcl2-files/sources.pkr.hcl): contains the [source](https://developer.hashicorp.com/packer/docs/templates/hcl_templates/blocks/source) block that defines reusable builder configuration blocks.
-  - [packer.pkr.hcl](./hcl2-files/packer.pkr.hcl): contains the [packer](https://developer.hashicorp.com/packer/docs/templates/hcl_templates/blocks/packer) block that is used to configure some behaviors of Packer itself, such as the minimum required Packer version needed to apply your configuration.
+  - [build.pkr.hcl](./hcl2-files/build.pkr.hcl): contains the [build](https://developer.hashicorp.com/packer/docs/templates/hcl_templates/blocks/build) block, defining the builders to start, provisioning them using [provisioner](https://developer.hashicorp.com/packer/docs/templates/hcl_templates/blocks/build/provisioner), and specifying actions to take with the built artifacts using `post-process`.
+  - [variables.pkr.hcl](./hcl2-files/variables.pkr.hcl): contains the [variables](https://developer.hashicorp.com/packer/docs/templates/hcl_templates/blocks/variable) block, defining variables within your Packer configuration.
+  - [sources.pkr.hcl](./hcl2-files/sources.pkr.hcl): contains the [source](https://developer.hashicorp.com/packer/docs/templates/hcl_templates/blocks/source) block, defining reusable builder configuration blocks.
+  - [packer.pkr.hcl](./hcl2-files/packer.pkr.hcl): contains the [packer](https://developer.hashicorp.com/packer/docs/templates/hcl_templates/blocks/packer) block, used to configure some behaviors of Packer itself, such as the minimum required Packer version needed to apply to your configuration.
 - [scripts](./scripts): contains scripts used by [provisioner](https://developer.hashicorp.com/packer/docs/templates/hcl_templates/blocks/build/provisioner) for installing additonal packages/softwares.
 
 

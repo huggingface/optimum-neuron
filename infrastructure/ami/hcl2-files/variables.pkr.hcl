@@ -10,9 +10,18 @@ variable "instance_type" {
 }
 
 variable "source_ami" {
-  default     = "ami-0fbea04d7389bcd4e" # To get latest AMI use: aws ec2 describe-images --region us-east-1 --owners amazon --filters 'Name=name,Values=Deep Learning AMI Neuron PyTorch 1.13 (Ubuntu 20.04) ????????' 'Name=state,Values=available' --query 'reverse(sort_by(Images, &CreationDate))[:1].ImageId' --output text
+  default     = "ami-0fbea04d7389bcd4e" 
   description = "Base Image"
   type        = string
+  /*
+  To get latest value, run the following command:
+  aws ec2 describe-images \
+      --region us-east-1 \
+      --owners amazon \
+      --filters 'Name=name,Values=Deep Learning AMI Neuron PyTorch 1.13 (Ubuntu 20.04) ????????' 'Name=state,Values=available' \
+      --query 'reverse(sort_by(Images, &CreationDate))[:1].ImageId' \
+      --output text
+  */
 }
 
 variable "ssh_username" {
