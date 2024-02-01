@@ -14,15 +14,18 @@
 # limitations under the License.
 """Classes related to `neuronx-distributed` to perform parallelism."""
 
-from typing import TYPE_CHECKING, Optional, Tuple
+import warnings
+from typing import TYPE_CHECKING, Any, List, Optional, Tuple
 
 import torch
+from transformers.cache_utils import Cache
 from transformers.models.gpt_neo.modeling_gpt_neo import GPTNeoBlock, GPTNeoSelfAttention
 from transformers.models.gpt_neox.modeling_gpt_neox import GPTNeoXAttention
 from transformers.models.llama.modeling_llama import (
     LlamaAttention,
     LlamaDecoderLayer,
     LlamaRMSNorm,
+    _prepare_4d_causal_attention_mask,
     apply_rotary_pos_emb,
     repeat_kv,
 )
@@ -32,7 +35,7 @@ from transformers.models.mistral.modeling_mistral import (
     MistralRMSNorm,
 )
 
-from .base import Parallelizer
+from .base import Parallelizer, PipelineParallelismSpecs, SequenceParallelismSpecs
 from .parallel_layers import (
     LayerNormType,
     ParallelCrossEntropy,
@@ -71,7 +74,7 @@ class GPTNeoParallelCrossEntropy(ParallelCrossEntropy):
     LAST_LINEAR_PROJECTION_NAME = {"GPTNeoForCausalLM": "lm_head"}
 
 
-class GPTNeoParallelizer(Parallelizer):
+class GPTNeoSequenceParallelismSpecs(SequenceParallelismSpecs):
     SEQUENCE_PARALLEL_LAYERNORM_PATTERNS = [
         "transformer.h.[0-9]+.ln_[1-2]",
         "transformer.ln_f",
@@ -107,6 +110,10 @@ class GPTNeoParallelizer(Parallelizer):
             if isinstance(module, GPTNeoSelfAttention):
                 module._split_heads = _split_heads.__get__(module)
                 module._merge_heads = _merge_heads.__get__(module)
+
+
+class GPTNeoParallelizer(Parallelizer):
+    SEQUENCE_PARALLELSIM_SPECS_CLS = GPTNeoSequenceParallelismSpecs
 
     @classmethod
     def _parallelize(
@@ -158,14 +165,14 @@ class GPTNeoXParallelCrossEntropy(ParallelCrossEntropy):
     LAST_LINEAR_PROJECTION_NAME = {"GPTNeoXForCausalLM": "embed_out"}
 
 
-class GPTNeoXParallelizer(Parallelizer):
+class GPTNeoXSequenceParallelismSpecs(SequenceParallelismSpecs):
     SEQUENCE_PARALLEL_LAYERNORM_PATTERNS = [
         "gpt_neox.layers.[0-9]+.input_layernorm",
         "gpt_neox.layers.[0-9]+.post_attention_layernorm",
         "gpt_neox.final_layer_norm",
     ]
     SEQUENCE_COLLECTIVE_OPS_INFOS = [
-        SequenceCollectiveOpInfo("scatter", torch.nn.Embedding, "output", "first"),
+        SequenceCollectiveOpInfo("scatter", "gpt_neox.embed_in", "output", "first"),
         SequenceCollectiveOpInfo("gather", torch.nn.LayerNorm, "output", "last"),
     ]
 
@@ -269,6 +276,10 @@ class GPTNeoXParallelizer(Parallelizer):
             if isinstance(module, GPTNeoXAttention):
                 module.forward = sequence_parallel_forward.__get__(module)
 
+
+class GPTNeoXParallelizer(Parallelizer):
+    SEQUENCE_PARALLELSIM_SPECS_CLS = GPTNeoXSequenceParallelismSpecs
+
     @classmethod
     def _parallelize(
         cls,
@@ -366,7 +377,7 @@ class LlamaParallelCrossEntropy(ParallelCrossEntropy):
     }
 
 
-class LlamaParallelizer(Parallelizer):
+class LlamaSequenceParallelismSpecs(SequenceParallelismSpecs):
     SEQUENCE_PARALLEL_LAYERNORM_PATTERNS = [
         "model.layers.[0-9]+.input_layernorm",
         "model.layers.[0-9]+.post_attention_layernorm",
@@ -391,13 +402,20 @@ class LlamaParallelizer(Parallelizer):
 
         def attention_forward(
             self,
-            hidden_states: "torch.Tensor",
-            attention_mask: Optional["torch.Tensor"] = None,
-            position_ids: Optional["torch.LongTensor"] = None,
-            past_key_value: Optional[Tuple["torch.Tensor"]] = None,
+            hidden_states: torch.Tensor,
+            attention_mask: Optional[torch.Tensor] = None,
+            position_ids: Optional[torch.LongTensor] = None,
+            past_key_value: Optional[Cache] = None,
             output_attentions: bool = False,
             use_cache: bool = False,
-        ) -> Tuple["torch.Tensor", Optional["torch.Tensor"], Optional[Tuple["torch.Tensor"]]]:
+            **kwargs,
+        ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+            if "padding_mask" in kwargs:
+                warnings.warn(
+                    "Passing `padding_mask` is deprecated and removed since `transformers` v4.37. Please make sure to "
+                    "use `attention_mask` instead.`"
+                )
+
             if self.config.pretraining_tp > 1:
                 key_value_slicing = (self.num_key_value_heads * self.head_dim) // self.config.pretraining_tp
                 query_slices = self.q_proj.weight.split(
@@ -439,16 +457,21 @@ class LlamaParallelizer(Parallelizer):
 
             kv_seq_len = key_states.shape[-2]
             if past_key_value is not None:
-                kv_seq_len += past_key_value[0].shape[-2]
+                if self.layer_idx is None:
+                    raise ValueError(
+                        "The cache structure has changed since version `transformers v4.36. If you are using "
+                        f"{self.__class__.__name__} for auto-regressive decoding with k/v caching, please make sure to "
+                        "initialize the attention class with a layer index."
+                    )
+                kv_seq_len += past_key_value.get_usable_length(kv_seq_len, self.layer_idx)
             cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
             query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
 
             if past_key_value is not None:
-                # reuse k, v, self_attention
-                key_states = torch.cat([past_key_value[0], key_states], dim=2)
-                value_states = torch.cat([past_key_value[1], value_states], dim=2)
-
-            past_key_value = (key_states, value_states) if use_cache else None
+                cache_kwargs = {"sin": sin, "cos": cos}  # Specific to RoPE models
+                key_states, value_states = past_key_value.update(
+                    key_states, value_states, self.layer_idx, cache_kwargs
+                )
 
             # repeat k/v heads if n_kv_heads < n_heads
             key_states = repeat_kv(key_states, self.num_key_value_groups)
@@ -504,6 +527,29 @@ class LlamaParallelizer(Parallelizer):
         for module in model.modules():
             if isinstance(module, LlamaAttention):
                 module.forward = attention_forward.__get__(module)
+
+
+class LlamaPipelineParallelismSpecs(PipelineParallelismSpecs):
+    TRASNFORMER_LAYER_CLS = LlamaDecoderLayer
+    DEFAULT_INPUT_NAMES = ("input_ids", "attention_mask", "labels")
+    LEAF_MODULE_CLASSES_NAMES = [LlamaRMSNorm]
+
+    @classmethod
+    def get_patching_specs(cls) -> List[Tuple[str, Any]]:
+        leaf_prepare_4d_causal_attention_mask = torch.fx._symbolic_trace._create_wrapped_func(
+            _prepare_4d_causal_attention_mask
+        )
+        return [
+            (
+                "transformers.models.llama.modeling_llama._prepare_4d_causal_attention_mask",
+                leaf_prepare_4d_causal_attention_mask,
+            ),
+        ]
+
+
+class LlamaParallelizer(Parallelizer):
+    SEQUENCE_PARALLELSIM_SPECS_CLS = LlamaSequenceParallelismSpecs
+    PIPELINE_PARALLELISM_SPECS_CLS = LlamaPipelineParallelismSpecs
 
     @classmethod
     def _parallelize(
@@ -598,7 +644,7 @@ class MistralParallelCrossEntropy(ParallelCrossEntropy):
     LAST_LINEAR_PROJECTION_NAME = {"MistralForCausalLM": "lm_head"}
 
 
-class MistralParallelizer(Parallelizer):
+class MistralSequenceParallelismSpecs(SequenceParallelismSpecs):
     SEQUENCE_PARALLEL_LAYERNORM_PATTERNS = [
         "model.layers.[0-9]+.input_layernorm",
         "model.layers.[0-9]+.post_attention_layernorm",
@@ -625,11 +671,16 @@ class MistralParallelizer(Parallelizer):
             hidden_states: torch.Tensor,
             attention_mask: Optional[torch.Tensor] = None,
             position_ids: Optional[torch.LongTensor] = None,
-            past_key_value: Optional[Tuple[torch.Tensor]] = None,
+            past_key_value: Optional[Cache] = None,
             output_attentions: bool = False,
             use_cache: bool = False,
             **kwargs,
         ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+            if "padding_mask" in kwargs:
+                warnings.warn(
+                    "Passing `padding_mask` is deprecated and removed since `transformers` v4.37. Please make sure to "
+                    "use `attention_mask` instead.`"
+                )
             query_states = self.q_proj(hidden_states)
             key_states = self.k_proj(hidden_states)
             value_states = self.v_proj(hidden_states)
@@ -653,16 +704,21 @@ class MistralParallelizer(Parallelizer):
 
             kv_seq_len = key_states.shape[-2]
             if past_key_value is not None:
-                kv_seq_len += past_key_value[0].shape[-2]
+                if self.layer_idx is None:
+                    raise ValueError(
+                        "The cache structure has changed since `transformers` v4.36. If you are using "
+                        f"{self.__class__.__name__} for auto-regressive decoding with k/v caching, please make sure to "
+                        "initialize the attention class with a layer index."
+                    )
+                kv_seq_len += past_key_value.get_usable_length(kv_seq_len, self.layer_idx)
             cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
             query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
 
             if past_key_value is not None:
-                # reuse k, v, self_attention
-                key_states = torch.cat([past_key_value[0], key_states], dim=2)
-                value_states = torch.cat([past_key_value[1], value_states], dim=2)
-
-            past_key_value = (key_states, value_states) if use_cache else None
+                cache_kwargs = {"sin": sin, "cos": cos}  # Specific to RoPE models
+                key_states, value_states = past_key_value.update(
+                    key_states, value_states, self.layer_idx, cache_kwargs
+                )
 
             # repeat k/v heads if n_kv_heads < n_heads
             key_states = repeat_kv(key_states, self.num_key_value_groups)
@@ -712,6 +768,10 @@ class MistralParallelizer(Parallelizer):
         for module in model.modules():
             if isinstance(module, MistralAttention):
                 module.forward = attention_forward.__get__(module)
+
+
+class MistralParallelizer(Parallelizer):
+    SEQUENCE_PARALLELSIM_SPECS_CLS = MistralSequenceParallelismSpecs
 
     @classmethod
     def _parallelize(

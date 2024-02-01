@@ -14,118 +14,154 @@
 # limitations under the License.
 """Tests related to training with `neuronx_distributed`."""
 
-import os
+import json
 from pathlib import Path
-from tempfile import TemporaryDirectory
-from unittest import TestCase
 
-from huggingface_hub import HfFolder
+import pytest
+from datasets import load_dataset
+from transformers import AutoConfig, AutoModelForSequenceClassification, AutoTokenizer
 
-from optimum.neuron.utils.cache_utils import (
-    delete_custom_cache_repo_name_from_hf_home,
-    load_custom_cache_repo_name_from_hf_home,
-    set_custom_cache_repo_name_in_hf_home,
-)
-from optimum.neuron.utils.runner import ExampleRunner
+from optimum.neuron.training_args import NeuronTrainingArguments
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
+from .distributed import DistributedTest
 
-_TINY_BERT_MODEL_NAME = "hf-internal-testing/tiny-random-bert"
+
+MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-random"
 
 
 @is_trainium_test
-class DistributedTrainingTestCase(TestCase):
+class TestDistributedTraining(DistributedTest):
     CACHE_REPO_NAME = "optimum-internal-testing/optimum-neuron-cache-for-testing"
 
-    @classmethod
-    def setUpClass(cls):
-        orig_token = HfFolder.get_token()
-        orig_cache_repo = load_custom_cache_repo_name_from_hf_home()
-        ci_token = os.environ.get("HF_TOKEN_OPTIMUM_NEURON_CI", None)
-        if ci_token is not None:
-            HfFolder.save_token(ci_token)
-            set_custom_cache_repo_name_in_hf_home(cls.CACHE_REPO_NAME)
-        cls._token = orig_token
-        cls._cache_repo = orig_cache_repo
-        cls._env = dict(os.environ)
+    @pytest.fixture(
+        scope="class",
+        params=[[2, 1, 1], [2, 2, 1], [2, 1, 2]],
+        ids=["dp=2", "tp=2", "pp=2"],
+    )
+    def parallel_sizes(self, request):
+        return request.param
 
-    @classmethod
-    def tearDownClass(cls):
-        os.environ = cls._env
-        if cls._token is not None:
-            HfFolder.save_token(cls._token)
-        if cls._cache_repo is not None:
-            set_custom_cache_repo_name_in_hf_home(cls._cache_repo)
-        else:
-            delete_custom_cache_repo_name_from_hf_home()
+    def test_save_and_resume_from_checkpoint(self, parallel_sizes, tmpdir):
+        from optimum.neuron.trainers import NeuronTrainer
 
-    def test_tp_save_and_resume_from_checkpoint(self):
-        num_cores = 8
-        precision = "bf16"
-        tensor_parallel_size = 2
+        tmpdir = Path(tmpdir)
+        _, tp_size, pp_size = parallel_sizes
         train_batch_size = 2
         eval_batch_size = 2
-        sequence_length = 16
         max_steps = 10
-        save_steps = 2
         do_eval = True
+        max_train_samples = 100
         max_eval_samples = 16
 
-        with TemporaryDirectory() as tmpdirname:
-            output_dir = Path(tmpdirname)
+        tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+        tokenizer.pad_token = tokenizer.eos_token
 
-            runner = ExampleRunner(_TINY_BERT_MODEL_NAME, "text-classification")
-
-            first_output_dir = output_dir / "first_run"
-            returncode, _ = runner.run(
-                num_cores,
-                precision,
-                train_batch_size,
-                eval_batch_size=eval_batch_size,
-                sequence_length=sequence_length,
-                tensor_parallel_size=tensor_parallel_size,
+        def create_training_args(output_dir, resume_from_checkpoint=None, max_steps=max_steps):
+            if isinstance(output_dir, Path):
+                output_dir = output_dir.as_posix()
+            if isinstance(resume_from_checkpoint, Path):
+                resume_from_checkpoint = resume_from_checkpoint.as_posix()
+            args = NeuronTrainingArguments(
+                tensor_parallel_size=tp_size,
+                pipeline_parallel_size=pp_size,
+                bf16=True,
+                per_device_train_batch_size=train_batch_size,
+                per_device_eval_batch_size=eval_batch_size,
                 max_steps=max_steps,
-                save_steps=save_steps,
+                logging_steps=1,
+                save_steps=2,
                 do_eval=do_eval,
-                max_eval_samples=max_eval_samples,
-                output_dir=first_output_dir,
-                print_outputs=True,
+                output_dir=output_dir,
+                resume_from_checkpoint=resume_from_checkpoint,
+                skip_cache_push=True,
             )
-            assert returncode == 0, "First run failed."
+            return args
 
-            # Case 1: Resuming from checkpoint by specifying a checkpoint directory.
-            second_output_dir = output_dir / "second_run"
-            returncode, _ = runner.run(
-                num_cores,
-                precision,
-                train_batch_size,
-                eval_batch_size=eval_batch_size,
-                sequence_length=sequence_length,
-                tensor_parallel_size=tensor_parallel_size,
-                max_steps=max_steps,
-                save_steps=save_steps,
-                do_eval=do_eval,
-                max_eval_samples=max_eval_samples,
-                output_dir=second_output_dir,
-                resume_from_checkpoint=first_output_dir / "checkpoint-4",
-                print_outputs=True,
+        def create_model():
+            config = AutoConfig.from_pretrained(MODEL_NAME)
+            config.num_hidden_layers = 2 * max(1, pp_size)
+            config.num_attention_heads = 2
+            config.num_key_value_heads = 2
+            config.problem_type = "single_label_classification"
+            # config.use_cache = False
+            model = AutoModelForSequenceClassification.from_pretrained(
+                MODEL_NAME, config=config, ignore_mismatched_sizes=True
             )
-            assert returncode == 0, "Second run failed."
+            return model
 
-            # Case 2: Resuming from checkpoint by specifying a boolean, in this case it should look inside the output
-            # directory.
-            returncode, _ = runner.run(
-                num_cores,
-                precision,
-                train_batch_size,
-                eval_batch_size=eval_batch_size,
-                sequence_length=sequence_length,
-                tensor_parallel_size=tensor_parallel_size,
-                max_steps=max_steps + 10,  # So that it makes more steps since we are restauring from the third run.
-                save_steps=save_steps,
-                do_eval=do_eval,
-                max_eval_samples=max_eval_samples,
-                output_dir=second_output_dir,
-                print_outputs=True,
+        # First run setting.
+        first_output_dir = tmpdir / "first_run"
+        args = create_training_args(first_output_dir)
+        model = create_model()
+
+        # Dataset preprocessing
+        raw_datasets = load_dataset("glue", "sst2")
+        sentence1_key = "sentence"
+        sentence2_key = None
+        label_to_id = None
+        max_seq_length = 32
+        padding = "max_length"
+
+        def preprocess_function(examples):
+            # Tokenize the texts
+            args = (
+                (examples[sentence1_key],)
+                if sentence2_key is None
+                else (examples[sentence1_key], examples[sentence2_key])
             )
-            assert returncode == 0, "Third run failed."
+            result = tokenizer(*args, padding=padding, max_length=max_seq_length, truncation=True)
+
+            # Map labels to IDs (not necessary for GLUE tasks)
+            if label_to_id is not None and "label" in examples:
+                result["label"] = [(label_to_id[l] if l != -1 else -1) for l in examples["label"]]
+            return result
+
+        with args.main_process_first(desc="dataset map pre-processing"):
+            raw_datasets = raw_datasets.map(preprocess_function, batched=True)
+            train_dataset = raw_datasets["train"]
+            train_dataset = train_dataset.select(range(max_train_samples))
+            eval_dataset = raw_datasets["validation"]
+            eval_dataset = eval_dataset.select(range(max_eval_samples))
+
+        trainer = NeuronTrainer(
+            model, args=args, train_dataset=train_dataset, eval_dataset=eval_dataset, tokenizer=tokenizer
+        )
+
+        train_result = trainer.train()
+        trainer.evaluate()
+        trainer.save_metrics("train", train_result.metrics)
+
+        with open(first_output_dir / "train_results.json") as fp:
+            first_training_report = json.load(fp)
+
+        # Case 1: Resuming from checkpoint by specifying a checkpoint directory.
+        second_output_dir = tmpdir / "second_run"
+        resume_from_checkpoint = first_output_dir / "checkpoint-4"
+        args = create_training_args(second_output_dir, resume_from_checkpoint=resume_from_checkpoint)
+        model = create_model()
+        trainer = NeuronTrainer(
+            model, args=args, train_dataset=train_dataset, eval_dataset=eval_dataset, tokenizer=tokenizer
+        )
+
+        train_result = trainer.train(resume_from_checkpoint=resume_from_checkpoint)
+        trainer.evaluate()
+        trainer.save_metrics("train", train_result.metrics)
+
+        with open(first_output_dir / "train_results.json") as fp:
+            second_training_report = json.load(fp)
+
+        assert first_training_report["train_loss"] == second_training_report["train_loss"]
+
+        # Case 2: Resuming from checkpoint by specifying an output_dir with checkpoints.
+        # max_steps + 10 to do a some training steps than the previous run.
+        second_output_dir = first_output_dir
+        args = create_training_args(second_output_dir, max_steps=max_steps + 10)
+        model = create_model()
+
+        trainer = NeuronTrainer(
+            model, args=args, train_dataset=train_dataset, eval_dataset=eval_dataset, tokenizer=tokenizer
+        )
+
+        trainer.train(resume_from_checkpoint=True)
+        trainer.evaluate()

@@ -13,12 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+
 import pytest
 import torch
-from transformers import AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers.generation import StoppingCriteria
 
 from optimum.neuron import NeuronModelForCausalLM, NeuronModelForSeq2SeqLM
-from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
+from optimum.neuron.utils.testing_utils import is_inferentia_test, is_trainium_test, requires_neuronx
+from optimum.neuron.utils.training_utils import patch_generation_mixin_to_general_neuron_generation_mixin
 
 
 def _test_model_generation(model, tokenizer, batch_size, input_length, **gen_kwargs):
@@ -26,6 +30,17 @@ def _test_model_generation(model, tokenizer, batch_size, input_length, **gen_kwa
     with torch.inference_mode():
         sample_output = model.generate(input_ids, **gen_kwargs)
         assert sample_output.shape[0] == batch_size
+
+
+def _test_model_generation_trn(model, tokenizer, batch_size, input_length, **gen_kwargs):
+    import torch_xla.core.xla_model as xm
+
+    device = xm.xla_device()
+    model = model.to(device)
+    patch_generation_mixin_to_general_neuron_generation_mixin(model)
+    input_ids = torch.ones((batch_size, input_length), dtype=torch.int64)
+    sample_output = model.generate(input_ids, **gen_kwargs)
+    assert sample_output.shape[0] == batch_size
 
 
 @pytest.mark.parametrize(
@@ -59,6 +74,25 @@ def test_model_generation_input_dimensions(neuron_decoder_path):
     # Using an incompatible input length
     with pytest.raises(ValueError, match="The input sequence length"):
         _test_model_generation(model, tokenizer, model.batch_size, input_length=model.max_length * 2)
+
+
+@is_inferentia_test
+@requires_neuronx
+def test_decoder_generation_custom_stopping_criteria():
+    model_id = "hf-internal-testing/tiny-random-gpt2"
+    model = NeuronModelForCausalLM.from_pretrained(model_id, export=True, batch_size=1)
+
+    class CustomStoppingCriteria(StoppingCriteria):
+        def __init__(self):
+            self.called = False
+
+        def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor, **kwargs) -> bool:
+            self.called = True
+            return True
+
+    criteria = CustomStoppingCriteria()
+    model.generate(input_ids=torch.ones([1, 10], dtype=torch.int64), stopping_criteria=[criteria])
+    assert criteria.called, "Custom StoppingCriteria should have been called"
 
 
 @is_inferentia_test
@@ -141,3 +175,46 @@ def test_seq2seq_generation_greedy_with_optional_outputs(neuron_seq2seq_greedy_p
     assert "decoder_attentions" in output
     assert "cross_attentions" in output
     assert "decoder_hidden_states" in output
+
+
+@pytest.mark.parametrize(
+    "gen_kwargs",
+    [
+        {"do_sample": True},
+        {"do_sample": True, "temperature": 0.7},
+        {"do_sample": False},
+        {"do_sample": False, "repetition_penalty": 1.2},
+        {"num_beams": 4},
+        {"num_beams": 4, "num_beam_groups": 2, "diversity_penalty": 0.1},
+    ],
+    ids=["sample", "sample-with-temp", "greedy", "greedy_no-repeat", "beam", "group-beam"],
+)
+@is_trainium_test
+@requires_neuronx
+def test_general_decoder_generation(export_trn_decoder_id, gen_kwargs):
+    os.environ["NEURON_CC_FLAGS"] = "-O1 --model-type=transformer"
+    model = AutoModelForCausalLM.from_pretrained(export_trn_decoder_id)
+    tokenizer = AutoTokenizer.from_pretrained(export_trn_decoder_id)
+    _test_model_generation_trn(model, tokenizer, 1, 10, **gen_kwargs)
+
+
+@pytest.mark.parametrize(
+    "gen_kwargs",
+    [
+        {"do_sample": True},
+        {"do_sample": True, "temperature": 0.7},
+        {"do_sample": False},
+        {"do_sample": False, "repetition_penalty": 1.2},
+        {"num_beams": 4},
+        {"num_beams": 4, "do_sample": True, "temperature": 0.7},
+        {"num_beams": 4, "num_beam_groups": 2, "diversity_penalty": 0.1},
+    ],
+    ids=["sample", "sample-with-temp", "greedy", "greedy_no-repeat", "beam", "beam-sample", "group-beam"],
+)
+@is_trainium_test
+@requires_neuronx
+def test_general_seq2seq_generation(export_seq2seq_id, export_seq2seq_model_class, gen_kwargs):
+    os.environ["NEURON_CC_FLAGS"] = "-O1 --model-type=transformer"
+    model = export_seq2seq_model_class.from_pretrained(export_seq2seq_id)
+    tokenizer = AutoTokenizer.from_pretrained(export_seq2seq_id)
+    _test_model_generation_trn(model, tokenizer, 1, 10, **gen_kwargs)

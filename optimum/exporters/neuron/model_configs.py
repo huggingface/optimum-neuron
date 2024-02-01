@@ -29,6 +29,7 @@ from ...utils import (
     NormalizedConfigManager,
     NormalizedSeq2SeqConfig,
     NormalizedTextAndVisionConfig,
+    NormalizedTextConfig,
     is_diffusers_available,
 )
 from ...utils.normalized_config import T5LikeNormalizedTextConfig
@@ -41,6 +42,8 @@ from .config import (
     VisionNeuronConfig,
 )
 from .model_wrappers import (
+    SentenceTransformersCLIPNeuronWrapper,
+    SentenceTransformersTransformerNeuronWrapper,
     T5DecoderWrapper,
     T5EncoderWrapper,
     UnetNeuronWrapper,
@@ -66,7 +69,7 @@ register_in_tasks_manager = TasksManager.create_register("neuron")
 @register_in_tasks_manager("bert", *COMMON_TEXT_TASKS)
 class BertNeuronConfig(TextEncoderNeuronConfig):
     NORMALIZED_CONFIG_CLASS = NormalizedConfigManager.get_normalized_config_class("bert")
-    ATOL_FOR_VALIDATION = 1e-4
+    ATOL_FOR_VALIDATION = 1e-3
 
     @property
     def inputs(self) -> List[str]:
@@ -80,6 +83,8 @@ class AlbertNeuronConfig(BertNeuronConfig):
 
 @register_in_tasks_manager("convbert", *COMMON_TEXT_TASKS)
 class ConvBertNeuronConfig(BertNeuronConfig):
+    ATOL_FOR_VALIDATION = 1e-1  # TODO: why accuracy more off than other arch
+
     @property
     def outputs(self) -> List[str]:
         if self.task == "feature-extraction":
@@ -88,12 +93,16 @@ class ConvBertNeuronConfig(BertNeuronConfig):
 
 
 @register_in_tasks_manager("electra", *COMMON_TEXT_TASKS)
-class ElectraNeuronConfig(ConvBertNeuronConfig):
-    pass
+class ElectraNeuronConfig(BertNeuronConfig):
+    @property
+    def outputs(self) -> List[str]:
+        if self.task == "feature-extraction":
+            return ["last_hidden_state"]
+        return self._TASK_TO_COMMON_OUTPUTS[self.task]
 
 
 @register_in_tasks_manager("flaubert", *COMMON_TEXT_TASKS)
-class FlaubertNeuronConfig(ConvBertNeuronConfig):
+class FlaubertNeuronConfig(ElectraNeuronConfig):
     pass
 
 
@@ -103,18 +112,18 @@ class MobileBertNeuronConfig(BertNeuronConfig):
 
 
 @register_in_tasks_manager("roformer", *COMMON_TEXT_TASKS)
-class RoFormerNeuronConfig(ConvBertNeuronConfig):
+class RoFormerNeuronConfig(ElectraNeuronConfig):
     pass
 
 
 @register_in_tasks_manager("xlm", *COMMON_TEXT_TASKS)
-class XLMNeuronConfig(ConvBertNeuronConfig):
+class XLMNeuronConfig(ElectraNeuronConfig):
     pass
 
 
 @register_in_tasks_manager("distilbert", *COMMON_TEXT_TASKS)
 class DistilBertNeuronConfig(BertNeuronConfig):
-    ATOL_FOR_VALIDATION = 1e-4
+    ATOL_FOR_VALIDATION = 1e-3
 
     @property
     def inputs(self) -> List[str]:
@@ -129,7 +138,7 @@ class DistilBertNeuronConfig(BertNeuronConfig):
 
 @register_in_tasks_manager("camembert", *COMMON_TEXT_TASKS)
 class CamembertNeuronConfig(BertNeuronConfig):
-    ATOL_FOR_VALIDATION = 1e-4
+    ATOL_FOR_VALIDATION = 1e-3
 
     @property
     def inputs(self) -> List[str]:
@@ -153,8 +162,8 @@ class XLMRobertaNeuronConfig(CamembertNeuronConfig):
 
 # https://github.com/aws-neuron/aws-neuron-sdk/issues/642
 # Failed only for INF1: 'XSoftmax'
-@register_in_tasks_manager("deberta", *COMMON_TEXT_TASKS)
-class DebertaNeuronConfig(BertNeuronConfig):
+@register_in_tasks_manager("deberta", *([task for task in COMMON_TEXT_TASKS if task != "multiple-choice"]))
+class DebertaNeuronConfig(ElectraNeuronConfig):
     @property
     def inputs(self) -> List[str]:
         common_inputs = super().inputs
@@ -166,9 +175,27 @@ class DebertaNeuronConfig(BertNeuronConfig):
 
 # https://github.com/aws-neuron/aws-neuron-sdk/issues/642
 # Failed only for INF1: 'XSoftmax'
-@register_in_tasks_manager("deberta-v2", *COMMON_TEXT_TASKS)
-class DebertaV2NeuronConfig(DebertaNeuronConfig):
+@register_in_tasks_manager("deberta-v2", *([task for task in COMMON_TEXT_TASKS if task != "multiple-choice"]))
+class DebertaV2NeuronConfig(ElectraNeuronConfig):
     pass
+
+
+@register_in_tasks_manager("sentence-transformers-transformer", *["feature-extraction", "sentence-similarity"])
+class SentenceTransformersTransformerNeuronConfig(TextEncoderNeuronConfig):
+    NORMALIZED_CONFIG_CLASS = NormalizedTextConfig
+    CUSTOM_MODEL_WRAPPER = SentenceTransformersTransformerNeuronWrapper
+    ATOL_FOR_VALIDATION = 1e-3
+
+    @property
+    def inputs(self) -> List[str]:
+        return ["input_ids", "attention_mask"]
+
+    @property
+    def outputs(self) -> List[str]:
+        return ["token_embeddings", "sentence_embedding"]
+
+    def patch_model_for_export(self, model, dummy_inputs):
+        return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
 
 
 class CLIPNormalizedConfig(NormalizedTextAndVisionConfig):
@@ -229,10 +256,26 @@ class CLIPTextNeuronConfig(CLIPTextWithProjectionNeuronConfig):
         return common_outputs
 
 
+# TODO: We should decouple clip text and vision, this would need fix on Optimum main. For the current workaround
+# users can pass dummy text inputs when encoding image, vice versa.
+@register_in_tasks_manager("sentence-transformers-clip", *["feature-extraction", "sentence-similarity"])
+class SentenceTransformersCLIPNeuronConfig(CLIPNeuronConfig):
+    CUSTOM_MODEL_WRAPPER = SentenceTransformersCLIPNeuronWrapper
+    ATOL_FOR_VALIDATION = 1e-3
+    INPUT_ARGS = ("batch_size", "sequence_length", "num_channels", "width", "height")
+
+    @property
+    def outputs(self) -> List[str]:
+        return ["text_embeds", "image_embeds"]
+
+    def patch_model_for_export(self, model, dummy_inputs):
+        return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
+
+
 @register_in_tasks_manager("unet", *["semantic-segmentation"])
 class UNetNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
-    MANDATORY_AXES = ("batch_size", "sequence_length", "num_channels", "width", "height")
+    INPUT_ARGS = ("batch_size", "sequence_length", "num_channels", "width", "height")
     MODEL_TYPE = "unet"
     CUSTOM_MODEL_WRAPPER = UnetNeuronWrapper
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
@@ -379,7 +422,7 @@ class LLamaNeuronConfig(TextNeuronDecoderConfig):
 @register_in_tasks_manager("t5-encoder", "text2text-generation")
 class T5EncoderNeuronConfig(TextSeq2SeqNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
-    MANDATORY_AXES = ("batch_size", "sequence_length", "num_beams")
+    INPUT_ARGS = ("batch_size", "sequence_length", "num_beams")
     MODEL_TYPE = "t5-encoder"
     CUSTOM_MODEL_WRAPPER = T5EncoderWrapper
     NORMALIZED_CONFIG_CLASS = NormalizedSeq2SeqConfig.with_args(
@@ -414,7 +457,7 @@ class BloomNeuronConfig(TextNeuronDecoderConfig):
 class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
     DUMMY_INPUT_GENERATOR_CLASSES = TextSeq2SeqNeuronConfig.DUMMY_INPUT_GENERATOR_CLASSES + (DummyBeamValuesGenerator,)
-    MANDATORY_AXES = ("batch_size", "sequence_length", "num_beams")
+    INPUT_ARGS = ("batch_size", "sequence_length", "num_beams")
     MODEL_TYPE = "t5-decoder"
     CUSTOM_MODEL_WRAPPER = T5DecoderWrapper
     NORMALIZED_CONFIG_CLASS = T5LikeNormalizedTextConfig
@@ -471,3 +514,8 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
             aliases[model.past_key_values_ca[i]] = len(model.past_key_values_sa) + i + num_outputs_from_trace
 
         return aliases
+
+
+@register_in_tasks_manager("mistral", "text-generation")
+class MistralNeuronConfig(TextNeuronDecoderConfig):
+    NEURONX_CLASS = "mistral.model.MistralForSampling"

@@ -19,6 +19,7 @@ from typing import Dict, List, Type, Union
 
 from transformers import PreTrainedModel
 
+from ..utils.require_utils import requires_neuronx_distributed
 from .base import Parallelizer
 
 
@@ -69,7 +70,12 @@ class ParallelizersManager:
         return list(cls._MODEL_TYPE_TO_PARALLEL_MODEL_CLASS.keys())
 
     @classmethod
+    @requires_neuronx_distributed
     def _get_model_type(cls, model_type_or_model: Union[str, PreTrainedModel]) -> str:
+        from neuronx_distributed.pipeline import NxDPPModel
+
+        if isinstance(model_type_or_model, NxDPPModel):
+            model_type_or_model = model_type_or_model.original_torch_module
         if isinstance(model_type_or_model, PreTrainedModel):
             model_type = model_type_or_model.config.model_type
         else:

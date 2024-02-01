@@ -75,7 +75,7 @@ jobs:
         run: pip install .[tests,neuronx]
       - name: Run example tests on Neuron cores
         run: |
-          HF_TOKEN_OPTIMUM_NEURON_CI=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} USE_VENV=false COVERAGE=${{ github.event.inputs.priority }} RUN_TINY=$RUN_TINY RUN_SLOW=1 pytest -m "is_trainium_test" tests/test_examples.py -v
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} USE_VENV=false COVERAGE=${{ github.event.inputs.priority }} RUN_TINY=$RUN_TINY RUN_SLOW=1 pytest -m "is_trainium_test" tests/test_examples.py -v
   stop-runner:
     name: Stop self-hosted EC2 runner
     needs:

@@ -46,9 +46,11 @@ def consolidate_tensor_parallel_checkpoints(checkpoint_dir: Union[str, Path]) ->
     parameter_names = state_dicts[0]["model"].keys()
     sharded_metadatas = {
         name: [
-            ParameterMetadata(**state_dict["sharded_metadata"][name])
-            if name in state_dict["sharded_metadata"]
-            else ParameterMetadata("tied")
+            (
+                ParameterMetadata(**state_dict["sharded_metadata"][name])
+                if name in state_dict["sharded_metadata"]
+                else ParameterMetadata("tied")
+            )
             for state_dict in state_dicts
         ]
         for name in parameter_names
@@ -95,6 +97,6 @@ def consolidate_tensor_parallel_checkpoints_to_unified_checkpoint(
             torch.save(shard, output_dir / shard_file)
     if index is not None:
         save_index_file = SAFE_WEIGHTS_INDEX_NAME if save_format == "safetensors" else WEIGHTS_INDEX_NAME
-        with open(save_index_file, "w") as fp:
+        with open(output_dir / save_index_file, "w") as fp:
             content = json.dumps(index, indent=2, sort_keys=True) + "\n"
             fp.write(content)
