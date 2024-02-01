@@ -31,6 +31,7 @@ from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
 from ..utils.patching import Patcher
 from ..utils.require_utils import requires_neuronx_distributed, requires_torch_xla
+from ..utils.misc import is_main_worker
 from .parallel_layers import (
     IOSequenceParallelizer,
     LayerNormSequenceParallelizer,
@@ -685,7 +686,7 @@ class Parallelizer(ABC):
         if not isinstance(output_dir, Path):
             output_dir = Path(output_dir)
 
-        if optimizer is not None:
+        if is_main_worker() and optimizer is not None:
             logger.warning(
                 "Saving the optimizer state as a regular file under the tensor parallel setting is not supported yet."
             )

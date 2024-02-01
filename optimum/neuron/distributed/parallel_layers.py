@@ -28,6 +28,7 @@ from torch.nn.modules.loss import _WeightedLoss
 from ...utils import NormalizedConfigManager, logging
 from ..utils import patch_everywhere, patch_within_function
 from ..utils.require_utils import requires_neuronx_distributed
+from ..utils.misc import is_main_worker
 from .utils import (
     GroupedQueryAttentionInfo,
     WeightInformation,
@@ -227,7 +228,7 @@ class ParallelEmbedding(ParallelLayer):
         if embedding_layer.num_embeddings % tp_size != 0:
             import torch_xla.core.xla_model as xm
 
-            if xm.get_ordinal() == 0:
+            if is_main_worker():
                 logger.warning(
                     f"Embedding parallelization for TP was skipped because the tensor parallel size ({tp_size}) does not "
                     f"divide the number of embeddings ({embedding_layer.num_embeddings})"
@@ -344,7 +345,7 @@ class ParallelSelfAttention(ParallelLayer):
                 raise ValueError(
                     "Only the cases where the number of key value heads is divisible by the TP size, or the other way around are supported."
                 )
-            elif num_key_value_heads < tp_size:
+            elif is_main_worker() and num_key_value_heads < tp_size:
                 logger.warning(
                     f"The TP size ({tp_size}) is bigger than the number of key value heads ({num_key_value_heads}). "
                     "This is not ideal because the key and value projections will not be sharded accross the TP ranks. "

@@ -110,7 +110,7 @@ def set_custom_cache_repo_name_in_hf_home(repo_id: str, hf_home: str = HF_HOME, 
             )
 
     existing_custom_cache_repo = load_custom_cache_repo_name_from_hf_home(hf_home_cache_repo_file)
-    if is_main_worker() and existing_custom_cache_repo is not None:
+    if is_main_worker(global_main=False) and existing_custom_cache_repo is not None:
         logger.warning(
             f"A custom cache repo was already registered: {existing_custom_cache_repo}. It will be overwritten to "
             f"{repo_id}."
@@ -173,7 +173,7 @@ def has_write_access_to_repo(repo_id: str) -> bool:
         if org["name"] == username_or_organization:
             # Role in an organization can be either:
             # "admin", "write", "contributor", "read".
-            if is_main_worker() and org["roleInOrg"] == "contributor":
+            if is_main_worker(global_main=False) and org["roleInOrg"] == "contributor":
                 logger.warning(
                     f"You are logged in as a contributor to the cache repo {repo_id}. It is not possible to infer "
                     "whether you have write access on this repo or not, so it will be assumed you do not."
@@ -193,7 +193,7 @@ def get_hf_hub_cache_repos():
     if custom_cache_repo is not None and custom_cache_repo not in hf_hub_repos:
         hf_hub_repos = [custom_cache_repo] + hf_hub_repos
 
-    if is_main_worker() and saved_custom_cache_repo is None and custom_cache_repo is None:
+    if is_main_worker(global_main=False) and saved_custom_cache_repo is None and custom_cache_repo is None:
         warn_once(
             logger,
             "No Neuron cache name is saved locally. This means that only the official Neuron cache will be used. You "
@@ -209,7 +209,7 @@ def get_hf_hub_cache_repos():
     # making it easier for higher-level abstractions using the cache utils to reason on which
     # parts should only run on the master process and which parts should run on everyone.
 
-    if is_main_worker() and hf_hub_repos and not has_write_access_to_repo(hf_hub_repos[0]):
+    if is_main_worker(global_main=False) and hf_hub_repos and not has_write_access_to_repo(hf_hub_repos[0]):
         warn_once(
             logger,
             f"You do not have write access to {hf_hub_repos[0]} so you will not be able to push any cached compilation "
@@ -474,7 +474,7 @@ def add_in_registry(repo_id: str, neuron_hash: "NeuronHash"):
                 )
             except Exception as e:
                 if "A commit has happened since" in str(e):
-                    if is_main_worker():
+                    if is_main_worker(global_main=False):
                         logger.info(
                             "A commit has happened in cache repository since we tried to update the registry, starting "
                             "again..."
@@ -951,7 +951,7 @@ def push_to_cache_on_hub(
         )
         if fail_when_could_not_push:
             raise ValueError(error_message)
-        if is_main_worker():
+        if is_main_worker(global_main=False):
             logger.warning(error_message)
         return
 
@@ -969,7 +969,7 @@ def push_to_cache_on_hub(
         )
         if fail_when_could_not_push:
             raise ValueError(error_message)
-        if is_main_worker():
+        if is_main_worker(global_main=False):
             logger.warning(error_message)
         return
 
@@ -992,7 +992,7 @@ def push_to_cache_on_hub(
         exists = any(filename.startswith(path_in_repo_str) for filename in repo_filenames)
     else:
         exists = any(filename == path_in_repo_str for filename in repo_filenames)
-    if is_main_worker() and exists:
+    if is_main_worker(global_main=False) and exists:
         if not overwrite_existing:
             logger.info(
                 f"Did not push the cached model located at {local_cache_dir_or_file} to the repo named {cache_repo_id} "
@@ -1022,7 +1022,7 @@ def push_to_cache_on_hub(
                 raise e
             msg = could_not_push_message.format(cache_repo_id=cache_repo_id, error=e)
             msg = re.sub(_HF_HUB_HTTP_ERROR_REQUEST_ID_PATTERN, "", msg)
-            if is_main_worker():
+            if is_main_worker(global_main=False):
                 warn_once(logger, msg)
             success = False
     else:
@@ -1038,7 +1038,7 @@ def push_to_cache_on_hub(
                 raise e
             msg = could_not_push_message.format(cache_repo_id=cache_repo_id, error=e)
             msg = re.sub(_HF_HUB_HTTP_ERROR_REQUEST_ID_PATTERN, "", msg)
-            if is_main_worker():
+            if is_main_worker(global_main=False):
                 warn_once(logger, msg)
             success = False
 

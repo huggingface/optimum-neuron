@@ -879,3 +879,4 @@ class ParameterMetadata:
     @property
     def is_sharded(self):
         return self.kind == "sharded"
+
