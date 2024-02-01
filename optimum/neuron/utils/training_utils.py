@@ -318,6 +318,17 @@ def set_neuron_cc_optlevel_for_model(model: "PreTrainedModel", optlevel: str = "
     os.environ["NEURON_CC_FLAGS"] = neuron_cc_flags
 
 
+def set_neuron_cc_flags_for_model(model: "PreTrainedModel"):
+    """
+    Sets flags for the Neuron compiler depending on the model.
+    """
+    neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
+    if "ForCausalLM" or "ForConditionalGeneration" in model.__class__.__name__:
+        distribution_strategy = "--distribution-strategy=llm-training"
+        if distribution_strategy not in neuron_cc_flags:
+            os.environ["NEURON_CC_FLAGS"] = neuron_cc_flags + f" {distribution_strategy}"
+
+
 def set_verbosity(verbosity: int):
     set_verbosity_transformers(verbosity)
     set_verbosity_optimum(verbosity)

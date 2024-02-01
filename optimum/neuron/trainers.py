@@ -84,6 +84,7 @@ from .utils.training_utils import (
     patch_generation_mixin_to_neuron_generation_mixin,
     prepare_environment_for_neuron,
     set_neuron_cc_optlevel_for_model,
+    set_neuron_cc_flags_for_model,
     skip_first_batches,
     torch_xla_safe_save_file,
 )
@@ -211,6 +212,7 @@ class AugmentTrainerForNeuronMixin:
         patch_generation_mixin_to_neuron_generation_mixin(self.model)
 
         set_neuron_cc_optlevel_for_model(self.model, optlevel=self.args.neuron_cc_optlevel)
+        set_neuron_cc_flags_for_model(self.model)
 
     @property
     def mp_enabled(self):

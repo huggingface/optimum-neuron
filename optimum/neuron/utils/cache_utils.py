@@ -936,9 +936,11 @@ def push_to_cache_on_hub(
     neuron_hash: NeuronHash,
     local_cache_dir_or_file: Path,
     cache_repo_id: Optional[str] = None,
-    overwrite_existing: bool = False,
+    overwrite_existing: bool = True,
     local_path_to_path_in_repo: Optional[Union[Literal["default"], Callable[[Path], Path]]] = None,
     fail_when_could_not_push: bool = False,
+    allow_patterns: Optional[Union[str, List[str]]] = None,
+    ignore_patterns: Optional[Union[str, List[str]]] = None,
 ) -> Optional[CachedModelOnTheHub]:
     if cache_repo_id is None:
         cache_repo_id = get_hf_hub_cache_repos()[0]
@@ -1012,6 +1014,8 @@ def push_to_cache_on_hub(
                 path_in_repo=path_in_repo.as_posix(),
                 repo_id=cache_repo_id,
                 repo_type="model",
+                allow_patterns=allow_patterns,
+                ignore_patterns=ignore_patterns,
             )
         except HfHubHTTPError as e:
             if fail_when_could_not_push:

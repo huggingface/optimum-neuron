@@ -307,10 +307,20 @@ class NeuronCacheCallback(TrainerCallback):
 
     def synchronize_temporary_neuron_cache(self):
         for neuron_hash, files in self.neuron_hash_to_files.items():
+            # allow_patterns = [path_after_folder(file, self.tmp_neuron_cache_path) for file in files]
+            # pushed_directories = set()
+            allow_patterns = [file.as_posix() for file in files]
+            push_to_cache_on_hub(
+                neuron_hash, self.tmp_neuron_cache_path, cache_repo_id=self.cache_repo_id, local_path_to_path_in_repo="default", allow_patterns=allow_patterns,
+            )
+
             for path in files:
-                push_to_cache_on_hub(
-                    neuron_hash, path, cache_repo_id=self.cache_repo_id, local_path_to_path_in_repo="default"
-                )
+                # parent_dir = path.parent
+                # if parent_dir not in pushed_directories:
+                #     push_to_cache_on_hub(
+                #         neuron_hash, parent_dir, cache_repo_id=self.cache_repo_id, local_path_to_path_in_repo="default"
+                #     )
+                #     pushed_directories.add(parent_dir)
                 if self.use_neuron_cache:
                     path_in_cache = self.full_path_to_path_in_temporary_cache(path)
                     target_file = self.neuron_cache_path / path_in_cache
@@ -375,21 +385,22 @@ class NeuronCacheCallback(TrainerCallback):
             entries_to_remove = []
             for entry in neuron_parallel_compile_report:
                 neuron_hash = entry["neuron_hash"]
-                path = entry["directory"]
-                filenames = list_files_in_neuron_cache(path, only_relevant_files=True)
+                module_dir = Path(entry["directory"])
+                cache_dir = module_dir.parent
+                filenames = [file.as_posix() for file in list_files_in_neuron_cache(module_dir, only_relevant_files=True)]
                 success = True
-                for path in filenames:
-                    try:
-                        push_to_cache_on_hub(
-                            neuron_hash,
-                            path,
-                            cache_repo_id=self.cache_repo_id,
-                            local_path_to_path_in_repo="default",
-                            fail_when_could_not_push=True,
-                        )
-                    except HfHubHTTPError:
-                        # It means that we could not push, so we do not remove this entry from the report.
-                        success = False
+                try:
+                    push_to_cache_on_hub(
+                        neuron_hash,
+                        cache_dir,
+                        cache_repo_id=self.cache_repo_id,
+                        local_path_to_path_in_repo="default",
+                        fail_when_could_not_push=True,
+                        allow_patterns=filenames,
+                    )
+                except HfHubHTTPError:
+                    # It means that we could not push, so we do not remove this entry from the report.
+                    success = False
                 if success:
                     entries_to_remove.append(entry)
 
