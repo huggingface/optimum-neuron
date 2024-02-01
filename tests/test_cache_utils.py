@@ -83,9 +83,9 @@ class NeuronUtilsTestCase(TrainiumTestMixin, TestCase):
         assert get_neuron_cache_path() is None
 
         custom_cache_dir_name = Path("_this/is_/my1/2custom/cache/dir")
-        os.environ["NEURON_CC_FLAGS"] = (
-            f"--some --parameters --here --cache_dir={custom_cache_dir_name} --other --paremeters --here"
-        )
+        os.environ[
+            "NEURON_CC_FLAGS"
+        ] = f"--some --parameters --here --cache_dir={custom_cache_dir_name} --other --paremeters --here"
 
         self.assertEqual(get_neuron_cache_path(), custom_cache_dir_name)
 
@@ -99,9 +99,9 @@ class NeuronUtilsTestCase(TrainiumTestMixin, TestCase):
         set_neuron_cache_path(new_cache_path, ignore_no_cache=True)
         self.assertEqual(get_neuron_cache_path(), Path(new_cache_path))
 
-        os.environ["NEURON_CC_FLAGS"] = (
-            "--some --parameters --here --cache_dir=original_cache_dir --other --paremeters"
-        )
+        os.environ[
+            "NEURON_CC_FLAGS"
+        ] = "--some --parameters --here --cache_dir=original_cache_dir --other --paremeters"
         set_neuron_cache_path(new_cache_path)
         self.assertEqual(get_neuron_cache_path(), Path(new_cache_path))
 

@@ -68,8 +68,8 @@ def _get_models_to_test(
         model_type = model_type.replace("_", "-")
         if exclude_model_types is None or (model_type not in exclude_model_types):
             task_config_mapping = TasksManager.get_supported_tasks_for_model_type(
-            model_type, "neuron", library_name=library_name
-        )
+                model_type, "neuron", library_name=library_name
+            )
 
             if isinstance(model_names_tasks, str):  # test export of all tasks on the same model
                 tasks = list(task_config_mapping.keys())
@@ -171,11 +171,12 @@ class NeuronExportTestCase(unittest.TestCase):
     def test_export(self, test_name, name, model_name, task, neuron_config_constructor):
         self._neuronx_export(test_name, name, model_name, task, neuron_config_constructor)
 
-<<<<<<< HEAD
-    @parameterized.expand(_get_models_to_test(SENTENCE_TRANSFORMERS_MODELS, library_name="sentence_transformers"))
-=======
     @parameterized.expand(
-        _get_models_to_test(EXPORT_MODELS_TINY, exclude_model_types=WEIGHTS_NEFF_SEPARATION_UNSUPPORTED_ARCH)
+        _get_models_to_test(
+            EXPORT_MODELS_TINY,
+            exclude_model_types=WEIGHTS_NEFF_SEPARATION_UNSUPPORTED_ARCH,
+            library_name="transformers",
+        )
     )
     @is_inferentia_test
     @requires_neuronx
@@ -184,8 +185,7 @@ class NeuronExportTestCase(unittest.TestCase):
             test_name, name, model_name, task, neuron_config_constructor, inline_weights_to_neff=False
         )
 
-    @parameterized.expand(_get_models_to_test(SENTENCE_TRANSFORMERS_MODELS))
->>>>>>> main
+    @parameterized.expand(_get_models_to_test(SENTENCE_TRANSFORMERS_MODELS, library_name="sentence_transformers"))
     @is_inferentia_test
     @require_vision
     @require_sentence_transformers
