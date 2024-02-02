@@ -32,7 +32,7 @@ jobs:
           - name: Checkout
             uses: actions/checkout@v3
             with: 
-              ref: ${{ github.event.inputs.tag }}
+              ref: ${{ github.event.inputs.tag || github.ref }}
           
           - name: Setup Packer
             uses: hashicorp/setup-packer@main
@@ -56,13 +56,13 @@ jobs:
           
           - name: Packer Validate
             id: validate
-            run: packer validate -var "optimum_version=${{ github.event.inputs.tag }}" -var "region=${{ env.AWS_REGION }}" hcl2-files 
+            run: packer validate -var "optimum_version=${{ github.event.inputs.tag || github.event.repository.default_branch }}" -var "region=${{ env.AWS_REGION }}" hcl2-files 
             continue-on-error: true
           
           - name: Packer Build
             id: build
             run:  | 
-              packer build -var "optimum_version=${{ github.event.inputs.tag }}" -var "region=${{ env.AWS_REGION }}" hcl2-files
+              packer build -var "optimum_version=${{ github.event.inputs.tag || github.event.repository.default_branch }}" -var "region=${{ env.AWS_REGION }}" hcl2-files
 
           - name: Slack Notification on Failure
             id: slack
