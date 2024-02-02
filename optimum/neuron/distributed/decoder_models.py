@@ -330,7 +330,7 @@ class LLamaParallelMLP(ParallelMLP):
     SECOND_LINEAR_NAME = "down_proj"
 
     @classmethod
-    def transform(
+    def _transform(
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
@@ -339,7 +339,7 @@ class LLamaParallelMLP(ParallelMLP):
     ) -> "torch.nn.Module":
         # TODO: Make it smart by merging the gate and the up_proj.
         # WARNING: be careful of the interleaved outputs when doing TP!
-        layer = super().transform(model, layer, sequence_parallel_enabled=sequence_parallel_enabled, device=device)
+        layer = super()._transform(model, layer, sequence_parallel_enabled=sequence_parallel_enabled, device=device)
 
         weight_map = getattr(model, "_weight_map", None)
 

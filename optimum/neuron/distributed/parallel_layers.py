@@ -105,7 +105,7 @@ class ParallelLayer(ABC):
         return linear_layer_weight_info, linear_layer_bias_weight_info
 
     @abstractclassmethod
-    def transform(
+    def _transform(
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
@@ -125,6 +125,18 @@ class ParallelLayer(ABC):
             device (`Optional[torch.device]`, defaults to `None`):
                 The device where the new parallel layer should be put.
         """
+
+    @classmethod
+    def transform(
+        cls,
+        model: "PreTrainedModel",
+        layer: "torch.nn.Module",
+        sequence_parallel_enabled: bool = False,
+        device: Optional["torch.device"] = None,
+    ) -> "torch.nn.Module":
+        if not model.predicate(layer):
+            return layer
+        return cls._transform(model, layer, sequence_parallel_enabled=sequence_parallel_enabled, device=device)
 
 
 class ParallelEmbedding(ParallelLayer):
@@ -164,7 +176,7 @@ class ParallelEmbedding(ParallelLayer):
 
     @classmethod
     @requires_neuronx_distributed
-    def transform(
+    def _transform(
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
@@ -295,7 +307,7 @@ class ParallelSelfAttention(ParallelLayer):
 
     @classmethod
     @requires_neuronx_distributed
-    def transform(
+    def _transform(
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
@@ -475,7 +487,7 @@ class ParallelSelfAttentionWithFusedQKV(ParallelLayer):
 
     @classmethod
     @requires_neuronx_distributed
-    def transform(
+    def _transform(
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
@@ -582,7 +594,7 @@ class ParallelSelfOutput(ParallelLayer):
     OUTPUT_PROJECTION_NAME = "dense"
 
     @classmethod
-    def transform(
+    def _transform(
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
@@ -632,7 +644,7 @@ class ParallelMLP(ParallelLayer):
     SECOND_LINEAR_NAME: str
 
     @classmethod
-    def transform(
+    def _transform(
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
@@ -789,7 +801,7 @@ class ParallelCrossEntropy(ParallelLayer):
 
     @classmethod
     @requires_neuronx_distributed
-    def transform(
+    def _transform(
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
