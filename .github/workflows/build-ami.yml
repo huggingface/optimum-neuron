@@ -27,7 +27,7 @@ jobs:
             working-directory: infrastructure/ami
         runs-on: ubuntu-latest
         env:
-          AWS_DEFAULT_REGION: us-east-1
+          AWS_REGION: us-east-1
         steps:
           - name: Checkout
             uses: actions/checkout@v3
@@ -42,7 +42,7 @@ jobs:
             with:
               aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
               aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-              aws-region: ${{ env.AWS_DEFAULT_REGION }}
+              aws-region: ${{ env.AWS_REGION }}
           
           - name: Packer format
             id: format
@@ -62,7 +62,7 @@ jobs:
           - name: Packer Build
             id: build
             run:  | 
-              packer build -var "optimum_version=${{ steps.determine-tag.outputs.TAG }}" -var "region=${{ env.AWS_DEFAULT_REGION }}" hcl2-files
+              packer build -var "optimum_version=${{ steps.determine-tag.outputs.TAG }}" -var "region=${{ env.AWS_REGION }}" hcl2-files
 
           - name: Slack Notification on Failure
             id: slack
