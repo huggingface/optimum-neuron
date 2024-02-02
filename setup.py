@@ -13,7 +13,7 @@ except Exception as error:
 
 
 INSTALL_REQUIRES = [
-    "transformers ~= 4.37.2",
+    "transformers == 4.37.*",
     "accelerate == 0.23.0",
     "optimum >= 1.16.2",
     "huggingface_hub >= 0.20.1",
@@ -62,7 +62,7 @@ EXTRAS_REQUIRE = {
         "torchvision==0.14.*",
         "neuronx_distributed==0.6.0",
     ],
-    "diffusers": ["diffuser ~= 0.26.1"],
+    "diffusers": ["diffuser == 0.26.*"],
     "sentence-transformers": ["sentence-transformers >= 2.2.0"],
 }
 
