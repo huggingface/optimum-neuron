@@ -62,7 +62,7 @@ EXTRAS_REQUIRE = {
         "torchvision==0.14.*",
         "neuronx_distributed==0.6.0",
     ],
-    "diffusers": ["diffusers >= 0.25.0"],
+    "diffusers": ["diffusers ~= 0.26.1"],
     "sentence-transformers": ["sentence-transformers >= 2.2.0"],
 }
 
