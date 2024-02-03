@@ -1,5 +1,6 @@
+# The workflow file for building the AWS Neuron AMI using Packer
+# It can be triggered by push and pull request to main when changes made to infrastructure/ami folder, manually and scheduler.
 name: Build AWS Neuron AMI
-
 on:
     push:
       branches:
@@ -31,7 +32,8 @@ jobs:
         steps:
           - name: Checkout
             uses: actions/checkout@v3
-            with: 
+            with:
+              # If the workflow is triggered manually or by schedule, uses the tag, otherwise uses the current branch  
               ref: ${{ github.event.inputs.tag || github.ref }}
           
           - name: Setup Packer
@@ -56,13 +58,15 @@ jobs:
           
           - name: Packer Validate
             id: validate
-            run: packer validate -var "optimum_version=${{ github.event.inputs.tag || github.event.repository.default_branch }}" -var "region=${{ env.AWS_REGION }}" hcl2-files 
+            # If the workflow is triggered manually or scheduled, uses the tag, otherwise uses the main branch of optimum-neuron repo for building the AMI  
+            run: packer validate -var "optimum_version=${{ github.event.inputs.tag || github.event.repository.default_branch }}" -var "region=${{ env.AWS_REGION }}" hcl2-files
             continue-on-error: true
           
           - name: Packer Build
             id: build
+            # If the workflow is triggered manually or scheduled, uses the tag, otherwise uses the main branch of optimum-neuron repo for building the AMI 
             run:  | 
-              packer build -var "optimum_version=${{ github.event.inputs.tag || github.event.repository.default_branch }}" -var "region=${{ env.AWS_REGION }}" hcl2-files
+              packer build -var "optimum_version=${{ github.event.inputs.tag || github.event.repository.default_branch }}" -var "region=${{ env.AWS_REGION }}" hcl2-files              
 
           - name: Slack Notification on Failure
             id: slack
