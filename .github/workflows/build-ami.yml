@@ -1,0 +1,82 @@
+# The workflow file for building the AWS Neuron AMI using Packer
+# It can be triggered by push and pull request to main when changes made to infrastructure/ami folder, manually and scheduler.
+name: Build AWS Neuron AMI
+on:
+    push:
+      branches:
+        - main
+      paths:
+        - 'infrastructure/ami/**'
+    pull_request:
+      branches:
+        - main
+      paths:
+        - 'infrastructure/ami/**'
+    workflow_dispatch:
+      inputs: 
+        tag: 
+          description: 'Tag to use for the AMI build'
+          default: 'main'
+    schedule:
+      # Schedule the workflow to run every second day at midnight UTC
+      - cron: '0 0 */2 * *'
+
+jobs:
+    build-ami:
+        defaults:
+          run:
+            working-directory: infrastructure/ami
+        runs-on: ubuntu-latest
+        env:
+          AWS_REGION: us-east-1
+        steps:
+          - name: Checkout
+            uses: actions/checkout@v3
+            with:
+              # If the workflow is triggered manually or by schedule, uses the tag, otherwise uses the current branch  
+              ref: ${{ github.event.inputs.tag || github.ref }}
+          
+          - name: Setup Packer
+            uses: hashicorp/setup-packer@main
+
+          - name: configure aws credentials
+            uses: aws-actions/configure-aws-credentials@v1
+            with:
+              aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_BUILD_AMI }}
+              aws-secret-access-key: ${{ secrets.AWS_ACCESS_KEY_SECRET_BUILD_AMI }}
+              aws-region: ${{ env.AWS_REGION }}
+          
+          - name: Packer format
+            id: format
+            run: packer fmt hcl2-files
+            continue-on-error: true
+          
+          - name: Packer Init
+            id: init
+            run: packer init hcl2-files
+            continue-on-error: true
+          
+          - name: Packer Validate
+            id: validate
+            # If the workflow is triggered manually or scheduled, uses the tag, otherwise uses the main branch of optimum-neuron repo for building the AMI  
+            run: packer validate -var "optimum_version=${{ github.event.inputs.tag || github.event.repository.default_branch }}" -var "region=${{ env.AWS_REGION }}" hcl2-files
+            continue-on-error: true
+          
+          - name: Packer Build
+            id: build
+            # If the workflow is triggered manually or scheduled, uses the tag, otherwise uses the main branch of optimum-neuron repo for building the AMI 
+            run:  | 
+              packer build -var "optimum_version=${{ github.event.inputs.tag || github.event.repository.default_branch }}" -var "region=${{ env.AWS_REGION }}" hcl2-files              
+
+          - name: Slack Notification on Failure
+            id: slack
+            uses: slackapi/slack-github-action@v1.25.0
+            if: ${{ failure() && github.event_name == 'schedule' }}
+            with:
+              channel-id: 'C06GAEQJLNN' #copied from slack channel
+              payload: |
+                {
+                  "text": "GitHub Action HuggingFace Neuron AMI Build result: ${{job.status}}"
+                }
+            env:
+              SLACK_BOT_TOKEN: ${{ secrets.SLACK_CIFEEDBACK_BOT_TOKEN }}
