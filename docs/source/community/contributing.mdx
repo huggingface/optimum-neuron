@@ -12,40 +12,39 @@ specific language governing permissions and limitations under the License.
 
 # Adding support for new architectures
 
-You want to export and run a new model on AWS Inferentia or Trainium? Check the guideline, and submit a pull request to [🤗 Optimum Neuron's github repo](https://github.com/huggingface/optimum-neuron/)! 
+You want to export and run a new model on AWS Inferentia or Trainium? Check the guideline, and submit a pull request to [🤗 Optimum Neuron's GitHub repo](https://github.com/huggingface/optimum-neuron/)! 
 
 To support a new model architecture in the Optimum Neuron library here are some steps to follow:
 
 1. Implement a custom Neuron configuration.
 2. Export and validate the model.
-3. Add tests.
-4. Contribute to the github repo. 
+3. Contribute to the GitHub repo. 
 
 ## Implement a custom Neuron configuration
 
-To support the export of a new model to Neuron compatible format, the first thing to do is to define a Neuron configuration, describing how to expot a PyTorch model to a Neuron compatible format, by specifying:
+To support the export of a new model to a Neuron compatible format, the first thing to do is to define a Neuron configuration, describing how to export the PyTorch model by specifying:
 
 1. The input names.
 2. The output names.
-3. The dummy inputs used to trace the model. (This is needed by the Neuron Compiler to record the computational graph and embed it to a TorchScript module.)
+3. The dummy inputs used to trace the model. (The Neuron Compiler asks this to record the computational graph and embed it to a TorchScript module.)
 4. The compilation arguments used to control the trade-off between hardware efficiency (latency, throughput) and accuracy.
 
 Depending on the choice of model and task, we represent the data above with configuration classes. Each configuration class is associated with
-a specific model architecture, and follows the naming convention `ArchitectureNameNeuronConfig`. For instance, the configuration which specifies the Neuron
+a specific model architecture, and follows the naming convention `ArchitectureNameNeuronConfig`. For instance, the configuration that specifies the Neuron
 export of BERT models is `BertNeuronConfig`.
 
 Since many architectures share similar properties for their Neuron configuration, 🤗 Optimum adopts a 3-level class hierarchy:
 
 1. Abstract and generic base classes. These handle all the fundamental features, while being agnostic to the modality (text, image, audio, etc).
-2. Middle-end classes. These are aware of the modality. Multiple config classes could exist for the same modality depending on the inputs they support. They specify which input generators should be used for generating the dummy inputs, but remain model-agnostic.
+2. Middle-end classes. These are aware of the modality. Multiple config classes could exist for the same modality, depending on the inputs they support. They specify which input generators should be used for generating the dummy inputs, but remain model-agnostic.
 3. Model-specific classes like the `BertNeuronConfig` mentioned above. These are the ones actually used to export models.
 
 ### Example: Adding support for ESM models
 
-Here we take the suppport of [ESM models](https://huggingface.co/docs/transformers/model_doc/esm#esm) as an example. Let's create a `EsmNeuronConfig` class in the `optimum/exporters/neuron/model_configs.py`.
+Here we take the support of [ESM models](https://huggingface.co/docs/transformers/model_doc/esm#esm) as an example. Let's create an `EsmNeuronConfig` class in the `optimum/exporters/neuron/model_configs.py`.
 
-When a Esm model interprets as text encoder, we are able to inherit from the middle-end class [`TextEncoderNeuronConfig`](https://github.com/huggingface/optimum-neuron/blob/v0.0.18/optimum/exporters/neuron/config.py#L36). 
-Since the modeling and configuration of Esm is almost the same as BERT when it is interpreted as encoder, we can use the `NormalizedConfigManager` with `model_type=bert` to normalize the configuration in order to generate dummy inputs for tracing the model.
+When an Esm model interprets as a text encoder, we are able to inherit from the middle-end class [`TextEncoderNeuronConfig`](https://github.com/huggingface/optimum-neuron/blob/v0.0.18/optimum/exporters/neuron/config.py#L36). 
+Since the modeling and configuration of Esm is almost the same as BERT when it is interpreted as an encoder, we can use the `NormalizedConfigManager` with `model_type=bert` to normalize the configuration to generate dummy inputs for tracing the model.
 
 And one last step, since `optimum-neuron` is an extension of `optimum`, we need to register the Neuron config that we create to the [TasksManager](https://huggingface.co/docs/optimum/main/en/exporters/task_manager#optimum.exporters.TasksManager) with the `register_in_tasks_manager` by specifying the model type and supported tasks.
 
@@ -64,7 +63,7 @@ class EsmNeuronConfig(TextEncoderNeuronConfig):
 
 ## Export and validate the model
 
-With the Neuron config that you implemented, now do a quick test if it works as expected:
+With the Neuron configuration class that you implemented, now do a quick test if it works as expected:
 
 * Export
 
@@ -72,7 +71,7 @@ With the Neuron config that you implemented, now do a quick test if it works as 
 optimum-cli export neuron --model facebook/esm2_t33_650M_UR50D --task text-classification --batch_size 1 --sequence_length 16 esm_neuron/
 ```
 
-And then validate the outputs of your exported Neuron model by comparing to the results of PyTorch on CPU.
+And then validate the outputs of your exported Neuron model by comparing them to the results of PyTorch on the CPU.
 
 ```python
 from optimum.exporters.neuron import validate_model_outputs
@@ -82,7 +81,7 @@ validate_model_outputs(
 )
 ```
 
-* Inference
+* Inference (optional)
 
 ```python
 from transformers import AutoTokenizer
@@ -94,19 +93,19 @@ inputs = tokenizer("Hello, my dog is cute", return_tensors="pt")
 logits = model(**inputs).logits
 ```
 
-## Add tests
+## Contribute to the GitHub repo
 
-Add the model to the exporter test in [`optimum-neuron/tests/exporters/exporters_utils.py`](https://github.com/huggingface/optimum-neuron/blob/v0.0.18/tests/exporters/exporters_utils.py) and the inference test in [`optimum-neuron/tests/inference/inference_utils.py`](https://github.com/huggingface/optimum-neuron/blob/v0.0.18/tests/inference/inference_utils.py).
+We are almost all set. Now submit a pull request to make your work accessible to all community members!
+
+* Open an issue in the [Optimum Neuron GitHub repo](https://github.com/huggingface/optimum-neuron/issues) to describe the new feature and make it visible to Optimum Neuron's maintainers.
+* Add the model to the exporter test in [`optimum-neuron/tests/exporters/exporters_utils.py`](https://github.com/huggingface/optimum-neuron/blob/v0.0.18/tests/exporters/exporters_utils.py) and the inference test in [`optimum-neuron/tests/inference/inference_utils.py`](https://github.com/huggingface/optimum-neuron/blob/v0.0.18/tests/inference/inference_utils.py).
+* Open a pull request! (Don't forget to link it to the issue you opened, so that the maintainers could better track it and provide help when needed.)
+
 
 <Tip>
 
-We usually test a smaller checkpoint to accelerate the CIs, you could find tiny models for testing under the [`Hugging Face Internal Testing Organization`](https://huggingface.co/hf-internal-testing).
+We usually test smaller checkpoints to accelerate the CIs, you could find tiny models for testing under the [`Hugging Face Internal Testing Organization`](https://huggingface.co/hf-internal-testing).
 
 </Tip>
-
-## Contribute to the github repo
-
-Now, just we are all set! Open a pull request and ping one Optimum-neuron maintainers to review your PR.
-
 
 You have made a new model accessible on Neuron for the community! Thanks for joining us in the endeavor of democratizing good machine learning 🤗.
