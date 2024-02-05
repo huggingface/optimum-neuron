@@ -25,13 +25,13 @@ jobs:
     build-ami:
         defaults:
           run:
-            working-directory: infrastructure/ami
+            working-directory: ./infrastructure/ami
         runs-on: ubuntu-latest
         env:
           AWS_REGION: us-east-1
         steps:
           - name: Checkout
-            uses: actions/checkout@v3
+            uses: actions/checkout@v4
             with:
               # If the workflow is triggered manually or by schedule, uses the tag, otherwise uses the current branch  
               ref: ${{ github.event.inputs.tag || github.ref }}
@@ -40,7 +40,7 @@ jobs:
             uses: hashicorp/setup-packer@main
 
           - name: configure aws credentials
-            uses: aws-actions/configure-aws-credentials@v1
+            uses: aws-actions/configure-aws-credentials@v4
             with:
               aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_BUILD_AMI }}
               aws-secret-access-key: ${{ secrets.AWS_ACCESS_KEY_SECRET_BUILD_AMI }}
