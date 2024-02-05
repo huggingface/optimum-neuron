@@ -53,7 +53,7 @@ And one last step, since `optimum-neuron` is an extension of `optimum`, we need 
 @register_in_tasks_manager("esm", *["feature-extraction", "fill-mask", "text-classification", "token-classification"])
 class EsmNeuronConfig(TextEncoderNeuronConfig):
     NORMALIZED_CONFIG_CLASS = NormalizedConfigManager.get_normalized_config_class("bert")
-    ATOL_FOR_VALIDATION = 1e-3
+    ATOL_FOR_VALIDATION = 1e-3  # absolute tolerance to compare for comparing model on CPUs
 
     @property
     def inputs(self) -> List[str]:
@@ -71,7 +71,7 @@ With the Neuron configuration class that you implemented, now do a quick test if
 optimum-cli export neuron --model facebook/esm2_t33_650M_UR50D --task text-classification --batch_size 1 --sequence_length 16 esm_neuron/
 ```
 
-And then validate the outputs of your exported Neuron model by comparing them to the results of PyTorch on the CPU.
+During the export [`validate_model_outputs`](https://github.com/huggingface/optimum-neuron/blob/7b18de9ddfa5c664c94051304c651eaf855c3e0b/optimum/exporters/neuron/convert.py#L136) will be called to validate the outputs of your exported Neuron model by comparing them to the results of PyTorch on the CPU. You could also validate the model manually with:
 
 ```python
 from optimum.exporters.neuron import validate_model_outputs
