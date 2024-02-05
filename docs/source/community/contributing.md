@@ -12,6 +12,12 @@ specific language governing permissions and limitations under the License.
 
 # Adding support for new architectures
 
+
+With GitHub, I usually insert a blockquote.
+
+> **_NOTE:_** ❗This section does not apply to decoder model's inference with autoregressive sampling integrated throught [`transformers-neuronx`](https://github.com/aws-neuron/transformers-neuronx). If you want to add support for models supported by it, please open an issue on Optimum Neuron GitHub repo, and ping maintainers for help.
+
+
 You want to export and run a new model on AWS Inferentia or Trainium? Check the guideline, and submit a pull request to [🤗 Optimum Neuron's GitHub repo](https://github.com/huggingface/optimum-neuron/)! 
 
 To support a new model architecture in the Optimum Neuron library here are some steps to follow:
