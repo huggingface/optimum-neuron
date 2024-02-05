@@ -21,6 +21,7 @@ from .pb.generate_pb2 import (
     Generation,
     InfoResponse,
     Request,
+    Tokens,
 )
 
 
@@ -467,10 +468,12 @@ class NeuronGenerator(Generator):
                 Generation(
                     request_id=request_id,
                     prefill_tokens=None,
-                    token_id=next_token,
-                    token_logprob=None,
-                    token_text=next_token_text,
-                    token_is_special=(next_token in self.special_tokens),
+                    tokens=Tokens(
+                        ids=[next_token],
+                        logprobs=[0],
+                        texts=[next_token_text],
+                        is_special=[next_token in self.special_tokens],
+                    ),
                     generated_text=generated_text,
                 )
             )
