@@ -371,7 +371,7 @@ class NeuronGenerator(Generator):
                 selector = TokenSelector.create(
                     slot_input_ids, slot.generation_config, self.model, self.model.max_length
                 )
-                slot_input_ids = slot_input_ids.squeeze().type(torch.int64)
+                slot_input_ids = slot_input_ids.squeeze(dim=0).type(torch.int64)
                 slot_attention_mask = attention_mask[i]
                 slot.reset(slot_input_ids, slot_attention_mask, selector)
         # Clear KV cache
