@@ -29,7 +29,6 @@ jobs:
         runs-on: ubuntu-latest
         env:
           AWS_REGION: us-east-1
-          PACKER_VERSION: "1.10.1"
         steps:
           - name: Checkout
             uses: actions/checkout@v4
@@ -41,7 +40,7 @@ jobs:
             uses: hashicorp/setup-packer@main
             id: setup-packer
             with:
-              version: ${{ env.PACKER_VERSION }}
+              version: "1.10.1"
 
           - name: configure aws credentials
             uses: aws-actions/configure-aws-credentials@v4
