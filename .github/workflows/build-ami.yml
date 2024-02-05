@@ -38,6 +38,9 @@ jobs:
           
           - name: Setup Packer
             uses: hashicorp/setup-packer@main
+            id: setup-packer
+            with:
+              version: 2.0.1
 
           - name: configure aws credentials
             uses: aws-actions/configure-aws-credentials@v4
