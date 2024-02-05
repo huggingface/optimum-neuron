@@ -44,13 +44,16 @@ from transformers.models.auto.modeling_auto import (
     MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING_NAMES,
     MODEL_MAPPING_NAMES,
 )
-from transformers.trainer_pt_utils import get_model_param_count as transformers_get_model_param_count
 from transformers.utils.logging import set_verbosity as set_verbosity_transformers
 
 from ...utils.logging import set_verbosity as set_verbosity_optimum
 from ..generation import GeneralNeuronGenerationMixin, NeuronGenerationMixin
-from . import is_torch_xla_available
+from . import is_neuronx_distributed_available, is_torch_xla_available
 from .require_utils import requires_neuronx_distributed, requires_safetensors, requires_torch_xla
+
+
+if is_neuronx_distributed_available():
+    from neuronx_distributed.pipeline import NxDPPModel
 
 
 if TYPE_CHECKING:
@@ -378,7 +381,45 @@ def torch_xla_safe_save_file(
         save_file(cpu_data, filename, metadata=metadata)
 
 
-def get_model_param_count(model, trainable_only=False):
-    """Wrapper around `transformers.trainer_pt_utils.get_model_param_count` to handle tensor parallelism."""
-    # TODO: make it work for TP
-    return transformers_get_model_param_count(model, trainable_only=trainable_only)
+@requires_neuronx_distributed
+def get_model_param_count(model: Union[torch.nn.Module, "NxDPPModel"], trainable_only: bool = False):
+    """Counts the number of parameters of `model`."""
+    import torch_xla.core.xla_model as xm
+    from neuronx_distributed.parallel_layers.parallel_state import (
+        get_pipeline_model_parallel_group,
+        get_pipeline_model_parallel_rank,
+        get_pipeline_model_parallel_size,
+        get_tensor_model_parallel_size,
+    )
+    from neuronx_distributed.pipeline import NxDPPModel
+    from neuronx_distributed.pipeline.partition import analyze_shared_weights_across_stages
+
+    if isinstance(model, NxDPPModel):
+        named_parameters = model.local_named_parameters()
+        shared = analyze_shared_weights_across_stages(model.traced_model, model.partitions)
+        shared_parameters_across_pipeline_stages = {
+            t[0]: t[1] for shared_parameter_info in shared for t in shared_parameter_info
+        }
+    else:
+        named_parameters = model.named_parameters()
+        shared_parameters_across_pipeline_stages = {}
+
+    pp_rank = get_pipeline_model_parallel_rank()
+
+    def numel(parameter_name, parameter) -> int:
+        should_count_param = shared_parameters_across_pipeline_stages.get(parameter_name, pp_rank) == pp_rank
+
+        num_elements = parameter.numel()
+        if getattr(parameter, "tensor_model_parallel", False):
+            num_elements *= get_tensor_model_parallel_size()
+
+        return num_elements if should_count_param else 0
+
+    param_count = sum(numel(n, p) for n, p in named_parameters if not trainable_only or p.requires_grad)
+
+    if get_pipeline_model_parallel_size() > 1:
+        param_count = torch.tensor(param_count, dtype=torch.double).to(xm.xla_device())
+        param_count = xm.all_reduce(xm.REDUCE_SUM, param_count, groups=get_pipeline_model_parallel_group(as_list=True))
+        param_count = param_count.detach().item()
+
+    return param_count

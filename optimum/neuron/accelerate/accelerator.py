@@ -173,7 +173,11 @@ class NeuronAccelerator(Accelerator):
             self.gradient_accumulation_steps = num_steps
 
     def _prepare_data_loader_for_distributed(
-        self, data_loader: DataLoader, num_replicas: int, rank: int, force_drop_last: bool,
+        self,
+        data_loader: DataLoader,
+        num_replicas: int,
+        rank: int,
+        force_drop_last: bool,
     ) -> DataLoader:
         # TODO: make it more robust, similar to the prepare_data_loader function in `accelerate`.
         if isinstance(data_loader.sampler, DistributedSampler):
@@ -224,7 +228,9 @@ class NeuronAccelerator(Accelerator):
             num_replicas = xm.xrt_world_size()
             rank = xm.get_local_ordinal()
         if self.state.num_processes > 1:
-            data_loader = self._prepare_data_loader_for_distributed(data_loader, num_replicas=num_replicas, rank=rank, force_drop_last=force_drop_last)
+            data_loader = self._prepare_data_loader_for_distributed(
+                data_loader, num_replicas=num_replicas, rank=rank, force_drop_last=force_drop_last
+            )
             # No need to wrap the dataloader if we are using pipeline parallelism.
             if self.state.mp_plugin.pipeline_parallel_size == 1:
                 data_loader = MpDeviceLoader(data_loader, self.device)

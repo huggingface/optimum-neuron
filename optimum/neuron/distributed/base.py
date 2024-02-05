@@ -21,7 +21,7 @@ from collections import defaultdict
 from dataclasses import asdict
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Set, Tuple, Type, Union, Callable
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Set, Tuple, Type, Union
 
 import torch
 from transformers import PreTrainedModel
@@ -29,9 +29,9 @@ from transformers.utils import WEIGHTS_NAME
 
 from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
+from ..utils.misc import is_main_worker
 from ..utils.patching import Patcher
 from ..utils.require_utils import requires_neuronx_distributed, requires_torch_xla
-from ..utils.misc import is_main_worker
 from .parallel_layers import (
     IOSequenceParallelizer,
     LayerNormSequenceParallelizer,
@@ -42,6 +42,7 @@ from .utils import (
     TENSOR_PARALLEL_SHARDS_DIR_NAME,
     ParameterMetadata,
     WeightInformation,
+    apply_checkpoint,
     initialize_parallel_linear,
     initialize_torch_nn_module,
     linear_to_parallel_linear,
@@ -243,7 +244,7 @@ class Parallelizer(ABC):
         device: Optional["torch.device"] = None,
         parallelize_embeddings: bool = True,
         sequence_parallel_enabled: bool = False,
-        should_parallelize_predicate_func: Optional[Callable[["torch.nn.Module"], "torch.nn.Module"]] = None
+        should_parallelize_predicate_func: Optional[Callable[["torch.nn.Module"], "torch.nn.Module"]] = None,
     ) -> "PreTrainedModel":
         """
         Parallelizes the model by transforming regular layer into their parallel counterparts.
@@ -275,6 +276,7 @@ class Parallelizer(ABC):
         pipeline_parallel_input_names: Optional[Union[Tuple[str, ...], List[str]]] = None,
         pipeline_parallel_num_microbatches: int = 1,
         pipeline_parallel_use_zero1_optimizer: bool = False,
+        gradient_checkpointing: bool = False,
         checkpoint_dir: Optional[Union[str, Path]] = None,
     ) -> "PreTrainedModel":
         """
@@ -299,6 +301,8 @@ class Parallelizer(ABC):
             pipeline_parallel_use_zero1_optimizer (`bool`, defaults to `False`):
                 When zero-1 optimizer is used, set this to True, so the PP model will understand that zero-1 optimizer
                 will handle data parallel gradient averaging.
+            gradient_checkpointing (`bool`, defaults to `False`):
+                TODO
             checkpoint_dir (`Optional[Union[str, Path]]`):
                 Path to a sharded checkpoint. If specified, the checkpoint weights will be loaded to the parallelized
                 model.
@@ -330,14 +334,15 @@ class Parallelizer(ABC):
             model, remove_duplicate=True
         )
 
-
         name_to_parameter = dict(named_parameters(model, remove_duplicate=False))
         parameter_to_name = {p: n for n, p in name_to_parameter.items()}
+
+        xm.master_print(name_to_parameter.keys())
 
         def predicate_func(layer):
             for n, p in layer.named_parameters():
                 if p not in parameter_to_name:
-                    print(n)
+                    xm.master_print(n)
                     return False
             names = {parameter_to_name[p] for p in layer.parameters()}
             return names < names_of_the_parameters_to_consider
@@ -527,12 +532,13 @@ class Parallelizer(ABC):
                     leaf_module_cls=cls.PIPELINE_PARALLELISM_SPECS_CLS.leaf_module_cls(),
                     use_zero1_optimizer=pipeline_parallel_use_zero1_optimizer,
                 )
+                if gradient_checkpointing:
+                    apply_checkpoint(model)
 
         xm.rendezvous("End of pipeline paralellism")
 
         if checkpoint_dir is not None:
             cls.load_model_checkpoint(model, checkpoint_dir)
-
 
         return model
 

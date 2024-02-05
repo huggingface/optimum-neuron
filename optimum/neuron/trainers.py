@@ -75,6 +75,7 @@ from .utils import (
     patch_within_function,
 )
 from .utils.cache_utils import get_neuron_cache_path, set_neuron_cache_path
+from .utils.misc import is_main_worker
 from .utils.require_utils import requires_neuronx_distributed
 from .utils.training_utils import (
     TRANSFORMERS_MIN_VERSION_USE_ACCELERATE,
@@ -83,8 +84,8 @@ from .utils.training_utils import (
     is_topology_supported,
     patch_generation_mixin_to_neuron_generation_mixin,
     prepare_environment_for_neuron,
-    set_neuron_cc_optlevel_for_model,
     set_neuron_cc_flags_for_model,
+    set_neuron_cc_optlevel_for_model,
     skip_first_batches,
     torch_xla_safe_save_file,
 )
@@ -219,13 +220,13 @@ class AugmentTrainerForNeuronMixin:
         return self.accelerator.distributed_type is NeuronDistributedType.MODEL_PARALLELISM
 
     def prepare_args_for_precompilation(self, args: "TrainingArguments"):
-        if args.num_train_epochs != 1:
+        if is_main_worker() and args.num_train_epochs != 1:
             logger.info("Setting the number of epochs for precompilation to 1.")
             args.num_train_epochs = 1
-        if args.do_eval is True:
+        if is_main_worker() and args.do_eval is True:
             logger.info("Disabling evaluation during precompilation as this is not well supported yet.")
             args.do_eval = False
-        if args.do_predict is True:
+        if is_main_worker() and args.do_predict is True:
             logger.info("Disabling prediction during precompilation as this is not well supported yet.")
             args.do_predict = False
 
@@ -451,7 +452,8 @@ class AugmentTrainerForNeuronMixin:
 
     def _save_xla(self, output_dir: Optional[str] = None):
         output_dir = output_dir if output_dir is not None else self.args.output_dir
-        logger.info(f"Saving model checkpoint to {output_dir}")
+        if is_main_worker():
+            logger.info(f"Saving model checkpoint to {output_dir}")
 
         if xm.is_master_ordinal():
             os.makedirs(output_dir, exist_ok=True)
@@ -461,7 +463,8 @@ class AugmentTrainerForNeuronMixin:
         # They can then be reloaded using `from_pretrained()`
         xm.rendezvous("saving_checkpoint")
         if self.accelerator.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
-            logger.info("Model parallelism is enabled, only saving the model sharded state dict.")
+            if is_main_worker():
+                logger.info("Model parallelism is enabled, only saving the model sharded state dict.")
             # TODO: how to handle pp?
             if isinstance(self.model, PreTrainedModel):
                 from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
@@ -488,7 +491,8 @@ class AugmentTrainerForNeuronMixin:
                             save_function=xm.save,
                         )
                 else:
-                    logger.info("Trainer.model is not a `PreTrainedModel`, only saving its state dict.")
+                    if is_main_worker():
+                        logger.info("Trainer.model is not a `PreTrainedModel`, only saving its state dict.")
                     state_dict = self.model.state_dict()
                     xm.save(state_dict, os.path.join(output_dir, WEIGHTS_NAME))
             else:
@@ -510,7 +514,7 @@ class AugmentTrainerForNeuronMixin:
             # Push to the Hub when `save_model` is called by the user.
             if self.args.push_to_hub and not _internal_call:
                 self.push_to_hub(commit_message="Model save")
-        else:
+        elif is_main_worker():
             logger.info("Skipping trainer.save_model() while running under neuron_parallel_compile")
 
     def _save_checkpoint(self, model, trial, metrics=None):
@@ -634,7 +638,8 @@ class AugmentTrainerForNeuronMixin:
 
         self.accelerator.free_memory()
         self._train_batch_size = batch_size
-        logger.debug(f"Currently training with a batch size of: {self._train_batch_size}")
+        if is_main_worker():
+            logger.debug(f"Currently training with a batch size of: {self._train_batch_size}")
         # Data loader and number of training steps
         train_dataloader = self.get_train_dataloader()
 
@@ -726,7 +731,8 @@ class AugmentTrainerForNeuronMixin:
                 self.state.save_steps = args.save_steps
 
         # Activate gradient checkpointing if needed
-        if args.gradient_checkpointing:
+        # It is handled differentlt if pipeline parallelism is enabled.
+        if args.gradient_checkpointing and args.pipeline_parallel_size == 1:
             if args.gradient_checkpointing_kwargs is None:
                 gradient_checkpointing_kwargs = {}
             else:
@@ -779,16 +785,22 @@ class AugmentTrainerForNeuronMixin:
         # FSDP(Transformers Model), Dynamo Optimized Module(Transformers Model) etc.
 
         # Train!
-        logger.info("***** Running training *****")
-        logger.info(f"  Num examples = {num_examples:,}")
-        logger.info(f"  Num Epochs = {num_train_epochs:,}")
-        logger.info(f"  Instantaneous batch size per device = {self.args.per_device_train_batch_size:,}")
-        if self.args.per_device_train_batch_size != self._train_batch_size:
-            logger.info(f"  Training with DataParallel so batch size has been adjusted to: {self._train_batch_size:,}")
-        logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_train_batch_size:,}")
-        logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
-        logger.info(f"  Total optimization steps = {max_steps:,}")
-        logger.info(f"  Number of trainable parameters = {get_model_param_count(model, trainable_only=True):,}")
+        parameter_count = get_model_param_count(model, trainable_only=True)
+        if is_main_worker():
+            logger.info("***** Running training *****")
+            logger.info(f"  Num examples = {num_examples:,}")
+            logger.info(f"  Num Epochs = {num_train_epochs:,}")
+            logger.info(f"  Instantaneous batch size per device = {self.args.per_device_train_batch_size:,}")
+            if self.args.per_device_train_batch_size != self._train_batch_size:
+                logger.info(
+                    f"  Training with DataParallel so batch size has been adjusted to: {self._train_batch_size:,}"
+                )
+            logger.info(
+                f"  Total train batch size (w. parallel, distributed & accumulation) = {total_train_batch_size:,}"
+            )
+            logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
+            logger.info(f"  Total optimization steps = {max_steps:,}")
+            logger.info(f"  Number of trainable parameters = {parameter_count:,}")
 
         self.state.epoch = 0
         start_time = time.time()
@@ -808,14 +820,15 @@ class AugmentTrainerForNeuronMixin:
             else:
                 steps_trained_in_current_epoch = 0
 
-            logger.info("  Continuing training from checkpoint, will skip to saved global_step")
-            logger.info(f"  Continuing training from epoch {epochs_trained}")
-            logger.info(f"  Continuing training from global step {self.state.global_step}")
-            if not args.ignore_data_skip:
-                logger.info(
-                    f"  Will skip the first {epochs_trained} epochs then the first"
-                    f" {steps_trained_in_current_epoch} batches in the first epoch."
-                )
+            if is_main_worker():
+                logger.info("  Continuing training from checkpoint, will skip to saved global_step")
+                logger.info(f"  Continuing training from epoch {epochs_trained}")
+                logger.info(f"  Continuing training from global step {self.state.global_step}")
+                if not args.ignore_data_skip:
+                    logger.info(
+                        f"  Will skip the first {epochs_trained} epochs then the first"
+                        f" {steps_trained_in_current_epoch} batches in the first epoch."
+                    )
 
         # Update the references
         self.callback_handler.model = self.model
@@ -999,11 +1012,12 @@ class AugmentTrainerForNeuronMixin:
                 if self.control.should_epoch_stop or self.control.should_training_stop:
                     break
             if step < 0:
-                logger.warning(
-                    "There seems to be not a single sample in your epoch_iterator, stopping training at step"
-                    f" {self.state.global_step}! This is expected if you're using an IterableDataset and set"
-                    f" num_steps ({max_steps}) higher than the number of available samples."
-                )
+                if is_main_worker():
+                    logger.warning(
+                        "There seems to be not a single sample in your epoch_iterator, stopping training at step"
+                        f" {self.state.global_step}! This is expected if you're using an IterableDataset and set"
+                        f" num_steps ({max_steps}) higher than the number of available samples."
+                    )
                 self.control.should_training_stop = True
 
             self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
@@ -1025,7 +1039,8 @@ class AugmentTrainerForNeuronMixin:
             # Clean the state at the end of training
             delattr(self, "_past")
 
-        logger.info("\n\nTraining completed. Do not forget to share your model on huggingface.co/models =)\n\n")
+        if is_main_worker():
+            logger.info("\n\nTraining completed. Do not forget to share your model on huggingface.co/models =)\n\n")
         if args.load_best_model_at_end and self.state.best_model_checkpoint is not None:
             # Wait for everyone to get here so we are sure the model has been saved by process 0.
             if is_torch_xla_available():
@@ -1065,7 +1080,8 @@ class AugmentTrainerForNeuronMixin:
         if self.args.should_save and self.state.best_model_checkpoint is not None and self.args.save_total_limit == 1:
             for checkpoint in checkpoints_sorted:
                 if not os.path.samefile(checkpoint, self.state.best_model_checkpoint):
-                    logger.info(f"Deleting older checkpoint [{checkpoint}] due to args.save_total_limit")
+                    if is_main_worker():
+                        logger.info(f"Deleting older checkpoint [{checkpoint}] due to args.save_total_limit")
                     shutil.rmtree(checkpoint)
 
         self.control = self.callback_handler.on_train_end(args, self.state, self.control)
@@ -1139,17 +1155,18 @@ class AugmentTrainerForNeuronMixin:
 
         batch_size = self.args.eval_batch_size
 
-        logger.info(f"***** Running {description} *****")
-        dp_size = get_data_parallel_size()
-        logger.info(f"  Num data parallel workers = {dp_size}")
-        if has_length(dataloader):
-            num_examples = self.num_examples(dataloader)
-            total_num_examples = num_examples * dp_size
-            logger.info(f"  Per data parallel worker num examples = {num_examples}")
-            logger.info(f"  Total num examples = {total_num_examples}")
-        else:
-            logger.info("  Num examples: Unknown")
-        logger.info(f"  Batch size = {batch_size}")
+        if is_main_worker():
+            logger.info(f"***** Running {description} *****")
+            dp_size = get_data_parallel_size()
+            logger.info(f"  Num data parallel workers = {dp_size}")
+            if has_length(dataloader):
+                num_examples = self.num_examples(dataloader)
+                total_num_examples = num_examples * dp_size
+                logger.info(f"  Per data parallel worker num examples = {num_examples}")
+                logger.info(f"  Total num examples = {total_num_examples}")
+            else:
+                logger.info("  Num examples: Unknown")
+            logger.info(f"  Batch size = {batch_size}")
 
         if not is_nxdppmodel:
             model.eval()
@@ -1187,7 +1204,7 @@ class AugmentTrainerForNeuronMixin:
                     batch_size = observed_batch_size
 
             if is_nxdppmodel and observed_batch_size % model.num_microbatches != 0:
-                if xm.get_local_ordinal() == 0:
+                if is_main_worker() == 0:
                     logger.warning(
                         "Skipping the evaluation step because the pipeline number of microbatches "
                         f"({model.num_microbatches}) does not divide the batch size ({observed_batch_size})."

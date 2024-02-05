@@ -311,7 +311,11 @@ class NeuronCacheCallback(TrainerCallback):
             # pushed_directories = set()
             allow_patterns = [file.as_posix() for file in files]
             push_to_cache_on_hub(
-                neuron_hash, self.tmp_neuron_cache_path, cache_repo_id=self.cache_repo_id, local_path_to_path_in_repo="default", allow_patterns=allow_patterns,
+                neuron_hash,
+                self.tmp_neuron_cache_path,
+                cache_repo_id=self.cache_repo_id,
+                local_path_to_path_in_repo="default",
+                allow_patterns=allow_patterns,
             )
 
             for path in files:
@@ -387,7 +391,9 @@ class NeuronCacheCallback(TrainerCallback):
                 neuron_hash = entry["neuron_hash"]
                 module_dir = Path(entry["directory"])
                 cache_dir = module_dir.parent
-                filenames = [file.as_posix() for file in list_files_in_neuron_cache(module_dir, only_relevant_files=True)]
+                filenames = [
+                    file.as_posix() for file in list_files_in_neuron_cache(module_dir, only_relevant_files=True)
+                ]
                 success = True
                 try:
                     push_to_cache_on_hub(

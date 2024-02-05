@@ -27,8 +27,8 @@ from torch.nn.modules.loss import _WeightedLoss
 
 from ...utils import NormalizedConfigManager, logging
 from ..utils import patch_everywhere, patch_within_function
-from ..utils.require_utils import requires_neuronx_distributed
 from ..utils.misc import is_main_worker
+from ..utils.require_utils import requires_neuronx_distributed
 from .utils import (
     GroupedQueryAttentionInfo,
     WeightInformation,
@@ -238,8 +238,6 @@ class ParallelEmbedding(ParallelLayer):
         embedding_layer = layer.get_submodule(cls.EMBEDDING_NAME)
         tp_size = parallel_state.get_tensor_model_parallel_size()
         if embedding_layer.num_embeddings % tp_size != 0:
-            import torch_xla.core.xla_model as xm
-
             if is_main_worker():
                 logger.warning(
                     f"Embedding parallelization for TP was skipped because the tensor parallel size ({tp_size}) does not "

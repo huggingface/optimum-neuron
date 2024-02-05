@@ -38,8 +38,8 @@ from ..utils import check_if_transformers_greater, logging
 from .accelerate import NeuronAcceleratorState, NeuronPartialState
 from .accelerate.utils import ModelParallelismPlugin, patch_accelerate_is_tpu_available
 from .utils import is_accelerate_available, is_torch_xla_available
-from .utils.training_utils import TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP
 from .utils.patching import Patcher
+from .utils.training_utils import TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP
 
 
 if is_sagemaker_mp_enabled():
@@ -150,6 +150,7 @@ class NeuronTrainingArgumentsMixin:
             pipeline_parallel_size=self.pipeline_parallel_size,
             pipeline_parallel_num_microbatches=self.pipeline_parallel_num_microbatches,
             pipeline_parallel_use_zero1_optimizer=self.zero_1,
+            gradient_checkpointing=self.gradient_checkpointing,
             checkpoint_dir=resume_from_checkpoint,
         )
 
