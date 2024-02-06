@@ -54,10 +54,7 @@ jobs:
             id: init
             run: packer init hcl2-files
             continue-on-error: true
-          
-          - name: Determine Branch name
-            id: get-branch-name
-            run: 
+  
           
           - name: Packer Validate
             id: validate
