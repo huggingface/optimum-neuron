@@ -15,7 +15,7 @@
 """Classes related to `neuronx-distributed` to perform parallelism."""
 
 import warnings
-from typing import TYPE_CHECKING, Any, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple
 
 import torch
 from transformers.cache_utils import Cache
@@ -605,7 +605,10 @@ class MistralParallelMLP(ParallelMLP):
         layer: "torch.nn.Module",
         sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
+        should_parallelize_layer_predicate_func: Optional[Callable[["torch.nn.Module"], bool]] = None,
     ) -> "torch.nn.Module":
+        if should_parallelize_layer_predicate_func is not None and not should_parallelize_layer_predicate_func(layer):
+            return layer
         # TODO: Make it smart by merging the gate and the up_proj.
         # WARNING: be careful of the interleaved outputs when doing TP!
         layer = super().transform(model, layer, sequence_parallel_enabled=sequence_parallel_enabled, device=device)

@@ -244,7 +244,7 @@ class Parallelizer(ABC):
         device: Optional["torch.device"] = None,
         parallelize_embeddings: bool = True,
         sequence_parallel_enabled: bool = False,
-        should_parallelize_predicate_func: Optional[Callable[["torch.nn.Module"], "torch.nn.Module"]] = None,
+        should_parallelize_layer_predicate_func: Optional[Callable[["torch.nn.Module"], bool]] = None,
     ) -> "PreTrainedModel":
         """
         Parallelizes the model by transforming regular layer into their parallel counterparts.
@@ -260,7 +260,9 @@ class Parallelizer(ABC):
                 This can be disabled in the case when the TP size does not divide the vocabulary size.
             sequence_parallel_enabled (`bool`, defaults to `False`):
                 Whether or not sequence parallelism is enabled.
-            # TODO: add docstring
+            should_parallelize_layer_predicate_func (Optional[Callable[[torch.nn.Module], bool]], defaults to `None`):
+                A function that takes a layer as input and returns a boolean specifying if the input layer should be
+                parallelized. This is useful to skip unnecessary parallelization, for pipeline parallelism for instance.
         Returns:
             `PreTrainedModel`: The parallelized model.
         """
@@ -337,17 +339,12 @@ class Parallelizer(ABC):
         name_to_parameter = dict(named_parameters(model, remove_duplicate=False))
         parameter_to_name = {p: n for n, p in name_to_parameter.items()}
 
-        xm.master_print(name_to_parameter.keys())
-
         def predicate_func(layer):
-            for n, p in layer.named_parameters():
+            for p in layer.parameters():
                 if p not in parameter_to_name:
-                    xm.master_print(n)
                     return True
             names = {parameter_to_name[p] for p in layer.parameters()}
             return names < names_of_the_parameters_to_consider
-
-        model.predicate = predicate_func
 
         if tp_size > 1:
             model = cls._parallelize(
@@ -355,9 +352,10 @@ class Parallelizer(ABC):
                 device=device,
                 parallelize_embeddings=parallelize_embeddings,
                 sequence_parallel_enabled=sequence_parallel_enabled,
-                # should_parallelize_predicate_func=predicate_func,
+                should_parallelize_predicate_func=predicate_func,
             )
-        # xm.rendezvous("End of tensor parallelism")
+
+            xm.rendezvous("End of tensor parallelism")
 
         # Preparing the model for sequence parallelism:
         sp_specs_cls = cls.SEQUENCE_PARALLELSIM_SPECS_CLS
@@ -507,7 +505,7 @@ class Parallelizer(ABC):
                     if left_uninitialized and hasattr(mod, "reset_parameters"):
                         initialize_torch_nn_module(mod, parameter_names)
 
-        # xm.rendezvous("End of initalization")
+            xm.rendezvous("End of initalization")
 
         pp_size = get_pipeline_model_parallel_size()
         if pp_size > 1:
@@ -535,7 +533,7 @@ class Parallelizer(ABC):
                 if gradient_checkpointing:
                     apply_checkpoint(model)
 
-        # xxm.rendezvous("End of pipeline paralellism")
+            xm.rendezvous("End of pipeline paralellism")
 
         if checkpoint_dir is not None:
             cls.load_model_checkpoint(model, checkpoint_dir)

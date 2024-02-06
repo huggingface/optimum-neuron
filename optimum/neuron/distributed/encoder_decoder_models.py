@@ -14,7 +14,7 @@
 # limitations under the License.
 """Classes related to `neuronx-distributed` to perform parallelism."""
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 import torch
 from transformers.models.t5.modeling_t5 import T5Attention, T5ForSequenceClassification, T5LayerNorm
@@ -54,9 +54,12 @@ class T5ParallelSelfAttention(ParallelSelfAttention):
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
-        device: Optional["torch.device"] = None,
         sequence_parallel_enabled: bool = False,
+        device: Optional["torch.device"] = None,
+        should_parallelize_layer_predicate_func: Optional[Callable[["torch.nn.Module"], bool]] = None,
     ) -> "torch.nn.Module":
+        if should_parallelize_layer_predicate_func is not None and not should_parallelize_layer_predicate_func(layer):
+            return layer
         from neuronx_distributed.parallel_layers.parallel_state import (
             get_tensor_model_parallel_rank,
             get_tensor_model_parallel_size,
@@ -100,7 +103,11 @@ class T5ParallelMLP(ParallelMLP):
         layer: "torch.nn.Module",
         sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
+        should_parallelize_layer_predicate_func: Optional[Callable[["torch.nn.Module"], bool]] = None,
     ) -> "torch.nn.Module":
+        if should_parallelize_layer_predicate_func is not None and not should_parallelize_layer_predicate_func(layer):
+            return layer
+
         from transformers.models.t5.modeling_t5 import T5DenseGatedActDense
 
         if cls.FIRST_LINEAR_NAME is None or cls.SECOND_LINEAR_NAME is None:

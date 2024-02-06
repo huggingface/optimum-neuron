@@ -20,7 +20,7 @@ from abc import ABC, abstractclassmethod
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Tuple, Type, Union
+from typing import TYPE_CHECKING, Callable, Dict, List, Literal, Optional, Tuple, Type, Union
 
 import torch
 from torch.nn.modules.loss import _WeightedLoss
@@ -133,8 +133,9 @@ class ParallelLayer(ABC):
         layer: "torch.nn.Module",
         sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
+        should_parallelize_layer_predicate_func: Optional[Callable[["torch.nn.Module"], bool]] = None,
     ) -> "torch.nn.Module":
-        if not model.predicate(layer):
+        if should_parallelize_layer_predicate_func is not None and not should_parallelize_layer_predicate_func(layer):
             return layer
         return cls._transform(model, layer, sequence_parallel_enabled=sequence_parallel_enabled, device=device)
 

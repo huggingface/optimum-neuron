@@ -14,7 +14,7 @@
 # limitations under the License.
 """Classes related to `neuronx-distributed` to perform parallelism."""
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 import torch
 
@@ -64,8 +64,15 @@ class BertParallelEmbedding(ParallelEmbedding):
         layer: "torch.nn.Module",
         sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
+        should_parallelize_layer_predicate_func: Optional[Callable[["torch.nn.Module"], bool]] = None,
     ) -> "torch.nn.Module":
-        layer = super().transform(model, layer, sequence_parallel_enabled=sequence_parallel_enabled, device=device)
+        layer = super().transform(
+            model,
+            layer,
+            sequence_parallel_enabled=sequence_parallel_enabled,
+            device=device,
+            should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
+        )
         from transformers.models.bert.modeling_bert import BertLMPredictionHead
 
         for mod in layer.modules():

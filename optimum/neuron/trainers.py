@@ -74,7 +74,7 @@ from .utils import (
     is_torch_xla_available,
     patch_within_function,
 )
-from .utils.cache_utils import get_neuron_cache_path, set_neuron_cache_path
+from .utils.cache_utils import get_neuron_cache_path
 from .utils.misc import is_main_worker
 from .utils.require_utils import requires_neuronx_distributed
 from .utils.training_utils import (
@@ -787,8 +787,7 @@ class AugmentTrainerForNeuronMixin:
         # FSDP(Transformers Model), Dynamo Optimized Module(Transformers Model) etc.
 
         # Train!
-        # parameter_count = get_model_param_count(model, trainable_only=True)
-        parameter_count = 10
+        parameter_count = get_model_param_count(model, trainable_only=True)
         if is_main_worker():
             logger.info("***** Running training *****")
             logger.info(f"  Num examples = {num_examples:,}")
