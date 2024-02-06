@@ -43,7 +43,7 @@ from ..utils import (
     patch_within_function,
     patched_finfo,
 )
-from ..utils.misc import args_and_kwargs_to_kwargs_only
+from ..utils.misc import args_and_kwargs_to_kwargs_only, is_main_worker
 from ..utils.require_utils import requires_neuronx_distributed, requires_torch_xla
 from .optimizer import NeuronAcceleratedOptimizer
 from .scheduler import NeuronAcceleratedScheduler
@@ -219,14 +219,14 @@ class NeuronAccelerator(Accelerator):
             num_replicas = parallel_layers.parallel_state.get_data_parallel_size()
             rank = parallel_layers.parallel_state.get_data_parallel_rank()
             force_drop_last = parallel_layers.parallel_state.get_pipeline_model_parallel_size() > 1
-            if force_drop_last and xm.get_ordinal() == 0:
+            if is_main_worker() and force_drop_last:
                 logger.warning(
                     "Pipeline parallelsim: forcing the dataloader to drop the last incomplete batch because it can "
                     "cause failure if the last batch size is not divisible by the number of microbatches for the pipeline."
                 )
         else:
             num_replicas = xm.xrt_world_size()
-            rank = xm.get_local_ordinal()
+            rank = xm.get_ordinal()
         if self.state.num_processes > 1:
             data_loader = self._prepare_data_loader_for_distributed(
                 data_loader, num_replicas=num_replicas, rank=rank, force_drop_last=force_drop_last

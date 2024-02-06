@@ -343,7 +343,7 @@ class Parallelizer(ABC):
             for n, p in layer.named_parameters():
                 if p not in parameter_to_name:
                     xm.master_print(n)
-                    return False
+                    return True
             names = {parameter_to_name[p] for p in layer.parameters()}
             return names < names_of_the_parameters_to_consider
 
@@ -357,7 +357,7 @@ class Parallelizer(ABC):
                 sequence_parallel_enabled=sequence_parallel_enabled,
                 # should_parallelize_predicate_func=predicate_func,
             )
-        xm.rendezvous("End of tensor parallelism")
+        # xm.rendezvous("End of tensor parallelism")
 
         # Preparing the model for sequence parallelism:
         sp_specs_cls = cls.SEQUENCE_PARALLELSIM_SPECS_CLS
@@ -507,7 +507,7 @@ class Parallelizer(ABC):
                     if left_uninitialized and hasattr(mod, "reset_parameters"):
                         initialize_torch_nn_module(mod, parameter_names)
 
-        xm.rendezvous("End of initalization")
+        # xm.rendezvous("End of initalization")
 
         pp_size = get_pipeline_model_parallel_size()
         if pp_size > 1:
@@ -535,7 +535,7 @@ class Parallelizer(ABC):
                 if gradient_checkpointing:
                     apply_checkpoint(model)
 
-        xm.rendezvous("End of pipeline paralellism")
+        # xxm.rendezvous("End of pipeline paralellism")
 
         if checkpoint_dir is not None:
             cls.load_model_checkpoint(model, checkpoint_dir)

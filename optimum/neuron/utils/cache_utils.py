@@ -1043,10 +1043,13 @@ def push_to_cache_on_hub(
             success = False
 
     # Adding the model to the registry if the upload was successful.
+    # TODO: it slows down training since it pushes a lot of stuff to the registry.
+    # It is needed to find a better way. Disabling it for now since it's not used at all.
     if success:
-        try:
-            add_in_registry(cache_repo_id, neuron_hash)
-        except HfHubHTTPError:
-            pass
+        pass
+        # try:
+        #     add_in_registry(cache_repo_id, neuron_hash)
+        # except HfHubHTTPError:
+        #     pass
 
     return CachedModelOnTheHub(cache_repo_id, path_in_repo)

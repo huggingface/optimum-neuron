@@ -119,7 +119,7 @@ if KEEP_HF_HUB_PROGRESS_BARS is None:
 _ORIGINAL_NEURON_CACHE_PATH: Optional[Path] = None
 _TMP_NEURON_CACHE_DIR: Optional[TemporaryDirectory] = None
 _TMP_NEURON_CACHE_PATH: Optional[Path] = None
-_TCP_STORE_ADDRESS = "127.0.0.1"
+_TCP_STORE_ADDRESS = os.environ.get("MASTER_ADDR", "127.0.0.1")
 _TCP_STORE_PORT = 5000
 
 
@@ -130,22 +130,22 @@ if os.environ.get("TORCHELASTIC_RUN_ID"):
         _ORIGINAL_NEURON_CACHE_PATH = get_neuron_cache_path()
 
         # _ORIGINAL_NEURON_CACHE_PATH is `None` when the `--no-cache` flag is set.
-        if _ORIGINAL_NEURON_CACHE_PATH is not None:
-            if is_precompilation():
-                # During precompilation, we make sure to set the cache path to the defined compile cache path by the
-                # user. If nothing is specified, it is set to the default compile cache used by the Neuron compiler:
-                # /var/tmp/neuron-compile-cache
-                set_neuron_cache_path(_ORIGINAL_NEURON_CACHE_PATH)
-            else:
-                if os.environ["LOCAL_RANK"] == "0":
-                    _TMP_NEURON_CACHE_DIR = NeuronCacheCallback.create_temporary_neuron_cache(get_neuron_cache_path())
-                    store = torch.distributed.TCPStore(_TCP_STORE_ADDRESS, _TCP_STORE_PORT, is_master=True)
-                    store.set("tmp_neuron_cache_path", _TMP_NEURON_CACHE_DIR.name)
-                    _TMP_NEURON_CACHE_PATH = Path(_TMP_NEURON_CACHE_DIR.name)
-                else:
-                    store = torch.distributed.TCPStore(_TCP_STORE_ADDRESS, _TCP_STORE_PORT, is_master=False)
-                    _TMP_NEURON_CACHE_PATH = Path(store.get("tmp_neuron_cache_path").decode("utf-8"))
-                set_neuron_cache_path(_TMP_NEURON_CACHE_PATH)
+        # if _ORIGINAL_NEURON_CACHE_PATH is not None:
+        #     if is_precompilation():
+        #         # During precompilation, we make sure to set the cache path to the defined compile cache path by the
+        #         # user. If nothing is specified, it is set to the default compile cache used by the Neuron compiler:
+        #         # /var/tmp/neuron-compile-cache
+        #         set_neuron_cache_path(_ORIGINAL_NEURON_CACHE_PATH)
+        #     else:
+        #         if os.environ["RANK"] == "0":
+        #             _TMP_NEURON_CACHE_DIR = NeuronCacheCallback.create_temporary_neuron_cache(get_neuron_cache_path())
+        #             store = torch.distributed.TCPStore(_TCP_STORE_ADDRESS, _TCP_STORE_PORT, is_master=True)
+        #             store.set("tmp_neuron_cache_path", _TMP_NEURON_CACHE_DIR.name)
+        #             _TMP_NEURON_CACHE_PATH = Path(_TMP_NEURON_CACHE_DIR.name)
+        #         else:
+        #             store = torch.distributed.TCPStore(_TCP_STORE_ADDRESS, _TCP_STORE_PORT, is_master=False)
+        #             _TMP_NEURON_CACHE_PATH = Path(store.get("tmp_neuron_cache_path").decode("utf-8"))
+        #         set_neuron_cache_path(_TMP_NEURON_CACHE_PATH)
 
         torch.distributed.init_process_group(backend="xla")
         if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
@@ -196,8 +196,9 @@ class AugmentTrainerForNeuronMixin:
         if self.args.local_rank <= 0:
             logger.setLevel(logging.INFO)
 
-        push = self.args.local_rank <= 0 and not is_precompilation() and not self.args.skip_cache_push
-        fetch = self.args.local_rank <= 0 or self.args.mp_plugin.should_parallelize
+        rank = xm.get_ordinal()
+        push = rank <= 0 and not is_precompilation() and not self.args.skip_cache_push
+        fetch = rank <= 0 or self.args.mp_plugin.should_parallelize
 
         callback = NeuronCacheCallback(
             tmp_neuron_cache=_TMP_NEURON_CACHE_PATH,
@@ -207,7 +208,7 @@ class AugmentTrainerForNeuronMixin:
             wait_for_everyone_on_fetch=True,
             wait_for_everyone_on_push=True,
         )
-        self.add_callback(callback)
+        # self.add_callback(callback)
 
         # Make the model Neuron-compatible for generation.
         patch_generation_mixin_to_neuron_generation_mixin(self.model)
@@ -422,6 +423,7 @@ class AugmentTrainerForNeuronMixin:
             self._globalstep_last_logged = self.state.global_step
             self.store_flos()
 
+            # if is_main_worker():
             self.log(logs)
 
         metrics = None
@@ -785,7 +787,8 @@ class AugmentTrainerForNeuronMixin:
         # FSDP(Transformers Model), Dynamo Optimized Module(Transformers Model) etc.
 
         # Train!
-        parameter_count = get_model_param_count(model, trainable_only=True)
+        # parameter_count = get_model_param_count(model, trainable_only=True)
+        parameter_count = 10
         if is_main_worker():
             logger.info("***** Running training *****")
             logger.info(f"  Num examples = {num_examples:,}")

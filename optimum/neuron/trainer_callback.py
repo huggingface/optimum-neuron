@@ -380,6 +380,7 @@ class NeuronCacheCallback(TrainerCallback):
         """
         Event called at the beginning of training.
         """
+        return
         if is_precompilation() or self.neuron_cache_path is None:
             return
         if self.push:

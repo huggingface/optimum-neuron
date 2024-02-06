@@ -418,8 +418,8 @@ def get_model_param_count(model: Union[torch.nn.Module, "NxDPPModel"], trainable
     param_count = sum(numel(n, p) for n, p in named_parameters if not trainable_only or p.requires_grad)
 
     if get_pipeline_model_parallel_size() > 1:
-        param_count = torch.tensor(param_count, dtype=torch.double).to(xm.xla_device())
-        param_count = xm.all_reduce(xm.REDUCE_SUM, param_count, groups=get_pipeline_model_parallel_group(as_list=True))
-        param_count = param_count.detach().item()
+        param_count = torch.tensor(param_count, dtype=torch.float32).to(xm.xla_device())
+        # param_count = xm.all_reduce(xm.REDUCE_SUM, param_count, groups=get_pipeline_model_parallel_group(as_list=True))
+        param_count = int(param_count.detach().item())
 
     return param_count
