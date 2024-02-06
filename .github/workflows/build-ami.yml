@@ -28,9 +28,6 @@ jobs:
         steps:
           - name: Checkout
             uses: actions/checkout@v4
-            with:
-              # If the workflow is triggered manually or by schedule, uses the tag, otherwise uses the current branch  
-              ref: ${{ github.event.inputs.tag || github.ref }}
           
           - name: Setup Packer
             uses: hashicorp/setup-packer@main
@@ -58,13 +55,13 @@ jobs:
           
           - name: Packer Validate
             id: validate
-            # If the workflow is triggered manually or scheduled, uses the tag, otherwise uses the name of branch that triggered worklfow for building the AMI  
+            # If the workflow is triggered manually or scheduled, uses the tag, otherwise uses the name of branch that triggered workflow for building the AMI  
             run: packer validate -var "optimum_version=${{ github.event.inputs.tag || github.head_ref || github.ref_name }}" -var "region=${{ env.AWS_REGION }}" hcl2-files
             continue-on-error: true
           
           - name: Packer Build
             id: build
-            # If the workflow is triggered manually or scheduled, uses the tag, otherwise uses the name of branch that triggered worklfow for building the AMI 
+            # If the workflow is triggered manually or scheduled, uses the tag, otherwise uses the name of branch that triggered workflow for building the AMI 
             run:  | 
               packer build -var "optimum_version=${{ github.event.inputs.tag || github.head_ref || github.ref_name }}" -var "region=${{ env.AWS_REGION }}" hcl2-files              
 
