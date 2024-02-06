@@ -43,6 +43,7 @@ class TokenSelector:
         eos_token_id: int,
         pad_token_id: int,
         logits_warper: Optional[LogitsProcessorList] = None,
+        seed: Optional[int] = 0,
     ):
         self.mode = mode
         self.logits_processor = logits_processor
@@ -50,6 +51,8 @@ class TokenSelector:
         self.eos_token_id = eos_token_id
         self.pad_token_id = pad_token_id
         self.logits_warper = logits_warper
+        self.generator = torch.Generator()
+        self.generator.manual_seed(seed)
 
     @classmethod
     def create(
@@ -59,6 +62,7 @@ class TokenSelector:
         model: GenerationMixin,
         max_seq_length: int,
         stopping_criteria: Optional[StoppingCriteriaList] = None,
+        seed: Optional[int] = 0,
     ) -> "TokenSelector":
         r"""Creates the `TokenSelector` for a specific generation configuration.
 
@@ -74,6 +78,8 @@ class TokenSelector:
             stopping_criteria (`Optional[transformers.generation.StoppingCriteriaList], defaults to `None`):
                 Custom stopping criteria that complement the default stopping criteria built from arguments and a
                 generation config.
+            seed(`Optional[int]`):
+                The optional seed for sampling. Defaults to zero.
         Return:
             `torch.LongTensor`: A `torch.LongTensor` containing the selected tokens.
         """
@@ -145,6 +151,7 @@ class TokenSelector:
             logits_warper=logits_warper,
             eos_token_id=eos_token_id,
             pad_token_id=generation_config.pad_token_id,
+            seed=seed,
         )
 
     def select(self, input_ids: torch.LongTensor, logits: torch.Tensor) -> torch.LongTensor:
@@ -171,7 +178,7 @@ class TokenSelector:
 
         # sample
         probs = torch.nn.functional.softmax(scores, dim=-1)
-        next_tokens = torch.multinomial(probs, num_samples=1)
+        next_tokens = torch.multinomial(probs, num_samples=1, generator=self.generator)
         # Convert the filtered tokens to actual vocabulary tokens
         next_tokens = torch.gather(next_token_indices, 1, next_tokens)
         return next_tokens.squeeze(1)

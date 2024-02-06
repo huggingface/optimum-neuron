@@ -159,7 +159,8 @@ class Slot:
         self._generation_config.typical_p = request.parameters.typical_p
         self._generation_config.do_sample = request.parameters.do_sample
         self._generation_config.repetition_penalty = request.parameters.repetition_penalty
-        # TODO: seed, watermark
+        self.seed = request.parameters.seed
+        # TODO: watermark
         self._generation_config.max_new_tokens = request.stopping_parameters.max_new_tokens
         # TODO: stop_sequences, ignore_eos_token
 
@@ -369,7 +370,7 @@ class NeuronGenerator(Generator):
                 slot_input_ids = input_ids[i : i + 1, :]
                 # Padded input ids are also required to set logits processors and stopping criterias
                 selector = TokenSelector.create(
-                    slot_input_ids, slot.generation_config, self.model, self.model.max_length
+                    slot_input_ids, slot.generation_config, self.model, self.model.max_length, seed=slot.seed
                 )
                 slot_input_ids = slot_input_ids.squeeze(dim=0).type(torch.int64)
                 slot_attention_mask = attention_mask[i]
