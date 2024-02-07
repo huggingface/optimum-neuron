@@ -177,7 +177,7 @@ class ModelParallelismPlugin:
             sequence_parallel_enabled=self.sequence_parallel_enabled,
             pipeline_parallel_num_microbatches=self.pipeline_parallel_num_microbatches,
             pipeline_parallel_use_zero1_optimizer=self.pipeline_parallel_use_zero1_optimizer,
-            gradient_checkpointing=self.gradient_checkpointing,
+            pipeline_parallel_gradient_checkpointing_enabled=self.gradient_checkpointing,
             checkpoint_dir=self.checkpoint_dir,
         )
         return parallelized_model

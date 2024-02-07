@@ -332,6 +332,7 @@ class T5Parallelizer(Parallelizer):
         device: Optional["torch.device"] = None,
         parallelize_embeddings: bool = True,
         sequence_parallel_enabled: bool = False,
+        should_parallelize_layer_predicate_func: Optional[Callable[["torch.nn.Module"], bool]] = None,
     ) -> "PreTrainedModel":
         if isinstance(model, T5ForSequenceClassification):
             raise NotImplementedError(
@@ -341,7 +342,11 @@ class T5Parallelizer(Parallelizer):
             )
         if parallelize_embeddings:
             model = T5ParallelEmbedding.transform(
-                model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+                model,
+                model,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
+                device=device,
             )
         if parallelize_embeddings and model.encoder.embed_tokens is not None:
             model.encoder.embed_tokens = model.shared
@@ -352,12 +357,14 @@ class T5Parallelizer(Parallelizer):
                 model,
                 block.layer[0].SelfAttention,
                 sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
                 device=device,
             )
             block.layer[1].DenseReluDense = T5ParallelMLP.transform(
                 model,
                 block.layer[1].DenseReluDense,
                 sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
                 device=device,
             )
         for block in model.decoder.block:
@@ -365,22 +372,29 @@ class T5Parallelizer(Parallelizer):
                 model,
                 block.layer[0].SelfAttention,
                 sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
                 device=device,
             )
             block.layer[1].EncDecAttention = T5ParallelSelfAttention.transform(
                 model,
                 block.layer[1].EncDecAttention,
                 sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
                 device=device,
             )
             block.layer[2].DenseReluDense = T5ParallelMLP.transform(
                 model,
                 block.layer[2].DenseReluDense,
                 sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
                 device=device,
             )
         if parallelize_embeddings:
             model = T5ParallelCrossEntropy.transform(
-                model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+                model,
+                model,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
+                device=device,
             )
         return model

@@ -141,22 +141,29 @@ class BertParallelizer(Parallelizer):
         device: Optional["torch.device"] = None,
         parallelize_embeddings: bool = True,
         sequence_parallel_enabled: bool = False,
+        should_parallelize_layer_predicate_func: Optional[Callable[["torch.nn.Module"], bool]] = None,
     ) -> "PreTrainedModel":
         if parallelize_embeddings:
             model = BertParallelEmbedding.transform(
-                model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+                model,
+                model,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
+                device=device,
             )
         for layer in model.bert.encoder.layer:
             layer.attention.self = BertParallelSelfAttention.transform(
                 model,
                 layer.attention.self,
                 sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
                 device=device,
             )
             layer.attention.output = BertParallelSelfOutput.transform(
                 model,
                 layer.attention.output,
                 sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
                 device=device,
             )
         # Valid because we currently parallelize the cross-entropy loss only for language-modeling tasks where the
@@ -164,7 +171,11 @@ class BertParallelizer(Parallelizer):
         if parallelize_embeddings:
             BertParallelEmbedding.overwrite_vocab_size_value_for_cross_entropy_computation(model)
             model = BertParallelCrossEntropy.transform(
-                model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+                model,
+                model,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
+                device=device,
             )
         return model
 
@@ -236,22 +247,29 @@ class RobertaParallelizer(Parallelizer):
         device: Optional["torch.device"] = None,
         parallelize_embeddings: bool = True,
         sequence_parallel_enabled: bool = False,
+        should_parallelize_layer_predicate_func: Optional[Callable[["torch.nn.Module"], bool]] = None,
     ) -> "PreTrainedModel":
         if parallelize_embeddings:
             model = RobertaParallelEmbedding.transform(
-                model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+                model,
+                model,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
+                device=device,
             )
         for layer in model.roberta.encoder.layer:
             layer.attention.self = RobertaParallelSelfAttention.transform(
                 model,
                 layer.attention.self,
                 sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
                 device=device,
             )
             layer.attention.output = RobertaParallelSelfOutput.transform(
                 model,
                 layer.attention.output,
                 sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
                 device=device,
             )
         # Valid because we currently parallelize the cross-entropy loss only for language-modeling tasks where the
@@ -259,6 +277,10 @@ class RobertaParallelizer(Parallelizer):
         if parallelize_embeddings:
             RobertaParallelEmbedding.overwrite_vocab_size_value_for_cross_entropy_computation(model)
             model = RobertaParallelCrossEntropy.transform(
-                model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+                model,
+                model,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
+                device=device,
             )
         return model

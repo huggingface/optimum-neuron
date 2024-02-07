@@ -278,7 +278,7 @@ class Parallelizer(ABC):
         pipeline_parallel_input_names: Optional[Union[Tuple[str, ...], List[str]]] = None,
         pipeline_parallel_num_microbatches: int = 1,
         pipeline_parallel_use_zero1_optimizer: bool = False,
-        gradient_checkpointing: bool = False,
+        pipeline_parallel_gradient_checkpointing_enabled: bool = False,
         checkpoint_dir: Optional[Union[str, Path]] = None,
     ) -> "PreTrainedModel":
         """
@@ -303,8 +303,8 @@ class Parallelizer(ABC):
             pipeline_parallel_use_zero1_optimizer (`bool`, defaults to `False`):
                 When zero-1 optimizer is used, set this to True, so the PP model will understand that zero-1 optimizer
                 will handle data parallel gradient averaging.
-            gradient_checkpointing (`bool`, defaults to `False`):
-                TODO
+            pipeline_parallel_gradient_checkpointing_enabled (`bool`, defaults to `False`):
+                Whether or not gradient checkpointing should be enabled when doing pipeline parallelism.
             checkpoint_dir (`Optional[Union[str, Path]]`):
                 Path to a sharded checkpoint. If specified, the checkpoint weights will be loaded to the parallelized
                 model.
@@ -352,7 +352,7 @@ class Parallelizer(ABC):
                 device=device,
                 parallelize_embeddings=parallelize_embeddings,
                 sequence_parallel_enabled=sequence_parallel_enabled,
-                should_parallelize_predicate_func=predicate_func,
+                should_parallelize_layer_predicate_func=predicate_func,
             )
 
             xm.rendezvous("End of tensor parallelism")
@@ -530,7 +530,7 @@ class Parallelizer(ABC):
                     leaf_module_cls=cls.PIPELINE_PARALLELISM_SPECS_CLS.leaf_module_cls(),
                     use_zero1_optimizer=pipeline_parallel_use_zero1_optimizer,
                 )
-                if gradient_checkpointing:
+                if pipeline_parallel_gradient_checkpointing_enabled:
                     apply_checkpoint(model)
 
             xm.rendezvous("End of pipeline paralellism")

@@ -122,24 +122,38 @@ class GPTNeoParallelizer(Parallelizer):
         device: Optional["torch.device"] = None,
         parallelize_embeddings: bool = True,
         sequence_parallel_enabled: bool = False,
+        should_parallelize_layer_predicate_func: Optional[Callable[["torch.nn.Module"], bool]] = None,
     ) -> "PreTrainedModel":
         if parallelize_embeddings:
             model = GPTNeoParallelEmbedding.transform(
-                model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+                model,
+                model,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
+                device=device,
             )
         for block in model.transformer.h:
             block.attn.attention = GPTNeoParallelSelfAttention.transform(
                 model,
                 block.attn.attention,
                 sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
                 device=device,
             )
             block.mlp = GPTNeoParallelMLP.transform(
-                model, block.mlp, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+                model,
+                block.mlp,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
+                device=device,
             )
         if parallelize_embeddings:
             model = GPTNeoParallelCrossEntropy.transform(
-                model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+                model,
+                model,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
+                device=device,
             )
         return model
 
@@ -287,24 +301,38 @@ class GPTNeoXParallelizer(Parallelizer):
         device: Optional["torch.device"] = None,
         parallelize_embeddings: bool = True,
         sequence_parallel_enabled: bool = False,
+        should_parallelize_layer_predicate_func: Optional[Callable[["torch.nn.Module"], bool]] = None,
     ) -> "PreTrainedModel":
         if parallelize_embeddings:
             model = GPTNeoXParallelEmbedding.transform(
-                model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+                model,
+                model,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
+                device=device,
             )
         for layer in model.gpt_neox.layers:
             layer.attention = GPTNeoXParallelSelfAttention.transform(
                 model,
                 layer.attention,
                 sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
                 device=device,
             )
             layer.mlp = GPTNeoXParallelMLP.transform(
-                model, layer.mlp, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+                model,
+                layer.mlp,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
+                device=device,
             )
         if parallelize_embeddings:
             model = GPTNeoXParallelCrossEntropy.transform(
-                model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+                model,
+                model,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
+                device=device,
             )
         return model
 
@@ -558,22 +586,39 @@ class LlamaParallelizer(Parallelizer):
         device: Optional["torch.device"] = None,
         parallelize_embeddings: bool = True,
         sequence_parallel_enabled: bool = False,
+        should_parallelize_layer_predicate_func: Optional[Callable[["torch.nn.Module"], bool]] = None,
     ) -> "PreTrainedModel":
         if parallelize_embeddings:
             model = LlamaParallelEmbedding.transform(
-                model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+                model,
+                model,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
+                device=device,
             )
         for layer in model.model.layers:
             layer.self_attn = LlamaParallelSelfAttention.transform(
-                model, layer.self_attn, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+                model,
+                layer.self_attn,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
+                device=device,
             )
             layer.mlp = LLamaParallelMLP.transform(
-                model, layer.mlp, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+                model,
+                layer.mlp,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
+                device=device,
             )
         if parallelize_embeddings:
             LlamaParallelEmbedding.overwrite_vocab_size_value_for_cross_entropy_computation(model)
             model = LlamaParallelCrossEntropy.transform(
-                model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+                model,
+                model,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
+                device=device,
             )
         return model
 
@@ -783,21 +828,38 @@ class MistralParallelizer(Parallelizer):
         device: Optional["torch.device"] = None,
         parallelize_embeddings: bool = True,
         sequence_parallel_enabled: bool = False,
+        should_parallelize_layer_predicate_func: Optional[Callable[["torch.nn.Module"], bool]] = None,
     ) -> "PreTrainedModel":
         if parallelize_embeddings:
             model = MistralParallelEmbedding.transform(
-                model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+                model,
+                model,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
+                device=device,
             )
         for layer in model.model.layers:
             layer.self_attn = MistralParallelSelfAttention.transform(
-                model, layer.self_attn, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+                model,
+                layer.self_attn,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
+                device=device,
             )
             layer.mlp = LLamaParallelMLP.transform(
-                model, layer.mlp, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+                model,
+                layer.mlp,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
+                device=device,
             )
         if parallelize_embeddings:
             MistralParallelEmbedding.overwrite_vocab_size_value_for_cross_entropy_computation(model)
             model = MistralParallelCrossEntropy.transform(
-                model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+                model,
+                model,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
+                device=device,
             )
         return model
