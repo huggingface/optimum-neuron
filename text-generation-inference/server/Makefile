@@ -1,6 +1,6 @@
 # Initialize base variables
 pkg_name := text_generation_server
-BUILDDIR ?= $(CURDIR)/build_$(pkg_name)
+BUILDDIR ?= $(CURDIR)/build
 VERSION ?= 0.0.1
 mkfile_path := $(abspath $(lastword $(MAKEFILE_LIST)))
 mkfile_dir := $(dir $(mkfile_path))
