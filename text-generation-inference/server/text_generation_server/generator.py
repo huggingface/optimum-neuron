@@ -454,7 +454,8 @@ class NeuronGenerator(Generator):
             if next_token == self.tokenizer.eos_token_id:
                 finish_reason = FinishReason.FINISH_REASON_EOS_TOKEN
             elif slot.stopped:
-                finish_reason = FinishReason.FINISH_REASON_STOP_SEQUENCE
+                # For now we only support the length stopping criteria
+                finish_reason = FinishReason.FINISH_REASON_LENGTH
             if finish_reason is not None:
                 # We must include the generated text for each finished sequence in the response
                 generated_text = GeneratedText(
