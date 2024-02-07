@@ -47,10 +47,11 @@ class EnvironmentCommand(BaseOptimumCLICommand):
 
     @staticmethod
     def print_apt_pkgs():
-        info = subprocess.getoutput("apt list --installed | grep aws-neuron")
-        pkgs_list = info.split("\n")[3:]
+        apt = subprocess.Popen(["apt", "list", "--installed"], stdout=subprocess.PIPE)
+        grep = subprocess.Popen(["grep", "aws-neuron"], stdin=apt.stdout, stdout=subprocess.PIPE)
+        pkgs_list = list(grep.stdout)
         for pkg in pkgs_list:
-            print(pkg)
+            print(pkg.decode("utf-8").split("\n")[0])
 
     def run(self):
         pt_version = "not installed"
