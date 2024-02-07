@@ -127,7 +127,7 @@ if os.environ.get("TORCHELASTIC_RUN_ID"):
     import torch_xla.distributed.xla_backend as xbn
 
     if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
-        _ORIGINAL_NEURON_CACHE_PATH = get_neuron_cache_path()
+        # _ORIGINAL_NEURON_CACHE_PATH = get_neuron_cache_path()
 
         # _ORIGINAL_NEURON_CACHE_PATH is `None` when the `--no-cache` flag is set.
         # if _ORIGINAL_NEURON_CACHE_PATH is not None:
@@ -196,18 +196,18 @@ class AugmentTrainerForNeuronMixin:
         if self.args.local_rank <= 0:
             logger.setLevel(logging.INFO)
 
-        rank = xm.get_ordinal()
-        push = rank <= 0 and not is_precompilation() and not self.args.skip_cache_push
-        fetch = rank <= 0 or self.args.mp_plugin.should_parallelize
+        # rank = xm.get_ordinal()
+        # push = rank <= 0 and not is_precompilation() and not self.args.skip_cache_push
+        # fetch = rank <= 0 or self.args.mp_plugin.should_parallelize
 
-        callback = NeuronCacheCallback(
-            tmp_neuron_cache=_TMP_NEURON_CACHE_PATH,
-            original_neuron_cache_path=_ORIGINAL_NEURON_CACHE_PATH,
-            fetch=fetch,
-            push=push,
-            wait_for_everyone_on_fetch=True,
-            wait_for_everyone_on_push=True,
-        )
+        # callback = NeuronCacheCallback(
+        #     tmp_neuron_cache=_TMP_NEURON_CACHE_PATH,
+        #     original_neuron_cache_path=_ORIGINAL_NEURON_CACHE_PATH,
+        #     fetch=fetch,
+        #     push=push,
+        #     wait_for_everyone_on_fetch=True,
+        #     wait_for_everyone_on_push=True,
+        # )
         # self.add_callback(callback)
 
         # Make the model Neuron-compatible for generation.

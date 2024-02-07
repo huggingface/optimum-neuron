@@ -33,7 +33,7 @@ from ...utils import logging
 from ..utils import DynamicPatch, Patcher
 from ..utils.deprecate_utils import deprecate
 from ..utils.import_utils import is_neuronx_distributed_available
-from ..utils.misc import download_checkpoints_in_cache
+from ..utils.misc import download_checkpoints_in_cache, is_main_worker
 from ..utils.require_utils import (
     is_torch_xla_available,
     requires_neuronx_distributed,
@@ -291,7 +291,7 @@ def embedding_to_parallel_embedding(
             )
 
     del embedding_layer.weight
-
+    
     if lm_head_layer is None:
         return parallel_embedding_layer
 
@@ -305,11 +305,11 @@ def maybe_load_linear_weight_to_parallel_linear(
     linear_layer_bias_weight_info: Optional[WeightInformation] = None,
     linear_layer: Optional["torch.nn.Linear"] = None,
 ):
-    if linear_layer_weight_info is not None and linear_layer is not None:
+    if (linear_layer_weight_info is not None or linear_layer_bias_weight_info is not None) and linear_layer is not None:
         raise ValueError(
             "Specify either a linear layer's WeightInformation, or a linear layer to copy the weights from, but not both."
         )
-    if linear_layer_weight_info is None and linear_layer is None:
+    if linear_layer_weight_info is None and linear_layer_bias_weight_info is None and linear_layer is None:
         raise ValueError(
             "A linear's layer WeightInformation or a linear layer to copy the weight from need to specified."
         )
@@ -412,7 +412,7 @@ def linear_to_parallel_linear(
     linear_layer_bias_weight_info: Optional[WeightInformation] = None,
     embedding_weight_to_tie: Optional["torch.nn.Parameter"] = None,
     sequence_parallel_enabled: bool = False,
-    skip_weight_load: bool = True,
+    skip_weight_load: bool = False,
     device: Optional["torch.device"] = None,
 ) -> Union["layers.RowParallelLinear", "layers.ColumnParallelLinear"]:
     """
@@ -724,22 +724,37 @@ def from_pretrained_for_mp(
     if token is not None and adapter_kwargs is not None and "token" not in adapter_kwargs:
         adapter_kwargs["token"] = token
 
-    filenames, sharded_metadata = download_checkpoints_in_cache(
-        pretrained_model_name_or_path,
-        cache_dir=cache_dir,
-        force_download=force_download,
-        local_files_only=local_files_only,
-        token=token,
-        revision=revision,
-        use_safetensors=use_safetensors,
-        use_safetensors_in_priority=True,
-        convert_to_safetensors=True,
-        **kwargs,
-    )
-
     import torch_xla.core.xla_model as xm
 
+    if is_main_worker():
+        filenames, sharded_metadata = download_checkpoints_in_cache(
+            pretrained_model_name_or_path,
+            cache_dir=cache_dir,
+            force_download=force_download,
+            local_files_only=local_files_only,
+            token=token,
+            revision=revision,
+            use_safetensors=use_safetensors,
+            use_safetensors_in_priority=True,
+            convert_to_safetensors=True,
+            **kwargs,
+        )
+
     xm.rendezvous("waiting after download and conversion")
+    
+    if not is_main_worker():
+        filenames, sharded_metadata = download_checkpoints_in_cache(
+            pretrained_model_name_or_path,
+            cache_dir=cache_dir,
+            force_download=force_download,
+            local_files_only=local_files_only,
+            token=token,
+            revision=revision,
+            use_safetensors=use_safetensors,
+            use_safetensors_in_priority=True,
+            convert_to_safetensors=True,
+            **kwargs,
+        )
 
     if not isinstance(config, PretrainedConfig):
         config_path = config if config is not None else pretrained_model_name_or_path

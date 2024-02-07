@@ -387,13 +387,16 @@ class Parallelizer(ABC):
 
         weight_map = getattr(model, "_weight_map", {})
 
-        for fully_qualified_name, layer in model.named_modules():
-            if isinstance(layer, BaseParallelLinear):
-                xm.master_print(fully_qualified_name)
-                linear_weight_info, linear_bias_weight_info = ParallelLayer._get_linear_weight_info(weight_map, fully_qualified_name)
-                if linear_weight_info is not None:
-                    maybe_load_linear_weight_to_parallel_linear(layer, linear_layer_weight_info=linear_weight_info, linear_layer_bias_weight_info=linear_bias_weight_info)
-        xm.master_print("PARALLEL LAYERS DONE")
+        # for fully_qualified_name, layer in model.named_modules():
+        #     if isinstance(layer, BaseParallelLinear):
+        #         xm.master_print(fully_qualified_name)
+        #         try:
+        #             linear_weight_info, linear_bias_weight_info = ParallelLayer._get_linear_weight_info(weight_map, fully_qualified_name)
+        #         except ValueError:
+        #             linear_weight_info = None
+        #         if linear_weight_info is not None:
+        #             maybe_load_linear_weight_to_parallel_linear(layer, linear_layer_weight_info=linear_weight_info, linear_layer_bias_weight_info=linear_bias_weight_info)
+        # xm.master_print("PARALLEL LAYERS DONE")
 
         with torch.no_grad():
             tied_weights = {}
