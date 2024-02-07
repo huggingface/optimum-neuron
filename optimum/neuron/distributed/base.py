@@ -36,6 +36,7 @@ from .parallel_layers import (
     IOSequenceParallelizer,
     LayerNormSequenceParallelizer,
     LayerNormType,
+    ParallelLayer,
     SequenceCollectiveOpInfo,
 )
 from .utils import (
@@ -47,6 +48,7 @@ from .utils import (
     initialize_torch_nn_module,
     linear_to_parallel_linear,
     load_tensor_for_weight,
+    maybe_load_linear_weight_to_parallel_linear,
     named_parameters,
     parameter_can_be_initialized,
     try_to_hf_initialize,
@@ -318,6 +320,7 @@ class Parallelizer(ABC):
         if sequence_parallel_enabled and not cls.supports_sequence_parallelism():
             raise NotImplementedError(f"Sequence parallelism is not supported for {model.__class__}.")
 
+        from neuronx_distributed.parallel_layers.layers import BaseParallelLinear
         from neuronx_distributed.parallel_layers.parallel_state import (
             get_pipeline_model_parallel_size,
             get_tensor_model_parallel_rank,
@@ -354,8 +357,8 @@ class Parallelizer(ABC):
                 sequence_parallel_enabled=sequence_parallel_enabled,
                 should_parallelize_layer_predicate_func=predicate_func,
             )
-
             xm.rendezvous("End of tensor parallelism")
+            xm.master_print("TP DONE")
 
         # Preparing the model for sequence parallelism:
         sp_specs_cls = cls.SEQUENCE_PARALLELSIM_SPECS_CLS
@@ -382,8 +385,15 @@ class Parallelizer(ABC):
             # 3. Applying model specific patching for sequence parallelism.
             sp_specs_cls.patch_for_sequence_parallelism(model, sequence_parallel_enabled)
 
-        # The model was not loaded lazily, it is already ready.
         weight_map = getattr(model, "_weight_map", {})
+
+        for fully_qualified_name, layer in model.named_modules():
+            if isinstance(layer, BaseParallelLinear):
+                xm.master_print(fully_qualified_name)
+                linear_weight_info, linear_bias_weight_info = ParallelLayer._get_linear_weight_info(weight_map, fully_qualified_name)
+                if linear_weight_info is not None:
+                    maybe_load_linear_weight_to_parallel_linear(layer, linear_layer_weight_info=linear_weight_info, linear_layer_bias_weight_info=linear_bias_weight_info)
+        xm.master_print("PARALLEL LAYERS DONE")
 
         with torch.no_grad():
             tied_weights = {}
