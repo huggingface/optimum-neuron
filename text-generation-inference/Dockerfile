@@ -51,6 +51,10 @@ RUN apt-get update -y \
     && apt-get clean
 RUN pip3 --no-cache-dir install --upgrade pip
 
+# VERSION is a mandatory parameter
+ARG VERSION
+RUN test -n ${VERSION:?}
+
 # Python server build image
 FROM base AS pyserver
 
@@ -66,14 +70,10 @@ WORKDIR /pyserver
 COPY text-generation-inference/server server
 COPY --from=tgi /tgi/proto proto
 RUN pip3 install -r server/build-requirements.txt
-RUN VERBOSE=1 BUILDDIR=/pyserver/build PROTODIR=/pyserver/proto make -C server gen-server
+RUN VERBOSE=1 BUILDDIR=/pyserver/build PROTODIR=/pyserver/proto VERSION=${VERSION} make -C server gen-server
 
 # Neuron base image (used for deployment)
 FROM base AS neuron
-
-# VERSION is a mandatory parameter
-ARG VERSION
-RUN test -n ${VERSION:?}
 
 # Install system prerequisites
 RUN apt-get update -y \
