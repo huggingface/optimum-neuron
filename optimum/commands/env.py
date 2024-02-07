@@ -43,11 +43,12 @@ class EnvironmentCommand(BaseOptimumCLICommand):
                 except Exception:
                     num_version = "NA"
                 info[f"`{pkg}` version"] = num_version
+        return info
 
     @staticmethod
     def print_apt_pkgs():
-        info = subprocess.run("apt list --installed | grep aws-neuron", capture_output=True, shell=True)
-        pkgs_list = info.stdout.decode().split("\n")
+        info = subprocess.getoutput("apt list --installed | grep aws-neuron")
+        pkgs_list = info.split("\n")[3:]
         for pkg in pkgs_list:
             print(pkg)
 
@@ -87,7 +88,7 @@ class EnvironmentCommand(BaseOptimumCLICommand):
         else:
             neuron_python_pkgs = None
 
-        self.get_pip_pkgs_version(neuron_python_pkgs, info)
+        info = self.get_pip_pkgs_version(neuron_python_pkgs, info)
 
         print("\nCopy-and-paste the text below in your GitHub issue:\n")
         print("\nPlatform:\n")
