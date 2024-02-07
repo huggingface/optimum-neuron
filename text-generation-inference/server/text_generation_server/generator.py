@@ -438,13 +438,11 @@ class NeuronGenerator(Generator):
             return_dict=True,
         )
         generations = []
-        request_ids = []
         active_slots = False
         for i, slot in enumerate(self.slots):
             if slot.state != Slot.State.READY:
                 continue
             request_id = slot.request_id
-            request_ids.append(request_id)
             next_token_logits = outputs.logits[i : i + 1, -1, :]
             slot_input_ids = input_ids[i : i + 1, :]
             next_token = slot.select(slot_input_ids, next_token_logits)
@@ -482,6 +480,7 @@ class NeuronGenerator(Generator):
         batch = None
         if active_slots:
             # Whatever initial batch these requests came from, we always return all pending requests in a single batch
+            request_ids = [slot.request_id for slot in self.slots if slot.state == Slot.State.READY]
             batch = self._cached_batch(next_batch_id, request_ids)
         else:
             logger.debug("No more pending requests")
