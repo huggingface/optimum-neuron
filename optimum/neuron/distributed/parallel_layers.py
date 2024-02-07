@@ -841,11 +841,15 @@ class ParallelCrossEntropy(ParallelLayer):
         if weight_map is not None:
             layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
             linear_projection_qualified_name = layer_to_fully_qualified_name[id(linear_projection)]
-            linear_projection_weight_info, linear_projection_bias_weight_info = cls._get_linear_weight_info(
-                weight_map,
-                linear_projection_qualified_name,
-                device=device,
-            )
+            try:
+                linear_projection_weight_info, linear_projection_bias_weight_info = cls._get_linear_weight_info(
+                    weight_map,
+                    linear_projection_qualified_name,
+                    device=device,
+                )
+            except ValueError:
+                # It means there are no weight available for the linear, but no need to fail here.
+                pass
 
         parallel_linear_projection = linear_to_parallel_linear(
             getattr(linear_projection_parent, linear_projection_attr_name),
