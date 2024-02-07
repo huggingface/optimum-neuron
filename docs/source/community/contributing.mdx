@@ -30,7 +30,7 @@ To support the export of a new model to a Neuron compatible format, the first th
 
 1. The input names.
 2. The output names.
-3. The dummy inputs used to trace the model. (The Neuron Compiler asks this to record the computational graph and embed it to a TorchScript module.)
+3. The dummy inputs used to trace the model: the Neuron Compiler records the computational graph via tracing and works on the resulting `TorchScript` module.
 4. The compilation arguments used to control the trade-off between hardware efficiency (latency, throughput) and accuracy.
 
 Depending on the choice of model and task, we represent the data above with configuration classes. Each configuration class is associated with
