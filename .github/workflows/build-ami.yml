@@ -5,9 +5,13 @@ on:
     push:
       branches:
         - main
+      paths:
+        - 'infrastructure/ami/**'
     pull_request:
       branches:
         - main
+      paths:
+        - 'infrastructure/ami/**'
     workflow_dispatch:
       inputs: 
         tag: 
