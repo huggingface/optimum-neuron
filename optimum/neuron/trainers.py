@@ -120,7 +120,7 @@ _ORIGINAL_NEURON_CACHE_PATH: Optional[Path] = None
 _TMP_NEURON_CACHE_DIR: Optional[TemporaryDirectory] = None
 _TMP_NEURON_CACHE_PATH: Optional[Path] = None
 _TCP_STORE_ADDRESS = os.environ.get("MASTER_ADDR", "127.0.0.1")
-_TCP_STORE_PORT = 5000
+_TCP_STORE_PORT = int(os.environ.get("MASTER_PORT", "5000")) + 1
 
 
 if os.environ.get("TORCHELASTIC_RUN_ID"):
@@ -376,8 +376,6 @@ class AugmentTrainerForNeuronMixin:
     def _maybe_log_save_evaluate(self, tr_loss, model, trial, epoch, ignore_keys_for_eval):
         if self.control.should_log:
             logs: Dict[str, float] = {}
-
-            xm.mark_step()
 
             if self.args.mp_plugin.should_parallelize:
                 from neuronx_distributed.parallel_layers.parallel_state import (
@@ -1002,6 +1000,8 @@ class AugmentTrainerForNeuronMixin:
                         self.optimizer.zero_grad()
                     else:
                         model.zero_grad()
+
+                    xm.mark_step()
 
                     self.state.global_step += 1
                     self.state.epoch = epoch + (step + 1 + steps_skipped) / steps_in_epoch
