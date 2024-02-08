@@ -1,7 +1,9 @@
-# Fetch and extract the TGI sources
+# Fetch and extract the TGI sources (TGI_VERSION is mandatory)
 FROM alpine AS tgi
+ARG TGI_VERSION
+RUN test -n ${TGI_VERSION:?}
 RUN mkdir -p /tgi
-ADD https://github.com/huggingface/text-generation-inference/archive/refs/tags/v1.0.2.tar.gz /tgi/sources.tar.gz
+ADD https://github.com/huggingface/text-generation-inference/archive/refs/tags/v${TGI_VERSION}.tar.gz /tgi/sources.tar.gz
 RUN tar -C /tgi -xf /tgi/sources.tar.gz --strip-components=1
 
 # Build cargo components (adapted from TGI original Dockerfile)

@@ -2,6 +2,7 @@
 pkg_name := text_generation_server
 BUILDDIR ?= $(CURDIR)/build
 VERSION ?= 0.0.1
+TGI_VERSION ?= 1.4.0
 mkfile_path := $(abspath $(lastword $(MAKEFILE_LIST)))
 mkfile_dir := $(dir $(mkfile_path))
 pkg_dir := $(BUILDDIR)/$(pkg_name)
@@ -38,7 +39,7 @@ endif
 
 $(BUILDDIR)/tgi/proto/%.proto:
 	install -d $(BUILDDIR)/tgi
-	curl -L https://github.com/huggingface/text-generation-inference/archive/refs/tags/v1.0.2.tar.gz --output $(BUILDDIR)/tgi/sources.tar.gz
+	curl -L https://github.com/huggingface/text-generation-inference/archive/refs/tags/v${TGI_VERSION}.tar.gz --output $(BUILDDIR)/tgi/sources.tar.gz
 	tar -C $(BUILDDIR)/tgi -xf $(BUILDDIR)/tgi/sources.tar.gz --strip-components=1
 
 # Three python files are generated for each protobuf
