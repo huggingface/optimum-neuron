@@ -187,6 +187,10 @@ class Slot:
 
         Note that the KV cache for this slot will still be filled.
         """
+        # Drop the last token as it will be added back when resuming the slot
+        self._generated_tokens -= 1
+        # Subtract the number of cached tokens from the maximum number of tokens
+        self._generation_config.max_new_tokens -= self._generated_tokens
         self._state = Slot.State.PAUSE
 
     def resume(self):
