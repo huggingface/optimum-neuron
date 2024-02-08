@@ -178,6 +178,7 @@ class Slot:
         self._tokens = input_ids.clone()
         self._next_text_token_start = 0
         self._next_text_token_end = torch.numel(self._tokens)
+        self._next_text = ""
         self._mask = attention_mask.clone()
         self._selector = selector
 
@@ -190,10 +191,6 @@ class Slot:
 
     def resume(self):
         """Mark the slot as ready for generation."""
-        if self._state == Slot.State.PAUSE and self.next_token is not None:
-            # The generation of this slot was inhibited during a prefill, but it
-            # already had a pending token, so we need to increase attention mask
-            self._mask = torch.cat([self._mask, torch.LongTensor([1])])
         self._state = Slot.State.READY
 
     def _decode_next_tokens(
@@ -364,6 +361,11 @@ class NeuronGenerator(Generator):
         seq_length = min(padded_inputs.input_ids.shape[-1], self.model.max_length)
         input_ids = padded_inputs.input_ids[:, :seq_length]
         attention_mask = padded_inputs.attention_mask[:, :seq_length]
+        # Pause previously active slots during generation and store their last token.
+        next_tokens = []
+        for slot in active_slots:
+            next_tokens.append(slot.next_token)
+            slot.pause()
         # Each slot must be reset with the padded inputs and masks
         for i, slot in enumerate(self.slots):
             if slot.state != slot.state.EMPTY:
@@ -378,13 +380,13 @@ class NeuronGenerator(Generator):
         # Clear KV cache
         self.model.reset_generation()
         # Pause previously active slots during generation.
-        # Their KV cache will be prefilled but new tokens will be ignored, as they
-        # have already been generated and sent back in the last decode.
-        for slot in active_slots:
-            slot.pause()
+        # The KV cache of paused slots will be prefilled during generation but new tokens
+        # will be ignored, as they have already been generated and sent back in the last decode.
         generation, next_batch = self._generate_token(batch.id, input_ids, attention_mask)
-        # Reactivate previously active slots for the next decode.
-        for slot in active_slots:
+        # Reactivate previously active slots for the next decode, and append
+        # back their next token.
+        for slot, next_token in zip(active_slots, next_tokens):
+            slot.append(next_token)
             slot.resume()
         logger.debug("Model ready for decoding")
         return generation, next_batch
