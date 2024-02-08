@@ -1,3 +1,4 @@
+import copy
 import logging
 from typing import Optional
 
@@ -84,6 +85,7 @@ class TokenSelector:
             `torch.LongTensor`: A `torch.LongTensor` containing the selected tokens.
         """
         generation_config.validate()
+        generation_config = copy.deepcopy(generation_config)
 
         unsupported_generation_flags = [
             "output_attentions",
