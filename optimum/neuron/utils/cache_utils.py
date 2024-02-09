@@ -45,7 +45,7 @@ from transformers import PretrainedConfig, PreTrainedModel
 from ...utils import logging
 from ...utils.logging import warn_once
 from .misc import is_main_worker, string_to_bool
-from .require_utils import requires_neuronx_distributed
+from .require_utils import requires_neuronx_distributed, requires_torch_xla
 from .version_utils import get_neuronxcc_version
 
 
@@ -387,23 +387,25 @@ def remove_entries_in_neuron_parallel_compile_report(
         json.dump(new_report, fp)
 
 
+@requires_torch_xla
 def create_registry_file_if_does_not_exist(repo_id: str):
+    import torch_xla.core.xla_model as xm
     was_created = _REGISTRY_FILE_EXISTS.get(repo_id, False)
     if was_created:
         return
-    file_exists = True
-    try:
-        hf_hub_download(repo_id, REGISTRY_FILENAME, force_download=True)
-    except EntryNotFoundError:
-        file_exists = False
+    files_in_repo = HfApi().list_repo_files(repo_id)
+    file_exists = REGISTRY_FILENAME in files_in_repo
     if file_exists:
         return
-    with tempfile.NamedTemporaryFile() as tmpfile:
-        with open(tmpfile.name, "w") as fp:
-            json.dump({}, fp)
-        tmpfilename = Path(tmpfile.name)
-        add_registry_file = CommitOperationAdd(REGISTRY_FILENAME, tmpfilename.as_posix())
-        HfApi().create_commit(repo_id, operations=[add_registry_file], commit_message="Create cache registry file")
+    if is_main_worker():
+        with tempfile.NamedTemporaryFile() as tmpfile:
+            with open(tmpfile.name, "w") as fp:
+                json.dump({}, fp)
+            tmpfilename = Path(tmpfile.name)
+            add_registry_file = CommitOperationAdd(REGISTRY_FILENAME, tmpfilename.as_posix())
+            HfApi().create_commit(repo_id, operations=[add_registry_file], commit_message="Create cache registry file")
+
+    xm.rendezvous("Registry creation")
 
     _REGISTRY_FILE_EXISTS[repo_id] = True
 

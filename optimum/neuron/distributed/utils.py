@@ -726,35 +726,18 @@ def from_pretrained_for_mp(
 
     import torch_xla.core.xla_model as xm
 
-    if is_main_worker():
-        filenames, sharded_metadata = download_checkpoints_in_cache(
-            pretrained_model_name_or_path,
-            cache_dir=cache_dir,
-            force_download=force_download,
-            local_files_only=local_files_only,
-            token=token,
-            revision=revision,
-            use_safetensors=use_safetensors,
-            use_safetensors_in_priority=True,
-            convert_to_safetensors=True,
-            **kwargs,
-        )
-
-    xm.rendezvous("waiting after download and conversion")
-    
-    if not is_main_worker():
-        filenames, sharded_metadata = download_checkpoints_in_cache(
-            pretrained_model_name_or_path,
-            cache_dir=cache_dir,
-            force_download=force_download,
-            local_files_only=local_files_only,
-            token=token,
-            revision=revision,
-            use_safetensors=use_safetensors,
-            use_safetensors_in_priority=True,
-            convert_to_safetensors=True,
-            **kwargs,
-        )
+    filenames, sharded_metadata = download_checkpoints_in_cache(
+        pretrained_model_name_or_path,
+        cache_dir=cache_dir,
+        force_download=force_download,
+        local_files_only=local_files_only,
+        token=token,
+        revision=revision,
+        use_safetensors=use_safetensors,
+        use_safetensors_in_priority=True,
+        convert_to_safetensors=True,
+        **kwargs,
+    )
 
     if not isinstance(config, PretrainedConfig):
         config_path = config if config is not None else pretrained_model_name_or_path

@@ -342,7 +342,7 @@ class Parallelizer(ABC):
         name_to_parameter = dict(named_parameters(model, remove_duplicate=False))
         parameter_to_name = {p: n for n, p in name_to_parameter.items()}
 
-        def predicate_func(layer):
+        def should_parallelize_layer_predicate_func(layer):
             for p in layer.parameters():
                 if p not in parameter_to_name:
                     return True
@@ -355,10 +355,9 @@ class Parallelizer(ABC):
                 device=device,
                 parallelize_embeddings=parallelize_embeddings,
                 sequence_parallel_enabled=sequence_parallel_enabled,
-                should_parallelize_layer_predicate_func=predicate_func,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
             )
             xm.rendezvous("End of tensor parallelism")
-            xm.master_print("TP DONE")
 
         # Preparing the model for sequence parallelism:
         sp_specs_cls = cls.SEQUENCE_PARALLELSIM_SPECS_CLS
@@ -386,17 +385,6 @@ class Parallelizer(ABC):
             sp_specs_cls.patch_for_sequence_parallelism(model, sequence_parallel_enabled)
 
         weight_map = getattr(model, "_weight_map", {})
-
-        # for fully_qualified_name, layer in model.named_modules():
-        #     if isinstance(layer, BaseParallelLinear):
-        #         xm.master_print(fully_qualified_name)
-        #         try:
-        #             linear_weight_info, linear_bias_weight_info = ParallelLayer._get_linear_weight_info(weight_map, fully_qualified_name)
-        #         except ValueError:
-        #             linear_weight_info = None
-        #         if linear_weight_info is not None:
-        #             maybe_load_linear_weight_to_parallel_linear(layer, linear_layer_weight_info=linear_weight_info, linear_layer_bias_weight_info=linear_bias_weight_info)
-        # xm.master_print("PARALLEL LAYERS DONE")
 
         with torch.no_grad():
             tied_weights = {}
