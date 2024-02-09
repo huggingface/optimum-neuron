@@ -59,15 +59,6 @@ else:
 
 logger = logging.getLogger(__name__)
 
-# def optimum_neuron_cc_wrapper_is_in_path() -> bool:
-#     path = os.environ["PATH"]
-#     directories = path.split(":")
-#     return any(directory.endswith("optimum/neuron/utils") for directory in directories)
-#
-# def check_optimum_neuron_cc_wrapper_is_in_path():
-#     if not optimum_neuron_cc_wrapper_is_in_path():
-#         logger.warning("The ")
-
 
 class CompileCacheHfProxy(CompileCache):
     """A HuggingFace Hub proxy cache implementing the CompileCache API.
