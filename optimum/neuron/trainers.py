@@ -31,6 +31,7 @@ import numpy as np
 import torch
 from accelerate import __version__ as accelerate_version
 from packaging import version
+from torch.utils.data import Dataset
 from transformers import PreTrainedModel, Seq2SeqTrainer, Trainer, TrainingArguments
 from transformers.debug_utils import DebugOption, DebugUnderflowOverflow
 from transformers.integrations import hp_params
@@ -56,6 +57,7 @@ from transformers.trainer_utils import (
     EvalLoopOutput,
     EvalPrediction,
     HPSearchBackend,
+    PredictionOutput,
     TrainOutput,
     denumpify_detensorize,
     has_length,
@@ -74,8 +76,8 @@ from .utils import (
     is_torch_xla_available,
     patch_within_function,
 )
-from .utils.cache_utils import get_hf_hub_cache_repos, get_neuron_cache_path, set_neuron_cache_path
-from .utils.hub_neuronx_cache import hub_neuronx_cache, synchronize_hub_cache
+from .utils.cache_utils import get_hf_hub_cache_repos
+from .utils.hub_neuronx_cache import hub_neuronx_cache, patch_neuron_cc_wrapper, synchronize_hub_cache
 from .utils.require_utils import requires_neuronx_distributed
 from .utils.training_utils import (
     TRANSFORMERS_MIN_VERSION_USE_ACCELERATE,
@@ -624,18 +626,6 @@ class AugmentTrainerForNeuronMixin:
             parallelizer.load_optimizer_sharded_checkpoint(self.optimizer, checkpoint)
         else:
             return super()._load_optimizer_and_scheduler(checkpoint)
-
-    def train(
-        self,
-        resume_from_checkpoint: Optional[Union[str, bool]] = None,
-        trial: Union["optuna.Trial", Dict[str, Any]] = None,
-        ignore_keys_for_eval: Optional[List[str]] = None,
-        **kwargs,
-    ):
-        with hub_neuronx_cache():
-            result = super().train(resume_from_checkpoint=resume_from_checkpoint, trial=trial, ignore_keys_for_eval=ignore_keys_for_eval, **kwargs)
-        synchronize_hub_cache(get_hf_hub_cache_repos()[0])
-        return result
 
     @requires_neuronx_distributed
     def _inner_training_loop(
@@ -1327,6 +1317,53 @@ class AugmentTrainerForNeuronMixin:
                 metrics[f"{metric_key_prefix}_{key}"] = metrics.pop(key)
 
         return EvalLoopOutput(predictions=all_preds, label_ids=all_labels, metrics=metrics, num_samples=num_samples)
+
+    def train(
+        self,
+        resume_from_checkpoint: Optional[Union[str, bool]] = None,
+        trial: Union["optuna.Trial", Dict[str, Any]] = None,
+        ignore_keys_for_eval: Optional[List[str]] = None,
+        **kwargs,
+    ):
+        with patch_neuron_cc_wrapper():
+            with hub_neuronx_cache(cache_repo_id=get_hf_hub_cache_repos()[0]):
+                result = super().train(
+                    resume_from_checkpoint=resume_from_checkpoint,
+                    trial=trial,
+                    ignore_keys_for_eval=ignore_keys_for_eval,
+                    **kwargs,
+                )
+        if xm.get_ordinal() == 0:
+            synchronize_hub_cache(get_hf_hub_cache_repos()[0])
+        xm.rendezvous("Hub cache synchronization done")
+        return result
+
+    def evaluate(
+        self,
+        eval_dataset: Optional[Union[Dataset, Dict[str, Dataset]]] = None,
+        ignore_keys: Optional[List[str]] = None,
+        metric_key_prefix: str = "eval",
+    ) -> Dict[str, float]:
+        with patch_neuron_cc_wrapper():
+            with hub_neuronx_cache(cache_repo_id=get_hf_hub_cache_repos()[0]):
+                result = super().evaluate(
+                    eval_dataset=eval_dataset, ignore_keys=ignore_keys, metric_key_prefix=metric_key_prefix
+                )
+        if xm.get_ordinal() == 0:
+            synchronize_hub_cache(get_hf_hub_cache_repos()[0])
+        xm.rendezvous("Hub cache synchronization done")
+        return result
+
+    def predict(
+        self, test_dataset: Dataset, ignore_keys: Optional[List[str]] = None, metric_key_prefix: str = "test"
+    ) -> PredictionOutput:
+        with patch_neuron_cc_wrapper():
+            with hub_neuronx_cache(cache_repo_id=get_hf_hub_cache_repos()[0]):
+                result = super().predict(test_dataset, ignore_keys=ignore_keys, metric_key_prefix=metric_key_prefix)
+        if xm.get_ordinal() == 0:
+            synchronize_hub_cache(get_hf_hub_cache_repos()[0])
+        xm.rendezvous("Hub cache synchronization done")
+        return result
 
 
 class NeuronTrainer(AugmentTrainerForNeuronMixin, Trainer):

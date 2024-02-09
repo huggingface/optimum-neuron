@@ -43,7 +43,6 @@ async def tgi_client(tgi_service):
 
 @pytest.mark.asyncio
 async def test_model_single_request(tgi_client):
-
     # Greedy bounded without input
     response = await tgi_client.generate(
         "What is Deep Learning?",

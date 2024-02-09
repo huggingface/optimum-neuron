@@ -97,7 +97,8 @@ class DistributedExec(ABC):
     exec_timeout: int = TEST_TIMEOUT
 
     @abstractmethod
-    def run(self): ...
+    def run(self):
+        ...
 
     def __call__(self, request=None):
         self._fixture_kwargs = self._get_fixture_kwargs(request, self.run)

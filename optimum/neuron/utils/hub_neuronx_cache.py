@@ -16,6 +16,7 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -57,6 +58,15 @@ else:
 
 
 logger = logging.getLogger(__name__)
+
+# def optimum_neuron_cc_wrapper_is_in_path() -> bool:
+#     path = os.environ["PATH"]
+#     directories = path.split(":")
+#     return any(directory.endswith("optimum/neuron/utils") for directory in directories)
+#
+# def check_optimum_neuron_cc_wrapper_is_in_path():
+#     if not optimum_neuron_cc_wrapper_is_in_path():
+#         logger.warning("The ")
 
 
 class CompileCacheHfProxy(CompileCache):
@@ -235,18 +245,20 @@ REGISTRY_FOLDER = f"0_REGISTRY/{__version__}"
 
 @requires_torch_neuronx
 @contextmanager
-def hub_neuronx_cache(entry: Optional[ModelCacheEntry] = None):
+def hub_neuronx_cache(entry: Optional[ModelCacheEntry] = None, cache_repo_id: Optional[str] = None):
     """A context manager to activate the Hugging Face Hub proxy compiler cache.
 
     Args:
         entry (`Optional[ModelCacheEntry]`, defaults to `None`):
             An optional dataclass containing metadata associated with the model corresponding
             to the cache session. Will create a dedicated entry in the cache registry.
+        cache_repo_id (`Optional[str]`, defaults to `None`):
+            The id of the cache repo to use to fetch the precompiled files.
     """
 
     def hf_create_compile_cache(cache_url):
         try:
-            return _create_hub_compile_cache_proxy(cache_url)
+            return _create_hub_compile_cache_proxy(cache_url, cache_repo_id=cache_repo_id)
         except Exception as e:
             logger.warning(f"Bypassing Hub cache because of the following error: {e}")
             return create_compile_cache(cache_url)
@@ -272,6 +284,37 @@ def hub_neuronx_cache(entry: Optional[ModelCacheEntry] = None):
                     default_cache.upload_string_to_file(config_path, entry.to_json())
     finally:
         patch_everywhere("create_compile_cache", create_compile_cache, "libneuronxla")
+
+
+@contextmanager
+def patch_neuron_cc_wrapper():
+    """
+    Patches the `neuron_cc_wrapper` file to force it use our own version of it which essentially makes sure that it
+    uses our caching system.
+    """
+
+    def patch(restore: bool = False):
+        path = os.environ["PATH"]
+        main_dir = Path(path.split(":")[0])
+        exists = "neuron_cc_wrapper" in os.listdir(main_dir)
+        if exists and not restore:
+            print("exist")
+            src = main_dir / "neuron_cc_wrapper"
+            dst = main_dir / "neuron_cc_wrapper_backup"
+            shutil.move(src, dst)
+        if restore:
+            src = main_dir / "neuron_cc_wrapper_backup"
+            dst = main_dir / "neuron_cc_wrapper"
+        else:
+            src = Path(__file__).parent / "neuron_cc_wrapper"
+            dst = main_dir / "neuron_cc_wrapper"
+        shutil.copy(src, dst)
+
+    try:
+        patch()
+        yield
+    finally:
+        patch(restore=True)
 
 
 @requires_torch_neuronx
