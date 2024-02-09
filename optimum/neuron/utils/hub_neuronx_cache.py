@@ -28,7 +28,7 @@ from transformers import AutoConfig, PretrainedConfig
 from ..version import __version__
 from .import_utils import is_neuronx_available
 from .patching import patch_everywhere
-from .require_utils import requires_torch_neuronx
+from .require_utils import requires_torch_neuronx, requires_torch_xla
 
 
 if is_neuronx_available():
@@ -277,12 +277,16 @@ def hub_neuronx_cache(entry: Optional[ModelCacheEntry] = None, cache_repo_id: Op
         patch_everywhere("create_compile_cache", create_compile_cache, "libneuronxla")
 
 
+@requires_torch_neuronx
+@requires_torch_xla
 @contextmanager
 def patch_neuron_cc_wrapper():
     """
     Patches the `neuron_cc_wrapper` file to force it use our own version of it which essentially makes sure that it
     uses our caching system.
     """
+
+    import torch_xla.core.xla_model as xm
 
     def patch(restore: bool = False):
         path = os.environ["PATH"]
@@ -301,10 +305,14 @@ def patch_neuron_cc_wrapper():
         shutil.copy(src, dst)
 
     try:
-        patch()
+        if xm.get_ordinal() == 0:
+            patch()
+        xm.rendezvous("Patch neuron_cc_wrapper")
         yield
     finally:
-        patch(restore=True)
+        if xm.get_ordinal() == 0:
+            patch(restore=True)
+        xm.rendezvous("Restore neuron_cc_wrapper")
 
 
 @requires_torch_neuronx

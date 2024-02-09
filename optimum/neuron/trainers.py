@@ -461,10 +461,16 @@ class AugmentTrainerForNeuronMixin:
 
     def save_model(self, output_dir: Optional[str] = None, _internal_call: bool = False):
         if not os.environ.get("NEURON_PARALLEL_COMPILE"):  # Avoid unnecessary model saving during precompilation
-            if output_dir is None:
-                output_dir = self.args.output_dir
+            with patch_neuron_cc_wrapper():
+                with hub_neuronx_cache(cache_repo_id=get_hf_hub_cache_repos()[0]):
+                    if output_dir is None:
+                        output_dir = self.args.output_dir
 
-            self._save_xla(output_dir)
+                    self._save_xla(output_dir)
+
+            if xm.get_ordinal() == 0:
+                synchronize_hub_cache(get_hf_hub_cache_repos()[0])
+            xm.rendezvous("Hub cache synchronization done")
 
             # Push to the Hub when `save_model` is called by the user.
             if self.args.push_to_hub and not _internal_call:
