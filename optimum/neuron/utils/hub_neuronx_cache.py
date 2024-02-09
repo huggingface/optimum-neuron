@@ -298,7 +298,6 @@ def patch_neuron_cc_wrapper():
         main_dir = Path(path.split(":")[0])
         exists = "neuron_cc_wrapper" in os.listdir(main_dir)
         if exists and not restore:
-            print("exist")
             src = main_dir / "neuron_cc_wrapper"
             dst = main_dir / "neuron_cc_wrapper_backup"
             shutil.move(src, dst)
