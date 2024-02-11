@@ -598,7 +598,7 @@ def export_neuron(
         output (`Path`):
             Directory to store the exported Neuron model.
         compiler_workdir (`Optional[Path]`, defaults to `None`):
-            The directory used by neuronx-cc, where you can find intermediary outputs (neff, weight, hlo...).
+            The directory used by neuron-cc, where you can find intermediary outputs (neff, weight, hlo...).
         inline_weights_to_neff (`bool`, defaults to `True`):
             Whether to inline the weights to the neff graph. If set to False, weights will be seperated from the neff.
         auto_cast (`Optional[str]`, defaults to `None`):

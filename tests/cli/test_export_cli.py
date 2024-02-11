@@ -18,6 +18,7 @@ import tempfile
 import unittest
 
 from optimum.exporters.neuron.model_configs import *  # noqa: F403
+from optimum.neuron.utils import is_neuronx_available
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 from optimum.utils import logging
 
@@ -109,12 +110,14 @@ class TestExportCLI(unittest.TestCase):
                     check=True,
                 )
 
-    @requires_neuronx
     def test_store_intemediary(self):
         model_id = "hf-internal-testing/tiny-random-BertModel"
         with tempfile.TemporaryDirectory() as tempdir:
             save_path = f"{tempdir}/neff"
-            neff_path = os.path.join(save_path, model_id.split("/")[-1], "graph.neff")
+            if is_neuronx_available():
+                neff_path = os.path.join(save_path, model_id.split("/")[-1], "graph.neff")
+            else:
+                neff_path = os.path.join(save_path, model_id.split("/")[-1], "32", "neff.json")
             subprocess.run(
                 [
                     "optimum-cli",
