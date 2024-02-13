@@ -8,7 +8,7 @@ RUN tar -C /tgi -xf /tgi/sources.tar.gz --strip-components=1
 
 # Build cargo components (adapted from TGI original Dockerfile)
 # Note that the build image is aligned on the same Linux version as the base image (Debian bookworm/ Ubuntu 22.04)
-FROM lukemathwalker/cargo-chef:latest-rust-1.71-bookworm AS chef
+FROM lukemathwalker/cargo-chef:latest-rust-1.75-bookworm AS chef
 WORKDIR /usr/src
 
 ARG CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
