@@ -379,7 +379,7 @@ class NeuronDecoderConfig(NeuronConfig):
         be passed to export the model,
     - NEURONX_CLASS (`str`) -- the name of the transformers-neuronx class to instantiate for the model.
     It is a full class name defined relatively to the transformers-neuronx module, e.g. `gpt2.model.GPT2ForSampling`
-    [`~optimum.utils.DummyInputGenerator`] specifying how to create dummy inputs.
+    - CONTINUOUS_BATCHING (`bool`) -- Whether the model supports continuous batching or not.
 
     The NEURONX_CLASS must always be defined in each model configuration.
 
@@ -389,6 +389,7 @@ class NeuronDecoderConfig(NeuronConfig):
 
     INPUT_ARGS = ("batch_size", "sequence_length")
     NEURONX_CLASS = None
+    CONTINUOUS_BATCHING = False
 
     def __init__(self, task: str):
         if not is_transformers_neuronx_available():
@@ -404,3 +405,7 @@ class NeuronDecoderConfig(NeuronConfig):
     @property
     def neuronx_class(self):
         return self._neuronx_class
+
+    @property
+    def continuous_batching(self):
+        return self.CONTINUOUS_BATCHING
