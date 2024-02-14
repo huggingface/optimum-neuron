@@ -381,12 +381,12 @@ class NeuronGenerator(Generator):
                 slot_input_ids = slot_input_ids.squeeze(dim=0).type(torch.int64)
                 slot_attention_mask = attention_mask[i]
                 slot.reset(slot_input_ids, slot_attention_mask, selector)
-        # Clear KV cache
-        self.model.reset_generation()
         # Pause previously active slots during generation.
         # The KV cache of paused slots will be prefilled during generation but new tokens
         # will be ignored, as they have already been generated and sent back in the last decode.
-        generation, next_batch = self._generate_token(batch.id, input_ids, attention_mask)
+        model_inputs = self.model.prepare_inputs_for_prefill(input_ids, attention_mask)
+        logits = self.model(**model_inputs)[0]
+        generation, next_batch = self._generate_token(batch.id, logits, input_ids)
         # Reactivate previously active slots for the next decode, and append
         # back their next token.
         for slot, next_token in zip(active_slots, next_tokens):
@@ -433,23 +433,20 @@ class NeuronGenerator(Generator):
                 attention_mask[i, :] = slot.attention_mask
         if input_ids is None:
             raise ValueError("Unable to decode tokens for non-prefilled batches (probably due to a previous failure)")
-        return self._generate_token(next_batch_id, input_ids, attention_mask)
+        model_inputs = self.model.prepare_inputs_for_decode(input_ids, attention_mask)
+        logits = self.model(**model_inputs)[0]
+        return self._generate_token(next_batch_id, logits, input_ids)
 
     def _generate_token(
-        self, next_batch_id: int, input_ids: torch.LongTensor, attention_mask: Optional[torch.LongTensor] = None
+        self, next_batch_id: int, logits: torch.Tensor, input_ids: torch.LongTensor
     ) -> Tuple[List[Generation], CachedBatch]:
-        model_inputs = self.model.prepare_inputs_for_generation(input_ids, attention_mask)
-        outputs = self.model(
-            **model_inputs,
-            return_dict=True,
-        )
         generations = []
         active_slots = False
         for i, slot in enumerate(self.slots):
             if slot.state != Slot.State.READY:
                 continue
             request_id = slot.request_id
-            next_token_logits = outputs.logits[i : i + 1, -1, :]
+            next_token_logits = logits[i : i + 1, -1, :]
             slot_input_ids = input_ids[i : i + 1, :]
             next_token = slot.select(slot_input_ids, next_token_logits)
             next_token_text = slot.append(next_token)
