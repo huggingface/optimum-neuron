@@ -775,7 +775,7 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
                 f"The input sequence length ({sequence_length}) exceeds the model static sequence length ({self.max_length})"
             )
         padded_input_ids = input_ids
-        padded_attention_mask = attention_mask
+        padded_attention_mask = torch.ones_like(input_ids) if attention_mask is None else attention_mask
         if batch_size > self.batch_size:
             raise ValueError(
                 f"The specified batch_size ({batch_size}) exceeds the model static batch size ({self.batch_size})"
@@ -784,10 +784,9 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
             logger.warning("Inputs will be padded to match the model static batch size. This will increase latency.")
             padding_shape = [self.batch_size - batch_size, sequence_length]
             padding = torch.full(padding_shape, fill_value=self.config.eos_token_id, dtype=torch.int64)
-            padded_input_ids = torch.cat([input_ids, padding])
-            if attention_mask is not None:
-                padding = torch.zeros(padding_shape, dtype=torch.int64)
-                padded_attention_mask = torch.cat([attention_mask, padding])
+            padded_input_ids = torch.cat([padded_input_ids, padding])
+            padding = torch.zeros(padding_shape, dtype=torch.int64)
+            padded_attention_mask = torch.cat([padded_attention_mask, padding])
         # Drop the current generation context and clear the Key/Value cache
         self.reset_generation()
 
