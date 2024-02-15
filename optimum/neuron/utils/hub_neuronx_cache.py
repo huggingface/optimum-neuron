@@ -310,35 +310,22 @@ def patch_neuron_cc_wrapper():
     uses our caching system.
     """
 
-    import torch_xla.core.xla_model as xm
-
-    def patch(restore: bool = False):
-        path = os.environ["PATH"]
-        main_dir = Path(path.split(":")[0])
-        exists = "neuron_cc_wrapper" in os.listdir(main_dir)
-        if exists and not restore:
-            src = main_dir / "neuron_cc_wrapper"
-            dst = main_dir / "neuron_cc_wrapper_backup"
-            shutil.move(src, dst)
-        if restore:
-            src = main_dir / "neuron_cc_wrapper_backup"
-            dst = main_dir / "neuron_cc_wrapper"
-        else:
-            src = Path(__file__).parent / "neuron_cc_wrapper"
-            dst = main_dir / "neuron_cc_wrapper"
-        shutil.copy(src, dst)
-
+    tmpdirname = ""
     try:
-        if xm.get_ordinal() == 0:
-            patch()
-        xm.rendezvous("Patch neuron_cc_wrapper")
-        yield
+        with TemporaryDirectory() as dirname:
+            tmpdirname = dirname
+            src = Path(__file__).parent / "neuron_cc_wrapper"
+            dst = Path(tmpdirname) / "neuron_cc_wrapper"
+            shutil.copy(src, dst)
+
+            path = os.environ["PATH"]
+            os.environ["PATH"] = f"{tmpdirname}:{path}"
+
+            yield
     except Exception as e:
         raise e
     finally:
-        if xm.get_ordinal() == 0:
-            patch(restore=True)
-        xm.rendezvous("Restore neuron_cc_wrapper")
+        os.environ["PATH"] = os.environ["PATH"].replace(f"{tmpdirname}:", "")
 
 
 @requires_torch_neuronx
