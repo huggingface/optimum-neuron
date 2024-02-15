@@ -260,6 +260,9 @@ def hub_neuronx_cache(
     """A context manager to activate the Hugging Face Hub proxy compiler cache.
 
     Args:
+        mode (`Union[Literal["training"], Literal["inference"], Mode]`):
+            The mode in which the context manager is used. Can be either "training" or "inference".
+            This information will be used to populate the proper registry folder.
         entry (`Optional[ModelCacheEntry]`, defaults to `None`):
             An optional dataclass containing metadata associated with the model corresponding
             to the cache session. Will create a dedicated entry in the cache registry.
