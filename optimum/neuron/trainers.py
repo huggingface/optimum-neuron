@@ -68,14 +68,13 @@ from ..utils import check_if_transformers_greater, logging
 from .accelerate import NeuronAccelerator, NeuronDistributedType
 from .distributed import Parallelizer, ParallelizersManager
 from .distributed.utils import make_optimizer_constructor_lazy
-from .trainer_callback import NeuronCacheCallback
 from .utils import (
     Patcher,
     is_torch_xla_available,
     patch_within_function,
 )
-from .utils.cache_utils import get_hf_hub_cache_repos
-from .utils.hub_neuronx_cache import hub_neuronx_cache, patch_neuron_cc_wrapper, synchronize_hub_cache
+from .utils.cache_utils import get_hf_hub_cache_repos, has_write_access_to_repo
+from .utils.hub_neuronx_cache import patch_neuron_cc_wrapper, synchronize_hub_cache
 from .utils.require_utils import requires_neuronx_distributed
 from .utils.training_utils import (
     TRANSFORMERS_MIN_VERSION_USE_ACCELERATE,
@@ -220,25 +219,18 @@ class AugmentTrainerForNeuronMixin:
                 ds_plugin.deepspeed_config = ds_plugin.hf_ds_config.config
                 ds_plugin.hf_ds_config.trainer_config_process(self.args)
 
+    def synchronize_hub_cache(self):
+        repo_id = get_hf_hub_cache_repos()[0]
+        if xm.get_ordinal() == 0:
+            has_write_access = has_write_access_to_repo(repo_id)
+            if has_write_access:
+                synchronize_hub_cache(repo_id)
+        xm.rendezvous("Hub cache synchronization done")
+
     def _wrap_model(self, model, training=True, dataloader=None):
         return super()._wrap_model(
             self.accelerator.patch_model_for_neuron(model), training=training, dataloader=dataloader
         )
-
-    # TODO: make this cleaner.
-    def trigger_on_step_middle_for_neuron_cache_callback(self, model: "PreTrainedModel"):
-        for callback in self.callback_handler.callbacks:
-            if isinstance(callback, NeuronCacheCallback):
-                # kwargs might not have everything expected (like metrics) but all we need is here.
-                kwargs = {
-                    "model": model,
-                    "tokenizer": self.tokenizer,
-                    "optimizer": self.optimizer,
-                    "lr_scheduler": self.lr_scheduler,
-                    "train_dataloader": self.callback_handler.train_dataloader,
-                    "eval_dataloader": self.callback_handler.eval_dataloader,
-                }
-                callback.on_step_middle(self.args, self.state, self.control, **kwargs)
 
     def _get_train_sampler(self) -> Optional[torch.utils.data.Sampler]:
         if self.mp_enabled:
@@ -275,7 +267,6 @@ class AugmentTrainerForNeuronMixin:
 
     def compute_loss(self, model, inputs, return_outputs: bool = False):
         self.state.last_inputs = inputs
-        self.trigger_on_step_middle_for_neuron_cache_callback(model)
         from neuronx_distributed.pipeline import NxDPPModel
 
         if isinstance(model, NxDPPModel):
@@ -317,7 +308,6 @@ class AugmentTrainerForNeuronMixin:
         from neuronx_distributed.pipeline import NxDPPModel
 
         self.state.last_inputs = inputs
-        self.trigger_on_step_middle_for_neuron_cache_callback(model)
 
         if isinstance(model, NxDPPModel):
             if not prediction_loss_only:
@@ -462,15 +452,12 @@ class AugmentTrainerForNeuronMixin:
     def save_model(self, output_dir: Optional[str] = None, _internal_call: bool = False):
         if not os.environ.get("NEURON_PARALLEL_COMPILE"):  # Avoid unnecessary model saving during precompilation
             with patch_neuron_cc_wrapper():
-                with hub_neuronx_cache(cache_repo_id=get_hf_hub_cache_repos()[0]):
-                    if output_dir is None:
-                        output_dir = self.args.output_dir
+                if output_dir is None:
+                    output_dir = self.args.output_dir
 
-                    self._save_xla(output_dir)
+                self._save_xla(output_dir)
 
-            if xm.get_ordinal() == 0:
-                synchronize_hub_cache(get_hf_hub_cache_repos()[0])
-            xm.rendezvous("Hub cache synchronization done")
+            self.synchronize_hub_cache()
 
             # Push to the Hub when `save_model` is called by the user.
             if self.args.push_to_hub and not _internal_call:
@@ -1290,16 +1277,13 @@ class AugmentTrainerForNeuronMixin:
         **kwargs,
     ):
         with patch_neuron_cc_wrapper():
-            with hub_neuronx_cache(cache_repo_id=get_hf_hub_cache_repos()[0]):
-                result = super().train(
-                    resume_from_checkpoint=resume_from_checkpoint,
-                    trial=trial,
-                    ignore_keys_for_eval=ignore_keys_for_eval,
-                    **kwargs,
-                )
-        if xm.get_ordinal() == 0:
-            synchronize_hub_cache(get_hf_hub_cache_repos()[0])
-        xm.rendezvous("Hub cache synchronization done")
+            result = super().train(
+                resume_from_checkpoint=resume_from_checkpoint,
+                trial=trial,
+                ignore_keys_for_eval=ignore_keys_for_eval,
+                **kwargs,
+            )
+        self.synchronize_hub_cache()
         return result
 
     def evaluate(
@@ -1309,24 +1293,18 @@ class AugmentTrainerForNeuronMixin:
         metric_key_prefix: str = "eval",
     ) -> Dict[str, float]:
         with patch_neuron_cc_wrapper():
-            with hub_neuronx_cache(cache_repo_id=get_hf_hub_cache_repos()[0]):
-                result = super().evaluate(
-                    eval_dataset=eval_dataset, ignore_keys=ignore_keys, metric_key_prefix=metric_key_prefix
-                )
-        if xm.get_ordinal() == 0:
-            synchronize_hub_cache(get_hf_hub_cache_repos()[0])
-        xm.rendezvous("Hub cache synchronization done")
+            result = super().evaluate(
+                eval_dataset=eval_dataset, ignore_keys=ignore_keys, metric_key_prefix=metric_key_prefix
+            )
+        self.synchronize_hub_cache()
         return result
 
     def predict(
         self, test_dataset: Dataset, ignore_keys: Optional[List[str]] = None, metric_key_prefix: str = "test"
     ) -> PredictionOutput:
         with patch_neuron_cc_wrapper():
-            with hub_neuronx_cache(cache_repo_id=get_hf_hub_cache_repos()[0]):
-                result = super().predict(test_dataset, ignore_keys=ignore_keys, metric_key_prefix=metric_key_prefix)
-        if xm.get_ordinal() == 0:
-            synchronize_hub_cache(get_hf_hub_cache_repos()[0])
-        xm.rendezvous("Hub cache synchronization done")
+            result = super().predict(test_dataset, ignore_keys=ignore_keys, metric_key_prefix=metric_key_prefix)
+        self.synchronize_hub_cache()
         return result
 
 

@@ -20,7 +20,7 @@ from .hub_neuronx_cache import hub_neuronx_cache
 
 
 def main():
-    with hub_neuronx_cache(cache_repo_id=get_hf_hub_cache_repos()[0]):
+    with hub_neuronx_cache("training", cache_repo_id=get_hf_hub_cache_repos()[0]):
         return neuron_cc_wrapper_main()
 
 

@@ -184,11 +184,15 @@ def has_write_access_to_repo(repo_id: str) -> bool:
 
 
 def get_hf_hub_cache_repos():
+    # Default hub repos.
     hf_hub_repos = HF_HUB_CACHE_REPOS
+
+    # Locally saved hub repo.
     saved_custom_cache_repo = load_custom_cache_repo_name_from_hf_home()
     if saved_custom_cache_repo is not None and saved_custom_cache_repo not in hf_hub_repos:
         hf_hub_repos = [saved_custom_cache_repo] + hf_hub_repos
 
+    # Hub repo set via the environment variable CUSTOM_CACHE_REPO.
     custom_cache_repo = os.environ.get("CUSTOM_CACHE_REPO", None)
     if custom_cache_repo is not None and custom_cache_repo not in hf_hub_repos:
         hf_hub_repos = [custom_cache_repo] + hf_hub_repos
@@ -201,13 +205,6 @@ def get_hf_hub_cache_repos():
             "the Neuron cache already exists you can set it by running the following command: `optimum-cli neuron cache "
             "set -n [name]`.",
         )
-
-    # TODO: this is a quick fix.
-    # Cache utils should not be aware of the multiprocessing side of things.
-    # The issue here is that `has_write_access_to_repo` actually pushes stuff to the HF Hub.
-    # Pushing stuff to the HF Hub should be limited to the `push_to_cache_on_hub` function,
-    # making it easier for higher-level abstractions using the cache utils to reason on which
-    # parts should only run on the master process and which parts should run on everyone.
 
     if is_main_worker() and hf_hub_repos and not has_write_access_to_repo(hf_hub_repos[0]):
         warn_once(

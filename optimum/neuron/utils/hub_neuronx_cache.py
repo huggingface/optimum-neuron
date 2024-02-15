@@ -18,9 +18,10 @@ import logging
 import os
 import shutil
 from contextlib import contextmanager
+from enum import Enum
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Optional
+from typing import Literal, Optional, Union
 
 from huggingface_hub import HfApi, get_token
 from transformers import AutoConfig, PretrainedConfig
@@ -232,11 +233,30 @@ class ModelCacheEntry:
 
 
 REGISTRY_FOLDER = f"0_REGISTRY/{__version__}"
+TRAINING_REGISTRY_FOLDER = f"0_TRAINING_REGISTRY/{__version__}"
+
+
+class Mode(str, Enum):
+    TRAINING = "training"
+    INFERENCE = "inference"
+
+
+def get_registry_folder_for_mode(mode: Union[Literal["training"], Literal["inference"], Mode]) -> str:
+    if isinstance(mode, str) and not isinstance(mode, Mode):
+        mode = Mode(mode)
+    if mode is Mode.TRAINING:
+        return TRAINING_REGISTRY_FOLDER
+    else:
+        return REGISTRY_FOLDER
 
 
 @requires_torch_neuronx
 @contextmanager
-def hub_neuronx_cache(entry: Optional[ModelCacheEntry] = None, cache_repo_id: Optional[str] = None):
+def hub_neuronx_cache(
+    mode: Union[Literal["training"], Literal["inference"], Mode],
+    entry: Optional[ModelCacheEntry] = None,
+    cache_repo_id: Optional[str] = None,
+):
     """A context manager to activate the Hugging Face Hub proxy compiler cache.
 
     Args:
@@ -246,6 +266,7 @@ def hub_neuronx_cache(entry: Optional[ModelCacheEntry] = None, cache_repo_id: Op
         cache_repo_id (`Optional[str]`, defaults to `None`):
             The id of the cache repo to use to fetch the precompiled files.
     """
+    registry_folder = get_registry_folder_for_mode(mode)
 
     def hf_create_compile_cache(cache_url):
         try:
@@ -264,7 +285,7 @@ def hub_neuronx_cache(entry: Optional[ModelCacheEntry] = None, cache_repo_id: Op
                 logger.warning("Skipping cache metadata update on S3 cache.")
             else:
                 # Create cache entry in local cache: it can be later synchronized with the hub cache
-                registry_path = default_cache.get_cache_dir_with_cache_key(REGISTRY_FOLDER)
+                registry_path = default_cache.get_cache_dir_with_cache_key(registry_folder)
                 model_type = entry.config["model_type"]
                 entry_path = f"{registry_path}/{model_type}/{entry.model_id}"
                 config_path = f"{entry_path}/{entry.hash}.json"
@@ -329,7 +350,9 @@ def synchronize_hub_cache(cache_repo_id: Optional[str] = None):
     hub_cache_proxy.synchronize()
 
 
-def get_hub_cached_entries(model_id: str, cache_repo_id: Optional[str] = None):
+def get_hub_cached_entries(
+    model_id: str, mode: Union[Literal["training"], Literal["inference"], Mode], cache_repo_id: Optional[str] = None
+):
     if cache_repo_id is None:
         cache_repo_id = get_hub_cache()
     # Allocate a Hub API with refreshed information (required for tests altering the env)
@@ -341,7 +364,8 @@ def get_hub_cached_entries(model_id: str, cache_repo_id: Optional[str] = None):
     target_entry = ModelCacheEntry(model_id, (AutoConfig.from_pretrained(model_id)))
     # Extract model type: it will be used as primary key for lookup
     model_type = target_entry.config["model_type"]
-    registry_pattern = REGISTRY_FOLDER + "/" + model_type
+    registry_folder = get_registry_folder_for_mode(mode)
+    registry_pattern = registry_folder + "/" + model_type
     model_files = [path for path in repo_files if registry_pattern in path]
     model_entries = []
     with TemporaryDirectory() as tmpdir:
