@@ -34,7 +34,7 @@ def get_export_kwargs_from_env():
 def is_cached(model_id, neuron_config):
     # Look for cached entries for the specified model
     in_cache = False
-    entries = get_hub_cached_entries("inference", model_id)
+    entries = get_hub_cached_entries(model_id, "inference")
     # Look for compatible entries
     for entry in entries:
         compatible = True

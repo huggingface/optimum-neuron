@@ -188,7 +188,7 @@ class LookupRepoCommand(BaseOptimumCLICommand):
         parser.add_argument("--repo_id", type=str, default=None, help="The name of the repo to use as remote cache.")
 
     def _list_entries(self, mode: str):
-        entries = get_hub_cached_entries(mode, self.args.model_id, cache_repo_id=self.args.repo_id)
+        entries = get_hub_cached_entries(self.args.model_id, mode, cache_repo_id=self.args.repo_id)
         n_entries = len(entries)
         output = f"\n*** {n_entries} entrie(s) found in cache for {self.args.model_id} for {mode}.***\n\n"
         for entry in entries:
