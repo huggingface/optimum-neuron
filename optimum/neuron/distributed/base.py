@@ -120,7 +120,7 @@ class PipelineParallelismSpecs:
             for cut_idx in range(num_layers_per_partition - 1, num_layers - 1, num_layers_per_partition)
         ]
 
-        if log and xm.get_ordinal() == 0:
+        if is_main_worker() and log:
             logger.info(f"Pipeline parallelism cuts: {pipeline_cuts}.")
 
         return pipeline_cuts
