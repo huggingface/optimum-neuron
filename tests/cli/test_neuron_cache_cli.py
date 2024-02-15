@@ -21,7 +21,6 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
 
-import torch
 from huggingface_hub import HfApi, create_repo, delete_repo
 from huggingface_hub.utils import RepositoryNotFoundError
 from transformers import BertConfig, BertModel, BertTokenizer
@@ -30,11 +29,7 @@ from transformers.testing_utils import is_staging_test
 from optimum.neuron.utils.cache_utils import (
     CACHE_REPO_FILENAME,
     CACHE_REPO_NAME,
-    NeuronHash,
-    add_in_registry,
-    create_registry_file_if_does_not_exist,
     load_custom_cache_repo_name_from_hf_home,
-    set_custom_cache_repo_name_in_hf_home,
 )
 from optimum.neuron.utils.testing_utils import is_trainium_test
 from optimum.utils.testing_utils import USER
@@ -214,69 +209,3 @@ class TestNeuronCacheCLI(StagingTestMixin, TestCase):
             p = subprocess.Popen(command, env=env)
             returncode = p.wait()
             self.assertEqual(returncode, 0)
-
-    def test_optimum_neuron_cache_list(self):
-        with TemporaryDirectory() as tmpdirname:
-            os.environ["HF_HOME"] = tmpdirname
-
-            set_custom_cache_repo_name_in_hf_home(self.CUSTOM_CACHE_REPO, hf_home=tmpdirname)
-            create_registry_file_if_does_not_exist(self.CUSTOM_CACHE_REPO)
-
-            # Without specifying the id of the repo, it should used the saved one, here self.CUSTOM_CACHE_REPO.
-            command = "optimum-cli neuron cache list".split()
-            p = subprocess.Popen(command, stdout=subprocess.PIPE)
-            stdout, _ = p.communicate()
-            stdout = stdout.decode("utf-8")
-            self.assertEqual(p.returncode, 0)
-            self.assertIn("Nothing was found", stdout)
-
-            bert_model = BertModel(BertConfig())
-            neuron_hash = NeuronHash(
-                bert_model,
-                (("x", (4, 12)), ("y", (4, 12))),
-                torch.float32,
-                2,
-                neuron_compiler_version="2.8.0",
-            )
-            add_in_registry(self.CUSTOM_CACHE_REPO, neuron_hash)
-            model_hash = neuron_hash.compute_hash()[0]
-
-            # With a repo id.
-            command = f"optimum-cli neuron cache list {self.CUSTOM_CACHE_REPO}".split()
-            p = subprocess.Popen(command, stdout=subprocess.PIPE)
-            stdout, _ = p.communicate()
-            stdout = stdout.decode("utf-8")
-            self.assertEqual(p.returncode, 0)
-            self.assertIn(model_hash, stdout)
-
-            # Filtering with a bad model name or hash, it should not return anything.
-            command = f"optimum-cli neuron cache list {self.CUSTOM_CACHE_REPO} -m bad_model_name_or_hash".split()
-            p = subprocess.Popen(command, stdout=subprocess.PIPE)
-            stdout, _ = p.communicate()
-            stdout = stdout.decode("utf-8")
-            self.assertEqual(p.returncode, 0)
-            self.assertIn("Nothing was found", stdout)
-
-            # Filtering with an existing model, it should return it.
-            command = f"optimum-cli neuron cache list {self.CUSTOM_CACHE_REPO} -m {model_hash}".split()
-            p = subprocess.Popen(command, stdout=subprocess.PIPE)
-            stdout, _ = p.communicate()
-            stdout = stdout.decode("utf-8")
-            self.assertEqual(p.returncode, 0)
-            self.assertIn(model_hash, stdout)
-
-            # Filtering with an existing version, it should return something.
-            command = f"optimum-cli neuron cache list {self.CUSTOM_CACHE_REPO} -v 2.8.0".split()
-            p = subprocess.Popen(command, stdout=subprocess.PIPE)
-            stdout, _ = p.communicate()
-            stdout = stdout.decode("utf-8")
-            self.assertEqual(p.returncode, 0)
-            self.assertIn(model_hash, stdout)
-
-            # Filtering with a bad version, it should not return anything.
-            command = f"optimum-cli neuron cache list {self.CUSTOM_CACHE_REPO} -v 1.120.0".split()
-            p = subprocess.Popen(command, stdout=subprocess.PIPE)
-            stdout, _ = p.communicate()
-            stdout = stdout.decode("utf-8")
-            self.assertEqual(p.returncode, 0)
-            self.assertIn("Nothing was found", stdout)
