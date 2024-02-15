@@ -1325,7 +1325,8 @@ class AugmentTrainerForNeuronMixin:
                     ignore_keys_for_eval=ignore_keys_for_eval,
                     **kwargs,
                 )
-        self.synchronize_hub_cache()
+        if not is_precompilation():
+            self.synchronize_hub_cache()
         return result
 
     def evaluate(
@@ -1339,7 +1340,8 @@ class AugmentTrainerForNeuronMixin:
                 result = super().evaluate(
                     eval_dataset=eval_dataset, ignore_keys=ignore_keys, metric_key_prefix=metric_key_prefix
                 )
-        self.synchronize_hub_cache()
+        if not is_precompilation():
+            self.synchronize_hub_cache()
         return result
 
     def predict(
@@ -1348,7 +1350,8 @@ class AugmentTrainerForNeuronMixin:
         with patch_neuron_cc_wrapper():
             with hub_neuronx_cache("training", entry=self.model_cache_entry):
                 result = super().predict(test_dataset, ignore_keys=ignore_keys, metric_key_prefix=metric_key_prefix)
-        self.synchronize_hub_cache()
+        if not is_precompilation():
+            self.synchronize_hub_cache()
         return result
 
 

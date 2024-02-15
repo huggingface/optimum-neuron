@@ -349,9 +349,6 @@ def synchronize_hub_cache(cache_repo_id: Optional[str] = None):
         repo_id (`Optional[str]`, default to None):
             The id of the HuggingFace cache repository, in the form 'org|user/name'.
     """
-    # Not pushing anything if neuron parallel compile.
-    if os.environ.get("NEURON_PARALLEL_COMPILE") == "1":
-        return
     hub_cache_proxy = _create_hub_compile_cache_proxy(cache_repo_id=cache_repo_id)
     hub_cache_proxy.synchronize()
 
