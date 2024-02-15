@@ -22,7 +22,7 @@ import torch
 from huggingface_hub import HfApi
 from transformers.testing_utils import is_staging_test
 
-from optimum.neuron.trainers import NeuronCacheCallback
+from optimum.neuron.trainer_callback import NeuronCacheCallback
 from optimum.neuron.training_args import NeuronTrainingArguments
 from optimum.neuron.utils.cache_utils import (
     NeuronHash,

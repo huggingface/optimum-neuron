@@ -163,52 +163,6 @@ class AddToCacheRepoCommand(BaseOptimumCLICommand):
         )
 
 
-class ListRepoCommand(BaseOptimumCLICommand):
-    @staticmethod
-    def parse_args(parser: "ArgumentParser"):
-        parser.add_argument(
-            "name",
-            type=str,
-            nargs="?",
-            default=None,
-            help="The name of the repo to list. Will use the locally saved cache repo if left unspecified.",
-        )
-        parser.add_argument(
-            "-m",
-            "--model",
-            type=str,
-            default=None,
-            help="The model name or path of the model to consider. If left unspecified, will list all available models.",
-        )
-        parser.add_argument(
-            "-v",
-            "--version",
-            type=str,
-            default=None,
-            help=(
-                "The version of the Neuron X Compiler to consider. Will list all available versions if left "
-                "unspecified."
-            ),
-        )
-
-    def run(self):
-        if self.args.name is None:
-            custom_cache_repo_name = load_custom_cache_repo_name_from_hf_home()
-            if custom_cache_repo_name is None:
-                raise ValueError("No custom cache repo was set locally so you need to specify a cache repo name.")
-            self.args.name = custom_cache_repo_name
-
-        entries = list_in_registry(
-            self.args.name, model_name_or_path_or_hash=self.args.model, neuron_compiler_version=self.args.version
-        )
-        if not entries:
-            entries = ["Nothing was found."]
-        line = "\n" + "=" * 50 + "\n"
-        result = line.join(entries)
-
-        print(f"\n*** Repo id: {self.args.name} ***\n\n{result}")
-
-
 class SynchronizeRepoCommand(BaseOptimumCLICommand):
     @staticmethod
     def parse_args(parser: "ArgumentParser"):
@@ -271,18 +225,13 @@ class CustomCacheRepoCommand(BaseOptimumCLICommand):
             subcommand_class=AddToCacheRepoCommand,
         ),
         CommandInfo(
-            name="list",
-            help="List models in a cache repo (trainium only).",
-            subcommand_class=ListRepoCommand,
-        ),
-        CommandInfo(
             name="synchronize",
             help="Synchronize the neuronx compiler cache with a hub cache repo (inferentia only).",
             subcommand_class=SynchronizeRepoCommand,
         ),
         CommandInfo(
             name="lookup",
-            help="Lookup the neuronx compiler hub cache for the specified model id (inferentia only).",
+            help="Lookup the neuronx compiler hub cache for the specified model id.",
             subcommand_class=LookupRepoCommand,
         ),
     )
