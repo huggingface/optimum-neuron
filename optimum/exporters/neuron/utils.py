@@ -17,7 +17,7 @@
 import copy
 import os
 from collections import OrderedDict
-from typing import TYPE_CHECKING, Dict, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 
 import torch
 from transformers import PretrainedConfig
@@ -135,6 +135,10 @@ def get_stable_diffusion_models_for_export(
     vae_encoder_input_shapes: Dict[str, int],
     vae_decoder_input_shapes: Dict[str, int],
     dynamic_batch_size: Optional[bool] = False,
+    lora_model_ids: Optional[List[str]] = None,
+    lora_weight_names: Optional[List[str]] = None,
+    lora_adapter_names: Optional[List[str]] = None,
+    lora_scales: Optional[List[float]] = None,
 ) -> Dict[str, Tuple[Union["PreTrainedModel", "ModelMixin"], "NeuronDefaultConfig"]]:
     """
     Returns the components of a Stable Diffusion model and their subsequent neuron configs.
@@ -157,12 +161,27 @@ def get_stable_diffusion_models_for_export(
             Static shapes used for compiling vae decoder.
         dynamic_batch_size (`bool`, defaults to `False`):
             Whether the Neuron compiled model supports dynamic batch size.
+        lora_model_ids (`Optional[List[str]]`, defaults to `None`):
+            List of model ids (eg. `ostris/super-cereal-sdxl-lora`) of a pretrained lora model hosted on the Hub or paths to local directories containing the lora weights.
+        lora_weight_names (`Optional[List[str]]`, defaults to `None`):
+            List of lora weights file names.
+        lora_adapter_names (`Optional[List[str]]`, defaults to `None`):
+            List of adapter names to be used for referencing the loaded adapter models.
+        lora_scales (`Optional[List[float]]`, defaults to `None`):
+            List of scaling factors for lora adapters.
 
     Returns:
         `Dict[str, Tuple[Union[`PreTrainedModel`, `ModelMixin`], `NeuronDefaultConfig`]`: A Dict containing the model and
         Neuron configs for the different components of the model.
     """
-    models_for_export = _get_submodels_for_export_stable_diffusion(pipeline=pipeline, task=task)
+    models_for_export = _get_submodels_for_export_stable_diffusion(
+        pipeline=pipeline,
+        task=task,
+        lora_model_ids=lora_model_ids,
+        lora_weight_names=lora_weight_names,
+        lora_adapter_names=lora_adapter_names,
+        lora_scales=lora_scales,
+    )
 
     # Text encoders
     if DIFFUSION_MODEL_TEXT_ENCODER_NAME in models_for_export:
@@ -244,14 +263,51 @@ def get_stable_diffusion_models_for_export(
     return models_for_export
 
 
+def _load_lora_weights_to_pipeline(
+    pipeline: Union["StableDiffusionPipeline", "StableDiffusionXLImg2ImgPipeline"],
+    lora_model_ids: Optional[List[str]] = None,
+    weight_names: Optional[List[str]] = None,
+    adapter_names: Optional[List[str]] = None,
+    lora_scales: Optional[List[float]] = None,
+):
+    if lora_model_ids and weight_names:
+        if len(lora_model_ids) == 1:
+            pipeline.load_lora_weights(lora_model_ids[0], weight_name=weight_names[0])
+            # For tracing the lora weights, we need to use PEFT to fuse adapters directly into the model weights. It won't work by passing the lora scale to the Neuron pipeline during the inference.
+            pipeline.fuse_lora(lora_scale=lora_scales[0])
+        elif len(lora_model_ids) > 1:
+            if not len(lora_model_ids) == len(weight_names) == len(adapter_names):
+                raise ValueError(
+                    f"weight_name and lora_scale are required to fuse more than one lora. You have {len(lora_model_ids)} lora models to fuse, but you have {len(weight_names)} lora weight names and {len(adapter_names)} adapter names."
+                )
+            for model_id, weight_name, adapter_name in zip(lora_model_ids, weight_names, adapter_names):
+                pipeline.load_lora_weights(model_id, weight_name=weight_name, adapter_name=adapter_name)
+
+            if lora_scales:
+                pipeline.set_adapters(adapter_names, adapter_weights=lora_scales)
+            pipeline.fuse_lora()
+
+
 def _get_submodels_for_export_stable_diffusion(
     pipeline: Union["StableDiffusionPipeline", "StableDiffusionXLImg2ImgPipeline"],
     task: str,
+    lora_model_ids: Optional[List[str]] = None,
+    lora_weight_names: Optional[List[str]] = None,
+    lora_adapter_names: Optional[List[str]] = None,
+    lora_scales: Optional[List[float]] = None,
 ) -> Dict[str, Union["PreTrainedModel", "ModelMixin"]]:
     """
     Returns the components of a Stable Diffusion model.
     """
     is_sdxl = "xl" in task
+
+    _load_lora_weights_to_pipeline(
+        pipeline=pipeline,
+        lora_model_ids=lora_model_ids,
+        weight_names=lora_weight_names,
+        adapter_names=lora_adapter_names,
+        lora_scales=lora_scales,
+    )
 
     models_for_export = []
     if hasattr(pipeline, "text_encoder_2"):

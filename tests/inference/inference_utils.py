@@ -51,6 +51,10 @@ MODEL_NAMES = {
     "xlm-roberta": "hf-internal-testing/tiny-xlm-roberta",
 }
 
+LORA_WEIGHTS_TINY = {
+    "stable-diffusion": ("Jingya/tiny-stable-diffusion-lora-64", "pytorch_lora_weights.safetensors", "pokemon"),
+}
+
 
 class NeuronModelIntegrationTestMixin(unittest.TestCase):
     USER = "optimum"
