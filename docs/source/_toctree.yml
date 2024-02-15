@@ -5,6 +5,8 @@
     title: Installation
   - local: quickstart
     title: Quickstart
+  - local: containers
+    title: Optimum Containers
   - sections:
     - local: tutorials/overview
       title: Overview
