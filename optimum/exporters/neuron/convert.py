@@ -405,7 +405,17 @@ def export(
     disable_fallback: bool = False,
 ) -> Tuple[List[str], List[str]]:
     if is_neuron_available():
-        return export_neuron(model, config, output, auto_cast, auto_cast_type, disable_fast_relayout, disable_fallback)
+        return export_neuron(
+            model=model,
+            config=config,
+            output=output,
+            compiler_workdir=compiler_workdir,
+            inline_weights_to_neff=inline_weights_to_neff,
+            auto_cast=auto_cast,
+            auto_cast_type=auto_cast_type,
+            disable_fast_relayout=disable_fast_relayout,
+            disable_fallback=disable_fallback,
+        )
     elif is_neuronx_available():
         return export_neuronx(
             model=model,
@@ -570,6 +580,8 @@ def export_neuron(
     model: "PreTrainedModel",
     config: "NeuronDefaultConfig",
     output: Path,
+    compiler_workdir: Optional[Path] = None,
+    inline_weights_to_neff: bool = True,
     auto_cast: Optional[str] = None,
     auto_cast_type: str = "bf16",
     disable_fast_relayout: bool = False,
@@ -585,6 +597,10 @@ def export_neuron(
             The Neuron configuration associated with the exported model.
         output (`Path`):
             Directory to store the exported Neuron model.
+        compiler_workdir (`Optional[Path]`, defaults to `None`):
+            The directory used by neuron-cc, where you can find intermediary outputs (neff, weight, hlo...).
+        inline_weights_to_neff (`bool`, defaults to `True`):
+            Whether to inline the weights to the neff graph. If set to False, weights will be seperated from the neff.
         auto_cast (`Optional[str]`, defaults to `None`):
             Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `None`, `"matmul"` or `"all"`, you should use `None` to disable any auto-casting, use `"matmul"` to cast FP32 matrix multiplication operations, and use `"all"` to cast all FP32 operations.
         auto_cast_type (`str`, defaults to `"bf16"`):
@@ -599,6 +615,8 @@ def export_neuron(
         the Neuron configuration.
     """
     output.parent.mkdir(parents=True, exist_ok=True)
+    if isinstance(compiler_workdir, Path):
+        compiler_workdir = compiler_workdir.as_posix()
 
     if hasattr(model, "config"):
         model.config.return_dict = True
@@ -626,6 +644,8 @@ def export_neuron(
         dummy_inputs_tuple,
         dynamic_batch_size=config.dynamic_batch_size,
         compiler_args=compiler_args,
+        compiler_workdir=compiler_workdir,
+        separate_weights=not inline_weights_to_neff,
         fallback=not disable_fallback,
     )
     torch.jit.save(neuron_model, output)

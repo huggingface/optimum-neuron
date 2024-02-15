@@ -19,9 +19,13 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Un
 
 import torch
 from diffusers import StableDiffusionXLInpaintPipeline
-from diffusers.image_processor import VaeImageProcessor
+from diffusers.image_processor import PipelineImageInput, VaeImageProcessor
 from diffusers.pipelines.stable_diffusion_xl import StableDiffusionXLPipelineOutput
-from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl_inpaint import rescale_noise_cfg
+from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl_inpaint import (
+    rescale_noise_cfg,
+    retrieve_timesteps,
+)
+from diffusers.utils import deprecate
 
 from .pipeline_utils import StableDiffusionXLPipelineMixin
 
@@ -80,8 +84,10 @@ class NeuronStableDiffusionXLInpaintPipelineMixin(StableDiffusionXLPipelineMixin
         image: Optional["PipelineImageInput"] = None,
         mask_image: Optional["PipelineImageInput"] = None,
         masked_image_latents: Optional[torch.FloatTensor] = None,
+        padding_mask_crop: Optional[int] = None,
         strength: float = 0.9999,
         num_inference_steps: int = 50,
+        timesteps: Optional[List[int]] = None,
         denoising_start: Optional[float] = None,
         denoising_end: Optional[float] = None,
         guidance_scale: float = 7.5,
@@ -95,10 +101,9 @@ class NeuronStableDiffusionXLInpaintPipelineMixin(StableDiffusionXLPipelineMixin
         negative_prompt_embeds: Optional[torch.FloatTensor] = None,
         pooled_prompt_embeds: Optional[torch.FloatTensor] = None,
         negative_pooled_prompt_embeds: Optional[torch.FloatTensor] = None,
+        ip_adapter_image: Optional[PipelineImageInput] = None,
         output_type: Optional[str] = "pil",
         return_dict: bool = True,
-        callback: Optional[Callable[[int, int, torch.FloatTensor], None]] = None,
-        callback_steps: int = 1,
         cross_attention_kwargs: Optional[Dict[str, Any]] = None,
         guidance_rescale: float = 0.0,
         original_size: Tuple[int, int] = None,
@@ -110,6 +115,9 @@ class NeuronStableDiffusionXLInpaintPipelineMixin(StableDiffusionXLPipelineMixin
         aesthetic_score: float = 6.0,
         negative_aesthetic_score: float = 2.5,
         clip_skip: Optional[int] = None,
+        callback_on_step_end: Optional[Callable[[int, int, Dict], None]] = None,
+        callback_on_step_end_tensor_inputs: List[str] = ["latents"],
+        **kwargs,
     ):
         r"""
         Function invoked when calling the pipeline for generation.
@@ -129,6 +137,12 @@ class NeuronStableDiffusionXLInpaintPipelineMixin(StableDiffusionXLPipelineMixin
                 repainted, while black pixels will be preserved. If `mask_image` is a PIL image, it will be converted
                 to a single channel (luminance) before use. If it's a tensor, it should contain one color channel (L)
                 instead of 3, so the expected shape would be `(B, H, W, 1)`.
+            padding_mask_crop (`Optional[int]`, defaults to `None`):
+                The size of margin in the crop to be applied to the image and masking. If `None`, no crop is applied to image and mask_image. If
+                `padding_mask_crop` is not `None`, it will first find a rectangular region with the same aspect ration of the image and
+                contains all masked area, and then expand that area based on `padding_mask_crop`. The image and mask_image will then be cropped based on
+                the expanded area before resizing to the original image size for inpainting. This is useful when the masked area is small while the image is large
+                and contain information inreleant for inpainging, such as background.
             strength (`float`, defaults to 0.9999):
                 Conceptually, indicates how much to transform the masked portion of the reference `image`. Must be
                 between 0 and 1. `image` will be used as a starting point, adding more noise to it the larger the
@@ -140,6 +154,10 @@ class NeuronStableDiffusionXLInpaintPipelineMixin(StableDiffusionXLPipelineMixin
             num_inference_steps (`int`, defaults to 50):
                 The number of denoising steps. More denoising steps usually lead to a higher quality image at the
                 expense of slower inference.
+            timesteps (`Optional[List[int]]`, defaults to `None`):
+                Custom timesteps to use for the denoising process with schedulers which support a `timesteps` argument
+                in their `set_timesteps` method. If not defined, the default behavior when `num_inference_steps` is
+                passed will be used. Must be in descending order.
             denoising_start (`Optional[float]`, defaults to `None`):
                 When specified, indicates the fraction (between 0.0 and 1.0) of the total denoising process to be
                 bypassed before it is initiated. Consequently, the initial part of the denoising process is skipped and
@@ -182,6 +200,7 @@ class NeuronStableDiffusionXLInpaintPipelineMixin(StableDiffusionXLPipelineMixin
                 Pre-generated negative pooled text embeddings. Can be used to easily tweak text inputs, *e.g.* prompt
                 weighting. If not provided, pooled negative_prompt_embeds will be generated from `negative_prompt`
                 input argument.
+            ip_adapter_image: (`Optional[PipelineImageInput]`, defaults to `None`): Optional image input to work with IP Adapters.
             num_images_per_prompt (`int`, defaults to 1):
                 The number of images to generate per prompt.
             eta (`float`, defaults to 0.0):
@@ -200,12 +219,6 @@ class NeuronStableDiffusionXLInpaintPipelineMixin(StableDiffusionXLPipelineMixin
             return_dict (`bool`, defaults to `True`):
                 Whether or not to return a [`~pipelines.stable_diffusion.StableDiffusionPipelineOutput`] instead of a
                 plain tuple.
-            callback (`Optional[Callable]`, defaults to `None`):
-                A function that will be called every `callback_steps` steps during inference. The function will be
-                called with the following arguments: `callback(step: int, timestep: int, latents: torch.FloatTensor)`.
-            callback_steps (`int`, defaults to 1):
-                The frequency at which the `callback` function will be called. If not specified, the callback will be
-                called at every step.
             cross_attention_kwargs (`Optional[Dict[str, Any]]`, defaults to `None`):
                 A kwargs dictionary that if specified is passed along to the `AttentionProcessor` as defined under
                 `self.processor` in
@@ -250,6 +263,15 @@ class NeuronStableDiffusionXLInpaintPipelineMixin(StableDiffusionXLPipelineMixin
             clip_skip (`Optional[int]`, defaults to `None`):
                 Number of layers to be skipped from CLIP while computing the prompt embeddings. A value of 1 means that
                 the output of the pre-final layer will be used for computing the prompt embeddings.
+            callback_on_step_end (`Optional[Callable[[int, int, Dict], None]]`, defaults to `None`):
+                A function that calls at the end of each denoising steps during the inference. The function is called
+                with the following arguments: `callback_on_step_end(self: DiffusionPipeline, step: int, timestep: int,
+                callback_kwargs: Dict)`. `callback_kwargs` will include a list of all tensors as specified by
+                `callback_on_step_end_tensor_inputs`.
+            callback_on_step_end_tensor_inputs (`List[str]`, defaults to ["latents"]):
+                The list of tensor inputs for the `callback_on_step_end` function. The tensors specified in the list
+                will be passed as `callback_kwargs` argument. You will only be able to include variables listed in the
+                `._callback_tensor_inputs` attribute of your pipeline class.
 
         Examples:
 
@@ -279,6 +301,22 @@ class NeuronStableDiffusionXLInpaintPipelineMixin(StableDiffusionXLPipelineMixin
             [`diffusers.pipelines.stable_diffusion.StableDiffusionXLPipelineOutput`] if `return_dict` is True, otherwise a
             `tuple. `tuple. When returning a tuple, the first element is a list with the generated images.
         """
+        callback = kwargs.pop("callback", None)
+        callback_steps = kwargs.pop("callback_steps", None)
+
+        if callback is not None:
+            deprecate(
+                "callback",
+                "1.0.0",
+                "Passing `callback` as an input argument to `__call__` is deprecated, consider use `callback_on_step_end`",
+            )
+        if callback_steps is not None:
+            deprecate(
+                "callback_steps",
+                "1.0.0",
+                "Passing `callback_steps` as an input argument to `__call__` is deprecated, consider use `callback_on_step_end`",
+            )
+
         # -1. Check `num_images_per_prompt`
         if self.num_images_per_prompt != num_images_per_prompt and not self.dynamic_batch_size:
             logger.warning(
@@ -295,15 +333,28 @@ class NeuronStableDiffusionXLInpaintPipelineMixin(StableDiffusionXLPipelineMixin
         self.check_inputs(
             prompt,
             prompt_2,
+            image,
+            mask_image,
             height,
             width,
             strength,
             callback_steps,
+            output_type,
             negative_prompt,
             negative_prompt_2,
             prompt_embeds,
             negative_prompt_embeds,
+            callback_on_step_end_tensor_inputs,
+            padding_mask_crop,
         )
+
+        self._guidance_scale = guidance_scale
+        self._guidance_rescale = guidance_rescale
+        self._clip_skip = clip_skip
+        self._cross_attention_kwargs = cross_attention_kwargs
+        self._denoising_end = denoising_end
+        self._denoising_start = denoising_start
+        self._interrupt = False
 
         # 2. Define call parameters
         if prompt is not None and isinstance(prompt, str):
@@ -324,7 +375,7 @@ class NeuronStableDiffusionXLInpaintPipelineMixin(StableDiffusionXLPipelineMixin
 
         # 3. Encode input prompt
         text_encoder_lora_scale = (
-            cross_attention_kwargs.get("scale", None) if cross_attention_kwargs is not None else None
+            cross_attention_kwargs.get("scale", None) if self.cross_attention_kwargs is not None else None
         )
 
         (
@@ -344,13 +395,14 @@ class NeuronStableDiffusionXLInpaintPipelineMixin(StableDiffusionXLPipelineMixin
             pooled_prompt_embeds=pooled_prompt_embeds,
             negative_pooled_prompt_embeds=negative_pooled_prompt_embeds,
             lora_scale=text_encoder_lora_scale,
+            clip_skip=self.clip_skip,
         )
 
         # 4. set timesteps
         def denoising_value_valid(dnv):
             return isinstance(denoising_end, float) and 0 < dnv < 1
 
-        self.scheduler.set_timesteps(num_inference_steps, device=None)
+        timesteps, num_inference_steps = retrieve_timesteps(self.scheduler, num_inference_steps, None, timesteps)
         timesteps, num_inference_steps = self.get_timesteps(
             num_inference_steps, strength, None, denoising_start=denoising_start if denoising_value_valid else None
         )
@@ -366,13 +418,25 @@ class NeuronStableDiffusionXLInpaintPipelineMixin(StableDiffusionXLPipelineMixin
         is_strength_max = strength == 1.0
 
         # 5. Preprocess mask and image
-        init_image = self.image_processor.preprocess(image, height=height, width=width)
+        if padding_mask_crop is not None:
+            crops_coords = self.mask_processor.get_crop_region(mask_image, width, height, pad=padding_mask_crop)
+            resize_mode = "fill"
+        else:
+            crops_coords = None
+            resize_mode = "default"
+
+        original_image = image
+        init_image = self.image_processor.preprocess(
+            image, height=height, width=width, crops_coords=crops_coords, resize_mode=resize_mode
+        )
         init_image = init_image.to(dtype=torch.float32)
 
         self.mask_processor = VaeImageProcessor(
             vae_scale_factor=self.vae_scale_factor, do_normalize=False, do_binarize=True, do_convert_grayscale=True
         )
-        mask = self.mask_processor.preprocess(mask_image, height=height, width=width)
+        mask = self.mask_processor.preprocess(
+            mask_image, height=height, width=width, resize_mode=resize_mode, crops_coords=crops_coords
+        )
 
         if masked_image_latents is not None:
             masked_image = masked_image_latents
@@ -481,6 +545,11 @@ class NeuronStableDiffusionXLInpaintPipelineMixin(StableDiffusionXLPipelineMixin
         add_text_embeds = add_text_embeds
         add_time_ids = add_time_ids
 
+        if ip_adapter_image is not None:
+            image_embeds = self.prepare_ip_adapter_image_embeds(
+                ip_adapter_image, None, batch_size * num_images_per_prompt
+            )
+
         # 11. Denoising loop
         num_warmup_steps = max(len(timesteps) - num_inference_steps * self.scheduler.order, 0)
 
@@ -495,18 +564,29 @@ class NeuronStableDiffusionXLInpaintPipelineMixin(StableDiffusionXLPipelineMixin
                 f"`denoising_start`: {denoising_start} cannot be larger than or equal to `denoising_end`: "
                 + f" {denoising_end} when using type float."
             )
-        elif denoising_end is not None and denoising_value_valid(denoising_end):
+        elif self.denoising_end is not None and denoising_value_valid(self.denoising_end):
             discrete_timestep_cutoff = int(
                 round(
                     self.scheduler.config.num_train_timesteps
-                    - (denoising_end * self.scheduler.config.num_train_timesteps)
+                    - (self.denoising_end * self.scheduler.config.num_train_timesteps)
                 )
             )
             num_inference_steps = len(list(filter(lambda ts: ts >= discrete_timestep_cutoff, timesteps)))
             timesteps = timesteps[:num_inference_steps]
 
+        # 11.1 Optionally get Guidance Scale Embedding
+        timestep_cond = None
+        if self.unet.config.time_cond_proj_dim is not None:
+            guidance_scale_tensor = torch.tensor(self.guidance_scale - 1).repeat(batch_size * num_images_per_prompt)
+            timestep_cond = self.get_guidance_scale_embedding(
+                guidance_scale_tensor, embedding_dim=self.unet.config.time_cond_proj_dim
+            ).to(dtype=latents.dtype)
+
+        self._num_timesteps = len(timesteps)
         with self.progress_bar(total=num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps):
+                if self.interrupt:
+                    continue
                 # expand the latents if we are doing classifier free guidance
                 latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
 
@@ -518,6 +598,8 @@ class NeuronStableDiffusionXLInpaintPipelineMixin(StableDiffusionXLPipelineMixin
 
                 # predict the noise residual
                 added_cond_kwargs = {"text_embeds": add_text_embeds, "time_ids": add_time_ids}
+                if ip_adapter_image is not None:
+                    added_cond_kwargs["image_embeds"] = image_embeds
                 # [modified for neuron] Remove not traced inputs: cross_attention_kwargs, return_dict
                 noise_pred = self.unet(
                     sample=latent_model_input,
@@ -533,14 +615,17 @@ class NeuronStableDiffusionXLInpaintPipelineMixin(StableDiffusionXLPipelineMixin
 
                 if do_classifier_free_guidance and guidance_rescale > 0.0:
                     # Based on 3.4. in https://arxiv.org/pdf/2305.08891.pdf
-                    noise_pred = rescale_noise_cfg(noise_pred, noise_pred_text, guidance_rescale=guidance_rescale)
+                    noise_pred = rescale_noise_cfg(noise_pred, noise_pred_text, guidance_rescale=self.guidance_rescale)
 
                 # compute the previous noisy sample x_t -> x_t-1
                 latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)[0]
 
                 if num_channels_unet == 4:
                     init_latents_proper = image_latents[:1]
-                    init_mask = mask[:1]
+                    if do_classifier_free_guidance:
+                        init_mask, _ = mask.chunk(2)
+                    else:
+                        init_mask = mask
 
                     if i < len(timesteps) - 1:
                         noise_timestep = timesteps[i + 1]
@@ -550,11 +635,30 @@ class NeuronStableDiffusionXLInpaintPipelineMixin(StableDiffusionXLPipelineMixin
 
                     latents = (1 - init_mask) * init_latents_proper + init_mask * latents
 
+                if callback_on_step_end is not None:
+                    callback_kwargs = {}
+                    for k in callback_on_step_end_tensor_inputs:
+                        callback_kwargs[k] = locals()[k]
+                    callback_outputs = callback_on_step_end(self, i, t, callback_kwargs)
+
+                    latents = callback_outputs.pop("latents", latents)
+                    prompt_embeds = callback_outputs.pop("prompt_embeds", prompt_embeds)
+                    negative_prompt_embeds = callback_outputs.pop("negative_prompt_embeds", negative_prompt_embeds)
+                    add_text_embeds = callback_outputs.pop("add_text_embeds", add_text_embeds)
+                    negative_pooled_prompt_embeds = callback_outputs.pop(
+                        "negative_pooled_prompt_embeds", negative_pooled_prompt_embeds
+                    )
+                    add_time_ids = callback_outputs.pop("add_time_ids", add_time_ids)
+                    add_neg_time_ids = callback_outputs.pop("add_neg_time_ids", add_neg_time_ids)
+                    mask = callback_outputs.pop("mask", mask)
+                    masked_image_latents = callback_outputs.pop("masked_image_latents", masked_image_latents)
+
                 # call the callback, if provided
                 if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
                     progress_bar.update()
                     if callback is not None and i % callback_steps == 0:
-                        callback(i, t, latents)
+                        step_idx = i // getattr(self.scheduler, "order", 1)
+                        callback(step_idx, t, latents)
 
         if not output_type == "latent":
             # [Modified] Replace with pre-compiled vae decoder
@@ -567,6 +671,9 @@ class NeuronStableDiffusionXLInpaintPipelineMixin(StableDiffusionXLPipelineMixin
             image = self.watermark.apply_watermark(image)
 
         image = self.image_processor.postprocess(image, output_type=output_type)
+
+        if padding_mask_crop is not None:
+            image = [self.image_processor.apply_overlay(mask_image, original_image, i, crops_coords) for i in image]
 
         if not return_dict:
             return (image,)
