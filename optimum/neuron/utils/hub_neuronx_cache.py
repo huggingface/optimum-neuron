@@ -24,14 +24,12 @@ from tempfile import TemporaryDirectory
 from typing import Literal, Optional, Union
 
 from huggingface_hub import HfApi, get_token
-from packaging import version
 from transformers import AutoConfig, PretrainedConfig
 
 from ..version import __version__
 from .import_utils import is_neuronx_available
 from .patching import patch_everywhere
 from .require_utils import requires_torch_neuronx, requires_torch_xla
-from .version_utils import get_neuronxcc_version
 
 
 if is_neuronx_available():
@@ -235,7 +233,6 @@ class ModelCacheEntry:
 
 
 REGISTRY_FOLDER = f"0_REGISTRY/{__version__}"
-NEURONXCC_VERSION_NEW_FOLDER_FOR_INFERENCE = version.parse("2.12.68.0+4480452af")
 
 
 class Mode(str, Enum):
@@ -249,11 +246,7 @@ def get_registry_folder_for_mode(mode: Union[Literal["training"], Literal["infer
     if mode is Mode.TRAINING:
         return f"{REGISTRY_FOLDER}/training"
     else:
-        neuronxcc_version = version.parse(get_neuronxcc_version())
-        if neuronxcc_version >= NEURONXCC_VERSION_NEW_FOLDER_FOR_INFERENCE:
-            return f"{REGISTRY_FOLDER}/inference"
-        else:
-            return REGISTRY_FOLDER
+        return f"{REGISTRY_FOLDER}/inference"
 
 
 @requires_torch_neuronx
