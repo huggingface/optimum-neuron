@@ -308,7 +308,7 @@ def remove_ip_adress_from_path(path: Path) -> Path:
     return Path().joinpath(*(re.sub(_IP_PATTERN, "", part) for part in path.parts))
 
 
-def _get_model_name_or_path(config: "PretrainedConfig") -> Optional[str]:
+def get_model_name_or_path(config: "PretrainedConfig") -> Optional[str]:
     attribute_names_to_try = ["_model_name_or_path", "_name_or_path"]
     model_name_or_path = None
     for name in attribute_names_to_try:
@@ -664,7 +664,7 @@ class NeuronHash:
 
         # Checking whether the model is private or not.
         is_private = None
-        model_name_or_path = _get_model_name_or_path(model.config)
+        model_name_or_path = get_model_name_or_path(model.config)
         if model_name_or_path is None:
             is_private = True
         elif Path(model_name_or_path).exists():
