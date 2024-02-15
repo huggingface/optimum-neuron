@@ -309,6 +309,8 @@ def patch_neuron_cc_wrapper():
             patch()
         xm.rendezvous("Patch neuron_cc_wrapper")
         yield
+    except Exception as e:
+        raise e
     finally:
         if xm.get_ordinal() == 0:
             patch(restore=True)
