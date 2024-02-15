@@ -21,8 +21,6 @@ from ...neuron.utils.cache_utils import (
     CACHE_REPO_NAME,
     HF_HOME_CACHE_REPO_FILE,
     create_custom_cache_repo,
-    list_in_registry,
-    load_custom_cache_repo_name_from_hf_home,
     set_custom_cache_repo_name_in_hf_home,
 )
 from ...neuron.utils.runner import ExampleRunner
@@ -226,7 +224,7 @@ class CustomCacheRepoCommand(BaseOptimumCLICommand):
         ),
         CommandInfo(
             name="synchronize",
-            help="Synchronize the neuronx compiler cache with a hub cache repo (inferentia only).",
+            help="Synchronize the neuronx compiler cache with a hub cache repo.",
             subcommand_class=SynchronizeRepoCommand,
         ),
         CommandInfo(
