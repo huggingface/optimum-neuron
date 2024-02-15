@@ -77,3 +77,29 @@ def test_decoder_generation_custom_stopping_criteria(neuron_decoder_path):
     criteria = CustomStoppingCriteria()
     model.generate(input_ids=torch.ones([1, 10], dtype=torch.int64), stopping_criteria=[criteria])
     assert criteria.called, "Custom StoppingCriteria should have been called"
+
+
+@is_inferentia_test
+@requires_neuronx
+def test_decoder_generation_padded_inputs(neuron_decoder_path):
+    model = NeuronModelForCausalLM.from_pretrained(neuron_decoder_path)
+    assert model.batch_size >= 2
+    tokenizer = AutoTokenizer.from_pretrained(neuron_decoder_path)
+    prompt = (
+        "It was a bright cold day in April, and the clocks were striking thirteen."
+        " Winston Smith, his chin nuzzled into his breast in an effort to escape the"
+        " vile wind, slipped quickly through the glass doors of Victory Mansions,"
+    )
+    first_input = tokenizer(prompt)
+    first_ids = first_input["input_ids"]
+    first_mask = first_input["attention_mask"]
+    max_padding = 12
+    input_len = len(first_ids)
+    for i in range(max_padding):
+        second_ids = [tokenizer.eos_token_id] * i + first_ids[: input_len - i]
+        second_mask = [0] * i + [1] * (input_len - i)
+        input_ids = torch.tensor([first_ids, second_ids], dtype=torch.int64)
+        attention_mask = torch.tensor([first_mask, second_mask], dtype=torch.int64)
+        outputs = model.generate(input_ids=input_ids, attention_mask=attention_mask, do_sample=False)
+        # Verify we did not generate any unknown token
+        assert torch.all(outputs[:, -1] != 0)
