@@ -374,6 +374,7 @@ class AugmentTrainerForNeuronMixin:
                 dp_size = get_data_parallel_size()
                 pp_size = get_pipeline_model_parallel_size()
                 pp_rank = get_pipeline_model_parallel_rank()
+                pp_group = get_pipeline_model_parallel_group()
                 tr_loss_div = tr_loss / dp_size
 
                 if pp_size > 1:
@@ -388,10 +389,10 @@ class AugmentTrainerForNeuronMixin:
                     # xm.mark_step()
                     if pp_rank == pp_size - 1:
                         torch.distributed.all_reduce(tr_loss_div, group=get_data_parallel_group())
-                        torch.distributed.broadcast(tr_loss_div, torch.distributed.get_rank(), group=get_pipeline_model_parallel_group())
+                        torch.distributed.broadcast(tr_loss_div, torch.distributed.get_rank(), group=pp_group)
                     else:
-                        src_rank = torch.distributed.distributed_c10d.get_global_rank(pp_group, self.pipeline_parallel_size - 1)
-                        torch.distributed.broadcast(tr_loss_div, src_rank, group=get_pipeline_model_parallel_group())
+                        src_rank = torch.distributed.distributed_c10d.get_global_rank(pp_group, pp_size - 1)
+                        torch.distributed.broadcast(tr_loss_div, src_rank, group=pp_group)
 
                     xm.mark_step()
                     tr_loss_scalar = tr_loss_div.detach().item()
