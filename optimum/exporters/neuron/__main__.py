@@ -235,6 +235,7 @@ def _get_submodels_and_neuron_configs(
     model: Union["PreTrainedModel", "DiffusionPipeline"],
     input_shapes: Dict[str, int],
     task: str,
+    library_name: str,
     output: Path,
     dynamic_batch_size: bool = False,
     model_name_or_path: Optional[Union[str, Path]] = None,
@@ -254,7 +255,12 @@ def _get_submodels_and_neuron_configs(
                 f"`output_attentions` and `output_hidden_states` are not supported by the {task} task yet."
             )
         models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs_for_stable_diffusion(
-            model, input_shapes, task, output, dynamic_batch_size, submodels
+            model,
+            input_shapes,
+            task,
+            output,
+            dynamic_batch_size,
+            submodels,
         )
     elif is_encoder_decoder:
         optional_outputs = {"output_attentions": output_attentions, "output_hidden_states": output_hidden_states}
@@ -268,7 +274,10 @@ def _get_submodels_and_neuron_configs(
                 f"`output_attentions` and `output_hidden_states` are not supported by the {task} task yet."
             )
         neuron_config_constructor = TasksManager.get_exporter_config_constructor(
-            model=model, exporter="neuron", task=task
+            model=model,
+            exporter="neuron",
+            task=task,
+            library_name=library_name,
         )
         neuron_config = neuron_config_constructor(model.config, dynamic_batch_size=dynamic_batch_size, **input_shapes)
         model_name = getattr(model, "name_or_path", None) or model_name_or_path
@@ -391,6 +400,9 @@ def main_export(
 
     task = TasksManager.map_from_synonym(task)
     is_stable_diffusion = "stable-diffusion" in task
+    library_name = TasksManager.infer_library_from_model(
+        model_name_or_path, subfolder=subfolder, library_name=library_name
+    )
 
     model_kwargs = {
         "task": task,
@@ -411,6 +423,7 @@ def main_export(
         model=model,
         input_shapes=input_shapes,
         task=task,
+        library_name=library_name,
         output=output,
         dynamic_batch_size=dynamic_batch_size,
         model_name_or_path=model_name_or_path,

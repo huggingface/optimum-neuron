@@ -333,7 +333,11 @@ class NeuronModelForSentenceTransformersIntegrationTest(NeuronModelTestMixin):
     TASK = "feature-extraction"
     ATOL_FOR_VALIDATION = 1e-2
     # TODO: only support text models so far, will support vision next
-    SUPPORTED_ARCHITECTURES = ["sentence-transformers-transformer"]
+    SUPPORTED_ARCHITECTURES = ["transformer"]
+    ARCH_MODEL_MAP = {
+        "transformer": "sentence-transformers/all-MiniLM-L6-v2",
+        "clip": "sentence-transformers/clip-ViT-B-32",
+    }
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     @requires_neuronx

@@ -204,6 +204,7 @@ class NeuronModelForSentenceTransformers(NeuronBaseModel):
     """
 
     auto_model_class = AutoModel
+    library_name = "sentence_transformers"
 
     @add_start_docstrings_to_model_forward(
         NEURON_TEXT_INPUTS_DOCSTRING.format("batch_size, sequence_length")

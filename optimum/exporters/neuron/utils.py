@@ -163,6 +163,7 @@ def get_stable_diffusion_models_for_export(
         Neuron configs for the different components of the model.
     """
     models_for_export = _get_submodels_for_export_stable_diffusion(pipeline=pipeline, task=task)
+    library_name = "diffusers"
 
     # Text encoders
     if DIFFUSION_MODEL_TEXT_ENCODER_NAME in models_for_export:
@@ -171,7 +172,7 @@ def get_stable_diffusion_models_for_export(
             model=text_encoder,
             exporter="neuron",
             task="feature-extraction",
-            library_name="transformers",
+            library_name=library_name,
         )
         text_encoder_neuron_config = text_encoder_config_constructor(
             text_encoder.config,
@@ -188,7 +189,7 @@ def get_stable_diffusion_models_for_export(
             exporter="neuron",
             task="feature-extraction",
             model_type="clip-text-with-projection",
-            library_name="transformers",
+            library_name=library_name,
         )
         text_encoder_neuron_config_2 = text_encoder_config_constructor_2(
             text_encoder_2.config,
@@ -205,7 +206,7 @@ def get_stable_diffusion_models_for_export(
         exporter="neuron",
         task="semantic-segmentation",
         model_type="unet",
-        library_name="diffusers",
+        library_name=library_name,
     )
     unet_neuron_config = unet_neuron_config_constructor(
         unet.config,
@@ -224,7 +225,7 @@ def get_stable_diffusion_models_for_export(
         exporter="neuron",
         task="semantic-segmentation",
         model_type="vae-encoder",
-        library_name="diffusers",
+        library_name=library_name,
     )
     vae_encoder_neuron_config = vae_encoder_config_constructor(
         vae_encoder.config,
@@ -241,7 +242,7 @@ def get_stable_diffusion_models_for_export(
         exporter="neuron",
         task="semantic-segmentation",
         model_type="vae-decoder",
-        library_name="diffusers",
+        library_name=library_name,
     )
     vae_decoder_neuron_config = vae_decoder_config_constructor(
         vae_decoder.config,

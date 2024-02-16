@@ -228,7 +228,7 @@ class CLIPNeuronConfig(TextAndVisionNeuronConfig):
         return ["logits_per_image", "logits_per_text", "text_embeds", "image_embeds"]
 
 
-@register_in_tasks_manager("clip-text-with-projection", *["feature-extraction"])
+@register_in_tasks_manager("clip-text-with-projection", *["feature-extraction"], library_name="diffusers")
 class CLIPTextWithProjectionNeuronConfig(TextEncoderNeuronConfig):
     MODEL_TYPE = "clip-text-model"
     ATOL_FOR_VALIDATION = 1e-3
@@ -254,7 +254,7 @@ class CLIPTextWithProjectionNeuronConfig(TextEncoderNeuronConfig):
         return common_outputs
 
 
-@register_in_tasks_manager("clip-text-model", *["feature-extraction"])
+@register_in_tasks_manager("clip-text-model", *["feature-extraction"], library_name="diffusers")
 class CLIPTextNeuronConfig(CLIPTextWithProjectionNeuronConfig):
     MODEL_TYPE = "clip-text-model"
 
