@@ -35,7 +35,6 @@ from transformers import PreTrainedModel, Seq2SeqTrainer, Trainer, TrainingArgum
 from transformers.debug_utils import DebugOption, DebugUnderflowOverflow
 from transformers.integrations import hp_params
 from transformers.modeling_utils import unwrap_model
-from transformers.pytorch_utils import is_torch_less_than_1_11
 from transformers.trainer import (
     OPTIMIZER_NAME,
     SCHEDULER_NAME,
@@ -861,7 +860,7 @@ class AugmentTrainerForNeuronMixin:
 
                     sampler_kinds.append(SeedableRandomSampler)
                 is_random_sampler = isinstance(sampler, tuple(sampler_kinds))
-                if is_torch_less_than_1_11 or not is_random_sampler:
+                if not is_random_sampler:
                     # We just need to begin an iteration to create the randomization of the sampler.
                     for _ in train_dataloader:
                         break
