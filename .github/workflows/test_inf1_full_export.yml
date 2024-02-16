@@ -1,16 +1,14 @@
-name: Optimum neuron / Test INF2 partial export
+name: Optimum neuron / Test INF1 full export
 
 on:
   push:
     branches: [ main ]
     paths:
-      - "setup.py"
-      - "optimum/**.py"
+      - "optimum/exporters/neuron/*.py"
   pull_request:
     branches: [ main ]
     paths:
-      - "setup.py"
-      - "optimum/**.py"
+      - "optimum/exporters/neuron/*.py"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -18,8 +16,8 @@ concurrency:
 
 jobs:
   do-the-job:
-    name: Run INF2 export tests
-    runs-on: [self-hosted, 1-aws-inf2, 32-cpu, ci] # run the job on the newly created runner
+    name: Run INF1 full export tests
+    runs-on: [self-hosted, 4-aws-inf1, 24-cpu, ci]
     env:
       AWS_REGION: us-east-1
     steps:
@@ -27,16 +25,24 @@ jobs:
         run: dpkg -l | grep neuron
       - name: Checkout
         uses: actions/checkout@v2
-      - name: Install python dependencies
+      - name: Install system packages
         run: |
           sudo apt install python3.8-venv -y
+      - name: Install python packages
+        run: |
           python3 -m venv aws_neuron_venv_pytorch
           source aws_neuron_venv_pytorch/bin/activate
           python -m pip install -U pip
           python -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
-          python -m pip install .[neuronx,tests]
-      - name: Run exporters tests
+          python -m pip install .[neuron,tests]
+          python -m pip uninstall optimum -y
+          python -m pip install optimum
+      - name: Run CLI tests
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          export MAX_EXPORT_TEST_COMBINATIONS=1
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m is_inferentia_test tests/cli
+      - name: Run export tests
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          export MAX_EXPORT_TEST_COMBINATIONS=10
           HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m is_inferentia_test tests/exporters
