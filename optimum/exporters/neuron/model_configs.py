@@ -101,6 +101,16 @@ class ElectraNeuronConfig(BertNeuronConfig):
         return self._TASK_TO_COMMON_OUTPUTS[self.task]
 
 
+@register_in_tasks_manager("esm", *["feature-extraction", "fill-mask", "text-classification", "token-classification"])
+class EsmNeuronConfig(TextEncoderNeuronConfig):
+    NORMALIZED_CONFIG_CLASS = NormalizedConfigManager.get_normalized_config_class("bert")
+    ATOL_FOR_VALIDATION = 1e-3
+
+    @property
+    def inputs(self) -> List[str]:
+        return ["input_ids", "attention_mask"]
+
+
 @register_in_tasks_manager("flaubert", *COMMON_TEXT_TASKS)
 class FlaubertNeuronConfig(ElectraNeuronConfig):
     pass

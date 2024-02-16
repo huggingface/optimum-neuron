@@ -154,16 +154,19 @@ def customize_optional_outputs(args: argparse.Namespace) -> Dict[str, bool]:
 
 def parse_optlevel(args: argparse.Namespace) -> Dict[str, bool]:
     """
-    Parse the level of optimization the compiler should perform. If not specified apply `O2`(the best balance between model performance and compile time).
+    (NEURONX ONLY) Parse the level of optimization the compiler should perform. If not specified apply `O2`(the best balance between model performance and compile time).
     """
-    if args.O1:
-        optlevel = "1"
-    elif args.O2:
-        optlevel = "2"
-    elif args.O3:
-        optlevel = "3"
+    if is_neuronx_available():
+        if args.O1:
+            optlevel = "1"
+        elif args.O2:
+            optlevel = "2"
+        elif args.O3:
+            optlevel = "3"
+        else:
+            optlevel = "2"
     else:
-        optlevel = "2"
+        optlevel = None
     return optlevel
 
 

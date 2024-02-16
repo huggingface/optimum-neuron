@@ -1,12 +1,14 @@
-# Fetch and extract the TGI sources
+# Fetch and extract the TGI sources (TGI_VERSION is mandatory)
 FROM alpine AS tgi
+ARG TGI_VERSION
+RUN test -n ${TGI_VERSION:?}
 RUN mkdir -p /tgi
-ADD https://github.com/huggingface/text-generation-inference/archive/refs/tags/v1.0.2.tar.gz /tgi/sources.tar.gz
+ADD https://github.com/huggingface/text-generation-inference/archive/refs/tags/v${TGI_VERSION}.tar.gz /tgi/sources.tar.gz
 RUN tar -C /tgi -xf /tgi/sources.tar.gz --strip-components=1
 
 # Build cargo components (adapted from TGI original Dockerfile)
 # Note that the build image is aligned on the same Linux version as the base image (Debian bookworm/ Ubuntu 22.04)
-FROM lukemathwalker/cargo-chef:latest-rust-1.71-bookworm AS chef
+FROM lukemathwalker/cargo-chef:latest-rust-1.75-bookworm AS chef
 WORKDIR /usr/src
 
 ARG CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
@@ -51,6 +53,10 @@ RUN apt-get update -y \
     && apt-get clean
 RUN pip3 --no-cache-dir install --upgrade pip
 
+# VERSION is a mandatory parameter
+ARG VERSION
+RUN test -n ${VERSION:?}
+
 # Python server build image
 FROM base AS pyserver
 
@@ -66,14 +72,10 @@ WORKDIR /pyserver
 COPY text-generation-inference/server server
 COPY --from=tgi /tgi/proto proto
 RUN pip3 install -r server/build-requirements.txt
-RUN VERBOSE=1 BUILDDIR=/pyserver/build PROTODIR=/pyserver/proto make -C server gen-server
+RUN VERBOSE=1 BUILDDIR=/pyserver/build PROTODIR=/pyserver/proto VERSION=${VERSION} make -C server gen-server
 
 # Neuron base image (used for deployment)
 FROM base AS neuron
-
-# VERSION is a mandatory parameter
-ARG VERSION
-RUN test -n ${VERSION:?}
 
 # Install system prerequisites
 RUN apt-get update -y \

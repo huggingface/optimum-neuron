@@ -5,6 +5,8 @@
     title: Installation
   - local: quickstart
     title: Quickstart
+  - local: containers
+    title: Optimum Containers
   - sections:
     - local: tutorials/overview
       title: Overview
@@ -41,6 +43,10 @@
     - local: guides/pipelines
       title: Inference pipelines with AWS Neuron
     title: How-To Guides
+  - sections:
+    - local: community/contributing
+      title: Add support for a new model architecture
+    title: Contribute
   - sections:
     - local: package_reference/trainer
       title: Neuron Trainer

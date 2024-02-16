@@ -28,27 +28,6 @@ exporting function according to the environment.
 Besides, you can check if the exported model is valid via [`~optimum.exporters.neuron.convert.validate_model_outputs`], which compares
 the compiled model's output on Neuron devices to the PyTorch model's output on CPU.
 
-## Configuration classes for Neuron exports
-
-Exporting a PyTorch model to a Neuron compiled model involves specifying:
-
-1. The input names.
-2. The output names.
-3. The dummy inputs used to trace the model. This is needed by the Neuron Compiler to record the computational graph and convert it to a TorchScript module.
-4. The compilation arguments used to control the trade-off between hardware efficiency (latency, throughput) and accuracy.
-
-Depending on the choice of model and task, we represent the data above with _configuration classes_. Each configuration class is associated with
-a specific model architecture, and follows the naming convention `ArchitectureNameNeuronConfig`. For instance, the configuration which specifies the Neuron
-export of BERT models is `BertNeuronConfig`.
-
-Since many architectures share similar properties for their Neuron configuration, 🤗 Optimum adopts a 3-level class hierarchy:
-
-1. Abstract and generic base classes. These handle all the fundamental features, while being agnostic to the modality (text, image, audio, etc).
-2. Middle-end classes. These are aware of the modality, but multiple can exist for the same modality depending on the inputs they support.
-   They specify which input generators should be used for the dummy inputs, but remain model-agnostic.
-3. Model-specific classes like the `BertNeuronConfig` mentioned above. These are the ones actually used to export models.
-
-
 ## Supported architectures
 
 

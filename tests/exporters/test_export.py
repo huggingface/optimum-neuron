@@ -179,7 +179,6 @@ class NeuronExportTestCase(unittest.TestCase):
         )
     )
     @is_inferentia_test
-    @requires_neuronx
     def test_export_separated_weights(self, test_name, name, model_name, task, neuron_config_constructor):
         self._neuronx_export(
             test_name, name, model_name, task, neuron_config_constructor, inline_weights_to_neff=False
@@ -187,7 +186,6 @@ class NeuronExportTestCase(unittest.TestCase):
 
     @parameterized.expand(_get_models_to_test(SENTENCE_TRANSFORMERS_MODELS, library_name="sentence_transformers"))
     @is_inferentia_test
-    @require_vision
     @require_sentence_transformers
     @requires_neuronx
     def test_export_sentence_transformers(self, test_name, name, model_name, task, neuron_config_constructor):
