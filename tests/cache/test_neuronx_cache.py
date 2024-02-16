@@ -123,7 +123,7 @@ def test_decoder_cache(cache_repos):
     synchronize_hub_cache(cache_repo_id=cache_repo_id)
     assert_local_and_hub_cache_sync(cache_path, cache_repo_id)
     # Verify we are able to fetch the cached entry for the model
-    model_entries = get_hub_cached_entries(model_id, cache_repo_id=cache_repo_id)
+    model_entries = get_hub_cached_entries(model_id, "inference", cache_repo_id=cache_repo_id)
     assert len(model_entries) == 1
     assert model_entries[0] == model.config.neuron
     # Clear the local cache

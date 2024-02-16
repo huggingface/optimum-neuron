@@ -16,10 +16,12 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 from contextlib import contextmanager
+from enum import Enum
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Optional
+from typing import Literal, Optional, Union
 
 from huggingface_hub import HfApi, get_token
 from transformers import AutoConfig, PretrainedConfig
@@ -27,7 +29,7 @@ from transformers import AutoConfig, PretrainedConfig
 from ..version import __version__
 from .import_utils import is_neuronx_available
 from .patching import patch_everywhere
-from .require_utils import requires_torch_neuronx
+from .require_utils import requires_torch_neuronx, requires_torch_xla
 
 
 if is_neuronx_available():
@@ -233,20 +235,44 @@ class ModelCacheEntry:
 REGISTRY_FOLDER = f"0_REGISTRY/{__version__}"
 
 
+class Mode(str, Enum):
+    TRAINING = "training"
+    INFERENCE = "inference"
+
+
+def get_registry_folder_for_mode(mode: Union[Literal["training"], Literal["inference"], Mode]) -> str:
+    if isinstance(mode, str) and not isinstance(mode, Mode):
+        mode = Mode(mode)
+    if mode is Mode.TRAINING:
+        return f"{REGISTRY_FOLDER}/training"
+    else:
+        return f"{REGISTRY_FOLDER}/inference"
+
+
 @requires_torch_neuronx
 @contextmanager
-def hub_neuronx_cache(entry: Optional[ModelCacheEntry] = None):
+def hub_neuronx_cache(
+    mode: Union[Literal["training"], Literal["inference"], Mode],
+    entry: Optional[ModelCacheEntry] = None,
+    cache_repo_id: Optional[str] = None,
+):
     """A context manager to activate the Hugging Face Hub proxy compiler cache.
 
     Args:
+        mode (`Union[Literal["training"], Literal["inference"], Mode]`):
+            The mode in which the context manager is used. Can be either "training" or "inference".
+            This information will be used to populate the proper registry folder.
         entry (`Optional[ModelCacheEntry]`, defaults to `None`):
             An optional dataclass containing metadata associated with the model corresponding
             to the cache session. Will create a dedicated entry in the cache registry.
+        cache_repo_id (`Optional[str]`, defaults to `None`):
+            The id of the cache repo to use to fetch the precompiled files.
     """
+    registry_folder = get_registry_folder_for_mode(mode)
 
     def hf_create_compile_cache(cache_url):
         try:
-            return _create_hub_compile_cache_proxy(cache_url)
+            return _create_hub_compile_cache_proxy(cache_url, cache_repo_id=cache_repo_id)
         except Exception as e:
             logger.warning(f"Bypassing Hub cache because of the following error: {e}")
             return create_compile_cache(cache_url)
@@ -261,7 +287,7 @@ def hub_neuronx_cache(entry: Optional[ModelCacheEntry] = None):
                 logger.warning("Skipping cache metadata update on S3 cache.")
             else:
                 # Create cache entry in local cache: it can be later synchronized with the hub cache
-                registry_path = default_cache.get_cache_dir_with_cache_key(REGISTRY_FOLDER)
+                registry_path = default_cache.get_cache_dir_with_cache_key(registry_folder)
                 model_type = entry.config["model_type"]
                 entry_path = f"{registry_path}/{model_type}/{entry.model_id}"
                 config_path = f"{entry_path}/{entry.hash}.json"
@@ -272,6 +298,33 @@ def hub_neuronx_cache(entry: Optional[ModelCacheEntry] = None):
                     default_cache.upload_string_to_file(config_path, entry.to_json())
     finally:
         patch_everywhere("create_compile_cache", create_compile_cache, "libneuronxla")
+
+
+@requires_torch_neuronx
+@requires_torch_xla
+@contextmanager
+def patch_neuron_cc_wrapper():
+    """
+    Patches the `neuron_cc_wrapper` file to force it use our own version of it which essentially makes sure that it
+    uses our caching system.
+    """
+
+    tmpdirname = ""
+    try:
+        with TemporaryDirectory() as dirname:
+            tmpdirname = dirname
+            src = Path(__file__).parent / "neuron_cc_wrapper"
+            dst = Path(tmpdirname) / "neuron_cc_wrapper"
+            shutil.copy(src, dst)
+
+            path = os.environ["PATH"]
+            os.environ["PATH"] = f"{tmpdirname}:{path}"
+
+            yield
+    except Exception as e:
+        raise e
+    finally:
+        os.environ["PATH"] = os.environ["PATH"].replace(f"{tmpdirname}:", "")
 
 
 @requires_torch_neuronx
@@ -286,7 +339,9 @@ def synchronize_hub_cache(cache_repo_id: Optional[str] = None):
     hub_cache_proxy.synchronize()
 
 
-def get_hub_cached_entries(model_id: str, cache_repo_id: Optional[str] = None):
+def get_hub_cached_entries(
+    model_id: str, mode: Union[Literal["training"], Literal["inference"], Mode], cache_repo_id: Optional[str] = None
+):
     if cache_repo_id is None:
         cache_repo_id = get_hub_cache()
     # Allocate a Hub API with refreshed information (required for tests altering the env)
@@ -298,7 +353,8 @@ def get_hub_cached_entries(model_id: str, cache_repo_id: Optional[str] = None):
     target_entry = ModelCacheEntry(model_id, (AutoConfig.from_pretrained(model_id)))
     # Extract model type: it will be used as primary key for lookup
     model_type = target_entry.config["model_type"]
-    registry_pattern = REGISTRY_FOLDER + "/" + model_type
+    registry_folder = get_registry_folder_for_mode(mode)
+    registry_pattern = registry_folder + "/" + model_type
     model_files = [path for path in repo_files if registry_pattern in path]
     model_entries = []
     with TemporaryDirectory() as tmpdir:
