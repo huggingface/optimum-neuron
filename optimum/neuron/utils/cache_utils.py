@@ -38,7 +38,7 @@ from huggingface_hub import (
     hf_hub_download,
     whoami,
 )
-from huggingface_hub.utils import EntryNotFoundError, HfHubHTTPError, RepositoryNotFoundError
+from huggingface_hub.utils import HfHubHTTPError, RepositoryNotFoundError
 from packaging import version
 from transformers import PretrainedConfig, PreTrainedModel
 
@@ -387,6 +387,7 @@ def remove_entries_in_neuron_parallel_compile_report(
 @requires_torch_xla
 def create_registry_file_if_does_not_exist(repo_id: str):
     import torch_xla.core.xla_model as xm
+
     was_created = _REGISTRY_FILE_EXISTS.get(repo_id, False)
     if was_created:
         return

@@ -72,7 +72,6 @@ from .utils import (
     is_torch_xla_available,
     patch_within_function,
 )
-from .utils.misc import is_main_worker
 from .utils.cache_utils import (
     get_hf_hub_cache_repos,
     get_model_name_or_path,
@@ -81,6 +80,7 @@ from .utils.cache_utils import (
     has_write_access_to_repo,
 )
 from .utils.hub_neuronx_cache import ModelCacheEntry, hub_neuronx_cache, patch_neuron_cc_wrapper, synchronize_hub_cache
+from .utils.misc import is_main_worker
 from .utils.require_utils import requires_neuronx_distributed
 from .utils.training_utils import (
     TRANSFORMERS_MIN_VERSION_USE_ACCELERATE,
@@ -367,8 +367,8 @@ class AugmentTrainerForNeuronMixin:
                     get_data_parallel_group,
                     get_data_parallel_size,
                     get_pipeline_model_parallel_group,
-                    get_pipeline_model_parallel_size,
                     get_pipeline_model_parallel_rank,
+                    get_pipeline_model_parallel_size,
                 )
 
                 dp_size = get_data_parallel_size()
@@ -513,7 +513,8 @@ class AugmentTrainerForNeuronMixin:
 
                     self._save_xla(output_dir)
 
-            self.synchronize_hub_cache()
+            if not is_precompilation():
+                self.synchronize_hub_cache()
 
             # Push to the Hub when `save_model` is called by the user.
             if self.args.push_to_hub and not _internal_call:

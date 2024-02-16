@@ -308,7 +308,6 @@ def patch_neuron_cc_wrapper():
     Patches the `neuron_cc_wrapper` file to force it use our own version of it which essentially makes sure that it
     uses our caching system.
     """
-
     tmpdirname = ""
     try:
         with TemporaryDirectory() as dirname:
