@@ -22,7 +22,7 @@ INSTALL_REQUIRES = [
 ]
 
 TESTS_REQUIRE = [
-    "pytest",
+    "pytest <= 8.0.0",
     "psutil",
     "parameterized",
     "GitPython",
