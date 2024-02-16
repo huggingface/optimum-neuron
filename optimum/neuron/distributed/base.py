@@ -776,7 +776,7 @@ class Parallelizer(ABC):
 
         output_path = output_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME
 
-        if xm.get_local_ordinal() == 0:
+        if is_main_worker():
             if output_path.is_dir():
                 shutil.rmtree(output_path, ignore_errors=True)
             output_path.mkdir()
