@@ -193,7 +193,7 @@ MODELS_TO_TEST_MAPPING = {
         TPSupport.FULL,
         Coverage.HIGH,
         {"num_hidden_layers": 2},
-    )
+    ),
     # "wav2vec2": "facebook/wav2vec2-base",
     # Remaning: XLNet, Deberta-v2, MPNet, CLIP
 }

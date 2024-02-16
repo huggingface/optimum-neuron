@@ -72,7 +72,7 @@ if is_diffusers_available():
 
 
 if TYPE_CHECKING:
-    from ..exporters.neuron import NeuronConfig
+    from ..exporters.neuron import NeuronDefaultConfig
 
 
 logger = logging.getLogger(__name__)
@@ -98,7 +98,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         tokenizer_2: Optional[CLIPTokenizer] = None,
         feature_extractor: Optional[CLIPFeatureExtractor] = None,
         configs: Optional[Dict[str, "PretrainedConfig"]] = None,
-        neuron_configs: Optional[Dict[str, "NeuronConfig"]] = None,
+        neuron_configs: Optional[Dict[str, "NeuronDefaultConfig"]] = None,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
         model_and_config_save_paths: Optional[Dict[str, Tuple[str, Path]]] = None,
     ):
@@ -132,7 +132,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 A model extracting features from generated images to be used as inputs for the `safety_checker`
             configs (Optional[Dict[str, "PretrainedConfig"]], defaults to `None`):
                 A dictionary configurations for components of the pipeline.
-            neuron_configs (Optional["NeuronConfig"], defaults to `None`):
+            neuron_configs (Optional["NeuronDefaultConfig"], defaults to `None`):
                 A list of Neuron configurations.
             model_save_dir (`Optional[Union[str, Path, TemporaryDirectory]]`, defaults to `None`):
                 The directory under which the exported Neuron models were saved.
@@ -540,6 +540,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         force_download: bool = True,
         cache_dir: Optional[str] = None,
         compiler_workdir: Optional[str] = None,
+        inline_weights_to_neff: bool = True,
         optlevel: str = "2",
         subfolder: str = "",
         local_files_only: bool = False,
@@ -580,6 +581,8 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 standard cache should not be used.
             compiler_workdir (`Optional[str]`, defaults to `None`):
                 Path to a directory in which the neuron compiler will store all intermediary files during the compilation(neff, weight, hlo graph...).
+            inline_weights_to_neff (`bool`, defaults to `True`):
+                Whether to inline the weights to the neff graph. If set to False, weights will be seperated from the neff.
             optlevel (`str`, defaults to `"2"`):
             The level of optimization the compiler should perform. Can be `"1"`, `"2"` or `"3"`, defaults to "2".
                 1: enables the core performance optimizations in the compiler, while also minimizing compile time.
@@ -640,6 +643,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             dynamic_batch_size=dynamic_batch_size,
             cache_dir=cache_dir,
             compiler_workdir=compiler_workdir,
+            inline_weights_to_neff=inline_weights_to_neff,
             optlevel=optlevel,
             trust_remote_code=trust_remote_code,
             subfolder=subfolder,
@@ -677,7 +681,7 @@ class _NeuronDiffusionModelPart:
         model: torch.jit._script.ScriptModule,
         parent_model: NeuronBaseModel,
         config: Optional[Union[DiffusersPretrainedConfig, PretrainedConfig]] = None,
-        neuron_config: Optional["NeuronConfig"] = None,
+        neuron_config: Optional["NeuronDefaultConfig"] = None,
         model_type: str = "unet",
         device: Optional[int] = None,
     ):
@@ -829,7 +833,7 @@ class NeuronStableDiffusionXLPipelineBase(NeuronStableDiffusionPipelineBase):
         tokenizer_2: Optional[CLIPTokenizer] = None,
         feature_extractor: Optional[CLIPFeatureExtractor] = None,
         configs: Optional[Dict[str, "PretrainedConfig"]] = None,
-        neuron_configs: Optional[Dict[str, "NeuronConfig"]] = None,
+        neuron_configs: Optional[Dict[str, "NeuronDefaultConfig"]] = None,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
         model_and_config_save_paths: Optional[Dict[str, Tuple[str, Path]]] = None,
         add_watermarker: Optional[bool] = None,

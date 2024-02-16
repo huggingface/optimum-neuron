@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional, Union
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from transformers import AutoConfig, PretrainedConfig
 
+from ...neuron import NeuronModelForCausalLM
 from ...neuron.utils import (
     DECODER_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_2_NAME,
@@ -41,6 +42,7 @@ from ...utils import is_diffusers_available, logging
 from ...utils.save_utils import maybe_save_preprocessors
 from ..error_utils import AtolError, OutputMatchError, ShapeError
 from ..tasks import TasksManager
+from .base import NeuronDecoderConfig
 from .convert import export_models, validate_models_outputs
 from .model_configs import *  # noqa: F403
 from .utils import (
@@ -106,7 +108,7 @@ def infer_task(task: str, model_name_or_path: str) -> str:
     return task
 
 
-def normalize_input_shapes(task: str, args: argparse.Namespace) -> Dict[str, int]:
+def get_input_shapes_and_config_class(task: str, args: argparse.Namespace) -> Dict[str, int]:
     config = AutoConfig.from_pretrained(args.model)
 
     model_type = config.model_type.replace("_", "-")
@@ -116,9 +118,9 @@ def normalize_input_shapes(task: str, args: argparse.Namespace) -> Dict[str, int
     neuron_config_constructor = TasksManager.get_exporter_config_constructor(
         model_type=model_type, exporter="neuron", task=task
     )
-    mandatory_axes = neuron_config_constructor.func.get_mandatory_axes_for_task(task)
-    input_shapes = {name: getattr(args, name) for name in mandatory_axes}
-    return input_shapes
+    input_args = neuron_config_constructor.func.get_input_args_for_task(task)
+    input_shapes = {name: getattr(args, name) for name in input_args}
+    return input_shapes, neuron_config_constructor.func
 
 
 def normalize_sentence_transformers_input_shapes(args: argparse.Namespace) -> Dict[str, int]:
@@ -148,16 +150,19 @@ def customize_optional_outputs(args: argparse.Namespace) -> Dict[str, bool]:
 
 def parse_optlevel(args: argparse.Namespace) -> Dict[str, bool]:
     """
-    Parse the level of optimization the compiler should perform. If not specified apply `O2`(the best balance between model performance and compile time).
+    (NEURONX ONLY) Parse the level of optimization the compiler should perform. If not specified apply `O2`(the best balance between model performance and compile time).
     """
-    if args.O1:
-        optlevel = "1"
-    elif args.O2:
-        optlevel = "2"
-    elif args.O3:
-        optlevel = "3"
+    if is_neuronx_available():
+        if args.O1:
+            optlevel = "1"
+        elif args.O2:
+            optlevel = "2"
+        elif args.O3:
+            optlevel = "3"
+        else:
+            optlevel = "2"
     else:
-        optlevel = "2"
+        optlevel = None
     return optlevel
 
 
@@ -361,6 +366,7 @@ def main_export(
     atol: Optional[float] = None,
     cache_dir: Optional[str] = None,
     compiler_workdir: Optional[Union[str, Path]] = None,
+    inline_weights_to_neff: bool = True,
     optlevel: str = "2",
     trust_remote_code: bool = False,
     subfolder: str = "",
@@ -413,6 +419,7 @@ def main_export(
         models_and_neuron_configs=models_and_neuron_configs,
         output_dir=output,
         compiler_workdir=compiler_workdir,
+        inline_weights_to_neff=inline_weights_to_neff,
         optlevel=optlevel,
         output_file_names=output_model_names,
         compiler_kwargs=compiler_kwargs,
@@ -457,6 +464,19 @@ def main_export(
             )
 
 
+def decoder_export(
+    model_name_or_path: str,
+    output: Union[str, Path],
+    **kwargs,
+):
+    output = Path(output)
+    if not output.parent.exists():
+        output.parent.mkdir(parents=True)
+
+    model = NeuronModelForCausalLM.from_pretrained(model_name_or_path, export=True, **kwargs)
+    model.save_pretrained(output)
+
+
 def main():
     parser = ArgumentParser(f"Hugging Face Optimum {NEURON_COMPILER} exporter")
 
@@ -468,7 +488,6 @@ def main():
     task = infer_task(args.task, args.model)
     is_stable_diffusion = "stable-diffusion" in task
     is_sentence_transformers = args.library_name == "sentence_transformers"
-    compiler_kwargs = infer_compiler_kwargs(args)
 
     if is_stable_diffusion:
         input_shapes = normalize_stable_diffusion_input_shapes(args)
@@ -477,9 +496,26 @@ def main():
         input_shapes = normalize_sentence_transformers_input_shapes(args)
         submodels = None
     else:
-        input_shapes = normalize_input_shapes(task, args)
+        input_shapes, neuron_config_class = get_input_shapes_and_config_class(task, args)
+        if NeuronDecoderConfig in inspect.getmro(neuron_config_class):
+            # TODO: warn about ignored args:
+            # dynamic_batch_size, compiler_workdir, optlevel,
+            # atol, disable_validation, library_name
+            decoder_export(
+                model_name_or_path=args.model,
+                output=args.output,
+                task=task,
+                cache_dir=args.cache_dir,
+                trust_remote_code=args.trust_remote_code,
+                subfolder=args.subfolder,
+                auto_cast_type=args.auto_cast_type,
+                num_cores=args.num_cores,
+                **input_shapes,
+            )
+            return
         submodels = None
 
+    compiler_kwargs = infer_compiler_kwargs(args)
     optional_outputs = customize_optional_outputs(args)
     optlevel = parse_optlevel(args)
 
@@ -492,6 +528,7 @@ def main():
         atol=args.atol,
         cache_dir=args.cache_dir,
         compiler_workdir=args.compiler_workdir,
+        inline_weights_to_neff=not args.disable_weights_neff_inline,
         optlevel=optlevel,
         trust_remote_code=args.trust_remote_code,
         subfolder=args.subfolder,

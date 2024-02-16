@@ -5,6 +5,8 @@
     title: Installation
   - local: quickstart
     title: Quickstart
+  - local: containers
+    title: Optimum Containers
   - sections:
     - local: tutorials/overview
       title: Overview
@@ -17,7 +19,9 @@
     - local: tutorials/llama2-13b-chatbot
       title: Create your own chatbot with llama-2-13B on AWS Inferentia
     - local: tutorials/fine_tune_llama_7b
-      title: Fine-tune Llama 2 7B on AWS Trainium 
+      title: Fine-tune Llama 2 7B on AWS Trainium
+    - local: tutorials/sentence_transformers
+      title: Sentence Transformers on AWS Inferentia
     title: Tutorials
   - sections:
     - local: guides/overview
@@ -40,6 +44,10 @@
       title: Inference pipelines with AWS Neuron
     title: How-To Guides
   - sections:
+    - local: community/contributing
+      title: Add support for a new model architecture
+    title: Contribute
+  - sections:
     - local: package_reference/trainer
       title: Neuron Trainer
     - local: package_reference/distributed
@@ -49,5 +57,9 @@
     - local: package_reference/modeling
       title: Neuron Models
     title: Reference
+  - sections:
+    - local: benchmarks/inferentia-llama2
+      title: Llama on AWS Inferentia2
+    title: Benchmarks
   title: Optimum Neuron
   isExpanded: true

@@ -16,13 +16,11 @@
 
 from typing import TYPE_CHECKING
 
-from ...neuron.utils import synchronize_hub_cache
+from ...neuron.utils import get_hub_cached_entries, synchronize_hub_cache
 from ...neuron.utils.cache_utils import (
     CACHE_REPO_NAME,
     HF_HOME_CACHE_REPO_FILE,
     create_custom_cache_repo,
-    list_in_registry,
-    load_custom_cache_repo_name_from_hf_home,
     set_custom_cache_repo_name_in_hf_home,
 )
 from ...neuron.utils.runner import ExampleRunner
@@ -163,52 +161,6 @@ class AddToCacheRepoCommand(BaseOptimumCLICommand):
         )
 
 
-class ListRepoCommand(BaseOptimumCLICommand):
-    @staticmethod
-    def parse_args(parser: "ArgumentParser"):
-        parser.add_argument(
-            "name",
-            type=str,
-            nargs="?",
-            default=None,
-            help="The name of the repo to list. Will use the locally saved cache repo if left unspecified.",
-        )
-        parser.add_argument(
-            "-m",
-            "--model",
-            type=str,
-            default=None,
-            help="The model name or path of the model to consider. If left unspecified, will list all available models.",
-        )
-        parser.add_argument(
-            "-v",
-            "--version",
-            type=str,
-            default=None,
-            help=(
-                "The version of the Neuron X Compiler to consider. Will list all available versions if left "
-                "unspecified."
-            ),
-        )
-
-    def run(self):
-        if self.args.name is None:
-            custom_cache_repo_name = load_custom_cache_repo_name_from_hf_home()
-            if custom_cache_repo_name is None:
-                raise ValueError("No custom cache repo was set locally so you need to specify a cache repo name.")
-            self.args.name = custom_cache_repo_name
-
-        entries = list_in_registry(
-            self.args.name, model_name_or_path_or_hash=self.args.model, neuron_compiler_version=self.args.version
-        )
-        if not entries:
-            entries = ["Nothing was found."]
-        line = "\n" + "=" * 50 + "\n"
-        result = line.join(entries)
-
-        print(f"\n*** Repo id: {self.args.name} ***\n\n{result}")
-
-
 class SynchronizeRepoCommand(BaseOptimumCLICommand):
     @staticmethod
     def parse_args(parser: "ArgumentParser"):
@@ -216,6 +168,41 @@ class SynchronizeRepoCommand(BaseOptimumCLICommand):
 
     def run(self):
         synchronize_hub_cache(self.args.repo_id)
+
+
+class LookupRepoCommand(BaseOptimumCLICommand):
+    @staticmethod
+    def parse_args(parser: "ArgumentParser"):
+        parser.add_argument(
+            "model_id",
+            type=str,
+            help="The model_id to lookup cached versions for.",
+        )
+        parser.add_argument(
+            "--mode",
+            type=str,
+            choices=["training", "inference", "all"],
+            default="all",
+            help='The mode you wish to lookup compilation files for. Can be either "training", "inference" or "all"',
+        )
+        parser.add_argument("--repo_id", type=str, default=None, help="The name of the repo to use as remote cache.")
+
+    def _list_entries(self, mode: str):
+        entries = get_hub_cached_entries(self.args.model_id, mode, cache_repo_id=self.args.repo_id)
+        n_entries = len(entries)
+        output = f"\n*** {n_entries} entrie(s) found in cache for {self.args.model_id} for {mode}.***\n\n"
+        for entry in entries:
+            for key, value in entry.items():
+                output += f"\n{key}: {value}"
+            output += "\n"
+        print(output)
+
+    def run(self):
+        if self.args.mode == "all":
+            self._list_entries("training")
+            self._list_entries("inference")
+        else:
+            self._list_entries(self.args.mode)
 
 
 class CustomCacheRepoCommand(BaseOptimumCLICommand):
@@ -227,22 +214,22 @@ class CustomCacheRepoCommand(BaseOptimumCLICommand):
         ),
         CommandInfo(
             name="set",
-            help="Set the name of the Neuron cache repo to use locally.",
+            help="Set the name of the Neuron cache repo to use locally (trainium only).",
             subcommand_class=SetCustomCacheRepoCommand,
         ),
         CommandInfo(
             name="add",
-            help="Add a model to the cache of your choice.",
+            help="Add a model to the cache of your choice (trainium only).",
             subcommand_class=AddToCacheRepoCommand,
-        ),
-        CommandInfo(
-            name="list",
-            help="List models in a cache repo.",
-            subcommand_class=ListRepoCommand,
         ),
         CommandInfo(
             name="synchronize",
             help="Synchronize the neuronx compiler cache with a hub cache repo.",
             subcommand_class=SynchronizeRepoCommand,
+        ),
+        CommandInfo(
+            name="lookup",
+            help="Lookup the neuronx compiler hub cache for the specified model id.",
+            subcommand_class=LookupRepoCommand,
         ),
     )

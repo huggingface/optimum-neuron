@@ -1,12 +1,14 @@
-# Fetch and extract the TGI sources
+# Fetch and extract the TGI sources (TGI_VERSION is mandatory)
 FROM alpine AS tgi
+ARG TGI_VERSION
+RUN test -n ${TGI_VERSION:?}
 RUN mkdir -p /tgi
-ADD https://github.com/huggingface/text-generation-inference/archive/refs/tags/v1.0.2.tar.gz /tgi/sources.tar.gz
+ADD https://github.com/huggingface/text-generation-inference/archive/refs/tags/v${TGI_VERSION}.tar.gz /tgi/sources.tar.gz
 RUN tar -C /tgi -xf /tgi/sources.tar.gz --strip-components=1
 
 # Build cargo components (adapted from TGI original Dockerfile)
 # Note that the build image is aligned on the same Linux version as the base image (Debian bookworm/ Ubuntu 22.04)
-FROM lukemathwalker/cargo-chef:latest-rust-1.71-bookworm AS chef
+FROM lukemathwalker/cargo-chef:latest-rust-1.75-bookworm AS chef
 WORKDIR /usr/src
 
 ARG CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
@@ -51,6 +53,10 @@ RUN apt-get update -y \
     && apt-get clean
 RUN pip3 --no-cache-dir install --upgrade pip
 
+# VERSION is a mandatory parameter
+ARG VERSION
+RUN test -n ${VERSION:?}
+
 # Python server build image
 FROM base AS pyserver
 
@@ -66,14 +72,10 @@ WORKDIR /pyserver
 COPY text-generation-inference/server server
 COPY --from=tgi /tgi/proto proto
 RUN pip3 install -r server/build-requirements.txt
-RUN VERBOSE=1 BUILDDIR=/pyserver/build PROTODIR=/pyserver/proto make -C server gen-server
+RUN VERBOSE=1 BUILDDIR=/pyserver/build PROTODIR=/pyserver/proto VERSION=${VERSION} make -C server gen-server
 
 # Neuron base image (used for deployment)
 FROM base AS neuron
-
-# VERSION is a mandatory parameter
-ARG VERSION
-RUN test -n ${VERSION:?}
 
 # Install system prerequisites
 RUN apt-get update -y \
@@ -90,16 +92,16 @@ RUN wget -qO - https://apt.repos.neuron.amazonaws.com/GPG-PUB-KEY-AMAZON-AWS-NEU
 RUN apt-get update -y \
  && apt-get install -y --no-install-recommends \
     aws-neuronx-dkms=2.15.9.0 \
-    aws-neuronx-collectives=2.19.7.0-530fb3064 \
-    aws-neuronx-runtime-lib=2.19.5.0-97e2d271b \
-    aws-neuronx-tools=2.16.1.0 \
+    aws-neuronx-collectives=2.20.11.0 \
+    aws-neuronx-runtime-lib=2.20.11.0 \
+    aws-neuronx-tools=2.17.0.0 \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
 ENV PATH="/opt/bin/:/opt/aws/neuron/bin:${PATH}"
 
 RUN pip3 install \
-    neuronx-cc==2.12.54.0 \
+    neuronx-cc==2.12.68.0 \
     torch-neuronx==1.13.1.1.13.0 \
     transformers-neuronx==0.9.474 \
     --extra-index-url=https://pip.repos.neuron.amazonaws.com

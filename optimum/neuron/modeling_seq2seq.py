@@ -31,7 +31,7 @@ from transformers.generation.stopping_criteria import StoppingCriteriaList
 from transformers.utils import ModelOutput
 
 from ..exporters.neuron import (
-    NeuronConfig,
+    NeuronDefaultConfig,
     main_export,
 )
 from ..exporters.tasks import TasksManager
@@ -68,7 +68,7 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel, ABC):
         encoder_file_name: Optional[str] = NEURON_FILE_NAME,
         decoder_file_name: Optional[str] = NEURON_FILE_NAME,
         preprocessors: Optional[List] = None,
-        neuron_configs: Optional[Dict[str, "NeuronConfig"]] = None,
+        neuron_configs: Optional[Dict[str, "NeuronDefaultConfig"]] = None,
         configs: Optional[Dict[str, "PretrainedConfig"]] = None,
         generation_config: Optional[GenerationConfig] = None,
         model_and_config_save_paths: Optional[Dict[str, Tuple[str, Path]]] = None,
@@ -260,6 +260,7 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel, ABC):
         force_download: bool = True,
         cache_dir: Optional[str] = None,
         compiler_workdir: Optional[str] = None,
+        inline_weights_to_neff: bool = True,
         optlevel: str = "2",
         subfolder: str = "",
         local_files_only: bool = False,
@@ -302,6 +303,7 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel, ABC):
             dynamic_batch_size=dynamic_batch_size,
             cache_dir=cache_dir,
             compiler_workdir=compiler_workdir,
+            inline_weights_to_neff=inline_weights_to_neff,
             optlevel=optlevel,
             trust_remote_code=trust_remote_code,
             subfolder=subfolder,
@@ -531,7 +533,7 @@ class _NeuronSeq2SeqModelPart:
         model: torch.jit._script.ScriptModule,
         parent_model: NeuronBaseModel,
         config: Optional["PretrainedConfig"] = None,
-        neuron_config: Optional["NeuronConfig"] = None,
+        neuron_config: Optional["NeuronDefaultConfig"] = None,
         model_type: str = "encoder",
         device: Optional[int] = None,
     ):

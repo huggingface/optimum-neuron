@@ -18,7 +18,7 @@ import inspect
 import os
 import re
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple, Union
 
 import torch
 from transformers.modeling_utils import _add_variant
@@ -41,6 +41,9 @@ from ...utils import logging
 from .import_utils import is_torch_xla_available
 from .require_utils import requires_safetensors
 
+
+if TYPE_CHECKING:
+    from transformers import PretrainedConfig
 
 logger = logging.get_logger()
 
@@ -508,3 +511,40 @@ def download_checkpoints_in_cache(
             resolved_archive_file = filenames_to_safetensors_filenames[Path(resolved_archive_file).name]
 
     return resolved_archive_file, sharded_metadata
+
+
+def replace_weights(
+    model: torch.jit._script.RecursiveScriptModule,
+    weights: Union[Dict[str, torch.Tensor], torch.nn.Module],
+    prefix: str = "model",
+):
+    """
+    Replaces the weights in a Neuron Model with weights from another model, the original neuron model should have separated weights(by setting `inline_weights_to_neff=Talse` during the tracing).
+    """
+    if isinstance(weights, torch.nn.Module):
+        weights = weights.state_dict()
+
+    # extract module paths from the weights c module
+    code = model.weights._c.code
+    start_str = "__parameters__ = ["
+    end_str = "]\n"
+    module_paths = code.split(start_str)[1].split(end_str)[0].strip()[:-1:].replace('"', "").split(", ")
+    module_paths = [module_path for module_path in module_paths if module_path != ""]
+
+    for module_path in module_paths:
+        if len(re.findall("\w\d+", module_path)) > 0:
+            continue
+        else:
+            model.weights._c.setattr(module_path, weights[module_path.replace(prefix + "->", "").replace("->", ".")])
+
+
+def check_if_weights_replacable(
+    config: "PretrainedConfig", weights: Optional[Union[Dict[str, torch.Tensor], torch.nn.Module]]
+):
+    is_weights_neff_separated = (
+        not config.neuron.get("inline_weights_to_neff", True) if hasattr(config, "neuron") else False
+    )
+    if weights is not None and not is_weights_neff_separated:
+        raise RuntimeError(
+            "Unable to replace weights of the neuron model since its weights and neff are not separated, please set `inline_weights_to_neff=Talse` when converting the model to Neuron format."
+        )

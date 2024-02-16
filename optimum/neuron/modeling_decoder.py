@@ -14,6 +14,7 @@
 # limitations under the License.
 """Base class for text-generation model architectures on neuron devices."""
 
+import copy
 import logging
 import os
 import shutil
@@ -28,7 +29,7 @@ from transformers import AutoConfig, AutoModel, GenerationConfig
 from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..exporters.tasks import TasksManager
 from ..modeling_base import OptimizedModel
-from .utils import hub_neuronx_cache, is_transformers_neuronx_available
+from .utils import ModelCacheEntry, hub_neuronx_cache, is_transformers_neuronx_available
 from .utils.require_utils import requires_transformers_neuronx
 from .utils.version_utils import check_compiler_compatibility, get_neuronxcc_version
 
@@ -46,6 +47,30 @@ logger = logging.getLogger(__name__)
 
 def get_exporter(config, task):
     return TasksManager.get_exporter_config_constructor(model_type=config.model_type, exporter="neuron", task=task)()
+
+
+@requires_transformers_neuronx
+def get_available_cores() -> int:
+    """A helper to get the number of available cores.
+
+    This number depends first on the actual number of cores, then on the
+    content of the NEURON_RT_NUM_CORES and NEURON_RT_VISIBLE_CORES variables.
+    """
+    max_cores = len(os.listdir("/sys/class/neuron_device/")) * 2
+    num_cores = os.environ.get("NEURON_RT_NUM_CORES", max_cores)
+    if num_cores != max_cores:
+        num_cores = int(num_cores)
+    num_cores = min(num_cores, max_cores)
+    visible_cores = os.environ.get("NEURON_RT_VISIBLE_CORES", num_cores)
+    if visible_cores != num_cores:
+        # Assume NEURON_RT_VISIBLE_CORES is in the form '4' or '7-15'
+        if "-" in visible_cores:
+            start, end = visible_cores.split("-")
+            visible_cores = int(end) - int(start) + 1
+        else:
+            visible_cores = 1
+    visible_cores = min(visible_cores, num_cores)
+    return visible_cores
 
 
 class NeuronDecoderModel(OptimizedModel):
@@ -121,12 +146,27 @@ class NeuronDecoderModel(OptimizedModel):
             # Specify the path where compiled artifacts are stored before conversion
             neuronx_model.load(compiled_dir)
 
-        # Compile the Neuron model (if present compiled artifacts will be reloaded instead of compiled)
-        neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
-        os.environ["NEURON_CC_FLAGS"] = neuron_cc_flags + " --model-type=transformer"
-        with hub_neuronx_cache():
+        # When compiling, only create a cache entry if the model comes from the hub
+        checkpoint_id = neuron_config.get("checkpoint_id", None)
+        cache_entry = None if checkpoint_id is None else ModelCacheEntry(checkpoint_id, config)
+
+        # Export the model using the Optimum Neuron Cache
+        with hub_neuronx_cache("inference", entry=cache_entry):
+            available_cores = get_available_cores()
+            if num_cores > available_cores:
+                raise ValueError(
+                    f"The specified number of cores ({num_cores}) exceeds the number of cores available ({available_cores})."
+                )
+            neuron_rt_num_cores = os.environ.get("NEURON_RT_NUM_CORES", None)
+            # Restrict the number of cores used to allow multiple models on the same host
+            os.environ["NEURON_RT_NUM_CORES"] = str(num_cores)
+            # Load the model on neuron cores (if found in cache or compiled directory, the NEFF files
+            # will be reloaded instead of compiled)
             neuronx_model.to_neuron()
-        os.environ["NEURON_CC_FLAGS"] = neuron_cc_flags
+            if neuron_rt_num_cores is None:
+                os.environ.pop("NEURON_RT_NUM_CORES")
+            else:
+                os.environ["NEURON_RT_NUM_CORES"] = neuron_rt_num_cores
 
         super().__init__(neuronx_model, config)
 
@@ -167,6 +207,62 @@ class NeuronDecoderModel(OptimizedModel):
         return checkpoint_dir
 
     @classmethod
+    def get_export_config(
+        cls,
+        model_id: str,
+        config: "PretrainedConfig",
+        use_auth_token: Optional[str] = None,
+        revision: Optional[str] = None,
+        task: Optional[str] = None,
+        batch_size: Optional[int] = None,
+        sequence_length: Optional[int] = None,
+        num_cores: Optional[int] = None,
+        auto_cast_type: Optional[str] = None,
+    ) -> "PretrainedConfig":
+        if task is None:
+            task = TasksManager.infer_task_from_model(cls.auto_model_class)
+
+        if os.path.isdir(model_id):
+            checkpoint_id = None
+            checkpoint_revision = None
+        else:
+            checkpoint_id = model_id
+            # Get the exact checkpoint revision (SHA1)
+            api = HfApi(token=use_auth_token)
+            model_info = api.repo_info(model_id, revision=revision)
+            checkpoint_revision = model_info.sha
+
+        if batch_size is None:
+            batch_size = 1
+        # If the sequence_length was not specified, deduce it from the model configuration
+        if sequence_length is None:
+            # Note: for older models, max_position_embeddings is an alias for n_positions
+            sequence_length = config.max_position_embeddings
+        if num_cores is None:
+            # Use all available cores
+            num_cores = get_available_cores()
+        if auto_cast_type is None:
+            auto_cast_type = "fp32"
+            if config.torch_dtype == "float16":
+                auto_cast_type = "fp16"
+            elif config.torch_dtype == "bfloat16":
+                auto_cast_type = "bf16"
+
+        new_config = copy.deepcopy(config)
+        new_config.neuron = {
+            "task": task,
+            "batch_size": batch_size,
+            "num_cores": num_cores,
+            "auto_cast_type": auto_cast_type,
+            "sequence_length": sequence_length,
+            "compiler_type": "neuronx-cc",
+            "compiler_version": get_neuronxcc_version(),
+            "checkpoint_id": checkpoint_id,
+            "checkpoint_revision": checkpoint_revision,
+        }
+        return new_config
+
+    @classmethod
     @requires_transformers_neuronx
     def _from_transformers(cls, *args, **kwargs):
         # Deprecate it when optimum uses `_export` as from_pretrained_method in a stable release.
@@ -181,50 +277,35 @@ class NeuronDecoderModel(OptimizedModel):
         use_auth_token: Optional[str] = None,
         revision: Optional[str] = None,
         task: Optional[str] = None,
-        batch_size: Optional[int] = 1,
+        batch_size: Optional[int] = None,
         sequence_length: Optional[int] = None,
-        num_cores: Optional[int] = 2,
+        num_cores: Optional[int] = None,
         auto_cast_type: Optional[str] = "fp32",
         **kwargs,
     ) -> "NeuronDecoderModel":
-        if task is None:
-            task = TasksManager.infer_task_from_model(cls.auto_model_class)
+        if not os.path.isdir("/sys/class/neuron_device/"):
+            raise SystemError("Decoder models can only be exported on a neuron platform.")
+
+        # Update the config
+        new_config = cls.get_export_config(
+            model_id,
+            config,
+            use_auth_token=use_auth_token,
+            revision=revision,
+            task=task,
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            num_cores=num_cores,
+            auto_cast_type=auto_cast_type,
+        )
 
         # Instantiate the transformers model checkpoint
         checkpoint_dir = cls._create_checkpoint(
             model_id,
-            task=task,
+            task=new_config.neuron["task"],
             revision=revision,
             **kwargs,
         )
-
-        if os.path.isdir(model_id):
-            checkpoint_id = None
-            checkpoint_revision = None
-        else:
-            checkpoint_id = model_id
-            # Get the exact checkpoint revision (SHA1)
-            api = HfApi(token=use_auth_token)
-            model_info = api.repo_info(model_id, revision=revision)
-            checkpoint_revision = model_info.sha
-
-        # If the sequence_length was not specified, deduce it from the model configuration
-        if sequence_length is None:
-            # Note: for older models, max_position_embeddings is an alias for n_positions
-            sequence_length = config.max_position_embeddings
-
-        # Update the config
-        config.neuron = {
-            "task": task,
-            "batch_size": batch_size,
-            "num_cores": num_cores,
-            "auto_cast_type": auto_cast_type,
-            "sequence_length": sequence_length,
-            "compiler_type": "neuronx-cc",
-            "compiler_version": get_neuronxcc_version(),
-            "checkpoint_id": checkpoint_id,
-            "checkpoint_revision": checkpoint_revision,
-        }
 
         # Try to reload the generation config (if any)
         generation_config = None
@@ -233,7 +314,7 @@ class NeuronDecoderModel(OptimizedModel):
         except OSError:
             pass
 
-        return cls(config, checkpoint_dir, generation_config=generation_config)
+        return cls(new_config, checkpoint_dir, generation_config=generation_config)
 
     @classmethod
     def _get_neuron_dirs(cls, model_path: Union[str, Path]) -> Tuple[str, str]:
@@ -300,7 +381,7 @@ class NeuronDecoderModel(OptimizedModel):
 
         def copy_dir_to_path(src_dir: Union[str, Path, TemporaryDirectory], dst_path: Union[str, Path]):
             if isinstance(src_dir, TemporaryDirectory):
-                shutil.copytree(src_dir.name, dst_path)
+                shutil.copytree(src_dir.name, dst_path, dirs_exist_ok=True)
             elif not os.path.samefile(src_dir, dst_path):
                 os.symlink(dst_path, src_dir)
 

@@ -184,16 +184,20 @@ def has_write_access_to_repo(repo_id: str) -> bool:
 
 
 def get_hf_hub_cache_repos():
+    # Default hub repos.
     hf_hub_repos = HF_HUB_CACHE_REPOS
+
+    # Locally saved hub repo.
     saved_custom_cache_repo = load_custom_cache_repo_name_from_hf_home()
     if saved_custom_cache_repo is not None and saved_custom_cache_repo not in hf_hub_repos:
         hf_hub_repos = [saved_custom_cache_repo] + hf_hub_repos
 
+    # Hub repo set via the environment variable CUSTOM_CACHE_REPO.
     custom_cache_repo = os.environ.get("CUSTOM_CACHE_REPO", None)
     if custom_cache_repo is not None and custom_cache_repo not in hf_hub_repos:
         hf_hub_repos = [custom_cache_repo] + hf_hub_repos
 
-    if is_main_worker(global_main=False) and saved_custom_cache_repo is None and custom_cache_repo is None:
+    if is_main_worker() and saved_custom_cache_repo is None and custom_cache_repo is None:
         warn_once(
             logger,
             "No Neuron cache name is saved locally. This means that only the official Neuron cache will be used. You "
@@ -202,14 +206,7 @@ def get_hf_hub_cache_repos():
             "set -n [name]`.",
         )
 
-    # TODO: this is a quick fix.
-    # Cache utils should not be aware of the multiprocessing side of things.
-    # The issue here is that `has_write_access_to_repo` actually pushes stuff to the HF Hub.
-    # Pushing stuff to the HF Hub should be limited to the `push_to_cache_on_hub` function,
-    # making it easier for higher-level abstractions using the cache utils to reason on which
-    # parts should only run on the master process and which parts should run on everyone.
-
-    if is_main_worker(global_main=False) and hf_hub_repos and not has_write_access_to_repo(hf_hub_repos[0]):
+    if is_main_worker() and hf_hub_repos and not has_write_access_to_repo(hf_hub_repos[0]):
         warn_once(
             logger,
             f"You do not have write access to {hf_hub_repos[0]} so you will not be able to push any cached compilation "
@@ -311,7 +308,7 @@ def remove_ip_adress_from_path(path: Path) -> Path:
     return Path().joinpath(*(re.sub(_IP_PATTERN, "", part) for part in path.parts))
 
 
-def _get_model_name_or_path(config: "PretrainedConfig") -> Optional[str]:
+def get_model_name_or_path(config: "PretrainedConfig") -> Optional[str]:
     attribute_names_to_try = ["_model_name_or_path", "_name_or_path"]
     model_name_or_path = None
     for name in attribute_names_to_try:
@@ -669,7 +666,7 @@ class NeuronHash:
 
         # Checking whether the model is private or not.
         is_private = None
-        model_name_or_path = _get_model_name_or_path(model.config)
+        model_name_or_path = get_model_name_or_path(model.config)
         if model_name_or_path is None:
             is_private = True
         elif Path(model_name_or_path).exists():
