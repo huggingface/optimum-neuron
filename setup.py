@@ -29,7 +29,7 @@ TESTS_REQUIRE = [
     "sentencepiece",
     "datasets",
     "sacremoses",
-    "diffusers >= 0.25.0",
+    "diffusers >= 0.26.1",
     "safetensors",
     "sentence-transformers >= 2.2.0",
     "sacremoses",
@@ -56,7 +56,7 @@ EXTRAS_REQUIRE = {
     "neuronx": [
         "wheel",
         "neuronx-cc==2.12.68.0",
-        "torch-neuronx==1.13.1.1.13.0",
+        "torch-neuronx==1.13.1.1.13.1",
         "transformers-neuronx==0.9.474",
         "torch==1.13.1.*",
         "torchvision==0.14.*",

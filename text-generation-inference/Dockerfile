@@ -92,9 +92,9 @@ RUN wget -qO - https://apt.repos.neuron.amazonaws.com/GPG-PUB-KEY-AMAZON-AWS-NEU
 RUN apt-get update -y \
  && apt-get install -y --no-install-recommends \
     aws-neuronx-dkms=2.15.9.0 \
-    aws-neuronx-collectives=2.19.7.0-530fb3064 \
-    aws-neuronx-runtime-lib=2.19.5.0-97e2d271b \
-    aws-neuronx-tools=2.16.1.0 \
+    aws-neuronx-collectives=2.20.11.0 \
+    aws-neuronx-runtime-lib=2.20.11.0 \
+    aws-neuronx-tools=2.17.0.0 \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 

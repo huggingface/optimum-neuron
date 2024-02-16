@@ -14,3 +14,4 @@
 
 include README.md
 include LICENSE
+include optimum/neuron/utils/neuron_cc_wrapper

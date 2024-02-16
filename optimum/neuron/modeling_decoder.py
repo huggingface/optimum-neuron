@@ -151,7 +151,7 @@ class NeuronDecoderModel(OptimizedModel):
         cache_entry = None if checkpoint_id is None else ModelCacheEntry(checkpoint_id, config)
 
         # Export the model using the Optimum Neuron Cache
-        with hub_neuronx_cache(entry=cache_entry):
+        with hub_neuronx_cache("inference", entry=cache_entry):
             available_cores = get_available_cores()
             if num_cores > available_cores:
                 raise ValueError(
