@@ -726,11 +726,7 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
         return None if prefill else torch.tensor([cache_len - 1], dtype=torch.int32)
 
     def prepare_inputs_for_prefill(
-        self,
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
-        seq_ids: Optional[List[int]] = None,
-        **kwargs,
+        self, input_ids: torch.Tensor, attention_mask: torch.Tensor, seq_ids: Optional[List[int]] = None
     ) -> Dict[str, torch.Tensor]:
         start_ids = self.get_start_ids(input_ids, attention_mask, seq_ids=seq_ids)
         cache_ids = self.get_cache_ids(attention_mask, prefill=True)
@@ -879,7 +875,7 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
         unfinished_sequences[:batch_size] = 1
 
         # Prefill and obtain the first token
-        model_inputs = self.prepare_inputs_for_prefill(input_ids, attention_mask, **model_kwargs)
+        model_inputs = self.prepare_inputs_for_prefill(input_ids, attention_mask)
         outputs = self(
             **model_inputs,
             return_dict=True,
@@ -910,7 +906,7 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
                 break
 
             # forward pass to get next token
-            model_inputs = self.prepare_inputs_for_decode(input_ids, attention_mask, **model_kwargs)
+            model_inputs = self.prepare_inputs_for_decode(input_ids, attention_mask)
             outputs = self(
                 **model_inputs,
                 return_dict=True,

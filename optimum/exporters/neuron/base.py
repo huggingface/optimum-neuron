@@ -379,7 +379,7 @@ class NeuronDecoderConfig(NeuronConfig):
         be passed to export the model,
     - NEURONX_CLASS (`str`) -- the name of the transformers-neuronx class to instantiate for the model.
     It is a full class name defined relatively to the transformers-neuronx module, e.g. `gpt2.model.GPT2ForSampling`
-    - CONTINUOUS_BATCHING (`bool`) -- Whether the model supports continuous batching or not.
+    - CONTINUOUS_BATCHING (`bool`, , defaults to `False`) -- Whether the model supports continuous batching or not.
 
     The NEURONX_CLASS must always be defined in each model configuration.
 
