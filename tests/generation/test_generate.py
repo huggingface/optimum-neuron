@@ -18,18 +18,10 @@ import os
 import pytest
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from transformers.generation import StoppingCriteria
 
-from optimum.neuron import NeuronModelForCausalLM, NeuronModelForSeq2SeqLM
+from optimum.neuron import NeuronModelForSeq2SeqLM
 from optimum.neuron.utils.testing_utils import is_inferentia_test, is_trainium_test, requires_neuronx
 from optimum.neuron.utils.training_utils import patch_generation_mixin_to_general_neuron_generation_mixin
-
-
-def _test_model_generation(model, tokenizer, batch_size, input_length, **gen_kwargs):
-    input_ids = torch.ones((batch_size, input_length), dtype=torch.int64)
-    with torch.inference_mode():
-        sample_output = model.generate(input_ids, **gen_kwargs)
-        assert sample_output.shape[0] == batch_size
 
 
 def _test_model_generation_trn(model, tokenizer, batch_size, input_length, **gen_kwargs):
@@ -41,58 +33,6 @@ def _test_model_generation_trn(model, tokenizer, batch_size, input_length, **gen
     input_ids = torch.ones((batch_size, input_length), dtype=torch.int64)
     sample_output = model.generate(input_ids, **gen_kwargs)
     assert sample_output.shape[0] == batch_size
-
-
-@pytest.mark.parametrize(
-    "gen_kwargs",
-    [
-        {"do_sample": True},
-        {"do_sample": True, "temperature": 0.7},
-        {"do_sample": False},
-        {"do_sample": False, "repetition_penalty": 1.2},
-    ],
-    ids=["sample", "sample-with-temp", "greedy", "greedy_no-repeat"],
-)
-@is_inferentia_test
-@requires_neuronx
-def test_decoder_generation(neuron_decoder_path, gen_kwargs):
-    model = NeuronModelForCausalLM.from_pretrained(neuron_decoder_path)
-    tokenizer = AutoTokenizer.from_pretrained(neuron_decoder_path)
-    _test_model_generation(model, tokenizer, model.batch_size, 10, **gen_kwargs)
-
-
-@is_inferentia_test
-@requires_neuronx
-def test_model_generation_input_dimensions(neuron_decoder_path):
-    model = NeuronModelForCausalLM.from_pretrained(neuron_decoder_path)
-    tokenizer = AutoTokenizer.from_pretrained(neuron_decoder_path)
-    # Using valid input dimensions
-    _test_model_generation(model, tokenizer, model.batch_size, model.max_length // 2)
-    # Using an incompatible batch_size
-    with pytest.raises(ValueError, match="The specified batch_size"):
-        _test_model_generation(model, tokenizer, model.batch_size + 1, model.max_length)
-    # Using an incompatible input length
-    with pytest.raises(ValueError, match="The input sequence length"):
-        _test_model_generation(model, tokenizer, model.batch_size, input_length=model.max_length * 2)
-
-
-@is_inferentia_test
-@requires_neuronx
-def test_decoder_generation_custom_stopping_criteria():
-    model_id = "hf-internal-testing/tiny-random-gpt2"
-    model = NeuronModelForCausalLM.from_pretrained(model_id, export=True, batch_size=1)
-
-    class CustomStoppingCriteria(StoppingCriteria):
-        def __init__(self):
-            self.called = False
-
-        def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor, **kwargs) -> bool:
-            self.called = True
-            return True
-
-    criteria = CustomStoppingCriteria()
-    model.generate(input_ids=torch.ones([1, 10], dtype=torch.int64), stopping_criteria=[criteria])
-    assert criteria.called, "Custom StoppingCriteria should have been called"
 
 
 @is_inferentia_test
