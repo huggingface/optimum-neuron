@@ -16,7 +16,7 @@
 
 import copy
 import logging
-from typing import TYPE_CHECKING, Dict, Optional, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 import torch
 from transformers import (
@@ -656,14 +656,14 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
         generation_config: Optional["GenerationConfig"] = None,
     ):
         super().__init__(config, checkpoint_dir, compiled_dir=compiled_dir, generation_config=generation_config)
-        self.cur_len = 0
-        self.batch_size = self.model.config.batch_size
-        self.max_length = self.model.config.n_positions
+        self.batch_size = self.config.neuron["batch_size"]
+        self.max_length = self.config.neuron["sequence_length"]
+        self.continuous_batching = self.model.neuron_config and self.model.neuron_config.continuous_batching
         # The generate method from GenerationMixin expects the device attribute to be set
         self.device = torch.device("cpu")
 
     def reset_generation(self):
-        self.cur_len = 0
+        pass
 
     @add_start_docstrings_to_model_forward(
         NEURON_CAUSALLM_MODEL_FORWARD_DOCSTRING
@@ -688,32 +688,78 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
             return ModelOutput([("logits", out_logits)])
         return (out_logits,)
 
-    def prepare_inputs_for_generation(
-        self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor] = None, **kwargs
-    ) -> Dict[str, torch.Tensor]:
-        # convert attention_mask to start_ids
+    def get_start_ids(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        seq_ids: Optional[torch.Tensor] = None,
+    ):
+        # The start_ids parameter has different meanings:
+        # - for continuous (unpadded) batching it corresponds to the sequence id,
+        # - for static batching it corresponds to the start of the padded sequence.
+        if self.continuous_batching:
+            if seq_ids is None:
+                seq_ids = torch.arange(input_ids.shape[0])
+            else:
+                assert seq_ids.shape[0] == input_ids.shape[0]
+            return seq_ids
         start_ids = None
         if attention_mask is not None:
             _, start_ids = attention_mask.max(axis=1)
+        return start_ids
 
-        if self.cur_len > 0:
-            # Only pass the last tokens of each sample
-            input_ids = input_ids[:, -1:]
-            # Specify the single index at which the new keys and values need to be stored
-            cache_ids = torch.as_tensor([self.cur_len], dtype=torch.int32)
-        else:
-            # cache_ids will be set directly by the parallel context encoding code
-            cache_ids = None
+    def get_cache_ids(self, attention_mask: torch.tensor, prefill: bool):
+        cache_n, cache_len = attention_mask.shape
+        if self.continuous_batching:
+            # Evaluate the inputs that are not masked for each sequence
+            input_length = attention_mask.sum(axis=1)
+            if not prefill:
+                # When decoding, cache_ids contains a single value per sequence
+                return (input_length - 1).unsqueeze(1)
+            # When prefilling, cache_ids is an increasing range
+            cache_ids = torch.zeros_like(attention_mask)
+            for i in range(cache_n):
+                cur_length = input_length[i]
+                cache_ids[i, :cur_length] = torch.arange(cur_length)
+            return cache_ids
+        # Static batching
+        return None if prefill else torch.tensor([cache_len - 1], dtype=torch.int32)
 
-        # Increment the current cache index
-        self.cur_len += input_ids.shape[-1]
-        model_inputs = {
+    def prepare_inputs_for_prefill(
+        self, input_ids: torch.Tensor, attention_mask: torch.Tensor, seq_ids: Optional[List[int]] = None
+    ) -> Dict[str, torch.Tensor]:
+        start_ids = self.get_start_ids(input_ids, attention_mask, seq_ids=seq_ids)
+        cache_ids = self.get_cache_ids(attention_mask, prefill=True)
+        if self.continuous_batching and torch.any(attention_mask[:, 0] == 0):
+            # Inputs are left padded: we need to invert padding as continuous batching requires right-padding
+            batch_size, seq_len = input_ids.shape
+            input_length = attention_mask.sum(axis=1)
+            new_input_ids = torch.zeros_like(input_ids)
+            for i in range(batch_size):
+                cur_length = input_length[i]
+                new_input_ids[i, :cur_length] = input_ids[i, seq_len - cur_length :]
+            input_ids = new_input_ids
+        return {
             "input_ids": input_ids,
             "cache_ids": cache_ids,
             "start_ids": start_ids,
         }
 
-        return model_inputs
+    def prepare_inputs_for_decode(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        seq_ids: Optional[List[int]] = None,
+    ) -> Dict[str, torch.Tensor]:
+        start_ids = self.get_start_ids(input_ids, attention_mask, seq_ids=seq_ids)
+        cache_ids = self.get_cache_ids(attention_mask, prefill=False)
+        # Only pass the last tokens of each sample
+        input_ids = input_ids[:, -1:]
+        return {
+            "input_ids": input_ids,
+            "cache_ids": cache_ids,
+            "start_ids": start_ids,
+        }
 
     def can_generate(self) -> bool:
         """Returns True to validate the check made in `GenerationMixin.generate()`."""
@@ -775,7 +821,7 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
                 f"The input sequence length ({sequence_length}) exceeds the model static sequence length ({self.max_length})"
             )
         padded_input_ids = input_ids
-        padded_attention_mask = attention_mask
+        padded_attention_mask = torch.ones_like(input_ids) if attention_mask is None else attention_mask
         if batch_size > self.batch_size:
             raise ValueError(
                 f"The specified batch_size ({batch_size}) exceeds the model static batch size ({self.batch_size})"
@@ -784,18 +830,15 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
             logger.warning("Inputs will be padded to match the model static batch size. This will increase latency.")
             padding_shape = [self.batch_size - batch_size, sequence_length]
             padding = torch.full(padding_shape, fill_value=self.config.eos_token_id, dtype=torch.int64)
-            padded_input_ids = torch.cat([input_ids, padding])
-            if attention_mask is not None:
-                padding = torch.zeros(padding_shape, dtype=torch.int64)
-                padded_attention_mask = torch.cat([attention_mask, padding])
-        # Drop the current generation context and clear the Key/Value cache
-        self.reset_generation()
+            padded_input_ids = torch.cat([padded_input_ids, padding])
+            padding = torch.zeros(padding_shape, dtype=torch.int64)
+            padded_attention_mask = torch.cat([padded_attention_mask, padding])
 
         output_ids = self.generate_tokens(
             padded_input_ids,
             selector,
             batch_size,
-            attention_mask=padded_attention_mask,
+            padded_attention_mask,
             **model_kwargs,
         )
         return output_ids[:batch_size, :]
@@ -805,7 +848,7 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
         input_ids: torch.LongTensor,
         selector: TokenSelector,
         batch_size: int,
-        attention_mask: Optional[torch.Tensor] = None,
+        attention_mask: torch.Tensor,
         **model_kwargs,
     ) -> torch.LongTensor:
         r"""
@@ -831,17 +874,15 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
         unfinished_sequences = torch.zeros(input_ids.shape[0], dtype=torch.long, device=input_ids.device)
         unfinished_sequences[:batch_size] = 1
 
+        # Prefill and obtain the first token
+        model_inputs = self.prepare_inputs_for_prefill(input_ids, attention_mask)
+        outputs = self(
+            **model_inputs,
+            return_dict=True,
+        )
+
         # auto-regressive generation
         while True:
-            # prepare model inputs
-            model_inputs = self.prepare_inputs_for_generation(input_ids, attention_mask, **model_kwargs)
-
-            # forward pass to get next token
-            outputs = self(
-                **model_inputs,
-                return_dict=True,
-            )
-
             next_token_logits = outputs.logits[:, -1, :]
 
             next_tokens = selector.select(input_ids, next_token_logits)
@@ -851,10 +892,7 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
 
             # update inputs for the next step
             input_ids = torch.cat([input_ids, next_tokens[:, None]], dim=-1)
-            if attention_mask is not None:
-                attention_mask = torch.cat(
-                    [attention_mask, attention_mask.new_ones((attention_mask.shape[0], 1))], dim=-1
-                )
+            attention_mask = torch.cat([attention_mask, attention_mask.new_ones((attention_mask.shape[0], 1))], dim=-1)
 
             # if eos_token was found in one sentence, set sentence to finished
             unfinished_sequences = unfinished_sequences * next_tokens.ne(selector.eos_token_id)
@@ -866,5 +904,12 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
             # stop if we exceed the maximum length
             if selector.stopping_criteria(input_ids, None):
                 break
+
+            # forward pass to get next token
+            model_inputs = self.prepare_inputs_for_decode(input_ids, attention_mask)
+            outputs = self(
+                **model_inputs,
+                return_dict=True,
+            )
 
         return input_ids

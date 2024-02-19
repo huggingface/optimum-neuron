@@ -100,11 +100,9 @@ docker run -p 8080:80 \
        -e HF_TOKEN=${HF_TOKEN} \
        ghcr.io/huggingface/neuronx-tgi:latest \
        --model-id aws-neuron/Llama-2-7b-hf-neuron-budget \
-       --max-concurrent-requests 1 \
+       --max-batch-size 1 \
        --max-input-length 1024 \
-       --max-total-tokens 2048 \
-       --max-batch-prefill-tokens 1024 \
-       --max-batch-total-tokens 2048
+       --max-total-tokens 2048
 ```
 
 ### Using a standard model from the 🤗 [HuggingFace Hub](https://huggingface.co/aws-neuron)
@@ -130,11 +128,9 @@ docker run -p 8080:80 \
        -e HF_NUM_CORES=2 \
        ghcr.io/huggingface/neuronx-tgi:latest \
        --model-id aws-neuron/Llama-2-7b-hf-neuron-budget \
-       --max-concurrent-requests 1 \
+       --max-batch-size 1 \
        --max-input-length 512 \
-       --max-total-tokens 1024 \
-       --max-batch-prefill-tokens 512 \
-       --max-batch-total-tokens 1024
+       --max-total-tokens 1024
 ```
 
 ### Using a model exported to a local path
@@ -162,15 +158,11 @@ The configuration of an inference endpoint is always a compromise between throug
 
 The neuron models have static input dimensions `[batch_size, max_length]`.
 
-It leads to a maximum number of tokens of `max_tokens = batch_size * max_length`.
-
 This adds several restrictions to the following parameters:
 
-- `--max-concurrent-requests` must be set to `batch size`,
+- `--max-batch-size` must be set to `batch size`,
 - `--max-input-length` must be lower than `max_length`,
-- `--max-total-tokens` must be set to `max_length` (it is per-request),
-- `--max-batch-prefill-tokens` must be set to `batch_size * max_input_length`,
-- `--max-batch-total-tokens` must be set to `max_tokens`.
+- `--max-total-tokens` must be set to `max_length` (it is per-request).
 
 ### Choosing the correct batch size
 
