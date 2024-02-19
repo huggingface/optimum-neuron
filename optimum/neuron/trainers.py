@@ -81,6 +81,7 @@ from .utils.cache_utils import (
 )
 from .utils.hub_neuronx_cache import ModelCacheEntry, hub_neuronx_cache, patch_neuron_cc_wrapper, synchronize_hub_cache
 from .utils.misc import is_main_worker
+from .utils.patching import patch_everywhere
 from .utils.require_utils import requires_neuronx_distributed
 from .utils.training_utils import (
     TRANSFORMERS_MIN_VERSION_USE_ACCELERATE,
@@ -197,6 +198,22 @@ class AugmentTrainerForNeuronMixin:
         if model_name_or_path_for_cache_entry is not None:
             model_config_for_cache_entry.neuron = neuron_config_for_cache_entry
             self.model_cache_entry = ModelCacheEntry(model_name_or_path_for_cache_entry, model_config_for_cache_entry)
+
+        # TODO: remove once the issue is solved, either by the Neuron Compiler or transformers >= 4.37.3
+        from transformers.models.llama.modeling_llama import LlamaPreTrainedModel, rotate_half
+
+        if isinstance(self.model, LlamaPreTrainedModel):
+
+            def fixed_apply_rotary_pos_emb(q, k, cos, sin, position_ids, unsqueeze_dim=1):
+                q_embed = (q * cos) + (rotate_half(q) * sin)
+                k_embed = (k * cos) + (rotate_half(k) * sin)
+                return q_embed, k_embed
+
+            patch_everywhere(
+                "apply_rotary_pos_emb",
+                fixed_apply_rotary_pos_emb,
+                module_name_prefix="transformers.models.llama.modeling_llama",
+            )
 
     @property
     def mp_enabled(self):
