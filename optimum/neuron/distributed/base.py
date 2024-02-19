@@ -568,8 +568,6 @@ class Parallelizer(ABC):
             with Patcher(cls.PIPELINE_PARALLELISM_SPECS_CLS.get_patching_specs()):
                 if pipeline_parallel_input_names is None:
                     pipeline_parallel_input_names = cls.PIPELINE_PARALLELISM_SPECS_CLS.DEFAULT_INPUT_NAMES
-                print("PIPELINE USE ZERO_1", pipeline_parallel_use_zero1_optimizer)
-                print("PIPELINE USE GRADIENT CHECKPOINTING", pipeline_parallel_gradient_checkpointing_enabled)
                 model = NxDPPModel(
                     model,
                     transformer_layer_cls=cls.PIPELINE_PARALLELISM_SPECS_CLS.TRASNFORMER_LAYER_CLS,
