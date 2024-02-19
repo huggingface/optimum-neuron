@@ -182,11 +182,11 @@ Just as for ZeRO-1, it is possible to wrap the optimizer class to make it lazy. 
 ```python
 from torch.optim import AdamW
 from optimum.neuron import NeuronAccelerator
-from optimum.neuron.accelerate.utils import TensorParallelismPlugin
+from optimum.neuron.accelerate.utils import ModelParallelismPlugin
 from optimum.neuron.distributed import lazy_load_for_parallelism
 
 tensor_parallel_size = 8
-tp_plugin = TensorParallelismPlugin(
+mp_plugin = ModelParallelismPlugin(
     tensor_parallel_size,
     parallelize_embeddings=True,
     sequence_parallel_enabled=True,
@@ -195,7 +195,7 @@ tp_plugin = TensorParallelismPlugin(
 
 accelerator = NeuronAccelerator(
     ...
-    tp_plugin=tp_plugin,
+    mp_plugin=mp_plugin,
 )
 
 with lazy_load_for_parallelism(tensor_parallel_size=tensor_parallel_size):

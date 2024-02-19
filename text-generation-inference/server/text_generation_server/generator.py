@@ -1,5 +1,6 @@
 import copy
 import logging
+import time
 from abc import ABC
 from enum import Enum
 from typing import List, Optional, Tuple
@@ -12,7 +13,6 @@ from transformers.generation import GenerationConfig
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.generation import TokenSelector
 
-from .model import fetch_model
 from .pb.generate_pb2 import (
     Batch,
     CachedBatch,
@@ -21,6 +21,7 @@ from .pb.generate_pb2 import (
     Generation,
     InfoResponse,
     Request,
+    Tokens,
 )
 
 
@@ -111,6 +112,7 @@ class Slot:
         self._generated_tokens = 0
         self._next_text_token_start = 0
         self._next_text_token_end = 0
+        self._generated_text = ""
         self._next_text = ""
 
     @property
@@ -126,8 +128,8 @@ class Slot:
         return self._request_id
 
     @property
-    def inputs(self) -> str:
-        return self._inputs
+    def cached_text(self) -> str:
+        return self._inputs + self._generated_text
 
     @property
     def generation_config(self) -> GenerationConfig:
@@ -157,7 +159,8 @@ class Slot:
         self._generation_config.typical_p = request.parameters.typical_p
         self._generation_config.do_sample = request.parameters.do_sample
         self._generation_config.repetition_penalty = request.parameters.repetition_penalty
-        # TODO: seed, watermark
+        self.seed = request.parameters.seed
+        # TODO: watermark
         self._generation_config.max_new_tokens = request.stopping_parameters.max_new_tokens
         # TODO: stop_sequences, ignore_eos_token
 
@@ -175,6 +178,7 @@ class Slot:
         self._tokens = input_ids.clone()
         self._next_text_token_start = 0
         self._next_text_token_end = torch.numel(self._tokens)
+        self._next_text = ""
         self._mask = attention_mask.clone()
         self._selector = selector
 
@@ -183,14 +187,14 @@ class Slot:
 
         Note that the KV cache for this slot will still be filled.
         """
+        # Drop the last token as it will be added back when resuming the slot
+        self._generated_tokens -= 1
+        # Subtract the number of cached tokens from the maximum number of tokens
+        self._generation_config.max_new_tokens -= self._generated_tokens
         self._state = Slot.State.PAUSE
 
     def resume(self):
         """Mark the slot as ready for generation."""
-        if self._state == Slot.State.PAUSE and self.next_token is not None:
-            # The generation of this slot was inhibited during a prefill, but it
-            # already had a pending token, so we need to increase attention mask
-            self._mask = torch.cat([self._mask, torch.LongTensor([1])])
         self._state = Slot.State.READY
 
     def _decode_next_tokens(
@@ -238,8 +242,8 @@ class Slot:
         self._mask = torch.cat([self._mask, torch.LongTensor([1])])
         self._generated_tokens += 1
         next_text = self._decode_next_tokens()
-        # Now that a new token has been generated, we can append the previous one to the inputs
-        self._inputs += self._next_text
+        # Now that a new token has been generated, we can append the previous one to the generated text
+        self._generated_text += self._next_text
         self._next_text = next_text
         return next_text
 
@@ -263,7 +267,7 @@ class Slot:
 
     @property
     def generated_text(self) -> str:
-        return self._inputs + self._next_text
+        return self._generated_text + self._next_text
 
     @property
     def next_token(self) -> int:
@@ -291,7 +295,7 @@ class NeuronGenerator(Generator):
         tokenizer.pad_token_id = tokenizer.eos_token_id
         tokenizer.padding_side = "left"
         self.tokenizer = tokenizer
-        self.special_tokens = [self.tokenizer.eos_token_id, self.tokenizer.pad_token_id]
+        self.special_tokens = self.tokenizer.all_special_ids
         self.slots = [Slot(i, tokenizer) for i in range(self.model.batch_size)]
 
     @property
@@ -314,6 +318,12 @@ class NeuronGenerator(Generator):
         Return:
             The maximum number of tokens the model supports.
         """
+        # Just check that the warmup request parameters match the model capacity
+        batch_size = self.model.batch_size
+        if len(batch.requests) > batch_size:
+            raise ValueError(
+                f"Inconsistent server configuration: please make sure max-prefill-tokens does not exceed {batch_size} x max-input-length."
+            )
         self.prefill(batch)
         return self.model.batch_size * self.model.max_length
 
@@ -343,35 +353,44 @@ class NeuronGenerator(Generator):
             slot = empty_slots.pop()
             slot.assign(request, self.model.generation_config)
             logger.debug(f"Request {slot.request_id} assigned to slot {slot.id}")
-        # Reconstruct the full inputs (without padding)
-        inputs = [slot.inputs for slot in self.slots]
+        # Reconstruct the full inputs (without padding) as seen by the model.
+        # This comprises:
+        # - the inputs for new requests,
+        # - the inputs and the generated text that has already been cached (i.e. excluding the last generated token)
+        #   for unfinished requests.
+        inputs = [slot.cached_text for slot in self.slots]
         # Tokenize with padding
         padded_inputs = self.tokenizer(inputs, return_tensors="pt", padding=True)
         #  If needed truncate sequences to fit into the static dimensions
         seq_length = min(padded_inputs.input_ids.shape[-1], self.model.max_length)
         input_ids = padded_inputs.input_ids[:, :seq_length]
         attention_mask = padded_inputs.attention_mask[:, :seq_length]
+        # Pause previously active slots during generation and store their last token.
+        next_tokens = []
+        for slot in active_slots:
+            next_tokens.append(slot.next_token)
+            slot.pause()
         # Each slot must be reset with the padded inputs and masks
         for i, slot in enumerate(self.slots):
             if slot.state != slot.state.EMPTY:
                 slot_input_ids = input_ids[i : i + 1, :]
                 # Padded input ids are also required to set logits processors and stopping criterias
                 selector = TokenSelector.create(
-                    slot_input_ids, slot.generation_config, self.model, self.model.max_length
+                    slot_input_ids, slot.generation_config, self.model, self.model.max_length, seed=slot.seed
                 )
-                slot_input_ids = slot_input_ids.squeeze().type(torch.int64)
+                slot_input_ids = slot_input_ids.squeeze(dim=0).type(torch.int64)
                 slot_attention_mask = attention_mask[i]
                 slot.reset(slot_input_ids, slot_attention_mask, selector)
         # Clear KV cache
         self.model.reset_generation()
         # Pause previously active slots during generation.
-        # Their KV cache will be prefilled but new tokens will be ignored, as they
-        # have already been generated and sent back in the last decode.
-        for slot in active_slots:
-            slot.pause()
+        # The KV cache of paused slots will be prefilled during generation but new tokens
+        # will be ignored, as they have already been generated and sent back in the last decode.
         generation, next_batch = self._generate_token(batch.id, input_ids, attention_mask)
-        # Reactivate previously active slots for the next decode.
-        for slot in active_slots:
+        # Reactivate previously active slots for the next decode, and append
+        # back their next token.
+        for slot, next_token in zip(active_slots, next_tokens):
+            slot.append(next_token)
             slot.resume()
         logger.debug("Model ready for decoding")
         return generation, next_batch
@@ -425,13 +444,11 @@ class NeuronGenerator(Generator):
             return_dict=True,
         )
         generations = []
-        request_ids = []
         active_slots = False
         for i, slot in enumerate(self.slots):
             if slot.state != Slot.State.READY:
                 continue
             request_id = slot.request_id
-            request_ids.append(request_id)
             next_token_logits = outputs.logits[i : i + 1, -1, :]
             slot_input_ids = input_ids[i : i + 1, :]
             next_token = slot.select(slot_input_ids, next_token_logits)
@@ -441,7 +458,8 @@ class NeuronGenerator(Generator):
             if next_token == self.tokenizer.eos_token_id:
                 finish_reason = FinishReason.FINISH_REASON_EOS_TOKEN
             elif slot.stopped:
-                finish_reason = FinishReason.FINISH_REASON_STOP_SEQUENCE
+                # For now we only support the length stopping criteria
+                finish_reason = FinishReason.FINISH_REASON_LENGTH
             if finish_reason is not None:
                 # We must include the generated text for each finished sequence in the response
                 generated_text = GeneratedText(
@@ -456,16 +474,19 @@ class NeuronGenerator(Generator):
                 Generation(
                     request_id=request_id,
                     prefill_tokens=None,
-                    token_id=next_token,
-                    token_logprob=None,
-                    token_text=next_token_text,
-                    token_is_special=(next_token in [self.special_tokens]),
+                    tokens=Tokens(
+                        ids=[next_token],
+                        logprobs=[0],
+                        texts=[next_token_text],
+                        is_special=[next_token in self.special_tokens],
+                    ),
                     generated_text=generated_text,
                 )
             )
         batch = None
         if active_slots:
             # Whatever initial batch these requests came from, we always return all pending requests in a single batch
+            request_ids = [slot.request_id for slot in self.slots if slot.state == Slot.State.READY]
             batch = self._cached_batch(next_batch_id, request_ids)
         else:
             logger.debug("No more pending requests")
@@ -504,22 +525,21 @@ class NeuronGenerator(Generator):
     @classmethod
     def from_pretrained(
         cls,
-        model_id: str,
-        revision: Optional[str],
+        model_path: str,
     ):
         """Instantiate a NeuronGenerator.
 
         Args:
-            model_id (`str`):
-                The *model_id* of a model on the HuggingFace hub or the path to a local model.
-                In either case, the hub or local path must also contain a Tokenizer.
-            revision (`str`):
-                The revision of the model on the HuggingFace hub.
+            model_path (`str`):
+                The path to a local neuron model. This path must also contain a Tokenizer.
 
         Returns:
             A NeuronGenerator.
         """
-        model_path = fetch_model(model_id, revision)
-        model = NeuronModelForCausalLM.from_pretrained(model_path, revision=revision)
-        tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision)
+        logger.info("Loading model on neuron devices (this can take a few minutes).")
+        start = time.time()
+        model = NeuronModelForCausalLM.from_pretrained(model_path)
+        end = time.time()
+        logger.info(f"Model successfully loaded in {end - start:.2f} s.")
+        tokenizer = AutoTokenizer.from_pretrained(model_path)
         return cls(model, tokenizer)

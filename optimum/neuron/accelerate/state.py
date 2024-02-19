@@ -36,6 +36,7 @@ from accelerate.utils.dataclasses import FullyShardedDataParallelPlugin, SageMak
 from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
 from .utils import NeuronDistributedType, NeuronFullyShardedDataParallelPlugin
+from .utils.dataclasses import ModelParallelismPlugin
 
 
 if is_torch_xla_available():
@@ -189,7 +190,7 @@ class NeuronPartialState(PartialState):
         self.fork_launched = parse_flag_from_env("FORK_LAUNCHED", 0)
 
     def wait_for_everyone(self):
-        if self.distributed_type in [NeuronDistributedType.XLA_FSDP, NeuronDistributedType.TENSOR_PARALLELISM]:
+        if self.distributed_type in [NeuronDistributedType.XLA_FSDP, NeuronDistributedType.MODEL_PARALLELISM]:
             xm.rendezvous("accelerate.utils.wait_for_everyone")
         else:
             super().wait_for_everyone()
@@ -223,7 +224,7 @@ class NeuronAcceleratorState(AcceleratorState):
         deepspeed_plugin=None,
         fsdp_plugin=None,
         megatron_lm_plugin=None,
-        tp_plugin=None,
+        mp_plugin=None,
         _from_accelerator: bool = False,
         **kwargs,
     ):
@@ -262,29 +263,36 @@ class NeuronAcceleratorState(AcceleratorState):
                         os.environ["XLA_USE_BF16"] = str(1)
                         os.environ["XLA_DOWNCAST_BF16"] = str(0)
                         self.downcast_bfloat = False
-                if os.environ.get("ACCELERATE_USE_NEURONX_DISTRIBUTED_TP", "false") == "true":
+                if (
+                    os.environ.get("ACCELERATE_USE_NEURONX_DISTRIBUTED_TP", "false") == "true"
+                    or os.environ.get("ACCELERATE_USE_NEURONX_DISTRIBUTED_PP", "false") == "true"
+                ):
                     if not is_neuronx_distributed_available():
                         raise RuntimeError(
-                            "Tensor parallelism requires the neuronx_distributed package. You can install it by "
+                            "Model parallelism requires the neuronx_distributed package. You can install it by "
                             "running: python -m pip install neuronx_distributed --extra-index-url "
                             "https://pip.repos.neuron.amazonaws.com"
                         )
-                    if tp_plugin is None:
+                    if mp_plugin is None:
                         raise ValueError(
-                            "Could not initialize `neuronx_distributed` tensor parallelism because no "
-                            "TensorParallelismPlugin was provided."
+                            "Could not initialize `neuronx_distributed` model parallelism because no "
+                            "`ModelParallelismPlugin` was provided."
                         )
-                    if tp_plugin.should_parallelize:
-                        parallel_state.initialize_model_parallel(
-                            tensor_model_parallel_size=tp_plugin.tensor_parallel_size
-                        )
-                        self.distributed_type = NeuronDistributedType.TENSOR_PARALLELISM
+                    if mp_plugin.should_parallelize:
+                        if not parallel_state.model_parallel_is_initialized():
+                            parallel_state.initialize_model_parallel(
+                                tensor_model_parallel_size=mp_plugin.tensor_parallel_size,
+                                pipeline_model_parallel_size=mp_plugin.pipeline_parallel_size,
+                            )
+                        self.distributed_type = NeuronDistributedType.MODEL_PARALLELISM
                     else:
                         logger.warning(
-                            "Tensor parallelism is requested but nothing is done because the tensor parallel size is "
-                            "set to 1."
+                            "Model parallelism is requested but nothing is done because the tensor parallel size and "
+                            "the pipeline parallel size are set to 1."
                         )
-                    self.tp_plugin = tp_plugin
+                    self.mp_plugin = mp_plugin
+                else:
+                    self.mp_plugin = ModelParallelismPlugin()
                 if os.environ.get("ACCELERATE_USE_FSDP", "false") == "true":
                     self.distributed_type = NeuronDistributedType.XLA_FSDP
                     if self._mixed_precision != "no":

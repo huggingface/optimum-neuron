@@ -24,8 +24,9 @@ from tempfile import TemporaryDirectory
 from typing import List
 from unittest import TestCase
 
+import huggingface_hub
 import torch
-from huggingface_hub import HfApi, HfFolder, create_repo, delete_repo, hf_hub_download
+from huggingface_hub import HfApi, create_repo, delete_repo, get_token, hf_hub_download, login
 from transformers import BertConfig, BertModel, set_seed
 from transformers.testing_utils import TOKEN as TRANSFORMERS_TOKEN
 from transformers.testing_utils import USER as TRANSFORMERS_USER
@@ -82,9 +83,9 @@ class NeuronUtilsTestCase(TrainiumTestMixin, TestCase):
         assert get_neuron_cache_path() is None
 
         custom_cache_dir_name = Path("_this/is_/my1/2custom/cache/dir")
-        os.environ[
-            "NEURON_CC_FLAGS"
-        ] = f"--some --parameters --here --cache_dir={custom_cache_dir_name} --other --paremeters --here"
+        os.environ["NEURON_CC_FLAGS"] = (
+            f"--some --parameters --here --cache_dir={custom_cache_dir_name} --other --paremeters --here"
+        )
 
         self.assertEqual(get_neuron_cache_path(), custom_cache_dir_name)
 
@@ -98,9 +99,9 @@ class NeuronUtilsTestCase(TrainiumTestMixin, TestCase):
         set_neuron_cache_path(new_cache_path, ignore_no_cache=True)
         self.assertEqual(get_neuron_cache_path(), Path(new_cache_path))
 
-        os.environ[
-            "NEURON_CC_FLAGS"
-        ] = "--some --parameters --here --cache_dir=original_cache_dir --other --paremeters"
+        os.environ["NEURON_CC_FLAGS"] = (
+            "--some --parameters --here --cache_dir=original_cache_dir --other --paremeters"
+        )
         set_neuron_cache_path(new_cache_path)
         self.assertEqual(get_neuron_cache_path(), Path(new_cache_path))
 
@@ -246,8 +247,8 @@ class NeuronUtilsTestCase(TrainiumTestMixin, TestCase):
 @is_staging_test
 class StagingNeuronUtilsTestCase(StagingTestMixin, TestCase):
     def test_set_custom_cache_repo_name_in_hf_home(self):
-        orig_token = HfFolder.get_token()
-        HfFolder.save_token(TOKEN)
+        orig_token = get_token()
+        login(TOKEN)
 
         repo_name = f"blablabla-{self.seed}"
         repo_id = f"{USER}/{repo_name}"
@@ -262,7 +263,7 @@ class StagingNeuronUtilsTestCase(StagingTestMixin, TestCase):
             except ValueError as e:
                 remove_repo()
                 if orig_token:
-                    HfFolder.save_token(orig_token)
+                    login(orig_token)
                 self.fail(str(e))
 
             with open(f"{tmpdirname}/{CACHE_REPO_FILENAME}", "r") as fp:
@@ -276,23 +277,25 @@ class StagingNeuronUtilsTestCase(StagingTestMixin, TestCase):
 
             remove_repo()
             if orig_token:
-                HfFolder.save_token(orig_token)
+                login(orig_token)
 
-    @is_staging_test
     def test_has_write_access_to_repo(self):
-        orig_token = HfFolder.get_token()
+        orig_token = get_token()
+
         wrong_token = "random_string"
-        HfFolder.save_token(wrong_token)
+        path = Path(huggingface_hub.constants.HF_TOKEN_PATH)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(wrong_token)
 
         self.assertFalse(has_write_access_to_repo(self.CUSTOM_CACHE_REPO))
         self.assertFalse(has_write_access_to_repo(self.CUSTOM_PRIVATE_CACHE_REPO))
 
-        HfFolder.save_token(orig_token)
+        login(orig_token)
 
         self.assertTrue(has_write_access_to_repo(self.CUSTOM_CACHE_REPO))
         self.assertTrue(has_write_access_to_repo(self.CUSTOM_PRIVATE_CACHE_REPO))
 
-    @is_staging_test
+    @is_trainium_test
     def test_list_in_registry(self):
         def _test_list_in_registry(use_private_cache_repo: bool):
             if use_private_cache_repo:
@@ -344,6 +347,7 @@ class StagingNeuronUtilsTestCase(StagingTestMixin, TestCase):
         _test_list_in_registry(True)
 
 
+@is_trainium_test
 class NeuronHashTestCase(TestCase):
     def test_neuron_hash_is_not_mutable(self):
         bert_model = BertModel(BertConfig())
@@ -466,7 +470,6 @@ class NeuronHashTestCase(TestCase):
 
         bert_model = BertModel.from_pretrained("hf-internal-testing/tiny-random-bert")
         neuron_hash = NeuronHash(bert_model, input_shapes, data_type, neuron_compiler_version=DUMMY_COMPILER_VERSION)
-
         self.assertFalse(neuron_hash.is_private)
 
         with TemporaryDirectory() as tmpdirname:
@@ -494,8 +497,10 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
 
             # The model being loaded locally is assumed to be private, push to hub should prevent from pushing to a
             # public repo.
-            with self.assertRaisesRegex(ValueError, "Cannot push the cached model"):
-                push_to_cache_on_hub(neuron_hash, cached_files[0], self.CUSTOM_CACHE_REPO)
+            with self.assertRaisesRegex(ValueError, "Could not push the cached model"):
+                push_to_cache_on_hub(
+                    neuron_hash, cached_files[0], self.CUSTOM_CACHE_REPO, fail_when_could_not_push=True
+                )
 
             # It should work when using a private repo.
             cached_model_on_the_hub = push_to_cache_on_hub(
@@ -547,7 +552,6 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
             # With a directory
             with self.assertLogs("optimum", level="INFO") as cm:
                 push_to_cache_on_hub(neuron_hash, cache_dir, self.CUSTOM_PRIVATE_CACHE_REPO)
-                print(cm.output)
                 self.assertIn("Did not push the cached model located at", cm.output[0])
 
             with self.assertLogs("optimum", level="WARNING") as cm:
@@ -636,7 +640,7 @@ class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
             set_custom_cache_repo_name_in_hf_home(f"{TRANSFORMERS_USER}/{repo_name}")
             with self.assertLogs("optimum", "WARNING") as cm:
                 push_to_cache_on_hub(neuron_hash, get_neuron_cache_path())
-                self.assertTrue(any("Could not push the cached model to the repo" in output for output in cm.output))
+                self.assertTrue(any("Could not push the cached model to" in output for output in cm.output))
 
             self.set_hf_hub_token(TRANSFORMERS_TOKEN)
             delete_repo(repo_name, repo_type="model")

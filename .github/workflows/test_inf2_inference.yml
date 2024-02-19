@@ -1,0 +1,45 @@
+name: Optimum neuron / Test INF2 inference & pipelines
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - "setup.py"
+      - "optimum/**.py"
+  pull_request:
+    branches: [ main ]
+    paths:
+      - "setup.py"
+      - "optimum/**.py"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  do-the-job:
+    name: Run INF2 tests
+    runs-on: [self-hosted, 1-aws-inf2, 32-cpu, ci] # run the job on the newly created runner
+    env:
+      AWS_REGION: us-east-1
+    steps:
+      - name: Check AMI
+        run: dpkg -l | grep neuron
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Install python dependencies
+        run: |
+          sudo apt install python3.8-venv -y
+          python3 -m venv aws_neuron_venv_pytorch
+          source aws_neuron_venv_pytorch/bin/activate
+          python -m pip install -U pip
+          python -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
+          python -m pip install .[neuronx,tests]
+      - name: Run inference tests
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m is_inferentia_test tests/inference
+      - name: Run pipelines tests
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m is_inferentia_test tests/pipelines

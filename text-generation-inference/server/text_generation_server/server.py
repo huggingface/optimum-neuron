@@ -1,6 +1,6 @@
 import asyncio
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 from grpc import aio
 from grpc_reflection.v1alpha import reflection
@@ -49,17 +49,16 @@ class TextGenerationService(generate_pb2_grpc.TextGenerationServiceServicer):
 
 
 def serve(
-    model_id: str,
-    revision: Optional[str],
+    model_path: str,
     uds_path: Path,
 ):
-    async def serve_inner(model_id: str, revision: Optional[str]):
+    async def serve_inner(model_path: str):
         unix_socket_template = "unix://{}-{}"
         local_url = unix_socket_template.format(uds_path, 0)
         server_urls = [local_url]
 
         try:
-            generator = NeuronGenerator.from_pretrained(model_id, revision)
+            generator = NeuronGenerator.from_pretrained(model_path)
         except Exception:
             logger.exception("Error when initializing model")
             raise
@@ -85,4 +84,4 @@ def serve(
             logger.info("Signal received. Shutting down")
             await server.stop(0)
 
-    asyncio.run(serve_inner(model_id, revision))
+    asyncio.run(serve_inner(model_path))

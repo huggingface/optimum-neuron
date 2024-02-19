@@ -1,3 +1,4 @@
+import copy
 import logging
 from typing import Optional
 
@@ -43,6 +44,7 @@ class TokenSelector:
         eos_token_id: int,
         pad_token_id: int,
         logits_warper: Optional[LogitsProcessorList] = None,
+        seed: Optional[int] = 0,
     ):
         self.mode = mode
         self.logits_processor = logits_processor
@@ -50,10 +52,18 @@ class TokenSelector:
         self.eos_token_id = eos_token_id
         self.pad_token_id = pad_token_id
         self.logits_warper = logits_warper
+        self.generator = torch.Generator()
+        self.generator.manual_seed(seed)
 
     @classmethod
     def create(
-        cls, input_ids: torch.Tensor, generation_config: GenerationConfig, model: GenerationMixin, max_seq_length: int
+        cls,
+        input_ids: torch.Tensor,
+        generation_config: GenerationConfig,
+        model: GenerationMixin,
+        max_seq_length: int,
+        stopping_criteria: Optional[StoppingCriteriaList] = None,
+        seed: Optional[int] = 0,
     ) -> "TokenSelector":
         r"""Creates the `TokenSelector` for a specific generation configuration.
 
@@ -66,10 +76,16 @@ class TokenSelector:
                 The model provides the internal helpers allowing to select the logits processors and stopping criterias.
             max_seq_length (`int`):
                 The maximum number of input + generated tokens for this model. It depends on the model compilation parameters.
+            stopping_criteria (`Optional[transformers.generation.StoppingCriteriaList], defaults to `None`):
+                Custom stopping criteria that complement the default stopping criteria built from arguments and a
+                generation config.
+            seed(`Optional[int]`):
+                The optional seed for sampling. Defaults to zero.
         Return:
             `torch.LongTensor`: A `torch.LongTensor` containing the selected tokens.
         """
         generation_config.validate()
+        generation_config = copy.deepcopy(generation_config)
 
         unsupported_generation_flags = [
             "output_attentions",
@@ -110,7 +126,9 @@ class TokenSelector:
             prefix_allowed_tokens_fn=None,
             logits_processor=LogitsProcessorList(),
         )
-        stopping_criteria = model._get_stopping_criteria(generation_config, stopping_criteria=StoppingCriteriaList())
+        if stopping_criteria is None:
+            stopping_criteria = StoppingCriteriaList()
+        stopping_criteria = model._get_stopping_criteria(generation_config, stopping_criteria=stopping_criteria)
 
         # The generation requires special tokens
         eos_token_id = generation_config.eos_token_id
@@ -135,6 +153,7 @@ class TokenSelector:
             logits_warper=logits_warper,
             eos_token_id=eos_token_id,
             pad_token_id=generation_config.pad_token_id,
+            seed=seed,
         )
 
     def select(self, input_ids: torch.LongTensor, logits: torch.Tensor) -> torch.LongTensor:
@@ -161,7 +180,7 @@ class TokenSelector:
 
         # sample
         probs = torch.nn.functional.softmax(scores, dim=-1)
-        next_tokens = torch.multinomial(probs, num_samples=1)
+        next_tokens = torch.multinomial(probs, num_samples=1, generator=self.generator)
         # Convert the filtered tokens to actual vocabulary tokens
         next_tokens = torch.gather(next_token_indices, 1, next_tokens)
         return next_tokens.squeeze(1)

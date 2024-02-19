@@ -24,7 +24,7 @@ from typing import Dict, Optional, Set, Tuple, Union
 
 import torch
 from datasets import Dataset, DatasetDict
-from huggingface_hub import CommitOperationDelete, HfApi, HfFolder, create_repo, delete_repo
+from huggingface_hub import CommitOperationDelete, HfApi, create_repo, delete_repo, get_token, login, logout
 from huggingface_hub.utils import RepositoryNotFoundError
 from transformers import PretrainedConfig, PreTrainedModel
 from transformers.testing_utils import ENDPOINT_STAGING
@@ -135,7 +135,7 @@ def create_tiny_pretrained_model(
 class TrainiumTestMixin:
     @classmethod
     def setUpClass(cls):
-        cls._token = HfFolder.get_token()
+        cls._token = get_token()
         cls._cache_repo = load_custom_cache_repo_name_from_hf_home()
         cls._env = dict(os.environ)
 
@@ -143,7 +143,7 @@ class TrainiumTestMixin:
     def tearDownClass(cls):
         os.environ = cls._env
         if cls._token is not None:
-            HfFolder.save_token(cls._token)
+            login(cls._token)
         if cls._cache_repo is not None:
             try:
                 set_custom_cache_repo_name_in_hf_home(cls._cache_repo)
@@ -161,9 +161,13 @@ class StagingTestMixin:
     MAX_NUM_LINEARS = 20
 
     @classmethod
-    def set_hf_hub_token(cls, token: str) -> str:
-        orig_token = HfFolder.get_token()
-        HfFolder.save_token(token)
+    def set_hf_hub_token(cls, token: Optional[str]) -> Optional[str]:
+        orig_token = get_token()
+        login(token=token)
+        if token is not None:
+            login(token=token)
+        else:
+            logout()
         cls._env = dict(os.environ, HF_ENDPOINT=ENDPOINT_STAGING)
         return orig_token
 
@@ -211,8 +215,8 @@ class StagingTestMixin:
         except RepositoryNotFoundError:
             pass
 
-    def tearDown(self) -> None:
-        HfFolder.save_token(TOKEN)
+    def tearDown(self):
+        login(TOKEN)
         self.remove_all_files_in_repo(self.CUSTOM_CACHE_REPO)
         self.remove_all_files_in_repo(self.CUSTOM_PRIVATE_CACHE_REPO)
 
@@ -256,6 +260,7 @@ class StagingTestMixin:
             push_to_cache_on_hub(
                 neuron_hash,
                 tmp_cache_dir,
+                fail_when_could_not_push=True,
             )
             if cache_dir is not None:
                 for file_or_dir in tmp_cache_dir.iterdir():

@@ -48,9 +48,9 @@ from transformers.trainer_pt_utils import get_model_param_count as transformers_
 from transformers.utils.logging import set_verbosity as set_verbosity_transformers
 
 from ...utils.logging import set_verbosity as set_verbosity_optimum
-from ..generation import NeuronGenerationMixin
+from ..generation import GeneralNeuronGenerationMixin, NeuronGenerationMixin
 from . import is_torch_xla_available
-from .require_utils import requires_torch_xla
+from .require_utils import requires_neuronx_distributed, requires_safetensors, requires_torch_xla
 
 
 if TYPE_CHECKING:
@@ -263,12 +263,42 @@ def patch_generation_mixin_to_neuron_generation_mixin(model: "PreTrainedModel"):
         cls.__bases__ = tuple(new_bases)
 
 
+def patch_generation_mixin_to_general_neuron_generation_mixin(model: "PreTrainedModel"):
+    """
+    Changes the vanilla `GenerationMixin` class from Transformers to `GeneralNeuronGenerationMixin` in the model's
+    inheritance. This allows to make the model Neuron-compatible for generation without much hassle.
+    """
+    to_visit = [model.__class__]
+    should_stop = False
+    while to_visit and not should_stop:
+        cls = to_visit.pop(0)
+        if cls is object:
+            continue
+        bases = cls.__bases__
+        new_bases = []
+        for base in bases:
+            to_visit.append(base)
+            if base == GenerationMixin:
+                new_bases.append(GeneralNeuronGenerationMixin)
+                should_stop = True
+            elif base == GeneralNeuronGenerationMixin:
+                should_stop = True
+                new_bases.append(base)
+            else:
+                new_bases.append(base)
+        cls.__bases__ = tuple(new_bases)
+
+
 def prepare_environment_for_neuron():
     """
     Prepares the system environment for Transformers models training on AWS Neuron.
     """
     # Set compiler flag to compile for transformer model type
     os.environ["NEURON_CC_FLAGS"] = os.environ.get("NEURON_CC_FLAGS", "") + " --model-type=transformer"
+    # Setting MALLOC_ARENA_MAX is needed because of a memory issue in XLA/glic, otherwise OOM can happen during
+    # checkpointing. More information here:
+    # https://awsdocs-neuron.readthedocs-hosted.com/en/latest/release-notes/torch/torch-neuronx/index.html#memory-leaking-in-glibc
+    os.environ["MALLOC_ARENA_MAX"] = "64"
 
 
 def set_neuron_cc_optlevel_for_model(model: "PreTrainedModel", optlevel: str = "auto"):
@@ -282,9 +312,9 @@ def set_neuron_cc_optlevel_for_model(model: "PreTrainedModel", optlevel: str = "
     neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
     match_ = re.search(r"-O[123]", neuron_cc_flags)
     if match_:
-        neuron_cc_flags = neuron_cc_flags[: match_.start(0)] + f"{optlevel}" + neuron_cc_flags[match_.end(1) + 1 :]
+        neuron_cc_flags = neuron_cc_flags[: match_.start(0)] + f"{optlevel}" + neuron_cc_flags[match_.end(0) + 1 :]
     else:
-        neuron_cc_flags += f"{optlevel} "
+        neuron_cc_flags += f" {optlevel} "
     os.environ["NEURON_CC_FLAGS"] = neuron_cc_flags
 
 
@@ -313,6 +343,28 @@ def skip_first_batches(dataloader, num_batches=0):
     else:
         dataloader = accelerate_skip_first_batches(dataloader, num_batches=num_batches)
     return dataloader
+
+
+@requires_neuronx_distributed
+@requires_safetensors
+def torch_xla_safe_save_file(
+    tensors: Dict[str, torch.Tensor],
+    filename: Union[str, os.PathLike],
+    metadata: Optional[Dict[str, str]] = None,
+    master_only: bool = True,
+    global_master: bool = False,
+):
+    """
+    Torch XLA compatible implementation of `safetensors.torch.save_file`.
+    """
+    from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
+    from safetensors.torch import save_file
+    from torch_xla.core.xla_model import is_master_ordinal
+
+    should_write_data = not master_only or is_master_ordinal(local=not global_master)
+    cpu_data = move_all_tensor_to_cpu(tensors, convert=should_write_data)
+    if should_write_data:
+        save_file(cpu_data, filename, metadata=metadata)
 
 
 def get_model_param_count(model, trainable_only=False):

@@ -47,7 +47,7 @@ When exporting the model, we will specify two sets of parameters:
 
 Depending on your choice of parameters and inferentia host, this may take from a few minutes to more than an hour.
 
-For your convenience, we host a pre-compiled version of that model on the Hugging Face hub, so you can skip the export and start using the model immediately in paragraph 2.
+For your convenience, we host a pre-compiled version of that model on the Hugging Face hub, so you can skip the export and start using the model immediately in section 2.
 
 
 ```python
@@ -129,7 +129,7 @@ using a *inf2.24xlarge* instance.
 
 Once your model has been exported, you can generate text using the transformers library, as it has been described in [detail in this post](https://huggingface.co/blog/how-to-generate).
 
-If as suggested you skipped the first paragraph, don't worry: we will use a precompiled model already present on the hub instead.
+If as suggested you skipped the first section, don't worry: we will use a precompiled model already present on the hub instead.
 
 
 ```python
@@ -249,3 +249,9 @@ print(chat("My favorite color is blue. My favorite fruit is strawberry.", histor
 print(chat("Name a fruit that is on my favorite colour.", history, max_tokens))
 print(chat("What is the colour of my favorite fruit ?", history, max_tokens))
 ```
+
+<Warning>
+
+While very powerful, Large language models can sometimes *hallucinate*. We call *hallucinations* generated content that is irrelevant or made-up but presented by the model as if it was accurate. This is a flaw of LLMs and is not a side effect of using them on Trainium / Inferentia.
+
+</Warning>

@@ -20,6 +20,7 @@ import tempfile
 import torch
 from huggingface_hub.constants import default_cache_path
 from parameterized import parameterized
+from sentence_transformers import SentenceTransformer
 from transformers import (
     AutoModel,
     AutoModelForMaskedLM,
@@ -39,6 +40,7 @@ from optimum.neuron import (
     NeuronModelForMaskedLM,
     NeuronModelForMultipleChoice,
     NeuronModelForQuestionAnswering,
+    NeuronModelForSentenceTransformers,
     NeuronModelForSequenceClassification,
     NeuronModelForTokenClassification,
     pipeline,
@@ -123,6 +125,37 @@ class NeuronModelIntegrationTest(NeuronModelIntegrationTestMixin):
         self.assertIsInstance(model.model, torch.jit._script.ScriptModule)
         self.assertIsInstance(model.config, PretrainedConfig)
 
+    @requires_neuronx
+    def test_save_compiler_intermediary_files(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            save_path = f"{tempdir}/neff"
+            neff_path = os.path.join(save_path, "graph.neff")
+            _ = NeuronModelForSequenceClassification.from_pretrained(
+                self.MODEL_ID, export=True, compiler_workdir=save_path, **self.STATIC_INPUTS_SHAPES
+            )
+            self.assertTrue(os.path.isdir(save_path))
+            self.assertTrue(os.path.exists(neff_path))
+
+    @requires_neuronx
+    def test_decouple_weights_neff_and_replace_weight(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            # compile
+            save_path = f"{tempdir}/neff"
+            neuron_model = NeuronModelForSequenceClassification.from_pretrained(
+                self.MODEL_ID,
+                export=True,
+                compiler_workdir=save_path,
+                inline_weights_to_neff=False,
+                **self.STATIC_INPUTS_SHAPES,
+            )
+            self.assertFalse(neuron_model.config.neuron.get("inline_weights_to_neff"))
+
+            # replace weights
+            model = AutoModelForSequenceClassification.from_pretrained(self.MODEL_ID)
+            neuron_model.replace_weights(weights=model)
+
+            self.assertIsInstance(neuron_model.model, torch.jit._script.ScriptModule)
+
 
 @is_inferentia_test
 class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
@@ -136,7 +169,7 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
             "camembert",
             # "convbert",  # accuracy off compared to pytorch: atol=1e-1
             # "deberta",  # INF2 only
-            # "deberta_v2",  # INF2 only
+            # "deberta-v2",  # INF2 only
             # "distilbert",  # accuracy off compared to pytorch: atol=1e-1
             "electra",
             # "flaubert",  # accuracy off compared to pytorch (not due to the padding)
@@ -152,16 +185,16 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
             "albert",
             "bert",
             "camembert",
-            # "convbert",  # accuracy off compared to pytorch: atol=1e-2
-            # "deberta",  # INF2 only
-            # "deberta_v2",  # INF2 only
+            "convbert",
+            "deberta",
+            "deberta-v2",
             "distilbert",
             "electra",
-            # "flaubert",  # accuracy off compared to pytorch (not due to the padding)
+            "flaubert",
             "mobilebert",
             "roberta",
             "roformer",
-            # "xlm",  # accuracy off compared to pytorch (not due to the padding)
+            "xlm",
             "xlm-roberta",
         ]
     else:
@@ -197,6 +230,7 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
             transformers_outputs = transformers_model(**tokens)
 
         # Numeric validation
+        atol = neuron_model_dyn.neuron_config.ATOL_FOR_VALIDATION or self.ATOL_FOR_VALIDATION
         neuron_outputs_dyn = neuron_model_dyn(**tokens)
         self.assertIn("last_hidden_state", neuron_outputs_dyn)
         self.assertIsInstance(neuron_outputs_dyn.last_hidden_state, torch.Tensor)
@@ -204,7 +238,7 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
             torch.allclose(
                 neuron_outputs_dyn.last_hidden_state,
                 transformers_outputs.last_hidden_state,
-                atol=self.ATOL_FOR_VALIDATION,
+                atol=atol,
             )
         )
 
@@ -212,7 +246,9 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
             self.assertIsInstance(neuron_outputs_dyn.pooler_output, torch.Tensor)
             self.assertTrue(
                 torch.allclose(
-                    neuron_outputs_dyn.pooler_output, transformers_outputs.pooler_output, atol=self.ATOL_FOR_VALIDATION
+                    neuron_outputs_dyn.pooler_output,
+                    transformers_outputs.pooler_output,
+                    atol=atol,
                 )
             )
 
@@ -245,6 +281,10 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
             transformers_outputs = transformers_model(**tokens)
 
         # Numeric validation
+        if is_neuron_available():
+            atol = self.ATOL_FOR_VALIDATION
+        else:
+            atol = neuron_model_non_dyn.neuron_config.ATOL_FOR_VALIDATION or self.ATOL_FOR_VALIDATION
         neuron_outputs_non_dyn = neuron_model_non_dyn(**tokens)
         self.assertIn("last_hidden_state", neuron_outputs_non_dyn)
         self.assertIsInstance(neuron_outputs_non_dyn.last_hidden_state, torch.Tensor)
@@ -252,7 +292,7 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
             torch.allclose(
                 neuron_outputs_non_dyn.last_hidden_state,
                 transformers_outputs.last_hidden_state,
-                atol=self.ATOL_FOR_VALIDATION,
+                atol=atol,
             )
         )
 
@@ -262,7 +302,7 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
                 torch.allclose(
                     neuron_outputs_non_dyn.pooler_output,
                     transformers_outputs.pooler_output,
-                    atol=self.ATOL_FOR_VALIDATION,
+                    atol=atol,
                 )
             )
 
@@ -274,7 +314,7 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
         self._setup(model_args)
 
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
-        neuron_model = NeuronModelForSequenceClassification.from_pretrained(
+        neuron_model = NeuronModelForFeatureExtraction.from_pretrained(
             self.neuron_model_dirs[model_arch + "_dyn_bs_false"]
         )
         tokenizer = get_preprocessor(model_id)
@@ -283,6 +323,72 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
         outputs = pipe(text)
 
         self.assertTrue(all(all(isinstance(item, float) for item in row) for row in outputs[0]))
+
+        gc.collect()
+
+
+@is_inferentia_test
+class NeuronModelForSentenceTransformersIntegrationTest(NeuronModelTestMixin):
+    NEURON_MODEL_CLASS = NeuronModelForSentenceTransformers
+    TASK = "feature-extraction"
+    ATOL_FOR_VALIDATION = 1e-2
+    # TODO: only support text models so far, will support vision next
+    SUPPORTED_ARCHITECTURES = ["transformer"]
+    ARCH_MODEL_MAP = {
+        "transformer": "sentence-transformers/all-MiniLM-L6-v2",
+        "clip": "sentence-transformers/clip-ViT-B-32",
+    }
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @requires_neuronx
+    def test_sentence_transformers_dyn_bs(self, model_arch):
+        # Neuron model with dynamic batching
+        model_args = {
+            "test_name": model_arch + "_dyn_bs_true",
+            "model_arch": model_arch,
+            "dynamic_batch_size": True,
+        }
+        self._setup(model_args)
+
+        model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
+
+        neuron_model_dyn = self.NEURON_MODEL_CLASS.from_pretrained(self.neuron_model_dirs[model_arch + "_dyn_bs_true"])
+        self.assertIsInstance(neuron_model_dyn.model, torch.jit._script.ScriptModule)
+        self.assertIsInstance(neuron_model_dyn.config, PretrainedConfig)
+
+        set_seed(SEED)
+        sentence_transformers_model = SentenceTransformer(model_id)
+        tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+        text = ["This is a sample output"] * 2
+        tokens = tokenizer(text, return_tensors="pt")
+        with torch.no_grad():
+            sentence_transformers_outputs = sentence_transformers_model(tokens)
+
+        neuron_outputs_dyn = neuron_model_dyn(**tokens)
+
+        # Validate token_embeddings
+        atol = neuron_model_dyn.neuron_config.ATOL_FOR_VALIDATION or self.ATOL_FOR_VALIDATION
+        self.assertIn("token_embeddings", neuron_outputs_dyn)
+        self.assertIsInstance(neuron_outputs_dyn.token_embeddings, torch.Tensor)
+        self.assertTrue(
+            torch.allclose(
+                neuron_outputs_dyn.token_embeddings,
+                sentence_transformers_outputs.token_embeddings,
+                atol=atol,
+            )
+        )
+
+        # Validate sentence_embedding
+        self.assertIn("sentence_embedding", neuron_outputs_dyn)
+        self.assertIsInstance(neuron_outputs_dyn.sentence_embedding, torch.Tensor)
+        self.assertTrue(
+            torch.allclose(
+                neuron_outputs_dyn.sentence_embedding,
+                sentence_transformers_outputs.sentence_embedding,
+                atol=atol,
+            )
+        )
 
         gc.collect()
 
@@ -298,8 +404,6 @@ class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
             "bert",
             "camembert",
             # "convbert",  # accuracy off compared to pytorch: atol=1e-1
-            # "deberta",  # INF2 only
-            # "deberta_v2",  # INF2 only
             # "distilbert",  # accuracy off compared to pytorch: atol=1e-1
             "electra",
             # "flaubert",  # accuracy off compared to pytorch (not due to the padding)
@@ -315,16 +419,16 @@ class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
             "albert",
             "bert",
             "camembert",
-            # "convbert",  # accuracy off compared to pytorch: atol=1e-2
-            # "deberta",  # INF2 only
-            # "deberta_v2",  # INF2 only
+            "convbert",
+            "deberta",
+            "deberta-v2",
             "distilbert",
             "electra",
-            # "flaubert",  # accuracy off compared to pytorch (not due to the padding)
+            "flaubert",
             "mobilebert",
             "roberta",
             "roformer",
-            # "xlm",  # accuracy off compared to pytorch (not due to the padding)
+            "xlm",
             "xlm-roberta",
         ]
     else:
@@ -366,11 +470,16 @@ class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
             transformers_outputs = transformers_model(**tokens)
 
         # Numeric validation
+        atol = neuron_model_dyn.neuron_config.ATOL_FOR_VALIDATION or self.ATOL_FOR_VALIDATION
         neuron_outputs_dyn = neuron_model_dyn(**tokens)
         self.assertIn("logits", neuron_outputs_dyn)
         self.assertIsInstance(neuron_outputs_dyn.logits, torch.Tensor)
         self.assertTrue(
-            torch.allclose(neuron_outputs_dyn.logits, transformers_outputs.logits, atol=self.ATOL_FOR_VALIDATION)
+            torch.allclose(
+                neuron_outputs_dyn.logits,
+                transformers_outputs.logits,
+                atol=atol,
+            )
         )
 
         gc.collect()
@@ -402,11 +511,19 @@ class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
             transformers_outputs = transformers_model(**tokens)
 
         # Numeric validation
+        if is_neuron_available():
+            atol = self.ATOL_FOR_VALIDATION
+        else:
+            atol = neuron_model_non_dyn.neuron_config.ATOL_FOR_VALIDATION or self.ATOL_FOR_VALIDATION
         neuron_outputs_non_dyn = neuron_model_non_dyn(**tokens)
         self.assertIn("logits", neuron_outputs_non_dyn)
         self.assertIsInstance(neuron_outputs_non_dyn.logits, torch.Tensor)
         self.assertTrue(
-            torch.allclose(neuron_outputs_non_dyn.logits, transformers_outputs.logits, atol=self.ATOL_FOR_VALIDATION)
+            torch.allclose(
+                neuron_outputs_non_dyn.logits,
+                transformers_outputs.logits,
+                atol=atol,
+            )
         )
 
         gc.collect()
@@ -440,9 +557,7 @@ class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
         self._setup(model_args)
 
         model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
-        neuron_model = NeuronModelForSequenceClassification.from_pretrained(
-            self.neuron_model_dirs[model_arch + "_dyn_bs_false"]
-        )
+        neuron_model = NeuronModelForMaskedLM.from_pretrained(self.neuron_model_dirs[model_arch + "_dyn_bs_false"])
         tokenizer = get_preprocessor(model_id)
         MASK_TOKEN = tokenizer.mask_token
         pipe = pipeline(self.TASK, model=neuron_model, tokenizer=tokenizer)
@@ -466,8 +581,6 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
             "bert",
             "camembert",
             # "convbert",  # accuracy off compared to pytorch: atol=1e-1
-            # "deberta",  # INF2 only
-            # "deberta_v2",  # INF2 only
             # "distilbert",  # accuracy off compared to pytorch: atol=1e-1
             "electra",
             # "flaubert",  # accuracy off compared to pytorch (not due to the padding)
@@ -483,16 +596,16 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
             "albert",
             "bert",
             "camembert",
-            # "convbert",  # accuracy off compared to pytorch: atol=1e-2
-            # "deberta",  # INF2 only
-            # "deberta_v2",  # INF2 only
+            "convbert",
+            "deberta",
+            "deberta-v2",
             "distilbert",
             "electra",
-            # "flaubert",  # accuracy off compared to pytorch (not due to the padding)
+            "flaubert",
             "mobilebert",
             "roberta",
             "roformer",
-            # "xlm",  # accuracy off compared to pytorch (not due to the padding)
+            "xlm",
             "xlm-roberta",
         ]
     else:
@@ -536,6 +649,7 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
             transformers_outputs = transformers_model(**tokens)
 
         # Numeric validation
+        atol = neuron_model_dyn.neuron_config.ATOL_FOR_VALIDATION or self.ATOL_FOR_VALIDATION
         neuron_outputs_dyn = neuron_model_dyn(**tokens)
         self.assertIn("start_logits", neuron_outputs_dyn)
         self.assertIn("end_logits", neuron_outputs_dyn)
@@ -547,14 +661,14 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
             torch.allclose(
                 torch.Tensor(neuron_outputs_dyn.start_logits),
                 transformers_outputs.start_logits,
-                atol=self.ATOL_FOR_VALIDATION,
+                atol=atol,
             )
         )
         self.assertTrue(
             torch.allclose(
                 torch.Tensor(neuron_outputs_dyn.end_logits),
                 transformers_outputs.end_logits,
-                atol=self.ATOL_FOR_VALIDATION,
+                atol=atol,
             )
         )
 
@@ -587,6 +701,10 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
             transformers_outputs = transformers_model(**tokens)
 
         # Numeric validation
+        if is_neuron_available():
+            atol = self.ATOL_FOR_VALIDATION
+        else:
+            atol = neuron_model_non_dyn.neuron_config.ATOL_FOR_VALIDATION or self.ATOL_FOR_VALIDATION
         neuron_outputs_non_dyn = neuron_model_non_dyn(**tokens)
         self.assertIn("start_logits", neuron_outputs_non_dyn)
         self.assertIn("end_logits", neuron_outputs_non_dyn)
@@ -598,14 +716,14 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
             torch.allclose(
                 torch.Tensor(neuron_outputs_non_dyn.start_logits),
                 transformers_outputs.start_logits,
-                atol=self.ATOL_FOR_VALIDATION,
+                atol=atol,
             )
         )
         self.assertTrue(
             torch.allclose(
                 torch.Tensor(neuron_outputs_non_dyn.end_logits),
                 transformers_outputs.end_logits,
-                atol=self.ATOL_FOR_VALIDATION,
+                atol=atol,
             )
         )
 
@@ -634,7 +752,8 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
 
         self.assertIn("set `dynamic_batch_size=True` during the compilation", str(context.exception))
 
-    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    # TODO: exclude flaubert, xlm for now as the pipeline seems to pad already input_ids to max, and running tiny test will fail. (ValueError: Unable to pad input_ids with shape: torch.Size([1, 384]) on dimension 1 as input shapes must be inferior than the static shapes used for compilation: torch.Size([1, 32]).)
+    @parameterized.expand([x for x in SUPPORTED_ARCHITECTURES if x not in ["flaubert", "xlm"]], skip_on_empty=True)
     def test_pipeline_model(self, model_arch):
         model_args = {"test_name": model_arch + "_dyn_bs_false", "model_arch": model_arch}
         self._setup(model_args)
@@ -667,7 +786,7 @@ class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
             "camembert",
             # "convbert",  # accuracy off compared to pytorch: atol=1e-1
             # "deberta",  # INF2 only
-            # "deberta_v2",  # INF2 only
+            # "deberta-v2",  # INF2 only
             # "distilbert",  # accuracy off compared to pytorch: atol=1e-1
             "electra",
             # "flaubert",  # accuracy off compared to pytorch (not due to the padding)
@@ -683,12 +802,12 @@ class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
             "albert",
             "bert",
             "camembert",
-            # "convbert",  # accuracy off compared to pytorch: atol=1e-2
-            # "deberta",  # INF2 only
-            # "deberta_v2",  # INF2 only
+            "convbert",
+            "deberta",
+            "deberta-v2",
             "distilbert",
             "electra",
-            # "flaubert",  # accuracy off compared to pytorch (not due to the padding)
+            "flaubert",
             "mobilebert",
             "roberta",
             "roformer",
@@ -736,11 +855,16 @@ class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
             transformers_outputs = transformers_model(**tokens)
 
         # Numeric validation
+        atol = neuron_model_dyn.neuron_config.ATOL_FOR_VALIDATION or self.ATOL_FOR_VALIDATION
         neuron_outputs_dyn = neuron_model_dyn(**tokens)
         self.assertIn("logits", neuron_outputs_dyn)
         self.assertIsInstance(neuron_outputs_dyn.logits, torch.Tensor)
         self.assertTrue(
-            torch.allclose(neuron_outputs_dyn.logits, transformers_outputs.logits, atol=self.ATOL_FOR_VALIDATION)
+            torch.allclose(
+                neuron_outputs_dyn.logits,
+                transformers_outputs.logits,
+                atol=atol,
+            )
         )
 
         gc.collect()
@@ -772,11 +896,19 @@ class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
             transformers_outputs = transformers_model(**tokens)
 
         # Numeric validation
+        if is_neuron_available():
+            atol = self.ATOL_FOR_VALIDATION
+        else:
+            atol = neuron_model_non_dyn.neuron_config.ATOL_FOR_VALIDATION or self.ATOL_FOR_VALIDATION
         neuron_outputs_non_dyn = neuron_model_non_dyn(**tokens)
         self.assertIn("logits", neuron_outputs_non_dyn)
         self.assertIsInstance(neuron_outputs_non_dyn.logits, torch.Tensor)
         self.assertTrue(
-            torch.allclose(neuron_outputs_non_dyn.logits, transformers_outputs.logits, atol=self.ATOL_FOR_VALIDATION)
+            torch.allclose(
+                neuron_outputs_non_dyn.logits,
+                transformers_outputs.logits,
+                atol=atol,
+            )
         )
 
         gc.collect()
@@ -836,7 +968,7 @@ class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
             "camembert",
             # "convbert",  # accuracy off compared to pytorch: atol=1e-1
             # "deberta",  # INF2 only
-            # "deberta_v2",  # INF2 only
+            # "deberta-v2",  # INF2 only
             # "distilbert",  # accuracy off compared to pytorch: atol=1e-1
             "electra",
             # "flaubert",  # accuracy off compared to pytorch (not due to the padding)
@@ -852,16 +984,16 @@ class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
             "albert",
             "bert",
             "camembert",
-            # "convbert",  # accuracy off compared to pytorch: atol=1e-2
-            # "deberta",  # INF2 only
-            # "deberta_v2",  # INF2 only
+            "convbert",
+            "deberta",
+            "deberta-v2",
             "distilbert",
             "electra",
-            # "flaubert",  # accuracy off compared to pytorch (not due to the padding)
+            "flaubert",
             "mobilebert",
             "roberta",
             "roformer",
-            # "xlm",  # accuracy off compared to pytorch (not due to the padding)
+            "xlm",
             "xlm-roberta",
         ]
     else:
@@ -905,11 +1037,16 @@ class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
             transformers_outputs = transformers_model(**tokens)
 
         # Numeric validation
+        atol = neuron_model_dyn.neuron_config.ATOL_FOR_VALIDATION or self.ATOL_FOR_VALIDATION
         neuron_outputs_dyn = neuron_model_dyn(**tokens)
         self.assertIn("logits", neuron_outputs_dyn)
         self.assertIsInstance(neuron_outputs_dyn.logits, torch.Tensor)
         self.assertTrue(
-            torch.allclose(neuron_outputs_dyn.logits, transformers_outputs.logits, atol=self.ATOL_FOR_VALIDATION)
+            torch.allclose(
+                neuron_outputs_dyn.logits,
+                transformers_outputs.logits,
+                atol=atol,
+            )
         )
 
         gc.collect()
@@ -941,11 +1078,19 @@ class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
             transformers_outputs = transformers_model(**tokens)
 
         # Numeric validation
+        if is_neuron_available():
+            atol = self.ATOL_FOR_VALIDATION
+        else:
+            atol = neuron_model_non_dyn.neuron_config.ATOL_FOR_VALIDATION or self.ATOL_FOR_VALIDATION
         neuron_outputs_non_dyn = neuron_model_non_dyn(**tokens)
         self.assertIn("logits", neuron_outputs_non_dyn)
         self.assertIsInstance(neuron_outputs_non_dyn.logits, torch.Tensor)
         self.assertTrue(
-            torch.allclose(neuron_outputs_non_dyn.logits, transformers_outputs.logits, atol=self.ATOL_FOR_VALIDATION)
+            torch.allclose(
+                neuron_outputs_non_dyn.logits,
+                transformers_outputs.logits,
+                atol=atol,
+            )
         )
 
         gc.collect()
@@ -1005,7 +1150,7 @@ class NeuronModelForMultipleChoiceIntegrationTest(NeuronModelTestMixin):
             "camembert",
             # "convbert",  # accuracy off compared to pytorch: atol=1e-1
             # "deberta",  # INF2 only
-            # "deberta_v2",  # INF2 only
+            # "deberta-v2",  # INF2 only
             # "distilbert",  # accuracy off compared to pytorch: atol=1e-1
             "electra",
             # "flaubert",  # accuracy off compared to pytorch (not due to the padding)
@@ -1022,11 +1167,9 @@ class NeuronModelForMultipleChoiceIntegrationTest(NeuronModelTestMixin):
             "bert",
             "camembert",
             # "convbert",  # accuracy off compared to pytorch: atol=1e-2
-            # "deberta",  # INF2 only
-            # "deberta_v2",  # INF2 only
             "distilbert",
             "electra",
-            # "flaubert",  # accuracy off compared to pytorch (not due to the padding)
+            "flaubert",
             "mobilebert",
             "roberta",
             # "roformer",  # accuracy off compared to pytorch: atol=1e-1
@@ -1074,17 +1217,22 @@ class NeuronModelForMultipleChoiceIntegrationTest(NeuronModelTestMixin):
             transformers_outputs = transformers_model(**pt_inputs)
 
         # Numeric validation
+        atol = neuron_model_dyn.neuron_config.ATOL_FOR_VALIDATION or self.ATOL_FOR_VALIDATION
         neuron_outputs_dyn = neuron_model_dyn(**pt_inputs)
         self.assertIn("logits", neuron_outputs_dyn)
         self.assertIsInstance(neuron_outputs_dyn.logits, torch.Tensor)
         self.assertTrue(
-            torch.allclose(neuron_outputs_dyn.logits, transformers_outputs.logits, atol=self.ATOL_FOR_VALIDATION)
+            torch.allclose(
+                neuron_outputs_dyn.logits,
+                transformers_outputs.logits,
+                atol=atol,
+            )
         )
 
         gc.collect()
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
-    def test_compare_to_transformers_non_dyn_bas(self, model_arch):
+    def test_compare_to_transformers_non_dyn_bs(self, model_arch):
         model_args = {
             "test_name": model_arch + "_dyn_bs_false",
             "model_arch": model_arch,
@@ -1119,11 +1267,19 @@ class NeuronModelForMultipleChoiceIntegrationTest(NeuronModelTestMixin):
             transformers_outputs = transformers_model(**pt_inputs)
 
         # Numeric validation
+        if is_neuron_available():
+            atol = self.ATOL_FOR_VALIDATION
+        else:
+            atol = neuron_model_non_dyn.neuron_config.ATOL_FOR_VALIDATION or self.ATOL_FOR_VALIDATION
         neuron_outputs_non_dyn = neuron_model_non_dyn(**pt_inputs)
         self.assertIn("logits", neuron_outputs_non_dyn)
         self.assertIsInstance(neuron_outputs_non_dyn.logits, torch.Tensor)
         self.assertTrue(
-            torch.allclose(neuron_outputs_non_dyn.logits, transformers_outputs.logits, atol=self.ATOL_FOR_VALIDATION)
+            torch.allclose(
+                neuron_outputs_non_dyn.logits,
+                transformers_outputs.logits,
+                atol=atol,
+            )
         )
 
         gc.collect()

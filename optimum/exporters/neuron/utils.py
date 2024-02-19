@@ -67,7 +67,7 @@ if is_diffusers_available():
 if TYPE_CHECKING:
     from transformers.modeling_utils import PreTrainedModel
 
-    from .base import NeuronConfig
+    from .base import NeuronDefaultConfig
 
     if is_diffusers_available():
         from diffusers import ModelMixin, StableDiffusionPipeline, StableDiffusionXLImg2ImgPipeline
@@ -135,7 +135,7 @@ def get_stable_diffusion_models_for_export(
     vae_encoder_input_shapes: Dict[str, int],
     vae_decoder_input_shapes: Dict[str, int],
     dynamic_batch_size: Optional[bool] = False,
-) -> Dict[str, Tuple[Union["PreTrainedModel", "ModelMixin"], "NeuronConfig"]]:
+) -> Dict[str, Tuple[Union["PreTrainedModel", "ModelMixin"], "NeuronDefaultConfig"]]:
     """
     Returns the components of a Stable Diffusion model and their subsequent neuron configs.
     These components are chosen because they represent the bulk of the compute in the pipeline,
@@ -159,16 +159,20 @@ def get_stable_diffusion_models_for_export(
             Whether the Neuron compiled model supports dynamic batch size.
 
     Returns:
-        `Dict[str, Tuple[Union[`PreTrainedModel`, `ModelMixin`], `NeuronConfig`]`: A Dict containing the model and
+        `Dict[str, Tuple[Union[`PreTrainedModel`, `ModelMixin`], `NeuronDefaultConfig`]`: A Dict containing the model and
         Neuron configs for the different components of the model.
     """
     models_for_export = _get_submodels_for_export_stable_diffusion(pipeline=pipeline, task=task)
+    library_name = "diffusers"
 
     # Text encoders
     if DIFFUSION_MODEL_TEXT_ENCODER_NAME in models_for_export:
         text_encoder = models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_NAME]
         text_encoder_config_constructor = TasksManager.get_exporter_config_constructor(
-            model=text_encoder, exporter="neuron", task="feature-extraction"
+            model=text_encoder,
+            exporter="neuron",
+            task="feature-extraction",
+            library_name=library_name,
         )
         text_encoder_neuron_config = text_encoder_config_constructor(
             text_encoder.config,
@@ -185,6 +189,7 @@ def get_stable_diffusion_models_for_export(
             exporter="neuron",
             task="feature-extraction",
             model_type="clip-text-with-projection",
+            library_name=library_name,
         )
         text_encoder_neuron_config_2 = text_encoder_config_constructor_2(
             text_encoder_2.config,
@@ -197,7 +202,11 @@ def get_stable_diffusion_models_for_export(
     # U-NET
     unet = models_for_export[DIFFUSION_MODEL_UNET_NAME]
     unet_neuron_config_constructor = TasksManager.get_exporter_config_constructor(
-        model=unet, exporter="neuron", task="semantic-segmentation", model_type="unet"
+        model=unet,
+        exporter="neuron",
+        task="semantic-segmentation",
+        model_type="unet",
+        library_name=library_name,
     )
     unet_neuron_config = unet_neuron_config_constructor(
         unet.config,
@@ -216,6 +225,7 @@ def get_stable_diffusion_models_for_export(
         exporter="neuron",
         task="semantic-segmentation",
         model_type="vae-encoder",
+        library_name=library_name,
     )
     vae_encoder_neuron_config = vae_encoder_config_constructor(
         vae_encoder.config,
@@ -232,6 +242,7 @@ def get_stable_diffusion_models_for_export(
         exporter="neuron",
         task="semantic-segmentation",
         model_type="vae-decoder",
+        library_name=library_name,
     )
     vae_decoder_neuron_config = vae_decoder_config_constructor(
         vae_decoder.config,
@@ -354,7 +365,7 @@ def get_encoder_decoder_models_for_export(
     dynamic_batch_size: Optional[bool] = False,
     output_attentions: bool = False,
     output_hidden_states: bool = False,
-) -> Dict[str, Tuple["PreTrainedModel", "NeuronConfig"]]:
+) -> Dict[str, Tuple["PreTrainedModel", "NeuronDefaultConfig"]]:
     """
     Returns the components of an encoder-decoder model and their subsequent neuron configs.
     The encoder includes the compute of encoder hidden states and the initialization of KV
@@ -374,7 +385,7 @@ def get_encoder_decoder_models_for_export(
             Whether or not for the traced model to return the hidden states of all layers.
 
     Returns:
-        `Dict[str, Tuple["PreTrainedModel", "NeuronConfig"]]`: A Dict containing the model and
+        `Dict[str, Tuple["PreTrainedModel", "NeuronDefaultConfig"]]`: A Dict containing the model and
         Neuron configs for the different components of the model.
     """
     models_for_export = {}
@@ -382,7 +393,10 @@ def get_encoder_decoder_models_for_export(
     # Encoder
     model_type = getattr(model.config, "model_type") + "-encoder"
     encoder_config_constructor = TasksManager.get_exporter_config_constructor(
-        exporter="neuron", model_type=model_type, task=task
+        exporter="neuron",
+        model_type=model_type,
+        task=task,
+        library_name="transformers",
     )
     check_mandatory_input_shapes(encoder_config_constructor, task, input_shapes)
     encoder_neuron_config = encoder_config_constructor(
@@ -396,7 +410,10 @@ def get_encoder_decoder_models_for_export(
     # Decoder
     model_type = getattr(model.config, "model_type") + "-decoder"
     decoder_config_constructor = TasksManager.get_exporter_config_constructor(
-        exporter="neuron", model_type=model_type, task=task
+        exporter="neuron",
+        model_type=model_type,
+        task=task,
+        library_name="transformers",
     )
     check_mandatory_input_shapes(encoder_config_constructor, task, input_shapes)
     decoder_neuron_config = decoder_config_constructor(

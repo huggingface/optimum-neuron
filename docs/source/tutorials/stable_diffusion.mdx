@@ -18,6 +18,8 @@ limitations under the License.
 
 ## Stable Diffusion
 
+*There is a notebook version of that tutorial [here](https://github.com/huggingface/optimum-neuron/blob/main/notebooks/stable-diffusion/stable-diffusion-txt2img.ipynb)*.
+
 🤗 `Optimum` extends `Diffusers` to support inference on the second generation of Neuron devices(powering Trainium and Inferentia 2). It aims at inheriting the ease of Diffusers on Neuron.
 
 To get started, make sure you have [configured your inf2 / trn1 instance](../installation), and installed optimum:
@@ -172,6 +174,8 @@ image.save("cat_on_bench.png")
 <img src="https://raw.githubusercontent.com/CompVis/latent-diffusion/main/data/inpainting_examples/overture-creations-5sI6fQgYIuo.png" alt="drawing" width="250"/> | <img src="https://raw.githubusercontent.com/CompVis/latent-diffusion/main/data/inpainting_examples/overture-creations-5sI6fQgYIuo_mask.png" alt="drawing" width="250"/> | ***Face of a yellow cat, high resolution, sitting on a park bench*** | <img src="https://huggingface.co/datasets/optimum/documentation-images/resolve/main/neuron/models/05-sd-inpaint.png" alt="drawing" width="250"/> |
 
 ## Stable Diffusion XL
+
+*There is a notebook version of that tutorial [here](https://github.com/huggingface/optimum-neuron/blob/main/notebooks/stable-diffusion/stable-diffusion-xl-txt2img.ipynb)*.
 
 Stable Diffusion XL (SDXL) is a latent diffusion model for text-to-image. Compared to the previous versions of Stable Diffusion models, it improves the quality of generated images with a times larger UNet.
 
@@ -381,7 +385,7 @@ save_directory = "lcm_sd_neuron/"
 stable_diffusion.save_pretrained(save_directory)
 
 # Push to hub
-stable_diffusion.push_to_hub(save_directory, repository_id="Jingya/LCM_Dreamshaper_v7_neuronx", use_auth_token=True)
+stable_diffusion.push_to_hub(save_directory, repository_id="my-neuron-repo", use_auth_token=True)  # Replace with your repo id, eg. "Jingya/LCM_Dreamshaper_v7_neuronx"
 ```
 
 ***LCM of Stable Diffusion XL***
@@ -402,7 +406,7 @@ save_directory = "lcm_sdxl_neuron/"
 stable_diffusion.save_pretrained(save_directory)
 
 # Push to hub
-stable_diffusion.push_to_hub(save_directory, repository_id="Jingya/lcm-sdxl-neuronx", use_auth_token=True)
+stable_diffusion.push_to_hub(save_directory, repository_id="my-neuron-repo", use_auth_token=True)   # Replace with your repo id, eg. "Jingya/lcm-sdxl-neuronx"
 ```
 
 ### Text-to-Image
@@ -429,6 +433,34 @@ pipe = NeuronStableDiffusionXLPipeline.from_pretrained("Jingya/lcm-sdxl-neuronx"
 prompts = ["a close-up picture of an old man standing in the rain"] * 2
 
 images = pipe(prompt=prompts, num_inference_steps=4, guidance_scale=8.0).images
+```
+
+## Stable Diffusion XL Turbo
+
+SDXL Turbo is an adversarial time-distilled Stable Diffusion XL (SDXL) model capable of running inference in as little as 1 step ([check `🤗diffusers` for more details](https://huggingface.co/docs/diffusers/using-diffusers/sdxl_turbo)).
+
+In `optimum-neuron`, you can:
+  - Use the class `NeuronStableDiffusionXLPipeline` to compile and run inference.
+
+Here we will compile the [`stabilityai/sdxl-turbo`](https://huggingface.co/stabilityai/sdxl-turbo) model with Optimum CLI.
+
+### Compile SDXL Turbo
+
+```bash
+optimum-cli export neuron --model stabilityai/sdxl-turbo --task stable-diffusion-xl --batch_size 1 --height 512 --width 512 --auto_cast matmul --auto_cast_type bf16 sdxl_turbo_neuron/
+```
+
+### Text-to-Image
+
+Now we can generate images from text prompts on Inf2 using the pre-compiled model:
+
+```python
+from optimum.neuron import NeuronStableDiffusionXLPipeline
+
+pipe = NeuronStableDiffusionXLPipeline.from_pretrained("sdxl_turbo_neuron/", data_parallel_mode="all")
+prompt = ["Self-portrait oil painting, a beautiful cyborg with golden hair, 8k"] * 2
+
+images = pipe(prompt=prompt, guidance_scale=0.0, num_inference_steps=1).images
 ```
 
 <Tip>

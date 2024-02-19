@@ -145,6 +145,8 @@ def store_compilation_config(
     dynamic_batch_size: bool,
     compiler_type: str,
     compiler_version: str,
+    inline_weights_to_neff: bool,
+    optlevel: str,
     model_type: Optional[str] = None,
     task: str = None,
     output_attentions: bool = False,
@@ -160,6 +162,7 @@ def store_compilation_config(
     # Add neuron version to the config, so it can be checked at load time
     config_args["compiler_type"] = compiler_type
     config_args["compiler_version"] = compiler_version
+    config_args["inline_weights_to_neff"] = inline_weights_to_neff
 
     # Add input shapes during compilation to the config
     for axis, shape in input_shapes.items():
@@ -169,13 +172,16 @@ def store_compilation_config(
     config_args["dynamic_batch_size"] = dynamic_batch_size
 
     # Add compilation args to the config
+    config_args["optlevel"] = optlevel
     for arg, value in compiler_kwargs.items():
         config_args[arg] = value
 
     config_args["input_names"] = input_names
     config_args["output_names"] = output_names
 
-    original_model_type = getattr(config, "model_type", None)
+    original_model_type = getattr(config, "export_model_type", None) or getattr(
+        config, "model_type", None
+    )  # prioritize sentence_transformers to transformers
     neuron_model_type = str(model_type).replace("_", "-") if model_type is not None else model_type
     if original_model_type is None:
         update_func(

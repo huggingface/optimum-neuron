@@ -32,7 +32,13 @@ from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..exporters.tasks import TasksManager
 from ..modeling_base import OptimizedModel
 from ..utils.save_utils import maybe_load_preprocessors, maybe_save_preprocessors
-from .utils import NEURON_FILE_NAME, is_neuron_available, store_compilation_config
+from .utils import (
+    NEURON_FILE_NAME,
+    check_if_weights_replacable,
+    is_neuron_available,
+    replace_weights,
+    store_compilation_config,
+)
 from .utils.import_utils import is_neuronx_available
 from .utils.version_utils import check_compiler_compatibility, get_neuroncc_version, get_neuronxcc_version
 
@@ -40,7 +46,7 @@ from .utils.version_utils import check_compiler_compatibility, get_neuroncc_vers
 if TYPE_CHECKING:
     from transformers import PretrainedConfig
 
-    from ..exporters.neuron import NeuronConfig
+    from ..exporters.neuron import NeuronDefaultConfig
 
 
 logger = logging.getLogger(__name__)
@@ -69,6 +75,7 @@ class NeuronBaseModel(OptimizedModel):
 
     model_type = "neuron_model"
     auto_model_class = AutoModel
+    library_name = "transformers"
 
     def __init__(
         self,
@@ -77,7 +84,7 @@ class NeuronBaseModel(OptimizedModel):
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
         model_file_name: Optional[str] = None,
         preprocessors: Optional[List] = None,
-        neuron_config: Optional["NeuronConfig"] = None,
+        neuron_config: Optional["NeuronDefaultConfig"] = None,
         **kwargs,
     ):
         super().__init__(model, config)
@@ -103,7 +110,13 @@ class NeuronBaseModel(OptimizedModel):
             path = Path(path)
 
         if path.is_file():
-            return torch.jit.load(path)
+            model = torch.jit.load(path)
+            return model
+
+    def replace_weights(self, weights: Optional[Union[Dict[str, torch.Tensor], torch.nn.Module]] = None):
+        check_if_weights_replacable(self.config, weights)
+        if weights is not None:
+            replace_weights(self.model, weights)
 
     def _save_pretrained(self, save_directory: Union[str, Path]):
         """
@@ -132,7 +145,7 @@ class NeuronBaseModel(OptimizedModel):
         subfolder: str = "",
         local_files_only: bool = False,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
-        neuron_config: Optional["NeuronConfig"] = None,
+        neuron_config: Optional["NeuronDefaultConfig"] = None,
         **kwargs,
     ) -> "NeuronBaseModel":
         model_path = Path(model_id)
@@ -201,14 +214,23 @@ class NeuronBaseModel(OptimizedModel):
         )
 
     @classmethod
-    def _from_transformers(
+    def _from_transformers(cls, *args, **kwargs):
+        # Deprecate it when optimum uses `_export` as from_pretrained_method in a stable release.
+        return cls._export(*args, **kwargs)
+
+    @classmethod
+    def _export(
         cls,
         model_id: str,
         config: "PretrainedConfig",
         use_auth_token: Optional[Union[bool, str]] = None,
         revision: Optional[str] = None,
+        library_name: Optional[str] = None,
         force_download: bool = False,
         cache_dir: Optional[str] = None,
+        compiler_workdir: Optional[Union[str, Path]] = None,
+        inline_weights_to_neff: bool = True,
+        optlevel: str = "2",
         subfolder: str = "",
         local_files_only: bool = False,
         trust_remote_code: bool = False,
@@ -229,6 +251,7 @@ class NeuronBaseModel(OptimizedModel):
         """
         if task is None:
             task = TasksManager.infer_task_from_model(cls.auto_model_class)
+        library_name = TasksManager.infer_library_from_model(model_id, subfolder=subfolder, library_name=library_name)
 
         save_dir = TemporaryDirectory()
         save_dir_path = Path(save_dir.name)
@@ -239,6 +262,7 @@ class NeuronBaseModel(OptimizedModel):
             subfolder=subfolder,
             revision=revision,
             framework="pt",
+            library_name=library_name,
             cache_dir=cache_dir,
             use_auth_token=use_auth_token,
             local_files_only=local_files_only,
@@ -248,7 +272,10 @@ class NeuronBaseModel(OptimizedModel):
 
         task = TasksManager.map_from_synonym(task)
         neuron_config_constructor = TasksManager.get_exporter_config_constructor(
-            model=model, exporter="neuron", task=task
+            model=model,
+            exporter="neuron",
+            task=task,
+            library_name=library_name,
         )
 
         input_shapes = {}
@@ -293,11 +320,14 @@ class NeuronBaseModel(OptimizedModel):
             model=model,
             config=neuron_config,
             output=save_dir_path / NEURON_FILE_NAME,
+            compiler_workdir=compiler_workdir,
+            inline_weights_to_neff=inline_weights_to_neff,
+            optlevel=optlevel,
             **compiler_kwargs,
         )
 
-        store_compilation_config(
-            config=config,
+        config = store_compilation_config(
+            config=model.config,
             input_shapes=input_shapes,
             compiler_kwargs=compiler_kwargs,
             input_names=input_names,
@@ -305,6 +335,8 @@ class NeuronBaseModel(OptimizedModel):
             dynamic_batch_size=dynamic_batch_size,
             compiler_type=compiler_type,
             compiler_version=compiler_version,
+            inline_weights_to_neff=inline_weights_to_neff,
+            optlevel=optlevel,
             task=task,
         )
 
@@ -383,9 +415,9 @@ class NeuronBaseModel(OptimizedModel):
             self.auto_model_class.register(AutoConfig, self.__class__)
 
     @classmethod
-    def _neuron_config_init(cls, config: "PretrainedConfig") -> "NeuronConfig":
+    def _neuron_config_init(cls, config: "PretrainedConfig") -> "NeuronDefaultConfig":
         """
-        Builds a `NeuronConfig` with an instance of the `PretrainedConfig` and the task.
+        Builds a `NeuronDefaultConfig` with an instance of the `PretrainedConfig` and the task.
         """
         if not hasattr(config, "neuron"):
             logger.warning(
@@ -410,7 +442,10 @@ class NeuronBaseModel(OptimizedModel):
         task = TasksManager.map_from_synonym(task)
         model_type = neuron_config.get("model_type", None) or config.model_type
         neuron_config_constructor = TasksManager.get_exporter_config_constructor(
-            model_type=model_type, exporter="neuron", task=task
+            model_type=model_type,
+            exporter="neuron",
+            task=task,
+            library_name=cls.library_name,
         )
 
         return neuron_config_constructor(
@@ -422,7 +457,7 @@ class NeuronBaseModel(OptimizedModel):
         )
 
     @classmethod
-    def get_input_static_shapes(cls, neuron_config: "NeuronConfig") -> Dict[str, int]:
+    def get_input_static_shapes(cls, neuron_config: "NeuronDefaultConfig") -> Dict[str, int]:
         """
         Gets a dictionary of inputs with their valid static shapes.
         """
@@ -558,3 +593,10 @@ class NeuronBaseModel(OptimizedModel):
                 ]
 
         return outputs
+
+    @property
+    def is_weights_neff_separated(self) -> bool:
+        """
+        Whether the Neuron model has separated weights and neff graph (by setting `inline_weights_to_neff=False` during the compilation).
+        """
+        return not self.config.neuron.get("inline_weights_to_neff", True)
