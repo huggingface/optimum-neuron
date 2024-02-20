@@ -205,6 +205,7 @@ class AugmentTrainerForNeuronMixin:
         if isinstance(self.model, LlamaPreTrainedModel):
 
             def fixed_apply_rotary_pos_emb(q, k, cos, sin, position_ids, unsqueeze_dim=1):
+                print("PATCHED")
                 q_embed = (q * cos) + (rotate_half(q) * sin)
                 k_embed = (k * cos) + (rotate_half(k) * sin)
                 return q_embed, k_embed
@@ -213,6 +214,11 @@ class AugmentTrainerForNeuronMixin:
                 "apply_rotary_pos_emb",
                 fixed_apply_rotary_pos_emb,
                 module_name_prefix="transformers.models.llama.modeling_llama",
+            )
+            patch_everywhere(
+                "apply_rotary_pos_emb",
+                fixed_apply_rotary_pos_emb,
+                module_name_prefix="optimum.neuron.distributed",
             )
 
     @property
@@ -436,7 +442,6 @@ class AugmentTrainerForNeuronMixin:
                 self.store_flos()
 
                 self.log(logs)
-
 
             print(xm.get_ordinal())
             xm.rendezvous("Logging done.")
