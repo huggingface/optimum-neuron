@@ -394,24 +394,24 @@ class AugmentTrainerForNeuronMixin:
                 pp_group = get_pipeline_model_parallel_group()
                 tr_loss_div = tr_loss / dp_size
 
-                if pp_size > 1:
-                    # tr_loss_div = xm.all_reduce(
-                    #     xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_group(as_list=True)
-                    # )
+                if pp_size > 1 and pp_rank == pp_size - 1:
+                    tr_loss_div = xm.all_reduce(
+                        xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_group(as_list=True)
+                    )
                     # tr_loss_div = xm.all_reduce(
                     #     xm.REDUCE_SUM,
                     #     tr_loss_div,
                     #     groups=get_pipeline_model_parallel_group(as_list=True),
                     # )
                     # xm.mark_step()
-                    if pp_rank == pp_size - 1:
-                        torch.distributed.all_reduce(tr_loss_div, group=get_data_parallel_group())
-                        torch.distributed.broadcast(tr_loss_div, torch.distributed.get_rank(), group=pp_group)
-                    else:
-                        src_rank = torch.distributed.distributed_c10d.get_global_rank(pp_group, pp_size - 1)
-                        torch.distributed.broadcast(tr_loss_div, src_rank, group=pp_group)
+                    # if pp_rank == pp_size - 1:
+                    #     torch.distributed.all_reduce(tr_loss_div, group=get_data_parallel_group())
+                    #     torch.distributed.broadcast(tr_loss_div, torch.distributed.get_rank(), group=pp_group)
+                    # else:
+                    #     src_rank = torch.distributed.distributed_c10d.get_global_rank(pp_group, pp_size - 1)
+                    #     torch.distributed.broadcast(tr_loss_div, src_rank, group=pp_group)
 
-                    xm.mark_step()
+                    # xm.mark_step()
                     tr_loss_scalar = tr_loss_div.detach().item()
                 else:
                     tr_loss_scalar = xm.all_reduce(
@@ -427,15 +427,19 @@ class AugmentTrainerForNeuronMixin:
             # reset tr_loss to zero
             tr_loss -= tr_loss
 
-            logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
-            logs["learning_rate"] = self._get_learning_rate()
+            if is_main_worker():
+                logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
+                logs["learning_rate"] = self._get_learning_rate()
 
-            self._total_loss_scalar += tr_loss_scalar
-            self._globalstep_last_logged = self.state.global_step
-            self.store_flos()
+                self._total_loss_scalar += tr_loss_scalar
+                self._globalstep_last_logged = self.state.global_step
+                self.store_flos()
 
-            # if is_main_worker():
-            self.log(logs)
+                self.log(logs)
+
+
+            print(xm.get_ordinal())
+            xm.rendezvous("Logging done.")
 
         metrics = None
         if self.control.should_evaluate:
