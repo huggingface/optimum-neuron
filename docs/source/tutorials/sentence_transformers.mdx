@@ -154,8 +154,8 @@ print(cos_scores)
 
 **Caveat**
 
-Since the compiled model only accept tensors with the same batch size, `NeuronModelForSentenceTransformers` class will pad the inputs with the largest batch size of all entry tensors and remove the padding at the output. In this case, you might want to use a large batch_size (at least the `max(image_batch_size, text_batch_size)`) and disable `dynamic_batch_size`.
+Since compiled models with dynamic batching enabled only accept input tensors with the same batch size, we cannot set `dynamic_batch_size=True` if the input texts and images have different batch sizes. And as `NeuronModelForSentenceTransformers` class pads the inputs to the batch sizes (`text_batch_size` and `image_batch_size`) used during the compilation, you could use relatively larger batch sizes during the compilation for flexibility with the trade-off of compute.
 
-eg. In the example above, we want to compute the similarities for 3 texts with 1 image, in this case, the batch_size should be set as at least 3 during the compilation.
+eg. if you want to encode 3 or 4 or 5 texts and 1 image, you could set `text_batch_size = 5 = max(3, 4, 5)` and `image_batch_size = 1` during the compilation.
 
 </Tip>
