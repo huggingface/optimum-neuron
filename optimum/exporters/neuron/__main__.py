@@ -129,9 +129,11 @@ def get_input_shapes_and_config_class(task: str, args: argparse.Namespace) -> Di
 
 def normalize_sentence_transformers_input_shapes(args: argparse.Namespace) -> Dict[str, int]:
     args = vars(args) if isinstance(args, argparse.Namespace) else args
-    mandatory_axes = {"batch_size", "sequence_length"}
     if "clip" in args.get("model", "").lower():
-        mandatory_axes.update(["num_channels", "width", "height"])
+        mandatory_axes = {"text_batch_size", "image_batch_size", "sequence_length", "num_channels", "width", "height"}
+    else:
+        mandatory_axes = {"batch_size", "sequence_length"}
+
     if not mandatory_axes.issubset(set(args.keys())):
         raise AttributeError(
             f"Shape of {mandatory_axes} are mandatory for neuron compilation, while {mandatory_axes.difference(args.keys())} are not given."

@@ -20,7 +20,8 @@ import tempfile
 import torch
 from huggingface_hub.constants import default_cache_path
 from parameterized import parameterized
-from sentence_transformers import SentenceTransformer
+from PIL import Image
+from sentence_transformers import SentenceTransformer, util
 from transformers import (
     AutoModel,
     AutoModelForMaskedLM,
@@ -29,6 +30,7 @@ from transformers import (
     AutoModelForSequenceClassification,
     AutoModelForTokenClassification,
     AutoTokenizer,
+    CLIPProcessor,
     PretrainedConfig,
     set_seed,
 )
@@ -340,7 +342,7 @@ class NeuronModelForSentenceTransformersIntegrationTest(NeuronModelTestMixin):
     ATOL_FOR_VALIDATION = 1e-2
     SUPPORTED_ARCHITECTURES = ["transformer", "clip"]
 
-    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @parameterized.expand(["transformer"], skip_on_empty=True)
     @requires_neuronx
     def test_sentence_transformers_dyn_bs(self, model_arch):
         # Neuron model with dynamic batching
@@ -390,6 +392,41 @@ class NeuronModelForSentenceTransformersIntegrationTest(NeuronModelTestMixin):
                 atol=atol,
             )
         )
+
+        gc.collect()
+
+    @parameterized.expand(["clip"], skip_on_empty=True)
+    @requires_neuronx
+    def test_sentence_transformers_clip(self, model_arch):
+
+        # Neuron model with dynamic batching
+        model_id = SENTENCE_TRANSFORMERS_MODEL_NAMES[model_arch]
+        input_shapes = {
+            "num_channels": 3,
+            "height": 224,
+            "width": 224,
+            "text_batch_size": 3,
+            "image_batch_size": 1,
+            "sequence_length": 16,
+        }
+
+        neuron_model = self.NEURON_MODEL_CLASS.from_pretrained(
+            model_id, subfolder="0_CLIPModel", export=True, library_name="sentence_transformers", **input_shapes
+        )
+        self.assertIsInstance(neuron_model.model, torch.jit._script.ScriptModule)
+        self.assertIsInstance(neuron_model.config, PretrainedConfig)
+
+        texts = ["Two dogs in the snow", "A cat on a table", "A picture of London at night"]
+        util.http_get(
+            "https://github.com/UKPLab/sentence-transformers/raw/master/examples/applications/image-search/two_dogs_in_snow.jpg",
+            "two_dogs_in_snow.jpg",
+        )
+
+        processor = CLIPProcessor.from_pretrained(model_id, subfolder="0_CLIPModel")
+        inputs = processor(text=texts, images=Image.open("two_dogs_in_snow.jpg"), return_tensors="pt", padding=True)
+        outputs = neuron_model(**inputs)
+        self.assertIn("image_embeds", outputs)
+        self.assertIn("text_embeds", outputs)
 
         gc.collect()
 

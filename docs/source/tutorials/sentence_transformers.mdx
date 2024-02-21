@@ -94,7 +94,7 @@ You can compile CLIP models with Optimum Neuron either by using the `optimum-cli
 * With CLI
 
 ```bash
-optimum-cli export neuron -m sentence-transformers/clip-ViT-B-32 --sequence_length 64 --batch_size 3 --num_channels 3 --height 224 --width 224 --task feature-extraction --library-name sentence_transformers --subfolder 0_CLIPModel  clip_emb/
+optimum-cli export neuron -m sentence-transformers/clip-ViT-B-32 --sequence_length 64 --text_batch_size 3 --image_batch_size 1 --num_channels 3 --height 224 --width 224 --task feature-extraction --library-name sentence_transformers --subfolder 0_CLIPModel clip_emb/
 ```
 
 * With `NeuronModelForSentenceTransformers` class
@@ -102,7 +102,6 @@ optimum-cli export neuron -m sentence-transformers/clip-ViT-B-32 --sequence_leng
 ```python
 from optimum.neuron import NeuronModelForSentenceTransformers
 
-# [Compile]
 model_id = "sentence-transformers/clip-ViT-B-32"
 
 # configs for compiling model
@@ -110,22 +109,23 @@ input_shapes = {
     "num_channels": 3,
     "height": 224,
     "width": 224,
-    "batch_size": 1,
+    "text_batch_size": 3,
+    "image_batch_size": 1,
     "sequence_length": 64,
 }
 
 emb_model = NeuronModelForSentenceTransformers.from_pretrained(
-    model_id, subfolder="0_CLIPModel", export=True, library_name="sentence_transformers", **input_shapes
+    model_id, subfolder="0_CLIPModel", export=True, library_name="sentence_transformers", dynamic_batch_size=False, **input_shapes
 )
 
 # Save locally or upload to the HuggingFace Hub
-save_directory = "clip_emb"
+save_directory = "clip_emb/"
 emb_model.save_pretrained(save_directory)
 ```
 
 ### Load compiled Sentence Transformers model and run inference
 
-```
+```python
 from PIL import Image
 from sentence_transformers import util
 from transformers import CLIPProcessor

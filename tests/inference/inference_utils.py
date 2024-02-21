@@ -108,9 +108,13 @@ class NeuronModelTestMixin(unittest.TestCase):
             model_args.pop("model_arch")
             model_args.pop("dynamic_batch_size", None)
 
-            model_id = (
-                self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
-            )
+            if model_arch in self.ARCH_MODEL_MAP:
+                model_id = self.ARCH_MODEL_MAP[model_arch]
+            elif model_arch in SENTENCE_TRANSFORMERS_MODEL_NAMES:
+                model_id = SENTENCE_TRANSFORMERS_MODEL_NAMES[model_arch]
+            else:
+                MODEL_NAMES[model_arch]
+
             set_seed(SEED)
             neuron_model = self.NEURON_MODEL_CLASS.from_pretrained(
                 model_id, **model_args, export=True, dynamic_batch_size=dynamic_batch_size, **self.STATIC_INPUTS_SHAPES
