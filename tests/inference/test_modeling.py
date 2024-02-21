@@ -52,7 +52,13 @@ from optimum.utils import (
     logging,
 )
 
-from .inference_utils import MODEL_NAMES, SEED, NeuronModelIntegrationTestMixin, NeuronModelTestMixin
+from .inference_utils import (
+    MODEL_NAMES,
+    SEED,
+    SENTENCE_TRANSFORMERS_MODEL_NAMES,
+    NeuronModelIntegrationTestMixin,
+    NeuronModelTestMixin,
+)
 
 
 logger = logging.get_logger()
@@ -332,12 +338,7 @@ class NeuronModelForSentenceTransformersIntegrationTest(NeuronModelTestMixin):
     NEURON_MODEL_CLASS = NeuronModelForSentenceTransformers
     TASK = "feature-extraction"
     ATOL_FOR_VALIDATION = 1e-2
-    # TODO: only support text models so far, will support vision next
-    SUPPORTED_ARCHITECTURES = ["transformer"]
-    ARCH_MODEL_MAP = {
-        "transformer": "sentence-transformers/all-MiniLM-L6-v2",
-        "clip": "sentence-transformers/clip-ViT-B-32",
-    }
+    SUPPORTED_ARCHITECTURES = ["transformer", "clip"]
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     @requires_neuronx
@@ -350,7 +351,7 @@ class NeuronModelForSentenceTransformersIntegrationTest(NeuronModelTestMixin):
         }
         self._setup(model_args)
 
-        model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
+        model_id = SENTENCE_TRANSFORMERS_MODEL_NAMES[model_arch]
 
         neuron_model_dyn = self.NEURON_MODEL_CLASS.from_pretrained(self.neuron_model_dirs[model_arch + "_dyn_bs_true"])
         self.assertIsInstance(neuron_model_dyn.model, torch.jit._script.ScriptModule)

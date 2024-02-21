@@ -44,11 +44,15 @@ MODEL_NAMES = {
     "mpnet": "hf-internal-testing/tiny-random-MPNetModel",
     "roberta": "hf-internal-testing/tiny-random-RobertaModel",
     "roformer": "hf-internal-testing/tiny-random-RoFormerModel",
-    "sentence-transformers-transformer": "BAAI/bge-small-en-v1.5",
     "stable-diffusion": "hf-internal-testing/tiny-stable-diffusion-torch",
     "stable-diffusion-xl": "echarlaix/tiny-random-stable-diffusion-xl",
     "xlm": "hf-internal-testing/tiny-random-XLMModel",
     "xlm-roberta": "hf-internal-testing/tiny-xlm-roberta",
+}
+
+SENTENCE_TRANSFORMERS_MODEL_NAMES = {
+    "transformer": "sentence-transformers/all-MiniLM-L6-v2",
+    "clip": "sentence-transformers/clip-ViT-B-32",
 }
 
 
