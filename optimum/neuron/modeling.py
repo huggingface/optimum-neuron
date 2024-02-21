@@ -233,7 +233,13 @@ class NeuronModelForSentenceTransformers(NeuronBaseModel):
         with self.neuron_padding_manager(neuron_inputs) as inputs:
             outputs = self.model(*inputs)
             if "clip" in model_type:
-                return ModelOutput(text_embeds=outputs[0], image_embeds=outputs[1])
+                text_embeds = self.remove_padding([outputs[0]], dims=[0], indices=[input_ids.shape[0]])[
+                    0
+                ]  # Remove padding on batch_size(0)
+                image_embeds = self.remove_padding([outputs[1]], dims=[0], indices=[pixel_values.shape[0]])[
+                    0
+                ]  # Remove padding on batch_size(0)
+                return ModelOutput(text_embeds=text_embeds, image_embeds=image_embeds)
             else:
                 # token_embeddings -> (batch_size, sequencen_len, hidden_size)
                 token_embeddings = self.remove_padding(
