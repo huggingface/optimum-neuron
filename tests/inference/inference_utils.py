@@ -113,7 +113,7 @@ class NeuronModelTestMixin(unittest.TestCase):
             elif model_arch in SENTENCE_TRANSFORMERS_MODEL_NAMES:
                 model_id = SENTENCE_TRANSFORMERS_MODEL_NAMES[model_arch]
             else:
-                MODEL_NAMES[model_arch]
+                model_id = MODEL_NAMES[model_arch]
 
             set_seed(SEED)
             neuron_model = self.NEURON_MODEL_CLASS.from_pretrained(
