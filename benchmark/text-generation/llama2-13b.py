@@ -8,17 +8,12 @@ from optimum.neuron import NeuronModelForCausalLM
 
 
 model_configurations = {
-    "Llama-2-7BL": ["meta-llama/Llama-2-7b-chat-hf", 1, 2048],
-    "Llama-2-7BT": ["meta-llama/Llama-2-7b-chat-hf", 4, 2048],
+    "Llama-2-13B-BS1": ["meta-llama/Llama-2-13b-chat-hf", 1, 4096],
+    "Llama-2-13B-BS4": ["meta-llama/Llama-2-13b-chat-hf", 4, 4096],
+    "Llama-2-13B-BS8": ["meta-llama/Llama-2-13b-chat-hf", 8, 4096],
+    "Llama-2-13B-BS16": ["meta-llama/Llama-2-13b-chat-hf", 16, 4096],
 }
 
-num_cores = len(os.listdir("/sys/class/neuron_device/")) * 2
-if num_cores >= 4:
-    extra_model_configurations = {
-        "Llama-2-13BL": ["meta-llama/Llama-2-13b-chat-hf", 1, 2048],
-        "Llama-2-13BT": ["meta-llama/Llama-2-13b-chat-hf", 4, 2048],
-    }
-    model_configurations = {**model_configurations, **extra_model_configurations}
 
 for model_name, model_configuration in model_configurations.items():
     model_id, batch_size, seq_length = model_configuration
