@@ -362,8 +362,13 @@ def get_hub_cached_entries(
             local_path = api.hf_hub_download(cache_repo_id, model_path, local_dir=tmpdir)
             with open(local_path) as f:
                 entry_config = json.load(f)
-                # All config parameters but neuron config must match
+                # Remove neuron config for comparison as the target does not have it
                 neuron_config = entry_config.pop("neuron")
+                # All parameters except those in the whitelist must match
+                white_list = ["_name_or_path", "transformers_version", "eos_token_id", "bos_token_id", "pad_token_id"]
+                for param in white_list:
+                    entry_config.pop(param, None)
+                    target_entry.config.pop(param, None)
                 if entry_config == target_entry.config:
                     model_entries.append(neuron_config)
     return model_entries
