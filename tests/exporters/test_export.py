@@ -44,6 +44,7 @@ from optimum.utils.testing_utils import require_diffusers, require_sentence_tran
 from .exporters_utils import (
     ENCODER_DECODER_MODELS_TINY,
     EXPORT_MODELS_TINY,
+    EXTREA_DEFAULT_DUMMY_SHAPES,
     SENTENCE_TRANSFORMERS_MODELS,
     STABLE_DIFFUSION_MODELS_TINY,
     WEIGHTS_NEFF_SEPARATION_UNSUPPORTED_ARCH,
@@ -138,7 +139,7 @@ class NeuronExportTestCase(unittest.TestCase):
         reference_model = copy.deepcopy(model)
 
         mandatory_shapes = {
-            name: DEFAULT_DUMMY_SHAPES[name]
+            name: DEFAULT_DUMMY_SHAPES.get(name) or EXTREA_DEFAULT_DUMMY_SHAPES.get(name)
             for name in neuron_config_constructor.func.get_mandatory_axes_for_task(task)
         }
         neuron_config = neuron_config_constructor(
