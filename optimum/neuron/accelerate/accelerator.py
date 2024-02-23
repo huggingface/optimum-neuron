@@ -485,6 +485,9 @@ class NeuronAccelerator(Accelerator):
 
         model = self.patch_model_for_neuron(model)
 
+        # We do not want to use the cache here as it would imply more communication that we do not need.
+        model.config.use_cache = False
+
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:
             return self.prepare_model_for_xla_fsdp(
                 model, device_placement=device_placement, evaluation_mode=evaluation_mode

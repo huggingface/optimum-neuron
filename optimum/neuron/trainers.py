@@ -23,6 +23,7 @@ import shutil
 import sys
 import time
 import warnings
+from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -144,6 +145,12 @@ class AugmentTrainerForNeuronMixin:
                 f"Topology not supported. Supported number of devices: 1, 2, 8 or a multiple of 32. Got: {num_devices}."
             )
 
+        if xm.get_ordinal() == 0 and is_precompilation():
+            import shutil
+
+            shutil.rmtree("/home/ubuntu/cache_dir_neuron", ignore_errors=True)
+        xm.rendezvous("Remove cache dir")
+
         training_args = kwargs.get("args", None)
         if training_args is None and len(args) >= 2:
             training_args = args[1]
@@ -205,7 +212,6 @@ class AugmentTrainerForNeuronMixin:
         if isinstance(self.model, LlamaPreTrainedModel):
 
             def fixed_apply_rotary_pos_emb(q, k, cos, sin, position_ids, unsqueeze_dim=1):
-                print("PATCHED")
                 q_embed = (q * cos) + (rotate_half(q) * sin)
                 k_embed = (k * cos) + (rotate_half(k) * sin)
                 return q_embed, k_embed
@@ -382,17 +388,19 @@ class AugmentTrainerForNeuronMixin:
         return super().prediction_step(model, inputs, prediction_loss_only, ignore_keys=ignore_keys)
 
     def _maybe_log_save_evaluate(self, tr_loss, model, trial, epoch, ignore_keys_for_eval):
-        if self.control.should_log:
+        if self.control.should_log and self.state.global_step > self._globalstep_last_logged:
+            assert self._not_end
             logs: Dict[str, float] = {}
 
+            from neuronx_distributed.parallel_layers.parallel_state import (
+                get_data_parallel_group,
+                get_data_parallel_size,
+                get_pipeline_model_parallel_group,
+                get_pipeline_model_parallel_rank,
+                get_pipeline_model_parallel_size,
+            )
+
             if self.args.mp_plugin.should_parallelize:
-                from neuronx_distributed.parallel_layers.parallel_state import (
-                    get_data_parallel_group,
-                    get_data_parallel_size,
-                    get_pipeline_model_parallel_group,
-                    get_pipeline_model_parallel_rank,
-                    get_pipeline_model_parallel_size,
-                )
 
                 dp_size = get_data_parallel_size()
                 pp_size = get_pipeline_model_parallel_size()
@@ -433,18 +441,15 @@ class AugmentTrainerForNeuronMixin:
             # reset tr_loss to zero
             tr_loss -= tr_loss
 
-            if is_main_worker():
-                logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
-                logs["learning_rate"] = self._get_learning_rate()
+            logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
+            logs["learning_rate"] = self._get_learning_rate()
 
-                self._total_loss_scalar += tr_loss_scalar
-                self._globalstep_last_logged = self.state.global_step
-                self.store_flos()
+            self._total_loss_scalar += tr_loss_scalar
+            self._globalstep_last_logged = self.state.global_step
+            self.store_flos()
 
+            if self.is_main_worker_that_can_log_loss():
                 self.log(logs)
-
-            print(xm.get_ordinal())
-            xm.rendezvous("Logging done.")
 
         metrics = None
         if self.control.should_evaluate:
@@ -660,6 +665,24 @@ class AugmentTrainerForNeuronMixin:
             parallelizer.load_optimizer_sharded_checkpoint(self.optimizer, checkpoint)
         else:
             return super()._load_optimizer_and_scheduler(checkpoint)
+
+    @lru_cache
+    def is_main_worker_that_can_log_loss(self) -> bool:
+        from neuronx_distributed.parallel_layers.parallel_state import (
+            get_data_parallel_rank,
+            get_pipeline_model_parallel_rank,
+            get_pipeline_model_parallel_size,
+            get_tensor_model_parallel_rank,
+        )
+
+        dp_rank = get_data_parallel_rank()
+        tp_rank = get_tensor_model_parallel_rank()
+        pp_rank = get_pipeline_model_parallel_rank()
+        pp_size = get_pipeline_model_parallel_size()
+
+        can_log_loss = dp_rank == tp_rank == 0 and pp_rank == pp_size - 1
+
+        return can_log_loss
 
     @requires_neuronx_distributed
     def _inner_training_loop(
@@ -1038,6 +1061,7 @@ class AugmentTrainerForNeuronMixin:
                     self.state.epoch = epoch + (step + 1 + steps_skipped) / steps_in_epoch
                     self.control = self.callback_handler.on_step_end(args, self.state, self.control)
 
+                    self._not_end = True
                     self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval)
                 else:
                     self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
@@ -1054,6 +1078,7 @@ class AugmentTrainerForNeuronMixin:
                 self.control.should_training_stop = True
 
             self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
+            self._not_end = False
             self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval)
 
             if DebugOption.TPU_METRICS_DEBUG in self.args.debug:
@@ -1104,7 +1129,8 @@ class AugmentTrainerForNeuronMixin:
 
         self._memory_tracker.stop_and_update_metrics(metrics)
 
-        self.log(metrics)
+        if self.is_main_worker_that_can_log_loss():
+            self.log(metrics)
 
         run_dir = self._get_output_dir(trial)
         checkpoints_sorted = self._sorted_checkpoints(use_mtime=False, output_dir=run_dir)
