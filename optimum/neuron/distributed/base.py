@@ -43,7 +43,7 @@ from .utils import (
     TENSOR_PARALLEL_SHARDS_DIR_NAME,
     ParameterMetadata,
     WeightInformation,
-    apply_checkpoint,
+    apply_activation_checkpointing,
     initialize_parallel_linear,
     initialize_torch_nn_module,
     linear_to_parallel_linear,
@@ -579,7 +579,7 @@ class Parallelizer(ABC):
                     use_zero1_optimizer=pipeline_parallel_use_zero1_optimizer,
                 )
                 if pipeline_parallel_gradient_checkpointing_enabled:
-                    apply_checkpoint(model)
+                    apply_activation_checkpointing(model)
 
             xm.rendezvous("End of pipeline paralellism")
             if is_main_worker():

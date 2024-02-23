@@ -145,12 +145,6 @@ class AugmentTrainerForNeuronMixin:
                 f"Topology not supported. Supported number of devices: 1, 2, 8 or a multiple of 32. Got: {num_devices}."
             )
 
-        if xm.get_ordinal() == 0 and is_precompilation():
-            import shutil
-
-            shutil.rmtree("/home/ubuntu/cache_dir_neuron", ignore_errors=True)
-        xm.rendezvous("Remove cache dir")
-
         training_args = kwargs.get("args", None)
         if training_args is None and len(args) >= 2:
             training_args = args[1]
@@ -395,7 +389,6 @@ class AugmentTrainerForNeuronMixin:
             from neuronx_distributed.parallel_layers.parallel_state import (
                 get_data_parallel_group,
                 get_data_parallel_size,
-                get_pipeline_model_parallel_group,
                 get_pipeline_model_parallel_rank,
                 get_pipeline_model_parallel_size,
             )
@@ -405,27 +398,12 @@ class AugmentTrainerForNeuronMixin:
                 dp_size = get_data_parallel_size()
                 pp_size = get_pipeline_model_parallel_size()
                 pp_rank = get_pipeline_model_parallel_rank()
-                pp_group = get_pipeline_model_parallel_group()
                 tr_loss_div = tr_loss / dp_size
 
                 if pp_size > 1 and pp_rank == pp_size - 1:
                     tr_loss_div = xm.all_reduce(
                         xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_group(as_list=True)
                     )
-                    # tr_loss_div = xm.all_reduce(
-                    #     xm.REDUCE_SUM,
-                    #     tr_loss_div,
-                    #     groups=get_pipeline_model_parallel_group(as_list=True),
-                    # )
-                    # xm.mark_step()
-                    # if pp_rank == pp_size - 1:
-                    #     torch.distributed.all_reduce(tr_loss_div, group=get_data_parallel_group())
-                    #     torch.distributed.broadcast(tr_loss_div, torch.distributed.get_rank(), group=pp_group)
-                    # else:
-                    #     src_rank = torch.distributed.distributed_c10d.get_global_rank(pp_group, pp_size - 1)
-                    #     torch.distributed.broadcast(tr_loss_div, src_rank, group=pp_group)
-
-                    # xm.mark_step()
                     tr_loss_scalar = tr_loss_div.detach().item()
                 else:
                     tr_loss_scalar = xm.all_reduce(
