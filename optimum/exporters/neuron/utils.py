@@ -182,12 +182,16 @@ def get_stable_diffusion_models_for_export(
         lora_adapter_names=lora_adapter_names,
         lora_scales=lora_scales,
     )
+    library_name = "diffusers"
 
     # Text encoders
     if DIFFUSION_MODEL_TEXT_ENCODER_NAME in models_for_export:
         text_encoder = models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_NAME]
         text_encoder_config_constructor = TasksManager.get_exporter_config_constructor(
-            model=text_encoder, exporter="neuron", task="feature-extraction"
+            model=text_encoder,
+            exporter="neuron",
+            task="feature-extraction",
+            library_name=library_name,
         )
         text_encoder_neuron_config = text_encoder_config_constructor(
             text_encoder.config,
@@ -204,6 +208,7 @@ def get_stable_diffusion_models_for_export(
             exporter="neuron",
             task="feature-extraction",
             model_type="clip-text-with-projection",
+            library_name=library_name,
         )
         text_encoder_neuron_config_2 = text_encoder_config_constructor_2(
             text_encoder_2.config,
@@ -216,7 +221,11 @@ def get_stable_diffusion_models_for_export(
     # U-NET
     unet = models_for_export[DIFFUSION_MODEL_UNET_NAME]
     unet_neuron_config_constructor = TasksManager.get_exporter_config_constructor(
-        model=unet, exporter="neuron", task="semantic-segmentation", model_type="unet"
+        model=unet,
+        exporter="neuron",
+        task="semantic-segmentation",
+        model_type="unet",
+        library_name=library_name,
     )
     unet_neuron_config = unet_neuron_config_constructor(
         unet.config,
@@ -235,6 +244,7 @@ def get_stable_diffusion_models_for_export(
         exporter="neuron",
         task="semantic-segmentation",
         model_type="vae-encoder",
+        library_name=library_name,
     )
     vae_encoder_neuron_config = vae_encoder_config_constructor(
         vae_encoder.config,
@@ -251,6 +261,7 @@ def get_stable_diffusion_models_for_export(
         exporter="neuron",
         task="semantic-segmentation",
         model_type="vae-decoder",
+        library_name=library_name,
     )
     vae_decoder_neuron_config = vae_decoder_config_constructor(
         vae_decoder.config,
@@ -438,7 +449,10 @@ def get_encoder_decoder_models_for_export(
     # Encoder
     model_type = getattr(model.config, "model_type") + "-encoder"
     encoder_config_constructor = TasksManager.get_exporter_config_constructor(
-        exporter="neuron", model_type=model_type, task=task
+        exporter="neuron",
+        model_type=model_type,
+        task=task,
+        library_name="transformers",
     )
     check_mandatory_input_shapes(encoder_config_constructor, task, input_shapes)
     encoder_neuron_config = encoder_config_constructor(
@@ -452,7 +466,10 @@ def get_encoder_decoder_models_for_export(
     # Decoder
     model_type = getattr(model.config, "model_type") + "-decoder"
     decoder_config_constructor = TasksManager.get_exporter_config_constructor(
-        exporter="neuron", model_type=model_type, task=task
+        exporter="neuron",
+        model_type=model_type,
+        task=task,
+        library_name="transformers",
     )
     check_mandatory_input_shapes(encoder_config_constructor, task, input_shapes)
     decoder_neuron_config = decoder_config_constructor(

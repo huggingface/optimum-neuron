@@ -14,26 +14,22 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-# Llama performance on AWS Inferentia2 (Latency & Througput)
+# Llama-2-7b performance on AWS Inferentia2 (Latency & Througput)
 
-How fast is Llama on Inferentia2?  Let's figure out!
+How fast is Llama-2-7b on Inferentia2?  Let's figure out!
 
-For this benchmark we will use the LLama 2 7B and 13B models with different configurations:
+For this benchmark we will use the following configurations:
 
-| Model type                 | num cores | batch_size |
-|----------------------------|-----------|------------|
-| Llama2 7B - L (latency)    | 24        | 1          |
-| Llama2 7B - T (throughput) | 24        | 4          |
-| Llama2 13B - L (latency)   | 24        | 1          |
-| Llama2 13B - T (throughput)| 24        | 4          |
+| Model type     | batch_size | sequence_length |
+|----------------|------------|-----------------|
+| Llama2 7B BS1  | 1          | 4096            |
+| Llama2 7B BS4  | 4          | 4096            |
+| Llama2 7B BS8  | 8          | 4096            |
+| Llama2 7B BS16 | 16         | 4096            |
 
-*Note: all models are compiled with a maximum sequence length of 2048.*
-
-All models are compiled to use the full extent of cores available on the `inf2.48xlarge` instance.
+*Note: all models are compiled to use the full extent of cores available on the `inf2.48xlarge` instance.*
 
 *Note: please refer to the [inferentia2 product page](https://aws.amazon.com/ec2/instance-types/inf2/) for details on the available instances.*
-
-We created two "latency" oriented configurations for the `llama2 7B` and `llama2 13B` models that can serve only one request at a time, but at full speed and two "throughput" oriented configurations to serve up to four requests in parallel.
 
 To evaluate the models, we generate tokens up to a total sequence length of 1024, starting from
 256 input tokens (i.e. we generate 256, 512 and 768 tokens).
@@ -48,9 +44,7 @@ while 768 is more typical of a Retrieval Augmented Generation (RAG) use-case.
 
 Encoding time is expressed in **seconds**.
 
-![Llama2 inferentia2 encoding-time](https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/benchmarks/inferentia-llama2/encoding_times.png "Encoding time")
-
-We can see that all deployed models exhibit excellent response times, even for long contexts.
+![Llama2 7b inferentia2 encoding-time](https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/benchmarks/inferentia-llama2-7b/encoding_times.png "Encoding time")
 
 ## End-to-end Latency
 
@@ -60,9 +54,7 @@ It therefore includes the encoding and generation time.
 
 Latency is expressed in **seconds**.
 
-![Llama2 inferentia2 end-to-end latency](https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/benchmarks/inferentia-llama2/latencies.png "Latency")
-
-All models deployed on the high-end instance exhibit a good latency, even those actually configured to optimize throughput.
+![Llama2 7b inferentia2 end-to-end latency](https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/benchmarks/inferentia-llama2-7b/latencies.png "Latency")
 
 ### Throughput
 
@@ -72,6 +64,4 @@ In other words, we divide the end-to-end latency by `batch_size * sequence_lengt
 
 Throughput is expressed in **tokens/second**.
 
-![Llama2 inferentia2 throughput](https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/benchmarks/inferentia-llama2/throughputs.png "Throughput")
-
-Again, the models deployed on the high-end instance have a very good throughput, even those optimized for latency.
+![Llama2 7b inferentia2 throughput](https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/benchmarks/inferentia-llama2-7b/throughputs.png "Throughput")

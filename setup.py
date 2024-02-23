@@ -15,21 +15,21 @@ except Exception as error:
 INSTALL_REQUIRES = [
     "transformers == 4.36.2",
     "accelerate == 0.23.0",
-    "optimum >= 1.16.2",
+    "optimum ~= 1.17.0",
     "huggingface_hub >= 0.20.1",
     "numpy>=1.22.2, <=1.25.2",
     "protobuf<4",
 ]
 
 TESTS_REQUIRE = [
-    "pytest",
+    "pytest <= 8.0.0",
     "psutil",
     "parameterized",
     "GitPython",
     "sentencepiece",
     "datasets",
     "sacremoses",
-    "diffusers >= 0.25.0",
+    "diffusers >= 0.26.1",
     "safetensors",
     "sentence-transformers >= 2.2.0",
     "sacremoses",
@@ -56,7 +56,7 @@ EXTRAS_REQUIRE = {
     "neuronx": [
         "wheel",
         "neuronx-cc==2.12.68.0",
-        "torch-neuronx==1.13.1.1.13.0",
+        "torch-neuronx==1.13.1.1.13.1",
         "transformers-neuronx==0.9.474",
         "torch==1.13.1.*",
         "torchvision==0.14.*",

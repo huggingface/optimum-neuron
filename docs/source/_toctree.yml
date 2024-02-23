@@ -5,6 +5,8 @@
     title: Installation
   - local: quickstart
     title: Quickstart
+  - local: containers
+    title: Optimum Containers
   - sections:
     - local: tutorials/overview
       title: Overview
@@ -42,6 +44,12 @@
       title: Inference pipelines with AWS Neuron
     title: How-To Guides
   - sections:
+    - local: benchmarks/inferentia-llama2-7b
+      title: Llama2 7b on AWS Inferentia2
+    - local: benchmarks/inferentia-llama2-13b
+      title: Llama2 13b on AWS Inferentia2
+    title: Benchmarks
+  - sections:
     - local: community/contributing
       title: Add support for a new model architecture
     title: Contribute
@@ -55,9 +63,5 @@
     - local: package_reference/modeling
       title: Neuron Models
     title: Reference
-  - sections:
-    - local: benchmarks/inferentia-llama2
-      title: Llama on AWS Inferentia2
-    title: Benchmarks
   title: Optimum Neuron
   isExpanded: true

@@ -23,19 +23,17 @@ import shutil
 import sys
 import time
 import warnings
-from pathlib import Path
-from tempfile import TemporaryDirectory
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
 from accelerate import __version__ as accelerate_version
 from packaging import version
+from torch.utils.data import Dataset
 from transformers import PreTrainedModel, Seq2SeqTrainer, Trainer, TrainingArguments
 from transformers.debug_utils import DebugOption, DebugUnderflowOverflow
 from transformers.integrations import hp_params
 from transformers.modeling_utils import unwrap_model
-from transformers.pytorch_utils import is_torch_less_than_1_11
 from transformers.trainer import (
     OPTIMIZER_NAME,
     SCHEDULER_NAME,
@@ -56,6 +54,7 @@ from transformers.trainer_utils import (
     EvalLoopOutput,
     EvalPrediction,
     HPSearchBackend,
+    PredictionOutput,
     TrainOutput,
     denumpify_detensorize,
     has_length,
@@ -68,13 +67,19 @@ from ..utils import check_if_transformers_greater, logging
 from .accelerate import NeuronAccelerator, NeuronDistributedType
 from .distributed import Parallelizer, ParallelizersManager
 from .distributed.utils import make_optimizer_constructor_lazy
-from .trainer_callback import NeuronCacheCallback
 from .utils import (
     Patcher,
     is_torch_xla_available,
     patch_within_function,
 )
-from .utils.cache_utils import get_neuron_cache_path, set_neuron_cache_path
+from .utils.cache_utils import (
+    get_hf_hub_cache_repos,
+    get_model_name_or_path,
+    get_neuronxcc_version,
+    get_num_neuron_cores_used,
+    has_write_access_to_repo,
+)
+from .utils.hub_neuronx_cache import ModelCacheEntry, hub_neuronx_cache, patch_neuron_cc_wrapper, synchronize_hub_cache
 from .utils.require_utils import requires_neuronx_distributed
 from .utils.training_utils import (
     TRANSFORMERS_MIN_VERSION_USE_ACCELERATE,
@@ -113,38 +118,11 @@ KEEP_HF_HUB_PROGRESS_BARS = os.environ.get("KEEP_HF_HUB_PROGRESS_BARS")
 if KEEP_HF_HUB_PROGRESS_BARS is None:
     os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
 
-# Used for torch.distributed.
-_ORIGINAL_NEURON_CACHE_PATH: Optional[Path] = None
-_TMP_NEURON_CACHE_DIR: Optional[TemporaryDirectory] = None
-_TMP_NEURON_CACHE_PATH: Optional[Path] = None
-_TCP_STORE_ADDRESS = "127.0.0.1"
-_TCP_STORE_PORT = 5000
-
 
 if os.environ.get("TORCHELASTIC_RUN_ID"):
     import torch_xla.distributed.xla_backend as xbn
 
     if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
-        _ORIGINAL_NEURON_CACHE_PATH = get_neuron_cache_path()
-
-        # _ORIGINAL_NEURON_CACHE_PATH is `None` when the `--no-cache` flag is set.
-        if _ORIGINAL_NEURON_CACHE_PATH is not None:
-            if is_precompilation():
-                # During precompilation, we make sure to set the cache path to the defined compile cache path by the
-                # user. If nothing is specified, it is set to the default compile cache used by the Neuron compiler:
-                # /var/tmp/neuron-compile-cache
-                set_neuron_cache_path(_ORIGINAL_NEURON_CACHE_PATH)
-            else:
-                if os.environ["RANK"] == "0":
-                    _TMP_NEURON_CACHE_DIR = NeuronCacheCallback.create_temporary_neuron_cache(get_neuron_cache_path())
-                    store = torch.distributed.TCPStore(_TCP_STORE_ADDRESS, _TCP_STORE_PORT, is_master=True)
-                    store.set("tmp_neuron_cache_path", _TMP_NEURON_CACHE_DIR.name)
-                    _TMP_NEURON_CACHE_PATH = Path(_TMP_NEURON_CACHE_DIR.name)
-                else:
-                    store = torch.distributed.TCPStore(_TCP_STORE_ADDRESS, _TCP_STORE_PORT, is_master=False)
-                    _TMP_NEURON_CACHE_PATH = Path(store.get("tmp_neuron_cache_path").decode("utf-8"))
-                set_neuron_cache_path(_TMP_NEURON_CACHE_PATH)
-
         torch.distributed.init_process_group(backend="xla")
         if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
             raise AssertionError("Failed to initialize torch.distributed process group using XLA backend.")
@@ -194,23 +172,28 @@ class AugmentTrainerForNeuronMixin:
         if self.args.local_rank <= 0:
             logger.setLevel(logging.INFO)
 
-        push = self.args.local_rank <= 0 and not is_precompilation() and not self.args.skip_cache_push
-        fetch = self.args.local_rank <= 0 or self.args.mp_plugin.should_parallelize
-
-        callback = NeuronCacheCallback(
-            tmp_neuron_cache=_TMP_NEURON_CACHE_PATH,
-            original_neuron_cache_path=_ORIGINAL_NEURON_CACHE_PATH,
-            fetch=fetch,
-            push=push,
-            wait_for_everyone_on_fetch=True,
-            wait_for_everyone_on_push=True,
-        )
-        self.add_callback(callback)
-
         # Make the model Neuron-compatible for generation.
         patch_generation_mixin_to_neuron_generation_mixin(self.model)
 
         set_neuron_cc_optlevel_for_model(self.model, optlevel=self.args.neuron_cc_optlevel)
+
+        # Model cache entry management.
+        model_name_or_path_for_cache_entry = get_model_name_or_path(self.model.config)
+        model_config_for_cache_entry = copy.deepcopy(self.model.config)
+        use_bf16 = os.environ.get("XLA_USE_BF16", False) or os.environ.get("XLA_DOWNCAST_BF16", False)
+        precision = "bfloat16" if use_bf16 else "float32"
+        neuron_config_for_cache_entry = {
+            "model_class": self.model.__class__.__name__,
+            "precision": precision,
+            "num_neuron_cores_per_node": get_num_neuron_cores_used(),
+            "compiler_version": get_neuronxcc_version(),
+            "tensor_parallel_size": self.args.tensor_parallel_size,
+            "pipeline_parallel_size": self.args.pipeline_parallel_size,
+        }
+        self.model_cache_entry: Optional[ModelCacheEntry] = None
+        if model_name_or_path_for_cache_entry is not None:
+            model_config_for_cache_entry.neuron = neuron_config_for_cache_entry
+            self.model_cache_entry = ModelCacheEntry(model_name_or_path_for_cache_entry, model_config_for_cache_entry)
 
     @property
     def mp_enabled(self):
@@ -259,25 +242,18 @@ class AugmentTrainerForNeuronMixin:
                 ds_plugin.deepspeed_config = ds_plugin.hf_ds_config.config
                 ds_plugin.hf_ds_config.trainer_config_process(self.args)
 
+    def synchronize_hub_cache(self):
+        repo_id = get_hf_hub_cache_repos()[0]
+        if xm.get_ordinal() == 0:
+            has_write_access = has_write_access_to_repo(repo_id)
+            if has_write_access:
+                synchronize_hub_cache(repo_id)
+        xm.rendezvous("Hub cache synchronization done")
+
     def _wrap_model(self, model, training=True, dataloader=None):
         return super()._wrap_model(
             self.accelerator.patch_model_for_neuron(model), training=training, dataloader=dataloader
         )
-
-    # TODO: make this cleaner.
-    def trigger_on_step_middle_for_neuron_cache_callback(self, model: "PreTrainedModel"):
-        for callback in self.callback_handler.callbacks:
-            if isinstance(callback, NeuronCacheCallback):
-                # kwargs might not have everything expected (like metrics) but all we need is here.
-                kwargs = {
-                    "model": model,
-                    "tokenizer": self.tokenizer,
-                    "optimizer": self.optimizer,
-                    "lr_scheduler": self.lr_scheduler,
-                    "train_dataloader": self.callback_handler.train_dataloader,
-                    "eval_dataloader": self.callback_handler.eval_dataloader,
-                }
-                callback.on_step_middle(self.args, self.state, self.control, **kwargs)
 
     def _get_train_sampler(self) -> Optional[torch.utils.data.Sampler]:
         if self.mp_enabled:
@@ -312,9 +288,20 @@ class AugmentTrainerForNeuronMixin:
             return data
         return super()._prepare_input(data)
 
+    def _update_input_specs_in_model_cache_entry(self, input_specs: Dict[str, Any]):
+        if self.model_cache_entry is None:
+            return
+        self.model_cache_entry.config["neuron"]["training"] = self.model.training
+        self.model_cache_entry.config["neuron"]["input_specs"] = input_specs
+
+    def _prepare_inputs(self, inputs: Dict[str, Union[torch.Tensor, Any]]) -> Dict[str, Union[torch.Tensor, Any]]:
+        inputs = super()._prepare_inputs(inputs)
+        input_specs_for_cache_entry = {k: v.shape if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
+        self._update_input_specs_in_model_cache_entry(input_specs_for_cache_entry)
+        return inputs
+
     def compute_loss(self, model, inputs, return_outputs: bool = False):
         self.state.last_inputs = inputs
-        self.trigger_on_step_middle_for_neuron_cache_callback(model)
         from neuronx_distributed.pipeline import NxDPPModel
 
         if isinstance(model, NxDPPModel):
@@ -356,7 +343,6 @@ class AugmentTrainerForNeuronMixin:
         from neuronx_distributed.pipeline import NxDPPModel
 
         self.state.last_inputs = inputs
-        self.trigger_on_step_middle_for_neuron_cache_callback(model)
 
         if isinstance(model, NxDPPModel):
             if not prediction_loss_only:
@@ -500,10 +486,18 @@ class AugmentTrainerForNeuronMixin:
 
     def save_model(self, output_dir: Optional[str] = None, _internal_call: bool = False):
         if not os.environ.get("NEURON_PARALLEL_COMPILE"):  # Avoid unnecessary model saving during precompilation
-            if output_dir is None:
-                output_dir = self.args.output_dir
+            with patch_neuron_cc_wrapper():
+                if self.model_cache_entry is not None and "input_specs" not in self.model_cache_entry.config["neuron"]:
+                    model_cache_entry = None
+                else:
+                    model_cache_entry = self.model_cache_entry
+                with hub_neuronx_cache("training", entry=model_cache_entry):
+                    if output_dir is None:
+                        output_dir = self.args.output_dir
 
-            self._save_xla(output_dir)
+                    self._save_xla(output_dir)
+
+            self.synchronize_hub_cache()
 
             # Push to the Hub when `save_model` is called by the user.
             if self.args.push_to_hub and not _internal_call:
@@ -861,7 +855,7 @@ class AugmentTrainerForNeuronMixin:
 
                     sampler_kinds.append(SeedableRandomSampler)
                 is_random_sampler = isinstance(sampler, tuple(sampler_kinds))
-                if is_torch_less_than_1_11 or not is_random_sampler:
+                if not is_random_sampler:
                     # We just need to begin an iteration to create the randomization of the sampler.
                     for _ in train_dataloader:
                         break
@@ -1314,6 +1308,50 @@ class AugmentTrainerForNeuronMixin:
                 metrics[f"{metric_key_prefix}_{key}"] = metrics.pop(key)
 
         return EvalLoopOutput(predictions=all_preds, label_ids=all_labels, metrics=metrics, num_samples=num_samples)
+
+    def train(
+        self,
+        resume_from_checkpoint: Optional[Union[str, bool]] = None,
+        trial=None,  # No type-annotation for this one because it is related to the optuna package.
+        ignore_keys_for_eval: Optional[List[str]] = None,
+        **kwargs,
+    ):
+        with patch_neuron_cc_wrapper():
+            with hub_neuronx_cache("training", entry=self.model_cache_entry):
+                result = super().train(
+                    resume_from_checkpoint=resume_from_checkpoint,
+                    trial=trial,
+                    ignore_keys_for_eval=ignore_keys_for_eval,
+                    **kwargs,
+                )
+        if not is_precompilation():
+            self.synchronize_hub_cache()
+        return result
+
+    def evaluate(
+        self,
+        eval_dataset: Optional[Union[Dataset, Dict[str, Dataset]]] = None,
+        ignore_keys: Optional[List[str]] = None,
+        metric_key_prefix: str = "eval",
+    ) -> Dict[str, float]:
+        with patch_neuron_cc_wrapper():
+            with hub_neuronx_cache("training", entry=self.model_cache_entry):
+                result = super().evaluate(
+                    eval_dataset=eval_dataset, ignore_keys=ignore_keys, metric_key_prefix=metric_key_prefix
+                )
+        if not is_precompilation():
+            self.synchronize_hub_cache()
+        return result
+
+    def predict(
+        self, test_dataset: Dataset, ignore_keys: Optional[List[str]] = None, metric_key_prefix: str = "test"
+    ) -> PredictionOutput:
+        with patch_neuron_cc_wrapper():
+            with hub_neuronx_cache("training", entry=self.model_cache_entry):
+                result = super().predict(test_dataset, ignore_keys=ignore_keys, metric_key_prefix=metric_key_prefix)
+        if not is_precompilation():
+            self.synchronize_hub_cache()
+        return result
 
 
 class NeuronTrainer(AugmentTrainerForNeuronMixin, Trainer):

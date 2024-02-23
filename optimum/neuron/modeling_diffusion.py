@@ -80,6 +80,7 @@ logger = logging.getLogger(__name__)
 
 class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
     auto_model_class = StableDiffusionPipeline
+    library_name = "diffusers"
     base_model_prefix = "neuron_model"
     config_name = "model_index.json"
     sub_component_config_name = "config.json"
@@ -669,6 +670,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             lora_weight_names=lora_weight_names,
             lora_adapter_names=lora_adapter_names,
             lora_scales=lora_scales,
+            library_name=cls.library_name,
             **input_shapes,
         )
 

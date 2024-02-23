@@ -35,6 +35,7 @@ from .utils.version_utils import check_compiler_compatibility, get_neuronxcc_ver
 
 
 if is_transformers_neuronx_available():
+    from transformers_neuronx.config import ContinuousBatchingConfig, NeuronConfig
     from transformers_neuronx.module import save_split
 
 
@@ -131,16 +132,26 @@ class NeuronDecoderModel(OptimizedModel):
 
         exporter = get_exporter(config, task)
 
-        # transformers-neuronx uses f32/f16 instead of fp32/fp16
-        auto_cast_type = auto_cast_type.replace("p", "")
+        tnx_kwargs = {
+            "batch_size": batch_size,
+            "tp_degree": num_cores,
+            # transformers-neuronx uses f32/f16 instead of fp32/fp16
+            "amp": auto_cast_type.replace("p", ""),
+        }
+        if batch_size > 1 and exporter.continuous_batching:
+            # Continuous batching is always enabled for models that support it because static batching
+            # is broken for these models:  see https://github.com/aws-neuron/transformers-neuronx/issues/79
+            tnx_kwargs["neuron_config"] = NeuronConfig(
+                continuous_batching=ContinuousBatchingConfig(batch_size_for_shared_caches=batch_size)
+            )
+            tnx_kwargs["n_positions"] = [sequence_length]
+            tnx_kwargs["context_length_estimate"] = [sequence_length]
+        else:
+            tnx_kwargs["n_positions"] = sequence_length
+
+        # Instantiate neuronx model
         checkpoint_path = checkpoint_dir.name if isinstance(checkpoint_dir, TemporaryDirectory) else checkpoint_dir
-        neuronx_model = exporter.neuronx_class.from_pretrained(
-            checkpoint_path,
-            batch_size=batch_size,
-            n_positions=sequence_length,
-            tp_degree=num_cores,
-            amp=auto_cast_type,
-        )
+        neuronx_model = exporter.neuronx_class.from_pretrained(checkpoint_path, **tnx_kwargs)
 
         if compiled_dir is not None:
             # Specify the path where compiled artifacts are stored before conversion
@@ -151,7 +162,7 @@ class NeuronDecoderModel(OptimizedModel):
         cache_entry = None if checkpoint_id is None else ModelCacheEntry(checkpoint_id, config)
 
         # Export the model using the Optimum Neuron Cache
-        with hub_neuronx_cache(entry=cache_entry):
+        with hub_neuronx_cache("inference", entry=cache_entry):
             available_cores = get_available_cores()
             if num_cores > available_cores:
                 raise ValueError(

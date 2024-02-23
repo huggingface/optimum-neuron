@@ -108,6 +108,7 @@ def infer_task(task: str, model_name_or_path: str) -> str:
     return task
 
 
+# This function is not applicable for diffusers / sentence transformers models
 def get_input_shapes_and_config_class(task: str, args: argparse.Namespace) -> Dict[str, int]:
     config = AutoConfig.from_pretrained(args.model)
 
@@ -116,7 +117,10 @@ def get_input_shapes_and_config_class(task: str, args: argparse.Namespace) -> Di
         model_type = model_type + "-encoder"
 
     neuron_config_constructor = TasksManager.get_exporter_config_constructor(
-        model_type=model_type, exporter="neuron", task=task
+        model_type=model_type,
+        exporter="neuron",
+        task=task,
+        library_name="transformers",
     )
     input_args = neuron_config_constructor.func.get_input_args_for_task(task)
     input_shapes = {name: getattr(args, name) for name in input_args}
@@ -232,6 +236,7 @@ def _get_submodels_and_neuron_configs(
     input_shapes: Dict[str, int],
     task: str,
     output: Path,
+    library_name: Optional[str] = None,
     dynamic_batch_size: bool = False,
     model_name_or_path: Optional[Union[str, Path]] = None,
     submodels: Optional[Dict[str, Union[Path, str]]] = None,
@@ -277,7 +282,10 @@ def _get_submodels_and_neuron_configs(
                 f"`output_attentions` and `output_hidden_states` are not supported by the {task} task yet."
             )
         neuron_config_constructor = TasksManager.get_exporter_config_constructor(
-            model=model, exporter="neuron", task=task
+            model=model,
+            exporter="neuron",
+            task=task,
+            library_name=library_name,
         )
         neuron_config = neuron_config_constructor(model.config, dynamic_batch_size=dynamic_batch_size, **input_shapes)
         model_name = getattr(model, "name_or_path", None) or model_name_or_path
@@ -435,6 +443,9 @@ def main_export(
 
     task = TasksManager.map_from_synonym(task)
     is_stable_diffusion = "stable-diffusion" in task
+    library_name = TasksManager.infer_library_from_model(
+        model_name_or_path, subfolder=subfolder, library_name=library_name
+    )
 
     model_kwargs = {
         "task": task,
@@ -455,6 +466,7 @@ def main_export(
         model=model,
         input_shapes=input_shapes,
         task=task,
+        library_name=library_name,
         output=output,
         dynamic_batch_size=dynamic_batch_size,
         model_name_or_path=model_name_or_path,
