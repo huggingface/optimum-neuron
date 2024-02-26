@@ -378,7 +378,13 @@ class LLamaParallelMLP(ParallelMLP):
     ) -> "torch.nn.Module":
         # TODO: Make it smart by merging the gate and the up_proj.
         # WARNING: be careful of the interleaved outputs when doing TP!
-        layer = super()._transform(model, layer, sequence_parallel_enabled=sequence_parallel_enabled, device=device, **parallel_layer_specific_kwargs)
+        layer = super()._transform(
+            model,
+            layer,
+            sequence_parallel_enabled=sequence_parallel_enabled,
+            device=device,
+            **parallel_layer_specific_kwargs,
+        )
 
         skip_linear_weight_load = parallel_layer_specific_kwargs["skip_linear_weight_load"]
 
@@ -676,7 +682,13 @@ class MistralParallelMLP(ParallelMLP):
             return layer
         # TODO: Make it smart by merging the gate and the up_proj.
         # WARNING: be careful of the interleaved outputs when doing TP!
-        layer = super().transform(model, layer, sequence_parallel_enabled=sequence_parallel_enabled, device=device, **parallel_layer_specific_kwargs)
+        layer = super().transform(
+            model,
+            layer,
+            sequence_parallel_enabled=sequence_parallel_enabled,
+            device=device,
+            **parallel_layer_specific_kwargs,
+        )
 
         skip_linear_weight_load = parallel_layer_specific_kwargs["skip_linear_weight_load"]
         weight_map = getattr(model, "_weight_map", None)

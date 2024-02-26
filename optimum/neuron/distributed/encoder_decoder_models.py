@@ -88,7 +88,13 @@ class T5ParallelSelfAttention(ParallelSelfAttention):
                 layer.relative_attention_bias.num_embeddings = num_attention_heads_per_rank
                 set_tensor_model_parallel_attributes(layer.relative_attention_bias.weight, True, 1, stride=1)
 
-        layer = super().transform(model, layer, sequence_parallel_enabled=sequence_parallel_enabled, device=device, **parallel_layer_specific_kwargs)
+        layer = super().transform(
+            model,
+            layer,
+            sequence_parallel_enabled=sequence_parallel_enabled,
+            device=device,
+            **parallel_layer_specific_kwargs,
+        )
 
         return layer
 

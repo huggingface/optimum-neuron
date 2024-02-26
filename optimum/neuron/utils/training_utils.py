@@ -445,6 +445,7 @@ def is_main_worker_for_metrics() -> bool:
 
     return can_log_loss
 
+
 def is_main_worker_for_metrics_method(self) -> bool:
     """
     Method version of `is_main_worker_for_metrics`, useful when this is used to patch a method from the Trainer class.

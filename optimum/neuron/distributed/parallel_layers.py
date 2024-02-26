@@ -20,7 +20,7 @@ from abc import ABC, abstractclassmethod
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Dict, List, Literal, Optional, Tuple, Type, Union, Any
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Literal, Optional, Tuple, Type, Union
 
 import torch
 from torch.nn.modules.loss import _WeightedLoss
@@ -51,7 +51,7 @@ _PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT: bool = False
 
 
 class ParallelLayer(ABC):
-    PARALLEL_LAYER_SPECIFIC_KWARGS: Optional[Dict[str, Any]] = None 
+    PARALLEL_LAYER_SPECIFIC_KWARGS: Optional[Dict[str, Any]] = None
 
     @classmethod
     def _get_module_and_attribute_name(
@@ -138,13 +138,18 @@ class ParallelLayer(ABC):
             default_parallel_layer_specific_kwargs = {}
 
         if not set(parallel_layer_specific_kwargs.keys()) <= set(default_parallel_layer_specific_kwargs.keys()):
-            wrong_argument_names = [name for name in parallel_layer_specific_kwargs if name not in default_parallel_layer_specific_kwargs]
+            wrong_argument_names = [
+                name for name in parallel_layer_specific_kwargs if name not in default_parallel_layer_specific_kwargs
+            ]
             logger.debug(
                 f'The following arguments are not allowed for {cls.__name__}: {", ".join(wrong_argument_names)}, they '
-                'will be ignored.'
+                "will be ignored."
             )
 
-        return {k: parallel_layer_specific_kwargs.get(k, default_parallel_layer_specific_kwargs[k]) for k in default_parallel_layer_specific_kwargs}
+        return {
+            k: parallel_layer_specific_kwargs.get(k, default_parallel_layer_specific_kwargs[k])
+            for k in default_parallel_layer_specific_kwargs
+        }
 
     @classmethod
     def transform(
@@ -159,7 +164,13 @@ class ParallelLayer(ABC):
         parallel_layer_specific_kwargs = cls.prepare_parallel_layer_specific_kwargs(**parallel_layer_specific_kwargs)
         if should_parallelize_layer_predicate_func is not None and not should_parallelize_layer_predicate_func(layer):
             return layer
-        return cls._transform(model, layer, sequence_parallel_enabled=sequence_parallel_enabled, device=device, **parallel_layer_specific_kwargs)
+        return cls._transform(
+            model,
+            layer,
+            sequence_parallel_enabled=sequence_parallel_enabled,
+            device=device,
+            **parallel_layer_specific_kwargs,
+        )
 
 
 class ParallelEmbedding(ParallelLayer):
@@ -317,6 +328,7 @@ class ParallelSelfAttention(ParallelLayer):
             The name of the attribute in the layer specifying the hidden dimension of each attention head.
             If left unspecified, the attribute will be fetched by using the NormalizedConfig associated to the model.
     """
+
     PARALLEL_LAYER_SPECIFIC_KWARGS_NAMES = {"skip_linear_weight_load": False}
 
     QUERIES_NAME = "query"
@@ -327,7 +339,6 @@ class ParallelSelfAttention(ParallelLayer):
     NUM_KEY_VALUE_HEADS_NAME: Optional[str] = None
     NUM_KEY_VALUE_GROUPS_NAME: Optional[str] = None
     ALL_HEAD_SIZE_NAME: Optional[str] = None
-
 
     @classmethod
     @requires_neuronx_distributed
@@ -507,6 +518,7 @@ class ParallelSelfAttentionWithFusedQKV(ParallelLayer):
             The name of the attribute in the layer specifying the hidden dimension of each attention head.
             If left unspecified, the attribute will be fetched by using the NormalizedConfig associated to the model.
     """
+
     PARALLEL_LAYER_SPECIFIC_KWARGS_NAMES = {"skip_linear_weight_load": False}
 
     QUERY_KEY_VALUE_NAME = "query_key_value"
@@ -625,6 +637,7 @@ class ParallelSelfOutput(ParallelLayer):
         OUTPUT_PROJECTION_NAME (`str`, defaults to `"dense"`):
             The name of the projection layer in the module containing it.
     """
+
     PARALLEL_LAYER_SPECIFIC_KWARGS_NAMES = {"skip_linear_weight_load": False}
 
     OUTPUT_PROJECTION_NAME = "dense"
@@ -678,6 +691,7 @@ class ParallelMLP(ParallelLayer):
         SECOND_LINEAR_NAME (`str`):
             The qualified name of the second linear projection in the module.
     """
+
     PARALLEL_LAYER_SPECIFIC_KWARGS_NAMES = {"skip_linear_weight_load": False}
 
     FIRST_LINEAR_NAME: str
