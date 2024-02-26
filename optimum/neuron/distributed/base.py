@@ -246,6 +246,7 @@ class Parallelizer(ABC):
         parallelize_embeddings: bool = True,
         sequence_parallel_enabled: bool = False,
         should_parallelize_layer_predicate_func: Optional[Callable[["torch.nn.Module"], bool]] = None,
+        **parallel_layer_specific_kwargs,
     ) -> "PreTrainedModel":
         """
         Parallelizes the model by transforming regular layer into their parallel counterparts.
@@ -264,6 +265,8 @@ class Parallelizer(ABC):
             should_parallelize_layer_predicate_func (Optional[Callable[[torch.nn.Module], bool]], defaults to `None`):
                 A function that takes a layer as input and returns a boolean specifying if the input layer should be
                 parallelized. This is useful to skip unnecessary parallelization, for pipeline parallelism for instance.
+            **parallel_layer_specific_kwargs (`Dict[str, Any]`):
+                Keyword arguments specific to some parallel layers, they will be ignored by the other parallel layers.
         Returns:
             `PreTrainedModel`: The parallelized model.
         """
@@ -511,7 +514,7 @@ class Parallelizer(ABC):
                 parallelize_embeddings=parallelize_embeddings,
                 sequence_parallel_enabled=sequence_parallel_enabled,
                 should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
-                # skip_weight_load=True,
+                skip_linear_weight_load=True,
             )
             xm.rendezvous("End of tensor parallelism")
             if is_main_worker():

@@ -413,7 +413,7 @@ def linear_to_parallel_linear(
     linear_layer_bias_weight_info: Optional[WeightInformation] = None,
     embedding_weight_to_tie: Optional["torch.nn.Parameter"] = None,
     sequence_parallel_enabled: bool = False,
-    skip_weight_load: bool = True,
+    skip_weight_load: bool = False,
     device: Optional["torch.device"] = None,
 ) -> Union["layers.RowParallelLinear", "layers.ColumnParallelLinear"]:
     """
@@ -442,7 +442,7 @@ def linear_to_parallel_linear(
         sequence_parallel_enabled (`bool`, defaults to `False`):
             Whether or not sequence parallelism is enabled.
         skip_weight_load (`bool`, defaults to `False`):
-            TODO
+            Whether or not to skip the loading of the weights in the newly created parallel linear layer.
         device (`Optional[torch.device]`, defaults to `None`):
             The device where the new parallel layer should be put.
 
@@ -483,6 +483,8 @@ def linear_to_parallel_linear(
     # Not skipping when we tie an embedding layer to make things easier.
     # Should not produce a big overhead.
     skip_weight_load = skip_weight_load and embedding_weight_to_tie is None
+    if skip_weight_load:
+        print("SKIPPING")
     if linear_layer_weight_info is not None and not skip_weight_load:
         maybe_load_linear_weight_to_parallel_linear(
             parallel_linear_layer,
@@ -679,19 +681,23 @@ def apply_activation_checkpointing(
     from neuronx_distributed.utils.activation_checkpoint import apply_activation_checkpointing
 
     if isinstance(model, NxDPPModel):
-        if activation_checkpoint_classes is None:
-            activation_checkpoint_classes = (model.transformer_layer_cls,)
+        if activation_checkpoint_classes is not None:
+            logger.warning(
+                "Cannot specify activation checkpoint classes under pipeline parallism setting. Will use the layers "
+                f"{model.transformer_layer_cls}"
+            )
     else:
         # TODO support this as well.
         raise ValueError("Not supported yet outside of the pipeline parallelism scheme.")
 
-    activation_checkpoint_classes = tuple(activation_checkpoint_classes)
-    assert len(activation_checkpoint_classes) > 0
-    assert all(issubclass(c, torch.nn.Module) for c in activation_checkpoint_classes)
-    apply_activation_checkpointing(
-        model,
-        check_fn=lambda m: isinstance(m, activation_checkpoint_classes),
-    )
+    check_fn = None
+    if activation_checkpoint_classes is not None:
+        activation_checkpoint_classes = tuple(activation_checkpoint_classes)
+        assert len(activation_checkpoint_classes) > 0
+        assert all(issubclass(c, torch.nn.Module) for c in activation_checkpoint_classes)
+        check_fn = (lambda m: isinstance(m, activation_checkpoint_classes),)
+
+    apply_activation_checkpointing(model, check_fn=check_fn)
 
 
 @classmethod

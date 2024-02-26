@@ -57,6 +57,7 @@ class T5ParallelSelfAttention(ParallelSelfAttention):
         sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
         should_parallelize_layer_predicate_func: Optional[Callable[["torch.nn.Module"], bool]] = None,
+        **parallel_layer_specific_kwargs,
     ) -> "torch.nn.Module":
         if should_parallelize_layer_predicate_func is not None and not should_parallelize_layer_predicate_func(layer):
             return layer
@@ -87,7 +88,7 @@ class T5ParallelSelfAttention(ParallelSelfAttention):
                 layer.relative_attention_bias.num_embeddings = num_attention_heads_per_rank
                 set_tensor_model_parallel_attributes(layer.relative_attention_bias.weight, True, 1, stride=1)
 
-        layer = super().transform(model, layer, sequence_parallel_enabled=sequence_parallel_enabled, device=device)
+        layer = super().transform(model, layer, sequence_parallel_enabled=sequence_parallel_enabled, device=device, **parallel_layer_specific_kwargs)
 
         return layer
 
@@ -333,6 +334,7 @@ class T5Parallelizer(Parallelizer):
         parallelize_embeddings: bool = True,
         sequence_parallel_enabled: bool = False,
         should_parallelize_layer_predicate_func: Optional[Callable[["torch.nn.Module"], bool]] = None,
+        **parallel_layer_specific_kwargs,
     ) -> "PreTrainedModel":
         if isinstance(model, T5ForSequenceClassification):
             raise NotImplementedError(
@@ -347,6 +349,7 @@ class T5Parallelizer(Parallelizer):
                 sequence_parallel_enabled=sequence_parallel_enabled,
                 should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
                 device=device,
+                **parallel_layer_specific_kwargs,
             )
         if parallelize_embeddings and model.encoder.embed_tokens is not None:
             model.encoder.embed_tokens = model.shared
@@ -359,6 +362,7 @@ class T5Parallelizer(Parallelizer):
                 sequence_parallel_enabled=sequence_parallel_enabled,
                 should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
                 device=device,
+                **parallel_layer_specific_kwargs,
             )
             block.layer[1].DenseReluDense = T5ParallelMLP.transform(
                 model,
@@ -366,6 +370,7 @@ class T5Parallelizer(Parallelizer):
                 sequence_parallel_enabled=sequence_parallel_enabled,
                 should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
                 device=device,
+                **parallel_layer_specific_kwargs,
             )
         for block in model.decoder.block:
             block.layer[0].SelfAttention = T5ParallelSelfAttention.transform(
@@ -374,6 +379,7 @@ class T5Parallelizer(Parallelizer):
                 sequence_parallel_enabled=sequence_parallel_enabled,
                 should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
                 device=device,
+                **parallel_layer_specific_kwargs,
             )
             block.layer[1].EncDecAttention = T5ParallelSelfAttention.transform(
                 model,
@@ -381,6 +387,7 @@ class T5Parallelizer(Parallelizer):
                 sequence_parallel_enabled=sequence_parallel_enabled,
                 should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
                 device=device,
+                **parallel_layer_specific_kwargs,
             )
             block.layer[2].DenseReluDense = T5ParallelMLP.transform(
                 model,
@@ -388,6 +395,7 @@ class T5Parallelizer(Parallelizer):
                 sequence_parallel_enabled=sequence_parallel_enabled,
                 should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
                 device=device,
+                **parallel_layer_specific_kwargs,
             )
         if parallelize_embeddings:
             model = T5ParallelCrossEntropy.transform(
@@ -396,5 +404,6 @@ class T5Parallelizer(Parallelizer):
                 sequence_parallel_enabled=sequence_parallel_enabled,
                 should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
                 device=device,
+                **parallel_layer_specific_kwargs,
             )
         return model

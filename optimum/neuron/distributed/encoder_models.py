@@ -65,6 +65,7 @@ class BertParallelEmbedding(ParallelEmbedding):
         sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
         should_parallelize_layer_predicate_func: Optional[Callable[["torch.nn.Module"], bool]] = None,
+        **parallel_layer_specific_kwargs,
     ) -> "torch.nn.Module":
         layer = super().transform(
             model,
@@ -72,6 +73,7 @@ class BertParallelEmbedding(ParallelEmbedding):
             sequence_parallel_enabled=sequence_parallel_enabled,
             device=device,
             should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
+            **parallel_layer_specific_kwargs,
         )
         from transformers.models.bert.modeling_bert import BertLMPredictionHead
 
@@ -142,6 +144,7 @@ class BertParallelizer(Parallelizer):
         parallelize_embeddings: bool = True,
         sequence_parallel_enabled: bool = False,
         should_parallelize_layer_predicate_func: Optional[Callable[["torch.nn.Module"], bool]] = None,
+        **parallel_layer_specific_kwargs,
     ) -> "PreTrainedModel":
         if parallelize_embeddings:
             model = BertParallelEmbedding.transform(
@@ -150,6 +153,7 @@ class BertParallelizer(Parallelizer):
                 sequence_parallel_enabled=sequence_parallel_enabled,
                 should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
                 device=device,
+                **parallel_layer_specific_kwargs,
             )
         for layer in model.bert.encoder.layer:
             layer.attention.self = BertParallelSelfAttention.transform(
@@ -158,6 +162,7 @@ class BertParallelizer(Parallelizer):
                 sequence_parallel_enabled=sequence_parallel_enabled,
                 should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
                 device=device,
+                **parallel_layer_specific_kwargs,
             )
             layer.attention.output = BertParallelSelfOutput.transform(
                 model,
@@ -165,6 +170,7 @@ class BertParallelizer(Parallelizer):
                 sequence_parallel_enabled=sequence_parallel_enabled,
                 should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
                 device=device,
+                **parallel_layer_specific_kwargs,
             )
         # Valid because we currently parallelize the cross-entropy loss only for language-modeling tasks where the
         # embeddings and the LM head are tied.
@@ -176,6 +182,7 @@ class BertParallelizer(Parallelizer):
                 sequence_parallel_enabled=sequence_parallel_enabled,
                 should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
                 device=device,
+                **parallel_layer_specific_kwargs,
             )
         return model
 
@@ -248,6 +255,7 @@ class RobertaParallelizer(Parallelizer):
         parallelize_embeddings: bool = True,
         sequence_parallel_enabled: bool = False,
         should_parallelize_layer_predicate_func: Optional[Callable[["torch.nn.Module"], bool]] = None,
+        **parallel_layer_specific_kwargs,
     ) -> "PreTrainedModel":
         if parallelize_embeddings:
             model = RobertaParallelEmbedding.transform(
@@ -256,6 +264,7 @@ class RobertaParallelizer(Parallelizer):
                 sequence_parallel_enabled=sequence_parallel_enabled,
                 should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
                 device=device,
+                **parallel_layer_specific_kwargs,
             )
         for layer in model.roberta.encoder.layer:
             layer.attention.self = RobertaParallelSelfAttention.transform(
@@ -264,6 +273,7 @@ class RobertaParallelizer(Parallelizer):
                 sequence_parallel_enabled=sequence_parallel_enabled,
                 should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
                 device=device,
+                **parallel_layer_specific_kwargs,
             )
             layer.attention.output = RobertaParallelSelfOutput.transform(
                 model,
@@ -271,6 +281,7 @@ class RobertaParallelizer(Parallelizer):
                 sequence_parallel_enabled=sequence_parallel_enabled,
                 should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
                 device=device,
+                **parallel_layer_specific_kwargs,
             )
         # Valid because we currently parallelize the cross-entropy loss only for language-modeling tasks where the
         # embeddings and the LM head are tied.
@@ -282,5 +293,6 @@ class RobertaParallelizer(Parallelizer):
                 sequence_parallel_enabled=sequence_parallel_enabled,
                 should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
                 device=device,
+                **parallel_layer_specific_kwargs,
             )
         return model

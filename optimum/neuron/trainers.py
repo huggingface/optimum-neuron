@@ -87,6 +87,7 @@ from .utils.training_utils import (
     TRANSFORMERS_MIN_VERSION_USE_ACCELERATE,
     get_model_param_count,
     is_main_worker_for_metrics,
+    is_main_worker_for_metrics_method,
     is_precompilation,
     is_topology_supported,
     patch_generation_mixin_to_neuron_generation_mixin,
@@ -1397,15 +1398,15 @@ class AugmentTrainerForNeuronMixin:
             self.synchronize_hub_cache()
         return result
 
-    @patch_within_function(("transformers.Trainer.is_world_process_zero", is_main_worker_for_metrics))
+    @patch_within_function(("transformers.Trainer.is_world_process_zero", is_main_worker_for_metrics_method))
     def log_metrics(self, split, metrics):
         return super().log_metrics(split, metrics)
 
-    @patch_within_function(("transformers.Trainer.is_world_process_zero", is_main_worker_for_metrics))
+    @patch_within_function(("transformers.Trainer.is_world_process_zero", is_main_worker_for_metrics_method))
     def save_metrics(self, split, metrics, combined=True):
         return super().save_metrics(split, metrics, combined=combined)
 
-    @patch_within_function(("transformers.Trainer.is_world_process_zero", is_main_worker_for_metrics))
+    @patch_within_function(("transformers.Trainer.is_world_process_zero", is_main_worker_for_metrics_method))
     def save_state(self):
         return super().save_state()
 
