@@ -80,6 +80,7 @@ logger = logging.getLogger(__name__)
 
 class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
     auto_model_class = StableDiffusionPipeline
+    library_name = "diffusers"
     base_model_prefix = "neuron_model"
     config_name = "model_index.json"
     sub_component_config_name = "config.json"
@@ -653,6 +654,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             use_auth_token=use_auth_token,
             do_validation=False,
             submodels={"unet": unet_id},
+            library_name=cls.library_name,
             **input_shapes,
         )
 

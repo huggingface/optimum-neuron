@@ -75,6 +75,7 @@ class NeuronBaseModel(OptimizedModel):
 
     model_type = "neuron_model"
     auto_model_class = AutoModel
+    library_name = "transformers"
 
     def __init__(
         self,
@@ -250,6 +251,7 @@ class NeuronBaseModel(OptimizedModel):
         """
         if task is None:
             task = TasksManager.infer_task_from_model(cls.auto_model_class)
+        library_name = TasksManager.infer_library_from_model(model_id, subfolder=subfolder, library_name=library_name)
 
         save_dir = TemporaryDirectory()
         save_dir_path = Path(save_dir.name)
@@ -270,7 +272,10 @@ class NeuronBaseModel(OptimizedModel):
 
         task = TasksManager.map_from_synonym(task)
         neuron_config_constructor = TasksManager.get_exporter_config_constructor(
-            model=model, exporter="neuron", task=task
+            model=model,
+            exporter="neuron",
+            task=task,
+            library_name=library_name,
         )
 
         input_shapes = {}
@@ -321,8 +326,8 @@ class NeuronBaseModel(OptimizedModel):
             **compiler_kwargs,
         )
 
-        store_compilation_config(
-            config=config,
+        config = store_compilation_config(
+            config=model.config,
             input_shapes=input_shapes,
             compiler_kwargs=compiler_kwargs,
             input_names=input_names,
@@ -437,7 +442,10 @@ class NeuronBaseModel(OptimizedModel):
         task = TasksManager.map_from_synonym(task)
         model_type = neuron_config.get("model_type", None) or config.model_type
         neuron_config_constructor = TasksManager.get_exporter_config_constructor(
-            model_type=model_type, exporter="neuron", task=task
+            model_type=model_type,
+            exporter="neuron",
+            task=task,
+            library_name=cls.library_name,
         )
 
         return neuron_config_constructor(

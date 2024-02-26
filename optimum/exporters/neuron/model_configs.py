@@ -190,7 +190,9 @@ class DebertaV2NeuronConfig(ElectraNeuronConfig):
     pass
 
 
-@register_in_tasks_manager("sentence-transformers-transformer", *["feature-extraction", "sentence-similarity"])
+@register_in_tasks_manager(
+    "transformer", *["feature-extraction", "sentence-similarity"], library_name="sentence_transformers"
+)
 class SentenceTransformersTransformerNeuronConfig(TextEncoderNeuronConfig):
     NORMALIZED_CONFIG_CLASS = NormalizedTextConfig
     CUSTOM_MODEL_WRAPPER = SentenceTransformersTransformerNeuronWrapper
@@ -226,7 +228,7 @@ class CLIPNeuronConfig(TextAndVisionNeuronConfig):
         return ["logits_per_image", "logits_per_text", "text_embeds", "image_embeds"]
 
 
-@register_in_tasks_manager("clip-text-with-projection", *["feature-extraction"])
+@register_in_tasks_manager("clip-text-with-projection", *["feature-extraction"], library_name="diffusers")
 class CLIPTextWithProjectionNeuronConfig(TextEncoderNeuronConfig):
     MODEL_TYPE = "clip-text-model"
     ATOL_FOR_VALIDATION = 1e-3
@@ -252,7 +254,7 @@ class CLIPTextWithProjectionNeuronConfig(TextEncoderNeuronConfig):
         return common_outputs
 
 
-@register_in_tasks_manager("clip-text-model", *["feature-extraction"])
+@register_in_tasks_manager("clip-text-model", *["feature-extraction"], library_name="diffusers")
 class CLIPTextNeuronConfig(CLIPTextWithProjectionNeuronConfig):
     MODEL_TYPE = "clip-text-model"
 
@@ -268,7 +270,9 @@ class CLIPTextNeuronConfig(CLIPTextWithProjectionNeuronConfig):
 
 # TODO: We should decouple clip text and vision, this would need fix on Optimum main. For the current workaround
 # users can pass dummy text inputs when encoding image, vice versa.
-@register_in_tasks_manager("sentence-transformers-clip", *["feature-extraction", "sentence-similarity"])
+@register_in_tasks_manager(
+    "clip", *["feature-extraction", "sentence-similarity"], library_name="sentence_transformers"
+)
 class SentenceTransformersCLIPNeuronConfig(CLIPNeuronConfig):
     CUSTOM_MODEL_WRAPPER = SentenceTransformersCLIPNeuronWrapper
     ATOL_FOR_VALIDATION = 1e-3
@@ -282,7 +286,7 @@ class SentenceTransformersCLIPNeuronConfig(CLIPNeuronConfig):
         return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
 
 
-@register_in_tasks_manager("unet", *["semantic-segmentation"])
+@register_in_tasks_manager("unet", *["semantic-segmentation"], library_name="diffusers")
 class UNetNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
     INPUT_ARGS = ("batch_size", "sequence_length", "num_channels", "width", "height")
@@ -356,7 +360,7 @@ class UNetNeuronConfig(VisionNeuronConfig):
         self._is_sdxl = is_sdxl
 
 
-@register_in_tasks_manager("vae-encoder", *["semantic-segmentation"])
+@register_in_tasks_manager("vae-encoder", *["semantic-segmentation"], library_name="diffusers")
 class VaeEncoderNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
     MODEL_TYPE = "vae-encoder"
@@ -392,7 +396,7 @@ class VaeEncoderNeuronConfig(VisionNeuronConfig):
             return dummy_inputs
 
 
-@register_in_tasks_manager("vae-decoder", *["semantic-segmentation"])
+@register_in_tasks_manager("vae-decoder", *["semantic-segmentation"], library_name="diffusers")
 class VaeDecoderNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
     MODEL_TYPE = "vae-decoder"
@@ -427,6 +431,7 @@ class GPT2NeuronConfig(TextNeuronDecoderConfig):
 @register_in_tasks_manager("llama", "text-generation")
 class LLamaNeuronConfig(TextNeuronDecoderConfig):
     NEURONX_CLASS = "llama.model.LlamaForSampling"
+    CONTINUOUS_BATCHING = True
 
 
 @register_in_tasks_manager("t5-encoder", "text2text-generation")
@@ -529,3 +534,4 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
 @register_in_tasks_manager("mistral", "text-generation")
 class MistralNeuronConfig(TextNeuronDecoderConfig):
     NEURONX_CLASS = "mistral.model.MistralForSampling"
+    CONTINUOUS_BATCHING = True

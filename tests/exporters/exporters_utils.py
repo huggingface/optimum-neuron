@@ -44,8 +44,8 @@ STABLE_DIFFUSION_MODELS_TINY = {
 }
 
 SENTENCE_TRANSFORMERS_MODELS = {
-    "sentence-transformers-transformer": "sentence-transformers/all-MiniLM-L6-v2",
-    "sentence-transformers-clip": "sentence-transformers/clip-ViT-B-32",
+    "transformer": "sentence-transformers/all-MiniLM-L6-v2",
+    "clip": "sentence-transformers/clip-ViT-B-32",
 }
 
 WEIGHTS_NEFF_SEPARATION_UNSUPPORTED_ARCH = ["camembert", "roberta"]
