@@ -16,6 +16,7 @@
 
 import os
 import re
+from functools import lru_cache
 from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 import torch
@@ -423,3 +424,23 @@ def get_model_param_count(model: Union[torch.nn.Module, "NxDPPModel"], trainable
         param_count = int(param_count.detach().item())
 
     return param_count
+
+
+@lru_cache
+@requires_neuronx_distributed
+def is_main_worker_for_metrics() -> bool:
+    from neuronx_distributed.parallel_layers.parallel_state import (
+        get_data_parallel_rank,
+        get_pipeline_model_parallel_rank,
+        get_pipeline_model_parallel_size,
+        get_tensor_model_parallel_rank,
+    )
+
+    dp_rank = get_data_parallel_rank()
+    tp_rank = get_tensor_model_parallel_rank()
+    pp_rank = get_pipeline_model_parallel_rank()
+    pp_size = get_pipeline_model_parallel_size()
+
+    can_log_loss = dp_rank == tp_rank == 0 and pp_rank == pp_size - 1
+
+    return can_log_loss

@@ -23,7 +23,6 @@ import shutil
 import sys
 import time
 import warnings
-from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -87,6 +86,7 @@ from .utils.require_utils import requires_neuronx_distributed
 from .utils.training_utils import (
     TRANSFORMERS_MIN_VERSION_USE_ACCELERATE,
     get_model_param_count,
+    is_main_worker_for_metrics,
     is_precompilation,
     is_topology_supported,
     patch_generation_mixin_to_neuron_generation_mixin,
@@ -426,7 +426,7 @@ class AugmentTrainerForNeuronMixin:
             self._globalstep_last_logged = self.state.global_step
             self.store_flos()
 
-            if self.is_main_worker_that_can_log_loss():
+            if is_main_worker_for_metrics():
                 self.log(logs)
 
         metrics = None
@@ -643,24 +643,6 @@ class AugmentTrainerForNeuronMixin:
             parallelizer.load_optimizer_sharded_checkpoint(self.optimizer, checkpoint)
         else:
             return super()._load_optimizer_and_scheduler(checkpoint)
-
-    @lru_cache
-    def is_main_worker_that_can_log_loss(self) -> bool:
-        from neuronx_distributed.parallel_layers.parallel_state import (
-            get_data_parallel_rank,
-            get_pipeline_model_parallel_rank,
-            get_pipeline_model_parallel_size,
-            get_tensor_model_parallel_rank,
-        )
-
-        dp_rank = get_data_parallel_rank()
-        tp_rank = get_tensor_model_parallel_rank()
-        pp_rank = get_pipeline_model_parallel_rank()
-        pp_size = get_pipeline_model_parallel_size()
-
-        can_log_loss = dp_rank == tp_rank == 0 and pp_rank == pp_size - 1
-
-        return can_log_loss
 
     @requires_neuronx_distributed
     def _inner_training_loop(
@@ -1107,7 +1089,7 @@ class AugmentTrainerForNeuronMixin:
 
         self._memory_tracker.stop_and_update_metrics(metrics)
 
-        if self.is_main_worker_that_can_log_loss():
+        if is_main_worker_for_metrics():
             self.log(metrics)
 
         run_dir = self._get_output_dir(trial)
@@ -1414,6 +1396,18 @@ class AugmentTrainerForNeuronMixin:
         if not is_precompilation():
             self.synchronize_hub_cache()
         return result
+
+    @patch_within_function(("transformers.Trainer.is_world_process_zero", is_main_worker_for_metrics))
+    def log_metrics(self, split, metrics):
+        return super().log_metrics(split, metrics)
+
+    @patch_within_function(("transformers.Trainer.is_world_process_zero", is_main_worker_for_metrics))
+    def save_metrics(self, split, metrics, combined=True):
+        return super().save_metrics(split, metrics, combined=combined)
+
+    @patch_within_function(("transformers.Trainer.is_world_process_zero", is_main_worker_for_metrics))
+    def save_state(self):
+        return super().save_state()
 
 
 class NeuronTrainer(AugmentTrainerForNeuronMixin, Trainer):
