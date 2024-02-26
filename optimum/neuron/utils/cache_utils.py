@@ -38,14 +38,14 @@ from huggingface_hub import (
     hf_hub_download,
     whoami,
 )
-from huggingface_hub.utils import HfHubHTTPError, RepositoryNotFoundError
+from huggingface_hub.utils import EntryNotFoundError, HfHubHTTPError, RepositoryNotFoundError
 from packaging import version
 from transformers import PretrainedConfig, PreTrainedModel
 
 from ...utils import logging
 from ...utils.logging import warn_once
 from .misc import is_main_worker, string_to_bool
-from .require_utils import requires_neuronx_distributed, requires_torch_xla
+from .require_utils import requires_neuronx_distributed
 from .version_utils import get_neuronxcc_version
 
 
@@ -110,7 +110,7 @@ def set_custom_cache_repo_name_in_hf_home(repo_id: str, hf_home: str = HF_HOME, 
             )
 
     existing_custom_cache_repo = load_custom_cache_repo_name_from_hf_home(hf_home_cache_repo_file)
-    if is_main_worker(global_main=False) and existing_custom_cache_repo is not None:
+    if is_main_worker() and existing_custom_cache_repo is not None:
         logger.warning(
             f"A custom cache repo was already registered: {existing_custom_cache_repo}. It will be overwritten to "
             f"{repo_id}."
@@ -173,7 +173,7 @@ def has_write_access_to_repo(repo_id: str) -> bool:
         if org["name"] == username_or_organization:
             # Role in an organization can be either:
             # "admin", "write", "contributor", "read".
-            if is_main_worker(global_main=False) and org["roleInOrg"] == "contributor":
+            if is_main_worker() and org["roleInOrg"] == "contributor":
                 logger.warning(
                     f"You are logged in as a contributor to the cache repo {repo_id}. It is not possible to infer "
                     "whether you have write access on this repo or not, so it will be assumed you do not."
@@ -384,26 +384,23 @@ def remove_entries_in_neuron_parallel_compile_report(
         json.dump(new_report, fp)
 
 
-@requires_torch_xla
 def create_registry_file_if_does_not_exist(repo_id: str):
-    import torch_xla.core.xla_model as xm
-
     was_created = _REGISTRY_FILE_EXISTS.get(repo_id, False)
     if was_created:
         return
-    files_in_repo = HfApi().list_repo_files(repo_id)
-    file_exists = REGISTRY_FILENAME in files_in_repo
+    file_exists = True
+    try:
+        hf_hub_download(repo_id, REGISTRY_FILENAME, force_download=True)
+    except EntryNotFoundError:
+        file_exists = False
     if file_exists:
         return
-    if is_main_worker():
-        with tempfile.NamedTemporaryFile() as tmpfile:
-            with open(tmpfile.name, "w") as fp:
-                json.dump({}, fp)
-            tmpfilename = Path(tmpfile.name)
-            add_registry_file = CommitOperationAdd(REGISTRY_FILENAME, tmpfilename.as_posix())
-            HfApi().create_commit(repo_id, operations=[add_registry_file], commit_message="Create cache registry file")
-
-    xm.rendezvous("Registry creation")
+    with tempfile.NamedTemporaryFile() as tmpfile:
+        with open(tmpfile.name, "w") as fp:
+            json.dump({}, fp)
+        tmpfilename = Path(tmpfile.name)
+        add_registry_file = CommitOperationAdd(REGISTRY_FILENAME, tmpfilename.as_posix())
+        HfApi().create_commit(repo_id, operations=[add_registry_file], commit_message="Create cache registry file")
 
     _REGISTRY_FILE_EXISTS[repo_id] = True
 
@@ -474,7 +471,7 @@ def add_in_registry(repo_id: str, neuron_hash: "NeuronHash"):
                 )
             except Exception as e:
                 if "A commit has happened since" in str(e):
-                    if is_main_worker(global_main=False):
+                    if is_main_worker():
                         logger.info(
                             "A commit has happened in cache repository since we tried to update the registry, starting "
                             "again..."
@@ -936,11 +933,9 @@ def push_to_cache_on_hub(
     neuron_hash: NeuronHash,
     local_cache_dir_or_file: Path,
     cache_repo_id: Optional[str] = None,
-    overwrite_existing: bool = True,
+    overwrite_existing: bool = False,
     local_path_to_path_in_repo: Optional[Union[Literal["default"], Callable[[Path], Path]]] = None,
     fail_when_could_not_push: bool = False,
-    allow_patterns: Optional[Union[str, List[str]]] = None,
-    ignore_patterns: Optional[Union[str, List[str]]] = None,
 ) -> Optional[CachedModelOnTheHub]:
     if cache_repo_id is None:
         cache_repo_id = get_hf_hub_cache_repos()[0]
@@ -951,7 +946,7 @@ def push_to_cache_on_hub(
         )
         if fail_when_could_not_push:
             raise ValueError(error_message)
-        if is_main_worker(global_main=False):
+        if is_main_worker():
             logger.warning(error_message)
         return
 
@@ -969,7 +964,7 @@ def push_to_cache_on_hub(
         )
         if fail_when_could_not_push:
             raise ValueError(error_message)
-        if is_main_worker(global_main=False):
+        if is_main_worker():
             logger.warning(error_message)
         return
 
@@ -992,7 +987,7 @@ def push_to_cache_on_hub(
         exists = any(filename.startswith(path_in_repo_str) for filename in repo_filenames)
     else:
         exists = any(filename == path_in_repo_str for filename in repo_filenames)
-    if is_main_worker(global_main=False) and exists:
+    if is_main_worker() and exists:
         if not overwrite_existing:
             logger.info(
                 f"Did not push the cached model located at {local_cache_dir_or_file} to the repo named {cache_repo_id} "
@@ -1014,15 +1009,13 @@ def push_to_cache_on_hub(
                 path_in_repo=path_in_repo.as_posix(),
                 repo_id=cache_repo_id,
                 repo_type="model",
-                allow_patterns=allow_patterns,
-                ignore_patterns=ignore_patterns,
             )
         except HfHubHTTPError as e:
             if fail_when_could_not_push:
                 raise e
             msg = could_not_push_message.format(cache_repo_id=cache_repo_id, error=e)
             msg = re.sub(_HF_HUB_HTTP_ERROR_REQUEST_ID_PATTERN, "", msg)
-            if is_main_worker(global_main=False):
+            if is_main_worker():
                 warn_once(logger, msg)
             success = False
     else:
@@ -1038,18 +1031,15 @@ def push_to_cache_on_hub(
                 raise e
             msg = could_not_push_message.format(cache_repo_id=cache_repo_id, error=e)
             msg = re.sub(_HF_HUB_HTTP_ERROR_REQUEST_ID_PATTERN, "", msg)
-            if is_main_worker(global_main=False):
+            if is_main_worker():
                 warn_once(logger, msg)
             success = False
 
     # Adding the model to the registry if the upload was successful.
-    # TODO: it slows down training since it pushes a lot of stuff to the registry.
-    # It is needed to find a better way. Disabling it for now since it's not used at all.
     if success:
-        pass
-        # try:
-        #     add_in_registry(cache_repo_id, neuron_hash)
-        # except HfHubHTTPError:
-        #     pass
+        try:
+            add_in_registry(cache_repo_id, neuron_hash)
+        except HfHubHTTPError:
+            pass
 
     return CachedModelOnTheHub(cache_repo_id, path_in_repo)

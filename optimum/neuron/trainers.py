@@ -393,7 +393,6 @@ class AugmentTrainerForNeuronMixin:
 
     def _maybe_log_save_evaluate(self, tr_loss, model, trial, epoch, ignore_keys_for_eval):
         if self.control.should_log and self.state.global_step > self._globalstep_last_logged:
-            assert self._not_end
             logs: Dict[str, float] = {}
 
             from neuronx_distributed.parallel_layers.parallel_state import (
@@ -1031,7 +1030,6 @@ class AugmentTrainerForNeuronMixin:
                     self.state.epoch = epoch + (step + 1 + steps_skipped) / steps_in_epoch
                     self.control = self.callback_handler.on_step_end(args, self.state, self.control)
 
-                    self._not_end = True
                     self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval)
                 else:
                     self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
@@ -1048,7 +1046,6 @@ class AugmentTrainerForNeuronMixin:
                 self.control.should_training_stop = True
 
             self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
-            self._not_end = False
             self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval)
 
             if DebugOption.TPU_METRICS_DEBUG in self.args.debug:
