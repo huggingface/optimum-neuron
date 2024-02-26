@@ -329,7 +329,7 @@ class ParallelSelfAttention(ParallelLayer):
             If left unspecified, the attribute will be fetched by using the NormalizedConfig associated to the model.
     """
 
-    PARALLEL_LAYER_SPECIFIC_KWARGS_NAMES = {"skip_linear_weight_load": False}
+    PARALLEL_LAYER_SPECIFIC_KWARGS = {"skip_linear_weight_load": False}
 
     QUERIES_NAME = "query"
     KEYS_NAME = "key"
@@ -519,7 +519,7 @@ class ParallelSelfAttentionWithFusedQKV(ParallelLayer):
             If left unspecified, the attribute will be fetched by using the NormalizedConfig associated to the model.
     """
 
-    PARALLEL_LAYER_SPECIFIC_KWARGS_NAMES = {"skip_linear_weight_load": False}
+    PARALLEL_LAYER_SPECIFIC_KWARGS = {"skip_linear_weight_load": False}
 
     QUERY_KEY_VALUE_NAME = "query_key_value"
     OUTPUT_PROJECTION_NAME: Optional[str] = None
@@ -638,7 +638,7 @@ class ParallelSelfOutput(ParallelLayer):
             The name of the projection layer in the module containing it.
     """
 
-    PARALLEL_LAYER_SPECIFIC_KWARGS_NAMES = {"skip_linear_weight_load": False}
+    PARALLEL_LAYER_SPECIFIC_KWARGS = {"skip_linear_weight_load": False}
 
     OUTPUT_PROJECTION_NAME = "dense"
 
@@ -692,7 +692,7 @@ class ParallelMLP(ParallelLayer):
             The qualified name of the second linear projection in the module.
     """
 
-    PARALLEL_LAYER_SPECIFIC_KWARGS_NAMES = {"skip_linear_weight_load": False}
+    PARALLEL_LAYER_SPECIFIC_KWARGS = {"skip_linear_weight_load": False}
 
     FIRST_LINEAR_NAME: str
     SECOND_LINEAR_NAME: str
@@ -836,7 +836,7 @@ class ParallelCrossEntropyLoss(_WeightedLoss):
 
 
 class ParallelCrossEntropy(ParallelLayer):
-    PARALLEL_LAYER_SPECIFIC_KWARGS_NAMES = {"skip_linear_weight_load": False}
+    PARALLEL_LAYER_SPECIFIC_KWARGS = {"skip_linear_weight_load": False}
 
     LAST_LINEAR_PROJECTION_NAME: Union[str, Dict[str, str]]
 

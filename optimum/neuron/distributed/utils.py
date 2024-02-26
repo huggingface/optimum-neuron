@@ -483,8 +483,6 @@ def linear_to_parallel_linear(
     # Not skipping when we tie an embedding layer to make things easier.
     # Should not produce a big overhead.
     skip_weight_load = skip_weight_load and embedding_weight_to_tie is None
-    if skip_weight_load:
-        print("SKIPPING")
     if linear_layer_weight_info is not None and not skip_weight_load:
         maybe_load_linear_weight_to_parallel_linear(
             parallel_linear_layer,
