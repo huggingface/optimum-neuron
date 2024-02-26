@@ -255,6 +255,7 @@ def hub_neuronx_cache(
     mode: Union[Literal["training"], Literal["inference"], Mode],
     entry: Optional[ModelCacheEntry] = None,
     cache_repo_id: Optional[str] = None,
+    cache_dir: Optional[Union[str, Path]] = None,
 ):
     """A context manager to activate the Hugging Face Hub proxy compiler cache.
 
@@ -267,6 +268,8 @@ def hub_neuronx_cache(
             to the cache session. Will create a dedicated entry in the cache registry.
         cache_repo_id (`Optional[str]`, defaults to `None`):
             The id of the cache repo to use to fetch the precompiled files.
+        cache_dir (`Optional[Union[str, Path]]`, defaults to `None`):
+            The directory that is used as local cache directory.
     """
     registry_folder = get_registry_folder_for_mode(mode)
 
@@ -278,7 +281,9 @@ def hub_neuronx_cache(
             return create_compile_cache(cache_url)
 
     try:
-        default_cache = create_compile_cache(CacheUrl.get_cache_url())
+        if isinstance(cache_dir, Path):
+            cache_dir = cache_dir.as_posix()
+        default_cache = create_compile_cache(CacheUrl.get_cache_url(cache_dir=cache_dir))
         patch_everywhere("create_compile_cache", hf_create_compile_cache, "libneuronxla")
         yield
         # The cache session ended without error
