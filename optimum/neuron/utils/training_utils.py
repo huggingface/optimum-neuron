@@ -405,20 +405,27 @@ def get_model_param_count(model: Union[torch.nn.Module, "NxDPPModel"], trainable
         named_parameters = model.named_parameters()
         shared_parameters_across_pipeline_stages = {}
 
-    pp_rank = get_pipeline_model_parallel_rank()
+    if torch.distributed.is_initialized():
+        tp_size = get_tensor_model_parallel_size()
+        pp_size = get_pipeline_model_parallel_size()
+        pp_rank = get_pipeline_model_parallel_rank()
+    else:
+        tp_size = 1
+        pp_size = 1
+        pp_rank = 0
 
     def numel(parameter_name, parameter) -> int:
         should_count_param = shared_parameters_across_pipeline_stages.get(parameter_name, pp_rank) == pp_rank
 
         num_elements = parameter.numel()
         if getattr(parameter, "tensor_model_parallel", False):
-            num_elements *= get_tensor_model_parallel_size()
+            num_elements *= tp_size
 
         return num_elements if should_count_param else 0
 
     param_count = sum(numel(n, p) for n, p in named_parameters if not trainable_only or p.requires_grad)
 
-    if get_pipeline_model_parallel_size() > 1:
+    if pp_size > 1:
         param_count = torch.tensor(param_count, dtype=torch.float32).to(xm.xla_device())
         param_count = xm.all_reduce(xm.REDUCE_SUM, param_count, groups=get_pipeline_model_parallel_group(as_list=True))
         param_count = int(param_count.detach().item())
@@ -435,6 +442,9 @@ def is_main_worker_for_metrics() -> bool:
         get_pipeline_model_parallel_size,
         get_tensor_model_parallel_rank,
     )
+
+    if not torch.distributed.is_initialized():
+        return True
 
     dp_rank = get_data_parallel_rank()
     tp_rank = get_tensor_model_parallel_rank()

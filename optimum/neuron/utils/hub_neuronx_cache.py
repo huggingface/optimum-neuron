@@ -332,14 +332,16 @@ def patch_neuron_cc_wrapper():
 
 
 @requires_torch_neuronx
-def synchronize_hub_cache(cache_repo_id: Optional[str] = None):
+def synchronize_hub_cache(cache_url: Optional[CacheUrl] = None, cache_repo_id: Optional[str] = None):
     """Synchronize the neuronx compiler cache with the optimum-neuron hub cache.
 
     Args:
-        repo_id (`Optional[str]`, default to None):
+        cache_url (`Optional[CacheUrl]`, defaults to `None`):
+            The cache url to use for synchronization.
+        cache_repo_id (`Optional[str]`, default to None):
             The id of the HuggingFace cache repository, in the form 'org|user/name'.
     """
-    hub_cache_proxy = _create_hub_compile_cache_proxy(cache_repo_id=cache_repo_id)
+    hub_cache_proxy = _create_hub_compile_cache_proxy(cache_url=cache_url, cache_repo_id=cache_repo_id)
     hub_cache_proxy.synchronize()
 
 

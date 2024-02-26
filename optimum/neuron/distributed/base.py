@@ -487,6 +487,7 @@ class Parallelizer(ABC):
         from neuronx_distributed.pipeline import NxDPPModel
 
         tp_size = get_tensor_model_parallel_size()
+        pp_size = get_pipeline_model_parallel_size()
 
         sequence_parallel_enabled = sequence_parallel_enabled and tp_size > 1
 
@@ -501,6 +502,8 @@ class Parallelizer(ABC):
         parameter_to_name = {p: n for n, p in name_to_parameter.items()}
 
         def should_parallelize_layer_predicate_func(layer):
+            if pp_size == 1:
+                return True
             for p in layer.parameters():
                 if p not in parameter_to_name:
                     return True
@@ -558,7 +561,6 @@ class Parallelizer(ABC):
         if is_main_worker():
             logger.info("Load and initialization of the weights done.")
 
-        pp_size = get_pipeline_model_parallel_size()
         if pp_size > 1:
             if not cls.supports_pipeline_parallelism():
                 raise NotImplementedError("{cls} does not support pipeline parallelism.")

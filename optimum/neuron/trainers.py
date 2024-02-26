@@ -75,6 +75,7 @@ from .utils import (
 from .utils.cache_utils import (
     get_hf_hub_cache_repos,
     get_model_name_or_path,
+    get_neuron_cache_path,
     get_neuronxcc_version,
     get_num_neuron_cores_used,
     has_write_access_to_repo,
@@ -82,7 +83,7 @@ from .utils.cache_utils import (
 from .utils.hub_neuronx_cache import ModelCacheEntry, hub_neuronx_cache, patch_neuron_cc_wrapper, synchronize_hub_cache
 from .utils.misc import is_main_worker
 from .utils.patching import patch_everywhere
-from .utils.require_utils import requires_neuronx_distributed
+from .utils.require_utils import requires_neuronx_distributed, requires_torch_neuronx
 from .utils.training_utils import (
     TRANSFORMERS_MIN_VERSION_USE_ACCELERATE,
     get_model_param_count,
@@ -269,12 +270,20 @@ class AugmentTrainerForNeuronMixin:
                 ds_plugin.deepspeed_config = ds_plugin.hf_ds_config.config
                 ds_plugin.hf_ds_config.trainer_config_process(self.args)
 
+    @requires_torch_neuronx
     def synchronize_hub_cache(self):
+        from libneuronxla.neuron_cc_cache import CacheUrl
+
         repo_id = get_hf_hub_cache_repos()[0]
         if xm.get_ordinal() == 0:
             has_write_access = has_write_access_to_repo(repo_id)
             if has_write_access:
-                synchronize_hub_cache(repo_id)
+                cache_path = get_neuron_cache_path()
+                if cache_path is not None:
+                    cache_url = CacheUrl(cache_path.as_posix(), url_type="fs")
+                else:
+                    cache_url = None
+                synchronize_hub_cache(cache_url=cache_url, cache_repo_id=repo_id)
         xm.rendezvous("Hub cache synchronization done")
 
     def _wrap_model(self, model, training=True, dataloader=None):
