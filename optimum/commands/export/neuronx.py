@@ -148,7 +148,7 @@ def parse_args_neuronx(parser: "ArgumentParser"):
     input_group.add_argument(
         "--text_batch_size",
         type=int,
-        help=f"Batch size of text inputs {doc_input} (Only applied for multi-modal models)",
+        help=f"Batch size of the text inputs {doc_input} (Only applied for multi-modal models)",
     )
     input_group.add_argument(
         "--image_batch_size",
