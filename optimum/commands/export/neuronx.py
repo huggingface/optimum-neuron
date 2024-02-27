@@ -134,38 +134,38 @@ def parse_args_neuronx(parser: "ArgumentParser"):
     )
     optional_group.add_argument(
         "--lora_model_ids",
-        default=[],
+        default=None,
         nargs="*",
         type=str,
         help=(
-            "List of model ids (eg. `ostris/super-cereal-sdxl-lora`) of a pretrained lora model hosted on the Hub or paths to local directories containing the lora weights."
+            "List of model ids (eg. `ostris/super-cereal-sdxl-lora`) of pretrained lora models hosted on the Hub or paths to local directories containing the lora weights."
         ),
     )
     optional_group.add_argument(
         "--lora_weight_names",
-        default=[],
+        default=None,
         nargs="*",
         type=str,
-        help=("List of lora weights file names."),
+        help="List of lora weights file names.",
     )
     optional_group.add_argument(
         "--lora_adapter_names",
-        default=[],
+        default=None,
         nargs="*",
         type=str,
-        help=("List of adapter names to be used for referencing the loaded adapter models."),
+        help="List of the adapter names to be used for referencing the loaded adapter models.",
     )
     optional_group.add_argument(
         "--lora_scales",
-        default=[],
+        default=None,
         nargs="*",
         type=float,
-        help=("List of scaling factors for lora adapters."),
+        help="List of scaling factors for the lora adapters.",
     )
     optional_group.add_argument(
         "--output_attentions",
         action="store_true",
-        help=("Whether or not for the traced model to return the attentions tensors of all attention layers."),
+        help="Whether or not for the traced model to return the attentions tensors of all attention layers.",
     )
 
     input_group = parser.add_argument_group("Input shapes")

@@ -162,7 +162,7 @@ def get_stable_diffusion_models_for_export(
         dynamic_batch_size (`bool`, defaults to `False`):
             Whether the Neuron compiled model supports dynamic batch size.
         lora_model_ids (`Optional[List[str]]`, defaults to `None`):
-            List of model ids (eg. `ostris/super-cereal-sdxl-lora`) of a pretrained lora model hosted on the Hub or paths to local directories containing the lora weights.
+            List of model ids (eg. `ostris/super-cereal-sdxl-lora`) of pretrained lora models hosted on the Hub or paths to local directories containing the lora weights.
         lora_weight_names (`Optional[List[str]]`, defaults to `None`):
             List of lora weights file names.
         lora_adapter_names (`Optional[List[str]]`, defaults to `None`):
