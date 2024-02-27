@@ -1,4 +1,3 @@
-import os
 from tempfile import TemporaryDirectory
 
 from transformers import AutoTokenizer
