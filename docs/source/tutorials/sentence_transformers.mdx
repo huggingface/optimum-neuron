@@ -91,7 +91,7 @@ For deploying these models in a production environment, refer to the [Amazon Sag
 
 You can compile CLIP models with Optimum Neuron either by using the `optimum-cli` or `NeuronModelForSentenceTransformers` class. Adopt one approach that you prefer:
 
-* With CLI
+* With the Optimum CLI
 
 ```bash
 optimum-cli export neuron -m sentence-transformers/clip-ViT-B-32 --sequence_length 64 --text_batch_size 3 --image_batch_size 1 --num_channels 3 --height 224 --width 224 --task feature-extraction --library-name sentence_transformers --subfolder 0_CLIPModel clip_emb/
