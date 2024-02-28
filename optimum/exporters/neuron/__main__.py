@@ -37,9 +37,9 @@ from ...neuron.utils import (
     is_neuron_available,
     is_neuronx_available,
 )
+from ...neuron.utils.misc import maybe_save_preprocessors
 from ...neuron.utils.version_utils import check_compiler_compatibility_for_stable_diffusion
 from ...utils import is_diffusers_available, logging
-from ...utils.save_utils import maybe_save_preprocessors
 from ..error_utils import AtolError, OutputMatchError, ShapeError
 from ..tasks import TasksManager
 from .base import NeuronDecoderConfig
@@ -129,9 +129,11 @@ def get_input_shapes_and_config_class(task: str, args: argparse.Namespace) -> Di
 
 def normalize_sentence_transformers_input_shapes(args: argparse.Namespace) -> Dict[str, int]:
     args = vars(args) if isinstance(args, argparse.Namespace) else args
-    mandatory_axes = {"batch_size", "sequence_length"}
     if "clip" in args.get("model", "").lower():
-        mandatory_axes.update(["num_channels", "width", "height"])
+        mandatory_axes = {"text_batch_size", "image_batch_size", "sequence_length", "num_channels", "width", "height"}
+    else:
+        mandatory_axes = {"batch_size", "sequence_length"}
+
     if not mandatory_axes.issubset(set(args.keys())):
         raise AttributeError(
             f"Shape of {mandatory_axes} are mandatory for neuron compilation, while {mandatory_axes.difference(args.keys())} are not given."
@@ -237,6 +239,7 @@ def _get_submodels_and_neuron_configs(
     task: str,
     output: Path,
     library_name: Optional[str] = None,
+    subfolder: str = "",
     dynamic_batch_size: bool = False,
     model_name_or_path: Optional[Union[str, Path]] = None,
     submodels: Optional[Dict[str, Union[Path, str]]] = None,
@@ -292,7 +295,7 @@ def _get_submodels_and_neuron_configs(
         model_name = model_name.split("/")[-1] if model_name else model.config.model_type
         output_model_names = {model_name: "model.neuron"}
         models_and_neuron_configs = {model_name: (model, neuron_config)}
-        maybe_save_preprocessors(model_name_or_path, output)
+        maybe_save_preprocessors(model_name_or_path, output, src_subfolder=subfolder)
     return models_and_neuron_configs, output_model_names
 
 
@@ -468,6 +471,7 @@ def main_export(
         task=task,
         library_name=library_name,
         output=output,
+        subfolder=subfolder,
         dynamic_batch_size=dynamic_batch_size,
         model_name_or_path=model_name_or_path,
         submodels=submodels,

@@ -52,6 +52,11 @@ SENTENCE_TRANSFORMERS_MODELS = {
     "clip": "sentence-transformers/clip-ViT-B-32",
 }
 
+EXTREA_DEFAULT_DUMMY_SHAPES = {
+    "text_batch_size": 1,
+    "image_batch_size": 1,
+}
+
 WEIGHTS_NEFF_SEPARATION_UNSUPPORTED_ARCH = ["camembert", "roberta"]
 
 SEED = 42
