@@ -29,10 +29,8 @@ from ...utils import NormalizedConfigManager, logging
 from ..utils import patch_everywhere, patch_within_function
 from ..utils.require_utils import requires_neuronx_distributed
 from .utils import (
-    GroupedQueryAttentionInfo,
     WeightInformation,
     embedding_to_parallel_embedding,
-    gqa_key_value_slicing_when_tp_size_greater_than_num_key_value_heads,
     linear_to_parallel_linear,
 )
 
@@ -292,6 +290,74 @@ class ParallelSelfAttention(ParallelLayer):
     NUM_KEY_VALUE_GROUPS_NAME: Optional[str] = None
     ALL_HEAD_SIZE_NAME: Optional[str] = None
 
+    GQA_QKV_PROJ_NAME: str = "qkv_proj"
+
+    @classmethod
+    def patch_proj_to_use_gqa_qkv_column_parallel_linear(
+        cls, attention_layer: torch.nn.Module, proj_name: str, output_index: int
+    ):
+
+        parent_module: torch.nn.Module = attention_layer
+
+        class FakeProj(torch.nn.Module):
+            def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+                if not hasattr(parent_module, "_gqa_qkv_output"):
+                    parent_module._gqa_qkv_output = getattr(parent_module, GQA_QKV_PROJ_NAME)(hidden_states)
+                    parent_module._gqa_qkv_output_fetch_counter = 0
+                parent_module._gqa_qkv_output_fetch_counter += 1
+                output = parent_module._gqa_qkv_output[output_index]
+                if parent_module._gqa_qkv_output_fetch_counter == 3:
+                    del parent_module._gqa_qkv_output
+                return output
+
+        setattr(attention_layer, proj_name, FakeProj())
+
+    @classmethod
+    @requires_neuronx_distributed
+    def replace_qkv_by_gqa_qkv_column_parallel_linear(
+        cls,
+        attention_layer: torch.nn.Module,
+        sequence_parallel_enabled: bool = False,
+        kv_size_multiplier: Optional[int] = None,
+    ):
+        from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
+        from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
+
+        if cls.NUM_KEY_VALUE_HEADS_NAME is None:
+            raise ValueError(f"{cls} does not defined the name of the number of key value heads.")
+        tp_size = get_tensor_model_parallel_size()
+        num_key_value_heads = getattr(attention_layer, cls.NUM_KEY_VALUE_HEADS_NAME)
+        if tp_size < num_key_value_heads:
+            raise ValueError(
+                f"The TP size ({tp_size}) is lower than the number of key value heads, using "
+                "GQAQKVColumnParallelLinear is not needed."
+            )
+
+        query_linear = getattr(attention_layer, cls.QUERIES_NAME)
+        key_linear = getattr(attention_layer, cls.KEYS_NAME)
+
+        hidden_size = query_linear.weight.size(0)
+        query_in_features = query_linear.weight.size(1)
+        key_value_in_features = key_linear.weight.size(1)
+
+        if kv_size_multiplier is None:
+            kv_size_multiplier = get_tensor_model_parallel_size() // num_key_value_heads
+
+        gqa_qkv_column_parallel_linear = GQAQKVColumnParallelLinear(
+            hidden_size,
+            [query_in_features, key_value_in_features],
+            gather_output=False,
+            bias=query_linear.bias is not None,
+            sequence_parallel_enabled=sequence_parallel_enabled,
+            device=query_linear.weight.device,
+            kv_size_multiplier=kv_size_multiplier,
+        )
+
+        setattr(attention_layer, cls.GQA_QKV_PROJ_NAME, gqa_qkv_column_parallel_linear)
+        cls.patch_proj_to_use_gqa_qkv_column_parallel_linear(attention_layer, cls.QUERIES_NAME, 0)
+        cls.patch_proj_to_use_gqa_qkv_column_parallel_linear(attention_layer, cls.KEYS_NAME, 1)
+        cls.patch_proj_to_use_gqa_qkv_column_parallel_linear(attention_layer, cls.VALUES_NAME, 2)
+
     @classmethod
     @requires_neuronx_distributed
     def transform(
@@ -344,37 +410,26 @@ class ParallelSelfAttention(ParallelLayer):
                 raise ValueError(
                     "Only the cases where the number of key value heads is divisible by the TP size, or the other way around are supported."
                 )
-            elif num_key_value_heads < tp_size:
-                logger.warning(
-                    f"The TP size ({tp_size}) is bigger than the number of key value heads ({num_key_value_heads}). "
-                    "This is not ideal because the key and value projections will not be sharded accross the TP ranks. "
-                    "For better performance choose the number of key value heads to be divisible by the TP size."
-                )
-            kv_heads_are_parallelized = num_key_value_heads >= tp_size
+            needs_gqa_qkv_column_parallel_linear = num_key_value_heads < tp_size
         else:
             num_key_value_heads = getattr(layer, num_attention_heads_name)
-            kv_heads_are_parallelized = True
+            needs_gqa_qkv_column_parallel_linear = False
 
-        for name in [cls.QUERIES_NAME, cls.KEYS_NAME, cls.VALUES_NAME]:
-            linear_layer_weight_info, linear_layer_bias_weight_info = None, None
-            if weight_map is not None:
-                linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
-                    weight_map,
-                    f"{layer_qualified_name}.{name}",
-                    device=device,
-                )
-            # Under GQA setting with num_key_value_heads < tp_size, the key and value projections are replicated accross
-            # workers.
-            if not kv_heads_are_parallelized and name in [cls.KEYS_NAME, cls.VALUES_NAME]:
-                gqa_info = GroupedQueryAttentionInfo(num_attention_heads, num_key_value_heads)
-                parallel_linear = gqa_key_value_slicing_when_tp_size_greater_than_num_key_value_heads(
-                    gqa_info,
-                    getattr(layer, name),
-                    linear_layer_weight_info=linear_layer_weight_info,
-                    linear_layer_bias_weight_info=linear_layer_bias_weight_info,
-                    device=device,
-                )
-            else:
+        if needs_gqa_qkv_column_parallel_linear:
+            # TODO: add the ability to specify the kv_size_multiplier when #440 is merged.
+            cls.replace_qkv_by_gqa_qkv_column_parallel_linear(
+                layer, sequence_parallel_enabled=sequence_parallel_enabled, kv_size_multiplier=None
+            )
+            print("NEEDS GQA")
+        else:
+            for name in [cls.QUERIES_NAME, cls.KEYS_NAME, cls.VALUES_NAME]:
+                linear_layer_weight_info, linear_layer_bias_weight_info = None, None
+                if weight_map is not None:
+                    linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
+                        weight_map,
+                        f"{layer_qualified_name}.{name}",
+                        device=device,
+                    )
                 parallel_linear = linear_to_parallel_linear(
                     getattr(layer, name),
                     "column",
@@ -384,7 +439,7 @@ class ParallelSelfAttention(ParallelLayer):
                     sequence_parallel_enabled=sequence_parallel_enabled,
                     device=device,
                 )
-            setattr(layer, name, parallel_linear)
+                setattr(layer, name, parallel_linear)
 
         if cls.OUTPUT_PROJECTION_NAME is not None:
             linear_layer_weight_info, linear_layer_bias_weight_info = None, None
@@ -419,7 +474,7 @@ class ParallelSelfAttention(ParallelLayer):
             # Since those heads end-up sharded accross TP ranks just as the query heads, only the number of kv heads
             # needs to be updated. The number of query groups remains the same here because it is the ratio between the
             # number of query heads and the number of kv heads.
-            if kv_heads_are_parallelized:
+            if not needs_gqa_qkv_column_parallel_linear:
                 setattr(
                     layer,
                     cls.NUM_KEY_VALUE_HEADS_NAME,

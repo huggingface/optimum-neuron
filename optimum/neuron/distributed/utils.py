@@ -36,6 +36,7 @@ from ..utils.require_utils import requires_neuronx_distributed, requires_safeten
 
 
 if is_neuronx_distributed_available():
+    from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
     from neuronx_distributed.parallel_layers import layers
 
 if TYPE_CHECKING:
@@ -281,6 +282,104 @@ def embedding_to_parallel_embedding(
         return parallel_embedding_layer
 
     return parallel_embedding_layer, parallel_lm_head_layer
+
+
+def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
+    gqa_qkv_column_parallel_linear: "GQAQKVColumnParallelLinear",
+    proj_name: str,
+    linear_layer_weight_info: Optional[WeightInformation] = None,
+    linear_layer_bias_weight_info: Optional[WeightInformation] = None,
+    linear_layer: Optional["torch.nn.Linear"] = None,
+):
+    if (
+        linear_layer_weight_info is not None or linear_layer_bias_weight_info is not None
+    ) and linear_layer is not None:
+        raise ValueError(
+            "Specify either a linear layer's WeightInformation, or a linear layer to copy the weights from, but not both."
+        )
+    if linear_layer_weight_info is None and linear_layer_bias_weight_info is None and linear_layer is None:
+        raise ValueError(
+            "A linear's layer WeightInformation or a linear layer to copy the weight from need to specified."
+        )
+
+    from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_rank
+
+    tp_rank = get_tensor_model_parallel_rank()
+
+    weight = getattr(gqa_qkv_column_parallel_linear, f"weight_{proj_name}")
+    bias = getattr(gqa_qkv_column_parallel_linear, f"bias_{proj_name}")
+    row_size, _ = weight.shape
+
+    kv_size_multiplier = gqa_qkv_column_parallel_linear.kv_size_multiplier
+
+    if not was_already_initialized_during_parallelization(weight):
+        if linear_layer_weight_info is not None:
+            if proj_name == "q":
+                weight_data = load_tensor_for_weight(
+                    linear_layer_weight_info,
+                    tensor_slices=(
+                        (tp_rank * row_size, (tp_rank + 1) * row_size),
+                        None,
+                    ),
+                )
+            else:
+                weight_data = load_tensor_for_weight(linear_layer_weight_info)
+                weight_data = weight_data.repeat(kv_size_multiplier, 1)
+            weight.copy_(weight_data)
+            mark_parameter_init_status_during_parallelization(weight, True)
+            del weight_data
+        elif linear_layer.weight.device != torch.device("meta"):
+            if proj_name == "q":
+                weight.copy_(linear_layer.weight[tp_rank * row_size : (tp_rank + 1) * row_size, :])
+            else:
+                weight.copy_(linear_layer.weight.repeat(kv_size_multiplier, 1))
+            mark_parameter_init_status_during_parallelization(weight, True)
+        else:
+            mark_parameter_init_status_during_parallelization(weight, False)
+
+        if bias is not None:
+            if not was_already_initialized_during_parallelization(bias):
+                if linear_layer_bias_weight_info is not None:
+                    if proj_name == "q":
+                        if gqa_qkv_column_parallel_linear.gather_output:
+                            tensor_slices = (None,)
+                        else:
+                            tensor_slices = (
+                                (
+                                    tp_rank * row_size,
+                                    (tp_rank + 1) * row_size,
+                                ),
+                            )
+                        bias_weight_data = load_tensor_for_weight(
+                            linear_layer_bias_weight_info,
+                            tensor_slices=tensor_slices,
+                        )
+                    else:
+                        bias_weight_data = load_tensor_for_weight(
+                            linear_layer_bias_weight_info,
+                        )
+                        if not gqa_qkv_column_parallel_linear.gather_output:
+                            bias_weight_data = bias_weight_data.repeat(
+                                kv_size_multiplier,
+                            )
+                    bias.copy_(bias_weight_data)
+                    mark_parameter_init_status_during_parallelization(bias, True)
+                    del bias_weight_data
+                elif linear_layer.bias.device != torch.device("meta"):
+                    if gqa_qkv_column_parallel_linear.gather_output:
+                        bias.copy_(linear_layer.bias)
+                    else:
+                        if proj_name == "q":
+                            bias.copy_(linear_layer.bias[tp_rank * row_size : (tp_rank + 1) * row_size])
+                        else:
+                            bias.copy_(
+                                linear_layer.bias.repeat(
+                                    kv_size_multiplier,
+                                )
+                            )
+                    mark_parameter_init_status_during_parallelization(bias, True)
+                else:
+                    mark_parameter_init_status_during_parallelization(bias, False)
 
 
 @requires_neuronx_distributed
@@ -541,7 +640,12 @@ def delete_tensor_model_parallel_attributes(tensor: torch.Tensor):
             delattr(tensor, attr_name)
 
 
-def try_to_hf_initialize(model: "PreTrainedModel", mod: torch.nn.Module, parameter_names: List[str]) -> List[str]:
+def try_to_hf_initialize(
+    model: "PreTrainedModel",
+    mod: torch.nn.Module,
+    parameter_names: List[str],
+    parameter_names_mapping: Optional[Dict[str, str]] = None,
+) -> List[str]:
     """
     Tries to initialize the parameters in `parameter_names` that belong to the module `mod` by using the
     `model._init_weights` method. It returns the names of the parameters that were left uninitialized.
@@ -550,14 +654,22 @@ def try_to_hf_initialize(model: "PreTrainedModel", mod: torch.nn.Module, paramet
     cached_params_data = {name: param.data.clone() for name, param in mod.named_parameters()}
     model._init_weights(mod)
 
+    if parameter_names_mapping is None:
+        parameter_names_mapping = {}
+    reverse_parameter_names_mapping = {v: k for k, v in parameter_names_mapping.items()}
+
+    def name_in_mod(name: str):
+        return parameter_names_mapping.get(name, name)
+
     dummy_mod = copy.deepcopy(mod)
     for name in parameter_names:
-        getattr(dummy_mod, name).random_()
+        getattr(dummy_mod, name_in_mod(name)).random_()
     model._init_weights(dummy_mod)
 
     left_uninitialized = []
     with torch.no_grad():
-        for name in parameter_names:
+        for param_name in parameter_names:
+            name = name_in_mod(param_name)
             # The parameter was left unchanged.
             if torch.all(getattr(mod, name).data == cached_params_data[name]):
                 # There are two possible reasons:
@@ -568,10 +680,11 @@ def try_to_hf_initialize(model: "PreTrainedModel", mod: torch.nn.Module, paramet
                 # can initialize the module.
                 dummy_param_was_changed = torch.all(getattr(dummy_mod, name).data == getattr(mod, name).data)
                 if not dummy_param_was_changed:
-                    left_uninitialized.append(name)
+                    left_uninitialized.append(param_name)
 
         for name, cached_data in cached_params_data.items():
-            if name not in parameter_names:
+            param_name = reverse_parameter_names_mapping.get(name, name)
+            if param_name not in parameter_names:
                 param = getattr(mod, name)
                 param.data = cached_data
 
@@ -592,18 +705,29 @@ def initialize_torch_nn_module(mod: torch.nn.Module, parameter_names: List[str])
                 param.data = cached_parameters[name]
 
 
+@requires_neuronx_distributed
 def initialize_parallel_linear(mod: "layers.BaseParallelLinear", parameter_names: List[str]):
     """
     Initializes the parameters in `parameter_names` of a parallel linear module.
     """
-    if "weight" in parameter_names:
-        delete_tensor_model_parallel_attributes(mod.weight)
-        # It is needed to use `init_weight_cpu` instead of `_init_weights` because the initialization
-        # needs to happen on the full parameter and then scatter it accross TP ranks otherwise it will
-        # not be equivalent to the non-parallel case.
-        mod.init_weight_cpu()
-    if mod.bias is not None and "bias" in parameter_names:
-        mod._init_bias()
+    from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
+    from neuronx_distributed.parallel_layers.layers import ColumnParallelLinear, RowParallelLinear
+
+    if isinstance(mod, (RowParallelLinear, ColumnParallelLinear)):
+        if "weight" in parameter_names:
+            delete_tensor_model_parallel_attributes(mod.weight)
+            # It is needed to use `init_weight_cpu` instead of `_init_weights` because the initialization
+            # needs to happen on the full parameter and then scatter it accross TP ranks otherwise it will
+            # not be equivalent to the non-parallel case.
+            mod.init_weight_cpu()
+        if mod.bias is not None and "bias" in parameter_names:
+            mod._init_bias()
+    elif isinstance(mod, GQAQKVColumnParallelLinear):
+        # It ignores parameter_names, so it might initialize some parameters that should be left unchanged.
+        # To improve if it becomes neeeded.
+        mod.initialize_weight_biases()
+    else:
+        raise RuntimeError(f"This kind of parallel linear is not supported yet: {mod.__class__.__name__}")
 
 
 def parameter_can_be_initialized(model: torch.nn.Module, parent_module: torch.nn.Module, parameter_name: str) -> bool:

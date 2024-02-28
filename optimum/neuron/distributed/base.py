@@ -45,6 +45,7 @@ from .utils import (
     initialize_torch_nn_module,
     linear_to_parallel_linear,
     load_tensor_for_weight,
+    maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear,
     named_parameters,
     parameter_can_be_initialized,
     try_to_hf_initialize,
@@ -140,9 +141,11 @@ class GQAPatcher:
     GQA_QKV_PROJ_NAME: str = "qkv_proj"
 
     @classmethod
-    def patch_proj_to_use_gqa_qkv_column_parallel_linear(cls, attention_layer: torch.nn.Module, proj_name: str, output_index: int):
+    def patch_proj_to_use_gqa_qkv_column_parallel_linear(
+        cls, attention_layer: torch.nn.Module, proj_name: str, output_index: int
+    ):
 
-        def proj(self, hidden_states: torch.Tensor) -> torch.Tensor
+        def proj(self, hidden_states: torch.Tensor) -> torch.Tensor:
             if not hasattr(self, "_gqa_qkv_output"):
                 self._gqa_qkv_output = self.GQA_QKV_PROJ_NAME(hidden_states)
                 self._gqa_qkv_output_fetch_counter = 0
@@ -153,11 +156,16 @@ class GQAPatcher:
             return output
 
         patched_proj = proj.__get__(attention_layer)
-        setattr(attention_layer, proj_name,  patched_proj)
+        setattr(attention_layer, proj_name, patched_proj)
 
     @classmethod
     @requires_neuronx_distributed
-    def replace_qkv_by_gqa_qkv_column_parallel_linear(cls, attention_layer: torch.nn.Module, sequence_parallel_enabled: bool = False, kv_size_multiplier: Optional[int] = None):
+    def replace_qkv_by_gqa_qkv_column_parallel_linear(
+        cls,
+        attention_layer: torch.nn.Module,
+        sequence_parallel_enabled: bool = False,
+        kv_size_multiplier: Optional[int] = None,
+    ):
         from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
         from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 
@@ -186,10 +194,14 @@ class GQAPatcher:
         cls.patch_proj_to_use_gqa_qkv_column_parallel_linear(attention_layer, cls.VALUES_NAME, 2)
 
     @classmethod
-    def patch_model(cls, model: torch.nn.Module, sequence_parallel_enabled: bool = False, kv_size_multiplier: Optional[int] = None):
+    def patch_model(
+        cls, model: torch.nn.Module, sequence_parallel_enabled: bool = False, kv_size_multiplier: Optional[int] = None
+    ):
         for module in model.modules():
             if isinstance(module, cls.ATTENTION_CLASS):
-                cls.replace_qkv_by_gqa_qkv_column_parallel_linear(module, sequence_parallel_enabled, kv_size_multiplier=kv_size_multiplier)
+                cls.replace_qkv_by_gqa_qkv_column_parallel_linear(
+                    module, sequence_parallel_enabled, kv_size_multiplier=kv_size_multiplier
+                )
 
 
 class Parallelizer(ABC):
@@ -365,6 +377,7 @@ class Parallelizer(ABC):
             `PreTrainedModel`: The parallelized model.
         """
         from neuronx_distributed import parallel_layers
+        from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
 
         if sequence_parallel_enabled and not cls.supports_sequence_parallelism():
             raise NotImplementedError(f"Sequence parallelism is not supported for {model.__class__}.")
@@ -389,8 +402,9 @@ class Parallelizer(ABC):
                 parallelize_embeddings=parallelize_embeddings,
                 sequence_parallel_enabled=sequence_parallel_enabled,
             )
-            if cls.GQA_PATCHER is not None:
-                cls.GQA_PATCHER.patch_model(model)
+
+        if get_tensor_model_parallel_rank() == 0:
+            print(model)
 
         # Preparing the model for sequence parallelism:
         sp_specs_cls = cls.SEQUENCE_PARALLELSIM_SPECS_CLS
@@ -521,26 +535,62 @@ class Parallelizer(ABC):
                     if isinstance(mod, parallel_layers.layers.RowParallelLinear):
                         axis = "row"
                         input_is_parallel = mod.input_is_parallel
-                    else:
+                    elif isinstance(mod, parallel_layers.layers.ColumnParallelLinear):
                         axis = "column"
                         gather_output = mod.gather_output
-                    fake_linear_mod = torch.nn.Linear(mod.input_size, mod.output_size)
-                    left_uninitialized = try_to_hf_initialize(model, fake_linear_mod, parameter_names)
-                    if left_uninitialized:
-                        initialize_parallel_linear(mod, left_uninitialized)
+                    elif isinstance(mod, GQAQKVColumnParallelLinear):
+                        axis = "qga_qkv_column"
+                        gather_output = mod.gather_output
                     else:
-                        fake_parallel_linear_mod = linear_to_parallel_linear(
-                            fake_linear_mod,
-                            axis,
-                            input_is_parallel=input_is_parallel,
-                            gather_output=gather_output,
-                            sequence_parallel_enabled=mod.sequence_parallel_enabled,
+                        raise RuntimeError(
+                            f"This kind of parallel linear is not supported yet: {mod.__class__.__name__}"
                         )
-                        mod.weight.data = fake_parallel_linear_mod.weight.data.clone()
-                        if mod.bias is not None:
-                            mod.bias.data = fake_parallel_linear_mod.bias.data.clone()
+
+                    if axis in ["row", "column"]:
+                        fake_linear_mod = torch.nn.Linear(mod.input_size, mod.output_size)
+                        left_uninitialized = try_to_hf_initialize(model, fake_linear_mod, parameter_names)
+                        if left_uninitialized:
+                            initialize_parallel_linear(mod, left_uninitialized)
+                        else:
+                            fake_parallel_linear_mod = linear_to_parallel_linear(
+                                fake_linear_mod,
+                                axis,
+                                input_is_parallel=input_is_parallel,
+                                gather_output=gather_output,
+                                sequence_parallel_enabled=mod.sequence_parallel_enabled,
+                            )
+                            mod.weight.data = fake_parallel_linear_mod.weight.data.clone()
+                            if mod.bias is not None:
+                                mod.bias.data = fake_parallel_linear_mod.bias.data.clone()
+                            del fake_parallel_linear_mod
                         del fake_linear_mod
-                        del fake_parallel_linear_mod
+                    else:
+
+                        def initialize(mod: GQAQKVColumnParallelLinear, proj_name: str, output_size: int):
+                            fake_linear_mod = torch.nn.Linear(mod.input_size, output_size)
+                            parameter_names_to_consider = [
+                                name for name in parameter_names if name.endswith(f"_{proj_name}")
+                            ]
+                            mapping = {
+                                f"weight_{proj_name}": "weight",
+                                f"bias_{proj_name}": "bias",
+                            }
+                            left_uninitialized = try_to_hf_initialize(
+                                model, fake_linear_mod, parameter_names_to_consider, parameter_names_mapping=mapping
+                            )
+                            if left_uninitialized:
+                                initialize_parallel_linear(mod, left_uninitialized)
+                            else:
+                                maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
+                                    mod, proj_name, linear_layer=fake_linear_mod
+                                )
+                            del fake_linear_mod
+
+                        initialize(mod, "q", mod.output_sizes[0])
+                        # initialize(mod, "k", mod.output_sizes[1] * mod.kv_size_multiplier)
+                        # initialize(mod, "v", mod.output_sizes[1] * mod.kv_size_multiplier)
+                        initialize(mod, "k", mod.output_sizes[1])
+                        initialize(mod, "v", mod.output_sizes[1])
                 else:
                     left_uninitialized = try_to_hf_initialize(model, mod, parameter_names)
                     if left_uninitialized and hasattr(mod, "reset_parameters"):

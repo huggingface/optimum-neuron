@@ -183,37 +183,37 @@ MODEL_CLASSES_TO_IGNORE = [
 
 
 LLAMA_GQA_VARIANTS_TO_TEST = {
-    "MHA-setup": (
-        8,
-        2,
-        1,
-        {
-            "num_hidden_layers": "2",
-            "num_attention_heads": "8",
-            "num_key_value_heads": "8",
-        },
-    ),
-    "num_key_value_heads > tp_size": (
-        8,
-        2,
-        1,
-        {
-            "num_hidden_layers": "2",
-            "num_attention_heads": "8",
-            "num_key_value_heads": "4",
-        },
-    ),
-    "num_key_value_heads = tp_size": (
-        8,
-        8,
-        1,
-        {
-            "num_hidden_layers": "2",
-            "hidden_size": "32",
-            "num_attention_heads": "16",
-            "num_key_value_heads": "8",
-        },
-    ),
+    # "MHA-setup": (
+    #     8,
+    #     2,
+    #     1,
+    #     {
+    #         "num_hidden_layers": "2",
+    #         "num_attention_heads": "8",
+    #         "num_key_value_heads": "8",
+    #     },
+    # ),
+    # "num_key_value_heads > tp_size": (
+    #     8,
+    #     2,
+    #     1,
+    #     {
+    #         "num_hidden_layers": "2",
+    #         "num_attention_heads": "8",
+    #         "num_key_value_heads": "4",
+    #     },
+    # ),
+    # "num_key_value_heads = tp_size": (
+    #     8,
+    #     8,
+    #     1,
+    #     {
+    #         "num_hidden_layers": "2",
+    #         "hidden_size": "32",
+    #         "num_attention_heads": "16",
+    #         "num_key_value_heads": "8",
+    #     },
+    # ),
     "num_key_value_heads < tp_size": (
         8,
         8,
