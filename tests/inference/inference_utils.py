@@ -44,11 +44,15 @@ MODEL_NAMES = {
     "mpnet": "hf-internal-testing/tiny-random-MPNetModel",
     "roberta": "hf-internal-testing/tiny-random-RobertaModel",
     "roformer": "hf-internal-testing/tiny-random-RoFormerModel",
-    "sentence-transformers-transformer": "BAAI/bge-small-en-v1.5",
     "stable-diffusion": "hf-internal-testing/tiny-stable-diffusion-torch",
     "stable-diffusion-xl": "echarlaix/tiny-random-stable-diffusion-xl",
     "xlm": "hf-internal-testing/tiny-random-XLMModel",
     "xlm-roberta": "hf-internal-testing/tiny-xlm-roberta",
+}
+
+SENTENCE_TRANSFORMERS_MODEL_NAMES = {
+    "transformer": "sentence-transformers/all-MiniLM-L6-v2",
+    "clip": "sentence-transformers/clip-ViT-B-32",
 }
 
 
@@ -104,9 +108,13 @@ class NeuronModelTestMixin(unittest.TestCase):
             model_args.pop("model_arch")
             model_args.pop("dynamic_batch_size", None)
 
-            model_id = (
-                self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
-            )
+            if model_arch in self.ARCH_MODEL_MAP:
+                model_id = self.ARCH_MODEL_MAP[model_arch]
+            elif model_arch in SENTENCE_TRANSFORMERS_MODEL_NAMES:
+                model_id = SENTENCE_TRANSFORMERS_MODEL_NAMES[model_arch]
+            else:
+                model_id = MODEL_NAMES[model_arch]
+
             set_seed(SEED)
             neuron_model = self.NEURON_MODEL_CLASS.from_pretrained(
                 model_id, **model_args, export=True, dynamic_batch_size=dynamic_batch_size, **self.STATIC_INPUTS_SHAPES

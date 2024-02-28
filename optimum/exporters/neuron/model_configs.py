@@ -14,7 +14,7 @@
 # limitations under the License.
 """Model specific Neuron configurations."""
 
-
+import copy
 from typing import TYPE_CHECKING, Dict, List
 
 import torch
@@ -23,6 +23,7 @@ from ...neuron.utils import DummyBeamValuesGenerator
 from ...utils import (
     DummyInputGenerator,
     DummySeq2SeqDecoderTextInputGenerator,
+    DummyTextInputGenerator,
     DummyTimestepInputGenerator,
     DummyVisionInputGenerator,
     NormalizedConfig,
@@ -276,7 +277,7 @@ class CLIPTextNeuronConfig(CLIPTextWithProjectionNeuronConfig):
 class SentenceTransformersCLIPNeuronConfig(CLIPNeuronConfig):
     CUSTOM_MODEL_WRAPPER = SentenceTransformersCLIPNeuronWrapper
     ATOL_FOR_VALIDATION = 1e-3
-    INPUT_ARGS = ("batch_size", "sequence_length", "num_channels", "width", "height")
+    INPUT_ARGS = ("text_batch_size", "image_batch_size", "sequence_length", "num_channels", "width", "height")
 
     @property
     def outputs(self) -> List[str]:
@@ -284,6 +285,21 @@ class SentenceTransformersCLIPNeuronConfig(CLIPNeuronConfig):
 
     def patch_model_for_export(self, model, dummy_inputs):
         return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
+
+    def _create_dummy_input_generator_classes(self, **kwargs) -> List["DummyInputGenerator"]:
+        for name, axis_dim in self._axes.items():
+            self._axes[name] = kwargs.pop(name, axis_dim)
+
+        self._validate_mandatory_axes()
+
+        other_axes = copy.deepcopy(self._axes)
+        text_batch_size = other_axes.pop("text_batch_size")
+        images_batch_size = other_axes.pop("image_batch_size")
+
+        return [
+            DummyTextInputGenerator(self.task, self._normalized_config, batch_size=text_batch_size, **other_axes),
+            DummyVisionInputGenerator(self.task, self._normalized_config, batch_size=images_batch_size, **other_axes),
+        ]
 
 
 @register_in_tasks_manager("unet", *["semantic-segmentation"], library_name="diffusers")

@@ -144,6 +144,8 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
         compiler_type: Optional[str] = None,
         compiler_version: Optional[str] = None,
         batch_size: Optional[int] = None,
+        text_batch_size: Optional[int] = None,
+        image_batch_size: Optional[int] = None,
         dynamic_batch_size: bool = False,
         sequence_length: Optional[int] = None,
         num_choices: Optional[int] = None,
@@ -176,6 +178,8 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
         # To avoid using **kwargs.
         axes_values = {
             "batch_size": batch_size,
+            "text_batch_size": text_batch_size,
+            "image_batch_size": image_batch_size,
             "sequence_length": sequence_length,
             "num_choices": num_choices,
             "width": width,

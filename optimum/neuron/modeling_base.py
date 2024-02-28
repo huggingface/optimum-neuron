@@ -31,7 +31,6 @@ from ..exporters.neuron import export
 from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..exporters.tasks import TasksManager
 from ..modeling_base import OptimizedModel
-from ..utils.save_utils import maybe_load_preprocessors, maybe_save_preprocessors
 from .utils import (
     NEURON_FILE_NAME,
     check_if_weights_replacable,
@@ -40,6 +39,7 @@ from .utils import (
     store_compilation_config,
 )
 from .utils.import_utils import is_neuronx_available
+from .utils.misc import maybe_load_preprocessors, maybe_save_preprocessors
 from .utils.version_utils import check_compiler_compatibility, get_neuroncc_version, get_neuronxcc_version
 
 
@@ -280,7 +280,7 @@ class NeuronBaseModel(OptimizedModel):
 
         input_shapes = {}
         for name in neuron_config_constructor.func.get_mandatory_axes_for_task(task):
-            static_shape = kwargs_shapes.get(name, None) or config.neuron.get("static_" + name, None)
+            static_shape = kwargs_shapes.get(name, None)
             if static_shape is None:
                 raise AttributeError(
                     f"Cannot find the value of `{name}` from arguments nor the `config`. `{name}` is mandatory"
