@@ -252,6 +252,64 @@ class ParallelEmbedding(ParallelLayer):
         return layer
 
 
+class FakeProj(torch.nn.Module):
+    def __init__(
+        self,
+        fully_qualified_name: str,
+        proj_name: str,
+        output_index: int,
+        parent_module: torch.nn.Module,
+        parent_module_fully_qualified_name: str,
+        gqa_qkv_proj_name: str,
+    ):
+        self.fully_qualified_name = fully_qualified_name
+        self.proj_name = proj_name
+        self.output_index = output_index
+        self.parent_module = parent_module
+        self.parent_module_fully_qualified_name = parent_module_fully_qualified_name
+        self.gqa_qkv_proj_name = self.gqa_qkv_proj_name
+        self.gqa_qkv_column_parallel_linear = getattr(parent_module, gqa_qkv_proj_name)
+
+    def get_parameter_names_mapping(self, reversed: bool = False) -> Dict[str, str]:
+        gqa_qkv_column_parallel_linear_qualified_name = (
+            f"{self.parent_module_fully_qualified_name}.{self.gqa_qkv_proj_name}"
+        )
+
+        fully_qualified_name_weight = f"{gqa_qkv_column_parallel_linear_qualified_name}.weight_{self.proj_name}"
+        mapping = {
+            f"{self.fully_qualified_name}.weight": fully_qualified_name_weight,
+        }
+        if self.gqa_qkv_column_parallel_linear.bias is not None:
+            fully_qualified_name_bias = f"{gqa_qkv_column_parallel_linear_qualified_name}.bias_{self.proj_name}"
+            mapping[f"{self.fully_qualified_name}.bias"] = fully_qualified_name_bias
+        if reversed:
+            mapping = {v: k for k, v in mapping.items()}
+        return mapping
+
+    def update_state_dict(self, model: torch.nn.Module, state_dict: Dict[str, torch.Tensor]):
+        pass
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        if not hasattr(self.parent_module, "_gqa_qkv_output"):
+            self.parent_module._gqa_qkv_output = self.gqa_qkv_column_parallel_linear(hidden_states)
+            self.parent_module._gqa_qkv_output_fetch_counter = 0
+        self.parent_module._gqa_qkv_output_fetch_counter += 1
+        output = self.parent_module._gqa_qkv_output[self.output_index]
+        if self.parent_module._gqa_qkv_output_fetch_counter == 3:
+            del self.parent_module._gqa_qkv_output
+        return output
+
+
+def get_parameter_names_mapping_after_gqa_qkv_replacement(
+    model: torch.nn.Module, reversed: bool = False
+) -> Dict[str, str]:
+    mapping = {}
+    for mod in model.modules():
+        if isinstance(mod, FakeProj):
+            mapping.update(**mod.get_parameter_names_mapping(reversed=reversed))
+    return mapping
+
+
 class ParallelSelfAttention(ParallelLayer):
     """
     Transforms a Self-Attention layer into a Parallel Self-Attention layer.
@@ -293,30 +351,37 @@ class ParallelSelfAttention(ParallelLayer):
     GQA_QKV_PROJ_NAME: str = "qkv_proj"
 
     @classmethod
+    def get_layer_qualified_name(cls, model: torch.nn.Module, layer: torch.nn.Module) -> str:
+        layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
+        return layer_to_fully_qualified_name[id(layer)]
+
+    @classmethod
     def patch_proj_to_use_gqa_qkv_column_parallel_linear(
-        cls, attention_layer: torch.nn.Module, proj_name: str, output_index: int
+        cls,
+        attention_layer: torch.nn.Module,
+        attention_layer_qualified_name: str,
+        proj_qualified_name: str,
+        proj_name: str,
+        output_index: int,
     ):
+        fake_proj = FakeProj(
+            proj_qualified_name,
+            proj_name,
+            output_index,
+            attention_layer,
+            attention_layer_qualified_name,
+            cls.GQA_QKV_PROJ_NAME,
+        )
 
-        parent_module: torch.nn.Module = attention_layer
-
-        class FakeProj(torch.nn.Module):
-            def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-                if not hasattr(parent_module, "_gqa_qkv_output"):
-                    parent_module._gqa_qkv_output = getattr(parent_module, GQA_QKV_PROJ_NAME)(hidden_states)
-                    parent_module._gqa_qkv_output_fetch_counter = 0
-                parent_module._gqa_qkv_output_fetch_counter += 1
-                output = parent_module._gqa_qkv_output[output_index]
-                if parent_module._gqa_qkv_output_fetch_counter == 3:
-                    del parent_module._gqa_qkv_output
-                return output
-
-        setattr(attention_layer, proj_name, FakeProj())
+        setattr(attention_layer, proj_name, fake_proj)
 
     @classmethod
     @requires_neuronx_distributed
     def replace_qkv_by_gqa_qkv_column_parallel_linear(
         cls,
-        attention_layer: torch.nn.Module,
+        model: "torch.nn.Module",
+        attention_layer: "torch.nn.Module",
+        layer_qualified_name: str,
         sequence_parallel_enabled: bool = False,
         kv_size_multiplier: Optional[int] = None,
     ):
@@ -354,9 +419,12 @@ class ParallelSelfAttention(ParallelLayer):
         )
 
         setattr(attention_layer, cls.GQA_QKV_PROJ_NAME, gqa_qkv_column_parallel_linear)
-        cls.patch_proj_to_use_gqa_qkv_column_parallel_linear(attention_layer, cls.QUERIES_NAME, 0)
-        cls.patch_proj_to_use_gqa_qkv_column_parallel_linear(attention_layer, cls.KEYS_NAME, 1)
-        cls.patch_proj_to_use_gqa_qkv_column_parallel_linear(attention_layer, cls.VALUES_NAME, 2)
+        attention_layer_qualified_name = cls.get_layer_qualified_name(model, attention_layer)
+        cls.patch_proj_to_use_gqa_qkv_column_parallel_linear(
+            attention_layer, attention_layer_qualified_name, , cls.QUERIES_NAME, 0
+        )
+        cls.patch_proj_to_use_gqa_qkv_column_parallel_linear(attention_layer, layer_qualified_name, cls.KEYS_NAME, 1)
+        cls.patch_proj_to_use_gqa_qkv_column_parallel_linear(attention_layer, layer_qualified_name, cls.VALUES_NAME, 2)
 
     @classmethod
     @requires_neuronx_distributed
@@ -380,11 +448,8 @@ class ParallelSelfAttention(ParallelLayer):
         config = model.config
         normalized_config = NormalizedConfigManager.get_normalized_config_class(config.model_type)(config)
 
-        if weight_map is not None:
-            layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
-            layer_qualified_name = layer_to_fully_qualified_name[id(layer)]
-        else:
-            layer_qualified_name = ""
+        layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
+        layer_qualified_name = layer_to_fully_qualified_name[id(layer)]
 
         if cls.NUM_ATTENTION_HEADS_NAME is None:
             num_attention_heads_name = normalized_config.NUM_ATTENTION_HEADS
@@ -418,7 +483,10 @@ class ParallelSelfAttention(ParallelLayer):
         if needs_gqa_qkv_column_parallel_linear:
             # TODO: add the ability to specify the kv_size_multiplier when #440 is merged.
             cls.replace_qkv_by_gqa_qkv_column_parallel_linear(
-                layer, sequence_parallel_enabled=sequence_parallel_enabled, kv_size_multiplier=None
+                layer,
+                layer_qualified_name,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                kv_size_multiplier=None,
             )
             print("NEEDS GQA")
         else:

@@ -581,8 +581,9 @@ class Parallelizer(ABC):
                             if left_uninitialized:
                                 initialize_parallel_linear(mod, left_uninitialized)
                             else:
+                                # TODO: change kv heads.
                                 maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
-                                    mod, proj_name, linear_layer=fake_linear_mod
+                                    mod, proj_name, 2, linear_layer=fake_linear_mod
                                 )
                             del fake_linear_mod
 

@@ -287,6 +287,7 @@ def embedding_to_parallel_embedding(
 def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
     gqa_qkv_column_parallel_linear: "GQAQKVColumnParallelLinear",
     proj_name: str,
+    num_key_value_heads: int,
     linear_layer_weight_info: Optional[WeightInformation] = None,
     linear_layer_bias_weight_info: Optional[WeightInformation] = None,
     linear_layer: Optional["torch.nn.Linear"] = None,
@@ -299,7 +300,7 @@ def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
         )
     if linear_layer_weight_info is None and linear_layer_bias_weight_info is None and linear_layer is None:
         raise ValueError(
-            "A linear's layer WeightInformation or a linear layer to copy the weight from need to specified."
+            "A linear's layer WeightInformation or a linear layer to copy the weights from need to specified."
         )
 
     from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_rank
@@ -310,29 +311,23 @@ def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
     bias = getattr(gqa_qkv_column_parallel_linear, f"bias_{proj_name}")
     row_size, _ = weight.shape
 
-    kv_size_multiplier = gqa_qkv_column_parallel_linear.kv_size_multiplier
+    if proj_name in ["k", "v"]:
+        tp_rank = tp_rank % num_key_value_heads
 
     if not was_already_initialized_during_parallelization(weight):
         if linear_layer_weight_info is not None:
-            if proj_name == "q":
-                weight_data = load_tensor_for_weight(
-                    linear_layer_weight_info,
-                    tensor_slices=(
-                        (tp_rank * row_size, (tp_rank + 1) * row_size),
-                        None,
-                    ),
-                )
-            else:
-                weight_data = load_tensor_for_weight(linear_layer_weight_info)
-                weight_data = weight_data.repeat(kv_size_multiplier, 1)
+            weight_data = load_tensor_for_weight(
+                linear_layer_weight_info,
+                tensor_slices=(
+                    (tp_rank * row_size, (tp_rank + 1) * row_size),
+                    None,
+                ),
+            )
             weight.copy_(weight_data)
             mark_parameter_init_status_during_parallelization(weight, True)
             del weight_data
         elif linear_layer.weight.device != torch.device("meta"):
-            if proj_name == "q":
-                weight.copy_(linear_layer.weight[tp_rank * row_size : (tp_rank + 1) * row_size, :])
-            else:
-                weight.copy_(linear_layer.weight.repeat(kv_size_multiplier, 1))
+            weight.copy_(linear_layer.weight[tp_rank * row_size : (tp_rank + 1) * row_size, :])
             mark_parameter_init_status_during_parallelization(weight, True)
         else:
             mark_parameter_init_status_during_parallelization(weight, False)
@@ -340,28 +335,19 @@ def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
         if bias is not None:
             if not was_already_initialized_during_parallelization(bias):
                 if linear_layer_bias_weight_info is not None:
-                    if proj_name == "q":
-                        if gqa_qkv_column_parallel_linear.gather_output:
-                            tensor_slices = (None,)
-                        else:
-                            tensor_slices = (
-                                (
-                                    tp_rank * row_size,
-                                    (tp_rank + 1) * row_size,
-                                ),
-                            )
-                        bias_weight_data = load_tensor_for_weight(
-                            linear_layer_bias_weight_info,
-                            tensor_slices=tensor_slices,
-                        )
+                    if gqa_qkv_column_parallel_linear.gather_output:
+                        tensor_slices = (None,)
                     else:
-                        bias_weight_data = load_tensor_for_weight(
-                            linear_layer_bias_weight_info,
+                        tensor_slices = (
+                            (
+                                tp_rank * row_size,
+                                (tp_rank + 1) * row_size,
+                            ),
                         )
-                        if not gqa_qkv_column_parallel_linear.gather_output:
-                            bias_weight_data = bias_weight_data.repeat(
-                                kv_size_multiplier,
-                            )
+                    bias_weight_data = load_tensor_for_weight(
+                        linear_layer_bias_weight_info,
+                        tensor_slices=tensor_slices,
+                    )
                     bias.copy_(bias_weight_data)
                     mark_parameter_init_status_during_parallelization(bias, True)
                     del bias_weight_data
@@ -369,14 +355,7 @@ def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
                     if gqa_qkv_column_parallel_linear.gather_output:
                         bias.copy_(linear_layer.bias)
                     else:
-                        if proj_name == "q":
-                            bias.copy_(linear_layer.bias[tp_rank * row_size : (tp_rank + 1) * row_size])
-                        else:
-                            bias.copy_(
-                                linear_layer.bias.repeat(
-                                    kv_size_multiplier,
-                                )
-                            )
+                        bias.copy_(linear_layer.bias[tp_rank * row_size : (tp_rank + 1) * row_size])
                     mark_parameter_init_status_during_parallelization(bias, True)
                 else:
                     mark_parameter_init_status_during_parallelization(bias, False)

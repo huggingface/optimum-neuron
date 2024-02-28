@@ -34,6 +34,7 @@ from torch.utils.data.distributed import DistributedSampler
 
 from ...utils import logging
 from ..distributed import Parallelizer, ParallelizersManager
+from ..distributed.parallel_layers import get_parameter_names_mapping_after_gqa_qkv_replacement
 from ..utils import (
     DynamicPatch,
     ModelPatcher,
@@ -410,6 +411,10 @@ class NeuronAccelerator(Accelerator):
         # TODO: enable self.device (if needed).
         model = self.state.mp_plugin.parallelize_model(model, device=None)
 
+        gqa_qkv_to_original_parameter_names = get_parameter_names_mapping_after_gqa_qkv_replacement(
+            model, reversed=True
+        )
+
         if model_main_input_name is not None:
             setattr(model, "main_input_name", model_main_input_name)
 
@@ -439,7 +444,8 @@ class NeuronAccelerator(Accelerator):
                 tie_parameters(model, tied_parameters_dict)
             xla_params = dict(model.local_named_parameters())
             self._model_cpu_parameters_to_xla[id(model)] = {
-                cpu_ids[name]: xla_params[name] for name, _ in model.local_named_parameters()
+                cpu_ids[gqa_qkv_to_original_parameter_names.get(name, name)]: xla_params[name]
+                for name, _ in model.local_named_parameters()
             }
         else:
             with ModelPatcher(patching_specs=[(model, "_tie_or_clone_weights", _tie_or_clone_weights_for_mp)]):
@@ -453,7 +459,8 @@ class NeuronAccelerator(Accelerator):
                 )
 
             self._model_cpu_parameters_to_xla[id(model)] = {
-                cpu_ids[name]: xla_params[name] for name, _ in model.named_parameters()
+                cpu_ids[gqa_qkv_to_original_parameter_names.get(name, name)]: xla_params[name]
+                for name, _ in model.named_parameters()
             }
 
         device_placement = False
