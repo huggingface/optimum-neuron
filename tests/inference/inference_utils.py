@@ -50,6 +50,10 @@ MODEL_NAMES = {
     "xlm-roberta": "hf-internal-testing/tiny-xlm-roberta",
 }
 
+LORA_WEIGHTS_TINY = {
+    "stable-diffusion": ("Jingya/tiny-stable-diffusion-lora-64", "pytorch_lora_weights.safetensors", "pokemon"),
+}
+
 SENTENCE_TRANSFORMERS_MODEL_NAMES = {
     "transformer": "sentence-transformers/all-MiniLM-L6-v2",
     "clip": "sentence-transformers/clip-ViT-B-32",

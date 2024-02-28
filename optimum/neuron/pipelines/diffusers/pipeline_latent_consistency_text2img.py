@@ -172,9 +172,11 @@ class NeuronLatentConsistencyPipelineMixin(StableDiffusionPipelineMixin, LatentC
         self.check_num_images_per_prompt(batch_size, neuron_batch_size, num_images_per_prompt)
 
         # 3. Encode input prompt
-        lora_scale = (
-            self.cross_attention_kwargs.get("scale", None) if self.cross_attention_kwargs is not None else None
-        )
+        if cross_attention_kwargs is not None and cross_attention_kwargs.get("scale", None) is not None:
+            logger.warning(
+                "Lora scale need to be fused with model weights during the compilation. The scale passed through the pipeline during inference will be ignored."
+            )
+        lora_scale = None
 
         # NOTE: when a LCM is distilled from an LDM via latent consistency distillation (Algorithm 1) with guided
         # distillation, the forward pass of the LCM learns to approximate sampling from the LDM using CFG with the

@@ -173,6 +173,48 @@ class TestExportCLI(unittest.TestCase):
                 )
 
     @requires_neuronx
+    def test_stable_diffusion_multi_lora(self):
+        model_id = "hf-internal-testing/tiny-stable-diffusion-torch"
+        lora_model_id = "Jingya/tiny-stable-diffusion-lora-64"
+        lora_weight_name = "pytorch_lora_weights.safetensors"
+        adpater_name = "pokemon"
+        with tempfile.TemporaryDirectory() as tempdir:
+            subprocess.run(
+                [
+                    "optimum-cli",
+                    "export",
+                    "neuron",
+                    "--model",
+                    model_id,
+                    "--task",
+                    "stable-diffusion",
+                    "--batch_size",
+                    "1",
+                    "--height",
+                    "64",
+                    "--width",
+                    "64",
+                    "--num_images_per_prompt",
+                    "4",
+                    "--lora_model_ids",
+                    lora_model_id,
+                    "--lora_weight_names",
+                    lora_weight_name,
+                    "lora_adapter_names",
+                    adpater_name,
+                    "--lora_scales",
+                    "0.9",
+                    "--auto_cast",
+                    "matmul",
+                    "--auto_cast_type",
+                    "bf16",
+                    tempdir,
+                ],
+                shell=False,
+                check=True,
+            )
+
+    @requires_neuronx
     def test_stable_diffusion_xl(self):
         model_id = "echarlaix/tiny-random-stable-diffusion-xl"
         with tempfile.TemporaryDirectory() as tempdir:
