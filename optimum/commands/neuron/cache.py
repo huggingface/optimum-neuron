@@ -14,7 +14,6 @@
 # limitations under the License.
 """Defines the command line related to dealing with the Neuron cache repo."""
 
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ...neuron.utils import get_hub_cached_entries, synchronize_hub_cache
@@ -173,15 +172,7 @@ class SynchronizeRepoCommand(BaseOptimumCLICommand):
 
     @requires_torch_neuronx
     def run(self):
-        from libneuronxla.neuron_cc_cache import CacheUrl
-
-        if self.args.cache_dir is not None:
-            if not Path(self.args.cache_dir).is_dir():
-                raise ValueError(f"The {self.args.cache_dir} directory does not exist.")
-            cache_url = CacheUrl(self.args.cache_dir, url_type="fs")
-        else:
-            cache_url = None
-        synchronize_hub_cache(cache_url=cache_url, cache_repo_id=self.args.repo_id)
+        synchronize_hub_cache(cache_path=self.args.cache_dir, cache_repo_id=self.args.repo_id)
 
 
 class LookupRepoCommand(BaseOptimumCLICommand):
