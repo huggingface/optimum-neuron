@@ -412,8 +412,11 @@ class NeuronAccelerator(Accelerator):
         model = self.state.mp_plugin.parallelize_model(model, device=None)
 
         gqa_qkv_to_original_parameter_names = get_parameter_names_mapping_after_gqa_qkv_replacement(
-            model, reversed=True
+            model
         )
+        # Update CPU ids
+        for key in list(cpu_ids.keys()):
+            cpu_ids[gqa_qkv_to_original_parameter_names.get(key, key)] = cpu_ids.pop(key)
 
         if model_main_input_name is not None:
             setattr(model, "main_input_name", model_main_input_name)
@@ -444,7 +447,7 @@ class NeuronAccelerator(Accelerator):
                 tie_parameters(model, tied_parameters_dict)
             xla_params = dict(model.local_named_parameters())
             self._model_cpu_parameters_to_xla[id(model)] = {
-                cpu_ids[gqa_qkv_to_original_parameter_names.get(name, name)]: xla_params[name]
+                cpu_ids[name]: xla_params[name]
                 for name, _ in model.local_named_parameters()
             }
         else:
@@ -452,6 +455,8 @@ class NeuronAccelerator(Accelerator):
                 move_model_to_device(model, self.device)
                 tie_parameters(model, tied_parameters_dict)
             xla_params = dict(model.named_parameters())
+
+
             symmetric_diff = set(cpu_ids.keys()).symmetric_difference((xla_params.keys()))
             if symmetric_diff:
                 raise ValueError(
@@ -459,7 +464,7 @@ class NeuronAccelerator(Accelerator):
                 )
 
             self._model_cpu_parameters_to_xla[id(model)] = {
-                cpu_ids[gqa_qkv_to_original_parameter_names.get(name, name)]: xla_params[name]
+                cpu_ids[name]: xla_params[name]
                 for name, _ in model.named_parameters()
             }
 
