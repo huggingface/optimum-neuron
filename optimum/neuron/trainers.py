@@ -279,11 +279,7 @@ class AugmentTrainerForNeuronMixin:
             has_write_access = has_write_access_to_repo(repo_id)
             if has_write_access:
                 cache_path = get_neuron_cache_path()
-                if cache_path is not None:
-                    cache_url = CacheUrl(cache_path.as_posix(), url_type="fs")
-                else:
-                    cache_url = None
-                synchronize_hub_cache(cache_url=cache_url, cache_repo_id=repo_id)
+                synchronize_hub_cache(cache_path=cache_path, cache_repo_id=repo_id)
         xm.rendezvous("Hub cache synchronization done")
 
     def _wrap_model(self, model, training=True, dataloader=None):
