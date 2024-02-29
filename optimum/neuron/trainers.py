@@ -272,10 +272,8 @@ class AugmentTrainerForNeuronMixin:
 
     @requires_torch_neuronx
     def synchronize_hub_cache(self):
-        from libneuronxla.neuron_cc_cache import CacheUrl
-
         repo_id = get_hf_hub_cache_repos()[0]
-        if xm.get_ordinal() == 0:
+        if not self.args.skip_cache_push and xm.get_ordinal() == 0:
             has_write_access = has_write_access_to_repo(repo_id)
             if has_write_access:
                 cache_path = get_neuron_cache_path()
@@ -527,7 +525,8 @@ class AugmentTrainerForNeuronMixin:
 
                     self._save_xla(output_dir)
 
-            if not is_precompilation():
+            if not is_precompilation() and not self.is_in_train:
+                # We do not synchronize each time we save a checkpoint during training.
                 self.synchronize_hub_cache()
 
             # Push to the Hub when `save_model` is called by the user.
