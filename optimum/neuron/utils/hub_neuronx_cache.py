@@ -336,8 +336,8 @@ def synchronize_hub_cache(cache_path: Optional[Union[str, Path]] = None, cache_r
     """Synchronize the neuronx compiler cache with the optimum-neuron hub cache.
 
     Args:
-        cache_url (`Optional[Union[str, Path]]`, defaults to `None`):
-            The path of th to use for synchronization.
+        cache_path (`Optional[Union[str, Path]]`, defaults to `None`):
+            The path of the folder to use for synchronization.
         cache_repo_id (`Optional[str]`, default to None):
             The id of the HuggingFace cache repository, in the form 'org|user/name'.
     """
