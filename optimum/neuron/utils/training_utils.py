@@ -384,7 +384,7 @@ def torch_xla_safe_save_file(
 
 @requires_neuronx_distributed
 def get_model_param_count(model: Union[torch.nn.Module, "NxDPPModel"], trainable_only: bool = False):
-    """Counts the number of parameters of `model`."""
+    """Counts the number of parameters of the model."""
     import torch_xla.core.xla_model as xm
     from neuronx_distributed.parallel_layers.parallel_state import (
         get_pipeline_model_parallel_group,

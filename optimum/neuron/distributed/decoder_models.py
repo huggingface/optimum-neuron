@@ -119,10 +119,10 @@ class GPTNeoParallelizer(Parallelizer):
     def _parallelize(
         cls,
         model: "PreTrainedModel",
-        device: Optional["torch.device"] = None,
+        device: Optional[torch.device] = None,
         parallelize_embeddings: bool = True,
         sequence_parallel_enabled: bool = False,
-        should_parallelize_layer_predicate_func: Optional[Callable[["torch.nn.Module"], bool]] = None,
+        should_parallelize_layer_predicate_func: Optional[Callable[[torch.nn.Module], bool]] = None,
         **parallel_layer_specific_kwargs,
     ) -> "PreTrainedModel":
         if parallelize_embeddings:
@@ -303,10 +303,10 @@ class GPTNeoXParallelizer(Parallelizer):
     def _parallelize(
         cls,
         model: "PreTrainedModel",
-        device: Optional["torch.device"] = None,
+        device: Optional[torch.device] = None,
         parallelize_embeddings: bool = True,
         sequence_parallel_enabled: bool = False,
-        should_parallelize_layer_predicate_func: Optional[Callable[["torch.nn.Module"], bool]] = None,
+        should_parallelize_layer_predicate_func: Optional[Callable[[torch.nn.Module], bool]] = None,
         **parallel_layer_specific_kwargs,
     ) -> "PreTrainedModel":
         if parallelize_embeddings:
@@ -371,11 +371,11 @@ class LLamaParallelMLP(ParallelMLP):
     def _transform(
         cls,
         model: "PreTrainedModel",
-        layer: "torch.nn.Module",
+        layer: torch.nn.Module,
         sequence_parallel_enabled: bool = False,
-        device: Optional["torch.device"] = None,
+        device: Optional[torch.device] = None,
         **parallel_layer_specific_kwargs,
-    ) -> "torch.nn.Module":
+    ) -> torch.nn.Module:
         # TODO: Make it smart by merging the gate and the up_proj.
         # WARNING: be careful of the interleaved outputs when doing TP!
         layer = super()._transform(
@@ -603,10 +603,10 @@ class LlamaParallelizer(Parallelizer):
     def _parallelize(
         cls,
         model: "PreTrainedModel",
-        device: Optional["torch.device"] = None,
+        device: Optional[torch.device] = None,
         parallelize_embeddings: bool = True,
         sequence_parallel_enabled: bool = False,
-        should_parallelize_layer_predicate_func: Optional[Callable[["torch.nn.Module"], bool]] = None,
+        should_parallelize_layer_predicate_func: Optional[Callable[[torch.nn.Module], bool]] = None,
         **parallel_layer_specific_kwargs,
     ) -> "PreTrainedModel":
         if parallelize_embeddings:
@@ -672,12 +672,12 @@ class MistralParallelMLP(ParallelMLP):
     def transform(
         cls,
         model: "PreTrainedModel",
-        layer: "torch.nn.Module",
+        layer: torch.nn.Module,
         sequence_parallel_enabled: bool = False,
-        device: Optional["torch.device"] = None,
-        should_parallelize_layer_predicate_func: Optional[Callable[["torch.nn.Module"], bool]] = None,
+        device: Optional[torch.device] = None,
+        should_parallelize_layer_predicate_func: Optional[Callable[[torch.nn.Module], bool]] = None,
         **parallel_layer_specific_kwargs,
-    ) -> "torch.nn.Module":
+    ) -> torch.nn.Module:
         if should_parallelize_layer_predicate_func is not None and not should_parallelize_layer_predicate_func(layer):
             return layer
         # TODO: Make it smart by merging the gate and the up_proj.
@@ -859,10 +859,10 @@ class MistralParallelizer(Parallelizer):
     def _parallelize(
         cls,
         model: "PreTrainedModel",
-        device: Optional["torch.device"] = None,
+        device: Optional[torch.device] = None,
         parallelize_embeddings: bool = True,
         sequence_parallel_enabled: bool = False,
-        should_parallelize_layer_predicate_func: Optional[Callable[["torch.nn.Module"], bool]] = None,
+        should_parallelize_layer_predicate_func: Optional[Callable[[torch.nn.Module], bool]] = None,
         **parallel_layer_specific_kwargs,
     ) -> "PreTrainedModel":
         if parallelize_embeddings:

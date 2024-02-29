@@ -168,7 +168,7 @@ class SynchronizeRepoCommand(BaseOptimumCLICommand):
     def parse_args(parser: "ArgumentParser"):
         parser.add_argument("--repo_id", type=str, default=None, help="The name of the repo to use as remote cache.")
         parser.add_argument(
-            "--cache_dir", type=str, default=None, help="The cache directory that contains the compilation files"
+            "--cache_dir", type=str, default=None, help="The cache directory that contains the compilation files."
         )
 
     @requires_torch_neuronx

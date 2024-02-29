@@ -53,12 +53,12 @@ class T5ParallelSelfAttention(ParallelSelfAttention):
     def transform(
         cls,
         model: "PreTrainedModel",
-        layer: "torch.nn.Module",
+        layer: torch.nn.Module,
         sequence_parallel_enabled: bool = False,
-        device: Optional["torch.device"] = None,
-        should_parallelize_layer_predicate_func: Optional[Callable[["torch.nn.Module"], bool]] = None,
+        device: Optional[torch.device] = None,
+        should_parallelize_layer_predicate_func: Optional[Callable[[torch.nn.Module], bool]] = None,
         **parallel_layer_specific_kwargs,
-    ) -> "torch.nn.Module":
+    ) -> torch.nn.Module:
         if should_parallelize_layer_predicate_func is not None and not should_parallelize_layer_predicate_func(layer):
             return layer
         from neuronx_distributed.parallel_layers.parallel_state import (
@@ -107,11 +107,11 @@ class T5ParallelMLP(ParallelMLP):
     def transform(
         cls,
         model: "PreTrainedModel",
-        layer: "torch.nn.Module",
+        layer: torch.nn.Module,
         sequence_parallel_enabled: bool = False,
-        device: Optional["torch.device"] = None,
-        should_parallelize_layer_predicate_func: Optional[Callable[["torch.nn.Module"], bool]] = None,
-    ) -> "torch.nn.Module":
+        device: Optional[torch.device] = None,
+        should_parallelize_layer_predicate_func: Optional[Callable[[torch.nn.Module], bool]] = None,
+    ) -> torch.nn.Module:
         if should_parallelize_layer_predicate_func is not None and not should_parallelize_layer_predicate_func(layer):
             return layer
 
@@ -336,10 +336,10 @@ class T5Parallelizer(Parallelizer):
     def _parallelize(
         cls,
         model: "PreTrainedModel",
-        device: Optional["torch.device"] = None,
+        device: Optional[torch.device] = None,
         parallelize_embeddings: bool = True,
         sequence_parallel_enabled: bool = False,
-        should_parallelize_layer_predicate_func: Optional[Callable[["torch.nn.Module"], bool]] = None,
+        should_parallelize_layer_predicate_func: Optional[Callable[[torch.nn.Module], bool]] = None,
         **parallel_layer_specific_kwargs,
     ) -> "PreTrainedModel":
         if isinstance(model, T5ForSequenceClassification):

@@ -94,9 +94,9 @@ class SequenceParallelismSpecs:
 
 
 class PipelineParallelismSpecs:
-    TRASNFORMER_LAYER_CLS: Type["torch.nn.Module"]
+    TRASNFORMER_LAYER_CLS: Type[torch.nn.Module]
     DEFAULT_INPUT_NAMES: Tuple[str, ...]
-    LEAF_MODULE_CLASSES_NAMES: Optional[List[Union[str, Type["torch.nn.Module"]]]] = None
+    LEAF_MODULE_CLASSES_NAMES: Optional[List[Union[str, Type[torch.nn.Module]]]] = None
     OUTPUT_LOSS_SPECS: Tuple[bool, ...] = (True, False)
 
     @classmethod
@@ -179,7 +179,7 @@ class Parallelizer(ABC):
     @classmethod
     @requires_neuronx_distributed
     def _get_parameter_names_for_current_pipeline(
-        cls, model: "torch.nn.Module", remove_duplicate: bool = True
+        cls, model: torch.nn.Module, remove_duplicate: bool = True
     ) -> Set[str]:
         """
         Retrieves the names of the parameters that will be in the current pipeline stage by using the pipeline
@@ -245,7 +245,7 @@ class Parallelizer(ABC):
         device: Optional[torch.device] = None,
         parallelize_embeddings: bool = True,
         sequence_parallel_enabled: bool = False,
-        should_parallelize_layer_predicate_func: Optional[Callable[["torch.nn.Module"], bool]] = None,
+        should_parallelize_layer_predicate_func: Optional[Callable[[torch.nn.Module], bool]] = None,
         **parallel_layer_specific_kwargs,
     ) -> "PreTrainedModel":
         """
