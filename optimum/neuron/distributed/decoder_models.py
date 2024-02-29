@@ -900,6 +900,5 @@ class MistralParallelizer(Parallelizer):
                 should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
                 device=device,
                 **parallel_layer_specific_kwargs,
-                **parallel_layer_specific_kwargs,
             )
         return model
