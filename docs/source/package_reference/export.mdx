@@ -30,6 +30,7 @@ the compiled model's output on Neuron devices to the PyTorch model's output on C
 
 ## Supported architectures
 
+### [Transformers](https://github.com/huggingface/transformers)
 
 | Architecture           | Task                                                                                                                                          |
 |------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
@@ -42,6 +43,7 @@ the compiled model's output on Neuron devices to the PyTorch model's output on C
 | DeBERTa-v2 (INF2 only) | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
 | DistilBERT             | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
 | ELECTRA                | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| ESM                    | feature-extraction, fill-mask, text-classification, token-classification                                                                      |
 | FlauBERT               | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
 | GPT2                   | text-generation                                                                                                                               |
 | Llama, Llama 2         | text-generation                                                                                                                               |
@@ -51,11 +53,23 @@ the compiled model's output on Neuron devices to the PyTorch model's output on C
 | OPT                    | text-generation                                                                                                                               |
 | RoBERTa                | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
 | RoFormer               | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| T5                     | text2text-generation                                                                                                                          |
 | XLM                    | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
 | XLM-RoBERTa            | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
-| Stable Diffusion       | text-to-image, image-to-image, inpaint                                                                                                        |
+
+
+### [Diffusers](https://github.com/huggingface/diffusers)
+
+| Stable Diffusion              | text-to-image, image-to-image, inpaint                                                                                                 |
 | Stable Diffusion XL Base      | text-to-image, image-to-image, inpaint                                                                                                 |
 | Stable Diffusion XL Refiner   | image-to-image, inpaint                                                                                                                |
+| SDXL Turbo                    | text-to-image, image-to-image, inpaint                                                                                                 |
+| LCM                           | text-to-image                                                                                                                          |
+
+### [Sentence Transformers](https://github.com/UKPLab/sentence-transformers)
+
+| Transformer              | feature-extraction, sentence-similarity                                                                                                     |
+| CLIP                     | feature-extraction, zero-shot-image-classification                                                                                          |
 
 
 <Tip>
