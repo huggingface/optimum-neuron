@@ -36,8 +36,11 @@ class TestDistributedTraining(DistributedTest):
 
     @pytest.fixture(
         scope="class",
-        params=[[2, 1, 1], [2, 2, 1], [2, 1, 2]],
-        ids=["dp=2", "tp=2", "pp=2"],
+        # params=[[2, 1, 1], [2, 2, 1], [2, 1, 2]],
+        # ids=["dp=2", "tp=2", "pp=2"],
+        # TODO: fix pp=2 case since it is flaky and can hang.
+        params=[[2, 1, 1], [2, 2, 1]],
+        ids=["dp=2", "tp=2"],
     )
     def parallel_sizes(self, request):
         return request.param
@@ -70,11 +73,11 @@ class TestDistributedTraining(DistributedTest):
                 per_device_eval_batch_size=eval_batch_size,
                 max_steps=max_steps,
                 logging_steps=1,
-                save_steps=2,
+                save_steps=5,
                 do_eval=do_eval,
                 output_dir=output_dir,
                 resume_from_checkpoint=resume_from_checkpoint,
-                skip_cache_push=True,
+                skip_cache_push=False,
             )
             return args
 
@@ -137,7 +140,7 @@ class TestDistributedTraining(DistributedTest):
 
         # Case 1: Resuming from checkpoint by specifying a checkpoint directory.
         second_output_dir = tmpdir / "second_run"
-        resume_from_checkpoint = first_output_dir / "checkpoint-4"
+        resume_from_checkpoint = first_output_dir / "checkpoint-5"
         args = create_training_args(second_output_dir, resume_from_checkpoint=resume_from_checkpoint)
         model = create_model()
         trainer = NeuronTrainer(

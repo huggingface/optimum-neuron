@@ -38,6 +38,7 @@ from ..utils import check_if_transformers_greater, logging
 from .accelerate import NeuronAcceleratorState, NeuronPartialState
 from .accelerate.utils import ModelParallelismPlugin, patch_accelerate_is_tpu_available
 from .utils import is_accelerate_available, is_torch_xla_available
+from .utils.patching import Patcher
 from .utils.training_utils import TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP
 
 
@@ -149,9 +150,13 @@ class NeuronTrainingArgumentsMixin:
             pipeline_parallel_size=self.pipeline_parallel_size,
             pipeline_parallel_num_microbatches=self.pipeline_parallel_num_microbatches,
             pipeline_parallel_use_zero1_optimizer=self.zero_1,
+            gradient_checkpointing=self.gradient_checkpointing,
             checkpoint_dir=resume_from_checkpoint,
         )
-        super().__post_init__()
+
+        # This is required to be able to use bf16, otherwise a check in super().__post_init__() fails.
+        with Patcher([("transformers.training_args.get_xla_device_type", lambda _: "GPU")]):
+            super().__post_init__()
 
     # Needed only to specialize the warning message for FSDP.
     @cached_property

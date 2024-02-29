@@ -267,23 +267,11 @@ class NeuronAcceleratorState(AcceleratorState):
                     os.environ.get("ACCELERATE_USE_NEURONX_DISTRIBUTED_TP", "false") == "true"
                     or os.environ.get("ACCELERATE_USE_NEURONX_DISTRIBUTED_PP", "false") == "true"
                 ):
-                    if not is_neuronx_distributed_available():
-                        raise RuntimeError(
-                            "Model parallelism requires the neuronx_distributed package. You can install it by "
-                            "running: python -m pip install neuronx_distributed --extra-index-url "
-                            "https://pip.repos.neuron.amazonaws.com"
-                        )
                     if mp_plugin is None:
                         raise ValueError(
-                            "Could not initialize `neuronx_distributed` model parallelism because no "
-                            "`ModelParallelismPlugin` was provided."
+                            "Could not initialize model parallelism because no `ModelParallelismPlugin` was provided."
                         )
                     if mp_plugin.should_parallelize:
-                        if not parallel_state.model_parallel_is_initialized():
-                            parallel_state.initialize_model_parallel(
-                                tensor_model_parallel_size=mp_plugin.tensor_parallel_size,
-                                pipeline_model_parallel_size=mp_plugin.pipeline_parallel_size,
-                            )
                         self.distributed_type = NeuronDistributedType.MODEL_PARALLELISM
                     else:
                         logger.warning(
@@ -293,6 +281,13 @@ class NeuronAcceleratorState(AcceleratorState):
                     self.mp_plugin = mp_plugin
                 else:
                     self.mp_plugin = ModelParallelismPlugin()
+
+                if torch.distributed.is_initialized() and not parallel_state.model_parallel_is_initialized():
+                    parallel_state.initialize_model_parallel(
+                        tensor_model_parallel_size=self.mp_plugin.tensor_parallel_size,
+                        pipeline_model_parallel_size=self.mp_plugin.pipeline_parallel_size,
+                    )
+
                 if os.environ.get("ACCELERATE_USE_FSDP", "false") == "true":
                     self.distributed_type = NeuronDistributedType.XLA_FSDP
                     if self._mixed_precision != "no":

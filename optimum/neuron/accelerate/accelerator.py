@@ -43,7 +43,7 @@ from ..utils import (
     patch_within_function,
     patched_finfo,
 )
-from ..utils.misc import args_and_kwargs_to_kwargs_only
+from ..utils.misc import args_and_kwargs_to_kwargs_only, is_main_worker
 from ..utils.require_utils import requires_neuronx_distributed, requires_torch_xla
 from .optimizer import NeuronAcceleratedOptimizer
 from .scheduler import NeuronAcceleratedScheduler
@@ -173,7 +173,11 @@ class NeuronAccelerator(Accelerator):
             self.gradient_accumulation_steps = num_steps
 
     def _prepare_data_loader_for_distributed(
-        self, data_loader: DataLoader, num_replicas: int, rank: int
+        self,
+        data_loader: DataLoader,
+        num_replicas: int,
+        rank: int,
+        force_drop_last: bool,
     ) -> DataLoader:
         # TODO: make it more robust, similar to the prepare_data_loader function in `accelerate`.
         if isinstance(data_loader.sampler, DistributedSampler):
@@ -201,22 +205,32 @@ class NeuronAccelerator(Accelerator):
             num_workers=data_loader.num_workers,
             collate_fn=data_loader.collate_fn,
             pin_memory=data_loader.pin_memory,
-            drop_last=data_loader.drop_last,
+            drop_last=data_loader.drop_last or force_drop_last,
         )
+
         distributed_dataloader._is_accelerate_prepared = True
         return distributed_dataloader
 
     def prepare_data_loader(self, data_loader: DataLoader, device_placement: Optional[bool] = None):
+        force_drop_last = False
         if self.state.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
             from neuronx_distributed import parallel_layers
 
             num_replicas = parallel_layers.parallel_state.get_data_parallel_size()
             rank = parallel_layers.parallel_state.get_data_parallel_rank()
+            force_drop_last = parallel_layers.parallel_state.get_pipeline_model_parallel_size() > 1
+            if is_main_worker() and force_drop_last:
+                logger.warning(
+                    "Pipeline parallelsim: forcing the dataloader to drop the last incomplete batch because it can "
+                    "cause failure if the last batch size is not divisible by the number of microbatches for the pipeline."
+                )
         else:
             num_replicas = xm.xrt_world_size()
             rank = xm.get_ordinal()
         if self.state.num_processes > 1:
-            data_loader = self._prepare_data_loader_for_distributed(data_loader, num_replicas=num_replicas, rank=rank)
+            data_loader = self._prepare_data_loader_for_distributed(
+                data_loader, num_replicas=num_replicas, rank=rank, force_drop_last=force_drop_last
+            )
             # No need to wrap the dataloader if we are using pipeline parallelism.
             if self.state.mp_plugin.pipeline_parallel_size == 1:
                 data_loader = MpDeviceLoader(data_loader, self.device)
@@ -470,6 +484,9 @@ class NeuronAccelerator(Accelerator):
             return model
 
         model = self.patch_model_for_neuron(model)
+
+        # We do not want to use the cache here as it would imply more communication that we do not need.
+        model.config.use_cache = False
 
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:
             return self.prepare_model_for_xla_fsdp(

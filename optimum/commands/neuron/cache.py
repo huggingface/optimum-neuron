@@ -23,6 +23,7 @@ from ...neuron.utils.cache_utils import (
     create_custom_cache_repo,
     set_custom_cache_repo_name_in_hf_home,
 )
+from ...neuron.utils.require_utils import requires_torch_neuronx
 from ...neuron.utils.runner import ExampleRunner
 from ...utils import logging
 from ..base import BaseOptimumCLICommand, CommandInfo
@@ -165,9 +166,13 @@ class SynchronizeRepoCommand(BaseOptimumCLICommand):
     @staticmethod
     def parse_args(parser: "ArgumentParser"):
         parser.add_argument("--repo_id", type=str, default=None, help="The name of the repo to use as remote cache.")
+        parser.add_argument(
+            "--cache_dir", type=str, default=None, help="The cache directory that contains the compilation files."
+        )
 
+    @requires_torch_neuronx
     def run(self):
-        synchronize_hub_cache(self.args.repo_id)
+        synchronize_hub_cache(cache_path=self.args.cache_dir, cache_repo_id=self.args.repo_id)
 
 
 class LookupRepoCommand(BaseOptimumCLICommand):
