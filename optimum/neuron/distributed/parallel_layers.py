@@ -20,7 +20,7 @@ from abc import ABC, abstractclassmethod
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Tuple, Type, Union, Callable
+from typing import TYPE_CHECKING, Callable, Dict, List, Literal, Optional, Tuple, Type, Union
 
 import torch
 from torch.nn.modules.loss import _WeightedLoss
@@ -295,7 +295,6 @@ class FakeProj(torch.nn.Module):
         gqa_qkv_column_parallel_linear = getattr(parent_module, self.gqa_qkv_proj_name)
         if not hasattr(parent_module, "_gqa_qkv_output"):
             parent_module._gqa_qkv_output = gqa_qkv_column_parallel_linear(hidden_states)
-            print(tuple(o.shape for o in parent_module._gqa_qkv_output))
             parent_module._gqa_qkv_output_fetch_counter = 0
         parent_module._gqa_qkv_output_fetch_counter += 1
         output = parent_module._gqa_qkv_output[self.output_index]
@@ -404,9 +403,9 @@ class ParallelSelfAttention(ParallelLayer):
         query_linear = getattr(attention_layer, cls.QUERIES_NAME)
         key_linear = getattr(attention_layer, cls.KEYS_NAME)
 
-        hidden_size = query_linear.weight.size(0)
-        query_in_features = query_linear.weight.size(1)
-        key_value_in_features = key_linear.weight.size(1)
+        hidden_size = query_linear.weight.size(1)
+        query_in_features = query_linear.weight.size(0)
+        key_value_in_features = key_linear.weight.size(0)
 
         if kv_size_multiplier is None:
             kv_size_multiplier = get_tensor_model_parallel_size() // num_key_value_heads
@@ -425,7 +424,7 @@ class ParallelSelfAttention(ParallelLayer):
         attention_layer_qualified_name = cls.get_layer_qualified_name(model, attention_layer)
 
         fake_q_proj = FakeProj(
-            f"{attention_layer_qualified_name}.{cls.QUERIES_NAME}", 
+            f"{attention_layer_qualified_name}.{cls.QUERIES_NAME}",
             "q",
             0,
             lambda: attention_layer,
@@ -435,7 +434,7 @@ class ParallelSelfAttention(ParallelLayer):
         setattr(attention_layer, cls.QUERIES_NAME, fake_q_proj)
 
         fake_k_proj = FakeProj(
-            f"{attention_layer_qualified_name}.{cls.KEYS_NAME}", 
+            f"{attention_layer_qualified_name}.{cls.KEYS_NAME}",
             "k",
             1,
             lambda: attention_layer,
@@ -445,7 +444,7 @@ class ParallelSelfAttention(ParallelLayer):
         setattr(attention_layer, cls.KEYS_NAME, fake_k_proj)
 
         fake_v_proj = FakeProj(
-            f"{attention_layer_qualified_name}.{cls.VALUES_NAME}", 
+            f"{attention_layer_qualified_name}.{cls.VALUES_NAME}",
             "v",
             2,
             lambda: attention_layer,
@@ -581,8 +580,8 @@ class ParallelSelfAttention(ParallelLayer):
             # In this case, multiple ranks will end-up with the same kv head, and each rank will only have one kv head
             # and query group.
             else:
-                kv_size_multiplier = getattr(layer, cls.GQA_QKV_PROJ_NAME).kv_size_multiplier
-                new_num_key_value_heads = num_key_value_heads * kv_size_multiplier // tp_size
+                gqa_qkv_proj = getattr(layer, cls.GQA_QKV_PROJ_NAME)
+                new_num_key_value_heads = num_key_value_heads * gqa_qkv_proj.kv_size_multiplier // tp_size
                 setattr(
                     layer,
                     cls.NUM_KEY_VALUE_HEADS_NAME,
@@ -591,7 +590,7 @@ class ParallelSelfAttention(ParallelLayer):
                 setattr(
                     layer,
                     cls.NUM_KEY_VALUE_GROUPS_NAME,
-                    getattr(layer, cls.NUM_ATTENTION_HEADS_NAME) // new_num_key_value_heads,
+                    getattr(layer, num_attention_heads_name) // new_num_key_value_heads,
                 )
 
         setattr(
