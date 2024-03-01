@@ -21,7 +21,7 @@ import shutil
 from abc import abstractmethod
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from huggingface_hub import snapshot_download
@@ -553,6 +553,10 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         disable_fallback: bool = False,
         dynamic_batch_size: bool = False,
         data_parallel_mode: Optional[str] = None,
+        lora_model_ids: Optional[Union[str, List[str]]] = None,
+        lora_weight_names: Optional[Union[str, List[str]]] = None,
+        lora_adapter_names: Optional[Union[str, List[str]]] = None,
+        lora_scales: Optional[Union[float, List[float]]] = None,
         **kwargs_shapes,
     ) -> "NeuronStableDiffusionPipelineBase":
         """
@@ -615,6 +619,14 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             data_parallel_mode (`Optional[str]`, defaults to `None`):
                 Mode to decide what components to load into both NeuronCores of a Neuron device. Can be "none"(no data parallel), "unet"(only
                 load unet into both cores of each device), "all"(load the whole pipeline into both cores).
+            lora_model_ids (`Optional[Union[str, List[str]]]`, defaults to `None`):
+                Lora model local paths or repo ids (eg. `ostris/super-cereal-sdxl-lora`) on the Hugginface Hub.
+            lora_weight_names (`Optional[Union[str, List[str]]]`, defaults to `None`):
+                Lora weights file names.
+            lora_adapter_names (`Optional[List[str]]`, defaults to `None`):
+                Adapter names to be used for referencing the loaded adapter models.
+            lora_scales (`Optional[List[float]]`, defaults to `None`):
+                Lora adapters scaling factors.
             kwargs_shapes (`Dict[str, int]`):
                 Shapes to use during inference. This argument allows to override the default shapes used during the export.
         """
@@ -654,6 +666,10 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             use_auth_token=use_auth_token,
             do_validation=False,
             submodels={"unet": unet_id},
+            lora_model_ids=lora_model_ids,
+            lora_weight_names=lora_weight_names,
+            lora_adapter_names=lora_adapter_names,
+            lora_scales=lora_scales,
             library_name=cls.library_name,
             **input_shapes,
         )

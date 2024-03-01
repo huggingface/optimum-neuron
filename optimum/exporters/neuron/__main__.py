@@ -19,7 +19,7 @@ import inspect
 import os
 from argparse import ArgumentParser
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from transformers import AutoConfig, PretrainedConfig
@@ -37,9 +37,9 @@ from ...neuron.utils import (
     is_neuron_available,
     is_neuronx_available,
 )
+from ...neuron.utils.misc import maybe_save_preprocessors
 from ...neuron.utils.version_utils import check_compiler_compatibility_for_stable_diffusion
 from ...utils import is_diffusers_available, logging
-from ...utils.save_utils import maybe_save_preprocessors
 from ..error_utils import AtolError, OutputMatchError, ShapeError
 from ..tasks import TasksManager
 from .base import NeuronDecoderConfig
@@ -129,9 +129,11 @@ def get_input_shapes_and_config_class(task: str, args: argparse.Namespace) -> Di
 
 def normalize_sentence_transformers_input_shapes(args: argparse.Namespace) -> Dict[str, int]:
     args = vars(args) if isinstance(args, argparse.Namespace) else args
-    mandatory_axes = {"batch_size", "sequence_length"}
     if "clip" in args.get("model", "").lower():
-        mandatory_axes.update(["num_channels", "width", "height"])
+        mandatory_axes = {"text_batch_size", "image_batch_size", "sequence_length", "num_channels", "width", "height"}
+    else:
+        mandatory_axes = {"batch_size", "sequence_length"}
+
     if not mandatory_axes.issubset(set(args.keys())):
         raise AttributeError(
             f"Shape of {mandatory_axes} are mandatory for neuron compilation, while {mandatory_axes.difference(args.keys())} are not given."
@@ -237,11 +239,16 @@ def _get_submodels_and_neuron_configs(
     task: str,
     output: Path,
     library_name: Optional[str] = None,
+    subfolder: str = "",
     dynamic_batch_size: bool = False,
     model_name_or_path: Optional[Union[str, Path]] = None,
     submodels: Optional[Dict[str, Union[Path, str]]] = None,
     output_attentions: bool = False,
     output_hidden_states: bool = False,
+    lora_model_ids: Optional[Union[str, List[str]]] = None,
+    lora_weight_names: Optional[Union[str, List[str]]] = None,
+    lora_adapter_names: Optional[Union[str, List[str]]] = None,
+    lora_scales: Optional[Union[float, List[float]]] = None,
 ):
     is_stable_diffusion = "stable-diffusion" in task
     is_encoder_decoder = (
@@ -255,12 +262,16 @@ def _get_submodels_and_neuron_configs(
                 f"`output_attentions` and `output_hidden_states` are not supported by the {task} task yet."
             )
         models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs_for_stable_diffusion(
-            model,
-            input_shapes,
-            task,
-            output,
-            dynamic_batch_size,
-            submodels,
+            model=model,
+            input_shapes=input_shapes,
+            task=task,
+            output=output,
+            dynamic_batch_size=dynamic_batch_size,
+            submodels=submodels,
+            lora_model_ids=lora_model_ids,
+            lora_weight_names=lora_weight_names,
+            lora_adapter_names=lora_adapter_names,
+            lora_scales=lora_scales,
         )
     elif is_encoder_decoder:
         optional_outputs = {"output_attentions": output_attentions, "output_hidden_states": output_hidden_states}
@@ -284,8 +295,28 @@ def _get_submodels_and_neuron_configs(
         model_name = model_name.split("/")[-1] if model_name else model.config.model_type
         output_model_names = {model_name: "model.neuron"}
         models_and_neuron_configs = {model_name: (model, neuron_config)}
-        maybe_save_preprocessors(model_name_or_path, output)
+        maybe_save_preprocessors(model_name_or_path, output, src_subfolder=subfolder)
     return models_and_neuron_configs, output_model_names
+
+
+def _normalize_lora_params(lora_model_ids, lora_weight_names, lora_adapter_names, lora_scales):
+    if isinstance(lora_model_ids, str):
+        lora_model_ids = [
+            lora_model_ids,
+        ]
+    if isinstance(lora_weight_names, str):
+        lora_weight_names = [
+            lora_weight_names,
+        ]
+    if isinstance(lora_adapter_names, str):
+        lora_adapter_names = [
+            lora_adapter_names,
+        ]
+    if isinstance(lora_scales, float):
+        lora_scales = [
+            lora_scales,
+        ]
+    return lora_model_ids, lora_weight_names, lora_adapter_names, lora_scales
 
 
 def _get_submodels_and_neuron_configs_for_stable_diffusion(
@@ -295,6 +326,10 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
     output: Path,
     dynamic_batch_size: bool = False,
     submodels: Optional[Dict[str, Union[Path, str]]] = None,
+    lora_model_ids: Optional[Union[str, List[str]]] = None,
+    lora_weight_names: Optional[Union[str, List[str]]] = None,
+    lora_adapter_names: Optional[Union[str, List[str]]] = None,
+    lora_scales: Optional[Union[float, List[float]]] = None,
 ):
     check_compiler_compatibility_for_stable_diffusion()
     model = replace_stable_diffusion_submodels(model, submodels)
@@ -314,10 +349,17 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
         model.feature_extractor.save_pretrained(output.joinpath("feature_extractor"))
     model.save_config(output)
 
+    lora_model_ids, lora_weight_names, lora_adapter_names, lora_scales = _normalize_lora_params(
+        lora_model_ids, lora_weight_names, lora_adapter_names, lora_scales
+    )
     models_and_neuron_configs = get_stable_diffusion_models_for_export(
         pipeline=model,
         task=task,
         dynamic_batch_size=dynamic_batch_size,
+        lora_model_ids=lora_model_ids,
+        lora_weight_names=lora_weight_names,
+        lora_adapter_names=lora_adapter_names,
+        lora_scales=lora_scales,
         **input_shapes,
     )
     output_model_names = {
@@ -392,6 +434,10 @@ def main_export(
     output_attentions: bool = False,
     output_hidden_states: bool = False,
     library_name: Optional[str] = None,
+    lora_model_ids: Optional[Union[str, List[str]]] = None,
+    lora_weight_names: Optional[Union[str, List[str]]] = None,
+    lora_adapter_names: Optional[Union[str, List[str]]] = None,
+    lora_scales: Optional[Union[float, List[float]]] = None,
     **input_shapes,
 ):
     output = Path(output)
@@ -425,11 +471,16 @@ def main_export(
         task=task,
         library_name=library_name,
         output=output,
+        subfolder=subfolder,
         dynamic_batch_size=dynamic_batch_size,
         model_name_or_path=model_name_or_path,
         submodels=submodels,
         output_attentions=output_attentions,
         output_hidden_states=output_hidden_states,
+        lora_model_ids=lora_model_ids,
+        lora_weight_names=lora_weight_names,
+        lora_adapter_names=lora_adapter_names,
+        lora_scales=lora_scales,
     )
 
     _, neuron_outputs = export_models(
@@ -552,6 +603,10 @@ def main():
         do_validation=not args.disable_validation,
         submodels=submodels,
         library_name=args.library_name,
+        lora_model_ids=getattr(args, "lora_model_ids", None),
+        lora_weight_names=getattr(args, "lora_weight_names", None),
+        lora_adapter_names=getattr(args, "lora_adapter_names", None),
+        lora_scales=getattr(args, "lora_scales", None),
         **optional_outputs,
         **input_shapes,
     )

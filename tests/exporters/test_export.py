@@ -44,6 +44,8 @@ from optimum.utils.testing_utils import require_diffusers, require_sentence_tran
 from .exporters_utils import (
     ENCODER_DECODER_MODELS_TINY,
     EXPORT_MODELS_TINY,
+    EXTREA_DEFAULT_DUMMY_SHAPES,
+    LORA_WEIGHTS_TINY,
     SENTENCE_TRANSFORMERS_MODELS,
     STABLE_DIFFUSION_MODELS_TINY,
     WEIGHTS_NEFF_SEPARATION_UNSUPPORTED_ARCH,
@@ -138,7 +140,7 @@ class NeuronExportTestCase(unittest.TestCase):
         reference_model = copy.deepcopy(model)
 
         mandatory_shapes = {
-            name: DEFAULT_DUMMY_SHAPES[name]
+            name: DEFAULT_DUMMY_SHAPES.get(name) or EXTREA_DEFAULT_DUMMY_SHAPES.get(name)
             for name in neuron_config_constructor.func.get_mandatory_axes_for_task(task)
         }
         neuron_config = neuron_config_constructor(
@@ -256,6 +258,41 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
                 task="stable-diffusion-xl",
                 output=Path(tmpdirname),
                 model_name_or_path=model_id,
+            )
+            _, neuron_outputs = export_models(
+                models_and_neuron_configs=models_and_neuron_configs,
+                output_dir=Path(tmpdirname),
+                output_file_names=output_model_names,
+            )
+            validate_models_outputs(
+                models_and_neuron_configs=models_and_neuron_configs,
+                neuron_named_outputs=neuron_outputs,
+                output_dir=Path(tmpdirname),
+                neuron_files_subpaths=output_model_names,
+            )
+
+    def test_export_sd_with_fused_lora_weights(self):
+        model_id = STABLE_DIFFUSION_MODELS_TINY["stable-diffusion"]
+        lora_params = LORA_WEIGHTS_TINY["stable-diffusion"]
+        set_seed(SEED)
+
+        # prepare neuron config / models
+        model = StableDiffusionPipeline.from_pretrained(model_id)
+        input_shapes = build_stable_diffusion_components_mandatory_shapes(
+            **{"batch_size": 1, "height": 64, "width": 64, "num_images_per_prompt": 4}
+        )
+
+        with TemporaryDirectory() as tmpdirname:
+            models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs(
+                model=model,
+                input_shapes=input_shapes,
+                task="stable-diffusion",
+                output=Path(tmpdirname),
+                model_name_or_path=model_id,
+                lora_model_ids=lora_params[0],
+                lora_weight_names=lora_params[1],
+                lora_adapter_names=lora_params[2],
+                lora_scales=0.9,
             )
             _, neuron_outputs = export_models(
                 models_and_neuron_configs=models_and_neuron_configs,

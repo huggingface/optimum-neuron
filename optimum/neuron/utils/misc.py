@@ -18,9 +18,10 @@ import inspect
 import os
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
+from transformers import AutoFeatureExtractor, AutoProcessor, AutoTokenizer, CLIPProcessor
 from transformers.modeling_utils import _add_variant
 from transformers.utils import (
     FLAX_WEIGHTS_NAME,
@@ -48,11 +49,11 @@ if TYPE_CHECKING:
 logger = logging.get_logger()
 
 
-def is_main_worker() -> bool:
+def is_main_worker(global_main: bool = True) -> bool:
     if torch.distributed.is_initialized() and is_torch_xla_available():
         import torch_xla.core.xla_model as xm
 
-        return xm.get_local_ordinal() == 0
+        return xm.get_ordinal() == 0 if global_main else xm.get_local_ordinal() == 0
     return True
 
 
@@ -548,3 +549,60 @@ def check_if_weights_replacable(
         raise RuntimeError(
             "Unable to replace weights of the neuron model since its weights and neff are not separated, please set `inline_weights_to_neff=Talse` when converting the model to Neuron format."
         )
+
+
+# Copied and adapted from https://github.com/huggingface/optimum/blob/d03ab100206cb9f0e62167a36ee6997424bb9bb5/optimum/utils/save_utils.py#L27
+# To remove once we can bump to a transformers release including https://github.com/huggingface/transformers/pull/29169
+def maybe_load_preprocessors(
+    src_name_or_path: Union[str, Path], subfolder: str = "", trust_remote_code: bool = False
+) -> List:
+    preprocessors = []
+
+    try:
+        preprocessors.append(
+            AutoTokenizer.from_pretrained(src_name_or_path, subfolder=subfolder, trust_remote_code=trust_remote_code)
+        )
+    except Exception:
+        pass
+
+    try:
+        preprocessors.append(
+            AutoProcessor.from_pretrained(src_name_or_path, subfolder=subfolder, trust_remote_code=trust_remote_code)
+        )
+    except Exception:
+        pass
+
+    try:
+        preprocessors.append(
+            CLIPProcessor.from_pretrained(src_name_or_path, subfolder=subfolder, trust_remote_code=trust_remote_code)
+        )
+    except Exception:
+        pass
+
+    try:
+        preprocessors.append(
+            AutoFeatureExtractor.from_pretrained(
+                src_name_or_path, subfolder=subfolder, trust_remote_code=trust_remote_code
+            )
+        )
+    except Exception:
+        pass
+    return preprocessors
+
+
+# Copied and adapted from https://github.com/huggingface/optimum/blob/d03ab100206cb9f0e62167a36ee6997424bb9bb5/optimum/utils/save_utils.py#L56
+# To remove once we can bump to a transformers release including https://github.com/huggingface/transformers/pull/29169
+def maybe_save_preprocessors(
+    src_name_or_path: Union[str, Path],
+    dest_dir: Union[str, Path],
+    src_subfolder: str = "",
+    trust_remote_code: bool = False,
+):
+    if not isinstance(dest_dir, Path):
+        dest_dir = Path(dest_dir)
+
+    dest_dir.mkdir(exist_ok=True)
+    for preprocessor in maybe_load_preprocessors(
+        src_name_or_path, subfolder=src_subfolder, trust_remote_code=trust_remote_code
+    ):
+        preprocessor.save_pretrained(dest_dir)

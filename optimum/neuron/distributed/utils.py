@@ -28,19 +28,29 @@ import torch
 from transformers import PretrainedConfig
 from transformers.utils import is_peft_available
 
+from ...utils import logging
 from ..utils import DynamicPatch, Patcher
 from ..utils.deprecate_utils import deprecate
 from ..utils.import_utils import is_neuronx_distributed_available
 from ..utils.misc import download_checkpoints_in_cache
-from ..utils.require_utils import requires_neuronx_distributed, requires_safetensors, requires_torch_xla
+from ..utils.require_utils import (
+    requires_neuronx_distributed,
+    requires_safetensors,
+    requires_torch_xla,
+)
 
 
 if is_neuronx_distributed_available():
     from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
     from neuronx_distributed.parallel_layers import layers
+    from neuronx_distributed.pipeline import NxDPPModel
+
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
+
+
+logger = logging.get_logger()
 
 
 TENSOR_PARALLEL_SHARDS_DIR_NAME = "tensor_parallel_shards"
@@ -362,6 +372,115 @@ def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
 
 
 @requires_neuronx_distributed
+def maybe_load_linear_weight_to_parallel_linear(
+    parallel_linear_layer: "layers.BaseParallelLinear",
+    linear_layer_weight_info: Optional[WeightInformation] = None,
+    linear_layer_bias_weight_info: Optional[WeightInformation] = None,
+    linear_layer: Optional["torch.nn.Linear"] = None,
+):
+    if (
+        linear_layer_weight_info is not None or linear_layer_bias_weight_info is not None
+    ) and linear_layer is not None:
+        raise ValueError(
+            "Specify either a linear layer's WeightInformation, or a linear layer to copy the weights from, but not both."
+        )
+    if linear_layer_weight_info is None and linear_layer_bias_weight_info is None and linear_layer is None:
+        raise ValueError(
+            "A linear's layer WeightInformation or a linear layer to copy the weight from need to specified."
+        )
+
+    from neuronx_distributed.parallel_layers.layers import RowParallelLinear
+    from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_rank
+
+    tp_rank = get_tensor_model_parallel_rank()
+    row_size, col_size = parallel_linear_layer.weight.shape
+
+    with torch.no_grad():
+        if isinstance(parallel_linear_layer, RowParallelLinear):
+            if not was_already_initialized_during_parallelization(parallel_linear_layer.weight):
+                if linear_layer_weight_info is not None:
+                    weight_data = load_tensor_for_weight(
+                        linear_layer_weight_info,
+                        tensor_slices=(
+                            None,
+                            (tp_rank * col_size, (tp_rank + 1) * col_size),
+                        ),
+                    )
+                    parallel_linear_layer.weight.copy_(weight_data)
+                    mark_parameter_init_status_during_parallelization(parallel_linear_layer.weight, True)
+                elif linear_layer.weight.device != torch.device("meta"):
+                    parallel_linear_layer.weight.copy_(
+                        linear_layer.weight[:, tp_rank * col_size : (tp_rank + 1) * col_size]
+                    )
+                    mark_parameter_init_status_during_parallelization(parallel_linear_layer.weight, True)
+                else:
+                    mark_parameter_init_status_during_parallelization(parallel_linear_layer.weight, False)
+
+            if parallel_linear_layer.bias is not None:
+                if not was_already_initialized_during_parallelization(parallel_linear_layer.bias):
+                    if linear_layer_bias_weight_info is not None:
+                        bias_weight_data = load_tensor_for_weight(linear_layer_bias_weight_info)
+                        parallel_linear_layer.bias.copy_(bias_weight_data)
+                        mark_parameter_init_status_during_parallelization(parallel_linear_layer.bias, True)
+                    elif linear_layer.bias.device != torch.device("meta"):
+                        parallel_linear_layer.bias.copy_(linear_layer.bias)
+                        mark_parameter_init_status_during_parallelization(parallel_linear_layer.bias, True)
+                    else:
+                        mark_parameter_init_status_during_parallelization(parallel_linear_layer.bias, False)
+
+        else:
+            if not was_already_initialized_during_parallelization(parallel_linear_layer.weight):
+                if linear_layer_weight_info is not None:
+                    weight_data = load_tensor_for_weight(
+                        linear_layer_weight_info,
+                        tensor_slices=(
+                            (tp_rank * row_size, (tp_rank + 1) * row_size),
+                            None,
+                        ),
+                    )
+                    parallel_linear_layer.weight.copy_(weight_data)
+                    mark_parameter_init_status_during_parallelization(parallel_linear_layer.weight, True)
+                    del weight_data
+                elif linear_layer.weight.device != torch.device("meta"):
+                    parallel_linear_layer.weight.copy_(
+                        linear_layer.weight[tp_rank * row_size : (tp_rank + 1) * row_size, :]
+                    )
+                    mark_parameter_init_status_during_parallelization(parallel_linear_layer.weight, True)
+                else:
+                    mark_parameter_init_status_during_parallelization(parallel_linear_layer.weight, False)
+
+            if parallel_linear_layer.bias is not None:
+                if not was_already_initialized_during_parallelization(parallel_linear_layer.bias):
+                    if linear_layer_bias_weight_info is not None:
+                        if parallel_linear_layer.gather_output:
+                            tensor_slices = (None,)
+                        else:
+                            tensor_slices = (
+                                (
+                                    tp_rank * row_size,
+                                    (tp_rank + 1) * row_size,
+                                ),
+                            )
+                        bias_weight_data = load_tensor_for_weight(
+                            linear_layer_bias_weight_info,
+                            tensor_slices=tensor_slices,
+                        )
+                        parallel_linear_layer.bias.copy_(bias_weight_data)
+                        mark_parameter_init_status_during_parallelization(parallel_linear_layer.bias, True)
+                        del bias_weight_data
+                    elif linear_layer.bias.device != torch.device("meta"):
+                        if parallel_linear_layer.gather_output:
+                            parallel_linear_layer.bias.copy_(linear_layer.bias)
+                        else:
+                            parallel_linear_layer.bias.copy_(
+                                linear_layer.bias[tp_rank * row_size : (tp_rank + 1) * row_size]
+                            )
+                        mark_parameter_init_status_during_parallelization(parallel_linear_layer.bias, True)
+                    else:
+                        mark_parameter_init_status_during_parallelization(parallel_linear_layer.bias, False)
+
+
+@requires_neuronx_distributed
 def linear_to_parallel_linear(
     linear_layer: "torch.nn.Linear",
     axis: Union[Literal["row"], Literal["column"]],
@@ -372,6 +491,7 @@ def linear_to_parallel_linear(
     linear_layer_bias_weight_info: Optional[WeightInformation] = None,
     embedding_weight_to_tie: Optional["torch.nn.Parameter"] = None,
     sequence_parallel_enabled: bool = False,
+    skip_weight_load: bool = False,
     device: Optional["torch.device"] = None,
 ) -> Union["layers.RowParallelLinear", "layers.ColumnParallelLinear"]:
     """
@@ -399,6 +519,8 @@ def linear_to_parallel_linear(
             If specified, will tie the linear layer weights to it.
         sequence_parallel_enabled (`bool`, defaults to `False`):
             Whether or not sequence parallelism is enabled.
+        skip_weight_load (`bool`, defaults to `False`):
+            Whether or not to skip the loading of the weights in the newly created parallel linear layer.
         device (`Optional[torch.device]`, defaults to `None`):
             The device where the new parallel layer should be put.
 
@@ -406,7 +528,6 @@ def linear_to_parallel_linear(
         `Union[RowParallelLinear, ColumnParallelLinear]`: The parallel linear layer.
     """
     from neuronx_distributed.parallel_layers import layers
-    from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_rank
 
     if axis not in ["row", "column"]:
         raise ValueError(f'axis must either be "row" or "column", but {axis} was given here.')
@@ -437,90 +558,24 @@ def linear_to_parallel_linear(
         **kwargs,
     )
 
-    tp_rank = get_tensor_model_parallel_rank()
-    row_size, col_size = parallel_linear_layer.weight.shape
+    # Not skipping when we tie an embedding layer to make things easier.
+    # Should not produce a big overhead.
+    skip_weight_load = skip_weight_load and embedding_weight_to_tie is None
+    if linear_layer_weight_info is not None and not skip_weight_load:
+        maybe_load_linear_weight_to_parallel_linear(
+            parallel_linear_layer,
+            linear_layer_weight_info=linear_layer_weight_info,
+            linear_layer_bias_weight_info=linear_layer_bias_weight_info,
+        )
+    else:
+        maybe_load_linear_weight_to_parallel_linear(parallel_linear_layer, linear_layer=linear_layer)
 
-    with torch.no_grad():
-        if axis == "row":
-            if embedding_weight_to_tie is not None:
-                parallel_linear_layer.weight = embedding_weight_to_tie
-            elif linear_layer_weight_info is not None:
-                weight_data = load_tensor_for_weight(
-                    linear_layer_weight_info,
-                    tensor_slices=(
-                        None,
-                        (tp_rank * col_size, (tp_rank + 1) * col_size),
-                    ),
-                )
-                parallel_linear_layer.weight.copy_(weight_data)
-                mark_parameter_init_status_during_parallelization(parallel_linear_layer.weight, True)
-            elif linear_layer.weight.device != torch.device("meta"):
-                parallel_linear_layer.weight.copy_(
-                    linear_layer.weight[:, tp_rank * col_size : (tp_rank + 1) * col_size]
-                )
-                mark_parameter_init_status_during_parallelization(parallel_linear_layer.weight, True)
-            else:
-                mark_parameter_init_status_during_parallelization(parallel_linear_layer.weight, False)
+    if embedding_weight_to_tie is not None:
+        parallel_linear_layer.weight = embedding_weight_to_tie
 
-            if linear_layer.bias is not None:
-                if linear_layer_bias_weight_info is not None:
-                    bias_weight_data = load_tensor_for_weight(linear_layer_bias_weight_info)
-                    parallel_linear_layer.bias.copy_(bias_weight_data)
-                    mark_parameter_init_status_during_parallelization(parallel_linear_layer.bias, True)
-                elif linear_layer.bias.device != torch.device("meta"):
-                    parallel_linear_layer.bias.copy_(linear_layer.bias)
-                    mark_parameter_init_status_during_parallelization(parallel_linear_layer.bias, True)
-                else:
-                    mark_parameter_init_status_during_parallelization(parallel_linear_layer.bias, False)
-
-        else:
-            if embedding_weight_to_tie is not None:
-                parallel_linear_layer.weight = embedding_weight_to_tie
-            elif linear_layer_weight_info is not None:
-                weight_data = load_tensor_for_weight(
-                    linear_layer_weight_info,
-                    tensor_slices=(
-                        (tp_rank * row_size, (tp_rank + 1) * row_size),
-                        None,
-                    ),
-                )
-                parallel_linear_layer.weight.copy_(weight_data)
-                mark_parameter_init_status_during_parallelization(parallel_linear_layer.weight, True)
-            elif linear_layer.weight.device != torch.device("meta"):
-                parallel_linear_layer.weight.copy_(
-                    linear_layer.weight[tp_rank * row_size : (tp_rank + 1) * row_size, :]
-                )
-                mark_parameter_init_status_during_parallelization(parallel_linear_layer.weight, True)
-            else:
-                mark_parameter_init_status_during_parallelization(parallel_linear_layer.weight, False)
-
-            if linear_layer.bias is not None:
-                if linear_layer_bias_weight_info is not None:
-                    if gather_output:
-                        tensor_slices = (None,)
-                    else:
-                        tensor_slices = (
-                            (
-                                tp_rank * row_size,
-                                (tp_rank + 1) * row_size,
-                            ),
-                        )
-                    bias_weight_data = load_tensor_for_weight(
-                        linear_layer_bias_weight_info,
-                        tensor_slices=tensor_slices,
-                    )
-                    parallel_linear_layer.bias.copy_(bias_weight_data)
-                    mark_parameter_init_status_during_parallelization(parallel_linear_layer.bias, True)
-                elif linear_layer.bias.device != torch.device("meta"):
-                    if gather_output:
-                        parallel_linear_layer.bias.copy_(linear_layer.bias)
-                    else:
-                        parallel_linear_layer.bias.copy_(
-                            linear_layer.bias[tp_rank * row_size : (tp_rank + 1) * row_size]
-                        )
-                    mark_parameter_init_status_during_parallelization(parallel_linear_layer.bias, True)
-                else:
-                    mark_parameter_init_status_during_parallelization(parallel_linear_layer.bias, False)
+    del linear_layer.weight
+    if linear_layer.bias is not None:
+        del linear_layer.bias
 
     return parallel_linear_layer
 
@@ -718,6 +773,34 @@ def parameter_can_be_initialized(model: torch.nn.Module, parent_module: torch.nn
     )
 
 
+@requires_neuronx_distributed
+def apply_activation_checkpointing(
+    model: Union[torch.nn.Module, "NxDPPModel"],
+    activation_checkpoint_classes: Optional[Union[Tuple[Type[torch.nn.Module]], List[Type[torch.nn.Module]]]] = None,
+):
+    from neuronx_distributed.pipeline import NxDPPModel
+    from neuronx_distributed.utils.activation_checkpoint import apply_activation_checkpointing
+
+    if isinstance(model, NxDPPModel):
+        if activation_checkpoint_classes is not None:
+            logger.warning(
+                "Cannot specify activation checkpoint classes under pipeline parallism setting. Will use the layers "
+                f"{model.transformer_layer_cls}"
+            )
+    else:
+        # TODO support this as well.
+        raise ValueError("Not supported yet outside of the pipeline parallelism scheme.")
+
+    check_fn = None
+    if activation_checkpoint_classes is not None:
+        activation_checkpoint_classes = tuple(activation_checkpoint_classes)
+        assert len(activation_checkpoint_classes) > 0
+        assert all(issubclass(c, torch.nn.Module) for c in activation_checkpoint_classes)
+        check_fn = (lambda m: isinstance(m, activation_checkpoint_classes),)
+
+    apply_activation_checkpointing(model, check_fn=check_fn)
+
+
 @classmethod
 @requires_torch_xla
 def from_pretrained_for_mp(
@@ -784,10 +867,6 @@ def from_pretrained_for_mp(
         convert_to_safetensors=True,
         **kwargs,
     )
-
-    import torch_xla.core.xla_model as xm
-
-    xm.rendezvous("waiting after download and conversion")
 
     if not isinstance(config, PretrainedConfig):
         config_path = config if config is not None else pretrained_model_name_or_path

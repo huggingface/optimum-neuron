@@ -43,9 +43,18 @@ STABLE_DIFFUSION_MODELS_TINY = {
     "latent-consistency": "echarlaix/tiny-random-latent-consistency",
 }
 
+LORA_WEIGHTS_TINY = {
+    "stable-diffusion": ("Jingya/tiny-stable-diffusion-lora-64", "pytorch_lora_weights.safetensors", "pokemon"),
+}
+
 SENTENCE_TRANSFORMERS_MODELS = {
     "transformer": "sentence-transformers/all-MiniLM-L6-v2",
     "clip": "sentence-transformers/clip-ViT-B-32",
+}
+
+EXTREA_DEFAULT_DUMMY_SHAPES = {
+    "text_batch_size": 1,
+    "image_batch_size": 1,
 }
 
 WEIGHTS_NEFF_SEPARATION_UNSUPPORTED_ARCH = ["camembert", "roberta"]

@@ -38,7 +38,7 @@ from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neur
 from optimum.utils import logging
 from optimum.utils.testing_utils import require_diffusers
 
-from .inference_utils import MODEL_NAMES, download_image
+from .inference_utils import LORA_WEIGHTS_TINY, MODEL_NAMES, download_image
 
 
 logger = logging.get_logger()
@@ -137,6 +137,32 @@ class NeuronStableDiffusionPipelineIntegrationTest(unittest.TestCase):
 
         prompt = "Self-portrait oil painting, a beautiful cyborg with golden hair, 8k"
         image = neuron_pipeline(prompt, num_inference_steps=4, guidance_scale=8.0).images[0]
+        self.assertIsInstance(image, PIL.Image.Image)
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    def test_export_and_inference_with_fused_lora(self, model_arch):
+        num_images_per_prompt = 4
+        input_shapes = copy.deepcopy(self.STATIC_INPUTS_SHAPES)
+        input_shapes.update({"num_images_per_prompt": num_images_per_prompt})
+        lora_params = LORA_WEIGHTS_TINY[model_arch]
+        neuron_pipeline = self.NEURON_MODEL_CLASS.from_pretrained(
+            MODEL_NAMES[model_arch],
+            export=True,
+            dynamic_batch_size=False,
+            lora_model_ids=lora_params[0],
+            lora_weight_names=lora_params[1],
+            lora_adapter_names=lora_params[2],
+            lora_scales=0.9,
+            **input_shapes,
+            **self.COMPILER_ARGS,
+        )
+        self.assertIsInstance(neuron_pipeline.text_encoder, NeuronModelTextEncoder)
+        self.assertIsInstance(neuron_pipeline.unet, NeuronModelUnet)
+        self.assertIsInstance(neuron_pipeline.vae_encoder, NeuronModelVaeEncoder)
+        self.assertIsInstance(neuron_pipeline.vae_decoder, NeuronModelVaeDecoder)
+
+        prompts = ["A cute brown bear eating a slice of pizza"]
+        image = neuron_pipeline(prompts, num_images_per_prompt=num_images_per_prompt).images[0]
         self.assertIsInstance(image, PIL.Image.Image)
 
 

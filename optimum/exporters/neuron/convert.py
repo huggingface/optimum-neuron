@@ -167,7 +167,7 @@ def validate_model_outputs(
     input_shapes = {}
     for axis in config.mandatory_axes:
         input_shapes[axis] = getattr(config, axis)
-    if config.dynamic_batch_size is True:
+    if config.dynamic_batch_size is True and "batch_size" in input_shapes:
         input_shapes["batch_size"] *= 2
 
     # Reference outputs
