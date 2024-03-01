@@ -54,6 +54,8 @@ from .utils import (
     parameter_can_be_initialized,
     try_to_hf_initialize,
     was_already_initialized_during_parallelization,
+    OptimumGQAQKVColumnParallelLinear,
+    get_parameter_names_mapping_after_gqa_qkv_replacement,
 )
 
 
@@ -347,25 +349,43 @@ class Parallelizer(ABC):
     @classmethod
     @requires_neuronx_distributed
     def _maybe_load_weights_to_parallel_linears(cls, model: "PreTrainedModel"):
-        from neuronx_distributed.parallel_layers.layers import BaseParallelLinear
+        from neuronx_distributed.parallel_layers.layers import BaseParallelLinear, RowParallelLinear, ColumnParallelLinear
 
         weight_map = getattr(model, "_weight_map", {})
+        named_modules = {v: k for k, v in model.named_modules()}
+        
+        def get_weight_info(fully_qualified_name: str):
+            try:
+                linear_weight_info, linear_bias_weight_info = ParallelLayer._get_linear_weight_info(
+                    weight_map, fully_qualified_name
+                )
+            except ValueError:
+                linear_weight_info = None
+                linear_bias_weight_info = None
+            return linear_weight_info, linear_bias_weight_info
 
         for fully_qualified_name, layer in model.named_modules():
-            if isinstance(layer, BaseParallelLinear):
-                try:
-                    linear_weight_info, linear_bias_weight_info = ParallelLayer._get_linear_weight_info(
-                        weight_map, fully_qualified_name
-                    )
-                except ValueError:
-                    linear_weight_info = None
-                    linear_bias_weight_info = None
+            if isinstance(layer, (RowParallelLinear, ColumnParallelLinear)):
+                linear_weight_info, linear_bias_weight_info = get_weight_info(fully_qualified_name)
                 if linear_weight_info is not None:
                     maybe_load_linear_weight_to_parallel_linear(
                         layer,
                         linear_layer_weight_info=linear_weight_info,
                         linear_layer_bias_weight_info=linear_bias_weight_info,
                     )
+            elif isinstance(layer, OptimumGQAQKVColumnParallelLinear):
+                original_to_gqa = layer.get_parameter_names_mapping(named_modules)
+
+                for orig_name, gqa_name in original_to_gqa.items():
+                    linear_weight_info, linear_bias_weight_info = get_weight_info(orig_name)
+                    weight_name = gqa_name.split(".")[-1]
+                    if linear_weight_info:
+                        maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
+                            layer,
+                            weight_name,
+                            linear_layer_weight_info=linear_weight_info,
+                            linear_layer_bias_weight_info=linear_bias_weight_info,
+                        )
 
     @classmethod
     @requires_neuronx_distributed
@@ -376,6 +396,7 @@ class Parallelizer(ABC):
         device: Optional[torch.device] = None,
     ):
         from neuronx_distributed import parallel_layers
+        from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
         from neuronx_distributed.parallel_layers.parallel_state import (
             get_tensor_model_parallel_rank,
         )
@@ -521,6 +542,7 @@ class Parallelizer(ABC):
                             left_uninitialized = try_to_hf_initialize(
                                 model, fake_linear_mod, parameter_names_to_consider, parameter_names_mapping=mapping
                             )
+                            left_uninitialized = parameter_names
                             if left_uninitialized:
                                 initialize_parallel_linear(mod, left_uninitialized)
                             else:
@@ -531,8 +553,6 @@ class Parallelizer(ABC):
                             del fake_linear_mod
 
                         initialize(mod, "q", mod.output_sizes[0])
-                        # initialize(mod, "k", mod.output_sizes[1] * mod.kv_size_multiplier)
-                        # initialize(mod, "v", mod.output_sizes[1] * mod.kv_size_multiplier)
                         initialize(mod, "k", mod.output_sizes[1])
                         initialize(mod, "v", mod.output_sizes[1])
                 else:

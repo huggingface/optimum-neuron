@@ -34,7 +34,7 @@ from torch.utils.data.distributed import DistributedSampler
 
 from ...utils import logging
 from ..distributed import Parallelizer, ParallelizersManager
-from ..distributed.parallel_layers import get_parameter_names_mapping_after_gqa_qkv_replacement
+from ..distributed.utils import get_parameter_names_mapping_after_gqa_qkv_replacement
 from ..utils import (
     DynamicPatch,
     ModelPatcher,

@@ -33,6 +33,8 @@ from .utils import (
     WeightInformation,
     embedding_to_parallel_embedding,
     linear_to_parallel_linear,
+    OptimumGQAQKVColumnParallelLinear,
+    FakeProj,
 )
 
 
@@ -298,67 +300,6 @@ class ParallelEmbedding(ParallelLayer):
         return layer
 
 
-class FakeProj(torch.nn.Module):
-    def __init__(
-        self,
-        fully_qualified_name: str,
-        proj_name: str,
-        output_index: int,
-        get_parent_module: Callable[[], "torch.nn.Module"],
-        parent_module_fully_qualified_name: str,
-        gqa_qkv_proj_name: str,
-    ):
-        super().__init__()
-        self.fully_qualified_name = fully_qualified_name
-        self.proj_name = proj_name
-        self.output_index = output_index
-        self.get_parent_module = get_parent_module
-        self.parent_module_fully_qualified_name = parent_module_fully_qualified_name
-        self.gqa_qkv_proj_name = gqa_qkv_proj_name
-
-    def get_parameter_names_mapping(self, reversed: bool = False) -> Dict[str, str]:
-        gqa_qkv_column_parallel_linear = getattr(self.get_parent_module(), self.gqa_qkv_proj_name)
-        gqa_qkv_column_parallel_linear_qualified_name = (
-            f"{self.parent_module_fully_qualified_name}.{self.gqa_qkv_proj_name}"
-        )
-
-        fully_qualified_name_weight = f"{gqa_qkv_column_parallel_linear_qualified_name}.weight_{self.proj_name}"
-        mapping = {
-            f"{self.fully_qualified_name}.weight": fully_qualified_name_weight,
-        }
-        if gqa_qkv_column_parallel_linear.use_bias:
-            fully_qualified_name_bias = f"{gqa_qkv_column_parallel_linear_qualified_name}.bias_{self.proj_name}"
-            mapping[f"{self.fully_qualified_name}.bias"] = fully_qualified_name_bias
-        if reversed:
-            mapping = {v: k for k, v in mapping.items()}
-        return mapping
-
-    def update_state_dict(self, model: torch.nn.Module, state_dict: Dict[str, torch.Tensor]):
-        pass
-
-    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        parent_module = self.get_parent_module()
-        gqa_qkv_column_parallel_linear = getattr(parent_module, self.gqa_qkv_proj_name)
-        if not hasattr(parent_module, "_gqa_qkv_output"):
-            parent_module._gqa_qkv_output = gqa_qkv_column_parallel_linear(hidden_states)
-            parent_module._gqa_qkv_output_fetch_counter = 0
-        parent_module._gqa_qkv_output_fetch_counter += 1
-        output = parent_module._gqa_qkv_output[self.output_index]
-        if parent_module._gqa_qkv_output_fetch_counter == 3:
-            del parent_module._gqa_qkv_output
-        return output
-
-
-def get_parameter_names_mapping_after_gqa_qkv_replacement(
-    model: torch.nn.Module, reversed: bool = False
-) -> Dict[str, str]:
-    mapping = {}
-    for mod in model.modules():
-        if isinstance(mod, FakeProj):
-            mapping.update(**mod.get_parameter_names_mapping(reversed=reversed))
-    return mapping
-
-
 class ParallelSelfAttention(ParallelLayer):
     """
     Transforms a Self-Attention layer into a Parallel Self-Attention layer.
@@ -435,7 +376,6 @@ class ParallelSelfAttention(ParallelLayer):
         sequence_parallel_enabled: bool = False,
         kv_size_multiplier: Optional[int] = None,
     ):
-        from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
         from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 
         if cls.NUM_KEY_VALUE_HEADS_NAME is None:
@@ -458,7 +398,11 @@ class ParallelSelfAttention(ParallelLayer):
         if kv_size_multiplier is None:
             kv_size_multiplier = get_tensor_model_parallel_size() // num_key_value_heads
 
-        gqa_qkv_column_parallel_linear = GQAQKVColumnParallelLinear(
+        gqa_qkv_column_parallel_linear = OptimumGQAQKVColumnParallelLinear(
+            cls.QUERIES_NAME,
+            cls.KEYS_NAME,
+            cls.VALUES_NAME,
+            num_key_value_heads,
             hidden_size,
             [query_in_features, key_value_in_features],
             gather_output=False,

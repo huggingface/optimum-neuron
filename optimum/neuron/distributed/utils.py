@@ -22,7 +22,7 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Tuple, Type, Union
+from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Tuple, Type, Union, Callable
 
 import torch
 from transformers import PretrainedConfig
@@ -44,6 +44,10 @@ if is_neuronx_distributed_available():
     from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
     from neuronx_distributed.parallel_layers import layers
     from neuronx_distributed.pipeline import NxDPPModel
+else:
+    class GQAQKVColumnParallelLinear(torch.nn.Module):
+        def __init__(self, *args, **kwargs):
+            super().__init__()
 
 
 if TYPE_CHECKING:
@@ -134,6 +138,105 @@ class GroupedQueryAttentionInfo:
                 f"The number of key value heads ({self.num_key_value_heads}) does not divide the number of query heads"
                 f"({self.num_attention_heads})"
             )
+
+class FakeProj(torch.nn.Module):
+    def __init__(
+        self,
+        fully_qualified_name: str,
+        proj_name: str,
+        output_index: int,
+        get_parent_module: Callable[[], torch.nn.Module],
+        parent_module_fully_qualified_name: str,
+        gqa_qkv_proj_name: str,
+    ):
+        super().__init__()
+        self.fully_qualified_name = fully_qualified_name
+        self.proj_name = proj_name
+        self.output_index = output_index
+        self.get_parent_module = get_parent_module
+        self.parent_module_fully_qualified_name = parent_module_fully_qualified_name
+        self.gqa_qkv_proj_name = gqa_qkv_proj_name
+
+    def get_parameter_names_mapping(self, reversed: bool = False) -> Dict[str, str]:
+        gqa_qkv_column_parallel_linear = getattr(self.get_parent_module(), self.gqa_qkv_proj_name)
+        gqa_qkv_column_parallel_linear_qualified_name = (
+            f"{self.parent_module_fully_qualified_name}.{self.gqa_qkv_proj_name}"
+        )
+
+        fully_qualified_name_weight = f"{gqa_qkv_column_parallel_linear_qualified_name}.weight_{self.proj_name}"
+        mapping = {
+            f"{self.fully_qualified_name}.weight": fully_qualified_name_weight,
+        }
+        if gqa_qkv_column_parallel_linear.use_bias:
+            fully_qualified_name_bias = f"{gqa_qkv_column_parallel_linear_qualified_name}.bias_{self.proj_name}"
+            mapping[f"{self.fully_qualified_name}.bias"] = fully_qualified_name_bias
+        if reversed:
+            mapping = {v: k for k, v in mapping.items()}
+        return mapping
+
+    def update_state_dict(self, model: torch.nn.Module, state_dict: Dict[str, torch.Tensor]):
+        pass
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        parent_module = self.get_parent_module()
+        gqa_qkv_column_parallel_linear = getattr(parent_module, self.gqa_qkv_proj_name)
+        if not hasattr(parent_module, "_gqa_qkv_output"):
+            parent_module._gqa_qkv_output = gqa_qkv_column_parallel_linear(hidden_states)
+            parent_module._gqa_qkv_output_fetch_counter = 0
+        parent_module._gqa_qkv_output_fetch_counter += 1
+        output = parent_module._gqa_qkv_output[self.output_index]
+        if parent_module._gqa_qkv_output_fetch_counter == 3:
+            del parent_module._gqa_qkv_output
+        return output
+
+class OptimumGQAQKVColumnParallelLinear(GQAQKVColumnParallelLinear):
+    def __init__(
+        self,
+        query_proj_name: str,
+        key_proj_name: str,
+        value_proj_name: str,
+        num_key_value_heads: int,
+        input_size: int,
+        output_sizes: int,
+        bias: bool = True,
+        gather_output: bool = True,
+        dtype: torch.dtype = torch.float32,
+        device: Optional[torch.device] = None,
+        init_method: Optional[Callable] = None,
+        sequence_parallel_enabled: bool = False,
+        keep_master_weight: bool = False,
+        kv_size_multiplier: int = 1,
+    ):
+        super().__init__(input_size, output_sizes, bias=bias, gather_output=gather_output, dtype=dtype, device=device, init_method=init_method, sequence_parallel_enabled=sequence_parallel_enabled, keep_master_weight=keep_master_weight, kv_size_multiplier=kv_size_multiplier)
+
+        self.query_proj_name = query_proj_name
+        self.key_proj_name = key_proj_name
+        self.value_proj_name = value_proj_name
+
+        self._qkv_proj_name_to_proj_name = {"q": query_proj_name, "k": key_proj_name, "v": value_proj_name}
+        self.num_key_value_heads = num_key_value_heads
+
+    def get_parameter_names_mapping(self, module_to_name: Dict[torch.nn.Module, str], reversed: bool = False) -> Dict[str, str]:
+        fully_qualified_name = module_to_name[self]
+        parent_module_name, _ = fully_qualified_name.rsplit(".", maxsplit=1)
+        mapping = {}
+        for qkv_proj_name, proj_name in self._qkv_proj_name_to_proj_name.items():
+            mapping[f"{parent_module_name}.{proj_name}.weight"] =  f"{fully_qualified_name}.weight_{qkv_proj_name}"
+            if self.use_bias:
+                mapping[f"{parent_module_name}.{proj_name}.bias"] = f"{fully_qualified_name}.bias_{qkv_proj_name}"
+        if reversed:
+            mapping = {v: k for k, v in mapping.items()}
+        return mapping
+
+def get_parameter_names_mapping_after_gqa_qkv_replacement(
+    model: torch.nn.Module, reversed: bool = False
+) -> Dict[str, str]:
+    mapping = {}
+    module_to_name = {v: k for k, v in model.named_modules()}
+    for mod in model.modules():
+        if isinstance(mod, OptimumGQAQKVColumnParallelLinear):
+            mapping.update(**mod.get_parameter_names_mapping(module_to_name, reversed=reversed))
+    return mapping
 
 
 @requires_safetensors
@@ -295,9 +398,8 @@ def embedding_to_parallel_embedding(
 
 
 def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
-    gqa_qkv_column_parallel_linear: "GQAQKVColumnParallelLinear",
-    proj_name: str,
-    num_key_value_heads: int,
+    layer: "OptimumGQAQKVColumnParallelLinear",
+    weight_name: str,
     linear_layer_weight_info: Optional[WeightInformation] = None,
     linear_layer_bias_weight_info: Optional[WeightInformation] = None,
     linear_layer: Optional["torch.nn.Linear"] = None,
@@ -317,12 +419,13 @@ def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
 
     tp_rank = get_tensor_model_parallel_rank()
 
-    weight = getattr(gqa_qkv_column_parallel_linear, f"weight_{proj_name}")
-    bias = getattr(gqa_qkv_column_parallel_linear, f"bias_{proj_name}")
+    proj_name = weight_name[-1]
+    weight = getattr(layer, weight_name)
+    bias = getattr(layer, f"bias_{proj_name}")
     row_size, _ = weight.shape
 
     if proj_name in ["k", "v"]:
-        tp_rank = tp_rank % num_key_value_heads
+        tp_rank = tp_rank % layer.num_key_value_heads
 
     if not was_already_initialized_during_parallelization(weight):
         if linear_layer_weight_info is not None:
