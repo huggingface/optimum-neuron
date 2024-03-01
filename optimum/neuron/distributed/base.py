@@ -48,8 +48,10 @@ from .utils import (
     initialize_torch_nn_module,
     linear_to_parallel_linear,
     load_tensor_for_weight,
-    maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear,
+    get_linear_weight_info,
     maybe_load_linear_weight_to_parallel_linear,
+    maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear,
+    maybe_load_weights_to_gqa_qkv_column_parallel_linear,
     named_parameters,
     parameter_can_be_initialized,
     try_to_hf_initialize,
@@ -352,21 +354,10 @@ class Parallelizer(ABC):
         from neuronx_distributed.parallel_layers.layers import BaseParallelLinear, RowParallelLinear, ColumnParallelLinear
 
         weight_map = getattr(model, "_weight_map", {})
-        named_modules = {v: k for k, v in model.named_modules()}
         
-        def get_weight_info(fully_qualified_name: str):
-            try:
-                linear_weight_info, linear_bias_weight_info = ParallelLayer._get_linear_weight_info(
-                    weight_map, fully_qualified_name
-                )
-            except ValueError:
-                linear_weight_info = None
-                linear_bias_weight_info = None
-            return linear_weight_info, linear_bias_weight_info
-
         for fully_qualified_name, layer in model.named_modules():
             if isinstance(layer, (RowParallelLinear, ColumnParallelLinear)):
-                linear_weight_info, linear_bias_weight_info = get_weight_info(fully_qualified_name)
+                linear_weight_info, linear_bias_weight_info = get_linear_weight_info(weight_map, fully_qualified_name, fail_if_not_found=False)
                 if linear_weight_info is not None:
                     maybe_load_linear_weight_to_parallel_linear(
                         layer,
@@ -374,18 +365,7 @@ class Parallelizer(ABC):
                         linear_layer_bias_weight_info=linear_bias_weight_info,
                     )
             elif isinstance(layer, OptimumGQAQKVColumnParallelLinear):
-                original_to_gqa = layer.get_parameter_names_mapping(named_modules)
-
-                for orig_name, gqa_name in original_to_gqa.items():
-                    linear_weight_info, linear_bias_weight_info = get_weight_info(orig_name)
-                    weight_name = gqa_name.split(".")[-1]
-                    if linear_weight_info:
-                        maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
-                            layer,
-                            weight_name,
-                            linear_layer_weight_info=linear_weight_info,
-                            linear_layer_bias_weight_info=linear_bias_weight_info,
-                        )
+                maybe_load_weights_to_gqa_qkv_column_parallel_linear(model, layer)
 
     @classmethod
     @requires_neuronx_distributed
@@ -397,9 +377,7 @@ class Parallelizer(ABC):
     ):
         from neuronx_distributed import parallel_layers
         from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
-        from neuronx_distributed.parallel_layers.parallel_state import (
-            get_tensor_model_parallel_rank,
-        )
+        from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_rank
 
         weight_map = getattr(model, "_weight_map", {})
         with torch.no_grad():
@@ -529,7 +507,6 @@ class Parallelizer(ABC):
                             del fake_parallel_linear_mod
                         del fake_linear_mod
                     else:
-
                         def initialize(mod: GQAQKVColumnParallelLinear, proj_name: str, output_size: int):
                             fake_linear_mod = torch.nn.Linear(mod.input_size, output_size)
                             parameter_names_to_consider = [
@@ -542,13 +519,12 @@ class Parallelizer(ABC):
                             left_uninitialized = try_to_hf_initialize(
                                 model, fake_linear_mod, parameter_names_to_consider, parameter_names_mapping=mapping
                             )
-                            left_uninitialized = parameter_names
                             if left_uninitialized:
                                 initialize_parallel_linear(mod, left_uninitialized)
                             else:
                                 # TODO: change kv heads.
                                 maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
-                                    mod, proj_name, 2, linear_layer=fake_linear_mod
+                                    mod, f"weight_{proj_name}", linear_layer=fake_linear_mod
                                 )
                             del fake_linear_mod
 
@@ -623,11 +599,6 @@ class Parallelizer(ABC):
 
         # Parallelizing the model.
         # This needs to be done prior to preparing the model for sequence parallelism because modules can be overriden.
-
-        names_of_the_parameters_to_consider = cls._get_parameter_names_for_current_pipeline(
-            model, remove_duplicate=True
-        )
-
         name_to_parameter = dict(named_parameters(model, remove_duplicate=False))
         parameter_to_name = {p: n for n, p in name_to_parameter.items()}
 
@@ -652,6 +623,10 @@ class Parallelizer(ABC):
             xm.rendezvous("End of tensor parallelism")
             if is_main_worker():
                 logger.info("Tensor parallelism done.")
+
+        names_of_the_parameters_to_consider = cls._get_parameter_names_for_current_pipeline(
+            model, remove_duplicate=True
+        )
 
         # Preparing the model for sequence parallelism:
         sp_specs_cls = cls.SEQUENCE_PARALLELSIM_SPECS_CLS

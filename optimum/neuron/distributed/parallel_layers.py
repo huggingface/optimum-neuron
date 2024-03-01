@@ -35,6 +35,8 @@ from .utils import (
     linear_to_parallel_linear,
     OptimumGQAQKVColumnParallelLinear,
     FakeProj,
+    get_linear_weight_info,
+    maybe_load_weights_to_gqa_qkv_column_parallel_linear,
 )
 
 
@@ -68,43 +70,6 @@ class ParallelLayer(ABC):
             attribute_name = split[1]
         return leaf_module, attribute_name
 
-    @classmethod
-    def _get_linear_weight_info(
-        cls,
-        weight_map: Dict[str, Union[Path, str]],
-        linear_layer_qualified_name: str,
-        device: Optional["torch.device"] = None,
-        fail_if_not_found: bool = True,
-    ) -> Tuple[Optional[WeightInformation], Optional[WeightInformation]]:
-        linear_layer_weight_qualified_name = f"{linear_layer_qualified_name}.weight"
-        if linear_layer_weight_qualified_name not in weight_map:
-            if fail_if_not_found:
-                raise ValueError(
-                    f"Could not find the linear weight called {linear_layer_weight_qualified_name} in the weight map."
-                )
-            else:
-                linear_layer_weight_info = None
-        else:
-            linear_layer_weight_info = WeightInformation(
-                weight_map[linear_layer_weight_qualified_name],
-                linear_layer_weight_qualified_name,
-                weight_map=weight_map,
-                device=device,
-            )
-
-        linear_layer_bias_qualified_name = f"{linear_layer_qualified_name}.bias"
-        linear_layer_bias_filename = weight_map.get(linear_layer_bias_qualified_name, None)
-        if linear_layer_bias_filename is not None:
-            linear_layer_bias_weight_info = WeightInformation(
-                linear_layer_bias_filename,
-                linear_layer_bias_qualified_name,
-                weight_map=weight_map,
-                device=device,
-            )
-        else:
-            linear_layer_bias_weight_info = None
-
-        return linear_layer_weight_info, linear_layer_bias_weight_info
 
     @abstractclassmethod
     def _transform(
@@ -375,6 +340,7 @@ class ParallelSelfAttention(ParallelLayer):
         attention_layer: "torch.nn.Module",
         sequence_parallel_enabled: bool = False,
         kv_size_multiplier: Optional[int] = None,
+        skip_linear_weight_load: bool = False,
     ):
         from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 
@@ -411,6 +377,9 @@ class ParallelSelfAttention(ParallelLayer):
             device=query_linear.weight.device,
             kv_size_multiplier=kv_size_multiplier,
         )
+
+        if not skip_linear_weight_load:
+            maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(model, gqa_qkv_column_parallel_linear)
 
         setattr(attention_layer, cls.GQA_QKV_PROJ_NAME, gqa_qkv_column_parallel_linear)
         attention_layer_qualified_name = cls.get_layer_qualified_name(model, attention_layer)
@@ -510,12 +479,13 @@ class ParallelSelfAttention(ParallelLayer):
                 layer,
                 sequence_parallel_enabled=sequence_parallel_enabled,
                 kv_size_multiplier=None,
+                skip_linear_weight_load=skip_linear_weight_load,
             )
         else:
             for name in [cls.QUERIES_NAME, cls.KEYS_NAME, cls.VALUES_NAME]:
                 linear_layer_weight_info, linear_layer_bias_weight_info = None, None
                 if weight_map is not None:
-                    linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
+                    linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
                         weight_map,
                         f"{layer_qualified_name}.{name}",
                         device=device,
@@ -535,7 +505,7 @@ class ParallelSelfAttention(ParallelLayer):
         if cls.OUTPUT_PROJECTION_NAME is not None:
             linear_layer_weight_info, linear_layer_bias_weight_info = None, None
             if weight_map is not None:
-                linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
+                linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
                     weight_map,
                     f"{layer_qualified_name}.{cls.OUTPUT_PROJECTION_NAME}",
                     device=device,
@@ -669,7 +639,7 @@ class ParallelSelfAttentionWithFusedQKV(ParallelLayer):
 
         linear_layer_weight_info, linear_layer_bias_weight_info = None, None
         if weight_map is not None:
-            linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
+            linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
                 weight_map,
                 f"{layer_qualified_name}.{cls.QUERY_KEY_VALUE_NAME}",
                 device=device,
@@ -692,7 +662,7 @@ class ParallelSelfAttentionWithFusedQKV(ParallelLayer):
         if cls.OUTPUT_PROJECTION_NAME is not None:
             linear_layer_weight_info, linear_layer_bias_weight_info = None, None
             if weight_map is not None:
-                linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
+                linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
                     weight_map,
                     f"{layer_qualified_name}.{cls.OUTPUT_PROJECTION_NAME}",
                     device=device,
@@ -754,7 +724,7 @@ class ParallelSelfOutput(ParallelLayer):
         if weight_map is not None:
             layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
             layer_qualified_name = layer_to_fully_qualified_name[id(layer)]
-            linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
+            linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
                 weight_map,
                 f"{layer_qualified_name}.{cls.OUTPUT_PROJECTION_NAME}",
                 device=device,
@@ -810,7 +780,7 @@ class ParallelMLP(ParallelLayer):
         module, attribute_name = cls._get_module_and_attribute_name(layer, cls.FIRST_LINEAR_NAME)
         if weight_map is not None:
             layer_qualified_name = layer_to_fully_qualified_name[id(module)]
-            linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
+            linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
                 weight_map,
                 f"{layer_qualified_name}.{attribute_name}",
                 device=device,
@@ -835,7 +805,7 @@ class ParallelMLP(ParallelLayer):
         linear_layer_weight_info, linear_layer_bias_weight_info = None, None
         if weight_map is not None:
             layer_qualified_name = layer_to_fully_qualified_name[id(module)]
-            linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
+            linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
                 weight_map,
                 f"{layer_qualified_name}.{attribute_name}",
                 device=device,
@@ -1002,7 +972,7 @@ class ParallelCrossEntropy(ParallelLayer):
             layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
             linear_projection_qualified_name = layer_to_fully_qualified_name[id(linear_projection)]
             try:
-                linear_projection_weight_info, linear_projection_bias_weight_info = cls._get_linear_weight_info(
+                linear_projection_weight_info, linear_projection_bias_weight_info = get_linear_weight_info(
                     weight_map,
                     linear_projection_qualified_name,
                     device=device,

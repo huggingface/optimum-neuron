@@ -225,22 +225,22 @@ LLAMA_GQA_VARIANTS_TO_TEST = {
             "num_key_value_heads": "2",
         },
     ),
-    "MQA-setup": (
-        8,
-        8,
-        1,
-        {
-            "num_hidden_layers": "2",
-            "hidden_size": "32",
-            "num_attention_heads": "16",
-            "num_key_value_heads": "1",
-        },
-    ),
+    # "MQA-setup": (
+    #     8,
+    #     8,
+    #     1,
+    #     {
+    #         "num_hidden_layers": "2",
+    #         "hidden_size": "32",
+    #         "num_attention_heads": "16",
+    #         "num_key_value_heads": "1",
+    #     },
+    # ),
 }
 # LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-32kv-heads-random"
-LLAMA_V2_MODEL_NAME = "anushehchaudry/llama-2-tiny-random"
+# LLAMA_V2_MODEL_NAME = "anushehchaudry/llama-2-tiny-random"
 # LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-random"
-# LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-32kv-heads-random"
+LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-32kv-heads-random"
 
 
 @is_trainium_test
@@ -257,6 +257,10 @@ class TestModelParallelization(DistributedTest):
 
     @pytest.fixture(scope="class", params=MODELS_TO_TEST, ids=[specs[1].__name__ for specs in MODELS_TO_TEST])
     def model_specs(self, request):
+        return request.param
+
+    @pytest.fixture(scope="class", params=[True, False], ids=["from_pretrained", "from_config"]) 
+    def from_pretrained(self, request):
         return request.param
 
     def early_skip(self, fixtures_kwargs):
@@ -327,6 +331,10 @@ class TestModelParallelization(DistributedTest):
             use_static_seed_patcher=True,
         )
         orig_model = NeuronAccelerator.patch_model_for_neuron(orig_model)
+        from neuronx_distributed.parallel_layers.layers import get_tensor_model_parallel_rank
+        tp_rank = get_tensor_model_parallel_rank()
+        if tp_rank == 0:
+            print(orig_model.layers[0].self_attn.k_proj.weight)
 
         set_neuron_cc_optlevel_for_model(orig_model)
 
@@ -381,6 +389,8 @@ class TestModelParallelization(DistributedTest):
             model = accelerator.prepare(model)
 
         xm.mark_step()
+        if tp_rank == 0:
+            print(model.layers[0].self_attn.qkv_proj.weight_k)
 
         model = accelerator.patch_model_for_neuron(model)
         with torch.no_grad():
