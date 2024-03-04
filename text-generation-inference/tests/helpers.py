@@ -1,6 +1,3 @@
-from tempfile import TemporaryDirectory
-
-import pytest
 from text_generation_server.generator import NeuronGenerator
 from text_generation_server.pb.generate_pb2 import (
     Batch,
@@ -8,35 +5,6 @@ from text_generation_server.pb.generate_pb2 import (
     Request,
     StoppingCriteriaParameters,
 )
-from transformers import AutoTokenizer
-
-from optimum.neuron import NeuronModelForCausalLM
-
-
-MODEL_ID = "gpt2"
-BATCH_SIZE = 4
-SEQUENCE_LENGTH = 1024
-NUM_CORES = 2
-
-
-@pytest.fixture(scope="module")
-def model_path():
-    with TemporaryDirectory() as tmpdir:
-        AutoTokenizer.from_pretrained(MODEL_ID).save_pretrained(tmpdir)
-        model = NeuronModelForCausalLM.from_pretrained(
-            MODEL_ID, export=True, batch_size=BATCH_SIZE, sequence_length=SEQUENCE_LENGTH, num_cores=NUM_CORES
-        )
-        model.save_pretrained(tmpdir)
-        yield tmpdir
-
-
-def test_info(model_path):
-    generator = NeuronGenerator.from_pretrained(model_path)
-    info = generator.info
-    assert info.requires_padding is True
-    assert info.device_type == "xla"
-    assert info.window_size == 0
-    assert info.speculate == 0
 
 
 def create_request(
@@ -62,26 +30,8 @@ def create_request(
     return Request(id=id, inputs=inputs, parameters=parameters, stopping_parameters=stopping_parameters)
 
 
-@pytest.mark.parametrize(
-    "input_text, token_id, token_text, do_sample",
-    [
-        [
-            "It was a bright cold day in April, and the clocks were striking thirteen.",
-            383,
-            " The",
-            False,
-        ],
-        [
-            "It was a bright cold day in April, and the clocks were striking thirteen.",
-            198,
-            "\n",
-            True,
-        ],
-    ],
-    ids=["greedy", "sample"],
-)
-@pytest.mark.parametrize("batch_size", [1, 4], ids=["single", "multiple"])
-def test_prefill(input_text, token_id, token_text, do_sample, batch_size, model_path):
+def check_prefill(input_text, expected_token_id, expected_token_text, do_sample, batch_size, model_path):
+    """Verify that a prefill for a single request generates the expected output."""
     generator = NeuronGenerator.from_pretrained(model_path)
     assert generator.model.batch_size >= batch_size
     requests = []
@@ -90,46 +40,31 @@ def test_prefill(input_text, token_id, token_text, do_sample, batch_size, model_
         requests.append(create_request(id=0, inputs=input_text, do_sample=do_sample, max_new_tokens=max_new_tokens))
     # Let's be pessimistic when estimating max_tokens
     batch_size * (len(input_text) + max_new_tokens)
-    batch = Batch(id=0, requests=requests, size=batch_size, max_tokens=batch_size * SEQUENCE_LENGTH)
+    max_length = generator.model.max_length
+    batch = Batch(id=0, requests=requests, size=batch_size, max_tokens=batch_size * max_length)
     generations, next_batch = generator.prefill(batch)
     assert next_batch.size == batch_size
     # Whatever was passed as max_tokens, the server will correct it
     # because of static batching
-    assert next_batch.max_tokens == batch_size * SEQUENCE_LENGTH
+    assert next_batch.max_tokens == batch_size * max_length
     assert len(generations) == batch_size
     for g in generations:
         tokens = g.tokens
-        assert tokens.ids == [token_id]
-        assert tokens.texts == [token_text]
+        assert tokens.ids == [expected_token_id]
+        assert tokens.texts == [expected_token_text]
 
 
-@pytest.mark.parametrize(
-    "input_text, max_new_tokens, generated_text, do_sample",
-    [
-        [
-            "It was a bright cold day in April, and the clocks were striking thirteen.",
-            20,
-            " The sun was setting, and the wind was blowing. The sun was setting, and the wind was",
-            False,
-        ],
-        [
-            "It was a bright cold day in April, and the clocks were striking thirteen.",
-            20,
-            "\n\nAt 11:45 a.m. a small group of friends gathered outside the hotel to",
-            True,
-        ],
-    ],
-    ids=["greedy", "sample"],
-)
-def test_decode_single(input_text, max_new_tokens, generated_text, do_sample, model_path):
+def check_decode_single(input_text, max_new_tokens, generated_text, do_sample, model_path):
+    """Verify that a decoding for a single request generates the expected output."""
     generator = NeuronGenerator.from_pretrained(model_path)
     request = create_request(id=0, inputs=input_text, max_new_tokens=max_new_tokens, do_sample=do_sample)
-    batch = Batch(id=0, requests=[request], size=1, max_tokens=SEQUENCE_LENGTH)
+    max_length = generator.model.max_length
+    batch = Batch(id=0, requests=[request], size=1, max_tokens=max_length)
     generations, next_batch = generator.prefill(batch)
     # We already generated one token: call decode max_new_tokens - 1 times
     for _ in range(max_new_tokens - 1):
         assert next_batch.size == 1
-        assert next_batch.max_tokens == 1024
+        assert next_batch.max_tokens == max_length
         assert len(generations) == 1
         assert len(generations[0].tokens.ids) == 1
         generations, next_batch = generator.decode([next_batch])
@@ -141,7 +76,10 @@ def test_decode_single(input_text, max_new_tokens, generated_text, do_sample, mo
     assert output.text == generated_text
 
 
-def test_decode_multiple(model_path):
+def check_decode_multiple(model_path):
+    """Verify that two requests added to the batch at different generation steps
+    generate the same outputs (continuous batching).
+    """
     generator = NeuronGenerator.from_pretrained(model_path)
     assert generator.model.batch_size > 1
     input_text = "Once upon a time"
@@ -149,7 +87,8 @@ def test_decode_multiple(model_path):
     # Prefill a single request, remembering the generated token
     tokens = {0: [], 1: []}
     request = create_request(id=0, inputs=input_text, max_new_tokens=max_new_tokens)
-    batch = Batch(id=0, requests=[request], size=1, max_tokens=SEQUENCE_LENGTH)
+    max_length = generator.model.max_length
+    batch = Batch(id=0, requests=[request], size=1, max_tokens=max_length)
     generations, next_batch = generator.prefill(batch)
     assert next_batch.size == 1
     assert len(generations) == 1
@@ -167,7 +106,7 @@ def test_decode_multiple(model_path):
     assert next_batch.size == 1
     # Add a second request
     request = create_request(id=1, inputs=input_text, max_new_tokens=max_new_tokens)
-    batch = Batch(id=1, requests=[request], size=1, max_tokens=SEQUENCE_LENGTH)
+    batch = Batch(id=1, requests=[request], size=1, max_tokens=max_length)
     generations, next_batch_1 = generator.prefill(batch)
     assert next_batch_1.size == 1
     # We should have generated only a single token
