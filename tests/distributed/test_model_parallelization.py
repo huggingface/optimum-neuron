@@ -14,12 +14,13 @@
 # limitations under the License.
 """Tests validating that models can be parallelized correctly."""
 
+from pathlib import Path
 from typing import TYPE_CHECKING, List, Optional, Type, Union
 
 import pytest
 import torch
 import torch.utils._pytree as pytree
-from transformers import LlamaForCausalLM
+from transformers import AutoTokenizer, LlamaForCausalLM
 from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 from transformers.models.auto.modeling_auto import (
     MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING,
@@ -226,17 +227,17 @@ LLAMA_GQA_VARIANTS_TO_TEST = {
             "num_key_value_heads": "2",
         },
     ),
-    # "MQA-setup": (
-    #     8,
-    #     8,
-    #     1,
-    #     {
-    #         "num_hidden_layers": "2",
-    #         "hidden_size": "32",
-    #         "num_attention_heads": "16",
-    #         "num_key_value_heads": "1",
-    #     },
-    # ),
+    "MQA-setup": (
+        8,
+        8,
+        1,
+        {
+            "num_hidden_layers": "2",
+            "hidden_size": "32",
+            "num_attention_heads": "16",
+            "num_key_value_heads": "1",
+        },
+    ),
 }
 # LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-32kv-heads-random"
 # LLAMA_V2_MODEL_NAME = "anushehchaudry/llama-2-tiny-random"
@@ -262,6 +263,16 @@ class TestModelParallelization(DistributedTest):
 
     @pytest.fixture(scope="class", params=[True, False], ids=["from_pretrained", "from_config"])
     def from_pretrained(self, request):
+        return request.param
+
+    @pytest.fixture(scope="class", params=[False, True], ids=["no_lazy_load", "lazy_load"])
+    def lazy_load(self, request):
+        return request.param
+
+    @pytest.fixture(
+        scope="class", params=[False, True], ids=["sequence_parallel_disabled", "sequence_parallel_enabled"]
+    )
+    def sequence_parallel_enabled(self, request):
         return request.param
 
     def early_skip(self, fixtures_kwargs):
@@ -338,6 +349,7 @@ class TestModelParallelization(DistributedTest):
             config_overwrite=config_overwrite,
             use_static_seed_patcher=True,
         )
+        print(orig_model.model.layers[1].self_attn.v_proj.weight)
         orig_model = NeuronAccelerator.patch_model_for_neuron(orig_model)
 
         set_neuron_cc_optlevel_for_model(orig_model)
@@ -464,17 +476,50 @@ class TestModelParallelization(DistributedTest):
         LLAMA_GQA_VARIANTS_TO_TEST.values(),
         ids=LLAMA_GQA_VARIANTS_TO_TEST.keys(),
     )
-    def test_llama_v2_gqa_variants(self, world_size, tp_size, pp_size, config_overwrite, monkeypatch):
+    def test_llama_v2_gqa_with_qkv_parallel_collumn_linear(
+        self,
+        monkeypatch,
+        tmpdir,
+        world_size,
+        tp_size,
+        pp_size,
+        config_overwrite,
+        from_pretrained,
+        lazy_load,
+        sequence_parallel_enabled,
+    ):
         monkeypatch.setattr(
             optimum.neuron.distributed.parallel_layers, "_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT", True
         )
+        num_kv_heads = int(config_overwrite["num_key_value_heads"])
+        if num_kv_heads >= tp_size and (from_pretrained or lazy_load or sequence_parallel_enabled):
+            pytest.skip("No need to test this setting.")
+
+        model_name_or_path = Path(tmpdir) / "llama_v2_gqa"
+
+        # Since we are creating the model from config, we actually first create a model locally from config and then
+        # use that as a `from_pretrained` to have proper initialization. Without that we can end-up with uninitialized
+        # weights.
+        if xm.get_ordinal() == 0:
+            tokenizer = AutoTokenizer.from_pretrained(LLAMA_V2_MODEL_NAME)
+            tokenizer.save_pretrained(model_name_or_path)
+            model = get_model(
+                LlamaForCausalLM,
+                LLAMA_V2_MODEL_NAME,
+                from_config=True,
+                config_overwrite=config_overwrite,
+            )
+            model.save_pretrained(model_name_or_path)
+        xm.rendezvous("Model creation done.")
+
         return self._parallel_model_matches_original_model(
             LlamaForCausalLM,
-            LLAMA_V2_MODEL_NAME,
+            model_name_or_path,
             config_overwrite,
             (world_size, tp_size, pp_size),
+            from_pretrained,
+            False,  # lazy_load, # lazy_load,
+            False,  # sequence_parallel_enabled,
             False,
-            False,
-            False,
-            False,
+            # True,
         )

@@ -35,7 +35,7 @@ from .utils import (
     embedding_to_parallel_embedding,
     get_linear_weight_info,
     linear_to_parallel_linear,
-    maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear,
+    maybe_load_weights_to_gqa_qkv_column_parallel_linear,
 )
 
 
@@ -376,12 +376,16 @@ class ParallelSelfAttention(ParallelLayer):
             kv_size_multiplier=kv_size_multiplier,
         )
 
-        if not skip_linear_weight_load:
-            maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(model, gqa_qkv_column_parallel_linear)
-
         setattr(attention_layer, cls.GQA_QKV_PROJ_NAME, gqa_qkv_column_parallel_linear)
-        attention_layer_qualified_name = cls.get_layer_qualified_name(model, attention_layer)
 
+        maybe_load_weights_to_gqa_qkv_column_parallel_linear(
+            model,
+            gqa_qkv_column_parallel_linear,
+            try_from_checkpoint=not skip_linear_weight_load,
+            try_from_original_layer=not skip_linear_weight_load,
+        )
+
+        attention_layer_qualified_name = cls.get_layer_qualified_name(model, attention_layer)
         fake_q_proj = FakeProj(
             f"{attention_layer_qualified_name}.{cls.QUERIES_NAME}",
             "q",

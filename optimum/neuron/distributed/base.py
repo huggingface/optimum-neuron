@@ -615,6 +615,12 @@ class Parallelizer(ABC):
             model, remove_duplicate=True
         )
 
+        # We delay weight loading when the model was instantiated from pretrained lazily.
+        # We do not skip for cases such as:
+        #   - Loaded a model `from_config`: in this case we simply initialize later in `_initialize_or_load_weights`.
+        #   - Loaded a model `from_pretrained` but not lazily.
+        skip_linear_weight_load = hasattr(model, "_weight_map")
+
         def should_parallelize_layer_predicate_func(layer):
             if pp_size == 1:
                 return True
@@ -631,7 +637,7 @@ class Parallelizer(ABC):
                 parallelize_embeddings=parallelize_embeddings,
                 sequence_parallel_enabled=sequence_parallel_enabled,
                 should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
-                skip_linear_weight_load=True,
+                skip_linear_weight_load=skip_linear_weight_load,
                 kv_size_multiplier=kv_size_multiplier,
             )
             xm.rendezvous("End of tensor parallelism")
@@ -672,8 +678,9 @@ class Parallelizer(ABC):
         if is_main_worker():
             logger.info("Loading and initializing the weights, this might take a while on large models.")
 
-        # Load the weights to the parallel linears if the loading was skipped during parallelization.
-        cls._maybe_load_weights_to_parallel_linears(model)
+        if skip_linear_weight_load:
+            # Load the weights to the parallel linears if the loading was skipped during parallelization.
+            cls._maybe_load_weights_to_parallel_linears(model)
 
         # Initialize or load the weights for the parallelized model.
         cls._initialize_or_load_weights(model, names_of_the_parameters_to_consider, device=device)
