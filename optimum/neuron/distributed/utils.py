@@ -484,6 +484,7 @@ def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
     with torch.no_grad():
         if not was_already_initialized_during_parallelization(weight):
             if linear_layer_weight_info is not None:
+                print("HERE", weight_name, layer, weight.device)
                 weight_data = load_tensor_for_weight(
                     linear_layer_weight_info,
                     tensor_slices=(
@@ -540,8 +541,9 @@ def maybe_load_weights_to_gqa_qkv_column_parallel_linear(
     original_to_gqa = layer.get_parameter_names_mapping(named_modules)
 
     for orig_name, gqa_name in original_to_gqa.items():
+        linear_layer_qualified_name, _ = orig_name.rsplit(".", maxsplit=1)
         linear_weight_info, linear_bias_weight_info = get_linear_weight_info(
-            weight_map, orig_name, fail_if_not_found=False
+            weight_map, linear_layer_qualified_name, fail_if_not_found=False
         )
         weight_name = gqa_name.split(".")[-1]
         if try_from_checkpoint and linear_weight_info is not None:

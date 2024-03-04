@@ -349,7 +349,6 @@ class TestModelParallelization(DistributedTest):
             config_overwrite=config_overwrite,
             use_static_seed_patcher=True,
         )
-        print(orig_model.model.layers[1].self_attn.v_proj.weight)
         orig_model = NeuronAccelerator.patch_model_for_neuron(orig_model)
 
         set_neuron_cc_optlevel_for_model(orig_model)
@@ -518,7 +517,7 @@ class TestModelParallelization(DistributedTest):
             config_overwrite,
             (world_size, tp_size, pp_size),
             from_pretrained,
-            False,  # lazy_load, # lazy_load,
+            True,  # lazy_load, # lazy_load,
             False,  # sequence_parallel_enabled,
             False,
             # True,

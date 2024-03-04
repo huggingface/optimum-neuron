@@ -450,6 +450,7 @@ class Parallelizer(ABC):
                     device = torch.device("cpu") if device is None else device
                     new_parameter = torch.nn.Parameter(torch.empty_like(parameter, device=device))
                     modules_to_initialize[module].append(attribute_name)
+                    print("Name", name)
 
                 setattr(
                     module,
@@ -682,8 +683,10 @@ class Parallelizer(ABC):
             # Load the weights to the parallel linears if the loading was skipped during parallelization.
             cls._maybe_load_weights_to_parallel_linears(model)
 
-        # Initialize or load the weights for the parallelized model.
-        cls._initialize_or_load_weights(model, names_of_the_parameters_to_consider, device=device)
+        # Initialize or load the weights for the parallelized model if it was lazily loaded.
+        if any((p.device == torch.device("meta") for p in model.parameters())):
+            cls._initialize_or_load_weights(model, names_of_the_parameters_to_consider, device=device)
+
         xm.rendezvous("End of initalization")
 
         if is_main_worker():

@@ -362,6 +362,10 @@ class ParallelSelfAttention(ParallelLayer):
         if kv_size_multiplier is None:
             kv_size_multiplier = get_tensor_model_parallel_size() // num_key_value_heads
 
+        device = query_linear.weight.device
+        if device == torch.device("meta"):
+            device = None
+
         gqa_qkv_column_parallel_linear = OptimumGQAQKVColumnParallelLinear(
             cls.QUERIES_NAME,
             cls.KEYS_NAME,
@@ -372,7 +376,7 @@ class ParallelSelfAttention(ParallelLayer):
             gather_output=False,
             bias=query_linear.bias is not None,
             sequence_parallel_enabled=sequence_parallel_enabled,
-            device=query_linear.weight.device,
+            device=device,
             kv_size_multiplier=kv_size_multiplier,
         )
 
