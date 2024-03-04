@@ -55,10 +55,10 @@ EXTRAS_REQUIRE = {
     "neuronx": [
         "wheel",
         "neuronx-cc==2.12.68.0",
-        "torch-neuronx==1.13.1.1.13.1",
+        "torch-neuronx==2.1.1.2.0.1b0",
         "transformers-neuronx==0.9.474",
-        "torch==1.13.1.*",
-        "torchvision==0.14.*",
+        "torch==2.1.*",
+        "torchvision==0.16.*",
         "neuronx_distributed==0.6.0",
     ],
     "diffusers": ["diffusers ~= 0.26.1", "peft"],
