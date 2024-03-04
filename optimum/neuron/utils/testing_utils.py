@@ -16,7 +16,10 @@
 
 import unittest
 
+from packaging import version
+
 from .import_utils import is_neuron_available, is_neuronx_available
+from .version_utils import get_torch_version
 
 
 def requires_neuron(test_case):
@@ -30,6 +33,12 @@ def requires_neuronx(test_case):
 def requires_neuron_or_neuronx(test_case):
     return unittest.skipUnless(
         is_neuron_available() or is_neuronx_available(), "test requires either Neuron or Neuron X compiler"
+    )(test_case)
+
+
+def requires_pytorch_1_13(test_case):
+    return unittest.skipUnless(
+        version.parse(get_torch_version()) < version.parse("2.0.0"), "test requires PyTorch < 2.0.0"
     )(test_case)
 
 
