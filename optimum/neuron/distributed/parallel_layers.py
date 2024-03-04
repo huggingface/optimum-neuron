@@ -19,7 +19,6 @@ import re
 from abc import ABC, abstractclassmethod
 from dataclasses import dataclass
 from enum import Enum
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Literal, Optional, Tuple, Type, Union
 
 import torch
@@ -30,13 +29,13 @@ from ..utils import patch_everywhere, patch_within_function
 from ..utils.misc import is_main_worker
 from ..utils.require_utils import requires_neuronx_distributed
 from .utils import (
+    FakeProj,
+    OptimumGQAQKVColumnParallelLinear,
     WeightInformation,
     embedding_to_parallel_embedding,
-    linear_to_parallel_linear,
-    OptimumGQAQKVColumnParallelLinear,
-    FakeProj,
     get_linear_weight_info,
-    maybe_load_weights_to_gqa_qkv_column_parallel_linear,
+    linear_to_parallel_linear,
+    maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear,
 )
 
 
@@ -69,7 +68,6 @@ class ParallelLayer(ABC):
             leaf_module = module.get_submodule(split[0])
             attribute_name = split[1]
         return leaf_module, attribute_name
-
 
     @abstractclassmethod
     def _transform(

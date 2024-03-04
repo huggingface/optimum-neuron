@@ -22,7 +22,7 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Tuple, Type, Union, Callable
+from typing import TYPE_CHECKING, Callable, Dict, List, Literal, Optional, Tuple, Type, Union
 
 import torch
 from transformers import PretrainedConfig
@@ -45,6 +45,7 @@ if is_neuronx_distributed_available():
     from neuronx_distributed.parallel_layers import layers
     from neuronx_distributed.pipeline import NxDPPModel
 else:
+
     class GQAQKVColumnParallelLinear(torch.nn.Module):
         def __init__(self, *args, **kwargs):
             super().__init__()
@@ -139,6 +140,7 @@ class GroupedQueryAttentionInfo:
                 f"({self.num_attention_heads})"
             )
 
+
 class FakeProj(torch.nn.Module):
     def __init__(
         self,
@@ -189,6 +191,7 @@ class FakeProj(torch.nn.Module):
             del parent_module._gqa_qkv_output
         return output
 
+
 class OptimumGQAQKVColumnParallelLinear(GQAQKVColumnParallelLinear):
     def __init__(
         self,
@@ -207,7 +210,18 @@ class OptimumGQAQKVColumnParallelLinear(GQAQKVColumnParallelLinear):
         keep_master_weight: bool = False,
         kv_size_multiplier: int = 1,
     ):
-        super().__init__(input_size, output_sizes, bias=bias, gather_output=gather_output, dtype=dtype, device=device, init_method=init_method, sequence_parallel_enabled=sequence_parallel_enabled, keep_master_weight=keep_master_weight, kv_size_multiplier=kv_size_multiplier)
+        super().__init__(
+            input_size,
+            output_sizes,
+            bias=bias,
+            gather_output=gather_output,
+            dtype=dtype,
+            device=device,
+            init_method=init_method,
+            sequence_parallel_enabled=sequence_parallel_enabled,
+            keep_master_weight=keep_master_weight,
+            kv_size_multiplier=kv_size_multiplier,
+        )
 
         self.query_proj_name = query_proj_name
         self.key_proj_name = key_proj_name
@@ -216,17 +230,20 @@ class OptimumGQAQKVColumnParallelLinear(GQAQKVColumnParallelLinear):
         self._qkv_proj_name_to_proj_name = {"q": query_proj_name, "k": key_proj_name, "v": value_proj_name}
         self.num_key_value_heads = num_key_value_heads
 
-    def get_parameter_names_mapping(self, module_to_name: Dict[torch.nn.Module, str], reversed: bool = False) -> Dict[str, str]:
+    def get_parameter_names_mapping(
+        self, module_to_name: Dict[torch.nn.Module, str], reversed: bool = False
+    ) -> Dict[str, str]:
         fully_qualified_name = module_to_name[self]
         parent_module_name, _ = fully_qualified_name.rsplit(".", maxsplit=1)
         mapping = {}
         for qkv_proj_name, proj_name in self._qkv_proj_name_to_proj_name.items():
-            mapping[f"{parent_module_name}.{proj_name}.weight"] =  f"{fully_qualified_name}.weight_{qkv_proj_name}"
+            mapping[f"{parent_module_name}.{proj_name}.weight"] = f"{fully_qualified_name}.weight_{qkv_proj_name}"
             if self.use_bias:
                 mapping[f"{parent_module_name}.{proj_name}.bias"] = f"{fully_qualified_name}.bias_{qkv_proj_name}"
         if reversed:
             mapping = {v: k for k, v in mapping.items()}
         return mapping
+
 
 def get_parameter_names_mapping_after_gqa_qkv_replacement(
     model: torch.nn.Module, reversed: bool = False
@@ -396,6 +413,7 @@ def embedding_to_parallel_embedding(
 
     return parallel_embedding_layer, parallel_lm_head_layer
 
+
 def get_linear_weight_info(
     weight_map: Dict[str, Union[Path, str]],
     linear_layer_qualified_name: str,
@@ -432,6 +450,7 @@ def get_linear_weight_info(
 
     return linear_layer_weight_info, linear_layer_bias_weight_info
 
+
 def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
     layer: OptimumGQAQKVColumnParallelLinear,
     weight_name: str,
@@ -460,8 +479,7 @@ def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
     row_size, _ = weight.shape
 
     if proj_name in ["k", "v"]:
-        print("TP RANK", tp_rank, tp_rank % layer.num_key_value_heads)
-        tp_rank = tp_rank % layer.num_key_value_heads
+        tp_rank = tp_rank // layer.kv_size_multiplier
 
     if not was_already_initialized_during_parallelization(weight):
         if linear_layer_weight_info is not None:
@@ -484,7 +502,7 @@ def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
         if bias is not None:
             if not was_already_initialized_during_parallelization(bias):
                 if linear_layer_bias_weight_info is not None:
-                    if gqa_qkv_column_parallel_linear.gather_output:
+                    if layer.gather_output:
                         tensor_slices = (None,)
                     else:
                         tensor_slices = (
@@ -501,7 +519,7 @@ def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
                     mark_parameter_init_status_during_parallelization(bias, True)
                     del bias_weight_data
                 elif linear_layer.bias.device != torch.device("meta"):
-                    if gqa_qkv_column_parallel_linear.gather_output:
+                    if layer.gather_output:
                         bias.copy_(linear_layer.bias)
                     else:
                         bias.copy_(linear_layer.bias[tp_rank * row_size : (tp_rank + 1) * row_size])
@@ -510,14 +528,17 @@ def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
                     mark_parameter_init_status_during_parallelization(bias, False)
 
 
-
-def maybe_load_weights_to_gqa_qkv_column_parallel_linear(model: torch.nn.Module, layer: OptimumGQAQKVColumnParallelLinear):
+def maybe_load_weights_to_gqa_qkv_column_parallel_linear(
+    model: torch.nn.Module, layer: OptimumGQAQKVColumnParallelLinear
+):
     weight_map = getattr(model, "_weight_map", {})
     named_modules = {v: k for k, v in model.named_modules()}
     original_to_gqa = layer.get_parameter_names_mapping(named_modules)
 
     for orig_name, gqa_name in original_to_gqa.items():
-        linear_weight_info, linear_bias_weight_info = get_linear_weight_info(weight_map, orig_name, fail_if_not_found=False)
+        linear_weight_info, linear_bias_weight_info = get_linear_weight_info(
+            weight_map, orig_name, fail_if_not_found=False
+        )
         weight_name = gqa_name.split(".")[-1]
         if linear_weight_info:
             maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(

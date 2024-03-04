@@ -36,28 +36,26 @@ from .parallel_layers import (
     IOSequenceParallelizer,
     LayerNormSequenceParallelizer,
     LayerNormType,
-    ParallelLayer,
     SequenceCollectiveOpInfo,
 )
 from .utils import (
     TENSOR_PARALLEL_SHARDS_DIR_NAME,
+    OptimumGQAQKVColumnParallelLinear,
     ParameterMetadata,
     WeightInformation,
     apply_activation_checkpointing,
+    get_linear_weight_info,
     initialize_parallel_linear,
     initialize_torch_nn_module,
     linear_to_parallel_linear,
     load_tensor_for_weight,
-    get_linear_weight_info,
-    maybe_load_linear_weight_to_parallel_linear,
     maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear,
+    maybe_load_linear_weight_to_parallel_linear,
     maybe_load_weights_to_gqa_qkv_column_parallel_linear,
     named_parameters,
     parameter_can_be_initialized,
     try_to_hf_initialize,
     was_already_initialized_during_parallelization,
-    OptimumGQAQKVColumnParallelLinear,
-    get_parameter_names_mapping_after_gqa_qkv_replacement,
 )
 
 
@@ -351,13 +349,18 @@ class Parallelizer(ABC):
     @classmethod
     @requires_neuronx_distributed
     def _maybe_load_weights_to_parallel_linears(cls, model: "PreTrainedModel"):
-        from neuronx_distributed.parallel_layers.layers import BaseParallelLinear, RowParallelLinear, ColumnParallelLinear
+        from neuronx_distributed.parallel_layers.layers import (
+            ColumnParallelLinear,
+            RowParallelLinear,
+        )
 
         weight_map = getattr(model, "_weight_map", {})
-        
+
         for fully_qualified_name, layer in model.named_modules():
             if isinstance(layer, (RowParallelLinear, ColumnParallelLinear)):
-                linear_weight_info, linear_bias_weight_info = get_linear_weight_info(weight_map, fully_qualified_name, fail_if_not_found=False)
+                linear_weight_info, linear_bias_weight_info = get_linear_weight_info(
+                    weight_map, fully_qualified_name, fail_if_not_found=False
+                )
                 if linear_weight_info is not None:
                     maybe_load_linear_weight_to_parallel_linear(
                         layer,
@@ -507,6 +510,7 @@ class Parallelizer(ABC):
                             del fake_parallel_linear_mod
                         del fake_linear_mod
                     else:
+
                         def initialize(mod: GQAQKVColumnParallelLinear, proj_name: str, output_size: int):
                             fake_linear_mod = torch.nn.Linear(mod.input_size, output_size)
                             parameter_names_to_consider = [

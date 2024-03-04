@@ -63,6 +63,7 @@ if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
 
 if is_neuronx_distributed_available():
+    from neuronx_distributed.modules.qkv_linear import get_kv_shared_group
     from neuronx_distributed.parallel_layers.parallel_state import (
         get_pipeline_model_parallel_rank,
         get_tensor_model_parallel_group,
@@ -259,7 +260,7 @@ class TestModelParallelization(DistributedTest):
     def model_specs(self, request):
         return request.param
 
-    @pytest.fixture(scope="class", params=[True, False], ids=["from_pretrained", "from_config"]) 
+    @pytest.fixture(scope="class", params=[True, False], ids=["from_pretrained", "from_config"])
     def from_pretrained(self, request):
         return request.param
 
@@ -291,16 +292,23 @@ class TestModelParallelization(DistributedTest):
         elif isinstance(original_output, torch.Tensor):
             xm.master_print(f"Comparing output named {name}")
             tp_size = get_tensor_model_parallel_size()
+            tp_group = get_tensor_model_parallel_group()
             if original_output.shape != output.shape:
                 gather_dim = min(
                     idx for idx in range(original_output.dim()) if original_output.shape[idx] != output.shape[idx]
                 )
                 output = output.to(xm.xla_device())
                 gathered = [torch.empty_like(output) for _ in range(tp_size)]
-                torch.distributed.all_gather(gathered, output, group=get_tensor_model_parallel_group())
+                torch.distributed.all_gather(gathered, output, group=tp_group)
                 gathered_output = torch.cat(gathered, dim=gather_dim)
                 xm.mark_step()
                 output = gathered_output.to("cpu")
+
+            # In this case, we assume GQAQKVColumnParallelLinear was used, we retrieve only the non-repeated KV heads.
+            if "past" in name and original_output.size(1) != output.size(1):
+                kv_size_multiplier = len(get_kv_shared_group(as_list=True)[0])
+                output = output[:, ::kv_size_multiplier]
+
             torch.testing.assert_close(original_output, output)
         else:
             assert original_output == output, f"Output named {name} do not match."
@@ -331,10 +339,6 @@ class TestModelParallelization(DistributedTest):
             use_static_seed_patcher=True,
         )
         orig_model = NeuronAccelerator.patch_model_for_neuron(orig_model)
-        from neuronx_distributed.parallel_layers.layers import get_tensor_model_parallel_rank
-        tp_rank = get_tensor_model_parallel_rank()
-        if tp_rank == 0:
-            print(orig_model.layers[0].self_attn.k_proj.weight)
 
         set_neuron_cc_optlevel_for_model(orig_model)
 
@@ -389,8 +393,6 @@ class TestModelParallelization(DistributedTest):
             model = accelerator.prepare(model)
 
         xm.mark_step()
-        if tp_rank == 0:
-            print(model.layers[0].self_attn.qkv_proj.weight_k)
 
         model = accelerator.patch_model_for_neuron(model)
         with torch.no_grad():

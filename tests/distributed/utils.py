@@ -246,7 +246,10 @@ def create_static_seed_patcher(model_class: Type["PreTrainedModel"], seed: int):
             ("torch.Tensor.normal_", dynamic_patch),
             ("neuronx_distributed.parallel_layers.layers.ColumnParallelLinear.init_weight_cpu", dynamic_patch),
             ("neuronx_distributed.parallel_layers.layers.RowParallelLinear.init_weight_cpu", dynamic_patch),
-            ("neuronx_distributed.modules.qkv_linear.GQAQKVColumnParallelLinear._init_per_layer_weight", dynamic_patch),
+            (
+                "neuronx_distributed.modules.qkv_linear.GQAQKVColumnParallelLinear._init_per_layer_weight",
+                dynamic_patch,
+            ),
             ("neuronx_distributed.modules.qkv_linear.GQAQKVColumnParallelLinear._init_per_layer_bias", dynamic_patch),
         ]
     )
