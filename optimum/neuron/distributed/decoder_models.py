@@ -45,7 +45,7 @@ from .parallel_layers import (
     ParallelSelfAttentionWithFusedQKV,
     SequenceCollectiveOpInfo,
 )
-from .utils import linear_to_parallel_linear
+from .utils import get_linear_weight_info, linear_to_parallel_linear
 
 
 if TYPE_CHECKING:
@@ -396,7 +396,7 @@ class LLamaParallelMLP(ParallelMLP):
         if weight_map is not None:
             layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
             layer_qualified_name = layer_to_fully_qualified_name[id(layer)]
-            linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
+            linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
                 weight_map,
                 f"{layer_qualified_name}.{attribute_name}",
                 device=device,
@@ -699,7 +699,7 @@ class MistralParallelMLP(ParallelMLP):
         if weight_map is not None:
             layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
             layer_qualified_name = layer_to_fully_qualified_name[id(layer)]
-            linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
+            linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
                 weight_map,
                 f"{layer_qualified_name}.{attribute_name}",
                 device=device,

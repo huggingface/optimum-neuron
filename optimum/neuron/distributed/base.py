@@ -548,6 +548,7 @@ class Parallelizer(ABC):
         device: Optional[torch.device] = None,
         parallelize_embeddings: bool = True,
         sequence_parallel_enabled: bool = False,
+        kv_size_multiplier: Optional[int] = None,
         pipeline_parallel_input_names: Optional[Union[Tuple[str, ...], List[str]]] = None,
         pipeline_parallel_num_microbatches: int = 1,
         pipeline_parallel_use_zero1_optimizer: bool = False,
@@ -571,6 +572,10 @@ class Parallelizer(ABC):
                 This can be disabled in the case when the TP size does not divide the vocabulary size.
             sequence_parallel_enabled (`bool`, defaults to `False`):
                 Whether or not sequence parallelism is enabled.
+            kv_size_multiplier (`Optional[int], defaults to `None`):
+                The number of times to replicate the KV heads when the TP size is bigger than the number of KV heads.
+                If left unspecified, the smallest multiplier that makes the number of KV heads divisible by the TP size
+                will be used.
             pipeline_parallel_num_microbatches (`int`, defaults to 1):
                 The number of microbatches used for pipeline execution.
             pipeline_parallel_use_zero1_optimizer (`bool`, defaults to `False`):
@@ -606,6 +611,10 @@ class Parallelizer(ABC):
         name_to_parameter = dict(named_parameters(model, remove_duplicate=False))
         parameter_to_name = {p: n for n, p in name_to_parameter.items()}
 
+        names_of_the_parameters_to_consider = cls._get_parameter_names_for_current_pipeline(
+            model, remove_duplicate=True
+        )
+
         def should_parallelize_layer_predicate_func(layer):
             if pp_size == 1:
                 return True
@@ -623,14 +632,17 @@ class Parallelizer(ABC):
                 sequence_parallel_enabled=sequence_parallel_enabled,
                 should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
                 skip_linear_weight_load=True,
+                kv_size_multiplier=kv_size_multiplier,
             )
             xm.rendezvous("End of tensor parallelism")
             if is_main_worker():
                 logger.info("Tensor parallelism done.")
 
-        names_of_the_parameters_to_consider = cls._get_parameter_names_for_current_pipeline(
-            model, remove_duplicate=True
-        )
+            # We need to refresh the names because they might have changed after `_parallelize`.
+            # For instance if we changed regular linears to GQAQKVColumnParallelLinear.
+            names_of_the_parameters_to_consider = cls._get_parameter_names_for_current_pipeline(
+                model, remove_duplicate=True
+            )
 
         # Preparing the model for sequence parallelism:
         sp_specs_cls = cls.SEQUENCE_PARALLELSIM_SPECS_CLS

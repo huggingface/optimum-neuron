@@ -292,7 +292,7 @@ class ParallelSelfAttention(ParallelLayer):
             If left unspecified, the attribute will be fetched by using the NormalizedConfig associated to the model.
     """
 
-    PARALLEL_LAYER_SPECIFIC_KWARGS = {"skip_linear_weight_load": False}
+    PARALLEL_LAYER_SPECIFIC_KWARGS = {"skip_linear_weight_load": False, "kv_size_multiplier": None}
 
     QUERIES_NAME = "query"
     KEYS_NAME = "key"
@@ -428,6 +428,7 @@ class ParallelSelfAttention(ParallelLayer):
             raise AttributeError("Both NUM_KEY_VALUE_HEADS_NAME and NUM_KEY_VALUE_GROUPS_NAME must be specified.")
 
         skip_linear_weight_load = parallel_layer_specific_kwargs["skip_linear_weight_load"]
+        kv_size_multiplier = parallel_layer_specific_kwargs["kv_size_multiplier"]
 
         from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 
@@ -470,13 +471,11 @@ class ParallelSelfAttention(ParallelLayer):
             needs_gqa_qkv_column_parallel_linear = False
 
         if needs_gqa_qkv_column_parallel_linear:
-            # TODO: add the ability to specify the kv_size_multiplier when #440
-            # is merged.
             cls.replace_qkv_by_gqa_qkv_column_parallel_linear(
                 model,
                 layer,
                 sequence_parallel_enabled=sequence_parallel_enabled,
-                kv_size_multiplier=None,
+                kv_size_multiplier=kv_size_multiplier,
                 skip_linear_weight_load=skip_linear_weight_load,
             )
         else:
