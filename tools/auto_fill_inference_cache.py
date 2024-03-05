@@ -146,8 +146,7 @@ if __name__ == "__main__":
                     num_cores=model_config["num_cores"],
                     auto_cast_type=model_config["auto_cast_type"],
                 )
-    # Check if all arguments are provided if a config file is not used
-    if (
+    elif (
         args.hf_model_id is None
         or args.batch_size is None
         or args.sequence_length is None
@@ -157,12 +156,11 @@ if __name__ == "__main__":
         raise ValueError(
             "You must provide a --hf_model_id, --batch_size, --sequence_length, --num_cores, and --auto_cast_type to compile a model without a config file."
         )
-
-    # Otherwise, compile and cache a single model
-    compile_and_cache_model(
-        hf_model_id=args.hf_model_id,
-        batch_size=args.batch_size,
-        sequence_length=args.sequence_length,
-        num_cores=args.num_cores,
-        auto_cast_type=args.auto_cast_type,
-    )
+    else:
+        compile_and_cache_model(
+            hf_model_id=args.hf_model_id,
+            batch_size=args.batch_size,
+            sequence_length=args.sequence_length,
+            num_cores=args.num_cores,
+            auto_cast_type=args.auto_cast_type,
+        )
