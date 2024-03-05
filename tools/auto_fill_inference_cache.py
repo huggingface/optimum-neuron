@@ -139,7 +139,7 @@ if __name__ == "__main__":
     # If a config file is provided, compile and cache all models in the file
     if args.config_file:
         logger.info(f"Compiling and caching models from config file: {args.config_file}")
-        # check if conig file starts with https://
+        # check if config file starts with https://
         if args.config_file.startswith("https://"):
             response = requests.get(args.config_file)
             response.raise_for_status()
