@@ -227,6 +227,17 @@ LLAMA_GQA_VARIANTS_TO_TEST = {
             "num_key_value_heads": "2",
         },
     ),
+    "num_key_value_heads < tp_size with PP": (
+        32,
+        8,
+        2,
+        {
+            "num_hidden_layers": "2",
+            "hidden_size": "32",
+            "num_attention_heads": "16",
+            "num_key_value_heads": "2",
+        },
+    ),
     "MQA-setup": (
         8,
         8,
@@ -275,6 +286,10 @@ class TestModelParallelization(DistributedTest):
     def sequence_parallel_enabled(self, request):
         return request.param
 
+    @pytest.fixture(scope="class", params=[False, True], ids=["embeddings_not_parallel", "parallelized_embeddings"])
+    def parallelize_embeddings(self, request):
+        return request.param
+
     def early_skip(self, fixtures_kwargs):
         pp_size = fixtures_kwargs.get("pp_size", None)
         parallel_sizes = fixtures_kwargs.get("parallel_sizes", None)
@@ -320,6 +335,7 @@ class TestModelParallelization(DistributedTest):
                 kv_size_multiplier = len(get_kv_shared_group(as_list=True)[0])
                 output = output[:, ::kv_size_multiplier]
 
+            xm.master_print(original_output - output)
             torch.testing.assert_close(original_output, output)
         else:
             assert original_output == output, f"Output named {name} do not match."
@@ -486,6 +502,7 @@ class TestModelParallelization(DistributedTest):
         from_pretrained,
         lazy_load,
         sequence_parallel_enabled,
+        parallelize_embeddings,
     ):
         monkeypatch.setattr(
             optimum.neuron.distributed.parallel_layers, "_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT", True
@@ -516,9 +533,8 @@ class TestModelParallelization(DistributedTest):
             model_name_or_path,
             config_overwrite,
             (world_size, tp_size, pp_size),
-            from_pretrained,
-            True,  # lazy_load, # lazy_load,
-            False,  # sequence_parallel_enabled,
-            False,
-            # True,
+            False,  # from_pretrained,
+            False,  # lazy_load,
+            True,  # sequence_parallel_enabled,
+            False,  # parallelize_embeddings,
         )

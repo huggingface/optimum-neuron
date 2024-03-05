@@ -45,6 +45,7 @@ from .utils import (
     WeightInformation,
     apply_activation_checkpointing,
     get_linear_weight_info,
+    get_parameter_names_mapping_after_gqa_qkv_replacement,
     initialize_parallel_linear,
     initialize_torch_nn_module,
     linear_to_parallel_linear,
@@ -651,6 +652,10 @@ class Parallelizer(ABC):
                 model, remove_duplicate=True
             )
 
+        # We need to retrieve this mapping here because PP works with `torch.fx` so we will not end-up with the same
+        # names after tracing.
+        gqa_qkv_to_original_parameter_names = get_parameter_names_mapping_after_gqa_qkv_replacement(model)
+
         # Preparing the model for sequence parallelism:
         sp_specs_cls = cls.SEQUENCE_PARALLELSIM_SPECS_CLS
 
@@ -723,6 +728,8 @@ class Parallelizer(ABC):
 
         if checkpoint_dir is not None:
             cls.load_model_checkpoint(model, checkpoint_dir)
+
+        model._gqa_qkv_to_original_parameter_names = gqa_qkv_to_original_parameter_names
 
         return model
 

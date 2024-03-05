@@ -245,11 +245,18 @@ class OptimumGQAQKVColumnParallelLinear(GQAQKVColumnParallelLinear):
         return mapping
 
 
+@requires_neuronx_distributed
 def get_parameter_names_mapping_after_gqa_qkv_replacement(
     model: torch.nn.Module, reversed: bool = False
 ) -> Dict[str, str]:
+    from neuronx_distributed.pipeline import NxDPPModel
+
     mapping = {}
-    module_to_name = {v: k for k, v in model.named_modules()}
+    if isinstance(model, NxDPPModel):
+        named_modules = model.local_named_modules()
+    else:
+        named_modules = model.named_modules()
+    module_to_name = {v: k for k, v in named_modules}
     for mod in model.modules():
         if isinstance(mod, OptimumGQAQKVColumnParallelLinear):
             mapping.update(**mod.get_parameter_names_mapping(module_to_name, reversed=reversed))

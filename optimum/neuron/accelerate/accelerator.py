@@ -34,7 +34,6 @@ from torch.utils.data.distributed import DistributedSampler
 
 from ...utils import logging
 from ..distributed import Parallelizer, ParallelizersManager
-from ..distributed.utils import get_parameter_names_mapping_after_gqa_qkv_replacement
 from ..utils import (
     DynamicPatch,
     ModelPatcher,
@@ -425,11 +424,6 @@ class NeuronAccelerator(Accelerator):
         # TODO: enable self.device (if needed).
         model = self.state.mp_plugin.parallelize_model(model, device=None)
 
-        gqa_qkv_to_original_parameter_names = get_parameter_names_mapping_after_gqa_qkv_replacement(model)
-        # Update CPU ids
-        for key in list(cpu_ids.keys()):
-            cpu_ids[gqa_qkv_to_original_parameter_names.get(key, key)] = cpu_ids.pop(key)
-
         if model_main_input_name is not None:
             setattr(model, "main_input_name", model_main_input_name)
 
@@ -440,6 +434,10 @@ class NeuronAccelerator(Accelerator):
             model_to_cast = model.local_module
         else:
             model_to_cast = model
+
+        # Update CPU ids
+        for key in list(cpu_ids.keys()):
+            cpu_ids[model._gqa_qkv_to_original_parameter_names.get(key, key)] = cpu_ids.pop(key)
 
         model_to_cast = model.local_module if isinstance(model, NxDPPModel) else model
         if os.environ.get("XLA_USE_BF16", "0") == "1" or os.environ.get("XLA_DOWNCAST_BF16", "0") == "1":
