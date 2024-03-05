@@ -22,7 +22,8 @@ import tempfile
 import time
 from huggingface_hub import login
 from optimum.neuron import version as optimum_neuron_version
-import re 
+import re
+
 # Example usage:
 # huggingface-cli login --token hf_xxx # access to cache repo
 # python tools/cache_model_for_inference.py --hf_model_id "HuggingFaceH4/zephyr-7b-beta" --batch_size 1 --sequence_length 2048 --num_cores 2 --auto_cast_type fp16
@@ -39,6 +40,7 @@ import re
 logging.basicConfig(level=logging.INFO, force=True)
 logger = logging.getLogger()
 
+
 def get_neuronx_cc_version():
     result = subprocess.run(["neuronx-cc", "--version"], capture_output=True, text=True)
     version_match = re.search(r"NeuronX Compiler version ([\d\.]+\+[a-f0-9]+)", result.stderr)
@@ -46,47 +48,56 @@ def get_neuronx_cc_version():
         return version_match.group(1)
     else:
         raise ValueError("Version information not found in the output")
-        
+
+
 def get_aws_neuronx_tools_version():
-    output = subprocess.check_output(['apt', 'show', 'aws-neuronx-tools'], text=True)
-    version_match = re.search(r'Version: ([\d\.]+)', output)
-    
+    output = subprocess.check_output(["apt", "show", "aws-neuronx-tools"], text=True)
+    version_match = re.search(r"Version: ([\d\.]+)", output)
+
     if version_match:
         # extract the version number and remove the last two characters (not tracked in optimum)
         return version_match.group(1)[:-2]
     else:
-        raise ValueError("Version information not found in the output")   
-      
+        raise ValueError("Version information not found in the output")
 
-def compile_and_cache_model(hf_model_id,batch_size, sequence_length, num_cores, auto_cast_type):
+
+def compile_and_cache_model(hf_model_id, batch_size, sequence_length, num_cores, auto_cast_type):
     start = time.time()
     with tempfile.TemporaryDirectory() as temp_dir:
-      # Compile model with Optimum for specific configurations
-      compile_command = [
-          "optimum-cli", "export", "neuron", "-m", hf_model_id,
-          "--batch_size", str(batch_size),
-          "--sequence_length", str(sequence_length),
-          "--num_cores", str(num_cores),
-          "--auto_cast_type", auto_cast_type,
-          temp_dir
-      ]
-      logger.info(f"Running compile command: {' '.join(compile_command)}")
-      try:
-        subprocess.run(compile_command, check=True)
-      except subprocess.CalledProcessError as e:
+        # Compile model with Optimum for specific configurations
+        compile_command = [
+            "optimum-cli",
+            "export",
+            "neuron",
+            "-m",
+            hf_model_id,
+            "--batch_size",
+            str(batch_size),
+            "--sequence_length",
+            str(sequence_length),
+            "--num_cores",
+            str(num_cores),
+            "--auto_cast_type",
+            auto_cast_type,
+            temp_dir,
+        ]
+        logger.info(f"Running compile command: {' '.join(compile_command)}")
+        try:
+            subprocess.run(compile_command, check=True)
+        except subprocess.CalledProcessError as e:
             logger.error(f"Failed to compile model: {e}")
             return
 
-      # Synchronize compiled model to Hugging Face Hub
-      cache_sync_command = ["optimum-cli", "neuron", "cache", "synchronize"]
-      logger.info(f"Running cache synchronize command: {' '.join(cache_sync_command)}")
-      
-      try:
-        subprocess.run(cache_sync_command, check=True)
-      except subprocess.CalledProcessError as e:
-          logger.error(f"Failed to synchronize compiled model: {e}")
-          return
-      
+        # Synchronize compiled model to Hugging Face Hub
+        cache_sync_command = ["optimum-cli", "neuron", "cache", "synchronize"]
+        logger.info(f"Running cache synchronize command: {' '.join(cache_sync_command)}")
+
+        try:
+            subprocess.run(cache_sync_command, check=True)
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Failed to synchronize compiled model: {e}")
+            return
+
     # Log time taken
     logger.info(f"Compiled and cached model {hf_model_id} w{time.time() - start:.2f} seconds")
 
@@ -97,7 +108,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, help="Batch size for compilation.")
     parser.add_argument("--sequence_length", type=int, help="Sequence length for compilation.")
     parser.add_argument("--num_cores", type=int, help="Number of cores for compilation.")
-    parser.add_argument("--auto_cast_type", type=str, choices=['bf16', 'fp16'], help="Auto cast type for compilation.")
+    parser.add_argument("--auto_cast_type", type=str, choices=["bf16", "fp16"], help="Auto cast type for compilation.")
     parser.add_argument("--hf_token", type=str, help="Hugging Face token for authentication if not logged in.")
     parser.add_argument("--config_file", type=str, help="Path to a json config file with model configurations.")
     args = parser.parse_args()
@@ -111,7 +122,7 @@ if __name__ == "__main__":
 
     # check and get neuronx-cc version
     neuronx_cc_version = get_neuronx_cc_version()
-    sdk_version = get_aws_neuronx_tools_version()   
+    sdk_version = get_aws_neuronx_tools_version()
     logger.info(f"Compiler version: {neuronx_cc_version}")
     logger.info(f"Neuron SDK version: {sdk_version}")
     logger.info(f"Optimum Neuron version: {optimum_neuron_version.__version__}")
@@ -126,7 +137,7 @@ if __name__ == "__main__":
             config = json.load(f)
         for model_id, conifgs in config.items():
             for model_config in conifgs:
-                
+
                 compile_and_cache_model(
                     hf_model_id=model_id,
                     batch_size=model_config["batch_size"],
@@ -134,7 +145,7 @@ if __name__ == "__main__":
                     num_cores=model_config["num_cores"],
                     auto_cast_type=model_config["auto_cast_type"],
                 )
-    else:    
+    else:
         # Otherwise, compile and cache a single model
         compile_and_cache_model(
             hf_model_id=args.hf_model_id,
