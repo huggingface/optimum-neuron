@@ -13,18 +13,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Script to cache models for inference."""
+import argparse
 import json
 import logging
-import os
+import re
 import subprocess
-import argparse
 import tempfile
 import time
-from huggingface_hub import login
-from optimum.neuron import version as optimum_neuron_version
-import re
+
 import requests
-from requests.exceptions import HTTPError
+from huggingface_hub import login
+
+from optimum.neuron import version as optimum_neuron_version
+
 
 # Example usage:
 # huggingface-cli login --token hf_xxx # access to cache repo
