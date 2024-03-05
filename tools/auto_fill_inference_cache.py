@@ -136,8 +136,8 @@ if __name__ == "__main__":
         logger.info(f"Compiling and caching models from config file: {args.config_file}")
         with open(args.config_file, "r") as f:
             config = json.load(f)
-        for model_id, conifgs in config.items():
-            for model_config in conifgs:
+        for model_id, configs in config.items():
+            for model_config in configs:
 
                 compile_and_cache_model(
                     hf_model_id=model_id,
