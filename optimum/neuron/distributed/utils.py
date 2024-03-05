@@ -44,11 +44,15 @@ if is_neuronx_distributed_available():
     from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
     from neuronx_distributed.parallel_layers import layers
     from neuronx_distributed.pipeline import NxDPPModel
+    from neuronx_distributed.pipeline.trace import HFTracerWrapper
 else:
 
     class GQAQKVColumnParallelLinear(torch.nn.Module):
         def __init__(self, *args, **kwargs):
             super().__init__()
+
+    from transformers.utils.fx import HFTracer
+    HFTracerWrapper = HFTracer
 
 
 if TYPE_CHECKING:
@@ -1259,3 +1263,8 @@ class ParameterMetadata:
     @property
     def is_sharded(self):
         return self.kind == "sharded"
+
+
+class OptimumNeuronFXTracer(HFTracerWrapper):
+    def is_leaf_module(self, m: torch.nn.Module, module_qualified_name: str) -> bool:
+        return super().is_leaf_module(m, module_qualified_name) or isinstance(m , FakeProj)

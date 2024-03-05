@@ -57,6 +57,7 @@ from .utils import (
     parameter_can_be_initialized,
     try_to_hf_initialize,
     was_already_initialized_during_parallelization,
+    OptimumNeuronFXTracer,
 )
 
 
@@ -718,6 +719,7 @@ class Parallelizer(ABC):
                     pipeline_cuts=cls.PIPELINE_PARALLELISM_SPECS_CLS.create_pipeline_cuts(model, pp_size),
                     leaf_module_cls=cls.PIPELINE_PARALLELISM_SPECS_CLS.leaf_module_cls(),
                     use_zero1_optimizer=pipeline_parallel_use_zero1_optimizer,
+                    tracer_cls=OptimumNeuronFXTracer,
                 )
                 if pipeline_parallel_gradient_checkpointing_enabled:
                     apply_activation_checkpointing(model)

@@ -228,7 +228,7 @@ LLAMA_GQA_VARIANTS_TO_TEST = {
         },
     ),
     "num_key_value_heads < tp_size with PP": (
-        32,
+        16,
         8,
         2,
         {
