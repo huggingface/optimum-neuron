@@ -127,8 +127,9 @@ if __name__ == "__main__":
     logger.info(f"Neuron SDK version: {sdk_version}")
     logger.info(f"Optimum Neuron version: {optimum_neuron_version.__version__}")
     logger.info(f"Compatible Optimum Neuron SDK version: {optimum_neuron_version.__sdk_version__} == {sdk_version}")
-    # TODO comment in
-    # assert optimum_neuron_version.__sdk_version__ == sdk_version, f"Optimum Neuron SDK version {optimum_neuron_version.__sdk_version__} is not compatible with Neuron SDK version {sdk_version
+    assert (
+        optimum_neuron_version.__sdk_version__ == sdk_version
+    ), f"Optimum Neuron SDK version {optimum_neuron_version.__sdk_version__} is not compatible with installed Neuron SDK version {sdk_version}"
 
     # If a config file is provided, compile and cache all models in the file
     if args.config_file:
@@ -146,9 +147,17 @@ if __name__ == "__main__":
                     auto_cast_type=model_config["auto_cast_type"],
                 )
     # Check if all arguments are provided if a config file is not used
-    if args.hf_model_id is None or args.batch_size is None or args.sequence_length is None or args.num_cores is None or args.auto_cast_type is None:
-        raise ValueError("You must provide a --hf_model_id, --batch_size, --sequence_length, --num_cores, and --auto_cast_type to compile a model without a config file.")
-    
+    if (
+        args.hf_model_id is None
+        or args.batch_size is None
+        or args.sequence_length is None
+        or args.num_cores is None
+        or args.auto_cast_type is None
+    ):
+        raise ValueError(
+            "You must provide a --hf_model_id, --batch_size, --sequence_length, --num_cores, and --auto_cast_type to compile a model without a config file."
+        )
+
     # Otherwise, compile and cache a single model
     compile_and_cache_model(
         hf_model_id=args.hf_model_id,
@@ -156,4 +165,4 @@ if __name__ == "__main__":
         sequence_length=args.sequence_length,
         num_cores=args.num_cores,
         auto_cast_type=args.auto_cast_type,
-        )
+    )
