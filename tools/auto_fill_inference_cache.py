@@ -19,6 +19,7 @@ import os
 import subprocess
 import argparse
 import tempfile
+import time
 from huggingface_hub import login
 from optimum.neuron import version as optimum_neuron_version
 import re 
@@ -28,9 +29,9 @@ import re
 # Alternative provide json config file with the following format:
 # python tools/cache_model_for_inference.py --config_file test.json
 # {
-#    "models": [
-#        { "hf_model_id": "HuggingFaceH4/zephyr-7b-beta", "batch_size": 1, "sequence_length": 2048, "num_cores": 2, "auto_cast_type": "fp16" },
-#        { "hf_model_id": "HuggingFaceH4/zephyr-7b-beta", "batch_size": 2, "sequence_length": 2048, "num_cores": 2, "auto_cast_type": "bf16" }
+#    "meta-llama/Llama-2-7b-chat-hf": [
+#        {  "batch_size": 1, "sequence_length": 2048, "num_cores": 2, "auto_cast_type": "fp16" },
+#        {  "batch_size": 2, "sequence_length": 2048, "num_cores": 2, "auto_cast_type": "bf16" }
 #    ]
 # }
 
@@ -58,6 +59,7 @@ def get_aws_neuronx_tools_version():
       
 
 def compile_and_cache_model(hf_model_id,batch_size, sequence_length, num_cores, auto_cast_type):
+    start = time.time()
     with tempfile.TemporaryDirectory() as temp_dir:
       # Compile model with Optimum for specific configurations
       compile_command = [
@@ -72,7 +74,8 @@ def compile_and_cache_model(hf_model_id,batch_size, sequence_length, num_cores, 
       try:
         subprocess.run(compile_command, check=True)
       except subprocess.CalledProcessError as e:
-          raise e
+            logger.error(f"Failed to compile model: {e}")
+            return
 
       # Synchronize compiled model to Hugging Face Hub
       cache_sync_command = ["optimum-cli", "neuron", "cache", "synchronize"]
@@ -82,7 +85,10 @@ def compile_and_cache_model(hf_model_id,batch_size, sequence_length, num_cores, 
         subprocess.run(cache_sync_command, check=True)
       except subprocess.CalledProcessError as e:
           logger.error(f"Failed to synchronize compiled model: {e}")
-          raise e
+          return
+      
+    # Log time taken
+    logger.info(f"Compiled and cached model {hf_model_id} w{time.time() - start:.2f} seconds")
 
 
 if __name__ == "__main__":
@@ -110,6 +116,7 @@ if __name__ == "__main__":
     logger.info(f"Neuron SDK version: {sdk_version}")
     logger.info(f"Optimum Neuron version: {optimum_neuron_version.__version__}")
     logger.info(f"Compatible Optimum Neuron SDK version: {optimum_neuron_version.__sdk_version__} == {sdk_version}")
+    # TODO comment in
     # assert optimum_neuron_version.__sdk_version__ == sdk_version, f"Optimum Neuron SDK version {optimum_neuron_version.__sdk_version__} is not compatible with Neuron SDK version {sdk_version
 
     # If a config file is provided, compile and cache all models in the file
@@ -117,20 +124,22 @@ if __name__ == "__main__":
         logger.info(f"Compiling and caching models from config file: {args.config_file}")
         with open(args.config_file, "r") as f:
             config = json.load(f)
-        for model_config in config["models"]:
-            compile_and_cache_model(
-                hf_model_id=model_config["hf_model_id"],
-                batch_size=model_config["batch_size"],
-                sequence_length=model_config["sequence_length"],
-                num_cores=model_config["num_cores"],
-                auto_cast_type=model_config["auto_cast_type"],
-            )
-
-    # Otherwise, compile and cache a single model
-    compile_and_cache_model(
-        hf_model_id=args.hf_model_id,
-        batch_size=args.batch_size,
-        sequence_length=args.sequence_length,
-        num_cores=args.num_cores,
-        auto_cast_type=args.auto_cast_type,
-    )
+        for model_id, conifgs in config.items():
+            for model_config in conifgs:
+                
+                compile_and_cache_model(
+                    hf_model_id=model_id,
+                    batch_size=model_config["batch_size"],
+                    sequence_length=model_config["sequence_length"],
+                    num_cores=model_config["num_cores"],
+                    auto_cast_type=model_config["auto_cast_type"],
+                )
+    else:    
+        # Otherwise, compile and cache a single model
+        compile_and_cache_model(
+            hf_model_id=args.hf_model_id,
+            batch_size=args.batch_size,
+            sequence_length=args.sequence_length,
+            num_cores=args.num_cores,
+            auto_cast_type=args.auto_cast_type,
+        )
