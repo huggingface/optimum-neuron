@@ -436,8 +436,9 @@ class NeuronAccelerator(Accelerator):
             model_to_cast = model
 
         # Update CPU ids
+        original_parameter_names_to_gqa_qkv_names = model._gqa_qkv_metadata["original_names_to_gqa_qkv_names"]
         for key in list(cpu_ids.keys()):
-            cpu_ids[model._gqa_qkv_to_original_parameter_names.get(key, key)] = cpu_ids.pop(key)
+            cpu_ids[original_parameter_names_to_gqa_qkv_names.get(key, key)] = cpu_ids.pop(key)
 
         model_to_cast = model.local_module if isinstance(model, NxDPPModel) else model
         if os.environ.get("XLA_USE_BF16", "0") == "1" or os.environ.get("XLA_DOWNCAST_BF16", "0") == "1":

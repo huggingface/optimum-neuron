@@ -41,6 +41,7 @@ from .parallel_layers import (
 from .utils import (
     TENSOR_PARALLEL_SHARDS_DIR_NAME,
     OptimumGQAQKVColumnParallelLinear,
+    OptimumNeuronFXTracer,
     ParameterMetadata,
     WeightInformation,
     apply_activation_checkpointing,
@@ -57,7 +58,6 @@ from .utils import (
     parameter_can_be_initialized,
     try_to_hf_initialize,
     was_already_initialized_during_parallelization,
-    OptimumNeuronFXTracer,
 )
 
 
@@ -655,7 +655,15 @@ class Parallelizer(ABC):
 
         # We need to retrieve this mapping here because PP works with `torch.fx` so we will not end-up with the same
         # names after tracing.
-        gqa_qkv_to_original_parameter_names = get_parameter_names_mapping_after_gqa_qkv_replacement(model)
+        for mod in model.modules():
+            if isinstance(mod, OptimumGQAQKVColumnParallelLinear):
+                kv_size_multiplier = mod.kv_size_multiplier
+                break
+
+        gqa_qkv_metadata = {
+            "original_names_to_gqa_qkv_names": get_parameter_names_mapping_after_gqa_qkv_replacement(model),
+            "kv_size_multiplier": kv_size_multiplier,
+        }
 
         # Preparing the model for sequence parallelism:
         sp_specs_cls = cls.SEQUENCE_PARALLELSIM_SPECS_CLS
@@ -728,10 +736,12 @@ class Parallelizer(ABC):
             if is_main_worker():
                 logger.info("Pipeline parallelism done.")
 
+        # TODO: can we optimize by skipping initialization and weight loading when `checkpoint_dir` is not None.
         if checkpoint_dir is not None:
             cls.load_model_checkpoint(model, checkpoint_dir)
 
-        model._gqa_qkv_to_original_parameter_names = gqa_qkv_to_original_parameter_names
+        # model._original_parameter_names_to_gqa_qkv_names = original_parameter_names_to_gqa_qkv_names
+        model._gqa_qkv_metadata = gqa_qkv_metadata
 
         return model
 
@@ -963,6 +973,7 @@ class Parallelizer(ABC):
         state_dict["sharded_metadata"] = {
             k: asdict(v) for k, v in cls._get_parameters_tp_metadata(dict(model.named_parameters())).items()
         }
+        state_dict["gqa_qkv_metadata"] = model._gqa_qkv_metadata
 
         if optimizer is not None:
             # TODO: have metadata working for the optimizer.
