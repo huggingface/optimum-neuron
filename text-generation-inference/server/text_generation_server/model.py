@@ -6,7 +6,7 @@ from typing import Optional
 from huggingface_hub import snapshot_download
 from huggingface_hub.constants import HF_HUB_CACHE
 from loguru import logger
-from transformers import AutoConfig, AutoTokenizer
+from transformers import AutoConfig, AutoTokenizer, GenerationConfig
 
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.utils import ModelCacheEntry, get_hub_cached_entries
@@ -122,5 +122,11 @@ def fetch_model(
     logger.info(f"Saving model tokenizer under {export_path}.")
     tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision)
     tokenizer.save_pretrained(export_path)
+    try:
+        config = GenerationConfig.from_pretrained(model_id, revision=revision)
+        config.save_pretrained(export_path)
+        logger.info(f"Saved model default generation config under {export_path}.")
+    except:
+        logger.warning(f"No default generation config found for {model_id}.")
     logger.info(f"Model successfully exported in {end - start:.2f} s under {export_path}.")
     return export_path
