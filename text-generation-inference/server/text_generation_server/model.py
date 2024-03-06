@@ -98,17 +98,14 @@ def fetch_model(
     # Export the model
     logger.warning(f"{model_id} is not a neuron model: it will be exported using cached artifacts.")
     start = time.time()
-    logger.info(f"Fetching revision {revision} of model {model_id}.")
-    model_path = snapshot_download(model_id, revision=revision)
-    end = time.time()
-    logger.info(f"Model successfully fetched in {end - start:.2f} s.")
     logger.info(f"Exporting model to neuron with config {neuron_config}.")
     start = time.time()
-    model = NeuronModelForCausalLM.from_pretrained(model_path, export=True, **export_kwargs)
-    # Save for later retrieval
-    model.save_pretrained(export_path)
+    model = NeuronModelForCausalLM.from_pretrained(model_id, export=True, **export_kwargs)
     end = time.time()
-    # We also need to fetch and save the tokenizer
+    logger.info(f"Model successfully exported in {end - start:.2f} s.")
+    logger.info(f"Saving exported model to local storage under {export_path}.")
+    model.save_pretrained(export_path)
+    logger.info(f"Saving model tokenizer under {export_path}.")
     tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision)
     tokenizer.save_pretrained(export_path)
     logger.info(f"Model successfully exported in {end - start:.2f} s under {export_path}.")
