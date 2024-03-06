@@ -359,10 +359,12 @@ def create_accelerator_for_mp(
     gradient_accumulation_steps: int = 1,
     parallelize_embeddings: bool = True,
     sequence_parallel_enabled: bool = True,
+    kv_size_multiplier: Optional[int] = None,
     checkpoint_dir: Optional[Union[Path, str]] = None,
 ) -> NeuronAccelerator:
     mp_plugin = ModelParallelismPlugin(
         tensor_parallel_size=tp_size,
+        kv_size_multiplier=kv_size_multiplier,
         parallelize_embeddings=parallelize_embeddings,
         sequence_parallel_enabled=sequence_parallel_enabled,
         pipeline_parallel_size=pp_size,

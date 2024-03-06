@@ -417,21 +417,23 @@ class TestCommonDistributed(DistributedTest):
             assert all(torch.all(p1 == p2) for p1, p2 in zip(model_parameters, new_model_parameters))
 
     @pytest.mark.parametrize(
-        "world_size,tp_size,pp_size,model_name",
+        "world_size,tp_size,pp_size,kv_size_multiplier,model_name",
         [
-            [8, 2, 1, MODEL_NAME_WITH_4_KV_HEADS],
-            [8, 1, 2, MODEL_NAME_WITH_4_KV_HEADS],
-            [16, 2, 2, MODEL_NAME_WITH_4_KV_HEADS],
-            [16, 8, 2, MODEL_NAME_WITH_4_KV_HEADS],
+            [8, 2, 1, None, MODEL_NAME_WITH_4_KV_HEADS],
+            [8, 1, 2, None, MODEL_NAME_WITH_4_KV_HEADS],
+            [16, 2, 2, None, MODEL_NAME_WITH_4_KV_HEADS],
+            [16, 8, 2, None, MODEL_NAME_WITH_4_KV_HEADS],
+            [16, 8, 2, 4, MODEL_NAME_WITH_4_KV_HEADS],
         ],
         ids=[
             "tp=2",
             "pp=2",
             "dp=4,tp=pp=2",
-            "dp=1,tp=8,pp=2 with GQAQKVColumnParallelLinear",
+            "dp=1,tp=8,pp=2,kv_size_multiplier=None,GQAQKVColumnParallelLinear",
+            "dp=1,tp=8,pp=2,kv_size_multiplier=4,GQAQKVColumnParallelLinear",
         ],
     )
-    def test_consolidate_model_parallel_checkpoints(self, tmpdir, world_size, tp_size, pp_size, model_name):
+    def test_consolidate_model_parallel_checkpoints(self, tmpdir, world_size, tp_size, pp_size, kv_size_multiplier, model_name):
         orig_model = get_model(
             LlamaForCausalLM,
             model_name,
@@ -442,7 +444,7 @@ class TestCommonDistributed(DistributedTest):
             # Saving to pytorch instead of safetensors because it fails otherwise for pickling issues with distributed tests.
             orig_model.save_pretrained(orig_model_path, safe_serialization=False)
 
-        accelerator = create_accelerator_for_mp(tp_size, pp_size)
+        accelerator = create_accelerator_for_mp(tp_size, pp_size, kv_size_multiplier=kv_size_multiplier)
         _ = accelerator.prepare(orig_model)
 
         output_dir = Path(tmpdir) / "parallel_model"
@@ -463,4 +465,10 @@ class TestCommonDistributed(DistributedTest):
                 orig_tensor = orig_state_dict[key]
                 consolidated_tensor = consolidated_state_dict[key]
                 print(f"Testing that {key} match")
-                torch.testing.assert_close(orig_tensor, consolidated_tensor)
+                torch.set_printoptions(profile="full")
+                try:
+                    torch.testing.assert_close(orig_tensor, consolidated_tensor)
+                except:
+                    xm.master_print(orig_tensor)
+                    xm.master_print(consolidated_tensor)
+                    raise

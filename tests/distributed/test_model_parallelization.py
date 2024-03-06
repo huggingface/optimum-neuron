@@ -533,7 +533,7 @@ class TestModelParallelization(DistributedTest):
             model_name_or_path,
             config_overwrite,
             (world_size, tp_size, pp_size),
-            False,  # from_pretrained,
+            True,  # from_pretrained,
             False,  # lazy_load,
             True,  # sequence_parallel_enabled,
             False,  # parallelize_embeddings,

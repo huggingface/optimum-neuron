@@ -463,6 +463,21 @@ def get_linear_weight_info(
     return linear_layer_weight_info, linear_layer_bias_weight_info
 
 
+@requires_neuronx_distributed
+def create_kv_proj_local_weight_from_regular_weight(weight: torch.nn.Parameter, kv_size_multiplier: int, output_size_per_partition: int):
+    from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_rank, get_tensor_model_parallel_size
+
+    tp_size = get_tensor_model_parallel_size()
+    tp_rank = get_tensor_model_parallel_rank()
+
+    repeated_weight = weight.repeat(kv_size_multiplier, 1)
+    # output_size = weight.size(0)
+    # output_size_per_partition = (output_size  * kv_size_multiplier) // tp_size
+
+    split = torch.split(repeated_weight, output_size_per_partition, dim=0)
+    return torch.cat(split[tp_rank::tp_size], dim=0)
+
+@requires_neuronx_distributed
 def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
     layer: OptimumGQAQKVColumnParallelLinear,
     weight_name: str,
@@ -490,25 +505,46 @@ def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
     bias = getattr(layer, f"bias_{proj_name}")
     row_size, _ = weight.shape
 
-    if proj_name in ["k", "v"]:
-        tp_rank = tp_rank // layer.kv_size_multiplier
+    # if proj_name in ["k", "v"]:
+    #     tp_rank = tp_rank // layer.kv_size_multiplier
+
+    kv_size_multiplier = layer.kv_size_multiplier  if proj_name in "kv" else 1
 
     with torch.no_grad():
         if not was_already_initialized_during_parallelization(weight):
             if linear_layer_weight_info is not None:
-                print("HERE", weight_name, layer, weight.device)
-                weight_data = load_tensor_for_weight(
-                    linear_layer_weight_info,
-                    tensor_slices=(
+                if proj_name in ["k", "v"]:
+                    tensor_slices = None
+                else:
+                    tensor_slices = (
                         (tp_rank * row_size, (tp_rank + 1) * row_size),
                         None,
-                    ),
+                    )
+                    tensor_slices = None
+                # weight_data = load_tensor_for_weight(
+                #     linear_layer_weight_info,
+                #     tensor_slices=(
+                #         (tp_rank * row_size, (tp_rank + 1) * row_size),
+                #         None,
+                #     ),
+                # )
+                weight_data = load_tensor_for_weight(
+                    linear_layer_weight_info,
+                    tensor_slices=tensor_slices
                 )
+                if proj_name in ["k", "v"]:
+                    pass
+                weight_data = create_kv_proj_local_weight_from_regular_weight(weight, kv_size_multiplier, weight.size(0))
                 weight.copy_(weight_data)
                 mark_parameter_init_status_during_parallelization(weight, True)
                 del weight_data
             elif linear_layer.weight.device != torch.device("meta"):
-                weight.copy_(linear_layer.weight[tp_rank * row_size : (tp_rank + 1) * row_size, :])
+                # if proj_name in ["k", "v"]:
+                #     weight_data = create_kv_proj_local_weight_from_regular_weight(linear_layer.weight, layer.kv_size_multiplier, weight.size(0))
+                # else:
+                #     weight_data = linear_layer.weight[tp_rank * row_size : (tp_rank + 1) * row_size, :]
+                weight_data = create_kv_proj_local_weight_from_regular_weight(linear_layer.weight, kv_size_multiplier, weight.size(0))
+                weight.copy_(weight_data)
                 mark_parameter_init_status_during_parallelization(weight, True)
             else:
                 mark_parameter_init_status_during_parallelization(weight, False)

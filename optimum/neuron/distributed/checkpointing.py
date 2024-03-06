@@ -70,6 +70,7 @@ def consolidate_tensor_parallel_checkpoints(
             consolidated_state_dict[original_name] = state_dicts[0]["model"][name]
         else:
             params = [state_dict["model"][name] for state_dict in state_dicts]
+
             full_param = torch.cat(
                 params,
                 dim=metadata.partition_dim,
@@ -79,11 +80,6 @@ def consolidate_tensor_parallel_checkpoints(
                 full_param = torch.chunk(full_param, kv_size_multiplier, dim=0)[0].clone()
 
             consolidated_state_dict[original_name] = full_param
-
-    # for orig_name, gqa_qkv_name in original_parameter_names_to_gqa_qkv_names.items():
-    #     tensor = consolidated_state_dict.pop(gqa_qkv_name)
-    #     if weight_name not in ["weight_q", "bias_q"]:
-    #     consolidated_state_dict[orig_name] = tensor
 
     return consolidated_state_dict
 
@@ -102,7 +98,7 @@ def consolidate_model_parallel_checkpoints(checkpoint_dir: Union[str, Path]) -> 
             raise ValueError(f"Could not find the tensor parallel shards from {checkpoint_dir}")
 
     # Regular case: the checkpoint was saved without xser.
-    sharded_checkpoints = checkpoint_dir.glob("tp_rank_*/checkpoint.pt")
+    sharded_checkpoints = list(checkpoint_dir.glob("tp_rank_*/checkpoint.pt"))
     load_function = torch.load
 
     # If no file was found, maybe the checkpoint was saved with xser.
