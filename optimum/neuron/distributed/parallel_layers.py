@@ -352,6 +352,7 @@ class ParallelSelfAttention(ParallelLayer):
                 "GQAQKVColumnParallelLinear is not needed."
             )
 
+        num_attention_heads = getattr(attention_layer, cls.NUM_ATTENTION_HEADS_NAME)
         query_linear = getattr(attention_layer, cls.QUERIES_NAME)
         key_linear = getattr(attention_layer, cls.KEYS_NAME)
 
@@ -370,6 +371,7 @@ class ParallelSelfAttention(ParallelLayer):
             cls.QUERIES_NAME,
             cls.KEYS_NAME,
             cls.VALUES_NAME,
+            num_attention_heads,
             num_key_value_heads,
             hidden_size,
             [query_in_features, key_value_in_features],
