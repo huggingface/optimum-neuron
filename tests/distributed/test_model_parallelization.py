@@ -184,72 +184,6 @@ MODEL_CLASSES_TO_IGNORE = [
 ]
 
 
-LLAMA_GQA_VARIANTS_TO_TEST = {
-    # "MHA-setup": (
-    #     8,
-    #     2,
-    #     1,
-    #     {
-    #         "num_hidden_layers": "2",
-    #         "num_attention_heads": "8",
-    #         "num_key_value_heads": "8",
-    #     },
-    # ),
-    # "num_key_value_heads > tp_size": (
-    #     8,
-    #     2,
-    #     1,
-    #     {
-    #         "num_hidden_layers": "2",
-    #         "num_attention_heads": "8",
-    #         "num_key_value_heads": "4",
-    #     },
-    # ),
-    # "num_key_value_heads = tp_size": (
-    #     8,
-    #     8,
-    #     1,
-    #     {
-    #         "num_hidden_layers": "2",
-    #         "hidden_size": "32",
-    #         "num_attention_heads": "16",
-    #         "num_key_value_heads": "8",
-    #     },
-    # ),
-    "num_key_value_heads < tp_size": (
-        8,
-        8,
-        1,
-        {
-            "num_hidden_layers": "2",
-            "hidden_size": "32",
-            "num_attention_heads": "16",
-            "num_key_value_heads": "2",
-        },
-    ),
-    "num_key_value_heads < tp_size with PP": (
-        16,
-        8,
-        2,
-        {
-            "num_hidden_layers": "2",
-            "hidden_size": "32",
-            "num_attention_heads": "16",
-            "num_key_value_heads": "2",
-        },
-    ),
-    "MQA-setup": (
-        8,
-        8,
-        1,
-        {
-            "num_hidden_layers": "2",
-            "hidden_size": "32",
-            "num_attention_heads": "16",
-            "num_key_value_heads": "1",
-        },
-    ),
-}
 # LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-32kv-heads-random"
 # LLAMA_V2_MODEL_NAME = "anushehchaudry/llama-2-tiny-random"
 # LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-random"
@@ -488,8 +422,80 @@ class TestModelParallelization(DistributedTest):
     )
     @pytest.mark.parametrize(
         "world_size,tp_size,pp_size,config_overwrite",
-        LLAMA_GQA_VARIANTS_TO_TEST.values(),
-        ids=LLAMA_GQA_VARIANTS_TO_TEST.keys(),
+        [
+            [
+                8,
+                2,
+                1,
+                {
+                    "num_hidden_layers": "2",
+                    "num_attention_heads": "8",
+                    "num_key_value_heads": "8",
+                },
+            ],
+            [
+                8,
+                2,
+                1,
+                {
+                    "num_hidden_layers": "2",
+                    "num_attention_heads": "8",
+                    "num_key_value_heads": "4",
+                },
+            ],
+            [
+                8,
+                8,
+                1,
+                {
+                    "num_hidden_layers": "2",
+                    "hidden_size": "32",
+                    "num_attention_heads": "16",
+                    "num_key_value_heads": "8",
+                },
+            ],
+            [
+                8,
+                8,
+                1,
+                {
+                    "num_hidden_layers": "2",
+                    "hidden_size": "32",
+                    "num_attention_heads": "16",
+                    "num_key_value_heads": "2",
+                },
+            ],
+            [
+                16,
+                8,
+                2,
+                {
+                    "num_hidden_layers": "2",
+                    "hidden_size": "32",
+                    "num_attention_heads": "16",
+                    "num_key_value_heads": "2",
+                },
+            ],
+            [
+                8,
+                8,
+                1,
+                {
+                    "num_hidden_layers": "2",
+                    "hidden_size": "32",
+                    "num_attention_heads": "16",
+                    "num_key_value_heads": "1",
+                },
+                ],
+        ],
+        ids=[
+            "MHA-setup",
+            "num_key_value_heads bigger than tp_size",
+            "num_key_value_heads equal to tp_size",
+            "num_key_value_heads lower than tp_size",
+            "num_key_value_heads lower than tp_size,pp enabled",
+            "MQA-setup",
+        ],
     )
     def test_llama_v2_gqa_with_qkv_parallel_collumn_linear(
         self,
@@ -533,8 +539,8 @@ class TestModelParallelization(DistributedTest):
             model_name_or_path,
             config_overwrite,
             (world_size, tp_size, pp_size),
-            True,  # from_pretrained,
-            False,  # lazy_load,
-            True,  # sequence_parallel_enabled,
-            False,  # parallelize_embeddings,
+            from_pretrained,
+            lazy_load,
+            sequence_parallel_enabled,
+            parallelize_embeddings,
         )

@@ -589,10 +589,12 @@ def maybe_load_weights_to_gqa_qkv_column_parallel_linear(
     original_to_gqa = layer.get_parameter_names_mapping(named_modules)
 
     for orig_name, gqa_name in original_to_gqa.items():
+        print(orig_name, gqa_name)
         linear_layer_qualified_name, _ = orig_name.rsplit(".", maxsplit=1)
         linear_weight_info, linear_bias_weight_info = get_linear_weight_info(
             weight_map, linear_layer_qualified_name, fail_if_not_found=False
         )
+        print(linear_weight_info, linear_layer_qualified_name, weight_map)
         weight_name = gqa_name.split(".")[-1]
         if try_from_checkpoint and linear_weight_info is not None:
             maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
