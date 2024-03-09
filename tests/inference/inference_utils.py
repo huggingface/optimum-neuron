@@ -42,6 +42,7 @@ MODEL_NAMES = {
     "latent-consistency": "echarlaix/tiny-random-latent-consistency",
     "mobilebert": "hf-internal-testing/tiny-random-MobileBertModel",
     "mpnet": "hf-internal-testing/tiny-random-MPNetModel",
+    "phi": "hf-internal-testing/tiny-random-PhiModel",
     "roberta": "hf-internal-testing/tiny-random-RobertaModel",
     "roformer": "hf-internal-testing/tiny-random-RoFormerModel",
     "stable-diffusion": "hf-internal-testing/tiny-stable-diffusion-torch",
