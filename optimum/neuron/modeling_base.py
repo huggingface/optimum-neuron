@@ -251,97 +251,106 @@ class NeuronBaseModel(OptimizedModel):
         """
         if task is None:
             task = TasksManager.infer_task_from_model(cls.auto_model_class)
+        task = TasksManager.map_from_synonym(task)
         library_name = TasksManager.infer_library_from_model(model_id, subfolder=subfolder, library_name=library_name)
 
-        save_dir = TemporaryDirectory()
-        save_dir_path = Path(save_dir.name)
-
-        model = TasksManager.get_model_from_task(
-            task=task,
-            model_name_or_path=model_id,
-            subfolder=subfolder,
-            revision=revision,
-            framework="pt",
-            library_name=library_name,
-            cache_dir=cache_dir,
-            use_auth_token=use_auth_token,
-            local_files_only=local_files_only,
-            force_download=force_download,
-            trust_remote_code=trust_remote_code,
-        )
-
-        task = TasksManager.map_from_synonym(task)
-        neuron_config_constructor = TasksManager.get_exporter_config_constructor(
-            model=model,
-            exporter="neuron",
-            task=task,
-            library_name=library_name,
-        )
-
-        input_shapes = {}
-        for name in neuron_config_constructor.func.get_mandatory_axes_for_task(task):
-            static_shape = kwargs_shapes.get(name, None)
-            if static_shape is None:
-                raise AttributeError(
-                    f"Cannot find the value of `{name}` from arguments nor the `config`. `{name}` is mandatory"
-                    " for exporting the model to the neuron format, please set the value explicitly."
-                )
-            else:
-                input_shapes[name] = static_shape
-        if is_neuron_available() and dynamic_batch_size is True and "batch_size" in input_shapes:
-            input_shapes["batch_size"] = 1
-            disable_fallback = True  # Turn off the fallback for neuron, otherwise dynamic batching will still fail
-
-        if is_neuronx_available():
-            compiler_type = "neuronx-cc"
-            compiler_version = get_neuronxcc_version()
+        # CHECK IF CACHED
+        cache_exist = False
+        if cache_exist:
+            pass
         else:
-            compiler_type = "neuron-cc"
-            compiler_version = get_neuroncc_version()
+            # compile
+            save_dir = TemporaryDirectory()
+            save_dir_path = Path(save_dir.name)
 
-        neuron_config = neuron_config_constructor(
-            model.config,
-            dynamic_batch_size=dynamic_batch_size,
-            compiler_type=compiler_type,
-            compiler_version=compiler_version,
-            **input_shapes,
-        )
+            model = TasksManager.get_model_from_task(
+                task=task,
+                model_name_or_path=model_id,
+                subfolder=subfolder,
+                revision=revision,
+                framework="pt",
+                library_name=library_name,
+                cache_dir=cache_dir,
+                use_auth_token=use_auth_token,
+                local_files_only=local_files_only,
+                force_download=force_download,
+                trust_remote_code=trust_remote_code,
+            )
 
-        # Get compilation arguments
-        auto_cast_type = None if auto_cast is None else auto_cast_type
-        compiler_kwargs = {
-            "auto_cast": auto_cast,
-            "auto_cast_type": auto_cast_type,
-            "disable_fast_relayout": disable_fast_relayout,
-            "disable_fallback": disable_fallback,
-        }
+            neuron_config_constructor = TasksManager.get_exporter_config_constructor(
+                model=model,
+                exporter="neuron",
+                task=task,
+                library_name=library_name,
+            )
 
-        input_names, output_names = export(
-            model=model,
-            config=neuron_config,
-            output=save_dir_path / NEURON_FILE_NAME,
-            compiler_workdir=compiler_workdir,
-            inline_weights_to_neff=inline_weights_to_neff,
-            optlevel=optlevel,
-            **compiler_kwargs,
-        )
+            input_shapes = {}
+            for name in neuron_config_constructor.func.get_mandatory_axes_for_task(task):
+                static_shape = kwargs_shapes.get(name, None)
+                if static_shape is None:
+                    raise AttributeError(
+                        f"Cannot find the value of `{name}` from arguments nor the `config`. `{name}` is mandatory"
+                        " for exporting the model to the neuron format, please set the value explicitly."
+                    )
+                else:
+                    input_shapes[name] = static_shape
+            if is_neuron_available() and dynamic_batch_size is True and "batch_size" in input_shapes:
+                input_shapes["batch_size"] = 1
+                disable_fallback = True  # Turn off the fallback for neuron, otherwise dynamic batching will still fail
 
-        config = store_compilation_config(
-            config=model.config,
-            input_shapes=input_shapes,
-            compiler_kwargs=compiler_kwargs,
-            input_names=input_names,
-            output_names=output_names,
-            dynamic_batch_size=dynamic_batch_size,
-            compiler_type=compiler_type,
-            compiler_version=compiler_version,
-            inline_weights_to_neff=inline_weights_to_neff,
-            optlevel=optlevel,
-            task=task,
-        )
+            if is_neuronx_available():
+                compiler_type = "neuronx-cc"
+                compiler_version = get_neuronxcc_version()
+            else:
+                compiler_type = "neuron-cc"
+                compiler_version = get_neuroncc_version()
 
-        config.save_pretrained(save_dir_path)
-        maybe_save_preprocessors(model_id, save_dir_path, src_subfolder=subfolder)
+            neuron_config = neuron_config_constructor(
+                model.config,
+                dynamic_batch_size=dynamic_batch_size,
+                compiler_type=compiler_type,
+                compiler_version=compiler_version,
+                **input_shapes,
+            )
+
+            # Get compilation arguments
+            auto_cast_type = None if auto_cast is None else auto_cast_type
+            compiler_kwargs = {
+                "auto_cast": auto_cast,
+                "auto_cast_type": auto_cast_type,
+                "disable_fast_relayout": disable_fast_relayout,
+                "disable_fallback": disable_fallback,
+            }
+
+            # cache compiled artifacts locally
+            input_names, output_names = export(
+                model=model,
+                config=neuron_config,
+                output=save_dir_path / NEURON_FILE_NAME,
+                compiler_workdir=compiler_workdir,
+                inline_weights_to_neff=inline_weights_to_neff,
+                optlevel=optlevel,
+                **compiler_kwargs,
+            )
+
+            config = store_compilation_config(
+                config=model.config,
+                input_shapes=input_shapes,
+                compiler_kwargs=compiler_kwargs,
+                input_names=input_names,
+                output_names=output_names,
+                dynamic_batch_size=dynamic_batch_size,
+                compiler_type=compiler_type,
+                compiler_version=compiler_version,
+                inline_weights_to_neff=inline_weights_to_neff,
+                optlevel=optlevel,
+                task=task,
+            )
+
+            config.save_pretrained(save_dir_path)
+            maybe_save_preprocessors(model_id, save_dir_path, src_subfolder=subfolder)
+            
+            # TODO: cache compiled artifacts remotely
 
         return cls._from_pretrained(save_dir_path, config, model_save_dir=save_dir, neuron_config=neuron_config)
 

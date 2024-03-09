@@ -420,6 +420,7 @@ def main_export(
     dynamic_batch_size: bool = False,
     atol: Optional[float] = None,
     cache_dir: Optional[str] = None,
+    disable_neuron_cache: Optional[bool] = False,
     compiler_workdir: Optional[Union[str, Path]] = None,
     inline_weights_to_neff: bool = True,
     optlevel: str = "2",
@@ -486,6 +487,7 @@ def main_export(
     _, neuron_outputs = export_models(
         models_and_neuron_configs=models_and_neuron_configs,
         output_dir=output,
+        disable_neuron_cache=disable_neuron_cache,
         compiler_workdir=compiler_workdir,
         inline_weights_to_neff=inline_weights_to_neff,
         optlevel=optlevel,
@@ -583,6 +585,7 @@ def main():
             return
         submodels = None
 
+    disable_neuron_cache = args.disable_neuron_cache
     compiler_kwargs = infer_compiler_kwargs(args)
     optional_outputs = customize_optional_outputs(args)
     optlevel = parse_optlevel(args)
@@ -595,6 +598,7 @@ def main():
         dynamic_batch_size=args.dynamic_batch_size,
         atol=args.atol,
         cache_dir=args.cache_dir,
+        disable_neuron_cache=disable_neuron_cache,
         compiler_workdir=args.compiler_workdir,
         inline_weights_to_neff=not args.disable_weights_neff_inline,
         optlevel=optlevel,

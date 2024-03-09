@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
+from transformers import PretrainedConfig
 
 from ...exporters.error_utils import OutputMatchError, ShapeError
 from ...neuron.utils import (
@@ -30,6 +31,8 @@ from ...neuron.utils import (
     store_compilation_config,
 )
 from ...neuron.utils.version_utils import get_neuroncc_version, get_neuronxcc_version
+from ...neuron.utils.hub_neuronx_cache import ModelCacheEntry, hub_neuronx_cache, _create_hub_compile_cache_proxy
+from ...neuron.utils.cache_utils import get_neuron_cache_path, get_model_name_or_path, load_custom_cache_repo_name_from_hf_home
 from ...utils import (
     is_diffusers_available,
     is_sentence_transformers_available,
@@ -272,6 +275,7 @@ def export_models(
         str, Tuple[Union["PreTrainedModel", "ModelMixin", torch.nn.Module], "NeuronDefaultConfig"]
     ],
     output_dir: Path,
+    disable_neuron_cache: Optional[bool] = False,
     compiler_workdir: Optional[Path] = None,
     inline_weights_to_neff: bool = True,
     optlevel: str = "2",
@@ -287,6 +291,8 @@ def export_models(
             A dictionnary containing the models to export and their corresponding neuron configs.
         output_dir (`Path`):
             Output directory to store the exported Neuron models.
+        disable_neuron_cache (`Optional[bool]`, defaults to `False`):
+            Whether to disable automatic caching of AOT compiled models (not applicable for JIT compilation).
         compiler_workdir (`Optional[Path]`, defaults to `None`):
             The directory to store intermediary outputs of the neuron compiler.
         inline_weights_to_neff (`bool`, defaults to `True`):
@@ -374,6 +380,18 @@ def export_models(
                 output_hidden_states=getattr(sub_neuron_config, "output_hidden_states", False),
             )
             model_config.save_pretrained(output_path.parent)
+            
+            # cache neuronx model
+            if not disable_neuron_cache and is_neuronx_available() and not model_config.neuron["inline_weights_to_neff"]:
+                model_id = get_model_name_or_path(model_config)
+                cache_config = build_cache_config(copy.deepcopy(model_config).to_diff_dict())
+                cache_entry = ModelCacheEntry(model_id=model_id, config=cache_config)
+                
+                # Use the context manager just for creating registry, AOT compilation won't leverage `create_compile_cache` 
+                # in `libneuronxla`, so we will need to cache compiled artifacts to local manually.
+                with hub_neuronx_cache("inference", entry=cache_entry):
+                    cache_aot_neuron_artifacts(neuron_dir=output_path.parent, cache_config_hash=cache_entry.hash)
+                      
         except Exception as e:
             failed_models.append((i, model_name))
             output_path.parent.rmdir()
@@ -390,6 +408,26 @@ def export_models(
 
     outputs = list(map(list, zip(*outputs)))
     return outputs
+
+
+def build_cache_config(config: Dict, white_list: Optional[List] = None):
+    # TODO: consider case with multiple models thus multiple configs, eg. stable diffusion. Maybe concatenate.
+    if white_list is None:
+        white_list = ["_name_or_path", "transformers_version", "eos_token_id", "bos_token_id", "pad_token_id"]
+                
+    for param in white_list:
+        config.pop(param, None)
+    
+    return PretrainedConfig.from_dict(config)
+
+
+def cache_aot_neuron_artifacts(neuron_dir: Path, cache_config_hash: str):
+    cache_repo_id = load_custom_cache_repo_name_from_hf_home()
+    compile_cache = _create_hub_compile_cache_proxy(cache_repo_id=cache_repo_id)
+    model_cache_dir = compile_cache.default_cache.get_cache_dir_with_cache_key(f"MODULE_{cache_config_hash}")
+    compile_cache.upload_folder(cache_dir=model_cache_dir, src_dir=neuron_dir)
+    
+    logger.info(f"Model cached in: {model_cache_dir}.")
 
 
 def export(

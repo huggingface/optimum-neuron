@@ -166,6 +166,10 @@ class CompileCacheHfProxy(CompileCache):
     def upload_file(self, cache_path: str, src_path: str):
         # Only upload to the default cache: use synchronize to populate the Hub cache
         self.default_cache.upload_file(cache_path, src_path)
+    
+    def upload_folder(self, cache_dir: str, src_dir: str):
+        # Upload folder the default cache: use synchronize to populate the Hub cache
+        shutil.copytree(src_dir, cache_dir)
 
     def upload_string_to_file(self, cache_path: str, data: str):
         # Only upload to the default cache: use synchronize to populate the Hub cache
@@ -289,7 +293,7 @@ def hub_neuronx_cache(
                 # Create cache entry in local cache: it can be later synchronized with the hub cache
                 registry_path = default_cache.get_cache_dir_with_cache_key(registry_folder)
                 model_type = entry.config["model_type"]
-                entry_path = f"{registry_path}/{model_type}/{entry.model_id}"
+                entry_path = f"{registry_path}/{model_type}/{entry.model_id}"  # TODO: this is not applicable for checkpoints with multiple models, eg. stable diffusion
                 config_path = f"{entry_path}/{entry.hash}.json"
                 if not default_cache.exists(config_path):
                     oldmask = os.umask(000)
