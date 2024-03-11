@@ -126,7 +126,7 @@ def fetch_model(
         config = GenerationConfig.from_pretrained(model_id, revision=revision)
         config.save_pretrained(export_path)
         logger.info(f"Saved model default generation config under {export_path}.")
-    except:
+    except Exception:
         logger.warning(f"No default generation config found for {model_id}.")
     logger.info(f"Model successfully exported in {end - start:.2f} s under {export_path}.")
     return export_path
