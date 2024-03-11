@@ -21,7 +21,7 @@ from collections import defaultdict
 from dataclasses import asdict
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Set, Tuple, Type, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Set, Tuple, Type, Union
 
 import torch
 from transformers import PreTrainedModel
@@ -29,22 +29,26 @@ from transformers.utils import WEIGHTS_NAME
 
 from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
+from ..utils.misc import is_main_worker
 from ..utils.patching import Patcher
 from ..utils.require_utils import requires_neuronx_distributed, requires_torch_xla
 from .parallel_layers import (
     IOSequenceParallelizer,
     LayerNormSequenceParallelizer,
     LayerNormType,
+    ParallelLayer,
     SequenceCollectiveOpInfo,
 )
 from .utils import (
     TENSOR_PARALLEL_SHARDS_DIR_NAME,
     ParameterMetadata,
     WeightInformation,
+    apply_activation_checkpointing,
     initialize_parallel_linear,
     initialize_torch_nn_module,
     linear_to_parallel_linear,
     load_tensor_for_weight,
+    maybe_load_linear_weight_to_parallel_linear,
     named_parameters,
     parameter_can_be_initialized,
     try_to_hf_initialize,
@@ -90,18 +94,17 @@ class SequenceParallelismSpecs:
 
 
 class PipelineParallelismSpecs:
-    TRASNFORMER_LAYER_CLS: Type["torch.nn.Module"]
+    TRASNFORMER_LAYER_CLS: Type[torch.nn.Module]
     DEFAULT_INPUT_NAMES: Tuple[str, ...]
-    LEAF_MODULE_CLASSES_NAMES: Optional[List[Union[str, Type["torch.nn.Module"]]]] = None
+    LEAF_MODULE_CLASSES_NAMES: Optional[List[Union[str, Type[torch.nn.Module]]]] = None
     OUTPUT_LOSS_SPECS: Tuple[bool, ...] = (True, False)
 
     @classmethod
     @requires_torch_xla
-    def create_pipeline_cuts(cls, model: PreTrainedModel, pipeline_parallel_size: int) -> List[str]:
+    def create_pipeline_cuts(cls, model: PreTrainedModel, pipeline_parallel_size: int, log: bool = True) -> List[str]:
         """
         Creates the pipeline cuts, e.g. the name of the layers at each the cuts happen for pipeline parallelism.
         """
-        import torch_xla.core.xla_model as xm
 
         num_layers = sum(1 if isinstance(mod, cls.TRASNFORMER_LAYER_CLS) else 0 for mod in model.modules())
         if num_layers % pipeline_parallel_size != 0:
@@ -116,7 +119,7 @@ class PipelineParallelismSpecs:
             for cut_idx in range(num_layers_per_partition - 1, num_layers - 1, num_layers_per_partition)
         ]
 
-        if xm.get_local_ordinal() == 0:
+        if is_main_worker() and log:
             logger.info(f"Pipeline parallelism cuts: {pipeline_cuts}.")
 
         return pipeline_cuts
@@ -176,7 +179,7 @@ class Parallelizer(ABC):
     @classmethod
     @requires_neuronx_distributed
     def _get_parameter_names_for_current_pipeline(
-        cls, model: "torch.nn.Module", remove_duplicate: bool = True
+        cls, model: torch.nn.Module, remove_duplicate: bool = True
     ) -> Set[str]:
         """
         Retrieves the names of the parameters that will be in the current pipeline stage by using the pipeline
@@ -196,7 +199,7 @@ class Parallelizer(ABC):
         if not cls.supports_pipeline_parallelism():
             raise NotImplementedError(f"{cls} does not support pipeline parallelism.")
 
-        cuts = cls.PIPELINE_PARALLELISM_SPECS_CLS.create_pipeline_cuts(model, pp_size)
+        cuts = cls.PIPELINE_PARALLELISM_SPECS_CLS.create_pipeline_cuts(model, pp_size, log=False)
 
         start_module_name = cuts[pp_rank - 1] if pp_rank >= 1 else None
         end_module_name = None if pp_rank == pp_size - 1 else cuts[pp_rank]
@@ -239,9 +242,11 @@ class Parallelizer(ABC):
     def _parallelize(
         cls,
         model: "PreTrainedModel",
-        device: Optional["torch.device"] = None,
+        device: Optional[torch.device] = None,
         parallelize_embeddings: bool = True,
         sequence_parallel_enabled: bool = False,
+        should_parallelize_layer_predicate_func: Optional[Callable[[torch.nn.Module], bool]] = None,
+        **parallel_layer_specific_kwargs,
     ) -> "PreTrainedModel":
         """
         Parallelizes the model by transforming regular layer into their parallel counterparts.
@@ -257,110 +262,52 @@ class Parallelizer(ABC):
                 This can be disabled in the case when the TP size does not divide the vocabulary size.
             sequence_parallel_enabled (`bool`, defaults to `False`):
                 Whether or not sequence parallelism is enabled.
+            should_parallelize_layer_predicate_func (Optional[Callable[[torch.nn.Module], bool]], defaults to `None`):
+                A function that takes a layer as input and returns a boolean specifying if the input layer should be
+                parallelized. This is useful to skip unnecessary parallelization, for pipeline parallelism for instance.
+            **parallel_layer_specific_kwargs (`Dict[str, Any]`):
+                Keyword arguments specific to some parallel layers, they will be ignored by the other parallel layers.
         Returns:
             `PreTrainedModel`: The parallelized model.
         """
 
     @classmethod
     @requires_neuronx_distributed
-    def parallelize(
-        cls,
-        model: "PreTrainedModel",
-        device: Optional["torch.device"] = None,
-        parallelize_embeddings: bool = True,
-        sequence_parallel_enabled: bool = False,
-        pipeline_parallel_input_names: Optional[Union[Tuple[str, ...], List[str]]] = None,
-        pipeline_parallel_num_microbatches: int = 1,
-        pipeline_parallel_use_zero1_optimizer: bool = False,
-        checkpoint_dir: Optional[Union[str, Path]] = None,
-    ) -> "PreTrainedModel":
-        """
-        Parallelizes the model by transforming regular layer into their parallel counterparts using
-        `cls._parallelize()`.
+    def _maybe_load_weights_to_parallel_linears(cls, model: "PreTrainedModel"):
+        from neuronx_distributed.parallel_layers.layers import BaseParallelLinear
 
-        It also makes sure that each parameter has loaded its weights or has been initialized if there is no pre-trained
-        weights associated to it.
-
-        Args:
-            model (`PreTrainedModel`):
-                The model to parallelize.
-            device (`Optional[torch.device]`, defaults to `None`):
-                The device where the new parallel layers should be put.
-            parallelize_embeddings (`bool`, defaults to `True`):
-                Whether or not the embeddings should be parallelized.
-                This can be disabled in the case when the TP size does not divide the vocabulary size.
-            sequence_parallel_enabled (`bool`, defaults to `False`):
-                Whether or not sequence parallelism is enabled.
-            pipeline_parallel_num_microbatches (`int`, defaults to 1):
-                The number of microbatches used for pipeline execution.
-            pipeline_parallel_use_zero1_optimizer (`bool`, defaults to `False`):
-                When zero-1 optimizer is used, set this to True, so the PP model will understand that zero-1 optimizer
-                will handle data parallel gradient averaging.
-            checkpoint_dir (`Optional[Union[str, Path]]`):
-                Path to a sharded checkpoint. If specified, the checkpoint weights will be loaded to the parallelized
-                model.
-
-        Returns:
-            `PreTrainedModel`: The parallelized model.
-        """
-        from neuronx_distributed import parallel_layers
-
-        if sequence_parallel_enabled and not cls.supports_sequence_parallelism():
-            raise NotImplementedError(f"Sequence parallelism is not supported for {model.__class__}.")
-
-        from neuronx_distributed.parallel_layers.parallel_state import (
-            get_pipeline_model_parallel_size,
-            get_tensor_model_parallel_rank,
-            get_tensor_model_parallel_size,
-        )
-        from neuronx_distributed.pipeline import NxDPPModel
-
-        tp_size = get_tensor_model_parallel_size()
-
-        sequence_parallel_enabled = sequence_parallel_enabled and tp_size > 1
-
-        # Parallelizing the model.
-        # This needs to be done prior to preparing the model for sequence parallelism because modules can be overriden.
-        if tp_size > 1:
-            model = cls._parallelize(
-                model,
-                device=device,
-                parallelize_embeddings=parallelize_embeddings,
-                sequence_parallel_enabled=sequence_parallel_enabled,
-            )
-
-        # Preparing the model for sequence parallelism:
-        sp_specs_cls = cls.SEQUENCE_PARALLELSIM_SPECS_CLS
-
-        if sequence_parallel_enabled:
-            # 1. Transforming the LayerNorms.
-            layer_norm_qualified_name_patterns = (
-                sp_specs_cls.SEQUENCE_PARALLEL_LAYERNORM_PATTERNS
-                if sp_specs_cls.SEQUENCE_PARALLEL_LAYERNORM_PATTERNS is not None
-                else []
-            )
-            layer_norm_sequence_parallelizer = LayerNormSequenceParallelizer(
-                sequence_parallel_enabled, layer_norm_qualified_name_patterns
-            )
-            layer_norm_sequence_parallelizer.sequence_parallelize(model, sp_specs_cls.LAYERNORM_TYPE)
-
-            # 2. Taking care of scattering / gathering on the sequence axis in the model via the IOSequenceParallelizer.
-            io_sequence_parallelizer = IOSequenceParallelizer(
-                sequence_parallel_enabled,
-                sequence_collective_op_infos=sp_specs_cls.SEQUENCE_COLLECTIVE_OPS_INFOS,
-            )
-            io_sequence_parallelizer.sequence_parallelize(model)
-
-            # 3. Applying model specific patching for sequence parallelism.
-            sp_specs_cls.patch_for_sequence_parallelism(model, sequence_parallel_enabled)
-
-        # The model was not loaded lazily, it is already ready.
         weight_map = getattr(model, "_weight_map", {})
 
-        names_of_the_parameters_to_consider = cls._get_parameter_names_for_current_pipeline(
-            model, remove_duplicate=True
+        for fully_qualified_name, layer in model.named_modules():
+            if isinstance(layer, BaseParallelLinear):
+                try:
+                    linear_weight_info, linear_bias_weight_info = ParallelLayer._get_linear_weight_info(
+                        weight_map, fully_qualified_name
+                    )
+                except ValueError:
+                    linear_weight_info = None
+                    linear_bias_weight_info = None
+                if linear_weight_info is not None:
+                    maybe_load_linear_weight_to_parallel_linear(
+                        layer,
+                        linear_layer_weight_info=linear_weight_info,
+                        linear_layer_bias_weight_info=linear_bias_weight_info,
+                    )
+
+    @classmethod
+    @requires_neuronx_distributed
+    def _initialize_or_load_weights(
+        cls,
+        model: "PreTrainedModel",
+        names_of_the_parameters_to_consider: Set[str],
+        device: Optional[torch.device] = None,
+    ):
+        from neuronx_distributed import parallel_layers
+        from neuronx_distributed.parallel_layers.parallel_state import (
+            get_tensor_model_parallel_rank,
         )
 
+        weight_map = getattr(model, "_weight_map", {})
         with torch.no_grad():
             tied_weights = {}
             new_parameters = set()
@@ -483,7 +430,137 @@ class Parallelizer(ABC):
                     if left_uninitialized and hasattr(mod, "reset_parameters"):
                         initialize_torch_nn_module(mod, parameter_names)
 
+    @classmethod
+    @requires_neuronx_distributed
+    def parallelize(
+        cls,
+        model: "PreTrainedModel",
+        device: Optional[torch.device] = None,
+        parallelize_embeddings: bool = True,
+        sequence_parallel_enabled: bool = False,
+        pipeline_parallel_input_names: Optional[Union[Tuple[str, ...], List[str]]] = None,
+        pipeline_parallel_num_microbatches: int = 1,
+        pipeline_parallel_use_zero1_optimizer: bool = False,
+        pipeline_parallel_gradient_checkpointing_enabled: bool = False,
+        checkpoint_dir: Optional[Union[str, Path]] = None,
+    ) -> "PreTrainedModel":
+        """
+        Parallelizes the model by transforming regular layer into their parallel counterparts using
+        `cls._parallelize()`.
+
+        It also makes sure that each parameter has loaded its weights or has been initialized if there is no pre-trained
+        weights associated to it.
+
+        Args:
+            model (`PreTrainedModel`):
+                The model to parallelize.
+            device (`Optional[torch.device]`, defaults to `None`):
+                The device where the new parallel layers should be put.
+            parallelize_embeddings (`bool`, defaults to `True`):
+                Whether or not the embeddings should be parallelized.
+                This can be disabled in the case when the TP size does not divide the vocabulary size.
+            sequence_parallel_enabled (`bool`, defaults to `False`):
+                Whether or not sequence parallelism is enabled.
+            pipeline_parallel_num_microbatches (`int`, defaults to 1):
+                The number of microbatches used for pipeline execution.
+            pipeline_parallel_use_zero1_optimizer (`bool`, defaults to `False`):
+                When zero-1 optimizer is used, set this to True, so the PP model will understand that zero-1 optimizer
+                will handle data parallel gradient averaging.
+            pipeline_parallel_gradient_checkpointing_enabled (`bool`, defaults to `False`):
+                Whether or not gradient checkpointing should be enabled when doing pipeline parallelism.
+            checkpoint_dir (`Optional[Union[str, Path]]`):
+                Path to a sharded checkpoint. If specified, the checkpoint weights will be loaded to the parallelized
+                model.
+
+        Returns:
+            `PreTrainedModel`: The parallelized model.
+        """
+        import torch_xla.core.xla_model as xm
+
+        if sequence_parallel_enabled and not cls.supports_sequence_parallelism():
+            raise NotImplementedError(f"Sequence parallelism is not supported for {model.__class__}.")
+
+        from neuronx_distributed.parallel_layers.parallel_state import (
+            get_pipeline_model_parallel_size,
+            get_tensor_model_parallel_size,
+        )
+        from neuronx_distributed.pipeline import NxDPPModel
+
+        tp_size = get_tensor_model_parallel_size()
         pp_size = get_pipeline_model_parallel_size()
+
+        sequence_parallel_enabled = sequence_parallel_enabled and tp_size > 1
+
+        # Parallelizing the model.
+        # This needs to be done prior to preparing the model for sequence parallelism because modules can be overriden.
+
+        names_of_the_parameters_to_consider = cls._get_parameter_names_for_current_pipeline(
+            model, remove_duplicate=True
+        )
+
+        name_to_parameter = dict(named_parameters(model, remove_duplicate=False))
+        parameter_to_name = {p: n for n, p in name_to_parameter.items()}
+
+        def should_parallelize_layer_predicate_func(layer):
+            if pp_size == 1:
+                return True
+            for p in layer.parameters():
+                if p not in parameter_to_name:
+                    return True
+            names = {parameter_to_name[p] for p in layer.parameters()}
+            return names < names_of_the_parameters_to_consider
+
+        if tp_size > 1:
+            model = cls._parallelize(
+                model,
+                device=device,
+                parallelize_embeddings=parallelize_embeddings,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
+                skip_linear_weight_load=True,
+            )
+            xm.rendezvous("End of tensor parallelism")
+            if is_main_worker():
+                logger.info("Tensor parallelism done.")
+
+        # Preparing the model for sequence parallelism:
+        sp_specs_cls = cls.SEQUENCE_PARALLELSIM_SPECS_CLS
+
+        if sequence_parallel_enabled:
+            # 1. Transforming the LayerNorms.
+            layer_norm_qualified_name_patterns = (
+                sp_specs_cls.SEQUENCE_PARALLEL_LAYERNORM_PATTERNS
+                if sp_specs_cls.SEQUENCE_PARALLEL_LAYERNORM_PATTERNS is not None
+                else []
+            )
+            layer_norm_sequence_parallelizer = LayerNormSequenceParallelizer(
+                sequence_parallel_enabled, layer_norm_qualified_name_patterns
+            )
+            layer_norm_sequence_parallelizer.sequence_parallelize(model, sp_specs_cls.LAYERNORM_TYPE)
+
+            # 2. Taking care of scattering / gathering on the sequence axis in the model via the IOSequenceParallelizer.
+            io_sequence_parallelizer = IOSequenceParallelizer(
+                sequence_parallel_enabled,
+                sequence_collective_op_infos=sp_specs_cls.SEQUENCE_COLLECTIVE_OPS_INFOS,
+            )
+            io_sequence_parallelizer.sequence_parallelize(model)
+
+            # 3. Applying model specific patching for sequence parallelism.
+            sp_specs_cls.patch_for_sequence_parallelism(model, sequence_parallel_enabled)
+
+        if is_main_worker():
+            logger.info("Loading and initializing the weights, this might take a while on large models.")
+
+        # Load the weights to the parallel linears if the loading was skipped during parallelization.
+        cls._maybe_load_weights_to_parallel_linears(model)
+
+        # Initialize or load the weights for the parallelized model.
+        cls._initialize_or_load_weights(model, names_of_the_parameters_to_consider, device=device)
+        xm.rendezvous("End of initalization")
+
+        if is_main_worker():
+            logger.info("Load and initialization of the weights done.")
+
         if pp_size > 1:
             if not cls.supports_pipeline_parallelism():
                 raise NotImplementedError("{cls} does not support pipeline parallelism.")
@@ -506,6 +583,12 @@ class Parallelizer(ABC):
                     leaf_module_cls=cls.PIPELINE_PARALLELISM_SPECS_CLS.leaf_module_cls(),
                     use_zero1_optimizer=pipeline_parallel_use_zero1_optimizer,
                 )
+                if pipeline_parallel_gradient_checkpointing_enabled:
+                    apply_activation_checkpointing(model)
+
+            xm.rendezvous("End of pipeline paralellism")
+            if is_main_worker():
+                logger.info("Pipeline parallelism done.")
 
         if checkpoint_dir is not None:
             cls.load_model_checkpoint(model, checkpoint_dir)
@@ -687,7 +770,7 @@ class Parallelizer(ABC):
         if not isinstance(output_dir, Path):
             output_dir = Path(output_dir)
 
-        if optimizer is not None:
+        if is_main_worker() and optimizer is not None:
             logger.warning(
                 "Saving the optimizer state as a regular file under the tensor parallel setting is not supported yet."
             )
@@ -747,7 +830,7 @@ class Parallelizer(ABC):
 
         output_path = output_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME
 
-        if xm.get_local_ordinal() == 0:
+        if is_main_worker():
             if output_path.is_dir():
                 shutil.rmtree(output_path, ignore_errors=True)
             output_path.mkdir()

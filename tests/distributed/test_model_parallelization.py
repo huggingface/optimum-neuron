@@ -385,6 +385,9 @@ class TestModelParallelization(DistributedTest):
         model = accelerator.patch_model_for_neuron(model)
         with torch.no_grad():
             if pp_size == 1:
+                # This is set to False by `accelerator.prepare`, which we want in the general case, but here let's
+                # enable the cache to test that the KV cache matches the original model.
+                model.config.use_cache = True
                 model = model.eval()
                 model_outputs = model(**xla_inputs)
             else:

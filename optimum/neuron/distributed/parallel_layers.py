@@ -20,13 +20,14 @@ from abc import ABC, abstractclassmethod
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Tuple, Type, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Literal, Optional, Tuple, Type, Union
 
 import torch
 from torch.nn.modules.loss import _WeightedLoss
 
 from ...utils import NormalizedConfigManager, logging
 from ..utils import patch_everywhere, patch_within_function
+from ..utils.misc import is_main_worker
 from ..utils.require_utils import requires_neuronx_distributed
 from .utils import (
     GroupedQueryAttentionInfo,
@@ -50,6 +51,8 @@ _PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT: bool = False
 
 
 class ParallelLayer(ABC):
+    PARALLEL_LAYER_SPECIFIC_KWARGS: Optional[Dict[str, Any]] = None
+
     @classmethod
     def _get_module_and_attribute_name(
         cls,
@@ -104,12 +107,13 @@ class ParallelLayer(ABC):
         return linear_layer_weight_info, linear_layer_bias_weight_info
 
     @abstractclassmethod
-    def transform(
+    def _transform(
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
         sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
+        **parallel_layer_specific_kwargs,
     ) -> "torch.nn.Module":
         """
         Transforms a layer to its parallel counterpart.
@@ -123,7 +127,50 @@ class ParallelLayer(ABC):
                 Whether or not sequence parallelism is enabled.
             device (`Optional[torch.device]`, defaults to `None`):
                 The device where the new parallel layer should be put.
+            **parallel_layer_specific_kwargs (`Dict[str, Any]):
+                Arguments that are specific to a given ParallelLayer subclass transformation.
         """
+
+    @classmethod
+    def prepare_parallel_layer_specific_kwargs(cls, **parallel_layer_specific_kwargs) -> Dict[str, Any]:
+        default_parallel_layer_specific_kwargs = cls.PARALLEL_LAYER_SPECIFIC_KWARGS
+        if default_parallel_layer_specific_kwargs is None:
+            default_parallel_layer_specific_kwargs = {}
+
+        if not set(parallel_layer_specific_kwargs.keys()) <= set(default_parallel_layer_specific_kwargs.keys()):
+            wrong_argument_names = [
+                name for name in parallel_layer_specific_kwargs if name not in default_parallel_layer_specific_kwargs
+            ]
+            logger.debug(
+                f'The following arguments are not allowed for {cls.__name__}: {", ".join(wrong_argument_names)}, they '
+                "will be ignored."
+            )
+
+        return {
+            k: parallel_layer_specific_kwargs.get(k, default_parallel_layer_specific_kwargs[k])
+            for k in default_parallel_layer_specific_kwargs
+        }
+
+    @classmethod
+    def transform(
+        cls,
+        model: "PreTrainedModel",
+        layer: "torch.nn.Module",
+        sequence_parallel_enabled: bool = False,
+        device: Optional["torch.device"] = None,
+        should_parallelize_layer_predicate_func: Optional[Callable[["torch.nn.Module"], bool]] = None,
+        **parallel_layer_specific_kwargs,
+    ) -> "torch.nn.Module":
+        parallel_layer_specific_kwargs = cls.prepare_parallel_layer_specific_kwargs(**parallel_layer_specific_kwargs)
+        if should_parallelize_layer_predicate_func is not None and not should_parallelize_layer_predicate_func(layer):
+            return layer
+        return cls._transform(
+            model,
+            layer,
+            sequence_parallel_enabled=sequence_parallel_enabled,
+            device=device,
+            **parallel_layer_specific_kwargs,
+        )
 
 
 class ParallelEmbedding(ParallelLayer):
@@ -163,12 +210,13 @@ class ParallelEmbedding(ParallelLayer):
 
     @classmethod
     @requires_neuronx_distributed
-    def transform(
+    def _transform(
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
         sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
+        **parallel_layer_specific_kwargs,
     ) -> "torch.nn.Module":
         from neuronx_distributed.parallel_layers import parallel_state
 
@@ -225,9 +273,7 @@ class ParallelEmbedding(ParallelLayer):
         embedding_layer = layer.get_submodule(cls.EMBEDDING_NAME)
         tp_size = parallel_state.get_tensor_model_parallel_size()
         if embedding_layer.num_embeddings % tp_size != 0:
-            import torch_xla.core.xla_model as xm
-
-            if xm.get_ordinal() == 0:
+            if is_main_worker():
                 logger.warning(
                     f"Embedding parallelization for TP was skipped because the tensor parallel size ({tp_size}) does not "
                     f"divide the number of embeddings ({embedding_layer.num_embeddings})"
@@ -283,6 +329,8 @@ class ParallelSelfAttention(ParallelLayer):
             If left unspecified, the attribute will be fetched by using the NormalizedConfig associated to the model.
     """
 
+    PARALLEL_LAYER_SPECIFIC_KWARGS = {"skip_linear_weight_load": False}
+
     QUERIES_NAME = "query"
     KEYS_NAME = "key"
     VALUES_NAME = "value"
@@ -294,17 +342,20 @@ class ParallelSelfAttention(ParallelLayer):
 
     @classmethod
     @requires_neuronx_distributed
-    def transform(
+    def _transform(
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
         sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
+        **parallel_layer_specific_kwargs,
     ) -> "torch.nn.Module":
         if (cls.NUM_KEY_VALUE_HEADS_NAME is not None and cls.NUM_KEY_VALUE_GROUPS_NAME is None) or (
             cls.NUM_KEY_VALUE_HEADS_NAME is None and cls.NUM_KEY_VALUE_GROUPS_NAME is not None
         ):
             raise AttributeError("Both NUM_KEY_VALUE_HEADS_NAME and NUM_KEY_VALUE_GROUPS_NAME must be specified.")
+
+        skip_linear_weight_load = parallel_layer_specific_kwargs["skip_linear_weight_load"]
 
         from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 
@@ -344,7 +395,7 @@ class ParallelSelfAttention(ParallelLayer):
                 raise ValueError(
                     "Only the cases where the number of key value heads is divisible by the TP size, or the other way around are supported."
                 )
-            elif num_key_value_heads < tp_size:
+            elif is_main_worker() and num_key_value_heads < tp_size:
                 logger.warning(
                     f"The TP size ({tp_size}) is bigger than the number of key value heads ({num_key_value_heads}). "
                     "This is not ideal because the key and value projections will not be sharded accross the TP ranks. "
@@ -382,6 +433,7 @@ class ParallelSelfAttention(ParallelLayer):
                     linear_layer_weight_info=linear_layer_weight_info,
                     linear_layer_bias_weight_info=linear_layer_bias_weight_info,
                     sequence_parallel_enabled=sequence_parallel_enabled,
+                    skip_weight_load=skip_linear_weight_load,
                     device=device,
                 )
             setattr(layer, name, parallel_linear)
@@ -404,6 +456,7 @@ class ParallelSelfAttention(ParallelLayer):
                     linear_layer_weight_info=linear_layer_weight_info,
                     linear_layer_bias_weight_info=linear_layer_bias_weight_info,
                     sequence_parallel_enabled=sequence_parallel_enabled,
+                    skip_weight_load=skip_linear_weight_load,
                     device=device,
                 ),
             )
@@ -466,6 +519,8 @@ class ParallelSelfAttentionWithFusedQKV(ParallelLayer):
             If left unspecified, the attribute will be fetched by using the NormalizedConfig associated to the model.
     """
 
+    PARALLEL_LAYER_SPECIFIC_KWARGS = {"skip_linear_weight_load": False}
+
     QUERY_KEY_VALUE_NAME = "query_key_value"
     OUTPUT_PROJECTION_NAME: Optional[str] = None
     NUM_ATTENTION_HEADS_NAME: Optional[str] = None
@@ -474,14 +529,17 @@ class ParallelSelfAttentionWithFusedQKV(ParallelLayer):
 
     @classmethod
     @requires_neuronx_distributed
-    def transform(
+    def _transform(
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
         sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
+        **parallel_layer_specific_kwargs,
     ) -> "torch.nn.Module":
         from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
+
+        skip_linear_weight_load = parallel_layer_specific_kwargs["skip_linear_weight_load"]
 
         tp_size = get_tensor_model_parallel_size()
 
@@ -529,6 +587,7 @@ class ParallelSelfAttentionWithFusedQKV(ParallelLayer):
             linear_layer_weight_info=linear_layer_weight_info,
             linear_layer_bias_weight_info=linear_layer_bias_weight_info,
             sequence_parallel_enabled=sequence_parallel_enabled,
+            skip_weight_load=skip_linear_weight_load,
             device=device,
         )
 
@@ -552,6 +611,7 @@ class ParallelSelfAttentionWithFusedQKV(ParallelLayer):
                     linear_layer_weight_info=linear_layer_weight_info,
                     linear_layer_bias_weight_info=linear_layer_bias_weight_info,
                     sequence_parallel_enabled=sequence_parallel_enabled,
+                    skip_weight_load=skip_linear_weight_load,
                     device=device,
                 ),
             )
@@ -578,16 +638,20 @@ class ParallelSelfOutput(ParallelLayer):
             The name of the projection layer in the module containing it.
     """
 
+    PARALLEL_LAYER_SPECIFIC_KWARGS = {"skip_linear_weight_load": False}
+
     OUTPUT_PROJECTION_NAME = "dense"
 
     @classmethod
-    def transform(
+    def _transform(
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
         sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
+        **parallel_layer_specific_kwargs,
     ) -> "torch.nn.Module":
+        skip_linear_weight_load = parallel_layer_specific_kwargs["skip_linear_weight_load"]
         weight_map = getattr(model, "_weight_map", None)
 
         linear_layer_weight_info, linear_layer_bias_weight_info = None, None
@@ -610,6 +674,7 @@ class ParallelSelfOutput(ParallelLayer):
                 linear_layer_weight_info=linear_layer_weight_info,
                 linear_layer_bias_weight_info=linear_layer_bias_weight_info,
                 sequence_parallel_enabled=sequence_parallel_enabled,
+                skip_weight_load=skip_linear_weight_load,
                 device=device,
             ),
         )
@@ -627,17 +692,21 @@ class ParallelMLP(ParallelLayer):
             The qualified name of the second linear projection in the module.
     """
 
+    PARALLEL_LAYER_SPECIFIC_KWARGS = {"skip_linear_weight_load": False}
+
     FIRST_LINEAR_NAME: str
     SECOND_LINEAR_NAME: str
 
     @classmethod
-    def transform(
+    def _transform(
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
         sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
+        **parallel_layer_specific_kwargs,
     ) -> "torch.nn.Module":
+        skip_linear_weight_load = parallel_layer_specific_kwargs["skip_linear_weight_load"]
         layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
         weight_map = getattr(model, "_weight_map", None)
 
@@ -661,6 +730,7 @@ class ParallelMLP(ParallelLayer):
                 linear_layer_weight_info=linear_layer_weight_info,
                 linear_layer_bias_weight_info=linear_layer_bias_weight_info,
                 sequence_parallel_enabled=sequence_parallel_enabled,
+                skip_weight_load=skip_linear_weight_load,
                 device=device,
             ),
         )
@@ -685,6 +755,7 @@ class ParallelMLP(ParallelLayer):
                 linear_layer_weight_info=linear_layer_weight_info,
                 linear_layer_bias_weight_info=linear_layer_bias_weight_info,
                 sequence_parallel_enabled=sequence_parallel_enabled,
+                skip_weight_load=skip_linear_weight_load,
                 device=device,
             ),
         )
@@ -765,6 +836,8 @@ class ParallelCrossEntropyLoss(_WeightedLoss):
 
 
 class ParallelCrossEntropy(ParallelLayer):
+    PARALLEL_LAYER_SPECIFIC_KWARGS = {"skip_linear_weight_load": False}
+
     LAST_LINEAR_PROJECTION_NAME: Union[str, Dict[str, str]]
 
     @classmethod
@@ -788,13 +861,16 @@ class ParallelCrossEntropy(ParallelLayer):
 
     @classmethod
     @requires_neuronx_distributed
-    def transform(
+    def _transform(
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
         sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
+        **parallel_layer_specific_kwargs,
     ) -> "torch.nn.Module":
+        skip_linear_weight_load = parallel_layer_specific_kwargs["skip_linear_weight_load"]
+
         from neuronx_distributed import parallel_layers
 
         linear_projection_name = None
@@ -829,11 +905,15 @@ class ParallelCrossEntropy(ParallelLayer):
         if weight_map is not None:
             layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
             linear_projection_qualified_name = layer_to_fully_qualified_name[id(linear_projection)]
-            linear_projection_weight_info, linear_projection_bias_weight_info = cls._get_linear_weight_info(
-                weight_map,
-                linear_projection_qualified_name,
-                device=device,
-            )
+            try:
+                linear_projection_weight_info, linear_projection_bias_weight_info = cls._get_linear_weight_info(
+                    weight_map,
+                    linear_projection_qualified_name,
+                    device=device,
+                )
+            except ValueError:
+                # It means there are no weight available for the linear, but no need to fail here.
+                pass
 
         parallel_linear_projection = linear_to_parallel_linear(
             getattr(linear_projection_parent, linear_projection_attr_name),
@@ -844,6 +924,7 @@ class ParallelCrossEntropy(ParallelLayer):
             gather_output=False,
             # Since it is the last linear projection, we do not want the output to be sequence parallel.
             sequence_parallel_enabled=False,
+            skip_weight_load=skip_linear_weight_load,
             device=device,
         )
         setattr(linear_projection_parent, linear_projection_attr_name, parallel_linear_projection)

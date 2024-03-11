@@ -16,6 +16,7 @@
 
 import os
 import re
+from functools import lru_cache
 from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 import torch
@@ -44,13 +45,16 @@ from transformers.models.auto.modeling_auto import (
     MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING_NAMES,
     MODEL_MAPPING_NAMES,
 )
-from transformers.trainer_pt_utils import get_model_param_count as transformers_get_model_param_count
 from transformers.utils.logging import set_verbosity as set_verbosity_transformers
 
 from ...utils.logging import set_verbosity as set_verbosity_optimum
 from ..generation import GeneralNeuronGenerationMixin, NeuronGenerationMixin
-from . import is_torch_xla_available
+from . import is_neuronx_distributed_available, is_torch_xla_available
 from .require_utils import requires_neuronx_distributed, requires_safetensors, requires_torch_xla
+
+
+if is_neuronx_distributed_available():
+    from neuronx_distributed.pipeline import NxDPPModel
 
 
 if TYPE_CHECKING:
@@ -318,6 +322,17 @@ def set_neuron_cc_optlevel_for_model(model: "PreTrainedModel", optlevel: str = "
     os.environ["NEURON_CC_FLAGS"] = neuron_cc_flags
 
 
+def set_neuron_cc_flags_for_model(model: "PreTrainedModel"):
+    """
+    Sets flags for the Neuron compiler depending on the model.
+    """
+    neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
+    if "ForCausalLM" or "ForConditionalGeneration" in model.__class__.__name__:
+        distribution_strategy = "--distribution-strategy=llm-training"
+        if distribution_strategy not in neuron_cc_flags:
+            os.environ["NEURON_CC_FLAGS"] = neuron_cc_flags + f" {distribution_strategy}"
+
+
 def set_verbosity(verbosity: int):
     set_verbosity_transformers(verbosity)
     set_verbosity_optimum(verbosity)
@@ -367,7 +382,82 @@ def torch_xla_safe_save_file(
         save_file(cpu_data, filename, metadata=metadata)
 
 
-def get_model_param_count(model, trainable_only=False):
-    """Wrapper around `transformers.trainer_pt_utils.get_model_param_count` to handle tensor parallelism."""
-    # TODO: make it work for TP
-    return transformers_get_model_param_count(model, trainable_only=trainable_only)
+@requires_neuronx_distributed
+def get_model_param_count(model: Union[torch.nn.Module, "NxDPPModel"], trainable_only: bool = False):
+    """Counts the number of parameters of the model."""
+    import torch_xla.core.xla_model as xm
+    from neuronx_distributed.parallel_layers.parallel_state import (
+        get_pipeline_model_parallel_group,
+        get_pipeline_model_parallel_rank,
+        get_pipeline_model_parallel_size,
+        get_tensor_model_parallel_size,
+    )
+    from neuronx_distributed.pipeline import NxDPPModel
+    from neuronx_distributed.pipeline.partition import analyze_shared_weights_across_stages
+
+    if isinstance(model, NxDPPModel):
+        named_parameters = model.local_named_parameters()
+        shared = analyze_shared_weights_across_stages(model.traced_model, model.partitions)
+        shared_parameters_across_pipeline_stages = {
+            t[0]: t[1] for shared_parameter_info in shared for t in shared_parameter_info
+        }
+    else:
+        named_parameters = model.named_parameters()
+        shared_parameters_across_pipeline_stages = {}
+
+    if torch.distributed.is_initialized():
+        tp_size = get_tensor_model_parallel_size()
+        pp_size = get_pipeline_model_parallel_size()
+        pp_rank = get_pipeline_model_parallel_rank()
+    else:
+        tp_size = 1
+        pp_size = 1
+        pp_rank = 0
+
+    def numel(parameter_name, parameter) -> int:
+        should_count_param = shared_parameters_across_pipeline_stages.get(parameter_name, pp_rank) == pp_rank
+
+        num_elements = parameter.numel()
+        if getattr(parameter, "tensor_model_parallel", False):
+            num_elements *= tp_size
+
+        return num_elements if should_count_param else 0
+
+    param_count = sum(numel(n, p) for n, p in named_parameters if not trainable_only or p.requires_grad)
+
+    if pp_size > 1:
+        param_count = torch.tensor(param_count, dtype=torch.float32).to(xm.xla_device())
+        param_count = xm.all_reduce(xm.REDUCE_SUM, param_count, groups=get_pipeline_model_parallel_group(as_list=True))
+        param_count = int(param_count.detach().item())
+
+    return param_count
+
+
+@lru_cache
+@requires_neuronx_distributed
+def is_main_worker_for_metrics() -> bool:
+    from neuronx_distributed.parallel_layers.parallel_state import (
+        get_data_parallel_rank,
+        get_pipeline_model_parallel_rank,
+        get_pipeline_model_parallel_size,
+        get_tensor_model_parallel_rank,
+    )
+
+    if not torch.distributed.is_initialized():
+        return True
+
+    dp_rank = get_data_parallel_rank()
+    tp_rank = get_tensor_model_parallel_rank()
+    pp_rank = get_pipeline_model_parallel_rank()
+    pp_size = get_pipeline_model_parallel_size()
+
+    can_log_loss = dp_rank == tp_rank == 0 and pp_rank == pp_size - 1
+
+    return can_log_loss
+
+
+def is_main_worker_for_metrics_method(self) -> bool:
+    """
+    Method version of `is_main_worker_for_metrics`, useful when this is used to patch a method from the Trainer class.
+    """
+    return is_main_worker_for_metrics()

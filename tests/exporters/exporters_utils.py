@@ -27,6 +27,7 @@ EXPORT_MODELS_TINY = {
     "flaubert": "flaubert/flaubert_small_cased",
     "mobilebert": "hf-internal-testing/tiny-random-MobileBertModel",
     "mpnet": "hf-internal-testing/tiny-random-MPNetModel",
+    "phi": "hf-internal-testing/tiny-random-PhiModel",
     "roberta": "hf-internal-testing/tiny-random-RobertaModel",
     "roformer": "hf-internal-testing/tiny-random-RoFormerModel",
     "xlm": "hf-internal-testing/tiny-random-XLMModel",

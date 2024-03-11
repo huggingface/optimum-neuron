@@ -259,6 +259,7 @@ def hub_neuronx_cache(
     mode: Union[Literal["training"], Literal["inference"], Mode],
     entry: Optional[ModelCacheEntry] = None,
     cache_repo_id: Optional[str] = None,
+    cache_dir: Optional[Union[str, Path]] = None,
 ):
     """A context manager to activate the Hugging Face Hub proxy compiler cache.
 
@@ -271,6 +272,8 @@ def hub_neuronx_cache(
             to the cache session. Will create a dedicated entry in the cache registry.
         cache_repo_id (`Optional[str]`, defaults to `None`):
             The id of the cache repo to use to fetch the precompiled files.
+        cache_dir (`Optional[Union[str, Path]]`, defaults to `None`):
+            The directory that is used as local cache directory.
     """
     registry_folder = get_registry_folder_for_mode(mode)
 
@@ -282,7 +285,9 @@ def hub_neuronx_cache(
             return create_compile_cache(cache_url)
 
     try:
-        default_cache = create_compile_cache(CacheUrl.get_cache_url())
+        if isinstance(cache_dir, Path):
+            cache_dir = cache_dir.as_posix()
+        default_cache = create_compile_cache(CacheUrl.get_cache_url(cache_dir=cache_dir))
         patch_everywhere("create_compile_cache", hf_create_compile_cache, "libneuronxla")
         yield
         # The cache session ended without error
@@ -312,7 +317,6 @@ def patch_neuron_cc_wrapper():
     Patches the `neuron_cc_wrapper` file to force it use our own version of it which essentially makes sure that it
     uses our caching system.
     """
-
     tmpdirname = ""
     try:
         with TemporaryDirectory() as dirname:
@@ -332,14 +336,24 @@ def patch_neuron_cc_wrapper():
 
 
 @requires_torch_neuronx
-def synchronize_hub_cache(cache_repo_id: Optional[str] = None):
+def synchronize_hub_cache(cache_path: Optional[Union[str, Path]] = None, cache_repo_id: Optional[str] = None):
     """Synchronize the neuronx compiler cache with the optimum-neuron hub cache.
 
     Args:
-        repo_id (`Optional[str]`, default to None):
+        cache_path (`Optional[Union[str, Path]]`, defaults to `None`):
+            The path of the folder to use for synchronization.
+        cache_repo_id (`Optional[str]`, default to None):
             The id of the HuggingFace cache repository, in the form 'org|user/name'.
     """
-    hub_cache_proxy = _create_hub_compile_cache_proxy(cache_repo_id=cache_repo_id)
+    if cache_path is not None:
+        cache_path = Path(cache_path)
+        cache_path_str = cache_path.as_posix()
+        if not cache_path.is_dir():
+            raise ValueError(f"The {cache_path_str} directory does not exist, cannot synchronize.")
+        cache_url = CacheUrl(cache_path_str, url_type="fs")
+    else:
+        cache_url = None
+    hub_cache_proxy = _create_hub_compile_cache_proxy(cache_url=cache_url, cache_repo_id=cache_repo_id)
     hub_cache_proxy.synchronize()
 
 
