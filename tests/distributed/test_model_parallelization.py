@@ -45,6 +45,7 @@ from transformers.models.auto.modeling_auto import (
 import optimum
 from optimum.neuron.accelerate.accelerator import NeuronAccelerator
 from optimum.neuron.distributed.parallelizers_manager import ParallelizersManager
+from optimum.neuron.distributed.utils import compute_query_indices_for_rank
 from optimum.neuron.utils.cache_utils import (
     get_num_neuron_cores,
 )
@@ -544,3 +545,58 @@ class TestModelParallelization(DistributedTest):
             sequence_parallel_enabled,
             parallelize_embeddings,
         )
+
+
+@pytest.mark.parametrize(
+    "tp_size,num_attention_heads,num_key_value_heads,kv_size_multiplier,ground_truth",
+    [
+        [
+            8,
+            32,
+            4,
+            2,
+            [
+                [0, 1, 2, 3],
+                [8, 9, 10, 11],
+                [16, 17, 18, 19],
+                [24, 25, 26, 27],
+                [4, 5, 6, 7],
+                [12, 13, 14, 15],
+                [20, 21, 22, 23],
+                [28, 29, 30, 31],
+            ],
+        ],
+        [
+            8,
+            32,
+            4,
+            4,
+            [
+                [0, 1, 8, 9],
+                [16, 17, 24, 25],
+                [2, 3, 10, 11],
+                [18, 19, 26, 27],
+                [4, 5, 12, 13],
+                [20, 21, 28, 29],
+                [6, 7, 14, 15],
+                [22, 23, 30, 31],
+            ],
+        ],
+    ],
+    ids=[
+        "32-heads-4kv-heads-kv-mul-2,one kv head per rank",
+        "32-heads-4kv-heads-kv-mul-4,multiple kv heads per rank",
+    ],
+)
+def test_compute_query_indices_for_rank(
+    tp_size, num_attention_heads, num_key_value_heads, kv_size_multiplier, ground_truth
+):
+    for tp_rank in range(tp_size):
+        expected = torch.tensor(ground_truth[tp_rank])
+        computed = compute_query_indices_for_rank(
+            tp_size, tp_rank, num_attention_heads, num_key_value_heads, kv_size_multiplier
+        )
+        print(f"TP rank = {tp_rank}")
+        print(f"Expected {expected}")
+        print(f"Computed {computed}")
+        torch.testing.assert_close(expected, computed)

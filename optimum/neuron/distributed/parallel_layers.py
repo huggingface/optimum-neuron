@@ -35,8 +35,8 @@ from .utils import (
     embedding_to_parallel_embedding,
     get_linear_weight_info,
     linear_to_parallel_linear,
-    maybe_load_weights_to_gqa_qkv_column_parallel_linear,
     maybe_load_weights_from_checkpoint_or_original_layer_to_output_projection_when_using_gqa_qkv_column_parallel_linear,
+    maybe_load_weights_to_gqa_qkv_column_parallel_linear,
 )
 
 
@@ -535,9 +535,13 @@ class ParallelSelfAttention(ParallelLayer):
             )
 
         if needs_gqa_qkv_column_parallel_linear:
+            qga_qkv_layer = getattr(layer, cls.GQA_QKV_PROJ_NAME)
             maybe_load_weights_from_checkpoint_or_original_layer_to_output_projection_when_using_gqa_qkv_column_parallel_linear(
                 model,
                 getattr(layer, cls.OUTPUT_PROJECTION_NAME),
+                qga_qkv_layer.num_attention_heads,
+                qga_qkv_layer.num_key_value_heads,
+                qga_qkv_layer.kv_size_multiplier,
                 try_from_checkpoint=not skip_linear_weight_load,
                 try_from_original_layer=not skip_linear_weight_load,
             )

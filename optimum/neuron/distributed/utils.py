@@ -487,7 +487,48 @@ def create_kv_proj_local_weight_from_regular_weight(
     return torch.cat(split[tp_rank::tp_size], dim=0)
 
 
-def create_q_or_o_proj_local_weight_from_regular_weight(
+def compute_query_indices_for_rank(
+    tp_size: int, tp_rank: int, num_attention_heads: int, num_key_value_heads: int, kv_size_multiplier: int
+):
+    num_attention_heads_per_rank = num_attention_heads // tp_size
+    num_key_value_heads_per_rank = (num_key_value_heads * kv_size_multiplier) // tp_size
+    query_group_size = num_attention_heads // num_key_value_heads
+    query_group_size_per_rank = num_attention_heads_per_rank // num_key_value_heads_per_rank
+    num_ranks_to_complete_group = query_group_size // query_group_size_per_rank
+
+    queries_indices = [
+        torch.arange(num_attention_heads_per_rank // num_key_value_heads_per_rank)
+        for _ in range(num_key_value_heads_per_rank)
+    ]
+
+    keys_indices = torch.arange(num_key_value_heads).repeat(kv_size_multiplier)
+    keys_indices = torch.repeat_interleave(keys_indices, num_attention_heads_per_rank // num_key_value_heads_per_rank)
+    keys_indices = torch.chunk(keys_indices, tp_size)
+
+    # shift_per_key = torch.arange(0, num_attention_heads, num_key_value_heads)
+    shift_per_key = torch.arange(0, num_attention_heads, query_group_size)
+
+    shift_within_query_group = torch.arange(0, query_group_size, query_group_size_per_rank)
+    shift_within_query_group = torch.repeat_interleave(
+        shift_within_query_group, num_attention_heads_per_rank * num_key_value_heads_per_rank
+    )
+    shift_within_query_group = torch.chunk(shift_within_query_group, tp_size)
+
+    indices = []
+    for idx, q_indices in enumerate(queries_indices):
+        s = slice(idx * num_key_value_heads_per_rank, (idx + 1) * num_key_value_heads_per_rank)
+        k_indices = keys_indices[tp_rank][s]
+        k_shift = shift_per_key[k_indices]
+        group_shift = shift_within_query_group[tp_rank][s]
+        indices.append(q_indices + k_shift + group_shift)
+
+    indices = torch.cat(indices, dim=0)
+    print(tp_rank, indices)
+    return indices
+
+
+@requires_neuronx_distributed
+def create_query_or_output_projection_local_weight_from_regular_weight(
     weight_data: torch.Tensor,
     num_attention_heads: int,
     num_key_value_heads: int,
@@ -510,34 +551,37 @@ def create_q_or_o_proj_local_weight_from_regular_weight(
     # key_index = (tp_rank % kv_size_multiplier)
 
     # # Detailed computation
-    num_attention_heads_per_rank = num_attention_heads // tp_size
-    num_key_value_heads_per_rank = (num_key_value_heads * kv_size_multiplier) // tp_size
-    num_ranks_per_group = (num_attention_heads // num_key_value_heads) // num_attention_heads_per_rank
 
     # shift =  key_index *  num_attention_heads_per_rank * num_ranks_per_group
 
     # queries_indices = indices + shift
-    queries_indices = [
-        torch.arange(num_key_value_heads_per_rank)
-        for _ in range(num_attention_heads_per_rank // num_key_value_heads_per_rank)
-    ]
-    # TODO: should we split with num_attention_heads_per_rank // num_key_value_heads_per_rank or num_key_value_heads_per_rank?
-    keys_indices = (
-        torch.arange(num_key_value_heads)
-        .repeat(kv_size_multiplier)
-        .split(num_attention_heads_per_rank // num_key_value_heads_per_rank)
-    )
-    final_queries_indices = []
-    for ith_key_in_rank, indices in enumerate(queries_indices):
-        tp_rank_shift = tp_rank * num_attention_heads_per_rank
-        key_index = keys_indices[tp_rank][ith_key_in_rank]
-        shift = key_index * num_attention_heads_per_rank * num_ranks_per_group
-        final_queries_indices.append(indices + shift + tp_rank_shift)
+    # num_groups_per_rank = num_attention_heads_per_rank // num_key_value_heads_per_rank
+    # queries_indices = [
+    #     torch.arange(num_key_value_heads_per_rank)
+    #     for _ in range(num_groups_per_rank)
+    # ]
+    # # TODO: should we split with num_attention_heads_per_rank // num_key_value_heads_per_rank or num_key_value_heads_per_rank?
+    # keys_indices = (
+    #     torch.arange(num_key_value_heads)
+    #     .repeat(kv_size_multiplier)
+    #     .chunk(tp_size)
+    #     # .split(num_attention_heads_per_rank // num_key_value_heads_per_rank)
+    # )
+    # print(keys_indices)
+    # final_queries_indices = []
+    # for ith_key_in_rank, indices in enumerate(queries_indices):
+    #     tp_rank_shift = tp_rank * num_attention_heads_per_rank
+    #     key_index = keys_indices[tp_rank][ith_key_in_rank]
+    #     shift = key_index * num_attention_heads_per_rank * num_ranks_per_group
+    #     final_queries_indices.append(indices + shift + tp_rank_shift)
 
-    indices = torch.cat(final_queries_indices, dim=0)
+    # indices = torch.cat(final_queries_indices, dim=0)
 
     reshaped_weight = weight_data.view(num_attention_heads, -1, weight_data.size(-1))
-    queries = reshaped_weight[queries_indices]
+    indices = compute_query_indices_for_rank(
+        tp_size, tp_rank, num_attention_heads, num_key_value_heads, kv_size_multiplier
+    )
+    queries = reshaped_weight[indices]
     queries = queries.reshape(-1, weight_data.size(-1))
 
     if query_or_output_proj == "output":
@@ -604,7 +648,7 @@ def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
                         weight, kv_size_multiplier, weight.size(0)
                     )
                 else:
-                    weight_data = create_q_or_o_proj_local_weight_from_regular_weight(
+                    weight_data = create_query_or_output_projection_local_weight_from_regular_weight(
                         weight, num_attention_heads, num_key_value_heads, kv_size_multiplier, "query"
                     )
                 weight.copy_(weight_data)
@@ -620,7 +664,7 @@ def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
                         linear_layer.weight, kv_size_multiplier, weight.size(0)
                     )
                 else:
-                    weight_data = create_q_or_o_proj_local_weight_from_regular_weight(
+                    weight_data = create_query_or_output_projection_local_weight_from_regular_weight(
                         linear_layer.weight, num_attention_heads, num_key_value_heads, kv_size_multiplier, "query"
                     )
                 weight.copy_(weight_data)
@@ -676,7 +720,7 @@ def maybe_load_weights_to_output_projection_when_using_gqa_qkv_column_parallel_l
             elif linear_layer is not None and linear_layer.weight.device != torch.device("meta"):
                 weight_data = linear_layer.weight.data
             if weight_data is not None:
-                weight_data = create_q_or_o_proj_local_weight_from_regular_weight(
+                weight_data = create_query_or_output_projection_local_weight_from_regular_weight(
                     weight_data, num_attention_heads, num_key_value_heads, kv_size_multiplier, "output"
                 )
                 weight.copy_(weight_data.repeat(1, 32))
@@ -717,16 +761,20 @@ def maybe_load_weights_to_gqa_qkv_column_parallel_linear(
                 linear_layer=model.get_submodule(orig_layer_name),
             )
 
+
 def maybe_load_weights_from_checkpoint_or_original_layer_to_output_projection_when_using_gqa_qkv_column_parallel_linear(
     model: torch.nn.Module,
     output_projection: "layers.ColumnParallelLinear",
+    num_attention_heads: int,
+    num_key_value_heads: int,
+    kv_size_multiplier: int,
     try_from_checkpoint: bool = True,
     try_from_original_layer: bool = False,
 ):
 
-        # # If we were able to initiliaze the query projection, then we assume we should initialize the output projection
-        # # as well.
-        # if weight_name == "weight_q" and was_already_initialized_during_parallelization(getattr(layer, weight_name)):
+    # # If we were able to initiliaze the query projection, then we assume we should initialize the output projection
+    # # as well.
+    # if weight_name == "weight_q" and was_already_initialized_during_parallelization(getattr(layer, weight_name)):
     # parent_qualified_name = named_modules[layer].rsplit(".", maxsplit=1)[0]
     # output_projection_qualified_name = f"{parent_qualified_name}.{layer.output_proj_name}"
     # output_projection = model.get_submodule(output_projection_qualified_name)
@@ -746,7 +794,6 @@ def maybe_load_weights_from_checkpoint_or_original_layer_to_output_projection_wh
         )
     elif try_from_original_layer:
         maybe_load_weights_to_output_projection_when_using_gqa_qkv_column_parallel_linear(
-            output_projection,
             output_projection,
             num_attention_heads,
             num_key_value_heads,
