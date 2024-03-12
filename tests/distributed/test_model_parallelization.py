@@ -486,7 +486,7 @@ class TestModelParallelization(DistributedTest):
                     "num_attention_heads": "16",
                     "num_key_value_heads": "1",
                 },
-                ],
+            ],
         ],
         ids=[
             "MHA-setup",

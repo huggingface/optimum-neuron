@@ -36,6 +36,7 @@ from .utils import (
     get_linear_weight_info,
     linear_to_parallel_linear,
     maybe_load_weights_to_gqa_qkv_column_parallel_linear,
+    maybe_load_weights_from_checkpoint_or_original_layer_to_output_projection_when_using_gqa_qkv_column_parallel_linear,
 )
 
 
@@ -371,6 +372,7 @@ class ParallelSelfAttention(ParallelLayer):
             cls.QUERIES_NAME,
             cls.KEYS_NAME,
             cls.VALUES_NAME,
+            cls.OUTPUT_PROJECTION_NAME,
             num_attention_heads,
             num_key_value_heads,
             hidden_size,
@@ -532,6 +534,14 @@ class ParallelSelfAttention(ParallelLayer):
                 ),
             )
 
+        if needs_gqa_qkv_column_parallel_linear:
+            maybe_load_weights_from_checkpoint_or_original_layer_to_output_projection_when_using_gqa_qkv_column_parallel_linear(
+                model,
+                getattr(layer, cls.OUTPUT_PROJECTION_NAME),
+                try_from_checkpoint=not skip_linear_weight_load,
+                try_from_original_layer=not skip_linear_weight_load,
+            )
+
         setattr(
             layer,
             num_attention_heads_name,
@@ -555,7 +565,7 @@ class ParallelSelfAttention(ParallelLayer):
             # and query group.
             else:
                 gqa_qkv_proj = getattr(layer, cls.GQA_QKV_PROJ_NAME)
-                new_num_key_value_heads = num_key_value_heads * gqa_qkv_proj.kv_size_multiplier // tp_size
+                new_num_key_value_heads = (num_key_value_heads * gqa_qkv_proj.kv_size_multiplier) // tp_size
                 setattr(
                     layer,
                     cls.NUM_KEY_VALUE_HEADS_NAME,

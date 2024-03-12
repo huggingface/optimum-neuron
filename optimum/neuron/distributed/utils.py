@@ -233,10 +233,10 @@ class OptimumGQAQKVColumnParallelLinear(GQAQKVColumnParallelLinear):
         self.query_proj_name = query_proj_name
         self.key_proj_name = key_proj_name
         self.value_proj_name = value_proj_name
-        self.output_proj_name = output_proj
+        self.output_proj_name = output_proj_name
 
         self._qkv_proj_name_to_proj_name = {"q": query_proj_name, "k": key_proj_name, "v": value_proj_name}
-        self.num_attention_heads = num_attention_heads 
+        self.num_attention_heads = num_attention_heads
         self.num_key_value_heads = num_key_value_heads
 
     def get_parameter_names_mapping(
@@ -468,8 +468,13 @@ def get_linear_weight_info(
 
 
 @requires_neuronx_distributed
-def create_kv_proj_local_weight_from_regular_weight(weight: torch.nn.Parameter, kv_size_multiplier: int, output_size_per_partition: int) -> torch.Tensor:
-    from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_rank, get_tensor_model_parallel_size
+def create_kv_proj_local_weight_from_regular_weight(
+    weight: torch.nn.Parameter, kv_size_multiplier: int, output_size_per_partition: int
+) -> torch.Tensor:
+    from neuronx_distributed.parallel_layers.parallel_state import (
+        get_tensor_model_parallel_rank,
+        get_tensor_model_parallel_size,
+    )
 
     tp_size = get_tensor_model_parallel_size()
     tp_rank = get_tensor_model_parallel_rank()
@@ -482,29 +487,65 @@ def create_kv_proj_local_weight_from_regular_weight(weight: torch.nn.Parameter, 
     return torch.cat(split[tp_rank::tp_size], dim=0)
 
 
-def create_q_or_o_proj_local_weight_from_regular_weight(weight: torch.nn.Parameter, num_attention_heads: int, num_key_value_heads: int, kv_size_multiplier: int, query_or_output_proj: Union[Literal["query"], Literal["output"]]) -> torch.Tensor:
-    from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_rank, get_tensor_model_parallel_size
+def create_q_or_o_proj_local_weight_from_regular_weight(
+    weight_data: torch.Tensor,
+    num_attention_heads: int,
+    num_key_value_heads: int,
+    kv_size_multiplier: int,
+    query_or_output_proj: Union[Literal["query"], Literal["output"]],
+) -> torch.Tensor:
+    from neuronx_distributed.parallel_layers.parallel_state import (
+        get_tensor_model_parallel_rank,
+        get_tensor_model_parallel_size,
+    )
 
     tp_size = get_tensor_model_parallel_size()
     tp_rank = get_tensor_model_parallel_rank()
 
-    indices = torch.arange(num_attention_heads // tp_size)
+    if query_or_output_proj == "output":
+        weight_data = weight_data.transpose(0, 1)
 
-    key_index = (tp_rank % kv_size_multiplier)
+    # indices = torch.arange(num_attention_heads // tp_size)
 
-    # Detailed computation
-    num_attention_heads_per_rank = (num_attention_heads // tp_size)
+    # key_index = (tp_rank % kv_size_multiplier)
+
+    # # Detailed computation
+    num_attention_heads_per_rank = num_attention_heads // tp_size
+    num_key_value_heads_per_rank = (num_key_value_heads * kv_size_multiplier) // tp_size
     num_ranks_per_group = (num_attention_heads // num_key_value_heads) // num_attention_heads_per_rank
 
-    shift =  key_index *  num_attention_heads_per_rank * num_ranks_per_group
+    # shift =  key_index *  num_attention_heads_per_rank * num_ranks_per_group
 
-    queries_indices = indices + shift
+    # queries_indices = indices + shift
+    queries_indices = [
+        torch.arange(num_key_value_heads_per_rank)
+        for _ in range(num_attention_heads_per_rank // num_key_value_heads_per_rank)
+    ]
+    # TODO: should we split with num_attention_heads_per_rank // num_key_value_heads_per_rank or num_key_value_heads_per_rank?
+    keys_indices = (
+        torch.arange(num_key_value_heads)
+        .repeat(kv_size_multiplier)
+        .split(num_attention_heads_per_rank // num_key_value_heads_per_rank)
+    )
+    final_queries_indices = []
+    for ith_key_in_rank, indices in enumerate(queries_indices):
+        tp_rank_shift = tp_rank * num_attention_heads_per_rank
+        key_index = keys_indices[tp_rank][ith_key_in_rank]
+        shift = key_index * num_attention_heads_per_rank * num_ranks_per_group
+        final_queries_indices.append(indices + shift + tp_rank_shift)
 
-    reshaped_weight = weight.view(num_attention_heads, -1, weight.size(-1))
+    indices = torch.cat(final_queries_indices, dim=0)
+
+    reshaped_weight = weight_data.view(num_attention_heads, -1, weight_data.size(-1))
     queries = reshaped_weight[queries_indices]
-    queries = queries.reshape(-1, weight.size(-1))
+    queries = queries.reshape(-1, weight_data.size(-1))
+
+    if query_or_output_proj == "output":
+        with torch.no_grad():
+            queries.data = queries.data.transpose(0, 1)
+
     return queries
-    
+
 
 @requires_neuronx_distributed
 def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
@@ -536,7 +577,8 @@ def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
 
     num_attention_heads = layer.num_attention_heads
     num_key_value_heads = layer.num_key_value_heads
-    kv_size_multiplier = layer.kv_size_multiplier  if proj_name in "kv" else 1
+    # kv_size_multiplier = layer.kv_size_multiplier  if proj_name in "kv" else 1
+    kv_size_multiplier = layer.kv_size_multiplier
 
     with torch.no_grad():
         if not was_already_initialized_during_parallelization(weight):
@@ -556,14 +598,15 @@ def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
                 #         None,
                 #     ),
                 # )
-                weight_data = load_tensor_for_weight(
-                    linear_layer_weight_info,
-                    tensor_slices=tensor_slices
-                )
+                weight_data = load_tensor_for_weight(linear_layer_weight_info, tensor_slices=tensor_slices)
                 if proj_name in "kv":
-                    weight_data = create_kv_proj_local_weight_from_regular_weight(weight, kv_size_multiplier, weight.size(0))
+                    weight_data = create_kv_proj_local_weight_from_regular_weight(
+                        weight, kv_size_multiplier, weight.size(0)
+                    )
                 else:
-                    weight_data = create_q_or_o_proj_local_weight_from_regular_weight(weight, num_attention_heads, num_key_value_heads, kv_size_multiplier, "query")
+                    weight_data = create_q_or_o_proj_local_weight_from_regular_weight(
+                        weight, num_attention_heads, num_key_value_heads, kv_size_multiplier, "query"
+                    )
                 weight.copy_(weight_data)
                 mark_parameter_init_status_during_parallelization(weight, True)
                 del weight_data
@@ -573,9 +616,13 @@ def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
                 # else:
                 #     weight_data = linear_layer.weight[tp_rank * row_size : (tp_rank + 1) * row_size, :]
                 if proj_name in "kv":
-                    weight_data = create_kv_proj_local_weight_from_regular_weight(linear_layer.weight, kv_size_multiplier, weight.size(0))
+                    weight_data = create_kv_proj_local_weight_from_regular_weight(
+                        linear_layer.weight, kv_size_multiplier, weight.size(0)
+                    )
                 else:
-                    weight_data = create_q_or_o_proj_local_weight_from_regular_weight(linear_layer.weight, num_attention_heads, num_key_value_heads, kv_size_multiplier, "query")
+                    weight_data = create_q_or_o_proj_local_weight_from_regular_weight(
+                        linear_layer.weight, num_attention_heads, num_key_value_heads, kv_size_multiplier, "query"
+                    )
                 weight.copy_(weight_data)
                 mark_parameter_init_status_during_parallelization(weight, True)
             else:
@@ -611,31 +658,33 @@ def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
                         mark_parameter_init_status_during_parallelization(bias, False)
 
 
-def maybe_load_weights_to_output_proj_when_using_gqa_qkv_column_parallel_linear(
-    layer: torch.nn.Module, 
-    associated_optimum_gqa_qkv_column_parallel_linear: OptimumGQAQKVColumnParallelLinear,
+def maybe_load_weights_to_output_projection_when_using_gqa_qkv_column_parallel_linear(
+    layer: "layers.ColumnParallelLinear",
+    num_attention_heads: int,
+    num_key_value_heads: int,
+    kv_size_multiplier: int,
     linear_layer_weight_info: Optional[WeightInformation] = None,
     linear_layer_bias_weight_info: Optional[WeightInformation] = None,
     linear_layer: Optional["torch.nn.Linear"] = None,
 ):
-
-    num_attention_heads = associated_optimum_gqa_qkv_column_parallel_linear.num_attention_heads
-    num_key_value_heads = associated_optimum_gqa_qkv_column_parallel_linear.num_key_value_heads
-    kv_size_multiplier = associated_optimum_gqa_qkv_column_parallel_linear.kv_size_multiplier  if proj_name in "kv" else 1
+    weight = layer.weight
     with torch.no_grad():
         if not was_already_initialized_during_parallelization(weight):
             weight_data = None
             if linear_layer_weight_info is not None:
                 weight_data = load_tensor_for_weight(linear_layer_weight_info)
-            elif linear_layer.weight.device != torch.device("meta"):
-                weight_data = create_q_or_o_proj_local_weight_from_regular_weight(linear_layer.weight, num_attention_heads, num_key_value_heads, kv_size_multiplier, "output")
+            elif linear_layer is not None and linear_layer.weight.device != torch.device("meta"):
+                weight_data = linear_layer.weight.data
             if weight_data is not None:
-                weight_data = create_q_or_o_proj_local_weight_from_regular_weight(weight, num_attention_heads, num_key_value_heads, kv_size_multiplier, "output")
-                weight.copy_(weight_data)
+                weight_data = create_q_or_o_proj_local_weight_from_regular_weight(
+                    weight_data, num_attention_heads, num_key_value_heads, kv_size_multiplier, "output"
+                )
+                weight.copy_(weight_data.repeat(1, 32))
                 mark_parameter_init_status_during_parallelization(weight, True)
             else:
                 mark_parameter_init_status_during_parallelization(weight, False)
     # TODO: bias
+
 
 def maybe_load_weights_to_gqa_qkv_column_parallel_linear(
     model: torch.nn.Module,
@@ -668,23 +717,42 @@ def maybe_load_weights_to_gqa_qkv_column_parallel_linear(
                 linear_layer=model.get_submodule(orig_layer_name),
             )
 
-        # If we were able to initiliaze the query projection, then we assume we should initialize the output projection
-        # as well.
-        if weight_name == "weight_q" and was_already_initialized_during_parallelization(getattr(layer, weight_name)):
-            parent_qualified_name = named_modules[layer].rsplit(".", maxsplit=1)[0]
-            output_projection_qualified_name = f"{parent_qualified_name}.{layer.output_proj_name}"
-            output_projection = model.get_submodule(output_projection_qualified_name)
-            linear_weight_info, linear_bias_weight_info = get_linear_weight_info(
-                weight_map, output_projection_qualified_name, fail_if_not_found=False
-            )
-        if try_from_checkpoint and linear_weight_info is not None:
-            maybe_load_weights_to_output_proj_when_using_gqa_qkv_column_parallel_linear(
-                output_projection,
-                layer,
-                linear_layer_weight_info=linear_weight_info,
-                linear_layer_bias_weight_info=linear_bias_weight_info,
-            )
+def maybe_load_weights_from_checkpoint_or_original_layer_to_output_projection_when_using_gqa_qkv_column_parallel_linear(
+    model: torch.nn.Module,
+    output_projection: "layers.ColumnParallelLinear",
+    try_from_checkpoint: bool = True,
+    try_from_original_layer: bool = False,
+):
 
+        # # If we were able to initiliaze the query projection, then we assume we should initialize the output projection
+        # # as well.
+        # if weight_name == "weight_q" and was_already_initialized_during_parallelization(getattr(layer, weight_name)):
+    # parent_qualified_name = named_modules[layer].rsplit(".", maxsplit=1)[0]
+    # output_projection_qualified_name = f"{parent_qualified_name}.{layer.output_proj_name}"
+    # output_projection = model.get_submodule(output_projection_qualified_name)
+    weight_map = getattr(model, "_weight_map", {})
+    module_to_name = {v: k for k, v in model.named_modules()}
+    linear_weight_info, linear_bias_weight_info = get_linear_weight_info(
+        weight_map, module_to_name[output_projection], fail_if_not_found=False
+    )
+    if try_from_checkpoint and linear_weight_info is not None:
+        maybe_load_weights_to_output_projection_when_using_gqa_qkv_column_parallel_linear(
+            output_projection,
+            num_attention_heads,
+            num_key_value_heads,
+            kv_size_multiplier,
+            linear_layer_weight_info=linear_weight_info,
+            linear_layer_bias_weight_info=linear_bias_weight_info,
+        )
+    elif try_from_original_layer:
+        maybe_load_weights_to_output_projection_when_using_gqa_qkv_column_parallel_linear(
+            output_projection,
+            output_projection,
+            num_attention_heads,
+            num_key_value_heads,
+            kv_size_multiplier,
+            linear_layer=output_projection,
+        )
 
 
 @requires_neuronx_distributed

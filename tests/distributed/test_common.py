@@ -433,7 +433,9 @@ class TestCommonDistributed(DistributedTest):
             "dp=1,tp=8,pp=2,kv_size_multiplier=4,GQAQKVColumnParallelLinear",
         ],
     )
-    def test_consolidate_model_parallel_checkpoints(self, tmpdir, world_size, tp_size, pp_size, kv_size_multiplier, model_name):
+    def test_consolidate_model_parallel_checkpoints(
+        self, tmpdir, world_size, tp_size, pp_size, kv_size_multiplier, model_name
+    ):
         orig_model = get_model(
             LlamaForCausalLM,
             model_name,
