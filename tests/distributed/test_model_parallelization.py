@@ -268,9 +268,9 @@ class TestModelParallelization(DistributedTest):
             # In this case, we assume GQAQKVColumnParallelLinear was used, we retrieve only the non-repeated KV heads.
             if "past" in name and original_output.size(1) != output.size(1):
                 kv_size_multiplier = len(get_kv_shared_group(as_list=True)[0])
-                output = output[:, ::kv_size_multiplier]
+                output = torch.chunk(output, kv_size_multiplier, dim=1)[0]
 
-            xm.master_print(original_output - output)
+            xm.master_print("Diff tensor:", original_output - output)
             torch.testing.assert_close(original_output, output)
         else:
             assert original_output == output, f"Output named {name} do not match."

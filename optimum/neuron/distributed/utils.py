@@ -449,7 +449,7 @@ def get_linear_weight_info(
 
 @requires_neuronx_distributed
 def create_kv_proj_local_weight_from_regular_weight(
-    weight: torch.nn.Parameter, kv_size_multiplier: int, output_size_per_partition: int
+    weight_data: torch.Tensor, kv_size_multiplier: int, output_size_per_partition: int
 ) -> torch.Tensor:
     from neuronx_distributed.parallel_layers.parallel_state import (
         get_tensor_model_parallel_rank,
@@ -458,7 +458,7 @@ def create_kv_proj_local_weight_from_regular_weight(
 
     tp_size = get_tensor_model_parallel_size()
     tp_rank = get_tensor_model_parallel_rank()
-    repeated_weight = weight.repeat(kv_size_multiplier, 1)
+    repeated_weight = weight_data.repeat(kv_size_multiplier, 1)
     split = torch.split(repeated_weight, output_size_per_partition, dim=0)
     return torch.cat(split[tp_rank::tp_size], dim=0)
 
@@ -516,21 +516,25 @@ def create_query_or_output_projection_local_weight_from_regular_weight(
     tp_size = get_tensor_model_parallel_size()
     tp_rank = get_tensor_model_parallel_rank()
 
-    if query_or_output_proj == "output":
+    if query_or_output_proj == "query":
+        hidden_size = weight_data.size(1)
+        head_dim = weight_data.size(0) // num_attention_heads
+    else:
+        hidden_size = weight_data.size(0)
+        head_dim = weight_data.size(1) // num_attention_heads
         weight_data = weight_data.transpose(0, 1)
 
-    reshaped_weight = weight_data.view(num_attention_heads, -1, weight_data.size(-1))
     indices = compute_query_indices_for_rank(
         tp_size, tp_rank, num_attention_heads, num_key_value_heads, kv_size_multiplier
     )
-    queries = reshaped_weight[indices]
-    queries = queries.reshape(-1, weight_data.size(-1))
+    reshaped_weight = weight_data.view(num_attention_heads, head_dim, hidden_size)
+    shuffled_weight = reshaped_weight[indices]
+    shuffled_weight = shuffled_weight.reshape(-1, hidden_size)
 
     if query_or_output_proj == "output":
-        with torch.no_grad():
-            queries.data = queries.data.transpose(0, 1)
+        shuffled_weight = shuffled_weight.transpose(0, 1)
 
-    return queries
+    return shuffled_weight
 
 
 @requires_neuronx_distributed
@@ -588,7 +592,7 @@ def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
                     )
                 else:
                     weight_data = create_query_or_output_projection_local_weight_from_regular_weight(
-                        linear_layer.weight, num_attention_heads, num_key_value_heads, kv_size_multiplier, "query"
+                        linear_layer.weight.data, num_attention_heads, num_key_value_heads, kv_size_multiplier, "query"
                     )
                 weight.copy_(weight_data)
                 mark_parameter_init_status_during_parallelization(weight, True)
@@ -670,24 +674,23 @@ def maybe_load_weights_to_output_projection_when_using_gqa_qkv_column_parallel_l
 ):
     weight = output_projection.weight
     with torch.no_grad():
-        if not was_already_initialized_during_parallelization(weight):
-            weight_data = None
-            if try_from_checkpoint and linear_layer_weight_info is not None:
-                weight_data = load_tensor_for_weight(linear_layer_weight_info)
-            elif (
-                try_from_original_layer
-                and original_output_projection is not None
-                and original_output_projection.weight.device != torch.device("meta")
-            ):
-                weight_data = original_output_projection.weight.data
-            if weight_data is not None:
-                weight_data = create_query_or_output_projection_local_weight_from_regular_weight(
-                    weight_data, num_attention_heads, num_key_value_heads, kv_size_multiplier, "output"
-                )
-                weight.copy_(weight_data)
-                mark_parameter_init_status_during_parallelization(weight, True)
-            else:
-                mark_parameter_init_status_during_parallelization(weight, False)
+        weight_data = None
+        if try_from_checkpoint and linear_layer_weight_info is not None:
+            weight_data = load_tensor_for_weight(linear_layer_weight_info)
+        elif (
+            try_from_original_layer
+            and original_output_projection is not None
+            and original_output_projection.weight.device != torch.device("meta")
+        ):
+            weight_data = original_output_projection.weight.data
+        if weight_data is not None:
+            weight_data = create_query_or_output_projection_local_weight_from_regular_weight(
+                weight_data, num_attention_heads, num_key_value_heads, kv_size_multiplier, "output"
+            )
+            weight.copy_(weight_data)
+            mark_parameter_init_status_during_parallelization(weight, True)
+        else:
+            mark_parameter_init_status_during_parallelization(weight, False)
     # TODO: bias
 
 
