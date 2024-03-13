@@ -164,26 +164,6 @@ class FakeProj(torch.nn.Module):
         self.parent_module_fully_qualified_name = parent_module_fully_qualified_name
         self.gqa_qkv_proj_name = gqa_qkv_proj_name
 
-    def get_parameter_names_mapping(self, reversed: bool = False) -> Dict[str, str]:
-        gqa_qkv_column_parallel_linear = getattr(self.get_parent_module(), self.gqa_qkv_proj_name)
-        gqa_qkv_column_parallel_linear_qualified_name = (
-            f"{self.parent_module_fully_qualified_name}.{self.gqa_qkv_proj_name}"
-        )
-
-        fully_qualified_name_weight = f"{gqa_qkv_column_parallel_linear_qualified_name}.weight_{self.proj_name}"
-        mapping = {
-            f"{self.fully_qualified_name}.weight": fully_qualified_name_weight,
-        }
-        if gqa_qkv_column_parallel_linear.use_bias:
-            fully_qualified_name_bias = f"{gqa_qkv_column_parallel_linear_qualified_name}.bias_{self.proj_name}"
-            mapping[f"{self.fully_qualified_name}.bias"] = fully_qualified_name_bias
-        if reversed:
-            mapping = {v: k for k, v in mapping.items()}
-        return mapping
-
-    def update_state_dict(self, model: torch.nn.Module, state_dict: Dict[str, torch.Tensor]):
-        pass
-
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         parent_module = self.get_parent_module()
         gqa_qkv_column_parallel_linear = getattr(parent_module, self.gqa_qkv_proj_name)
@@ -478,11 +458,7 @@ def create_kv_proj_local_weight_from_regular_weight(
 
     tp_size = get_tensor_model_parallel_size()
     tp_rank = get_tensor_model_parallel_rank()
-
     repeated_weight = weight.repeat(kv_size_multiplier, 1)
-    # output_size = weight.size(0)
-    # output_size_per_partition = (output_size  * kv_size_multiplier) // tp_size
-
     split = torch.split(repeated_weight, output_size_per_partition, dim=0)
     return torch.cat(split[tp_rank::tp_size], dim=0)
 

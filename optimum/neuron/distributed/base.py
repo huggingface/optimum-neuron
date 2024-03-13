@@ -140,77 +140,6 @@ class PipelineParallelismSpecs:
         return []
 
 
-class GQAPatcher:
-    ATTENTION_CLASS: Type[torch.nn.Module]
-    QUERIES_NAME: str
-    KEYS_NAME: str
-    VALUES_NAME: str
-    GQA_QKV_PROJ_NAME: str = "qkv_proj"
-
-    @classmethod
-    def patch_proj_to_use_gqa_qkv_column_parallel_linear(
-        cls, attention_layer: torch.nn.Module, proj_name: str, output_index: int
-    ):
-
-        def proj(self, hidden_states: torch.Tensor) -> torch.Tensor:
-            if not hasattr(self, "_gqa_qkv_output"):
-                self._gqa_qkv_output = self.GQA_QKV_PROJ_NAME(hidden_states)
-                self._gqa_qkv_output_fetch_counter = 0
-            self._gqa_qkv_output_fetch_counter += 1
-            output = self._gqa_qkv_output[output_index]
-            if self._gqa_qkv_output_fetch_counter == 3:
-                del self._gqa_qkv_output
-            return output
-
-        patched_proj = proj.__get__(attention_layer)
-        setattr(attention_layer, proj_name, patched_proj)
-
-    @classmethod
-    @requires_neuronx_distributed
-    def replace_qkv_by_gqa_qkv_column_parallel_linear(
-        cls,
-        attention_layer: torch.nn.Module,
-        sequence_parallel_enabled: bool = False,
-        kv_size_multiplier: Optional[int] = None,
-    ):
-        from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
-        from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
-
-        query_linear = getattr(attention_layer, cls.QUERIES_NAME)
-        key_linear = getattr(attention_layer, cls.KEYS_NAME)
-
-        hidden_size = query_linear.weight.size(0)
-        query_in_features = query_linear.weight.size(1)
-        key_value_in_features = key_linear.weight.size(1)
-
-        if kv_size_multiplier is None:
-            kv_size_multiplier = get_tensor_model_parallel_size() / key_value_in_features
-
-        gqa_qkv_column_parallel_linear = GQAQKVColumnParallelLinear(
-            hidden_size,
-            [query_in_features, key_value_in_features],
-            gather_output=False,
-            sequence_parallel_enabled=sequence_parallel_enabled,
-            device=query_linear.weight.device,
-            kv_size_multiplier=kv_size_multiplier,
-        )
-
-        setattr(attention_layer, cls.GQA_QKV_PROJ_NAME, gqa_qkv_column_parallel_linear)
-        cls.patch_proj_to_use_gqa_qkv_column_parallel_linear(attention_layer, cls.QUERIES_NAME, 0)
-        cls.patch_proj_to_use_gqa_qkv_column_parallel_linear(attention_layer, cls.KEYS_NAME, 1)
-        cls.patch_proj_to_use_gqa_qkv_column_parallel_linear(attention_layer, cls.VALUES_NAME, 2)
-
-    @classmethod
-    def patch_model(
-        cls, model: torch.nn.Module, sequence_parallel_enabled: bool = False, kv_size_multiplier: Optional[int] = None
-    ):
-        for module in model.modules():
-            if isinstance(module, cls.ATTENTION_CLASS):
-                cls.replace_qkv_by_gqa_qkv_column_parallel_linear(
-                    module, sequence_parallel_enabled, kv_size_multiplier=kv_size_multiplier
-                )
-
-
 class Parallelizer(ABC):
     """
     Base abstract class that handles model parallelism.
@@ -218,7 +147,6 @@ class Parallelizer(ABC):
 
     SEQUENCE_PARALLELSIM_SPECS_CLS: Optional[Type[SequenceParallelismSpecs]] = None
     PIPELINE_PARALLELISM_SPECS_CLS: Optional[Type[PipelineParallelismSpecs]] = None
-    GQA_PATCHER: Optional[Type[GQAPatcher]] = None
 
     def __init__(self):
         self._validate_required_libaries_are_available()
@@ -452,7 +380,6 @@ class Parallelizer(ABC):
                     device = torch.device("cpu") if device is None else device
                     new_parameter = torch.nn.Parameter(torch.empty_like(parameter, device=device))
                     modules_to_initialize[module].append(attribute_name)
-                    print("Name", name)
 
                 setattr(
                     module,
