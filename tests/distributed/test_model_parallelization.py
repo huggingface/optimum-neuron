@@ -582,10 +582,27 @@ class TestModelParallelization(DistributedTest):
                 [22, 23, 30, 31],
             ],
         ],
+        [
+            8,
+            32,
+            4,
+            8,
+            [
+                [0, 8, 16, 24],
+                [1, 9, 17, 25],
+                [2, 10, 18, 26],
+                [3, 11, 19, 27],
+                [4, 12, 20, 28],
+                [5, 13, 21, 29],
+                [6, 14, 22, 30],
+                [7, 15, 23, 31],
+            ],
+        ],
     ],
     ids=[
         "32-heads-4kv-heads-kv-mul-2,one kv head per rank",
         "32-heads-4kv-heads-kv-mul-4,multiple kv heads per rank",
+        "32-heads-4kv-heads-kv-mul-8,all kv heads per rank",
     ],
 )
 def test_compute_query_indices_for_rank(

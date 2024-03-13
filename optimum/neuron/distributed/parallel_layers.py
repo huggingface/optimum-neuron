@@ -35,8 +35,8 @@ from .utils import (
     embedding_to_parallel_embedding,
     get_linear_weight_info,
     linear_to_parallel_linear,
-    maybe_load_weights_from_checkpoint_or_original_layer_to_output_projection_when_using_gqa_qkv_column_parallel_linear,
     maybe_load_weights_to_gqa_qkv_column_parallel_linear,
+    maybe_load_weights_to_output_projection_when_using_gqa_qkv_column_parallel_linear,
 )
 
 
@@ -446,7 +446,7 @@ class ParallelSelfAttention(ParallelLayer):
 
         tp_size = get_tensor_model_parallel_size()
 
-        weight_map = getattr(model, "_weight_map", None)
+        weight_map = getattr(model, "_weight_map", {})
         config = model.config
         normalized_config = NormalizedConfigManager.get_normalized_config_class(config.model_type)(config)
 
@@ -492,13 +492,12 @@ class ParallelSelfAttention(ParallelLayer):
             )
         else:
             for name in [cls.QUERIES_NAME, cls.KEYS_NAME, cls.VALUES_NAME]:
-                linear_layer_weight_info, linear_layer_bias_weight_info = None, None
-                if weight_map is not None:
-                    linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
-                        weight_map,
-                        f"{layer_qualified_name}.{name}",
-                        device=device,
-                    )
+                linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
+                    weight_map,
+                    f"{layer_qualified_name}.{name}",
+                    device=device,
+                    fail_if_not_found=False,
+                )
                 parallel_linear = linear_to_parallel_linear(
                     getattr(layer, name),
                     "column",
@@ -512,39 +511,38 @@ class ParallelSelfAttention(ParallelLayer):
                 setattr(layer, name, parallel_linear)
 
         if cls.OUTPUT_PROJECTION_NAME is not None:
-            linear_layer_weight_info, linear_layer_bias_weight_info = None, None
-            if weight_map is not None:
-                linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
-                    weight_map,
-                    f"{layer_qualified_name}.{cls.OUTPUT_PROJECTION_NAME}",
-                    device=device,
-                )
-            setattr(
-                layer,
-                cls.OUTPUT_PROJECTION_NAME,
-                linear_to_parallel_linear(
-                    getattr(layer, cls.OUTPUT_PROJECTION_NAME),
-                    "row",
-                    input_is_parallel=True,
-                    linear_layer_weight_info=linear_layer_weight_info,
-                    linear_layer_bias_weight_info=linear_layer_bias_weight_info,
-                    sequence_parallel_enabled=sequence_parallel_enabled,
-                    skip_weight_load=skip_linear_weight_load,
-                    device=device,
-                ),
+            linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
+                weight_map,
+                f"{layer_qualified_name}.{cls.OUTPUT_PROJECTION_NAME}",
+                device=device,
+                fail_if_not_found=False,
+            )
+            parallel_output_proj = linear_to_parallel_linear(
+                getattr(layer, cls.OUTPUT_PROJECTION_NAME),
+                "row",
+                input_is_parallel=True,
+                linear_layer_weight_info=linear_layer_weight_info,
+                linear_layer_bias_weight_info=linear_layer_bias_weight_info,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                skip_weight_load=skip_linear_weight_load,
+                device=device,
             )
 
-        if needs_gqa_qkv_column_parallel_linear:
-            qga_qkv_layer = getattr(layer, cls.GQA_QKV_PROJ_NAME)
-            maybe_load_weights_from_checkpoint_or_original_layer_to_output_projection_when_using_gqa_qkv_column_parallel_linear(
-                model,
-                getattr(layer, cls.OUTPUT_PROJECTION_NAME),
-                qga_qkv_layer.num_attention_heads,
-                qga_qkv_layer.num_key_value_heads,
-                qga_qkv_layer.kv_size_multiplier,
-                try_from_checkpoint=not skip_linear_weight_load,
-                try_from_original_layer=not skip_linear_weight_load,
-            )
+            if needs_gqa_qkv_column_parallel_linear:
+                qga_qkv_layer = getattr(layer, cls.GQA_QKV_PROJ_NAME)
+                maybe_load_weights_to_output_projection_when_using_gqa_qkv_column_parallel_linear(
+                    parallel_output_proj,
+                    qga_qkv_layer.num_attention_heads,
+                    qga_qkv_layer.num_key_value_heads,
+                    qga_qkv_layer.kv_size_multiplier,
+                    original_output_projection=getattr(layer, cls.OUTPUT_PROJECTION_NAME),
+                    linear_layer_weight_info=linear_layer_weight_info,
+                    linear_layer_bias_weight_info=linear_layer_bias_weight_info,
+                    try_from_checkpoint=not skip_linear_weight_load,
+                    try_from_original_layer=not skip_linear_weight_load,
+                )
+
+            setattr(layer, cls.OUTPUT_PROJECTION_NAME, parallel_output_proj)
 
         setattr(
             layer,
