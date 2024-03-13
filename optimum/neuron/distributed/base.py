@@ -54,6 +54,7 @@ from .utils import (
     maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear,
     maybe_load_linear_weight_to_parallel_linear,
     maybe_load_weights_to_gqa_qkv_column_parallel_linear,
+    maybe_load_weights_to_output_projection_when_using_gqa_qkv_column_parallel_linear,
     named_parameters,
     parameter_can_be_initialized,
     try_to_hf_initialize,
@@ -285,18 +286,43 @@ class Parallelizer(ABC):
         )
 
         weight_map = getattr(model, "_weight_map", {})
+        name_to_module = dict(model.named_modules())
 
-        for fully_qualified_name, layer in model.named_modules():
+        gqa_output_projections = {}
+        for fully_qualified_name, layer in name_to_module.items():
+            if isinstance(layer, OptimumGQAQKVColumnParallelLinear):
+                parent_name = fully_qualified_name.rsplit(".", maxsplit=1)[0]
+                output_projection_name = f"{parent_name}.{layer.output_proj_name}"
+                gqa_output_projections[output_projection_name] = (
+                    layer.num_attention_heads,
+                    layer.num_key_value_heads,
+                    layer.kv_size_multiplier,
+                )
+
+        for fully_qualified_name, layer in name_to_module.items():
             if isinstance(layer, (RowParallelLinear, ColumnParallelLinear)):
                 linear_weight_info, linear_bias_weight_info = get_linear_weight_info(
                     weight_map, fully_qualified_name, fail_if_not_found=False
                 )
                 if linear_weight_info is not None:
-                    maybe_load_linear_weight_to_parallel_linear(
-                        layer,
-                        linear_layer_weight_info=linear_weight_info,
-                        linear_layer_bias_weight_info=linear_bias_weight_info,
-                    )
+                    if fully_qualified_name in gqa_output_projections:
+                        num_attention_heads, num_key_value_heads, kv_size_multiplier = gqa_output_projections[
+                            fully_qualified_name
+                        ]
+                        maybe_load_weights_to_output_projection_when_using_gqa_qkv_column_parallel_linear(
+                            layer,
+                            num_attention_heads,
+                            num_key_value_heads,
+                            kv_size_multiplier,
+                            linear_layer_weight_info=linear_weight_info,
+                            linear_layer_bias_weight_info=linear_bias_weight_info,
+                        )
+                    else:
+                        maybe_load_linear_weight_to_parallel_linear(
+                            layer,
+                            linear_layer_weight_info=linear_weight_info,
+                            linear_layer_bias_weight_info=linear_bias_weight_info,
+                        )
             elif isinstance(layer, OptimumGQAQKVColumnParallelLinear):
                 maybe_load_weights_to_gqa_qkv_column_parallel_linear(model, layer)
 

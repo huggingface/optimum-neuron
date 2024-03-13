@@ -675,22 +675,23 @@ def maybe_load_weights_to_output_projection_when_using_gqa_qkv_column_parallel_l
     weight = output_projection.weight
     with torch.no_grad():
         weight_data = None
-        if try_from_checkpoint and linear_layer_weight_info is not None:
-            weight_data = load_tensor_for_weight(linear_layer_weight_info)
-        elif (
-            try_from_original_layer
-            and original_output_projection is not None
-            and original_output_projection.weight.device != torch.device("meta")
-        ):
-            weight_data = original_output_projection.weight.data
-        if weight_data is not None:
-            weight_data = create_query_or_output_projection_local_weight_from_regular_weight(
-                weight_data, num_attention_heads, num_key_value_heads, kv_size_multiplier, "output"
-            )
-            weight.copy_(weight_data)
-            mark_parameter_init_status_during_parallelization(weight, True)
-        else:
-            mark_parameter_init_status_during_parallelization(weight, False)
+        if not was_already_initialized_during_parallelization(weight):
+            if try_from_checkpoint and linear_layer_weight_info is not None:
+                weight_data = load_tensor_for_weight(linear_layer_weight_info)
+            elif (
+                try_from_original_layer
+                and original_output_projection is not None
+                and original_output_projection.weight.device != torch.device("meta")
+            ):
+                weight_data = original_output_projection.weight.data
+            if weight_data is not None:
+                weight_data = create_query_or_output_projection_local_weight_from_regular_weight(
+                    weight_data, num_attention_heads, num_key_value_heads, kv_size_multiplier, "output"
+                )
+                weight.copy_(weight_data)
+                mark_parameter_init_status_during_parallelization(weight, True)
+            else:
+                mark_parameter_init_status_during_parallelization(weight, False)
     # TODO: bias
 
 

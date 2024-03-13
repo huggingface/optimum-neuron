@@ -35,6 +35,7 @@ from .utils import (
     embedding_to_parallel_embedding,
     get_linear_weight_info,
     linear_to_parallel_linear,
+    mark_parameter_init_status_during_parallelization,
     maybe_load_weights_to_gqa_qkv_column_parallel_linear,
     maybe_load_weights_to_output_projection_when_using_gqa_qkv_column_parallel_linear,
 )
@@ -530,6 +531,8 @@ class ParallelSelfAttention(ParallelLayer):
 
             if needs_gqa_qkv_column_parallel_linear:
                 qga_qkv_layer = getattr(layer, cls.GQA_QKV_PROJ_NAME)
+                # We need to re-initialize the output projection in this case since the queries are "shuffled".
+                mark_parameter_init_status_during_parallelization(parallel_output_proj.weight, False)
                 maybe_load_weights_to_output_projection_when_using_gqa_qkv_column_parallel_linear(
                     parallel_output_proj,
                     qga_qkv_layer.num_attention_heads,
