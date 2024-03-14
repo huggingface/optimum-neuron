@@ -22,7 +22,7 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Dict, List, Literal, Optional, Tuple, Type, Union
+from typing import TYPE_CHECKING, Callable, Dict, List, Literal, Optional, Set, Tuple, Type, Union
 
 import torch
 from transformers import PretrainedConfig
@@ -242,14 +242,33 @@ def get_parameter_names_mapping_after_gqa_qkv_replacement(
 
     mapping = {}
     if isinstance(model, NxDPPModel):
-        named_modules = model.local_named_modules()
+        named_modules = dict(model.local_named_modules())
     else:
-        named_modules = model.named_modules()
-    module_to_name = {v: k for k, v in named_modules}
-    for mod in model.modules():
+        named_modules = dict(model.named_modules())
+    module_to_name = {v: k for k, v in named_modules.items()}
+    for _, mod in named_modules.items():
         if isinstance(mod, OptimumGQAQKVColumnParallelLinear):
             mapping.update(**mod.get_parameter_names_mapping(module_to_name, reversed=reversed))
     return mapping
+
+
+@requires_neuronx_distributed
+def get_output_projection_qualified_names_after_qga_qkv_replacement(model: torch.nn.Module) -> Set[str]:
+    from neuronx_distributed.pipeline import NxDPPModel
+
+    qualified_names = set()
+    if isinstance(model, NxDPPModel):
+        named_modules = dict(model.local_named_modules())
+    else:
+        named_modules = dict(model.named_modules())
+    for name, mod in named_modules.items():
+        if isinstance(mod, OptimumGQAQKVColumnParallelLinear):
+            parent_name = name.rsplit(".", maxsplit=1)[0]
+            output_projection_name = f"{parent_name}.{mod.output_proj_name}"
+            qualified_names.add(f"{output_projection_name}.weight")
+            if model.get_submodule(output_projection_name).bias is not None:
+                qualified_names.add(f"{output_projection_name}.bias")
+    return qualified_names
 
 
 @requires_safetensors

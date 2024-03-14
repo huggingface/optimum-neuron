@@ -470,7 +470,8 @@ class TestCommonDistributed(DistributedTest):
                 torch.set_printoptions(profile="full")
                 try:
                     torch.testing.assert_close(orig_tensor, consolidated_tensor)
-                except:
+                except Exception as e:
                     xm.master_print(orig_tensor)
                     xm.master_print(consolidated_tensor)
-                    raise
+                    xm.master_print(orig_tensor - consolidated_tensor)
+                    raise e

@@ -26,6 +26,37 @@ from ..utils.require_utils import requires_neuronx_distributed, requires_safeten
 from .utils import TENSOR_PARALLEL_SHARDS_DIR_NAME, ParameterMetadata
 
 
+def create_gqa_query_or_output_projection_weight_from_full_weight(
+    full_weight: torch.Tensor,
+    tp_size: int,
+    num_attention_heads: int,
+    num_key_value_heads: int,
+    kv_size_multiplier: int,
+    query_or_output: Union[Literal["query"], Literal["output"]],
+):
+    if query_or_output == "query":
+        hidden_size = full_weight.size(1)
+    else:
+        hidden_size = full_weight.size(0)
+        full_weight = full_weight.transpose(0, 1)
+
+    weight = full_weight.reshape(num_attention_heads, -1, hidden_size)
+    head_dim = weight.size(1)
+    weight = weight.reshape(
+        -1, num_attention_heads // (num_key_value_heads * kv_size_multiplier), head_dim, hidden_size
+    )
+    weight_splits = []
+    indicies = torch.arange(0, tp_size // num_key_value_heads) * num_key_value_heads
+    for i in range(num_key_value_heads):
+        weight_splits.append(weight[indicies + i].reshape(-1, hidden_size))
+    full_weight = torch.cat(weight_splits, dim=0)
+
+    if query_or_output == "output":
+        full_weight = full_weight.transpose(0, 1)
+
+    return full_weight
+
+
 def consolidate_tensor_parallel_checkpoints(
     sharded_checkpoints: List[Path], load_function: Callable[[Union[str, Path]], Dict[str, Any]]
 ) -> Dict[str, "torch.Tensor"]:
@@ -50,12 +81,13 @@ def consolidate_tensor_parallel_checkpoints(
     }
 
     gqa_qkv_metadata = state_dicts[0]["gqa_qkv_metadata"]
-    kv_size_multiplier = gqa_qkv_metadata["kv_size_multiplier"]
     original_parameter_names_to_gqa_qkv_names = gqa_qkv_metadata["original_names_to_gqa_qkv_names"]
+    qga_qkv_output_projections_names = gqa_qkv_metadata["output_projections_names"]
     gqa_qkv_names_to_original_names = {v: k for k, v in original_parameter_names_to_gqa_qkv_names.items()}
 
     consolidated_state_dict = {}
     for name in parameter_names:
+        # We need to handle the mapping between the GQA parameter names and the original names.
         is_gqa_qkv_weight = name in gqa_qkv_names_to_original_names
         if is_gqa_qkv_weight:
             original_name = gqa_qkv_names_to_original_names[name]
@@ -63,23 +95,32 @@ def consolidate_tensor_parallel_checkpoints(
         else:
             original_name = name
             weight_name = ""  # Not needed.
+
         # For now all parameter metadatas are equal so it is enough to take the first element.
         # This might not be the case anymore when `ParameterMetadata` uses slices.
         metadata = sharded_metadatas[name][0]
         if metadata.is_tied:
             consolidated_state_dict[original_name] = state_dicts[0]["model"][name]
         else:
-            params = [state_dict["model"][name] for state_dict in state_dicts]
-
-            full_param = torch.cat(
-                params,
+            weights = [state_dict["model"][name] for state_dict in state_dicts]
+            tp_size = len(weights)
+            full_weight = torch.cat(
+                weights,
                 dim=metadata.partition_dim,
             )
-
             if weight_name in ["weight_k", "weight_v", "bias_k", "bias_v"]:
-                full_param = torch.chunk(full_param, kv_size_multiplier, dim=0)[0].clone()
+                full_weight = torch.chunk(full_weight, gqa_qkv_metadata["kv_size_multiplier"], dim=0)[0].clone()
+            elif weight_name == "weight_q" or original_name in qga_qkv_output_projections_names:
+                full_weight = create_gqa_query_or_output_projection_weight_from_full_weight(
+                    full_weight,
+                    tp_size,
+                    gqa_qkv_metadata["num_attention_heads"],
+                    gqa_qkv_metadata["num_key_value_heads"],
+                    gqa_qkv_metadata["kv_size_multiplier"],
+                    "query" if weight_name == "weight_q" else "output",
+                )
 
-            consolidated_state_dict[original_name] = full_param
+            consolidated_state_dict[original_name] = full_weight
 
     return consolidated_state_dict
 

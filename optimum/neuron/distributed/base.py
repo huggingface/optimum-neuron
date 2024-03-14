@@ -46,6 +46,7 @@ from .utils import (
     WeightInformation,
     apply_activation_checkpointing,
     get_linear_weight_info,
+    get_output_projection_qualified_names_after_qga_qkv_replacement,
     get_parameter_names_mapping_after_gqa_qkv_replacement,
     initialize_parallel_linear,
     initialize_torch_nn_module,
@@ -608,15 +609,26 @@ class Parallelizer(ABC):
 
         # We need to retrieve this mapping here because PP works with `torch.fx` so we will not end-up with the same
         # names after tracing.
+        gqa_qkv_metadata = {
+            "original_names_to_gqa_qkv_names": {},
+            "output_projections_names": set(),
+            "num_attention_heads": None,
+            "num_key_value_heads": None,
+            "kv_size_multiplier": None,
+        }
         for mod in model.modules():
             if isinstance(mod, OptimumGQAQKVColumnParallelLinear):
+                num_attention_heads = mod.num_attention_heads
+                num_key_value_heads = mod.num_key_value_heads
                 kv_size_multiplier = mod.kv_size_multiplier
+                gqa_qkv_metadata = {
+                    "original_names_to_gqa_qkv_names": get_parameter_names_mapping_after_gqa_qkv_replacement(model),
+                    "output_projections_names": get_output_projection_qualified_names_after_qga_qkv_replacement(model),
+                    "num_attention_heads": num_attention_heads,
+                    "num_key_value_heads": num_key_value_heads,
+                    "kv_size_multiplier": kv_size_multiplier,
+                }
                 break
-
-        gqa_qkv_metadata = {
-            "original_names_to_gqa_qkv_names": get_parameter_names_mapping_after_gqa_qkv_replacement(model),
-            "kv_size_multiplier": kv_size_multiplier,
-        }
 
         # Preparing the model for sequence parallelism:
         sp_specs_cls = cls.SEQUENCE_PARALLELSIM_SPECS_CLS
