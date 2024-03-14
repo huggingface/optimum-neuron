@@ -43,6 +43,7 @@ from .config import (
     VisionNeuronConfig,
 )
 from .model_wrappers import (
+    NoCacheModelWrapper,
     SentenceTransformersCLIPNeuronWrapper,
     SentenceTransformersTransformerNeuronWrapper,
     T5DecoderWrapper,
@@ -120,6 +121,18 @@ class FlaubertNeuronConfig(ElectraNeuronConfig):
 @register_in_tasks_manager("mobilebert", *COMMON_TEXT_TASKS)
 class MobileBertNeuronConfig(BertNeuronConfig):
     pass
+
+
+@register_in_tasks_manager("phi", *["feature-extraction", "text-classification", "token-classification"])
+class PhiNeuronConfig(ElectraNeuronConfig):
+    CUSTOM_MODEL_WRAPPER = NoCacheModelWrapper
+
+    @property
+    def inputs(self) -> List[str]:
+        return ["input_ids", "attention_mask"]
+
+    def patch_model_for_export(self, model, dummy_inputs):
+        return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
 
 
 @register_in_tasks_manager("roformer", *COMMON_TEXT_TASKS)

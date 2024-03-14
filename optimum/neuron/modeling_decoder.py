@@ -207,6 +207,7 @@ class NeuronDecoderModel(OptimizedModel):
             local_files_only=local_files_only,
             force_download=force_download,
             trust_remote_code=trust_remote_code,
+            torch_dtype="auto",
             **kwargs,
         )
 

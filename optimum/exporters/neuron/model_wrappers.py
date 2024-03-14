@@ -374,3 +374,16 @@ class SentenceTransformersCLIPNeuronWrapper(torch.nn.Module):
             text_embeds = self.model[1:](text_embeds)
 
         return (text_embeds, image_embeds)
+
+
+class NoCacheModelWrapper(torch.nn.Module):
+    def __init__(self, model: "PreTrainedModel", input_names: List[str]):
+        super().__init__()
+        self.model = model
+        self.input_names = input_names
+
+    def forward(self, *input):
+        ordered_inputs = dict(zip(self.input_names, input))
+        outputs = self.model(use_cache=False, **ordered_inputs)
+
+        return outputs

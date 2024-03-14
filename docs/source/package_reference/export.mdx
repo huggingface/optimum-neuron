@@ -28,40 +28,4 @@ exporting function according to the environment.
 Besides, you can check if the exported model is valid via [`~optimum.exporters.neuron.convert.validate_model_outputs`], which compares
 the compiled model's output on Neuron devices to the PyTorch model's output on CPU.
 
-## Supported architectures
 
-
-| Architecture           | Task                                                                                                                                          |
-|------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
-| ALBERT                 | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
-| BERT                   | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
-| BLOOM                  | text-generation                                                                                                                               |
-| CamemBERT              | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
-| ConvBERT               | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
-| DeBERTa (INF2 only)    | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
-| DeBERTa-v2 (INF2 only) | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
-| DistilBERT             | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
-| ELECTRA                | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
-| FlauBERT               | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
-| GPT2                   | text-generation                                                                                                                               |
-| Llama, Llama 2         | text-generation                                                                                                                               |
-| Mistral                | text-generation                                                                                                                               |
-| MobileBERT             | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
-| MPNet                  | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
-| OPT                    | text-generation                                                                                                                               |
-| RoBERTa                | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
-| RoFormer               | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
-| XLM                    | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
-| XLM-RoBERTa            | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
-| Stable Diffusion       | text-to-image, image-to-image, inpaint                                                                                                        |
-| Stable Diffusion XL Base      | text-to-image, image-to-image, inpaint                                                                                                 |
-| Stable Diffusion XL Refiner   | image-to-image, inpaint                                                                                                                |
-
-
-<Tip>
-
-More details for checking supported tasks [here](https://huggingface.co/docs/optimum-neuron/guides/export_model#selecting-a-task).
-
-</Tip>
-
-More architectures coming soon, stay tuned! 🚀

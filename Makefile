@@ -64,11 +64,11 @@ transformers_examples:
 # Run code quality checks
 style_check:
 	black --check .
-	ruff .
+	ruff check .
 
 style:
 	black .
-	ruff . --fix
+	ruff check . --fix
 
 # Utilities to release to PyPi
 build_dist_install_tools:
