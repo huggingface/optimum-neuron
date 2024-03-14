@@ -45,7 +45,7 @@ from transformers.models.auto.modeling_auto import (
 import optimum
 from optimum.neuron.accelerate.accelerator import NeuronAccelerator
 from optimum.neuron.distributed.parallelizers_manager import ParallelizersManager
-from optimum.neuron.distributed.utils import compute_query_indices_for_rank
+from optimum.neuron.distributed.utils import compute_query_indicies_for_rank
 from optimum.neuron.utils.cache_utils import (
     get_num_neuron_cores,
 )
@@ -521,7 +521,7 @@ class TestModelParallelization(DistributedTest):
         # The following case can be skipped because since we set the seed, we would need to shuffle the output
         # projections for this case to work. This is not needed in the real-case scenario, and since we test for every
         # other setting, we can skip.
-        if num_kv_heads < tp_size and (not from_pretrained and not lazy_load):
+        if num_kv_heads < tp_size and (not from_pretrained):
             pytest.skip("This case will  not work here because we set the seed. We can skip.")
 
         model_name_or_path = Path(tmpdir) / "llama_v2_gqa"
@@ -611,12 +611,13 @@ class TestModelParallelization(DistributedTest):
         "32-heads-4kv-heads-kv-mul-8,all kv heads per rank",
     ],
 )
+@is_trainium_test
 def test_compute_query_indices_for_rank(
     tp_size, num_attention_heads, num_key_value_heads, kv_size_multiplier, ground_truth
 ):
     for tp_rank in range(tp_size):
         expected = torch.tensor(ground_truth[tp_rank])
-        computed = compute_query_indices_for_rank(
+        computed = compute_query_indicies_for_rank(
             tp_size, tp_rank, num_attention_heads, num_key_value_heads, kv_size_multiplier
         )
         print(f"TP rank = {tp_rank}")
