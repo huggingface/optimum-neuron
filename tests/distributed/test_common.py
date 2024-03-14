@@ -467,11 +467,4 @@ class TestCommonDistributed(DistributedTest):
                 orig_tensor = orig_state_dict[key]
                 consolidated_tensor = consolidated_state_dict[key]
                 print(f"Testing that {key} match")
-                torch.set_printoptions(profile="full")
-                try:
-                    torch.testing.assert_close(orig_tensor, consolidated_tensor)
-                except Exception as e:
-                    xm.master_print(orig_tensor)
-                    xm.master_print(consolidated_tensor)
-                    xm.master_print(orig_tensor - consolidated_tensor)
-                    raise e
+                torch.testing.assert_close(orig_tensor, consolidated_tensor)

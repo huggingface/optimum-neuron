@@ -482,7 +482,7 @@ def create_kv_proj_local_weight_from_regular_weight(
     return torch.cat(split[tp_rank::tp_size], dim=0)
 
 
-def compute_query_indices_for_rank(
+def compute_query_indicies_for_rank(
     tp_size: int, tp_rank: int, num_attention_heads: int, num_key_value_heads: int, kv_size_multiplier: int
 ):
     num_attention_heads_per_rank = num_attention_heads // tp_size
@@ -490,14 +490,16 @@ def compute_query_indices_for_rank(
     query_group_size = num_attention_heads // num_key_value_heads
     query_group_size_per_rank = num_attention_heads_per_rank // num_key_value_heads_per_rank
 
-    queries_indices = [
+    queries_indicies = [
         torch.arange(num_attention_heads_per_rank // num_key_value_heads_per_rank)
         for _ in range(num_key_value_heads_per_rank)
     ]
 
-    keys_indices = torch.arange(num_key_value_heads).repeat(kv_size_multiplier)
-    keys_indices = torch.repeat_interleave(keys_indices, num_attention_heads_per_rank // num_key_value_heads_per_rank)
-    keys_indices = torch.chunk(keys_indices, tp_size)
+    keys_indicies = torch.arange(num_key_value_heads).repeat(kv_size_multiplier)
+    keys_indicies = torch.repeat_interleave(
+        keys_indicies, num_attention_heads_per_rank // num_key_value_heads_per_rank
+    )
+    keys_indicies = torch.chunk(keys_indicies, tp_size)
 
     shift_per_key = torch.arange(0, num_attention_heads, query_group_size)
 
@@ -507,16 +509,16 @@ def compute_query_indices_for_rank(
     )
     shift_within_query_group = torch.chunk(shift_within_query_group, tp_size)
 
-    indices = []
-    for idx, q_indices in enumerate(queries_indices):
+    indicies = []
+    for idx, q_indicies in enumerate(queries_indicies):
         s = slice(idx * num_key_value_heads_per_rank, (idx + 1) * num_key_value_heads_per_rank)
-        k_indices = keys_indices[tp_rank][s]
-        k_shift = shift_per_key[k_indices]
+        k_indicies = keys_indicies[tp_rank][s]
+        k_shift = shift_per_key[k_indicies]
         group_shift = shift_within_query_group[tp_rank][s]
-        indices.append(q_indices + k_shift + group_shift)
+        indicies.append(q_indicies + k_shift + group_shift)
 
-    indices = torch.cat(indices, dim=0)
-    return indices
+    indicies = torch.cat(indicies, dim=0)
+    return indicies
 
 
 @requires_neuronx_distributed
@@ -532,6 +534,7 @@ def create_query_or_output_projection_local_weight_from_regular_weight(
         get_tensor_model_parallel_size,
     )
 
+    assert query_or_output_proj in ["query", "output"]
     tp_size = get_tensor_model_parallel_size()
     tp_rank = get_tensor_model_parallel_rank()
 
@@ -543,11 +546,11 @@ def create_query_or_output_projection_local_weight_from_regular_weight(
         head_dim = weight_data.size(1) // num_attention_heads
         weight_data = weight_data.transpose(0, 1)
 
-    indices = compute_query_indices_for_rank(
+    indicies = compute_query_indicies_for_rank(
         tp_size, tp_rank, num_attention_heads, num_key_value_heads, kv_size_multiplier
     )
     reshaped_weight = weight_data.view(num_attention_heads, head_dim, hidden_size)
-    shuffled_weight = reshaped_weight[indices]
+    shuffled_weight = reshaped_weight[indicies]
     shuffled_weight = shuffled_weight.reshape(-1, hidden_size)
 
     if query_or_output_proj == "output":

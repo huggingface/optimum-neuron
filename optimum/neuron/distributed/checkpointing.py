@@ -23,7 +23,7 @@ from transformers.modeling_utils import shard_checkpoint
 from transformers.utils import SAFE_WEIGHTS_INDEX_NAME, SAFE_WEIGHTS_NAME, WEIGHTS_INDEX_NAME, WEIGHTS_NAME
 
 from ..utils.require_utils import requires_neuronx_distributed, requires_safetensors
-from .utils import TENSOR_PARALLEL_SHARDS_DIR_NAME, ParameterMetadata
+from .utils import TENSOR_PARALLEL_SHARDS_DIR_NAME, ParameterMetadata, compute_query_indicies_for_rank
 
 
 def create_gqa_query_or_output_projection_weight_from_full_weight(
@@ -34,22 +34,24 @@ def create_gqa_query_or_output_projection_weight_from_full_weight(
     kv_size_multiplier: int,
     query_or_output: Union[Literal["query"], Literal["output"]],
 ):
+    assert query_or_output in ["query", "output"]
+    assert full_weight.device == torch.device("cpu")
     if query_or_output == "query":
         hidden_size = full_weight.size(1)
     else:
         hidden_size = full_weight.size(0)
         full_weight = full_weight.transpose(0, 1)
 
-    weight = full_weight.reshape(num_attention_heads, -1, hidden_size)
-    head_dim = weight.size(1)
-    weight = weight.reshape(
-        -1, num_attention_heads // (num_key_value_heads * kv_size_multiplier), head_dim, hidden_size
-    )
-    weight_splits = []
-    indicies = torch.arange(0, tp_size // num_key_value_heads) * num_key_value_heads
-    for i in range(num_key_value_heads):
-        weight_splits.append(weight[indicies + i].reshape(-1, hidden_size))
-    full_weight = torch.cat(weight_splits, dim=0)
+    indicies = [
+        compute_query_indicies_for_rank(tp_size, tp_rank, num_attention_heads, num_key_value_heads, kv_size_multiplier)
+        for tp_rank in range(tp_size)
+    ]
+    indicies = torch.cat(indicies, dim=0)
+    reversed_indicies = torch.sort(indicies, dim=0).indices
+
+    full_weight = full_weight.reshape(num_attention_heads, -1, hidden_size)
+    full_weight = full_weight[reversed_indicies]
+    full_weight = full_weight.reshape(-1, hidden_size)
 
     if query_or_output == "output":
         full_weight = full_weight.transpose(0, 1)
@@ -82,7 +84,7 @@ def consolidate_tensor_parallel_checkpoints(
 
     gqa_qkv_metadata = state_dicts[0]["gqa_qkv_metadata"]
     original_parameter_names_to_gqa_qkv_names = gqa_qkv_metadata["original_names_to_gqa_qkv_names"]
-    qga_qkv_output_projections_names = gqa_qkv_metadata["output_projections_names"]
+    gqa_qkv_output_projections_names = gqa_qkv_metadata["output_projections_names"]
     gqa_qkv_names_to_original_names = {v: k for k, v in original_parameter_names_to_gqa_qkv_names.items()}
 
     consolidated_state_dict = {}
@@ -100,7 +102,7 @@ def consolidate_tensor_parallel_checkpoints(
         # This might not be the case anymore when `ParameterMetadata` uses slices.
         metadata = sharded_metadatas[name][0]
         if metadata.is_tied:
-            consolidated_state_dict[original_name] = state_dicts[0]["model"][name]
+            consolidated_state_dict[original_name] = state_dicts[0]["model"][name].to("cpu")
         else:
             weights = [state_dict["model"][name] for state_dict in state_dicts]
             tp_size = len(weights)
@@ -108,9 +110,10 @@ def consolidate_tensor_parallel_checkpoints(
                 weights,
                 dim=metadata.partition_dim,
             )
+            full_weight = full_weight.to("cpu")
             if weight_name in ["weight_k", "weight_v", "bias_k", "bias_v"]:
                 full_weight = torch.chunk(full_weight, gqa_qkv_metadata["kv_size_multiplier"], dim=0)[0].clone()
-            elif weight_name == "weight_q" or original_name in qga_qkv_output_projections_names:
+            elif weight_name == "weight_q" or original_name in gqa_qkv_output_projections_names:
                 full_weight = create_gqa_query_or_output_projection_weight_from_full_weight(
                     full_weight,
                     tp_size,
@@ -119,7 +122,6 @@ def consolidate_tensor_parallel_checkpoints(
                     gqa_qkv_metadata["kv_size_multiplier"],
                     "query" if weight_name == "weight_q" else "output",
                 )
-
             consolidated_state_dict[original_name] = full_weight
 
     return consolidated_state_dict
@@ -171,7 +173,7 @@ def consolidate_model_parallel_checkpoints(checkpoint_dir: Union[str, Path]) -> 
         consolidated_state_dict.update(**consolidated_for_pp_rank)
 
     for key, tensor in consolidated_state_dict.items():
-        consolidated_state_dict[key] = tensor.to("cpu")
+        consolidated_state_dict[key] = tensor
 
     return consolidated_state_dict
 

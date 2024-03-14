@@ -518,8 +518,9 @@ class TestModelParallelization(DistributedTest):
         if num_kv_heads >= tp_size and (from_pretrained or lazy_load or sequence_parallel_enabled):
             pytest.skip("No need to test this setting.")
 
-        # The following case can be skipped because since we set the seed, we would need to shuffle the output projections.
-        # This is not needed in the real-case scenario, and since we test for every other setting, we can skip.
+        # The following case can be skipped because since we set the seed, we would need to shuffle the output
+        # projections for this case to work. This is not needed in the real-case scenario, and since we test for every
+        # other setting, we can skip.
         if num_kv_heads < tp_size and (not from_pretrained and not lazy_load):
             pytest.skip("This case will  not work here because we set the seed. We can skip.")
 
