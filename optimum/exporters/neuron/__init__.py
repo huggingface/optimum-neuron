@@ -21,7 +21,6 @@ _import_structure = {
     "__main__": [
         "infer_stable_diffusion_shapes_from_diffusers",
         "main_export",
-        "normalize_input_shapes",
         "normalize_stable_diffusion_input_shapes",
     ],
     "base": ["NeuronDefaultConfig"],
@@ -37,7 +36,6 @@ if TYPE_CHECKING:
     from .__main__ import (
         infer_stable_diffusion_shapes_from_diffusers,
         main_export,
-        normalize_input_shapes,
         normalize_stable_diffusion_input_shapes,
     )
     from .base import NeuronDefaultConfig

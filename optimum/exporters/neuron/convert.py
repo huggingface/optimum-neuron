@@ -31,8 +31,8 @@ from ...neuron.utils import (
     store_compilation_config,
 )
 from ...neuron.utils.version_utils import get_neuroncc_version, get_neuronxcc_version
-from ...neuron.utils.hub_neuronx_cache import ModelCacheEntry, hub_neuronx_cache, _create_hub_compile_cache_proxy
-from ...neuron.utils.cache_utils import get_neuron_cache_path, get_model_name_or_path, load_custom_cache_repo_name_from_hf_home
+from ...neuron.utils.hub_neuronx_cache import ModelCacheEntry, hub_neuronx_cache, _create_hub_compile_cache_proxy, build_cache_config
+from ...neuron.utils.cache_utils import get_model_name_or_path, load_custom_cache_repo_name_from_hf_home
 from ...utils import (
     is_diffusers_available,
     is_sentence_transformers_available,
@@ -408,17 +408,6 @@ def export_models(
 
     outputs = list(map(list, zip(*outputs)))
     return outputs
-
-
-def build_cache_config(config: Dict, white_list: Optional[List] = None):
-    # TODO: consider case with multiple models thus multiple configs, eg. stable diffusion. Maybe concatenate.
-    if white_list is None:
-        white_list = ["_name_or_path", "transformers_version", "eos_token_id", "bos_token_id", "pad_token_id"]
-                
-    for param in white_list:
-        config.pop(param, None)
-    
-    return PretrainedConfig.from_dict(config)
 
 
 def cache_aot_neuron_artifacts(neuron_dir: Path, cache_config_hash: str):

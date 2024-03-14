@@ -24,7 +24,6 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from transformers import AutoConfig, PretrainedConfig
 
-from ...neuron import NeuronModelForCausalLM
 from ...neuron.utils import (
     DECODER_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_2_NAME,
@@ -38,7 +37,11 @@ from ...neuron.utils import (
     is_neuronx_available,
 )
 from ...neuron.utils.misc import maybe_save_preprocessors
-from ...neuron.utils.version_utils import check_compiler_compatibility_for_stable_diffusion
+from ...neuron.utils.version_utils import (
+    check_compiler_compatibility_for_stable_diffusion,
+    get_neuronxcc_version,
+    get_neuroncc_version,
+)
 from ...utils import is_diffusers_available, logging
 from ..error_utils import AtolError, OutputMatchError, ShapeError
 from ..tasks import TasksManager
@@ -50,6 +53,7 @@ from .utils import (
     get_encoder_decoder_models_for_export,
     get_stable_diffusion_models_for_export,
     replace_stable_diffusion_submodels,
+    check_mandatory_input_shapes,
 )
 
 
@@ -290,6 +294,7 @@ def _get_submodels_and_neuron_configs(
             task=task,
             library_name=library_name,
         )
+        check_mandatory_input_shapes(neuron_config_constructor, task, input_shapes)
         neuron_config = neuron_config_constructor(model.config, dynamic_batch_size=dynamic_batch_size, **input_shapes)
         model_name = getattr(model, "name_or_path", None) or model_name_or_path
         model_name = model_name.split("/")[-1] if model_name else model.config.model_type
@@ -422,7 +427,7 @@ def main_export(
     cache_dir: Optional[str] = None,
     disable_neuron_cache: Optional[bool] = False,
     compiler_workdir: Optional[Union[str, Path]] = None,
-    inline_weights_to_neff: bool = True,
+    inline_weights_to_neff: bool = False,
     optlevel: str = "2",
     trust_remote_code: bool = False,
     subfolder: str = "",
@@ -539,6 +544,7 @@ def decoder_export(
     output: Union[str, Path],
     **kwargs,
 ):
+    from ...neuron import NeuronModelForCausalLM
     output = Path(output)
     if not output.parent.exists():
         output.parent.mkdir(parents=True)
@@ -600,7 +606,7 @@ def main():
         cache_dir=args.cache_dir,
         disable_neuron_cache=disable_neuron_cache,
         compiler_workdir=args.compiler_workdir,
-        inline_weights_to_neff=not args.disable_weights_neff_inline,
+        inline_weights_to_neff=args.inline_weights_neff,
         optlevel=optlevel,
         trust_remote_code=args.trust_remote_code,
         subfolder=args.subfolder,

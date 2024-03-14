@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from enum import Enum
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Literal, Optional, Union
+from typing import Literal, Optional, Union, Dict, List
 
 from huggingface_hub import HfApi, get_token
 from transformers import AutoConfig, PretrainedConfig
@@ -30,6 +30,7 @@ from ..version import __version__
 from .import_utils import is_neuronx_available
 from .patching import patch_everywhere
 from .require_utils import requires_torch_neuronx, requires_torch_xla
+from .cache_utils import load_custom_cache_repo_name_from_hf_home
 
 
 if is_neuronx_available():
@@ -133,7 +134,10 @@ class CompileCacheHfProxy(CompileCache):
         if self.default_cache.exists(path):
             return True
         rel_path = self._rel_path(path)
-        exists = self.api.file_exists(self.repo_id, rel_path)
+        file_exists = self.api.file_exists(self.repo_id, rel_path)
+        folder_info = self.api.list_repo_tree(self.repo_id, rel_path)
+        folder_exists = len(list(folder_info)) > 1
+        exists = file_exists or folder_exists
         if not exists:
             logger.warning(
                 f"{rel_path} not found in {self.repo_id}: the corresponding graph will be recompiled."
@@ -150,6 +154,33 @@ class CompileCacheHfProxy(CompileCache):
             local_path = self.api.hf_hub_download(self.repo_id, rel_filename)
             os.symlink(local_path, dst_path)
             logger.info(f"Fetched cached {rel_filename} from {self.repo_id}")
+    
+    def download_folder(self, folder_path: str, dst_path: str):
+        # Always prioritize the default cache for faster retrieval        
+        if self.default_cache.exists(folder_path):
+            # cached locally
+            return True
+        else:
+            rel_folder_path = self._rel_path(folder_path)
+            folder_info = list(self.api.list_repo_tree(self.repo_id, rel_folder_path))
+            folder_exists = len(folder_info) > 1
+            if folder_exists:
+                # cached remotely
+                for repo_content in folder_info:
+                    # TODO: this works for `RepoFile` but not `RepoFolder`
+                    local_path = self.api.hf_hub_download(self.repo_id, repo_content.path)
+                    filename = Path(local_path).name
+                    dst_path = Path(dst_path)
+                    dst_path.mkdir(parents=True, exist_ok=True)
+                    os.symlink(local_path, dst_path / filename)
+                logger.info(f"Fetched cached {rel_folder_path} from {self.repo_id}")
+                return True
+            else:
+                logger.warning(
+                    f"{rel_folder_path} not found in {self.repo_id}: the corresponding graph will be recompiled."
+                    " This may take up to one hour for large models."
+                )
+                return False
 
     def synchronize(self):
         if isinstance(self.default_cache, CompileCacheS3):
@@ -169,7 +200,7 @@ class CompileCacheHfProxy(CompileCache):
     
     def upload_folder(self, cache_dir: str, src_dir: str):
         # Upload folder the default cache: use synchronize to populate the Hub cache
-        shutil.copytree(src_dir, cache_dir)
+        shutil.copytree(src_dir, cache_dir, dirs_exist_ok = True)
 
     def upload_string_to_file(self, cache_path: str, data: str):
         # Only upload to the default cache: use synchronize to populate the Hub cache
@@ -189,7 +220,11 @@ class CompileCacheHfProxy(CompileCache):
 
 def get_hub_cache():
     HUB_CACHE = "aws-neuron/optimum-neuron-cache"
-    return os.getenv("CUSTOM_CACHE_REPO", HUB_CACHE)
+    custom_hub_cache = load_custom_cache_repo_name_from_hf_home()
+    if custom_hub_cache is not None:
+        return custom_hub_cache
+    else:
+        return os.getenv("CUSTOM_CACHE_REPO", HUB_CACHE)
 
 
 def _create_hub_compile_cache_proxy(
@@ -218,10 +253,10 @@ class ModelCacheEntry:
 
     """
 
-    def __init__(self, model_id: str, config: PretrainedConfig):
+    def __init__(self, model_id: str, config: Union[PretrainedConfig, Dict]):
         self.model_id = model_id
         # Remove keys set to default values
-        self.config = config.to_diff_dict()
+        self.config = config.to_diff_dict() if isinstance(config, PretrainedConfig) else config
         excluded_keys = ["_name_or_path", "transformers_version"]
         for key in excluded_keys:
             self.config.pop(key, None)
@@ -383,10 +418,26 @@ def get_hub_cached_entries(
                 # Remove neuron config for comparison as the target does not have it
                 neuron_config = entry_config.pop("neuron")
                 # All parameters except those in the whitelist must match
-                white_list = ["_name_or_path", "transformers_version", "eos_token_id", "bos_token_id", "pad_token_id"]
+                white_list = ["_name_or_path", "transformers_version", "eos_token_id", "bos_token_id", "pad_token_id", "torchscript", "torch_dtype", "task"]
                 for param in white_list:
                     entry_config.pop(param, None)
                     target_entry.config.pop(param, None)
                 if entry_config == target_entry.config:
                     model_entries.append(neuron_config)
     return model_entries
+
+
+# Only applied on traced TorchScript models
+def build_cache_config(config: Dict, white_list: Optional[List] = None):
+    # TODO: consider case with multiple models thus multiple configs, eg. stable diffusion. Maybe concatenate.
+    if white_list is None:
+        white_list = ["_name_or_path", "transformers_version", "eos_token_id", "bos_token_id", "pad_token_id", "torchscript", "torch_dtype"]
+    
+    neuron_white_list = ["input_names", "output_names"]
+    for param in white_list:
+        config.pop(param, None)
+    
+    for param in neuron_white_list:
+        config["neuron"].pop(param, None)
+    
+    return config
