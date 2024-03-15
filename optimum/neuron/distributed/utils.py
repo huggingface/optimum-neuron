@@ -491,7 +491,7 @@ def compute_query_indicies_for_rank(
     query_group_size_per_rank = num_attention_heads_per_rank // num_key_value_heads_per_rank
 
     queries_indicies = [
-        torch.arange(num_attention_heads_per_rank // num_key_value_heads_per_rank)
+        torch.arange(query_group_size_per_rank)
         for _ in range(num_key_value_heads_per_rank)
     ]
 
@@ -511,7 +511,7 @@ def compute_query_indicies_for_rank(
 
     indicies = []
     for idx, q_indicies in enumerate(queries_indicies):
-        s = slice(idx * num_key_value_heads_per_rank, (idx + 1) * num_key_value_heads_per_rank)
+        s = slice(idx * query_group_size_per_rank, (idx + 1) * query_group_size_per_rank)
         k_indicies = keys_indicies[tp_rank][s]
         k_shift = shift_per_key[k_indicies]
         group_shift = shift_within_query_group[tp_rank][s]

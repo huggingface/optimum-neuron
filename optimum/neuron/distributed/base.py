@@ -662,8 +662,8 @@ class Parallelizer(ABC):
             # Load the weights to the parallel linears if the loading was skipped during parallelization.
             cls._maybe_load_weights_to_parallel_linears(model)
 
-        # Initialize or load the weights for the parallelized model if it was lazily loaded.
-        if any((p.device == torch.device("meta") for p in model.parameters())):
+        if skip_linear_weight_load or any(p.device == torch.device("meta") for p in model.parameters()):
+            # Initialize or load the weights for the parallelized model if it was lazily loaded.
             cls._initialize_or_load_weights(model, names_of_the_parameters_to_consider, device=device)
 
         xm.rendezvous("End of initalization")

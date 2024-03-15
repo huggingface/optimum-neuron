@@ -515,8 +515,8 @@ class TestModelParallelization(DistributedTest):
             optimum.neuron.distributed.parallel_layers, "_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT", True
         )
         num_kv_heads = int(config_overwrite["num_key_value_heads"])
-        if num_kv_heads >= tp_size and (from_pretrained or lazy_load or sequence_parallel_enabled):
-            pytest.skip("No need to test this setting.")
+        # if num_kv_heads >= tp_size and (from_pretrained or lazy_load or sequence_parallel_enabled):
+        #     pytest.skip("No need to test this setting.")
 
         # The following case can be skipped because since we set the seed, we would need to shuffle the output
         # projections for this case to work. This is not needed in the real-case scenario, and since we test for every
