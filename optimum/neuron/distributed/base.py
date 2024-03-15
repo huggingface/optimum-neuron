@@ -705,7 +705,6 @@ class Parallelizer(ABC):
         if checkpoint_dir is not None:
             cls.load_model_checkpoint(model, checkpoint_dir)
 
-        # model._original_parameter_names_to_gqa_qkv_names = original_parameter_names_to_gqa_qkv_names
         model._gqa_qkv_metadata = gqa_qkv_metadata
 
         return model

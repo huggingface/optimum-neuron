@@ -447,7 +447,7 @@ class ParallelSelfAttention(ParallelLayer):
 
         tp_size = get_tensor_model_parallel_size()
 
-        weight_map = getattr(model, "_weight_map", {})
+        weight_map = getattr(model, "_weight_map", None)
         config = model.config
         normalized_config = NormalizedConfigManager.get_normalized_config_class(config.model_type)(config)
 
