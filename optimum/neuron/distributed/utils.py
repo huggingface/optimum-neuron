@@ -490,10 +490,7 @@ def compute_query_indicies_for_rank(
     query_group_size = num_attention_heads // num_key_value_heads
     query_group_size_per_rank = num_attention_heads_per_rank // num_key_value_heads_per_rank
 
-    queries_indicies = [
-        torch.arange(query_group_size_per_rank)
-        for _ in range(num_key_value_heads_per_rank)
-    ]
+    queries_indicies = [torch.arange(query_group_size_per_rank) for _ in range(num_key_value_heads_per_rank)]
 
     keys_indicies = torch.arange(num_key_value_heads).repeat(kv_size_multiplier)
     keys_indicies = torch.repeat_interleave(
@@ -621,7 +618,6 @@ def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
         raise ValueError(
             "A linear's layer WeightInformation or a linear layer to copy the weights from need to specified."
         )
-
 
     proj_name = weight_name[-1]
     weight = getattr(layer, weight_name)
@@ -779,7 +775,7 @@ def maybe_load_linear_weight_to_parallel_linear(
                     mark_parameter_init_status_during_parallelization(parallel_linear_layer.weight, True)
                 elif linear_layer.weight.device != torch.device("meta"):
                     parallel_linear_layer.weight.copy_(
-                        linear_layer.weight[:, tp_rank * col_size : (tp_rank + 1) * col_size]
+                        linear_layer.weight.data[:, tp_rank * col_size : (tp_rank + 1) * col_size]
                     )
                     mark_parameter_init_status_during_parallelization(parallel_linear_layer.weight, True)
                 else:
@@ -792,7 +788,7 @@ def maybe_load_linear_weight_to_parallel_linear(
                         parallel_linear_layer.bias.copy_(bias_weight_data)
                         mark_parameter_init_status_during_parallelization(parallel_linear_layer.bias, True)
                     elif linear_layer.bias.device != torch.device("meta"):
-                        parallel_linear_layer.bias.copy_(linear_layer.bias)
+                        parallel_linear_layer.bias.copy_(linear_layer.bias.data)
                         mark_parameter_init_status_during_parallelization(parallel_linear_layer.bias, True)
                     else:
                         mark_parameter_init_status_during_parallelization(parallel_linear_layer.bias, False)
@@ -812,7 +808,7 @@ def maybe_load_linear_weight_to_parallel_linear(
                     del weight_data
                 elif linear_layer.weight.device != torch.device("meta"):
                     parallel_linear_layer.weight.copy_(
-                        linear_layer.weight[tp_rank * row_size : (tp_rank + 1) * row_size, :]
+                        linear_layer.weight.data[tp_rank * row_size : (tp_rank + 1) * row_size, :]
                     )
                     mark_parameter_init_status_during_parallelization(parallel_linear_layer.weight, True)
                 else:
@@ -839,10 +835,10 @@ def maybe_load_linear_weight_to_parallel_linear(
                         del bias_weight_data
                     elif linear_layer.bias.device != torch.device("meta"):
                         if parallel_linear_layer.gather_output:
-                            parallel_linear_layer.bias.copy_(linear_layer.bias)
+                            parallel_linear_layer.bias.copy_(linear_layer.bias.data)
                         else:
                             parallel_linear_layer.bias.copy_(
-                                linear_layer.bias[tp_rank * row_size : (tp_rank + 1) * row_size]
+                                linear_layer.bias.data[tp_rank * row_size : (tp_rank + 1) * row_size]
                             )
                         mark_parameter_init_status_during_parallelization(parallel_linear_layer.bias, True)
                     else:
