@@ -73,19 +73,6 @@ if TYPE_CHECKING:
         from diffusers import ModelMixin, StableDiffusionPipeline, StableDiffusionXLImg2ImgPipeline
 
 
-class DiffusersPretrainedConfig(PretrainedConfig):
-    # override to update `model_type`
-    def to_dict(self):
-        """
-        Serializes this instance to a Python dictionary.
-
-        Returns:
-            :obj:`Dict[str, any]`: Dictionary of all the attributes that make up this configuration instance.
-        """
-        output = copy.deepcopy(self.__dict__)
-        return output
-
-
 def build_stable_diffusion_components_mandatory_shapes(
     batch_size: Optional[int] = None,
     sequence_length: Optional[int] = None,

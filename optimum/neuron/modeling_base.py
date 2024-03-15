@@ -279,7 +279,7 @@ class NeuronBaseModel(OptimizedModel):
             "disable_fallback": disable_fallback,
         }
 
-        # CHECK IF CACHED
+        # Check if the cache exists
         compilation_config = store_compilation_config(
             config=config,
             input_shapes=kwargs_shapes,
@@ -296,8 +296,6 @@ class NeuronBaseModel(OptimizedModel):
         cache_entry = ModelCacheEntry(model_id=model_id, config=cache_config)
         cache_repo_id = load_custom_cache_repo_name_from_hf_home()
         compile_cache = _create_hub_compile_cache_proxy(cache_repo_id=cache_repo_id)
-        
-        # check if cache exists
         model_cache_dir = compile_cache.default_cache.get_cache_dir_with_cache_key(f"MODULE_{cache_entry.hash}")
         cache_exist = compile_cache.download_folder(model_cache_dir, model_cache_dir)
         

@@ -27,7 +27,7 @@ import torch
 from huggingface_hub import snapshot_download
 from transformers import CLIPFeatureExtractor, CLIPTokenizer, PretrainedConfig
 
-from ..exporters.neuron import DiffusersPretrainedConfig, main_export, normalize_stable_diffusion_input_shapes
+from ..exporters.neuron import main_export, normalize_stable_diffusion_input_shapes
 from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..exporters.tasks import TasksManager
 from ..utils import is_diffusers_available
@@ -40,6 +40,7 @@ from .utils import (
     DIFFUSION_MODEL_VAE_ENCODER_NAME,
     NEURON_FILE_NAME,
     is_neuronx_available,
+    DiffusersPretrainedConfig,
 )
 
 
@@ -644,35 +645,43 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             "disable_fast_relayout": disable_fast_relayout,
             "disable_fallback": disable_fallback,
         }
+        
+        # TODO: Check if the cache exists
+        cache_exist = False
+        
+        if cache_exist:
+            # load cache
+            pass
+        else:
+            # compile
+            save_dir = TemporaryDirectory()
+            save_dir_path = Path(save_dir.name)
 
-        save_dir = TemporaryDirectory()
-        save_dir_path = Path(save_dir.name)
-
-        main_export(
-            model_name_or_path=model_id,
-            output=save_dir_path,
-            compiler_kwargs=compiler_kwargs,
-            task=task,
-            dynamic_batch_size=dynamic_batch_size,
-            cache_dir=cache_dir,
-            compiler_workdir=compiler_workdir,
-            inline_weights_to_neff=inline_weights_to_neff,
-            optlevel=optlevel,
-            trust_remote_code=trust_remote_code,
-            subfolder=subfolder,
-            revision=revision,
-            force_download=force_download,
-            local_files_only=local_files_only,
-            use_auth_token=use_auth_token,
-            do_validation=False,
-            submodels={"unet": unet_id},
-            lora_model_ids=lora_model_ids,
-            lora_weight_names=lora_weight_names,
-            lora_adapter_names=lora_adapter_names,
-            lora_scales=lora_scales,
-            library_name=cls.library_name,
-            **input_shapes,
-        )
+            main_export(
+                model_name_or_path=model_id,
+                output=save_dir_path,
+                compiler_kwargs=compiler_kwargs,
+                task=task,
+                dynamic_batch_size=dynamic_batch_size,
+                cache_dir=cache_dir,
+                compiler_workdir=compiler_workdir,
+                inline_weights_to_neff=inline_weights_to_neff,
+                optlevel=optlevel,
+                trust_remote_code=trust_remote_code,
+                subfolder=subfolder,
+                revision=revision,
+                force_download=force_download,
+                local_files_only=local_files_only,
+                use_auth_token=use_auth_token,
+                do_validation=False,
+                submodels={"unet": unet_id},
+                lora_model_ids=lora_model_ids,
+                lora_weight_names=lora_weight_names,
+                lora_adapter_names=lora_adapter_names,
+                lora_scales=lora_scales,
+                library_name=cls.library_name,
+                **input_shapes,
+            )
 
         return cls._from_pretrained(
             model_id=save_dir_path,

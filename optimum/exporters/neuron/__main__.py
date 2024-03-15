@@ -498,6 +498,7 @@ def main_export(
         optlevel=optlevel,
         output_file_names=output_model_names,
         compiler_kwargs=compiler_kwargs,
+        model_name_or_path=model_name_or_path,
     )
 
     # Validate compiled model

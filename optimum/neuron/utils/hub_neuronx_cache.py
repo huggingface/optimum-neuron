@@ -16,6 +16,7 @@ import hashlib
 import json
 import logging
 import os
+import copy
 import shutil
 from contextlib import contextmanager
 from enum import Enum
@@ -31,7 +32,6 @@ from .import_utils import is_neuronx_available
 from .patching import patch_everywhere
 from .require_utils import requires_torch_neuronx, requires_torch_xla
 from .cache_utils import load_custom_cache_repo_name_from_hf_home
-
 
 if is_neuronx_available():
     from libneuronxla.neuron_cc_cache import (
@@ -60,6 +60,9 @@ else:
 
 
 logger = logging.getLogger(__name__)
+
+CACHE_WHITE_LIST = ["_name_or_path", "transformers_version", "_diffusers_version", "eos_token_id", "bos_token_id", "pad_token_id", "torchscript", "torch_dtype", "vocab_size", "_commit_hash", "sample_size"]
+NEURON_CONFIG_WHITE_LIST = ["input_names", "output_names"]
 
 
 class CompileCacheHfProxy(CompileCache):
@@ -162,8 +165,15 @@ class CompileCacheHfProxy(CompileCache):
             return True
         else:
             rel_folder_path = self._rel_path(folder_path)
-            folder_info = list(self.api.list_repo_tree(self.repo_id, rel_folder_path))
-            folder_exists = len(folder_info) > 1
+            try:
+                folder_info = list(self.api.list_repo_tree(self.repo_id, rel_folder_path))
+                folder_exists = len(folder_info) > 1
+            except Exception as e:
+                logger.warning(
+                    f"{rel_folder_path} not found in {self.repo_id}: {e} \nThe model will be recompiled."
+                )
+                folder_exists = False
+                
             if folder_exists:
                 # cached remotely
                 for repo_content in folder_info:
@@ -174,13 +184,8 @@ class CompileCacheHfProxy(CompileCache):
                     dst_path.mkdir(parents=True, exist_ok=True)
                     os.symlink(local_path, dst_path / filename)
                 logger.info(f"Fetched cached {rel_folder_path} from {self.repo_id}")
-                return True
-            else:
-                logger.warning(
-                    f"{rel_folder_path} not found in {self.repo_id}: the corresponding graph will be recompiled."
-                    " This may take up to one hour for large models."
-                )
-                return False
+                
+            return folder_exists
 
     def synchronize(self):
         if isinstance(self.default_cache, CompileCacheS3):
@@ -403,12 +408,17 @@ def get_hub_cached_entries(
     api = HfApi(endpoint=endpoint, token=token)
     repo_files = api.list_repo_files(cache_repo_id)
     # Get the config corresponding to the model
-    target_entry = ModelCacheEntry(model_id, (AutoConfig.from_pretrained(model_id)))
+    try:
+        config = AutoConfig.from_pretrained(model_id)
+    except Exception:
+        config = get_multimodels_configs(api, model_id)  # Applied on SD, encoder-decoder models
+    target_entry = ModelCacheEntry(model_id, config)
     # Extract model type: it will be used as primary key for lookup
     model_type = target_entry.config["model_type"]
     registry_folder = get_registry_folder_for_mode(mode)
     registry_pattern = registry_folder + "/" + model_type
     model_files = [path for path in repo_files if registry_pattern in path]
+    white_list =  CACHE_WHITE_LIST + ["task", ]  # All parameters except those in the whitelist must match
     model_entries = []
     with TemporaryDirectory() as tmpdir:
         for model_path in model_files:
@@ -416,24 +426,67 @@ def get_hub_cached_entries(
             with open(local_path) as f:
                 entry_config = json.load(f)
                 # Remove neuron config for comparison as the target does not have it
-                neuron_config = entry_config.pop("neuron")
-                # All parameters except those in the whitelist must match
-                white_list = ["_name_or_path", "transformers_version", "eos_token_id", "bos_token_id", "pad_token_id", "torchscript", "torch_dtype", "task"]
-                for param in white_list:
-                    entry_config.pop(param, None)
-                    target_entry.config.pop(param, None)
-                if entry_config == target_entry.config:
-                    model_entries.append(neuron_config)
+                if model_type=="stable-diffusion":
+                    model_entries = lookup_match_entries_for_stable_diffusion(entry_config, target_entry, white_list, model_entries)
+                else:
+                    neuron_config = entry_config.pop("neuron")
+                    for param in white_list:
+                        entry_config.pop(param, None)
+                        target_entry.config.pop(param, None)
+                    if entry_config == target_entry.config:
+                        model_entries.append(neuron_config)
+                
     return model_entries
 
 
-# Only applied on traced TorchScript models
-def build_cache_config(config: Dict, white_list: Optional[List] = None):
-    # TODO: consider case with multiple models thus multiple configs, eg. stable diffusion. Maybe concatenate.
-    if white_list is None:
-        white_list = ["_name_or_path", "transformers_version", "eos_token_id", "bos_token_id", "pad_token_id", "torchscript", "torch_dtype"]
+def lookup_match_entries_for_stable_diffusion(entry_config, target_entry, white_list, model_entries):
+    neuron_config = entry_config["unet"].pop("neuron")
+    non_checked_components = ["vae", "vae_encoder", "vae_decoder"]
+    is_matched = True
+    for param in non_checked_components:
+        entry_config.pop(param, None)
+        target_entry.config.pop(param, None)
+    for name, value in entry_config.items():
+        if isinstance(value, Dict):
+            for param in white_list:
+                value.pop(param, None)
+                target_entry.config[name].pop(param, None)
+            for term in set(entry_config[name]).intersection(set(target_entry.config[name])):
+                if entry_config[name][term] != target_entry.config[name][term]:
+                    is_matched =False
+    if is_matched:
+        model_entries.append(neuron_config)
     
-    neuron_white_list = ["input_names", "output_names"]
+    return model_entries
+   
+
+def get_multimodels_configs(api, model_id):
+    repo_files = api.list_repo_files(model_id)
+    config_pattern = "/config.json"
+    config_files = [path for path in repo_files if config_pattern in path]
+    lookup_configs = dict()
+    with TemporaryDirectory() as tmpdir:
+        for model_path in config_files:
+            local_path = api.hf_hub_download(model_id, model_path, local_dir=tmpdir)
+            with open(local_path) as f:
+                entry_config = json.load(f)
+                white_list =  CACHE_WHITE_LIST
+                for param in white_list:
+                    entry_config.pop(param, None)
+                lookup_configs[model_path.split("/")[-2]] = entry_config
+                
+    if "unet" in lookup_configs:
+        lookup_configs["model_type"] = "stable-diffusion" 
+    return lookup_configs
+
+
+def exclude_white_list_from_config(config: Dict, white_list: Optional[List] = None, neuron_white_list: Optional[List] = None):
+    if white_list is None:
+        white_list = CACHE_WHITE_LIST
+    
+    if neuron_white_list is None:
+        neuron_white_list = NEURON_CONFIG_WHITE_LIST
+    
     for param in white_list:
         config.pop(param, None)
     
@@ -441,3 +494,33 @@ def build_cache_config(config: Dict, white_list: Optional[List] = None):
         config["neuron"].pop(param, None)
     
     return config
+
+
+# Only applied on traced TorchScript models
+def build_cache_config(
+    configs: Dict[str, PretrainedConfig], 
+    white_list: Optional[List] = None, 
+    neuron_white_list: Optional[List] = None,
+    
+):
+    clean_configs = dict()
+    for name, config in configs.items():            
+        config = copy.deepcopy(config).to_diff_dict() if isinstance(config, PretrainedConfig) else config
+        config = exclude_white_list_from_config(config, white_list, neuron_white_list)
+        clean_configs[name] = config
+    
+    if "unet" in configs:
+        clean_configs["model_type"] = "stable-diffusion"
+    if len(clean_configs) > 1:
+        return clean_configs
+    else:
+        return next(iter(clean_configs.values()))
+
+
+def cache_aot_neuron_artifacts(neuron_dir: Path, cache_config_hash: str):
+    cache_repo_id = load_custom_cache_repo_name_from_hf_home()
+    compile_cache = _create_hub_compile_cache_proxy(cache_repo_id=cache_repo_id)
+    model_cache_dir = compile_cache.default_cache.get_cache_dir_with_cache_key(f"MODULE_{cache_config_hash}")
+    compile_cache.upload_folder(cache_dir=model_cache_dir, src_dir=neuron_dir)
+    
+    logger.info(f"Model cached in: {model_cache_dir}.")

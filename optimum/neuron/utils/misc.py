@@ -16,12 +16,13 @@
 
 import inspect
 import os
+import copy
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
-from transformers import AutoFeatureExtractor, AutoProcessor, AutoTokenizer, CLIPProcessor
+from transformers import AutoFeatureExtractor, AutoProcessor, AutoTokenizer, CLIPProcessor, PretrainedConfig
 from transformers.modeling_utils import _add_variant
 from transformers.utils import (
     FLAX_WEIGHTS_NAME,
@@ -42,9 +43,6 @@ from ...utils import logging
 from .import_utils import is_torch_xla_available
 from .require_utils import requires_safetensors
 
-
-if TYPE_CHECKING:
-    from transformers import PretrainedConfig
 
 logger = logging.get_logger()
 
@@ -606,3 +604,16 @@ def maybe_save_preprocessors(
         src_name_or_path, subfolder=src_subfolder, trust_remote_code=trust_remote_code
     ):
         preprocessor.save_pretrained(dest_dir)
+
+
+class DiffusersPretrainedConfig(PretrainedConfig):
+    # override to update `model_type`
+    def to_dict(self):
+        """
+        Serializes this instance to a Python dictionary.
+
+        Returns:
+            :obj:`Dict[str, any]`: Dictionary of all the attributes that make up this configuration instance.
+        """
+        output = copy.deepcopy(self.__dict__)
+        return output
