@@ -529,12 +529,13 @@ def create_query_or_output_projection_local_weight_from_regular_weight(
     kv_size_multiplier: int,
     query_or_output_proj: Union[Literal["query"], Literal["output"]],
 ) -> torch.Tensor:
+    assert query_or_output_proj in ["query", "output"]
+
     from neuronx_distributed.parallel_layers.parallel_state import (
         get_tensor_model_parallel_rank,
         get_tensor_model_parallel_size,
     )
 
-    assert query_or_output_proj in ["query", "output"]
     tp_size = get_tensor_model_parallel_size()
     tp_rank = get_tensor_model_parallel_rank()
 
@@ -559,6 +560,49 @@ def create_query_or_output_projection_local_weight_from_regular_weight(
     return shuffled_weight
 
 
+def create_local_bias_from_regular_bias(
+    bias_weigth_data: torch.Tensor,
+    num_attention_heads: int,
+    num_key_value_heads: int,
+    kv_size_multiplier: int,
+    query_or_key_value_bias: Union[Literal["query"], Literal["key_value"]],
+    gather_output: bool,
+) -> torch.Tensor:
+    assert query_or_key_value_bias in ["query", "key_value"]
+    from neuronx_distributed.parallel_layers.parallel_state import (
+        get_tensor_model_parallel_rank,
+        get_tensor_model_parallel_size,
+    )
+
+    tp_size = get_tensor_model_parallel_size()
+    tp_rank = get_tensor_model_parallel_rank()
+
+    if query_or_key_value_bias == "key_value":
+        local_bias_weight = bias_weigth_data.repeat(kv_size_multiplier)
+        if not gather_output:
+            local_bias_weight = local_bias_weight.chunk(tp_size)[tp_rank]
+
+    else:
+        if gather_output:
+            indicies = torch.cat(
+                [
+                    compute_query_indicies_for_rank(
+                        tp_size, tp_rank, num_attention_heads, num_key_value_heads, kv_size_multiplier
+                    )
+                    for tp_rank in range(tp_size)
+                ],
+                dim=0,
+            )
+        else:
+            indicies = compute_query_indicies_for_rank(
+                tp_size, tp_rank, num_attention_heads, num_key_value_heads, kv_size_multiplier
+            )
+        reshaped_bias_weight = bias_weigth_data.view(num_attention_heads, -1)
+        shuffled_bias_weight = reshaped_bias_weight[indicies]
+        local_bias_weight = shuffled_bias_weight.reshape(-1)
+    return local_bias_weight
+
+
 @requires_neuronx_distributed
 def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
     layer: OptimumGQAQKVColumnParallelLinear,
@@ -578,24 +622,23 @@ def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
             "A linear's layer WeightInformation or a linear layer to copy the weights from need to specified."
         )
 
-    from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_rank
-
-    tp_rank = get_tensor_model_parallel_rank()
 
     proj_name = weight_name[-1]
     weight = getattr(layer, weight_name)
     bias = getattr(layer, f"bias_{proj_name}")
-    row_size, _ = weight.shape
 
     num_attention_heads = layer.num_attention_heads
     num_key_value_heads = layer.num_key_value_heads
-    # kv_size_multiplier = layer.kv_size_multiplier  if proj_name in "kv" else 1
     kv_size_multiplier = layer.kv_size_multiplier
 
     with torch.no_grad():
         if not was_already_initialized_during_parallelization(weight):
+            weight_data = None
             if linear_layer_weight_info is not None:
                 weight_data = load_tensor_for_weight(linear_layer_weight_info)
+            elif linear_layer is not None and linear_layer.weight.device != torch.device("meta"):
+                weight_data = linear_layer.weight.data
+            if weight_data is not None:
                 if proj_name in "kv":
                     weight_data = create_kv_proj_local_weight_from_regular_weight(
                         weight_data, kv_size_multiplier, weight.size(0)
@@ -606,46 +649,26 @@ def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
                     )
                 weight.copy_(weight_data)
                 mark_parameter_init_status_during_parallelization(weight, True)
-                del weight_data
-            elif linear_layer is not None and linear_layer.weight.device != torch.device("meta"):
-                if proj_name in "kv":
-                    weight_data = create_kv_proj_local_weight_from_regular_weight(
-                        linear_layer.weight, kv_size_multiplier, weight.size(0)
-                    )
-                else:
-                    weight_data = create_query_or_output_projection_local_weight_from_regular_weight(
-                        linear_layer.weight.data, num_attention_heads, num_key_value_heads, kv_size_multiplier, "query"
-                    )
-                weight.copy_(weight_data)
-                mark_parameter_init_status_during_parallelization(weight, True)
             else:
                 mark_parameter_init_status_during_parallelization(weight, False)
 
-            # TODO: add support for bias.
             if bias is not None:
                 if not was_already_initialized_during_parallelization(bias):
+                    bias_weight_data = None
                     if linear_layer_bias_weight_info is not None:
-                        if layer.gather_output:
-                            tensor_slices = (None,)
-                        else:
-                            tensor_slices = (
-                                (
-                                    tp_rank * row_size,
-                                    (tp_rank + 1) * row_size,
-                                ),
-                            )
-                        bias_weight_data = load_tensor_for_weight(
-                            linear_layer_bias_weight_info,
-                            tensor_slices=tensor_slices,
+                        bias_weight_data = load_tensor_for_weight(linear_layer_bias_weight_info)
+                    elif linear_layer is not None and linear_layer.bias.device != torch.device("meta"):
+                        bias_weight_data = linear_layer.bias.data
+                    if bias_weight_data is not None:
+                        local_bias_weight_data = create_local_bias_from_regular_bias(
+                            bias_weight_data,
+                            num_attention_heads,
+                            num_key_value_heads,
+                            kv_size_multiplier,
+                            "key_value" if proj_name in "kv" else "query",
+                            layer.gather_output,
                         )
-                        bias.copy_(bias_weight_data)
-                        mark_parameter_init_status_during_parallelization(bias, True)
-                        del bias_weight_data
-                    elif linear_layer.bias.device != torch.device("meta"):
-                        if layer.gather_output:
-                            bias.copy_(linear_layer.bias)
-                        else:
-                            bias.copy_(linear_layer.bias[tp_rank * row_size : (tp_rank + 1) * row_size])
+                        bias.copy_(local_bias_weight_data)
                         mark_parameter_init_status_during_parallelization(bias, True)
                     else:
                         mark_parameter_init_status_during_parallelization(bias, False)
@@ -918,10 +941,6 @@ def linear_to_parallel_linear(
 
     if embedding_weight_to_tie is not None:
         parallel_linear_layer.weight = embedding_weight_to_tie
-
-    # del linear_layer.weight
-    # if linear_layer.bias is not None:
-    #     del linear_layer.bias
 
     return parallel_linear_layer
 
