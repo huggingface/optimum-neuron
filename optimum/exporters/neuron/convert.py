@@ -404,7 +404,7 @@ def export_models(
         # Use the context manager just for creating registry, AOT compilation won't leverage `create_compile_cache` 
         # in `libneuronxla`, so we will need to cache compiled artifacts to local manually.
         with hub_neuronx_cache("inference", entry=cache_entry):
-            cache_aot_neuron_artifacts(neuron_dir=output_path.parent, cache_config_hash=cache_entry.hash)
+            cache_aot_neuron_artifacts(neuron_dir=output_dir, cache_config_hash=cache_entry.hash)
 
     # remove models failed to export
     for i, model_name in failed_models:

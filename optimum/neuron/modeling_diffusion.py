@@ -313,6 +313,13 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             raise ValueError("You need to pass `data_parallel_mode` to define Neuron Core allocation.")
 
         return submodels
+    
+    def replace_weights(self, weights: Optional[Union[Dict[str, torch.Tensor], torch.nn.Module]] = None):
+        # TODO: adapt for sd
+        pass
+        # check_if_weights_replacable(self.config, weights)
+        # if weights is not None:
+        #     replace_weights(self.model, weights)
 
     @staticmethod
     def set_default_dp_mode(unet_config):
@@ -647,11 +654,48 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         }
         
         # TODO: Check if the cache exists
-        cache_exist = False
+        # compilation_config = store_compilation_config(
+        #     config=config,
+        #     input_shapes=kwargs_shapes,
+        #     compiler_kwargs=compiler_kwargs,
+        #     dynamic_batch_size=dynamic_batch_size,
+        #     compiler_type=NEURON_COMPILER_TYPE,
+        #     compiler_version=NEURON_COMPILER_VERSION,
+        #     inline_weights_to_neff=inline_weights_to_neff,
+        #     optlevel=optlevel,
+        #     model_type=getattr(config, "model_type", None),
+        #     task=task,
+        # )
+        # cache_config = build_cache_config(compilation_config)
+        # cache_entry = ModelCacheEntry(model_id=model_id, config=cache_config)
+        # cache_repo_id = load_custom_cache_repo_name_from_hf_home()
+        # compile_cache = _create_hub_compile_cache_proxy(cache_repo_id=cache_repo_id)
+        # model_cache_dir = compile_cache.default_cache.get_cache_dir_with_cache_key(f"MODULE_{cache_entry.hash}")
+        # cache_exist = compile_cache.download_folder(model_cache_dir, model_cache_dir)
+        cache_exist = True
+        model_cache_dir = "/var/tmp/neuron-compile-cache/neuronxcc-2.12.68.0+4480452af/MODULE_701466a2e3830a7fa597"
         
         if cache_exist:
             # load cache
-            pass
+            neuron_model = cls.from_pretrained(model_cache_dir)  # TODO: consider args for loading 
+            model = TasksManager.get_model_from_task(
+                task=task,
+                model_name_or_path=model_id,
+                subfolder=subfolder,
+                revision=revision,
+                framework="pt",
+                library_name=cls.library_name,
+                cache_dir=cache_dir,
+                use_auth_token=use_auth_token,
+                local_files_only=local_files_only,
+                force_download=force_download,
+                trust_remote_code=trust_remote_code,
+            )
+            import pdb
+            pdb.set_trace()
+            # replace weights
+            neuron_model.replace_weights(weights=model)
+            return neuron_model
         else:
             # compile
             save_dir = TemporaryDirectory()

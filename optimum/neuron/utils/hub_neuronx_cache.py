@@ -61,7 +61,7 @@ else:
 
 logger = logging.getLogger(__name__)
 
-CACHE_WHITE_LIST = ["_name_or_path", "transformers_version", "_diffusers_version", "eos_token_id", "bos_token_id", "pad_token_id", "torchscript", "torch_dtype", "vocab_size", "_commit_hash", "sample_size"]
+CACHE_WHITE_LIST = ["_name_or_path", "transformers_version", "_diffusers_version", "eos_token_id", "bos_token_id", "pad_token_id", "torchscript", "torch_dtype", "_commit_hash", "sample_size"]
 NEURON_CONFIG_WHITE_LIST = ["input_names", "output_names"]
 
 
@@ -426,38 +426,46 @@ def get_hub_cached_entries(
             with open(local_path) as f:
                 entry_config = json.load(f)
                 # Remove neuron config for comparison as the target does not have it
-                if model_type=="stable-diffusion":
-                    model_entries = lookup_match_entries_for_stable_diffusion(entry_config, target_entry, white_list, model_entries)
-                else:
-                    neuron_config = entry_config.pop("neuron")
-                    for param in white_list:
-                        entry_config.pop(param, None)
-                        target_entry.config.pop(param, None)
-                    if entry_config == target_entry.config:
-                        model_entries.append(neuron_config)
+                model_entries = lookup_matched_entries(entry_config, target_entry, white_list, model_entries, model_type)
                 
     return model_entries
 
 
-def lookup_match_entries_for_stable_diffusion(entry_config, target_entry, white_list, model_entries):
-    neuron_config = entry_config["unet"].pop("neuron")
-    non_checked_components = ["vae", "vae_encoder", "vae_decoder"]
+def lookup_matched_entries(entry_config, target_entry, white_list, model_entries, model_type):
     is_matched = True
-    for param in non_checked_components:
-        entry_config.pop(param, None)
-        target_entry.config.pop(param, None)
+    entry_config, target_entry_config, neuron_config = _prepare_config_for_matching(entry_config, target_entry, model_type)
     for name, value in entry_config.items():
         if isinstance(value, Dict):
             for param in white_list:
                 value.pop(param, None)
-                target_entry.config[name].pop(param, None)
-            for term in set(entry_config[name]).intersection(set(target_entry.config[name])):
-                if entry_config[name][term] != target_entry.config[name][term]:
-                    is_matched =False
+                target_entry_config[name].pop(param, None)
+            for term in set(entry_config[name]).intersection(set(target_entry_config[name])):
+                if entry_config[name][term] != target_entry_config[name][term]:
+                    is_matched = False
+        else:
+            if value != target_entry_config[name]:
+                is_matched = False
     if is_matched:
+        neuron_config.pop("model_type", None)
         model_entries.append(neuron_config)
     
     return model_entries
+
+
+def _prepare_config_for_matching(entry_config, target_entry, model_type):
+    if model_type=="stable-diffusion":
+        neuron_config = entry_config["unet"].pop("neuron")
+        non_checked_components = ["vae", "vae_encoder", "vae_decoder"]
+        for param in non_checked_components:
+            entry_config.pop(param, None)
+            target_entry.config.pop(param, None)
+        target_entry_config = target_entry.config
+    else:
+        neuron_config = entry_config.pop("neuron")
+        entry_config = {"model": entry_config}
+        target_entry_config = {"model": target_entry.config}
+        
+    return entry_config, target_entry_config, neuron_config
    
 
 def get_multimodels_configs(api, model_id):
@@ -498,12 +506,14 @@ def exclude_white_list_from_config(config: Dict, white_list: Optional[List] = No
 
 # Only applied on traced TorchScript models
 def build_cache_config(
-    configs: Dict[str, PretrainedConfig], 
+    configs: Union[PretrainedConfig, Dict[str, PretrainedConfig]], 
     white_list: Optional[List] = None, 
     neuron_white_list: Optional[List] = None,
     
 ):
     clean_configs = dict()
+    if isinstance(configs, PretrainedConfig):
+        configs = {"model": configs}
     for name, config in configs.items():            
         config = copy.deepcopy(config).to_diff_dict() if isinstance(config, PretrainedConfig) else config
         config = exclude_white_list_from_config(config, white_list, neuron_white_list)

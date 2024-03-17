@@ -292,7 +292,7 @@ class NeuronBaseModel(OptimizedModel):
             model_type=getattr(config, "model_type", None),
             task=task,
         )
-        cache_config = build_cache_config(copy.deepcopy(compilation_config).to_diff_dict())
+        cache_config = build_cache_config(compilation_config)
         cache_entry = ModelCacheEntry(model_id=model_id, config=cache_config)
         cache_repo_id = load_custom_cache_repo_name_from_hf_home()
         compile_cache = _create_hub_compile_cache_proxy(cache_repo_id=cache_repo_id)
@@ -301,7 +301,7 @@ class NeuronBaseModel(OptimizedModel):
         
         if cache_exist:
             # load cache
-            neuron_model = cls.from_pretrained(model_cache_dir)
+            neuron_model = cls.from_pretrained(model_cache_dir)    # TODO: consider args for loading 
             model = TasksManager.get_model_from_task(
                 task=task,
                 model_name_or_path=model_id,
