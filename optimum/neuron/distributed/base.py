@@ -556,6 +556,7 @@ class Parallelizer(ABC):
             get_pipeline_model_parallel_size,
             get_tensor_model_parallel_size,
         )
+        from neuronx_distributed.parallel_layers.random import _MODEL_PARALLEL_RNG_TRACKER_NAME, get_xla_rng_tracker
         from neuronx_distributed.pipeline import NxDPPModel
 
         tp_size = get_tensor_model_parallel_size()
@@ -588,6 +589,13 @@ class Parallelizer(ABC):
             return names < names_of_the_parameters_to_consider
 
         if tp_size > 1:
+            # TODO: remove that once it is solved on the `neuronx_distributed` side.
+            try:
+                get_xla_rng_tracker().add(_MODEL_PARALLEL_RNG_TRACKER_NAME, 42)
+            except Exception:
+                # It means that `_MODEL_PARALLEL_RNG_TRACKER_NAME` was already added to the rng tracker, we can ignore.
+                pass
+
             model = cls._parallelize(
                 model,
                 device=device,

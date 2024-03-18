@@ -413,6 +413,7 @@ class NeuronAccelerator(Accelerator):
     def _prepare_model_for_mp(
         self, model: torch.nn.Module, device_placement: Optional[bool] = None, evaluation_mode: bool = False
     ):
+        import torch_xla.core.xla_model as xm
         from neuronx_distributed.pipeline import NxDPPModel
 
         if model in self._models or Parallelizer.was_parallelized(model):
@@ -422,6 +423,7 @@ class NeuronAccelerator(Accelerator):
         tied_parameters_dict = get_tied_parameters_dict(model)
         model_main_input_name = getattr(model, "main_input_name", None)
         # TODO: enable self.device (if needed).
+        print("DEVICE", self.device)
         model = self.state.mp_plugin.parallelize_model(model, device=self.device)
 
         if model_main_input_name is not None:
@@ -476,6 +478,7 @@ class NeuronAccelerator(Accelerator):
                 cpu_ids[name]: xla_params[name] for name, _ in model.named_parameters()
             }
 
+        xm.mark_step()
         device_placement = False
 
         return super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)

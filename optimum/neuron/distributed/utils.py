@@ -310,7 +310,9 @@ def load_tensor_for_weight(
     """
     from safetensors import safe_open
 
-    device = str(weight_info.device)
+    # TODO: for now `safetensors` does not support loading directly to the `xla` device.
+    # device = str(weight_info.device)
+    device = "cpu"
     with safe_open(weight_info.filename, framework="pt", device=device) as fp:
         if tensor_slices is None:
             tensor = fp.get_tensor(weight_info.qualified_name)
