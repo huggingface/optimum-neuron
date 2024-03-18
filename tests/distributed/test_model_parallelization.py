@@ -211,7 +211,7 @@ class TestModelParallelization(DistributedTest):
     def from_pretrained(self, request):
         return request.param
 
-    @pytest.fixture(scope="class", params=[False, True], ids=["no_lazy_load", "lazy_load"])
+    @pytest.fixture(scope="class", params=[False, True], ids=["regular_load", "lazy_load"])
     def lazy_load(self, request):
         return request.param
 

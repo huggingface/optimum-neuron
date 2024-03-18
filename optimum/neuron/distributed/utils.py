@@ -1098,7 +1098,7 @@ def try_to_hf_initialize(
     `model._init_weights` method. It returns the names of the parameters that were left uninitialized.
 
     """
-    cached_params_data = {name: param.data.clone() for name, param in mod.named_parameters()}
+    cached_params_data = {name: param.data.clone().to("cpu") for name, param in mod.named_parameters()}
     model._init_weights(mod)
 
     if parameter_names_mapping is None:
@@ -1108,7 +1108,7 @@ def try_to_hf_initialize(
     def name_in_mod(name: str):
         return parameter_names_mapping.get(name, name)
 
-    dummy_mod = copy.deepcopy(mod)
+    dummy_mod = copy.deepcopy(mod).to("cpu")
     for name in parameter_names:
         getattr(dummy_mod, name_in_mod(name)).random_()
     model._init_weights(dummy_mod)
@@ -1118,14 +1118,15 @@ def try_to_hf_initialize(
         for param_name in parameter_names:
             name = name_in_mod(param_name)
             # The parameter was left unchanged.
-            if torch.all(getattr(mod, name).data == cached_params_data[name]):
+            param_on_cpu = getattr(mod, name).data.to("cpu")
+            if torch.all(param_on_cpu == cached_params_data[name]):
                 # There are two possible reasons:
                 #   1. The model cannot initialize the module that owns the parameter.
                 #   2. The parameter already had the proper value.
 
                 # We check if a dummy copy of the module, filled with random values is modified to know if the model
                 # can initialize the module.
-                dummy_param_was_changed = torch.all(getattr(dummy_mod, name).data == getattr(mod, name).data)
+                dummy_param_was_changed = torch.all(getattr(dummy_mod, name).data == param_on_cpu)
                 if not dummy_param_was_changed:
                     left_uninitialized.append(param_name)
 

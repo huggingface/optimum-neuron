@@ -461,9 +461,9 @@ class Parallelizer(ABC):
                                 gather_output=gather_output,
                                 sequence_parallel_enabled=mod.sequence_parallel_enabled,
                             )
-                            mod.weight.data = fake_parallel_linear_mod.weight.data.clone()
+                            mod.weight.copy_(fake_parallel_linear_mod.weight.data)
                             if mod.bias is not None:
-                                mod.bias.data = fake_parallel_linear_mod.bias.data.clone()
+                                mod.bias.copy_(fake_parallel_linear_mod.bias.data)
                             del fake_parallel_linear_mod
                         del fake_linear_mod
                     else:

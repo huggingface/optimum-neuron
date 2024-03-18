@@ -115,7 +115,7 @@ class TestCommonDistributed(DistributedTest):
     def parallel_sizes(self, request):
         return request.param
 
-    @pytest.fixture(scope="class", params=[False, True], ids=["no_lazy_load", "lazy_load"])
+    @pytest.fixture(scope="class", params=[False, True], ids=["regular_load", "lazy_load"])
     def lazy_load(self, request):
         return request.param
 
@@ -123,7 +123,7 @@ class TestCommonDistributed(DistributedTest):
     def from_config(self, request):
         return request.param
 
-    @pytest.fixture(scope="class", params=[False, True], ids=["no_lazy_optimizer", "lazy_optimizer"])
+    @pytest.fixture(scope="class", params=[False, True], ids=["regular_optimizer", "lazy_optimizer"])
     def lazy_optimizer(self, request):
         return request.param
 
@@ -131,15 +131,15 @@ class TestCommonDistributed(DistributedTest):
     def with_groups(self, request):
         return request.param
 
-    @pytest.fixture(scope="class", params=[False, True], ids=["no_zero_1", "zero_1"])
+    @pytest.fixture(scope="class", params=[False, True], ids=["without_zero_1", "with_zero_1"])
     def zero_1(self, request):
         return request.param
 
-    @pytest.fixture(scope="class", params=[1, 12], ids=["no_grad_acc", "grad_acc=12"])
+    @pytest.fixture(scope="class", params=[1, 12], ids=["without_grad_acc", "with_grad_acc=12"])
     def gradient_accumulation_steps(self, request):
         return request.param
 
-    @pytest.fixture(scope="class", params=[None, 0.01], ids=["no_clip_grad_norm", "clip_grad_norm"])
+    @pytest.fixture(scope="class", params=[None, 0.01], ids=["without_clip_grad_norm", "with_clip_grad_norm"])
     def max_grad_norm(self, request):
         return request.param
 
