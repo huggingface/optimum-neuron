@@ -24,6 +24,7 @@ build {
     inline = [
       "sudo mv /tmp/99-custom-message /etc/update-motd.d/",
       "sudo chmod +x /etc/update-motd.d/99-custom-message",
+      "rm /home/ubuntu/.ssh/authorized_keys",
     ]
   }
 }
