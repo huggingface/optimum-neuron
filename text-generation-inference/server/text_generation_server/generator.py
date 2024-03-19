@@ -7,12 +7,13 @@ from typing import List, Optional, Tuple
 
 import torch
 from loguru import logger
-from transformers import AutoTokenizer, PreTrainedTokenizerBase
+from transformers import AutoConfig, AutoTokenizer, PreTrainedTokenizerBase
 from transformers.generation import GenerationConfig
 
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.generation import TokenSelector
 
+from .model import get_export_kwargs_from_env
 from .pb.generate_pb2 import (
     Batch,
     CachedBatch,
@@ -544,23 +545,29 @@ class NeuronGenerator(Generator):
                 slot.clear()
 
     @classmethod
-    def from_pretrained(
-        cls,
-        model_path: str,
-    ):
+    def from_pretrained(cls, model_id: str, revision: str = None):
         """Instantiate a NeuronGenerator.
 
         Args:
-            model_path (`str`):
-                The path to a local neuron model. This path must also contain a Tokenizer.
+            model_id (`str`):
+                A hub model id or the path to a local model. This path must also contain a Tokenizer.
+            revision (`Optional[str]`, defaults to `None`):
+                The revision of the model on the HuggingFace hub.
 
         Returns:
             A NeuronGenerator.
         """
-        logger.info("Loading model on neuron devices (this can take a few minutes).")
+        config = AutoConfig.from_pretrained(model_id)
+        neuron_config = getattr(config, "neuron", None)
         start = time.time()
-        model = NeuronModelForCausalLM.from_pretrained(model_path)
+        if neuron_config is None:
+            export_kwargs = get_export_kwargs_from_env()
+            logger.info(f"Exporting model to neuron with config: {export_kwargs}.")
+            model = NeuronModelForCausalLM.from_pretrained(model_id, revision=revision, export=True, **export_kwargs)
+        else:
+            logger.info("Loading model on neuron devices (this can take a few minutes).")
+            model = NeuronModelForCausalLM.from_pretrained(model_id, revision=revision)
         end = time.time()
         logger.info(f"Model successfully loaded in {end - start:.2f} s.")
-        tokenizer = AutoTokenizer.from_pretrained(model_path)
+        tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision)
         return cls(model, tokenizer)
