@@ -588,6 +588,11 @@ class Parallelizer(ABC):
             names = {parameter_to_name[p] for p in layer.parameters()}
             return names < names_of_the_parameters_to_consider
 
+        # It solves some compilation issues.
+        # Investigate if using the cache becomes needed.
+        # Note: it is mandatory to set it to False when using pipeline parallelism.
+        model.config.use_cache = False
+
         if tp_size > 1:
             # TODO: remove that once it is solved on the `neuronx_distributed` side.
             try:
@@ -684,7 +689,6 @@ class Parallelizer(ABC):
                 raise NotImplementedError("{cls} does not support pipeline parallelism.")
 
             model.config.return_dict = False
-            model.config.use_cache = False
             model.config.output_attentions = False
             model.config.output_hidden_states = False
 

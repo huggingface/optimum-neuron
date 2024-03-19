@@ -185,9 +185,6 @@ MODEL_CLASSES_TO_IGNORE = [
 ]
 
 
-# LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-32kv-heads-random"
-# LLAMA_V2_MODEL_NAME = "anushehchaudry/llama-2-tiny-random"
-# LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-random"
 LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-32kv-heads-random"
 
 
@@ -430,6 +427,7 @@ class TestModelParallelization(DistributedTest):
                 1,
                 {
                     "num_hidden_layers": "2",
+                    "hidden_size": "32",
                     "num_attention_heads": "8",
                     "num_key_value_heads": "8",
                 },
@@ -440,6 +438,7 @@ class TestModelParallelization(DistributedTest):
                 1,
                 {
                     "num_hidden_layers": "2",
+                    "hidden_size": "32",
                     "num_attention_heads": "8",
                     "num_key_value_heads": "4",
                 },
