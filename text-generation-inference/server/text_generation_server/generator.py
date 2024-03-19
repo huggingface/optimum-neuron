@@ -152,13 +152,19 @@ class Slot:
         self._request_id = request.id
         self._inputs = request.inputs
         self._generation_config = copy.deepcopy(generation_config)
-        # Update generation config with token chooser parameters
-        self._generation_config.temperature = request.parameters.temperature
-        self._generation_config.top_k = request.parameters.top_k
-        self._generation_config.top_p = request.parameters.top_p
-        self._generation_config.typical_p = request.parameters.typical_p
+        # Update generation config with request parameters
         self._generation_config.do_sample = request.parameters.do_sample
-        self._generation_config.repetition_penalty = request.parameters.repetition_penalty
+        if self._generation_config.do_sample:
+            if request.parameters.temperature != 0:
+                self._generation_config.temperature = request.parameters.temperature
+            if request.parameters.top_k != 0:
+                self._generation_config.top_k = request.parameters.top_k
+            if request.parameters.top_p != 0:
+                self._generation_config.top_p = request.parameters.top_p
+            if request.parameters.typical_p != 0:
+                self._generation_config.typical_p = request.parameters.typical_p
+        if request.parameters.repetition_penalty != 0:
+            self._generation_config.repetition_penalty = request.parameters.repetition_penalty
         self.seed = request.parameters.seed
         # TODO: watermark
         self._generation_config.max_new_tokens = request.stopping_parameters.max_new_tokens
