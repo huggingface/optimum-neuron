@@ -48,7 +48,7 @@ from optimum.neuron import (
     pipeline,
 )
 from optimum.neuron.utils import NEURON_FILE_NAME, is_neuron_available, is_neuronx_available
-from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
+from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx, requires_pytorch_1_13
 from optimum.utils import (
     CONFIG_NAME,
     logging,
@@ -144,6 +144,7 @@ class NeuronModelIntegrationTest(NeuronModelIntegrationTestMixin):
             self.assertTrue(os.path.isdir(save_path))
             self.assertTrue(os.path.exists(neff_path))
 
+    @requires_pytorch_1_13
     @requires_neuronx
     def test_decouple_weights_neff_and_replace_weight(self):
         with tempfile.TemporaryDirectory() as tempdir:
