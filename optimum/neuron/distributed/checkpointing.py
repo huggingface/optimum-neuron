@@ -112,7 +112,9 @@ def consolidate_tensor_parallel_checkpoints(
             )
             full_weight = full_weight.to("cpu")
             if weight_name in ["weight_k", "weight_v", "bias_k", "bias_v"]:
-                full_weight = torch.chunk(full_weight, gqa_qkv_metadata["kv_size_multiplier"], dim=0)[0].clone()
+                full_weight = (
+                    torch.chunk(full_weight, gqa_qkv_metadata["kv_size_multiplier"], dim=0)[0].detach().clone()
+                )
             elif weight_name == "weight_q" or original_name in gqa_qkv_output_projections_names:
                 full_weight = create_gqa_query_or_output_projection_weight_from_full_weight(
                     full_weight,

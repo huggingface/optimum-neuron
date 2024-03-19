@@ -1098,7 +1098,7 @@ def try_to_hf_initialize(
     `model._init_weights` method. It returns the names of the parameters that were left uninitialized.
 
     """
-    cached_params_data = {name: param.data.clone().to("cpu") for name, param in mod.named_parameters()}
+    cached_params_data = {name: param.data.detach().clone().to("cpu") for name, param in mod.named_parameters()}
     model._init_weights(mod)
 
     if parameter_names_mapping is None:
@@ -1145,7 +1145,7 @@ def initialize_torch_nn_module(mod: torch.nn.Module, parameter_names: List[str])
     """
     if not hasattr(mod, "reset_parameters"):
         raise ValueError(f"{mod} does not have a `reset_parameters` method.")
-    cached_parameters = {name: param.data.clone() for name, param in mod.named_parameters()}
+    cached_parameters = {name: param.data.detach().clone() for name, param in mod.named_parameters()}
     mod.reset_parameters()
     with torch.no_grad():
         for name, param in mod.named_parameters():
