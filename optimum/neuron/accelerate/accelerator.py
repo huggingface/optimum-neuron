@@ -422,8 +422,7 @@ class NeuronAccelerator(Accelerator):
         cpu_ids = {name: id(param) for name, param in model.named_parameters()}
         tied_parameters_dict = get_tied_parameters_dict(model)
         model_main_input_name = getattr(model, "main_input_name", None)
-        # TODO: use self.device.
-        model = self.state.mp_plugin.parallelize_model(model, device=None)
+        model = self.state.mp_plugin.parallelize_model(model, device=self.device)
 
         if model_main_input_name is not None:
             setattr(model, "main_input_name", model_main_input_name)
