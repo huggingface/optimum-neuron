@@ -315,6 +315,9 @@ class TestModelParallelization(DistributedTest):
         if sequence_parallel_enabled and not manager.supports_sequence_parallelism():
             pytest.skip(f"Sequence parallelism is not supported for {model_class.__name__}.")
 
+        if not from_pretrained and lazy_load:
+            pytest.skip("This is not supported, issue with tying weights.")
+
         pad_to_multiple_of = None if not sequence_parallel_enabled else tp_size
         inputs = get_model_inputs(
             orig_model, model_name_or_path, batch_size=dp_size, pad_to_multiple_of=pad_to_multiple_of
