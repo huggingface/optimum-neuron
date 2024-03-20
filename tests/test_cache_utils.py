@@ -25,6 +25,7 @@ from typing import List
 from unittest import TestCase
 
 import huggingface_hub
+import pytest
 import torch
 from huggingface_hub import HfApi, create_repo, delete_repo, get_token, hf_hub_download, login
 from transformers import BertConfig, BertModel, set_seed
@@ -483,6 +484,7 @@ class NeuronHashTestCase(TestCase):
 
 @is_trainium_test
 @is_staging_test
+@pytest.mark.skip("This is not needed anymore and will be removed.")
 class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
     def test_push_to_hub_fails_with_private_model_and_public_repo(self):
         with TemporaryDirectory() as tmpdirname:

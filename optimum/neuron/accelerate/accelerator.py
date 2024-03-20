@@ -413,6 +413,7 @@ class NeuronAccelerator(Accelerator):
     def _prepare_model_for_mp(
         self, model: torch.nn.Module, device_placement: Optional[bool] = None, evaluation_mode: bool = False
     ):
+        import torch_xla.core.xla_model as xm
         from neuronx_distributed.pipeline import NxDPPModel
 
         if model in self._models or Parallelizer.was_parallelized(model):
@@ -421,7 +422,7 @@ class NeuronAccelerator(Accelerator):
         cpu_ids = {name: id(param) for name, param in model.named_parameters()}
         tied_parameters_dict = get_tied_parameters_dict(model)
         model_main_input_name = getattr(model, "main_input_name", None)
-        # TODO: enable self.device (if needed).
+        # TODO: use self.device.
         model = self.state.mp_plugin.parallelize_model(model, device=None)
 
         if model_main_input_name is not None:
@@ -434,6 +435,11 @@ class NeuronAccelerator(Accelerator):
             model_to_cast = model.local_module
         else:
             model_to_cast = model
+
+        # Update CPU ids
+        original_parameter_names_to_gqa_qkv_names = model._gqa_qkv_metadata["original_names_to_gqa_qkv_names"]
+        for key in list(cpu_ids.keys()):
+            cpu_ids[original_parameter_names_to_gqa_qkv_names.get(key, key)] = cpu_ids.pop(key)
 
         model_to_cast = model.local_module if isinstance(model, NxDPPModel) else model
         if os.environ.get("XLA_USE_BF16", "0") == "1" or os.environ.get("XLA_DOWNCAST_BF16", "0") == "1":
@@ -460,6 +466,7 @@ class NeuronAccelerator(Accelerator):
                 move_model_to_device(model, self.device)
                 tie_parameters(model, tied_parameters_dict)
             xla_params = dict(model.named_parameters())
+
             symmetric_diff = set(cpu_ids.keys()).symmetric_difference((xla_params.keys()))
             if symmetric_diff:
                 raise ValueError(
@@ -470,6 +477,7 @@ class NeuronAccelerator(Accelerator):
                 cpu_ids[name]: xla_params[name] for name, _ in model.named_parameters()
             }
 
+        xm.mark_step()
         device_placement = False
 
         return super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
@@ -485,8 +493,11 @@ class NeuronAccelerator(Accelerator):
 
         model = self.patch_model_for_neuron(model)
 
-        # We do not want to use the cache here as it would imply more communication that we do not need.
+        # We do not want to use the cache, or output unused tensors as it would imply more communication that we do not
+        # need.
         model.config.use_cache = False
+        model.config.output_attentions = False
+        model.config.output_hidden_states = False
 
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:
             return self.prepare_model_for_xla_fsdp(

@@ -24,6 +24,7 @@ from transformers import LlamaForCausalLM
 
 from optimum.neuron.accelerate.optimizer import NeuronAcceleratedOptimizer
 from optimum.neuron.accelerate.utils.dataclasses import NeuronDistributedType
+from optimum.neuron.distributed.checkpointing import consolidate_model_parallel_checkpoints_to_unified_checkpoint
 from optimum.neuron.distributed.utils import (
     TENSOR_PARALLEL_SHARDS_DIR_NAME,
     make_optimizer_constructor_lazy,
@@ -56,6 +57,7 @@ if TYPE_CHECKING:
     from transformers import PreTrainedModel
 
 MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-random"
+MODEL_NAME_WITH_4_KV_HEADS = "michaelbenayoun/llama-2-tiny-4kv-heads-16layers-random"
 
 
 def get_tiny_llama_model(
@@ -113,7 +115,7 @@ class TestCommonDistributed(DistributedTest):
     def parallel_sizes(self, request):
         return request.param
 
-    @pytest.fixture(scope="class", params=[False, True], ids=["no_lazy_load", "lazy_load"])
+    @pytest.fixture(scope="class", params=[False, True], ids=["regular_load", "lazy_load"])
     def lazy_load(self, request):
         return request.param
 
@@ -121,7 +123,7 @@ class TestCommonDistributed(DistributedTest):
     def from_config(self, request):
         return request.param
 
-    @pytest.fixture(scope="class", params=[False, True], ids=["no_lazy_optimizer", "lazy_optimizer"])
+    @pytest.fixture(scope="class", params=[False, True], ids=["regular_optimizer", "lazy_optimizer"])
     def lazy_optimizer(self, request):
         return request.param
 
@@ -129,15 +131,15 @@ class TestCommonDistributed(DistributedTest):
     def with_groups(self, request):
         return request.param
 
-    @pytest.fixture(scope="class", params=[False, True], ids=["no_zero_1", "zero_1"])
+    @pytest.fixture(scope="class", params=[False, True], ids=["without_zero_1", "with_zero_1"])
     def zero_1(self, request):
         return request.param
 
-    @pytest.fixture(scope="class", params=[1, 12], ids=["no_grad_acc", "grad_acc=12"])
+    @pytest.fixture(scope="class", params=[1, 12], ids=["without_grad_acc", "with_grad_acc=12"])
     def gradient_accumulation_steps(self, request):
         return request.param
 
-    @pytest.fixture(scope="class", params=[None, 0.01], ids=["no_clip_grad_norm", "clip_grad_norm"])
+    @pytest.fixture(scope="class", params=[None, 0.01], ids=["without_clip_grad_norm", "with_clip_grad_norm"])
     def max_grad_norm(self, request):
         return request.param
 
@@ -413,3 +415,56 @@ class TestCommonDistributed(DistributedTest):
 
         if dp_rank == 0:
             assert all(torch.all(p1 == p2) for p1, p2 in zip(model_parameters, new_model_parameters))
+
+    @pytest.mark.parametrize(
+        "world_size,tp_size,pp_size,kv_size_multiplier,model_name",
+        [
+            [8, 2, 1, None, MODEL_NAME_WITH_4_KV_HEADS],
+            [8, 1, 2, None, MODEL_NAME_WITH_4_KV_HEADS],
+            [16, 2, 2, None, MODEL_NAME_WITH_4_KV_HEADS],
+            [16, 8, 2, None, MODEL_NAME_WITH_4_KV_HEADS],
+            [16, 8, 2, 4, MODEL_NAME_WITH_4_KV_HEADS],
+        ],
+        ids=[
+            "tp=2",
+            "pp=2",
+            "dp=4,tp=pp=2",
+            "dp=1,tp=8,pp=2,kv_size_multiplier=None,GQAQKVColumnParallelLinear",
+            "dp=1,tp=8,pp=2,kv_size_multiplier=4,GQAQKVColumnParallelLinear",
+        ],
+    )
+    def test_consolidate_model_parallel_checkpoints(
+        self, tmpdir, world_size, tp_size, pp_size, kv_size_multiplier, model_name
+    ):
+        orig_model = get_model(
+            LlamaForCausalLM,
+            model_name,
+            use_static_seed_patcher=True,
+        )
+        orig_model_path = Path(tmpdir) / "orig_model"
+        if xm.get_ordinal() == 0:
+            # Saving to pytorch instead of safetensors because it fails otherwise for pickling issues with distributed tests.
+            orig_model.save_pretrained(orig_model_path, safe_serialization=False)
+
+        accelerator = create_accelerator_for_mp(tp_size, pp_size, kv_size_multiplier=kv_size_multiplier)
+        _ = accelerator.prepare(orig_model)
+
+        output_dir = Path(tmpdir) / "parallel_model"
+        accelerator.save_state(output_dir.as_posix())
+
+        xm.rendezvous("Saving done.")
+
+        consolidation_dir = Path(tmpdir) / "consolidated"
+        if xm.get_ordinal() == 0:
+            consolidate_model_parallel_checkpoints_to_unified_checkpoint(
+                output_dir, consolidation_dir, save_format="pytorch"
+            )
+            consolidated_state_dict = torch.load(consolidation_dir / "pytorch_model.bin")
+            orig_state_dict = torch.load(orig_model_path / "pytorch_model.bin")
+
+            assert orig_state_dict.keys() == consolidated_state_dict.keys()
+            for key in orig_state_dict:
+                orig_tensor = orig_state_dict[key]
+                consolidated_tensor = consolidated_state_dict[key]
+                print(f"Testing that {key} match")
+                torch.testing.assert_close(orig_tensor, consolidated_tensor)
