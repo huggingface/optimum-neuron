@@ -334,6 +334,7 @@ class NeuronGenerator(Generator):
                 f"Inconsistent server configuration: please make sure max-prefill-tokens does not exceed {batch_size} x max-input-length."
             )
         self.prefill(batch)
+        self.clear()
         return self.model.batch_size * self.model.max_length
 
     def prefill(self, batch: Batch) -> Tuple[List[Generation], CachedBatch]:
