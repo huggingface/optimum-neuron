@@ -24,7 +24,7 @@ from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Set, Tuple, Type, Union
 
 import torch
-from transformers import PreTrainedModel, PretrainedConfig
+from transformers import PreTrainedModel
 from transformers.utils import WEIGHTS_NAME
 
 from ...utils import logging

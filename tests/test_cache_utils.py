@@ -17,7 +17,6 @@
 import json
 import logging
 import os
-import pytest
 import random
 from dataclasses import FrozenInstanceError
 from pathlib import Path
@@ -26,6 +25,7 @@ from typing import List
 from unittest import TestCase
 
 import huggingface_hub
+import pytest
 import torch
 from huggingface_hub import HfApi, create_repo, delete_repo, get_token, hf_hub_download, login
 from transformers import BertConfig, BertModel, set_seed

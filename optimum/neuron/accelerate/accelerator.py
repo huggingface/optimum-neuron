@@ -493,7 +493,8 @@ class NeuronAccelerator(Accelerator):
 
         model = self.patch_model_for_neuron(model)
 
-        # We do not want to use the cache here as it would imply more communication that we do not need.
+        # We do not want to use the cache, or output unused tensors as it would imply more communication that we do not
+        # need.
         model.config.use_cache = False
         model.config.output_attentions = False
         model.config.output_hidden_states = False
