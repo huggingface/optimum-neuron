@@ -484,7 +484,7 @@ class NeuronHashTestCase(TestCase):
 
 @is_trainium_test
 @is_staging_test
-@pytest.skip("This is not needed anymore and will be removed.")
+@pytest.mark.skip("This is not needed anymore and will be removed.")
 class CachedModelOnTheHubTestCase(StagingTestMixin, TestCase):
     def test_push_to_hub_fails_with_private_model_and_public_repo(self):
         with TemporaryDirectory() as tmpdirname:
