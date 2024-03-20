@@ -495,6 +495,8 @@ class NeuronAccelerator(Accelerator):
 
         # We do not want to use the cache here as it would imply more communication that we do not need.
         model.config.use_cache = False
+        model.config.output_attentions = False
+        model.config.output_hidden_states = False
 
         if self.distributed_type is NeuronDistributedType.XLA_FSDP:
             return self.prepare_model_for_xla_fsdp(

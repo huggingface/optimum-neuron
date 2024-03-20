@@ -299,6 +299,9 @@ class TestModelParallelization(DistributedTest):
         )
         orig_model = NeuronAccelerator.patch_model_for_neuron(orig_model)
 
+        # TODO: enable that again once it's working, seems to be an AWS issue.
+        orig_model.config.use_cache = False
+
         set_neuron_cc_optlevel_for_model(orig_model)
 
         move_model_to_device(orig_model, xm.xla_device())

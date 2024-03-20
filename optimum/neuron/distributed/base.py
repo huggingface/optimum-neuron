@@ -24,7 +24,7 @@ from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Set, Tuple, Type, Union
 
 import torch
-from transformers import PreTrainedModel
+from transformers import PreTrainedModel, PretrainedConfig
 from transformers.utils import WEIGHTS_NAME
 
 from ...utils import logging
@@ -588,11 +588,6 @@ class Parallelizer(ABC):
             names = {parameter_to_name[p] for p in layer.parameters()}
             return names < names_of_the_parameters_to_consider
 
-        # It solves some compilation issues.
-        # Investigate if using the cache becomes needed.
-        # Note: it is mandatory to set it to False when using pipeline parallelism.
-        model.config.use_cache = False
-
         if tp_size > 1:
             # TODO: remove that once it is solved on the `neuronx_distributed` side.
             try:
@@ -688,6 +683,7 @@ class Parallelizer(ABC):
             if not cls.supports_pipeline_parallelism():
                 raise NotImplementedError("{cls} does not support pipeline parallelism.")
 
+            model.config.use_cache = False
             model.config.return_dict = False
             model.config.output_attentions = False
             model.config.output_hidden_states = False
