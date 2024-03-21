@@ -472,6 +472,7 @@ class NeuronAccelerator(Accelerator):
                 cpu_ids[name]: xla_params[name] for name, _ in model.named_parameters()
             }
 
+        xm.mark_step()
         device_placement = False
 
         return super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
