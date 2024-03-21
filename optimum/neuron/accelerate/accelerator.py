@@ -420,10 +420,16 @@ class NeuronAccelerator(Accelerator):
             return model
 
         cpu_ids = {name: id(param) for name, param in model.named_parameters()}
+
+        if os.environ.get("XLA_USE_BF16", "0") == "1" or os.environ.get("XLA_DOWNCAST_BF16", "0") == "1":
+            model.to(torch.bfloat16)
+        else:
+            model.to(torch.float32)
+
         tied_parameters_dict = get_tied_parameters_dict(model)
         model_main_input_name = getattr(model, "main_input_name", None)
         # TODO: use self.device.
-        model = self.state.mp_plugin.parallelize_model(model, device=None)
+        model = self.state.mp_plugin.parallelize_model(model, device=self.device)
 
         if model_main_input_name is not None:
             setattr(model, "main_input_name", model_main_input_name)
@@ -432,20 +438,11 @@ class NeuronAccelerator(Accelerator):
             model.local_module = self.patch_model_for_neuron(
                 model.local_module, patching_specs=NxDPPMODEL_PATCHING_SPECS
             )
-            model_to_cast = model.local_module
-        else:
-            model_to_cast = model
 
         # Update CPU ids
         original_parameter_names_to_gqa_qkv_names = model._gqa_qkv_metadata["original_names_to_gqa_qkv_names"]
         for key in list(cpu_ids.keys()):
             cpu_ids[original_parameter_names_to_gqa_qkv_names.get(key, key)] = cpu_ids.pop(key)
-
-        model_to_cast = model.local_module if isinstance(model, NxDPPModel) else model
-        if os.environ.get("XLA_USE_BF16", "0") == "1" or os.environ.get("XLA_DOWNCAST_BF16", "0") == "1":
-            model_to_cast.to(torch.bfloat16)
-        else:
-            model_to_cast.to(torch.float32)
 
         def _tie_or_clone_weights_for_mp(self, output_embeddings, input_embeddings):
             """Tie or clone module weights depending of whether we are using TorchScript or not"""
@@ -454,17 +451,15 @@ class NeuronAccelerator(Accelerator):
                 output_embeddings.out_features = input_embeddings.num_embeddings
 
         if isinstance(model, NxDPPModel):
-            with ModelPatcher(patching_specs=[(model, "_tie_or_clone_weights", _tie_or_clone_weights_for_mp)]):
-                model.move_model_to_device()
-                tie_parameters(model, tied_parameters_dict)
+            model.move_model_to_device()
+            tie_parameters(model, tied_parameters_dict)
             xla_params = dict(model.local_named_parameters())
             self._model_cpu_parameters_to_xla[id(model)] = {
                 cpu_ids[name]: xla_params[name] for name, _ in model.local_named_parameters()
             }
         else:
-            with ModelPatcher(patching_specs=[(model, "_tie_or_clone_weights", _tie_or_clone_weights_for_mp)]):
-                move_model_to_device(model, self.device)
-                tie_parameters(model, tied_parameters_dict)
+            move_model_to_device(model, self.device)
+            tie_parameters(model, tied_parameters_dict)
             xla_params = dict(model.named_parameters())
 
             symmetric_diff = set(cpu_ids.keys()).symmetric_difference((xla_params.keys()))
@@ -477,7 +472,6 @@ class NeuronAccelerator(Accelerator):
                 cpu_ids[name]: xla_params[name] for name, _ in model.named_parameters()
             }
 
-        xm.mark_step()
         device_placement = False
 
         return super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
@@ -507,7 +501,6 @@ class NeuronAccelerator(Accelerator):
             return self._prepare_model_for_mp(
                 model, device_placement=device_placement, evaluation_mode=evaluation_mode
             )
-        move_model_to_device(model, xm.xla_device())
         device_placement = False
         return super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
 
