@@ -4,6 +4,7 @@ source "amazon-ebs" "ubuntu" {
   region        = var.region
   source_ami    = var.source_ami
   ssh_username  = var.ssh_username
+  ssh_clear_authorized_keys = true
   launch_block_device_mappings {
     device_name           = "/dev/sda1"
     volume_size           = 512

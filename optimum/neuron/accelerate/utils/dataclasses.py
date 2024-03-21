@@ -144,6 +144,7 @@ class ModelParallelismPlugin:
     tensor_parallel_size: int = 1
     parallelize_embeddings: bool = True
     sequence_parallel_enabled: bool = False
+    kv_size_multiplier: Optional[int] = None
     pipeline_parallel_size: int = 1
     pipeline_parallel_num_microbatches: int = 1
     pipeline_parallel_use_zero1_optimizer: bool = False
@@ -175,6 +176,7 @@ class ModelParallelismPlugin:
             device=device,
             parallelize_embeddings=self.parallelize_embeddings,
             sequence_parallel_enabled=self.sequence_parallel_enabled,
+            kv_size_multiplier=self.kv_size_multiplier,
             pipeline_parallel_num_microbatches=self.pipeline_parallel_num_microbatches,
             pipeline_parallel_use_zero1_optimizer=self.pipeline_parallel_use_zero1_optimizer,
             pipeline_parallel_gradient_checkpointing_enabled=self.gradient_checkpointing,

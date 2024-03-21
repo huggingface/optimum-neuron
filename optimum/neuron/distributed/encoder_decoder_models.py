@@ -29,7 +29,7 @@ from .parallel_layers import (
     ParallelSelfAttention,
     SequenceCollectiveOpInfo,
 )
-from .utils import linear_to_parallel_linear
+from .utils import get_linear_weight_info, linear_to_parallel_linear
 
 
 if TYPE_CHECKING:
@@ -139,7 +139,7 @@ class T5ParallelMLP(ParallelMLP):
             module, attribute_name = cls._get_module_and_attribute_name(layer, cls.FIRST_LINEAR_NAME)
             if weight_map is not None:
                 layer_qualified_name = layer_to_fully_qualified_name[id(module)]
-                linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
+                linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
                     weight_map,
                     f"{layer_qualified_name}.{attribute_name}",
                     device=device,

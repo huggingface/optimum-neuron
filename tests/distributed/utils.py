@@ -246,6 +246,11 @@ def create_static_seed_patcher(model_class: Type["PreTrainedModel"], seed: int):
             ("torch.Tensor.normal_", dynamic_patch),
             ("neuronx_distributed.parallel_layers.layers.ColumnParallelLinear.init_weight_cpu", dynamic_patch),
             ("neuronx_distributed.parallel_layers.layers.RowParallelLinear.init_weight_cpu", dynamic_patch),
+            (
+                "neuronx_distributed.modules.qkv_linear.GQAQKVColumnParallelLinear._init_per_layer_weight",
+                dynamic_patch,
+            ),
+            ("neuronx_distributed.modules.qkv_linear.GQAQKVColumnParallelLinear._init_per_layer_bias", dynamic_patch),
         ]
     )
     with patcher:
@@ -354,10 +359,12 @@ def create_accelerator_for_mp(
     gradient_accumulation_steps: int = 1,
     parallelize_embeddings: bool = True,
     sequence_parallel_enabled: bool = True,
+    kv_size_multiplier: Optional[int] = None,
     checkpoint_dir: Optional[Union[Path, str]] = None,
 ) -> NeuronAccelerator:
     mp_plugin = ModelParallelismPlugin(
         tensor_parallel_size=tp_size,
+        kv_size_multiplier=kv_size_multiplier,
         parallelize_embeddings=parallelize_embeddings,
         sequence_parallel_enabled=sequence_parallel_enabled,
         pipeline_parallel_size=pp_size,

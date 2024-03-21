@@ -20,6 +20,7 @@ import os
 import warnings
 from dataclasses import dataclass, field
 from datetime import timedelta
+from typing import Optional
 
 import torch
 from accelerate.utils import DistributedType
@@ -89,6 +90,16 @@ class NeuronTrainingArgumentsMixin:
         default=-1,
         metadata={"help": "The number of microbatches used for pipeline execution."},
     )
+    kv_size_multiplier: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": (
+                "The number of times to replicate the KV heads when the TP size is bigger than the number of KV heads."
+                "If left unspecified, the smallest multiplier that makes the number of KV heads divisible by the TP size"
+                "will be used."
+            )
+        },
+    )
 
     def __post_init__(self):
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
@@ -147,6 +158,7 @@ class NeuronTrainingArgumentsMixin:
             self.tensor_parallel_size,
             parallelize_embeddings=not self.disable_embedding_parallelization,
             sequence_parallel_enabled=not self.disable_sequence_parallel,
+            kv_size_multiplier=self.kv_size_multiplier,
             pipeline_parallel_size=self.pipeline_parallel_size,
             pipeline_parallel_num_microbatches=self.pipeline_parallel_num_microbatches,
             pipeline_parallel_use_zero1_optimizer=self.zero_1,
