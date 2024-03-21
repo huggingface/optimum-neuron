@@ -668,25 +668,25 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             "auto_cast_type": auto_cast_type,
         }
 
-        if not inline_weights_to_neff:
-            # Check if the cache exists
+        pipe = TasksManager.get_model_from_task(
+            task=task,
+            model_name_or_path=model_id,
+            subfolder=subfolder,
+            revision=revision,
+            framework="pt",
+            library_name=cls.library_name,
+            cache_dir=cache_dir,
+            use_auth_token=use_auth_token,
+            local_files_only=local_files_only,
+            force_download=force_download,
+            trust_remote_code=trust_remote_code,
+        )
+        submodels = {"unet": unet_id}
+        pipe = replace_stable_diffusion_submodels(pipe, submodels)
 
+        # Check if the cache exists
+        if not inline_weights_to_neff:
             # 1. Fetch all model configs
-            pipe = TasksManager.get_model_from_task(
-                task=task,
-                model_name_or_path=model_id,
-                subfolder=subfolder,
-                revision=revision,
-                framework="pt",
-                library_name=cls.library_name,
-                cache_dir=cache_dir,
-                use_auth_token=use_auth_token,
-                local_files_only=local_files_only,
-                force_download=force_download,
-                trust_remote_code=trust_remote_code,
-            )
-            submodels = {"unet": unet_id}
-            pipe = replace_stable_diffusion_submodels(pipe, submodels)
             models_for_export = get_submodels_for_export_stable_diffusion(
                 pipeline=pipe,
                 task=task,
