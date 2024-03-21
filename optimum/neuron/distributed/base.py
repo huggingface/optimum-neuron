@@ -32,6 +32,7 @@ from ..utils import is_neuronx_distributed_available, is_torch_xla_available
 from ..utils.misc import is_main_worker
 from ..utils.patching import Patcher
 from ..utils.require_utils import requires_neuronx_distributed, requires_torch_xla
+from ..utils.training_utils import is_precompilation
 from .parallel_layers import (
     IOSequenceParallelizer,
     LayerNormSequenceParallelizer,
@@ -499,6 +500,34 @@ class Parallelizer(ABC):
 
     @classmethod
     @requires_neuronx_distributed
+    def _initialize_for_precompilation(
+        cls,
+        model: "PreTrainedModel",
+        names_of_the_parameters_to_consider: Set[str],
+        device: Optional[torch.device] = None,
+    ):
+        with torch.no_grad():
+            for name, parameter in named_parameters(model, remove_duplicate=False):
+                split = name.rsplit(".", maxsplit=1)
+                module = model.get_submodule(split[0])
+                attribute_name = split[1]
+
+                # Skipping the parameters that will not end-up in this pipeline rank.
+                if name not in names_of_the_parameters_to_consider:
+                    continue
+
+                if parameter.device == torch.device("meta"):
+                    device = torch.device("cpu") if device is None else device
+                    new_parameter = torch.nn.Parameter(torch.empty_like(parameter, device=device))
+
+                    setattr(
+                        module,
+                        attribute_name,
+                        new_parameter,
+                    )
+
+    @classmethod
+    @requires_neuronx_distributed
     def parallelize(
         cls,
         model: "PreTrainedModel",
@@ -666,13 +695,16 @@ class Parallelizer(ABC):
         if is_main_worker():
             logger.info("Loading and initializing the weights, this might take a while on large models.")
 
-        if skip_linear_weight_load:
-            # Load the weights to the parallel linears if the loading was skipped during parallelization.
-            cls._maybe_load_weights_to_parallel_linears(model)
+        if is_precompilation():
+            cls._initialize_for_precompilation(model, names_of_the_parameters_to_consider)
+        else:
+            if skip_linear_weight_load:
+                # Load the weights to the parallel linears if the loading was skipped during parallelization.
+                cls._maybe_load_weights_to_parallel_linears(model)
 
-        if skip_linear_weight_load or any(p.device == torch.device("meta") for p in model.parameters()):
-            # Initialize or load the weights for the parallelized model if it was lazily loaded.
-            cls._initialize_or_load_weights(model, names_of_the_parameters_to_consider, device=device)
+            if skip_linear_weight_load or any(p.device == torch.device("meta") for p in model.parameters()):
+                # Initialize or load the weights for the parallelized model if it was lazily loaded.
+                cls._initialize_or_load_weights(model, names_of_the_parameters_to_consider, device=device)
 
         xm.rendezvous("End of initalization")
 
@@ -710,7 +742,7 @@ class Parallelizer(ABC):
                 logger.info("Pipeline parallelism done.")
 
         # TODO: can we optimize by skipping initialization and weight loading when `checkpoint_dir` is not None.
-        if checkpoint_dir is not None:
+        if not is_precompilation() and checkpoint_dir is not None:
             cls.load_model_checkpoint(model, checkpoint_dir)
 
         model._gqa_qkv_metadata = gqa_qkv_metadata
