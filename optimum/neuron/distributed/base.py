@@ -696,7 +696,7 @@ class Parallelizer(ABC):
             logger.info("Loading and initializing the weights, this might take a while on large models.")
 
         if is_precompilation():
-            cls._initialize_for_parallel_compilation(model)
+            cls._initialize_for_parallel_compilation(model, names_of_the_parameters_to_consider)
         else:
             if skip_linear_weight_load:
                 # Load the weights to the parallel linears if the loading was skipped during parallelization.
