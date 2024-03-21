@@ -240,7 +240,7 @@ class NeuronBaseModel(OptimizedModel):
         force_download: bool = False,
         cache_dir: Optional[str] = None,
         compiler_workdir: Optional[Union[str, Path]] = None,
-        inline_weights_to_neff: bool = True,
+        inline_weights_to_neff: bool = False,
         optlevel: str = "2",
         subfolder: str = "",
         local_files_only: bool = False,
