@@ -644,7 +644,7 @@ def get_stable_diffusion_configs(
     # submodels: Optional[Dict[str, Union[Path, str]]] = None,
 ):
     subfolders = ["text_encoder", "text_encoder_2", "unet", "vae"]
-    configs = dict()
+    configs = {}
     for name in subfolders:
         if name in models_for_export:
             configs[name] = models_for_export[name].config

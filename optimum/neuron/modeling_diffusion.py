@@ -699,7 +699,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             model_configs = get_stable_diffusion_configs(models_for_export)
 
             # 2. Build compilation config
-            compilation_configs = dict()
+            compilation_configs = {}
             for name, model_config in model_configs.items():
                 if "vae" in name:  # vae configs are not cached.
                     continue

@@ -493,7 +493,7 @@ def get_multimodels_configs(api, model_id):
     repo_files = api.list_repo_files(model_id)
     config_pattern = "/config.json"
     config_files = [path for path in repo_files if config_pattern in path]
-    lookup_configs = dict()
+    lookup_configs = {}
     with TemporaryDirectory() as tmpdir:
         for model_path in config_files:
             local_path = api.hf_hub_download(model_id, model_path, local_dir=tmpdir)
@@ -533,7 +533,7 @@ def build_cache_config(
     white_list: Optional[List] = None,
     neuron_white_list: Optional[List] = None,
 ):
-    clean_configs = dict()
+    clean_configs = {}
     no_check_components = [
         "vae",
         "vae_encoder",
