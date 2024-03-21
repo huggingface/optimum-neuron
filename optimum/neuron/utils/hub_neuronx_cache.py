@@ -12,26 +12,27 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import copy
 import hashlib
 import json
 import logging
 import os
-import copy
 import shutil
 from contextlib import contextmanager
 from enum import Enum
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Literal, Optional, Union, Dict, List
+from typing import Dict, List, Literal, Optional, Union
 
 from huggingface_hub import HfApi, get_token
 from transformers import AutoConfig, PretrainedConfig
 
 from ..version import __version__
+from .cache_utils import load_custom_cache_repo_name_from_hf_home
 from .import_utils import is_neuronx_available
 from .patching import patch_everywhere
 from .require_utils import requires_torch_neuronx, requires_torch_xla
-from .cache_utils import load_custom_cache_repo_name_from_hf_home
+
 
 if is_neuronx_available():
     from libneuronxla.neuron_cc_cache import (
@@ -61,7 +62,21 @@ else:
 
 logger = logging.getLogger(__name__)
 
-CACHE_WHITE_LIST = ["_name_or_path", "transformers_version", "_diffusers_version", "eos_token_id", "bos_token_id", "pad_token_id", "torchscript", "torch_dtype", "_commit_hash", "sample_size", "projection_dim", "task", "_use_default_values"]
+CACHE_WHITE_LIST = [
+    "_name_or_path",
+    "transformers_version",
+    "_diffusers_version",
+    "eos_token_id",
+    "bos_token_id",
+    "pad_token_id",
+    "torchscript",
+    "torch_dtype",
+    "_commit_hash",
+    "sample_size",
+    "projection_dim",
+    "task",
+    "_use_default_values",
+]
 NEURON_CONFIG_WHITE_LIST = ["input_names", "output_names", "model_type"]
 
 
@@ -157,9 +172,9 @@ class CompileCacheHfProxy(CompileCache):
             local_path = self.api.hf_hub_download(self.repo_id, rel_filename)
             os.symlink(local_path, dst_path)
             logger.info(f"Fetched cached {rel_filename} from {self.repo_id}")
-    
+
     def download_folder(self, folder_path: str, dst_path: str):
-        # Always prioritize the default cache for faster retrieval        
+        # Always prioritize the default cache for faster retrieval
         if self.default_cache.exists(folder_path):
             # cached locally
             return True
@@ -169,11 +184,9 @@ class CompileCacheHfProxy(CompileCache):
                 folder_info = list(self.api.list_repo_tree(self.repo_id, rel_folder_path))
                 folder_exists = len(folder_info) > 1
             except Exception as e:
-                logger.warning(
-                    f"{rel_folder_path} not found in {self.repo_id}: {e} \nThe model will be recompiled."
-                )
+                logger.warning(f"{rel_folder_path} not found in {self.repo_id}: {e} \nThe model will be recompiled.")
                 folder_exists = False
-                
+
             if folder_exists:
                 # cached remotely
                 for repo_content in folder_info:
@@ -184,7 +197,7 @@ class CompileCacheHfProxy(CompileCache):
                     dst_path.mkdir(parents=True, exist_ok=True)
                     os.symlink(local_path, dst_path / filename)
                 logger.info(f"Fetched cached {rel_folder_path} from {self.repo_id}")
-                
+
             return folder_exists
 
     def synchronize(self):
@@ -202,10 +215,10 @@ class CompileCacheHfProxy(CompileCache):
     def upload_file(self, cache_path: str, src_path: str):
         # Only upload to the default cache: use synchronize to populate the Hub cache
         self.default_cache.upload_file(cache_path, src_path)
-    
+
     def upload_folder(self, cache_dir: str, src_dir: str):
         # Upload folder the default cache: use synchronize to populate the Hub cache
-        shutil.copytree(src_dir, cache_dir, dirs_exist_ok = True)
+        shutil.copytree(src_dir, cache_dir, dirs_exist_ok=True)
 
     def upload_string_to_file(self, cache_path: str, data: str):
         # Only upload to the default cache: use synchronize to populate the Hub cache
@@ -267,7 +280,7 @@ class ModelCacheEntry:
             self.config.pop(key, None)
 
     def to_json(self) -> str:
-        return json.dumps(self.config)
+        return json.dumps(self.config, sort_keys=True)
 
     @property
     def hash(self):
@@ -418,7 +431,7 @@ def get_hub_cached_entries(
     registry_folder = get_registry_folder_for_mode(mode)
     registry_pattern = registry_folder + "/" + model_type
     model_files = [path for path in repo_files if registry_pattern in path]
-    white_list =  CACHE_WHITE_LIST  # All parameters except those in the whitelist must match
+    white_list = CACHE_WHITE_LIST  # All parameters except those in the whitelist must match
     model_entries = []
     with TemporaryDirectory() as tmpdir:
         for model_path in model_files:
@@ -426,14 +439,18 @@ def get_hub_cached_entries(
             with open(local_path) as f:
                 entry_config = json.load(f)
                 # Remove neuron config for comparison as the target does not have it
-                model_entries = lookup_matched_entries(entry_config, target_entry, white_list, model_entries, model_type)
-                
+                model_entries = lookup_matched_entries(
+                    entry_config, target_entry, white_list, model_entries, model_type
+                )
+
     return model_entries
 
 
 def lookup_matched_entries(entry_config, target_entry, white_list, model_entries, model_type):
     is_matched = True
-    entry_config, target_entry_config, neuron_config = _prepare_config_for_matching(entry_config, target_entry, model_type)
+    entry_config, target_entry_config, neuron_config = _prepare_config_for_matching(
+        entry_config, target_entry, model_type
+    )
     for name, value in entry_config.items():
         if isinstance(value, Dict):
             for param in white_list:
@@ -448,14 +465,18 @@ def lookup_matched_entries(entry_config, target_entry, white_list, model_entries
     if is_matched:
         neuron_config.pop("model_type", None)
         model_entries.append(neuron_config)
-    
+
     return model_entries
 
 
 def _prepare_config_for_matching(entry_config, target_entry, model_type):
-    if model_type=="stable-diffusion":
+    if model_type == "stable-diffusion":
         neuron_config = entry_config["unet"].pop("neuron")
-        non_checked_components = ["vae", "vae_encoder", "vae_decoder"]  # Exclude vae configs from the check for now since it's complex and not mandatory
+        non_checked_components = [
+            "vae",
+            "vae_encoder",
+            "vae_decoder",
+        ]  # Exclude vae configs from the check for now since it's complex and not mandatory
         for param in non_checked_components:
             entry_config.pop(param, None)
             target_entry.config.pop(param, None)
@@ -464,9 +485,9 @@ def _prepare_config_for_matching(entry_config, target_entry, model_type):
         neuron_config = entry_config.pop("neuron")
         entry_config = {"model": entry_config}
         target_entry_config = {"model": target_entry.config}
-        
+
     return entry_config, target_entry_config, neuron_config
-   
+
 
 def get_multimodels_configs(api, model_id):
     repo_files = api.list_repo_files(model_id)
@@ -478,41 +499,46 @@ def get_multimodels_configs(api, model_id):
             local_path = api.hf_hub_download(model_id, model_path, local_dir=tmpdir)
             with open(local_path) as f:
                 entry_config = json.load(f)
-                white_list =  CACHE_WHITE_LIST
+                white_list = CACHE_WHITE_LIST
                 for param in white_list:
                     entry_config.pop(param, None)
                 lookup_configs[model_path.split("/")[-2]] = entry_config
-                
+
     if "unet" in lookup_configs:
         lookup_configs["model_type"] = "stable-diffusion"
     return lookup_configs
 
 
-def exclude_white_list_from_config(config: Dict, white_list: Optional[List] = None, neuron_white_list: Optional[List] = None):
+def exclude_white_list_from_config(
+    config: Dict, white_list: Optional[List] = None, neuron_white_list: Optional[List] = None
+):
     if white_list is None:
         white_list = CACHE_WHITE_LIST
-    
+
     if neuron_white_list is None:
         neuron_white_list = NEURON_CONFIG_WHITE_LIST
-    
+
     for param in white_list:
         config.pop(param, None)
-    
+
     for param in neuron_white_list:
         config["neuron"].pop(param, None)
-    
+
     return config
 
 
 # Only applied on traced TorchScript models
 def build_cache_config(
-    configs: Union[PretrainedConfig, Dict[str, PretrainedConfig]], 
-    white_list: Optional[List] = None, 
+    configs: Union[PretrainedConfig, Dict[str, PretrainedConfig]],
+    white_list: Optional[List] = None,
     neuron_white_list: Optional[List] = None,
-    
 ):
     clean_configs = dict()
-    no_check_components = ["vae", "vae_encoder", "vae_decoder"]  # Exclude vae configs from stable diffusion pipeline since it's complex and not mandatory
+    no_check_components = [
+        "vae",
+        "vae_encoder",
+        "vae_decoder",
+    ]  # Exclude vae configs from stable diffusion pipeline since it's complex and not mandatory
     if isinstance(configs, PretrainedConfig):
         configs = {"model": configs}
     for name, config in configs.items():
@@ -521,7 +547,7 @@ def build_cache_config(
         config = copy.deepcopy(config).to_diff_dict() if isinstance(config, PretrainedConfig) else config
         config = exclude_white_list_from_config(config, white_list, neuron_white_list)
         clean_configs[name] = config
-    
+
     if "unet" in configs:
         clean_configs["model_type"] = "stable-diffusion"
     if len(clean_configs) > 1:
@@ -535,5 +561,5 @@ def cache_aot_neuron_artifacts(neuron_dir: Path, cache_config_hash: str):
     compile_cache = _create_hub_compile_cache_proxy(cache_repo_id=cache_repo_id)
     model_cache_dir = compile_cache.default_cache.get_cache_dir_with_cache_key(f"MODULE_{cache_config_hash}")
     compile_cache.upload_folder(cache_dir=model_cache_dir, src_dir=neuron_dir)
-    
+
     logger.info(f"Model cached in: {model_cache_dir}.")

@@ -39,8 +39,6 @@ from ...neuron.utils import (
 from ...neuron.utils.misc import maybe_save_preprocessors
 from ...neuron.utils.version_utils import (
     check_compiler_compatibility_for_stable_diffusion,
-    get_neuronxcc_version,
-    get_neuroncc_version,
 )
 from ...utils import is_diffusers_available, logging
 from ..error_utils import AtolError, OutputMatchError, ShapeError
@@ -50,10 +48,10 @@ from .convert import export_models, validate_models_outputs
 from .model_configs import *  # noqa: F403
 from .utils import (
     build_stable_diffusion_components_mandatory_shapes,
+    check_mandatory_input_shapes,
     get_encoder_decoder_models_for_export,
     get_stable_diffusion_models_for_export,
     replace_stable_diffusion_submodels,
-    check_mandatory_input_shapes,
 )
 
 
@@ -76,7 +74,7 @@ if TYPE_CHECKING:
     from transformers import PreTrainedModel
 
     if is_diffusers_available():
-        from diffusers import DiffusionPipeline, StableDiffusionPipeline, ModelMixin
+        from diffusers import DiffusionPipeline, ModelMixin, StableDiffusionPipeline
 
 
 logger = logging.get_logger()
@@ -227,9 +225,7 @@ def infer_stable_diffusion_shapes_from_diffusers(
             "width": scaled_width,
         }
     )
-    input_shapes["vae_encoder"].update(
-        {"num_channels": vae_encoder_num_channels, "height": height, "width": width}
-    )
+    input_shapes["vae_encoder"].update({"num_channels": vae_encoder_num_channels, "height": height, "width": width})
     input_shapes["vae_decoder"].update(
         {"num_channels": vae_decoder_num_channels, "height": scaled_height, "width": scaled_width}
     )
@@ -551,6 +547,7 @@ def decoder_export(
     **kwargs,
 ):
     from ...neuron import NeuronModelForCausalLM
+
     output = Path(output)
     if not output.parent.exists():
         output.parent.mkdir(parents=True)

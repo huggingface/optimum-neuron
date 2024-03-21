@@ -29,7 +29,7 @@ _import_structure = {
         "build_stable_diffusion_components_mandatory_shapes",
         "get_stable_diffusion_models_for_export",
         "replace_stable_diffusion_submodels",
-        "get_submodels_for_export_stable_diffusion"
+        "get_submodels_for_export_stable_diffusion",
     ],
 }
 
@@ -44,8 +44,8 @@ if TYPE_CHECKING:
     from .utils import (
         build_stable_diffusion_components_mandatory_shapes,
         get_stable_diffusion_models_for_export,
-        replace_stable_diffusion_submodels,
         get_submodels_for_export_stable_diffusion,
+        replace_stable_diffusion_submodels,
     )
 else:
     import sys

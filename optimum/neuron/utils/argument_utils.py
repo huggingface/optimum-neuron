@@ -15,7 +15,6 @@
 """Utilities related to CLI arguments."""
 
 import os
-from collections import OrderedDict
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 
 from ...utils import logging

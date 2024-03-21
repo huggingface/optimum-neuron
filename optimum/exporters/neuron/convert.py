@@ -21,7 +21,6 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
-from transformers import PretrainedConfig
 
 from ...exporters.error_utils import OutputMatchError, ShapeError
 from ...neuron.utils import (
@@ -31,9 +30,14 @@ from ...neuron.utils import (
     is_neuronx_available,
     store_compilation_config,
 )
+from ...neuron.utils.cache_utils import get_model_name_or_path
+from ...neuron.utils.hub_neuronx_cache import (
+    ModelCacheEntry,
+    build_cache_config,
+    cache_aot_neuron_artifacts,
+    hub_neuronx_cache,
+)
 from ...neuron.utils.version_utils import get_neuroncc_version, get_neuronxcc_version
-from ...neuron.utils.hub_neuronx_cache import ModelCacheEntry, hub_neuronx_cache, _create_hub_compile_cache_proxy, build_cache_config, cache_aot_neuron_artifacts
-from ...neuron.utils.cache_utils import get_model_name_or_path, load_custom_cache_repo_name_from_hf_home
 from ...utils import (
     is_diffusers_available,
     is_sentence_transformers_available,
@@ -392,17 +396,16 @@ def export_models(
                 f"An error occured when trying to trace {model_name} with the error message: {e}.\n"
                 f"The export is failed and {model_name} neuron model won't be stored."
             )
-                    
+
     logger.info(f"[Total compilation Time] {np.round(total_compilation_time, 2)} seconds.")
-    
+
     # cache neuronx model
     if not disable_neuron_cache and is_neuronx_available() and not inline_weights_to_neff:
         model_id = get_model_name_or_path(model_config) if model_name_or_path is None else model_name_or_path
         cache_config = build_cache_config(compile_configs)
-        # TODO : flatten dict before hashing otherwise not matching after json.dumps
         cache_entry = ModelCacheEntry(model_id=model_id, config=cache_config)
-        
-        # Use the context manager just for creating registry, AOT compilation won't leverage `create_compile_cache` 
+
+        # Use the context manager just for creating registry, AOT compilation won't leverage `create_compile_cache`
         # in `libneuronxla`, so we will need to cache compiled artifacts to local manually.
         with hub_neuronx_cache("inference", entry=cache_entry):
             cache_aot_neuron_artifacts(neuron_dir=output_dir, cache_config_hash=cache_entry.hash)

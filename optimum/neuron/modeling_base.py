@@ -38,11 +38,11 @@ from .utils import (
     replace_weights,
     store_compilation_config,
 )
-from .utils.import_utils import is_neuronx_available
-from .utils.misc import maybe_load_preprocessors, maybe_save_preprocessors
-from .utils.version_utils import check_compiler_compatibility, get_neuroncc_version, get_neuronxcc_version
-from .utils.hub_neuronx_cache import build_cache_config, ModelCacheEntry, _create_hub_compile_cache_proxy
 from .utils.cache_utils import load_custom_cache_repo_name_from_hf_home
+from .utils.hub_neuronx_cache import ModelCacheEntry, _create_hub_compile_cache_proxy, build_cache_config
+from .utils.import_utils import is_neuronx_available
+from .utils.misc import maybe_load_preprocessors
+from .utils.version_utils import check_compiler_compatibility, get_neuroncc_version, get_neuronxcc_version
 
 
 if TYPE_CHECKING:
@@ -51,13 +51,11 @@ if TYPE_CHECKING:
     from ..exporters.neuron import NeuronDefaultConfig
 
 if is_neuron_available():
-    import torch.neuron as neuron  # noqa: F811
 
     NEURON_COMPILER_TYPE = "neuron-cc"
     NEURON_COMPILER_VERSION = get_neuroncc_version()
 
 if is_neuronx_available():
-    import torch_neuronx as neuronx  # noqa: F811
 
     NEURON_COMPILER_TYPE = "neuronx-cc"
     NEURON_COMPILER_VERSION = get_neuronxcc_version()
@@ -242,7 +240,7 @@ class NeuronBaseModel(OptimizedModel):
         force_download: bool = False,
         cache_dir: Optional[str] = None,
         compiler_workdir: Optional[Union[str, Path]] = None,
-        inline_weights_to_neff: bool = False,
+        inline_weights_to_neff: bool = True,
         optlevel: str = "2",
         subfolder: str = "",
         local_files_only: bool = False,
@@ -266,7 +264,7 @@ class NeuronBaseModel(OptimizedModel):
             task = TasksManager.infer_task_from_model(cls.auto_model_class)
         task = TasksManager.map_from_synonym(task)
         library_name = TasksManager.infer_library_from_model(model_id, subfolder=subfolder, library_name=library_name)
-        
+
         # Get compilation arguments
         if is_neuron_available() and dynamic_batch_size is True and "batch_size" in kwargs_shapes:
             kwargs_shapes["batch_size"] = 1
@@ -279,26 +277,29 @@ class NeuronBaseModel(OptimizedModel):
             "disable_fallback": disable_fallback,
         }
 
-        # Check if the cache exists
-        compilation_config = store_compilation_config(
-            config=config,
-            input_shapes=kwargs_shapes,
-            compiler_kwargs=compiler_kwargs,
-            dynamic_batch_size=dynamic_batch_size,
-            compiler_type=NEURON_COMPILER_TYPE,
-            compiler_version=NEURON_COMPILER_VERSION,
-            inline_weights_to_neff=inline_weights_to_neff,
-            optlevel=optlevel,
-            model_type=getattr(config, "model_type", None),
-            task=task,
-        )
-        cache_config = build_cache_config(compilation_config)
-        cache_entry = ModelCacheEntry(model_id=model_id, config=cache_config)
-        cache_repo_id = load_custom_cache_repo_name_from_hf_home()
-        compile_cache = _create_hub_compile_cache_proxy(cache_repo_id=cache_repo_id)
-        model_cache_dir = compile_cache.default_cache.get_cache_dir_with_cache_key(f"MODULE_{cache_entry.hash}")
-        cache_exist = compile_cache.download_folder(model_cache_dir, model_cache_dir)
-        
+        if not inline_weights_to_neff:
+            # Check if the cache exists
+            compilation_config = store_compilation_config(
+                config=config,
+                input_shapes=kwargs_shapes,
+                compiler_kwargs=compiler_kwargs,
+                dynamic_batch_size=dynamic_batch_size,
+                compiler_type=NEURON_COMPILER_TYPE,
+                compiler_version=NEURON_COMPILER_VERSION,
+                inline_weights_to_neff=inline_weights_to_neff,
+                optlevel=optlevel,
+                model_type=getattr(config, "model_type", None),
+                task=task,
+            )
+            cache_config = build_cache_config(compilation_config)
+            cache_entry = ModelCacheEntry(model_id=model_id, config=cache_config)
+            cache_repo_id = load_custom_cache_repo_name_from_hf_home()
+            compile_cache = _create_hub_compile_cache_proxy(cache_repo_id=cache_repo_id)
+            model_cache_dir = compile_cache.default_cache.get_cache_dir_with_cache_key(f"MODULE_{cache_entry.hash}")
+            cache_exist = compile_cache.download_folder(model_cache_dir, model_cache_dir)
+        else:
+            cache_exist = False
+
         if cache_exist:
             # load cache
             neuron_model = cls.from_pretrained(model_cache_dir)

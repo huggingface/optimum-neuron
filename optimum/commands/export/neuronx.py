@@ -74,11 +74,16 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         default=None,
         help="If specified, the absolute difference tolerance when validating the model. Otherwise, the default atol for the model will be used.",
     )
-    optional_group.add_argument("--cache_dir", type=str, default=None, help="Path to a directory in which a downloaded pretrained PyTorch model weights have been cached.")
     optional_group.add_argument(
-        "--disable_neuron_cache", 
-        action="store_true", 
-        help="Whether to disable automatic caching of compiled TorchScript models (not applicable for JIT compilation)."
+        "--cache_dir",
+        type=str,
+        default=None,
+        help="Path to a directory in which a downloaded pretrained PyTorch model weights have been cached.",
+    )
+    optional_group.add_argument(
+        "--disable_neuron_cache",
+        action="store_true",
+        help="Whether to disable automatic caching of compiled TorchScript models (not applicable for JIT compilation).",
     )
     optional_group.add_argument(
         "--trust-remote-code",

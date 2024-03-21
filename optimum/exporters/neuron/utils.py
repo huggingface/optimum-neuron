@@ -20,7 +20,6 @@ from collections import OrderedDict
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 
 import torch
-from transformers import PretrainedConfig
 
 from ...neuron.utils import (
     DECODER_NAME,
