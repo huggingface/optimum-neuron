@@ -15,6 +15,7 @@
 """Utilities of various sorts."""
 
 import copy
+import functools
 import inspect
 import os
 import re
@@ -42,7 +43,7 @@ from transformers.utils.hub import get_checkpoint_shard_files
 
 from ...utils import is_diffusers_available, logging
 from .import_utils import is_torch_xla_available
-from .require_utils import requires_safetensors
+from .require_utils import requires_safetensors, requires_torch_xla
 
 
 if TYPE_CHECKING:
@@ -195,6 +196,19 @@ def convert_checkpoint_to_safetensors(
         del checkpoint
 
     return safetensors_path
+
+
+@requires_torch_xla
+@functools.wraps(cached_file)
+def distributed_friendly_cached_file(*args, **kwargs):
+    import torch_xla.core.xla_model as xm
+
+    if is_main_worker():
+        output = cached_file(*args, **kwargs)
+    xm.rendezvous("Cached file done")
+    if not is_main_worker():
+        output = cached_file(*args, **kwargs)
+    return output
 
 
 def download_checkpoints_in_cache(
@@ -380,13 +394,16 @@ def download_checkpoints_in_cache(
                     "_raise_exceptions_for_missing_entries": False,
                     "_commit_hash": commit_hash,
                 }
-                resolved_archive_file = cached_file(pretrained_model_name_or_path, filename, **cached_file_kwargs)
+
+                resolved_archive_file = distributed_friendly_cached_file(
+                    pretrained_model_name_or_path, filename, **cached_file_kwargs
+                )
 
                 # Since we set _raise_exceptions_for_missing_entries=False, we don't get an exception but a None
                 # result when internet is up, the repo and revision exist, but the file does not.
                 if resolved_archive_file is None and filename == _add_variant(SAFE_WEIGHTS_NAME, variant):
                     # Maybe the checkpoint is sharded, we try to grab the index name in this case.
-                    resolved_archive_file = cached_file(
+                    resolved_archive_file = distributed_friendly_cached_file(
                         pretrained_model_name_or_path,
                         _add_variant(SAFE_WEIGHTS_INDEX_NAME, variant),
                         **cached_file_kwargs,
@@ -403,12 +420,12 @@ def download_checkpoints_in_cache(
                     else:
                         # This repo has no safetensors file of any kind, we switch to PyTorch.
                         filename = _add_variant(WEIGHTS_NAME, variant)
-                        resolved_archive_file = cached_file(
+                        resolved_archive_file = distributed_friendly_cached_file(
                             pretrained_model_name_or_path, filename, **cached_file_kwargs
                         )
                 if resolved_archive_file is None and filename == _add_variant(WEIGHTS_NAME, variant):
                     # Maybe the checkpoint is sharded, we try to grab the index name in this case.
-                    resolved_archive_file = cached_file(
+                    resolved_archive_file = distributed_friendly_cached_file(
                         pretrained_model_name_or_path,
                         _add_variant(WEIGHTS_INDEX_NAME, variant),
                         **cached_file_kwargs,

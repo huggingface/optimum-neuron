@@ -47,11 +47,11 @@ def training_function(script_args, training_args):
     # if (int(os.environ.get("RANK", -1)) == 0) and int(training_args.tensor_parallel_size) > 1:
     #     print("Converting sharded checkpoint to consolidated format")
     #     from optimum.neuron.distributed.checkpointing import (
-    #         consolidate_tensor_parallel_checkpoints_to_unified_checkpoint,
+    #         consolidate_model_parallel_checkpoints_to_unified_checkpoint,
     #     )
     #     from shutil import rmtree
 
-    #     consolidate_tensor_parallel_checkpoints_to_unified_checkpoint(
+    #     consolidate_model_parallel_checkpoints_to_unified_checkpoint(
     #         training_args.output_dir, training_args.output_dir, "pytorch"
     #     )
     #     rmtree(os.path.join(training_args.output_dir, "tensor_parallel_shards"))  # remove sharded checkpoint files
