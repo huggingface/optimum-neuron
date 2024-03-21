@@ -20,6 +20,7 @@ import os
 import shutil
 from abc import abstractmethod
 from pathlib import Path
+from collections import OrderedDict
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
@@ -27,7 +28,7 @@ import torch
 from huggingface_hub import snapshot_download
 from transformers import CLIPFeatureExtractor, CLIPTokenizer, PretrainedConfig
 
-from ..exporters.neuron import main_export, normalize_stable_diffusion_input_shapes
+from ..exporters.neuron import main_export, normalize_stable_diffusion_input_shapes, infer_stable_diffusion_shapes_from_diffusers, replace_stable_diffusion_submodels, get_submodels_for_export_stable_diffusion
 from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..exporters.tasks import TasksManager
 from ..utils import is_diffusers_available
@@ -40,12 +41,22 @@ from .utils import (
     DIFFUSION_MODEL_VAE_ENCODER_NAME,
     NEURON_FILE_NAME,
     is_neuronx_available,
+    check_if_weights_replacable,
+    replace_weights,
+    store_compilation_config,
+    get_stable_diffusion_configs,
     DiffusersPretrainedConfig,
 )
+from .utils.version_utils import get_neuronxcc_version
+from .utils.cache_utils import load_custom_cache_repo_name_from_hf_home
+from .utils.hub_neuronx_cache import build_cache_config, ModelCacheEntry, _create_hub_compile_cache_proxy, get_multimodels_configs
 
 
 if is_neuronx_available():
     import torch_neuronx
+    
+    NEURON_COMPILER_TYPE = "neuronx-cc"
+    NEURON_COMPILER_VERSION = get_neuronxcc_version()
 
 
 if is_diffusers_available():
@@ -60,6 +71,7 @@ if is_diffusers_available():
     from diffusers.image_processor import VaeImageProcessor
     from diffusers.schedulers.scheduling_utils import SCHEDULER_CONFIG_NAME
     from diffusers.utils import CONFIG_NAME, is_invisible_watermark_available
+    from diffusers.configuration_utils import FrozenDict
 
     from .pipelines import (
         NeuronLatentConsistencyPipelineMixin,
@@ -315,11 +327,13 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         return submodels
     
     def replace_weights(self, weights: Optional[Union[Dict[str, torch.Tensor], torch.nn.Module]] = None):
-        # TODO: adapt for sd
-        pass
-        # check_if_weights_replacable(self.config, weights)
-        # if weights is not None:
-        #     replace_weights(self.model, weights)
+        check_if_weights_replacable(self.configs, weights)
+        model_names = ["text_encoder", "text_encoder_2", "unet", "vae_decoder", "vae_encoder"]
+        for name in model_names:
+            model = getattr(self, name, None)
+            weight = getattr(weights, name, None)
+            if model is not None and weight is not None:  
+                model = replace_weights(model.model, weight)    
 
     @staticmethod
     def set_default_dp_mode(unet_config):
@@ -616,11 +630,6 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `"none"`, `"matmul"` or `"all"`.
             auto_cast_type (`Optional[str]`, defaults to `"bf16"`):
                 The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"` or `"tf32"`.
-            disable_fast_relayout (`Optional[str]`, defaults to `None`):
-                (INF1 ONLY) Whether to disable fast relayout optimization which improves performance by using the matrix multiplier for tensor transpose.
-            disable_fallback (`bool`, defaults to `False`):
-                (INF1 ONLY) Whether to disable CPU partitioning to force operations to Neuron. Defaults to `False`, as without fallback, there could be
-                some compilation failures or performance problems.
             dynamic_batch_size (`bool`, defaults to `False`):
                 Whether to enable dynamic batch size for neuron compiled model. If this option is enabled, the input batch size can be a multiple of the
                 batch size during the compilation, but it comes with a potential tradeoff in terms of latency.
@@ -649,52 +658,88 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         compiler_kwargs = {
             "auto_cast": auto_cast,
             "auto_cast_type": auto_cast_type,
-            "disable_fast_relayout": disable_fast_relayout,
-            "disable_fallback": disable_fallback,
         }
         
-        # TODO: Check if the cache exists
-        # compilation_config = store_compilation_config(
-        #     config=config,
-        #     input_shapes=kwargs_shapes,
-        #     compiler_kwargs=compiler_kwargs,
-        #     dynamic_batch_size=dynamic_batch_size,
-        #     compiler_type=NEURON_COMPILER_TYPE,
-        #     compiler_version=NEURON_COMPILER_VERSION,
-        #     inline_weights_to_neff=inline_weights_to_neff,
-        #     optlevel=optlevel,
-        #     model_type=getattr(config, "model_type", None),
-        #     task=task,
-        # )
-        # cache_config = build_cache_config(compilation_config)
-        # cache_entry = ModelCacheEntry(model_id=model_id, config=cache_config)
-        # cache_repo_id = load_custom_cache_repo_name_from_hf_home()
-        # compile_cache = _create_hub_compile_cache_proxy(cache_repo_id=cache_repo_id)
-        # model_cache_dir = compile_cache.default_cache.get_cache_dir_with_cache_key(f"MODULE_{cache_entry.hash}")
-        # cache_exist = compile_cache.download_folder(model_cache_dir, model_cache_dir)
-        cache_exist = True
-        model_cache_dir = "/var/tmp/neuron-compile-cache/neuronxcc-2.12.68.0+4480452af/MODULE_701466a2e3830a7fa597"
+        # Check if the cache exists
+        
+        # Fetch all model configs
+        pipe = TasksManager.get_model_from_task(
+            task=task,
+            model_name_or_path=model_id,
+            subfolder=subfolder,
+            revision=revision,
+            framework="pt",
+            library_name=cls.library_name,
+            cache_dir=cache_dir,
+            use_auth_token=use_auth_token,
+            local_files_only=local_files_only,
+            force_download=force_download,
+            trust_remote_code=trust_remote_code,
+        )
+        submodels = {"unet": unet_id}
+        pipe = replace_stable_diffusion_submodels(pipe, submodels)
+        models_for_export = get_submodels_for_export_stable_diffusion(
+            pipeline=pipe,
+            task=task,
+            lora_model_ids=lora_model_ids,
+            lora_weight_names=lora_weight_names,
+            lora_adapter_names=lora_adapter_names,
+            lora_scales=lora_scales,
+        )
+        input_shapes = infer_stable_diffusion_shapes_from_diffusers(input_shapes, pipe)
+        model_configs = get_stable_diffusion_configs(models_for_export)
+        
+        # Build compilation config
+        compilation_configs = dict()
+        for name, model_config in model_configs.items():
+            if "vae" in name:  # vae configs are not cached.
+                continue
+            if isinstance(model_config, FrozenDict):
+                model_config = OrderedDict(model_config)
+                model_config = DiffusersPretrainedConfig.from_dict(model_config)
+
+            model_type = getattr(model_config, "model_type") if isinstance(model_config, Dict) else getattr(model_config, "model_type", None)
+            compilation_config = store_compilation_config(
+                config=model_config,
+                input_shapes=input_shapes[name],
+                compiler_kwargs=compiler_kwargs,
+                dynamic_batch_size=dynamic_batch_size,
+                compiler_type=NEURON_COMPILER_TYPE,
+                compiler_version=NEURON_COMPILER_VERSION,
+                inline_weights_to_neff=inline_weights_to_neff,
+                optlevel=optlevel,
+                model_type=model_type,
+                task=task,
+            )
+            if getattr(compilation_config, "model_type", None) is not None:
+                compilation_config.model_type = compilation_config.model_type.replace("-", "_")
+            compilation_configs[name] = compilation_config
+        
+        # Build cached config
+        cache_config = build_cache_config(compilation_configs)
+        cache_entry = ModelCacheEntry(model_id=model_id, config=cache_config)
+        import json
+        local_path = "/var/tmp/neuron-compile-cache/neuronxcc-2.12.68.0+4480452af/0_REGISTRY/0.0.20.dev0/inference/stable-diffusion/hf-internal-testing/tiny-stable-diffusion-torch/2f51b393de77d5b99be4.json"
+        with open(local_path) as f:
+            e_config = json.load(f)
+        cache_repo_id = load_custom_cache_repo_name_from_hf_home()
+        compile_cache = _create_hub_compile_cache_proxy(cache_repo_id=cache_repo_id)
+        c_config = cache_entry.config
+        from deepdiff import DeepDiff
+        dif = DeepDiff(e_config, c_config)
+        import pdb
+        pdb.set_trace()
+        model_cache_dir = compile_cache.default_cache.get_cache_dir_with_cache_key(f"MODULE_{cache_entry.hash}")
+        cache_exist = compile_cache.download_folder(model_cache_dir, model_cache_dir)
+        
+        # cache_exist = True
+        # model_cache_dir = "/var/tmp/neuron-compile-cache/neuronxcc-2.12.68.0+4480452af/MODULE_297df8e5c025baa0bc5c"
         
         if cache_exist:
             # load cache
-            neuron_model = cls.from_pretrained(model_cache_dir)  # TODO: consider args for loading 
-            model = TasksManager.get_model_from_task(
-                task=task,
-                model_name_or_path=model_id,
-                subfolder=subfolder,
-                revision=revision,
-                framework="pt",
-                library_name=cls.library_name,
-                cache_dir=cache_dir,
-                use_auth_token=use_auth_token,
-                local_files_only=local_files_only,
-                force_download=force_download,
-                trust_remote_code=trust_remote_code,
-            )
-            import pdb
-            pdb.set_trace()
+            neuron_model = cls.from_pretrained(model_cache_dir, data_parallel_mode=data_parallel_mode)
             # replace weights
-            neuron_model.replace_weights(weights=model)
+            neuron_model.replace_weights(weights=pipe)
             return neuron_model
         else:
             # compile
@@ -705,6 +750,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 model_name_or_path=model_id,
                 output=save_dir_path,
                 compiler_kwargs=compiler_kwargs,
+                model=pipe,
                 task=task,
                 dynamic_batch_size=dynamic_batch_size,
                 cache_dir=cache_dir,

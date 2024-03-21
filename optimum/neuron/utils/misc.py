@@ -22,6 +22,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
+from torch_neuronx.xla_impl.data_parallel import DataParallel
+import huggingface_hub
 from transformers import AutoFeatureExtractor, AutoProcessor, AutoTokenizer, CLIPProcessor, PretrainedConfig
 from transformers.modeling_utils import _add_variant
 from transformers.utils import (
@@ -39,9 +41,16 @@ from transformers.utils import (
 )
 from transformers.utils.hub import get_checkpoint_shard_files
 
-from ...utils import logging
+from ...utils import is_diffusers_available, logging
+from ...exporters.tasks import TasksManager
 from .import_utils import is_torch_xla_available
 from .require_utils import requires_safetensors
+
+if TYPE_CHECKING:
+    from transformers.modeling_utils import PreTrainedModel
+
+    if is_diffusers_available():
+        from diffusers import ModelMixin
 
 
 logger = logging.get_logger()
@@ -513,7 +522,7 @@ def download_checkpoints_in_cache(
 
 
 def replace_weights(
-    model: torch.jit._script.RecursiveScriptModule,
+    model: Union[torch.jit._script.RecursiveScriptModule, DataParallel],
     weights: Union[Dict[str, torch.Tensor], torch.nn.Module],
     prefix: str = "model",
 ):
@@ -524,7 +533,8 @@ def replace_weights(
         weights = weights.state_dict()
 
     # extract module paths from the weights c module
-    code = model.weights._c.code
+    model_weights = model.module.weights if isinstance(model, DataParallel) else model.weights
+    code = model_weights._c.code
     start_str = "__parameters__ = ["
     end_str = "]\n"
     module_paths = code.split(start_str)[1].split(end_str)[0].strip()[:-1:].replace('"', "").split(", ")
@@ -534,15 +544,23 @@ def replace_weights(
         if len(re.findall("\w\d+", module_path)) > 0:
             continue
         else:
-            model.weights._c.setattr(module_path, weights[module_path.replace(prefix + "->", "").replace("->", ".")])
+            model_weights._c.setattr(module_path, weights[module_path.replace(prefix + "->", "", 1).replace("->", ".")])
 
 
 def check_if_weights_replacable(
-    config: "PretrainedConfig", weights: Optional[Union[Dict[str, torch.Tensor], torch.nn.Module]]
+    config: Union["PretrainedConfig", Dict[str, "PretrainedConfig"]], weights: Optional[Union[Dict[str, torch.Tensor], torch.nn.Module]]
 ):
-    is_weights_neff_separated = (
-        not config.neuron.get("inline_weights_to_neff", True) if hasattr(config, "neuron") else False
-    )
+    def _is_weights_neff_separated(config):
+        return not config.neuron.get("inline_weights_to_neff", True) if hasattr(config, "neuron") else False
+    
+    if isinstance(config, PretrainedConfig):
+        is_weights_neff_separated = _is_weights_neff_separated(config)
+    elif isinstance(config, Dict):
+        is_weights_neff_separated = []
+        for _, config_value in config.items():
+            is_weights_neff_separated.append(_is_weights_neff_separated(config_value))
+        is_weights_neff_separated = all(is_weights_neff_separated)
+            
     if weights is not None and not is_weights_neff_separated:
         raise RuntimeError(
             "Unable to replace weights of the neuron model since its weights and neff are not separated, please set `inline_weights_to_neff=Talse` when converting the model to Neuron format."
@@ -617,3 +635,32 @@ class DiffusersPretrainedConfig(PretrainedConfig):
         """
         output = copy.deepcopy(self.__dict__)
         return output
+
+
+def get_stable_diffusion_configs(
+    models_for_export: Dict[str, Union["PreTrainedModel", "ModelMixin"]], 
+    # submodels: Optional[Dict[str, Union[Path, str]]] = None,
+):
+    subfolders = ["text_encoder", "text_encoder_2", "unet", "vae"]
+    configs = dict()
+    for name in subfolders:
+        if name in models_for_export:
+            configs[name] = models_for_export[name].config
+    # model_types = {
+    #     "text_encoder": "clip_text_model",
+    #     "text_encoder_2": "clip_text_model",
+    #     "unet": "unet",
+    # }
+    # all_files, _ = TasksManager.get_model_files(model_name_or_path)
+    # configs = dict()
+    # for name in subfolders:
+    #     if any(name in file_path for file_path in all_files):
+    #         if name in submodels and submodels[name] is not None:
+    #             config_dict, _ = PretrainedConfig.get_config_dict(submodels[name])
+    #         else:
+    #             config_dict, _ = PretrainedConfig.get_config_dict(model_name_or_path, subfolder=name)       
+    #         model_config = PretrainedConfig.from_dict(config_dict).to_diff_dict()
+    #         if name in model_types:
+    #             model_config["model_type"] = model_types[name]
+    #         configs[name] = model_config
+    return configs

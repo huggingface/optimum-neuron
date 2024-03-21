@@ -76,7 +76,7 @@ if TYPE_CHECKING:
     from transformers import PreTrainedModel
 
     if is_diffusers_available():
-        from diffusers import DiffusionPipeline, StableDiffusionPipeline
+        from diffusers import DiffusionPipeline, StableDiffusionPipeline, ModelMixin
 
 
 logger = logging.get_logger()
@@ -213,13 +213,13 @@ def infer_stable_diffusion_shapes_from_diffusers(
     vae_encoder_num_channels = model.vae.config.in_channels
     vae_decoder_num_channels = model.vae.config.latent_channels
     vae_scale_factor = 2 ** (len(model.vae.config.block_out_channels) - 1) or 8
-    height = input_shapes["unet_input_shapes"]["height"]
+    height = input_shapes["unet"]["height"]
     scaled_height = height // vae_scale_factor
-    width = input_shapes["unet_input_shapes"]["width"]
+    width = input_shapes["unet"]["width"]
     scaled_width = width // vae_scale_factor
 
-    input_shapes["text_encoder_input_shapes"].update({"sequence_length": sequence_length})
-    input_shapes["unet_input_shapes"].update(
+    input_shapes["text_encoder"].update({"sequence_length": sequence_length})
+    input_shapes["unet"].update(
         {
             "sequence_length": sequence_length,
             "num_channels": unet_num_channels,
@@ -227,10 +227,10 @@ def infer_stable_diffusion_shapes_from_diffusers(
             "width": scaled_width,
         }
     )
-    input_shapes["vae_encoder_input_shapes"].update(
+    input_shapes["vae_encoder"].update(
         {"num_channels": vae_encoder_num_channels, "height": height, "width": width}
     )
-    input_shapes["vae_decoder_input_shapes"].update(
+    input_shapes["vae_decoder"].update(
         {"num_channels": vae_decoder_num_channels, "height": scaled_height, "width": scaled_width}
     )
 
@@ -360,12 +360,15 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
     models_and_neuron_configs = get_stable_diffusion_models_for_export(
         pipeline=model,
         task=task,
+        text_encoder_input_shapes=input_shapes["text_encoder"],
+        unet_input_shapes=input_shapes["unet"],
+        vae_encoder_input_shapes=input_shapes["vae_encoder"],
+        vae_decoder_input_shapes=input_shapes["vae_decoder"],
         dynamic_batch_size=dynamic_batch_size,
         lora_model_ids=lora_model_ids,
         lora_weight_names=lora_weight_names,
         lora_adapter_names=lora_adapter_names,
         lora_scales=lora_scales,
-        **input_shapes,
     )
     output_model_names = {
         DIFFUSION_MODEL_UNET_NAME: os.path.join(DIFFUSION_MODEL_UNET_NAME, NEURON_FILE_NAME),
@@ -421,6 +424,7 @@ def main_export(
     model_name_or_path: str,
     output: Union[str, Path],
     compiler_kwargs: Dict[str, Any],
+    model: Optional[Union["PreTrainedModel", "ModelMixin"]] = None,
     task: str = "auto",
     dynamic_batch_size: bool = False,
     atol: Optional[float] = None,
@@ -469,7 +473,8 @@ def main_export(
         "framework": "pt",
         "library_name": library_name,
     }
-    model = TasksManager.get_model_from_task(**model_kwargs)
+    if model is None:
+        model = TasksManager.get_model_from_task(**model_kwargs)
 
     models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs(
         model=model,

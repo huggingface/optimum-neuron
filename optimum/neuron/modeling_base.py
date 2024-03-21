@@ -301,7 +301,7 @@ class NeuronBaseModel(OptimizedModel):
         
         if cache_exist:
             # load cache
-            neuron_model = cls.from_pretrained(model_cache_dir)    # TODO: consider args for loading 
+            neuron_model = cls.from_pretrained(model_cache_dir)
             model = TasksManager.get_model_from_task(
                 task=task,
                 model_name_or_path=model_id,

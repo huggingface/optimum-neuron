@@ -137,7 +137,7 @@ def convert_neuronx_compiler_args_to_neuron(
 
 
 def store_compilation_config(
-    config: Union["PretrainedConfig", OrderedDict],
+    config: Union["PretrainedConfig", Dict],
     input_shapes: Dict[str, int],
     compiler_kwargs: Dict[str, Any],
     dynamic_batch_size: bool,
@@ -153,7 +153,7 @@ def store_compilation_config(
     output_hidden_states: bool = False,
     **kwargs,
 ):
-    if isinstance(config, OrderedDict):
+    if isinstance(config, Dict):
         update_func = config.__setitem__
     else:
         update_func = config.__setattr__
@@ -166,8 +166,9 @@ def store_compilation_config(
 
     # Add input shapes during compilation to the config
     for axis, shape in input_shapes.items():
-        axis = f"static_{axis}"
-        config_args[axis] = shape
+        if shape is not None:
+            axis = f"static_{axis}"
+            config_args[axis] = shape
 
     config_args["dynamic_batch_size"] = dynamic_batch_size
 

@@ -61,8 +61,8 @@ else:
 
 logger = logging.getLogger(__name__)
 
-CACHE_WHITE_LIST = ["_name_or_path", "transformers_version", "_diffusers_version", "eos_token_id", "bos_token_id", "pad_token_id", "torchscript", "torch_dtype", "_commit_hash", "sample_size"]
-NEURON_CONFIG_WHITE_LIST = ["input_names", "output_names"]
+CACHE_WHITE_LIST = ["_name_or_path", "transformers_version", "_diffusers_version", "eos_token_id", "bos_token_id", "pad_token_id", "torchscript", "torch_dtype", "_commit_hash", "sample_size", "projection_dim", "task", "_use_default_values"]
+NEURON_CONFIG_WHITE_LIST = ["input_names", "output_names", "model_type"]
 
 
 class CompileCacheHfProxy(CompileCache):
@@ -418,7 +418,7 @@ def get_hub_cached_entries(
     registry_folder = get_registry_folder_for_mode(mode)
     registry_pattern = registry_folder + "/" + model_type
     model_files = [path for path in repo_files if registry_pattern in path]
-    white_list =  CACHE_WHITE_LIST + ["task", ]  # All parameters except those in the whitelist must match
+    white_list =  CACHE_WHITE_LIST  # All parameters except those in the whitelist must match
     model_entries = []
     with TemporaryDirectory() as tmpdir:
         for model_path in model_files:
@@ -455,7 +455,7 @@ def lookup_matched_entries(entry_config, target_entry, white_list, model_entries
 def _prepare_config_for_matching(entry_config, target_entry, model_type):
     if model_type=="stable-diffusion":
         neuron_config = entry_config["unet"].pop("neuron")
-        non_checked_components = ["vae", "vae_encoder", "vae_decoder"]
+        non_checked_components = ["vae", "vae_encoder", "vae_decoder"]  # Exclude vae configs from the check for now since it's complex and not mandatory
         for param in non_checked_components:
             entry_config.pop(param, None)
             target_entry.config.pop(param, None)
@@ -484,7 +484,7 @@ def get_multimodels_configs(api, model_id):
                 lookup_configs[model_path.split("/")[-2]] = entry_config
                 
     if "unet" in lookup_configs:
-        lookup_configs["model_type"] = "stable-diffusion" 
+        lookup_configs["model_type"] = "stable-diffusion"
     return lookup_configs
 
 
@@ -512,9 +512,12 @@ def build_cache_config(
     
 ):
     clean_configs = dict()
+    no_check_components = ["vae", "vae_encoder", "vae_decoder"]  # Exclude vae configs from stable diffusion pipeline since it's complex and not mandatory
     if isinstance(configs, PretrainedConfig):
         configs = {"model": configs}
-    for name, config in configs.items():            
+    for name, config in configs.items():
+        if name in no_check_components:
+            continue
         config = copy.deepcopy(config).to_diff_dict() if isinstance(config, PretrainedConfig) else config
         config = exclude_white_list_from_config(config, white_list, neuron_white_list)
         clean_configs[name] = config

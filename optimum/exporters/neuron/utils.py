@@ -105,10 +105,10 @@ def build_stable_diffusion_components_mandatory_shapes(
     }
 
     components_shapes = {
-        "text_encoder_input_shapes": text_encoder_input_shapes,
-        "unet_input_shapes": unet_input_shapes,
-        "vae_encoder_input_shapes": vae_encoder_input_shapes,
-        "vae_decoder_input_shapes": vae_decoder_input_shapes,
+        "text_encoder": text_encoder_input_shapes,
+        "unet": unet_input_shapes,
+        "vae_encoder": vae_encoder_input_shapes,
+        "vae_decoder": vae_decoder_input_shapes,
     }
 
     return components_shapes
@@ -161,7 +161,7 @@ def get_stable_diffusion_models_for_export(
         `Dict[str, Tuple[Union[`PreTrainedModel`, `ModelMixin`], `NeuronDefaultConfig`]`: A Dict containing the model and
         Neuron configs for the different components of the model.
     """
-    models_for_export = _get_submodels_for_export_stable_diffusion(
+    models_for_export = get_submodels_for_export_stable_diffusion(
         pipeline=pipeline,
         task=task,
         lora_model_ids=lora_model_ids,
@@ -286,7 +286,7 @@ def _load_lora_weights_to_pipeline(
             pipeline.fuse_lora()
 
 
-def _get_submodels_for_export_stable_diffusion(
+def get_submodels_for_export_stable_diffusion(
     pipeline: Union["StableDiffusionPipeline", "StableDiffusionXLImg2ImgPipeline"],
     task: str,
     lora_model_ids: Optional[List[str]] = None,

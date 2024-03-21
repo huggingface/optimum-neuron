@@ -399,6 +399,7 @@ def export_models(
     if not disable_neuron_cache and is_neuronx_available() and not inline_weights_to_neff:
         model_id = get_model_name_or_path(model_config) if model_name_or_path is None else model_name_or_path
         cache_config = build_cache_config(compile_configs)
+        # TODO : flatten dict before hashing otherwise not matching after json.dumps
         cache_entry = ModelCacheEntry(model_id=model_id, config=cache_config)
         
         # Use the context manager just for creating registry, AOT compilation won't leverage `create_compile_cache` 
