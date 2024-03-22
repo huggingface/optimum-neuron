@@ -28,6 +28,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import torch
 from accelerate import __version__ as accelerate_version
+from accelerate.utils import AutocastKwargs
 from packaging import version
 from torch.utils.data import Dataset
 from transformers import PreTrainedModel, Seq2SeqTrainer, Trainer, TrainingArguments
@@ -251,7 +252,8 @@ class AugmentTrainerForNeuronMixin:
             gradient_accumulation_steps=self.args.gradient_accumulation_steps,
             mp_plugin=self.args.mp_plugin,
             zero_1=self.args.zero_1,
-            mixed_precision="bf16" if self.args.bf16,
+            mixed_precision="bf16" if self.args.bf16 else "no",
+            autocast_backend=self.args.half_precision_backend,
         )
 
         # deepspeed and accelerate flags covering both trainer args and accelerate launcher
@@ -350,12 +352,12 @@ class AugmentTrainerForNeuronMixin:
         A helper wrapper that creates an appropriate context manager for `autocast` while feeding it the desired
         arguments, depending on the situation.
         """
-        if self.use_cpu_amp:
-            ctx_manager = torch.cpu.amp.autocast(cache_enabled=cache_enabled, dtype=self.amp_dtype)
-        else:
-            ctx_manager = contextlib.nullcontext()
 
-        return ctx_manager
+        autocast_handler = AutocastKwargs(
+            enabled=self.accelerator.autocast_handler.enabled,
+            cache_enabled=cache_enabled,
+        )
+        return self.accelerator.autocast(autocast_handler=autocast_handler)
 
     def training_step(self, model: torch.nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]) -> torch.Tensor:
         from neuronx_distributed.pipeline import NxDPPModel

@@ -16,11 +16,12 @@
 
 import collections
 import contextlib
-import warnings
 import inspect
 import os
 import re
 import shutil
+import sys
+import warnings
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple, Union
@@ -28,7 +29,7 @@ from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple, Union
 import torch
 from accelerate import Accelerator
 from accelerate.checkpointing import save_accelerator_state, save_custom_state
-from accelerate.utils import DistributedType, AutocastKwargs
+from accelerate.utils import AutocastKwargs, DistributedType
 from accelerate.utils.operations import gather_object, recursively_apply
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
@@ -50,11 +51,13 @@ from .optimizer import NeuronAcceleratedOptimizer
 from .scheduler import NeuronAcceleratedScheduler
 from .state import NeuronAcceleratorState
 from .utils import (
+    AutocastBackend,
     ModelParallelismPlugin,
     NeuronDistributedType,
     NeuronFullyShardedDataParallelPlugin,
     get_tied_parameters_dict,
     patch_accelerate_is_tpu_available,
+    set_env_for_torch_amp,
     tie_parameters,
 )
 from .utils.operations import _xla_gather
@@ -99,7 +102,14 @@ NxDPPMODEL_PATCHING_SPECS = [
 
 
 class NeuronAccelerator(Accelerator):
-    def __init__(self, *args, mp_plugin: Optional[ModelParallelismPlugin] = None, zero_1: bool = False, **kwargs):
+    def __init__(
+        self,
+        *args,
+        mp_plugin: Optional[ModelParallelismPlugin] = None,
+        zero_1: bool = False,
+        autocast_backend: Union[str, AutocastBackend] = "xla",
+        **kwargs,
+    ):
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
         patch_accelerate_is_tpu_available()
 
@@ -160,6 +170,14 @@ class NeuronAccelerator(Accelerator):
             super().__init__(**full_kwargs)
 
         self.zero_1 = zero_1
+
+        if not isinstance(autocast_backend, AutocastBackend):
+            autocast_backend = AutocastBackend(autocast_backend)
+        self.autocast_backend = autocast_backend
+        if self.autocast_handler is None:
+            assert 3 == 2
+            enabled = self.state.mixed_precision == "bf16" and autocast_backend is AutocastBackend.AMP
+            self.autocast_handler = AutocastKwargs(enabled=enabled)
 
         if self.fsdp_plugin is not None and self.zero_1:
             raise ValueError("Either enable XLA ZeRO Stage 1 or XLA FSDP but not both.")
@@ -245,6 +263,7 @@ class NeuronAccelerator(Accelerator):
             optimizer = Parallelizer.optimizer_for_mp(optimizer, cpu_parameters_to_xla)
         else:
             xla_parameters, _ = Parallelizer.optimizer_cpu_params_to_xla_params(optimizer, cpu_parameters_to_xla)
+
             if hasattr(optimizer, "_args_to_recreate"):
                 args, kwargs = optimizer._args_to_recreate
                 args = (xla_parameters,) + args[1:]
@@ -422,10 +441,14 @@ class NeuronAccelerator(Accelerator):
 
         cpu_ids = {name: id(param) for name, param in model.named_parameters()}
 
-        if os.environ.get("XLA_USE_BF16", "0") == "1" or os.environ.get("XLA_DOWNCAST_BF16", "0") == "1":
-            model.to(torch.bfloat16)
+        if self.autocast_backend is AutocastBackend.XLA:
+            # TODO: can we remove that?
+            if self.state.mixed_precision == "bf16":
+                model.to(torch.bfloat16)
+            else:
+                model.to(torch.float32)
         else:
-            model.to(torch.float32)
+            set_env_for_torch_amp()
 
         tied_parameters_dict = get_tied_parameters_dict(model)
         model_main_input_name = getattr(model, "main_input_name", None)
@@ -529,8 +552,8 @@ class NeuronAccelerator(Accelerator):
             if parameters == list(model.parameters()):
                 return model.clip_grad_norm_(max_norm, norm_type)
 
-    @contextmanager
-    def autocast(self, cache_enabled: bool = False, autocast_handler: AutocastKwargs = None):
+    @contextlib.contextmanager
+    def autocast(self, cache_enabled: bool = False, autocast_handler: Optional[AutocastKwargs] = None):
         """
         Will apply automatic mixed-precision inside the block inside this context manager, if it is enabled. Nothing
         different will happen otherwise.
@@ -559,10 +582,13 @@ class NeuronAccelerator(Accelerator):
             else:
                 self.autocast_handler = AutocastKwargs(cache_enabled=True)
         if autocast_handler is None:
+            # By default `self.autocast_handler` enables autocast if:
+            #   - `self.state.mixed_precision == "bf16"`
+            #   - `self.autocast_backend is AutocastBackend.AMP`
             autocast_handler = self.autocast_handler
         autocast_kwargs = autocast_handler.to_kwargs()
         if self.native_amp:
-            autocast_context = torch.autocast(dtype=torch.bfloat16, device_type='cuda', **autocast_kwargs)
+            autocast_context = torch.autocast(dtype=torch.bfloat16, device_type="cuda", **autocast_kwargs)
         else:
             autocast_context = contextlib.nullcontext()
         autocast_context.__enter__()
