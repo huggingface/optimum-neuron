@@ -56,7 +56,6 @@ from .utils import (
     NeuronFullyShardedDataParallelPlugin,
     get_tied_parameters_dict,
     patch_accelerate_is_tpu_available,
-    set_env_for_torch_amp,
     tie_parameters,
 )
 from .utils.misc import create_patched_get_parameter_dtype
@@ -156,15 +155,17 @@ class NeuronAccelerator(Accelerator):
         if mp_plugin.pipeline_parallel_size > 1:
             os.environ["ACCELERATE_USE_NEURONX_DISTRIBUTED_PP"] = "true"
 
-        patched_accelerator_state = partial(NeuronAcceleratorState, mp_plugin=mp_plugin)
+        if not isinstance(autocast_backend, AutocastBackend):
+            autocast_backend = AutocastBackend(autocast_backend)
+
+        patched_accelerator_state = partial(
+            NeuronAcceleratorState, mp_plugin=mp_plugin, autocast_backend=autocast_backend
+        )
         with Patcher([("accelerate.accelerator.AcceleratorState", patched_accelerator_state)]):
             super().__init__(**full_kwargs)
 
         self.zero_1 = zero_1
 
-        if not isinstance(autocast_backend, AutocastBackend):
-            autocast_backend = AutocastBackend(autocast_backend)
-        self.autocast_backend = autocast_backend
         if self.autocast_handler is None:
             enabled = self.state.mixed_precision == "bf16" and autocast_backend is AutocastBackend.AMP
             self.autocast_handler = AutocastKwargs(enabled=enabled)
@@ -342,14 +343,14 @@ class NeuronAccelerator(Accelerator):
     ) -> "torch.nn.Module":
         if patching_specs is None:
             patching_specs = MODEL_PATCHING_SPECS
-        prepared_patching_specs = []
 
+        mixed_precision_is_bf16 = self.state.mixed_precision == "bf16"
         patched_get_parameter_dtype = create_patched_get_parameter_dtype(
-            xla_downcast_bf16=os.environ["XLA_DOWNCAST_BF16"] == "1",
-            use_amp=self.state.mixed_precision == "bf16" and self.autocast_backend is AutocastBackend.AMP,
-            xla_use_bf16=os.environ["XLA_USE_BF16"] == "1",
+            xla_downcast_bf16=mixed_precision_is_bf16 and self.state.downcast_bfloat,
+            use_amp=mixed_precision_is_bf16 and self.state.autocast_backend is AutocastBackend.AMP,
+            xla_use_bf16=mixed_precision_is_bf16 and not self.state.downcast_bfloat,
         )
-        prepared_patching_specs.append(
+        patching_specs.append(
             (
                 "forward",
                 DynamicPatch(
@@ -360,6 +361,7 @@ class NeuronAccelerator(Accelerator):
             ),
         )
 
+        prepared_patching_specs = []
         for spec in patching_specs:
             prepared_patching_specs.append((model,) + spec)
 
@@ -449,14 +451,14 @@ class NeuronAccelerator(Accelerator):
 
         cpu_ids = {name: id(param) for name, param in model.named_parameters()}
 
-        if self.autocast_backend is AutocastBackend.XLA:
-            # TODO: can we remove that?
-            if self.state.mixed_precision == "bf16":
-                model.to(torch.bfloat16)
-            else:
-                model.to(torch.float32)
-        else:
-            set_env_for_torch_amp()
+        # if self.autocast_backend is AutocastBackend.XLA:
+        #     # TODO: can we remove that?
+        #     if self.state.mixed_precision == "bf16":
+        #         model.to(torch.bfloat16)
+        #     else:
+        #         model.to(torch.float32)
+        # else:
+        #     set_env_for_torch_amp()
 
         tied_parameters_dict = get_tied_parameters_dict(model)
         model_main_input_name = getattr(model, "main_input_name", None)
@@ -575,7 +577,7 @@ class NeuronAccelerator(Accelerator):
         if autocast_handler is None:
             # By default `self.autocast_handler` enables autocast if:
             #   - `self.state.mixed_precision == "bf16"`
-            #   - `self.autocast_backend is AutocastBackend.AMP`
+            #   - `self.state.autocast_backend is AutocastBackend.AMP`
             autocast_handler = self.autocast_handler
         autocast_kwargs = autocast_handler.to_kwargs()
         if self.native_amp:

@@ -155,8 +155,7 @@ class AugmentTrainerForNeuronMixin:
         self.use_amp = False
         if training_args is not None:
             if training_args.bf16:
-                training_args.bf16 = False
-                os.environ["XLA_DOWNCAST_BF16"] = "1"
+                # os.environ["XLA_DOWNCAST_BF16"] = "1"
                 if training_args.half_precision_backend == "amp":
                     self.use_amp = True
 

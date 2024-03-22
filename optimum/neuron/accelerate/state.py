@@ -15,6 +15,7 @@
 """Custom PartialState and AcceleratorState for Neuron."""
 
 import os
+from typing import Optional, Union
 
 import torch
 from accelerate.state import AcceleratorState, PartialState, ThreadLocalSharedDict
@@ -35,8 +36,8 @@ from accelerate.utils.dataclasses import FullyShardedDataParallelPlugin, SageMak
 
 from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
-from .utils import NeuronDistributedType, NeuronFullyShardedDataParallelPlugin
-from .utils.dataclasses import ModelParallelismPlugin
+from .utils import NeuronDistributedType, NeuronFullyShardedDataParallelPlugin, set_env_for_torch_amp
+from .utils.dataclasses import AutocastBackend, ModelParallelismPlugin
 
 
 if is_torch_xla_available():
@@ -224,7 +225,8 @@ class NeuronAcceleratorState(AcceleratorState):
         deepspeed_plugin=None,
         fsdp_plugin=None,
         megatron_lm_plugin=None,
-        mp_plugin=None,
+        mp_plugin: Optional[ModelParallelismPlugin] = None,
+        autocast_backend: Optional[Union[str, AutocastBackend]] = None,
         _from_accelerator: bool = False,
         **kwargs,
     ):
@@ -253,9 +255,20 @@ class NeuronAcceleratorState(AcceleratorState):
                 )
             # deepspeed handles mixed_precision using deepspeed_config
             self._mixed_precision = "no" if self.distributed_type == DistributedType.DEEPSPEED else mixed_precision
+
             if self.distributed_type == DistributedType.TPU:
+
+                if autocast_backend is None:
+                    autocast_backend = AutocastBackend.XLA
+                elif not isinstance(autocast_backend, AutocastBackend):
+                    autocast_backend = AutocastBackend(autocast_backend)
+                self.autocast_backend = autocast_backend
+
                 if mixed_precision == "bf16":
-                    if os.environ.get("ACCELERATE_DOWNCAST_BF16"):
+                    if autocast_backend is AutocastBackend.AMP:
+                        set_env_for_torch_amp()
+                        self.downcast_bfloat = True
+                    elif os.environ.get("ACCELERATE_DOWNCAST_BF16"):
                         os.environ["XLA_USE_BF16"] = str(0)
                         os.environ["XLA_DOWNCAST_BF16"] = str(1)
                         self.downcast_bfloat = True
