@@ -151,10 +151,13 @@ class AugmentTrainerForNeuronMixin:
         if training_args is None and len(args) >= 2:
             training_args = args[1]
 
+        self.use_amp = False
         if training_args is not None:
             if training_args.bf16:
                 training_args.bf16 = False
                 os.environ["XLA_DOWNCAST_BF16"] = "1"
+                if training_args.half_precision_backend == "amp":
+                    self.use_amp = True
 
         self.validate_args(training_args)
         if is_precompilation():
@@ -248,6 +251,7 @@ class AugmentTrainerForNeuronMixin:
             gradient_accumulation_steps=self.args.gradient_accumulation_steps,
             mp_plugin=self.args.mp_plugin,
             zero_1=self.args.zero_1,
+            mixed_precision="bf16" if self.args.bf16,
         )
 
         # deepspeed and accelerate flags covering both trainer args and accelerate launcher
@@ -340,6 +344,18 @@ class AugmentTrainerForNeuronMixin:
             return loss
 
         return super().compute_loss(model, inputs, return_outputs=return_outputs)
+
+    def autocast_smart_context_manager(self, cache_enabled: Optional[bool] = True):
+        """
+        A helper wrapper that creates an appropriate context manager for `autocast` while feeding it the desired
+        arguments, depending on the situation.
+        """
+        if self.use_cpu_amp:
+            ctx_manager = torch.cpu.amp.autocast(cache_enabled=cache_enabled, dtype=self.amp_dtype)
+        else:
+            ctx_manager = contextlib.nullcontext()
+
+        return ctx_manager
 
     def training_step(self, model: torch.nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]) -> torch.Tensor:
         from neuronx_distributed.pipeline import NxDPPModel

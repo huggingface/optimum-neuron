@@ -16,6 +16,7 @@
 
 import collections
 import contextlib
+import warnings
 import inspect
 import os
 import re
@@ -27,7 +28,7 @@ from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple, Union
 import torch
 from accelerate import Accelerator
 from accelerate.checkpointing import save_accelerator_state, save_custom_state
-from accelerate.utils import DistributedType
+from accelerate.utils import DistributedType, AutocastKwargs
 from accelerate.utils.operations import gather_object, recursively_apply
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
@@ -527,6 +528,46 @@ class NeuronAccelerator(Accelerator):
         for model in self._models:
             if parameters == list(model.parameters()):
                 return model.clip_grad_norm_(max_norm, norm_type)
+
+    @contextmanager
+    def autocast(self, cache_enabled: bool = False, autocast_handler: AutocastKwargs = None):
+        """
+        Will apply automatic mixed-precision inside the block inside this context manager, if it is enabled. Nothing
+        different will happen otherwise.
+
+        A different `autocast_handler` can be passed in to override the one set in the `Accelerator` object. This is
+        useful in blocks under `autocast` where you want to revert to fp32.
+
+        Example:
+
+        ```python
+        >>> from accelerate import Accelerator
+
+        >>> accelerator = Accelerator(mixed_precision="fp16")
+        >>> with accelerator.autocast():
+        ...     train()
+        ```
+        """
+        if cache_enabled:
+            warnings.warn(
+                "Passing `cache_enabled=True` to `accelerator.autocast` is deprecated and will be removed in v0.23.0. "
+                "Please use the `AutocastKwargs` class instead and pass it to the `Accelerator` as a `kwarg_handler`.",
+                FutureWarning,
+            )
+            if self.autocast_handler is not None:
+                self.autocast_handler.cache_enabled = True
+            else:
+                self.autocast_handler = AutocastKwargs(cache_enabled=True)
+        if autocast_handler is None:
+            autocast_handler = self.autocast_handler
+        autocast_kwargs = autocast_handler.to_kwargs()
+        if self.native_amp:
+            autocast_context = torch.autocast(dtype=torch.bfloat16, device_type='cuda', **autocast_kwargs)
+        else:
+            autocast_context = contextlib.nullcontext()
+        autocast_context.__enter__()
+        yield
+        autocast_context.__exit__(*sys.exc_info())
 
     @requires_neuronx_distributed
     def _prepare_clip_grad_norm(self, parameters, max_norm, norm_type: int = 2):
