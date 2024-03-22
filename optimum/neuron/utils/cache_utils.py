@@ -98,11 +98,15 @@ def load_custom_cache_repo_name_from_hf_home(
     return None
 
 
-def set_custom_cache_repo_name_in_hf_home(repo_id: str, hf_home: str = HF_HOME, check_repo: bool = True):
+def set_custom_cache_repo_name_in_hf_home(
+    repo_id: str, hf_home: str = HF_HOME, check_repo: bool = True, api: Optional[HfApi] = None
+):
     hf_home_cache_repo_file = f"{hf_home}/{CACHE_REPO_FILENAME}"
+    if api is None:
+        api = HfApi()
     if check_repo:
         try:
-            HfApi().repo_info(repo_id, repo_type="model")
+            api.repo_info(repo_id, repo_type="model")
         except Exception as e:
             raise ValueError(
                 f"Could not save the custom Neuron cache repo to be {repo_id} because it does not exist or is "

@@ -424,7 +424,7 @@ def get_hub_cached_entries(
     try:
         config = AutoConfig.from_pretrained(model_id)
     except Exception:
-        config = get_multimodels_configs(api, model_id)  # Applied on SD, encoder-decoder models
+        config = get_multimodels_configs_from_hub(model_id)  # Applied on SD, encoder-decoder models
     target_entry = ModelCacheEntry(model_id, config)
     # Extract model type: it will be used as primary key for lookup
     model_type = target_entry.config["model_type"]
@@ -489,7 +489,8 @@ def _prepare_config_for_matching(entry_config, target_entry, model_type):
     return entry_config, target_entry_config, neuron_config
 
 
-def get_multimodels_configs(api, model_id):
+def get_multimodels_configs_from_hub(model_id):
+    api = HfApi()
     repo_files = api.list_repo_files(model_id)
     config_pattern = "/config.json"
     config_files = [path for path in repo_files if config_pattern in path]
