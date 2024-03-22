@@ -175,7 +175,6 @@ class NeuronAccelerator(Accelerator):
             autocast_backend = AutocastBackend(autocast_backend)
         self.autocast_backend = autocast_backend
         if self.autocast_handler is None:
-            assert 3 == 2
             enabled = self.state.mixed_precision == "bf16" and autocast_backend is AutocastBackend.AMP
             self.autocast_handler = AutocastKwargs(enabled=enabled)
 

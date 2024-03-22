@@ -191,8 +191,7 @@ class AugmentTrainerForNeuronMixin:
         # Model cache entry management.
         model_name_or_path_for_cache_entry = get_model_name_or_path(self.model.config)
         model_config_for_cache_entry = copy.deepcopy(self.model.config)
-        use_bf16 = os.environ.get("XLA_USE_BF16", False) or os.environ.get("XLA_DOWNCAST_BF16", False)
-        precision = "bfloat16" if use_bf16 else "float32"
+        precision = "bfloat16" if self.accelerator.state.mixed_precision == "bf16" else "float32"
         neuron_config_for_cache_entry = {
             "model_class": self.model.__class__.__name__,
             "precision": precision,
@@ -372,7 +371,7 @@ class AugmentTrainerForNeuronMixin:
                 loss = self.compute_loss(model, inputs)
 
             if get_pipeline_model_parallel_rank() != get_pipeline_model_parallel_size() - 1:
-                use_bf16 = os.environ.get("XLA_USE_BF16", False) or os.environ.get("XLA_DOWNCAST_BF16", False)
+                use_bf16 = self.accelerator.state.mixed_precision == "bf16"
                 dtype = torch.bfloat16 if use_bf16 else torch.float32
                 loss = torch.tensor(0, dtype=dtype).to(xm.xla_device())
             else:
@@ -397,7 +396,7 @@ class AugmentTrainerForNeuronMixin:
                 raise ValueError("Only the prediction loss can be returned when doing pipeline parallelism.")
             loss = model.run_eval(**inputs)
             if loss is None:
-                use_bf16 = os.environ.get("XLA_USE_BF16", False) or os.environ.get("XLA_DOWNCAST_BF16", False)
+                use_bf16 = self.accelerator.state.mixed_precision == "bf16"
                 dtype = torch.bfloat16 if use_bf16 else torch.float32
                 loss = torch.tensor(0, dtype=dtype).to(xm.xla_device())
             return (loss, None, None)
