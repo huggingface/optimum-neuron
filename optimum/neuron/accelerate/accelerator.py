@@ -43,7 +43,6 @@ from ..utils import (
     is_neuronx_distributed_available,
     is_torch_xla_available,
     patch_within_function,
-    patched_finfo,
 )
 from ..utils.misc import args_and_kwargs_to_kwargs_only, is_main_worker
 from ..utils.require_utils import requires_neuronx_distributed, requires_torch_xla
@@ -60,6 +59,7 @@ from .utils import (
     set_env_for_torch_amp,
     tie_parameters,
 )
+from .utils.misc import create_patched_get_parameter_dtype
 from .utils.operations import _xla_gather
 
 
@@ -87,18 +87,9 @@ logger = logging.get_logger(__name__)
 MODEL_PATCHING_SPECS = [
     ("config.layerdrop", 0),
     ("no_sync", lambda: contextlib.nullcontext()),
-    (
-        "forward",
-        DynamicPatch(patch_within_function(("torch.finfo", patched_finfo))),
-    ),
 ]
 
-NxDPPMODEL_PATCHING_SPECS = [
-    (
-        "forward",
-        DynamicPatch(patch_within_function(("torch.finfo", patched_finfo))),
-    ),
-]
+NxDPPMODEL_PATCHING_SPECS = []
 
 
 class NeuronAccelerator(Accelerator):
@@ -344,13 +335,31 @@ class NeuronAccelerator(Accelerator):
     def prepare_scheduler(self, scheduler: "LRScheduler"):
         return super().prepare_scheduler(scheduler)
 
-    @staticmethod
     def patch_model_for_neuron(
-        model: "torch.nn.Module", patching_specs: Optional[List[Tuple[str, Any]]] = None
+        self,
+        model: "torch.nn.Module",
+        patching_specs: Optional[List[Tuple[str, Any]]] = None,
     ) -> "torch.nn.Module":
         if patching_specs is None:
             patching_specs = MODEL_PATCHING_SPECS
         prepared_patching_specs = []
+
+        patched_get_parameter_dtype = create_patched_get_parameter_dtype(
+            xla_downcast_bf16=os.environ["XLA_DOWNCAST_BF16"] == "1",
+            use_amp=self.state.mixed_precision == "bf16" and self.autocast_backend is AutocastBackend.AMP,
+            xla_use_bf16=os.environ["XLA_USE_BF16"] == "1",
+        )
+        prepared_patching_specs.append(
+            (
+                "forward",
+                DynamicPatch(
+                    patch_within_function(
+                        ("transformers.modeling_utils.get_parameter_dtype", patched_get_parameter_dtype)
+                    )
+                ),
+            ),
+        )
+
         for spec in patching_specs:
             prepared_patching_specs.append((model,) + spec)
 
@@ -553,23 +562,6 @@ class NeuronAccelerator(Accelerator):
 
     @contextlib.contextmanager
     def autocast(self, cache_enabled: bool = False, autocast_handler: Optional[AutocastKwargs] = None):
-        """
-        Will apply automatic mixed-precision inside the block inside this context manager, if it is enabled. Nothing
-        different will happen otherwise.
-
-        A different `autocast_handler` can be passed in to override the one set in the `Accelerator` object. This is
-        useful in blocks under `autocast` where you want to revert to fp32.
-
-        Example:
-
-        ```python
-        >>> from accelerate import Accelerator
-
-        >>> accelerator = Accelerator(mixed_precision="fp16")
-        >>> with accelerator.autocast():
-        ...     train()
-        ```
-        """
         if cache_enabled:
             warnings.warn(
                 "Passing `cache_enabled=True` to `accelerator.autocast` is deprecated and will be removed in v0.23.0. "

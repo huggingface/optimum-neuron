@@ -232,15 +232,6 @@ class FirstAndLastDataset(Dataset):
         return len(self.samples)
 
 
-orig_finfo = torch.finfo
-
-
-def patched_finfo(dtype):
-    if dtype is torch.float32:
-        return orig_finfo(torch.bfloat16)
-    return orig_finfo(dtype)
-
-
 def patch_generation_mixin_to_neuron_generation_mixin(model: "PreTrainedModel"):
     """
     Changes the vanilla `GenerationMixin` class from Transformers to `NeuronGenerationMixin` in the model's

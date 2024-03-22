@@ -19,6 +19,7 @@ import re
 from typing import TYPE_CHECKING, Dict, Union
 
 import torch
+from transformers.modeling_utils import get_parameter_dtype
 
 from ...distributed.utils import named_parameters
 from ...utils import is_torch_neuronx_available, is_torch_xla_available, patch_everywhere
@@ -39,6 +40,18 @@ def is_tpu_available(check_device=True):
 
 def patch_accelerate_is_tpu_available():
     patch_everywhere("is_tpu_available", is_tpu_available, module_name_prefix="accelerate")
+
+
+def create_patched_get_parameter_dtype(
+    xla_downcast_bf16: bool = False, use_amp: bool = False, xla_use_bf16: bool = False
+):
+    def patched_get_parameter_dtype(module):
+        dtype = get_parameter_dtype(module)
+        if xla_downcast_bf16 or use_amp or xla_use_bf16:
+            return torch.bfloat16
+        return dtype
+
+    return patched_get_parameter_dtype
 
 
 @requires_neuronx_distributed
