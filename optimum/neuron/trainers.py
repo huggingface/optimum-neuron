@@ -1028,13 +1028,7 @@ class AugmentTrainerForNeuronMixin:
                         if not isinstance(self.lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
                             self.lr_scheduler.step()
 
-                    # It should be equivalent but prefer to use the `zero_grad` method from the optimizer when doing
-                    # pipeline parallelism.
-                    if isinstance(model, NxDPPModel):
-                        self.optimizer.zero_grad()
-                    else:
-                        model.zero_grad()
-
+                    self.optimizer.zero_grad()
                     xm.mark_step()
 
                     self.state.global_step += 1
