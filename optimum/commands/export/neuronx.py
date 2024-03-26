@@ -83,7 +83,7 @@ def parse_args_neuronx(parser: "ArgumentParser"):
     optional_group.add_argument(
         "--disable_neuron_cache",
         action="store_true",
-        help="Whether to disable automatic caching of compiled TorchScript models (not applicable for JIT compilation).",
+        help="Whether to disable automatic caching of compiled models (not applicable for JIT compilation).",
     )
     optional_group.add_argument(
         "--trust-remote-code",

@@ -29,6 +29,8 @@ from transformers.testing_utils import ENDPOINT_STAGING
 from optimum.neuron import NeuronModelForCausalLM, NeuronModelForSequenceClassification, NeuronStableDiffusionPipeline
 from optimum.neuron.utils import get_hub_cached_entries, synchronize_hub_cache
 from optimum.neuron.utils.cache_utils import (
+    CACHE_REPO_FILENAME,
+    HF_HOME,
     load_custom_cache_repo_name_from_hf_home,
     set_custom_cache_repo_name_in_hf_home,
 )
@@ -48,7 +50,9 @@ def cache_repos():
     cache_repo_id = api.create_repo(cache_repo_id, private=True).repo_id
     api.repo_info(cache_repo_id, repo_type="model")
     cache_dir = TemporaryDirectory()
-    set_custom_cache_repo_name_in_hf_home(cache_repo_id, api=api)
+    set_custom_cache_repo_name_in_hf_home(
+        cache_repo_id, api=api
+    )  # The custom repo will be registered under `HF_HOME`, we need to restore the env by the end of each test.
     assert load_custom_cache_repo_name_from_hf_home() == cache_repo_id
     cache_path = cache_dir.name
     # Modify environment to force neuronx cache to use temporary caches
@@ -68,6 +72,12 @@ def cache_repos():
             os.environ.pop(var)
         else:
             os.environ[var] = previous_env[var]
+
+
+def unset_custom_cache_repo_name_in_hf_home(hf_home: str = HF_HOME):
+    hf_home_cache_repo_file = f"{hf_home}/{CACHE_REPO_FILENAME}"
+    if os.path.isfile(hf_home_cache_repo_file):
+        os.remove(hf_home_cache_repo_file)
 
 
 def export_decoder_model(model_id):
@@ -196,6 +206,7 @@ def test_decoder_cache(cache_repos):
     check_decoder_generation(model)
     # Verify the local cache directory has not been populated
     assert len(get_local_cached_files(cache_path, "neff")) == 0
+    unset_custom_cache_repo_name_in_hf_home()
 
 
 @is_inferentia_test
@@ -227,6 +238,7 @@ def test_encoder_cache(cache_repos):
     check_encoder_inference(model, tokenizer)
     # Verify the local cache directory has not been populated
     assert len(get_local_cached_files(cache_path, ".neuron")) == 0
+    unset_custom_cache_repo_name_in_hf_home()
 
 
 @is_inferentia_test
@@ -257,6 +269,7 @@ def test_stable_diffusion_cache(cache_repos):
     check_stable_diffusion_inference(model)
     # Verify the local cache directory has not been populated
     assert len(get_local_cached_files(cache_path, ".neuron")) == 0
+    unset_custom_cache_repo_name_in_hf_home()
 
 
 @is_inferentia_test
@@ -271,6 +284,7 @@ def test_stable_diffusion_cache(cache_repos):
     ids=["invalid_repo", "invalid_endpoint", "invalid_token"],
 )
 def test_decoder_cache_unavailable(cache_repos, var, value, match):
+    unset_custom_cache_repo_name_in_hf_home()  # clean the repo set by cli since it's prioritized than env variable
     # Modify the specified environment variable to trigger an error
     os.environ[var] = value
     # Just exporting the model will only emit a warning
@@ -301,3 +315,4 @@ def test_optimum_neuron_cli_cache_synchronize(cache_repos):
     stdout = stdout.decode("utf-8")
     assert p.returncode == 0
     assert f"1 entrie(s) found in cache for {model_id}" in stdout
+    unset_custom_cache_repo_name_in_hf_home()

@@ -152,10 +152,7 @@ class CompileCacheHfProxy(CompileCache):
         if self.default_cache.exists(path):
             return True
         rel_path = self._rel_path(path)
-        file_exists = self.api.file_exists(self.repo_id, rel_path)
-        folder_info = self.api.list_repo_tree(self.repo_id, rel_path)
-        folder_exists = len(list(folder_info)) > 1
-        exists = file_exists or folder_exists
+        exists = self.api.file_exists(self.repo_id, rel_path)
         if not exists:
             logger.warning(
                 f"{rel_path} not found in {self.repo_id}: the corresponding graph will be recompiled."
@@ -184,7 +181,7 @@ class CompileCacheHfProxy(CompileCache):
                 folder_info = list(self.api.list_repo_tree(self.repo_id, rel_folder_path))
                 folder_exists = len(folder_info) > 1
             except Exception as e:
-                logger.warning(f"{rel_folder_path} not found in {self.repo_id}: {e} \nThe model will be recompiled.")
+                logger.info(f"{rel_folder_path} not found in {self.repo_id}: {e} \nThe model will be recompiled.")
                 folder_exists = False
 
             if folder_exists:
@@ -239,7 +236,7 @@ class CompileCacheHfProxy(CompileCache):
 def get_hub_cache():
     HUB_CACHE = "aws-neuron/optimum-neuron-cache"
     custom_hub_cache = load_custom_cache_repo_name_from_hf_home()
-    if custom_hub_cache is not None:
+    if custom_hub_cache is not None and len(custom_hub_cache) > 0:
         return custom_hub_cache
     else:
         return os.getenv("CUSTOM_CACHE_REPO", HUB_CACHE)
@@ -351,7 +348,7 @@ def hub_neuronx_cache(
                 # Create cache entry in local cache: it can be later synchronized with the hub cache
                 registry_path = default_cache.get_cache_dir_with_cache_key(registry_folder)
                 model_type = entry.config["model_type"]
-                entry_path = f"{registry_path}/{model_type}/{entry.model_id}"  # TODO: this is not applicable for checkpoints with multiple models, eg. stable diffusion
+                entry_path = f"{registry_path}/{model_type}/{entry.model_id}"
                 config_path = f"{entry_path}/{entry.hash}.json"
                 if not default_cache.exists(config_path):
                     oldmask = os.umask(000)
@@ -549,9 +546,14 @@ def build_cache_config(
         config = exclude_white_list_from_config(config, white_list, neuron_white_list)
         clean_configs[name] = config
 
-    if "unet" in configs:
-        clean_configs["model_type"] = "stable-diffusion"
     if len(clean_configs) > 1:
+        if "unet" in configs:
+            # stable diffusion
+            clean_configs["model_type"] = "stable-diffusion"
+        else:
+            # seq-to-seq
+            clean_configs["model_type"] = next(iter(clean_configs.values()))["model_type"]
+
         return clean_configs
     else:
         return next(iter(clean_configs.values()))

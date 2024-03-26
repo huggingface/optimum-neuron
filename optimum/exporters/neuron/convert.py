@@ -465,7 +465,7 @@ def export_neuronx(
     config: "NeuronDefaultConfig",
     output: Path,
     compiler_workdir: Optional[Path] = None,
-    inline_weights_to_neff: bool = True,
+    inline_weights_to_neff: bool = False,
     optlevel: str = "2",
     auto_cast: Optional[str] = None,
     auto_cast_type: str = "bf16",
@@ -482,7 +482,7 @@ def export_neuronx(
             Directory to store the exported Neuron model.
         compiler_workdir (`Optional[Path]`, defaults to `None`):
             The directory used by neuronx-cc, where you can find intermediary outputs (neff, weight, hlo...).
-        inline_weights_to_neff (`bool`, defaults to `True`):
+        inline_weights_to_neff (`bool`, defaults to `False`):
             Whether to inline the weights to the neff graph. If set to False, weights will be seperated from the neff.
         optlevel (`str`, defaults to `"2"`):
             The level of optimization the compiler should perform. Can be `"1"`, `"2"` or `"3"`, defaults to "2".
@@ -546,6 +546,12 @@ def export_neuronx(
     # diffusers specific
     compiler_args = add_stable_diffusion_compiler_args(config, compiler_args)
 
+    if config.dynamic_batch_size is True and not inline_weights_to_neff:
+        logger.warning(
+            "Dynamic batching is not yet compatible with the weights/neff non-inlined model. `inline_weights_to_neff` is set to True. If you still want to separate the neff and weights, please set `dynamic_batch_size=False`."
+        )
+        inline_weights_to_neff = True
+
     neuron_model = neuronx.trace(
         checked_model,
         dummy_inputs_tuple,
@@ -556,10 +562,6 @@ def export_neuronx(
     )
 
     if config.dynamic_batch_size is True:
-        if not inline_weights_to_neff:
-            raise ValueError(
-                "Dynamic batching is not yet compatible with the weights/neff non-inlined model. Please set `dynamic_batch_size=False` or `inline_weights_to_neff=True`."
-            )
         neuron_model = neuronx.dynamic_batch(neuron_model)
 
     # diffusers specific
@@ -608,7 +610,7 @@ def export_neuron(
     config: "NeuronDefaultConfig",
     output: Path,
     compiler_workdir: Optional[Path] = None,
-    inline_weights_to_neff: bool = True,
+    inline_weights_to_neff: bool = False,
     auto_cast: Optional[str] = None,
     auto_cast_type: str = "bf16",
     disable_fast_relayout: bool = False,
@@ -626,7 +628,7 @@ def export_neuron(
             Directory to store the exported Neuron model.
         compiler_workdir (`Optional[Path]`, defaults to `None`):
             The directory used by neuron-cc, where you can find intermediary outputs (neff, weight, hlo...).
-        inline_weights_to_neff (`bool`, defaults to `True`):
+        inline_weights_to_neff (`bool`, defaults to `False`):
             Whether to inline the weights to the neff graph. If set to False, weights will be seperated from the neff.
         auto_cast (`Optional[str]`, defaults to `None`):
             Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `None`, `"matmul"` or `"all"`, you should use `None` to disable any auto-casting, use `"matmul"` to cast FP32 matrix multiplication operations, and use `"all"` to cast all FP32 operations.
@@ -665,6 +667,12 @@ def export_neuron(
     dummy_inputs_tuple = tuple(dummy_inputs.values())
     checked_model = config.patch_model_for_export(model, dummy_inputs)
     compiler_args = convert_neuronx_compiler_args_to_neuron(auto_cast, auto_cast_type, disable_fast_relayout)
+
+    if config.dynamic_batch_size is True and not inline_weights_to_neff:
+        logger.warning(
+            "Dynamic batching is not yet compatible with the weights/neff non-inlined model. `inline_weights_to_neff` is set to True. If you still want to separate the neff and weights, please set `dynamic_batch_size=False`."
+        )
+        inline_weights_to_neff = True
 
     neuron_model = neuron.trace(
         checked_model,
