@@ -530,8 +530,11 @@ def compute_query_indicies_for_rank(
     shift_per_key = torch.arange(0, num_attention_heads, query_group_size)
 
     shift_within_query_group = torch.arange(0, query_group_size, query_group_size_per_rank)
+    num_seen_query_heads_before_next_member = (
+        num_key_value_heads // num_key_value_heads_per_rank
+    ) * num_attention_heads_per_rank
     shift_within_query_group = torch.repeat_interleave(
-        shift_within_query_group, num_attention_heads_per_rank * num_key_value_heads_per_rank
+        shift_within_query_group, num_seen_query_heads_before_next_member
     )
     shift_within_query_group = torch.chunk(shift_within_query_group, tp_size)
 
