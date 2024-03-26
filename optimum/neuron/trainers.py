@@ -64,6 +64,8 @@ from transformers.trainer_utils import (
 from transformers.training_args import ParallelMode
 from transformers.utils import WEIGHTS_NAME, is_apex_available, is_sagemaker_mp_enabled
 
+from optimum.neuron.accelerate.utils.misc import set_env_for_torch_amp
+
 from ..utils import check_if_transformers_greater, logging
 from .accelerate import NeuronAccelerator, NeuronDistributedType
 from .distributed import Parallelizer, ParallelizersManager
@@ -80,6 +82,7 @@ from .utils.cache_utils import (
     get_neuronxcc_version,
     get_num_neuron_cores_used,
     has_write_access_to_repo,
+    set_neuron_cache_path,
 )
 from .utils.hub_neuronx_cache import ModelCacheEntry, hub_neuronx_cache, patch_neuron_cc_wrapper, synchronize_hub_cache
 from .utils.misc import is_main_worker
@@ -125,17 +128,7 @@ KEEP_HF_HUB_PROGRESS_BARS = os.environ.get("KEEP_HF_HUB_PROGRESS_BARS")
 if KEEP_HF_HUB_PROGRESS_BARS is None:
     os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
 
-
-if os.environ.get("TORCHELASTIC_RUN_ID"):
-    import torch_xla.distributed.xla_backend as xbn
-
-    if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
-        torch.distributed.init_process_group(backend="xla")
-        if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
-            raise AssertionError("Failed to initialize torch.distributed process group using XLA backend.")
-
 transformers_get_optimizer_cls_and_kwargs = Trainer.get_optimizer_cls_and_kwargs
-
 
 class AugmentTrainerForNeuronMixin:
     def __init__(self, *args, **kwargs):
@@ -230,14 +223,17 @@ class AugmentTrainerForNeuronMixin:
         return self.accelerator.distributed_type is NeuronDistributedType.MODEL_PARALLELISM
 
     def prepare_args_for_precompilation(self, args: "TrainingArguments"):
-        if is_main_worker() and args.num_train_epochs != 1:
-            logger.info("Setting the number of epochs for precompilation to 1.")
+        if args.num_train_epochs != 1:
+            if is_main_worker():
+                logger.info("Setting the number of epochs for precompilation to 1.")
             args.num_train_epochs = 1
-        if is_main_worker() and args.do_eval is True:
-            logger.info("Disabling evaluation during precompilation as this is not well supported yet.")
+        if args.do_eval:
+            if is_main_worker():
+                logger.info("Disabling evaluation during precompilation as this is not well supported yet.")
             args.do_eval = False
-        if is_main_worker() and args.do_predict is True:
-            logger.info("Disabling prediction during precompilation as this is not well supported yet.")
+        if args.do_predict:
+            if is_main_worker():
+                logger.info("Disabling prediction during precompilation as this is not well supported yet.")
             args.do_predict = False
 
     def validate_args(self, args: "TrainingArguments"):
@@ -479,7 +475,6 @@ class AugmentTrainerForNeuronMixin:
         if is_main_worker():
             logger.info(f"Saving model checkpoint to {output_dir}")
 
-        if xm.is_master_ordinal():
             os.makedirs(output_dir, exist_ok=True)
             torch.save(self.args, os.path.join(output_dir, TRAINING_ARGS_NAME))
 

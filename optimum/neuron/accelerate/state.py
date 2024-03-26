@@ -257,7 +257,6 @@ class NeuronAcceleratorState(AcceleratorState):
             self._mixed_precision = "no" if self.distributed_type == DistributedType.DEEPSPEED else mixed_precision
 
             if self.distributed_type == DistributedType.TPU:
-
                 if autocast_backend is None:
                     autocast_backend = AutocastBackend.XLA
                 elif not isinstance(autocast_backend, AutocastBackend):
@@ -295,6 +294,7 @@ class NeuronAcceleratorState(AcceleratorState):
                 else:
                     self.mp_plugin = ModelParallelismPlugin()
 
+                # torch.distributed.init_process_group(backend="xla")
                 if torch.distributed.is_initialized() and not parallel_state.model_parallel_is_initialized():
                     parallel_state.initialize_model_parallel(
                         tensor_model_parallel_size=self.mp_plugin.tensor_parallel_size,

@@ -30,6 +30,7 @@ from ..version import __version__
 from .import_utils import is_neuronx_available
 from .patching import patch_everywhere
 from .require_utils import requires_torch_neuronx, requires_torch_xla
+from .cache_utils import get_neuron_cache_path
 
 
 if is_neuronx_available():
@@ -281,6 +282,8 @@ def hub_neuronx_cache(
             return create_compile_cache(cache_url)
 
     try:
+        if mode == "training" and cache_dir is None:
+            cache_dir = get_neuron_cache_path()
         if isinstance(cache_dir, Path):
             cache_dir = cache_dir.as_posix()
         default_cache = create_compile_cache(CacheUrl.get_cache_url(cache_dir=cache_dir))

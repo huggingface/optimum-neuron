@@ -42,6 +42,19 @@ def patch_accelerate_is_tpu_available():
     patch_everywhere("is_tpu_available", is_tpu_available, module_name_prefix="accelerate")
 
 
+_ORIG_TORCH_FINFO = torch.finfo
+
+
+def create_patched_finfo(xla_downcast_bf16: bool = False, use_amp: bool = False, xla_use_bf16: bool = False):
+
+    def patched_finfo(dtype):
+        if xla_downcast_bf16 or use_amp or xla_use_bf16:
+            return _ORIG_TORCH_FINFO(torch.bfloat16)
+        return _ORIG_TORCH_FINFO(dtype)
+
+    return patched_finfo
+
+
 def create_patched_get_parameter_dtype(
     xla_downcast_bf16: bool = False, use_amp: bool = False, xla_use_bf16: bool = False
 ):

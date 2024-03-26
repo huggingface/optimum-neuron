@@ -324,6 +324,17 @@ def set_neuron_cc_flags_for_model(model: "PreTrainedModel"):
             os.environ["NEURON_CC_FLAGS"] = neuron_cc_flags + f" {distribution_strategy}"
 
 
+@requires_torch_xla
+def init_process_group():
+    if os.environ.get("TORCHELASTIC_RUN_ID"):
+        import torch_xla.distributed.xla_backend as xbn
+    
+        if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
+            torch.distributed.init_process_group(backend="xla")
+            if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
+                raise AssertionError("Failed to initialize torch.distributed process group using XLA backend.")
+
+
 def set_verbosity(verbosity: int):
     set_verbosity_transformers(verbosity)
     set_verbosity_optimum(verbosity)

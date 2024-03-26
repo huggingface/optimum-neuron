@@ -40,7 +40,7 @@ from .accelerate import NeuronAcceleratorState, NeuronPartialState
 from .accelerate.utils import ModelParallelismPlugin, patch_accelerate_is_tpu_available
 from .utils import is_accelerate_available, is_torch_xla_available
 from .utils.patching import Patcher
-from .utils.training_utils import TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP
+from .utils.training_utils import TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP, init_process_group
 
 
 if is_sagemaker_mp_enabled():
@@ -179,6 +179,8 @@ class NeuronTrainingArgumentsMixin:
         # This is required to be able to use bf16, otherwise a check in super().__post_init__() fails.
         with Patcher([("transformers.training_args.get_xla_device_type", lambda _: "GPU")]):
             super().__post_init__()
+
+        init_process_group()
 
     # Needed only to specialize the warning message for FSDP.
     @cached_property

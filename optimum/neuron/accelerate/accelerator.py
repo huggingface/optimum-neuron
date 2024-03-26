@@ -58,7 +58,7 @@ from .utils import (
     patch_accelerate_is_tpu_available,
     tie_parameters,
 )
-from .utils.misc import create_patched_get_parameter_dtype
+from .utils.misc import create_patched_finfo
 from .utils.operations import _xla_gather
 
 
@@ -344,20 +344,20 @@ class NeuronAccelerator(Accelerator):
         if patching_specs is None:
             patching_specs = MODEL_PATCHING_SPECS
 
+        # Working on a copy for safety.
+        patching_specs = list(patching_specs)
+
         mixed_precision_is_bf16 = self.state.mixed_precision == "bf16"
-        patched_get_parameter_dtype = create_patched_get_parameter_dtype(
+        patched_finfo = create_patched_finfo(
             xla_downcast_bf16=mixed_precision_is_bf16 and self.state.downcast_bfloat,
             use_amp=mixed_precision_is_bf16 and self.state.autocast_backend is AutocastBackend.AMP,
             xla_use_bf16=mixed_precision_is_bf16 and not self.state.downcast_bfloat,
         )
+
         patching_specs.append(
             (
                 "forward",
-                DynamicPatch(
-                    patch_within_function(
-                        ("transformers.modeling_utils.get_parameter_dtype", patched_get_parameter_dtype)
-                    )
-                ),
+                DynamicPatch(patch_within_function(("torch.finfo", patched_finfo))),
             ),
         )
 
@@ -458,7 +458,7 @@ class NeuronAccelerator(Accelerator):
         #     else:
         #         model.to(torch.float32)
         # else:
-        #     set_env_for_torch_amp()
+        # set_env_for_torch_amp()
 
         tied_parameters_dict = get_tied_parameters_dict(model)
         model_main_input_name = getattr(model, "main_input_name", None)
