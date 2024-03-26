@@ -139,9 +139,14 @@ class NeuronModelIntegrationTest(NeuronModelIntegrationTestMixin):
             save_path = f"{tempdir}/neff"
             neff_path = os.path.join(save_path, "graph.neff")
             _ = NeuronModelForSequenceClassification.from_pretrained(
-                self.MODEL_ID, export=True, compiler_workdir=save_path, **self.STATIC_INPUTS_SHAPES
+                self.MODEL_ID,
+                export=True,
+                compiler_workdir=save_path,
+                disable_neuron_cache=True,
+                **self.STATIC_INPUTS_SHAPES,
             )
             self.assertTrue(os.path.isdir(save_path))
+            os.listdir(save_path)
             self.assertTrue(os.path.exists(neff_path))
 
     @requires_neuronx
@@ -656,7 +661,7 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
                 "hf-internal-testing/tiny-random-t5", from_transformers=True, **self.STATIC_INPUTS_SHAPES
             )
 
-        self.assertIn("is not supported yet", str(context.exception))
+        self.assertIn("doesn't support", str(context.exception))
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     @requires_neuronx
@@ -862,7 +867,7 @@ class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
                 "hf-internal-testing/tiny-random-t5", from_transformers=True, **self.STATIC_INPUTS_SHAPES
             )
 
-        self.assertIn("is not supported yet", str(context.exception))
+        self.assertIn("doesn't support", str(context.exception))
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     @requires_neuronx

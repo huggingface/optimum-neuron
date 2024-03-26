@@ -240,6 +240,7 @@ class NeuronBaseModel(OptimizedModel):
         force_download: bool = False,
         cache_dir: Optional[str] = None,
         compiler_workdir: Optional[Union[str, Path]] = None,
+        disable_neuron_cache: Optional[bool] = False,
         inline_weights_to_neff: bool = False,
         optlevel: str = "2",
         subfolder: str = "",
@@ -277,7 +278,9 @@ class NeuronBaseModel(OptimizedModel):
             "disable_fallback": disable_fallback,
         }
 
-        if not inline_weights_to_neff:
+        if (
+            not inline_weights_to_neff and not disable_neuron_cache and is_neuronx_available()
+        ):  # TODO: support caching of Inf1 as well
             # Check if the cache exists
             compilation_config = store_compilation_config(
                 config=config,
@@ -296,30 +299,38 @@ class NeuronBaseModel(OptimizedModel):
             cache_repo_id = load_custom_cache_repo_name_from_hf_home()
             compile_cache = _create_hub_compile_cache_proxy(cache_repo_id=cache_repo_id)
             model_cache_dir = compile_cache.default_cache.get_cache_dir_with_cache_key(f"MODULE_{cache_entry.hash}")
-            cache_exist = compile_cache.download_folder(model_cache_dir, model_cache_dir)
+            cache_available = compile_cache.download_folder(model_cache_dir, model_cache_dir)
         else:
-            cache_exist = False
+            cache_available = False
 
-        if cache_exist:
-            # load cache
-            neuron_model = cls.from_pretrained(model_cache_dir)
-            model = TasksManager.get_model_from_task(
-                task=task,
-                model_name_or_path=model_id,
-                subfolder=subfolder,
-                revision=revision,
-                framework="pt",
-                library_name=library_name,
-                cache_dir=cache_dir,
-                use_auth_token=use_auth_token,
-                local_files_only=local_files_only,
-                force_download=force_download,
-                trust_remote_code=trust_remote_code,
-            )
-            # replace weights
-            neuron_model.replace_weights(weights=model)
-            return neuron_model
-        else:
+        # load cache
+        if cache_available:
+            try:
+                neuron_model = cls.from_pretrained(model_cache_dir)
+                model = TasksManager.get_model_from_task(
+                    task=task,
+                    model_name_or_path=model_id,
+                    subfolder=subfolder,
+                    revision=revision,
+                    framework="pt",
+                    library_name=library_name,
+                    cache_dir=cache_dir,
+                    use_auth_token=use_auth_token,
+                    local_files_only=local_files_only,
+                    force_download=force_download,
+                    trust_remote_code=trust_remote_code,
+                )
+                # replace weights
+                neuron_model.replace_weights(weights=model)
+                return neuron_model
+            except Exception as e:
+                logger.warning(
+                    f"Found the cached artifacts but failed to re-load them with error: {e}. \n Falling back to recompilation."
+                )
+                cache_available = False
+
+        # compile
+        if not cache_available:
             # compile
             save_dir = TemporaryDirectory()
             save_dir_path = Path(save_dir.name)
@@ -330,6 +341,7 @@ class NeuronBaseModel(OptimizedModel):
                 task=task,
                 dynamic_batch_size=dynamic_batch_size,
                 cache_dir=cache_dir,
+                disable_neuron_cache=disable_neuron_cache,
                 compiler_workdir=compiler_workdir,
                 inline_weights_to_neff=inline_weights_to_neff,
                 optlevel=optlevel,

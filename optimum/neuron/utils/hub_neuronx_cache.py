@@ -74,7 +74,6 @@ CACHE_WHITE_LIST = [
     "_commit_hash",
     "sample_size",
     "projection_dim",
-    "task",
     "_use_default_values",
 ]
 NEURON_CONFIG_WHITE_LIST = ["input_names", "output_names", "model_type"]

@@ -262,11 +262,27 @@ def get_stable_diffusion_models_for_export(
 
 def _load_lora_weights_to_pipeline(
     pipeline: Union["StableDiffusionPipeline", "StableDiffusionXLImg2ImgPipeline"],
-    lora_model_ids: Optional[List[str]] = None,
-    weight_names: Optional[List[str]] = None,
-    adapter_names: Optional[List[str]] = None,
-    lora_scales: Optional[List[float]] = None,
+    lora_model_ids: Optional[Union[str, List[str]]] = None,
+    weight_names: Optional[Union[str, List[str]]] = None,
+    adapter_names: Optional[Union[str, List[str]]] = None,
+    lora_scales: Optional[Union[float, List[float]]] = None,
 ):
+    if isinstance(lora_model_ids, str):
+        lora_model_ids = [
+            lora_model_ids,
+        ]
+    if isinstance(weight_names, str):
+        weight_names = [
+            weight_names,
+        ]
+    if isinstance(adapter_names, str):
+        adapter_names = [
+            adapter_names,
+        ]
+    if isinstance(lora_scales, float):
+        lora_scales = [
+            lora_scales,
+        ]
     if lora_model_ids and weight_names:
         if len(lora_model_ids) == 1:
             pipeline.load_lora_weights(lora_model_ids[0], weight_name=weight_names[0])
@@ -288,9 +304,9 @@ def _load_lora_weights_to_pipeline(
 def get_submodels_for_export_stable_diffusion(
     pipeline: Union["StableDiffusionPipeline", "StableDiffusionXLImg2ImgPipeline"],
     task: str,
-    lora_model_ids: Optional[List[str]] = None,
-    lora_weight_names: Optional[List[str]] = None,
-    lora_adapter_names: Optional[List[str]] = None,
+    lora_model_ids: Optional[Union[str, List[str]]] = None,
+    lora_weight_names: Optional[Union[str, List[str]]] = None,
+    lora_adapter_names: Optional[Union[str, List[str]]] = None,
     lora_scales: Optional[List[float]] = None,
 ) -> Dict[str, Union["PreTrainedModel", "ModelMixin"]]:
     """
@@ -388,6 +404,8 @@ def check_mandatory_input_shapes(neuron_config_constructor, task, input_shapes):
             raise AttributeError(
                 f"Cannot find the value of `{name}` which is mandatory for exporting the model to the neuron format, please set the value explicitly."
             )
+    input_shapes = {axis: input_shapes[axis] for axis in mandatory_shapes}
+    return input_shapes
 
 
 def replace_stable_diffusion_submodels(pipeline, submodels):

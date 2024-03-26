@@ -26,7 +26,12 @@ from huggingface_hub import HfApi
 from transformers import AutoTokenizer
 from transformers.testing_utils import ENDPOINT_STAGING
 
-from optimum.neuron import NeuronModelForCausalLM, NeuronModelForSequenceClassification, NeuronStableDiffusionPipeline
+from optimum.neuron import (
+    NeuronModelForCausalLM,
+    NeuronModelForSequenceClassification,
+    NeuronStableDiffusionPipeline,
+    NeuronStableDiffusionXLPipeline,
+)
 from optimum.neuron.utils import get_hub_cached_entries, synchronize_hub_cache
 from optimum.neuron.utils.cache_utils import (
     CACHE_REPO_FILENAME,
@@ -113,6 +118,21 @@ def export_stable_diffusion_model(model_id):
     width = 64
     num_images_per_prompt = 4
     return NeuronStableDiffusionPipeline.from_pretrained(
+        model_id,
+        export=True,
+        batch_size=batch_size,
+        height=height,
+        width=width,
+        num_images_per_prompt=num_images_per_prompt,
+    )
+
+
+def export_stable_diffusion_xl_model(model_id):
+    batch_size = 1
+    height = 64
+    width = 64
+    num_images_per_prompt = 4
+    return NeuronStableDiffusionXLPipeline.from_pretrained(
         model_id,
         export=True,
         batch_size=batch_size,
@@ -266,6 +286,37 @@ def test_stable_diffusion_cache(cache_repos):
     assert local_cache_size(cache_path) == 0
     # Export the model again: the compilation artifacts should be fetched from the Hub
     model = export_stable_diffusion_model(model_id)
+    check_stable_diffusion_inference(model)
+    # Verify the local cache directory has not been populated
+    assert len(get_local_cached_files(cache_path, ".neuron")) == 0
+    unset_custom_cache_repo_name_in_hf_home()
+
+
+@is_inferentia_test
+@requires_neuronx
+def test_stable_diffusion_xl_cache(cache_repos):
+    cache_path, cache_repo_id = cache_repos
+    model_id = "echarlaix/tiny-random-stable-diffusion-xl"
+    # Export the model a first time to populate the local cache
+    model = export_stable_diffusion_xl_model(model_id)
+    check_stable_diffusion_inference(model)
+    # check registry
+    check_aot_cache_entry(cache_path)
+    # Synchronize the hub cache with the local cache
+    synchronize_hub_cache(cache_repo_id=cache_repo_id)
+    assert_local_and_hub_cache_sync(cache_path, cache_repo_id)
+    # Verify we are able to fetch the cached entry for the model
+    model_entries = get_hub_cached_entries(model_id, "inference", cache_repo_id=cache_repo_id)
+    assert len(model_entries) == 1
+    # Clear the local cache
+    for root, dirs, files in os.walk(cache_path):
+        for f in files:
+            os.unlink(os.path.join(root, f))
+        for d in dirs:
+            shutil.rmtree(os.path.join(root, d))
+    assert local_cache_size(cache_path) == 0
+    # Export the model again: the compilation artifacts should be fetched from the Hub
+    model = export_stable_diffusion_xl_model(model_id)
     check_stable_diffusion_inference(model)
     # Verify the local cache directory has not been populated
     assert len(get_local_cached_files(cache_path, ".neuron")) == 0

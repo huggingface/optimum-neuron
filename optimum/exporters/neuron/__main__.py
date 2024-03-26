@@ -217,6 +217,8 @@ def infer_stable_diffusion_shapes_from_diffusers(
     scaled_width = width // vae_scale_factor
 
     input_shapes["text_encoder"].update({"sequence_length": sequence_length})
+    if hasattr(model, "text_encoder_2"):
+        input_shapes["text_encoder_2"] = input_shapes["text_encoder"]
     input_shapes["unet"].update(
         {
             "sequence_length": sequence_length,
@@ -290,7 +292,7 @@ def _get_submodels_and_neuron_configs(
             task=task,
             library_name=library_name,
         )
-        check_mandatory_input_shapes(neuron_config_constructor, task, input_shapes)
+        input_shapes = check_mandatory_input_shapes(neuron_config_constructor, task, input_shapes)
         neuron_config = neuron_config_constructor(model.config, dynamic_batch_size=dynamic_batch_size, **input_shapes)
         model_name = getattr(model, "name_or_path", None) or model_name_or_path
         model_name = model_name.split("/")[-1] if model_name else model.config.model_type

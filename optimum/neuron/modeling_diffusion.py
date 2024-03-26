@@ -59,6 +59,7 @@ from .utils.hub_neuronx_cache import (
     _create_hub_compile_cache_proxy,
     build_cache_config,
 )
+from .utils.require_utils import requires_torch_neuronx
 from .utils.version_utils import get_neuronxcc_version
 
 
@@ -265,6 +266,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         return any(pattern in unet_name_or_path for pattern in patterns)
 
     @staticmethod
+    @requires_torch_neuronx
     def load_model(
         data_parallel_mode: Optional[str],
         text_encoder_path: Union[str, Path],
@@ -426,6 +428,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             self.feature_extractor.save_pretrained(save_directory.joinpath("feature_extractor"))
 
     @classmethod
+    @requires_torch_neuronx
     def _from_pretrained(
         cls,
         model_id: Union[str, Path],
@@ -558,11 +561,13 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         )
 
     @classmethod
+    @requires_torch_neuronx
     def _from_transformers(cls, *args, **kwargs):
         # Deprecate it when optimum uses `_export` as from_pretrained_method in a stable release.
         return cls._export(*args, **kwargs)
 
     @classmethod
+    @requires_torch_neuronx
     def _export(
         cls,
         model_id: Union[str, Path],
@@ -573,6 +578,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         force_download: bool = True,
         cache_dir: Optional[str] = None,
         compiler_workdir: Optional[str] = None,
+        disable_neuron_cache: Optional[bool] = False,
         inline_weights_to_neff: bool = False,
         optlevel: str = "2",
         subfolder: str = "",
@@ -616,6 +622,8 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 standard cache should not be used.
             compiler_workdir (`Optional[str]`, defaults to `None`):
                 Path to a directory in which the neuron compiler will store all intermediary files during the compilation(neff, weight, hlo graph...).
+            disable_neuron_cache (`bool`, defaults to `False`):
+                Whether to disable automatic caching of compiled models. If set to True, will not load neuron cache nor cache the compiled artifacts.
             inline_weights_to_neff (`bool`, defaults to `False`):
                 Whether to inline the weights to the neff graph. If set to False, weights will be seperated from the neff.
             optlevel (`str`, defaults to `"2"`):
@@ -685,7 +693,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         pipe = replace_stable_diffusion_submodels(pipe, submodels)
 
         # Check if the cache exists
-        if not inline_weights_to_neff:
+        if not inline_weights_to_neff and not disable_neuron_cache:
             # 1. Fetch all model configs
             models_for_export = get_submodels_for_export_stable_diffusion(
                 pipeline=pipe,
@@ -757,6 +765,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 task=task,
                 dynamic_batch_size=dynamic_batch_size,
                 cache_dir=cache_dir,
+                disable_neuron_cache=disable_neuron_cache,
                 compiler_workdir=compiler_workdir,
                 inline_weights_to_neff=inline_weights_to_neff,
                 optlevel=optlevel,

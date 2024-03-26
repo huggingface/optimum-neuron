@@ -342,15 +342,13 @@ def export_models(
         output_path = output_dir / output_file_name
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        compiler_workdir_path = compiler_workdir / model_name if compiler_workdir is not None else None
-
         try:
             start_time = time.time()
             neuron_inputs, neuron_outputs = export(
                 model=submodel,
                 config=sub_neuron_config,
                 output=output_path,
-                compiler_workdir=compiler_workdir_path,
+                compiler_workdir=compiler_workdir,
                 inline_weights_to_neff=inline_weights_to_neff,
                 optlevel=optlevel,
                 **compiler_kwargs,
