@@ -14,9 +14,12 @@
 # limitations under the License.
 """Utilities of various sorts related to accelerate with Neuron."""
 
+import os
+import re
 from typing import TYPE_CHECKING, Dict, Union
 
 import torch
+from transformers.modeling_utils import get_parameter_dtype
 
 from ...distributed.utils import named_parameters
 from ...utils import is_torch_neuronx_available, is_torch_xla_available, patch_everywhere
@@ -37,6 +40,18 @@ def is_tpu_available(check_device=True):
 
 def patch_accelerate_is_tpu_available():
     patch_everywhere("is_tpu_available", is_tpu_available, module_name_prefix="accelerate")
+
+
+def create_patched_get_parameter_dtype(
+    xla_downcast_bf16: bool = False, use_amp: bool = False, xla_use_bf16: bool = False
+):
+    def patched_get_parameter_dtype(module):
+        dtype = get_parameter_dtype(module)
+        if xla_downcast_bf16 or use_amp or xla_use_bf16:
+            return torch.bfloat16
+        return dtype
+
+    return patched_get_parameter_dtype
 
 
 @requires_neuronx_distributed
@@ -82,3 +97,12 @@ def tie_parameters(model: Union["torch.nn.Module", "NxDPPModel"], tied_parameter
         if param_to_tie is not param:
             del param_to_tie
             setattr(param_to_tie_parent_module, param_to_tie_name[1], param)
+
+
+def set_env_for_torch_amp():
+    torch.cuda.is_bf16_supported = lambda: True
+    neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
+    match_ = re.search(r"--auto-cast\s?\=?\s?\w+", neuron_cc_flags)
+    if match_ is not None:
+        neuron_cc_flags = neuron_cc_flags[: match_.start(0)] + neuron_cc_flags[match_.end(0) :]
+    os.environ["NEURON_CC_FLAGS"] = f"{neuron_cc_flags} --auto-cast=none"

@@ -57,6 +57,13 @@ class NeuronTrainingArgumentsMixin:
     skip_cache_push: bool = field(
         default=False, metadata={"help": "Whether to skip pushing Neuron artifacts to hub cache"}
     )
+    half_precision_backend: str = field(
+        default="xla",
+        metadata={
+            "help": "The backend to be used for half precision.",
+            "choices": ["xla", "amp"],
+        },
+    )
     zero_1: bool = field(default=False, metadata={"help": "Whether to use  ZeRO Stage 1 Optimization."})
     tensor_parallel_size: int = field(
         default=1, metadata={"help": "The number of replicas the model will be sharded on."}
@@ -133,6 +140,9 @@ class NeuronTrainingArgumentsMixin:
                 )
         if self.neuron_cc_optlevel != "auto":
             self.neuron_cc_optlevel = f"-O{self.neuron_cc_optlevel}"
+
+        if self.fp16:
+            raise ValueError("The fp16 data type is not supported in Neuron, please use bf16 instead.")
 
         resume_from_checkpoint = self.resume_from_checkpoint
         if resume_from_checkpoint is None and os.path.isdir(self.output_dir):

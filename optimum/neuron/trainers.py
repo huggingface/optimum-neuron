@@ -28,6 +28,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import torch
 from accelerate import __version__ as accelerate_version
+from accelerate.utils import AutocastKwargs
 from packaging import version
 from torch.utils.data import Dataset
 from transformers import PreTrainedModel, Seq2SeqTrainer, Trainer, TrainingArguments
@@ -151,10 +152,12 @@ class AugmentTrainerForNeuronMixin:
         if training_args is None and len(args) >= 2:
             training_args = args[1]
 
+        self.use_amp = False
         if training_args is not None:
             if training_args.bf16:
-                training_args.bf16 = False
-                os.environ["XLA_USE_BF16"] = "1"
+                # os.environ["XLA_DOWNCAST_BF16"] = "1"
+                if training_args.half_precision_backend == "amp":
+                    self.use_amp = True
 
         self.validate_args(training_args)
         if is_precompilation():
@@ -187,8 +190,7 @@ class AugmentTrainerForNeuronMixin:
         # Model cache entry management.
         model_name_or_path_for_cache_entry = get_model_name_or_path(self.model.config)
         model_config_for_cache_entry = copy.deepcopy(self.model.config)
-        use_bf16 = os.environ.get("XLA_USE_BF16", False) or os.environ.get("XLA_DOWNCAST_BF16", False)
-        precision = "bfloat16" if use_bf16 else "float32"
+        precision = "bfloat16" if self.accelerator.state.mixed_precision == "bf16" else "float32"
         neuron_config_for_cache_entry = {
             "model_class": self.model.__class__.__name__,
             "precision": precision,
@@ -248,6 +250,8 @@ class AugmentTrainerForNeuronMixin:
             gradient_accumulation_steps=self.args.gradient_accumulation_steps,
             mp_plugin=self.args.mp_plugin,
             zero_1=self.args.zero_1,
+            mixed_precision="bf16" if self.args.bf16 else "no",
+            autocast_backend=self.args.half_precision_backend,
         )
 
         # deepspeed and accelerate flags covering both trainer args and accelerate launcher
@@ -341,6 +345,18 @@ class AugmentTrainerForNeuronMixin:
 
         return super().compute_loss(model, inputs, return_outputs=return_outputs)
 
+    def autocast_smart_context_manager(self, cache_enabled: Optional[bool] = True):
+        """
+        A helper wrapper that creates an appropriate context manager for `autocast` while feeding it the desired
+        arguments, depending on the situation.
+        """
+
+        autocast_handler = AutocastKwargs(
+            enabled=self.accelerator.autocast_handler.enabled,
+            cache_enabled=cache_enabled,
+        )
+        return self.accelerator.autocast(autocast_handler=autocast_handler)
+
     def training_step(self, model: torch.nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]) -> torch.Tensor:
         from neuronx_distributed.pipeline import NxDPPModel
 
@@ -354,7 +370,7 @@ class AugmentTrainerForNeuronMixin:
                 loss = self.compute_loss(model, inputs)
 
             if get_pipeline_model_parallel_rank() != get_pipeline_model_parallel_size() - 1:
-                use_bf16 = os.environ.get("XLA_USE_BF16", False) or os.environ.get("XLA_DOWNCAST_BF16", False)
+                use_bf16 = self.accelerator.state.mixed_precision == "bf16"
                 dtype = torch.bfloat16 if use_bf16 else torch.float32
                 loss = torch.tensor(0, dtype=dtype).to(xm.xla_device())
             else:
@@ -379,7 +395,7 @@ class AugmentTrainerForNeuronMixin:
                 raise ValueError("Only the prediction loss can be returned when doing pipeline parallelism.")
             loss = model.run_eval(**inputs)
             if loss is None:
-                use_bf16 = os.environ.get("XLA_USE_BF16", False) or os.environ.get("XLA_DOWNCAST_BF16", False)
+                use_bf16 = self.accelerator.state.mixed_precision == "bf16"
                 dtype = torch.bfloat16 if use_bf16 else torch.float32
                 loss = torch.tensor(0, dtype=dtype).to(xm.xla_device())
             return (loss, None, None)
