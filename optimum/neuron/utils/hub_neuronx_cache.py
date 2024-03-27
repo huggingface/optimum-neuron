@@ -267,7 +267,7 @@ class ModelCacheEntry:
 
     """
 
-    def __init__(self, model_id: str, config: Union[PretrainedConfig, Dict]):
+    def __init__(self, model_id: str, config: Union[PretrainedConfig, Dict[str, Any]]):
         self.model_id = model_id
         # Remove keys set to default values
         self.config = config.to_diff_dict() if isinstance(config, PretrainedConfig) else config
