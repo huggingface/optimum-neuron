@@ -53,11 +53,10 @@ from .utils import (
     replace_weights,
     store_compilation_config,
 )
-from .utils.cache_utils import load_custom_cache_repo_name_from_hf_home
 from .utils.hub_neuronx_cache import (
     ModelCacheEntry,
-    _create_hub_compile_cache_proxy,
     build_cache_config,
+    create_hub_compile_cache_proxy,
 )
 from .utils.require_utils import requires_torch_neuronx
 from .utils.version_utils import get_neuronxcc_version
@@ -739,8 +738,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             # 3. Lookup cached config
             cache_config = build_cache_config(compilation_configs)
             cache_entry = ModelCacheEntry(model_id=model_id, config=cache_config)
-            cache_repo_id = load_custom_cache_repo_name_from_hf_home()
-            compile_cache = _create_hub_compile_cache_proxy(cache_repo_id=cache_repo_id)
+            compile_cache = create_hub_compile_cache_proxy()
             model_cache_dir = compile_cache.default_cache.get_cache_dir_with_cache_key(f"MODULE_{cache_entry.hash}")
             cache_exist = compile_cache.download_folder(model_cache_dir, model_cache_dir)
         else:

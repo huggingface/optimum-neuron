@@ -34,8 +34,7 @@ from ...neuron.utils.cache_utils import get_model_name_or_path
 from ...neuron.utils.hub_neuronx_cache import (
     ModelCacheEntry,
     build_cache_config,
-    cache_aot_neuron_artifacts,
-    hub_neuronx_cache,
+    cache_traced_neuron_artifacts,
 )
 from ...neuron.utils.version_utils import get_neuroncc_version, get_neuronxcc_version
 from ...utils import (
@@ -402,11 +401,7 @@ def export_models(
         model_id = get_model_name_or_path(model_config) if model_name_or_path is None else model_name_or_path
         cache_config = build_cache_config(compile_configs)
         cache_entry = ModelCacheEntry(model_id=model_id, config=cache_config)
-
-        # Use the context manager just for creating registry, AOT compilation won't leverage `create_compile_cache`
-        # in `libneuronxla`, so we will need to cache compiled artifacts to local manually.
-        with hub_neuronx_cache("inference", entry=cache_entry):
-            cache_aot_neuron_artifacts(neuron_dir=output_dir, cache_config_hash=cache_entry.hash)
+        cache_traced_neuron_artifacts(neuron_dir=output_dir, cache_entry=cache_entry)
 
     # remove models failed to export
     for i, model_name in failed_models:

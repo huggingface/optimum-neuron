@@ -213,7 +213,7 @@ class CompileCacheHfProxy(CompileCache):
         self.default_cache.upload_file(cache_path, src_path)
 
     def upload_folder(self, cache_dir: str, src_dir: str):
-        # Upload folder the default cache: use synchronize to populate the Hub cache
+        # Upload folder to the default cache: use synchronize to populate the Hub cache
         shutil.copytree(src_dir, cache_dir, dirs_exist_ok=True)
 
     def upload_string_to_file(self, cache_path: str, data: str):
@@ -241,7 +241,7 @@ def get_hub_cache():
         return os.getenv("CUSTOM_CACHE_REPO", HUB_CACHE)
 
 
-def _create_hub_compile_cache_proxy(
+def create_hub_compile_cache_proxy(
     cache_url: Optional[CacheUrl] = None,
     cache_repo_id: Optional[str] = None,
 ):
@@ -328,7 +328,7 @@ def hub_neuronx_cache(
 
     def hf_create_compile_cache(cache_url):
         try:
-            return _create_hub_compile_cache_proxy(cache_url, cache_repo_id=cache_repo_id)
+            return create_hub_compile_cache_proxy(cache_url, cache_repo_id=cache_repo_id)
         except Exception as e:
             logger.warning(f"Bypassing Hub cache because of the following error: {e}")
             return create_compile_cache(cache_url)
@@ -402,7 +402,7 @@ def synchronize_hub_cache(cache_path: Optional[Union[str, Path]] = None, cache_r
         cache_url = CacheUrl(cache_path_str, url_type="fs")
     else:
         cache_url = None
-    hub_cache_proxy = _create_hub_compile_cache_proxy(cache_url=cache_url, cache_repo_id=cache_repo_id)
+    hub_cache_proxy = create_hub_compile_cache_proxy(cache_url=cache_url, cache_repo_id=cache_repo_id)
     hub_cache_proxy.synchronize()
 
 
@@ -558,10 +558,12 @@ def build_cache_config(
         return next(iter(clean_configs.values()))
 
 
-def cache_aot_neuron_artifacts(neuron_dir: Path, cache_config_hash: str):
-    cache_repo_id = load_custom_cache_repo_name_from_hf_home()
-    compile_cache = _create_hub_compile_cache_proxy(cache_repo_id=cache_repo_id)
-    model_cache_dir = compile_cache.default_cache.get_cache_dir_with_cache_key(f"MODULE_{cache_config_hash}")
-    compile_cache.upload_folder(cache_dir=model_cache_dir, src_dir=neuron_dir)
+def cache_traced_neuron_artifacts(neuron_dir: Path, cache_entry: ModelCacheEntry):
+    # Use the context manager just for creating registry, AOT compilation won't leverage `create_compile_cache`
+    # in `libneuronxla`, so we will need to cache compiled artifacts to local manually.
+    with hub_neuronx_cache("inference", entry=cache_entry):
+        compile_cache = create_hub_compile_cache_proxy()
+        model_cache_dir = compile_cache.default_cache.get_cache_dir_with_cache_key(f"MODULE_{cache_entry.hash}")
+        compile_cache.upload_folder(cache_dir=model_cache_dir, src_dir=neuron_dir)
 
-    logger.info(f"Model cached in: {model_cache_dir}.")
+        logger.info(f"Model cached in: {model_cache_dir}.")
