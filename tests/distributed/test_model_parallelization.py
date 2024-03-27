@@ -45,7 +45,7 @@ from transformers.models.auto.modeling_auto import (
 import optimum
 from optimum.neuron.accelerate.accelerator import NeuronAccelerator
 from optimum.neuron.distributed.parallelizers_manager import ParallelizersManager
-from optimum.neuron.distributed.utils import compute_query_indicies_for_rank
+from optimum.neuron.distributed.utils import compute_query_indices_for_rank
 from optimum.neuron.utils.cache_utils import (
     get_num_neuron_cores,
 )
@@ -663,7 +663,7 @@ def test_compute_query_indices_for_rank(
 ):
     for tp_rank in range(tp_size):
         expected = torch.tensor(ground_truth[tp_rank])
-        computed = compute_query_indicies_for_rank(
+        computed = compute_query_indices_for_rank(
             tp_size, tp_rank, num_attention_heads, num_key_value_heads, kv_size_multiplier
         )
         print(f"TP rank = {tp_rank}")
