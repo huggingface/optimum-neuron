@@ -22,7 +22,7 @@ from contextlib import contextmanager
 from enum import Enum
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from huggingface_hub import HfApi, get_token
 from transformers import AutoConfig, PretrainedConfig
@@ -270,7 +270,7 @@ class ModelCacheEntry:
     def __init__(self, model_id: str, config: Union[PretrainedConfig, Dict[str, Any]]):
         self.model_id = model_id
         # Remove keys set to default values
-        self.config = config.to_diff_dict() if isinstance(config, PretrainedConfig) else config
+        self.config = config.to_diff_dict() if isinstance(config, PretrainedConfig) else dict(config)
         excluded_keys = ["_name_or_path", "transformers_version"]
         for key in excluded_keys:
             self.config.pop(key, None)
@@ -434,39 +434,17 @@ def get_hub_cached_entries(
             local_path = api.hf_hub_download(cache_repo_id, model_path, local_dir=tmpdir)
             with open(local_path) as f:
                 entry_config = json.load(f)
-                # Remove neuron config for comparison as the target does not have it
-                model_entries = lookup_matched_entries(
-                    entry_config, target_entry, white_list, model_entries, model_type
-                )
+                if entry_config:
+                    model_entries = lookup_matched_entries(
+                        entry_config, target_entry, white_list, model_entries, model_type
+                    )
 
     return model_entries
 
 
-def lookup_matched_entries(entry_config, target_entry, white_list, model_entries, model_type):
-    is_matched = True
-    entry_config, target_entry_config, neuron_config = _prepare_config_for_matching(
-        entry_config, target_entry, model_type
-    )
-    for name, value in entry_config.items():
-        if isinstance(value, Dict):
-            for param in white_list:
-                value.pop(param, None)
-                target_entry_config[name].pop(param, None)
-            for term in set(entry_config[name]).intersection(set(target_entry_config[name])):
-                if entry_config[name][term] != target_entry_config[name][term]:
-                    is_matched = False
-        else:
-            if value != target_entry_config[name]:
-                is_matched = False
-    if is_matched:
-        neuron_config.pop("model_type", None)
-        model_entries.append(neuron_config)
-
-    return model_entries
-
-
-def _prepare_config_for_matching(entry_config, target_entry, model_type):
+def _prepare_config_for_matching(entry_config: Dict, target_entry: ModelCacheEntry, model_type: str):
     if model_type == "stable-diffusion":
+        # Remove neuron config for comparison as the target does not have it
         neuron_config = entry_config["unet"].pop("neuron")
         non_checked_components = [
             "vae",
@@ -478,11 +456,37 @@ def _prepare_config_for_matching(entry_config, target_entry, model_type):
             target_entry.config.pop(param, None)
         target_entry_config = target_entry.config
     else:
+        # Remove neuron config for comparison as the target does not have it
         neuron_config = entry_config.pop("neuron")
         entry_config = {"model": entry_config}
         target_entry_config = {"model": target_entry.config}
 
     return entry_config, target_entry_config, neuron_config
+
+
+def lookup_matched_entries(entry_config, target_entry, white_list, model_entries, model_type: str):
+    is_matched = True
+    entry_config, target_entry_config, neuron_config = _prepare_config_for_matching(
+        entry_config, target_entry, model_type
+    )
+    for name, value in entry_config.items():
+        if isinstance(value, dict):
+            for param in white_list:
+                value.pop(param, None)
+                target_entry_config[name].pop(param, None)
+            for term in set(entry_config[name]).intersection(set(target_entry_config[name])):
+                if entry_config[name][term] != target_entry_config[name][term]:
+                    is_matched = False
+                    break
+        else:
+            if value != target_entry_config[name]:
+                is_matched = False
+                break
+    if is_matched:
+        neuron_config.pop("model_type", None)
+        model_entries.append(neuron_config)
+
+    return model_entries
 
 
 def get_multimodels_configs_from_hub(model_id):
@@ -524,12 +528,12 @@ def exclude_white_list_from_config(
     return config
 
 
-# Only applied on traced TorchScript models
 def build_cache_config(
     configs: Union[PretrainedConfig, Dict[str, PretrainedConfig]],
     white_list: Optional[List] = None,
     neuron_white_list: Optional[List] = None,
 ):
+    """Only applied on traced TorchScript models."""
     clean_configs = {}
     no_check_components = [
         "vae",

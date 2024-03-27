@@ -577,7 +577,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         force_download: bool = True,
         cache_dir: Optional[str] = None,
         compiler_workdir: Optional[str] = None,
-        disable_neuron_cache: Optional[bool] = False,
+        disable_neuron_cache: bool = False,
         inline_weights_to_neff: bool = False,
         optlevel: str = "2",
         subfolder: str = "",

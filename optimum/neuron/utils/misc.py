@@ -649,7 +649,8 @@ def maybe_save_preprocessors(
 
 
 class DiffusersPretrainedConfig(PretrainedConfig):
-    # override to update `model_type`
+    """override to update `model_type`."""
+
     def to_dict(self):
         """
         Serializes this instance to a Python dictionary.
