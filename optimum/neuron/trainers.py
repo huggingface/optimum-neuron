@@ -118,6 +118,13 @@ if is_sagemaker_mp_enabled():
 else:
     IS_SAGEMAKER_MP_POST_1_10 = False
 
+
+# `neuron_parallel_compile` relies on the logs to retrieve the HLO graphs to compile.
+# For some reason, the logger logs strange characters that make `neuron_parallel_compile` fail when it tries to load
+# the log file to extract the graphs to compile. To avoid that, we disable logging when doing precompilation.
+if is_precompilation():
+    logging.logging.disable(sys.maxsize)
+
 logger = logging.get_logger("transformers.trainer")
 
 KEEP_HF_HUB_PROGRESS_BARS = os.environ.get("KEEP_HF_HUB_PROGRESS_BARS")
