@@ -32,6 +32,7 @@ TESTS_REQUIRE = [
     "diffusers >= 0.26.1",
     "safetensors",
     "sentence-transformers >= 2.2.0",
+    "peft",
 ]
 
 QUALITY_REQUIRES = [
