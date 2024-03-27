@@ -339,7 +339,8 @@ class AugmentTrainerForNeuronMixin:
             loss = model.run_train(**inputs)
             return loss
 
-        return super().compute_loss(model, inputs, return_outputs=return_outputs)
+        loss = super().compute_loss(model, inputs, return_outputs=return_outputs)
+        return loss
 
     def training_step(self, model: torch.nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]) -> torch.Tensor:
         from neuronx_distributed.pipeline import NxDPPModel
@@ -396,11 +397,12 @@ class AugmentTrainerForNeuronMixin:
                 get_pipeline_model_parallel_size,
             )
 
+            dp_size = get_data_parallel_size()
+            pp_size = get_pipeline_model_parallel_size()
+            pp_rank = get_pipeline_model_parallel_rank()
+
             if self.args.mp_plugin.should_parallelize:
 
-                dp_size = get_data_parallel_size()
-                pp_size = get_pipeline_model_parallel_size()
-                pp_rank = get_pipeline_model_parallel_rank()
                 tr_loss_div = tr_loss / dp_size
 
                 if pp_size > 1 and pp_rank == pp_size - 1:
@@ -431,6 +433,8 @@ class AugmentTrainerForNeuronMixin:
 
             if is_main_worker_for_metrics():
                 self.log(logs)
+            if pp_size > 1:
+                xm.rendezvous("waiting_after_log_metrics")
 
         metrics = None
         if self.control.should_evaluate:

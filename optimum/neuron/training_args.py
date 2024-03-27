@@ -38,7 +38,7 @@ from transformers.utils import (
 from ..utils import check_if_transformers_greater, logging
 from .accelerate import NeuronAcceleratorState, NeuronPartialState
 from .accelerate.utils import ModelParallelismPlugin, patch_accelerate_is_tpu_available
-from .utils import is_accelerate_available, is_torch_xla_available
+from .utils import is_accelerate_available, is_main_worker, is_torch_xla_available
 from .utils.patching import Patcher
 from .utils.training_utils import TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP
 
@@ -100,6 +100,15 @@ class NeuronTrainingArgumentsMixin:
             )
         },
     )
+    num_ranks_per_loading_step: int = field(
+        default=-1,
+        metadata={
+            "help": (
+                "The number of ranks to use concurrently during weight initialization and loading when tensor "
+                "parallelism is enabled. If left unspecified, the maximum number of ranks will be used."
+            )
+        },
+    )
 
     def __post_init__(self):
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
@@ -141,6 +150,14 @@ class NeuronTrainingArgumentsMixin:
             resume_from_checkpoint = checkpoint
 
         if self.pipeline_parallel_size > 1:
+            if self.gradient_accumulation_steps > 1:
+                if is_main_worker():
+                    logger.info(
+                        "Pipeline parallel used, setting gradient_accumulation_steps to 1 and scaling the pipeline batch size."
+                    )
+                self.per_device_train_batch_size *= self.gradient_accumulation_steps
+                self.per_device_eval_batch_size *= self.gradient_accumulation_steps
+                self.gradient_accumulation_steps = 1
             if self.pipeline_parallel_num_microbatches == -1:
                 self.pipeline_parallel_num_microbatches = self.per_device_train_batch_size
             if self.per_device_train_batch_size % self.pipeline_parallel_num_microbatches != 0:
