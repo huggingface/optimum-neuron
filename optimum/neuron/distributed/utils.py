@@ -522,19 +522,18 @@ def compute_query_indices_for_rank(
     queries_indices = [torch.arange(query_group_size_per_rank) for _ in range(num_key_value_heads_per_rank)]
 
     keys_indices = torch.arange(num_key_value_heads).repeat(kv_size_multiplier)
-    keys_indices = torch.repeat_interleave(
-        keys_indices, num_attention_heads_per_rank // num_key_value_heads_per_rank
-    )
+    keys_indices = torch.repeat_interleave(keys_indices, num_attention_heads_per_rank // num_key_value_heads_per_rank)
     keys_indices = torch.chunk(keys_indices, tp_size)
 
     shift_per_key = torch.arange(0, num_attention_heads, query_group_size)
 
     shift_within_query_group = torch.arange(0, query_group_size, query_group_size_per_rank)
-    num_seen_query_heads_before_next_member = (
-        num_key_value_heads // num_key_value_heads_per_rank
-    ) * num_attention_heads_per_rank
+    num_ranks_to_fit_all_key_value_heads = num_key_value_heads // num_key_value_heads_per_rank
+    num_query_heads_before_next_head_of_same_group = (
+        num_ranks_to_fit_all_key_value_heads * num_attention_heads_per_rank
+    )
     shift_within_query_group = torch.repeat_interleave(
-        shift_within_query_group, num_seen_query_heads_before_next_member
+        shift_within_query_group, num_query_heads_before_next_head_of_same_group
     )
     shift_within_query_group = torch.chunk(shift_within_query_group, tp_size)
 
