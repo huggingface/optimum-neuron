@@ -508,7 +508,7 @@ def create_kv_proj_local_weight_from_regular_weight(
     return torch.cat(split[tp_rank::tp_size], dim=0)
 
 
-def compute_query_indicies_for_rank(
+def compute_query_indices_for_rank(
     tp_size: int, tp_rank: int, num_attention_heads: int, num_key_value_heads: int, kv_size_multiplier: int
 ):
     """
@@ -519,13 +519,13 @@ def compute_query_indicies_for_rank(
     query_group_size = num_attention_heads // num_key_value_heads
     query_group_size_per_rank = num_attention_heads_per_rank // num_key_value_heads_per_rank
 
-    queries_indicies = [torch.arange(query_group_size_per_rank) for _ in range(num_key_value_heads_per_rank)]
+    queries_indices = [torch.arange(query_group_size_per_rank) for _ in range(num_key_value_heads_per_rank)]
 
-    keys_indicies = torch.arange(num_key_value_heads).repeat(kv_size_multiplier)
-    keys_indicies = torch.repeat_interleave(
-        keys_indicies, num_attention_heads_per_rank // num_key_value_heads_per_rank
+    keys_indices = torch.arange(num_key_value_heads).repeat(kv_size_multiplier)
+    keys_indices = torch.repeat_interleave(
+        keys_indices, num_attention_heads_per_rank // num_key_value_heads_per_rank
     )
-    keys_indicies = torch.chunk(keys_indicies, tp_size)
+    keys_indices = torch.chunk(keys_indices, tp_size)
 
     shift_per_key = torch.arange(0, num_attention_heads, query_group_size)
 
@@ -538,16 +538,16 @@ def compute_query_indicies_for_rank(
     )
     shift_within_query_group = torch.chunk(shift_within_query_group, tp_size)
 
-    indicies = []
-    for idx, q_indicies in enumerate(queries_indicies):
+    indices = []
+    for idx, q_indices in enumerate(queries_indices):
         s = slice(idx * query_group_size_per_rank, (idx + 1) * query_group_size_per_rank)
-        k_indicies = keys_indicies[tp_rank][s]
-        k_shift = shift_per_key[k_indicies]
+        k_indices = keys_indices[tp_rank][s]
+        k_shift = shift_per_key[k_indices]
         group_shift = shift_within_query_group[tp_rank][s]
-        indicies.append(q_indicies + k_shift + group_shift)
+        indices.append(q_indices + k_shift + group_shift)
 
-    indicies = torch.cat(indicies, dim=0)
-    return indicies
+    indices = torch.cat(indices, dim=0)
+    return indices
 
 
 @requires_neuronx_distributed
@@ -581,11 +581,11 @@ def create_query_or_output_projection_local_weight_from_regular_weight(
         head_dim = weight_data.size(1) // num_attention_heads
         weight_data = weight_data.transpose(0, 1)
 
-    indicies = compute_query_indicies_for_rank(
+    indices = compute_query_indices_for_rank(
         tp_size, tp_rank, num_attention_heads, num_key_value_heads, kv_size_multiplier
     )
     reshaped_weight = weight_data.view(num_attention_heads, head_dim, hidden_size)
-    shuffled_weight = reshaped_weight[indicies]
+    shuffled_weight = reshaped_weight[indices]
     shuffled_weight = shuffled_weight.reshape(-1, hidden_size)
 
     if query_or_output_proj == "output":
@@ -623,9 +623,9 @@ def create_local_bias_from_regular_bias(
 
     else:
         if gather_output:
-            indicies = torch.cat(
+            indices = torch.cat(
                 [
-                    compute_query_indicies_for_rank(
+                    compute_query_indices_for_rank(
                         tp_size, tp_rank, num_attention_heads, num_key_value_heads, kv_size_multiplier
                     )
                     for tp_rank in range(tp_size)
@@ -633,11 +633,11 @@ def create_local_bias_from_regular_bias(
                 dim=0,
             )
         else:
-            indicies = compute_query_indicies_for_rank(
+            indices = compute_query_indices_for_rank(
                 tp_size, tp_rank, num_attention_heads, num_key_value_heads, kv_size_multiplier
             )
         reshaped_bias_weight = bias_weigth_data.view(num_attention_heads, -1)
-        shuffled_bias_weight = reshaped_bias_weight[indicies]
+        shuffled_bias_weight = reshaped_bias_weight[indices]
         local_bias_weight = shuffled_bias_weight.reshape(-1)
     return local_bias_weight
 
