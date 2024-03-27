@@ -661,7 +661,7 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
                 "hf-internal-testing/tiny-random-t5", from_transformers=True, **self.STATIC_INPUTS_SHAPES
             )
 
-        self.assertIn("doesn't support", str(context.exception))
+        assert ("doesn't support" in str(context.exception)) or ("is not supported" in str(context.exception))
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     @requires_neuronx
@@ -867,7 +867,7 @@ class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
                 "hf-internal-testing/tiny-random-t5", from_transformers=True, **self.STATIC_INPUTS_SHAPES
             )
 
-        self.assertIn("doesn't support", str(context.exception))
+        assert ("doesn't support" in str(context.exception)) or ("is not supported" in str(context.exception))
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     @requires_neuronx
