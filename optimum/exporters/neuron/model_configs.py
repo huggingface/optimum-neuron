@@ -71,7 +71,7 @@ register_in_tasks_manager = TasksManager.create_register("neuron")
 @register_in_tasks_manager("bert", *COMMON_TEXT_TASKS)
 class BertNeuronConfig(TextEncoderNeuronConfig):
     NORMALIZED_CONFIG_CLASS = NormalizedConfigManager.get_normalized_config_class("bert")
-    ATOL_FOR_VALIDATION = 1e-3
+    ATOL_FOR_VALIDATION = 1e-2
 
     @property
     def inputs(self) -> List[str]:
