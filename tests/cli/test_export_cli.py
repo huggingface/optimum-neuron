@@ -115,9 +115,9 @@ class TestExportCLI(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tempdir:
             save_path = f"{tempdir}/neff"
             if is_neuronx_available():
-                neff_path = os.path.join(save_path, model_id.split("/")[-1], "graph.neff")
+                neff_path = os.path.join(save_path, "graph.neff")
             else:
-                neff_path = os.path.join(save_path, model_id.split("/")[-1], "32", "neff.json")
+                neff_path = os.path.join(save_path, "32", "neff.json")
             subprocess.run(
                 [
                     "optimum-cli",
