@@ -314,7 +314,7 @@ def export_models(
         configs (`Optional[Dict[str, Any]]`, defaults to `None`):
             A list of pretrained model configs.
         model_name_or_path (`Optional[str]`, defaults to `None`):
-            Path to pretrained model or model identifier from huggingface.co/models.
+            Path to pretrained model or model identifier from the Hugging Face Hub.
     Returns:
         `Tuple[List[List[str]], List[List[str]]]`: A tuple with an ordered list of the model's inputs, and the named
         outputs from the Neuron configuration.
