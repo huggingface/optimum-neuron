@@ -539,7 +539,7 @@ def export_neuronx(
     # diffusers specific
     compiler_args = add_stable_diffusion_compiler_args(config, compiler_args)
 
-    if config.dynamic_batch_size is True and not inline_weights_to_neff:
+    if config.dynamic_batch_size and not inline_weights_to_neff:
         logger.warning(
             "Dynamic batching is not yet compatible with the weights/neff non-inlined model. `inline_weights_to_neff` is set to True. If you still want to separate the neff and weights, please set `dynamic_batch_size=False`."
         )
