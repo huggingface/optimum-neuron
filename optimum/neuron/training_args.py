@@ -181,6 +181,7 @@ class NeuronTrainingArgumentsMixin:
             pipeline_parallel_use_zero1_optimizer=self.zero_1,
             gradient_checkpointing=self.gradient_checkpointing,
             checkpoint_dir=resume_from_checkpoint,
+            num_ranks_per_loading_step=self.num_ranks_per_loading_step,
         )
 
         # This is required to be able to use bf16, otherwise a check in super().__post_init__() fails.

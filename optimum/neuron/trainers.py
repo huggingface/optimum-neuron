@@ -433,8 +433,6 @@ class AugmentTrainerForNeuronMixin:
 
             if is_main_worker_for_metrics():
                 self.log(logs)
-            if pp_size > 1:
-                xm.rendezvous("waiting_after_log_metrics")
 
         metrics = None
         if self.control.should_evaluate:
