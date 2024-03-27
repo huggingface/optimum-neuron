@@ -38,4 +38,4 @@ rm -rf optimum-neuron
 chmod -R 777 /home/ubuntu/huggingface-neuron-samples /home/ubuntu/huggingface-neuron-notebooks
 
 echo "Step: validate-imports-of-huggingface-libraries"
-bash -c 'python -c "import transformers;import datasets;import accelerate;import evaluate;import tensorboard; import torch;"'
+bash -c 'python -c "import transformers;import datasets;import accelerate;import evaluate;import tensorboard; import torch;import optimum.neuron"'
