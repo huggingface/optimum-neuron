@@ -522,9 +522,7 @@ def compute_query_indices_for_rank(
     queries_indices = [torch.arange(query_group_size_per_rank) for _ in range(num_key_value_heads_per_rank)]
 
     keys_indices = torch.arange(num_key_value_heads).repeat(kv_size_multiplier)
-    keys_indices = torch.repeat_interleave(
-        keys_indices, num_attention_heads_per_rank // num_key_value_heads_per_rank
-    )
+    keys_indices = torch.repeat_interleave(keys_indices, num_attention_heads_per_rank // num_key_value_heads_per_rank)
     keys_indices = torch.chunk(keys_indices, tp_size)
 
     shift_per_key = torch.arange(0, num_attention_heads, query_group_size)
