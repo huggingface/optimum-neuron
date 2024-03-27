@@ -20,6 +20,8 @@ pip install --upgrade --no-cache-dir \
     "jinja2==3.1.2" \
     "attrs==23.1.0"
 
+# Temporary fix for the issue: https://github.com/huggingface/optimum-neuron/issues/142
+pip install -U optimum
 echo 'export PATH="${HOME}/.local/bin:$PATH"' >> "${HOME}/.bashrc"
 
 echo "Step: install-and-copy-optimum-neuron-examples"
