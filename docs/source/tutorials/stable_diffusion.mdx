@@ -316,7 +316,7 @@ image = base(
 del base  # To avoid neuron device OOM
 
 refiner = NeuronStableDiffusionXLImg2ImgPipeline.from_pretrained("sd_neuron_xl_refiner/")
-image = image = refiner(
+image = refiner(
     prompt=prompt,
     num_inference_steps=40,
     denoising_start=0.8,

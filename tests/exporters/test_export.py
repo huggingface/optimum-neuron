@@ -33,7 +33,7 @@ from optimum.exporters.neuron import (
     validate_model_outputs,
     validate_models_outputs,
 )
-from optimum.exporters.neuron.__main__ import _get_submodels_and_neuron_configs
+from optimum.exporters.neuron.__main__ import get_submodels_and_neuron_configs
 from optimum.exporters.neuron.model_configs import *  # noqa: F403
 from optimum.exporters.tasks import TasksManager
 from optimum.neuron.utils import is_neuron_available
@@ -222,7 +222,7 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
         )
 
         with TemporaryDirectory() as tmpdirname:
-            models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs(
+            models_and_neuron_configs, output_model_names = get_submodels_and_neuron_configs(
                 model=model,
                 input_shapes=input_shapes,
                 task="stable-diffusion",
@@ -252,7 +252,7 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
         )
 
         with TemporaryDirectory() as tmpdirname:
-            models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs(
+            models_and_neuron_configs, output_model_names = get_submodels_and_neuron_configs(
                 model=model,
                 input_shapes=input_shapes,
                 task="stable-diffusion-xl",
@@ -283,7 +283,7 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
         )
 
         with TemporaryDirectory() as tmpdirname:
-            models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs(
+            models_and_neuron_configs, output_model_names = get_submodels_and_neuron_configs(
                 model=model,
                 input_shapes=input_shapes,
                 task="stable-diffusion",
@@ -323,7 +323,7 @@ class NeuronEncoderDecoderExportTestCase(unittest.TestCase):
         input_shapes = {"batch_size": 1, "sequence_length": 18, "num_beams": 4}
 
         with TemporaryDirectory() as tmpdirname:
-            models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs(
+            models_and_neuron_configs, output_model_names = get_submodels_and_neuron_configs(
                 model=model,
                 input_shapes=input_shapes,
                 task="text2text-generation",
