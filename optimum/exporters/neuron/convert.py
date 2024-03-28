@@ -24,10 +24,17 @@ import torch
 
 from ...exporters.error_utils import OutputMatchError, ShapeError
 from ...neuron.utils import (
+    DiffusersPretrainedConfig,
     convert_neuronx_compiler_args_to_neuron,
     is_neuron_available,
     is_neuronx_available,
     store_compilation_config,
+)
+from ...neuron.utils.cache_utils import get_model_name_or_path
+from ...neuron.utils.hub_neuronx_cache import (
+    ModelCacheEntry,
+    build_cache_config,
+    cache_traced_neuron_artifacts,
 )
 from ...neuron.utils.version_utils import get_neuroncc_version, get_neuronxcc_version
 from ...utils import (
@@ -35,7 +42,6 @@ from ...utils import (
     is_sentence_transformers_available,
     logging,
 )
-from .utils import DiffusersPretrainedConfig
 
 
 if TYPE_CHECKING:
@@ -272,12 +278,14 @@ def export_models(
         str, Tuple[Union["PreTrainedModel", "ModelMixin", torch.nn.Module], "NeuronDefaultConfig"]
     ],
     output_dir: Path,
+    disable_neuron_cache: Optional[bool] = False,
     compiler_workdir: Optional[Path] = None,
     inline_weights_to_neff: bool = True,
     optlevel: str = "2",
     output_file_names: Optional[Dict[str, str]] = None,
     compiler_kwargs: Optional[Dict[str, Any]] = {},
     configs: Optional[Dict[str, Any]] = {},
+    model_name_or_path: Optional[str] = None,
 ) -> Tuple[List[List[str]], List[List[str]]]:
     """
     Exports a Pytorch model with multiple component models to separate files.
@@ -287,6 +295,8 @@ def export_models(
             A dictionnary containing the models to export and their corresponding neuron configs.
         output_dir (`Path`):
             Output directory to store the exported Neuron models.
+        disable_neuron_cache (`Optional[bool]`, defaults to `False`):
+            Whether to disable automatic caching of AOT compiled models (not applicable for JIT compilation).
         compiler_workdir (`Optional[Path]`, defaults to `None`):
             The directory to store intermediary outputs of the neuron compiler.
         inline_weights_to_neff (`bool`, defaults to `True`):
@@ -303,6 +313,8 @@ def export_models(
             Arguments to pass to the Neuron(x) compiler for exporting Neuron models.
         configs (`Optional[Dict[str, Any]]`, defaults to `None`):
             A list of pretrained model configs.
+        model_name_or_path (`Optional[str]`, defaults to `None`):
+            Path to pretrained model or model identifier from the Hugging Face Hub.
     Returns:
         `Tuple[List[List[str]], List[List[str]]]`: A tuple with an ordered list of the model's inputs, and the named
         outputs from the Neuron configuration.
@@ -318,6 +330,7 @@ def export_models(
 
     failed_models = []
     total_compilation_time = 0
+    compile_configs = {}
     for i, model_name in enumerate(models_and_neuron_configs.keys()):
         logger.info(f"***** Compiling {model_name} *****")
         submodel, sub_neuron_config = models_and_neuron_configs[model_name]
@@ -328,15 +341,13 @@ def export_models(
         output_path = output_dir / output_file_name
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        compiler_workdir_path = compiler_workdir / model_name if compiler_workdir is not None else None
-
         try:
             start_time = time.time()
             neuron_inputs, neuron_outputs = export(
                 model=submodel,
                 config=sub_neuron_config,
                 output=output_path,
-                compiler_workdir=compiler_workdir_path,
+                compiler_workdir=compiler_workdir,
                 inline_weights_to_neff=inline_weights_to_neff,
                 optlevel=optlevel,
                 **compiler_kwargs,
@@ -374,6 +385,7 @@ def export_models(
                 output_hidden_states=getattr(sub_neuron_config, "output_hidden_states", False),
             )
             model_config.save_pretrained(output_path.parent)
+            compile_configs[model_name] = model_config
         except Exception as e:
             failed_models.append((i, model_name))
             output_path.parent.rmdir()
@@ -381,7 +393,15 @@ def export_models(
                 f"An error occured when trying to trace {model_name} with the error message: {e}.\n"
                 f"The export is failed and {model_name} neuron model won't be stored."
             )
+
     logger.info(f"[Total compilation Time] {np.round(total_compilation_time, 2)} seconds.")
+
+    # cache neuronx model
+    if not disable_neuron_cache and is_neuronx_available() and not inline_weights_to_neff:
+        model_id = get_model_name_or_path(model_config) if model_name_or_path is None else model_name_or_path
+        cache_config = build_cache_config(compile_configs)
+        cache_entry = ModelCacheEntry(model_id=model_id, config=cache_config)
+        cache_traced_neuron_artifacts(neuron_dir=output_dir, cache_entry=cache_entry)
 
     # remove models failed to export
     for i, model_name in failed_models:
@@ -438,7 +458,7 @@ def export_neuronx(
     config: "NeuronDefaultConfig",
     output: Path,
     compiler_workdir: Optional[Path] = None,
-    inline_weights_to_neff: bool = True,
+    inline_weights_to_neff: bool = False,
     optlevel: str = "2",
     auto_cast: Optional[str] = None,
     auto_cast_type: str = "bf16",
@@ -455,7 +475,7 @@ def export_neuronx(
             Directory to store the exported Neuron model.
         compiler_workdir (`Optional[Path]`, defaults to `None`):
             The directory used by neuronx-cc, where you can find intermediary outputs (neff, weight, hlo...).
-        inline_weights_to_neff (`bool`, defaults to `True`):
+        inline_weights_to_neff (`bool`, defaults to `False`):
             Whether to inline the weights to the neff graph. If set to False, weights will be seperated from the neff.
         optlevel (`str`, defaults to `"2"`):
             The level of optimization the compiler should perform. Can be `"1"`, `"2"` or `"3"`, defaults to "2".
@@ -519,6 +539,12 @@ def export_neuronx(
     # diffusers specific
     compiler_args = add_stable_diffusion_compiler_args(config, compiler_args)
 
+    if config.dynamic_batch_size and not inline_weights_to_neff:
+        logger.warning(
+            "Dynamic batching is not yet compatible with the weights/neff non-inlined model. `inline_weights_to_neff` is set to True. If you still want to separate the neff and weights, please set `dynamic_batch_size=False`."
+        )
+        inline_weights_to_neff = True
+
     neuron_model = neuronx.trace(
         checked_model,
         dummy_inputs_tuple,
@@ -529,10 +555,6 @@ def export_neuronx(
     )
 
     if config.dynamic_batch_size is True:
-        if not inline_weights_to_neff:
-            raise ValueError(
-                "Dynamic batching is not yet compatible with the weights/neff non-inlined model. Please set `dynamic_batch_size=False` or `inline_weights_to_neff=True`."
-            )
         neuron_model = neuronx.dynamic_batch(neuron_model)
 
     # diffusers specific
@@ -581,7 +603,7 @@ def export_neuron(
     config: "NeuronDefaultConfig",
     output: Path,
     compiler_workdir: Optional[Path] = None,
-    inline_weights_to_neff: bool = True,
+    inline_weights_to_neff: bool = False,
     auto_cast: Optional[str] = None,
     auto_cast_type: str = "bf16",
     disable_fast_relayout: bool = False,
@@ -599,7 +621,7 @@ def export_neuron(
             Directory to store the exported Neuron model.
         compiler_workdir (`Optional[Path]`, defaults to `None`):
             The directory used by neuron-cc, where you can find intermediary outputs (neff, weight, hlo...).
-        inline_weights_to_neff (`bool`, defaults to `True`):
+        inline_weights_to_neff (`bool`, defaults to `False`):
             Whether to inline the weights to the neff graph. If set to False, weights will be seperated from the neff.
         auto_cast (`Optional[str]`, defaults to `None`):
             Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `None`, `"matmul"` or `"all"`, you should use `None` to disable any auto-casting, use `"matmul"` to cast FP32 matrix multiplication operations, and use `"all"` to cast all FP32 operations.
@@ -638,6 +660,12 @@ def export_neuron(
     dummy_inputs_tuple = tuple(dummy_inputs.values())
     checked_model = config.patch_model_for_export(model, dummy_inputs)
     compiler_args = convert_neuronx_compiler_args_to_neuron(auto_cast, auto_cast_type, disable_fast_relayout)
+
+    if config.dynamic_batch_size is True and not inline_weights_to_neff:
+        logger.warning(
+            "Dynamic batching is not yet compatible with the weights/neff non-inlined model. `inline_weights_to_neff` is set to True. If you still want to separate the neff and weights, please set `dynamic_batch_size=False`."
+        )
+        inline_weights_to_neff = True
 
     neuron_model = neuron.trace(
         checked_model,
