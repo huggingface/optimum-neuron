@@ -108,7 +108,7 @@ RUN pip3 install \
 
 # Install HuggingFace packages
 RUN pip3 install \
-    hf_transfer
+    hf_transfer huggingface_hub
 
 # Install optimum-neuron
 COPY dist/optimum-neuron-${VERSION}.tar.gz optimum-neuron.tar.gz
@@ -137,6 +137,6 @@ ENTRYPOINT ["./entrypoint.sh"]
 
 # Final image
 FROM neuron
-
-ENTRYPOINT ["text-generation-launcher"]
+COPY text-generation-inference/tgi-entrypoint.sh text-generation-inference/tgi_env.py /
+ENTRYPOINT ["/tgi-entrypoint.sh"]
 CMD ["--json-output"]
