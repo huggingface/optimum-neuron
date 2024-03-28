@@ -411,11 +411,11 @@ class AugmentTrainerForNeuronMixin:
                 get_pipeline_model_parallel_size,
             )
 
-            dp_size = get_data_parallel_size()
-            pp_size = get_pipeline_model_parallel_size()
-            pp_rank = get_pipeline_model_parallel_rank()
-
             if self.args.mp_plugin.should_parallelize:
+                dp_size = get_data_parallel_size()
+                pp_size = get_pipeline_model_parallel_size()
+                pp_rank = get_pipeline_model_parallel_rank()
+
                 tr_loss_div = tr_loss / dp_size
 
                 if pp_size == 1 or (pp_size > 1 and pp_rank == pp_size - 1):
