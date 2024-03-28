@@ -21,15 +21,15 @@ _import_structure = {
     "__main__": [
         "infer_stable_diffusion_shapes_from_diffusers",
         "main_export",
-        "normalize_input_shapes",
         "normalize_stable_diffusion_input_shapes",
     ],
     "base": ["NeuronDefaultConfig"],
     "convert": ["export", "export_models", "validate_model_outputs", "validate_models_outputs"],
     "utils": [
-        "DiffusersPretrainedConfig",
         "build_stable_diffusion_components_mandatory_shapes",
         "get_stable_diffusion_models_for_export",
+        "replace_stable_diffusion_submodels",
+        "get_submodels_for_export_stable_diffusion",
     ],
 }
 
@@ -37,15 +37,15 @@ if TYPE_CHECKING:
     from .__main__ import (
         infer_stable_diffusion_shapes_from_diffusers,
         main_export,
-        normalize_input_shapes,
         normalize_stable_diffusion_input_shapes,
     )
     from .base import NeuronDefaultConfig
     from .convert import export, export_models, validate_model_outputs, validate_models_outputs
     from .utils import (
-        DiffusersPretrainedConfig,
         build_stable_diffusion_components_mandatory_shapes,
         get_stable_diffusion_models_for_export,
+        get_submodels_for_export_stable_diffusion,
+        replace_stable_diffusion_submodels,
     )
 else:
     import sys
