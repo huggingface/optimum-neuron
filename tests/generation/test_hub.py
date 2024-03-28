@@ -45,8 +45,7 @@ def _test_push_to_hub(model, model_path, repo_id, ignore_patterns=[]):
     model.push_to_hub(model_path, repo_id, use_auth_token=TOKEN, endpoint=ENDPOINT_STAGING)
     api = HfApi(endpoint=ENDPOINT_STAGING, token=TOKEN)
     try:
-        hub_files_info = api.list_files_info(repo_id)
-        hub_files_path = [info.rfilename for info in hub_files_info]
+        hub_files_path = api.list_repo_files(repo_id)
         for path, _, files in os.walk(model_path):
             for name in files:
                 local_file_path = os.path.join(path, name)
