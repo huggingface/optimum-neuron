@@ -235,7 +235,7 @@ def infer_stable_diffusion_shapes_from_diffusers(
     return input_shapes
 
 
-def _get_submodels_and_neuron_configs(
+def get_submodels_and_neuron_configs(
     model: Union["PreTrainedModel", "DiffusionPipeline"],
     input_shapes: Dict[str, int],
     task: str,
@@ -418,6 +418,70 @@ def _get_submodels_and_neuron_configs_for_encoder_decoder(
     return models_and_neuron_configs, output_model_names
 
 
+def load_models_and_neuron_configs(
+    model_name_or_path: str,
+    output: Path,
+    model: Optional[Union["PreTrainedModel", "ModelMixin"]],
+    task: str,
+    dynamic_batch_size: bool,
+    cache_dir: Optional[str],
+    trust_remote_code: bool,
+    subfolder: str,
+    revision: str,
+    force_download: bool,
+    local_files_only: bool,
+    use_auth_token: Optional[Union[bool, str]],
+    submodels: Optional[Dict[str, Union[Path, str]]],
+    lora_model_ids: Optional[Union[str, List[str]]],
+    lora_weight_names: Optional[Union[str, List[str]]],
+    lora_adapter_names: Optional[Union[str, List[str]]],
+    lora_scales: Optional[Union[float, List[float]]],
+    output_attentions: bool = False,
+    output_hidden_states: bool = False,
+    library_name: Optional[str] = None,
+    **input_shapes,
+):
+    library_name = TasksManager.infer_library_from_model(
+        model_name_or_path, subfolder=subfolder, library_name=library_name
+    )
+
+    model_kwargs = {
+        "task": task,
+        "model_name_or_path": model_name_or_path,
+        "subfolder": subfolder,
+        "revision": revision,
+        "cache_dir": cache_dir,
+        "use_auth_token": use_auth_token,
+        "local_files_only": local_files_only,
+        "force_download": force_download,
+        "trust_remote_code": trust_remote_code,
+        "framework": "pt",
+        "library_name": library_name,
+    }
+    if model is None:
+        model = TasksManager.get_model_from_task(**model_kwargs)
+
+    models_and_neuron_configs, output_model_names = get_submodels_and_neuron_configs(
+        model=model,
+        input_shapes=input_shapes,
+        task=task,
+        library_name=library_name,
+        output=output,
+        subfolder=subfolder,
+        dynamic_batch_size=dynamic_batch_size,
+        model_name_or_path=model_name_or_path,
+        submodels=submodels,
+        output_attentions=output_attentions,
+        output_hidden_states=output_hidden_states,
+        lora_model_ids=lora_model_ids,
+        lora_weight_names=lora_weight_names,
+        lora_adapter_names=lora_adapter_names,
+        lora_scales=lora_scales,
+    )
+
+    return models_and_neuron_configs, output_model_names
+
+
 def main_export(
     model_name_or_path: str,
     output: Union[str, Path],
@@ -453,43 +517,29 @@ def main_export(
         output.parent.mkdir(parents=True)
 
     task = TasksManager.map_from_synonym(task)
-    is_stable_diffusion = "stable-diffusion" in task
-    library_name = TasksManager.infer_library_from_model(
-        model_name_or_path, subfolder=subfolder, library_name=library_name
-    )
 
-    model_kwargs = {
-        "task": task,
-        "model_name_or_path": model_name_or_path,
-        "subfolder": subfolder,
-        "revision": revision,
-        "cache_dir": cache_dir,
-        "use_auth_token": use_auth_token,
-        "local_files_only": local_files_only,
-        "force_download": force_download,
-        "trust_remote_code": trust_remote_code,
-        "framework": "pt",
-        "library_name": library_name,
-    }
-    if model is None:
-        model = TasksManager.get_model_from_task(**model_kwargs)
-
-    models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs(
-        model=model,
-        input_shapes=input_shapes,
-        task=task,
-        library_name=library_name,
-        output=output,
-        subfolder=subfolder,
-        dynamic_batch_size=dynamic_batch_size,
+    models_and_neuron_configs, output_model_names = load_models_and_neuron_configs(
         model_name_or_path=model_name_or_path,
+        output=output,
+        model=model,
+        task=task,
+        dynamic_batch_size=dynamic_batch_size,
+        cache_dir=cache_dir,
+        trust_remote_code=trust_remote_code,
+        subfolder=subfolder,
+        revision=revision,
+        force_download=force_download,
+        local_files_only=local_files_only,
+        use_auth_token=use_auth_token,
         submodels=submodels,
         output_attentions=output_attentions,
         output_hidden_states=output_hidden_states,
+        library_name=library_name,
         lora_model_ids=lora_model_ids,
         lora_weight_names=lora_weight_names,
         lora_adapter_names=lora_adapter_names,
         lora_scales=lora_scales,
+        **input_shapes,
     )
 
     _, neuron_outputs = export_models(
@@ -506,6 +556,7 @@ def main_export(
 
     # Validate compiled model
     if do_validation is True:
+        is_stable_diffusion = "stable-diffusion" in task
         if is_stable_diffusion:
             # Do not validate vae encoder due to the sampling randomness
             del neuron_outputs[-2]  # -2 is the index of `vae_encoder`

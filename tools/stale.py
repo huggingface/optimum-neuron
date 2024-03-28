@@ -22,6 +22,7 @@ from datetime import datetime as dt
 import github.GithubException
 from github import Github
 
+
 # TODO: define optimum specific labels
 LABELS_TO_EXEMPT = [
     "bug",
