@@ -407,22 +407,17 @@ class AugmentTrainerForNeuronMixin:
             from neuronx_distributed.parallel_layers.parallel_state import (
                 get_data_parallel_group,
                 get_data_parallel_size,
-                get_pipeline_model_parallel_rank,
-                get_pipeline_model_parallel_size,
             )
 
             if self.args.mp_plugin.should_parallelize:
                 dp_size = get_data_parallel_size()
-                pp_size = get_pipeline_model_parallel_size()
-                pp_rank = get_pipeline_model_parallel_rank()
 
                 tr_loss_div = tr_loss / dp_size
 
-                if pp_size == 1 or (pp_size > 1 and pp_rank == pp_size - 1):
-                    tr_loss_div = xm.all_reduce(
-                        xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_group(as_list=True)
-                    )
-                    tr_loss_scalar = tr_loss_div.detach().item()
+                # It works even for PP because under PP we make it so that the main process to log for callbacks is
+                # the one on dp_rank = 0, pp_rank = pp_size -1.
+                tr_loss_div = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_group(as_list=True))
+                tr_loss_scalar = tr_loss_div.detach().item()
             else:
                 # all_gather + mean() to get average loss over all processes
                 tr_loss_scalar = self._nested_gather(tr_loss).mean().item()
