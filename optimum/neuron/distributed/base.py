@@ -15,6 +15,8 @@
 """Base class related to `neuronx_distributed` to perform parallelism."""
 
 import contextlib
+import gc
+import math
 import shutil
 from abc import ABC, abstractclassmethod
 from collections import defaultdict
@@ -540,6 +542,7 @@ class Parallelizer(ABC):
         pipeline_parallel_use_zero1_optimizer: bool = False,
         pipeline_parallel_gradient_checkpointing_enabled: bool = False,
         checkpoint_dir: Optional[Union[str, Path]] = None,
+        num_ranks_per_loading_step: int = -1,
     ) -> "PreTrainedModel":
         """
         Parallelizes the model by transforming regular layer into their parallel counterparts using
@@ -572,6 +575,9 @@ class Parallelizer(ABC):
             checkpoint_dir (`Optional[Union[str, Path]]`):
                 Path to a sharded checkpoint. If specified, the checkpoint weights will be loaded to the parallelized
                 model.
+            num_ranks_per_loading_step (`int`, defaults to `-1`):
+                Corresponds to the number of ranks that can initialize and load the model weights at the same time.
+                If the value is inferior to 0, the maximum number of ranks will be used.
 
         Returns:
             `PreTrainedModel`: The parallelized model.
@@ -586,6 +592,7 @@ class Parallelizer(ABC):
             get_tensor_model_parallel_size,
         )
         from neuronx_distributed.parallel_layers.random import _MODEL_PARALLEL_RNG_TRACKER_NAME, get_xla_rng_tracker
+        from neuronx_distributed.parallel_layers.utils import get_local_world_size
         from neuronx_distributed.pipeline import NxDPPModel
 
         tp_size = get_tensor_model_parallel_size()
@@ -698,14 +705,20 @@ class Parallelizer(ABC):
         if is_precompilation():
             cls._initialize_for_precompilation(model, names_of_the_parameters_to_consider)
         else:
-            if skip_linear_weight_load:
-                # Load the weights to the parallel linears if the loading was skipped during parallelization.
-                cls._maybe_load_weights_to_parallel_linears(model)
+            local_rank = xm.get_local_ordinal()
+            if num_ranks_per_loading_step < 0:
+                num_ranks_per_loading_step = get_local_world_size()
+            for worker in range(math.ceil(get_local_world_size() / num_ranks_per_loading_step)):
+                if local_rank // num_ranks_per_loading_step == worker:
+                    if skip_linear_weight_load:
+                        # Load the weights to the parallel linears if the loading was skipped during parallelization.
+                        cls._maybe_load_weights_to_parallel_linears(model)
 
-            if skip_linear_weight_load or any(p.device == torch.device("meta") for p in model.parameters()):
-                # Initialize or load the weights for the parallelized model if it was lazily loaded.
-                cls._initialize_or_load_weights(model, names_of_the_parameters_to_consider, device=device)
-
+                    if skip_linear_weight_load or any(p.device == torch.device("meta") for p in model.parameters()):
+                        # Initialize or load the weights for the parallelized model if it was lazily loaded.
+                        cls._initialize_or_load_weights(model, names_of_the_parameters_to_consider, device=device)
+                gc.collect()
+                xm.rendezvous(f"weight_loading_and_initialization_{worker}")
         xm.rendezvous("End of initalization")
 
         if is_main_worker():

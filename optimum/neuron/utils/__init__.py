@@ -39,6 +39,7 @@ from .misc import (
     DiffusersPretrainedConfig,
     check_if_weights_replacable,
     get_stable_diffusion_configs,
+    is_main_worker,
     replace_weights,
 )
 from .optimization_utils import get_attention_scores_sd, get_attention_scores_sdxl
