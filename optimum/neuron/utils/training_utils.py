@@ -16,7 +16,6 @@
 
 import os
 import re
-from functools import lru_cache
 from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 import torch
@@ -433,7 +432,6 @@ def get_model_param_count(model: Union[torch.nn.Module, "NxDPPModel"], trainable
     return param_count
 
 
-@lru_cache
 @requires_neuronx_distributed
 def is_main_worker_for_metrics() -> bool:
     from neuronx_distributed.parallel_layers.parallel_state import (
