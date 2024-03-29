@@ -46,6 +46,7 @@ from ..utils import (
 )
 from ..utils.misc import args_and_kwargs_to_kwargs_only, is_main_worker
 from ..utils.require_utils import requires_neuronx_distributed, requires_torch_xla
+from ..utils.torch_xla_and_neuronx_initialization import check_neuron_cc_flags_for_model
 from .optimizer import NeuronAcceleratedOptimizer
 from .scheduler import NeuronAcceleratedScheduler
 from .state import NeuronAcceleratorState
@@ -510,6 +511,10 @@ class NeuronAccelerator(Accelerator):
         # If the model was already prepared, we skip.
         if model in self._models:
             return model
+
+        # Since it is not possible to set the best compiler flags for a given model because XLA is initialized before
+        # we get access to the model, we simply check if the flags are the best and notify the user otherwise.
+        check_neuron_cc_flags_for_model(model)
 
         model = self.patch_model_for_neuron(model)
 

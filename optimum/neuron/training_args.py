@@ -38,6 +38,7 @@ from .accelerate import NeuronAcceleratorState, NeuronPartialState
 from .accelerate.utils import ModelParallelismPlugin, patch_accelerate_is_tpu_available
 from .utils import is_accelerate_available, is_main_worker, is_torch_xla_available
 from .utils.patching import Patcher
+from .utils.torch_xla_and_neuronx_initialization import set_neuron_cc_optlevel
 
 
 if is_sagemaker_mp_enabled():
@@ -80,9 +81,9 @@ class NeuronTrainingArgumentsMixin:
         metadata={"help": "Whether or not to disable sequence parallelism."},
     )
     neuron_cc_optlevel: str = field(
-        default="auto",
+        default="2",
         metadata={
-            "choices": ["auto", "1", "2", "3"],
+            "choices": ["1", "2", "3"],
             "help": "Specify the level of optimization the Neuron compiler should perform.",
         },
     )
@@ -121,8 +122,6 @@ class NeuronTrainingArgumentsMixin:
         if self.fsdp != "":
             # Disabling FSDP until next release because it is still very experimental and not validated.
             raise RuntimeError("FSDP is not supported yet.")
-        if self.neuron_cc_optlevel != "auto":
-            self.neuron_cc_optlevel = f"-O{self.neuron_cc_optlevel}"
 
         if self.fp16:
             raise ValueError("The fp16 data type is not supported in Neuron, please use bf16 instead.")
@@ -172,6 +171,8 @@ class NeuronTrainingArgumentsMixin:
             os.environ["ACCELERATE_USE_AMP"] = "true"
         else:
             os.environ["ACCELERATE_USE_AMP"] = "false"
+
+        set_neuron_cc_optlevel(int(self.neuron_cc_optlevel))
 
         # This is required to be able to use bf16, otherwise a check in super().__post_init__() fails.
         with Patcher([("transformers.training_args.get_xla_device_type", lambda _: "GPU")]):

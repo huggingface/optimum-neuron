@@ -16,21 +16,19 @@
 
 import os
 import re
-from typing import TYPE_CHECKING, Dict
+from typing import TYPE_CHECKING
 
 import torch
 
+from ...utils import logging
+from .misc import is_main_worker
 from .require_utils import requires_torch_xla
 
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
 
-
-_MODEL_TYPE_TO_OPTLEVEL: Dict[str, str] = {
-    "default": "-O2",
-    "llama": "-O1",
-}
+logger = logging.get_logger()
 
 
 @requires_torch_xla
@@ -46,7 +44,7 @@ def init_process_group():
 
 def set_common_neuron_cc_flags():
     """
-    Prepares the system environment for Transformers models training on AWS Neuron.
+    Sets environment variables for transformer-based models training with AWS Neuron.
     """
     # Set compiler flag to compile for transformer model type
     os.environ["NEURON_CC_FLAGS"] = os.environ.get("NEURON_CC_FLAGS", "") + " --model-type=transformer"
@@ -57,6 +55,9 @@ def set_common_neuron_cc_flags():
 
 
 def set_neuron_cc_flags_for_torch_amp():
+    """
+    Sets the proper compiler flags needed when using PyTorch Autocast.
+    """
     torch.cuda.is_bf16_supported = lambda: True
     neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
     match_ = re.search(r"--auto-cast\s?\=?\s?\w+", neuron_cc_flags)
@@ -65,29 +66,29 @@ def set_neuron_cc_flags_for_torch_amp():
     os.environ["NEURON_CC_FLAGS"] = f"{neuron_cc_flags} --auto-cast=none"
 
 
-def set_neuron_cc_optlevel_for_model(model: "PreTrainedModel", optlevel: str = "auto"):
+def set_neuron_cc_optlevel(optlevel: int = 2):
     """
-    Sets the Neuron compiler optimization level considering both `model` and `optlevel`.
-    If `optlevel` is different than `"auto"`, it will be set to that value, otherwise the default value for a given
-    model is used.
+    Sets the Neuron compiler optimization level.
     """
-    if optlevel == "auto":
-        optlevel = _MODEL_TYPE_TO_OPTLEVEL.get(model.config.model_type, _MODEL_TYPE_TO_OPTLEVEL["default"])
+    assert 1 <= optlevel <= 3
     neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
     match_ = re.search(r"-O[123]", neuron_cc_flags)
     if match_:
-        neuron_cc_flags = neuron_cc_flags[: match_.start(0)] + f"{optlevel}" + neuron_cc_flags[match_.end(0) + 1 :]
+        neuron_cc_flags = neuron_cc_flags[: match_.start(0)] + f"-O{optlevel}" + neuron_cc_flags[match_.end(0) + 1 :]
     else:
-        neuron_cc_flags += f" {optlevel} "
+        neuron_cc_flags += f" -O{optlevel}"
     os.environ["NEURON_CC_FLAGS"] = neuron_cc_flags
 
 
-def set_neuron_cc_flags_for_model(model: "PreTrainedModel"):
+def check_neuron_cc_flags_for_model(model: "PreTrainedModel"):
     """
     Sets flags for the Neuron compiler depending on the model.
     """
     neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
     if "ForCausalLM" or "ForConditionalGeneration" in model.__class__.__name__:
         distribution_strategy = "--distribution-strategy=llm-training"
-        if distribution_strategy not in neuron_cc_flags:
-            os.environ["NEURON_CC_FLAGS"] = neuron_cc_flags + f" {distribution_strategy}"
+        if is_main_worker() and distribution_strategy not in neuron_cc_flags:
+            logger.warning(
+                f"No distribution strategy was set. For {model.__class__.__name__} it is possible to set the following "
+                'optimization: NEURON_CC_FLAGS=" --distribution-strategy=llm-training".'
+            )
