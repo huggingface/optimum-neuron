@@ -451,15 +451,6 @@ class NeuronAccelerator(Accelerator):
 
         cpu_ids = {name: id(param) for name, param in model.named_parameters()}
 
-        # if self.autocast_backend is AutocastBackend.XLA:
-        #     # TODO: can we remove that?
-        #     if self.state.mixed_precision == "bf16":
-        #         model.to(torch.bfloat16)
-        #     else:
-        #         model.to(torch.float32)
-        # else:
-        # set_env_for_torch_amp()
-
         tied_parameters_dict = get_tied_parameters_dict(model)
         model_main_input_name = getattr(model, "main_input_name", None)
         # TODO: use self.device.
@@ -580,10 +571,7 @@ class NeuronAccelerator(Accelerator):
             #   - `self.state.autocast_backend is AutocastBackend.AMP`
             autocast_handler = self.autocast_handler
         autocast_kwargs = autocast_handler.to_kwargs()
-        if self.native_amp:
-            autocast_context = torch.autocast(dtype=torch.bfloat16, device_type="cuda", **autocast_kwargs)
-        else:
-            autocast_context = contextlib.nullcontext()
+        autocast_context = torch.autocast(dtype=torch.bfloat16, device_type="cuda", **autocast_kwargs)
         autocast_context.__enter__()
         yield
         autocast_context.__exit__(*sys.exc_info())

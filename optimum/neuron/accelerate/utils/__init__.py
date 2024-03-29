@@ -19,4 +19,4 @@ from .dataclasses import (
     NeuronDistributedType,
     NeuronFullyShardedDataParallelPlugin,
 )
-from .misc import get_tied_parameters_dict, patch_accelerate_is_tpu_available, set_env_for_torch_amp, tie_parameters
+from .misc import get_tied_parameters_dict, patch_accelerate_is_tpu_available, tie_parameters

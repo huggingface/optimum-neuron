@@ -49,5 +49,4 @@ from .training_utils import (
     is_model_officially_supported,
     is_precompilation,
     patch_transformers_for_neuron_sdk,
-    prepare_environment_for_neuron,
 )
