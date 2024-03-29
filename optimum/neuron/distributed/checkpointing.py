@@ -23,7 +23,7 @@ from transformers.modeling_utils import shard_checkpoint
 from transformers.utils import SAFE_WEIGHTS_INDEX_NAME, SAFE_WEIGHTS_NAME, WEIGHTS_INDEX_NAME, WEIGHTS_NAME
 
 from ..utils.require_utils import requires_neuronx_distributed, requires_safetensors
-from .utils import TENSOR_PARALLEL_SHARDS_DIR_NAME, ParameterMetadata, compute_query_indicies_for_rank
+from .utils import TENSOR_PARALLEL_SHARDS_DIR_NAME, ParameterMetadata, compute_query_indices_for_rank
 
 
 def create_gqa_query_or_output_projection_weight_from_full_weight(
@@ -42,15 +42,15 @@ def create_gqa_query_or_output_projection_weight_from_full_weight(
         hidden_size = full_weight.size(0)
         full_weight = full_weight.transpose(0, 1)
 
-    indicies = [
-        compute_query_indicies_for_rank(tp_size, tp_rank, num_attention_heads, num_key_value_heads, kv_size_multiplier)
+    indices = [
+        compute_query_indices_for_rank(tp_size, tp_rank, num_attention_heads, num_key_value_heads, kv_size_multiplier)
         for tp_rank in range(tp_size)
     ]
-    indicies = torch.cat(indicies, dim=0)
-    reversed_indicies = torch.sort(indicies, dim=0).indices
+    indices = torch.cat(indices, dim=0)
+    reversed_indices = torch.sort(indices, dim=0).indices
 
     full_weight = full_weight.reshape(num_attention_heads, -1, hidden_size)
-    full_weight = full_weight[reversed_indicies]
+    full_weight = full_weight[reversed_indices]
     full_weight = full_weight.reshape(-1, hidden_size)
 
     if query_or_output == "output":
