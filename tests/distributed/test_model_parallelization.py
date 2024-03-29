@@ -55,7 +55,6 @@ from optimum.neuron.utils.import_utils import (
     is_torch_xla_available,
 )
 from optimum.neuron.utils.testing_utils import is_trainium_test
-from optimum.neuron.utils.training_utils import set_neuron_cc_optlevel_for_model
 
 from .distributed import DistributedTest
 from .utils import SEED, create_accelerator_for_mp, get_model, get_model_inputs
@@ -301,8 +300,6 @@ class TestModelParallelization(DistributedTest):
 
         # TODO: enable that again once it's working, seems to be an AWS issue.
         orig_model.config.use_cache = False
-
-        set_neuron_cc_optlevel_for_model(orig_model)
 
         move_model_to_device(orig_model, xm.xla_device())
         orig_model = orig_model.eval()
