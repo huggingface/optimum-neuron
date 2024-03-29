@@ -64,8 +64,6 @@ from transformers.trainer_utils import (
 from transformers.training_args import ParallelMode
 from transformers.utils import WEIGHTS_NAME, is_apex_available, is_sagemaker_mp_enabled
 
-from optimum.neuron.accelerate.utils.misc import set_env_for_torch_amp
-
 from ..utils import check_if_transformers_greater, logging
 from .accelerate import NeuronAccelerator, NeuronDistributedType
 from .distributed import Parallelizer, ParallelizersManager
@@ -82,7 +80,6 @@ from .utils.cache_utils import (
     get_neuronxcc_version,
     get_num_neuron_cores_used,
     has_write_access_to_repo,
-    set_neuron_cache_path,
 )
 from .utils.hub_neuronx_cache import ModelCacheEntry, hub_neuronx_cache, patch_neuron_cc_wrapper, synchronize_hub_cache
 from .utils.misc import is_main_worker
@@ -136,6 +133,7 @@ if KEEP_HF_HUB_PROGRESS_BARS is None:
     os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
 
 transformers_get_optimizer_cls_and_kwargs = Trainer.get_optimizer_cls_and_kwargs
+
 
 class AugmentTrainerForNeuronMixin:
     def __init__(self, *args, **kwargs):

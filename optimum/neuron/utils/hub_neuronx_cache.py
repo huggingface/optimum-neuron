@@ -28,11 +28,10 @@ from huggingface_hub import HfApi, get_token
 from transformers import AutoConfig, PretrainedConfig
 
 from ..version import __version__
-from .cache_utils import load_custom_cache_repo_name_from_hf_home
+from .cache_utils import get_neuron_cache_path, load_custom_cache_repo_name_from_hf_home
 from .import_utils import is_neuronx_available
 from .patching import patch_everywhere
 from .require_utils import requires_torch_neuronx, requires_torch_xla
-from .cache_utils import get_neuron_cache_path
 
 
 if is_neuronx_available():
