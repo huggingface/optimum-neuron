@@ -694,7 +694,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             save_dir = TemporaryDirectory()
             save_dir_path = Path(save_dir.name)
             # 1. Fetch all model configs
-            models_and_neuron_configs, output_model_names = load_models_and_neuron_configs(
+            models_and_neuron_configs, _ = load_models_and_neuron_configs(
                 model_name_or_path=model_id,
                 output=save_dir_path,
                 model=pipe,
