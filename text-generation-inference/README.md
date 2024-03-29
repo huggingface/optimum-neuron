@@ -123,14 +123,14 @@ docker run -p 8080:80 \
        --device=/dev/neuron0 \
        -e HF_TOKEN=${HF_TOKEN} \
        -e HF_BATCH_SIZE=1 \
-       -e HF_SEQUENCE_LENGTH=1024 \
+       -e HF_SEQUENCE_LENGTH=4096 \
        -e HF_AUTO_CAST_TYPE="fp16" \
        -e HF_NUM_CORES=2 \
        ghcr.io/huggingface/neuronx-tgi:latest \
-       --model-id aws-neuron/Llama-2-7b-hf-neuron-budget \
+       --model-id NousResearch/Llama-2-7b-chat-hf \
        --max-batch-size 1 \
-       --max-input-length 512 \
-       --max-total-tokens 1024
+       --max-input-length 3164 \
+       --max-total-tokens 4096
 ```
 
 ### Using a model exported to a local path
@@ -163,6 +163,10 @@ This adds several restrictions to the following parameters:
 - `--max-batch-size` must be set to `batch size`,
 - `--max-input-length` must be lower than `max_length`,
 - `--max-total-tokens` must be set to `max_length` (it is per-request).
+
+Although not strictly necessary, but important for efficient prefilling:
+
+- `--max-batch-prefill-tokens` should be set to `batch_size` * `max-input-length`.
 
 ### Choosing the correct batch size
 
