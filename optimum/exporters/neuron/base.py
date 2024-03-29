@@ -157,7 +157,7 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
         audio_sequence_length: Optional[int] = None,
         point_batch_size: Optional[int] = None,
         nb_points_per_image: Optional[int] = None,
-        num_beams: int = 1,
+        num_beams: Optional[int] = None,
         output_attentions: bool = False,
         output_hidden_states: bool = False,
         # TODO: add custom dtype after optimum 1.13 release
