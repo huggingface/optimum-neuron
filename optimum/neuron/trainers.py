@@ -175,8 +175,8 @@ class AugmentTrainerForNeuronMixin:
         prepare_environment_for_neuron()
         super().__init__(*args, **kwargs)
 
-        # We need to specify that the world process is the main worker for metrics otherwise callbacks, such as the
-        # WandbCallback will not have access to the loss logs when doing PP.
+        # We need to change which process can be seen as "world process zero" to make sure the proper metrics
+        # (eg.g loss) are logged and sent to the callbacks (for instance WandbCallback).
         self.state = TrainerState(
             is_local_process_zero=self.is_local_process_zero(),
             is_world_process_zero=is_main_worker_for_metrics(),
@@ -415,7 +415,7 @@ class AugmentTrainerForNeuronMixin:
                 tr_loss_div = tr_loss / dp_size
 
                 # It works even for PP because under PP we make it so that the main process to log for callbacks is
-                # the one on dp_rank = 0, pp_rank = pp_size -1.
+                # the one on dp_rank = tp_rank = 0 and pp_rank = pp_size -1.
                 tr_loss_div = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_group(as_list=True))
                 tr_loss_scalar = tr_loss_div.detach().item()
             else:
@@ -870,8 +870,8 @@ class AugmentTrainerForNeuronMixin:
         self.state.max_steps = max_steps
         self.state.num_train_epochs = num_train_epochs
         self.state.is_local_process_zero = self.is_local_process_zero()
-        # We need to specify that the world process is the main worker for metrics otherwise callbacks, such as the
-        # WandbCallback will not have access to the loss logs when doing PP.
+        # We need to change which process can be seen as "world process zero" to make sure the proper metrics
+        # (eg.g loss) are logged and sent to the callbacks (for instance WandbCallback).
         self.state.is_world_process_zero = is_main_worker_for_metrics()
 
         # tr_loss is a tensor to avoid synchronization of TPUs through .item()
