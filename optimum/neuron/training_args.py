@@ -80,10 +80,10 @@ class NeuronTrainingArgumentsMixin:
         default=False,
         metadata={"help": "Whether or not to disable sequence parallelism."},
     )
-    neuron_cc_optlevel: str = field(
-        default="2",
+    neuron_cc_optlevel: int = field(
+        default=2,
         metadata={
-            "choices": ["1", "2", "3"],
+            "choices": [1, 2, 3],
             "help": "Specify the level of optimization the Neuron compiler should perform.",
         },
     )
@@ -172,7 +172,7 @@ class NeuronTrainingArgumentsMixin:
         else:
             os.environ["ACCELERATE_USE_AMP"] = "false"
 
-        set_neuron_cc_optlevel(int(self.neuron_cc_optlevel))
+        set_neuron_cc_optlevel(self.neuron_cc_optlevel)
 
         # This is required to be able to use bf16, otherwise a check in super().__post_init__() fails.
         with Patcher([("transformers.training_args.get_xla_device_type", lambda _: "GPU")]):

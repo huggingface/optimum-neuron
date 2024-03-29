@@ -354,7 +354,6 @@ class NeuronAccelerator(Accelerator):
             use_amp=mixed_precision_is_bf16 and self.state.autocast_backend is AutocastBackend.AMP,
             xla_use_bf16=mixed_precision_is_bf16 and not self.state.downcast_bfloat,
         )
-
         patching_specs.append(
             (
                 "forward",
@@ -455,7 +454,7 @@ class NeuronAccelerator(Accelerator):
         tied_parameters_dict = get_tied_parameters_dict(model)
         model_main_input_name = getattr(model, "main_input_name", None)
         # TODO: use self.device.
-        model = self.state.mp_plugin.parallelize_model(model, device=self.device)
+        model = self.state.mp_plugin.parallelize_model(model, device=None)
 
         if model_main_input_name is not None:
             setattr(model, "main_input_name", model_main_input_name)

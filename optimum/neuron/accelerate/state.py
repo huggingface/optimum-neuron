@@ -358,7 +358,7 @@ class NeuronAcceleratorState(AcceleratorState):
         )
         if self.initialized:
             if autocast_backend is not None and autocast_backend != self.autocast_backend:
-                raise ValueError(err.format(flag=f"autocast_backedn='{autocast_backend}'"))
+                raise ValueError(err.format(flag=f"autocast_backend='{autocast_backend}'"))
 
     @property
     def autocast_backend(self):
