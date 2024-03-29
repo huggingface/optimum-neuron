@@ -21,6 +21,16 @@ jobs:
     env:
       AWS_REGION: us-east-1
     steps:
+      - name: Install Neuron runtime
+        run: |
+          . /etc/os-release
+          sudo tee /etc/apt/sources.list.d/neuron.list > /dev/null <<EOF
+          deb https://apt.repos.neuron.amazonaws.com ${VERSION_CODENAME} main
+          EOF
+          wget -qO - https://apt.repos.neuron.amazonaws.com/GPG-PUB-KEY-AMAZON-AWS-NEURON.PUB | sudo apt-key add -
+          sudo apt-get update -y
+          sudo apt-get install aws-neuronx-tools aws-neuronx-oci-hook aws-neuronx-runtime-lib aws-neuronx-collectives -y
+          export PATH=/opt/aws/neuron/bin:$PATH
       - name: Check AMI
         run: dpkg -l | grep neuron
       - name: Checkout
