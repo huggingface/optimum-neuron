@@ -14,11 +14,11 @@
 # limitations under the License.
 
 import os
-import pytest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
 
+import pytest
 import torch
 from huggingface_hub import HfApi
 from transformers.testing_utils import is_staging_test
