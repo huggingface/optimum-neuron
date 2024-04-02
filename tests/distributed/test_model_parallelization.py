@@ -296,7 +296,14 @@ class TestModelParallelization(DistributedTest):
             use_static_seed_patcher=True,
         )
 
-        accelerator = create_accelerator_for_mp(1, 1)
+        accelerator = create_accelerator_for_mp(
+            tp_size,
+            pp_size,
+            parallelize_embeddings=parallelize_embeddings,
+            sequence_parallel_enabled=sequence_parallel_enabled,
+        )
+
+        # It is ok to use this accelerator because `patch_model_for_neuron` does not depend on the TP or PP size.
         orig_model = accelerator.patch_model_for_neuron(orig_model)
 
         # TODO: enable that again once it's working, seems to be an AWS issue.
@@ -340,13 +347,6 @@ class TestModelParallelization(DistributedTest):
             from_config=not from_pretrained,
             config_overwrite=config_overwrite,
             use_static_seed_patcher=True,
-        )
-
-        accelerator = create_accelerator_for_mp(
-            tp_size,
-            pp_size,
-            parallelize_embeddings=parallelize_embeddings,
-            sequence_parallel_enabled=sequence_parallel_enabled,
         )
 
         from .utils import create_static_seed_patcher

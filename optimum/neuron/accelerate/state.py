@@ -288,24 +288,15 @@ class NeuronAcceleratorState(AcceleratorState):
                         os.environ["XLA_USE_BF16"] = str(1)
                         os.environ["XLA_DOWNCAST_BF16"] = str(0)
                         self.downcast_bfloat = False
-                if (
-                    os.environ.get("ACCELERATE_USE_NEURONX_DISTRIBUTED_TP", "false") == "true"
-                    or os.environ.get("ACCELERATE_USE_NEURONX_DISTRIBUTED_PP", "false") == "true"
-                ):
-                    if mp_plugin is None:
-                        raise ValueError(
-                            "Could not initialize model parallelism because no `ModelParallelismPlugin` was provided."
-                        )
-                    if mp_plugin.should_parallelize:
-                        self.distributed_type = NeuronDistributedType.MODEL_PARALLELISM
-                    else:
-                        logger.warning(
-                            "Model parallelism is requested but nothing is done because the tensor parallel size and "
-                            "the pipeline parallel size are set to 1."
-                        )
-                    self.mp_plugin = mp_plugin
-                else:
-                    self.mp_plugin = ModelParallelismPlugin()
+
+                if mp_plugin is None:
+                    mp_plugin = ModelParallelismPlugin()
+
+                if mp_plugin.should_parallelize:
+                    self.distributed_type = NeuronDistributedType.MODEL_PARALLELISM
+
+                self.mp_plugin = mp_plugin
+                print("MP PLUGIN", self.mp_plugin)
 
                 if torch.distributed.is_initialized() and not parallel_state.model_parallel_is_initialized():
                     parallel_state.initialize_model_parallel(

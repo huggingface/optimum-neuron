@@ -134,27 +134,7 @@ class NeuronAccelerator(Accelerator):
             )
         self.fsdp_plugin = fsdp_plugin
 
-        use_neuronx_distributed_tp = os.environ.get("ACCELERATE_USE_NEURONX_DISTRIBUTED_TP", "false")
-        use_neuronx_distributed_pp = os.environ.get("ACCELERATE_USE_NEURONX_DISTRIBUTED_PP", "false")
-        if mp_plugin is None:
-            if use_neuronx_distributed_tp == "false":
-                tp_size = 1
-            else:
-                tp_size = int(use_neuronx_distributed_tp)
-            if use_neuronx_distributed_pp == "false":
-                pp_size = 1
-            else:
-                pp_size = int(use_neuronx_distributed_pp)
-            mp_plugin = ModelParallelismPlugin(
-                tensor_parallel_size=tp_size, parallelize_embeddings=True, pipeline_parallel_size=pp_size
-            )
         self._model_cpu_parameters_to_xla = {}
-
-        if mp_plugin.tensor_parallel_size > 1:
-            os.environ["ACCELERATE_USE_NEURONX_DISTRIBUTED_TP"] = "true"
-
-        if mp_plugin.pipeline_parallel_size > 1:
-            os.environ["ACCELERATE_USE_NEURONX_DISTRIBUTED_PP"] = "true"
 
         if not isinstance(autocast_backend, AutocastBackend):
             autocast_backend = AutocastBackend(autocast_backend)
