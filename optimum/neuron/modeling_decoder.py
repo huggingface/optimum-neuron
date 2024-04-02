@@ -55,7 +55,8 @@ def get_exporter(config, task):
     return TasksManager.get_exporter_config_constructor(model_type=config.model_type, exporter="neuron", task=task)()
 
 
-@functools.cache
+# Note: with python 3.9, functools.cache would be more suited
+@functools.lru_cache()
 def get_neuron_major() -> int:
     with open(MAJORS_FILE, "r") as f:
         for l in f.readlines():
