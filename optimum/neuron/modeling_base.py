@@ -27,7 +27,7 @@ from huggingface_hub import HfApi, HfFolder, hf_hub_download
 from huggingface_hub.utils import is_google_colab
 from transformers import AutoConfig, AutoModel
 
-from ..exporters.neuron import export
+from ..exporters.neuron import main_export
 from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..exporters.tasks import TasksManager
 from ..modeling_base import OptimizedModel
@@ -38,8 +38,9 @@ from .utils import (
     replace_weights,
     store_compilation_config,
 )
+from .utils.hub_neuronx_cache import ModelCacheEntry, build_cache_config, create_hub_compile_cache_proxy
 from .utils.import_utils import is_neuronx_available
-from .utils.misc import maybe_load_preprocessors, maybe_save_preprocessors
+from .utils.misc import maybe_load_preprocessors
 from .utils.version_utils import check_compiler_compatibility, get_neuroncc_version, get_neuronxcc_version
 
 
@@ -48,6 +49,15 @@ if TYPE_CHECKING:
 
     from ..exporters.neuron import NeuronDefaultConfig
 
+if is_neuron_available():
+
+    NEURON_COMPILER_TYPE = "neuron-cc"
+    NEURON_COMPILER_VERSION = get_neuroncc_version()
+
+if is_neuronx_available():
+
+    NEURON_COMPILER_TYPE = "neuronx-cc"
+    NEURON_COMPILER_VERSION = get_neuronxcc_version()
 
 logger = logging.getLogger(__name__)
 
@@ -229,7 +239,8 @@ class NeuronBaseModel(OptimizedModel):
         force_download: bool = False,
         cache_dir: Optional[str] = None,
         compiler_workdir: Optional[Union[str, Path]] = None,
-        inline_weights_to_neff: bool = True,
+        disable_neuron_cache: bool = False,
+        inline_weights_to_neff: bool = False,
         optlevel: str = "2",
         subfolder: str = "",
         local_files_only: bool = False,
@@ -251,63 +262,13 @@ class NeuronBaseModel(OptimizedModel):
         """
         if task is None:
             task = TasksManager.infer_task_from_model(cls.auto_model_class)
+        task = TasksManager.map_from_synonym(task)
         library_name = TasksManager.infer_library_from_model(model_id, subfolder=subfolder, library_name=library_name)
 
-        save_dir = TemporaryDirectory()
-        save_dir_path = Path(save_dir.name)
-
-        model = TasksManager.get_model_from_task(
-            task=task,
-            model_name_or_path=model_id,
-            subfolder=subfolder,
-            revision=revision,
-            framework="pt",
-            library_name=library_name,
-            cache_dir=cache_dir,
-            use_auth_token=use_auth_token,
-            local_files_only=local_files_only,
-            force_download=force_download,
-            trust_remote_code=trust_remote_code,
-        )
-
-        task = TasksManager.map_from_synonym(task)
-        neuron_config_constructor = TasksManager.get_exporter_config_constructor(
-            model=model,
-            exporter="neuron",
-            task=task,
-            library_name=library_name,
-        )
-
-        input_shapes = {}
-        for name in neuron_config_constructor.func.get_mandatory_axes_for_task(task):
-            static_shape = kwargs_shapes.get(name, None)
-            if static_shape is None:
-                raise AttributeError(
-                    f"Cannot find the value of `{name}` from arguments nor the `config`. `{name}` is mandatory"
-                    " for exporting the model to the neuron format, please set the value explicitly."
-                )
-            else:
-                input_shapes[name] = static_shape
-        if is_neuron_available() and dynamic_batch_size is True and "batch_size" in input_shapes:
-            input_shapes["batch_size"] = 1
-            disable_fallback = True  # Turn off the fallback for neuron, otherwise dynamic batching will still fail
-
-        if is_neuronx_available():
-            compiler_type = "neuronx-cc"
-            compiler_version = get_neuronxcc_version()
-        else:
-            compiler_type = "neuron-cc"
-            compiler_version = get_neuroncc_version()
-
-        neuron_config = neuron_config_constructor(
-            model.config,
-            dynamic_batch_size=dynamic_batch_size,
-            compiler_type=compiler_type,
-            compiler_version=compiler_version,
-            **input_shapes,
-        )
-
         # Get compilation arguments
+        if is_neuron_available() and dynamic_batch_size is True and "batch_size" in kwargs_shapes:
+            kwargs_shapes["batch_size"] = 1
+            disable_fallback = True  # Turn off the fallback for neuron, otherwise dynamic batching will still fail
         auto_cast_type = None if auto_cast is None else auto_cast_type
         compiler_kwargs = {
             "auto_cast": auto_cast,
@@ -316,34 +277,85 @@ class NeuronBaseModel(OptimizedModel):
             "disable_fallback": disable_fallback,
         }
 
-        input_names, output_names = export(
-            model=model,
-            config=neuron_config,
-            output=save_dir_path / NEURON_FILE_NAME,
-            compiler_workdir=compiler_workdir,
-            inline_weights_to_neff=inline_weights_to_neff,
-            optlevel=optlevel,
-            **compiler_kwargs,
-        )
+        if (
+            not inline_weights_to_neff and not disable_neuron_cache and is_neuronx_available()
+        ):  # TODO: support caching of Inf1 as well
+            # Check if the cache exists
+            compilation_config = store_compilation_config(
+                config=config,
+                input_shapes=kwargs_shapes,
+                compiler_kwargs=compiler_kwargs,
+                dynamic_batch_size=dynamic_batch_size,
+                compiler_type=NEURON_COMPILER_TYPE,
+                compiler_version=NEURON_COMPILER_VERSION,
+                inline_weights_to_neff=inline_weights_to_neff,
+                optlevel=optlevel,
+                model_type=getattr(config, "model_type", None),
+                task=task,
+            )
+            cache_config = build_cache_config(compilation_config)
+            cache_entry = ModelCacheEntry(model_id=model_id, config=cache_config)
+            compile_cache = create_hub_compile_cache_proxy()
+            model_cache_dir = compile_cache.default_cache.get_cache_dir_with_cache_key(f"MODULE_{cache_entry.hash}")
+            cache_available = compile_cache.download_folder(model_cache_dir, model_cache_dir)
+        else:
+            cache_available = False
 
-        config = store_compilation_config(
-            config=model.config,
-            input_shapes=input_shapes,
-            compiler_kwargs=compiler_kwargs,
-            input_names=input_names,
-            output_names=output_names,
-            dynamic_batch_size=dynamic_batch_size,
-            compiler_type=compiler_type,
-            compiler_version=compiler_version,
-            inline_weights_to_neff=inline_weights_to_neff,
-            optlevel=optlevel,
-            task=task,
-        )
+        # load cache
+        if cache_available:
+            try:
+                neuron_model = cls.from_pretrained(model_cache_dir)
+                model = TasksManager.get_model_from_task(
+                    task=task,
+                    model_name_or_path=model_id,
+                    subfolder=subfolder,
+                    revision=revision,
+                    framework="pt",
+                    library_name=library_name,
+                    cache_dir=cache_dir,
+                    use_auth_token=use_auth_token,
+                    local_files_only=local_files_only,
+                    force_download=force_download,
+                    trust_remote_code=trust_remote_code,
+                )
+                # replace weights
+                neuron_model.replace_weights(weights=model)
+                return neuron_model
+            except Exception as e:
+                logger.warning(
+                    f"Found the cached artifacts but failed to re-load them with error: {e}. \n Falling back to recompilation."
+                )
+                cache_available = False
 
-        config.save_pretrained(save_dir_path)
-        maybe_save_preprocessors(model_id, save_dir_path, src_subfolder=subfolder)
+        # compile
+        if not cache_available:
+            # compile
+            save_dir = TemporaryDirectory()
+            save_dir_path = Path(save_dir.name)
+            main_export(
+                model_name_or_path=model_id,
+                output=save_dir_path,
+                compiler_kwargs=compiler_kwargs,
+                task=task,
+                dynamic_batch_size=dynamic_batch_size,
+                cache_dir=cache_dir,
+                disable_neuron_cache=disable_neuron_cache,
+                compiler_workdir=compiler_workdir,
+                inline_weights_to_neff=inline_weights_to_neff,
+                optlevel=optlevel,
+                trust_remote_code=trust_remote_code,
+                subfolder=subfolder,
+                revision=revision,
+                force_download=force_download,
+                local_files_only=local_files_only,
+                use_auth_token=use_auth_token,
+                do_validation=False,
+                library_name=library_name,
+                **kwargs_shapes,
+            )
+            config = AutoConfig.from_pretrained(save_dir_path)
 
-        return cls._from_pretrained(save_dir_path, config, model_save_dir=save_dir, neuron_config=neuron_config)
+        return cls._from_pretrained(save_dir_path, config, model_save_dir=save_dir)
 
     def push_to_hub(
         self,
@@ -420,10 +432,9 @@ class NeuronBaseModel(OptimizedModel):
         Builds a `NeuronDefaultConfig` with an instance of the `PretrainedConfig` and the task.
         """
         if not hasattr(config, "neuron"):
-            logger.warning(
+            raise ValueError(
                 "Unable to identify neuron configuration with the keyword `neuron`, make sure that your config file contains necessary information"
             )
-            return
 
         neuron_config = config.neuron
         # Fetch compiler information

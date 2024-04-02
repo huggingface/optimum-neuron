@@ -7,12 +7,13 @@ from typing import List, Optional, Tuple
 
 import torch
 from loguru import logger
-from transformers import AutoTokenizer, PreTrainedTokenizerBase
+from transformers import AutoConfig, AutoTokenizer, PreTrainedTokenizerBase
 from transformers.generation import GenerationConfig
 
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.generation import TokenSelector
 
+from .model import get_export_kwargs_from_env
 from .pb.generate_pb2 import (
     Batch,
     CachedBatch,
@@ -152,13 +153,19 @@ class Slot:
         self._request_id = request.id
         self._inputs = request.inputs
         self._generation_config = copy.deepcopy(generation_config)
-        # Update generation config with token chooser parameters
-        self._generation_config.temperature = request.parameters.temperature
-        self._generation_config.top_k = request.parameters.top_k
-        self._generation_config.top_p = request.parameters.top_p
-        self._generation_config.typical_p = request.parameters.typical_p
+        # Update generation config with request parameters
         self._generation_config.do_sample = request.parameters.do_sample
-        self._generation_config.repetition_penalty = request.parameters.repetition_penalty
+        if self._generation_config.do_sample:
+            if request.parameters.temperature != 0:
+                self._generation_config.temperature = request.parameters.temperature
+            if request.parameters.top_k != 0:
+                self._generation_config.top_k = request.parameters.top_k
+            if request.parameters.top_p != 0:
+                self._generation_config.top_p = request.parameters.top_p
+            if request.parameters.typical_p != 0:
+                self._generation_config.typical_p = request.parameters.typical_p
+        if request.parameters.repetition_penalty != 0:
+            self._generation_config.repetition_penalty = request.parameters.repetition_penalty
         self.seed = request.parameters.seed
         # TODO: watermark
         self._generation_config.max_new_tokens = request.stopping_parameters.max_new_tokens
@@ -327,6 +334,7 @@ class NeuronGenerator(Generator):
                 f"Inconsistent server configuration: please make sure max-prefill-tokens does not exceed {batch_size} x max-input-length."
             )
         self.prefill(batch)
+        self.clear()
         return self.model.batch_size * self.model.max_length
 
     def prefill(self, batch: Batch) -> Tuple[List[Generation], CachedBatch]:
@@ -347,7 +355,7 @@ class NeuronGenerator(Generator):
         if len(empty_slots) < len(batch.requests):
             raise ValueError(
                 f"Cannot prefill {len(batch.requests)} new request(s) with only {len(empty_slots)} empty slots."
-                f"Please align the number of concurrent requests with the static batch size: {self.model.batch_size}."
+                f" Please align max_batch_size with the static batch size: {self.model.batch_size}."
             )
         # Assign each request to an empty slot
         logger.debug(f"Prefilling {len(batch.requests)} new request(s) with {len(empty_slots)} empty slot(s)")
@@ -538,23 +546,29 @@ class NeuronGenerator(Generator):
                 slot.clear()
 
     @classmethod
-    def from_pretrained(
-        cls,
-        model_path: str,
-    ):
+    def from_pretrained(cls, model_id: str, revision: str = None):
         """Instantiate a NeuronGenerator.
 
         Args:
-            model_path (`str`):
-                The path to a local neuron model. This path must also contain a Tokenizer.
+            model_id (`str`):
+                A hub model id or the path to a local model. This path must also contain a Tokenizer.
+            revision (`Optional[str]`, defaults to `None`):
+                The revision of the model on the HuggingFace hub.
 
         Returns:
             A NeuronGenerator.
         """
-        logger.info("Loading model on neuron devices (this can take a few minutes).")
+        config = AutoConfig.from_pretrained(model_id)
+        neuron_config = getattr(config, "neuron", None)
         start = time.time()
-        model = NeuronModelForCausalLM.from_pretrained(model_path)
+        if neuron_config is None:
+            export_kwargs = get_export_kwargs_from_env()
+            logger.info(f"Exporting model to neuron with config: {export_kwargs}.")
+            model = NeuronModelForCausalLM.from_pretrained(model_id, revision=revision, export=True, **export_kwargs)
+        else:
+            logger.info("Loading model on neuron devices (this can take a few minutes).")
+            model = NeuronModelForCausalLM.from_pretrained(model_id, revision=revision)
         end = time.time()
         logger.info(f"Model successfully loaded in {end - start:.2f} s.")
-        tokenizer = AutoTokenizer.from_pretrained(model_path)
+        tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision)
         return cls(model, tokenizer)

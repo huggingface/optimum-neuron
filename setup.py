@@ -15,7 +15,7 @@ except Exception as error:
 INSTALL_REQUIRES = [
     "transformers == 4.36.2",
     "accelerate == 0.23.0",
-    "optimum ~= 1.17.0",
+    "optimum ~= 1.18.0",
     "huggingface_hub >= 0.20.1",
     "numpy>=1.22.2, <=1.25.2",
     "protobuf<4",
@@ -32,6 +32,7 @@ TESTS_REQUIRE = [
     "diffusers >= 0.26.1",
     "safetensors",
     "sentence-transformers >= 2.2.0",
+    "peft",
 ]
 
 QUALITY_REQUIRES = [
