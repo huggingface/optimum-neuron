@@ -43,7 +43,6 @@ from transformers.models.auto.modeling_auto import (
 )
 
 import optimum
-from optimum.neuron.accelerate.accelerator import NeuronAccelerator
 from optimum.neuron.distributed.parallelizers_manager import ParallelizersManager
 from optimum.neuron.distributed.utils import compute_query_indices_for_rank
 from optimum.neuron.utils.cache_utils import (
@@ -296,7 +295,9 @@ class TestModelParallelization(DistributedTest):
             config_overwrite=config_overwrite,
             use_static_seed_patcher=True,
         )
-        orig_model = NeuronAccelerator.patch_model_for_neuron(orig_model)
+
+        accelerator = create_accelerator_for_mp(1, 1)
+        orig_model = accelerator.patch_model_for_neuron(orig_model)
 
         # TODO: enable that again once it's working, seems to be an AWS issue.
         orig_model.config.use_cache = False
@@ -356,7 +357,6 @@ class TestModelParallelization(DistributedTest):
 
         xm.mark_step()
 
-        model = accelerator.patch_model_for_neuron(model)
         with torch.no_grad():
             if pp_size == 1:
                 # This is set to False by `accelerator.prepare`, which we want in the general case, but here let's

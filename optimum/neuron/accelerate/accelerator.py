@@ -531,6 +531,7 @@ class NeuronAccelerator(Accelerator):
             return self._prepare_model_for_mp(
                 model, device_placement=device_placement, evaluation_mode=evaluation_mode
             )
+        move_model_to_device(model, xm.xla_device())
         device_placement = False
         return super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
 
