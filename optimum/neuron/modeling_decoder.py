@@ -15,8 +15,10 @@
 """Base class for text-generation model architectures on neuron devices."""
 
 import copy
+import functools
 import logging
 import os
+import re
 import shutil
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -33,6 +35,9 @@ from .utils import ModelCacheEntry, hub_neuronx_cache, is_transformers_neuronx_a
 from .utils.require_utils import requires_transformers_neuronx
 from .utils.version_utils import check_compiler_compatibility, get_neuronxcc_version
 
+NEURON_DEV_PATTERN = re.compile(r'^neuron\d+$', re.IGNORECASE)
+MAJORS_FILE = "/proc/devices"
+NEURON_MAJOR_LINE = re.compile(r'^\s*(\d+)\s+neuron\s*$')
 
 if is_transformers_neuronx_available():
     from transformers_neuronx.config import ContinuousBatchingConfig, NeuronConfig
@@ -50,6 +55,17 @@ def get_exporter(config, task):
     return TasksManager.get_exporter_config_constructor(model_type=config.model_type, exporter="neuron", task=task)()
 
 
+@functools.cache
+def get_neuron_major() -> int:
+    with open(MAJORS_FILE, "r") as f:
+        for l in f.readlines():
+            m = NEURON_MAJOR_LINE.match(l)
+            if m:
+                return int(m.group(1))
+    logger.error("No major for neuron device could be found in /proc/devices!")
+    return -1
+
+
 @requires_transformers_neuronx
 def get_available_cores() -> int:
     """A helper to get the number of available cores.
@@ -57,7 +73,25 @@ def get_available_cores() -> int:
     This number depends first on the actual number of cores, then on the
     content of the NEURON_RT_NUM_CORES and NEURON_RT_VISIBLE_CORES variables.
     """
-    max_cores = len(os.listdir("/sys/class/neuron_device/")) * 2
+    device_count = 0
+    neuron_major = get_neuron_major()
+    root, _, files = next(os.walk("/dev"))
+    # Just look for devices in dev, non recursively
+    for f in files:
+        if neuron_major > 0:
+            try:
+                dev_major = os.major(os.stat("{}/{}".format(root, f)).st_rdev)
+                if dev_major == neuron_major:
+                    device_count += 1
+            except FileNotFoundError:
+                # Just to avoid race conditions where some devices would be deleted while running this
+                pass
+        else:
+            # We were not able to get the neuron major properly we fallback on counting neuron devices based on the
+            # device name
+            if NEURON_DEV_PATTERN.match(f):
+                device_count += 1
+    max_cores = device_count * 2
     num_cores = os.environ.get("NEURON_RT_NUM_CORES", max_cores)
     if num_cores != max_cores:
         num_cores = int(num_cores)
