@@ -396,7 +396,8 @@ class Parallelizer(ABC):
                         slices = None
 
                     new_parameter = torch.nn.Parameter(
-                        load_tensor_for_weight(weight_info, tensor_slices=slices).to(parameter.dtype)
+                        load_tensor_for_weight(weight_info, tensor_slices=slices).to(parameter.dtype),
+                        device=device,
                     )
                 elif parameter.device != torch.device("meta") and (
                     was_already_initialized_during_parallelization(parameter)
