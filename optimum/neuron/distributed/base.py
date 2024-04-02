@@ -407,7 +407,8 @@ class Parallelizer(ABC):
                     continue
                 else:
                     # This means that there is no information about where to find the weights for this parameter.
-                    device = torch.device("cpu") if device is None else device
+                    # We first create the module on CPU, initialize it and then move it on device if needed.
+                    device = torch.device("cpu")
                     new_parameter = torch.nn.Parameter(torch.empty_like(parameter, device=device))
                     modules_to_initialize[module].append(attribute_name)
 
@@ -499,6 +500,10 @@ class Parallelizer(ABC):
                     left_uninitialized = try_to_hf_initialize(model, mod, parameter_names)
                     if left_uninitialized and hasattr(mod, "reset_parameters"):
                         initialize_torch_nn_module(mod, parameter_names)
+
+                if device is not None:
+                    mod.to(device)
+                gc.collect()
 
     @classmethod
     @requires_neuronx_distributed
