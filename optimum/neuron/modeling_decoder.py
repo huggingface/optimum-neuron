@@ -35,6 +35,7 @@ from .utils import ModelCacheEntry, hub_neuronx_cache, is_transformers_neuronx_a
 from .utils.require_utils import requires_transformers_neuronx
 from .utils.version_utils import check_compiler_compatibility, get_neuronxcc_version
 
+
 NEURON_DEV_PATTERN = re.compile(r"^neuron\d+$", re.IGNORECASE)
 MAJORS_FILE = "/proc/devices"
 NEURON_MAJOR_LINE = re.compile(r"^\s*(\d+)\s+neuron\s*$")
