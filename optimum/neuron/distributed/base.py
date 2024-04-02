@@ -394,11 +394,10 @@ class Parallelizer(ABC):
                             continue
                     else:
                         slices = None
-
-                    new_parameter = torch.nn.Parameter(
-                        load_tensor_for_weight(weight_info, tensor_slices=slices).to(parameter.dtype),
-                        device=device,
-                    )
+                    weight_data = load_tensor_for_weight(weight_info, tensor_slices=slices).to(parameter.dtype)
+                    if device is not None:
+                        weight_data = weight_data.to(device)
+                    new_parameter = torch.nn.Parameter(weight_data)
                 elif parameter.device != torch.device("meta") and (
                     was_already_initialized_during_parallelization(parameter)
                     or not parameter_can_be_initialized(model, module, attribute_name)
@@ -420,6 +419,7 @@ class Parallelizer(ABC):
                 )
                 tied_weights[parameter] = new_parameter
                 new_parameters.add(new_parameter)
+                gc.collect()
 
             for mod, parameter_names in modules_to_initialize.items():
                 if isinstance(mod, torch.nn.Embedding):
