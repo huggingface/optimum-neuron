@@ -262,9 +262,9 @@ if __name__ == "__main__":
     logger.info(f"Neuron SDK version: {sdk_version}")
     logger.info(f"Optimum Neuron version: {optimum_neuron_version.__version__}")
     logger.info(f"Compatible Optimum Neuron SDK version: {optimum_neuron_version.__sdk_version__} == {sdk_version}")
-    # assert (
-    #     optimum_neuron_version.__sdk_version__ == sdk_version
-    # ), f"Optimum Neuron SDK version {optimum_neuron_version.__sdk_version__} is not compatible with installed Neuron SDK version {sdk_version}"
+    assert (
+        optimum_neuron_version.__sdk_version__ == sdk_version
+    ), f"Optimum Neuron SDK version {optimum_neuron_version.__sdk_version__} is not compatible with installed Neuron SDK version {sdk_version}"
 
     # If a config file is provided, compile and cache all models in the file
     if args.config_file:
