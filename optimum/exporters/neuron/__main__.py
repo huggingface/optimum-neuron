@@ -43,7 +43,7 @@ from ...neuron.utils.version_utils import (
 from ...utils import is_diffusers_available, logging
 from ..error_utils import AtolError, OutputMatchError, ShapeError
 from ..tasks import TasksManager
-from .base import NeuronDecoderConfig
+from .base import NeuronConfig, NeuronDecoderConfig
 from .convert import export_models, validate_models_outputs
 from .model_configs import *  # noqa: F403
 from .utils import (
@@ -112,7 +112,14 @@ def infer_task(task: str, model_name_or_path: str) -> str:
 
 # This function is not applicable for diffusers / sentence transformers models
 def get_input_shapes_and_config_class(task: str, args: argparse.Namespace) -> Dict[str, int]:
-    config = AutoConfig.from_pretrained(args.model)
+    neuron_config_constructor = get_neuron_config_class(task, args.model)
+    input_args = neuron_config_constructor.func.get_input_args_for_task(task)
+    input_shapes = {name: getattr(args, name) for name in input_args}
+    return input_shapes, neuron_config_constructor.func
+
+
+def get_neuron_config_class(task: str, model_id: str) -> NeuronConfig:
+    config = AutoConfig.from_pretrained(model_id)
 
     model_type = config.model_type.replace("_", "-")
     if config.is_encoder_decoder:
@@ -124,9 +131,7 @@ def get_input_shapes_and_config_class(task: str, args: argparse.Namespace) -> Di
         task=task,
         library_name="transformers",
     )
-    input_args = neuron_config_constructor.func.get_input_args_for_task(task)
-    input_shapes = {name: getattr(args, name) for name in input_args}
-    return input_shapes, neuron_config_constructor.func
+    return neuron_config_constructor
 
 
 def normalize_sentence_transformers_input_shapes(args: argparse.Namespace) -> Dict[str, int]:

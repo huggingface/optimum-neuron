@@ -160,6 +160,8 @@ def compile_and_cache_model(
 ):
     start = time.time()
     with tempfile.TemporaryDirectory() as temp_dir:
+        if task is None:
+            task = infer_task_from_model_path(hf_model_id)
         # Compile model with Optimum for specific configurations
         if task == "text-generation":
             compile_command = build_decoder_command(
@@ -197,8 +199,23 @@ def compile_and_cache_model(
     logger.info(f"Compiled and cached model {hf_model_id} w{time.time() - start:.2f} seconds")
 
 
-# TODO: Remove when https://github.com/huggingface/optimum/pull/1793/ is merged in Optimum
 def infer_task_from_model_path(model_id: str):
+    try:
+        # Decoder: task=="text-generation"
+        from transformers import AutoConfig
+
+        config = AutoConfig.from_pretrained(model_id)
+        model_type = config.model_type.replace("_", "-")
+        model_tasks = TasksManager.get_supported_tasks_for_model_type(
+            model_type, exporter="neuron", library_name="transformers"
+        )
+        if "text-generation" in model_tasks:
+            task = "text-generation"
+            return task
+    except Exception:
+        pass
+
+    # TODO: Remove when https://github.com/huggingface/optimum/pull/1793/ is merged in Optimum
     try:
         task = TasksManager.infer_task_from_model(model_id)
     except KeyError:
@@ -270,7 +287,7 @@ if __name__ == "__main__":
                     width=model_config.get("width", None),
                     num_images_per_prompt=model_config.get("num_images_per_prompt", 1),
                     num_cores=model_config.get("num_cores", None),
-                    task=model_config.get("task", None) or infer_task_from_model_path(model_id),
+                    task=model_config.get("task", None),
                     auto_cast=model_config.get("auto_cast", None),
                     auto_cast_type=model_config.get("auto_cast_type", None),
                 )
@@ -285,7 +302,7 @@ if __name__ == "__main__":
             width=args.width,
             num_images_per_prompt=args.width,
             num_cores=args.num_cores,
-            task=args.task or infer_task_from_model_path(args.hf_model_id),
+            task=args.task,
             auto_cast=args.auto_cast,
             auto_cast_type=args.auto_cast_type,
         )
