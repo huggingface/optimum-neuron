@@ -36,6 +36,8 @@ SUPPORTED_EXAMPLES = [
     "language-modeling",
     "translation",
     "summarization",
+    "audio-classification",
+    "speech-recognition",
 ]
 
 UNSUPPORTED_SCRIPTS_FOR_NOW = [
