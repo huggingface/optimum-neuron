@@ -1427,3 +1427,33 @@ class Seq2SeqNeuronTrainer(AugmentTrainerForNeuronMixin, Seq2SeqTrainer):
     """
     Seq2SeqTrainer that is suited for performing training on AWS Tranium instances.
     """
+
+    def evaluate(
+        self,
+        eval_dataset: Optional[Dataset] = None,
+        ignore_keys: Optional[List[str]] = None,
+        metric_key_prefix: str = "eval",
+        **gen_kwargs,
+    ) -> Dict[str, float]:
+        with patch_neuron_cc_wrapper():
+            with hub_neuronx_cache("training", entry=self.model_cache_entry):
+                result = super().evaluate(
+                    eval_dataset=eval_dataset, ignore_keys=ignore_keys, metric_key_prefix=metric_key_prefix, **gen_kwargs,
+                )
+        if not is_precompilation():
+            self.synchronize_hub_cache()
+        return result
+
+    def predict(
+        self,
+        test_dataset: Dataset,
+        ignore_keys: Optional[List[str]] = None,
+        metric_key_prefix: str = "test",
+        **gen_kwargs,
+    ) -> PredictionOutput:
+        with patch_neuron_cc_wrapper():
+            with hub_neuronx_cache("training", entry=self.model_cache_entry):
+                result = super().predict(test_dataset, ignore_keys=ignore_keys, metric_key_prefix=metric_key_prefix, **gen_kwargs)
+        if not is_precompilation():
+            self.synchronize_hub_cache()
+        return result
