@@ -29,8 +29,7 @@ from huggingface_hub import snapshot_download
 from transformers import CLIPFeatureExtractor, CLIPTokenizer, PretrainedConfig
 
 from ..exporters.neuron import (
-    get_submodels_for_export_stable_diffusion,
-    infer_stable_diffusion_shapes_from_diffusers,
+    load_models_and_neuron_configs,
     main_export,
     normalize_stable_diffusion_input_shapes,
     replace_stable_diffusion_submodels,
@@ -48,7 +47,6 @@ from .utils import (
     NEURON_FILE_NAME,
     DiffusersPretrainedConfig,
     check_if_weights_replacable,
-    get_stable_diffusion_configs,
     is_neuronx_available,
     replace_weights,
     store_compilation_config,
@@ -693,46 +691,54 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
 
         # Check if the cache exists
         if not inline_weights_to_neff and not disable_neuron_cache:
+            save_dir = TemporaryDirectory()
+            save_dir_path = Path(save_dir.name)
             # 1. Fetch all model configs
-            models_for_export = get_submodels_for_export_stable_diffusion(
-                pipeline=pipe,
+            models_and_neuron_configs, _ = load_models_and_neuron_configs(
+                model_name_or_path=model_id,
+                output=save_dir_path,
+                model=pipe,
                 task=task,
+                dynamic_batch_size=dynamic_batch_size,
+                cache_dir=cache_dir,
+                trust_remote_code=trust_remote_code,
+                subfolder=subfolder,
+                revision=revision,
+                force_download=force_download,
+                local_files_only=local_files_only,
+                use_auth_token=use_auth_token,
+                submodels=submodels,
                 lora_model_ids=lora_model_ids,
                 lora_weight_names=lora_weight_names,
                 lora_adapter_names=lora_adapter_names,
                 lora_scales=lora_scales,
+                **input_shapes,
             )
-            input_shapes = infer_stable_diffusion_shapes_from_diffusers(input_shapes, pipe)
-            model_configs = get_stable_diffusion_configs(models_for_export)
 
             # 2. Build compilation config
             compilation_configs = {}
-            for name, model_config in model_configs.items():
+            for name, (model, neuron_config) in models_and_neuron_configs.items():
                 if "vae" in name:  # vae configs are not cached.
                     continue
+                model_config = model.config
                 if isinstance(model_config, FrozenDict):
                     model_config = OrderedDict(model_config)
                     model_config = DiffusersPretrainedConfig.from_dict(model_config)
 
-                model_type = (
-                    getattr(model_config, "model_type")
-                    if isinstance(model_config, Dict)
-                    else getattr(model_config, "model_type", None)
-                )
                 compilation_config = store_compilation_config(
                     config=model_config,
-                    input_shapes=input_shapes[name],
+                    input_shapes=neuron_config.input_shapes,
                     compiler_kwargs=compiler_kwargs,
-                    dynamic_batch_size=dynamic_batch_size,
+                    input_names=neuron_config.inputs,
+                    output_names=neuron_config.outputs,
+                    dynamic_batch_size=neuron_config.dynamic_batch_size,
                     compiler_type=NEURON_COMPILER_TYPE,
                     compiler_version=NEURON_COMPILER_VERSION,
                     inline_weights_to_neff=inline_weights_to_neff,
                     optlevel=optlevel,
-                    model_type=model_type,
-                    task=task,
+                    model_type=getattr(neuron_config, "MODEL_TYPE", None),
+                    task=getattr(neuron_config, "task", None),
                 )
-                if getattr(compilation_config, "model_type", None) is not None:
-                    compilation_config.model_type = compilation_config.model_type.replace("-", "_")
                 compilation_configs[name] = compilation_config
 
             # 3. Lookup cached config
@@ -759,7 +765,6 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 model_name_or_path=model_id,
                 output=save_dir_path,
                 compiler_kwargs=compiler_kwargs,
-                model=pipe,
                 task=task,
                 dynamic_batch_size=dynamic_batch_size,
                 cache_dir=cache_dir,

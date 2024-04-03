@@ -184,15 +184,21 @@ class CompileCacheHfProxy(CompileCache):
                 folder_exists = False
 
             if folder_exists:
-                # cached remotely
-                for repo_content in folder_info:
-                    # TODO: this works for `RepoFile` but not `RepoFolder`
-                    local_path = self.api.hf_hub_download(self.repo_id, repo_content.path)
-                    filename = Path(local_path).name
-                    dst_path = Path(dst_path)
-                    dst_path.mkdir(parents=True, exist_ok=True)
-                    os.symlink(local_path, dst_path / filename)
-                logger.info(f"Fetched cached {rel_folder_path} from {self.repo_id}")
+                try:
+                    # cached remotely
+                    for repo_content in folder_info:
+                        # TODO: this works for `RepoFile` but not `RepoFolder`
+                        local_path = self.api.hf_hub_download(self.repo_id, repo_content.path)
+                        filename = Path(local_path).name
+                        dst_path = Path(dst_path)
+                        dst_path.mkdir(parents=True, exist_ok=True)
+                        os.symlink(local_path, dst_path / filename)
+                    logger.info(f"Fetched cached {rel_folder_path} from {self.repo_id}")
+                except Exception as e:
+                    logger.warning(
+                        f"Unable to download cached model in {self.repo_id}: {e} \nThe model will be recompiled."
+                    )
+                    folder_exists = False
 
             return folder_exists
 
