@@ -20,11 +20,13 @@ import re
 import subprocess
 import tempfile
 import time
-from typing import Literal, Optional, Union
+from typing import Optional
 
+import huggingface_hub
 import requests
 from huggingface_hub import get_token, login, logout
 
+from optimum.exporters import TasksManager
 from optimum.neuron import version as optimum_neuron_version
 from optimum.neuron.utils.version_utils import get_neuronxcc_version
 
@@ -63,7 +65,7 @@ def get_aws_neuronx_tools_version():
 def build_decoder_command(hf_model_id, batch_size, sequence_length, num_cores, auto_cast_type, output_dir):
     if None in [batch_size, sequence_length, num_cores, auto_cast_type]:
         raise ValueError(
-            "You must provide --batch_size, --sequence_length, --num_cores and --auto_cast_type for compiling stable diffusion models."
+            "You must provide --batch_size, --sequence_length, --num_cores and --auto_cast_type for compiling decoder models."
         )
     compile_command = [
         "optimum-cli",
@@ -146,7 +148,6 @@ def build_stable_diffusion_command(
 
 def compile_and_cache_model(
     hf_model_id: str,
-    inference_type: Union[Literal["decoder"], Literal["encoder"], Literal["stable-diffusion"]],
     batch_size: int,
     sequence_length: Optional[int] = None,
     height: Optional[int] = None,
@@ -160,15 +161,11 @@ def compile_and_cache_model(
     start = time.time()
     with tempfile.TemporaryDirectory() as temp_dir:
         # Compile model with Optimum for specific configurations
-        if inference_type == "decoder":
+        if task == "text-generation":
             compile_command = build_decoder_command(
                 hf_model_id, batch_size, sequence_length, num_cores, auto_cast_type, temp_dir
             )
-        elif inference_type == "encoder":
-            compile_command = build_encoder_command(
-                hf_model_id, task, batch_size, sequence_length, auto_cast, auto_cast_type, temp_dir
-            )
-        elif inference_type == "stable-diffusion":
+        elif "stable-diffusion" in task:
             compile_command = build_stable_diffusion_command(
                 hf_model_id,
                 task,
@@ -181,8 +178,8 @@ def compile_and_cache_model(
                 temp_dir,
             )
         else:
-            logger.error(
-                "Unknown inference type, please set `--inference_type` to a value among: decoder, encoder and stable-diffusion."
+            compile_command = build_encoder_command(
+                hf_model_id, task, batch_size, sequence_length, auto_cast, auto_cast_type, temp_dir
             )
         logger.info(f"Running compile command: {' '.join(compile_command)}")
         try:
@@ -200,15 +197,26 @@ def compile_and_cache_model(
     logger.info(f"Compiled and cached model {hf_model_id} w{time.time() - start:.2f} seconds")
 
 
+# TODO: Remove when https://github.com/huggingface/optimum/pull/1793/ is merged in Optimum
+def infer_task_from_model_path(model_id: str):
+    try:
+        task = TasksManager.infer_task_from_model(model_id)
+    except KeyError:
+        model_info = huggingface_hub.model_info(model_id)
+        library_name = TasksManager.infer_library_from_model(model_id)
+        if library_name == "diffusers":
+            class_name = model_info.config["diffusers"].get("_class_name", None)
+            task = "stable-diffusion-xl" if "StableDiffusionXL" in class_name else "stable-diffusion"
+
+    import pdb
+
+    pdb.set_trace()
+    return task
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Compile and cache a model to the Hugging Face Hub.")
     parser.add_argument("--hf_model_id", type=str, help="Hugging Face model ID to compile.")
-    parser.add_argument(
-        "--inference_type",
-        type=str,
-        choices=["decoder", "encoder", "stable-diffusion"],
-        help="Type of models to compile.",
-    )
     parser.add_argument("--task", type=str, help="Task for compilation (mandatory for encoders and stable diffusion).")
     parser.add_argument("--batch_size", type=int, help="Batch size for compilation.")
     parser.add_argument("--sequence_length", type=int, help="Sequence length for compilation.")
@@ -241,9 +249,9 @@ if __name__ == "__main__":
     logger.info(f"Neuron SDK version: {sdk_version}")
     logger.info(f"Optimum Neuron version: {optimum_neuron_version.__version__}")
     logger.info(f"Compatible Optimum Neuron SDK version: {optimum_neuron_version.__sdk_version__} == {sdk_version}")
-    assert (
-        optimum_neuron_version.__sdk_version__ == sdk_version
-    ), f"Optimum Neuron SDK version {optimum_neuron_version.__sdk_version__} is not compatible with installed Neuron SDK version {sdk_version}"
+    # assert (
+    #     optimum_neuron_version.__sdk_version__ == sdk_version
+    # ), f"Optimum Neuron SDK version {optimum_neuron_version.__sdk_version__} is not compatible with installed Neuron SDK version {sdk_version}"
 
     # If a config file is provided, compile and cache all models in the file
     if args.config_file:
@@ -260,32 +268,28 @@ if __name__ == "__main__":
             for model_config in configs:
                 compile_and_cache_model(
                     hf_model_id=model_id,
-                    inference_type=model_config["inference_type"],
                     batch_size=model_config["batch_size"],
                     sequence_length=model_config.get("sequence_length", None),
                     height=model_config.get("height", None),
                     width=model_config.get("width", None),
                     num_images_per_prompt=model_config.get("num_images_per_prompt", 1),
                     num_cores=model_config.get("num_cores", None),
-                    task=model_config.get("task", None),
+                    task=model_config.get("task", None) or infer_task_from_model_path(model_id),
                     auto_cast=model_config.get("auto_cast", None),
                     auto_cast_type=model_config.get("auto_cast_type", None),
                 )
-    elif args.hf_model_id is None or args.inference_type is None:
-        raise ValueError(
-            "You must provide a --hf_model_id and its --inference_type to compile a model without a config file."
-        )
+    elif args.hf_model_id is None:
+        raise ValueError("You must provide --hf_model_id to compile a model without a config file.")
     else:
         compile_and_cache_model(
             hf_model_id=args.hf_model_id,
-            inference_type=args.inference_type,
             batch_size=args.batch_size,
             sequence_length=args.sequence_length,
             height=args.height,
             width=args.width,
             num_images_per_prompt=args.width,
             num_cores=args.num_cores,
-            task=args.task,
+            task=args.task or infer_task_from_model_path(args.hf_model_id),
             auto_cast=args.auto_cast,
             auto_cast_type=args.auto_cast_type,
         )

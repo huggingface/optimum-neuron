@@ -15,7 +15,7 @@
 
 
 import logging
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 from diffusers import StableDiffusionXLInpaintPipeline
@@ -28,10 +28,6 @@ from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl_inpain
 from diffusers.utils import deprecate
 
 from .pipeline_utils import StableDiffusionXLPipelineMixin
-
-
-if TYPE_CHECKING:
-    from diffusers.image_processor import PipelineImageInput
 
 
 logger = logging.getLogger(__name__)
