@@ -15,6 +15,7 @@
 """Custom PartialState and AcceleratorState for Neuron."""
 
 import os
+from typing import Optional, Union
 
 import torch
 from accelerate.state import AcceleratorState, PartialState, ThreadLocalSharedDict
@@ -35,8 +36,13 @@ from accelerate.utils.dataclasses import FullyShardedDataParallelPlugin, SageMak
 
 from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
+from ..utils.torch_xla_and_neuronx_initialization import (
+    init_process_group,
+    set_common_neuron_cc_flags,
+    set_neuron_cc_flags_for_torch_amp,
+)
 from .utils import NeuronDistributedType, NeuronFullyShardedDataParallelPlugin
-from .utils.dataclasses import ModelParallelismPlugin
+from .utils.dataclasses import AutocastBackend, ModelParallelismPlugin
 
 
 if is_torch_xla_available():
@@ -84,6 +90,11 @@ class NeuronPartialState(PartialState):
                         self.device = torch.device("cuda", self.local_process_index)
                     torch.cuda.set_device(self.device)
             elif is_torch_xla_available() and not cpu:
+                # It is important to set the environment variables before initializing the process group otherwise they will be ignored by the Neuron compiler.
+                set_common_neuron_cc_flags()
+                if os.environ.get("ACCELERATE_USE_AMP", "false") == "true":
+                    set_neuron_cc_flags_for_torch_amp()
+                init_process_group()
                 self.distributed_type = DistributedType.TPU
                 self.num_processes = xm.xrt_world_size()
                 self.process_index = xm.get_ordinal()
@@ -224,17 +235,26 @@ class NeuronAcceleratorState(AcceleratorState):
         deepspeed_plugin=None,
         fsdp_plugin=None,
         megatron_lm_plugin=None,
-        mp_plugin=None,
+        mp_plugin: Optional[ModelParallelismPlugin] = None,
+        autocast_backend: Optional[Union[str, AutocastBackend]] = None,
         _from_accelerator: bool = False,
         **kwargs,
     ):
         self.__dict__ = self._shared_state
         if parse_flag_from_env("ACCELERATE_USE_CPU"):
             cpu = True
+
+        if autocast_backend is None:
+            autocast_backend = AutocastBackend.XLA
+        elif not isinstance(autocast_backend, AutocastBackend):
+            autocast_backend = AutocastBackend(autocast_backend)
+
         if NeuronPartialState._shared_state == {}:
+            if autocast_backend is AutocastBackend.AMP:
+                os.environ["ACCELERATE_USE_AMP"] = "true"
             NeuronPartialState(cpu, **kwargs)
         self.__dict__.update(NeuronPartialState._shared_state)
-        self._check_initialized(mixed_precision, cpu)
+        self._check_initialized(mixed_precision, cpu, autocast_backend)
         if not self.initialized:
             self.deepspeed_plugin = None
             self.ipex_plugin = None
@@ -253,9 +273,14 @@ class NeuronAcceleratorState(AcceleratorState):
                 )
             # deepspeed handles mixed_precision using deepspeed_config
             self._mixed_precision = "no" if self.distributed_type == DistributedType.DEEPSPEED else mixed_precision
+
+            self._autocast_backend = autocast_backend
+
             if self.distributed_type == DistributedType.TPU:
                 if mixed_precision == "bf16":
-                    if os.environ.get("ACCELERATE_DOWNCAST_BF16"):
+                    if autocast_backend is AutocastBackend.AMP:
+                        self.downcast_bfloat = True
+                    elif os.environ.get("ACCELERATE_DOWNCAST_BF16"):
                         os.environ["XLA_USE_BF16"] = str(0)
                         os.environ["XLA_DOWNCAST_BF16"] = str(1)
                         self.downcast_bfloat = True
@@ -263,24 +288,15 @@ class NeuronAcceleratorState(AcceleratorState):
                         os.environ["XLA_USE_BF16"] = str(1)
                         os.environ["XLA_DOWNCAST_BF16"] = str(0)
                         self.downcast_bfloat = False
-                if (
-                    os.environ.get("ACCELERATE_USE_NEURONX_DISTRIBUTED_TP", "false") == "true"
-                    or os.environ.get("ACCELERATE_USE_NEURONX_DISTRIBUTED_PP", "false") == "true"
-                ):
-                    if mp_plugin is None:
-                        raise ValueError(
-                            "Could not initialize model parallelism because no `ModelParallelismPlugin` was provided."
-                        )
-                    if mp_plugin.should_parallelize:
-                        self.distributed_type = NeuronDistributedType.MODEL_PARALLELISM
-                    else:
-                        logger.warning(
-                            "Model parallelism is requested but nothing is done because the tensor parallel size and "
-                            "the pipeline parallel size are set to 1."
-                        )
-                    self.mp_plugin = mp_plugin
-                else:
-                    self.mp_plugin = ModelParallelismPlugin()
+
+                if mp_plugin is None:
+                    mp_plugin = ModelParallelismPlugin()
+
+                if mp_plugin.should_parallelize:
+                    self.distributed_type = NeuronDistributedType.MODEL_PARALLELISM
+
+                self.mp_plugin = mp_plugin
+                print("MP PLUGIN", self.mp_plugin)
 
                 if torch.distributed.is_initialized() and not parallel_state.model_parallel_is_initialized():
                     parallel_state.initialize_model_parallel(
@@ -323,3 +339,18 @@ class NeuronAcceleratorState(AcceleratorState):
             ):
                 torch.backends.cuda.matmul.allow_tf32 = True
             PartialState._shared_state["distributed_type"] = self.distributed_type
+
+    def _check_initialized(self, mixed_precision=None, cpu=None, autocast_backend=None):
+        "Checks if a modification is trying to be made and the `AcceleratorState` has already been initialized"
+        super()._check_initialized(mixed_precision=mixed_precision, cpu=cpu)
+        err = (
+            "AcceleratorState has already been initialized and cannot be changed, restart your runtime completely and "
+            "pass `{flag}` to `Accelerator()`."
+        )
+        if self.initialized:
+            if autocast_backend is not None and autocast_backend != self.autocast_backend:
+                raise ValueError(err.format(flag=f"autocast_backend='{autocast_backend}'"))
+
+    @property
+    def autocast_backend(self):
+        return self._autocast_backend

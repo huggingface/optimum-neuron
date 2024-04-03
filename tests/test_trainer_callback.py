@@ -18,6 +18,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
 
+import pytest
 import torch
 from huggingface_hub import HfApi
 from transformers.testing_utils import is_staging_test
@@ -37,6 +38,7 @@ from .utils import StagingTestMixin
 
 @is_trainium_test
 @is_staging_test
+@pytest.mark.skip("Not used anymore, will be removed in cleaning PR.")
 class NeuronCacheCallbackTestCase(StagingTestMixin, TestCase):
     def test_neuron_hash_for_model(self):
         with TemporaryDirectory() as tmpdirname:

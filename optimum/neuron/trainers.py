@@ -28,6 +28,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import torch
 from accelerate import __version__ as accelerate_version
+from accelerate.utils import AutocastKwargs
 from packaging import version
 from torch.utils.data import Dataset
 from transformers import PreTrainedModel, Seq2SeqTrainer, Trainer, TrainingArguments
@@ -92,9 +93,6 @@ from .utils.training_utils import (
     is_precompilation,
     is_topology_supported,
     patch_generation_mixin_to_neuron_generation_mixin,
-    prepare_environment_for_neuron,
-    set_neuron_cc_flags_for_model,
-    set_neuron_cc_optlevel_for_model,
     skip_first_batches,
     torch_xla_safe_save_file,
 )
@@ -131,15 +129,6 @@ KEEP_HF_HUB_PROGRESS_BARS = os.environ.get("KEEP_HF_HUB_PROGRESS_BARS")
 if KEEP_HF_HUB_PROGRESS_BARS is None:
     os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
 
-
-if os.environ.get("TORCHELASTIC_RUN_ID"):
-    import torch_xla.distributed.xla_backend as xbn
-
-    if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
-        torch.distributed.init_process_group(backend="xla")
-        if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
-            raise AssertionError("Failed to initialize torch.distributed process group using XLA backend.")
-
 transformers_get_optimizer_cls_and_kwargs = Trainer.get_optimizer_cls_and_kwargs
 
 
@@ -158,10 +147,11 @@ class AugmentTrainerForNeuronMixin:
         if training_args is None and len(args) >= 2:
             training_args = args[1]
 
+        self.use_amp = False
         if training_args is not None:
             if training_args.bf16:
-                training_args.bf16 = False
-                os.environ["XLA_USE_BF16"] = "1"
+                if training_args.half_precision_backend == "amp":
+                    self.use_amp = True
 
         self.validate_args(training_args)
         if is_precompilation():
@@ -172,7 +162,6 @@ class AugmentTrainerForNeuronMixin:
 
             transformers.trainer.Accelerator = NeuronAccelerator
 
-        prepare_environment_for_neuron()
         super().__init__(*args, **kwargs)
 
         # We need to change which process can be seen as "world process zero" to make sure the proper metrics
@@ -195,14 +184,10 @@ class AugmentTrainerForNeuronMixin:
         # Make the model Neuron-compatible for generation.
         patch_generation_mixin_to_neuron_generation_mixin(self.model)
 
-        set_neuron_cc_optlevel_for_model(self.model, optlevel=self.args.neuron_cc_optlevel)
-        set_neuron_cc_flags_for_model(self.model)
-
         # Model cache entry management.
         model_name_or_path_for_cache_entry = get_model_name_or_path(self.model.config)
         model_config_for_cache_entry = copy.deepcopy(self.model.config)
-        use_bf16 = os.environ.get("XLA_USE_BF16", False) or os.environ.get("XLA_DOWNCAST_BF16", False)
-        precision = "bfloat16" if use_bf16 else "float32"
+        precision = "bfloat16" if self.accelerator.state.mixed_precision == "bf16" else "float32"
         neuron_config_for_cache_entry = {
             "model_class": self.model.__class__.__name__,
             "precision": precision,
@@ -242,14 +227,17 @@ class AugmentTrainerForNeuronMixin:
         return self.accelerator.distributed_type is NeuronDistributedType.MODEL_PARALLELISM
 
     def prepare_args_for_precompilation(self, args: "TrainingArguments"):
-        if is_main_worker() and args.num_train_epochs != 1:
-            logger.info("Setting the number of epochs for precompilation to 1.")
+        if args.num_train_epochs != 1:
+            if is_main_worker():
+                logger.info("Setting the number of epochs for precompilation to 1.")
             args.num_train_epochs = 1
-        if is_main_worker() and args.do_eval is True:
-            logger.info("Disabling evaluation during precompilation as this is not well supported yet.")
+        if args.do_eval:
+            if is_main_worker():
+                logger.info("Disabling evaluation during precompilation as this is not well supported yet.")
             args.do_eval = False
-        if is_main_worker() and args.do_predict is True:
-            logger.info("Disabling prediction during precompilation as this is not well supported yet.")
+        if args.do_predict:
+            if is_main_worker():
+                logger.info("Disabling prediction during precompilation as this is not well supported yet.")
             args.do_predict = False
 
     def validate_args(self, args: "TrainingArguments"):
@@ -262,6 +250,8 @@ class AugmentTrainerForNeuronMixin:
             gradient_accumulation_steps=self.args.gradient_accumulation_steps,
             mp_plugin=self.args.mp_plugin,
             zero_1=self.args.zero_1,
+            mixed_precision="bf16" if self.args.bf16 else "no",
+            autocast_backend=self.args.half_precision_backend,
         )
 
         # deepspeed and accelerate flags covering both trainer args and accelerate launcher
@@ -356,6 +346,18 @@ class AugmentTrainerForNeuronMixin:
         loss = super().compute_loss(model, inputs, return_outputs=return_outputs)
         return loss
 
+    def autocast_smart_context_manager(self, cache_enabled: Optional[bool] = True):
+        """
+        A helper wrapper that creates an appropriate context manager for `autocast` while feeding it the desired
+        arguments, depending on the situation.
+        """
+
+        autocast_handler = AutocastKwargs(
+            enabled=self.accelerator.autocast_handler.enabled,
+            cache_enabled=cache_enabled,
+        )
+        return self.accelerator.autocast(autocast_handler=autocast_handler)
+
     def training_step(self, model: torch.nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]) -> torch.Tensor:
         from neuronx_distributed.pipeline import NxDPPModel
 
@@ -369,7 +371,7 @@ class AugmentTrainerForNeuronMixin:
                 loss = self.compute_loss(model, inputs)
 
             if get_pipeline_model_parallel_rank() != get_pipeline_model_parallel_size() - 1:
-                use_bf16 = os.environ.get("XLA_USE_BF16", False) or os.environ.get("XLA_DOWNCAST_BF16", False)
+                use_bf16 = self.accelerator.state.mixed_precision == "bf16"
                 dtype = torch.bfloat16 if use_bf16 else torch.float32
                 loss = torch.tensor(0, dtype=dtype).to(xm.xla_device())
             else:
@@ -394,7 +396,7 @@ class AugmentTrainerForNeuronMixin:
                 raise ValueError("Only the prediction loss can be returned when doing pipeline parallelism.")
             loss = model.run_eval(**inputs)
             if loss is None:
-                use_bf16 = os.environ.get("XLA_USE_BF16", False) or os.environ.get("XLA_DOWNCAST_BF16", False)
+                use_bf16 = self.accelerator.state.mixed_precision == "bf16"
                 dtype = torch.bfloat16 if use_bf16 else torch.float32
                 loss = torch.tensor(0, dtype=dtype).to(xm.xla_device())
             return (loss, None, None)
@@ -466,7 +468,6 @@ class AugmentTrainerForNeuronMixin:
         if is_main_worker():
             logger.info(f"Saving model checkpoint to {output_dir}")
 
-        if xm.is_master_ordinal():
             os.makedirs(output_dir, exist_ok=True)
             torch.save(self.args, os.path.join(output_dir, TRAINING_ARGS_NAME))
 
@@ -1017,13 +1018,7 @@ class AugmentTrainerForNeuronMixin:
                         if not isinstance(self.lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
                             self.lr_scheduler.step()
 
-                    # It should be equivalent but prefer to use the `zero_grad` method from the optimizer when doing
-                    # pipeline parallelism.
-                    if isinstance(model, NxDPPModel):
-                        self.optimizer.zero_grad()
-                    else:
-                        model.zero_grad()
-
+                    self.optimizer.zero_grad()
                     xm.mark_step()
 
                     self.state.global_step += 1

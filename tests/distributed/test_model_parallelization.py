@@ -43,7 +43,6 @@ from transformers.models.auto.modeling_auto import (
 )
 
 import optimum
-from optimum.neuron.accelerate.accelerator import NeuronAccelerator
 from optimum.neuron.distributed.parallelizers_manager import ParallelizersManager
 from optimum.neuron.distributed.utils import compute_query_indices_for_rank
 from optimum.neuron.utils.cache_utils import (
@@ -55,7 +54,6 @@ from optimum.neuron.utils.import_utils import (
     is_torch_xla_available,
 )
 from optimum.neuron.utils.testing_utils import is_trainium_test
-from optimum.neuron.utils.training_utils import set_neuron_cc_optlevel_for_model
 
 from .distributed import DistributedTest
 from .utils import SEED, create_accelerator_for_mp, get_model, get_model_inputs
@@ -297,12 +295,19 @@ class TestModelParallelization(DistributedTest):
             config_overwrite=config_overwrite,
             use_static_seed_patcher=True,
         )
-        orig_model = NeuronAccelerator.patch_model_for_neuron(orig_model)
+
+        accelerator = create_accelerator_for_mp(
+            tp_size,
+            pp_size,
+            parallelize_embeddings=parallelize_embeddings,
+            sequence_parallel_enabled=sequence_parallel_enabled,
+        )
+
+        # It is ok to use this accelerator because `patch_model_for_neuron` does not depend on the TP or PP size.
+        orig_model = accelerator.patch_model_for_neuron(orig_model)
 
         # TODO: enable that again once it's working, seems to be an AWS issue.
         orig_model.config.use_cache = False
-
-        set_neuron_cc_optlevel_for_model(orig_model)
 
         move_model_to_device(orig_model, xm.xla_device())
         orig_model = orig_model.eval()
@@ -344,13 +349,6 @@ class TestModelParallelization(DistributedTest):
             use_static_seed_patcher=True,
         )
 
-        accelerator = create_accelerator_for_mp(
-            tp_size,
-            pp_size,
-            parallelize_embeddings=parallelize_embeddings,
-            sequence_parallel_enabled=sequence_parallel_enabled,
-        )
-
         from .utils import create_static_seed_patcher
 
         static_seed_patcher = create_static_seed_patcher(model.__class__, SEED)
@@ -359,7 +357,6 @@ class TestModelParallelization(DistributedTest):
 
         xm.mark_step()
 
-        model = accelerator.patch_model_for_neuron(model)
         with torch.no_grad():
             if pp_size == 1:
                 # This is set to False by `accelerator.prepare`, which we want in the general case, but here let's

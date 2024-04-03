@@ -13,5 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .dataclasses import ModelParallelismPlugin, NeuronDistributedType, NeuronFullyShardedDataParallelPlugin
+from .dataclasses import (
+    AutocastBackend,
+    ModelParallelismPlugin,
+    NeuronDistributedType,
+    NeuronFullyShardedDataParallelPlugin,
+)
 from .misc import get_tied_parameters_dict, patch_accelerate_is_tpu_available, tie_parameters
