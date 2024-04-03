@@ -1100,17 +1100,28 @@ def try_to_hf_initialize(
     `model._init_weights` method. It returns the names of the parameters that were left uninitialized.
 
     """
-    cached_params_data = {name: param.data.detach().clone().to("cpu") for name, param in mod.named_parameters()}
+    device = torch.device("cpu")
+    for name in parameter_names:
+        param_device = getattr(mod, name).device
+        if param_device != torch.device("meta"):
+            device = param_device
+
+    mod.to("cpu")
+
+    cached_params_data = {name: param.data.detach().clone() for name, param in mod.named_parameters()}
+
+    # We initialize on cpu to have the same RNG state (mostly useful for tests).
     model._init_weights(mod)
 
     if parameter_names_mapping is None:
         parameter_names_mapping = {}
+
     reverse_parameter_names_mapping = {v: k for k, v in parameter_names_mapping.items()}
 
     def name_in_mod(name: str):
         return parameter_names_mapping.get(name, name)
 
-    dummy_mod = copy.deepcopy(mod).to("cpu")
+    dummy_mod = copy.deepcopy(mod)
     for name in parameter_names:
         getattr(dummy_mod, name_in_mod(name)).random_()
     model._init_weights(dummy_mod)
@@ -1120,15 +1131,15 @@ def try_to_hf_initialize(
         for param_name in parameter_names:
             name = name_in_mod(param_name)
             # The parameter was left unchanged.
-            param_on_cpu = getattr(mod, name).data.to("cpu")
-            if torch.all(param_on_cpu == cached_params_data[name]):
+            param = getattr(mod, name).data
+            if torch.all(param == cached_params_data[name]):
                 # There are two possible reasons:
                 #   1. The model cannot initialize the module that owns the parameter.
                 #   2. The parameter already had the proper value.
 
                 # We check if a dummy copy of the module, filled with random values is modified to know if the model
                 # can initialize the module.
-                dummy_param_was_changed = torch.all(getattr(dummy_mod, name).data == param_on_cpu)
+                dummy_param_was_changed = torch.all(getattr(dummy_mod, name).data == param)
                 if not dummy_param_was_changed:
                     left_uninitialized.append(param_name)
 
@@ -1137,6 +1148,9 @@ def try_to_hf_initialize(
             if param_name not in parameter_names:
                 param = getattr(mod, name)
                 param.data = cached_data
+
+    # We restore the module back to its original device.
+    mod.to(device)
 
     return left_uninitialized
 

@@ -394,10 +394,10 @@ class Parallelizer(ABC):
                             continue
                     else:
                         slices = None
-
-                    new_parameter = torch.nn.Parameter(
-                        load_tensor_for_weight(weight_info, tensor_slices=slices).to(parameter.dtype)
-                    )
+                    weight_data = load_tensor_for_weight(weight_info, tensor_slices=slices).to(parameter.dtype)
+                    if device is not None:
+                        weight_data = weight_data.to(device)
+                    new_parameter = torch.nn.Parameter(weight_data)
                 elif parameter.device != torch.device("meta") and (
                     was_already_initialized_during_parallelization(parameter)
                     or not parameter_can_be_initialized(model, module, attribute_name)
@@ -407,7 +407,8 @@ class Parallelizer(ABC):
                     continue
                 else:
                     # This means that there is no information about where to find the weights for this parameter.
-                    device = torch.device("cpu") if device is None else device
+                    # We first create the module on CPU, initialize it and then move it on device if needed.
+                    device = torch.device("cpu")
                     new_parameter = torch.nn.Parameter(torch.empty_like(parameter, device=device))
                     modules_to_initialize[module].append(attribute_name)
 
@@ -418,6 +419,7 @@ class Parallelizer(ABC):
                 )
                 tied_weights[parameter] = new_parameter
                 new_parameters.add(new_parameter)
+                gc.collect()
 
             for mod, parameter_names in modules_to_initialize.items():
                 if isinstance(mod, torch.nn.Embedding):
@@ -499,6 +501,10 @@ class Parallelizer(ABC):
                     left_uninitialized = try_to_hf_initialize(model, mod, parameter_names)
                     if left_uninitialized and hasattr(mod, "reset_parameters"):
                         initialize_torch_nn_module(mod, parameter_names)
+
+                if device is not None:
+                    mod.to(device)
+                gc.collect()
 
     @classmethod
     @requires_neuronx_distributed
