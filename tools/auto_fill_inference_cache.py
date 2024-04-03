@@ -207,10 +207,6 @@ def infer_task_from_model_path(model_id: str):
         if library_name == "diffusers":
             class_name = model_info.config["diffusers"].get("_class_name", None)
             task = "stable-diffusion-xl" if "StableDiffusionXL" in class_name else "stable-diffusion"
-
-    import pdb
-
-    pdb.set_trace()
     return task
 
 
