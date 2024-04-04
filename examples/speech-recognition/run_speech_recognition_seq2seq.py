@@ -24,6 +24,7 @@ import os
 import sys
 import warnings
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Any, Dict, List, Optional, Union
 
 import datasets
@@ -236,39 +237,47 @@ class DataTrainingArguments:
         default="transcribe",
         metadata={"help": "Task, either `transcribe` for speech recognition or `translate` for speech translation."},
     )
+    max_label_length: int = field(
+        default=128,
+        metadata={"help": "Truncate transcriptions that are longer `max_label_length` tokens."},
+    )
 
 
 @dataclass
 class DataCollatorSpeechSeq2SeqWithPadding:
-    """
-    Data collator that will dynamically pad the inputs received.
-    Args:
-        processor ([`WhisperProcessor`])
-            The processor used for processing the data.
-        decoder_start_token_id (`int`)
-            The begin-of-sentence of the decoder.
-        forward_attention_mask (`bool`)
-            Whether to return attention_mask.
-    """
 
     processor: Any
     decoder_start_token_id: int
     forward_attention_mask: bool
-    max_target_length: int
+    input_padding: Union[bool, str] = "max_length"
+    target_padding: Union[bool, str] = "max_length"
+    max_target_length: Optional[int] = None
 
     def __call__(self, features: List[Dict[str, Union[List[int], torch.Tensor]]]) -> Dict[str, torch.Tensor]:
         # split inputs and labels since they have to be of different lengths and need
         # different padding methods
         model_input_name = self.processor.model_input_names[0]
-        input_features = [{model_input_name: feature[model_input_name]} for feature in features]
-        label_features = [{"input_ids": feature["labels"]} for feature in features]
 
-        batch = self.processor.feature_extractor.pad(input_features, return_tensors="pt")
+        # dataloader returns a list of features which we convert to a dict
+        input_features = {model_input_name: [feature[model_input_name] for feature in features]}
+        label_features = {"input_ids": [feature["labels"] for feature in features]}
+
+        # reformat list to dict and set to pytorch format
+        batch = self.processor.feature_extractor.pad(
+            input_features,
+            padding=self.input_padding,
+            return_tensors="pt",
+        )
 
         if self.forward_attention_mask:
             batch["attention_mask"] = torch.LongTensor([feature["attention_mask"] for feature in features])
 
-        labels_batch = self.processor.tokenizer.pad(label_features, max_length=self.max_target_length, padding="max_length", return_tensors="pt")
+        labels_batch = self.processor.tokenizer.pad(
+            label_features,
+            max_length=self.max_target_length,
+            padding=self.target_padding,
+            return_tensors="pt",
+        )
 
         # replace padding with -100 to ignore loss correctly
         labels = labels_batch["input_ids"].masked_fill(labels_batch.attention_mask.ne(1), -100)
@@ -279,7 +288,6 @@ class DataCollatorSpeechSeq2SeqWithPadding:
             labels = labels[:, 1:]
 
         batch["labels"] = labels
-
         return batch
 
 
@@ -515,6 +523,18 @@ def main():
         input_columns=["input_length"],
     )
 
+    # filter training data with labels longer than max_label_length
+    def is_labels_in_length_range(labels):
+        return 0 < len(labels) < data_args.max_label_length
+
+    filter_by_labels_fn = partial(
+        vectorized_datasets.filter, function=is_labels_in_length_range, input_columns=["labels"]
+    )
+    vectorized_datasets = (
+        filter_by_labels_fn(num_proc=num_workers, desc="filtering train dataset")
+        if not data_args.streaming
+        else filter_by_labels_fn()
+    )
     # for large datasets it is advised to run the preprocessing on a
     # single machine first with `args.preprocessing_only` since there will mostly likely
     # be a timeout when running the script in distributed mode.
@@ -558,7 +578,9 @@ def main():
         processor=processor,
         decoder_start_token_id=model.config.decoder_start_token_id,
         forward_attention_mask=forward_attention_mask,
-        max_target_length=128,
+        input_padding="longest",
+        target_padding="max_length",
+        max_target_length=data_args.max_label_length,
     )
 
     # 11. Initialize Trainer

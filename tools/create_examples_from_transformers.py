@@ -14,10 +14,13 @@
 # limitations under the License.
 """Tools that downloads 🤗 Transformers training script examples and prepares them for AWS Tranium instances."""
 
+import ast
 import re
 import shutil
 import subprocess
+import sys
 from argparse import ArgumentParser
+from enum import Enum, auto
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Callable, List, Optional, Tuple, Union
@@ -189,6 +192,202 @@ def wrap_with_lazy_load_for_parallelism(file_content: str) -> str:
     return file_content
 
 
+def trim(multi_lines_string: str) -> str:
+    if not multi_lines_string:
+        return ""
+    # Convert tabs to spaces (following the normal Python rules)
+    # and split into a list of lines:
+    lines = multi_lines_string.expandtabs().splitlines()
+    # Determine minimum indentation (first line doesn't count):
+    indent = sys.maxsize
+    for line in lines[1:]:
+        stripped = line.lstrip()
+        if stripped:
+            indent = min(indent, len(line) - len(stripped))
+    # Remove indentation (first line is special):
+    trimmed = [lines[0].strip()]
+    if indent < sys.maxsize:
+        for line in lines[1:]:
+            trimmed.append(line[indent:].rstrip())
+    # Strip off trailing and leading blank lines:
+    while trimmed and not trimmed[-1]:
+        trimmed.pop()
+    while trimmed and not trimmed[0]:
+        trimmed.pop(0)
+    # Return a single string:
+    return "\n".join(trimmed)
+
+
+class InsertPosition(Enum):
+    BEFORE = auto()
+    BETWEEN = auto()
+    AFTER = auto()
+
+
+def transform_file_content(
+    file_content: str,
+    predicate_func: Callable[[ast.AST], bool],
+    insert_position: InsertPosition,
+    code_to_insert: str,
+    additional_offset: int = 0,
+    num_lines_to_skip_at_match: int = 0,
+) -> str:
+    node = ast.parse(file_content)
+    lines = file_content.split("\n")
+    code_to_insert = trim(code_to_insert)
+    for n in ast.walk(node):
+        if predicate_func(n):
+            start, end = n.lineno, n.end_lineno
+            offset = n.col_offset + additional_offset
+            if end is None:
+                end = len(lines)
+            start = max(0, start - num_lines_to_skip_at_match)
+            end = min(len(lines), end + num_lines_to_skip_at_match)
+            code_lines = code_to_insert.split("\n")
+            # We add a carriage return at the end of the inserted code.
+            code_lines = [" " * offset + line for line in code_lines]
+            if insert_position is InsertPosition.BEFORE:
+                # We use `start - 1` because lineno is 1 indexed.
+                lines = lines[: start - 1] + code_lines + lines[start - 1 :]
+            elif insert_position is InsertPosition.BETWEEN:
+                lines = lines[: start - 1] + code_lines + lines[end:]
+            elif insert_position is InsertPosition.AFTER:
+                lines = lines[:end] + code_lines + lines[end:]
+            break
+    return "\n".join(lines)
+
+
+def prepare_speech_script(file_content: str):
+    max_label_length_data_argument = """
+    max_label_length: int = field(
+        default=128,
+        metadata={"help": "Truncate transcriptions that are longer `max_label_length` tokens."},
+    )
+    """
+
+    file_content = transform_file_content(
+        file_content,
+        lambda n: isinstance(n, ast.ClassDef) and n.name == "DataTrainingArguments",
+        InsertPosition.AFTER,
+        max_label_length_data_argument,
+        # Because the predicate is based on the class definition, so we need to add a tabulation to have the proper offset.
+        additional_offset=4,
+    )
+
+    xla_compatible_data_collator = """
+    class DataCollatorSpeechSeq2SeqWithPadding:
+
+        processor: Any
+        decoder_start_token_id: int
+        forward_attention_mask: bool
+        input_padding: Union[bool, str] = "max_length"
+        target_padding: Union[bool, str] = "max_length"
+        max_target_length: Optional[int] = None
+
+        def __call__(self, features: List[Dict[str, Union[List[int], torch.Tensor]]]) -> Dict[str, torch.Tensor]:
+            # split inputs and labels since they have to be of different lengths and need
+            # different padding methods
+            model_input_name = self.processor.model_input_names[0]
+
+            # dataloader returns a list of features which we convert to a dict
+            input_features = {model_input_name: [feature[model_input_name] for feature in features]}
+            label_features = {"input_ids": [feature["labels"] for feature in features]}
+
+            # reformat list to dict and set to pytorch format
+            batch = self.processor.feature_extractor.pad(
+                input_features,
+                padding=self.input_padding,
+                return_tensors="pt",
+            )
+
+            if self.forward_attention_mask:
+                batch["attention_mask"] = torch.LongTensor([feature["attention_mask"] for feature in features])
+
+            labels_batch = self.processor.tokenizer.pad(
+                label_features,
+                max_length=self.max_target_length,
+                padding=self.target_padding,
+                return_tensors="pt",
+            )
+
+            # replace padding with -100 to ignore loss correctly
+            labels = labels_batch["input_ids"].masked_fill(labels_batch.attention_mask.ne(1), -100)
+
+            # if bos token is appended in previous tokenization step,
+            # cut bos token here as it's append later anyways
+            if (labels[:, 0] == self.decoder_start_token_id).all().cpu().item():
+                labels = labels[:, 1:]
+
+            batch["labels"] = labels
+            return batch
+        """
+    file_content = transform_file_content(
+        file_content,
+        lambda n: isinstance(n, ast.ClassDef) and n.name == "DataCollatorSpeechSeq2SeqWithPadding",
+        InsertPosition.BETWEEN,
+        xla_compatible_data_collator,
+    )
+
+    import_partial_from_functools = "from functools import partial"
+    file_content = transform_file_content(
+        file_content,
+        lambda n: isinstance(n, ast.ImportFrom) and n.module == "dataclasses",
+        InsertPosition.AFTER,
+        import_partial_from_functools,
+    )
+
+    filter_longer_than_max_label_length = r"""
+    # filter training data with labels longer than max_label_length
+    def is_labels_in_length_range(labels):
+        return 0 < len(labels) < data_args.max_label_length
+
+    filter_by_labels_fn = partial(
+        vectorized_datasets.filter, function=is_labels_in_length_range, input_columns=["labels"]
+    )
+    vectorized_datasets = (
+        filter_by_labels_fn(num_proc=num_workers, desc="filtering train dataset")
+        if not data_args.streaming
+        else filter_by_labels_fn()
+    )
+    """
+    file_content = transform_file_content(
+        file_content,
+        lambda n: isinstance(n, ast.FunctionDef) and n.name == "is_audio_in_length_range",
+        InsertPosition.AFTER,
+        filter_longer_than_max_label_length,
+        # We skip the first 7 lines after match (which correspond to another filter) before inserting the new code.
+        num_lines_to_skip_at_match=7,
+    )
+
+    data_collator_with_padding_and_max_length = """
+    data_collator = DataCollatorSpeechSeq2SeqWithPadding(
+          processor=processor,
+          decoder_start_token_id=model.config.decoder_start_token_id,
+          forward_attention_mask=forward_attention_mask,
+          input_padding="longest",
+          target_padding="max_length",
+          max_target_length=data_args.max_label_length,
+    )
+    """
+    file_content = transform_file_content(
+        file_content,
+        lambda n: isinstance(n, ast.Assign)
+        and "data_collator" in [t.id for t in n.targets if isinstance(t, ast.Name)],
+        InsertPosition.BETWEEN,
+        data_collator_with_padding_and_max_length,
+    )
+    # node = ast.parse(file_content)
+    # lines = file_content.split("\n")
+    # for n in ast.walk(node):
+    #     if isinstance(n, ast.Assign) and "data_collator" in [t.id for t in n.targets]:
+    #         start, end = n.lineno, n.end_lineno
+    #         data_collator_with_padding_and_max_length = " " * n.col_offset + data_collator_with_padding_and_max_length
+    #         lines = lines[:start] + data_collator_with_padding_and_max_length.split("\n")
+    #
+
+    return file_content
+
+
 def parse_args():
     parser = ArgumentParser(
         description="Tool to download and prepare 🤗 Transformers example training scripts for AWS Trainium instances."
@@ -271,6 +470,17 @@ def main():
                 processed_content = wrap_with_lazy_load_for_parallelism(file_content)
                 with open(training_argument_file_path, "w") as fp:
                     fp.write(processed_content)
+
+                if file_path.name == "run_speech_recognition_seq2seq.py":
+                    with open(training_argument_file_path, "r") as fp:
+                        file_content = fp.read()
+                    processed_content = prepare_speech_script(file_content)
+                    with open(training_argument_file_path, "w") as fp:
+                        fp.write(processed_content)
+
+                if file_path.name == "run_speech_recognition_ctc.py":
+                    # TODO
+                    pass
 
             elif file_path.name == "requirements.txt":
                 with open(file_path, "r") as fp:
