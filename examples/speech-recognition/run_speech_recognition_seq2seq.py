@@ -24,7 +24,6 @@ import os
 import sys
 import warnings
 from dataclasses import dataclass, field
-from functools import partial
 from typing import Any, Dict, List, Optional, Union
 
 import datasets
@@ -527,13 +526,11 @@ def main():
     def is_labels_in_length_range(labels):
         return 0 < len(labels) < data_args.max_label_length
 
-    filter_by_labels_fn = partial(
-        vectorized_datasets.filter, function=is_labels_in_length_range, input_columns=["labels"]
-    )
-    vectorized_datasets = (
-        filter_by_labels_fn(num_proc=num_workers, desc="filtering train dataset")
-        if not data_args.streaming
-        else filter_by_labels_fn()
+    vectorized_datasets = vectorized_datasets.filter(
+        function=is_labels_in_length_range,
+        input_columns=["labels"],
+        num_proc=num_workers,
+        desc="filtering dataset",
     )
     # for large datasets it is advised to run the preprocessing on a
     # single machine first with `args.preprocessing_only` since there will mostly likely

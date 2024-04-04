@@ -257,7 +257,8 @@ def transform_file_content(
     return "\n".join(lines)
 
 
-def prepare_speech_script(file_content: str):
+def prepare_speech_script(file_content: str, seq2seq_or_ctc: str):
+    assert seq2seq_or_ctc in ["seq2seq", "ctc"]
     max_label_length_data_argument = """
     max_label_length: int = field(
         default=128,
@@ -274,9 +275,8 @@ def prepare_speech_script(file_content: str):
         additional_offset=4,
     )
 
-    xla_compatible_data_collator = """
+    xla_compatible_data_collator_for_seq2seq = """
     class DataCollatorSpeechSeq2SeqWithPadding:
-
         processor: Any
         decoder_start_token_id: int
         forward_attention_mask: bool
@@ -293,7 +293,6 @@ def prepare_speech_script(file_content: str):
             input_features = {model_input_name: [feature[model_input_name] for feature in features]}
             label_features = {"input_ids": [feature["labels"] for feature in features]}
 
-            # reformat list to dict and set to pytorch format
             batch = self.processor.feature_extractor.pad(
                 input_features,
                 padding=self.input_padding,
@@ -320,12 +319,50 @@ def prepare_speech_script(file_content: str):
 
             batch["labels"] = labels
             return batch
-        """
+    """
+    xla_compatible_data_collator_for_ctc = """
+    class DataCollatorCTCWithPadding:
+        processor: AutoProcessor
+        input_padding: Union[bool, str] = "max_length"
+        target_padding: Union[bool, str] = "max_length"
+        max_target_length: Optional[int] = None
+
+        def __call__(self, features: List[Dict[str, Union[List[int], torch.Tensor]]]) -> Dict[str, torch.Tensor]:
+            # split inputs and labels since they have to be of different lengths and need
+            # different padding methods
+            input_features = [{"input_values": feature["input_values"]} for feature in features]
+            label_features = [{"input_ids": feature["labels"]} for feature in features]
+    
+            batch = self.processor.pad(
+                input_features,
+                padding=self.input_padding,
+                return_tensors="pt",
+            )
+    
+            labels_batch = self.processor.pad(
+                labels=label_features,
+                max_length=self.max_target_length,
+                padding=self.target_padding,
+                return_tensors="pt",
+            )
+    
+            # replace padding with -100 to ignore loss correctly
+            labels = labels_batch["input_ids"].masked_fill(labels_batch.attention_mask.ne(1), -100)
+            batch["labels"] = labels
+            if "attention_mask" in batch:
+                batch["attention_mask"] = batch["attention_mask"].to(torch.long)
+    
+            return batch
+    """
     file_content = transform_file_content(
         file_content,
         lambda n: isinstance(n, ast.ClassDef) and n.name == "DataCollatorSpeechSeq2SeqWithPadding",
         InsertPosition.BETWEEN,
-        xla_compatible_data_collator,
+        (
+            xla_compatible_data_collator_for_seq2seq
+            if seq2seq_or_ctc == "seq2seq"
+            else xla_compatible_data_collator_for_ctc
+        ),
     )
 
     import_partial_from_functools = "from functools import partial"
@@ -341,13 +378,11 @@ def prepare_speech_script(file_content: str):
     def is_labels_in_length_range(labels):
         return 0 < len(labels) < data_args.max_label_length
 
-    filter_by_labels_fn = partial(
-        vectorized_datasets.filter, function=is_labels_in_length_range, input_columns=["labels"]
-    )
-    vectorized_datasets = (
-        filter_by_labels_fn(num_proc=num_workers, desc="filtering train dataset")
-        if not data_args.streaming
-        else filter_by_labels_fn()
+    vectorized_datasets = vectorized_datasets.filter(
+        function=is_labels_in_length_range,
+        input_columns=["labels"],
+        num_proc=num_workers,
+        desc="filtering dataset for labels length",
     )
     """
     file_content = transform_file_content(
@@ -359,11 +394,19 @@ def prepare_speech_script(file_content: str):
         num_lines_to_skip_at_match=7,
     )
 
-    data_collator_with_padding_and_max_length = """
+    data_collator_with_padding_and_max_length_for_seq2seq = """
     data_collator = DataCollatorSpeechSeq2SeqWithPadding(
           processor=processor,
           decoder_start_token_id=model.config.decoder_start_token_id,
           forward_attention_mask=forward_attention_mask,
+          input_padding="longest",
+          target_padding="max_length",
+          max_target_length=data_args.max_label_length,
+    )
+    """
+    data_collator_with_padding_and_max_length_for_ctc = """
+    data_collator = DataCollatorCTCWithPadding(
+          processor=processor,
           input_padding="longest",
           target_padding="max_length",
           max_target_length=data_args.max_label_length,
@@ -374,16 +417,12 @@ def prepare_speech_script(file_content: str):
         lambda n: isinstance(n, ast.Assign)
         and "data_collator" in [t.id for t in n.targets if isinstance(t, ast.Name)],
         InsertPosition.BETWEEN,
-        data_collator_with_padding_and_max_length,
+        (
+            data_collator_with_padding_and_max_length_for_seq2seq
+            if seq2seq_or_ctc == "seq2seq"
+            else data_collator_with_padding_and_max_length_for_ctc
+        ),
     )
-    # node = ast.parse(file_content)
-    # lines = file_content.split("\n")
-    # for n in ast.walk(node):
-    #     if isinstance(n, ast.Assign) and "data_collator" in [t.id for t in n.targets]:
-    #         start, end = n.lineno, n.end_lineno
-    #         data_collator_with_padding_and_max_length = " " * n.col_offset + data_collator_with_padding_and_max_length
-    #         lines = lines[:start] + data_collator_with_padding_and_max_length.split("\n")
-    #
 
     return file_content
 
