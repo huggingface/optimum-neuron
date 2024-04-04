@@ -332,26 +332,26 @@ def prepare_speech_script(file_content: str, seq2seq_or_ctc: str):
             # different padding methods
             input_features = [{"input_values": feature["input_values"]} for feature in features]
             label_features = [{"input_ids": feature["labels"]} for feature in features]
-    
+
             batch = self.processor.pad(
                 input_features,
                 padding=self.input_padding,
                 return_tensors="pt",
             )
-    
+
             labels_batch = self.processor.pad(
                 labels=label_features,
                 max_length=self.max_target_length,
                 padding=self.target_padding,
                 return_tensors="pt",
             )
-    
+
             # replace padding with -100 to ignore loss correctly
             labels = labels_batch["input_ids"].masked_fill(labels_batch.attention_mask.ne(1), -100)
             batch["labels"] = labels
             if "attention_mask" in batch:
                 batch["attention_mask"] = batch["attention_mask"].to(torch.long)
-    
+
             return batch
     """
     file_content = transform_file_content(
