@@ -88,16 +88,6 @@ def neuron_config_to_env(neuron_config):
                 raise Exception("Model sequence length should be greater than 1")
         f.write("export MAX_INPUT_LENGTH={}\n".format(max_input_length))
 
-        # max_prefill_tokens = os.getenv("MAX_BATCH_PREFILL_TOKENS")
-        # if not max_prefill_tokens:
-        #     max_prefill_tokens = max_input_length
-        # f.write("export MAX_BATCH_PREFILL_TOKENS={}\n".format(max_prefill_tokens))
-        #
-        # max_batch_total_tokens = os.getenv("MAX_BATCH_TOTAL_TOKENS")
-        # if not max_batch_total_tokens:
-        #     max_batch_total_tokens = str(neuron_config["sequence_length"] * neuron_config["batch_size"])
-        # f.write("export MAX_BATCH_TOTAL_TOKENS={}\n".format(max_batch_total_tokens))
-
 
 def lookup_compatible_cached_model(model_id: str, revision: Optional[str]) -> Optional[Dict[str, Any]]:
     # Reuse the same mechanic as the one in use to configure the tgi server part
