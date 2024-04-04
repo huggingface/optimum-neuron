@@ -35,7 +35,7 @@ available_cores = get_available_cores()
 neuronxcc_version = get_neuronxcc_version()
 
 
-def parse_cmdline(argv: List[str] = None) -> argparse.Namespace:
+def parse_cmdline_and_set_env(argv: List[str] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     if not argv:
         argv = sys.argv
@@ -107,7 +107,7 @@ def lookup_compatible_cached_model(model_id: str, revision: Optional[str]) -> Op
     logger.debug("Found %d cached entries for model %s, revision %s", len(entries), model_id, revision)
 
     for entry in entries:
-        if check_env_and_neuron_config_compatibility(revision, entry):
+        if check_env_and_neuron_config_compatibility(entry):
             break
     else:
         entry = None
@@ -125,20 +125,12 @@ def lookup_compatible_cached_model(model_id: str, revision: Optional[str]) -> Op
     return entry
 
 
-def check_env_and_neuron_config_compatibility(revision: Optional[str], neuron_config: Dict[str, Any]) -> bool:
+def check_env_and_neuron_config_compatibility(neuron_config: Dict[str, Any]) -> bool:
 
     logger.debug(
-        "Checking the provided neuron config %s is compatible with the local setup and " "provided environment",
+        "Checking the provided neuron config %s is compatible with the local setup and provided environment",
         neuron_config,
     )
-
-    if revision:
-        checkpoint_revision = neuron_config["checkpoint_revision"]
-        if revision != checkpoint_revision:
-            logger.debug(
-                "Specified revision does not match with the model one (%s != %s)", revision, checkpoint_revision
-            )
-            return False
 
     # Local setup compat checks
     if neuron_config["num_cores"] > available_cores:
@@ -195,7 +187,7 @@ def main():
     """
     logging.basicConfig(level=logging.DEBUG, force=True)
 
-    args = parse_cmdline()
+    args = parse_cmdline_and_set_env()
 
     for env_var in env_vars:
         if not os.getenv(env_var):
@@ -211,7 +203,7 @@ def main():
     config = AutoConfig.from_pretrained(args.model_id, revision=args.revision)
     neuron_config = getattr(config, "neuron", None)
     if neuron_config is not None:
-        compatible = check_env_and_neuron_config_compatibility(None, neuron_config)
+        compatible = check_env_and_neuron_config_compatibility(neuron_config)
         if not compatible:
             env_dict = get_env_dict()
             msg = (
