@@ -510,16 +510,16 @@ def main():
                 with open(training_argument_file_path, "w") as fp:
                     fp.write(processed_content)
 
-                if file_path.name == "run_speech_recognition_seq2seq.py":
+                if file_path.name in ["run_speech_recognition_seq2seq.py", "run_speech_recognition_ctc.py"]:
                     with open(training_argument_file_path, "r") as fp:
                         file_content = fp.read()
-                    processed_content = prepare_speech_script(file_content)
+                    if "seq2seq" in file_path.name:
+                        seq2seq_or_ctc = "seq2seq"
+                    else:
+                        seq2seq_or_ctc = "ctc"
+                    processed_content = prepare_speech_script(file_content, seq2seq_or_ctc)
                     with open(training_argument_file_path, "w") as fp:
                         fp.write(processed_content)
-
-                if file_path.name == "run_speech_recognition_ctc.py":
-                    # TODO
-                    pass
 
             elif file_path.name == "requirements.txt":
                 with open(file_path, "r") as fp:

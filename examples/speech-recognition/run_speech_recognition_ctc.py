@@ -278,6 +278,10 @@ class DataTrainingArguments:
             )
         },
     )
+    max_label_length: int = field(
+        default=128,
+        metadata={"help": "Truncate transcriptions that are longer `max_label_length` tokens."},
+    )
 
 
 @dataclass
@@ -680,6 +684,17 @@ def main():
             input_columns=["input_length"],
         )
 
+        # filter training data with labels longer than max_label_length
+        def is_labels_in_length_range(labels):
+            return 0 < len(labels) < data_args.max_label_length
+
+        vectorized_datasets = vectorized_datasets.filter(
+            function=is_labels_in_length_range,
+            input_columns=["labels"],
+            num_proc=num_workers,
+            desc="filtering dataset for labels length",
+        )
+
     # 7. Next, we can prepare the training.
     # Let's use word error rate (WER) as our evaluation metric,
     # instantiate a data collator and the trainer
@@ -733,7 +748,12 @@ def main():
         processor = Wav2Vec2Processor.from_pretrained(training_args.output_dir)
 
     # Instantiate custom data collator
-    data_collator = DataCollatorCTCWithPadding(processor=processor)
+    data_collator = DataCollatorCTCWithPadding(
+        processor=processor,
+        input_padding="longest",
+        target_padding="max_length",
+        max_target_length=data_args.max_label_length,
+    )
 
     # Initialize Trainer
     trainer = Trainer(

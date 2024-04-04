@@ -244,7 +244,6 @@ class DataTrainingArguments:
 
 @dataclass
 class DataCollatorSpeechSeq2SeqWithPadding:
-
     processor: Any
     decoder_start_token_id: int
     forward_attention_mask: bool
@@ -261,7 +260,6 @@ class DataCollatorSpeechSeq2SeqWithPadding:
         input_features = {model_input_name: [feature[model_input_name] for feature in features]}
         label_features = {"input_ids": [feature["labels"] for feature in features]}
 
-        # reformat list to dict and set to pytorch format
         batch = self.processor.feature_extractor.pad(
             input_features,
             padding=self.input_padding,
@@ -530,7 +528,7 @@ def main():
         function=is_labels_in_length_range,
         input_columns=["labels"],
         num_proc=num_workers,
-        desc="filtering dataset",
+        desc="filtering dataset for labels length",
     )
     # for large datasets it is advised to run the preprocessing on a
     # single machine first with `args.preprocessing_only` since there will mostly likely
