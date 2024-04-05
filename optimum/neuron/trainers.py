@@ -77,7 +77,6 @@ from .utils.cache_utils import (
     get_hf_hub_cache_repos,
     get_model_name_or_path,
     get_neuron_cache_path,
-    get_neuronxcc_version,
     get_num_neuron_cores_used,
     has_write_access_to_repo,
 )
@@ -96,6 +95,7 @@ from .utils.training_utils import (
     skip_first_batches,
     torch_xla_safe_save_file,
 )
+from .utils.version_utils import get_neuronxcc_version
 
 
 if is_apex_available():

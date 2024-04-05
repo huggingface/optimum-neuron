@@ -405,7 +405,7 @@ def synchronize_hub_cache(cache_path: Optional[Union[str, Path]] = None, cache_r
     hub_cache_proxy.synchronize()
 
 
-def get_hf_hub_cache_repod_entries(
+def get_hub_cached_entries(
     model_id: str, mode: Union[Literal["training"], Literal["inference"], Mode], cache_repo_id: Optional[str] = None
 ):
     if cache_repo_id is None:
