@@ -3,6 +3,7 @@ import os
 import Levenshtein
 import pytest
 
+
 # These tests will often break as it relies on many factors like the optimum version, the neuronx-cc version,
 # and on what is synced in the cache for these specific versions...
 
@@ -18,7 +19,7 @@ EXPECTED = {
 
 
 @pytest.fixture(scope="module", params=MODELS)
-def model_and_expected_output(request, data_volume):
+def model_and_expected_output(request):
     # the tgi_env.py script will take care of setting these
     for var in [
         "MAX_BATCH_SIZE",

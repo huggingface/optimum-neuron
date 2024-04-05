@@ -1,6 +1,5 @@
 import os
 
-import huggingface_hub
 import Levenshtein
 import pytest
 
@@ -13,7 +12,7 @@ NUM_CORES = 2
 
 
 @pytest.fixture(scope="module", params=["hub-neuron", "hub", "local-neuron"])
-def model_name_or_path(request, data_volume):
+def model_name_or_path(request):
     if request.param == "hub":
         os.environ["HF_BATCH_SIZE"] = str(BATCH_SIZE)
         os.environ["HF_SEQUENCE_LENGTH"] = str(SEQUENCE_LENGTH)
@@ -22,11 +21,7 @@ def model_name_or_path(request, data_volume):
     elif request.param == "hub-neuron":
         yield NEURON_MODEL_ID
     else:
-        model_dir = f"gpt2-neuron-{BATCH_SIZE}x{SEQUENCE_LENGTH}x{NUM_CORES}"
-        local_path = os.path.join(data_volume, model_dir)
-        huggingface_hub.snapshot_download(NEURON_MODEL_ID, local_dir=local_path)
-        # Return the path of the model inside the mounted volume
-        yield os.path.join("/data", model_dir)
+        yield os.path.join("/data", NEURON_MODEL_ID)
 
 
 @pytest.fixture(scope="module")
