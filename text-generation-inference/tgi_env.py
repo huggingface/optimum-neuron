@@ -188,7 +188,7 @@ def main():
 
     cache_dir = constants.HF_HUB_CACHE
 
-    logger.info("Cache dir %s", cache_dir)
+    logger.info("Cache dir %s, model %s", cache_dir, args.model_id)
 
     config = AutoConfig.from_pretrained(args.model_id, revision=args.revision)
     neuron_config = getattr(config, "neuron", None)
