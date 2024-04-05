@@ -129,21 +129,8 @@ for model_type in _SUPPORTED_MODEL_TYPES:
 def is_precompilation() -> bool:
     return os.environ.get("NEURON_PARALLEL_COMPILE") == "1"
 
-
 def is_model_officially_supported(model: "PreTrainedModel") -> bool:
-    # In theory the type annotation is not correct since we can have also a XlaFullyShardedDataParallel
-    # but let's ignore it here.
-    if not is_torch_xla_available():
-        raise RuntimeError(
-            "is_model_officially_supported requires torch_xla to run, please install it by running: "
-            "pip install torch_xla"
-        )
-    from torch_xla.distributed.fsdp import XlaFullyShardedDataParallel
-
-    if isinstance(model, XlaFullyShardedDataParallel):
-        class_name = model.module.__class__.__name__
-    else:
-        class_name = model.__class__.__name__
+    class_name = model.__class__.__name__
     return class_name in _SUPPORTED_MODEL_NAMES
 
 
@@ -154,74 +141,6 @@ def is_topology_supported() -> bool:
     num_devices = xm.xrt_world_size()
     allowed_number_of_devices = [1, 2, 8]
     return num_devices in allowed_number_of_devices or num_devices % 32 == 0
-
-
-class FirstAndLastDataset(Dataset):
-    def __init__(
-        self, dataloader: DataLoader, num_repeat: int = 10, gradient_accumulation_steps: int = 1, world_size: int = 1
-    ):
-        self.dataloader = dataloader
-        self.num_repeat = num_repeat * gradient_accumulation_steps * world_size
-        self.samples = self.create_samples()
-
-    def _create_samples_for_map_style_dataset(self):
-        samples = []
-        num_samples = len(self.dataloader.dataset)
-        batch_size = self.dataloader.batch_size
-        if batch_size is None and self.dataloader.batch_sampler is not None:
-            batch_size = self.dataloader.batch_sampler.batch_size
-
-        # TODO: validate that.
-        if batch_size is None:
-            samples = [self.dataloader.dataset[0]] * self.num_repeat + [self.dataloader.dataset[-1]] * self.num_repeat
-            return samples
-
-        num_batches = num_samples // batch_size
-        remaining = num_samples % batch_size
-
-        iterator = iter(self.dataloader)
-        first_batch = next(iterator)
-        samples = [first_batch] * self.num_repeat
-
-        if num_batches >= 1 and remaining != 0:
-
-            def map_fn(example):
-                if isinstance(example, torch.Tensor):
-                    return example[:remaining]
-                else:
-                    return example
-
-            last_batch = tree_map(map_fn, first_batch)
-            samples += [last_batch] * self.num_repeat
-
-        return samples
-
-    def _create_samples_for_iterable_dataset(self):
-        # Will not work if the iterable dataset yields dynamic batch sizes.
-        iterator = iter(self.dataloader)
-        first_batch = next(iterator)
-        samples = [first_batch] * self.num_repeat
-        last_batch = None
-        while True:
-            try:
-                last_batch = next(iterator)
-            except StopIteration:
-                if last_batch is not None:
-                    samples += [last_batch] * self.num_repeat
-                break
-        return samples
-
-    def create_samples(self):
-        if isinstance(self.dataloader.dataset, IterableDataset):
-            return self._create_samples_for_iterable_dataset()
-        else:
-            return self._create_samples_for_map_style_dataset()
-
-    def __getitem__(self, idx: int):
-        return self.samples[idx]
-
-    def __len__(self):
-        return len(self.samples)
 
 
 def patch_generation_mixin_to_neuron_generation_mixin(model: "PreTrainedModel"):
@@ -250,6 +169,7 @@ def patch_generation_mixin_to_neuron_generation_mixin(model: "PreTrainedModel"):
         cls.__bases__ = tuple(new_bases)
 
 
+# TODO: to refactor with `patch_generation_mixin_to_neuron_generation_mixin"
 def patch_generation_mixin_to_general_neuron_generation_mixin(model: "PreTrainedModel"):
     """
     Changes the vanilla `GenerationMixin` class from Transformers to `GeneralNeuronGenerationMixin` in the model's

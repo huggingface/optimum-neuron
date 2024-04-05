@@ -120,7 +120,6 @@ class NeuronTrainingArgumentsMixin:
         patch_accelerate_is_tpu_available()
 
         if self.fsdp != "":
-            # Disabling FSDP until next release because it is still very experimental and not validated.
             raise RuntimeError("FSDP is not supported yet.")
 
         if self.fp16:
@@ -178,9 +177,9 @@ class NeuronTrainingArgumentsMixin:
         with Patcher([("transformers.training_args.get_xla_device_type", lambda _: "GPU")]):
             super().__post_init__()
 
+    # TODO: try to use the patcher for NeuronPartialState instead of rewriting the method.
     @cached_property
     def _setup_devices(self) -> "torch.device":
-
         requires_backends(self, ["torch"])
         logger.info("PyTorch: setting up devices")
         NeuronAcceleratorState._reset_state()
