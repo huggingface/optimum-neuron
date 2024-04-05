@@ -259,6 +259,7 @@ def transform_file_content(
 
 def prepare_speech_script(file_content: str, seq2seq_or_ctc: str):
     assert seq2seq_or_ctc in ["seq2seq", "ctc"]
+    is_seq2seq = seq2seq_or_ctc == "seq2seq"
     max_label_length_data_argument = """
     max_label_length: int = field(
         default=128,
@@ -356,13 +357,10 @@ def prepare_speech_script(file_content: str, seq2seq_or_ctc: str):
     """
     file_content = transform_file_content(
         file_content,
-        lambda n: isinstance(n, ast.ClassDef) and n.name == "DataCollatorSpeechSeq2SeqWithPadding",
+        lambda n: isinstance(n, ast.ClassDef)
+        and n.name in ["DataCollatorSpeechSeq2SeqWithPadding", "DataCollatorCTCWithPadding"],
         InsertPosition.BETWEEN,
-        (
-            xla_compatible_data_collator_for_seq2seq
-            if seq2seq_or_ctc == "seq2seq"
-            else xla_compatible_data_collator_for_ctc
-        ),
+        (xla_compatible_data_collator_for_seq2seq if is_seq2seq else xla_compatible_data_collator_for_ctc),
     )
 
     import_partial_from_functools = "from functools import partial"
@@ -419,7 +417,7 @@ def prepare_speech_script(file_content: str, seq2seq_or_ctc: str):
         InsertPosition.BETWEEN,
         (
             data_collator_with_padding_and_max_length_for_seq2seq
-            if seq2seq_or_ctc == "seq2seq"
+            if is_seq2seq
             else data_collator_with_padding_and_max_length_for_ctc
         ),
     )
