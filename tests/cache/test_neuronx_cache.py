@@ -272,35 +272,35 @@ def test_stable_diffusion_cache(cache_repos):
     assert len(get_local_cached_files(cache_path, ".neuron")) == 0
 
 
-# TODO: Disable the test due to https://github.com/aws-neuron/aws-neuron-sdk/issues/859
-# @is_inferentia_test
-# @requires_neuronx
-# def test_stable_diffusion_xl_cache(cache_repos):
-#     cache_path, cache_repo_id = cache_repos
-#     model_id = "echarlaix/tiny-random-stable-diffusion-xl"
-#     # Export the model a first time to populate the local cache
-#     model = export_stable_diffusion_xl_model(model_id)
-#     check_stable_diffusion_inference(model)
-#     # check registry
-#     check_traced_cache_entry(cache_path)
-#     # Synchronize the hub cache with the local cache
-#     synchronize_hub_cache(cache_repo_id=cache_repo_id)
-#     assert_local_and_hub_cache_sync(cache_path, cache_repo_id)
-#     # Verify we are able to fetch the cached entry for the model
-#     model_entries = get_hub_cached_entries(model_id, "inference", cache_repo_id=cache_repo_id)
-#     assert len(model_entries) == 1
-#     # Clear the local cache
-#     for root, dirs, files in os.walk(cache_path):
-#         for f in files:
-#             os.unlink(os.path.join(root, f))
-#         for d in dirs:
-#             shutil.rmtree(os.path.join(root, d))
-#     assert local_cache_size(cache_path) == 0
-#     # Export the model again: the compilation artifacts should be fetched from the Hub
-#     model = export_stable_diffusion_xl_model(model_id)
-#     check_stable_diffusion_inference(model)
-#     # Verify the local cache directory has not been populated
-#     assert len(get_local_cached_files(cache_path, ".neuron")) == 0
+@is_inferentia_test
+@requires_neuronx
+@pytest.mark.skip("Disable the test due to https://github.com/aws-neuron/aws-neuron-sdk/issues/859")
+def test_stable_diffusion_xl_cache(cache_repos):
+    cache_path, cache_repo_id = cache_repos
+    model_id = "echarlaix/tiny-random-stable-diffusion-xl"
+    # Export the model a first time to populate the local cache
+    model = export_stable_diffusion_xl_model(model_id)
+    check_stable_diffusion_inference(model)
+    # check registry
+    check_traced_cache_entry(cache_path)
+    # Synchronize the hub cache with the local cache
+    synchronize_hub_cache(cache_repo_id=cache_repo_id)
+    assert_local_and_hub_cache_sync(cache_path, cache_repo_id)
+    # Verify we are able to fetch the cached entry for the model
+    model_entries = get_hub_cached_entries(model_id, "inference", cache_repo_id=cache_repo_id)
+    assert len(model_entries) == 1
+    # Clear the local cache
+    for root, dirs, files in os.walk(cache_path):
+        for f in files:
+            os.unlink(os.path.join(root, f))
+        for d in dirs:
+            shutil.rmtree(os.path.join(root, d))
+    assert local_cache_size(cache_path) == 0
+    # Export the model again: the compilation artifacts should be fetched from the Hub
+    model = export_stable_diffusion_xl_model(model_id)
+    check_stable_diffusion_inference(model)
+    # Verify the local cache directory has not been populated
+    assert len(get_local_cached_files(cache_path, ".neuron")) == 0
 
 
 @is_inferentia_test
