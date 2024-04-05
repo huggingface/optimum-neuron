@@ -296,7 +296,6 @@ class NeuronAcceleratorState(AcceleratorState):
                     self.distributed_type = NeuronDistributedType.MODEL_PARALLELISM
 
                 self.mp_plugin = mp_plugin
-                print("MP PLUGIN", self.mp_plugin)
 
                 if torch.distributed.is_initialized() and not parallel_state.model_parallel_is_initialized():
                     parallel_state.initialize_model_parallel(
