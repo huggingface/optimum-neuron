@@ -28,7 +28,7 @@ from huggingface_hub import HfApi, get_token
 from transformers import AutoConfig, PretrainedConfig
 
 from ..version import __version__
-from .cache_utils import get_neuron_cache_path, load_custom_cache_repo_name_from_hf_home
+from .cache_utils import get_hf_hub_cache_repo, get_neuron_cache_path
 from .import_utils import is_neuronx_available
 from .patching import patch_everywhere
 from .require_utils import requires_torch_neuronx, requires_torch_xla
@@ -238,15 +238,6 @@ class CompileCacheHfProxy(CompileCache):
         return s
 
 
-def get_hub_cache():
-    HUB_CACHE = "aws-neuron/optimum-neuron-cache"
-    custom_hub_cache = load_custom_cache_repo_name_from_hf_home()
-    if custom_hub_cache is not None and len(custom_hub_cache) > 0:
-        return custom_hub_cache
-    else:
-        return os.getenv("CUSTOM_CACHE_REPO", HUB_CACHE)
-
-
 def create_hub_compile_cache_proxy(
     cache_url: Optional[CacheUrl] = None,
     cache_repo_id: Optional[str] = None,
@@ -254,7 +245,7 @@ def create_hub_compile_cache_proxy(
     if cache_url is None:
         cache_url = CacheUrl.get_cache_url()
     if cache_repo_id is None:
-        cache_repo_id = get_hub_cache()
+        cache_repo_id = get_hf_hub_cache_repo()
     default_cache = CompileCacheS3(cache_url) if cache_url.is_s3() else CompileCacheFs(cache_url)
     # Reevaluate endpoint and token (needed for tests altering the environment)
     endpoint = os.getenv("HF_ENDPOINT")
@@ -414,11 +405,11 @@ def synchronize_hub_cache(cache_path: Optional[Union[str, Path]] = None, cache_r
     hub_cache_proxy.synchronize()
 
 
-def get_hub_cached_entries(
+def get_hf_hub_cache_repod_entries(
     model_id: str, mode: Union[Literal["training"], Literal["inference"], Mode], cache_repo_id: Optional[str] = None
 ):
     if cache_repo_id is None:
-        cache_repo_id = get_hub_cache()
+        cache_repo_id = get_hf_hub_cache_repo()
     # Allocate a Hub API with refreshed information (required for tests altering the env)
     endpoint = os.getenv("HF_ENDPOINT")
     token = get_token()
