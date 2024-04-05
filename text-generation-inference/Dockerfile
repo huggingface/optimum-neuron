@@ -60,6 +60,9 @@ RUN test -n ${VERSION:?}
 # Python server build image
 FROM base AS pyserver
 
+ARG VERSION
+RUN test -n ${VERSION:?}
+
 RUN apt-get update -y \
  && apt-get install -y --no-install-recommends \
     make \
@@ -76,6 +79,9 @@ RUN VERBOSE=1 BUILDDIR=/pyserver/build PROTODIR=/pyserver/proto VERSION=${VERSIO
 
 # Neuron base image (used for deployment)
 FROM base AS neuron
+
+ARG VERSION
+RUN test -n ${VERSION:?}
 
 # Install system prerequisites
 RUN apt-get update -y \
