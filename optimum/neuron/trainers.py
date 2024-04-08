@@ -413,29 +413,33 @@ class AugmentTrainerForNeuronMixin:
 
             if self.args.mp_plugin.should_parallelize:
                 dp_size = get_data_parallel_size()
-
                 tr_loss_div = tr_loss / dp_size
-
                 # It works even for PP because under PP we make it so that the main process to log for callbacks is
                 # the one on dp_rank = tp_rank = 0 and pp_rank = pp_size -1.
                 tr_loss_div = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_group(as_list=True))
-                tr_loss_scalar = tr_loss_div.detach().item()
+                # tr_loss_scalar = tr_loss_div
             else:
                 # all_gather + mean() to get average loss over all processes
-                tr_loss_scalar = self._nested_gather(tr_loss).mean().item()
+                tr_loss_div = self._nested_gather(tr_loss).mean()
 
             # reset tr_loss to zero
             tr_loss -= tr_loss
 
-            logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
-            logs["learning_rate"] = self._get_learning_rate()
-
-            self._total_loss_scalar += tr_loss_scalar
-            self._globalstep_last_logged = self.state.global_step
             self.store_flos()
 
-            if is_main_worker_for_metrics():
-                self.log(logs)
+            def closure(self, tr_loss_div, logs):
+                tr_loss_scalar = tr_loss_div.detach().item()
+
+                logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
+                logs["learning_rate"] = self._get_learning_rate()
+
+                self._total_loss_scalar += tr_loss_scalar
+                self._globalstep_last_logged = self.state.global_step
+
+                if is_main_worker_for_metrics():
+                    self.log(logs)
+
+            xm.add_step_closure(closure, (self, tr_loss_div, logs))
 
         metrics = None
         if self.control.should_evaluate:
