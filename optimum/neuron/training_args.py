@@ -180,7 +180,6 @@ class NeuronTrainingArgumentsMixin:
 
     @cached_property
     def _setup_devices(self) -> "torch.device":
-
         requires_backends(self, ["torch"])
         logger.info("PyTorch: setting up devices")
         NeuronAcceleratorState._reset_state()

@@ -405,7 +405,6 @@ class NeuronModelForSentenceTransformersIntegrationTest(NeuronModelTestMixin):
     @parameterized.expand(["clip"], skip_on_empty=True)
     @requires_neuronx
     def test_sentence_transformers_clip(self, model_arch):
-
         # Neuron model with dynamic batching
         model_id = SENTENCE_TRANSFORMERS_MODEL_NAMES[model_arch]
         input_shapes = {

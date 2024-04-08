@@ -226,9 +226,9 @@ class NeuronModelForSentenceTransformers(NeuronBaseModel):
         neuron_inputs = {"input_ids": input_ids}
         if pixel_values is not None:
             neuron_inputs["pixel_values"] = pixel_values
-        neuron_inputs["attention_mask"] = (
-            attention_mask  # The input order for clip is: input_ids, pixel_values, attention_mask.
-        )
+        neuron_inputs[
+            "attention_mask"
+        ] = attention_mask  # The input order for clip is: input_ids, pixel_values, attention_mask.
 
         with self.neuron_padding_manager(neuron_inputs) as inputs:
             outputs = self.model(*inputs)

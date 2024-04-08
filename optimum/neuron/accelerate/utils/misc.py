@@ -44,7 +44,6 @@ _ORIG_TORCH_FINFO = torch.finfo
 
 
 def create_patched_finfo(xla_downcast_bf16: bool = False, use_amp: bool = False, xla_use_bf16: bool = False):
-
     def patched_finfo(dtype):
         if xla_downcast_bf16 or use_amp or xla_use_bf16:
             return _ORIG_TORCH_FINFO(torch.bfloat16)

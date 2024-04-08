@@ -43,8 +43,8 @@ from transformers.utils.hub import get_checkpoint_shard_files
 
 from ...utils import is_diffusers_available, logging
 from .import_utils import is_torch_neuronx_available, is_torch_xla_available
-from .version_utils import get_torch_version
 from .require_utils import requires_safetensors, requires_torch_xla
+from .version_utils import get_torch_version
 
 
 if is_torch_neuronx_available():

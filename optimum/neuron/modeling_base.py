@@ -50,12 +50,10 @@ if TYPE_CHECKING:
     from ..exporters.neuron import NeuronDefaultConfig
 
 if is_neuron_available():
-
     NEURON_COMPILER_TYPE = "neuron-cc"
     NEURON_COMPILER_VERSION = get_neuroncc_version()
 
 if is_neuronx_available():
-
     NEURON_COMPILER_TYPE = "neuronx-cc"
     NEURON_COMPILER_VERSION = get_neuronxcc_version()
 
