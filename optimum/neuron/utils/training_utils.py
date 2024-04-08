@@ -14,8 +14,7 @@
 # limitations under the License.
 """Training utilities"""
 
-import os
-from typing import TYPE_CHECKING, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, List, Optional, Union
 
 import torch
 import transformers
@@ -46,7 +45,7 @@ from transformers.utils.logging import set_verbosity as set_verbosity_transforme
 from ...utils.logging import set_verbosity as set_verbosity_optimum
 from ..generation import GeneralNeuronGenerationMixin, NeuronGenerationMixin
 from . import is_neuronx_distributed_available
-from .require_utils import requires_neuronx_distributed, requires_safetensors, requires_torch_xla
+from .require_utils import requires_neuronx_distributed, requires_torch_xla
 
 
 if is_neuronx_distributed_available():
@@ -118,10 +117,6 @@ for model_type in _SUPPORTED_MODEL_TYPES:
     if isinstance(model_type, str):
         model_type = (model_type, None)
     _SUPPORTED_MODEL_NAMES.update(_generate_supported_model_class_names(*model_type))
-
-
-def is_precompilation() -> bool:
-    return os.environ.get("NEURON_PARALLEL_COMPILE") == "1"
 
 
 def is_model_officially_supported(model: "PreTrainedModel") -> bool:
@@ -216,28 +211,6 @@ def skip_first_batches(dataloader, num_batches=0):
     else:
         dataloader = accelerate_skip_first_batches(dataloader, num_batches=num_batches)
     return dataloader
-
-
-@requires_neuronx_distributed
-@requires_safetensors
-def torch_xla_safe_save_file(
-    tensors: Dict[str, torch.Tensor],
-    filename: Union[str, os.PathLike],
-    metadata: Optional[Dict[str, str]] = None,
-    master_only: bool = True,
-    global_master: bool = False,
-):
-    """
-    Torch XLA compatible implementation of `safetensors.torch.save_file`.
-    """
-    from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
-    from safetensors.torch import save_file
-    from torch_xla.core.xla_model import is_master_ordinal
-
-    should_write_data = not master_only or is_master_ordinal(local=not global_master)
-    cpu_data = move_all_tensor_to_cpu(tensors, convert=should_write_data)
-    if should_write_data:
-        save_file(cpu_data, filename, metadata=metadata)
 
 
 @requires_neuronx_distributed

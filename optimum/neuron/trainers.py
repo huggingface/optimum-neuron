@@ -81,18 +81,16 @@ from .utils.cache_utils import (
     has_write_access_to_repo,
 )
 from .utils.hub_neuronx_cache import ModelCacheEntry, hub_neuronx_cache, patch_neuron_cc_wrapper, synchronize_hub_cache
-from .utils.misc import is_main_worker
+from .utils.misc import is_main_worker, is_precompilation, torch_xla_safe_save_file
 from .utils.patching import patch_everywhere
 from .utils.require_utils import requires_neuronx_distributed, requires_torch_neuronx
 from .utils.training_utils import (
     get_model_param_count,
     is_main_worker_for_metrics,
     is_main_worker_for_metrics_method,
-    is_precompilation,
     is_topology_supported,
     patch_generation_mixin_to_neuron_generation_mixin,
     skip_first_batches,
-    torch_xla_safe_save_file,
 )
 
 
@@ -151,7 +149,6 @@ class AugmentTrainerForNeuronMixin:
                 if training_args.half_precision_backend == "amp":
                     self.use_amp = True
 
-        self.validate_args(training_args)
         if is_precompilation():
             self.prepare_args_for_precompilation(training_args)
 

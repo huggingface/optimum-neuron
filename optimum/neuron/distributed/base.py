@@ -31,10 +31,9 @@ from transformers.utils import WEIGHTS_NAME
 
 from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
-from ..utils.misc import is_main_worker
+from ..utils.misc import is_main_worker, is_precompilation
 from ..utils.patching import Patcher
 from ..utils.require_utils import requires_neuronx_distributed, requires_torch_xla
-from ..utils.training_utils import is_precompilation
 from .parallel_layers import (
     IOSequenceParallelizer,
     LayerNormSequenceParallelizer,
