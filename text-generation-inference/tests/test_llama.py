@@ -69,7 +69,7 @@ def test_prefill(input_text, token_id, token_text, do_sample, batch_size, model_
         [
             "It was a bright cold day in April, and the clocks were striking thirteen.",
             20,
-            " It was time to return to the village of Uckfield to face the fury of the evil",
+            " It was the start of the new spring, a time when nature woke from her winter slumber",
             True,
         ],
     ],
