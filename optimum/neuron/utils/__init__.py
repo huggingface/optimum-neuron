@@ -45,7 +45,6 @@ from .misc import (
 from .optimization_utils import get_attention_scores_sd, get_attention_scores_sdxl
 from .patching import DynamicPatch, ModelPatcher, Patcher, patch_everywhere, patch_within_function
 from .training_utils import (
-    FirstAndLastDataset,
     is_model_officially_supported,
     is_precompilation,
     patch_transformers_for_neuron_sdk,
