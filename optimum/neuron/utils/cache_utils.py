@@ -160,6 +160,13 @@ def has_write_access_to_repo(repo_id: str) -> bool:
 
 
 def get_hf_hub_cache_repos(log_warnings: bool = False) -> List[str]:
+    """
+    Retrieves the name of the Hugging Face Hub model repo to use as remote cache.
+    Priority:
+        - If a repo is provided via the `CUSTOM_CACHE_REPO` environment variable, it will be used,
+        - Else, if a custom cache repo has been set locally, it will be used,
+        - Otherwise, it uses the default cache repo (on which most people do not have write access)
+    """
     # Default hub repos.
     hf_hub_repos = HF_HUB_CACHE_REPOS
 

@@ -18,7 +18,7 @@ import json
 import logging
 import os
 import shutil
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from enum import Enum
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -31,7 +31,7 @@ from ..version import __version__
 from .cache_utils import get_hf_hub_cache_repo, get_neuron_cache_path
 from .import_utils import is_neuronx_available
 from .patching import patch_everywhere
-from .require_utils import requires_torch_neuronx, requires_torch_xla
+from .require_utils import requires_torch_neuronx
 
 
 if is_neuronx_available():
@@ -77,6 +77,8 @@ CACHE_WHITE_LIST = [
     "_use_default_values",
 ]
 NEURON_CONFIG_WHITE_LIST = ["input_names", "output_names", "model_type"]
+
+DEFAULT_PATH_FOR_NEURON_CC_WRAPPER = Path(__file__).parent.as_posix()
 
 
 class CompileCacheHfProxy(CompileCache):
@@ -357,21 +359,23 @@ def hub_neuronx_cache(
         patch_everywhere("create_compile_cache", create_compile_cache, "libneuronxla")
 
 
-@requires_torch_neuronx
-@requires_torch_xla
 @contextmanager
-def patch_neuron_cc_wrapper():
+def patch_neuron_cc_wrapper(
+    directory: Optional[Union[str, Path]] = DEFAULT_PATH_FOR_NEURON_CC_WRAPPER, restore_path: bool = True
+):
     """
     Patches the `neuron_cc_wrapper` file to force it use our own version of it which essentially makes sure that it
     uses our caching system.
     """
+    context_manager = TemporaryDirectory() if directory is None else nullcontext(enter_result=directory)
     tmpdirname = ""
     try:
-        with TemporaryDirectory() as dirname:
+        with context_manager as dirname:
             tmpdirname = dirname
             src = Path(__file__).parent / "neuron_cc_wrapper"
             dst = Path(tmpdirname) / "neuron_cc_wrapper"
-            shutil.copy(src, dst)
+            if src != dst:
+                shutil.copy(src, dst)
 
             path = os.environ["PATH"]
             os.environ["PATH"] = f"{tmpdirname}:{path}"
@@ -380,7 +384,8 @@ def patch_neuron_cc_wrapper():
     except Exception as e:
         raise e
     finally:
-        os.environ["PATH"] = os.environ["PATH"].replace(f"{tmpdirname}:", "")
+        if restore_path:
+            os.environ["PATH"] = os.environ["PATH"].replace(f"{tmpdirname}:", "")
 
 
 @requires_torch_neuronx

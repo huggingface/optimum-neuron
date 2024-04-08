@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 import torch
 
 from ...utils import logging
+from .hub_neuronx_cache import patch_neuron_cc_wrapper
 from .misc import is_main_worker
 from .require_utils import requires_torch_xla
 
@@ -42,7 +43,7 @@ def init_process_group():
                 raise AssertionError("Failed to initialize torch.distributed process group using XLA backend.")
 
 
-def set_common_neuron_cc_flags():
+def set_common_flags():
     """
     Sets environment variables for transformer-based models training with AWS Neuron.
     """
@@ -52,6 +53,8 @@ def set_common_neuron_cc_flags():
     # checkpointing. More information here:
     # https://awsdocs-neuron.readthedocs-hosted.com/en/latest/release-notes/torch/torch-neuronx/index.html#memory-leaking-in-glibc
     os.environ["MALLOC_ARENA_MAX"] = "64"
+    # Setting the path to use our patched version of the `neuron_cc_wrapper`.
+    patch_neuron_cc_wrapper(restore_path=False).__enter__()
 
 
 def set_neuron_cc_flags_for_torch_amp():
