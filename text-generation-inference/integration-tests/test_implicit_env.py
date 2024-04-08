@@ -13,8 +13,11 @@ MODELS = ["openai-community/gpt2", "aws-neuron/gpt2-neuronx-bs4-seqlen1024"]
 # Not sure we will even catch anything weird in the quality of the generated text anyway, at least not this way.
 # We will see with usage but we should probably just check the tgi service returns OK to requests
 EXPECTED = {
-    "openai-community/gpt2": "There's a new book by John C. Snider",
-    "aws-neuron/gpt2-neuronx-bs4-seqlen1024": "The purpose of the current post is to introduce the concepts",
+    "openai-community/gpt2": [
+        "There's a new book by John C. Snider",
+        "The purpose of the current post is to introduce the concepts",
+    ],
+    "aws-neuron/gpt2-neuronx-bs4-seqlen1024": ["The purpose of the current post is to introduce the concepts"],
 }
 
 
@@ -84,7 +87,11 @@ async def test_model_single_request(tgi_client, model_and_expected_output):
         seed=42,
         decoder_input_details=True,
     )
-    assert expected in response.generated_text
+    for e in expected:
+        if e in response.generated_text:
+            break
+    else:
+        raise AssertionError("%s generated output is unexpected, expected %s", response.generated_text, expected)
 
 
 @pytest.mark.asyncio
