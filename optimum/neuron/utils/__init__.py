@@ -35,7 +35,13 @@ from .import_utils import (
     is_transformers_neuronx_available,
 )
 from .input_generators import DummyBeamValuesGenerator
-from .misc import check_if_weights_replacable, replace_weights
+from .misc import (
+    DiffusersPretrainedConfig,
+    check_if_weights_replacable,
+    get_stable_diffusion_configs,
+    is_main_worker,
+    replace_weights,
+)
 from .optimization_utils import get_attention_scores_sd, get_attention_scores_sdxl
 from .patching import DynamicPatch, ModelPatcher, Patcher, patch_everywhere, patch_within_function
 from .training_utils import (
@@ -43,6 +49,4 @@ from .training_utils import (
     is_model_officially_supported,
     is_precompilation,
     patch_transformers_for_neuron_sdk,
-    patched_finfo,
-    prepare_environment_for_neuron,
 )

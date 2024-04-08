@@ -40,7 +40,7 @@ PACKAGE_FILES = $(PACKAGE_PYTHON_FILES)  \
 $(PACKAGE_DIST) $(PACKAGE_WHEEL): $(PACKAGE_FILES)
 	python -m build
 
-TGI_VERSION ?= 1.4.1
+TGI_VERSION ?= 1.4.4
 
 neuronx-tgi: $(PACKAGE_DIST)
 	docker build --rm -f text-generation-inference/Dockerfile \
@@ -64,11 +64,11 @@ transformers_examples:
 # Run code quality checks
 style_check:
 	black --check .
-	ruff .
+	ruff check .
 
 style:
 	black .
-	ruff . --fix
+	ruff check . --fix
 
 # Utilities to release to PyPi
 build_dist_install_tools:

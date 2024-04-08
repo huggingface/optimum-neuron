@@ -55,11 +55,9 @@ def serve(
         logger.warning("'trust_remote_code' argument is not supported and will be ignored.")
 
     # Import here after the logger is added to log potential import exceptions
-    from .model import fetch_model
     from .server import serve
 
-    model_path = fetch_model(model_id, revision)
-    serve(model_path, uds_path)
+    serve(model_id, revision, uds_path)
 
 
 @app.command()

@@ -15,8 +15,6 @@
 """Training utilities"""
 
 import os
-import re
-from functools import lru_cache
 from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 import torch
@@ -128,12 +126,6 @@ for model_type in _SUPPORTED_MODEL_TYPES:
     _SUPPORTED_MODEL_NAMES.update(_generate_supported_model_class_names(*model_type))
 
 
-_MODEL_TYPE_TO_OPTLEVEL: Dict[str, str] = {
-    "default": "-O2",
-    "llama": "-O1",
-}
-
-
 def is_precompilation() -> bool:
     return os.environ.get("NEURON_PARALLEL_COMPILE") == "1"
 
@@ -232,15 +224,6 @@ class FirstAndLastDataset(Dataset):
         return len(self.samples)
 
 
-orig_finfo = torch.finfo
-
-
-def patched_finfo(dtype):
-    if dtype is torch.float32:
-        return orig_finfo(torch.bfloat16)
-    return orig_finfo(dtype)
-
-
 def patch_generation_mixin_to_neuron_generation_mixin(model: "PreTrainedModel"):
     """
     Changes the vanilla `GenerationMixin` class from Transformers to `NeuronGenerationMixin` in the model's
@@ -291,46 +274,6 @@ def patch_generation_mixin_to_general_neuron_generation_mixin(model: "PreTrained
             else:
                 new_bases.append(base)
         cls.__bases__ = tuple(new_bases)
-
-
-def prepare_environment_for_neuron():
-    """
-    Prepares the system environment for Transformers models training on AWS Neuron.
-    """
-    # Set compiler flag to compile for transformer model type
-    os.environ["NEURON_CC_FLAGS"] = os.environ.get("NEURON_CC_FLAGS", "") + " --model-type=transformer"
-    # Setting MALLOC_ARENA_MAX is needed because of a memory issue in XLA/glic, otherwise OOM can happen during
-    # checkpointing. More information here:
-    # https://awsdocs-neuron.readthedocs-hosted.com/en/latest/release-notes/torch/torch-neuronx/index.html#memory-leaking-in-glibc
-    os.environ["MALLOC_ARENA_MAX"] = "64"
-
-
-def set_neuron_cc_optlevel_for_model(model: "PreTrainedModel", optlevel: str = "auto"):
-    """
-    Sets the Neuron compiler optimization level considering both `model` and `optlevel`.
-    If `optlevel` is different than `"auto"`, it will be set to that value, otherwise the default value for a given
-    model is used.
-    """
-    if optlevel == "auto":
-        optlevel = _MODEL_TYPE_TO_OPTLEVEL.get(model.config.model_type, _MODEL_TYPE_TO_OPTLEVEL["default"])
-    neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
-    match_ = re.search(r"-O[123]", neuron_cc_flags)
-    if match_:
-        neuron_cc_flags = neuron_cc_flags[: match_.start(0)] + f"{optlevel}" + neuron_cc_flags[match_.end(0) + 1 :]
-    else:
-        neuron_cc_flags += f" {optlevel} "
-    os.environ["NEURON_CC_FLAGS"] = neuron_cc_flags
-
-
-def set_neuron_cc_flags_for_model(model: "PreTrainedModel"):
-    """
-    Sets flags for the Neuron compiler depending on the model.
-    """
-    neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
-    if "ForCausalLM" or "ForConditionalGeneration" in model.__class__.__name__:
-        distribution_strategy = "--distribution-strategy=llm-training"
-        if distribution_strategy not in neuron_cc_flags:
-            os.environ["NEURON_CC_FLAGS"] = neuron_cc_flags + f" {distribution_strategy}"
 
 
 def set_verbosity(verbosity: int):
@@ -433,7 +376,6 @@ def get_model_param_count(model: Union[torch.nn.Module, "NxDPPModel"], trainable
     return param_count
 
 
-@lru_cache
 @requires_neuronx_distributed
 def is_main_worker_for_metrics() -> bool:
     from neuronx_distributed.parallel_layers.parallel_state import (

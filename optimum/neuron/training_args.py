@@ -14,12 +14,11 @@
 # limitations under the License.
 """Defines a TrainingArguments class compatible with Neuron."""
 
-import io
-import json
 import os
 import warnings
 from dataclasses import dataclass, field
 from datetime import timedelta
+from typing import Optional
 
 import torch
 from accelerate.utils import DistributedType
@@ -34,12 +33,12 @@ from transformers.utils import (
     requires_backends,
 )
 
-from ..utils import check_if_transformers_greater, logging
+from ..utils import logging
 from .accelerate import NeuronAcceleratorState, NeuronPartialState
 from .accelerate.utils import ModelParallelismPlugin, patch_accelerate_is_tpu_available
-from .utils import is_accelerate_available, is_torch_xla_available
+from .utils import is_accelerate_available, is_main_worker, is_torch_xla_available
 from .utils.patching import Patcher
-from .utils.training_utils import TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP
+from .utils.torch_xla_and_neuronx_initialization import set_neuron_cc_optlevel
 
 
 if is_sagemaker_mp_enabled():
@@ -55,6 +54,13 @@ logger = logging.get_logger(__name__)
 class NeuronTrainingArgumentsMixin:
     skip_cache_push: bool = field(
         default=False, metadata={"help": "Whether to skip pushing Neuron artifacts to hub cache"}
+    )
+    half_precision_backend: str = field(
+        default="xla",
+        metadata={
+            "help": "The backend to be used for half precision.",
+            "choices": ["xla", "amp"],
+        },
     )
     zero_1: bool = field(default=False, metadata={"help": "Whether to use  ZeRO Stage 1 Optimization."})
     tensor_parallel_size: int = field(
@@ -74,10 +80,10 @@ class NeuronTrainingArgumentsMixin:
         default=False,
         metadata={"help": "Whether or not to disable sequence parallelism."},
     )
-    neuron_cc_optlevel: str = field(
-        default="auto",
+    neuron_cc_optlevel: int = field(
+        default=2,
         metadata={
-            "choices": ["auto", "1", "2", "3"],
+            "choices": [1, 2, 3],
             "help": "Specify the level of optimization the Neuron compiler should perform.",
         },
     )
@@ -89,6 +95,25 @@ class NeuronTrainingArgumentsMixin:
         default=-1,
         metadata={"help": "The number of microbatches used for pipeline execution."},
     )
+    kv_size_multiplier: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": (
+                "The number of times to replicate the KV heads when the TP size is bigger than the number of KV heads."
+                "If left unspecified, the smallest multiplier that makes the number of KV heads divisible by the TP size"
+                "will be used."
+            )
+        },
+    )
+    num_ranks_per_loading_step: int = field(
+        default=-1,
+        metadata={
+            "help": (
+                "The number of ranks to use concurrently during weight initialization and loading when tensor "
+                "parallelism is enabled. If left unspecified, the maximum number of ranks will be used."
+            )
+        },
+    )
 
     def __post_init__(self):
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
@@ -97,31 +122,9 @@ class NeuronTrainingArgumentsMixin:
         if self.fsdp != "":
             # Disabling FSDP until next release because it is still very experimental and not validated.
             raise RuntimeError("FSDP is not supported yet.")
-            if self.fsdp_config is None:
-                self.fsdp_config = {"xla": True}
-            elif isinstance(self.fsdp_config, str):
-                with io.open(self.fsdp_config, "r", encoding="utf-8") as f:
-                    self.fsdp_config = json.load(f)
 
-            if "xla" in self.fsdp_config and not self.fsdp_config["xla"]:
-                raise ValueError(
-                    "XLA FSDP is the only supported FSDP implementation by `optimum-neuron` but the provided FSDP "
-                    "config specified it should not be used."
-                )
-            else:
-                self.fsdp_config["xla"] = True
-
-            os.environ["ACCELERATE_USE_FSDP"] = "true"
-
-            if not check_if_transformers_greater(TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP):
-                import transformers
-
-                raise RuntimeError(
-                    "The minimal required Transformers version to perform XLA FSDP is "
-                    f"{TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP} but {transformers.__version__} is installed."
-                )
-        if self.neuron_cc_optlevel != "auto":
-            self.neuron_cc_optlevel = f"-O{self.neuron_cc_optlevel}"
+        if self.fp16:
+            raise ValueError("The fp16 data type is not supported in Neuron, please use bf16 instead.")
 
         resume_from_checkpoint = self.resume_from_checkpoint
         if resume_from_checkpoint is None and os.path.isdir(self.output_dir):
@@ -130,6 +133,14 @@ class NeuronTrainingArgumentsMixin:
             resume_from_checkpoint = checkpoint
 
         if self.pipeline_parallel_size > 1:
+            if self.gradient_accumulation_steps > 1:
+                if is_main_worker():
+                    logger.info(
+                        "Pipeline parallel used, setting gradient_accumulation_steps to 1 and scaling the pipeline batch size."
+                    )
+                self.per_device_train_batch_size *= self.gradient_accumulation_steps
+                self.per_device_eval_batch_size *= self.gradient_accumulation_steps
+                self.gradient_accumulation_steps = 1
             if self.pipeline_parallel_num_microbatches == -1:
                 self.pipeline_parallel_num_microbatches = self.per_device_train_batch_size
             if self.per_device_train_batch_size % self.pipeline_parallel_num_microbatches != 0:
@@ -147,22 +158,28 @@ class NeuronTrainingArgumentsMixin:
             self.tensor_parallel_size,
             parallelize_embeddings=not self.disable_embedding_parallelization,
             sequence_parallel_enabled=not self.disable_sequence_parallel,
+            kv_size_multiplier=self.kv_size_multiplier,
             pipeline_parallel_size=self.pipeline_parallel_size,
             pipeline_parallel_num_microbatches=self.pipeline_parallel_num_microbatches,
             pipeline_parallel_use_zero1_optimizer=self.zero_1,
             gradient_checkpointing=self.gradient_checkpointing,
             checkpoint_dir=resume_from_checkpoint,
+            num_ranks_per_loading_step=self.num_ranks_per_loading_step,
         )
+
+        if self.bf16 and self.half_precision_backend == "amp":
+            os.environ["ACCELERATE_USE_AMP"] = "true"
+        else:
+            os.environ["ACCELERATE_USE_AMP"] = "false"
+
+        set_neuron_cc_optlevel(self.neuron_cc_optlevel)
 
         # This is required to be able to use bf16, otherwise a check in super().__post_init__() fails.
         with Patcher([("transformers.training_args.get_xla_device_type", lambda _: "GPU")]):
             super().__post_init__()
 
-    # Needed only to specialize the warning message for FSDP.
     @cached_property
     def _setup_devices(self) -> "torch.device":
-        if not check_if_transformers_greater("4.30.0"):
-            return super()._setup_devices
 
         requires_backends(self, ["torch"])
         logger.info("PyTorch: setting up devices")

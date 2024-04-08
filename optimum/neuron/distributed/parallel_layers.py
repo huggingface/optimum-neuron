@@ -19,7 +19,6 @@ import re
 from abc import ABC, abstractclassmethod
 from dataclasses import dataclass
 from enum import Enum
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Literal, Optional, Tuple, Type, Union
 
 import torch
@@ -30,11 +29,15 @@ from ..utils import patch_everywhere, patch_within_function
 from ..utils.misc import is_main_worker
 from ..utils.require_utils import requires_neuronx_distributed
 from .utils import (
-    GroupedQueryAttentionInfo,
+    FakeProj,
+    OptimumGQAQKVColumnParallelLinear,
     WeightInformation,
     embedding_to_parallel_embedding,
-    gqa_key_value_slicing_when_tp_size_greater_than_num_key_value_heads,
+    get_linear_weight_info,
     linear_to_parallel_linear,
+    mark_parameter_init_status_during_parallelization,
+    maybe_load_weights_to_gqa_qkv_column_parallel_linear,
+    maybe_load_weights_to_output_projection_when_using_gqa_qkv_column_parallel_linear,
 )
 
 
@@ -67,44 +70,6 @@ class ParallelLayer(ABC):
             leaf_module = module.get_submodule(split[0])
             attribute_name = split[1]
         return leaf_module, attribute_name
-
-    @classmethod
-    def _get_linear_weight_info(
-        cls,
-        weight_map: Dict[str, Union[Path, str]],
-        linear_layer_qualified_name: str,
-        device: Optional["torch.device"] = None,
-        fail_if_not_found: bool = True,
-    ) -> Tuple[Optional[WeightInformation], Optional[WeightInformation]]:
-        linear_layer_weight_qualified_name = f"{linear_layer_qualified_name}.weight"
-        if linear_layer_weight_qualified_name not in weight_map:
-            if fail_if_not_found:
-                raise ValueError(
-                    f"Could not find the linear weight called {linear_layer_weight_qualified_name} in the weight map."
-                )
-            else:
-                linear_layer_weight_info = None
-        else:
-            linear_layer_weight_info = WeightInformation(
-                weight_map[linear_layer_weight_qualified_name],
-                linear_layer_weight_qualified_name,
-                weight_map=weight_map,
-                device=device,
-            )
-
-        linear_layer_bias_qualified_name = f"{linear_layer_qualified_name}.bias"
-        linear_layer_bias_filename = weight_map.get(linear_layer_bias_qualified_name, None)
-        if linear_layer_bias_filename is not None:
-            linear_layer_bias_weight_info = WeightInformation(
-                linear_layer_bias_filename,
-                linear_layer_bias_qualified_name,
-                weight_map=weight_map,
-                device=device,
-            )
-        else:
-            linear_layer_bias_weight_info = None
-
-        return linear_layer_weight_info, linear_layer_bias_weight_info
 
     @abstractclassmethod
     def _transform(
@@ -329,7 +294,7 @@ class ParallelSelfAttention(ParallelLayer):
             If left unspecified, the attribute will be fetched by using the NormalizedConfig associated to the model.
     """
 
-    PARALLEL_LAYER_SPECIFIC_KWARGS = {"skip_linear_weight_load": False}
+    PARALLEL_LAYER_SPECIFIC_KWARGS = {"skip_linear_weight_load": False, "kv_size_multiplier": None}
 
     QUERIES_NAME = "query"
     KEYS_NAME = "key"
@@ -339,6 +304,126 @@ class ParallelSelfAttention(ParallelLayer):
     NUM_KEY_VALUE_HEADS_NAME: Optional[str] = None
     NUM_KEY_VALUE_GROUPS_NAME: Optional[str] = None
     ALL_HEAD_SIZE_NAME: Optional[str] = None
+
+    GQA_QKV_PROJ_NAME: str = "qkv_proj"
+
+    @classmethod
+    def get_layer_qualified_name(cls, model: torch.nn.Module, layer: torch.nn.Module) -> str:
+        layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
+        return layer_to_fully_qualified_name[id(layer)]
+
+    @classmethod
+    def patch_proj_to_use_gqa_qkv_column_parallel_linear(
+        cls,
+        attention_layer: torch.nn.Module,
+        attention_layer_qualified_name: str,
+        proj_qualified_name: str,
+        proj_name: str,
+        output_index: int,
+    ):
+        fake_proj = FakeProj(
+            proj_qualified_name,
+            proj_name,
+            output_index,
+            lambda: attention_layer,
+            attention_layer_qualified_name,
+            cls.GQA_QKV_PROJ_NAME,
+        )
+
+        setattr(attention_layer, proj_name, fake_proj)
+
+    @classmethod
+    @requires_neuronx_distributed
+    def replace_qkv_by_gqa_qkv_column_parallel_linear(
+        cls,
+        model: "torch.nn.Module",
+        attention_layer: "torch.nn.Module",
+        sequence_parallel_enabled: bool = False,
+        kv_size_multiplier: Optional[int] = None,
+        skip_linear_weight_load: bool = False,
+    ):
+        from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
+
+        if cls.NUM_KEY_VALUE_HEADS_NAME is None:
+            raise ValueError(f"{cls} does not defined the name of the number of key value heads.")
+        tp_size = get_tensor_model_parallel_size()
+        num_key_value_heads = getattr(attention_layer, cls.NUM_KEY_VALUE_HEADS_NAME)
+        if tp_size < num_key_value_heads:
+            raise ValueError(
+                f"The TP size ({tp_size}) is lower than the number of key value heads, using "
+                "GQAQKVColumnParallelLinear is not needed."
+            )
+
+        num_attention_heads = getattr(attention_layer, cls.NUM_ATTENTION_HEADS_NAME)
+        query_linear = getattr(attention_layer, cls.QUERIES_NAME)
+        key_linear = getattr(attention_layer, cls.KEYS_NAME)
+
+        hidden_size = query_linear.weight.size(1)
+        query_in_features = query_linear.weight.size(0)
+        key_value_in_features = key_linear.weight.size(0)
+
+        if kv_size_multiplier is None:
+            kv_size_multiplier = get_tensor_model_parallel_size() // num_key_value_heads
+
+        device = query_linear.weight.device
+        if device == torch.device("meta"):
+            device = None
+
+        gqa_qkv_column_parallel_linear = OptimumGQAQKVColumnParallelLinear(
+            cls.QUERIES_NAME,
+            cls.KEYS_NAME,
+            cls.VALUES_NAME,
+            cls.OUTPUT_PROJECTION_NAME,
+            num_attention_heads,
+            num_key_value_heads,
+            hidden_size,
+            [query_in_features, key_value_in_features],
+            gather_output=False,
+            bias=query_linear.bias is not None,
+            sequence_parallel_enabled=sequence_parallel_enabled,
+            device=device,
+            kv_size_multiplier=kv_size_multiplier,
+        )
+
+        setattr(attention_layer, cls.GQA_QKV_PROJ_NAME, gqa_qkv_column_parallel_linear)
+
+        maybe_load_weights_to_gqa_qkv_column_parallel_linear(
+            model,
+            gqa_qkv_column_parallel_linear,
+            try_from_checkpoint=not skip_linear_weight_load,
+            try_from_original_layer=not skip_linear_weight_load,
+        )
+
+        attention_layer_qualified_name = cls.get_layer_qualified_name(model, attention_layer)
+        fake_q_proj = FakeProj(
+            f"{attention_layer_qualified_name}.{cls.QUERIES_NAME}",
+            "q",
+            0,
+            lambda: attention_layer,
+            attention_layer_qualified_name,
+            cls.GQA_QKV_PROJ_NAME,
+        )
+        setattr(attention_layer, cls.QUERIES_NAME, fake_q_proj)
+
+        fake_k_proj = FakeProj(
+            f"{attention_layer_qualified_name}.{cls.KEYS_NAME}",
+            "k",
+            1,
+            lambda: attention_layer,
+            attention_layer_qualified_name,
+            cls.GQA_QKV_PROJ_NAME,
+        )
+        setattr(attention_layer, cls.KEYS_NAME, fake_k_proj)
+
+        fake_v_proj = FakeProj(
+            f"{attention_layer_qualified_name}.{cls.VALUES_NAME}",
+            "v",
+            2,
+            lambda: attention_layer,
+            attention_layer_qualified_name,
+            cls.GQA_QKV_PROJ_NAME,
+        )
+        setattr(attention_layer, cls.VALUES_NAME, fake_v_proj)
 
     @classmethod
     @requires_neuronx_distributed
@@ -356,6 +441,7 @@ class ParallelSelfAttention(ParallelLayer):
             raise AttributeError("Both NUM_KEY_VALUE_HEADS_NAME and NUM_KEY_VALUE_GROUPS_NAME must be specified.")
 
         skip_linear_weight_load = parallel_layer_specific_kwargs["skip_linear_weight_load"]
+        kv_size_multiplier = parallel_layer_specific_kwargs["kv_size_multiplier"]
 
         from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 
@@ -365,11 +451,8 @@ class ParallelSelfAttention(ParallelLayer):
         config = model.config
         normalized_config = NormalizedConfigManager.get_normalized_config_class(config.model_type)(config)
 
-        if weight_map is not None:
-            layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
-            layer_qualified_name = layer_to_fully_qualified_name[id(layer)]
-        else:
-            layer_qualified_name = ""
+        layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
+        layer_qualified_name = layer_to_fully_qualified_name[id(layer)]
 
         if cls.NUM_ATTENTION_HEADS_NAME is None:
             num_attention_heads_name = normalized_config.NUM_ATTENTION_HEADS
@@ -395,37 +478,27 @@ class ParallelSelfAttention(ParallelLayer):
                 raise ValueError(
                     "Only the cases where the number of key value heads is divisible by the TP size, or the other way around are supported."
                 )
-            elif is_main_worker() and num_key_value_heads < tp_size:
-                logger.warning(
-                    f"The TP size ({tp_size}) is bigger than the number of key value heads ({num_key_value_heads}). "
-                    "This is not ideal because the key and value projections will not be sharded accross the TP ranks. "
-                    "For better performance choose the number of key value heads to be divisible by the TP size."
-                )
-            kv_heads_are_parallelized = num_key_value_heads >= tp_size
+            needs_gqa_qkv_column_parallel_linear = num_key_value_heads < tp_size
         else:
             num_key_value_heads = getattr(layer, num_attention_heads_name)
-            kv_heads_are_parallelized = True
+            needs_gqa_qkv_column_parallel_linear = False
 
-        for name in [cls.QUERIES_NAME, cls.KEYS_NAME, cls.VALUES_NAME]:
-            linear_layer_weight_info, linear_layer_bias_weight_info = None, None
-            if weight_map is not None:
-                linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
+        if needs_gqa_qkv_column_parallel_linear:
+            cls.replace_qkv_by_gqa_qkv_column_parallel_linear(
+                model,
+                layer,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                kv_size_multiplier=kv_size_multiplier,
+                skip_linear_weight_load=skip_linear_weight_load,
+            )
+        else:
+            for name in [cls.QUERIES_NAME, cls.KEYS_NAME, cls.VALUES_NAME]:
+                linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
                     weight_map,
                     f"{layer_qualified_name}.{name}",
                     device=device,
+                    fail_if_not_found=False,
                 )
-            # Under GQA setting with num_key_value_heads < tp_size, the key and value projections are replicated accross
-            # workers.
-            if not kv_heads_are_parallelized and name in [cls.KEYS_NAME, cls.VALUES_NAME]:
-                gqa_info = GroupedQueryAttentionInfo(num_attention_heads, num_key_value_heads)
-                parallel_linear = gqa_key_value_slicing_when_tp_size_greater_than_num_key_value_heads(
-                    gqa_info,
-                    getattr(layer, name),
-                    linear_layer_weight_info=linear_layer_weight_info,
-                    linear_layer_bias_weight_info=linear_layer_bias_weight_info,
-                    device=device,
-                )
-            else:
                 parallel_linear = linear_to_parallel_linear(
                     getattr(layer, name),
                     "column",
@@ -436,30 +509,43 @@ class ParallelSelfAttention(ParallelLayer):
                     skip_weight_load=skip_linear_weight_load,
                     device=device,
                 )
-            setattr(layer, name, parallel_linear)
+                setattr(layer, name, parallel_linear)
 
         if cls.OUTPUT_PROJECTION_NAME is not None:
-            linear_layer_weight_info, linear_layer_bias_weight_info = None, None
-            if weight_map is not None:
-                linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
-                    weight_map,
-                    f"{layer_qualified_name}.{cls.OUTPUT_PROJECTION_NAME}",
-                    device=device,
-                )
-            setattr(
-                layer,
-                cls.OUTPUT_PROJECTION_NAME,
-                linear_to_parallel_linear(
-                    getattr(layer, cls.OUTPUT_PROJECTION_NAME),
-                    "row",
-                    input_is_parallel=True,
+            linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
+                weight_map,
+                f"{layer_qualified_name}.{cls.OUTPUT_PROJECTION_NAME}",
+                device=device,
+                fail_if_not_found=False,
+            )
+            parallel_output_proj = linear_to_parallel_linear(
+                getattr(layer, cls.OUTPUT_PROJECTION_NAME),
+                "row",
+                input_is_parallel=True,
+                linear_layer_weight_info=linear_layer_weight_info,
+                linear_layer_bias_weight_info=linear_layer_bias_weight_info,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                skip_weight_load=skip_linear_weight_load,
+                device=device,
+            )
+
+            if needs_gqa_qkv_column_parallel_linear:
+                qga_qkv_layer = getattr(layer, cls.GQA_QKV_PROJ_NAME)
+                # We need to re-initialize the output projection in this case since the queries are "shuffled".
+                mark_parameter_init_status_during_parallelization(parallel_output_proj.weight, False)
+                maybe_load_weights_to_output_projection_when_using_gqa_qkv_column_parallel_linear(
+                    parallel_output_proj,
+                    qga_qkv_layer.num_attention_heads,
+                    qga_qkv_layer.num_key_value_heads,
+                    qga_qkv_layer.kv_size_multiplier,
+                    original_output_projection=getattr(layer, cls.OUTPUT_PROJECTION_NAME),
                     linear_layer_weight_info=linear_layer_weight_info,
                     linear_layer_bias_weight_info=linear_layer_bias_weight_info,
-                    sequence_parallel_enabled=sequence_parallel_enabled,
-                    skip_weight_load=skip_linear_weight_load,
-                    device=device,
-                ),
-            )
+                    try_from_checkpoint=not skip_linear_weight_load,
+                    try_from_original_layer=not skip_linear_weight_load,
+                )
+
+            setattr(layer, cls.OUTPUT_PROJECTION_NAME, parallel_output_proj)
 
         setattr(
             layer,
@@ -472,7 +558,7 @@ class ParallelSelfAttention(ParallelLayer):
             # Since those heads end-up sharded accross TP ranks just as the query heads, only the number of kv heads
             # needs to be updated. The number of query groups remains the same here because it is the ratio between the
             # number of query heads and the number of kv heads.
-            if kv_heads_are_parallelized:
+            if not needs_gqa_qkv_column_parallel_linear:
                 setattr(
                     layer,
                     cls.NUM_KEY_VALUE_HEADS_NAME,
@@ -483,15 +569,17 @@ class ParallelSelfAttention(ParallelLayer):
             # In this case, multiple ranks will end-up with the same kv head, and each rank will only have one kv head
             # and query group.
             else:
+                gqa_qkv_proj = getattr(layer, cls.GQA_QKV_PROJ_NAME)
+                new_num_key_value_heads = (num_key_value_heads * gqa_qkv_proj.kv_size_multiplier) // tp_size
                 setattr(
                     layer,
                     cls.NUM_KEY_VALUE_HEADS_NAME,
-                    1,
+                    new_num_key_value_heads,
                 )
                 setattr(
                     layer,
                     cls.NUM_KEY_VALUE_GROUPS_NAME,
-                    1,
+                    getattr(layer, num_attention_heads_name) // new_num_key_value_heads,
                 )
 
         setattr(
@@ -573,7 +661,7 @@ class ParallelSelfAttentionWithFusedQKV(ParallelLayer):
 
         linear_layer_weight_info, linear_layer_bias_weight_info = None, None
         if weight_map is not None:
-            linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
+            linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
                 weight_map,
                 f"{layer_qualified_name}.{cls.QUERY_KEY_VALUE_NAME}",
                 device=device,
@@ -596,7 +684,7 @@ class ParallelSelfAttentionWithFusedQKV(ParallelLayer):
         if cls.OUTPUT_PROJECTION_NAME is not None:
             linear_layer_weight_info, linear_layer_bias_weight_info = None, None
             if weight_map is not None:
-                linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
+                linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
                     weight_map,
                     f"{layer_qualified_name}.{cls.OUTPUT_PROJECTION_NAME}",
                     device=device,
@@ -658,7 +746,7 @@ class ParallelSelfOutput(ParallelLayer):
         if weight_map is not None:
             layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
             layer_qualified_name = layer_to_fully_qualified_name[id(layer)]
-            linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
+            linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
                 weight_map,
                 f"{layer_qualified_name}.{cls.OUTPUT_PROJECTION_NAME}",
                 device=device,
@@ -714,7 +802,7 @@ class ParallelMLP(ParallelLayer):
         module, attribute_name = cls._get_module_and_attribute_name(layer, cls.FIRST_LINEAR_NAME)
         if weight_map is not None:
             layer_qualified_name = layer_to_fully_qualified_name[id(module)]
-            linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
+            linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
                 weight_map,
                 f"{layer_qualified_name}.{attribute_name}",
                 device=device,
@@ -739,7 +827,7 @@ class ParallelMLP(ParallelLayer):
         linear_layer_weight_info, linear_layer_bias_weight_info = None, None
         if weight_map is not None:
             layer_qualified_name = layer_to_fully_qualified_name[id(module)]
-            linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
+            linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
                 weight_map,
                 f"{layer_qualified_name}.{attribute_name}",
                 device=device,
@@ -906,7 +994,7 @@ class ParallelCrossEntropy(ParallelLayer):
             layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
             linear_projection_qualified_name = layer_to_fully_qualified_name[id(linear_projection)]
             try:
-                linear_projection_weight_info, linear_projection_bias_weight_info = cls._get_linear_weight_info(
+                linear_projection_weight_info, linear_projection_bias_weight_info = get_linear_weight_info(
                     weight_map,
                     linear_projection_qualified_name,
                     device=device,

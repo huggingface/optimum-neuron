@@ -1,14 +1,15 @@
 import os
+import shutil
 import time
 from typing import Optional
 
 from huggingface_hub import snapshot_download
 from huggingface_hub.constants import HF_HUB_CACHE
 from loguru import logger
-from transformers import AutoConfig, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 
 from optimum.neuron import NeuronModelForCausalLM
-from optimum.neuron.utils import ModelCacheEntry, get_hub_cached_entries
+from optimum.neuron.utils import get_hub_cached_entries
 
 
 def get_export_kwargs_from_env():
@@ -50,6 +51,16 @@ def is_cached(model_id, neuron_config):
     return in_cache
 
 
+def log_cache_size():
+    path = HF_HUB_CACHE
+    if os.path.exists(path):
+        usage = shutil.disk_usage(path)
+        gb = 2**30
+        logger.info(f"Cache disk [{path}]: total = {usage.total/gb:.2f} G, free = {usage.free/gb:.2f} G")
+    else:
+        raise ValueError(f"The cache directory ({path}) does not exist.")
+
+
 def fetch_model(
     model_id: str,
     revision: Optional[str] = None,
@@ -63,31 +74,27 @@ def fetch_model(
             The revision of the model on the HuggingFace hub.
 
     Returns:
-        Local folder path (string) of the model.
+        A string corresponding to the model_id or path.
     """
     if not os.path.isdir("/sys/class/neuron_device/"):
         raise SystemError("No neuron cores detected on the host.")
-    if os.path.isdir(model_id):
-        if revision is not None:
-            logger.warning("Revision {} ignored for local model at {}".format(revision, model_id))
-        return model_id
+    if os.path.isdir(model_id) and revision is not None:
+        logger.warning("Revision {} ignored for local model at {}".format(revision, model_id))
+        revision = None
     # Download the model from the Hub (HUGGING_FACE_HUB_TOKEN must be set for a private or gated model)
     # Note that the model may already be present in the cache.
     config = AutoConfig.from_pretrained(model_id, revision=revision)
     neuron_config = getattr(config, "neuron", None)
     if neuron_config is not None:
-        logger.info("Fetching revision {} for neuron model {}".format(revision, model_id))
+        if os.path.isdir(model_id):
+            return model_id
+        # Prefetch the neuron model from the Hub
+        logger.info(f"Fetching revision [{revision}] for neuron model {model_id} under {HF_HUB_CACHE}")
+        log_cache_size()
         return snapshot_download(model_id, revision=revision)
-    # Not a neuron model: evaluate the export config and check if it has been exported locally
+    # Model needs to be exported: look for compatible cached entries on the hub
     export_kwargs = get_export_kwargs_from_env()
     export_config = NeuronModelForCausalLM.get_export_config(model_id, config, revision=revision, **export_kwargs)
-    entry = ModelCacheEntry(model_id, export_config)
-    export_path = f"{HF_HUB_CACHE}/{entry.hash}"
-    if os.path.exists(export_path):
-        # The model has already been exported for that configuration
-        logger.info(f"Neuron model for {model_id} with {export_config.neuron} found under {export_path}.")
-        return export_path
-    # Look for compatible cached entries on the hub
     neuron_config = export_config.neuron
     if not is_cached(model_id, neuron_config):
         error_msg = (
@@ -95,21 +102,19 @@ def fetch_model(
             "You can start a discussion to request it on https://huggingface.co/aws-neuron/optimum-neuron-cache."
         )
         raise ValueError(error_msg)
-    # Export the model
     logger.warning(f"{model_id} is not a neuron model: it will be exported using cached artifacts.")
+    # Prefetch weights, tokenizer and generation config so that they are in cache
+    log_cache_size()
     start = time.time()
-    logger.info(f"Fetching revision {revision} of model {model_id}.")
-    model_path = snapshot_download(model_id, revision=revision)
+    AutoModelForCausalLM.from_pretrained(model_id, revision=revision)
+    mid = time.time()
+    logger.info(f"Model weights fetched in {mid - start:.2f} s.")
+    AutoTokenizer.from_pretrained(model_id, revision=revision)
     end = time.time()
-    logger.info(f"Model successfully fetched in {end - start:.2f} s.")
-    logger.info(f"Exporting model to neuron with config {neuron_config}.")
-    start = time.time()
-    model = NeuronModelForCausalLM.from_pretrained(model_path, export=True, **export_kwargs)
-    # Save for later retrieval
-    model.save_pretrained(export_path)
-    end = time.time()
-    # We also need to fetch and save the tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision)
-    tokenizer.save_pretrained(export_path)
-    logger.info(f"Model successfully exported in {end - start:.2f} s under {export_path}.")
-    return export_path
+    logger.info(f"Tokenizer fetched in {end - mid:.2f} s.")
+    try:
+        GenerationConfig.from_pretrained(model_id, revision=revision)
+    except Exception:
+        logger.warning(f"No default generation config found for {model_id}.")
+    log_cache_size()
+    return model_id
