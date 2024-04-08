@@ -4,14 +4,16 @@ import pytest
 from text_generation.errors import ValidationError
 
 
-# These tests will often break as it relies on many factors like the optimum version, the neuronx-cc version,
-# and on what is synced in the cache for these specific versions...
+@pytest.fixture(scope="module", params=["hub-neuron", "hub", "local-neuron"])
+async def tgi_service(request, launcher, neuron_model_config):
+    """Expose a TGI service corresponding to a model configuration
 
-MODELS = ["openai-community/gpt2", "aws-neuron/gpt2-neuronx-bs4-seqlen1024"]
-
-
-@pytest.fixture(scope="module", params=MODELS)
-def get_model_and_set_env(request):
+    For each model configuration, the service will be started using the following
+    deployment options:
+    - from the hub original model (export parameters chosen after hub lookup),
+    - from the hub pre-exported neuron model,
+    - from a local path to the neuron model.
+    """
     # the tgi_env.py script will take care of setting these
     for var in [
         "MAX_BATCH_SIZE",
@@ -24,32 +26,29 @@ def get_model_and_set_env(request):
     ]:
         if var in os.environ:
             del os.environ[var]
-    yield request.param
-
-
-@pytest.fixture(scope="module")
-def tgi_service(launcher, get_model_and_set_env):
-    with launcher(get_model_and_set_env) as tgi_service:
+    if request.param == "hub":
+        model_name_or_path = neuron_model_config["model_id"]
+    elif request.param == "hub-neuron":
+        model_name_or_path = neuron_model_config["neuron_model_id"]
+    else:
+        model_name_or_path = neuron_model_config["neuron_model_path"]
+    service_name = neuron_model_config["name"]
+    with launcher(service_name, model_name_or_path) as tgi_service:
+        await tgi_service.health(600)
         yield tgi_service
 
 
-@pytest.fixture(scope="module")
-async def tgi_client(tgi_service):
-    await tgi_service.health(300)
-    return tgi_service.client
-
-
 @pytest.mark.asyncio
-async def test_model_single_request(tgi_client):
+async def test_model_single_request(tgi_service):
 
     # Just verify that the generation works, and nothing is raised, with several set of params
 
     # No params
-    await tgi_client.generate(
+    await tgi_service.client.generate(
         "What is Deep Learning?",
     )
 
-    response = await tgi_client.generate(
+    response = await tgi_service.client.generate(
         "How to cook beans ?",
         max_new_tokens=17,
         decoder_input_details=True,
@@ -58,7 +57,7 @@ async def test_model_single_request(tgi_client):
 
     # check error
     try:
-        await tgi_client.generate("What is Deep Learning?", max_new_tokens=170000)
+        await tgi_service.client.generate("What is Deep Learning?", max_new_tokens=170000)
     except ValidationError:
         pass
     else:
@@ -68,7 +67,7 @@ async def test_model_single_request(tgi_client):
         )
 
     # Sampling
-    await tgi_client.generate(
+    await tgi_service.client.generate(
         "What is Deep Learning?",
         do_sample=True,
         top_k=50,
