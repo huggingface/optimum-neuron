@@ -15,7 +15,6 @@
 """Defines Trainer subclasses to perform training on AWS Neuron instances."""
 
 import copy
-import glob
 import math
 import os
 import random
@@ -27,7 +26,6 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
-import transformers
 from accelerate import __version__ as accelerate_version
 from accelerate.utils import AutocastKwargs
 from packaging import version
@@ -65,7 +63,7 @@ from transformers.trainer_utils import (
 from transformers.training_args import ParallelMode
 from transformers.utils import WEIGHTS_NAME, is_apex_available, is_sagemaker_mp_enabled
 
-from ..utils import check_if_transformers_greater, logging
+from ..utils import logging
 from .accelerate import NeuronAccelerator, NeuronDistributedType
 from .distributed import Parallelizer, ParallelizersManager
 from .distributed.utils import make_optimizer_constructor_lazy
@@ -87,7 +85,6 @@ from .utils.misc import is_main_worker
 from .utils.patching import patch_everywhere
 from .utils.require_utils import requires_neuronx_distributed, requires_torch_neuronx
 from .utils.training_utils import (
-    TRANSFORMERS_MIN_VERSION_USE_ACCELERATE,
     get_model_param_count,
     is_main_worker_for_metrics,
     is_main_worker_for_metrics_method,

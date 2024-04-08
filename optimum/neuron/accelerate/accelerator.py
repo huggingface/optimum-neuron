@@ -16,7 +16,6 @@
 
 import collections
 import contextlib
-import inspect
 import os
 import re
 import shutil
@@ -54,7 +53,6 @@ from .utils import (
     AutocastBackend,
     ModelParallelismPlugin,
     NeuronDistributedType,
-    NeuronFullyShardedDataParallelPlugin,
     get_tied_parameters_dict,
     patch_accelerate_is_tpu_available,
     tie_parameters,
@@ -420,11 +418,7 @@ class NeuronAccelerator(Accelerator):
         model.config.output_attentions = False
         model.config.output_hidden_states = False
 
-        if self.distributed_type is NeuronDistributedType.XLA_FSDP:
-            return self.prepare_model_for_xla_fsdp(
-                model, device_placement=device_placement, evaluation_mode=evaluation_mode
-            )
-        elif self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
+        if self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
             return self._prepare_model_for_mp(
                 model, device_placement=device_placement, evaluation_mode=evaluation_mode
             )

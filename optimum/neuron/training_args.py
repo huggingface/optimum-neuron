@@ -120,7 +120,7 @@ class NeuronTrainingArgumentsMixin:
         patch_accelerate_is_tpu_available()
 
         if self.fsdp != "":
-            raise RuntimeError("FSDP is not supported yet.")
+            raise RuntimeError("FSDP is not supported.")
 
         if self.fp16:
             raise ValueError("The fp16 data type is not supported in Neuron, please use bf16 instead.")

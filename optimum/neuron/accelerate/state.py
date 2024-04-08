@@ -32,7 +32,7 @@ from accelerate.utils import (
     parse_choice_from_env,
     parse_flag_from_env,
 )
-from accelerate.utils.dataclasses import FullyShardedDataParallelPlugin, SageMakerDistributedType
+from accelerate.utils.dataclasses import SageMakerDistributedType
 
 from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
@@ -41,7 +41,7 @@ from ..utils.torch_xla_and_neuronx_initialization import (
     set_common_neuron_cc_flags,
     set_neuron_cc_flags_for_torch_amp,
 )
-from .utils import NeuronDistributedType, NeuronFullyShardedDataParallelPlugin
+from .utils import NeuronDistributedType
 from .utils.dataclasses import AutocastBackend, ModelParallelismPlugin
 
 
@@ -201,7 +201,7 @@ class NeuronPartialState(PartialState):
         self.fork_launched = parse_flag_from_env("FORK_LAUNCHED", 0)
 
     def wait_for_everyone(self):
-        if self.distributed_type is  NeuronDistributedType.MODEL_PARALLELISM:
+        if self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
             xm.rendezvous("accelerate.utils.wait_for_everyone")
         else:
             super().wait_for_everyone()

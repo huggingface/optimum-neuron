@@ -20,8 +20,6 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Union
 import torch
 import transformers
 from accelerate import skip_first_batches as accelerate_skip_first_batches
-from torch.utils._pytree import tree_map
-from torch.utils.data import DataLoader, Dataset, IterableDataset
 from transformers import GenerationMixin
 from transformers.models.auto.modeling_auto import (
     MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING_NAMES,
@@ -47,7 +45,7 @@ from transformers.utils.logging import set_verbosity as set_verbosity_transforme
 
 from ...utils.logging import set_verbosity as set_verbosity_optimum
 from ..generation import GeneralNeuronGenerationMixin, NeuronGenerationMixin
-from . import is_neuronx_distributed_available, is_torch_xla_available
+from . import is_neuronx_distributed_available
 from .require_utils import requires_neuronx_distributed, requires_safetensors, requires_torch_xla
 
 
@@ -57,10 +55,6 @@ if is_neuronx_distributed_available():
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
-
-
-TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP = "4.30.0.dev0"
-TRANSFORMERS_MIN_VERSION_USE_ACCELERATE = "4.30.0.dev0"
 
 
 def _generate_supported_model_class_names(
@@ -128,6 +122,7 @@ for model_type in _SUPPORTED_MODEL_TYPES:
 
 def is_precompilation() -> bool:
     return os.environ.get("NEURON_PARALLEL_COMPILE") == "1"
+
 
 def is_model_officially_supported(model: "PreTrainedModel") -> bool:
     class_name = model.__class__.__name__

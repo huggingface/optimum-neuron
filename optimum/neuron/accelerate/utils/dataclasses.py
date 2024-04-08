@@ -15,23 +15,18 @@
 """Custom dataclasses for Neuron."""
 
 import enum
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Optional, Tuple, Union
 
 import torch
-from accelerate.utils.constants import MODEL_NAME, OPTIMIZER_NAME
-from accelerate.utils.dataclasses import FullyShardedDataParallelPlugin
 
 from ...distributed import ParallelizersManager
 from ...utils import is_torch_xla_available
 
 
 if is_torch_xla_available():
-    import torch_xla.core.xla_model as xm
-    from torch_xla.distributed.fsdp import XlaFullyShardedDataParallel as FSDP
-    from torch_xla.distributed.fsdp.state_dict_utils import consolidate_sharded_model_checkpoints
+    pass
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
