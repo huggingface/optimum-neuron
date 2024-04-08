@@ -38,7 +38,7 @@ from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
 from ..utils.torch_xla_and_neuronx_initialization import (
     init_process_group,
-    set_common_neuron_cc_flags,
+    set_common_flags,
     set_neuron_cc_flags_for_torch_amp,
 )
 from .utils import NeuronDistributedType
@@ -91,7 +91,7 @@ class NeuronPartialState(PartialState):
                     torch.cuda.set_device(self.device)
             elif is_torch_xla_available() and not cpu:
                 # It is important to set the environment variables before initializing the process group otherwise they will be ignored by the Neuron compiler.
-                set_common_neuron_cc_flags()
+                set_common_flags()
                 if os.environ.get("ACCELERATE_USE_AMP", "false") == "true":
                     set_neuron_cc_flags_for_torch_amp()
                 init_process_group()

@@ -76,7 +76,6 @@ from .utils.cache_utils import (
     get_hf_hub_cache_repos,
     get_model_name_or_path,
     get_neuron_cache_path,
-    get_neuronxcc_version,
     get_num_neuron_cores_used,
     has_write_access_to_repo,
 )
@@ -92,6 +91,7 @@ from .utils.training_utils import (
     patch_generation_mixin_to_neuron_generation_mixin,
     skip_first_batches,
 )
+from .utils.version_utils import get_neuronxcc_version
 
 
 if is_apex_available():
@@ -1324,14 +1324,13 @@ class AugmentTrainerForNeuronMixin:
         ignore_keys_for_eval: Optional[List[str]] = None,
         **kwargs,
     ):
-        with patch_neuron_cc_wrapper():
-            with hub_neuronx_cache("training", entry=self.model_cache_entry):
-                result = super().train(
-                    resume_from_checkpoint=resume_from_checkpoint,
-                    trial=trial,
-                    ignore_keys_for_eval=ignore_keys_for_eval,
-                    **kwargs,
-                )
+        with hub_neuronx_cache("training", entry=self.model_cache_entry):
+            result = super().train(
+                resume_from_checkpoint=resume_from_checkpoint,
+                trial=trial,
+                ignore_keys_for_eval=ignore_keys_for_eval,
+                **kwargs,
+            )
         if not is_precompilation():
             self.synchronize_hub_cache()
         return result
@@ -1342,11 +1341,10 @@ class AugmentTrainerForNeuronMixin:
         ignore_keys: Optional[List[str]] = None,
         metric_key_prefix: str = "eval",
     ) -> Dict[str, float]:
-        with patch_neuron_cc_wrapper():
-            with hub_neuronx_cache("training", entry=self.model_cache_entry):
-                result = super().evaluate(
-                    eval_dataset=eval_dataset, ignore_keys=ignore_keys, metric_key_prefix=metric_key_prefix
-                )
+        with hub_neuronx_cache("training", entry=self.model_cache_entry):
+            result = super().evaluate(
+                eval_dataset=eval_dataset, ignore_keys=ignore_keys, metric_key_prefix=metric_key_prefix
+            )
         if not is_precompilation():
             self.synchronize_hub_cache()
         return result
@@ -1354,9 +1352,8 @@ class AugmentTrainerForNeuronMixin:
     def predict(
         self, test_dataset: Dataset, ignore_keys: Optional[List[str]] = None, metric_key_prefix: str = "test"
     ) -> PredictionOutput:
-        with patch_neuron_cc_wrapper():
-            with hub_neuronx_cache("training", entry=self.model_cache_entry):
-                result = super().predict(test_dataset, ignore_keys=ignore_keys, metric_key_prefix=metric_key_prefix)
+        with hub_neuronx_cache("training", entry=self.model_cache_entry):
+            result = super().predict(test_dataset, ignore_keys=ignore_keys, metric_key_prefix=metric_key_prefix)
         if not is_precompilation():
             self.synchronize_hub_cache()
         return result
