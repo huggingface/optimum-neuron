@@ -73,19 +73,6 @@ if TYPE_CHECKING:
 logger = logging.get_logger()
 
 
-class SavedModelInTemporaryDirectory:
-    def __init__(self, model: "PreTrainedModel"):
-        self.tmpdir = TemporaryDirectory()
-        self.model = model
-
-    def __enter__(self):
-        self.model.save_pretrained(self.tmpdir.name)
-        return self.tmpdir.name
-
-    def __exit__(self, *exc):
-        self.tmpdir.cleanup()
-
-
 class SequenceParallelismSpecs:
     SEQUENCE_PARALLEL_LAYERNORM_PATTERNS: Optional[List[str]] = None
     LAYERNORM_TYPE: LayerNormType = LayerNormType.REGULAR
@@ -280,6 +267,7 @@ class Parallelizer(ABC):
         Returns:
             `PreTrainedModel`: The parallelized model.
         """
+        pass
 
     @classmethod
     @requires_neuronx_distributed
