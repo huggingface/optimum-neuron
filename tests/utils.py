@@ -16,11 +16,8 @@
 
 import os
 import random
-import shutil
 import string
-from pathlib import Path
-from tempfile import TemporaryDirectory
-from typing import Dict, Optional, Set, Tuple, Union
+from typing import Dict, Optional, Set, Tuple
 
 import torch
 from datasets import Dataset, DatasetDict
@@ -30,15 +27,9 @@ from transformers import PretrainedConfig, PreTrainedModel
 from transformers.testing_utils import ENDPOINT_STAGING
 
 from optimum.neuron.utils.cache_utils import (
-    _ADDED_IN_REGISTRY,
-    _REGISTRY_FILE_EXISTS,
-    NeuronHash,
     delete_custom_cache_repo_name_from_hf_home,
     load_custom_cache_repo_name_from_hf_home,
-    path_after_folder,
-    push_to_cache_on_hub,
     set_custom_cache_repo_name_in_hf_home,
-    set_neuron_cache_path,
 )
 from optimum.utils import logging
 from optimum.utils.testing_utils import TOKEN, USER
@@ -220,14 +211,6 @@ class StagingTestMixin:
         self.remove_all_files_in_repo(self.CUSTOM_CACHE_REPO)
         self.remove_all_files_in_repo(self.CUSTOM_PRIVATE_CACHE_REPO)
 
-        keys = list(_REGISTRY_FILE_EXISTS.keys())
-        for key in keys:
-            _REGISTRY_FILE_EXISTS.pop(key)
-
-        keys = list(_ADDED_IN_REGISTRY.keys())
-        for key in keys:
-            _ADDED_IN_REGISTRY.pop(key)
-
     def create_tiny_pretrained_model(self, num_linears: int = 1, random_num_linears: bool = False):
         return create_tiny_pretrained_model(
             num_linears=num_linears,
@@ -241,39 +224,3 @@ class StagingTestMixin:
         random_input = torch.rand(1, device="xla")
         print(tiny_model(random_input))
         return tiny_model
-
-    def push_tiny_pretrained_model_cache_to_hub(
-        self, repo_id: str, cache_dir: Optional[Union[str, Path]] = None
-    ) -> NeuronHash:
-        neuron_hash = None
-        orig_repo_id = load_custom_cache_repo_name_from_hf_home()
-        set_custom_cache_repo_name_in_hf_home(repo_id)
-        with TemporaryDirectory() as tmpdirname:
-            set_neuron_cache_path(tmpdirname)
-
-            input_shapes = (("x", (1,)),)
-            data_type = torch.float32
-            tiny_model = self.create_and_run_tiny_pretrained_model(random_num_linears=True)
-            neuron_hash = NeuronHash(tiny_model, input_shapes, data_type)
-
-            tmp_cache_dir = Path(tmpdirname) / neuron_hash.neuron_compiler_version_dir_name
-            push_to_cache_on_hub(
-                neuron_hash,
-                tmp_cache_dir,
-                fail_when_could_not_push=True,
-            )
-            if cache_dir is not None:
-                for file_or_dir in tmp_cache_dir.iterdir():
-                    if file_or_dir.is_file():
-                        shutil.copy(
-                            file_or_dir,
-                            cache_dir / path_after_folder(file_or_dir, neuron_hash.neuron_compiler_version_dir_name),
-                        )
-                    else:
-                        shutil.copytree(
-                            file_or_dir,
-                            cache_dir / path_after_folder(file_or_dir, neuron_hash.neuron_compiler_version_dir_name),
-                        )
-        if orig_repo_id is not None:
-            set_custom_cache_repo_name_in_hf_home(orig_repo_id)
-        return neuron_hash
