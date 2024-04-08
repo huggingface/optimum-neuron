@@ -97,7 +97,7 @@ def lookup_compatible_cached_model(model_id: str, revision: Optional[str]) -> Op
     logger.debug("Found %d cached entries for model %s, revision %s", len(entries), model_id, revision)
 
     for entry in entries:
-        if check_env_and_neuron_config_compatibility(entry):
+        if check_env_and_neuron_config_compatibility(entry, check_compiler_version=True):
             break
     else:
         entry = None
@@ -115,7 +115,7 @@ def lookup_compatible_cached_model(model_id: str, revision: Optional[str]) -> Op
     return entry
 
 
-def check_env_and_neuron_config_compatibility(neuron_config: Dict[str, Any]) -> bool:
+def check_env_and_neuron_config_compatibility(neuron_config: Dict[str, Any], check_compiler_version: bool) -> bool:
 
     logger.debug(
         "Checking the provided neuron config %s is compatible with the local setup and provided environment",
@@ -127,7 +127,7 @@ def check_env_and_neuron_config_compatibility(neuron_config: Dict[str, Any]) -> 
         logger.debug("Not enough neuron cores available to run the provided neuron config")
         return False
 
-    if neuron_config["compiler_version"] != neuronxcc_version:
+    if check_compiler_version and neuron_config["compiler_version"] != neuronxcc_version:
         logger.debug(
             "Compiler version conflict, the local one " "(%s) differs from the one used to compile the model (%s)",
             neuronxcc_version,
@@ -193,7 +193,7 @@ def main():
     config = AutoConfig.from_pretrained(args.model_id, revision=args.revision)
     neuron_config = getattr(config, "neuron", None)
     if neuron_config is not None:
-        compatible = check_env_and_neuron_config_compatibility(neuron_config)
+        compatible = check_env_and_neuron_config_compatibility(neuron_config, check_compiler_version=False)
         if not compatible:
             env_dict = get_env_dict()
             msg = (
