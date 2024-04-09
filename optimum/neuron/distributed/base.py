@@ -29,10 +29,9 @@ from transformers import PreTrainedModel
 
 from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
-from ..utils.misc import is_main_worker
+from ..utils.misc import is_main_worker, is_precompilation
 from ..utils.patching import Patcher
 from ..utils.require_utils import requires_neuronx_distributed, requires_torch_xla
-from ..utils.training_utils import is_precompilation
 from .parallel_layers import (
     IOSequenceParallelizer,
     LayerNormSequenceParallelizer,
@@ -69,19 +68,6 @@ if TYPE_CHECKING:
         from neuronx_distributed.pipeline import NxDPPModel
 
 logger = logging.get_logger()
-
-
-class SavedModelInTemporaryDirectory:
-    def __init__(self, model: "PreTrainedModel"):
-        self.tmpdir = TemporaryDirectory()
-        self.model = model
-
-    def __enter__(self):
-        self.model.save_pretrained(self.tmpdir.name)
-        return self.tmpdir.name
-
-    def __exit__(self, *exc):
-        self.tmpdir.cleanup()
 
 
 class SequenceParallelismSpecs:
@@ -278,6 +264,7 @@ class Parallelizer(ABC):
         Returns:
             `PreTrainedModel`: The parallelized model.
         """
+        pass
 
     @classmethod
     @requires_neuronx_distributed

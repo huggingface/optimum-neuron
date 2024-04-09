@@ -14,14 +14,11 @@
 # limitations under the License.
 """Training utilities"""
 
-import os
-from typing import TYPE_CHECKING, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, List, Optional, Type, Union
 
 import torch
 import transformers
 from accelerate import skip_first_batches as accelerate_skip_first_batches
-from torch.utils._pytree import tree_map
-from torch.utils.data import DataLoader, Dataset, IterableDataset
 from transformers import GenerationMixin
 from transformers.models.auto.modeling_auto import (
     MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING_NAMES,
@@ -47,8 +44,8 @@ from transformers.utils.logging import set_verbosity as set_verbosity_transforme
 
 from ...utils.logging import set_verbosity as set_verbosity_optimum
 from ..generation import GeneralNeuronGenerationMixin, NeuronGenerationMixin
-from . import is_neuronx_distributed_available, is_torch_xla_available
-from .require_utils import requires_neuronx_distributed, requires_safetensors, requires_torch_xla
+from . import is_neuronx_distributed_available
+from .require_utils import requires_neuronx_distributed, requires_torch_xla
 
 
 if is_neuronx_distributed_available():
@@ -57,10 +54,6 @@ if is_neuronx_distributed_available():
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
-
-
-TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP = "4.30.0.dev0"
-TRANSFORMERS_MIN_VERSION_USE_ACCELERATE = "4.30.0.dev0"
 
 
 def _generate_supported_model_class_names(
@@ -126,24 +119,8 @@ for model_type in _SUPPORTED_MODEL_TYPES:
     _SUPPORTED_MODEL_NAMES.update(_generate_supported_model_class_names(*model_type))
 
 
-def is_precompilation() -> bool:
-    return os.environ.get("NEURON_PARALLEL_COMPILE") == "1"
-
-
 def is_model_officially_supported(model: "PreTrainedModel") -> bool:
-    # In theory the type annotation is not correct since we can have also a XlaFullyShardedDataParallel
-    # but let's ignore it here.
-    if not is_torch_xla_available():
-        raise RuntimeError(
-            "is_model_officially_supported requires torch_xla to run, please install it by running: "
-            "pip install torch_xla"
-        )
-    from torch_xla.distributed.fsdp import XlaFullyShardedDataParallel
-
-    if isinstance(model, XlaFullyShardedDataParallel):
-        class_name = model.module.__class__.__name__
-    else:
-        class_name = model.__class__.__name__
+    class_name = model.__class__.__name__
     return class_name in _SUPPORTED_MODEL_NAMES
 
 
@@ -156,77 +133,11 @@ def is_topology_supported() -> bool:
     return num_devices in allowed_number_of_devices or num_devices % 32 == 0
 
 
-class FirstAndLastDataset(Dataset):
-    def __init__(
-        self, dataloader: DataLoader, num_repeat: int = 10, gradient_accumulation_steps: int = 1, world_size: int = 1
-    ):
-        self.dataloader = dataloader
-        self.num_repeat = num_repeat * gradient_accumulation_steps * world_size
-        self.samples = self.create_samples()
-
-    def _create_samples_for_map_style_dataset(self):
-        samples = []
-        num_samples = len(self.dataloader.dataset)
-        batch_size = self.dataloader.batch_size
-        if batch_size is None and self.dataloader.batch_sampler is not None:
-            batch_size = self.dataloader.batch_sampler.batch_size
-
-        # TODO: validate that.
-        if batch_size is None:
-            samples = [self.dataloader.dataset[0]] * self.num_repeat + [self.dataloader.dataset[-1]] * self.num_repeat
-            return samples
-
-        num_batches = num_samples // batch_size
-        remaining = num_samples % batch_size
-
-        iterator = iter(self.dataloader)
-        first_batch = next(iterator)
-        samples = [first_batch] * self.num_repeat
-
-        if num_batches >= 1 and remaining != 0:
-
-            def map_fn(example):
-                if isinstance(example, torch.Tensor):
-                    return example[:remaining]
-                else:
-                    return example
-
-            last_batch = tree_map(map_fn, first_batch)
-            samples += [last_batch] * self.num_repeat
-
-        return samples
-
-    def _create_samples_for_iterable_dataset(self):
-        # Will not work if the iterable dataset yields dynamic batch sizes.
-        iterator = iter(self.dataloader)
-        first_batch = next(iterator)
-        samples = [first_batch] * self.num_repeat
-        last_batch = None
-        while True:
-            try:
-                last_batch = next(iterator)
-            except StopIteration:
-                if last_batch is not None:
-                    samples += [last_batch] * self.num_repeat
-                break
-        return samples
-
-    def create_samples(self):
-        if isinstance(self.dataloader.dataset, IterableDataset):
-            return self._create_samples_for_iterable_dataset()
-        else:
-            return self._create_samples_for_map_style_dataset()
-
-    def __getitem__(self, idx: int):
-        return self.samples[idx]
-
-    def __len__(self):
-        return len(self.samples)
-
-
-def patch_generation_mixin_to_neuron_generation_mixin(model: "PreTrainedModel"):
+def patch_generation_mixin_to_neuron_generation_mixin(
+    model: "PreTrainedModel", neuron_generation_mixin_cls: Type = NeuronGenerationMixin
+):
     """
-    Changes the vanilla `GenerationMixin` class from Transformers to `NeuronGenerationMixin` in the model's
+    Changes the vanilla `GenerationMixin` class from Transformers to `neuron_generation_mixin_cls` in the model's
     inheritance. This allows to make the model Neuron-compatible for generation without much hassle.
     """
     to_visit = [model.__class__]
@@ -240,9 +151,9 @@ def patch_generation_mixin_to_neuron_generation_mixin(model: "PreTrainedModel"):
         for base in bases:
             to_visit.append(base)
             if base == GenerationMixin:
-                new_bases.append(NeuronGenerationMixin)
+                new_bases.append(neuron_generation_mixin_cls)
                 should_stop = True
-            elif base == NeuronGenerationMixin:
+            elif base == neuron_generation_mixin_cls:
                 should_stop = True
                 new_bases.append(base)
             else:
@@ -255,25 +166,9 @@ def patch_generation_mixin_to_general_neuron_generation_mixin(model: "PreTrained
     Changes the vanilla `GenerationMixin` class from Transformers to `GeneralNeuronGenerationMixin` in the model's
     inheritance. This allows to make the model Neuron-compatible for generation without much hassle.
     """
-    to_visit = [model.__class__]
-    should_stop = False
-    while to_visit and not should_stop:
-        cls = to_visit.pop(0)
-        if cls is object:
-            continue
-        bases = cls.__bases__
-        new_bases = []
-        for base in bases:
-            to_visit.append(base)
-            if base == GenerationMixin:
-                new_bases.append(GeneralNeuronGenerationMixin)
-                should_stop = True
-            elif base == GeneralNeuronGenerationMixin:
-                should_stop = True
-                new_bases.append(base)
-            else:
-                new_bases.append(base)
-        cls.__bases__ = tuple(new_bases)
+    return patch_generation_mixin_to_neuron_generation_mixin(
+        model, neuron_generation_mixin_cls=GeneralNeuronGenerationMixin
+    )
 
 
 def set_verbosity(verbosity: int):
@@ -301,28 +196,6 @@ def skip_first_batches(dataloader, num_batches=0):
     else:
         dataloader = accelerate_skip_first_batches(dataloader, num_batches=num_batches)
     return dataloader
-
-
-@requires_neuronx_distributed
-@requires_safetensors
-def torch_xla_safe_save_file(
-    tensors: Dict[str, torch.Tensor],
-    filename: Union[str, os.PathLike],
-    metadata: Optional[Dict[str, str]] = None,
-    master_only: bool = True,
-    global_master: bool = False,
-):
-    """
-    Torch XLA compatible implementation of `safetensors.torch.save_file`.
-    """
-    from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
-    from safetensors.torch import save_file
-    from torch_xla.core.xla_model import is_master_ordinal
-
-    should_write_data = not master_only or is_master_ordinal(local=not global_master)
-    cpu_data = move_all_tensor_to_cpu(tensors, convert=should_write_data)
-    if should_write_data:
-        save_file(cpu_data, filename, metadata=metadata)
 
 
 @requires_neuronx_distributed
