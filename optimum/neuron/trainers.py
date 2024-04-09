@@ -427,7 +427,7 @@ class AugmentTrainerForNeuronMixin:
 
             self.store_flos()
 
-            def closure(self, tr_loss_div, logs):
+            def closure(tr_loss_div, logs):
                 tr_loss_scalar = tr_loss_div.detach().item()
 
                 logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
@@ -439,7 +439,7 @@ class AugmentTrainerForNeuronMixin:
                 if is_main_worker_for_metrics():
                     self.log(logs)
 
-            xm.add_step_closure(closure, (self, tr_loss_div, logs))
+            xm.add_step_closure(closure, (tr_loss_div, logs))
 
         metrics = None
         if self.control.should_evaluate:
@@ -944,6 +944,10 @@ class AugmentTrainerForNeuronMixin:
 
             step = -1
             for step, inputs in enumerate(epoch_iterator):
+                # Usually, the first 2 steps are very long because the neff files are compiled or loaded.
+                # We skip them in to compute the start time to have "better" performance metrics.
+                if step == 3:
+                    start_time = time.time()
                 total_batched_samples += 1
                 if rng_to_sync:
                     self._load_rng_state(resume_from_checkpoint)
@@ -1023,13 +1027,13 @@ class AugmentTrainerForNeuronMixin:
                             self.lr_scheduler.step()
 
                     self.optimizer.zero_grad()
-                    xm.mark_step()
 
                     self.state.global_step += 1
                     self.state.epoch = epoch + (step + 1 + steps_skipped) / steps_in_epoch
                     self.control = self.callback_handler.on_step_end(args, self.state, self.control)
 
                     self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval)
+                    xm.mark_step()
                 else:
                     self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
 
