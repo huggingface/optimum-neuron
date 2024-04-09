@@ -53,17 +53,12 @@ RUN apt-get update -y \
     && apt-get clean
 RUN pip3 --no-cache-dir install --upgrade pip
 
-# VERSION is a mandatory parameter
-ARG VERSION
-RUN test -n ${VERSION:?}
-
 # Python server build image
 FROM base AS pyserver
 
 ARG VERSION
-RUN test -n ${VERSION:?}
 
-RUN apt-get update -y \
+RUN test -n ${VERSION:?} && apt-get update -y \
  && apt-get install -y --no-install-recommends \
     make \
     python3-venv \
@@ -81,10 +76,9 @@ RUN VERBOSE=1 BUILDDIR=/pyserver/build PROTODIR=/pyserver/proto VERSION=${VERSIO
 FROM base AS neuron
 
 ARG VERSION
-RUN test -n ${VERSION:?}
 
 # Install system prerequisites
-RUN apt-get update -y \
+RUN test -n ${VERSION:?} && apt-get update -y \
  && apt-get install -y --no-install-recommends \
     gnupg2 \
     wget \
