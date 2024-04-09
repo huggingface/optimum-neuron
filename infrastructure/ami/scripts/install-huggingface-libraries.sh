@@ -9,10 +9,6 @@ echo "TRANSFORMERS_VERSION: $TRANSFORMERS_VERSION"
 echo "OPTIMUM_VERSION: $OPTIMUM_VERSION"
 
 pip install --upgrade --no-cache-dir \
-    "transformers[sklearn,sentencepiece,vision]==$TRANSFORMERS_VERSION" \
-    "datasets==2.16.1" \
-    "accelerate==0.23.0" \
-    "diffusers==0.25.0" \
     "evaluate==0.4.1" \
     "requests==2.31.0" \
     "notebook==7.0.6" \
@@ -28,7 +24,7 @@ echo "Step: install-and-copy-optimum-neuron-examples"
 git clone -b $OPTIMUM_VERSION https://github.com/huggingface/optimum-neuron.git
 
 cd optimum-neuron
-python setup.py install
+pip install .[neuronx, diffusers, sentence-transformers]
 cd ..
 
 mkdir /home/ubuntu/huggingface-neuron-samples/ /home/ubuntu/huggingface-neuron-notebooks/
@@ -38,4 +34,4 @@ rm -rf optimum-neuron
 chmod -R 777 /home/ubuntu/huggingface-neuron-samples /home/ubuntu/huggingface-neuron-notebooks
 
 echo "Step: validate-imports-of-huggingface-libraries"
-bash -c 'python -c "import transformers;import datasets;import accelerate;import evaluate;import tensorboard; import torch;import optimum.neuron"'
+bash -c 'python -c "import transformers;import datasets;import accelerate;import evaluate;import tensorboard; import torch;from optimum.neuron import pipeline"'
