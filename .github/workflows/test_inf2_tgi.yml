@@ -25,6 +25,16 @@ jobs:
     env:
       AWS_REGION: us-east-1
     steps:
+      - name: Install Neuron runtime
+        run: |
+          . /etc/os-release
+          sudo tee /etc/apt/sources.list.d/neuron.list > /dev/null <<EOF
+          deb https://apt.repos.neuron.amazonaws.com ${VERSION_CODENAME} main
+          EOF
+          wget -qO - https://apt.repos.neuron.amazonaws.com/GPG-PUB-KEY-AMAZON-AWS-NEURON.PUB | sudo apt-key add -
+          sudo apt-get update -y
+          sudo apt-get install aws-neuronx-tools=2.17.1.0 aws-neuronx-runtime-lib=2.20.22.0-1b3ca6425 aws-neuronx-collectives=2.20.22.0-c101c322e  -y
+          export PATH=/opt/aws/neuron/bin:$PATH
       - name: Checkout
         uses: actions/checkout@v2
       - name: Install python and create venv
@@ -36,5 +46,12 @@ jobs:
           python -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
       - name: Run TGI server python tests
         run: |
+          # gawk is required when invoking the Makefile targets
+          sudo apt install gawk -y
           source aws_neuron_venv_pytorch/bin/activate
           HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} make tgi_test
+      - name: Run integration tests
+        shell: bash
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} make tgi_docker_test

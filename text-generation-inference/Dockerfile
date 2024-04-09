@@ -53,14 +53,12 @@ RUN apt-get update -y \
     && apt-get clean
 RUN pip3 --no-cache-dir install --upgrade pip
 
-# VERSION is a mandatory parameter
-ARG VERSION
-RUN test -n ${VERSION:?}
-
 # Python server build image
 FROM base AS pyserver
 
-RUN apt-get update -y \
+ARG VERSION
+
+RUN test -n ${VERSION:?} && apt-get update -y \
  && apt-get install -y --no-install-recommends \
     make \
     python3-venv \
@@ -77,8 +75,10 @@ RUN VERBOSE=1 BUILDDIR=/pyserver/build PROTODIR=/pyserver/proto VERSION=${VERSIO
 # Neuron base image (used for deployment)
 FROM base AS neuron
 
+ARG VERSION
+
 # Install system prerequisites
-RUN apt-get update -y \
+RUN test -n ${VERSION:?} && apt-get update -y \
  && apt-get install -y --no-install-recommends \
     gnupg2 \
     wget \
@@ -91,24 +91,24 @@ RUN wget -qO - https://apt.repos.neuron.amazonaws.com/GPG-PUB-KEY-AMAZON-AWS-NEU
 # Install neuronx packages
 RUN apt-get update -y \
  && apt-get install -y --no-install-recommends \
-    aws-neuronx-dkms=2.15.9.0 \
-    aws-neuronx-collectives=2.20.11.0-c101c322e \
-    aws-neuronx-runtime-lib=2.20.11.0-b7d33e68b \
-    aws-neuronx-tools=2.17.0.0 \
+    aws-neuronx-dkms=2.16.7.0 \
+    aws-neuronx-collectives=2.20.22.0-c101c322e \
+    aws-neuronx-runtime-lib=2.20.22.0-1b3ca6425 \
+    aws-neuronx-tools=2.17.1.0 \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
 ENV PATH="/opt/bin/:/opt/aws/neuron/bin:${PATH}"
 
 RUN pip3 install \
-    neuronx-cc==2.12.68.0 \
-    torch-neuronx==1.13.1.1.13.1 \
-    transformers-neuronx==0.9.474 \
+    neuronx-cc==2.13.66.0 \
+    torch-neuronx==1.13.1.1.14.0 \
+    transformers-neuronx==0.10.0.21 \
     --extra-index-url=https://pip.repos.neuron.amazonaws.com
 
 # Install HuggingFace packages
 RUN pip3 install \
-    hf_transfer
+    hf_transfer huggingface_hub
 
 # Install optimum-neuron
 COPY dist/optimum-neuron-${VERSION}.tar.gz optimum-neuron.tar.gz
@@ -137,6 +137,6 @@ ENTRYPOINT ["./entrypoint.sh"]
 
 # Final image
 FROM neuron
-
-ENTRYPOINT ["text-generation-launcher"]
+COPY text-generation-inference/tgi-entrypoint.sh text-generation-inference/tgi_env.py /
+ENTRYPOINT ["/tgi-entrypoint.sh"]
 CMD ["--json-output"]

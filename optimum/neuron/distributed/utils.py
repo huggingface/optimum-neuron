@@ -508,7 +508,7 @@ def create_kv_proj_local_weight_from_regular_weight(
     return torch.cat(split[tp_rank::tp_size], dim=0)
 
 
-def compute_query_indicies_for_rank(
+def compute_query_indices_for_rank(
     tp_size: int, tp_rank: int, num_attention_heads: int, num_key_value_heads: int, kv_size_multiplier: int
 ):
     """
@@ -519,32 +519,34 @@ def compute_query_indicies_for_rank(
     query_group_size = num_attention_heads // num_key_value_heads
     query_group_size_per_rank = num_attention_heads_per_rank // num_key_value_heads_per_rank
 
-    queries_indicies = [torch.arange(query_group_size_per_rank) for _ in range(num_key_value_heads_per_rank)]
+    queries_indices = [torch.arange(query_group_size_per_rank) for _ in range(num_key_value_heads_per_rank)]
 
-    keys_indicies = torch.arange(num_key_value_heads).repeat(kv_size_multiplier)
-    keys_indicies = torch.repeat_interleave(
-        keys_indicies, num_attention_heads_per_rank // num_key_value_heads_per_rank
-    )
-    keys_indicies = torch.chunk(keys_indicies, tp_size)
+    keys_indices = torch.arange(num_key_value_heads).repeat(kv_size_multiplier)
+    keys_indices = torch.repeat_interleave(keys_indices, num_attention_heads_per_rank // num_key_value_heads_per_rank)
+    keys_indices = torch.chunk(keys_indices, tp_size)
 
     shift_per_key = torch.arange(0, num_attention_heads, query_group_size)
 
     shift_within_query_group = torch.arange(0, query_group_size, query_group_size_per_rank)
+    num_ranks_to_fit_all_key_value_heads = num_key_value_heads // num_key_value_heads_per_rank
+    num_query_heads_before_next_head_of_same_group = (
+        num_ranks_to_fit_all_key_value_heads * num_attention_heads_per_rank
+    )
     shift_within_query_group = torch.repeat_interleave(
-        shift_within_query_group, num_attention_heads_per_rank * num_key_value_heads_per_rank
+        shift_within_query_group, num_query_heads_before_next_head_of_same_group
     )
     shift_within_query_group = torch.chunk(shift_within_query_group, tp_size)
 
-    indicies = []
-    for idx, q_indicies in enumerate(queries_indicies):
+    indices = []
+    for idx, q_indices in enumerate(queries_indices):
         s = slice(idx * query_group_size_per_rank, (idx + 1) * query_group_size_per_rank)
-        k_indicies = keys_indicies[tp_rank][s]
-        k_shift = shift_per_key[k_indicies]
+        k_indices = keys_indices[tp_rank][s]
+        k_shift = shift_per_key[k_indices]
         group_shift = shift_within_query_group[tp_rank][s]
-        indicies.append(q_indicies + k_shift + group_shift)
+        indices.append(q_indices + k_shift + group_shift)
 
-    indicies = torch.cat(indicies, dim=0)
-    return indicies
+    indices = torch.cat(indices, dim=0)
+    return indices
 
 
 @requires_neuronx_distributed
@@ -578,11 +580,11 @@ def create_query_or_output_projection_local_weight_from_regular_weight(
         head_dim = weight_data.size(1) // num_attention_heads
         weight_data = weight_data.transpose(0, 1)
 
-    indicies = compute_query_indicies_for_rank(
+    indices = compute_query_indices_for_rank(
         tp_size, tp_rank, num_attention_heads, num_key_value_heads, kv_size_multiplier
     )
     reshaped_weight = weight_data.view(num_attention_heads, head_dim, hidden_size)
-    shuffled_weight = reshaped_weight[indicies]
+    shuffled_weight = reshaped_weight[indices]
     shuffled_weight = shuffled_weight.reshape(-1, hidden_size)
 
     if query_or_output_proj == "output":
@@ -620,9 +622,9 @@ def create_local_bias_from_regular_bias(
 
     else:
         if gather_output:
-            indicies = torch.cat(
+            indices = torch.cat(
                 [
-                    compute_query_indicies_for_rank(
+                    compute_query_indices_for_rank(
                         tp_size, tp_rank, num_attention_heads, num_key_value_heads, kv_size_multiplier
                     )
                     for tp_rank in range(tp_size)
@@ -630,11 +632,11 @@ def create_local_bias_from_regular_bias(
                 dim=0,
             )
         else:
-            indicies = compute_query_indicies_for_rank(
+            indices = compute_query_indices_for_rank(
                 tp_size, tp_rank, num_attention_heads, num_key_value_heads, kv_size_multiplier
             )
         reshaped_bias_weight = bias_weigth_data.view(num_attention_heads, -1)
-        shuffled_bias_weight = reshaped_bias_weight[indicies]
+        shuffled_bias_weight = reshaped_bias_weight[indices]
         local_bias_weight = shuffled_bias_weight.reshape(-1)
     return local_bias_weight
 
@@ -1098,17 +1100,28 @@ def try_to_hf_initialize(
     `model._init_weights` method. It returns the names of the parameters that were left uninitialized.
 
     """
-    cached_params_data = {name: param.data.detach().clone().to("cpu") for name, param in mod.named_parameters()}
+    device = torch.device("cpu")
+    for name in parameter_names:
+        param_device = getattr(mod, name).device
+        if param_device != torch.device("meta"):
+            device = param_device
+
+    mod.to("cpu")
+
+    cached_params_data = {name: param.data.detach().clone() for name, param in mod.named_parameters()}
+
+    # We initialize on cpu to have the same RNG state (mostly useful for tests).
     model._init_weights(mod)
 
     if parameter_names_mapping is None:
         parameter_names_mapping = {}
+
     reverse_parameter_names_mapping = {v: k for k, v in parameter_names_mapping.items()}
 
     def name_in_mod(name: str):
         return parameter_names_mapping.get(name, name)
 
-    dummy_mod = copy.deepcopy(mod).to("cpu")
+    dummy_mod = copy.deepcopy(mod)
     for name in parameter_names:
         getattr(dummy_mod, name_in_mod(name)).random_()
     model._init_weights(dummy_mod)
@@ -1118,15 +1131,15 @@ def try_to_hf_initialize(
         for param_name in parameter_names:
             name = name_in_mod(param_name)
             # The parameter was left unchanged.
-            param_on_cpu = getattr(mod, name).data.to("cpu")
-            if torch.all(param_on_cpu == cached_params_data[name]):
+            param = getattr(mod, name).data
+            if torch.all(param == cached_params_data[name]):
                 # There are two possible reasons:
                 #   1. The model cannot initialize the module that owns the parameter.
                 #   2. The parameter already had the proper value.
 
                 # We check if a dummy copy of the module, filled with random values is modified to know if the model
                 # can initialize the module.
-                dummy_param_was_changed = torch.all(getattr(dummy_mod, name).data == param_on_cpu)
+                dummy_param_was_changed = torch.all(getattr(dummy_mod, name).data == param)
                 if not dummy_param_was_changed:
                     left_uninitialized.append(param_name)
 
@@ -1135,6 +1148,9 @@ def try_to_hf_initialize(
             if param_name not in parameter_names:
                 param = getattr(mod, name)
                 param.data = cached_data
+
+    # We restore the module back to its original device.
+    mod.to(device)
 
     return left_uninitialized
 

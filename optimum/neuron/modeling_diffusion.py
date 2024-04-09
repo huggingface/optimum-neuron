@@ -19,6 +19,7 @@ import logging
 import os
 import shutil
 from abc import abstractmethod
+from collections import OrderedDict
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
@@ -27,7 +28,12 @@ import torch
 from huggingface_hub import snapshot_download
 from transformers import CLIPFeatureExtractor, CLIPTokenizer, PretrainedConfig
 
-from ..exporters.neuron import DiffusersPretrainedConfig, main_export, normalize_stable_diffusion_input_shapes
+from ..exporters.neuron import (
+    load_models_and_neuron_configs,
+    main_export,
+    normalize_stable_diffusion_input_shapes,
+    replace_stable_diffusion_submodels,
+)
 from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..exporters.tasks import TasksManager
 from ..utils import is_diffusers_available
@@ -39,12 +45,26 @@ from .utils import (
     DIFFUSION_MODEL_VAE_DECODER_NAME,
     DIFFUSION_MODEL_VAE_ENCODER_NAME,
     NEURON_FILE_NAME,
+    DiffusersPretrainedConfig,
+    check_if_weights_replacable,
     is_neuronx_available,
+    replace_weights,
+    store_compilation_config,
 )
+from .utils.hub_neuronx_cache import (
+    ModelCacheEntry,
+    build_cache_config,
+    create_hub_compile_cache_proxy,
+)
+from .utils.require_utils import requires_torch_neuronx
+from .utils.version_utils import get_neuronxcc_version
 
 
 if is_neuronx_available():
     import torch_neuronx
+
+    NEURON_COMPILER_TYPE = "neuronx-cc"
+    NEURON_COMPILER_VERSION = get_neuronxcc_version()
 
 
 if is_diffusers_available():
@@ -56,6 +76,7 @@ if is_diffusers_available():
         StableDiffusionPipeline,
         StableDiffusionXLImg2ImgPipeline,
     )
+    from diffusers.configuration_utils import FrozenDict
     from diffusers.image_processor import VaeImageProcessor
     from diffusers.schedulers.scheduling_utils import SCHEDULER_CONFIG_NAME
     from diffusers.utils import CONFIG_NAME, is_invisible_watermark_available
@@ -242,6 +263,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         return any(pattern in unet_name_or_path for pattern in patterns)
 
     @staticmethod
+    @requires_torch_neuronx
     def load_model(
         data_parallel_mode: Optional[str],
         text_encoder_path: Union[str, Path],
@@ -312,6 +334,15 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             raise ValueError("You need to pass `data_parallel_mode` to define Neuron Core allocation.")
 
         return submodels
+
+    def replace_weights(self, weights: Optional[Union[Dict[str, torch.Tensor], torch.nn.Module]] = None):
+        check_if_weights_replacable(self.configs, weights)
+        model_names = ["text_encoder", "text_encoder_2", "unet", "vae_decoder", "vae_encoder"]
+        for name in model_names:
+            model = getattr(self, name, None)
+            weight = getattr(weights, name, None)
+            if model is not None and weight is not None:
+                model = replace_weights(model.model, weight)
 
     @staticmethod
     def set_default_dp_mode(unet_config):
@@ -394,6 +425,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             self.feature_extractor.save_pretrained(save_directory.joinpath("feature_extractor"))
 
     @classmethod
+    @requires_torch_neuronx
     def _from_pretrained(
         cls,
         model_id: Union[str, Path],
@@ -526,11 +558,13 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         )
 
     @classmethod
+    @requires_torch_neuronx
     def _from_transformers(cls, *args, **kwargs):
         # Deprecate it when optimum uses `_export` as from_pretrained_method in a stable release.
         return cls._export(*args, **kwargs)
 
     @classmethod
+    @requires_torch_neuronx
     def _export(
         cls,
         model_id: Union[str, Path],
@@ -541,7 +575,8 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         force_download: bool = True,
         cache_dir: Optional[str] = None,
         compiler_workdir: Optional[str] = None,
-        inline_weights_to_neff: bool = True,
+        disable_neuron_cache: bool = False,
+        inline_weights_to_neff: bool = False,
         optlevel: str = "2",
         subfolder: str = "",
         local_files_only: bool = False,
@@ -549,8 +584,6 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         task: Optional[str] = None,
         auto_cast: Optional[str] = "matmul",
         auto_cast_type: Optional[str] = "bf16",
-        disable_fast_relayout: Optional[bool] = False,
-        disable_fallback: bool = False,
         dynamic_batch_size: bool = False,
         data_parallel_mode: Optional[str] = None,
         lora_model_ids: Optional[Union[str, List[str]]] = None,
@@ -586,7 +619,9 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 standard cache should not be used.
             compiler_workdir (`Optional[str]`, defaults to `None`):
                 Path to a directory in which the neuron compiler will store all intermediary files during the compilation(neff, weight, hlo graph...).
-            inline_weights_to_neff (`bool`, defaults to `True`):
+            disable_neuron_cache (`bool`, defaults to `False`):
+                Whether to disable automatic caching of compiled models. If set to True, will not load neuron cache nor cache the compiled artifacts.
+            inline_weights_to_neff (`bool`, defaults to `False`):
                 Whether to inline the weights to the neff graph. If set to False, weights will be seperated from the neff.
             optlevel (`str`, defaults to `"2"`):
             The level of optimization the compiler should perform. Can be `"1"`, `"2"` or `"3"`, defaults to "2".
@@ -608,11 +643,6 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 Whether to cast operations from FP32 to lower precision to speed up the inference. Can be `"none"`, `"matmul"` or `"all"`.
             auto_cast_type (`Optional[str]`, defaults to `"bf16"`):
                 The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"` or `"tf32"`.
-            disable_fast_relayout (`Optional[str]`, defaults to `None`):
-                (INF1 ONLY) Whether to disable fast relayout optimization which improves performance by using the matrix multiplier for tensor transpose.
-            disable_fallback (`bool`, defaults to `False`):
-                (INF1 ONLY) Whether to disable CPU partitioning to force operations to Neuron. Defaults to `False`, as without fallback, there could be
-                some compilation failures or performance problems.
             dynamic_batch_size (`bool`, defaults to `False`):
                 Whether to enable dynamic batch size for neuron compiled model. If this option is enabled, the input batch size can be a multiple of the
                 batch size during the compilation, but it comes with a potential tradeoff in terms of latency.
@@ -641,38 +671,122 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         compiler_kwargs = {
             "auto_cast": auto_cast,
             "auto_cast_type": auto_cast_type,
-            "disable_fast_relayout": disable_fast_relayout,
-            "disable_fallback": disable_fallback,
         }
 
-        save_dir = TemporaryDirectory()
-        save_dir_path = Path(save_dir.name)
-
-        main_export(
-            model_name_or_path=model_id,
-            output=save_dir_path,
-            compiler_kwargs=compiler_kwargs,
+        pipe = TasksManager.get_model_from_task(
             task=task,
-            dynamic_batch_size=dynamic_batch_size,
-            cache_dir=cache_dir,
-            compiler_workdir=compiler_workdir,
-            inline_weights_to_neff=inline_weights_to_neff,
-            optlevel=optlevel,
-            trust_remote_code=trust_remote_code,
+            model_name_or_path=model_id,
             subfolder=subfolder,
             revision=revision,
-            force_download=force_download,
-            local_files_only=local_files_only,
-            use_auth_token=use_auth_token,
-            do_validation=False,
-            submodels={"unet": unet_id},
-            lora_model_ids=lora_model_ids,
-            lora_weight_names=lora_weight_names,
-            lora_adapter_names=lora_adapter_names,
-            lora_scales=lora_scales,
+            framework="pt",
             library_name=cls.library_name,
-            **input_shapes,
+            cache_dir=cache_dir,
+            use_auth_token=use_auth_token,
+            local_files_only=local_files_only,
+            force_download=force_download,
+            trust_remote_code=trust_remote_code,
         )
+        submodels = {"unet": unet_id}
+        pipe = replace_stable_diffusion_submodels(pipe, submodels)
+
+        # Check if the cache exists
+        if not inline_weights_to_neff and not disable_neuron_cache:
+            save_dir = TemporaryDirectory()
+            save_dir_path = Path(save_dir.name)
+            # 1. Fetch all model configs
+            models_and_neuron_configs, _ = load_models_and_neuron_configs(
+                model_name_or_path=model_id,
+                output=save_dir_path,
+                model=pipe,
+                task=task,
+                dynamic_batch_size=dynamic_batch_size,
+                cache_dir=cache_dir,
+                trust_remote_code=trust_remote_code,
+                subfolder=subfolder,
+                revision=revision,
+                force_download=force_download,
+                local_files_only=local_files_only,
+                use_auth_token=use_auth_token,
+                submodels=submodels,
+                lora_model_ids=lora_model_ids,
+                lora_weight_names=lora_weight_names,
+                lora_adapter_names=lora_adapter_names,
+                lora_scales=lora_scales,
+                **input_shapes,
+            )
+
+            # 2. Build compilation config
+            compilation_configs = {}
+            for name, (model, neuron_config) in models_and_neuron_configs.items():
+                if "vae" in name:  # vae configs are not cached.
+                    continue
+                model_config = model.config
+                if isinstance(model_config, FrozenDict):
+                    model_config = OrderedDict(model_config)
+                    model_config = DiffusersPretrainedConfig.from_dict(model_config)
+
+                compilation_config = store_compilation_config(
+                    config=model_config,
+                    input_shapes=neuron_config.input_shapes,
+                    compiler_kwargs=compiler_kwargs,
+                    input_names=neuron_config.inputs,
+                    output_names=neuron_config.outputs,
+                    dynamic_batch_size=neuron_config.dynamic_batch_size,
+                    compiler_type=NEURON_COMPILER_TYPE,
+                    compiler_version=NEURON_COMPILER_VERSION,
+                    inline_weights_to_neff=inline_weights_to_neff,
+                    optlevel=optlevel,
+                    model_type=getattr(neuron_config, "MODEL_TYPE", None),
+                    task=getattr(neuron_config, "task", None),
+                )
+                compilation_configs[name] = compilation_config
+
+            # 3. Lookup cached config
+            cache_config = build_cache_config(compilation_configs)
+            cache_entry = ModelCacheEntry(model_id=model_id, config=cache_config)
+            compile_cache = create_hub_compile_cache_proxy()
+            model_cache_dir = compile_cache.default_cache.get_cache_dir_with_cache_key(f"MODULE_{cache_entry.hash}")
+            cache_exist = compile_cache.download_folder(model_cache_dir, model_cache_dir)
+        else:
+            cache_exist = False
+
+        if cache_exist:
+            # load cache
+            neuron_model = cls.from_pretrained(model_cache_dir, data_parallel_mode=data_parallel_mode)
+            # replace weights
+            neuron_model.replace_weights(weights=pipe)
+            return neuron_model
+        else:
+            # compile
+            save_dir = TemporaryDirectory()
+            save_dir_path = Path(save_dir.name)
+
+            main_export(
+                model_name_or_path=model_id,
+                output=save_dir_path,
+                compiler_kwargs=compiler_kwargs,
+                task=task,
+                dynamic_batch_size=dynamic_batch_size,
+                cache_dir=cache_dir,
+                disable_neuron_cache=disable_neuron_cache,
+                compiler_workdir=compiler_workdir,
+                inline_weights_to_neff=inline_weights_to_neff,
+                optlevel=optlevel,
+                trust_remote_code=trust_remote_code,
+                subfolder=subfolder,
+                revision=revision,
+                force_download=force_download,
+                local_files_only=local_files_only,
+                use_auth_token=use_auth_token,
+                do_validation=False,
+                submodels={"unet": unet_id},
+                lora_model_ids=lora_model_ids,
+                lora_weight_names=lora_weight_names,
+                lora_adapter_names=lora_adapter_names,
+                lora_scales=lora_scales,
+                library_name=cls.library_name,
+                **input_shapes,
+            )
 
         return cls._from_pretrained(
             model_id=save_dir_path,
