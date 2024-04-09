@@ -546,7 +546,7 @@ class Parallelizer(ABC):
         pipeline_parallel_use_zero1_optimizer: bool = False,
         pipeline_parallel_gradient_checkpointing_enabled: bool = False,
         checkpoint_dir: Optional[Union[str, Path]] = None,
-        num_ranks_per_loading_step: int = -1,
+        num_local_ranks_per_step: int = 8,
     ) -> "PreTrainedModel":
         """
         Parallelizes the model by transforming regular layer into their parallel counterparts using
@@ -579,9 +579,9 @@ class Parallelizer(ABC):
             checkpoint_dir (`Optional[Union[str, Path]]`):
                 Path to a sharded checkpoint. If specified, the checkpoint weights will be loaded to the parallelized
                 model.
-            num_ranks_per_loading_step (`int`, defaults to `-1`):
-                Corresponds to the number of ranks that can initialize and load the model weights at the same time.
-                If the value is inferior to 0, the maximum number of ranks will be used.
+            num_local_ranks_per_step (`int`, defaults to `8`):
+                Corresponds to the number of local ranks that can initialize and load the model weights at the same
+                time. If the value is inferior to 0, the maximum number of ranks will be used.
 
         Returns:
             `PreTrainedModel`: The parallelized model.
@@ -710,10 +710,10 @@ class Parallelizer(ABC):
             cls._initialize_for_precompilation(model, names_of_the_parameters_to_consider)
         else:
             local_rank = xm.get_local_ordinal()
-            if num_ranks_per_loading_step < 0:
-                num_ranks_per_loading_step = get_local_world_size()
-            for worker in range(math.ceil(get_local_world_size() / num_ranks_per_loading_step)):
-                if local_rank // num_ranks_per_loading_step == worker:
+            if num_local_ranks_per_step <= 0:
+                num_local_ranks_per_step = get_local_world_size()
+            for worker in range(math.ceil(get_local_world_size() / num_local_ranks_per_step)):
+                if local_rank // num_local_ranks_per_step == worker:
                     if skip_linear_weight_load:
                         # Load the weights to the parallel linears if the loading was skipped during parallelization.
                         cls._maybe_load_weights_to_parallel_linears(model)
@@ -924,13 +924,18 @@ class Parallelizer(ABC):
         optimizer: Optional["torch.optim.Optimizer"] = None,
         use_xser: bool = True,
         async_save: bool = False,
+        num_local_ranks_per_step: int = 8,
     ):
         import neuronx_distributed
+        from neuronx_distributed.parallel_layers.utils import get_local_world_size
 
         cls._check_model_was_parallelized(model)
 
         if not isinstance(output_dir, Path):
             output_dir = Path(output_dir)
+
+        if num_local_ranks_per_step <= 0:
+            num_local_ranks_per_step = get_local_world_size()
 
         metadata = {}
         metadata["sharded_metadata"] = {
@@ -946,6 +951,7 @@ class Parallelizer(ABC):
             user_content=metadata,
             use_xser=use_xser,
             async_save=async_save,
+            num_workers=num_local_ranks_per_step,
         )
 
     @classmethod

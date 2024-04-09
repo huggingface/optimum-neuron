@@ -689,6 +689,7 @@ class NeuronAccelerator(Accelerator):
                 optimizer=optimizer,
                 use_xser=self.state.mp_plugin.use_xser,
                 async_save=self.state.mp_plugin.async_save,
+                num_workers=self.state.mp_plugin.num_local_ranks_per_step,
             )
             logger.info(f"Parallel model and optimizer saved to the directory {output_dir}")
 
