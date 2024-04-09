@@ -616,8 +616,6 @@ class AugmentTrainerForNeuronMixin:
             self._rotate_checkpoints(use_mtime=True, output_dir=run_dir)
 
     def _load_from_checkpoint(self, resume_from_checkpoint, model=None):
-        # It has been handled during model parallelization.
-        # TODO: how to handle pp?
         if self.accelerator.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
             return
         super()._load_from_checkpoint(resume_from_checkpoint, model=model)

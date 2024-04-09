@@ -143,6 +143,10 @@ class TestCommonDistributed(DistributedTest):
     def max_grad_norm(self, request):
         return request.param
 
+    @pytest.fixture(scope="class", params=[False, True], ids=["xser_disabled", "xser_enabled"])
+    def use_xser(self, request):
+        return request.param
+
     def test_optimizer_parameters_match_model_parameters(
         self, lazy_load, lazy_optimizer, with_groups, zero_1, parallel_sizes
     ):
@@ -434,7 +438,14 @@ class TestCommonDistributed(DistributedTest):
         ],
     )
     def test_consolidate_model_parallel_checkpoints(
-        self, tmpdir, world_size, tp_size, pp_size, kv_size_multiplier, model_name
+        self,
+        tmpdir,
+        world_size,
+        tp_size,
+        pp_size,
+        kv_size_multiplier,
+        model_name,
+        use_xser,
     ):
         orig_model = get_model(
             LlamaForCausalLM,
@@ -446,7 +457,9 @@ class TestCommonDistributed(DistributedTest):
             # Saving to pytorch instead of safetensors because it fails otherwise for pickling issues with distributed tests.
             orig_model.save_pretrained(orig_model_path, safe_serialization=False)
 
-        accelerator = create_accelerator_for_mp(tp_size, pp_size, kv_size_multiplier=kv_size_multiplier)
+        accelerator = create_accelerator_for_mp(
+            tp_size, pp_size, kv_size_multiplier=kv_size_multiplier, use_xser=use_xser
+        )
         _ = accelerator.prepare(orig_model)
 
         output_dir = Path(tmpdir) / "parallel_model"
