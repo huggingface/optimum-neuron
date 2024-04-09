@@ -494,7 +494,7 @@ class AugmentTrainerForNeuronMixin:
                 optimizer=self.optimizer,
                 use_xser=self.accelerator.state.mp_plugin.use_xser,
                 async_save=self.accelerator.state.mp_plugin.async_save,
-                num_workers=self.accelerator.state.mp_plugin.num_local_ranks_per_step,
+                num_local_ranks_per_step=self.accelerator.state.mp_plugin.num_local_ranks_per_step,
             )
         else:
             safe_save_function_patcher = Patcher(
