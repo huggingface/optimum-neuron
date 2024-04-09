@@ -171,7 +171,6 @@ class NeuronTrainingArgumentsMixin:
         with Patcher([("transformers.training_args.get_xla_device_type", lambda _: "GPU")]):
             super().__post_init__()
 
-    # TODO: try to use the patcher for NeuronPartialState instead of rewriting the method.
     @cached_property
     @patch_within_function(
         [

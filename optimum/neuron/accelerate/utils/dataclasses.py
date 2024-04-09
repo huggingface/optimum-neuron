@@ -25,9 +25,6 @@ from ...distributed import ParallelizersManager
 from ...utils import is_torch_xla_available
 
 
-if is_torch_xla_available():
-    pass
-
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
 
