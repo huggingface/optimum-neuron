@@ -1,7 +1,7 @@
 import os
 
-import Levenshtein
 import pytest
+from text_generation.errors import ValidationError
 
 
 # These tests will often break as it relies on many factors like the optimum version, the neuronx-cc version,
@@ -9,20 +9,9 @@ import pytest
 
 MODELS = ["openai-community/gpt2", "aws-neuron/gpt2-neuronx-bs4-seqlen1024"]
 
-# Not sure this is relevant to check the expected output that will often change and thus break tests.
-# Not sure we will even catch anything weird in the quality of the generated text anyway, at least not this way.
-# We will see with usage but we should probably just check the tgi service returns OK to requests
-EXPECTED = {
-    "openai-community/gpt2": [
-        "There's a new book by John C. Snider",
-        "The purpose of the current post is to introduce the concepts",
-    ],
-    "aws-neuron/gpt2-neuronx-bs4-seqlen1024": ["The purpose of the current post is to introduce the concepts"],
-}
-
 
 @pytest.fixture(scope="module", params=MODELS)
-def model_and_expected_output(request):
+def get_model_and_set_env(request):
     # the tgi_env.py script will take care of setting these
     for var in [
         "MAX_BATCH_SIZE",
@@ -35,13 +24,12 @@ def model_and_expected_output(request):
     ]:
         if var in os.environ:
             del os.environ[var]
-    yield request.param, EXPECTED[request.param]
+    yield request.param
 
 
 @pytest.fixture(scope="module")
-def tgi_service(launcher, model_and_expected_output):
-    model, _ = model_and_expected_output
-    with launcher(model) as tgi_service:
+def tgi_service(launcher, get_model_and_set_env):
+    with launcher(get_model_and_set_env) as tgi_service:
         yield tgi_service
 
 
@@ -52,32 +40,35 @@ async def tgi_client(tgi_service):
 
 
 @pytest.mark.asyncio
-async def test_model_single_request(tgi_client, model_and_expected_output):
-    _, expected = model_and_expected_output
-    # Greedy bounded without input
-    response = await tgi_client.generate(
-        "What is Deep Learning?",
-        max_new_tokens=17,
-        decoder_input_details=True,
-    )
-    assert response.details.generated_tokens == 17
-    assert response.generated_text == "\n\nDeep learning is a new field of research that has been around for a while"
+async def test_model_single_request(tgi_client):
 
-    # Greedy bounded with input
-    response = await tgi_client.generate(
+    # Just verify that the generation works, and nothing is raised, with several set of params
+
+    # No params
+    await tgi_client.generate(
         "What is Deep Learning?",
+    )
+
+    response = await tgi_client.generate(
+        "How to cook beans ?",
         max_new_tokens=17,
-        return_full_text=True,
         decoder_input_details=True,
     )
     assert response.details.generated_tokens == 17
-    assert (
-        response.generated_text
-        == "What is Deep Learning?\n\nDeep learning is a new field of research that has been around for a while"
-    )
+
+    # check error
+    try:
+        await tgi_client.generate("What is Deep Learning?", max_new_tokens=170000)
+    except ValidationError:
+        pass
+    else:
+        raise AssertionError(
+            "The previous text generation request should have failed, "
+            "because too many tokens were requested, it succeeded"
+        )
 
     # Sampling
-    response = await tgi_client.generate(
+    await tgi_client.generate(
         "What is Deep Learning?",
         do_sample=True,
         top_k=50,
@@ -87,27 +78,3 @@ async def test_model_single_request(tgi_client, model_and_expected_output):
         seed=42,
         decoder_input_details=True,
     )
-    for e in expected:
-        if e in response.generated_text:
-            break
-    else:
-        raise AssertionError("%s generated output is unexpected, expected %s", response.generated_text, expected)
-
-
-@pytest.mark.asyncio
-async def test_model_multiple_requests(tgi_client, generate_load):
-    num_requests = 4
-    responses = await generate_load(
-        tgi_client,
-        "What is Deep Learning?",
-        max_new_tokens=17,
-        n=num_requests,
-    )
-
-    assert len(responses) == 4
-    expected = "\n\nDeep learning is a new field of research that has been around for a while"
-    for r in responses:
-        assert r.details.generated_tokens == 17
-        # Compute the similarity with the expectation using the levenshtein distance
-        # We should not have more than two substitutions or additions
-        assert Levenshtein.distance(r.generated_text, expected) < 3

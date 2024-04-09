@@ -50,3 +50,10 @@ jobs:
           sudo apt install gawk -y
           source aws_neuron_venv_pytorch/bin/activate
           HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} make tgi_test
+      - name: Run integration tests
+        shell: bash
+        run: |
+          # gawk is required when invoking the Makefile targets
+          sudo apt install gawk -y
+          source aws_neuron_venv_pytorch/bin/activate
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} make tgi_docker_test
