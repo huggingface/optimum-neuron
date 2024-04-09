@@ -15,7 +15,6 @@
 """Defines Trainer subclasses to perform training on AWS Neuron instances."""
 
 import copy
-import glob
 import math
 import os
 import random
@@ -64,7 +63,7 @@ from transformers.trainer_utils import (
 from transformers.training_args import ParallelMode
 from transformers.utils import WEIGHTS_NAME, is_apex_available, is_sagemaker_mp_enabled
 
-from ..utils import check_if_transformers_greater, logging
+from ..utils import logging
 from .accelerate import NeuronAccelerator, NeuronDistributedType
 from .distributed import Parallelizer, ParallelizersManager
 from .distributed.utils import make_optimizer_constructor_lazy
@@ -81,19 +80,16 @@ from .utils.cache_utils import (
     has_write_access_to_repo,
 )
 from .utils.hub_neuronx_cache import ModelCacheEntry, hub_neuronx_cache, patch_neuron_cc_wrapper, synchronize_hub_cache
-from .utils.misc import is_main_worker
+from .utils.misc import is_main_worker, is_precompilation, torch_xla_safe_save_file
 from .utils.patching import patch_everywhere
 from .utils.require_utils import requires_neuronx_distributed, requires_torch_neuronx
 from .utils.training_utils import (
-    TRANSFORMERS_MIN_VERSION_USE_ACCELERATE,
     get_model_param_count,
     is_main_worker_for_metrics,
     is_main_worker_for_metrics_method,
-    is_precompilation,
     is_topology_supported,
     patch_generation_mixin_to_neuron_generation_mixin,
     skip_first_batches,
-    torch_xla_safe_save_file,
 )
 from .utils.version_utils import get_neuronxcc_version
 
@@ -153,14 +149,8 @@ class AugmentTrainerForNeuronMixin:
                 if training_args.half_precision_backend == "amp":
                     self.use_amp = True
 
-        self.validate_args(training_args)
         if is_precompilation():
             self.prepare_args_for_precompilation(training_args)
-
-        if check_if_transformers_greater(TRANSFORMERS_MIN_VERSION_USE_ACCELERATE):
-            import transformers
-
-            transformers.trainer.Accelerator = NeuronAccelerator
 
         super().__init__(*args, **kwargs)
 
@@ -170,13 +160,6 @@ class AugmentTrainerForNeuronMixin:
             is_local_process_zero=self.is_local_process_zero(),
             is_world_process_zero=is_main_worker_for_metrics(),
         )
-
-        # That's the case for Transformers < 4.30.0
-        if not hasattr(self, "is_fsdp_enabled"):
-            self.is_fsdp_enabled = False
-
-        if self.is_fsdp_enabled and self.args.do_eval:
-            raise ValueError("Evaluation is not supported with XLA FSDP yet.")
 
         if self.args.local_rank <= 0:
             logger.setLevel(logging.INFO)
@@ -239,9 +222,6 @@ class AugmentTrainerForNeuronMixin:
             if is_main_worker():
                 logger.info("Disabling prediction during precompilation as this is not well supported yet.")
             args.do_predict = False
-
-    def validate_args(self, args: "TrainingArguments"):
-        pass
 
     def create_accelerator_and_postprocess(self):
         # create accelerator object
@@ -307,7 +287,7 @@ class AugmentTrainerForNeuronMixin:
     def get_optimizer_cls_and_kwargs(args: TrainingArguments) -> Tuple[Any, Any]:
         optimizer_cls, optimizer_kwargs = transformers_get_optimizer_cls_and_kwargs(args)
         lazy_load = args.mp_plugin.should_parallelize or args.zero_1
-        if check_if_transformers_greater("4.30.0") and lazy_load:
+        if lazy_load:
             optimizer_cls = make_optimizer_constructor_lazy(optimizer_cls)
         return optimizer_cls, optimizer_kwargs
 
@@ -615,34 +595,14 @@ class AugmentTrainerForNeuronMixin:
 
     def _load_from_checkpoint(self, resume_from_checkpoint, model=None):
         # It has been handled during model parallelization.
-        # TODO: how to handle pp?
         if self.accelerator.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
             return
         super()._load_from_checkpoint(resume_from_checkpoint, model=model)
 
-    def _load_optimizer_and_scheduler_for_xla_fsdp(self, checkpoint):
-        checkpoint_file_exists = (
-            glob.glob(os.path.join(checkpoint, OPTIMIZER_NAME) + "_*")
-            if is_sagemaker_mp_enabled()
-            else os.path.isfile(os.path.join(checkpoint, OPTIMIZER_NAME))
-        )
-        if checkpoint_file_exists and os.path.isfile(os.path.join(checkpoint, SCHEDULER_NAME)):
-            self.accelerator.state.fsdp_plugin.load_optimizer(self.accelerator, self.optimizer, self.model, checkpoint)
-
-            with warnings.catch_warnings(record=True) as caught_warnings:
-                lr_scheduler_state = torch.load(os.path.join(checkpoint, SCHEDULER_NAME), map_location="cpu")
-            reissue_pt_warnings(caught_warnings)
-            xm.send_cpu_data_to_device(lr_scheduler_state, self.args.device)
-            self.lr_scheduler.load_state_dict(lr_scheduler_state)
-
-        # TODO: load grad scaling?
-
     def _load_optimizer_and_scheduler(self, checkpoint):
         if checkpoint is None:
             return
-        if self.accelerator.distributed_type is NeuronDistributedType.XLA_FSDP:
-            return self._load_optimizer_and_scheduler_for_xla_fsdp(checkpoint)
-        elif self.accelerator.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
+        if self.accelerator.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
             lr_scheduler_state = torch.load(os.path.join(checkpoint, SCHEDULER_NAME), map_location="cpu")
             xm.send_cpu_data_to_device(lr_scheduler_state, self.args.device)
             self.lr_scheduler.load_state_dict(lr_scheduler_state)
