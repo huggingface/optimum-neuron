@@ -488,7 +488,13 @@ class AugmentTrainerForNeuronMixin:
 
             # This mark_step is needed to avoid hang issues.
             xm.mark_step()
-            Parallelizer.save_model_checkpoint(self.model, output_dir, as_sharded=True, optimizer=self.optimizer)
+            Parallelizer.save_model_sharded_checkpoint(
+                self.model,
+                output_dir,
+                optimizer=self.optimizer,
+                use_xser=self.accelerator.state.mp_plugin.use_xser,
+                async_save=self.accelerator.state.mp_plugin.async_save,
+            )
         else:
             safe_save_function_patcher = Patcher(
                 [("transformers.modeling_utils.safe_save_file", torch_xla_safe_save_file)]

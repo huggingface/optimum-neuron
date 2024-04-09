@@ -17,7 +17,6 @@
 import contextlib
 import gc
 import math
-import shutil
 from abc import ABC, abstractclassmethod
 from collections import defaultdict
 from dataclasses import asdict
@@ -27,7 +26,6 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, 
 
 import torch
 from transformers import PreTrainedModel
-from transformers.utils import WEIGHTS_NAME
 
 from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
@@ -42,7 +40,7 @@ from .parallel_layers import (
     SequenceCollectiveOpInfo,
 )
 from .utils import (
-    TENSOR_PARALLEL_SHARDS_DIR_NAME,
+    MODEL_PARALLEL_SHARDS_DIR_NAME,
     OptimumGQAQKVColumnParallelLinear,
     OptimumNeuronFXTracer,
     ParameterMetadata,
@@ -762,7 +760,7 @@ class Parallelizer(ABC):
 
         # TODO: can we optimize by skipping initialization and weight loading when `checkpoint_dir` is not None.
         if not is_precompilation() and checkpoint_dir is not None:
-            cls.load_model_checkpoint(model, checkpoint_dir)
+            cls.load_model_sharded_checkpoint(model, checkpoint_dir)
 
         model._gqa_qkv_metadata = gqa_qkv_metadata
 
@@ -919,162 +917,70 @@ class Parallelizer(ABC):
 
     @classmethod
     @requires_neuronx_distributed
-    def save_model_checkpoint_as_regular(
-        cls,
-        model: "PreTrainedModel",
-        output_dir: Union[str, Path],
-        optimizer: Optional["torch.optim.Optimizer"] = None,
-    ):
-        import neuronx_distributed
-        import torch_xla.core.xla_model as xm
-        from neuronx_distributed.parallel_layers.parallel_state import (
-            get_data_parallel_rank,
-            get_tensor_model_parallel_rank,
-        )
-
-        cls._check_model_was_parallelized(model)
-
-        data_parallel_rank = get_data_parallel_rank()
-        tensor_parallel_rank = get_tensor_model_parallel_rank()
-
-        if data_parallel_rank != 0:
-            return
-
-        if not isinstance(output_dir, Path):
-            output_dir = Path(output_dir)
-
-        if is_main_worker() and optimizer is not None:
-            logger.warning(
-                "Saving the optimizer state as a regular file under the tensor parallel setting is not supported yet."
-            )
-
-        state_dict = {}
-        for name, param in model.named_parameters():
-            if getattr(param, "tensor_model_parallel", False):
-                if param.partition_dim == 1:
-                    tensor = neuronx_distributed.utils.gather_from_tensor_model_parallel_region(param)
-                else:
-                    # Because the gather works only on last dim. Need to make it work for all dims.
-                    tensor = neuronx_distributed.utils.gather_from_tensor_model_parallel_region(
-                        param.transpose()
-                    ).transpose()
-            else:
-                tensor = param
-            state_dict[name] = tensor
-
-        model_state_dict = {"model": state_dict}
-        should_save = tensor_parallel_rank == 0
-        xm._maybe_convert_to_cpu(model_state_dict, convert=should_save)
-        if should_save:
-            output_path = output_dir / WEIGHTS_NAME
-            torch.save(model_state_dict["model"], output_path.as_posix())
-        xm.rendezvous("saving regular checkpoint")
-
-    @classmethod
-    @requires_neuronx_distributed
-    def save_model_checkpoint_as_sharded(
+    def save_model_sharded_checkpoint(
         cls,
         model: Union["PreTrainedModel", "NxDPPModel"],
         output_dir: Union[str, Path],
         optimizer: Optional["torch.optim.Optimizer"] = None,
+        use_xser: bool = True,
+        async_save: bool = False,
     ):
-        import torch_xla.core.xla_model as xm
-        from neuronx_distributed import parallel_layers
-        from neuronx_distributed.pipeline import NxDPPModel
+        import neuronx_distributed
 
         cls._check_model_was_parallelized(model)
 
         if not isinstance(output_dir, Path):
             output_dir = Path(output_dir)
 
-        if isinstance(model, NxDPPModel):
-            model_state_dict = model.local_state_dict()
-        else:
-            model_state_dict = model.state_dict()
-
-        state_dict = {"model": model_state_dict}
-        state_dict["sharded_metadata"] = {
+        metadata = {}
+        metadata["sharded_metadata"] = {
             k: asdict(v) for k, v in cls._get_parameters_tp_metadata(dict(model.named_parameters())).items()
         }
-        state_dict["gqa_qkv_metadata"] = model._gqa_qkv_metadata
+        metadata["gqa_qkv_metadata"] = model._gqa_qkv_metadata
 
-        if optimizer is not None:
-            # TODO: have metadata working for the optimizer.
-            state_dict["optimizer_state_dict"] = optimizer.state_dict()
-
-        output_path = output_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME
-
-        if is_main_worker():
-            if output_path.is_dir():
-                shutil.rmtree(output_path, ignore_errors=True)
-            output_path.mkdir()
-        xm.rendezvous("waiting before saving")
-        parallel_layers.save(state_dict, output_path.as_posix(), save_xser=True)
-
-    @classmethod
-    def save_model_checkpoint(
-        cls,
-        model: "PreTrainedModel",
-        output_dir: Union[str, Path],
-        as_regular: bool = False,
-        as_sharded: bool = True,
-        optimizer: Optional["torch.optim.Optimizer"] = None,
-    ):
-        if not as_regular and not as_sharded:
-            raise ValueError("At least as_regular or as_sharded must be True.")
-        if as_regular:
-            cls.save_model_checkpoint_as_regular(model, output_dir, optimizer=optimizer)
-        if as_sharded:
-            cls.save_model_checkpoint_as_sharded(model, output_dir, optimizer=optimizer)
-
-    @classmethod
-    @requires_neuronx_distributed
-    def load_model_sharded_checkpoint(cls, model: "PreTrainedModel", load_dir: Union[str, Path]):
-        import neuronx_distributed
-
-        cls._check_model_was_parallelized(model)
-
-        if not isinstance(load_dir, Path):
-            load_dir = Path(load_dir)
-        neuronx_distributed.parallel_layers.load(
-            load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME,
-            model_or_optimizer=model,
-            load_xser=True,
-            sharded=True,
+        neuronx_distributed.trainer.save_checkpoint(
+            output_dir.as_posix(),
+            tag=MODEL_PARALLEL_SHARDS_DIR_NAME,
+            model=model,
+            optimizer=optimizer,
+            user_content=metadata,
+            use_xser=use_xser,
+            async_save=async_save,
         )
 
     @classmethod
-    def load_model_checkpoint(cls, model: "PreTrainedModel", load_dir: Union[str, Path]):
+    @requires_neuronx_distributed
+    def load_sharded_checkpoint(
+        cls,
+        load_dir: Union[str, Path],
+        model: Optional["PreTrainedModel"] = None,
+        optimizer: Optional[torch.optim.Optimizer] = None,
+    ):
+        import neuronx_distributed
+
+        if model is None and optimizer is None:
+            raise ValueError("At least a model or an optimizer must be provided")
+
+        if model is not None:
+            cls._check_model_was_parallelized(model)
+
         if not isinstance(load_dir, Path):
             load_dir = Path(load_dir)
 
-        if (load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME).is_dir():
-            cls.load_model_sharded_checkpoint(model, load_dir)
-        else:
+        if not (load_dir / MODEL_PARALLEL_SHARDS_DIR_NAME).is_dir():
             raise FileNotFoundError(f"Could not find a sharded checkpoint directory under {load_dir.as_posix()}.")
 
+        neuronx_distributed.trainer.load_checkpoint(
+            load_dir.as_posix(),
+            tag=MODEL_PARALLEL_SHARDS_DIR_NAME,
+            model=model,
+            optimizer=optimizer,
+        )
+
     @classmethod
-    @requires_neuronx_distributed
+    def load_model_sharded_checkpoint(cls, model: "PreTrainedModel", load_dir: Union[str, Path]):
+        return cls.load_sharded_checkpoint(load_dir, model=model)
+
+    @classmethod
     def load_optimizer_sharded_checkpoint(cls, optimizer: "torch.optim.Optimizer", load_dir: Union[str, Path]):
-        import neuronx_distributed
-        from neuronx_distributed.optimizer import NeuronZero1Optimizer
-
-        is_zero_1_optimizer = optimizer.__class__.__name__ == "NeuronAcceleratedOptimizer" and isinstance(
-            optimizer.optimizer, NeuronZero1Optimizer
-        )
-        is_zero_1_optimizer = is_zero_1_optimizer or isinstance(optimizer, NeuronZero1Optimizer)
-        if is_zero_1_optimizer:
-            raise NotImplementedError(
-                "It is not possible to load a sharded optimizer checkpoint when using ZeRO-1 yet."
-            )
-
-        if not isinstance(load_dir, Path):
-            load_dir = Path(load_dir)
-
-        neuronx_distributed.parallel_layers.load(
-            load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME,
-            model_or_optimizer=optimizer,
-            model_key="optimizer_state_dict",
-            load_xser=True,
-            sharded=True,
-        )
+        return cls.load_sharded_checkpoint(load_dir, optimizer=optimizer)

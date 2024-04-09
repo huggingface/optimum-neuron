@@ -23,7 +23,7 @@ from transformers.modeling_utils import shard_checkpoint
 from transformers.utils import SAFE_WEIGHTS_INDEX_NAME, SAFE_WEIGHTS_NAME, WEIGHTS_INDEX_NAME, WEIGHTS_NAME
 
 from ..utils.require_utils import requires_neuronx_distributed, requires_safetensors
-from .utils import TENSOR_PARALLEL_SHARDS_DIR_NAME, ParameterMetadata, compute_query_indices_for_rank
+from .utils import MODEL_PARALLEL_SHARDS_DIR_NAME, ParameterMetadata, compute_query_indices_for_rank
 
 
 def create_gqa_query_or_output_projection_weight_from_full_weight(
@@ -136,9 +136,9 @@ def consolidate_model_parallel_checkpoints(checkpoint_dir: Union[str, Path]) -> 
     if not isinstance(checkpoint_dir, Path):
         checkpoint_dir = Path(checkpoint_dir)
 
-    if checkpoint_dir.name != TENSOR_PARALLEL_SHARDS_DIR_NAME:
-        if (checkpoint_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME).is_dir():
-            checkpoint_dir = checkpoint_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME
+    if checkpoint_dir.name != MODEL_PARALLEL_SHARDS_DIR_NAME:
+        if (checkpoint_dir / MODEL_PARALLEL_SHARDS_DIR_NAME).is_dir():
+            checkpoint_dir = checkpoint_dir / MODEL_PARALLEL_SHARDS_DIR_NAME
         else:
             raise ValueError(f"Could not find the tensor parallel shards from {checkpoint_dir}")
 

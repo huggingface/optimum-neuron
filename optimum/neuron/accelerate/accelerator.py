@@ -683,7 +683,13 @@ class NeuronAccelerator(Accelerator):
         def save_optimizer_func(accelerator, optimizer, model, output_dir, i):
             logger.info("Saving parallel model and optimizer")
             parallelizer = ParallelizersManager.parallelizer_for_model(model)
-            parallelizer.save_model_checkpoint(model, output_dir, as_regular=False, optimizer=optimizer)
+            parallelizer.save_model_sharded_checkpoint(
+                model,
+                output_dir,
+                optimizer=optimizer,
+                use_xser=self.state.mp_plugin.use_xser,
+                async_save=self.state.mp_plugin.async_save,
+            )
             logger.info(f"Parallel model and optimizer saved to the directory {output_dir}")
 
         return self._custom_save_state(

@@ -26,7 +26,7 @@ from optimum.neuron.accelerate.optimizer import NeuronAcceleratedOptimizer
 from optimum.neuron.accelerate.utils.dataclasses import NeuronDistributedType
 from optimum.neuron.distributed.checkpointing import consolidate_model_parallel_checkpoints_to_unified_checkpoint
 from optimum.neuron.distributed.utils import (
-    TENSOR_PARALLEL_SHARDS_DIR_NAME,
+    MODEL_PARALLEL_SHARDS_DIR_NAME,
     make_optimizer_constructor_lazy,
 )
 from optimum.neuron.utils.import_utils import (
@@ -364,7 +364,7 @@ class TestCommonDistributed(DistributedTest):
             tensors_directory = f"{ref_data_file_name}.tensors"
             assert not pytorch_checkpoint_exists
             assert not safetensors_checkpoint_exists
-            assert TENSOR_PARALLEL_SHARDS_DIR_NAME in tmpdir_content
+            assert MODEL_PARALLEL_SHARDS_DIR_NAME in tmpdir_content
             assert ref_data_file_name in tmpdir_content
             assert tensors_directory in tmpdir_content
         else:

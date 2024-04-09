@@ -63,7 +63,7 @@ if TYPE_CHECKING:
 logger = logging.get_logger()
 
 
-TENSOR_PARALLEL_SHARDS_DIR_NAME = "tensor_parallel_shards"
+MODEL_PARALLEL_SHARDS_DIR_NAME = "shards"
 
 
 @deprecate(

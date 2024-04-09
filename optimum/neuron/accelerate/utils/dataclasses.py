@@ -160,6 +160,8 @@ class ModelParallelismPlugin:
     gradient_checkpointing: bool = False
     checkpoint_dir: Optional[Union[str, Path]] = None
     num_ranks_per_loading_step: int = -1
+    use_xser: bool = True
+    async_save: bool = False
 
     def __post_init__(self):
         if self.tensor_parallel_size < 1:

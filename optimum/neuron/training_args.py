@@ -114,6 +114,21 @@ class NeuronTrainingArgumentsMixin:
             )
         },
     )
+    use_xser: bool = field(
+        default=True,
+        metadata={
+            "help": "Whether to use `torch-xla` serialization when saving checkpoints when doing model parallelism"
+        },
+    )
+    async_save: bool = field(
+        default=False,
+        metadata={
+            "help": (
+                "Whether to use asynchronous saving method when doing model parallelism. It can boost saving "
+                "performance but will result in more host memory usage, increasing the risk of going OOM."
+            )
+        },
+    )
 
     def __post_init__(self):
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
@@ -165,6 +180,8 @@ class NeuronTrainingArgumentsMixin:
             gradient_checkpointing=self.gradient_checkpointing,
             checkpoint_dir=resume_from_checkpoint,
             num_ranks_per_loading_step=self.num_ranks_per_loading_step,
+            use_xser=self.use_xser,
+            async_save=self.async_save,
         )
 
         if self.bf16 and self.half_precision_backend == "amp":
