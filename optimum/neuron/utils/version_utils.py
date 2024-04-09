@@ -27,7 +27,6 @@ _neuronx_distributed_version: Optional[str] = None
 _torch_version: Optional[str] = None
 
 
-# TODO: how does it compare to the similar function in `cache_utils.py`?
 def get_neuronxcc_version() -> str:
     global _neuronxcc_version
     if _neuronxcc_version is not None:

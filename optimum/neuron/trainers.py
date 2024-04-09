@@ -152,9 +152,7 @@ class AugmentTrainerForNeuronMixin:
         if is_precompilation():
             self.prepare_args_for_precompilation(training_args)
 
-        # TODO: is it needed?
-        with Patcher([("transformers.trainer.Accelerator", NeuronAccelerator)]):
-            super().__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
         # We need to change which process can be seen as "world process zero" to make sure the proper metrics
         # (eg.g loss) are logged and sent to the callbacks (for instance WandbCallback).
