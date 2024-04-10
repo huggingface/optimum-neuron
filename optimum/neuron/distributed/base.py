@@ -914,6 +914,11 @@ class Parallelizer(ABC):
         num_local_ranks_per_step: int = 8,
     ):
         import neuronx_distributed
+        from neuronx_distributed.parallel_layers.parallel_state import (
+            get_data_parallel_rank,
+            get_pipeline_model_parallel_rank,
+            get_tensor_model_parallel_rank,
+        )
         from neuronx_distributed.parallel_layers.utils import get_local_world_size
 
         cls._check_model_was_parallelized(model)
@@ -935,11 +940,19 @@ class Parallelizer(ABC):
             tag=MODEL_PARALLEL_SHARDS_DIR_NAME,
             model=model,
             optimizer=optimizer,
-            user_content=metadata,
             use_xser=use_xser,
             async_save=async_save,
             num_workers=num_local_ranks_per_step,
         )
+
+        if get_data_parallel_rank() == 0 and get_tensor_model_parallel_rank() == 0:
+            pp_rank = get_pipeline_model_parallel_rank()
+            metadata_path = output_dir / MODEL_PARALLEL_SHARDS_DIR_NAME / f"mp_metadata_pp_rank_{pp_rank}.pt"
+            # Checking that the parent directory exists, it should exist, but let's make sure since g_iostate.end() is
+            # called at the end of `neuronx_distributed.trainer.save_checkpoint` and it can remove checkpoint
+            # directories if the max limit has been reached.
+            if metadata_path.parent.is_dir():
+                torch.save(metadata, metadata_path)
 
     @classmethod
     @requires_neuronx_distributed

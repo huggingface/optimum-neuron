@@ -147,7 +147,9 @@ def consolidate_model_parallel_checkpoints(checkpoint_dir: Union[str, Path]) -> 
     sharded_checkpoints = list(model_checkpoint_dir.glob("dp_rank*.tensors"))
     if sharded_checkpoints:
         sharded_checkpoints = model_checkpoint_dir.glob("dp_rank_*")
-        sharded_checkpoints = [p for p in sharded_checkpoints if not p.name.endswith("tensors")]
+        sharded_checkpoints = [
+            p for p in sharded_checkpoints if not (p.name.endswith("info.pt") or p.name.endswith("tensors"))
+        ]
         load_function = _xser_load
 
     # Case 2: If no file was found, maybe the checkpoint was saved without xser.
@@ -160,19 +162,18 @@ def consolidate_model_parallel_checkpoints(checkpoint_dir: Union[str, Path]) -> 
 
     pp_size = max((int(checkpoint_path.stem[-2:]) for checkpoint_path in sharded_checkpoints)) + 1
     checkpoints_grouped_by_pp_ranks = [[] for _ in range(pp_size)]
+    metadatas = []
     for pp_rank in range(pp_size):
         for checkpoint_path in sharded_checkpoints:
             checkpoint_name = checkpoint_path.stem
             if int(checkpoint_name[-2:]) == pp_rank:
                 checkpoints_grouped_by_pp_ranks[pp_rank].append(checkpoint_path)
-
-    metadata_path = checkpoint_dir / "user_content.pt"
-    metadata = torch.load(metadata_path)
+        metadatas.append(torch.load(checkpoint_dir / f"mp_metadata_pp_rank_{pp_rank}.pt"))
 
     consolidated_state_dict = {}
-    for checkpoint_group_for_pp_rank in checkpoints_grouped_by_pp_ranks:
+    for pp_rank, checkpoint_group_for_pp_rank in enumerate(checkpoints_grouped_by_pp_ranks):
         consolidated_for_pp_rank = consolidate_tensor_parallel_checkpoints(
-            checkpoint_group_for_pp_rank, load_function, metadata
+            checkpoint_group_for_pp_rank, load_function, metadatas[pp_rank]
         )
         consolidated_state_dict.update(**consolidated_for_pp_rank)
 
