@@ -109,8 +109,6 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
                 optimizer_args = {"closure": closure} if closure is not None else {}
                 # By default barrier=False, but making sure it's the case here since we use ParalleLoader.
                 xm.optimizer_step(self.optimizer, optimizer_args=optimizer_args, barrier=False)
-            elif self.accelerator_state.distributed_type is NeuronDistributedType.XLA_FSDP:
-                self.optimizer.step(closure)
             elif self.accelerator_state.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
                 if parallel_layers.parallel_state.get_data_parallel_size() > 1:
                     bucket_allreduce_gradients(xm._fetch_gradients(self.optimizer))

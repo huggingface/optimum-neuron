@@ -16,7 +16,6 @@
 
 import collections
 import contextlib
-import inspect
 import os
 import re
 import shutil
@@ -54,7 +53,6 @@ from .utils import (
     AutocastBackend,
     ModelParallelismPlugin,
     NeuronDistributedType,
-    NeuronFullyShardedDataParallelPlugin,
     get_tied_parameters_dict,
     patch_accelerate_is_tpu_available,
     tie_parameters,
@@ -124,14 +122,8 @@ class NeuronAccelerator(Accelerator):
         full_kwargs["gradient_accumulation_steps"] = gradient_accumulation_steps
 
         fsdp_plugin = full_kwargs["fsdp_plugin"]
-        if fsdp_plugin is None:
-            if os.environ.get("ACCELERATE_USE_FSDP", "false") == "true":
-                fsdp_plugin = NeuronFullyShardedDataParallelPlugin()
-        elif not isinstance(fsdp_plugin, NeuronFullyShardedDataParallelPlugin):
-            raise ValueError(
-                "The fsdp_plugin must be an instance of NeuronFullyShardedDataParallelPlugin to use XLA FSDP with "
-                f"the NeuronAccelerator, but an instance of {type(fsdp_plugin)} was given here."
-            )
+        if fsdp_plugin is not None:
+            raise ValueError("FSDP is not supported.")
         self.fsdp_plugin = fsdp_plugin
 
         self._model_cpu_parameters_to_xla = {}
@@ -151,14 +143,8 @@ class NeuronAccelerator(Accelerator):
             enabled = self.state.mixed_precision == "bf16" and autocast_backend is AutocastBackend.AMP
             self.autocast_handler = AutocastKwargs(enabled=enabled)
 
-        if self.fsdp_plugin is not None and self.zero_1:
-            raise ValueError("Either enable XLA ZeRO Stage 1 or XLA FSDP but not both.")
-
         if self.process_index == -1 and self.zero_1:
             raise ValueError("XLA ZeRO Stage 1 can only be enabled in a distributed training setting.")
-
-        if fsdp_plugin is not None and mp_plugin is not None:
-            raise ValueError("It is not possible to both use neuronx_distributed Tensor Parallelism and XLA FSDP.")
 
         if num_steps != 1:
             self.gradient_accumulation_steps = num_steps
@@ -349,76 +335,6 @@ class NeuronAccelerator(Accelerator):
         model_patcher.patch()
         return model
 
-    def prepare_model_for_xla_fsdp(
-        self, model: torch.nn.Module, device_placement: Optional[bool] = None, evaluation_mode: bool = False
-    ):
-        if device_placement is None:
-            device_placement = self.device_placement
-        self._models.append(model)
-        # We check only for models loaded with `accelerate`
-
-        # Checks if any of the child module has the attribute `hf_device_map`.
-        has_hf_device_map = False
-        for m in model.modules():
-            if hasattr(m, "hf_device_map"):
-                has_hf_device_map = True
-                break
-
-        if getattr(model, "is_loaded_in_8bit", False) and getattr(model, "hf_device_map", False):
-            model_devices = set(model.hf_device_map.values())
-            if len(model_devices) > 1:
-                raise ValueError(
-                    "You can't train a model that has been loaded in 8-bit precision on multiple devices."
-                )
-
-            current_device_index = list(model_devices)[0]
-            if torch.device(current_device_index) != self.device:
-                # if on the first device (GPU 0) we don't care
-                if (self.device.index is not None) or (current_device_index != 0):
-                    raise ValueError(
-                        "You can't train a model that has been loaded in 8-bit precision on a different device than the one "
-                        "you're training on. Make sure you loaded the model on the correct device using for example `device_map={'':torch.cuda.current_device()}"
-                        "you're training on. Make sure you loaded the model on the correct device using for example `device_map={'':torch.cuda.current_device() or device_map={'':torch.xpu.current_device()}"
-                    )
-
-            if "cpu" in model_devices or "disk" in model_devices:
-                raise ValueError(
-                    "You can't train a model that has been loaded in 8-bit precision with CPU or disk offload."
-                )
-        elif device_placement and not has_hf_device_map:
-            model = model.to(self.device)
-
-        try:
-            from torch_xla.distributed.fsdp import XlaFullyShardedDataParallel as FSDP
-        except ImportError:
-            raise ImportError("Missing XLA FSDP related module; please make sure to use torch-xla >= 2.0.")
-
-        if not evaluation_mode:
-            # Check if the model is already a FSDP model due to `Manual Wrapping` and if so,
-            # don't wrap it again
-            # TODO: validate which arguments work for XLA FSDP.
-            if type(model) != FSDP:
-                self.state.fsdp_plugin.set_auto_wrap_policy(model)
-                fsdp_plugin = self.state.fsdp_plugin
-                kwargs = {
-                    "sharding_strategy": fsdp_plugin.sharding_strategy,
-                    "cpu_offload": fsdp_plugin.cpu_offload,
-                    "auto_wrap_policy": fsdp_plugin.auto_wrap_policy,
-                    "backward_prefetch": fsdp_plugin.backward_prefetch,
-                    "mixed_precision": fsdp_plugin.mixed_precision_policy,
-                    "ignored_modules": fsdp_plugin.ignored_modules,
-                    "device_id": self.device,
-                }
-                signature = inspect.signature(FSDP.__init__).parameters.keys()
-                if "limit_all_gathers" in signature:
-                    kwargs["limit_all_gathers"] = fsdp_plugin.limit_all_gathers
-                if "use_orig_params" in signature:
-                    kwargs["use_orig_params"] = fsdp_plugin.use_orig_params
-                model = FSDP(model, **kwargs)
-        self._models[-1] = model
-
-        return model
-
     @requires_neuronx_distributed
     def _prepare_model_for_mp(
         self, model: torch.nn.Module, device_placement: Optional[bool] = None, evaluation_mode: bool = False
@@ -502,11 +418,7 @@ class NeuronAccelerator(Accelerator):
         model.config.output_attentions = False
         model.config.output_hidden_states = False
 
-        if self.distributed_type is NeuronDistributedType.XLA_FSDP:
-            return self.prepare_model_for_xla_fsdp(
-                model, device_placement=device_placement, evaluation_mode=evaluation_mode
-            )
-        elif self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
+        if self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
             return self._prepare_model_for_mp(
                 model, device_placement=device_placement, evaluation_mode=evaluation_mode
             )
@@ -514,28 +426,13 @@ class NeuronAccelerator(Accelerator):
         device_placement = False
         return super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
 
-    def backward_for_xla_fsdp(self, loss, **kwargs):
+    def backward(self, loss, **kwargs):
+        if self.distributed_type != DistributedType.DEEPSPEED:
+            loss = loss / self.gradient_accumulation_steps
         if self.scaler is not None:
             self.scaler.scale(loss).backward(**kwargs)
         else:
             loss.backward(**kwargs)
-
-    def backward(self, loss, **kwargs):
-        if self.distributed_type != DistributedType.DEEPSPEED:
-            loss = loss / self.gradient_accumulation_steps
-        if self.distributed_type is NeuronDistributedType.XLA_FSDP:
-            self.backward_for_xla_fsdp(loss, **kwargs)
-        elif self.scaler is not None:
-            self.scaler.scale(loss).backward(**kwargs)
-        else:
-            loss.backward(**kwargs)
-
-    def clip_grad_norm_for_xla_fsdp(self, parameters, max_norm, norm_type: int = 2):
-        self.unscale_gradients()
-        parameters = list(parameters)
-        for model in self._models:
-            if parameters == list(model.parameters()):
-                return model.clip_grad_norm_(max_norm, norm_type)
 
     @contextlib.contextmanager
     def autocast(self, cache_enabled: bool = False, autocast_handler: Optional[AutocastKwargs] = None):
@@ -575,16 +472,9 @@ class NeuronAccelerator(Accelerator):
                     return opt.prepare_clip_grad_norm(parameters, max_norm, norm_type=norm_type)
 
     def clip_grad_norm_(self, parameters, max_norm, norm_type=2):
-        if self.distributed_type is NeuronDistributedType.XLA_FSDP:
-            return self.clip_grad_norm_for_xla_fsdp(parameters, max_norm, norm_type=norm_type)
-        elif self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM or self.zero_1:
+        if self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM or self.zero_1:
             return self._prepare_clip_grad_norm(parameters, max_norm, norm_type=norm_type)
         return super().clip_grad_norm_(parameters, max_norm, norm_type=norm_type)
-
-    def clip_grad_value_(self, parameters, clip_value):
-        if self.distributed_type is NeuronDistributedType.XLA_FSDP:
-            raise Exception("XLA FSDP  does not support `clip_grad_value_`. Use `clip_grad_norm_` instead.")
-        return super().clip_grad_value_(parameters, clip_value)
 
     def _custom_save_state(
         self,
@@ -661,21 +551,6 @@ class NeuronAccelerator(Accelerator):
         self.project_configuration.iteration += 1
         return save_location
 
-    def save_state_for_xla_fsdp(self, output_dir: Optional[str] = None, **save_model_func_kwargs):
-        def save_model_func(accelelerator, model, output_dir, i):
-            logger.info("Saving FSDP model")
-            self.state.fsdp_plugin.save_model(accelelerator, model, output_dir, i)
-            logger.info(f"FSDP Model saved to the directory {output_dir}")
-
-        def save_optimizer_func(accelerator, optimizer, model, output_dir, i):
-            logger.info("Saving FSDP Optimizer")
-            self.state.fsdp_plugin.save_optimizer(accelerator, optimizer, model, output_dir, i)
-            logger.info(f"FSDP Optimizer saved to the directory {output_dir}")
-
-        return self._custom_save_state(
-            save_model_func, save_optimizer_func, output_dir=output_dir, **save_model_func_kwargs
-        )
-
     def save_state_for_mp(self, output_dir: Optional[str] = None, **save_model_func_kwargs):
         # The model is saved at the same time as the optimizer.
         save_model_func = None
@@ -692,9 +567,7 @@ class NeuronAccelerator(Accelerator):
 
     @patch_within_function(("accelerate.checkpointing.xm", xm), ignore_missing_attributes=True)
     def save_state(self, output_dir: Optional[str] = None, **save_model_func_kwargs) -> str:
-        if self.distributed_type is NeuronDistributedType.XLA_FSDP:
-            return self.save_state_for_xla_fsdp(output_dir=output_dir, **save_model_func_kwargs)
-        elif self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
+        if self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
             return self.save_state_for_mp(output_dir=output_dir, **save_model_func_kwargs)
         return super().save_state(output_dir=output_dir, **save_model_func_kwargs)
 

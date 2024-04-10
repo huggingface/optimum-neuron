@@ -18,7 +18,7 @@ import json
 import logging
 import os
 import shutil
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from enum import Enum
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -28,10 +28,10 @@ from huggingface_hub import HfApi, get_token
 from transformers import AutoConfig, PretrainedConfig
 
 from ..version import __version__
-from .cache_utils import get_neuron_cache_path, load_custom_cache_repo_name_from_hf_home
+from .cache_utils import get_hf_hub_cache_repo, get_neuron_cache_path
 from .import_utils import is_neuronx_available
 from .patching import patch_everywhere
-from .require_utils import requires_torch_neuronx, requires_torch_xla
+from .require_utils import requires_torch_neuronx
 
 
 if is_neuronx_available():
@@ -77,6 +77,8 @@ CACHE_WHITE_LIST = [
     "_use_default_values",
 ]
 NEURON_CONFIG_WHITE_LIST = ["input_names", "output_names", "model_type"]
+
+DEFAULT_PATH_FOR_NEURON_CC_WRAPPER = Path(__file__).parent.as_posix()
 
 
 class CompileCacheHfProxy(CompileCache):
@@ -238,15 +240,6 @@ class CompileCacheHfProxy(CompileCache):
         return s
 
 
-def get_hub_cache():
-    HUB_CACHE = "aws-neuron/optimum-neuron-cache"
-    custom_hub_cache = load_custom_cache_repo_name_from_hf_home()
-    if custom_hub_cache is not None and len(custom_hub_cache) > 0:
-        return custom_hub_cache
-    else:
-        return os.getenv("CUSTOM_CACHE_REPO", HUB_CACHE)
-
-
 def create_hub_compile_cache_proxy(
     cache_url: Optional[CacheUrl] = None,
     cache_repo_id: Optional[str] = None,
@@ -254,7 +247,7 @@ def create_hub_compile_cache_proxy(
     if cache_url is None:
         cache_url = CacheUrl.get_cache_url()
     if cache_repo_id is None:
-        cache_repo_id = get_hub_cache()
+        cache_repo_id = get_hf_hub_cache_repo()
     default_cache = CompileCacheS3(cache_url) if cache_url.is_s3() else CompileCacheFs(cache_url)
     # Reevaluate endpoint and token (needed for tests altering the environment)
     endpoint = os.getenv("HF_ENDPOINT")
@@ -366,21 +359,23 @@ def hub_neuronx_cache(
         patch_everywhere("create_compile_cache", create_compile_cache, "libneuronxla")
 
 
-@requires_torch_neuronx
-@requires_torch_xla
 @contextmanager
-def patch_neuron_cc_wrapper():
+def patch_neuron_cc_wrapper(
+    directory: Optional[Union[str, Path]] = DEFAULT_PATH_FOR_NEURON_CC_WRAPPER, restore_path: bool = True
+):
     """
     Patches the `neuron_cc_wrapper` file to force it use our own version of it which essentially makes sure that it
     uses our caching system.
     """
+    context_manager = TemporaryDirectory() if directory is None else nullcontext(enter_result=directory)
     tmpdirname = ""
     try:
-        with TemporaryDirectory() as dirname:
+        with context_manager as dirname:
             tmpdirname = dirname
             src = Path(__file__).parent / "neuron_cc_wrapper"
             dst = Path(tmpdirname) / "neuron_cc_wrapper"
-            shutil.copy(src, dst)
+            if src != dst:
+                shutil.copy(src, dst)
 
             path = os.environ["PATH"]
             os.environ["PATH"] = f"{tmpdirname}:{path}"
@@ -389,7 +384,8 @@ def patch_neuron_cc_wrapper():
     except Exception as e:
         raise e
     finally:
-        os.environ["PATH"] = os.environ["PATH"].replace(f"{tmpdirname}:", "")
+        if restore_path:
+            os.environ["PATH"] = os.environ["PATH"].replace(f"{tmpdirname}:", "")
 
 
 @requires_torch_neuronx
@@ -418,7 +414,7 @@ def get_hub_cached_entries(
     model_id: str, mode: Union[Literal["training"], Literal["inference"], Mode], cache_repo_id: Optional[str] = None
 ):
     if cache_repo_id is None:
-        cache_repo_id = get_hub_cache()
+        cache_repo_id = get_hf_hub_cache_repo()
     # Allocate a Hub API with refreshed information (required for tests altering the env)
     endpoint = os.getenv("HF_ENDPOINT")
     token = get_token()

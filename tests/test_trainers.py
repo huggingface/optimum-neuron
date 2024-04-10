@@ -35,7 +35,6 @@ from optimum.neuron.training_args import NeuronTrainingArguments
 from optimum.neuron.utils.cache_utils import (
     get_neuron_cache_path,
     list_files_in_neuron_cache,
-    remove_ip_adress_from_path,
     set_neuron_cache_path,
 )
 from optimum.neuron.utils.testing_utils import is_trainium_test
@@ -140,16 +139,15 @@ class StagingNeuronTrainerTestCase(StagingTestMixin, TestCase):
             last_files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
             last_files_in_repo = [f for f in last_files_in_repo if not f.startswith(".")]
             last_files_in_cache = list_files_in_neuron_cache(get_neuron_cache_path(), only_relevant_files=True)
-            last_files_in_cache = [remove_ip_adress_from_path(p) for p in last_files_in_cache]
             # TODO: investigate that, not urgent.
-            # self.assertListEqual(
-            #     files_in_repo, last_files_in_repo, "No file should have been added to the Hub after first training."
-            # )
-            # self.assertListEqual(
-            #     files_in_cache,
-            #     last_files_in_cache,
-            #     "No file should have been added to the cache after first training.",
-            # )
+            self.assertListEqual(
+                files_in_repo, last_files_in_repo, "No file should have been added to the Hub after first training."
+            )
+            self.assertListEqual(
+                files_in_cache,
+                last_files_in_cache,
+                "No file should have been added to the cache after first training.",
+            )
 
             self.assertTrue(
                 second_training_duration < first_training_duration,
@@ -295,16 +293,15 @@ class StagingNeuronTrainerTestCase(StagingTestMixin, TestCase):
             last_files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
             last_files_in_repo = [f for f in last_files_in_repo if not f.startswith(".")]
             last_files_in_cache = list_files_in_neuron_cache(get_neuron_cache_path(), only_relevant_files=True)
-            last_files_in_cache = [remove_ip_adress_from_path(p) for p in last_files_in_cache]
             # TODO: investigate that, not urgent.
-            # self.assertListEqual(
-            #     files_in_repo, last_files_in_repo, "No file should have been added to the Hub after first training."
-            # )
-            # self.assertListEqual(
-            #     files_in_cache,
-            #     last_files_in_cache,
-            #     "No file should have been added to the cache after first training.",
-            # )
+            self.assertListEqual(
+                files_in_repo, last_files_in_repo, "No file should have been added to the Hub after first training."
+            )
+            self.assertListEqual(
+                files_in_cache,
+                last_files_in_cache,
+                "No file should have been added to the cache after first training.",
+            )
 
             self.assertTrue(
                 second_training_duration < first_training_duration,

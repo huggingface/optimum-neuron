@@ -145,7 +145,7 @@ def store_compilation_config(
     inline_weights_to_neff: bool,
     optlevel: str,
     model_type: Optional[str] = None,
-    task: str = None,
+    task: Optional[str] = None,
     input_names: Optional[List[str]] = None,
     output_names: Optional[List[str]] = None,
     output_attentions: bool = False,

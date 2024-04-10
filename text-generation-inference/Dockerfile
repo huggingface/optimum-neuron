@@ -53,14 +53,12 @@ RUN apt-get update -y \
     && apt-get clean
 RUN pip3 --no-cache-dir install --upgrade pip
 
-# VERSION is a mandatory parameter
-ARG VERSION
-RUN test -n ${VERSION:?}
-
 # Python server build image
 FROM base AS pyserver
 
-RUN apt-get update -y \
+ARG VERSION
+
+RUN test -n ${VERSION:?} && apt-get update -y \
  && apt-get install -y --no-install-recommends \
     make \
     python3-venv \
@@ -77,8 +75,10 @@ RUN VERBOSE=1 BUILDDIR=/pyserver/build PROTODIR=/pyserver/proto VERSION=${VERSIO
 # Neuron base image (used for deployment)
 FROM base AS neuron
 
+ARG VERSION
+
 # Install system prerequisites
-RUN apt-get update -y \
+RUN test -n ${VERSION:?} && apt-get update -y \
  && apt-get install -y --no-install-recommends \
     gnupg2 \
     wget \
@@ -109,7 +109,7 @@ RUN pip3 install \
 
 # Install HuggingFace packages
 RUN pip3 install \
-    hf_transfer
+    hf_transfer huggingface_hub
 
 # Install optimum-neuron
 COPY dist/optimum-neuron-${VERSION}.tar.gz optimum-neuron.tar.gz
@@ -138,6 +138,6 @@ ENTRYPOINT ["./entrypoint.sh"]
 
 # Final image
 FROM neuron
-
-ENTRYPOINT ["text-generation-launcher"]
+COPY text-generation-inference/tgi-entrypoint.sh text-generation-inference/tgi_env.py /
+ENTRYPOINT ["/tgi-entrypoint.sh"]
 CMD ["--json-output"]
