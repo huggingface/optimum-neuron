@@ -105,7 +105,7 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
                 # Resetting everything.
                 self.optimizer.grad_clipping = False
                 self.clip_grad_norm_to_perform = None
-            elif self.accelerator_state.distributed_type is DistributedType.TPU:
+            elif self.accelerator_state.distributed_type is DistributedType.XLA:
                 optimizer_args = {"closure": closure} if closure is not None else {}
                 # By default barrier=False, but making sure it's the case here since we use ParalleLoader.
                 xm.optimizer_step(self.optimizer, optimizer_args=optimizer_args, barrier=False)

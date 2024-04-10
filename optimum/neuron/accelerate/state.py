@@ -95,7 +95,7 @@ class NeuronPartialState(PartialState):
                 if os.environ.get("ACCELERATE_USE_AMP", "false") == "true":
                     set_neuron_cc_flags_for_torch_amp()
                 init_process_group()
-                self.distributed_type = DistributedType.TPU
+                self.distributed_type = DistributedType.XLA
                 self.num_processes = xm.xrt_world_size()
                 self.process_index = xm.get_ordinal()
                 self.local_process_index = xm.get_local_ordinal()
@@ -276,7 +276,7 @@ class NeuronAcceleratorState(AcceleratorState):
 
             self._autocast_backend = autocast_backend
 
-            if self.distributed_type == DistributedType.TPU:
+            if self.distributed_type == DistributedType.XLA:
                 if mixed_precision == "bf16":
                     if autocast_backend is AutocastBackend.AMP:
                         self.downcast_bfloat = True
