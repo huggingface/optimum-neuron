@@ -1331,9 +1331,8 @@ class AugmentTrainerForNeuronMixin:
                 ignore_keys_for_eval=ignore_keys_for_eval,
                 **kwargs,
             )
-        # TODO: remove comment.
-        # if not is_precompilation():
-        #     self.synchronize_hub_cache()
+        if not is_precompilation():
+            self.synchronize_hub_cache()
         return result
 
     def evaluate(
