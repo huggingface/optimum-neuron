@@ -54,7 +54,7 @@ from .utils import (
     ModelParallelismPlugin,
     NeuronDistributedType,
     get_tied_parameters_dict,
-    patch_accelerate_is_tpu_available,
+    patch_accelerate_is_torch_xla_available,
     tie_parameters,
 )
 from .utils.misc import create_patched_finfo
@@ -101,7 +101,7 @@ class NeuronAccelerator(Accelerator):
     ):
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
         # TODO: check that removing it does not break anything.
-        # patch_accelerate_is_tpu_available()
+        patch_accelerate_is_torch_xla_available()
 
         full_kwargs = args_and_kwargs_to_kwargs_only(
             super().__init__, args=args, kwargs=kwargs, include_default_values=True
@@ -549,12 +549,12 @@ class NeuronAccelerator(Accelerator):
             hook(self._models, weights, output_dir)
 
         save_location = save_accelerator_state(
-            output_dir, 
-            weights, 
-            optimizers, 
-            schedulers, 
+            output_dir,
+            weights,
+            optimizers,
+            schedulers,
             dataloaders,
-            self.state.process_index, 
+            self.state.process_index,
             self.scaler,
             save_on_each_node=self.project_configuration.save_on_each_node,
             safe_serialization=safe_serialization,
@@ -575,14 +575,21 @@ class NeuronAccelerator(Accelerator):
             logger.info(f"Parallel model and optimizer saved to the directory {output_dir}")
 
         return self._custom_save_state(
-            save_model_func, save_optimizer_func, output_dir=output_dir, safe_serialization=False, **save_model_func_kwargs
+            save_model_func,
+            save_optimizer_func,
+            output_dir=output_dir,
+            safe_serialization=False,
+            **save_model_func_kwargs,
         )
 
-    @patch_within_function(("accelerate.checkpointing.xm", xm), ignore_missing_attributes=True)
-    def save_state(self, output_dir: Optional[str] = None, safe_serialization: bool = True, **save_model_func_kwargs) -> str:
+    def save_state(
+        self, output_dir: Optional[str] = None, safe_serialization: bool = True, **save_model_func_kwargs
+    ) -> str:
         if self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
             return self.save_state_for_mp(output_dir=output_dir, **save_model_func_kwargs)
-        return super().save_state(output_dir=output_dir, safe_serialization=safe_serialization, **save_model_func_kwargs)
+        return super().save_state(
+            output_dir=output_dir, safe_serialization=safe_serialization, **save_model_func_kwargs
+        )
 
     def gather(self, tensor, out_of_graph: bool = False):
         return _xla_gather(tensor, out_of_graph=out_of_graph)

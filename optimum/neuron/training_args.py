@@ -29,7 +29,7 @@ from transformers.utils import (
 
 from ..utils import logging
 from .accelerate import NeuronAcceleratorState, NeuronPartialState
-from .accelerate.utils import ModelParallelismPlugin, patch_accelerate_is_tpu_available
+from .accelerate.utils import ModelParallelismPlugin, patch_accelerate_is_torch_xla_available
 from .utils import is_main_worker
 from .utils.patching import Patcher, patch_within_function
 from .utils.torch_xla_and_neuronx_initialization import set_neuron_cc_optlevel
@@ -111,7 +111,7 @@ class NeuronTrainingArgumentsMixin:
 
     def __post_init__(self):
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
-        patch_accelerate_is_tpu_available()
+        patch_accelerate_is_torch_xla_available()
 
         if self.fsdp != "":
             raise RuntimeError("FSDP is not supported.")

@@ -29,15 +29,29 @@ if TYPE_CHECKING:
         from neuronx_distributed.pipeline import NxDPPModel
 
 
-def is_tpu_available(check_device=True):
+def patched_accelerate_is_torch_xla_available(check_is_tpu=False, check_is_gpu=False):
     """
     Fake `is_tpu_available` that returns `is_torch_xla_available` to patch `accelerate`.
     """
     return is_torch_xla_available()
 
 
-def patch_accelerate_is_tpu_available():
-    patch_everywhere("is_tpu_available", is_tpu_available, module_name_prefix="accelerate")
+# TODO: get rid of this patch when it finally works without it.
+# Maybe it will when we moved to PT 2.1.
+def patch_accelerate_is_torch_xla_available():
+    if is_torch_xla_available():
+        import accelerate
+        import torch_xla.core.xla_model as xm
+
+        # Since `is_torch_xla_available` does not work properly for us, it does not import `xm`, which causes failure.
+        # We set it manually.
+        accelerate.accelerator.xm = xm
+        accelerate.state.xm = xm
+        accelerate.checkpointing.xm = xm
+
+    patch_everywhere(
+        "is_torch_xla_available", patched_accelerate_is_torch_xla_available, module_name_prefix="accelerate"
+    )
 
 
 _ORIG_TORCH_FINFO = torch.finfo
