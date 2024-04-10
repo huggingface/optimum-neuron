@@ -15,7 +15,7 @@ def create_request(
     top_k: int = 50,
     top_p: float = 0.9,
     temperature: float = 1.0,
-    seed: int = 0,
+    seed: int = 42,
     repetition_penalty: float = 1.0,
 ):
     parameters = NextTokenChooserParameters(

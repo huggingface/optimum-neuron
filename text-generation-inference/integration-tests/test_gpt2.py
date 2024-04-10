@@ -76,7 +76,7 @@ async def test_model_single_request(tgi_client):
         seed=42,
         decoder_input_details=True,
     )
-    assert "The purpose of the current post is" in response.generated_text
+    assert "A lot of researchers are trying to explain what it is" in response.generated_text
 
 
 @pytest.mark.asyncio

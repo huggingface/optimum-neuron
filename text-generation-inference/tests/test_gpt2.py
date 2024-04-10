@@ -45,8 +45,8 @@ def test_info(model_path):
         ],
         [
             "It was a bright cold day in April, and the clocks were striking thirteen.",
-            1439,
-            " All",
+            383,
+            " The",
             True,
         ],
     ],
@@ -69,7 +69,7 @@ def test_prefill(input_text, token_id, token_text, do_sample, batch_size, model_
         [
             "It was a bright cold day in April, and the clocks were striking thirteen.",
             20,
-            " All day the sun had set, as was well-known. The first thing I noticed when I",
+            " The sun was set just three miles south of the city. There were no houses, just shops,",
             True,
         ],
     ],

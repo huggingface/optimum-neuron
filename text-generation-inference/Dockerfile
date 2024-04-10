@@ -82,6 +82,7 @@ RUN apt-get update -y \
  && apt-get install -y --no-install-recommends \
     gnupg2 \
     wget \
+    python3-dev \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
