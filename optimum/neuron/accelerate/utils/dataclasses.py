@@ -22,7 +22,6 @@ from typing import TYPE_CHECKING, Dict, Optional, Tuple, Union
 import torch
 
 from ...distributed import ParallelizersManager
-from ...utils import is_torch_xla_available
 
 
 if TYPE_CHECKING:
