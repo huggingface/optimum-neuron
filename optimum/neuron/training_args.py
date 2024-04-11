@@ -99,12 +99,27 @@ class NeuronTrainingArgumentsMixin:
             )
         },
     )
-    num_ranks_per_loading_step: int = field(
-        default=-1,
+    num_local_ranks_per_step: int = field(
+        default=8,
         metadata={
             "help": (
-                "The number of ranks to use concurrently during weight initialization and loading when tensor "
-                "parallelism is enabled. If left unspecified, the maximum number of ranks will be used."
+                "The number of local ranks to use concurrently during checkpoiting, weight initialization and loading "
+                "when tensor parallelism is enabled. By default, it is set to 8."
+            )
+        },
+    )
+    use_xser: bool = field(
+        default=True,
+        metadata={
+            "help": "Whether to use `torch-xla` serialization when saving checkpoints when doing model parallelism"
+        },
+    )
+    async_save: bool = field(
+        default=False,
+        metadata={
+            "help": (
+                "Whether to use asynchronous saving method when doing model parallelism. It can boost saving "
+                "performance but will result in more host memory usage, increasing the risk of going OOM."
             )
         },
     )
@@ -157,7 +172,9 @@ class NeuronTrainingArgumentsMixin:
             pipeline_parallel_use_zero1_optimizer=self.zero_1,
             gradient_checkpointing=self.gradient_checkpointing,
             checkpoint_dir=resume_from_checkpoint,
-            num_ranks_per_loading_step=self.num_ranks_per_loading_step,
+            num_local_ranks_per_step=self.num_local_ranks_per_step,
+            use_xser=self.use_xser,
+            async_save=self.async_save,
         )
 
         if self.bf16 and self.half_precision_backend == "amp":

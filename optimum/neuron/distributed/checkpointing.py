@@ -23,7 +23,7 @@ from transformers.modeling_utils import shard_checkpoint
 from transformers.utils import SAFE_WEIGHTS_INDEX_NAME, SAFE_WEIGHTS_NAME, WEIGHTS_INDEX_NAME, WEIGHTS_NAME
 
 from ..utils.require_utils import requires_neuronx_distributed, requires_safetensors
-from .utils import TENSOR_PARALLEL_SHARDS_DIR_NAME, ParameterMetadata, compute_query_indices_for_rank
+from .utils import MODEL_PARALLEL_SHARDS_DIR_NAME, ParameterMetadata, compute_query_indices_for_rank
 
 
 def create_gqa_query_or_output_projection_weight_from_full_weight(
@@ -60,7 +60,9 @@ def create_gqa_query_or_output_projection_weight_from_full_weight(
 
 
 def consolidate_tensor_parallel_checkpoints(
-    sharded_checkpoints: List[Path], load_function: Callable[[Union[str, Path]], Dict[str, Any]]
+    sharded_checkpoints: List[Path],
+    load_function: Callable[[Union[str, Path]], Dict[str, Any]],
+    metadata: Dict[str, Any],
 ) -> Dict[str, "torch.Tensor"]:
     state_dicts = []
     sharded_checkpoints = sorted(sharded_checkpoints)
@@ -69,20 +71,17 @@ def consolidate_tensor_parallel_checkpoints(
             continue
         state_dicts.append(load_function(sharded_checkpoint.as_posix()))
 
-    parameter_names = state_dicts[0]["model"].keys()
+    parameter_names = state_dicts[0].keys()
     sharded_metadatas = {
-        name: [
-            (
-                ParameterMetadata(**state_dict["sharded_metadata"][name])
-                if name in state_dict["sharded_metadata"]
-                else ParameterMetadata("tied")
-            )
-            for state_dict in state_dicts
-        ]
+        name: (
+            ParameterMetadata(**metadata["sharded_metadata"][name])
+            if name in metadata["sharded_metadata"]
+            else ParameterMetadata("tied")
+        )
         for name in parameter_names
     }
 
-    gqa_qkv_metadata = state_dicts[0]["gqa_qkv_metadata"]
+    gqa_qkv_metadata = metadata["gqa_qkv_metadata"]
     original_parameter_names_to_gqa_qkv_names = gqa_qkv_metadata["original_names_to_gqa_qkv_names"]
     gqa_qkv_output_projections_names = gqa_qkv_metadata["output_projections_names"]
     gqa_qkv_names_to_original_names = {v: k for k, v in original_parameter_names_to_gqa_qkv_names.items()}
@@ -100,15 +99,15 @@ def consolidate_tensor_parallel_checkpoints(
 
         # For now all parameter metadatas are equal so it is enough to take the first element.
         # This might not be the case anymore when `ParameterMetadata` uses slices.
-        metadata = sharded_metadatas[name][0]
-        if metadata.is_tied:
-            consolidated_state_dict[original_name] = state_dicts[0]["model"][name].to("cpu")
+        sharded_metadata = sharded_metadatas[name]
+        if sharded_metadata.is_tied:
+            consolidated_state_dict[original_name] = state_dicts[0][name].to("cpu")
         else:
-            weights = [state_dict["model"][name] for state_dict in state_dicts]
+            weights = [state_dict[name] for state_dict in state_dicts]
             tp_size = len(weights)
             full_weight = torch.cat(
                 weights,
-                dim=metadata.partition_dim,
+                dim=sharded_metadata.partition_dim,
             )
             full_weight = full_weight.to("cpu")
             if weight_name in ["weight_k", "weight_v", "bias_k", "bias_v"]:
@@ -136,42 +135,46 @@ def consolidate_model_parallel_checkpoints(checkpoint_dir: Union[str, Path]) -> 
     if not isinstance(checkpoint_dir, Path):
         checkpoint_dir = Path(checkpoint_dir)
 
-    if checkpoint_dir.name != TENSOR_PARALLEL_SHARDS_DIR_NAME:
-        if (checkpoint_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME).is_dir():
-            checkpoint_dir = checkpoint_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME
+    if checkpoint_dir.name != MODEL_PARALLEL_SHARDS_DIR_NAME:
+        if (checkpoint_dir / MODEL_PARALLEL_SHARDS_DIR_NAME).is_dir():
+            checkpoint_dir = checkpoint_dir / MODEL_PARALLEL_SHARDS_DIR_NAME
         else:
             raise ValueError(f"Could not find the tensor parallel shards from {checkpoint_dir}")
 
-    # Regular case: the checkpoint was saved without xser.
-    sharded_checkpoints = list(checkpoint_dir.glob("tp_rank_*/checkpoint.pt"))
-    load_function = torch.load
+    model_checkpoint_dir = checkpoint_dir / "model"
 
-    # If no file was found, maybe the checkpoint was saved with xser.
-    if not sharded_checkpoints:
-        sharded_checkpoints = checkpoint_dir.glob("tp_rank_*")
-        sharded_checkpoints = [p for p in sharded_checkpoints if not p.name.endswith("tensors")]
+    # Case 1: the checkpoint was saved with xser.
+    sharded_checkpoints = list(model_checkpoint_dir.glob("dp_rank*.tensors"))
+    if sharded_checkpoints:
+        sharded_checkpoints = model_checkpoint_dir.glob("dp_rank_*")
+        sharded_checkpoints = [
+            p for p in sharded_checkpoints if not (p.name.endswith("info.pt") or p.name.endswith("tensors"))
+        ]
         load_function = _xser_load
 
+    # Case 2: If no file was found, maybe the checkpoint was saved without xser.
     if not sharded_checkpoints:
-        raise ValueError(f"Could not find any sharded checkpoint in {checkpoint_dir.as_posix()}")
+        sharded_checkpoints = list(model_checkpoint_dir.glob("dp_rank_*.pt"))
+        load_function = torch.load
 
-    def get_checkpoint_name(checkpoint_path: Path) -> str:
-        name = checkpoint_path.name
-        if name == "checkpoint.pt":
-            name = checkpoint_path.parent.name
-        return name
+    if not sharded_checkpoints:
+        raise ValueError(f"Could not find any sharded checkpoint in {model_checkpoint_dir.as_posix()}")
 
-    pp_size = max((int(get_checkpoint_name(checkpoint_path)[-2:]) for checkpoint_path in sharded_checkpoints)) + 1
+    pp_size = max((int(checkpoint_path.stem[-2:]) for checkpoint_path in sharded_checkpoints)) + 1
     checkpoints_grouped_by_pp_ranks = [[] for _ in range(pp_size)]
+    metadatas = []
     for pp_rank in range(pp_size):
         for checkpoint_path in sharded_checkpoints:
-            checkpoint_name = get_checkpoint_name(checkpoint_path)
+            checkpoint_name = checkpoint_path.stem
             if int(checkpoint_name[-2:]) == pp_rank:
                 checkpoints_grouped_by_pp_ranks[pp_rank].append(checkpoint_path)
+        metadatas.append(torch.load(checkpoint_dir / f"mp_metadata_pp_rank_{pp_rank}.pt"))
 
     consolidated_state_dict = {}
-    for checkpoint_group_for_pp_rank in checkpoints_grouped_by_pp_ranks:
-        consolidated_for_pp_rank = consolidate_tensor_parallel_checkpoints(checkpoint_group_for_pp_rank, load_function)
+    for pp_rank, checkpoint_group_for_pp_rank in enumerate(checkpoints_grouped_by_pp_ranks):
+        consolidated_for_pp_rank = consolidate_tensor_parallel_checkpoints(
+            checkpoint_group_for_pp_rank, load_function, metadatas[pp_rank]
+        )
         consolidated_state_dict.update(**consolidated_for_pp_rank)
 
     for key, tensor in consolidated_state_dict.items():

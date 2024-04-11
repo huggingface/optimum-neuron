@@ -59,7 +59,9 @@ class ModelParallelismPlugin:
     pipeline_parallel_use_zero1_optimizer: bool = False
     gradient_checkpointing: bool = False
     checkpoint_dir: Optional[Union[str, Path]] = None
-    num_ranks_per_loading_step: int = -1
+    num_local_ranks_per_step: int = 8
+    use_xser: bool = True
+    async_save: bool = False
 
     def __post_init__(self):
         if self.tensor_parallel_size < 1:
@@ -91,6 +93,6 @@ class ModelParallelismPlugin:
             pipeline_parallel_use_zero1_optimizer=self.pipeline_parallel_use_zero1_optimizer,
             pipeline_parallel_gradient_checkpointing_enabled=self.gradient_checkpointing,
             checkpoint_dir=self.checkpoint_dir,
-            num_ranks_per_loading_step=self.num_ranks_per_loading_step,
+            num_local_ranks_per_step=self.num_local_ranks_per_step,
         )
         return parallelized_model
