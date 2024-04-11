@@ -23,7 +23,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
-from packaging import version
 from transformers import AutoFeatureExtractor, AutoProcessor, AutoTokenizer, CLIPProcessor, PretrainedConfig
 from transformers.modeling_utils import _add_variant
 from transformers.utils import (
@@ -44,7 +43,6 @@ from transformers.utils.hub import get_checkpoint_shard_files
 from ...utils import is_diffusers_available, logging
 from .import_utils import is_torch_neuronx_available, is_torch_xla_available
 from .require_utils import requires_neuronx_distributed, requires_safetensors, requires_torch_xla
-from .version_utils import get_torch_version
 
 
 if is_torch_neuronx_available():
@@ -575,11 +573,6 @@ def replace_weights(
     """
     Replaces the weights in a Neuron Model with weights from another model, the original neuron model should have separated weights(by setting `inline_weights_to_neff=Talse` during the tracing).
     """
-    torch_version = get_torch_version()
-    if version.parse(torch_version) >= version.parse("2.0.0"):
-        raise RuntimeError(
-            "Weights Neff separation is not yet supported by Neuron SDK for PyTorch 2.*. You can downgrade your PyTorch version to 1.13.1."
-        )
 
     if isinstance(weights, torch.nn.Module):
         weights = weights.state_dict()
