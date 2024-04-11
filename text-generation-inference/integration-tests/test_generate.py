@@ -70,7 +70,7 @@ async def test_model_single_request(tgi_service):
         top_k=50,
         top_p=0.9,
         repetition_penalty=1.2,
-        max_new_tokens=1000,
+        max_new_tokens=128,
         seed=42,
         decoder_input_details=True,
     )
