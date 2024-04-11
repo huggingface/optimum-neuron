@@ -364,13 +364,16 @@ class TestCommonDistributed(DistributedTest):
         safetensors_checkpoint_exists = "model.safetensors" in tmpdir_content
 
         if tp_size > 1 or pp_size > 1:
-            ref_data_file_name = f"dp_rank_{dp_rank:02d}_tp_rank_{tp_rank:02d}_pp_rank_{pp_rank:02d}"
-            tensors_directory = f"{ref_data_file_name}.tensors"
-            assert not pytorch_checkpoint_exists
-            assert not safetensors_checkpoint_exists
-            assert MODEL_PARALLEL_SHARDS_DIR_NAME in tmpdir_content
-            assert ref_data_file_name in tmpdir_content
-            assert tensors_directory in tmpdir_content
+            if dp_rank == 0:
+                stem = f"dp_rank_{dp_rank:02d}_tp_rank_{tp_rank:02d}_pp_rank_{pp_rank:02d}"
+                ref_data_file_name = f"{stem}.pt"
+                tensors_directory = f"{stem}.pt.tensors"
+                assert not pytorch_checkpoint_exists
+                assert not safetensors_checkpoint_exists
+                assert MODEL_PARALLEL_SHARDS_DIR_NAME in tmpdir_content
+                assert "model" in tmpdir_content
+                assert ref_data_file_name in tmpdir_content
+                assert tensors_directory in tmpdir_content
         else:
             assert pytorch_checkpoint_exists or safetensors_checkpoint_exists
 
