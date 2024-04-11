@@ -418,6 +418,13 @@ class NeuronAccelerator(Accelerator):
         model.config.output_attentions = False
         model.config.output_hidden_states = False
 
+        # It is needed for now otherwise sdpa is used since PT > 2.* is available.
+        for module in model.modules():
+            if getattr(module, "_use_sdpa", False):
+                module._use_sdpa = False
+            if getattr(module, "_use_flash_attention_2", False):
+                module._use_flash_attention_2 = False
+
         if self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
             model = self._prepare_model_for_mp(
                 model, device_placement=device_placement, evaluation_mode=evaluation_mode
