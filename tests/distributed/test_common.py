@@ -26,7 +26,7 @@ from optimum.neuron.accelerate.optimizer import NeuronAcceleratedOptimizer
 from optimum.neuron.accelerate.utils.dataclasses import NeuronDistributedType
 from optimum.neuron.distributed.checkpointing import consolidate_model_parallel_checkpoints_to_unified_checkpoint
 from optimum.neuron.distributed.utils import (
-    TENSOR_PARALLEL_SHARDS_DIR_NAME,
+    MODEL_PARALLEL_SHARDS_DIR_NAME,
     make_optimizer_constructor_lazy,
 )
 from optimum.neuron.utils.import_utils import (
@@ -141,6 +141,10 @@ class TestCommonDistributed(DistributedTest):
 
     @pytest.fixture(scope="class", params=[None, 0.01], ids=["without_clip_grad_norm", "with_clip_grad_norm"])
     def max_grad_norm(self, request):
+        return request.param
+
+    @pytest.fixture(scope="class", params=[False, True], ids=["xser_disabled", "xser_enabled"])
+    def use_xser(self, request):
         return request.param
 
     def test_optimizer_parameters_match_model_parameters(
@@ -360,13 +364,16 @@ class TestCommonDistributed(DistributedTest):
         safetensors_checkpoint_exists = "model.safetensors" in tmpdir_content
 
         if tp_size > 1 or pp_size > 1:
-            ref_data_file_name = f"tp_rank_{tp_rank:02d}_pp_rank_{pp_rank:02d}"
-            tensors_directory = f"{ref_data_file_name}.tensors"
-            assert not pytorch_checkpoint_exists
-            assert not safetensors_checkpoint_exists
-            assert TENSOR_PARALLEL_SHARDS_DIR_NAME in tmpdir_content
-            assert ref_data_file_name in tmpdir_content
-            assert tensors_directory in tmpdir_content
+            if dp_rank == 0:
+                stem = f"dp_rank_{dp_rank:02d}_tp_rank_{tp_rank:02d}_pp_rank_{pp_rank:02d}"
+                ref_data_file_name = f"{stem}.pt"
+                tensors_directory = f"{stem}.pt.tensors"
+                assert not pytorch_checkpoint_exists
+                assert not safetensors_checkpoint_exists
+                assert MODEL_PARALLEL_SHARDS_DIR_NAME in tmpdir_content
+                assert "model" in tmpdir_content
+                assert ref_data_file_name in tmpdir_content
+                assert tensors_directory in tmpdir_content
         else:
             assert pytorch_checkpoint_exists or safetensors_checkpoint_exists
 
@@ -434,7 +441,14 @@ class TestCommonDistributed(DistributedTest):
         ],
     )
     def test_consolidate_model_parallel_checkpoints(
-        self, tmpdir, world_size, tp_size, pp_size, kv_size_multiplier, model_name
+        self,
+        tmpdir,
+        world_size,
+        tp_size,
+        pp_size,
+        kv_size_multiplier,
+        model_name,
+        use_xser,
     ):
         orig_model = get_model(
             LlamaForCausalLM,
@@ -446,7 +460,9 @@ class TestCommonDistributed(DistributedTest):
             # Saving to pytorch instead of safetensors because it fails otherwise for pickling issues with distributed tests.
             orig_model.save_pretrained(orig_model_path, safe_serialization=False)
 
-        accelerator = create_accelerator_for_mp(tp_size, pp_size, kv_size_multiplier=kv_size_multiplier)
+        accelerator = create_accelerator_for_mp(
+            tp_size, pp_size, kv_size_multiplier=kv_size_multiplier, use_xser=use_xser
+        )
         _ = accelerator.prepare(orig_model)
 
         output_dir = Path(tmpdir) / "parallel_model"

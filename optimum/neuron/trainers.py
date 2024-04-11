@@ -468,7 +468,14 @@ class AugmentTrainerForNeuronMixin:
 
             # This mark_step is needed to avoid hang issues.
             xm.mark_step()
-            Parallelizer.save_model_checkpoint(self.model, output_dir, as_sharded=True, optimizer=self.optimizer)
+            Parallelizer.save_model_sharded_checkpoint(
+                self.model,
+                output_dir,
+                optimizer=self.optimizer,
+                use_xser=self.accelerator.state.mp_plugin.use_xser,
+                async_save=self.accelerator.state.mp_plugin.async_save,
+                num_local_ranks_per_step=self.accelerator.state.mp_plugin.num_local_ranks_per_step,
+            )
         else:
             safe_save_function_patcher = Patcher(
                 [("transformers.modeling_utils.safe_save_file", torch_xla_safe_save_file)]
@@ -509,10 +516,6 @@ class AugmentTrainerForNeuronMixin:
 
                     self._save_xla(output_dir)
 
-            if not is_precompilation() and not self.is_in_train:
-                # We do not synchronize each time we save a checkpoint during training.
-                self.synchronize_hub_cache()
-
             # Push to the Hub when `save_model` is called by the user.
             if self.args.push_to_hub and not _internal_call:
                 self.push_to_hub(commit_message="Model save")
@@ -538,10 +541,9 @@ class AugmentTrainerForNeuronMixin:
 
         self.save_model(output_dir, _internal_call=True)
 
-        # The optimizer state is saved in the shard alongside with the model parameters when doing TP.
+        # The optimizer state is saved in the shard alongside with the model parameters when doing model-parallelism.
         if self.accelerator.distributed_type is not NeuronDistributedType.MODEL_PARALLELISM:
             xm.rendezvous("saving_optimizer_states")
-            # TODO: how to handle pp?
             xm.save(self.optimizer.state_dict(), os.path.join(output_dir, OPTIMIZER_NAME))
 
         with warnings.catch_warnings(record=True) as caught_warnings:
