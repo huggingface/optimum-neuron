@@ -46,7 +46,6 @@ from .utils import (
     OptimumNeuronFXTracer,
     ParameterMetadata,
     WeightInformation,
-    apply_activation_checkpointing,
     get_linear_weight_info,
     get_output_projection_qualified_names_after_qga_qkv_replacement,
     get_parameter_names_mapping_after_gqa_qkv_replacement,
@@ -740,8 +739,6 @@ class Parallelizer(ABC):
                     use_zero1_optimizer=pipeline_parallel_use_zero1_optimizer,
                     tracer_cls=OptimumNeuronFXTracer,
                 )
-                if pipeline_parallel_gradient_checkpointing_enabled:
-                    apply_activation_checkpointing(model)
 
             xm.rendezvous("End of pipeline paralellism")
             if is_main_worker():
