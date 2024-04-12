@@ -26,8 +26,8 @@ $ export LLMPerf=<path-to-llmperf>
 
 ### Launch benchmark run
 
-The benchmark script takes the model_id and number of concurrent users as parameters.
-The model_id must match the one corresponding to the selected `.env` file.
+The benchmark script takes the `model_id` and number of concurrent users as parameters.
+The `model_id` must match the one corresponding to the selected `.env` file.
 
 ```
 $ ./benchmark.sh NousResearch/Llama-2-7b-chat-hf 128
