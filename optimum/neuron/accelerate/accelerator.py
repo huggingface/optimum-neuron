@@ -57,7 +57,7 @@ from .utils import (
     patch_accelerate_is_tpu_available,
     tie_parameters,
 )
-from .utils.misc import create_patched_finfo
+from .utils.misc import apply_activation_checkpointing, create_patched_finfo
 from .utils.operations import _xla_gather
 
 
@@ -418,13 +418,24 @@ class NeuronAccelerator(Accelerator):
         model.config.output_attentions = False
         model.config.output_hidden_states = False
 
+        # It is needed for now otherwise sdpa is used since PT > 2.* is available.
+        for module in model.modules():
+            if getattr(module, "_use_sdpa", False):
+                module._use_sdpa = False
+            if getattr(module, "_use_flash_attention_2", False):
+                module._use_flash_attention_2 = False
+
         if self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
-            return self._prepare_model_for_mp(
+            model = self._prepare_model_for_mp(
                 model, device_placement=device_placement, evaluation_mode=evaluation_mode
             )
-        move_model_to_device(model, xm.xla_device())
-        device_placement = False
-        return super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
+            apply_activation_checkpointing(model)
+            return model
+        else:
+            apply_activation_checkpointing(model)
+            move_model_to_device(model, xm.xla_device())
+            device_placement = False
+            return super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
 
     def backward(self, loss, **kwargs):
         if self.distributed_type != DistributedType.DEEPSPEED:

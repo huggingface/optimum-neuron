@@ -342,7 +342,6 @@ def export_models(
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         try:
-
             # TODO: Remove after the weights/neff separation compilation of sdxl is patched by a neuron sdk release: https://github.com/aws-neuron/aws-neuron-sdk/issues/859
             if not inline_weights_to_neff and getattr(sub_neuron_config, "is_sdxl", False):
                 logger.warning(
