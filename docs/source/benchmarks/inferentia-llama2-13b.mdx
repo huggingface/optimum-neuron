@@ -25,42 +25,37 @@ For this benchmark we will use the following configurations:
 | Llama2 13b BS1  | 1          | 4096            |
 | Llama2 13b BS4  | 4          | 4096            |
 | Llama2 13b BS8  | 8          | 4096            |
+| Llama2 13b BS16 | 16         | 4096            |
+| Llama2 13b BS32 | 32         | 4096            |
 
-*Note: all models are compiled to use the full extent of cores available on the `inf2.48xlarge` instance.*
+*Note: all models are compiled to use all 12 devices corresponding to 24 cores on the `inf2.48xlarge` instance.*
 
 *Note: please refer to the [inferentia2 product page](https://aws.amazon.com/ec2/instance-types/inf2/) for details on the available instances.*
 
-To evaluate the models, we generate tokens up to a total sequence length of 1024, starting from
-256 input tokens (i.e. we generate 256, 512 and 768 tokens).
+## Time to first token
 
-## Encoding time (time to first token)
-
-The encoding time or time to first token is the time required to process the input tokens and generate the first output token.
+The time to first token is the time required to process the input tokens and generate the first output token.
 It is a very important metric, as it corresponds to the latency directly perceived by the user when streaming generated tokens.
 
-We test the encoding time for increasing context sizes, 256 input tokens corresponding roughly to a typical Q/A usage,
-while 768 is more typical of a Retrieval Augmented Generation (RAG) use-case.
+We test the time to first token for increasing context sizes, from a typical Q/A usage, to heavy Retrieval Augmented Generation (RAG) use-cases.
 
-Encoding time is expressed in **seconds**.
+Time to first token is expressed in **seconds**.
 
-![Llama2 13b inferentia2 encoding-time](https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/benchmarks/inferentia-llama2-7b/encoding_times.png "Encoding time")
+![Llama2 13b inferentia2 TTFT](https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/benchmarks/inferentia-llama2-13b/ttft.png "Time to first token")
 
-## End-to-end Latency
+## Inter-token Latency
 
-The end-to-end latency corresponds to the total time to reach a sequence length of 1024 tokens.
+The inter-token latency corresponds to the average time elapsed between two generated tokens.
 
-It therefore includes the encoding and generation time.
+It is expressed in **milliseconds**.
 
-Latency is expressed in **seconds**.
-
-![Llama2 13b inferentia2 end-to-end latency](https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/benchmarks/inferentia-llama2-7b/latencies.png "Latency")
+![Llama2 13b inferentia2 inter-token latency](https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/benchmarks/inferentia-llama2-13b/latency.png "Inter-token latency")
 
 ### Throughput
 
-We adopt the same convention as other benchmarks to evaluate the throughput, by dividing the end-to-end
-latency by the sum of both input and output tokens.
-In other words, we divide the end-to-end latency by `batch_size * sequence_length` to obtain the number of generated tokens per second.
+Unlike some other benchmarks, we evaluate the throughput using generated tokens only, by dividing their number
+by the end-to-end latency.
 
 Throughput is expressed in **tokens/second**.
 
-![Llama2 13b inferentia2 throughput](https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/benchmarks/inferentia-llama2-7b/throughputs.png "Throughput")
+![Llama2 13b inferentia2 throughput](https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/benchmarks/inferentia-llama2-13b/throughput.png "Throughput")

@@ -50,8 +50,17 @@ jobs:
           sudo apt install gawk -y
           source aws_neuron_venv_pytorch/bin/activate
           HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} make tgi_test
-      - name: Run integration tests
+      - name: Build docker image
         shell: bash
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} make tgi_docker_test
+          make neuronx-tgi
+      - name: Install integration tests prerequisites
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          python -m pip install -r text-generation-inference/integration-tests/requirements.txt
+      - name: Run TGI docker tests
+        shell: bash
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} python -m pytest -sv text-generation-inference/integration-tests
