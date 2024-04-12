@@ -29,7 +29,7 @@ def run(model_id, inc_length, max_length, json_path=None):
     model = NeuronModelForCausalLM.from_pretrained(model_id, export=False, low_cpu_mem_usage=True)
 
     def get_input_ids(tokens, batch_size, input_length):
-        return tokens.input_ids[:, :input_length].repeat((batch_size, 1))
+        return tokens.input_ids[0, :input_length].repeat((batch_size, 1))
 
     neuron_config = getattr(model.config, "neuron")
     benchmark = {"neuron_config": neuron_config, "results": []}
