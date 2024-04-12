@@ -1,4 +1,3 @@
-import pprint
 
 import requests
 from prometheus_client.parser import text_string_to_metric_families
@@ -56,12 +55,13 @@ def get_node_results(node_url):
         "avg_time_to_first_token": avg_queue_duration + (prefill_time / num_requests),
     }
 
+
 results = []
 for port in [8081, 8082, 8083]:
     results.append(get_node_results(f"http://0.0.0.0:{port}"))
 
 for metric in results[0]:
     value = sum([result[metric] for result in results])
-    if metric.startswith('avg'):
+    if metric.startswith("avg"):
         value /= len(results)
     print(f"{metric} : {value:.3f}")
