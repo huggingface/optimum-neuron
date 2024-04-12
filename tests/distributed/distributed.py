@@ -35,8 +35,15 @@ from _pytest.fixtures import FixtureLookupError
 from _pytest.outcomes import Skipped
 
 from optimum.neuron.utils.cache_utils import get_num_neuron_cores
-from optimum.neuron.utils.import_utils import is_neuronx_distributed_available, is_torch_xla_available
+from optimum.neuron.utils.import_utils import (
+    is_neuronx_distributed_available,
+    is_torch_neuronx_available,
+    is_torch_xla_available,
+)
 
+
+if is_torch_neuronx_available():
+    import torch_neuronx
 
 if is_torch_xla_available():
     import torch_xla.distributed.xla_backend as xbn
@@ -125,9 +132,10 @@ class DistributedExec(ABC):
         return fixture_kwargs
 
     def _launch_procs(self, num_procs, tp_size, pp_size):
-        if not is_torch_xla_available() or not is_neuronx_distributed_available():
+        if not is_torch_neuronx_available() or not is_torch_xla_available() or not is_neuronx_distributed_available():
             raise RuntimeError(
-                "The `torch_xla` and `neuronx_distributed` packages are required to run a distributed test."
+                "The `torch_neuronx`, `torch_xla` and `neuronx_distributed` packages are required to run a distributed "
+                "test."
             )
 
         # Verify we have enough accelerator devices to run this test
@@ -140,7 +148,11 @@ class DistributedExec(ABC):
 
         # Set start method to `forkserver` (or `fork`)
         mp.set_start_method("forkserver", force=True)
-        os.environ["TORCHELASTIC_RUN_ID"] = str(uuid.uuid4())
+
+        # We cannot set environment variable `TORCHELASTIC_RUN_ID` here because `torch_neuronx` will
+        # configure PJRT if it is set. Instead we store the value and set it once the other environment
+        # variables to simulate a `torchrun` execution (e.g. `LOCAL_RANK`, `RANK`, `WORLD_SIZE`, ...) can be set.
+        self.torchelastic_run_id = str(uuid.uuid4())
 
         # Create process pool or use cached one
         master_port = None
@@ -194,6 +206,13 @@ class DistributedExec(ABC):
                 os.environ["LOCAL_WORLD_SIZE"] = str(num_procs)
                 # Unit tests do not support multi-node so there is only one group in our case
                 os.environ["GROUP_RANK"] = "0"
+
+                if not hasattr(self, "torchelastic_run_id"):
+                    raise RuntimeError("self.torchelastic_run_id was not set, it is needed to run a distributed test.")
+                os.environ["TORCHELASTIC_RUN_ID"] = self.torchelastic_run_id
+
+                # Now that the environment has been set, we can configure the PJRT environment.
+                torch_neuronx.xla.configure_pjrt_environment()
 
             if self.init_distributed:
                 dist.init_process_group(backend=self.backend, rank=local_rank, world_size=num_procs)
