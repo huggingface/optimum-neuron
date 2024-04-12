@@ -75,8 +75,8 @@ async def test_model_single_request(tgi_service):
         decoder_input_details=True,
     )
     sample_expectations = {
-        "gpt2": "A great book called the Book of Deep Learning has great information about it",
-        "llama": "Deep learning is a branch of Machine Learning, based on Artificial Intelligence",
+        "gpt2": "A lot of researchers have tried to make a broad, intuitive definition of Deep Learning",
+        "llama": "Deep Learning is a technique for training artificial neural networks",
     }
     assert sample_expectations[service_name] in response.generated_text
 
