@@ -20,10 +20,12 @@ The Neuron Model Cache is hosted on the [Hugging Face Hub](https://huggingface.c
 Before training a Transformers or Diffusion model or loading a NeuronModelForXXX on Neuron platforms, it needs to be exported to neuron format
 with [`torch-neuronx`](https://github.com/aws-neuron/aws-neuron-samples/tree/master/torch-neuronx).
 
-When exporting a model, [`torch-neuronx`](https://github.com/aws-neuron/aws-neuron-samples/tree/master/torch-neuronx) will:
+When exporting a model, [`torch-neuronx`](https://github.com/aws-neuron/aws-neuron-samples/tree/master/torch-neuronx) will either:
 
 - 1st approach: convert it to a set of [XLA](https://github.com/pytorch/xla/) subgraphs, and compile each subgraph with the neuronx compiler into a Neuron Executable File Format (NEFF) binary file(eg. training and inference of llm). 
-or
+
+Or
+
 - 2nd approach: recorde one graph, compile it with the neuronx-cc compiler to a NEFF binary file, and serialize as a TorchScript module(eg. inference of encoders, stable diffusion and seq2seq models).
 
 The graph recording is relatively fast, but the compilation takes a lot of time.
@@ -50,7 +52,7 @@ If the NEFF files / Neuron models are cached, they will be fetched from the hub 
 
 The Optimum Neuron Cache is built on top of the [NeuronX compiler cache](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-features/neuron-caching.html).
 
-It is important to understand that the cache operates on NEFF binaries, and not on the model itself.
+It is important to understand that the cache of training / models applying `transformers_neuronx`operates on NEFF binaries, and not on the model itself.
 
 As explained previously, each model exported to Neuron using the `NeuronTrainer` or `NeuronModelForCausalLM` is composed of [XLA](https://github.com/pytorch/xla/) subgraphs.
 
