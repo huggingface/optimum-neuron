@@ -15,7 +15,6 @@
 """Defines Trainer subclasses to perform training on AWS Neuron instances."""
 
 import copy
-import glob
 import math
 import os
 import random
@@ -64,7 +63,7 @@ from transformers.trainer_utils import (
 from transformers.training_args import ParallelMode
 from transformers.utils import WEIGHTS_NAME, is_apex_available, is_sagemaker_mp_enabled
 
-from ..utils import check_if_transformers_greater, logging
+from ..utils import logging
 from .accelerate import NeuronAccelerator, NeuronDistributedType
 from .distributed import Parallelizer, ParallelizersManager
 from .distributed.utils import make_optimizer_constructor_lazy
@@ -77,25 +76,22 @@ from .utils.cache_utils import (
     get_hf_hub_cache_repos,
     get_model_name_or_path,
     get_neuron_cache_path,
-    get_neuronxcc_version,
     get_num_neuron_cores_used,
     has_write_access_to_repo,
 )
 from .utils.hub_neuronx_cache import ModelCacheEntry, hub_neuronx_cache, patch_neuron_cc_wrapper, synchronize_hub_cache
-from .utils.misc import is_main_worker
+from .utils.misc import is_main_worker, is_precompilation, torch_xla_safe_save_file
 from .utils.patching import patch_everywhere
 from .utils.require_utils import requires_neuronx_distributed, requires_torch_neuronx
 from .utils.training_utils import (
-    TRANSFORMERS_MIN_VERSION_USE_ACCELERATE,
     get_model_param_count,
     is_main_worker_for_metrics,
     is_main_worker_for_metrics_method,
-    is_precompilation,
     is_topology_supported,
     patch_generation_mixin_to_neuron_generation_mixin,
     skip_first_batches,
-    torch_xla_safe_save_file,
 )
+from .utils.version_utils import get_neuronxcc_version
 
 
 if is_apex_available():
@@ -153,14 +149,8 @@ class AugmentTrainerForNeuronMixin:
                 if training_args.half_precision_backend == "amp":
                     self.use_amp = True
 
-        self.validate_args(training_args)
         if is_precompilation():
             self.prepare_args_for_precompilation(training_args)
-
-        if check_if_transformers_greater(TRANSFORMERS_MIN_VERSION_USE_ACCELERATE):
-            import transformers
-
-            transformers.trainer.Accelerator = NeuronAccelerator
 
         super().__init__(*args, **kwargs)
 
@@ -170,13 +160,6 @@ class AugmentTrainerForNeuronMixin:
             is_local_process_zero=self.is_local_process_zero(),
             is_world_process_zero=is_main_worker_for_metrics(),
         )
-
-        # That's the case for Transformers < 4.30.0
-        if not hasattr(self, "is_fsdp_enabled"):
-            self.is_fsdp_enabled = False
-
-        if self.is_fsdp_enabled and self.args.do_eval:
-            raise ValueError("Evaluation is not supported with XLA FSDP yet.")
 
         if self.args.local_rank <= 0:
             logger.setLevel(logging.INFO)
@@ -239,9 +222,6 @@ class AugmentTrainerForNeuronMixin:
             if is_main_worker():
                 logger.info("Disabling prediction during precompilation as this is not well supported yet.")
             args.do_predict = False
-
-    def validate_args(self, args: "TrainingArguments"):
-        pass
 
     def create_accelerator_and_postprocess(self):
         # create accelerator object
@@ -307,7 +287,7 @@ class AugmentTrainerForNeuronMixin:
     def get_optimizer_cls_and_kwargs(args: TrainingArguments) -> Tuple[Any, Any]:
         optimizer_cls, optimizer_kwargs = transformers_get_optimizer_cls_and_kwargs(args)
         lazy_load = args.mp_plugin.should_parallelize or args.zero_1
-        if check_if_transformers_greater("4.30.0") and lazy_load:
+        if lazy_load:
             optimizer_cls = make_optimizer_constructor_lazy(optimizer_cls)
         return optimizer_cls, optimizer_kwargs
 
@@ -488,7 +468,14 @@ class AugmentTrainerForNeuronMixin:
 
             # This mark_step is needed to avoid hang issues.
             xm.mark_step()
-            Parallelizer.save_model_checkpoint(self.model, output_dir, as_sharded=True, optimizer=self.optimizer)
+            Parallelizer.save_model_sharded_checkpoint(
+                self.model,
+                output_dir,
+                optimizer=self.optimizer,
+                use_xser=self.accelerator.state.mp_plugin.use_xser,
+                async_save=self.accelerator.state.mp_plugin.async_save,
+                num_local_ranks_per_step=self.accelerator.state.mp_plugin.num_local_ranks_per_step,
+            )
         else:
             safe_save_function_patcher = Patcher(
                 [("transformers.modeling_utils.safe_save_file", torch_xla_safe_save_file)]
@@ -529,10 +516,6 @@ class AugmentTrainerForNeuronMixin:
 
                     self._save_xla(output_dir)
 
-            if not is_precompilation() and not self.is_in_train:
-                # We do not synchronize each time we save a checkpoint during training.
-                self.synchronize_hub_cache()
-
             # Push to the Hub when `save_model` is called by the user.
             if self.args.push_to_hub and not _internal_call:
                 self.push_to_hub(commit_message="Model save")
@@ -558,10 +541,9 @@ class AugmentTrainerForNeuronMixin:
 
         self.save_model(output_dir, _internal_call=True)
 
-        # The optimizer state is saved in the shard alongside with the model parameters when doing TP.
+        # The optimizer state is saved in the shard alongside with the model parameters when doing model-parallelism.
         if self.accelerator.distributed_type is not NeuronDistributedType.MODEL_PARALLELISM:
             xm.rendezvous("saving_optimizer_states")
-            # TODO: how to handle pp?
             xm.save(self.optimizer.state_dict(), os.path.join(output_dir, OPTIMIZER_NAME))
 
         with warnings.catch_warnings(record=True) as caught_warnings:
@@ -615,34 +597,14 @@ class AugmentTrainerForNeuronMixin:
 
     def _load_from_checkpoint(self, resume_from_checkpoint, model=None):
         # It has been handled during model parallelization.
-        # TODO: how to handle pp?
         if self.accelerator.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
             return
         super()._load_from_checkpoint(resume_from_checkpoint, model=model)
 
-    def _load_optimizer_and_scheduler_for_xla_fsdp(self, checkpoint):
-        checkpoint_file_exists = (
-            glob.glob(os.path.join(checkpoint, OPTIMIZER_NAME) + "_*")
-            if is_sagemaker_mp_enabled()
-            else os.path.isfile(os.path.join(checkpoint, OPTIMIZER_NAME))
-        )
-        if checkpoint_file_exists and os.path.isfile(os.path.join(checkpoint, SCHEDULER_NAME)):
-            self.accelerator.state.fsdp_plugin.load_optimizer(self.accelerator, self.optimizer, self.model, checkpoint)
-
-            with warnings.catch_warnings(record=True) as caught_warnings:
-                lr_scheduler_state = torch.load(os.path.join(checkpoint, SCHEDULER_NAME), map_location="cpu")
-            reissue_pt_warnings(caught_warnings)
-            xm.send_cpu_data_to_device(lr_scheduler_state, self.args.device)
-            self.lr_scheduler.load_state_dict(lr_scheduler_state)
-
-        # TODO: load grad scaling?
-
     def _load_optimizer_and_scheduler(self, checkpoint):
         if checkpoint is None:
             return
-        if self.accelerator.distributed_type is NeuronDistributedType.XLA_FSDP:
-            return self._load_optimizer_and_scheduler_for_xla_fsdp(checkpoint)
-        elif self.accelerator.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
+        if self.accelerator.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
             lr_scheduler_state = torch.load(os.path.join(checkpoint, SCHEDULER_NAME), map_location="cpu")
             xm.send_cpu_data_to_device(lr_scheduler_state, self.args.device)
             self.lr_scheduler.load_state_dict(lr_scheduler_state)
@@ -1362,14 +1324,13 @@ class AugmentTrainerForNeuronMixin:
         ignore_keys_for_eval: Optional[List[str]] = None,
         **kwargs,
     ):
-        with patch_neuron_cc_wrapper():
-            with hub_neuronx_cache("training", entry=self.model_cache_entry):
-                result = super().train(
-                    resume_from_checkpoint=resume_from_checkpoint,
-                    trial=trial,
-                    ignore_keys_for_eval=ignore_keys_for_eval,
-                    **kwargs,
-                )
+        with hub_neuronx_cache("training", entry=self.model_cache_entry):
+            result = super().train(
+                resume_from_checkpoint=resume_from_checkpoint,
+                trial=trial,
+                ignore_keys_for_eval=ignore_keys_for_eval,
+                **kwargs,
+            )
         if not is_precompilation():
             self.synchronize_hub_cache()
         return result
@@ -1380,11 +1341,10 @@ class AugmentTrainerForNeuronMixin:
         ignore_keys: Optional[List[str]] = None,
         metric_key_prefix: str = "eval",
     ) -> Dict[str, float]:
-        with patch_neuron_cc_wrapper():
-            with hub_neuronx_cache("training", entry=self.model_cache_entry):
-                result = super().evaluate(
-                    eval_dataset=eval_dataset, ignore_keys=ignore_keys, metric_key_prefix=metric_key_prefix
-                )
+        with hub_neuronx_cache("training", entry=self.model_cache_entry):
+            result = super().evaluate(
+                eval_dataset=eval_dataset, ignore_keys=ignore_keys, metric_key_prefix=metric_key_prefix
+            )
         if not is_precompilation():
             self.synchronize_hub_cache()
         return result
@@ -1392,9 +1352,8 @@ class AugmentTrainerForNeuronMixin:
     def predict(
         self, test_dataset: Dataset, ignore_keys: Optional[List[str]] = None, metric_key_prefix: str = "test"
     ) -> PredictionOutput:
-        with patch_neuron_cc_wrapper():
-            with hub_neuronx_cache("training", entry=self.model_cache_entry):
-                result = super().predict(test_dataset, ignore_keys=ignore_keys, metric_key_prefix=metric_key_prefix)
+        with hub_neuronx_cache("training", entry=self.model_cache_entry):
+            result = super().predict(test_dataset, ignore_keys=ignore_keys, metric_key_prefix=metric_key_prefix)
         if not is_precompilation():
             self.synchronize_hub_cache()
         return result

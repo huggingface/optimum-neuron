@@ -361,6 +361,7 @@ def create_accelerator_for_mp(
     sequence_parallel_enabled: bool = True,
     kv_size_multiplier: Optional[int] = None,
     checkpoint_dir: Optional[Union[Path, str]] = None,
+    use_xser: bool = True,
 ) -> NeuronAccelerator:
     mp_plugin = ModelParallelismPlugin(
         tensor_parallel_size=tp_size,
@@ -369,6 +370,7 @@ def create_accelerator_for_mp(
         sequence_parallel_enabled=sequence_parallel_enabled,
         pipeline_parallel_size=pp_size,
         checkpoint_dir=checkpoint_dir,
+        use_xser=use_xser,
     )
     return NeuronAccelerator(
         mp_plugin=mp_plugin, zero_1=zero_1, gradient_accumulation_steps=gradient_accumulation_steps

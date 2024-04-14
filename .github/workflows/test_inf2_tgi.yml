@@ -39,7 +39,7 @@ jobs:
         uses: actions/checkout@v2
       - name: Install python and create venv
         run: |
-          sudo apt install python3.8-venv -y
+          sudo apt install python3.8-venv python3-dev -y
           python3 -m venv aws_neuron_venv_pytorch
           source aws_neuron_venv_pytorch/bin/activate
           python -m pip install -U pip
@@ -50,3 +50,17 @@ jobs:
           sudo apt install gawk -y
           source aws_neuron_venv_pytorch/bin/activate
           HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} make tgi_test
+      - name: Build docker image
+        shell: bash
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          make neuronx-tgi
+      - name: Install integration tests prerequisites
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          python -m pip install -r text-generation-inference/integration-tests/requirements.txt
+      - name: Run TGI docker tests
+        shell: bash
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} python -m pytest -sv text-generation-inference/integration-tests

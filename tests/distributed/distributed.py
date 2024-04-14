@@ -18,7 +18,6 @@
 # https://github.com/microsoft/DeepSpeed/blob/master/tests/unit/common.py
 
 import inspect
-import multiprocessing
 import os
 import socket
 import time
@@ -26,7 +25,6 @@ import uuid
 from abc import ABC, abstractmethod
 from typing import List, Union
 
-import psutil
 import pytest
 import torch
 import torch.distributed as dist
@@ -35,8 +33,15 @@ from _pytest.fixtures import FixtureLookupError
 from _pytest.outcomes import Skipped
 
 from optimum.neuron.utils.cache_utils import get_num_neuron_cores
-from optimum.neuron.utils.import_utils import is_neuronx_distributed_available, is_torch_xla_available
+from optimum.neuron.utils.import_utils import (
+    is_neuronx_distributed_available,
+    is_torch_neuronx_available,
+    is_torch_xla_available,
+)
 
+
+if is_torch_neuronx_available():
+    import torch_neuronx
 
 if is_torch_xla_available():
     import torch_xla.distributed.xla_backend as xbn
@@ -125,9 +130,10 @@ class DistributedExec(ABC):
         return fixture_kwargs
 
     def _launch_procs(self, num_procs, tp_size, pp_size):
-        if not is_torch_xla_available() or not is_neuronx_distributed_available():
+        if not is_torch_neuronx_available() or not is_torch_xla_available() or not is_neuronx_distributed_available():
             raise RuntimeError(
-                "The `torch_xla` and `neuronx_distributed` packages are required to run a distributed test."
+                "The `torch_neuronx`, `torch_xla` and `neuronx_distributed` packages are required to run a distributed "
+                "test."
             )
 
         # Verify we have enough accelerator devices to run this test
@@ -140,7 +146,11 @@ class DistributedExec(ABC):
 
         # Set start method to `forkserver` (or `fork`)
         mp.set_start_method("forkserver", force=True)
-        os.environ["TORCHELASTIC_RUN_ID"] = str(uuid.uuid4())
+
+        # We cannot set environment variable `TORCHELASTIC_RUN_ID` here because `torch_neuronx` will
+        # configure PJRT if it is set. Instead we store the value and set it once the other environment
+        # variables to simulate a `torchrun` execution (e.g. `LOCAL_RANK`, `RANK`, `WORLD_SIZE`, ...) can be set.
+        self.torchelastic_run_id = str(uuid.uuid4())
 
         # Create process pool or use cached one
         master_port = None
@@ -167,12 +177,10 @@ class DistributedExec(ABC):
             pytest.exit("Test hanged, exiting", returncode=0)
         except Exception as e:
             self._close_pool(pool, num_procs)
-            self._terminate_xrt_server()
             raise e
         finally:
             # Tear down distributed environment and close process pools
             self._close_pool(pool, num_procs)
-            self._terminate_xrt_server()
 
         # If we skipped a test, propagate that to this process
         if any(skip_msgs):
@@ -194,6 +202,13 @@ class DistributedExec(ABC):
                 os.environ["LOCAL_WORLD_SIZE"] = str(num_procs)
                 # Unit tests do not support multi-node so there is only one group in our case
                 os.environ["GROUP_RANK"] = "0"
+
+                if not hasattr(self, "torchelastic_run_id"):
+                    raise RuntimeError("self.torchelastic_run_id was not set, it is needed to run a distributed test.")
+                os.environ["TORCHELASTIC_RUN_ID"] = self.torchelastic_run_id
+
+                # Now that the environment has been set, we can configure the PJRT environment.
+                torch_neuronx.xla.configure_pjrt_environment()
 
             if self.init_distributed:
                 dist.init_process_group(backend=self.backend, rank=local_rank, world_size=num_procs)
@@ -228,30 +243,6 @@ class DistributedExec(ABC):
                 pool.join()
             except ValueError:
                 pass
-
-    def _terminate_xrt_server(self):
-        xrt_server_str = "torch_neuronx.distributed._xrt_run_server"
-        startmethod = mp.get_start_method(allow_none=True)
-        # Rules:
-        # - `startmethod is None`: the XRT server tracks pytest's PID.
-        # - `startmethod="spawn"`: the parent process of the pool's processes is pytest, so the XRT server tracks
-        # pytest's PID.
-        # - `startmethod="fork"`: same as `startmethod="spawn"`.
-        # - `startmethod="forkserver"`: the parent process of the pool's processes is the forkserver, so the XRT server tracks
-        # the forkserver's PID.
-        if startmethod == "forkserver":
-            target_pid = multiprocessing.forkserver._forkserver._forkserver_pid
-        else:
-            target_pid = os.getpid()
-
-        for p in psutil.process_iter():
-            try:
-                if "python3" in p.name() and len(p.cmdline()) == 7:
-                    cmdline = p.cmdline()
-                    if cmdline[2] == xrt_server_str and cmdline[-1] == str(target_pid):
-                        p.terminate()
-            except psutil.ZombieProcess:
-                continue
 
 
 class DistributedTest(DistributedExec):
