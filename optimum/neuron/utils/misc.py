@@ -573,6 +573,7 @@ def replace_weights(
     """
     Replaces the weights in a Neuron Model with weights from another model, the original neuron model should have separated weights(by setting `inline_weights_to_neff=Talse` during the tracing).
     """
+
     if isinstance(weights, torch.nn.Module):
         weights = weights.state_dict()
 

@@ -82,6 +82,7 @@ RUN test -n ${VERSION:?} && apt-get update -y \
  && apt-get install -y --no-install-recommends \
     gnupg2 \
     wget \
+    python3-dev \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -102,7 +103,7 @@ ENV PATH="/opt/bin/:/opt/aws/neuron/bin:${PATH}"
 
 RUN pip3 install \
     neuronx-cc==2.13.66.0 \
-    torch-neuronx==1.13.1.1.14.0 \
+    torch-neuronx==2.1.2.2.1.0 \
     transformers-neuronx==0.10.0.21 \
     --extra-index-url=https://pip.repos.neuron.amazonaws.com
 
@@ -111,7 +112,7 @@ RUN pip3 install \
     hf_transfer huggingface_hub
 
 # Install optimum-neuron
-COPY dist/optimum-neuron-${VERSION}.tar.gz optimum-neuron.tar.gz
+COPY dist/optimum_neuron-${VERSION}.tar.gz optimum-neuron.tar.gz
 RUN pip3 install optimum-neuron.tar.gz
 
 # TGI base env
@@ -125,7 +126,7 @@ COPY --from=builder /usr/src/target/release/text-generation-router /usr/local/bi
 COPY --from=builder /usr/src/target/release/text-generation-launcher /usr/local/bin/text-generation-launcher
 # Install python server
 COPY --from=pyserver /pyserver/build/dist dist
-RUN pip install dist/text-generation-server*.tar.gz
+RUN pip install dist/text_generation_server*.tar.gz
 
 # AWS Sagemaker compatible image
 FROM neuron as sagemaker

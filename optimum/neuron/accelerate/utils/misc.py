@@ -25,6 +25,8 @@ from ...utils.require_utils import requires_neuronx_distributed
 
 
 if TYPE_CHECKING:
+    from transformers import PreTrainedModel
+
     if is_torch_neuronx_available():
         from neuronx_distributed.pipeline import NxDPPModel
 
@@ -58,7 +60,6 @@ _ORIG_TORCH_FINFO = torch.finfo
 
 
 def create_patched_finfo(xla_downcast_bf16: bool = False, use_amp: bool = False, xla_use_bf16: bool = False):
-
     def patched_finfo(dtype):
         if xla_downcast_bf16 or use_amp or xla_use_bf16:
             return _ORIG_TORCH_FINFO(torch.bfloat16)
@@ -122,3 +123,28 @@ def tie_parameters(model: Union["torch.nn.Module", "NxDPPModel"], tied_parameter
         if param_to_tie is not param:
             del param_to_tie
             setattr(param_to_tie_parent_module, param_to_tie_name[1], param)
+
+
+@requires_neuronx_distributed
+def apply_activation_checkpointing(model: Union["PreTrainedModel", "NxDPPModel"]):
+    from neuronx_distributed.pipeline import NxDPPModel
+    from neuronx_distributed.utils.activation_checkpoint import (
+        apply_activation_checkpointing as nxd_apply_activation_checkpointing,
+    )
+
+    if isinstance(model, NxDPPModel):
+        modules = model.local_module.modules()
+    else:
+        modules = model.modules()
+
+    gradient_checkpointing_modules = set()
+    for module in modules:
+        if getattr(module, "gradient_checkpointing", False):
+            module.gradient_checkpointing = False
+            gradient_checkpointing_modules.add(module)
+
+    def check_fn(m: torch.nn.Module) -> bool:
+        return m in gradient_checkpointing_modules
+
+    if gradient_checkpointing_modules:
+        nxd_apply_activation_checkpointing(model, check_fn=check_fn)

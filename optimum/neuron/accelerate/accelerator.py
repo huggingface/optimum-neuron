@@ -57,7 +57,7 @@ from .utils import (
     patch_accelerate_is_torch_xla_available,
     tie_parameters,
 )
-from .utils.misc import create_patched_finfo
+from .utils.misc import apply_activation_checkpointing, create_patched_finfo
 from .utils.operations import _xla_gather
 
 
@@ -419,13 +419,24 @@ class NeuronAccelerator(Accelerator):
         model.config.output_attentions = False
         model.config.output_hidden_states = False
 
+        # It is needed for now otherwise sdpa is used since PT > 2.* is available.
+        for module in model.modules():
+            if getattr(module, "_use_sdpa", False):
+                module._use_sdpa = False
+            if getattr(module, "_use_flash_attention_2", False):
+                module._use_flash_attention_2 = False
+
         if self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
-            return self._prepare_model_for_mp(
+            model = self._prepare_model_for_mp(
                 model, device_placement=device_placement, evaluation_mode=evaluation_mode
             )
-        move_model_to_device(model, xm.xla_device())
-        device_placement = False
-        return super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
+            apply_activation_checkpointing(model)
+            return model
+        else:
+            apply_activation_checkpointing(model)
+            move_model_to_device(model, xm.xla_device())
+            device_placement = False
+            return super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
 
     def backward(self, loss, **kwargs):
         if self.distributed_type != DistributedType.DEEPSPEED:
@@ -571,7 +582,14 @@ class NeuronAccelerator(Accelerator):
         def save_optimizer_func(accelerator, optimizer, model, output_dir, i):
             logger.info("Saving parallel model and optimizer")
             parallelizer = ParallelizersManager.parallelizer_for_model(model)
-            parallelizer.save_model_checkpoint(model, output_dir, as_regular=False, optimizer=optimizer)
+            parallelizer.save_model_sharded_checkpoint(
+                model,
+                output_dir,
+                optimizer=optimizer,
+                use_xser=self.state.mp_plugin.use_xser,
+                async_save=self.state.mp_plugin.async_save,
+                num_local_ranks_per_step=self.state.mp_plugin.num_local_ranks_per_step,
+            )
             logger.info(f"Parallel model and optimizer saved to the directory {output_dir}")
 
         return self._custom_save_state(

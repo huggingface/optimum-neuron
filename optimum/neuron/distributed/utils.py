@@ -44,7 +44,6 @@ from ..utils.require_utils import (
 if is_neuronx_distributed_available():
     from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
     from neuronx_distributed.parallel_layers import layers
-    from neuronx_distributed.pipeline import NxDPPModel
     from neuronx_distributed.pipeline.trace import HFTracerWrapper
 else:
 
@@ -64,7 +63,7 @@ if TYPE_CHECKING:
 logger = logging.get_logger()
 
 
-TENSOR_PARALLEL_SHARDS_DIR_NAME = "tensor_parallel_shards"
+MODEL_PARALLEL_SHARDS_DIR_NAME = "shards"
 
 
 @deprecate(
@@ -1096,34 +1095,6 @@ def parameter_can_be_initialized(model: torch.nn.Module, parent_module: torch.nn
     return (
         hasattr(parent_module, "reset_parameters") or is_parallel_linear or (parameter_name not in left_uninitialized)
     )
-
-
-@requires_neuronx_distributed
-def apply_activation_checkpointing(
-    model: Union[torch.nn.Module, "NxDPPModel"],
-    activation_checkpoint_classes: Optional[Union[Tuple[Type[torch.nn.Module]], List[Type[torch.nn.Module]]]] = None,
-):
-    from neuronx_distributed.pipeline import NxDPPModel
-    from neuronx_distributed.utils.activation_checkpoint import apply_activation_checkpointing
-
-    if isinstance(model, NxDPPModel):
-        if activation_checkpoint_classes is not None:
-            logger.warning(
-                "Cannot specify activation checkpoint classes under pipeline parallism setting. Will use the layers "
-                f"{model.transformer_layer_cls}"
-            )
-    else:
-        # TODO support this as well.
-        raise ValueError("Not supported yet outside of the pipeline parallelism scheme.")
-
-    check_fn = None
-    if activation_checkpoint_classes is not None:
-        activation_checkpoint_classes = tuple(activation_checkpoint_classes)
-        assert len(activation_checkpoint_classes) > 0
-        assert all(issubclass(c, torch.nn.Module) for c in activation_checkpoint_classes)
-        check_fn = (lambda m: isinstance(m, activation_checkpoint_classes),)
-
-    apply_activation_checkpointing(model, check_fn=check_fn)
 
 
 @classmethod
