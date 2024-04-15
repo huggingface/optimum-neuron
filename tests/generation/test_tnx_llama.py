@@ -24,7 +24,7 @@ from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neur
 @requires_neuronx
 def test_generation_llama_padded_inputs():
     model_id = "NousResearch/Llama-2-7b-chat-hf"
-    model_kwargs = {"batch_size": 2, "sequence_length": 2048, "auto_cast_type": "f16", "num_cores": 2}
+    model_kwargs = {"batch_size": 4, "sequence_length": 4096, "auto_cast_type": "f16", "num_cores": 2}
     model = NeuronModelForCausalLM.from_pretrained(model_id, export=True, **model_kwargs)
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     prompt = "One of my fondest memory is of my grandmother making homemade bread"
