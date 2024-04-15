@@ -26,7 +26,7 @@ rwildcard=$(wildcard $1) $(foreach d,$1,$(call rwildcard,$(addsuffix /$(notdir $
 
 VERSION := $(shell gawk 'match($$0, /__version__ = "(.*)"/, a) {print a[1]}' optimum/neuron/version.py)
 
-PACKAGE_DIST = dist/optimum-neuron-$(VERSION).tar.gz
+PACKAGE_DIST = dist/optimum_neuron-$(VERSION).tar.gz
 PACKAGE_WHEEL = dist/optimum_neuron-$(VERSION)-py3-none-any.whl
 PACKAGE_PYTHON_FILES = $(call rwildcard, optimum/*.py)
 PACKAGE_FILES = $(PACKAGE_PYTHON_FILES)  \
