@@ -13,7 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 from typing import TYPE_CHECKING
+
+from .utils.training_utils import patch_transformers_for_neuron_sdk
+
+
+if not os.environ.get("DISABLE_TRANSFORMERS_PATCHING", False):
+    patch_transformers_for_neuron_sdk()
 
 from transformers.utils import _LazyModule
 
@@ -97,7 +104,3 @@ import os
 
 from .utils import is_neuron_available, is_neuronx_available, patch_transformers_for_neuron_sdk
 from .version import __version__
-
-
-if not os.environ.get("DISABLE_TRANSFORMERS_PATCHING", False):
-    patch_transformers_for_neuron_sdk()

@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, List, Optional, Type, Union
 import torch
 import transformers
 from accelerate import skip_first_batches as accelerate_skip_first_batches
+from packaging import version
 from transformers import GenerationMixin
 from transformers.models.auto.modeling_auto import (
     MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING_NAMES,
@@ -44,7 +45,7 @@ from transformers.utils.logging import set_verbosity as set_verbosity_transforme
 
 from ...utils.logging import set_verbosity as set_verbosity_optimum
 from ..generation import GeneralNeuronGenerationMixin, NeuronGenerationMixin
-from . import is_neuronx_distributed_available
+from . import is_neuronx_distributed_available, is_torch_xla_available
 from .require_utils import requires_neuronx_distributed, requires_torch_xla
 
 
@@ -181,6 +182,14 @@ def patch_transformers_for_neuron_sdk():
     Patches the Transformers library if needed to make it work with AWS Neuron.
     """
     transformers.utils.logging.set_verbosity = set_verbosity
+
+    if version.parse(transformers.__version__) >= version.parse("4.39.3"):
+        raise RuntimeError("This should be removed since it is not needed.")
+    elif is_torch_xla_available():
+        import sys
+
+        sys.modules["torch_xla.distributed.spmd"] = object()
+        sys.modules["torch_xla.runtime"] = object()
 
 
 @requires_torch_xla

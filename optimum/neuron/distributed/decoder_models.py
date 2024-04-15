@@ -25,7 +25,6 @@ from transformers.models.llama.modeling_llama import (
     LlamaAttention,
     LlamaDecoderLayer,
     LlamaRMSNorm,
-    _prepare_4d_causal_attention_mask,
     apply_rotary_pos_emb,
     repeat_kv,
 )
@@ -584,15 +583,16 @@ class LlamaPipelineParallelismSpecs(PipelineParallelismSpecs):
 
     @classmethod
     def get_patching_specs(cls) -> List[Tuple[str, Any]]:
-        leaf_prepare_4d_causal_attention_mask = torch.fx._symbolic_trace._create_wrapped_func(
-            _prepare_4d_causal_attention_mask
-        )
-        return [
-            (
-                "transformers.models.llama.modeling_llama._prepare_4d_causal_attention_mask",
-                leaf_prepare_4d_causal_attention_mask,
-            ),
-        ]
+        return []
+        # leaf_prepare_4d_causal_attention_mask = torch.fx._symbolic_trace._create_wrapped_func(
+        #     _prepare_4d_causal_attention_mask
+        # )
+        # return [
+        #     (
+        #         "transformers.models.llama.modeling_llama._prepare_4d_causal_attention_mask",
+        #         leaf_prepare_4d_causal_attention_mask,
+        #     ),
+        # ]
 
 
 class LlamaParallelizer(Parallelizer):
