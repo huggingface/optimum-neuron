@@ -839,7 +839,7 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
             raise ValueError(
                 f"The specified batch_size ({batch_size}) exceeds the model static batch size ({self.batch_size})"
             )
-        elif batch_size < self.batch_size:
+        elif batch_size < self.batch_size and not self.continuous_batching:
             logger.warning("Inputs will be padded to match the model static batch size. This will increase latency.")
             padding_shape = [self.batch_size - batch_size, sequence_length]
             padding = torch.full(padding_shape, fill_value=self.config.eos_token_id, dtype=torch.int64)
