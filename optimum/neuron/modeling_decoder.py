@@ -42,7 +42,6 @@ NEURON_MAJOR_LINE = re.compile(r"^\s*(\d+)\s+neuron\s*$")
 
 if is_transformers_neuronx_available():
     from transformers_neuronx.config import ContinuousBatchingConfig, NeuronConfig
-    from transformers_neuronx.module import save_split
 
 
 if TYPE_CHECKING:
@@ -250,7 +249,7 @@ class NeuronDecoderModel(OptimizedModel):
         # Save the model checkpoint in a temporary directory
         checkpoint_dir = TemporaryDirectory()
         model.save_pretrained(
-            checkpoint_dir.name, save_function=save_split, safe_serialization=False, max_shard_size="10000GB"
+            checkpoint_dir.name, max_shard_size="10000GB"
         )
         return checkpoint_dir
 
