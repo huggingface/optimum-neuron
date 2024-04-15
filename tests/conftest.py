@@ -31,7 +31,7 @@ ENCODER_ARCHITECTURES = [
     "xlm",
     "roberta",
 ]
-DECODER_ARCHITECTURES = ["gpt2", "llama"]
+DECODER_ARCHITECTURES = ["gpt2", "llama", "mixtral"]
 DIFFUSER_ARCHITECTURES = ["stable-diffusion", "stable-diffusion-xl"]
 
 INFERENTIA_MODEL_NAMES = {
@@ -46,6 +46,7 @@ INFERENTIA_MODEL_NAMES = {
     "flaubert": "flaubert/flaubert_small_cased",
     "gpt2": "hf-internal-testing/tiny-random-gpt2",
     "llama": "dacorvo/tiny-random-llama",
+    "mixtral": "dacorvo/Mixtral-tiny",
     "mobilebert": "hf-internal-testing/tiny-random-MobileBertModel",
     "mpnet": "hf-internal-testing/tiny-random-MPNetModel",
     "roberta": "hf-internal-testing/tiny-random-RobertaModel",
