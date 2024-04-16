@@ -10,6 +10,7 @@ from transformers import AutoTokenizer
 
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.utils import synchronize_hub_cache
+from optimum.neuron.version import __sdk_version__ as sdk_version
 from optimum.neuron.version import __version__ as version
 
 
@@ -36,7 +37,7 @@ MODEL_CONFIGURATIONS = {
 
 
 def get_hub_neuron_model_id(config_name: str):
-    return f"optimum/neuron-testing-{version}-{config_name}"
+    return f"optimum/neuron-testing-{version}-{sdk_version}-{config_name}"
 
 
 def export_model(model_id, export_kwargs, neuron_model_path):
