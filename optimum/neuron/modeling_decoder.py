@@ -52,7 +52,9 @@ logger = logging.getLogger(__name__)
 
 
 def get_exporter(config, task):
-    return TasksManager.get_exporter_config_constructor(model_type=config.model_type, exporter="neuron", task=task)()
+    return TasksManager.get_exporter_config_constructor(
+        model_type=config.model_type, exporter="neuron", task=task, library_name="transformers"
+    )()
 
 
 # Note: with python 3.9, functools.cache would be more suited
