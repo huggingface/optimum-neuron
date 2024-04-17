@@ -31,7 +31,7 @@ Or
 The graph recording is relatively fast, but the compilation takes a lot of time.
 
 To avoid recompiling all NEFF files, for models adopting the first approach, every time a model is loaded on a NeuronX host, [`torch-neuronx`](https://github.com/aws-neuron/aws-neuron-samples/tree/master/torch-neuronx)
- stores NEFF files in a local directory, usually `/var/tmp/neuron-compile-cache`. And for models adopting the second approach, the compiled Neuron models with checkpoint artiifacts (eg. config, tokenizer) will be stored by Optimum Neuron after the the first time compilation as well.
+ stores NEFF files in a local directory, usually `/var/tmp/neuron-compile-cache`. And for models adopting the second approach, the compiled Neuron models with checkpoint artifacts (eg. config, tokenizer) will be stored by Optimum Neuron after the the first time compilation as well.
 
 However, this local cache is not shared between platforms, which means that every time you train or export a model on a new host, you need to recompile it.
 
