@@ -38,10 +38,12 @@ def _test_decode(config_name, generator, do_sample):
         expected_text = {
             "gpt2": " The sun was up on the horizon, and the air was chilly. I glanced over at the stars",
             "llama": " In the corner booth of O'Malley's Pub sat two old friends, retired police officer",
+            "mistral": " The sun was scornful in the eyes of the young people who were trying to get along with",
         }[config_name]
     else:
         expected_text = {
             "gpt2": '\n\n"I\'m going to go to bed," I said.\n\n"I\'m going',
             "llama": " In the small town of Meadowgrove, everyone knew each other, and they all took",
+            "mistral": "\nThe clocks were striking thirteen.\nThe clocks were striking thirteen.",
         }[config_name]
     assert output.text == expected_text

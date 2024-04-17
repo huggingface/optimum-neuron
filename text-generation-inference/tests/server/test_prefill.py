@@ -34,9 +34,9 @@ def _test_prefill(config_name, generator, batch_size, do_sample):
     assert next_batch.max_tokens == batch_size * max_length
     assert len(generations) == batch_size
     if do_sample:
-        expectations = {"gpt2": [383, " The"], "llama": [560, " In"]}[config_name]
+        expectations = {"gpt2": [383, " The"], "llama": [560, " In"], "mistral": [450, " The"]}[config_name]
     else:
-        expectations = {"gpt2": [198, "\n"], "llama": [560, " In"]}[config_name]
+        expectations = {"gpt2": [198, "\n"], "llama": [560, " In"], "mistral": [13, "\n"]}[config_name]
     for g in generations:
         tokens = g.tokens
         assert tokens.ids[0] == expectations[0]

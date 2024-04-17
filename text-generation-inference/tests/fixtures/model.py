@@ -33,6 +33,10 @@ MODEL_CONFIGURATIONS = {
         "model_id": "HuggingFaceTB/cosmo-1b",
         "export_kwargs": {"batch_size": 4, "sequence_length": 2048, "num_cores": 2, "auto_cast_type": "fp16"},
     },
+    "mistral": {
+        "model_id": "optimum/mistral-1.1b-testing",
+        "export_kwargs": {"batch_size": 4, "sequence_length": 4096, "num_cores": 2, "auto_cast_type": "bf16"},
+    },
 }
 
 

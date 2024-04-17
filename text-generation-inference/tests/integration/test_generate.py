@@ -50,6 +50,7 @@ async def test_model_single_request(tgi_service):
     greedy_expectations = {
         "gpt2": "\n\nDeep learning is a new field of research that has been around for a while",
         "llama": "\n\nDeep learning is a subset of machine learning that uses artificial neural networks to model",
+        "mistral": "\nWhat is Deep Learning?\nDeep Learning is a type of machine learning that",
     }
     assert response.generated_text == greedy_expectations[service_name]
 
@@ -77,6 +78,7 @@ async def test_model_single_request(tgi_service):
     sample_expectations = {
         "gpt2": "A lot of researchers have tried to make a broad, intuitive definition of Deep Learning",
         "llama": "Deep Learning is a technique for training artificial neural networks",
+        "mistral": "Why is deep learning important?",
     }
     assert sample_expectations[service_name] in response.generated_text
 
@@ -95,6 +97,7 @@ async def test_model_multiple_requests(tgi_service, generate_load):
     expectations = {
         "gpt2": "\n\nDeep learning is a new field of research that has been around for a while",
         "llama": "\n\nDeep learning is a subset of machine learning that uses artificial neural networks to model",
+        "mistral": "\nWhat is Deep Learning?\nDeep Learning is a type of machine learning that",
     }
     expected = expectations[tgi_service.client.service_name]
     for r in responses:
