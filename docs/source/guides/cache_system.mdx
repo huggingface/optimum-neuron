@@ -17,7 +17,7 @@ It is integrated into the `NeuronTrainer` and `NeuronModelForXXX` classes to ena
 
 The Neuron Model Cache is hosted on the [Hugging Face Hub](https://huggingface.co/aws-neuron/optimum-neuron-cache) and includes compiled files for all popular and supported `optimum-neuron` pre-trained models.
 
-Before training a Transformers or Diffusion model or loading a NeuronModelForXXX on Neuron platforms, it needs to be exported to neuron format
+Before training a `transformers` or `diffusers` model or loading a NeuronModelForXXX on Neuron platforms, it needs to be exported to neuron format
 with [`torch-neuronx`](https://github.com/aws-neuron/aws-neuron-samples/tree/master/torch-neuronx).
 
 When exporting a model, [`torch-neuronx`](https://github.com/aws-neuron/aws-neuron-samples/tree/master/torch-neuronx) will either:
