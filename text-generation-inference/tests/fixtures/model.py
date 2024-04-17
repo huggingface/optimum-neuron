@@ -111,3 +111,8 @@ def neuron_model_config(request):
         logger.info(f"{config_name} ready for testing ...")
         yield model_config
         logger.info(f"Done with {config_name}")
+
+
+@pytest.fixture(scope="module")
+def neuron_model_path(neuron_model_config):
+    yield neuron_model_config["neuron_model_path"]
