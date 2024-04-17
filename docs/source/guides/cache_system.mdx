@@ -52,7 +52,7 @@ If the NEFF files / Neuron models are cached, they will be fetched from the hub 
 
 The Optimum Neuron Cache is built on top of the [NeuronX compiler cache](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-features/neuron-caching.html).
 
-It is important to understand that the cache of training / models applying `transformers_neuronx`operates on NEFF binaries, and not on the model itself.
+It is important to understand that the cache of training / models applying `transformers_neuronx` operates on NEFF binaries, and not on the model itself.
 
 As explained previously, each model exported to Neuron using the `NeuronTrainer` or `NeuronModelForCausalLM` is composed of [XLA](https://github.com/pytorch/xla/) subgraphs.
 
