@@ -25,7 +25,7 @@ from tempfile import TemporaryDirectory
 from typing import Any, Dict, List, Literal, Optional, Union
 
 from huggingface_hub import HfApi, get_token
-from huggingface_hub.hf_api import RepoFile, RepoFolder
+from huggingface_hub.hf_api import RepoFile
 from transformers import AutoConfig, PretrainedConfig
 
 from ..version import __version__
@@ -178,9 +178,10 @@ class CompileCacheHfProxy(CompileCache):
             # cached locally
             return True
         else:
+            # cached remotely
             rel_folder_path = self._rel_path(folder_path)
             try:
-                folder_info = list(self.api.list_repo_tree(self.repo_id, rel_folder_path))
+                folder_info = list(self.api.list_repo_tree(self.repo_id, rel_folder_path, recursive=True))
                 folder_exists = len(folder_info) > 1
             except Exception as e:
                 logger.info(f"{rel_folder_path} not found in {self.repo_id}: {e} \nThe model will be recompiled.")
@@ -188,27 +189,12 @@ class CompileCacheHfProxy(CompileCache):
 
             if folder_exists:
                 try:
-                    # cached remotely
                     for repo_content in folder_info:
                         if isinstance(repo_content, RepoFile):
                             local_path = self.api.hf_hub_download(self.repo_id, repo_content.path)
-                            filename = Path(local_path).name
-                            new_dst_path = Path(dst_path)
-                            new_dst_path.mkdir(parents=True, exist_ok=True)
-                            os.symlink(local_path, new_dst_path / filename)
-                        elif isinstance(repo_content, RepoFolder):
-                            subfolder = repo_content.path
-                            files_info = [info.path for info in self.api.list_repo_tree(self.repo_id, subfolder)]
-                            for file_path in files_info:
-                                local_path = self.api.hf_hub_download(self.repo_id, file_path)
-                                filename = Path(local_path).name
-                                new_dst_path = Path(dst_path) / Path(subfolder).name
-                                new_dst_path.mkdir(parents=True, exist_ok=True)
-                                os.symlink(local_path, new_dst_path / filename)
-                        else:
-                            raise TypeError(
-                                f"Unable to download the repo content {repo_content.path} of type {type(repo_content)}."
-                            )
+                            new_dst_path = Path(dst_path) / repo_content.path.split(Path(dst_path).name + "/")[-1]
+                            new_dst_path.parent.mkdir(parents=True, exist_ok=True)
+                            os.symlink(local_path, new_dst_path)
 
                     logger.info(f"Fetched cached {rel_folder_path} from {self.repo_id}")
                 except Exception as e:
