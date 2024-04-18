@@ -66,6 +66,7 @@ from ..utils import logging
 from .accelerate import NeuronAccelerator, NeuronDistributedType
 from .distributed import Parallelizer, ParallelizersManager
 from .distributed.utils import make_optimizer_constructor_lazy
+from .training_args import NeuronTrainingArguments
 from .utils import (
     Patcher,
     is_torch_xla_available,
@@ -80,7 +81,6 @@ from .utils.cache_utils import (
 )
 from .utils.hub_neuronx_cache import ModelCacheEntry, hub_neuronx_cache, patch_neuron_cc_wrapper, synchronize_hub_cache
 from .utils.misc import is_main_worker, is_precompilation, torch_xla_safe_save_file
-from .utils.patching import patch_everywhere
 from .utils.require_utils import requires_neuronx_distributed, requires_torch_neuronx
 from .utils.training_utils import (
     get_model_param_count,
@@ -153,6 +153,11 @@ class AugmentTrainerForNeuronMixin:
 
         super().__init__(*args, **kwargs)
 
+        if not isinstance(self.args, NeuronTrainingArguments):
+            raise ValueError(
+                f"The NeuronTrainer only accept NeuronTrainingArguments, but {type(self.args)} was provided."
+            )
+
         # We need to change which process can be seen as "world process zero" to make sure the proper metrics
         # (eg.g loss) are logged and sent to the callbacks (for instance WandbCallback).
         self.state = TrainerState(
@@ -182,27 +187,6 @@ class AugmentTrainerForNeuronMixin:
         if model_name_or_path_for_cache_entry is not None:
             model_config_for_cache_entry.neuron = neuron_config_for_cache_entry
             self.model_cache_entry = ModelCacheEntry(model_name_or_path_for_cache_entry, model_config_for_cache_entry)
-
-        # TODO: remove once the issue is solved, either by the Neuron Compiler or transformers >= 4.37.3
-        from transformers.models.llama.modeling_llama import LlamaPreTrainedModel, rotate_half
-
-        if isinstance(self.model, LlamaPreTrainedModel):
-
-            def fixed_apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
-                q_embed = (q * cos) + (rotate_half(q) * sin)
-                k_embed = (k * cos) + (rotate_half(k) * sin)
-                return q_embed, k_embed
-
-            patch_everywhere(
-                "apply_rotary_pos_emb",
-                fixed_apply_rotary_pos_emb,
-                module_name_prefix="transformers.models.llama.modeling_llama",
-            )
-            patch_everywhere(
-                "apply_rotary_pos_emb",
-                fixed_apply_rotary_pos_emb,
-                module_name_prefix="optimum.neuron.distributed",
-            )
 
     @property
     def mp_enabled(self):
@@ -683,7 +667,7 @@ class AugmentTrainerForNeuronMixin:
         # number of training epochs: num_train_epochs
         # number of training steps per epoch: num_update_steps_per_epoch
         # total number of training steps to execute: max_steps
-        total_train_batch_size = self._train_batch_size * args.gradient_accumulation_steps * args.world_size
+        total_train_batch_size = self._train_batch_size * args.gradient_accumulation_steps * args.dp_size
 
         len_dataloader = None
         num_train_tokens = None
@@ -1424,9 +1408,10 @@ class AugmentTrainerForNeuronMixin:
         metric_key_prefix: str = "eval",
     ) -> Dict[str, float]:
         with hub_neuronx_cache("training", entry=self.model_cache_entry):
-            result = super().evaluate(
-                eval_dataset=eval_dataset, ignore_keys=ignore_keys, metric_key_prefix=metric_key_prefix
-            )
+            with self.args.world_size_as_dp_size():
+                result = super().evaluate(
+                    eval_dataset=eval_dataset, ignore_keys=ignore_keys, metric_key_prefix=metric_key_prefix
+                )
         if not is_precompilation():
             self.synchronize_hub_cache()
         return result
@@ -1435,7 +1420,8 @@ class AugmentTrainerForNeuronMixin:
         self, test_dataset: Dataset, ignore_keys: Optional[List[str]] = None, metric_key_prefix: str = "test"
     ) -> PredictionOutput:
         with hub_neuronx_cache("training", entry=self.model_cache_entry):
-            result = super().predict(test_dataset, ignore_keys=ignore_keys, metric_key_prefix=metric_key_prefix)
+            with self.args.world_size_as_dp_size():
+                result = super().predict(test_dataset, ignore_keys=ignore_keys, metric_key_prefix=metric_key_prefix)
         if not is_precompilation():
             self.synchronize_hub_cache()
         return result

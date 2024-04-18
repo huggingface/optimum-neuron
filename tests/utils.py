@@ -43,6 +43,7 @@ from optimum.utils.testing_utils import TOKEN, USER
 logger = logging.get_logger(__name__)
 
 SEED = 42
+OPTIMUM_INTERNAL_TESTING_CACHE_REPO = "optimum-internal-testing/optimum-neuron-cache-for-testing"
 
 
 def get_random_string(length) -> str:

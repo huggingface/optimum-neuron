@@ -15,6 +15,7 @@
 """Defines a TrainingArguments class compatible with Neuron."""
 
 import os
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -170,7 +171,6 @@ class NeuronTrainingArgumentsMixin:
             pipeline_parallel_size=self.pipeline_parallel_size,
             pipeline_parallel_num_microbatches=self.pipeline_parallel_num_microbatches,
             pipeline_parallel_use_zero1_optimizer=self.zero_1,
-            gradient_checkpointing=self.gradient_checkpointing,
             checkpoint_dir=resume_from_checkpoint,
             num_local_ranks_per_step=self.num_local_ranks_per_step,
             use_xser=self.use_xser,
@@ -183,6 +183,8 @@ class NeuronTrainingArgumentsMixin:
             os.environ["ACCELERATE_USE_AMP"] = "false"
 
         set_neuron_cc_optlevel(self.neuron_cc_optlevel)
+
+        self._world_size_should_behave_as_dp_size = False
 
         # This is required to be able to use bf16, otherwise a check in super().__post_init__() fails.
         with Patcher([("transformers.training_args.get_xla_device_type", lambda _: "GPU")]):
@@ -203,11 +205,38 @@ class NeuronTrainingArgumentsMixin:
         return not self.mp_plugin.should_parallelize and super().place_model_on_device
 
     @property
-    def world_size(self):
+    def world_size_should_behave_as_dp_size(self):
+        return self._world_size_should_behave_as_dp_size
+
+    @world_size_should_behave_as_dp_size.setter
+    def world_size_should_behave_as_dp_size(self, value: bool):
+        if not isinstance(value, bool):
+            raise ValueError(
+                f"world_size_should_behave_as_dp_size should be a boolean, but a {type(value)} was provided here."
+            )
+        self._world_size_should_behave_as_dp_size = value
+
+    @property
+    def dp_size(self):
         divisor = 1
         if self.mp_plugin.should_parallelize:
             divisor = self.mp_plugin.tensor_parallel_size * self.mp_plugin.pipeline_parallel_size
         return super().world_size // divisor
+
+    @property
+    def world_size(self):
+        if self.world_size_should_behave_as_dp_size:
+            return self.dp_size
+        return super().world_size
+
+    @contextmanager
+    def world_size_as_dp_size(self):
+        orig_state = self.world_size_should_behave_as_dp_size
+        self.world_size_should_behave_as_dp_size = True
+        try:
+            yield
+        finally:
+            self.world_size_should_behave_as_dp_size = orig_state
 
 
 @dataclass
