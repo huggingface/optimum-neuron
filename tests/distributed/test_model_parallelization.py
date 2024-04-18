@@ -55,8 +55,9 @@ from optimum.neuron.utils.import_utils import (
 )
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
-from .distributed import DistributedTest
-from .utils import SEED, create_accelerator_for_mp, get_model, get_model_inputs
+from .. import DistributedTest
+from ..utils import SEED, create_static_seed_patcher, get_model
+from .utils import create_accelerator_for_mp, get_model_inputs
 
 
 if is_torch_xla_available():
@@ -348,8 +349,6 @@ class TestModelParallelization(DistributedTest):
             config_overwrite=config_overwrite,
             use_static_seed_patcher=True,
         )
-
-        from .utils import create_static_seed_patcher
 
         static_seed_patcher = create_static_seed_patcher(model.__class__, SEED)
         with static_seed_patcher:

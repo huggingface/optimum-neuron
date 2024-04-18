@@ -458,11 +458,6 @@ class LlamaSequenceParallelismSpecs(SequenceParallelismSpecs):
             cache_position: Optional[torch.LongTensor] = None,
             **kwargs,
         ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
-            if "padding_mask" in kwargs:
-                warnings.warn(
-                    "Passing `padding_mask` is deprecated and removed since `transformers` v4.37. Please make sure to "
-                    "use `attention_mask` instead.`"
-                )
 
             if self.config.pretraining_tp > 1:
                 key_value_slicing = (self.num_key_value_heads * self.head_dim) // self.config.pretraining_tp

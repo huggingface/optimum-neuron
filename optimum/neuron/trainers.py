@@ -188,7 +188,7 @@ class AugmentTrainerForNeuronMixin:
 
         if isinstance(self.model, LlamaPreTrainedModel):
 
-            def fixed_apply_rotary_pos_emb(q, k, cos, sin, position_ids, unsqueeze_dim=1):
+            def fixed_apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
                 q_embed = (q * cos) + (rotate_half(q) * sin)
                 k_embed = (k * cos) + (rotate_half(k) * sin)
                 return q_embed, k_embed
@@ -346,8 +346,10 @@ class AugmentTrainerForNeuronMixin:
         return get_model_param_count(self.model, trainable_only=True)
 
     @staticmethod
-    def get_optimizer_cls_and_kwargs(args: TrainingArguments) -> Tuple[Any, Any]:
-        optimizer_cls, optimizer_kwargs = transformers_get_optimizer_cls_and_kwargs(args)
+    def get_optimizer_cls_and_kwargs(
+        args: TrainingArguments, model: Optional[PreTrainedModel] = None
+    ) -> Tuple[Any, Any]:
+        optimizer_cls, optimizer_kwargs = transformers_get_optimizer_cls_and_kwargs(args, model=model)
         lazy_load = args.mp_plugin.should_parallelize or args.zero_1
         if lazy_load:
             optimizer_cls = make_optimizer_constructor_lazy(optimizer_cls)

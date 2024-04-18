@@ -14,14 +14,12 @@
 # limitations under the License.
 """Utilities for tests distributed."""
 
-import contextlib
-import functools
 import inspect
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Type, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 import torch
-from transformers import AutoConfig, AutoTokenizer
+from transformers import AutoTokenizer
 from transformers.models.auto import get_values
 from transformers.models.auto.modeling_auto import (
     MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING_NAMES,
@@ -42,16 +40,11 @@ from transformers.models.auto.modeling_auto import (
 )
 
 from optimum.neuron import ModelParallelismPlugin, NeuronAccelerator
-from optimum.neuron.distributed import lazy_load_for_parallelism
-from optimum.neuron.utils.patching import DynamicPatch, Patcher
 from optimum.neuron.utils.require_utils import requires_neuronx_distributed, requires_torch_xla
 
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
-
-
-SEED = 42
 
 
 @requires_neuronx_distributed
@@ -214,91 +207,6 @@ def gather_along_dim(input_: torch.Tensor, dim: int) -> torch.Tensor:
         t = input_.transpose(0, dim).contiguous()
         gathered_t = gather_along_first_dim(t)
         return gathered_t.transpose(0, dim).contiguous()
-
-
-def static_initializer_seed(initialization_function: Callable, seed: int):
-    @functools.wraps(initialization_function)
-    def wrapper(*args, **kwargs):
-        from transformers import set_seed
-
-        set_seed(seed)
-        return initialization_function(*args, **kwargs)
-
-    return wrapper
-
-
-@contextlib.contextmanager
-def create_static_seed_patcher(model_class: Type["PreTrainedModel"], seed: int):
-    """
-    Context manager that resets the seed to a given value for every initialization function.
-    This is useful because lazy initialization works but does not respect the random state of the non-lazy case.
-    This allows us to test that lazy initialization works if we ignore the random seed.
-    """
-    specialized_static_initializer_seed = functools.partial(static_initializer_seed, seed=seed)
-
-    inspect.getmodule(model_class).__name__
-    dynamic_patch = DynamicPatch(specialized_static_initializer_seed)
-    patcher = Patcher(
-        [
-            # (fully_qualified_method_name, dynamic_patch),
-            ("torch.nn.Embedding.reset_parameters", dynamic_patch),
-            ("torch.nn.Linear.reset_parameters", dynamic_patch),
-            ("torch.Tensor.normal_", dynamic_patch),
-            ("neuronx_distributed.parallel_layers.layers.ColumnParallelLinear.init_weight_cpu", dynamic_patch),
-            ("neuronx_distributed.parallel_layers.layers.RowParallelLinear.init_weight_cpu", dynamic_patch),
-            (
-                "neuronx_distributed.modules.qkv_linear.GQAQKVColumnParallelLinear._init_per_layer_weight",
-                dynamic_patch,
-            ),
-            ("neuronx_distributed.modules.qkv_linear.GQAQKVColumnParallelLinear._init_per_layer_bias", dynamic_patch),
-        ]
-    )
-    with patcher:
-        try:
-            yield
-        finally:
-            pass
-
-
-def get_model(
-    model_class: Type["PreTrainedModel"],
-    model_name_or_path: str,
-    tp_size: int = 1,
-    pp_size: int = 1,
-    lazy_load: bool = False,
-    from_config: bool = False,
-    use_static_seed_patcher: bool = False,
-    add_random_noise: bool = False,
-    config_overwrite: Optional[Dict[str, str]] = None,
-) -> "PreTrainedModel":
-    if lazy_load:
-        ctx = lazy_load_for_parallelism(tensor_parallel_size=tp_size, pipeline_parallel_size=pp_size)
-    else:
-        ctx = contextlib.nullcontext()
-    if use_static_seed_patcher:
-        seed_patcher = create_static_seed_patcher(model_class, SEED)
-    else:
-        seed_patcher = contextlib.nullcontext()
-    with ctx:
-        with seed_patcher:
-            config = AutoConfig.from_pretrained(model_name_or_path)
-            if config_overwrite is not None:
-                for key, value in config_overwrite.items():
-                    attr_type = type(getattr(config, key))
-                    setattr(config, key, attr_type(value))
-            if from_config:
-                model = model_class(config)
-            else:
-                model = model_class.from_pretrained(model_name_or_path, config=config, ignore_mismatched_sizes=True)
-
-    if getattr(model.config, "problem_type", None) is None:
-        model.config.problem_type = "single_label_classification"
-
-    if add_random_noise:
-        for param in model.parameters():
-            param.data.add_(torch.randn_like(param))
-
-    return model
 
 
 def get_model_inputs(

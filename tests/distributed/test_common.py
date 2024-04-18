@@ -35,8 +35,9 @@ from optimum.neuron.utils.import_utils import (
 )
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
-from .distributed import DistributedTest
-from .utils import create_accelerator_for_mp, create_static_seed_patcher, get_model, get_model_inputs
+from .. import DistributedTest
+from ..utils import create_static_seed_patcher, get_model
+from .utils import create_accelerator_for_mp, get_model_inputs
 
 
 if is_torch_xla_available():
