@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import os
+import shutil
+from pathlib import Path
 
 import pytest
 from huggingface_hub import create_repo, delete_repo, get_token, login, logout
@@ -21,6 +23,7 @@ from optimum.neuron.utils.cache_utils import (
     delete_custom_cache_repo_name_from_hf_home,
     load_custom_cache_repo_name_from_hf_home,
     set_custom_cache_repo_name_in_hf_home,
+    set_neuron_cache_path,
 )
 from optimum.utils.testing_utils import TOKEN, USER
 
@@ -119,8 +122,7 @@ def staging_test():
         delete_custom_cache_repo_name_from_hf_home()
 
 
-@pytest.fixture(scope="module")
-def hub_test():
+def _hub_test(create_local_cache: bool = False):
     orig_token = get_token()
     orig_custom_cache_repo = load_custom_cache_repo_name_from_hf_home()
 
@@ -135,13 +137,20 @@ def hub_test():
     custom_cache_repo_with_seed = f"{OPTIMUM_INTERNAL_TESTING_CACHE_REPO}-{seed}"
     create_repo(custom_cache_repo_with_seed, repo_type="model", exist_ok=True)
 
+    local_cache_path_with_seed = Path(f"/var/tmp/neuron-compile-cache-{seed}")
+    if create_local_cache:
+        set_neuron_cache_path(local_cache_path_with_seed)
+
     login(token=token)
     set_custom_cache_repo_name_in_hf_home(custom_cache_repo_with_seed)
 
-    yield custom_cache_repo_with_seed
+    if create_local_cache:
+        yield tuple([custom_cache_repo_with_seed, local_cache_path_with_seed])
+    else:
+        yield custom_cache_repo_with_seed
 
     delete_repo(custom_cache_repo_with_seed, repo_type="model")
-
+    shutil.rmtree(local_cache_path_with_seed)
     if orig_token is not None:
         login(token=orig_token)
     else:
@@ -150,6 +159,16 @@ def hub_test():
         set_custom_cache_repo_name_in_hf_home(orig_custom_cache_repo, check_repo=False)
     else:
         delete_custom_cache_repo_name_from_hf_home()
+
+
+@pytest.fixture(scope="module")
+def hub_test():
+    yield from _hub_test()
+
+
+@pytest.fixture(scope="module")
+def hub_test_with_local_cache():
+    yield from _hub_test(create_local_cache=True)
 
 
 ### The following part is for running distributed tests.

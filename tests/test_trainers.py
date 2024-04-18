@@ -15,9 +15,9 @@
 """Tests related to the Trainer derived classes."""
 
 import copy
+import shutil
 import time
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 import pytest
 from huggingface_hub import HfApi
@@ -27,9 +27,7 @@ from optimum.neuron import NeuronTrainer, NeuronTrainingArguments
 from optimum.neuron.distributed.utils import MODEL_PARALLEL_SHARDS_DIR_NAME
 from optimum.neuron.utils import is_neuronx_distributed_available
 from optimum.neuron.utils.cache_utils import (
-    get_neuron_cache_path,
     list_files_in_neuron_cache,
-    set_neuron_cache_path,
 )
 from optimum.neuron.utils.testing_utils import is_trainium_test
 from optimum.neuron.utils.training_utils import get_model_param_count
@@ -94,7 +92,7 @@ class TestNeuronTrainer(DistributedTest):
     def parallel_sizes(self, request):
         return request.param
 
-    def test_save_checkpoint(self, hub_test, parallel_sizes, tmpdir):
+    def test_save_checkpoint(self, hub_test, tmpdir, parallel_sizes):
         world_size, tp_size, pp_size = parallel_sizes
         output_dir = Path(tmpdir)
 
@@ -165,8 +163,9 @@ class TestNeuronTrainer(DistributedTest):
 
             assert (checkpoint_dir / "training_args.bin").is_file()
 
-    def test_train_and_eval_use_remote_cache(self, hub_test, parallel_sizes):
-        repo_id = hub_test
+    def test_train_and_eval_use_remote_cache(self, hub_test_with_local_cache, tmpdir, parallel_sizes):
+        repo_id, local_cache_path = hub_test_with_local_cache
+        output_dir = Path(tmpdir)
         _, tp_size, pp_size = parallel_sizes
 
         # We take a batch size that does not divide the total number of samples.
@@ -183,90 +182,84 @@ class TestNeuronTrainer(DistributedTest):
 
         datasets = create_dummy_causal_lm_dataset(model.config.vocab_size, num_train_samples, num_eval_samples)
 
-        with TemporaryDirectory() as tmpdirname:
-            set_neuron_cache_path(tmpdirname)
+        files_in_repo = HfApi().list_repo_files(repo_id=repo_id)
+        files_in_repo = [f for f in files_in_repo if not f.startswith(".")]
+        files_in_cache = list_files_in_neuron_cache(local_cache_path, only_relevant_files=True)
 
-            files_in_repo = HfApi().list_repo_files(repo_id=repo_id)
-            files_in_repo = [f for f in files_in_repo if not f.startswith(".")]
-            files_in_cache = list_files_in_neuron_cache(get_neuron_cache_path(), only_relevant_files=True)
+        assert files_in_repo == [], "Repo should be empty."
+        assert files_in_cache == [], "Cache should be empty."
 
-            assert files_in_repo == [], "Repo should be empty."
-            assert files_in_cache == [], "Cache should be empty."
+        args = NeuronTrainingArguments(
+            output_dir=(output_dir / "first_run").as_posix(),
+            do_train=True,
+            do_eval=True,
+            bf16=True,
+            per_device_train_batch_size=per_device_train_batch_size,
+            per_device_eval_batch_size=per_device_eval_batch_size,
+            save_steps=10,
+            num_train_epochs=2,
+        )
+        trainer = NeuronTrainer(
+            model,
+            args,
+            tokenizer=tokenizer,
+            train_dataset=datasets["train"],
+            eval_dataset=datasets["eval"],
+            data_collator=default_data_collator_for_causal_lm,
+        )
+        start = time.time()
+        trainer.train()
+        end = time.time()
+        first_training_duration = end - start
 
-            args = NeuronTrainingArguments(
-                tmpdirname,
-                do_train=True,
-                do_eval=True,
-                bf16=True,
-                per_device_train_batch_size=per_device_train_batch_size,
-                per_device_eval_batch_size=per_device_eval_batch_size,
-                save_steps=10,
-                num_train_epochs=2,
-            )
-            trainer = NeuronTrainer(
-                model,
-                args,
-                tokenizer=tokenizer,
-                train_dataset=datasets["train"],
-                eval_dataset=datasets["eval"],
-                data_collator=default_data_collator_for_causal_lm,
-            )
-            start = time.time()
-            trainer.train()
-            end = time.time()
-            first_training_duration = end - start
+        files_in_repo = HfApi().list_repo_files(repo_id=repo_id)
+        files_in_repo = [f for f in files_in_repo if not f.startswith(".")]
+        files_in_cache = list_files_in_neuron_cache(local_cache_path, only_relevant_files=True)
 
-            files_in_repo = HfApi().list_repo_files(repo_id=repo_id)
-            files_in_repo = [f for f in files_in_repo if not f.startswith(".")]
-            files_in_cache = list_files_in_neuron_cache(get_neuron_cache_path(), only_relevant_files=True)
+        assert files_in_repo != [], "Repo should not be empty after first training."
+        assert files_in_cache != [], "Cache should not be empty after first training."
 
-            assert files_in_repo != [], "Repo should not be empty after first training."
-            assert files_in_cache != [], "Cache should not be empty after first training."
+        shutil.rmtree(local_cache_path)
 
-        with TemporaryDirectory() as tmpdirname:
-            set_neuron_cache_path(tmpdirname)
+        new_files_in_repo = HfApi().list_repo_files(repo_id=repo_id)
+        new_files_in_repo = [f for f in new_files_in_repo if not f.startswith(".")]
+        new_files_in_cache = list_files_in_neuron_cache(local_cache_path, only_relevant_files=True)
 
-            new_files_in_repo = HfApi().list_repo_files(repo_id=repo_id)
-            new_files_in_repo = [f for f in new_files_in_repo if not f.startswith(".")]
-            new_files_in_cache = list_files_in_neuron_cache(get_neuron_cache_path(), only_relevant_files=True)
+        assert new_files_in_repo != [], "Repo should not be empty."
+        assert new_files_in_cache == [], "Cache should be empty."
 
-            assert new_files_in_repo != [], "Repo should not be empty."
-            assert new_files_in_cache == [], "Cache should be empty."
+        args = NeuronTrainingArguments(
+            output_dir=(output_dir / "second_run").as_posix(),
+            do_train=True,
+            do_eval=True,
+            bf16=True,
+            per_device_train_batch_size=per_device_train_batch_size,
+            per_device_eval_batch_size=per_device_eval_batch_size,
+            save_steps=10,
+            num_train_epochs=2,
+        )
+        trainer = NeuronTrainer(
+            clone,
+            args,
+            tokenizer=tokenizer,
+            train_dataset=datasets["train"],
+            eval_dataset=datasets["eval"],
+            data_collator=default_data_collator_for_causal_lm,
+        )
+        start = time.time()
+        trainer.train()
+        end = time.time()
+        second_training_duration = end - start
 
-            args = NeuronTrainingArguments(
-                tmpdirname,
-                do_train=True,
-                do_eval=True,
-                bf16=True,
-                per_device_train_batch_size=per_device_train_batch_size,
-                per_device_eval_batch_size=per_device_eval_batch_size,
-                save_steps=10,
-                num_train_epochs=2,
-            )
-            trainer = NeuronTrainer(
-                clone,
-                args,
-                tokenizer=tokenizer,
-                train_dataset=datasets["train"],
-                eval_dataset=datasets["eval"],
-                data_collator=default_data_collator_for_causal_lm,
-            )
-            start = time.time()
-            trainer.train()
-            end = time.time()
-            second_training_duration = end - start
+        last_files_in_repo = HfApi().list_repo_files(repo_id=repo_id)
+        last_files_in_repo = [f for f in last_files_in_repo if not f.startswith(".")]
+        last_files_in_cache = list_files_in_neuron_cache(local_cache_path, only_relevant_files=True)
 
-            last_files_in_repo = HfApi().list_repo_files(repo_id=repo_id)
-            last_files_in_repo = [f for f in last_files_in_repo if not f.startswith(".")]
-            last_files_in_cache = list_files_in_neuron_cache(get_neuron_cache_path(), only_relevant_files=True)
-
-            # TODO: investigate that, not urgent.
-            assert (
-                files_in_repo == last_files_in_repo
-            ), "No file should have been added to the Hub after first training."
-            assert (
-                files_in_cache == last_files_in_cache
-            ), "No file should have been added to the cache after first training."
-            assert (
-                second_training_duration < first_training_duration
-            ), "Second training should be faster because cached graphs can be used."
+        # TODO: investigate that, not urgent.
+        assert files_in_repo == last_files_in_repo, "No file should have been added to the Hub after first training."
+        assert (
+            files_in_cache == last_files_in_cache
+        ), "No file should have been added to the cache after first training."
+        assert (
+            second_training_duration < first_training_duration
+        ), "Second training should be faster because cached graphs can be used."
