@@ -40,7 +40,7 @@ PACKAGE_FILES = $(PACKAGE_PYTHON_FILES)  \
 $(PACKAGE_DIST) $(PACKAGE_WHEEL): $(PACKAGE_FILES)
 	python -m build
 
-TGI_VERSION ?= 1.4.4
+TGI_VERSION ?= 2.0.1
 
 neuronx-tgi: $(PACKAGE_DIST)
 	docker build --rm -f text-generation-inference/Dockerfile \
