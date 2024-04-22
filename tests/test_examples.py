@@ -282,6 +282,9 @@ class ExampleTestMeta(type):
 
             tensor_parallel_size = 2 if tp_support is not TPSupport.NONE else 1
 
+            if not ParallelizersManager.is_model_supported(model_type):
+                continue
+
             if not is_neuronx_distributed_available():
                 pp_support = False
             else:
