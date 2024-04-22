@@ -145,7 +145,7 @@ def _hub_test(create_local_cache: bool = False):
     set_custom_cache_repo_name_in_hf_home(custom_cache_repo_with_seed)
 
     if create_local_cache:
-        yield tuple([custom_cache_repo_with_seed, local_cache_path_with_seed])
+        yield (custom_cache_repo_with_seed, local_cache_path_with_seed)
     else:
         yield custom_cache_repo_with_seed
 
