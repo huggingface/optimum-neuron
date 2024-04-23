@@ -10,6 +10,7 @@ from transformers import AutoTokenizer
 
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.utils import synchronize_hub_cache
+from optimum.neuron.version import __sdk_version__ as sdk_version
 from optimum.neuron.version import __version__ as version
 
 
@@ -32,11 +33,15 @@ MODEL_CONFIGURATIONS = {
         "model_id": "HuggingFaceTB/cosmo-1b",
         "export_kwargs": {"batch_size": 4, "sequence_length": 2048, "num_cores": 2, "auto_cast_type": "fp16"},
     },
+    "mistral": {
+        "model_id": "optimum/mistral-1.1b-testing",
+        "export_kwargs": {"batch_size": 4, "sequence_length": 4096, "num_cores": 2, "auto_cast_type": "bf16"},
+    },
 }
 
 
 def get_hub_neuron_model_id(config_name: str):
-    return f"optimum/neuron-testing-{version}-{config_name}"
+    return f"optimum/neuron-testing-{version}-{sdk_version}-{config_name}"
 
 
 def export_model(model_id, export_kwargs, neuron_model_path):
@@ -110,3 +115,8 @@ def neuron_model_config(request):
         logger.info(f"{config_name} ready for testing ...")
         yield model_config
         logger.info(f"Done with {config_name}")
+
+
+@pytest.fixture(scope="module")
+def neuron_model_path(neuron_model_config):
+    yield neuron_model_config["neuron_model_path"]
