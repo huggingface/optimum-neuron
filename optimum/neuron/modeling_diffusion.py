@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 import torch
 from huggingface_hub import snapshot_download
 from transformers import CLIPFeatureExtractor, CLIPTokenizer, PretrainedConfig
+from transformers.modeling_outputs import ModelOutput
 
 from ..exporters.neuron import (
     load_models_and_neuron_configs,
@@ -521,7 +522,8 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             if file_paths[1].is_file():
                 model_config = DiffusersPretrainedConfig.from_json_file(file_paths[1])
                 configs[name] = model_config
-                neuron_configs[name] = cls._neuron_config_init(model_config)
+                model_type = "clip-text-with-projection" if name == "text_encoder_2" else None
+                neuron_configs[name] = cls._neuron_config_init(model_config, model_type=model_type)
 
         if data_parallel_mode is None:
             data_parallel_mode = cls.set_default_dp_mode(configs["unet"])
@@ -585,6 +587,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         auto_cast: Optional[str] = "matmul",
         auto_cast_type: Optional[str] = "bf16",
         dynamic_batch_size: bool = False,
+        output_hidden_states: bool = False,
         data_parallel_mode: Optional[str] = None,
         lora_model_ids: Optional[Union[str, List[str]]] = None,
         lora_weight_names: Optional[Union[str, List[str]]] = None,
@@ -646,6 +649,8 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             dynamic_batch_size (`bool`, defaults to `False`):
                 Whether to enable dynamic batch size for neuron compiled model. If this option is enabled, the input batch size can be a multiple of the
                 batch size during the compilation, but it comes with a potential tradeoff in terms of latency.
+            output_hidden_states (`bool`, defaults to `False`):
+                Whether or not for the traced text encoders to return the hidden states of all layers.
             data_parallel_mode (`Optional[str]`, defaults to `None`):
                 Mode to decide what components to load into both NeuronCores of a Neuron device. Can be "none"(no data parallel), "unet"(only
                 load unet into both cores of each device), "all"(load the whole pipeline into both cores).
@@ -708,6 +713,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 local_files_only=local_files_only,
                 use_auth_token=use_auth_token,
                 submodels=submodels,
+                output_hidden_states=output_hidden_states,
                 lora_model_ids=lora_model_ids,
                 lora_weight_names=lora_weight_names,
                 lora_adapter_names=lora_adapter_names,
@@ -738,6 +744,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                     optlevel=optlevel,
                     model_type=getattr(neuron_config, "MODEL_TYPE", None),
                     task=getattr(neuron_config, "task", None),
+                    output_hidden_states=output_hidden_states,
                 )
                 compilation_configs[name] = compilation_config
 
@@ -780,6 +787,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 use_auth_token=use_auth_token,
                 do_validation=False,
                 submodels={"unet": unet_id},
+                output_hidden_states=output_hidden_states,
                 lora_model_ids=lora_model_ids,
                 lora_weight_names=lora_weight_names,
                 lora_adapter_names=lora_adapter_names,
@@ -842,9 +850,26 @@ class NeuronModelTextEncoder(_NeuronDiffusionModelPart):
     ):
         super().__init__(model, parent_model, config, neuron_config, DIFFUSION_MODEL_TEXT_ENCODER_NAME)
 
-    def forward(self, input_ids: torch.Tensor):
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        output_hidden_states: bool = False,
+        return_dict: bool = False,
+    ):
+        input_ids = input_ids.to(torch.long)
+        if attention_mask is not None:
+            logger.warning("")
+
+        if output_hidden_states is not self.neuron_config.output_hidden_states:
+            logger.warning("")
+
         inputs = (input_ids,)
         outputs = self.model(*inputs)
+
+        if return_dict:
+            outputs = ModelOutput(dict(zip(self.neuron_config.outputs, outputs)))
+
         return outputs
 
 

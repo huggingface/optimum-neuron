@@ -336,6 +336,7 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
         Checks if inputs order of the model's forward pass correspond to the generated dummy inputs to ensure the dummy inputs tuple used for
         tracing are under the correct order.
         """
+        output_hidden_states = self.output_hidden_states
 
         class ModelWrapper(torch.nn.Module):
             def __init__(self, model: "PreTrainedModel", input_names: List[str]):
@@ -355,10 +356,17 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
                 if forward_with_tuple is True:
                     outputs = self.model(*ordered_inputs.values())
                 else:
+                    if output_hidden_states:
+                        ordered_inputs["output_hidden_states"] = True
                     outputs = self.model(**ordered_inputs)
 
-                if isinstance(outputs, dict) and eligible_outputs is not None:
-                    outputs = {name: outputs[name] for name in outputs.keys() & eligible_outputs}
+                if isinstance(outputs, dict):
+                    if eligible_outputs is not None:
+                        outputs = {name: outputs[name] for name in outputs.keys() & eligible_outputs}
+                    # if output_hidden_states:
+                    #     outputs["hidden_states"] = list(
+                    #         outputs["hidden_states"]
+                    #     )  # flatten `hidden_states` which is a tuple of tensors
 
                 if isinstance(outputs, tuple) and eligible_outputs is not None:
                     if not all(isinstance(x, int) for x in eligible_outputs):
