@@ -255,7 +255,10 @@ def pipeline(
             batch_size = model.config.neuron[attr]
     if batch_size > 1 and tokenizer is not None and tokenizer.pad_token_id is None:
         # The pipeline needs a pad token to be able to batch
-        tokenizer.pad_token_id = model.config.eos_token_id
+        if isinstance(model.config.eos_token_id, list):
+            tokenizer.pad_token_id = model.config.eos_token_id[0]
+        else:
+            tokenizer.pad_token_id = model.config.eos_token_id
 
     return transformers_pipeline(
         task,
