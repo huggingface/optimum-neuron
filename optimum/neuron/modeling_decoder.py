@@ -362,7 +362,7 @@ class NeuronDecoderModel(OptimizedModel):
         # Try to reload the generation config (if any)
         generation_config = None
         try:
-            generation_config = GenerationConfig.from_pretrained(model_id)
+            generation_config = GenerationConfig.from_pretrained(model_id, revision=revision)
         except OSError:
             pass
 
@@ -419,7 +419,7 @@ class NeuronDecoderModel(OptimizedModel):
         # Try to reload the generation config (if any)
         generation_config = None
         try:
-            generation_config = GenerationConfig.from_pretrained(model_id)
+            generation_config = GenerationConfig.from_pretrained(model_id, revision=revision)
         except OSError:
             pass
 
