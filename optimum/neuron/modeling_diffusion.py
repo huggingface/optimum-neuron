@@ -853,21 +853,21 @@ class NeuronModelTextEncoder(_NeuronDiffusionModelPart):
     def forward(
         self,
         input_ids: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        output_hidden_states: bool = False,
-        return_dict: bool = False,
+        *args,
+        **kwargs,
+        # attention_mask: Optional[torch.Tensor] = None,
+        # output_hidden_states: bool = False,
+        # return_dict: bool = False,
     ):
-        input_ids = input_ids.to(torch.long)
-        if attention_mask is not None:
-            logger.warning("")
+        input_ids = input_ids.to(torch.long)  # dummy generator uses long int for tracing
 
-        if output_hidden_states is not self.neuron_config.output_hidden_states:
-            logger.warning("")
+        # if output_hidden_states is not self.neuron_config.output_hidden_states:
+        #     logger.warning(f"The model has been traced with output_hidden_states={self.config.output_hidden_states}, the outputs of the model might not be what you expect.")
 
         inputs = (input_ids,)
         outputs = self.model(*inputs)
 
-        if return_dict:
+        if kwargs.pop("return_dict", False):
             outputs = ModelOutput(dict(zip(self.neuron_config.outputs, outputs)))
 
         return outputs
