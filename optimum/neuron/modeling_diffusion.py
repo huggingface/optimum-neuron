@@ -653,7 +653,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 Lora model local paths or repo ids (eg. `ostris/super-cereal-sdxl-lora`) on the Hugginface Hub.
             lora_weight_names (`Optional[Union[str, List[str]]]`, defaults to `None`):
                 Lora weights file names.
-            lora_adapter_names (`Optional[List[str]]`, defaults to `None`):
+            lora_adapter_names (`Optional[Union[str, List[str]]]`, defaults to `None`):
                 Adapter names to be used for referencing the loaded adapter models.
             lora_scales (`Optional[List[float]]`, defaults to `None`):
                 Lora adapters scaling factors.

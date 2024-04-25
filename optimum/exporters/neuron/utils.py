@@ -287,7 +287,7 @@ def _load_lora_weights_to_pipeline(
         if len(lora_model_ids) == 1:
             pipeline.load_lora_weights(lora_model_ids[0], weight_name=weight_names[0])
             # For tracing the lora weights, we need to use PEFT to fuse adapters directly into the model weights. It won't work by passing the lora scale to the Neuron pipeline during the inference.
-            pipeline.fuse_lora(lora_scale=lora_scales[0])
+            pipeline.fuse_lora(lora_scale=lora_scales[0] if lora_scales else 1.0)
         elif len(lora_model_ids) > 1:
             if not len(lora_model_ids) == len(weight_names) == len(adapter_names):
                 raise ValueError(
@@ -299,6 +299,8 @@ def _load_lora_weights_to_pipeline(
             if lora_scales:
                 pipeline.set_adapters(adapter_names, adapter_weights=lora_scales)
             pipeline.fuse_lora()
+
+    return pipeline
 
 
 def get_submodels_for_export_stable_diffusion(
@@ -314,7 +316,7 @@ def get_submodels_for_export_stable_diffusion(
     """
     is_sdxl = "xl" in task
 
-    _load_lora_weights_to_pipeline(
+    pipeline = _load_lora_weights_to_pipeline(
         pipeline=pipeline,
         lora_model_ids=lora_model_ids,
         weight_names=lora_weight_names,
