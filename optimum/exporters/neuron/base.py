@@ -363,10 +363,6 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
                 if isinstance(outputs, dict):
                     if eligible_outputs is not None:
                         outputs = {name: outputs[name] for name in outputs.keys() & eligible_outputs}
-                    # if output_hidden_states:
-                    #     outputs["hidden_states"] = list(
-                    #         outputs["hidden_states"]
-                    #     )  # flatten `hidden_states` which is a tuple of tensors
 
                 if isinstance(outputs, tuple) and eligible_outputs is not None:
                     if not all(isinstance(x, int) for x in eligible_outputs):

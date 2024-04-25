@@ -855,14 +855,8 @@ class NeuronModelTextEncoder(_NeuronDiffusionModelPart):
         input_ids: torch.Tensor,
         *args,
         **kwargs,
-        # attention_mask: Optional[torch.Tensor] = None,
-        # output_hidden_states: bool = False,
-        # return_dict: bool = False,
     ):
         input_ids = input_ids.to(torch.long)  # dummy generator uses long int for tracing
-
-        # if output_hidden_states is not self.neuron_config.output_hidden_states:
-        #     logger.warning(f"The model has been traced with output_hidden_states={self.config.output_hidden_states}, the outputs of the model might not be what you expect.")
 
         inputs = (input_ids,)
         outputs = self.model(*inputs)
