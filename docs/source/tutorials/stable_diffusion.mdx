@@ -491,7 +491,7 @@ compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
 pipe = NeuronStableDiffusionPipeline.from_pretrained(
     model_id,
     export=True,
-    disable_neuron_cache=True,
+    inline_weights_to_neff=True,  # caveat: performance drop if neff/weights separated, will be improved by a future Neuron sdk release.
     lora_model_ids=adapter_id,
     lora_weight_names="pytorch_lora_weights.safetensors",
     lora_adapter_names="lcm",
