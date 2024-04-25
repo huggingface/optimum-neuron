@@ -18,20 +18,21 @@ import json
 import logging
 import os
 import shutil
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from enum import Enum
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, Dict, List, Literal, Optional, Union
 
 from huggingface_hub import HfApi, get_token
+from huggingface_hub.hf_api import RepoFile
 from transformers import AutoConfig, PretrainedConfig
 
 from ..version import __version__
-from .cache_utils import get_neuron_cache_path, load_custom_cache_repo_name_from_hf_home
+from .cache_utils import get_hf_hub_cache_repo, get_neuron_cache_path
 from .import_utils import is_neuronx_available
 from .patching import patch_everywhere
-from .require_utils import requires_torch_neuronx, requires_torch_xla
+from .require_utils import requires_torch_neuronx
 
 
 if is_neuronx_available():
@@ -77,6 +78,8 @@ CACHE_WHITE_LIST = [
     "_use_default_values",
 ]
 NEURON_CONFIG_WHITE_LIST = ["input_names", "output_names", "model_type"]
+
+DEFAULT_PATH_FOR_NEURON_CC_WRAPPER = Path(__file__).parent.as_posix()
 
 
 class CompileCacheHfProxy(CompileCache):
@@ -175,9 +178,10 @@ class CompileCacheHfProxy(CompileCache):
             # cached locally
             return True
         else:
+            # cached remotely
             rel_folder_path = self._rel_path(folder_path)
             try:
-                folder_info = list(self.api.list_repo_tree(self.repo_id, rel_folder_path))
+                folder_info = list(self.api.list_repo_tree(self.repo_id, rel_folder_path, recursive=True))
                 folder_exists = len(folder_info) > 1
             except Exception as e:
                 logger.info(f"{rel_folder_path} not found in {self.repo_id}: {e} \nThe model will be recompiled.")
@@ -185,14 +189,13 @@ class CompileCacheHfProxy(CompileCache):
 
             if folder_exists:
                 try:
-                    # cached remotely
                     for repo_content in folder_info:
-                        # TODO: this works for `RepoFile` but not `RepoFolder`
-                        local_path = self.api.hf_hub_download(self.repo_id, repo_content.path)
-                        filename = Path(local_path).name
-                        dst_path = Path(dst_path)
-                        dst_path.mkdir(parents=True, exist_ok=True)
-                        os.symlink(local_path, dst_path / filename)
+                        if isinstance(repo_content, RepoFile):
+                            local_path = self.api.hf_hub_download(self.repo_id, repo_content.path)
+                            new_dst_path = Path(dst_path) / repo_content.path.split(Path(dst_path).name + "/")[-1]
+                            new_dst_path.parent.mkdir(parents=True, exist_ok=True)
+                            os.symlink(local_path, new_dst_path)
+
                     logger.info(f"Fetched cached {rel_folder_path} from {self.repo_id}")
                 except Exception as e:
                     logger.warning(
@@ -238,15 +241,6 @@ class CompileCacheHfProxy(CompileCache):
         return s
 
 
-def get_hub_cache():
-    HUB_CACHE = "aws-neuron/optimum-neuron-cache"
-    custom_hub_cache = load_custom_cache_repo_name_from_hf_home()
-    if custom_hub_cache is not None and len(custom_hub_cache) > 0:
-        return custom_hub_cache
-    else:
-        return os.getenv("CUSTOM_CACHE_REPO", HUB_CACHE)
-
-
 def create_hub_compile_cache_proxy(
     cache_url: Optional[CacheUrl] = None,
     cache_repo_id: Optional[str] = None,
@@ -254,7 +248,7 @@ def create_hub_compile_cache_proxy(
     if cache_url is None:
         cache_url = CacheUrl.get_cache_url()
     if cache_repo_id is None:
-        cache_repo_id = get_hub_cache()
+        cache_repo_id = get_hf_hub_cache_repo()
     default_cache = CompileCacheS3(cache_url) if cache_url.is_s3() else CompileCacheFs(cache_url)
     # Reevaluate endpoint and token (needed for tests altering the environment)
     endpoint = os.getenv("HF_ENDPOINT")
@@ -366,21 +360,23 @@ def hub_neuronx_cache(
         patch_everywhere("create_compile_cache", create_compile_cache, "libneuronxla")
 
 
-@requires_torch_neuronx
-@requires_torch_xla
 @contextmanager
-def patch_neuron_cc_wrapper():
+def patch_neuron_cc_wrapper(
+    directory: Optional[Union[str, Path]] = DEFAULT_PATH_FOR_NEURON_CC_WRAPPER, restore_path: bool = True
+):
     """
     Patches the `neuron_cc_wrapper` file to force it use our own version of it which essentially makes sure that it
     uses our caching system.
     """
+    context_manager = TemporaryDirectory() if directory is None else nullcontext(enter_result=directory)
     tmpdirname = ""
     try:
-        with TemporaryDirectory() as dirname:
+        with context_manager as dirname:
             tmpdirname = dirname
             src = Path(__file__).parent / "neuron_cc_wrapper"
             dst = Path(tmpdirname) / "neuron_cc_wrapper"
-            shutil.copy(src, dst)
+            if src != dst:
+                shutil.copy(src, dst)
 
             path = os.environ["PATH"]
             os.environ["PATH"] = f"{tmpdirname}:{path}"
@@ -389,7 +385,8 @@ def patch_neuron_cc_wrapper():
     except Exception as e:
         raise e
     finally:
-        os.environ["PATH"] = os.environ["PATH"].replace(f"{tmpdirname}:", "")
+        if restore_path:
+            os.environ["PATH"] = os.environ["PATH"].replace(f"{tmpdirname}:", "")
 
 
 @requires_torch_neuronx
@@ -418,7 +415,7 @@ def get_hub_cached_entries(
     model_id: str, mode: Union[Literal["training"], Literal["inference"], Mode], cache_repo_id: Optional[str] = None
 ):
     if cache_repo_id is None:
-        cache_repo_id = get_hub_cache()
+        cache_repo_id = get_hf_hub_cache_repo()
     # Allocate a Hub API with refreshed information (required for tests altering the env)
     endpoint = os.getenv("HF_ENDPOINT")
     token = get_token()

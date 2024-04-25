@@ -564,3 +564,9 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
 class MistralNeuronConfig(TextNeuronDecoderConfig):
     NEURONX_CLASS = "mistral.model.MistralForSampling"
     CONTINUOUS_BATCHING = True
+
+
+@register_in_tasks_manager("mixtral", "text-generation")
+class MixtralNeuronConfig(TextNeuronDecoderConfig):
+    NEURONX_CLASS = "mixtral.model.MixtralForSampling"
+    CONTINUOUS_BATCHING = True

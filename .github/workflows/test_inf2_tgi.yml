@@ -33,20 +33,34 @@ jobs:
           EOF
           wget -qO - https://apt.repos.neuron.amazonaws.com/GPG-PUB-KEY-AMAZON-AWS-NEURON.PUB | sudo apt-key add -
           sudo apt-get update -y
-          sudo apt-get install aws-neuronx-tools=2.17.0.0 aws-neuronx-oci-hook=2.2.45.0 aws-neuronx-runtime-lib=2.20.11.0-b7d33e68b aws-neuronx-collectives=2.20.11.0-c101c322e  -y
+          sudo apt-get install aws-neuronx-tools=2.17.1.0 aws-neuronx-runtime-lib=2.20.22.0-1b3ca6425 aws-neuronx-collectives=2.20.22.0-c101c322e  -y
           export PATH=/opt/aws/neuron/bin:$PATH
       - name: Checkout
         uses: actions/checkout@v2
       - name: Install python and create venv
         run: |
-          sudo apt install python3.8-venv -y
+          sudo apt install python3.8-venv python3-dev -y
           python3 -m venv aws_neuron_venv_pytorch
           source aws_neuron_venv_pytorch/bin/activate
           python -m pip install -U pip
           python -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
+      - name: Install integration tests prerequisites
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          python -m pip install -r text-generation-inference/tests/requirements.txt
       - name: Run TGI server python tests
         run: |
           # gawk is required when invoking the Makefile targets
           sudo apt install gawk -y
           source aws_neuron_venv_pytorch/bin/activate
           HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} make tgi_test
+      - name: Build docker image
+        shell: bash
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          make neuronx-tgi
+      - name: Run TGI docker tests
+        shell: bash
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} python -m pytest -sv text-generation-inference/tests -k integration

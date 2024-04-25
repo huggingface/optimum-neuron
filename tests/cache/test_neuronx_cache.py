@@ -274,6 +274,7 @@ def test_stable_diffusion_cache(cache_repos):
 
 @is_inferentia_test
 @requires_neuronx
+@pytest.mark.skip("Disable the test due to https://github.com/aws-neuron/aws-neuron-sdk/issues/859")
 def test_stable_diffusion_xl_cache(cache_repos):
     cache_path, cache_repo_id = cache_repos
     model_id = "echarlaix/tiny-random-stable-diffusion-xl"

@@ -7,9 +7,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-def save_bar_chart(title, labels, ylabel, series, save_path):
+def save_bar_chart(title, labels, xlabel, ylabel, series, save_path):
     x = np.arange(len(labels))  # the label locations
-    width = 0.15  # the width of the bars
+    width = 0.18  # the width of the bars
     multiplier = 0
 
     fig, ax = plt.subplots(layout="constrained")
@@ -25,9 +25,10 @@ def save_bar_chart(title, labels, ylabel, series, save_path):
         multiplier += 1
 
     # Add some text for labels, title and custom x-axis tick labels, etc.
+    ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     ax.set_title(title)
-    ax.set_xticks(x + width, labels)
+    ax.set_xticks(x + 2 * width, labels)
     ax.legend(loc="upper left", ncols=3)
     ax.set_ylim(0, max_value * 1.2)
 
@@ -49,7 +50,9 @@ def main():
     model_names = benchmarks.keys()
     # Generate encoding barchart
     input_length = []
-    encoding_times = {}
+    ttft_s = {}
+    latency_ms = {}
+    throughput_t_per_s = {}
     for name in model_names:
         results = benchmarks[name]["results"]
         cur_input_length = [result["input_length"] for result in results]
@@ -57,40 +60,32 @@ def main():
             input_length = cur_input_length
         else:
             assert cur_input_length == input_length, f"{name} does not have the same number of results"
-        encoding_times[name] = [round(result["encoding_time"], 1) for result in results]
+        ttft_s[name] = [round(result["encoding_time"], 1) for result in results]
+        latency_ms[name] = [round(result["latency"], 0) for result in results]
+        throughput_t_per_s[name] = [round(result["throughput"], 0) for result in results]
     save_bar_chart(
-        title="Encoding time per input token",
+        title="Time to generate the first token in seconds",
         labels=input_length,
-        series=encoding_times,
-        ylabel="Encoding time (s)",
-        save_path="encoding_times.png",
-    )
-    # Generate latency and throughput barcharts (for the first input length only)
-    new_tokens = []
-    latencies = {}
-    throughputs = {}
-    for name in model_names:
-        generations = benchmarks[name]["results"][0]["generations"]
-        cur_new_tokens = [generation["new_tokens"] for generation in generations]
-        if len(new_tokens) == 0:
-            new_tokens = cur_new_tokens
-        else:
-            assert cur_new_tokens == new_tokens, f"{name} does not have the same number of results"
-        latencies[name] = [round(generation["latency"], 1) for generation in generations]
-        throughputs[name] = [round(generation["throughput"], 0) for generation in generations]
-    save_bar_chart(
-        title="End-to-end latency per generated tokens for 256 input tokens",
-        labels=new_tokens,
-        series=latencies,
-        ylabel="Latency (s)",
-        save_path="latencies.png",
+        series=ttft_s,
+        xlabel="Input tokens",
+        ylabel="Time to first token (s)",
+        save_path="ttft.png",
     )
     save_bar_chart(
-        title="Throughput per generated tokens for 256 input tokens",
-        labels=new_tokens,
-        series=throughputs,
+        title="Inter-token latency in milliseconds",
+        labels=input_length,
+        series=latency_ms,
+        xlabel="Input tokens",
+        ylabel="Latency (ms)",
+        save_path="latency.png",
+    )
+    save_bar_chart(
+        title="Generated tokens per second (end-to-end)",
+        labels=input_length,
+        series=throughput_t_per_s,
+        xlabel="Input tokens",
         ylabel="Throughput (tokens/s)",
-        save_path="throughputs.png",
+        save_path="throughput.png",
     )
 
 

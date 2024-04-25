@@ -26,7 +26,7 @@ rwildcard=$(wildcard $1) $(foreach d,$1,$(call rwildcard,$(addsuffix /$(notdir $
 
 VERSION := $(shell gawk 'match($$0, /__version__ = "(.*)"/, a) {print a[1]}' optimum/neuron/version.py)
 
-PACKAGE_DIST = dist/optimum-neuron-$(VERSION).tar.gz
+PACKAGE_DIST = dist/optimum_neuron-$(VERSION).tar.gz
 PACKAGE_WHEEL = dist/optimum_neuron-$(VERSION)-py3-none-any.whl
 PACKAGE_PYTHON_FILES = $(call rwildcard, optimum/*.py)
 PACKAGE_FILES = $(PACKAGE_PYTHON_FILES)  \
@@ -40,7 +40,7 @@ PACKAGE_FILES = $(PACKAGE_PYTHON_FILES)  \
 $(PACKAGE_DIST) $(PACKAGE_WHEEL): $(PACKAGE_FILES)
 	python -m build
 
-TGI_VERSION ?= 1.4.1
+TGI_VERSION ?= 2.0.1
 
 neuronx-tgi: $(PACKAGE_DIST)
 	docker build --rm -f text-generation-inference/Dockerfile \
@@ -93,11 +93,12 @@ tgi_server:
 	VERSION=${VERSION} TGI_VERSION=${TGI_VERSION} make -C text-generation-inference/server gen-server
 
 tgi_test: tgi_server
-	python -m pip install .[neuronx] pytest
+	python -m pip install .[neuronx]
+	python -m pip install -r text-generation-inference/tests/requirements.txt
 	find text-generation-inference -name "text_generation_server-$(VERSION)-py3-none-any.whl" \
 	                               -exec python -m pip install --force-reinstall {} \;
-	python -m pytest -s text-generation-inference/tests
+	python -m pytest -sv text-generation-inference/tests -k server
 
 tgi_docker_test: neuronx-tgi
-	python -m pip install -r text-generation-inference/integration-tests/requirements.txt
-	python -m pytest -s text-generation-inference/integration-tests
+	python -m pip install -r text-generation-inference/tests/requirements.txt
+	python -m pytest -sv text-generation-inference/tests -k integration
