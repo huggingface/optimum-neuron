@@ -19,7 +19,8 @@ def generate(model, input_ids, max_new_tokens):
 
 def run(model_id, inc_length, max_length, json_path=None):
     # Encode the reference prompt
-    with open("./wiki.txt") as f:
+    local_path = os.path.dirname(os.path.realpath(__file__))
+    with open(os.path.join(local_path, "wiki.txt")) as f:
         prompt = f.read()
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     tokens = tokenizer([prompt], return_tensors="pt")
