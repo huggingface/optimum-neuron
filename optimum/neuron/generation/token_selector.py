@@ -136,7 +136,7 @@ class TokenSelector:
         # The generation requires special tokens
         eos_token_ids = eos_token_id if isinstance(eos_token_id, list) else [eos_token_id]
         if generation_config.pad_token_id is None:
-            logger.warning(f"Setting `pad_token_id` to `eos_token_id`:{eos_token_ids[0]} for open-end generation.")
+            logger.warning(f"Setting `pad_token_id` to `eos_token_id`:{eos_token_ids[0]} for open-ended generation.")
             generation_config.pad_token_id = eos_token_ids[0]
 
         generation_mode = model._get_generation_mode(generation_config, None)
