@@ -50,6 +50,8 @@
       title: Llama2 13b on AWS Inferentia2
     - local: benchmarks/inferentia-mistral-v2
       title: Mistral v0.2 7b on AWS Inferentia2
+    - local: benchmarks/inferentia-llama3-8b
+      title: Llama3 8b on AWS Inferentia2
     title: Benchmarks
   - sections:
     - local: community/contributing
