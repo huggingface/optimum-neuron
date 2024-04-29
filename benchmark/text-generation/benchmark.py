@@ -9,10 +9,10 @@ from transformers import AutoConfig, AutoTokenizer, set_seed
 from optimum.neuron import NeuronModelForCausalLM
 
 
-def generate(model, input_ids, max_new_tokens):
+def generate(model, input_ids, output_length):
     start = time.time()
     with torch.inference_mode():
-        output_tokens = model.generate(input_ids, do_sample=False, max_new_tokens=max_new_tokens)
+        output_tokens = model.generate(input_ids, do_sample=False, min_length=output_length, max_length=output_length)
     end = time.time()
     return output_tokens, (end - start)
 
@@ -36,10 +36,10 @@ def run(model_id, inc_length, max_length, json_path=None):
     benchmark = {"neuron_config": neuron_config, "results": []}
     for input_length in range(inc_length, max_length - inc_length + 1, inc_length):
         # Generate a single input, just to evaluate the context encoding time
-        input_ids = get_input_ids(tokens, batch_size, input_length)
+        input_ids = get_input_ids(tokens, batch_size, input_length + 1)
         _, encoding_time = generate(model, input_ids, 1)
         new_tokens = inc_length
-        output_ids, duration = generate(model, input_ids, new_tokens)
+        output_ids, duration = generate(model, input_ids, input_length + new_tokens)
         latency = (duration - encoding_time) / new_tokens * 1000
         throughput = new_tokens * batch_size / duration
         result = {
