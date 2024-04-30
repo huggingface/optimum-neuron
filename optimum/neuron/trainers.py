@@ -86,7 +86,6 @@ from .utils.training_utils import (
     get_model_param_count,
     is_main_worker_for_metrics,
     is_main_worker_for_metrics_method,
-    is_topology_supported,
     patch_generation_mixin_to_neuron_generation_mixin,
     skip_first_batches,
 )
@@ -131,12 +130,6 @@ class AugmentTrainerForNeuronMixin:
     def __init__(self, *args, **kwargs):
         if not isinstance(self, Trainer):
             raise TypeError(f"{self.__class__.__name__} can only be mixed with Trainer subclasses.")
-
-        if not is_topology_supported():
-            num_devices = xm.xrt_world_size()
-            raise ValueError(
-                f"Topology not supported. Supported number of devices: 1, 2, 8 or a multiple of 32. Got: {num_devices}."
-            )
 
         training_args = kwargs.get("args", None)
         if training_args is None and len(args) >= 2:

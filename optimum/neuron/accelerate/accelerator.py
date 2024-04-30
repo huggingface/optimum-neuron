@@ -57,7 +57,7 @@ from .utils import (
     patch_accelerate_is_torch_xla_available,
     tie_parameters,
 )
-from .utils.misc import apply_activation_checkpointing, create_patched_finfo
+from .utils.misc import apply_activation_checkpointing, create_patched_finfo, create_patched_save_pretrained
 from .utils.operations import _xla_gather
 
 
@@ -327,6 +327,16 @@ class NeuronAccelerator(Accelerator):
                 DynamicPatch(patch_within_function(("torch.finfo", patched_finfo))),
             ),
         )
+
+        if self.state.distributed_type is not NeuronDistributedType.MODEL_PARALLELISM and hasattr(
+            model, "save_pretrained"
+        ):
+            patching_specs.append(
+                (
+                    "save_pretrained",
+                    DynamicPatch(create_patched_save_pretrained),
+                ),
+            )
 
         prepared_patching_specs = []
         for spec in patching_specs:

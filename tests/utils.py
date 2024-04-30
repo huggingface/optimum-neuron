@@ -88,6 +88,10 @@ def generate_input_ids(vocab_size: int, batch_size: int, sequence_length: int) -
     return torch.randint(0, vocab_size, (batch_size, sequence_length))
 
 
+def generate_attention_mask(batch_size: int, sequence_length: int) -> torch.Tensor:
+    return torch.randint(0, 2, (batch_size, sequence_length))
+
+
 def create_dummy_causal_lm_dataset(
     vocab_size: int,
     num_train_examples: int,
@@ -101,8 +105,10 @@ def create_dummy_causal_lm_dataset(
         def gen():
             for _ in range(num_examples):
                 input_ids = generate_input_ids(vocab_size, 1, 32)
+                attention_mask = generate_attention_mask(1, 32)
                 yield {
                     "input_ids": input_ids,
+                    "attention_mask": attention_mask,
                     "labels": input_ids,
                 }
 

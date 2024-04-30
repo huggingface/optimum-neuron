@@ -150,7 +150,8 @@ def _hub_test(create_local_cache: bool = False):
         yield custom_cache_repo_with_seed
 
     delete_repo(custom_cache_repo_with_seed, repo_type="model")
-    shutil.rmtree(local_cache_path_with_seed)
+    if local_cache_path_with_seed.is_dir():
+        shutil.rmtree(local_cache_path_with_seed)
     if orig_token is not None:
         login(token=orig_token)
     else:

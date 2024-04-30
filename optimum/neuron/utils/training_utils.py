@@ -182,14 +182,6 @@ def patch_transformers_for_neuron_sdk():
     """
     transformers.utils.logging.set_verbosity = set_verbosity
 
-    # if version.parse(transformers.__version__) >= version.parse("4.39.3"):
-    #     raise RuntimeError("This should be removed since it is not needed.")
-    # elif is_torch_xla_available():
-    #     import sys
-
-    #     sys.modules["torch_xla.distributed.spmd"] = object()
-    #     sys.modules["torch_xla.runtime"] = object()
-
 
 @requires_torch_xla
 def skip_first_batches(dataloader, num_batches=0):

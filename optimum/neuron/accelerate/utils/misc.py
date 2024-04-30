@@ -14,7 +14,9 @@
 # limitations under the License.
 """Utilities of various sorts related to accelerate with Neuron."""
 
-from typing import TYPE_CHECKING, Dict, Union
+import functools
+import gc
+from typing import TYPE_CHECKING, Callable, Dict, Union
 
 import torch
 from transformers.modeling_utils import get_parameter_dtype
@@ -78,6 +80,35 @@ def create_patched_get_parameter_dtype(
         return dtype
 
     return patched_get_parameter_dtype
+
+
+@requires_neuronx_distributed
+def create_patched_save_pretrained(orig_save_pretrained_function: Callable[["PreTrainedModel"], None]):
+    """
+    Creates a wrapper around the `transformers.modeling_utils.PreTrainedModel.save_pretrained` method.
+    This methods calls `tensor.data_ptr()` on the model parameters, which causes segmentation fault when the tensors
+    are on the XLA device. To prevent that, this wrapper calls `save_pretrained` with the model on the CPU device.
+    """
+    import torch_xla.core.xla_model as xm
+    from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
+
+    orig_self = orig_save_pretrained_function.__self__
+    orig_func = orig_save_pretrained_function.__func__
+
+    @functools.wraps(orig_func)
+    def wrapper(*args, **kwargs):
+        self = args[0]
+        should_write_data = xm.is_master_ordinal(local=True)
+        orig_state_dict = self.state_dict()
+        cpu_state_dict = move_all_tensor_to_cpu(self.state_dict(), convert=should_write_data)
+        self.load_state_dict(cpu_state_dict, assign=True)
+        output = orig_func(*args, **kwargs)
+        self.load_state_dict(orig_state_dict, assign=True)
+        del cpu_state_dict
+        gc.collect()
+        return output
+
+    return wrapper.__get__(orig_self)
 
 
 @requires_neuronx_distributed
