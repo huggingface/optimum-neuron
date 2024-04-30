@@ -112,6 +112,8 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         unet: torch.jit._script.ScriptModule,
         vae_decoder: Union[torch.jit._script.ScriptModule, "NeuronModelVaeDecoder"],
         config: Dict[str, Any],
+        configs: Dict[str, "PretrainedConfig"],
+        neuron_configs: Dict[str, "NeuronDefaultConfig"],
         tokenizer: CLIPTokenizer,
         scheduler: Union[DDIMScheduler, PNDMScheduler, LMSDiscreteScheduler, LCMScheduler],
         data_parallel_mode: str,
@@ -119,8 +121,6 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         text_encoder_2: Optional[Union[torch.jit._script.ScriptModule, "NeuronModelTextEncoder"]] = None,
         tokenizer_2: Optional[CLIPTokenizer] = None,
         feature_extractor: Optional[CLIPFeatureExtractor] = None,
-        configs: Optional[Dict[str, "PretrainedConfig"]] = None,
-        neuron_configs: Optional[Dict[str, "NeuronDefaultConfig"]] = None,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
         model_and_config_save_paths: Optional[Dict[str, Tuple[str, Path]]] = None,
     ):
@@ -135,6 +135,10 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             config (`Dict[str, Any]`):
                 A config dictionary from which the model components will be instantiated. Make sure to only load
                 configuration files of compatible classes.
+            configs (Dict[str, "PretrainedConfig"], defaults to `None`):
+                A dictionary configurations for components of the pipeline.
+            neuron_configs (Dict[str, "NeuronDefaultConfig"], defaults to `None`):
+                A list of Neuron configurations.
             tokenizer (`CLIPTokenizer`):
                 Tokenizer of class
                 [CLIPTokenizer](https://huggingface.co/docs/transformers/v4.21.0/en/model_doc/clip#transformers.CLIPTokenizer).
@@ -152,10 +156,6 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 [CLIPTokenizer](https://huggingface.co/docs/transformers/v4.21.0/en/model_doc/clip#transformers.CLIPTokenizer).
             feature_extractor (`Optional[CLIPFeatureExtractor]`, defaults to `None`):
                 A model extracting features from generated images to be used as inputs for the `safety_checker`
-            configs (Optional[Dict[str, "PretrainedConfig"]], defaults to `None`):
-                A dictionary configurations for components of the pipeline.
-            neuron_configs (Optional["NeuronDefaultConfig"], defaults to `None`):
-                A list of Neuron configurations.
             model_save_dir (`Optional[Union[str, Path, TemporaryDirectory]]`, defaults to `None`):
                 The directory under which the exported Neuron models were saved.
             model_and_config_save_paths (`Optional[Dict[str, Tuple[str, Path]]]`, defaults to `None`):
@@ -272,6 +272,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         vae_encoder_path: Optional[Union[str, Path]] = None,
         text_encoder_2_path: Optional[Union[str, Path]] = None,
         dynamic_batch_size: bool = False,
+        inline_weights_to_neff: bool = False,
     ):
         """
         Loads Stable Diffusion TorchScript modules compiled by neuron(x)-cc compiler. It will be first loaded onto CPU and then moved to
@@ -305,8 +306,9 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             logger.info("Loading the whole pipeline into both Neuron Cores...")
             for submodel_name, submodel_path in submodels.items():
                 if submodel_path is not None and submodel_path.is_file():
+                    submodel = NeuronBaseModel.load_model(submodel_path, inline_weights_to_neff)
                     submodels[submodel_name] = torch_neuronx.DataParallel(
-                        torch.jit.load(submodel_path),
+                        submodel,
                         [0, 1],
                         set_dynamic_batching=dynamic_batch_size,
                     )
@@ -317,11 +319,12 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             submodels.pop("unet")
             for submodel_name, submodel_path in submodels.items():
                 if submodel_path is not None and submodel_path.is_file():
-                    submodels[submodel_name] = NeuronBaseModel.load_model(submodel_path)
+                    submodels[submodel_name] = NeuronBaseModel.load_model(submodel_path, inline_weights_to_neff)
                 else:
                     submodels[submodel_name] = None
+            unet = NeuronBaseModel.load_model(unet_path, inline_weights_to_neff)
             submodels["unet"] = torch_neuronx.DataParallel(
-                torch.jit.load(unet_path),
+                unet,
                 [0, 1],
                 set_dynamic_batching=dynamic_batch_size,
             )
@@ -329,7 +332,9 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             logger.info("Loading the pipeline without any data parallelism...")
             for submodel_name, submodel_path in submodels.items():
                 if submodel_path is not None and submodel_path.is_file():
-                    submodels[submodel_name] = NeuronBaseModel.load_model(submodel_path)
+                    submodels[submodel_name] = NeuronBaseModel.load_model(submodel_path, inline_weights_to_neff)
+                else:
+                    submodels[submodel_name] = None
         else:
             raise ValueError("You need to pass `data_parallel_mode` to define Neuron Core allocation.")
 
@@ -522,6 +527,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 model_config = DiffusersPretrainedConfig.from_json_file(file_paths[1])
                 configs[name] = model_config
                 neuron_configs[name] = cls._neuron_config_init(model_config)
+        inline_weights_to_neff = all([neuron_config._config.neuron.get("inline_weights_to_neff", False) for _, neuron_config in neuron_configs.items()])
 
         if data_parallel_mode is None:
             data_parallel_mode = cls.set_default_dp_mode(configs["unet"])
@@ -534,6 +540,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             vae_encoder_path=model_and_config_save_paths["vae_encoder"][0] if vae_encoder is None else None,
             text_encoder_2_path=model_and_config_save_paths["text_encoder_2"][0] if text_encoder_2 is None else None,
             dynamic_batch_size=neuron_configs[DIFFUSION_MODEL_UNET_NAME].dynamic_batch_size,
+            inline_weights_to_neff=inline_weights_to_neff,
         )
 
         if model_save_dir is None:

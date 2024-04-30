@@ -54,6 +54,7 @@ if is_neuron_available():
     NEURON_COMPILER_VERSION = get_neuroncc_version()
 
 if is_neuronx_available():
+    import torch_neuronx
     NEURON_COMPILER_TYPE = "neuronx-cc"
     NEURON_COMPILER_VERSION = get_neuronxcc_version()
 
@@ -89,10 +90,10 @@ class NeuronBaseModel(OptimizedModel):
         self,
         model: torch.jit._script.ScriptModule,
         config: "PretrainedConfig",
+        neuron_config: "NeuronDefaultConfig",
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
         model_file_name: Optional[str] = None,
         preprocessors: Optional[List] = None,
-        neuron_config: Optional["NeuronDefaultConfig"] = None,
         **kwargs,
     ):
         super().__init__(model, config)
@@ -100,12 +101,12 @@ class NeuronBaseModel(OptimizedModel):
         self.model = model
         self.model_file_name = model_file_name or NEURON_FILE_NAME
         self.config = config
-        self.neuron_config = self._neuron_config_init(self.config) if neuron_config is None else neuron_config
+        self.neuron_config = neuron_config
         self.input_static_shapes = NeuronBaseModel.get_input_static_shapes(self.neuron_config)
         self._attributes_init(model_save_dir, preprocessors, **kwargs)
-
+    
     @staticmethod
-    def load_model(path: Union[str, Path]) -> torch.jit._script.ScriptModule:
+    def load_model(path: Union[str, Path], inline_weights_to_neff: bool = False, device_id: int = 0) -> torch.jit._script.ScriptModule:
         """
         Loads a TorchScript module compiled by neuron(x)-cc compiler. It will be first loaded onto CPU and then moved to
         one or multiple [NeuronCore](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/neuroncores-arch.html).
@@ -119,6 +120,9 @@ class NeuronBaseModel(OptimizedModel):
 
         if path.is_file():
             model = torch.jit.load(path)
+            # For non-inlined models, send the module manually to device. This is important for weights/neff non-inlined module since when loading the module, the neff is automatically moved to Neuron but not the weights. We need to move the weights to Neuron as well manually to avoid great host to device IO penalty.
+            if is_neuronx_available() and not inline_weights_to_neff:
+                torch_neuronx.move_trace_to_device(model, device_id)
             return model
 
     def replace_weights(self, weights: Optional[Union[Dict[str, torch.Tensor], torch.nn.Module]] = None):
@@ -186,9 +190,13 @@ class NeuronBaseModel(OptimizedModel):
             model_compiler_version = config.neuron.get("compiler_version")
             check_compiler_compatibility(model_compiler_type, model_compiler_version)
 
+        # reconstruct neuron config
+        neuron_config = cls._neuron_config_init(config) if neuron_config is None else neuron_config
+        inline_weights_to_neff = config.neuron.get("inline_weights_to_neff", False)
+        
         preprocessors = None
         if model_path.is_dir():
-            model = NeuronBaseModel.load_model(model_path / file_name)
+            model = NeuronBaseModel.load_model(model_path / file_name, inline_weights_to_neff=inline_weights_to_neff)
             new_model_save_dir = model_path
         else:
             model_cache_path = hf_hub_download(
@@ -202,7 +210,7 @@ class NeuronBaseModel(OptimizedModel):
                 local_files_only=local_files_only,
             )
 
-            model = NeuronBaseModel.load_model(model_cache_path)
+            model = NeuronBaseModel.load_model(model_cache_path, inline_weights_to_neff=inline_weights_to_neff)
             new_model_save_dir = Path(model_cache_path).parent
 
         preprocessors = maybe_load_preprocessors(model_id, subfolder=subfolder)
@@ -608,4 +616,4 @@ class NeuronBaseModel(OptimizedModel):
         """
         Whether the Neuron model has separated weights and neff graph (by setting `inline_weights_to_neff=False` during the compilation).
         """
-        return not self.config.neuron.get("inline_weights_to_neff", True)
+        return not self.config.neuron.get("inline_weights_to_neff")
