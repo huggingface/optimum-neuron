@@ -867,7 +867,7 @@ class NeuronModelTextEncoder(_NeuronDiffusionModelPart):
         inputs = (input_ids,)
         outputs = self.model(*inputs)
 
-        if kwargs.pop("return_dict", False):
+        if return_dict:
             outputs = ModelOutput(dict(zip(self.neuron_config.outputs, outputs)))
 
         return outputs
