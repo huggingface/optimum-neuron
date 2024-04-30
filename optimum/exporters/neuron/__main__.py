@@ -263,6 +263,9 @@ def get_submodels_and_neuron_configs(
     )
 
     if is_stable_diffusion:
+        # TODO: Enable optional outputs for Stable Diffusion
+        if output_attentions:
+            raise ValueError(f"`output_attentions`is not supported by the {task} task yet.")
         models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs_for_stable_diffusion(
             model=model,
             input_shapes=input_shapes,

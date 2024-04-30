@@ -425,9 +425,7 @@ class NeuronBaseModel(OptimizedModel):
             self.auto_model_class.register(AutoConfig, self.__class__)
 
     @classmethod
-    def _neuron_config_init(
-        cls, config: "PretrainedConfig", model_type: Optional[str] = None
-    ) -> "NeuronDefaultConfig":
+    def _neuron_config_init(cls, config: "PretrainedConfig") -> "NeuronDefaultConfig":
         """
         Builds a `NeuronDefaultConfig` with an instance of the `PretrainedConfig` and the task.
         """
@@ -451,7 +449,7 @@ class NeuronBaseModel(OptimizedModel):
         # Neuron config constructuor
         task = getattr(config, "task") or TasksManager.infer_task_from_model(cls.auto_model_class)
         task = TasksManager.map_from_synonym(task)
-        model_type = model_type or neuron_config.get("model_type", None) or config.model_type
+        model_type = neuron_config.get("model_type", None) or config.model_type
         neuron_config_constructor = TasksManager.get_exporter_config_constructor(
             model_type=model_type,
             exporter="neuron",

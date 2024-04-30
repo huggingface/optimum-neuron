@@ -522,8 +522,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             if file_paths[1].is_file():
                 model_config = DiffusersPretrainedConfig.from_json_file(file_paths[1])
                 configs[name] = model_config
-                model_type = "clip-text-with-projection" if name == "text_encoder_2" else None
-                neuron_configs[name] = cls._neuron_config_init(model_config, model_type=model_type)
+                neuron_configs[name] = cls._neuron_config_init(model_config)
 
         if data_parallel_mode is None:
             data_parallel_mode = cls.set_default_dp_mode(configs["unet"])
@@ -853,14 +852,18 @@ class NeuronModelTextEncoder(_NeuronDiffusionModelPart):
     def forward(
         self,
         input_ids: torch.Tensor,
-        output_attentions: Optional[bool] = None,
+        attention_mask: Optional[torch.Tensor] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
     ):
         if attention_mask is not None:
-            assert torch.equal(torch.ones_like(attention_mask), attention_mask), "attention_mask is expected to be only all ones"
-        if output_hidden_states is not None:
-            assert bool(self.text_encoder.config.output_hidden_states) == bool(output_hidden_states), "output_hidden_states is expected to be consistent with how it was compiled"
+            assert torch.equal(
+                torch.ones_like(attention_mask), attention_mask
+            ), "attention_mask is expected to be only all ones."
+        if output_hidden_states:
+            assert (
+                self.config.output_hidden_states or self.config.neuron.get("output_hidden_states")
+            ) == output_hidden_states, "output_hidden_states is expected to be False since the model was compiled without hidden_states as output."
 
         input_ids = input_ids.to(torch.long)  # dummy generator uses long int for tracing
 
