@@ -40,8 +40,6 @@ def patched_accelerate_is_torch_xla_available(check_is_tpu=False, check_is_gpu=F
     return is_torch_xla_available()
 
 
-# TODO: get rid of this patch when it finally works without it.
-# Maybe it will when we moved to PT 2.1.
 def patch_accelerate_is_torch_xla_available():
     if is_torch_xla_available():
         import accelerate
