@@ -8,7 +8,7 @@ from optimum.neuron.modeling_decoder import get_available_cores
 
 
 def main():
-    NUM_CORES = 24
+    NUM_CORES = 8
     num_cores = get_available_cores()
     if num_cores < NUM_CORES:
         raise ValueError(f"This benchmark can only run on an instance with at least {NUM_CORES} cores.")
@@ -18,7 +18,6 @@ def main():
         "Llama-2-13B-BS4": ["meta-llama/Llama-2-13b-chat-hf", 4, 4096],
         "Llama-2-13B-BS8": ["meta-llama/Llama-2-13b-chat-hf", 8, 4096],
         "Llama-2-13B-BS16": ["meta-llama/Llama-2-13b-chat-hf", 16, 4096],
-        "Llama-2-13B-BS32": ["meta-llama/Llama-2-13b-chat-hf", 32, 4096],
     }
 
     for model_name, model_configuration in model_configurations.items():
