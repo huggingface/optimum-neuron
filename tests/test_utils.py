@@ -13,8 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Tests for utility functions and classes."""
-import os
-import unittest
 
 from transformers import BertConfig, BertForSequenceClassification, PreTrainedModel, Wav2Vec2Config, Wav2Vec2Model
 
@@ -67,14 +65,3 @@ def test_patch_model():
         # Checking that the context manager exists.
         with wav2vec2_model.no_sync():
             pass
-
-
-def require_hf_token(test_case):
-    """
-    Decorator marking a test that requires huggingface hub token.
-    """
-    use_auth_token = os.environ.get("HF_TOKEN", None)
-    if use_auth_token is None:
-        return unittest.skip("test requires hf token as `HF_AUTH_TOKEN` environment variable")(test_case)
-    else:
-        return test_case

@@ -52,7 +52,6 @@ from optimum.neuron.utils import NEURON_FILE_NAME, is_neuron_available, is_neuro
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 from optimum.utils import CONFIG_NAME, logging
 
-from ..test_utils import require_hf_token
 from .inference_utils import (
     MODEL_NAMES,
     SEED,
@@ -66,7 +65,6 @@ logger = logging.get_logger()
 
 
 @is_inferentia_test
-@require_hf_token
 class NeuronModelIntegrationTest(NeuronModelIntegrationTestMixin):
     MODEL_ID = MODEL_NAMES["bert"]
     if is_neuron_available():

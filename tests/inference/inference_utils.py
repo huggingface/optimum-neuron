@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import shutil
 import tempfile
 import unittest
@@ -82,7 +83,10 @@ class NeuronModelIntegrationTestMixin(unittest.TestCase):
 
         # Upload to the hub
         cls.neuron_model_id = f"{cls.USER}/{cls.NEURON_MODEL_REPO}"
-        neuron_model.push_to_hub(model_dir, repository_id=cls.neuron_model_id, use_auth_token=cls._token)
+
+        use_auth_token = os.environ.get("HF_TOKEN", None)
+        if use_auth_token:
+            neuron_model.push_to_hub(model_dir, repository_id=cls.neuron_model_id, use_auth_token=cls._token)
 
     @classmethod
     def tearDownClass(cls):
