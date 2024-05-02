@@ -1123,7 +1123,7 @@ def from_pretrained_for_mp(
     kwargs.pop("state_dict", None)
     kwargs.pop("from_tf", False)
     kwargs.pop("from_flax", False)
-    resume_download = kwargs.pop("resume_download", False)
+    resume_download = kwargs.pop("resume_download", None)
     proxies = kwargs.pop("proxies", None)
     kwargs.pop("output_loading_info", False)
     kwargs.pop("use_auth_token", None)
