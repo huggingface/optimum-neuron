@@ -22,13 +22,12 @@ For this benchmark we will use the following configurations:
 
 | Model type      | batch_size | sequence_length |
 |-----------------|------------|-----------------|
-| Llama2 13b BS1  | 1          | 4096            |
-| Llama2 13b BS4  | 4          | 4096            |
-| Llama2 13b BS8  | 8          | 4096            |
-| Llama2 13b BS16 | 16         | 4096            |
-| Llama2 13b BS32 | 32         | 4096            |
+| Llama2 13B BS1  | 1          | 4096            |
+| Llama2 13B BS4  | 4          | 4096            |
+| Llama2 13B BS8  | 8          | 4096            |
+| Llama2 13B BS16 | 16         | 4096            |
 
-*Note: all models are compiled to use all 12 devices corresponding to 24 cores on the `inf2.48xlarge` instance.*
+*Note: all models are compiled to use 4 devices corresponding to 8 cores on the `inf2.48xlarge` instance.*
 
 *Note: please refer to the [inferentia2 product page](https://aws.amazon.com/ec2/instance-types/inf2/) for details on the available instances.*
 
