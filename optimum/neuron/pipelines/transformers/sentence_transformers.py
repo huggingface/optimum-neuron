@@ -5,23 +5,14 @@ from transformers.pipelines.base import GenericTensor, Pipeline
 from optimum.utils import is_sentence_transformers_available
 
 
-config_name = "config_sentence_transformers.json"
-
-
-def is_sentence_transformer_model(model: str, token: str = None, cache_folder: str = None, revision: str = None):
+def is_sentence_transformer_model(model: str, token: str = None, revision: str = None):
     """Checks if the model is a sentence transformer model based on provided model id"""
     if is_sentence_transformers_available():
-        from sentence_transformers.util import load_file_path
+        from optimum.exporters.tasks import TasksManager
 
         try:
-            load_file_path(
-                model,
-                config_name,
-                token=token,
-                cache_folder=cache_folder,
-                revision=revision,
-            )
-            return True
+            _library_name = TasksManager.infer_library_from_model(model, use_auth_token=token, revision=revision)
+            return True if _library_name == "sentence_transformers" else False
         except ValueError:
             return False
     return False
