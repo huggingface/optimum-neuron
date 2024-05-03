@@ -3,19 +3,17 @@ from typing import Dict
 from transformers.pipelines.base import GenericTensor, Pipeline
 
 from optimum.utils import is_sentence_transformers_available
-
+ 
+if is_sentence_transformers_available():
+    from optimum.exporters.tasks import TasksManager
 
 def is_sentence_transformer_model(model: str, token: str = None, revision: str = None):
     """Checks if the model is a sentence transformer model based on provided model id"""
-    if is_sentence_transformers_available():
-        from optimum.exporters.tasks import TasksManager
-
-        try:
-            _library_name = TasksManager.infer_library_from_model(model, use_auth_token=token, revision=revision)
-            return True if _library_name == "sentence_transformers" else False
-        except ValueError:
-            return False
-    return False
+    try:
+        _library_name = TasksManager.infer_library_from_model(model, use_auth_token=token, revision=revision)
+        return _library_name == "sentence_transformers"
+    except ValueError:
+        return False
 
 
 class FeatureExtractionPipeline(Pipeline):
