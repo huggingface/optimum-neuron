@@ -89,6 +89,10 @@ def neuron_config_to_env(neuron_config):
         f.write("export MAX_INPUT_LENGTH={}\n".format(max_input_length))
 
 
+def sort_neuron_configs(dictionary):
+    return -dictionary["num_cores"], -dictionary["batch_size"]
+
+
 def lookup_compatible_cached_model(model_id: str, revision: Optional[str]) -> Optional[Dict[str, Any]]:
     # Reuse the same mechanic as the one in use to configure the tgi server part
     # The only difference here is that we stay as flexible as possible on the compatibility part
@@ -96,13 +100,12 @@ def lookup_compatible_cached_model(model_id: str, revision: Optional[str]) -> Op
 
     logger.debug("Found %d cached entries for model %s, revision %s", len(entries), model_id, revision)
 
+    all_compatible = []
     for entry in entries:
         if check_env_and_neuron_config_compatibility(entry, check_compiler_version=True):
-            break
-    else:
-        entry = None
+            all_compatible.append(entry)
 
-    if not entry:
+    if not all_compatible:
         logger.debug(
             "No compatible cached entry found for model %s, env %s, available cores %s, " "neuronxcc version %s",
             model_id,
@@ -110,8 +113,14 @@ def lookup_compatible_cached_model(model_id: str, revision: Optional[str]) -> Op
             available_cores,
             neuronxcc_version,
         )
-    else:
-        logger.info("Compatible neuron cached model found %s", entry)
+        return None
+
+    logger.info("%d compatible neuron cached models found", len(all_compatible))
+
+    all_compatible = sorted(all_compatible, key=sort_neuron_configs)
+
+    entry = all_compatible[0]
+
     return entry
 
 
