@@ -51,7 +51,8 @@ if is_neuronx_distributed_available():
 
 
 # LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-32kv-heads-random"
-MODEL_NAME = "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random"
+# MODEL_NAME = "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random"
+MODEL_NAME = "michaelbenayoun/llama-2-tiny-4kv-heads-16layers-random"
 
 
 @is_trainium_test
@@ -102,10 +103,6 @@ class TestNeuronTrainer(DistributedTest):
         tp_rank = get_tensor_model_parallel_rank()
         pp_rank = get_pipeline_model_parallel_rank()
 
-        tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-        model = get_model(LlamaForCausalLM, MODEL_NAME, tp_size=tp_size, pp_size=pp_size)
-        datasets = create_dummy_causal_lm_dataset(model.config.vocab_size, 120, 1)
-
         args = NeuronTrainingArguments(
             tensor_parallel_size=tp_size,
             pipeline_parallel_size=pp_size,
@@ -114,6 +111,10 @@ class TestNeuronTrainer(DistributedTest):
             max_steps=20,
             output_dir=output_dir.as_posix(),
         )
+
+        tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+        model = get_model(LlamaForCausalLM, MODEL_NAME, tp_size=tp_size, pp_size=pp_size)
+        datasets = create_dummy_causal_lm_dataset(model.config.vocab_size, 120, 1)
 
         trainer = NeuronTrainer(
             args=args,
