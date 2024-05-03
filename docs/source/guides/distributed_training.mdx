@@ -18,8 +18,8 @@ But there is a caveat: each Neuron core is an independent data-parallel worker b
 To alleviate that, `optimum-neuron` supports parallelism features enabling you to harness the full power of your Trainium instance:
 
   1. [ZeRO-1](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/frameworks/torch/torch-neuronx/tutorials/training/zero1_gpt2.html): It is an optimization of data-parallelism which consists in sharding the optimizer state (which usually represents half of the memory needed on the device) over the data-parallel ranks.
-  2. [Tensor Parallelism](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/libraries/neuronx-distributed/tensor_parallelism_overview.html): It is a technique which consists in sharding each of your model parameters along a given dimension on multiple devices. The number of devices to shard your parameters on is called the `tensor_parallel_size`. 
-  3. [Pipeline Parallelism](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/libraries/neuronx-distributed/pipeline_parallelism_overview.html): **coming soon!**
+  2. [Tensor Parallelism](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/libraries/neuronx-distributed/tensor_parallelism_overview.html): It is a technique which consists in sharding each of your model parameters along a given dimension on multiple devices. It also known as intra-layer model parallelism. The number of devices to shard your parameters on is called the `tensor_parallel_size`. 
+  3. [Pipeline Parallelism](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/libraries/neuronx-distributed/pipeline_parallelism_overview.html): It is a technique consisting in sharding the model block layers on multiple devices. It is also known as inter-layer model parallelism. The number of devices to shard your layers on is called the `pipeline_parallel_size`.
 
 
 The good news is that is it possible to combine those techniques, and `optimum-neuron` makes it very easy!
