@@ -19,7 +19,6 @@ from typing import Any, Dict, Optional, Union
 
 from transformers import (
     AutoConfig,
-    FeatureExtractionPipeline,
     FillMaskPipeline,
     Pipeline,
     PreTrainedModel,
@@ -37,12 +36,17 @@ from transformers.onnx.utils import get_preprocessor
 
 from optimum.modeling_base import OptimizedModel
 from optimum.neuron.modeling_base import NeuronBaseModel
+from optimum.neuron.pipelines.transformers.sentence_transformers import (
+    FeatureExtractionPipeline,
+    is_sentence_transformer_model,
+)
 
 from ...modeling import (
     NeuronModelForCausalLM,
     NeuronModelForFeatureExtraction,
     NeuronModelForMaskedLM,
     NeuronModelForQuestionAnswering,
+    NeuronModelForSentenceTransformers,
     NeuronModelForSequenceClassification,
     NeuronModelForTokenClassification,
 )
@@ -119,6 +123,13 @@ def load_pipeline(
     elif isinstance(model, str):
         model_id = model
         neuronx_model_class = supported_tasks[targeted_task]["class"][0]
+        # Try to determine the correct feature extraction class to use.
+        if targeted_task == "feature-extraction" and is_sentence_transformer_model(
+            model, token=token, revision=revision
+        ):
+            logger.info("Using Sentence Transformers compatible Feature extraction pipeline")
+            neuronx_model_class = NeuronModelForSentenceTransformers
+
         model = neuronx_model_class.from_pretrained(
             model, export=export, **compiler_args, **input_shapes, **hub_kwargs, **kwargs
         )
@@ -267,5 +278,6 @@ def pipeline(
         feature_extractor=feature_extractor,
         use_fast=use_fast,
         batch_size=batch_size,
+        pipeline_class=NEURONX_SUPPORTED_TASKS[task]["impl"],
         **kwargs,
     )
