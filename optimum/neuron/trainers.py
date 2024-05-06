@@ -1028,7 +1028,7 @@ class AugmentTrainerForNeuronMixin:
                             self.lr_scheduler.step()
 
                     self.optimizer.zero_grad()
-                    # xm.mark_step()
+                    xm.mark_step()
 
                     self.state.global_step += 1
                     self.state.epoch = epoch + (step + 1 + steps_skipped) / steps_in_epoch

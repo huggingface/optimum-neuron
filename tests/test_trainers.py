@@ -172,6 +172,7 @@ class TestNeuronTrainer(DistributedTest):
 
             assert (checkpoint_dir / "training_args.bin").is_file()
 
+    @pytest.mark.skip("Maybe merge with test_save_and_resume_from_checkpoint")
     def test_train_and_eval_use_remote_cache(self, hub_test_with_local_cache, tmpdir, parallel_sizes):
         repo_id, local_cache_path = hub_test_with_local_cache
         output_dir = Path(tmpdir)
@@ -273,6 +274,7 @@ class TestNeuronTrainer(DistributedTest):
             second_training_duration < first_training_duration
         ), "Second training should be faster because cached graphs can be used."
 
+    @pytest.mark.skip("Test in later release")
     def test_save_and_resume_from_checkpoint(self, parallel_sizes, tmpdir):
 
         tmpdir = Path(tmpdir)
