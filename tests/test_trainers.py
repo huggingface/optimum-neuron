@@ -23,7 +23,12 @@ from pathlib import Path
 import pytest
 from datasets import load_dataset
 from huggingface_hub import HfApi
-from transformers import AutoConfig, AutoModelForSequenceClassification, AutoTokenizer, LlamaForCausalLM
+from transformers import (
+    AutoConfig,
+    AutoModelForSequenceClassification,
+    AutoTokenizer,
+    LlamaForCausalLM,
+)
 
 from optimum.neuron import NeuronTrainer, NeuronTrainingArguments
 from optimum.neuron.distributed.utils import MODEL_PARALLEL_SHARDS_DIR_NAME
@@ -53,14 +58,15 @@ if is_neuronx_distributed_available():
 # LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-32kv-heads-random"
 # MODEL_NAME = "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random"
 MODEL_NAME = "michaelbenayoun/llama-2-tiny-4kv-heads-16layers-random"
+MODEL_NAME = "michaelbenayoun/llama-2-tiny-4kv-heads-8layers-random"
 
 
 @is_trainium_test
 class TestNeuronTrainingUtils(DistributedTest):
     @pytest.fixture(
         scope="class",
-        params=[[2, 1, 1], [2, 2, 1], [2, 1, 2], [16, 2, 2]],
-        ids=["dp=2", "tp=2", "pp=2", "dp=4,tp=pp=2"],
+        params=[[2, 1, 1], [2, 2, 1], [2, 1, 2], [32, 2, 2]],
+        ids=["dp=2", "tp=2", "pp=2", "dp=8,tp=pp=2"],
     )
     def parallel_sizes(self, request):
         return request.param

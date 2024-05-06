@@ -432,18 +432,19 @@ class AugmentTrainerForNeuronMixin:
                 get_data_parallel_size,
             )
 
+            dp_size = get_data_parallel_size()
+            tr_loss_div = tr_loss / dp_size
+
+            xm.mark_step()
+
             if self.args.mp_plugin.should_parallelize:
-                dp_size = get_data_parallel_size()
-
-                tr_loss_div = tr_loss / dp_size
-
                 # It works even for PP because under PP we make it so that the main process to log for callbacks is
                 # the one on dp_rank = tp_rank = 0 and pp_rank = pp_size -1.
                 tr_loss_div = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_group(as_list=True))
                 tr_loss_scalar = tr_loss_div.detach().item()
             else:
-                # all_gather + mean() to get average loss over all processes
-                tr_loss_scalar = self._nested_gather(tr_loss).mean().item()
+                tr_loss_div = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_group(as_list=True))
+                tr_loss_scalar = tr_loss.detach().item()
 
             # reset tr_loss to zero
             tr_loss -= tr_loss
@@ -994,13 +995,6 @@ class AugmentTrainerForNeuronMixin:
                     # last step in epoch but step is always smaller than gradient_accumulation_steps
                     is_last_step_and_steps_less_than_grad_acc
                 ):
-                    # the `or` condition of `is_last_step_and_steps_less_than_grad_acc` is not covered
-                    # in accelerate. So, explicitly enable sync gradients to True in that case.
-                    if is_last_step_and_steps_less_than_grad_acc or (
-                        version.parse(accelerate_version) <= version.parse("0.20.3")
-                    ):
-                        self.accelerator.gradient_state._set_sync_gradients(True)
-
                     # Gradient clipping
                     if args.max_grad_norm is not None and args.max_grad_norm > 0:
                         # deepspeed does its own clipping
@@ -1034,7 +1028,7 @@ class AugmentTrainerForNeuronMixin:
                             self.lr_scheduler.step()
 
                     self.optimizer.zero_grad()
-                    xm.mark_step()
+                    # xm.mark_step()
 
                     self.state.global_step += 1
                     self.state.epoch = epoch + (step + 1 + steps_skipped) / steps_in_epoch
@@ -1383,13 +1377,14 @@ class AugmentTrainerForNeuronMixin:
         ignore_keys_for_eval: Optional[List[str]] = None,
         **kwargs,
     ):
-        with hub_neuronx_cache("training", entry=self.model_cache_entry):
-            result = super().train(
-                resume_from_checkpoint=resume_from_checkpoint,
-                trial=trial,
-                ignore_keys_for_eval=ignore_keys_for_eval,
-                **kwargs,
-            )
+        # with hub_neuronx_cache("training", entry=self.model_cache_entry):
+        result = super().train(
+            resume_from_checkpoint=resume_from_checkpoint,
+            trial=trial,
+            ignore_keys_for_eval=ignore_keys_for_eval,
+            **kwargs,
+        )
+        return result
         if not is_precompilation():
             self.synchronize_hub_cache()
         return result
