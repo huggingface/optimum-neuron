@@ -14,10 +14,11 @@ def main():
         raise ValueError(f"This benchmark can only run on an instance with at least {NUM_CORES} cores.")
 
     model_configurations = {
-        "Llama-2-13B-BS1": ["meta-llama/Llama-2-13b-chat-hf", 1, 4096],
-        "Llama-2-13B-BS4": ["meta-llama/Llama-2-13b-chat-hf", 4, 4096],
-        "Llama-2-13B-BS8": ["meta-llama/Llama-2-13b-chat-hf", 8, 4096],
-        "Llama-2-13B-BS16": ["meta-llama/Llama-2-13b-chat-hf", 16, 4096],
+        "Llama-3-8B-BS1": ["meta-llama/Meta-Llama-3-8B", 1, 4096],
+        "Llama-3-8B-BS4": ["meta-llama/Meta-Llama-3-8B", 4, 4096],
+        "Llama-3-8B-BS8": ["meta-llama/Meta-Llama-3-8B", 8, 4096],
+        "Llama-3-8B-BS16": ["meta-llama/Meta-Llama-3-8B", 16, 4096],
+        "Llama-3-8B-BS32": ["meta-llama/Meta-Llama-3-8B", 32, 4096],
     }
 
     for model_name, model_configuration in model_configurations.items():

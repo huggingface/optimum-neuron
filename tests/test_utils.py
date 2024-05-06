@@ -14,7 +14,6 @@
 # limitations under the License.
 """Tests for utility functions and classes."""
 
-
 from transformers import BertConfig, BertForSequenceClassification, PreTrainedModel, Wav2Vec2Config, Wav2Vec2Model
 
 from optimum.neuron.accelerate.accelerator import MODEL_PATCHING_SPECS
