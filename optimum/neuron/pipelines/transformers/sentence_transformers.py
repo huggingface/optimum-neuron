@@ -3,9 +3,11 @@ from typing import Dict
 from transformers.pipelines.base import GenericTensor, Pipeline
 
 from optimum.utils import is_sentence_transformers_available
- 
+
+
 if is_sentence_transformers_available():
     from optimum.exporters.tasks import TasksManager
+
 
 def is_sentence_transformer_model(model: str, token: str = None, revision: str = None):
     """Checks if the model is a sentence transformer model based on provided model id"""
