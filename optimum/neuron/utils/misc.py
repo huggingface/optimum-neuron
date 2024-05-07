@@ -23,7 +23,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
-import torch_neuronx
 from transformers import AutoFeatureExtractor, AutoProcessor, AutoTokenizer, CLIPProcessor, PretrainedConfig
 from transformers.modeling_utils import _add_variant
 from transformers.utils import (
@@ -47,6 +46,7 @@ from .require_utils import requires_neuronx_distributed, requires_safetensors, r
 
 
 if is_torch_neuronx_available():
+    import torch_neuronx
     from torch_neuronx.xla_impl.data_parallel import DataParallel
 
 if TYPE_CHECKING:
