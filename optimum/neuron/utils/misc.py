@@ -707,7 +707,6 @@ def get_stable_diffusion_configs(
 class WeightSeparatedDataParallel(torch_neuronx.DataParallel):
 
     def _load_modules(self, module):
-        # return super()._load_modules(module)
         try:
             self.device_ids.sort()
 
