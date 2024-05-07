@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
+import torch_neuronx
 from transformers import AutoFeatureExtractor, AutoProcessor, AutoTokenizer, CLIPProcessor, PretrainedConfig
 from transformers.modeling_utils import _add_variant
 from transformers.utils import (
@@ -700,3 +701,30 @@ def get_stable_diffusion_configs(
             configs[name] = models_for_export[name].config
 
     return configs
+
+
+# TO REMOVE: This class will be included directly in the DDP API of Neuron SDK 2.20
+class WeightSeparatedDataParallel(torch_neuronx.DataParallel):
+
+    def _load_modules(self, module):
+        # return super()._load_modules(module)
+        try:
+            self.device_ids.sort()
+
+            loaded_modules = [module]
+            # If device_ids is non-consecutive, perform deepcopy's and load onto each core independently.
+            for i in range(len(self.device_ids) - 1):
+                loaded_modules.append(copy.deepcopy(module))
+            for i, nc_index in enumerate(self.device_ids):
+                torch_neuronx.experimental.placement.set_neuron_cores(loaded_modules[i], nc_index, 1)
+                torch_neuronx.move_trace_to_device(loaded_modules[i], nc_index)
+
+        except ValueError as err:
+            self.dynamic_batching_failed = True
+            logger.warning(f"Automatic dynamic batching failed due to {err}.")
+            logger.warning(
+                "Please disable dynamic batching by calling `disable_dynamic_batching()` "
+                "on your DataParallel module."
+            )
+        self.num_workers = 2 * len(loaded_modules)
+        return loaded_modules

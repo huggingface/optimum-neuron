@@ -57,12 +57,12 @@ from .utils.hub_neuronx_cache import (
     build_cache_config,
     create_hub_compile_cache_proxy,
 )
+from .utils.misc import WeightSeparatedDataParallel
 from .utils.require_utils import requires_torch_neuronx
 from .utils.version_utils import get_neuronxcc_version
 
 
 if is_neuronx_available():
-    import torch_neuronx
 
     NEURON_COMPILER_TYPE = "neuronx-cc"
     NEURON_COMPILER_VERSION = get_neuronxcc_version()
@@ -308,7 +308,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             for submodel_name, submodel_path in submodels.items():
                 if submodel_path is not None and submodel_path.is_file():
                     submodel = NeuronBaseModel.load_model(submodel_path, inline_weights_to_neff)
-                    submodels[submodel_name] = torch_neuronx.DataParallel(
+                    submodels[submodel_name] = WeightSeparatedDataParallel(
                         submodel,
                         [0, 1],
                         set_dynamic_batching=dynamic_batch_size,
@@ -320,11 +320,11 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             submodels.pop("unet")
             for submodel_name, submodel_path in submodels.items():
                 if submodel_path is not None and submodel_path.is_file():
-                    submodels[submodel_name] = NeuronBaseModel.load_model(submodel_path, inline_weights_to_neff)
+                    submodels[submodel_name] = WeightSeparatedDataParallel(submodel_path, inline_weights_to_neff)
                 else:
                     submodels[submodel_name] = None
             unet = NeuronBaseModel.load_model(unet_path, inline_weights_to_neff)
-            submodels["unet"] = torch_neuronx.DataParallel(
+            submodels["unet"] = WeightSeparatedDataParallel(
                 unet,
                 [0, 1],
                 set_dynamic_batching=dynamic_batch_size,
@@ -528,7 +528,12 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 model_config = DiffusersPretrainedConfig.from_json_file(file_paths[1])
                 configs[name] = model_config
                 neuron_configs[name] = cls._neuron_config_init(model_config)
-        inline_weights_to_neff = all([neuron_config._config.neuron.get("inline_weights_to_neff", False) for _, neuron_config in neuron_configs.items()])
+        inline_weights_to_neff = all(
+            [
+                neuron_config._config.neuron.get("inline_weights_to_neff", False)
+                for _, neuron_config in neuron_configs.items()
+            ]
+        )
 
         if data_parallel_mode is None:
             data_parallel_mode = cls.set_default_dp_mode(configs["unet"])

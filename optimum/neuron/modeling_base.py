@@ -55,6 +55,7 @@ if is_neuron_available():
 
 if is_neuronx_available():
     import torch_neuronx
+
     NEURON_COMPILER_TYPE = "neuronx-cc"
     NEURON_COMPILER_VERSION = get_neuronxcc_version()
 
@@ -104,9 +105,11 @@ class NeuronBaseModel(OptimizedModel):
         self.neuron_config = neuron_config
         self.input_static_shapes = NeuronBaseModel.get_input_static_shapes(self.neuron_config)
         self._attributes_init(model_save_dir, preprocessors, **kwargs)
-    
+
     @staticmethod
-    def load_model(path: Union[str, Path], inline_weights_to_neff: bool = False, device_id: int = 0) -> torch.jit._script.ScriptModule:
+    def load_model(
+        path: Union[str, Path], inline_weights_to_neff: bool = False, device_id: int = 0
+    ) -> torch.jit._script.ScriptModule:
         """
         Loads a TorchScript module compiled by neuron(x)-cc compiler. It will be first loaded onto CPU and then moved to
         one or multiple [NeuronCore](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/neuroncores-arch.html).
@@ -193,7 +196,7 @@ class NeuronBaseModel(OptimizedModel):
         # reconstruct neuron config
         neuron_config = cls._neuron_config_init(config) if neuron_config is None else neuron_config
         inline_weights_to_neff = config.neuron.get("inline_weights_to_neff", False)
-        
+
         preprocessors = None
         if model_path.is_dir():
             model = NeuronBaseModel.load_model(model_path / file_name, inline_weights_to_neff=inline_weights_to_neff)
