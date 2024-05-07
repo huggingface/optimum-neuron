@@ -97,6 +97,7 @@ def create_dummy_causal_lm_dataset(
     num_train_examples: int,
     num_eval_examples: int,
     num_test_examples: Optional[int] = None,
+    sequence_length: int = 32,
 ) -> DatasetDict:
     if num_test_examples is None:
         num_test_examples = num_eval_examples
@@ -104,8 +105,8 @@ def create_dummy_causal_lm_dataset(
     def create_gen(num_examples):
         def gen():
             for _ in range(num_examples):
-                input_ids = generate_input_ids(vocab_size, 1, 32)
-                attention_mask = generate_attention_mask(1, 32)
+                input_ids = generate_input_ids(vocab_size, 1, sequence_length)
+                attention_mask = generate_attention_mask(1, sequence_length)
                 yield {
                     "input_ids": input_ids,
                     "attention_mask": attention_mask,

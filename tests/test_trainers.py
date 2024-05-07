@@ -25,9 +25,9 @@ from datasets import load_dataset
 from huggingface_hub import HfApi
 from transformers import (
     AutoConfig,
+    AutoModelForCausalLM,
     AutoModelForSequenceClassification,
     AutoTokenizer,
-    LlamaForCausalLM,
 )
 
 from optimum.neuron import NeuronTrainer, NeuronTrainingArguments
@@ -43,7 +43,6 @@ from . import DistributedTest
 from .utils import (
     create_dummy_causal_lm_dataset,
     default_data_collator_for_causal_lm,
-    get_model,
 )
 
 
@@ -59,6 +58,20 @@ if is_neuronx_distributed_available():
 # MODEL_NAME = "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random"
 MODEL_NAME = "michaelbenayoun/llama-2-tiny-4kv-heads-16layers-random"
 MODEL_NAME = "michaelbenayoun/llama-2-tiny-4kv-heads-8layers-random"
+MODEL_NAME = "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random"
+# MODEL_NAME = "michaelbenayoun/llama-2-tiny-4kv-heads-2layers-random"
+# MODEL_NAME = "hf-internal-testing/tiny-random-GPTNeoForCausalLM"
+
+
+def get_tokenizer_and_tiny_llama_model(parallel_sizes):
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+    _, tp_size, pp_size = parallel_sizes
+    config = AutoConfig.from_pretrained(MODEL_NAME)
+    config.num_hidden_layers = 2 * max(1, pp_size)
+    config.num_attention_heads = 2 * max(1, tp_size)
+    config.num_key_value_heads = config.num_attention_heads // 2
+    model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, config=config, ignore_mismatched_sizes=True)
+    return tokenizer, model
 
 
 @is_trainium_test
@@ -71,25 +84,11 @@ class TestNeuronTrainingUtils(DistributedTest):
     def parallel_sizes(self, request):
         return request.param
 
-    @pytest.fixture(scope="class")
-    def tiny_llama_model(self, parallel_sizes):
-        _, _, pp_size = parallel_sizes
-        config = AutoConfig.from_pretrained(MODEL_NAME)
-        config.num_hidden_layers = 2 * max(1, pp_size)
-        config.num_attention_heads = 2
-        config.num_key_value_heads = 2
-        config.problem_type = "single_label_classification"
-        # config.use_cache = False
-        model = AutoModelForSequenceClassification.from_pretrained(
-            MODEL_NAME, config=config, ignore_mismatched_sizes=True
-        )
-        return model
-
     def test_get_model_param_count(self, parallel_sizes, tmpdir):
         _, tp_size, pp_size = parallel_sizes
         output_dir = Path(tmpdir)
 
-        model = get_model(LlamaForCausalLM, MODEL_NAME, tp_size=tp_size, pp_size=pp_size)
+        _, model = get_tokenizer_and_tiny_llama_model(parallel_sizes)
 
         target_num_parameters = sum(p.numel() for p in model.parameters())
 
@@ -126,15 +125,16 @@ class TestNeuronTrainer(DistributedTest):
         args = NeuronTrainingArguments(
             tensor_parallel_size=tp_size,
             pipeline_parallel_size=pp_size,
-            per_device_train_batch_size=2,
+            do_train=True,
+            do_eval=False,
+            per_device_train_batch_size=1,
             save_steps=5,
             max_steps=20,
             output_dir=output_dir.as_posix(),
         )
 
-        tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-        model = get_model(LlamaForCausalLM, MODEL_NAME, tp_size=tp_size, pp_size=pp_size)
-        datasets = create_dummy_causal_lm_dataset(model.config.vocab_size, 120, 1)
+        tokenizer, model = get_tokenizer_and_tiny_llama_model(parallel_sizes)
+        datasets = create_dummy_causal_lm_dataset(model.config.vocab_size, 120, 1, sequence_length=128)
 
         trainer = NeuronTrainer(
             args=args,
@@ -200,8 +200,7 @@ class TestNeuronTrainer(DistributedTest):
         num_eval_samples = 100
         per_device_eval_batch_size = 16
 
-        tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-        model = get_model(LlamaForCausalLM, MODEL_NAME, tp_size=tp_size, pp_size=pp_size)
+        tokenizer, model = get_tokenizer_and_tiny_llama_model(parallel_sizes)
         clone = copy.deepcopy(model)
 
         datasets = create_dummy_causal_lm_dataset(model.config.vocab_size, num_train_samples, num_eval_samples)

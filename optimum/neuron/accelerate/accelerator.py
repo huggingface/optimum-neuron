@@ -328,9 +328,7 @@ class NeuronAccelerator(Accelerator):
             ),
         )
 
-        if self.state.distributed_type is not NeuronDistributedType.MODEL_PARALLELISM and hasattr(
-            model, "save_pretrained"
-        ):
+        if hasattr(model, "save_pretrained"):
             patching_specs.append(
                 (
                     "save_pretrained",
@@ -344,6 +342,7 @@ class NeuronAccelerator(Accelerator):
 
         model_patcher = ModelPatcher(prepared_patching_specs, ignore_missing_attributes=True)
         model_patcher.patch()
+
         return model
 
     @requires_neuronx_distributed

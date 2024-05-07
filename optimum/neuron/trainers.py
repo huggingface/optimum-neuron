@@ -68,7 +68,6 @@ from .distributed import Parallelizer, ParallelizersManager
 from .distributed.utils import make_optimizer_constructor_lazy
 from .training_args import NeuronTrainingArguments
 from .utils import (
-    Patcher,
     is_torch_xla_available,
     patch_within_function,
 )
@@ -80,7 +79,7 @@ from .utils.cache_utils import (
     has_write_access_to_repo,
 )
 from .utils.hub_neuronx_cache import ModelCacheEntry, hub_neuronx_cache, patch_neuron_cc_wrapper, synchronize_hub_cache
-from .utils.misc import is_main_worker, is_precompilation, torch_xla_safe_save_file
+from .utils.misc import is_main_worker, is_precompilation
 from .utils.require_utils import requires_neuronx_distributed, requires_torch_neuronx
 from .utils.training_utils import (
     get_model_param_count,
@@ -517,28 +516,21 @@ class AugmentTrainerForNeuronMixin:
                 num_local_ranks_per_step=self.accelerator.state.mp_plugin.num_local_ranks_per_step,
             )
         else:
-            safe_save_function_patcher = Patcher(
-                [("transformers.modeling_utils.safe_save_file", torch_xla_safe_save_file)]
-            )
             if not isinstance(self.model, PreTrainedModel):
                 if isinstance(unwrap_model(self.model), PreTrainedModel):
-                    with safe_save_function_patcher:
-                        unwrap_model(self.model).save_pretrained(
-                            output_dir,
-                            is_main_process=self.args.should_save,
-                            state_dict=self.model.state_dict(),
-                            save_function=xm.save,
-                        )
+                    unwrap_model(self.model).save_pretrained(
+                        output_dir,
+                        is_main_process=self.args.should_save,
+                        state_dict=self.model.state_dict(),
+                        save_function=xm.save,
+                    )
                 else:
                     if is_main_worker():
                         logger.info("Trainer.model is not a `PreTrainedModel`, only saving its state dict.")
                     state_dict = self.model.state_dict()
                     xm.save(state_dict, os.path.join(output_dir, WEIGHTS_NAME))
             else:
-                with safe_save_function_patcher:
-                    self.model.save_pretrained(
-                        output_dir, is_main_process=self.args.should_save, save_function=xm.save
-                    )
+                self.model.save_pretrained(output_dir, is_main_process=self.args.should_save, save_function=xm.save)
 
         if self.tokenizer is not None and self.args.should_save:
             self.tokenizer.save_pretrained(output_dir)
