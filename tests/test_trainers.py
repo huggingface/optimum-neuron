@@ -71,6 +71,20 @@ class TestNeuronTrainingUtils(DistributedTest):
     def parallel_sizes(self, request):
         return request.param
 
+    @pytest.fixture(scope="class")
+    def tiny_llama_model(self, parallel_sizes):
+        _, _, pp_size = parallel_sizes
+        config = AutoConfig.from_pretrained(MODEL_NAME)
+        config.num_hidden_layers = 2 * max(1, pp_size)
+        config.num_attention_heads = 2
+        config.num_key_value_heads = 2
+        config.problem_type = "single_label_classification"
+        # config.use_cache = False
+        model = AutoModelForSequenceClassification.from_pretrained(
+            MODEL_NAME, config=config, ignore_mismatched_sizes=True
+        )
+        return model
+
     def test_get_model_param_count(self, parallel_sizes, tmpdir):
         _, tp_size, pp_size = parallel_sizes
         output_dir = Path(tmpdir)

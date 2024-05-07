@@ -430,9 +430,14 @@ class AugmentTrainerForNeuronMixin:
             from neuronx_distributed.parallel_layers.parallel_state import (
                 get_data_parallel_group,
                 get_data_parallel_size,
+                model_parallel_is_initialized,
             )
 
-            dp_size = get_data_parallel_size()
+            if model_parallel_is_initialized():
+                dp_size = get_data_parallel_size()
+            else:
+                dp_size = xm.xrt_world_size()
+
             tr_loss_div = tr_loss / dp_size
 
             xm.mark_step()
@@ -443,7 +448,7 @@ class AugmentTrainerForNeuronMixin:
                 tr_loss_div = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_group(as_list=True))
                 tr_loss_scalar = tr_loss_div.detach().item()
             else:
-                tr_loss_div = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_group(as_list=True))
+                tr_loss_div = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div)
                 tr_loss_scalar = tr_loss.detach().item()
 
             # reset tr_loss to zero
