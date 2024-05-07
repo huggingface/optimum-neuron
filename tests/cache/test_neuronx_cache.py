@@ -92,6 +92,7 @@ def export_encoder_model(model_id):
         dynamic_batch_size=False,
         batch_size=batch_size,
         sequence_length=sequence_length,
+        inline_weights_to_neff=False,
     )
 
 
@@ -107,6 +108,7 @@ def export_stable_diffusion_model(model_id):
         height=height,
         width=width,
         num_images_per_prompt=num_images_per_prompt,
+        inline_weights_to_neff=False,
     )
 
 
@@ -122,6 +124,7 @@ def export_stable_diffusion_xl_model(model_id):
         height=height,
         width=width,
         num_images_per_prompt=num_images_per_prompt,
+        inline_weights_to_neff=False,
     )
 
 
