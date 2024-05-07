@@ -108,7 +108,7 @@ class NeuronBaseModel(OptimizedModel):
 
     @staticmethod
     def load_model(
-        path: Union[str, Path], inline_weights_to_neff: bool = False, device_id: int = 0
+        path: Union[str, Path], to_neuron: bool = False, device_id: int = 0
     ) -> torch.jit._script.ScriptModule:
         """
         Loads a TorchScript module compiled by neuron(x)-cc compiler. It will be first loaded onto CPU and then moved to
@@ -117,6 +117,8 @@ class NeuronBaseModel(OptimizedModel):
         Args:
             path (`Union[str, Path]`):
                 Path of the compiled model.
+            to_neuron (`bool`, defaults to `False`):
+                Whether to move manually the traced model to NeuronCore. It's only needed when `inline_weights_to_neff=False`, otherwise it is loaded automatically to a Neuron device.
         """
         if not isinstance(path, Path):
             path = Path(path)
@@ -124,7 +126,7 @@ class NeuronBaseModel(OptimizedModel):
         if path.is_file():
             model = torch.jit.load(path)
             # For non-inlined models, send the module manually to device. This is important for weights/neff non-inlined module since when loading the module, the neff is automatically moved to Neuron but not the weights. We need to move the weights to Neuron as well manually to avoid great host to device IO penalty.
-            if is_neuronx_available() and not inline_weights_to_neff:
+            if is_neuronx_available() and to_neuron:
                 torch_neuronx.move_trace_to_device(model, device_id)
             return model
 
@@ -199,7 +201,7 @@ class NeuronBaseModel(OptimizedModel):
 
         preprocessors = None
         if model_path.is_dir():
-            model = NeuronBaseModel.load_model(model_path / file_name, inline_weights_to_neff=inline_weights_to_neff)
+            model = NeuronBaseModel.load_model(model_path / file_name, to_neuron=not inline_weights_to_neff)
             new_model_save_dir = model_path
         else:
             model_cache_path = hf_hub_download(
@@ -213,7 +215,7 @@ class NeuronBaseModel(OptimizedModel):
                 local_files_only=local_files_only,
             )
 
-            model = NeuronBaseModel.load_model(model_cache_path, inline_weights_to_neff=inline_weights_to_neff)
+            model = NeuronBaseModel.load_model(model_cache_path, to_neuron=not inline_weights_to_neff)
             new_model_save_dir = Path(model_cache_path).parent
 
         preprocessors = maybe_load_preprocessors(model_id, subfolder=subfolder)

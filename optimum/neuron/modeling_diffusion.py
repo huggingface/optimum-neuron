@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from huggingface_hub import snapshot_download
+from packaging.version import Version
 from transformers import CLIPFeatureExtractor, CLIPTokenizer, PretrainedConfig
 from transformers.modeling_outputs import ModelOutput
 
@@ -60,9 +61,11 @@ from .utils.hub_neuronx_cache import (
 from .utils.misc import WeightSeparatedDataParallel
 from .utils.require_utils import requires_torch_neuronx
 from .utils.version_utils import get_neuronxcc_version
+from .version import __sdk_version__
 
 
 if is_neuronx_available():
+    import torch_neuronx
 
     NEURON_COMPILER_TYPE = "neuronx-cc"
     NEURON_COMPILER_VERSION = get_neuronxcc_version()
@@ -273,7 +276,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         vae_encoder_path: Optional[Union[str, Path]] = None,
         text_encoder_2_path: Optional[Union[str, Path]] = None,
         dynamic_batch_size: bool = False,
-        inline_weights_to_neff: bool = False,
+        to_neuron: bool = False,
     ):
         """
         Loads Stable Diffusion TorchScript modules compiled by neuron(x)-cc compiler. It will be first loaded onto CPU and then moved to
@@ -295,6 +298,8 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 Path of the compiled second frozen text encoder. SDXL only.
             dynamic_batch_size (`bool`, defaults to `False`):
                 Whether enable dynamic batch size for neuron compiled model. If `True`, the input batch size can be a multiple of the batch size during the compilation.
+            to_neuron (`bool`, defaults to `False`):
+                Whether to move manually the traced model to NeuronCore. It's only needed when `inline_weights_to_neff=False`, otherwise it is loaded automatically to a Neuron device.
         """
         submodels = {
             "text_encoder": text_encoder_path,
@@ -303,12 +308,24 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             "vae_encoder": vae_encoder_path,
             "text_encoder_2": text_encoder_2_path,
         }
+        # DataParallel class to use (to remove after neuron sdk 2.20)
+        if to_neuron:
+            if Version(__sdk_version__) >= Version("2.20.0"):
+                raise NameError(
+                    "`WeightSeparatedDataParallel` class should be deprecated when neuron sdk 2.20 is out. Please replace it with `torch_neuronx.DataParallel`."
+                )
+            dp_cls = WeightSeparatedDataParallel
+        else:
+            dp_cls = torch_neuronx.DataParallel
+
         if data_parallel_mode == "all":
             logger.info("Loading the whole pipeline into both Neuron Cores...")
             for submodel_name, submodel_path in submodels.items():
                 if submodel_path is not None and submodel_path.is_file():
-                    submodel = NeuronBaseModel.load_model(submodel_path, inline_weights_to_neff)
-                    submodels[submodel_name] = WeightSeparatedDataParallel(
+                    submodel = NeuronBaseModel.load_model(
+                        submodel_path, to_neuron=False
+                    )  # No need to load to neuron manually when dp
+                    submodels[submodel_name] = dp_cls(
                         submodel,
                         [0, 1],
                         set_dynamic_batching=dynamic_batch_size,
@@ -320,11 +337,11 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             submodels.pop("unet")
             for submodel_name, submodel_path in submodels.items():
                 if submodel_path is not None and submodel_path.is_file():
-                    submodels[submodel_name] = NeuronBaseModel.load_model(submodel_path, inline_weights_to_neff)
+                    submodels[submodel_name] = NeuronBaseModel.load_model(submodel_path, to_neuron=to_neuron)
                 else:
                     submodels[submodel_name] = None
-            unet = NeuronBaseModel.load_model(unet_path, inline_weights_to_neff)
-            submodels["unet"] = WeightSeparatedDataParallel(
+            unet = NeuronBaseModel.load_model(unet_path, to_neuron=False)  # No need to load to neuron manually when dp
+            submodels["unet"] = dp_cls(
                 unet,
                 [0, 1],
                 set_dynamic_batching=dynamic_batch_size,
@@ -333,7 +350,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             logger.info("Loading the pipeline without any data parallelism...")
             for submodel_name, submodel_path in submodels.items():
                 if submodel_path is not None and submodel_path.is_file():
-                    submodels[submodel_name] = NeuronBaseModel.load_model(submodel_path, inline_weights_to_neff)
+                    submodels[submodel_name] = NeuronBaseModel.load_model(submodel_path, to_neuron=to_neuron)
                 else:
                     submodels[submodel_name] = None
         else:
@@ -529,10 +546,8 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 configs[name] = model_config
                 neuron_configs[name] = cls._neuron_config_init(model_config)
         inline_weights_to_neff = all(
-            [
-                neuron_config._config.neuron.get("inline_weights_to_neff", False)
-                for _, neuron_config in neuron_configs.items()
-            ]
+            neuron_config._config.neuron.get("inline_weights_to_neff", False)
+            for _, neuron_config in neuron_configs.items()
         )
 
         if data_parallel_mode is None:
@@ -546,7 +561,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             vae_encoder_path=model_and_config_save_paths["vae_encoder"][0] if vae_encoder is None else None,
             text_encoder_2_path=model_and_config_save_paths["text_encoder_2"][0] if text_encoder_2 is None else None,
             dynamic_batch_size=neuron_configs[DIFFUSION_MODEL_UNET_NAME].dynamic_batch_size,
-            inline_weights_to_neff=inline_weights_to_neff,
+            to_neuron=not inline_weights_to_neff,
         )
 
         if model_save_dir is None:
