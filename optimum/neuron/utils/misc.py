@@ -42,13 +42,17 @@ from transformers.utils.hub import get_checkpoint_shard_files
 
 from ...utils import is_diffusers_available, logging
 from .import_utils import is_torch_neuronx_available, is_torch_xla_available
-from .require_utils import requires_neuronx_distributed, requires_safetensors, requires_torch_xla
+from .require_utils import (
+    requires_neuronx_distributed,
+    requires_safetensors,
+    requires_torch_neuronx,
+    requires_torch_xla,
+)
 
 
 if is_torch_neuronx_available():
-    from torch_neuronx import move_trace_to_device
+    from torch_neuronx import DataParallel, move_trace_to_device
     from torch_neuronx.experimental.placement import set_neuron_cores
-    from torch_neuronx.xla_impl.data_parallel import DataParallel
 
 if TYPE_CHECKING:
     from transformers.modeling_utils import PreTrainedModel
@@ -704,6 +708,7 @@ def get_stable_diffusion_configs(
     return configs
 
 
+@requires_torch_neuronx
 # TO REMOVE: This class will be included directly in the DDP API of Neuron SDK 2.20
 class WeightSeparatedDataParallel(DataParallel):
 
