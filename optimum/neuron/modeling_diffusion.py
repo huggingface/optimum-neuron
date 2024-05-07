@@ -320,7 +320,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             submodels.pop("unet")
             for submodel_name, submodel_path in submodels.items():
                 if submodel_path is not None and submodel_path.is_file():
-                    submodels[submodel_name] = WeightSeparatedDataParallel(submodel_path, inline_weights_to_neff)
+                    submodels[submodel_name] = NeuronBaseModel.load_model(submodel_path, inline_weights_to_neff)
                 else:
                     submodels[submodel_name] = None
             unet = NeuronBaseModel.load_model(unet_path, inline_weights_to_neff)
