@@ -54,7 +54,7 @@ if is_neuron_available():
     NEURON_COMPILER_VERSION = get_neuroncc_version()
 
 if is_neuronx_available():
-    import torch_neuronx
+    from torch_neuronx import move_trace_to_device
 
     NEURON_COMPILER_TYPE = "neuronx-cc"
     NEURON_COMPILER_VERSION = get_neuronxcc_version()
@@ -127,7 +127,7 @@ class NeuronBaseModel(OptimizedModel):
             model = torch.jit.load(path)
             # For non-inlined models, send the module manually to device. This is important for weights/neff non-inlined module since when loading the module, the neff is automatically moved to Neuron but not the weights. We need to move the weights to Neuron as well manually to avoid great host to device IO penalty.
             if is_neuronx_available() and to_neuron:
-                torch_neuronx.move_trace_to_device(model, device_id)
+                move_trace_to_device(model, device_id)
             return model
 
     def replace_weights(self, weights: Optional[Union[Dict[str, torch.Tensor], torch.nn.Module]] = None):

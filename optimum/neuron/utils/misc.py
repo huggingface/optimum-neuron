@@ -46,7 +46,8 @@ from .require_utils import requires_neuronx_distributed, requires_safetensors, r
 
 
 if is_torch_neuronx_available():
-    import torch_neuronx
+    from torch_neuronx import move_trace_to_device
+    from torch_neuronx.experimental.placement import set_neuron_cores
     from torch_neuronx.xla_impl.data_parallel import DataParallel
 
 if TYPE_CHECKING:
@@ -704,7 +705,7 @@ def get_stable_diffusion_configs(
 
 
 # TO REMOVE: This class will be included directly in the DDP API of Neuron SDK 2.20
-class WeightSeparatedDataParallel(torch_neuronx.DataParallel):
+class WeightSeparatedDataParallel(DataParallel):
 
     def _load_modules(self, module):
         try:
@@ -715,8 +716,8 @@ class WeightSeparatedDataParallel(torch_neuronx.DataParallel):
             for i in range(len(self.device_ids) - 1):
                 loaded_modules.append(copy.deepcopy(module))
             for i, nc_index in enumerate(self.device_ids):
-                torch_neuronx.experimental.placement.set_neuron_cores(loaded_modules[i], nc_index, 1)
-                torch_neuronx.move_trace_to_device(loaded_modules[i], nc_index)
+                set_neuron_cores(loaded_modules[i], nc_index, 1)
+                move_trace_to_device(loaded_modules[i], nc_index)
 
         except ValueError as err:
             self.dynamic_batching_failed = True
