@@ -82,7 +82,9 @@ class NeuronModelIntegrationTestMixin(unittest.TestCase):
 
         # Upload to the hub
         cls.neuron_model_id = f"{cls.USER}/{cls.NEURON_MODEL_REPO}"
-        neuron_model.push_to_hub(model_dir, repository_id=cls.neuron_model_id, use_auth_token=cls._token)
+
+        if cls._token:
+            neuron_model.push_to_hub(model_dir, repository_id=cls.neuron_model_id, use_auth_token=cls._token)
 
     @classmethod
     def tearDownClass(cls):

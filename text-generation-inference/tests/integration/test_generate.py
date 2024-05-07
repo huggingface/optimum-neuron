@@ -1,4 +1,3 @@
-
 import Levenshtein
 import pytest
 

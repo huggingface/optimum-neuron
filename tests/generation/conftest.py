@@ -72,9 +72,7 @@ def export_seq2seq_model_class(request):
 @pytest.fixture(scope="session")
 @requires_neuronx
 def neuron_decoder_path(export_decoder_id):
-    model = NeuronModelForCausalLM.from_pretrained(
-        export_decoder_id, export=True, batch_size=2, sequence_length=100, num_cores=2
-    )
+    model = NeuronModelForCausalLM.from_pretrained(export_decoder_id, export=True, batch_size=2, num_cores=2)
     model_dir = TemporaryDirectory()
     model_path = model_dir.name
     model.save_pretrained(model_path)

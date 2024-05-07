@@ -264,10 +264,8 @@ def get_submodels_and_neuron_configs(
 
     if is_stable_diffusion:
         # TODO: Enable optional outputs for Stable Diffusion
-        if output_attentions or output_hidden_states:
-            raise ValueError(
-                f"`output_attentions` and `output_hidden_states` are not supported by the {task} task yet."
-            )
+        if output_attentions:
+            raise ValueError(f"`output_attentions`is not supported by the {task} task yet.")
         models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs_for_stable_diffusion(
             model=model,
             input_shapes=input_shapes,
@@ -275,6 +273,7 @@ def get_submodels_and_neuron_configs(
             output=output,
             dynamic_batch_size=dynamic_batch_size,
             submodels=submodels,
+            output_hidden_states=output_hidden_states,
             lora_model_ids=lora_model_ids,
             lora_weight_names=lora_weight_names,
             lora_adapter_names=lora_adapter_names,
@@ -334,6 +333,7 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
     output: Path,
     dynamic_batch_size: bool = False,
     submodels: Optional[Dict[str, Union[Path, str]]] = None,
+    output_hidden_states: bool = False,
     lora_model_ids: Optional[Union[str, List[str]]] = None,
     lora_weight_names: Optional[Union[str, List[str]]] = None,
     lora_adapter_names: Optional[Union[str, List[str]]] = None,
@@ -368,6 +368,7 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
         vae_encoder_input_shapes=input_shapes["vae_encoder"],
         vae_decoder_input_shapes=input_shapes["vae_decoder"],
         dynamic_batch_size=dynamic_batch_size,
+        output_hidden_states=output_hidden_states,
         lora_model_ids=lora_model_ids,
         lora_weight_names=lora_weight_names,
         lora_adapter_names=lora_adapter_names,

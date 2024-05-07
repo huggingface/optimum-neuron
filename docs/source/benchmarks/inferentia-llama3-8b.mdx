@@ -14,19 +14,19 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-# Llama-2-7b performance on AWS Inferentia2 (Latency & Througput)
+# Llama-3-8b performance on AWS Inferentia2 (Latency & Througput)
 
-How fast is Llama-2-7b on Inferentia2?  Let's figure out!
+How fast is Llama-3-8b on Inferentia2?  Let's figure out!
 
 For this benchmark we will use the following configurations:
 
 | Model type     | batch_size | sequence_length |
 |----------------|------------|-----------------|
-| Llama2 7B BS1  | 1          | 4096            |
-| Llama2 7B BS4  | 4          | 4096            |
-| Llama2 7B BS8  | 8          | 4096            |
-| Llama2 7B BS16 | 16         | 4096            |
-| Llama2 7B BS32 | 32         | 4096            |
+| Llama3 8b BS1  | 1          | 4096            |
+| Llama3 8b BS4  | 4          | 4096            |
+| Llama3 8b BS8  | 8          | 4096            |
+| Llama3 8b BS16 | 16         | 4096            |
+| Llama3 8b BS32 | 32         | 4096            |
 
 *Note: all models are compiled to use 4 devices corresponding to 8 cores on the `inf2.48xlarge` instance.*
 
@@ -41,7 +41,7 @@ We test the time to first token for increasing context sizes, from a typical Q/A
 
 Time to first token is expressed in **seconds**.
 
-![Llama2 7b inferentia2 TTFT](https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/benchmarks/inferentia-llama2-7b/ttft.png "Time to first token")
+![Llama3 8b inferentia2 TTFT](https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/benchmarks/inferentia-llama3-8b/ttft.png "Time to first token")
 
 ## Inter-token Latency
 
@@ -49,7 +49,7 @@ The inter-token latency corresponds to the average time elapsed between two gene
 
 It is expressed in **milliseconds**.
 
-![Llama2 7b inferentia2 inter-token latency](https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/benchmarks/inferentia-llama2-7b/latency.png "Inter-token latency")
+![Llama3 8b inferentia2 inter-token latency](https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/benchmarks/inferentia-llama3-8b/latency.png "Inter-token latency")
 
 ### Throughput
 
@@ -58,4 +58,4 @@ by the end-to-end latency.
 
 Throughput is expressed in **tokens/second**.
 
-![Llama2 7b inferentia2 throughput](https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/benchmarks/inferentia-llama2-7b/throughput.png "Throughput")
+![Llama3 8b inferentia2 throughput](https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/benchmarks/inferentia-llama3-8b/throughput.png "Throughput")
