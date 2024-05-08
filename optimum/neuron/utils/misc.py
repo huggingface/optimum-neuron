@@ -45,7 +45,6 @@ from .import_utils import is_torch_neuronx_available, is_torch_xla_available
 from .require_utils import (
     requires_neuronx_distributed,
     requires_safetensors,
-    requires_torch_neuronx,
     requires_torch_xla,
 )
 
@@ -708,7 +707,6 @@ def get_stable_diffusion_configs(
     return configs
 
 
-@requires_torch_neuronx
 # TO REMOVE: This class will be included directly in the DDP API of Neuron SDK 2.20
 class WeightSeparatedDataParallel(DataParallel):
 
