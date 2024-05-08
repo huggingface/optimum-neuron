@@ -91,7 +91,7 @@ class NeuronBaseModel(OptimizedModel):
         self,
         model: torch.jit._script.ScriptModule,
         config: "PretrainedConfig",
-        neuron_config: "NeuronDefaultConfig",
+        neuron_config: Optional["NeuronDefaultConfig"] = None,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
         model_file_name: Optional[str] = None,
         preprocessors: Optional[List] = None,
