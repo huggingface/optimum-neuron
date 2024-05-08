@@ -14,6 +14,7 @@
 # limitations under the License.
 """NeuroStableDiffusionPipeline class for inference of diffusion models on neuron devices."""
 
+import copy
 import importlib
 import logging
 import os
@@ -58,7 +59,6 @@ from .utils.hub_neuronx_cache import (
     build_cache_config,
     create_hub_compile_cache_proxy,
 )
-from .utils.misc import WeightSeparatedDataParallel
 from .utils.require_utils import requires_torch_neuronx
 from .utils.version_utils import get_neuronxcc_version
 from .version import __sdk_version__
@@ -1071,3 +1071,35 @@ class NeuronStableDiffusionXLInpaintPipeline(
     NeuronStableDiffusionXLPipelineBase, NeuronStableDiffusionXLInpaintPipelineMixin
 ):
     __call__ = NeuronStableDiffusionXLInpaintPipelineMixin.__call__
+
+
+if is_neuronx_available():
+    # TO REMOVE: This class will be included directly in the DDP API of Neuron SDK 2.20
+    class WeightSeparatedDataParallel(torch_neuronx.DataParallel):
+
+        def _load_modules(self, module):
+            try:
+                self.device_ids.sort()
+
+                loaded_modules = [module]
+                # If device_ids is non-consecutive, perform deepcopy's and load onto each core independently.
+                for i in range(len(self.device_ids) - 1):
+                    loaded_modules.append(copy.deepcopy(module))
+                for i, nc_index in enumerate(self.device_ids):
+                    torch_neuronx.experimental.placement.set_neuron_cores(loaded_modules[i], nc_index, 1)
+                    torch_neuronx.move_trace_to_device(loaded_modules[i], nc_index)
+
+            except ValueError as err:
+                self.dynamic_batching_failed = True
+                logger.warning(f"Automatic dynamic batching failed due to {err}.")
+                logger.warning(
+                    "Please disable dynamic batching by calling `disable_dynamic_batching()` "
+                    "on your DataParallel module."
+                )
+            self.num_workers = 2 * len(loaded_modules)
+            return loaded_modules
+
+else:
+
+    class WeightSeparatedDataParallel:
+        pass
