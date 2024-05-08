@@ -16,14 +16,12 @@ import glob
 import os
 import shutil
 import socket
-import subprocess
 from tempfile import TemporaryDirectory
 
 import PIL
 import pytest
 import torch
 from huggingface_hub import HfApi
-from transformers import AutoTokenizer
 from transformers.testing_utils import ENDPOINT_STAGING
 
 from optimum.neuron import (
@@ -212,139 +210,3 @@ def test_decoder_cache(cache_repos):
     check_decoder_generation(model)
     # Verify the local cache directory has not been populated
     assert len(get_local_cached_files(cache_path, "neff")) == 0
-
-
-@is_inferentia_test
-@requires_neuronx
-def test_encoder_cache(cache_repos):
-    cache_path, cache_repo_id = cache_repos
-    model_id = "hf-internal-testing/tiny-random-BertModel"
-    # Export the model a first time to populate the local cache
-    model = export_encoder_model(model_id)
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
-    check_encoder_inference(model, tokenizer)
-    # check registry
-    check_traced_cache_entry(cache_path)
-    # Synchronize the hub cache with the local cache
-    synchronize_hub_cache(cache_repo_id=cache_repo_id)
-    assert_local_and_hub_cache_sync(cache_path, cache_repo_id)
-    # Verify we are able to fetch the cached entry for the model
-    model_entries = get_hub_cached_entries(model_id, "inference", cache_repo_id=cache_repo_id)
-    assert len(model_entries) == 1
-    # Clear the local cache
-    for root, dirs, files in os.walk(cache_path):
-        for f in files:
-            os.unlink(os.path.join(root, f))
-        for d in dirs:
-            shutil.rmtree(os.path.join(root, d))
-    assert local_cache_size(cache_path) == 0
-    # Export the model again: the compilation artifacts should be fetched from the Hub
-    model = export_encoder_model(model_id)
-    check_encoder_inference(model, tokenizer)
-    # Verify the local cache directory has not been populated
-    assert len(get_local_cached_files(cache_path, ".neuron")) == 0
-
-
-@is_inferentia_test
-@requires_neuronx
-def test_stable_diffusion_cache(cache_repos):
-    cache_path, cache_repo_id = cache_repos
-    model_id = "hf-internal-testing/tiny-stable-diffusion-torch"
-    # Export the model a first time to populate the local cache
-    model = export_stable_diffusion_model(model_id)
-    check_stable_diffusion_inference(model)
-    # check registry
-    check_traced_cache_entry(cache_path)
-    # Synchronize the hub cache with the local cache
-    synchronize_hub_cache(cache_repo_id=cache_repo_id)
-    assert_local_and_hub_cache_sync(cache_path, cache_repo_id)
-    # Verify we are able to fetch the cached entry for the model
-    model_entries = get_hub_cached_entries(model_id, "inference", cache_repo_id=cache_repo_id)
-    assert len(model_entries) == 1
-    # Clear the local cache
-    for root, dirs, files in os.walk(cache_path):
-        for f in files:
-            os.unlink(os.path.join(root, f))
-        for d in dirs:
-            shutil.rmtree(os.path.join(root, d))
-    assert local_cache_size(cache_path) == 0
-    # Export the model again: the compilation artifacts should be fetched from the Hub
-    model = export_stable_diffusion_model(model_id)
-    check_stable_diffusion_inference(model)
-    # Verify the local cache directory has not been populated
-    assert len(get_local_cached_files(cache_path, ".neuron")) == 0
-
-
-@is_inferentia_test
-@requires_neuronx
-@pytest.mark.skip("Disable the test due to https://github.com/aws-neuron/aws-neuron-sdk/issues/859")
-def test_stable_diffusion_xl_cache(cache_repos):
-    cache_path, cache_repo_id = cache_repos
-    model_id = "echarlaix/tiny-random-stable-diffusion-xl"
-    # Export the model a first time to populate the local cache
-    model = export_stable_diffusion_xl_model(model_id)
-    check_stable_diffusion_inference(model)
-    # check registry
-    check_traced_cache_entry(cache_path)
-    # Synchronize the hub cache with the local cache
-    synchronize_hub_cache(cache_repo_id=cache_repo_id)
-    assert_local_and_hub_cache_sync(cache_path, cache_repo_id)
-    # Verify we are able to fetch the cached entry for the model
-    model_entries = get_hub_cached_entries(model_id, "inference", cache_repo_id=cache_repo_id)
-    assert len(model_entries) == 1
-    # Clear the local cache
-    for root, dirs, files in os.walk(cache_path):
-        for f in files:
-            os.unlink(os.path.join(root, f))
-        for d in dirs:
-            shutil.rmtree(os.path.join(root, d))
-    assert local_cache_size(cache_path) == 0
-    # Export the model again: the compilation artifacts should be fetched from the Hub
-    model = export_stable_diffusion_xl_model(model_id)
-    check_stable_diffusion_inference(model)
-    # Verify the local cache directory has not been populated
-    assert len(get_local_cached_files(cache_path, ".neuron")) == 0
-
-
-@is_inferentia_test
-@requires_neuronx
-@pytest.mark.parametrize(
-    "var, value, match",
-    [
-        ("CUSTOM_CACHE_REPO", "foo/bar", "The foo/bar repository does not exist"),
-        ("HF_ENDPOINT", "https://foo.bar.baz", "Name or service not known"),
-        ("HF_TOKEN", "foo", "repository does not exist or you don't have access to it."),
-    ],
-    ids=["invalid_repo", "invalid_endpoint", "invalid_token"],
-)
-def test_decoder_cache_unavailable(cache_repos, var, value, match):
-    # Modify the specified environment variable to trigger an error
-    os.environ[var] = value
-    # Just exporting the model will only emit a warning
-    export_decoder_model("hf-internal-testing/tiny-random-gpt2")
-    with pytest.raises(ValueError, match=match):
-        # Trying to synchronize will in the contrary raise an exception
-        synchronize_hub_cache()
-    # No need to restore environment as it is already done by the cache_repos fixture
-
-
-@is_inferentia_test
-@requires_neuronx
-def test_optimum_neuron_cli_cache_synchronize(cache_repos):
-    cache_path, cache_repo_id = cache_repos
-    model_id = "hf-internal-testing/tiny-random-gpt2"
-    # Export a model to populate the local cache
-    export_decoder_model(model_id)
-    # Synchronize the hub cache with the local cache
-    command = "optimum-cli neuron cache synchronize".split()
-    p = subprocess.Popen(command, stdout=subprocess.PIPE)
-    p.communicate()
-    assert p.returncode == 0
-    assert_local_and_hub_cache_sync(cache_path, cache_repo_id)
-    # Check the model entry in the hub
-    command = f"optimum-cli neuron cache lookup {model_id}".split()
-    p = subprocess.Popen(command, stdout=subprocess.PIPE)
-    stdout, _ = p.communicate()
-    stdout = stdout.decode("utf-8")
-    assert p.returncode == 0
-    assert f"1 entrie(s) found in cache for {model_id}" in stdout

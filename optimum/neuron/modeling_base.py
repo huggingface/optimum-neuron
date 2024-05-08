@@ -38,7 +38,7 @@ from .utils import (
     replace_weights,
     store_compilation_config,
 )
-from .utils.hub_neuronx_cache import ModelCacheEntry, build_cache_config, create_hub_compile_cache_proxy
+from .utils.hub_cache_utils import ModelCacheEntry, build_cache_config, create_hub_compile_cache_proxy
 from .utils.import_utils import is_neuronx_available
 from .utils.misc import maybe_load_preprocessors
 from .utils.version_utils import check_compiler_compatibility, get_neuroncc_version, get_neuronxcc_version
@@ -91,10 +91,10 @@ class NeuronBaseModel(OptimizedModel):
         self,
         model: torch.jit._script.ScriptModule,
         config: "PretrainedConfig",
-        neuron_config: Optional["NeuronDefaultConfig"] = None,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
         model_file_name: Optional[str] = None,
         preprocessors: Optional[List] = None,
+        neuron_config: Optional["NeuronDefaultConfig"] = None,
         **kwargs,
     ):
         super().__init__(model, config)

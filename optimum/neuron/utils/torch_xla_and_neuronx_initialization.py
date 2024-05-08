@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 import torch
 
 from ...utils import logging
-from .hub_neuronx_cache import patch_neuron_cc_wrapper
+from .hub_cache_utils import patch_neuron_cc_wrapper
 from .misc import is_main_worker
 from .require_utils import requires_torch_xla
 

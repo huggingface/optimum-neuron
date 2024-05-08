@@ -79,7 +79,7 @@ from .utils.cache_utils import (
     get_num_neuron_cores_used,
     has_write_access_to_repo,
 )
-from .utils.hub_neuronx_cache import ModelCacheEntry, hub_neuronx_cache, patch_neuron_cc_wrapper, synchronize_hub_cache
+from .utils.hub_cache_utils import ModelCacheEntry, hub_neuronx_cache, patch_neuron_cc_wrapper, synchronize_hub_cache
 from .utils.misc import is_main_worker, is_precompilation, torch_xla_safe_save_file
 from .utils.patching import patch_everywhere
 from .utils.require_utils import requires_neuronx_distributed, requires_torch_neuronx

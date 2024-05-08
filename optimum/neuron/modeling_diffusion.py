@@ -54,7 +54,7 @@ from .utils import (
     replace_weights,
     store_compilation_config,
 )
-from .utils.hub_neuronx_cache import (
+from .utils.hub_cache_utils import (
     ModelCacheEntry,
     build_cache_config,
     create_hub_compile_cache_proxy,
