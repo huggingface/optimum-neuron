@@ -24,18 +24,28 @@ jobs:
       AWS_REGION: us-east-1
       TESTS_TO_IGNORE_FLAGS: --ignore tests/distributed/ --ignore tests/test_examples.py
     steps:
-      - name: Check AMI
-        run: dpkg -l | grep neuron
+      - name: Install Neuron runtime
+        run: |
+          . /etc/os-release
+          sudo tee /etc/apt/sources.list.d/neuron.list > /dev/null <<EOF
+          deb https://apt.repos.neuron.amazonaws.com ${VERSION_CODENAME} main
+          EOF
+          wget -qO - https://apt.repos.neuron.amazonaws.com/GPG-PUB-KEY-AMAZON-AWS-NEURON.PUB | sudo apt-key add -
+          sudo apt-get update -y
+          sudo apt-get install aws-neuronx-tools=2.17.1.0 aws-neuronx-runtime-lib=2.20.22.0-1b3ca6425 aws-neuronx-collectives=2.20.22.0-c101c322e  -y
+          export PATH=/opt/aws/neuron/bin:$PATH
       - name: Checkout
         uses: actions/checkout@v2
       - name: Setup PATH
         run: echo "/home/ubuntu/.local/bin" >> $GITHUB_PATH
-      - name: Set pip repository pointing to the Neuron repository
-        run: pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
-      - name: Update pip
-        run: pip install -U pip
-      - name: Install Python dependencies
-        run: pip install .[tests,neuronx]
+      - name: Install python dependencies
+        run: |
+          sudo apt install python3.8-venv python3-dev -y
+          python3 -m venv aws_neuron_venv_pytorch
+          source aws_neuron_venv_pytorch/bin/activate
+          python -m pip install -U pip
+          python -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
+          python -m pip install .[neuronx,tests]
       - name: Run tests on Neuron cores
         run: |
           HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} USE_VENV="false" pytest -m "is_trainium_test" $TESTS_TO_IGNORE_FLAGS tests
