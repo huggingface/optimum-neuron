@@ -27,6 +27,7 @@ concurrency:
 
 jobs:
   optimum-neuron-tests:
+    name: Run example script tests on Trainium 1
     runs-on: [self-hosted, 1-aws-trn, 8-cpu, ci] # run the job on the newly created runner
     env:
       AWS_REGION: us-east-1
@@ -54,7 +55,11 @@ jobs:
           python -m pip install -U pip
           python -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
           python -m pip install .[neuronx,tests]
-      - name: Run example tests on Neuron cores
+      - name: Collect example tests on Neuron Cores
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} USE_VENV=false COVERAGE=${{ github.event.inputs.priority }} RUN_TINY=$RUN_TINY RUN_SLOW=1 pytest -m "is_trainium_test" tests/test_examples.py --collect-only
+      - name: Run example tests on Neuron Cores
         run: |
           source aws_neuron_venv_pytorch/bin/activate
           HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} USE_VENV=false COVERAGE=${{ github.event.inputs.priority }} RUN_TINY=$RUN_TINY RUN_SLOW=1 pytest -m "is_trainium_test" tests/test_examples.py -v
