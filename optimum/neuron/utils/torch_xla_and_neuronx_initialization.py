@@ -34,7 +34,7 @@ logger = logging.get_logger()
 
 @requires_torch_xla
 def init_process_group():
-    if os.environ.get("TORCHELASTIC_RUN_ID"):
+    if True: # os.environ.get("TORCHELASTIC_RUN_ID"):
         import torch_xla.distributed.xla_backend as xbn
 
         if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
