@@ -18,7 +18,8 @@ concurrency:
 
 
 jobs:
-  Run common tests on Trainium 1:
+  do-the-job:
+    name: Run common tests on Trainium 1
     runs-on: [self-hosted, 1-aws-trn, 8-cpu, ci] # run the job on the newly created runner
     env:
       AWS_REGION: us-east-1
