@@ -63,13 +63,10 @@ MODEL_NAME = "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random"
 # MODEL_NAME = "hf-internal-testing/tiny-random-GPTNeoForCausalLM"
 
 
-def get_tokenizer_and_tiny_llama_model(parallel_sizes, minimal_config: bool = True):
+def get_tokenizer_and_tiny_llama_model(parallel_sizes):
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     _, tp_size, pp_size = parallel_sizes
     config = AutoConfig.from_pretrained(MODEL_NAME)
-    if minimal_config:
-        config.num_hidden_layers = 2 * max(1, pp_size)
-        config.num_attention_heads = 2 * max(1, tp_size)
     model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, config=config, ignore_mismatched_sizes=True)
     return tokenizer, model
 
