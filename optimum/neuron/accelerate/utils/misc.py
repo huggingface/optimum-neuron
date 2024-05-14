@@ -134,12 +134,14 @@ def create_patched_save_pretrained(orig_save_pretrained_function: Callable[["Pre
         orig_state_dict = self.state_dict()
         cpu_state_dict = move_all_tensor_to_cpu(self.state_dict(), convert=should_write_data)
         self.load_state_dict(cpu_state_dict, assign=True)
+        output = None
         if should_write_data:
             with patcher:
                 output = orig_func(*args, **kwargs)
         self.load_state_dict(orig_state_dict, assign=True)
         del cpu_state_dict
         gc.collect()
+        return output
 
     return wrapper.__get__(orig_self)
 

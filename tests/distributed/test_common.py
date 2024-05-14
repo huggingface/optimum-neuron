@@ -249,7 +249,7 @@ class TestCommonDistributed(DistributedTest):
                     grads_on_cpu = move_grads_to_cpu(model.local_parameters())
                     if is_optimizer_update_step:
                         # At this point, no parameter should have a gradient.
-                        assert all(torch.all(grad == 0) for grad in grads_on_cpu)
+                        assert all(grad is None or torch.all(grad == 0) for grad in grads_on_cpu)
 
                     current_parameters = move_params_to_cpu(model.local_parameters())
                 else:
@@ -281,7 +281,7 @@ class TestCommonDistributed(DistributedTest):
                     # At this point, no parameter should have a gradient.
                     if is_optimizer_update_step:
                         grads_on_cpu = move_grads_to_cpu(model.parameters())
-                        assert all(torch.all(grad == 0) for grad in grads_on_cpu)
+                        assert all(grad is None or torch.all(grad == 0) for grad in grads_on_cpu)
 
                     current_parameters = move_params_to_cpu(model.parameters())
 
