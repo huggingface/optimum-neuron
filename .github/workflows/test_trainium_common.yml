@@ -16,10 +16,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
-
 jobs:
   do-the-job:
-    name: Run common tests on Trainium 1
+    name: "Run common tests on Trainium 1"
     runs-on: [self-hosted, 1-aws-trn, 8-cpu, ci] # run the job on the newly created runner
     env:
       AWS_REGION: us-east-1
