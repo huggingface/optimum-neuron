@@ -88,7 +88,7 @@ class SequenceParallelismSpecs:
 
 class PipelineParallelismSpecs:
     TRASNFORMER_LAYER_CLS: Type[torch.nn.Module]
-    DEFAULT_INPUT_NAMES: Tuple[str, ...]
+    DEFAULT_INPUT_NAMES: Union[Tuple[str, ...], Dict[str, Tuple[str, ...]]]
     LEAF_MODULE_CLASSES_NAMES: Optional[List[Union[str, Type[torch.nn.Module]]]] = None
     OUTPUT_LOSS_SPECS: Tuple[bool, ...] = (True, False)
 
@@ -527,7 +527,7 @@ class Parallelizer(ABC):
         parallelize_embeddings: bool = True,
         sequence_parallel_enabled: bool = False,
         kv_size_multiplier: Optional[int] = None,
-        pipeline_parallel_input_names: Optional[Union[Tuple[str, ...], List[str]]] = None,
+        pipeline_parallel_input_names: Optional[Union[Tuple[str, ...], Dict[str, Tuple[str, ...]]]] = None,
         pipeline_parallel_num_microbatches: int = 1,
         pipeline_parallel_use_zero1_optimizer: bool = False,
         pipeline_parallel_gradient_checkpointing_enabled: bool = False,
@@ -726,6 +726,18 @@ class Parallelizer(ABC):
             with Patcher(cls.PIPELINE_PARALLELISM_SPECS_CLS.get_patching_specs()):
                 if pipeline_parallel_input_names is None:
                     pipeline_parallel_input_names = cls.PIPELINE_PARALLELISM_SPECS_CLS.DEFAULT_INPUT_NAMES
+
+                if isinstance(pipeline_parallel_input_names, dict):
+                    if model.__class__.__name__ in pipeline_parallel_input_names:
+                        pipeline_parallel_input_names = pipeline_parallel_input_names[model.__class.__name__]
+                    elif "default" in pipeline_parallel_input_names:
+                        pipeline_parallel_input_names = pipeline_parallel_input_names["default"]
+                    else:
+                        raise ValueError(
+                            "Cannot guess the names of the input for the model, which is required for pipeline "
+                            "parallelism."
+                        )
+
                 model = NxDPPModel(
                     model,
                     transformer_layer_cls=cls.PIPELINE_PARALLELISM_SPECS_CLS.TRASNFORMER_LAYER_CLS,

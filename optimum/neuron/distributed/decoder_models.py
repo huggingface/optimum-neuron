@@ -14,18 +14,21 @@
 # limitations under the License.
 """Classes related to `neuronx-distributed` to perform parallelism."""
 
+import math
 import warnings
 from typing import TYPE_CHECKING, Callable, Optional, Tuple
 
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from transformers.cache_utils import Cache
 from transformers.models.gpt_neo.modeling_gpt_neo import GPTNeoBlock, GPTNeoSelfAttention
 from transformers.models.gpt_neox.modeling_gpt_neox import GPTNeoXAttention
 from transformers.models.llama.modeling_llama import (
     LlamaAttention,
     LlamaDecoderLayer,
+    LlamaForQuestionAnswering,
     LlamaRMSNorm,
-    apply_rotary_pos_emb,
     repeat_kv,
 )
 from transformers.models.mistral.modeling_mistral import (
@@ -199,18 +202,7 @@ class GPTNeoXSequenceParallelismSpecs(SequenceParallelismSpecs):
         if not sequence_parallel_enabled:
             return
 
-        def rotate_half(x):
-            x1 = x[..., : x.shape[-1] // 2]
-            x2 = x[..., x.shape[-1] // 2 :]
-            return torch.cat((-x2, x1), dim=-1)
-
-        # Remove this function once Transformers >= 4.36.0 is supported.
-        def apply_rotary_pos_emb(q, k, cos, sin, position_ids, unsqueeze_dim=1):
-            cos = cos[position_ids].unsqueeze(unsqueeze_dim)
-            sin = sin[position_ids].unsqueeze(unsqueeze_dim)
-            q_embed = (q * cos) + (rotate_half(q) * sin)
-            k_embed = (k * cos) + (rotate_half(k) * sin)
-            return q_embed, k_embed
+        from transformers.models.gpt_neox.modeling_gpt_neox import apply_rotary_pos_emb
 
         def sequence_parallel_forward(
             self,
@@ -426,9 +418,9 @@ class LlamaParallelCrossEntropy(ParallelCrossEntropy):
 
 class LlamaSequenceParallelismSpecs(SequenceParallelismSpecs):
     SEQUENCE_PARALLEL_LAYERNORM_PATTERNS = [
-        "model.layers.[0-9]+.input_layernorm",
-        "model.layers.[0-9]+.post_attention_layernorm",
-        "model.norm",
+        "(model|transformer).layers.[0-9]+.input_layernorm",
+        "(model|transformer).layers.[0-9]+.post_attention_layernorm",
+        "(model|transformer).norm",
     ]
     LAYERNORM_TYPE = LayerNormType.RMS_NORM
     SEQUENCE_COLLECTIVE_OPS_INFOS = [
@@ -441,11 +433,7 @@ class LlamaSequenceParallelismSpecs(SequenceParallelismSpecs):
         if not sequence_parallel_enabled:
             return
 
-        import math
-
-        import torch
-        import torch.nn.functional as F
-        from torch import nn
+        from transformers.models.llama.modeling_llama import apply_rotary_pos_emb
 
         def attention_forward(
             self,
@@ -500,7 +488,7 @@ class LlamaSequenceParallelismSpecs(SequenceParallelismSpecs):
 
             past_key_value = getattr(self, "past_key_value", past_key_value)
             cos, sin = self.rotary_emb(value_states, position_ids)
-            query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+            query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
 
             if past_key_value is not None:
                 # sin and cos are specific to RoPE models; cache_position needed for the static cache
@@ -558,7 +546,11 @@ class LlamaSequenceParallelismSpecs(SequenceParallelismSpecs):
 
 class LlamaPipelineParallelismSpecs(PipelineParallelismSpecs):
     TRASNFORMER_LAYER_CLS = LlamaDecoderLayer
-    DEFAULT_INPUT_NAMES = ("input_ids", "attention_mask", "labels")
+    DEFAULT_INPUT_NAMES = {
+        "default": ("input_ids", "attention_mask", "labels"),
+        "LlamaForQuestionAnswering": ("input_ids", "attention_mask", "start_positions", "end_positions"),
+    }
+
     LEAF_MODULE_CLASSES_NAMES = [LlamaRMSNorm]
 
 
@@ -585,7 +577,15 @@ class LlamaParallelizer(Parallelizer):
                 device=device,
                 **parallel_layer_specific_kwargs,
             )
-        for layer in model.model.layers:
+
+        # The name of the LlamaModel attribute depends on the task.
+        # It is "model" for for every task except question-answering where it is "transformer".
+        if isinstance(model, LlamaForQuestionAnswering):
+            layers = model.transformer.layers
+        else:
+            layers = model.model.layers
+
+        for layer in layers:
             layer.self_attn = LlamaParallelSelfAttention.transform(
                 model,
                 layer.self_attn,
@@ -710,10 +710,7 @@ class MistralSequenceParallelismSpecs(SequenceParallelismSpecs):
         if not sequence_parallel_enabled:
             return
 
-        import math
-
-        import torch
-        from torch import nn
+        from transformers.models.mistral.modeling_mistral import apply_rotary_pos_emb
 
         def attention_forward(
             self,
@@ -850,7 +847,7 @@ class MistralParallelizer(Parallelizer):
                 device=device,
                 **parallel_layer_specific_kwargs,
             )
-            layer.mlp = LLamaParallelMLP.transform(
+            layer.mlp = MistralParallelMLP.transform(
                 model,
                 layer.mlp,
                 sequence_parallel_enabled=sequence_parallel_enabled,
