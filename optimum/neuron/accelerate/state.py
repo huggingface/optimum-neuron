@@ -87,6 +87,7 @@ class NeuronPartialState(PartialState):
                     set_neuron_cc_flags_for_torch_amp()
                 if not torch.distributed.is_initialized():
                     init_process_group()
+                assert 3==2
                 self.num_processes = xm.xrt_world_size()
                 self.process_index = xm.get_ordinal()
                 self.local_process_index = xm.get_local_ordinal()
