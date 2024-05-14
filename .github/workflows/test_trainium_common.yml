@@ -18,6 +18,7 @@ concurrency:
 
 jobs:
   optimum-neuron-tests:
+    name: Run common tests on Trainium 1
     runs-on: [self-hosted, 1-aws-trn, 8-cpu, ci] # run the job on the newly created runner
     env:
       AWS_REGION: us-east-1
@@ -43,10 +44,6 @@ jobs:
           python -m pip install -U pip
           python -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
           python -m pip install .[neuronx,tests]
-      - name: Collect tests on Neuron Cores
-        run: |
-          source aws_neuron_venv_pytorch/bin/activate
-          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} USE_VENV="false" pytest -m "is_trainium_test" $TESTS_TO_IGNORE_FLAGS tests --collect-only
         run: |
           source aws_neuron_venv_pytorch/bin/activate
           HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} USE_VENV="false" pytest -m "is_trainium_test" $TESTS_TO_IGNORE_FLAGS tests
@@ -54,10 +51,6 @@ jobs:
         run: |
           source aws_neuron_venv_pytorch/bin/activate
           HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} USE_VENV="false" pytest -m "is_trainium_test" $TESTS_TO_IGNORE_FLAGS tests
-      - name: Collect staging tests on Neuron Cores
-        run: |
-          source aws_neuron_venv_pytorch/bin/activate
-          HUGGINGFACE_CO_STAGING=1 pytest -m "is_trainium_test and is_staging_test" $TESTS_TO_IGNORE_FLAGS tests -s --collect-only
       - name: Run staging tests on Neuron cores
         run: |
           source aws_neuron_venv_pytorch/bin/activate
