@@ -271,7 +271,9 @@ class Slot:
 
     @property
     def stopped(self) -> bool:
-        return self._selector.stopping_criteria(self._tokens, None)
+        # Transformers stopping criteria expects a batch of input ids
+        input_ids = torch.unsqueeze(self._tokens, dim=0)
+        return self._selector.stopping_criteria(input_ids, None)
 
     @property
     def generated_text(self) -> str:
