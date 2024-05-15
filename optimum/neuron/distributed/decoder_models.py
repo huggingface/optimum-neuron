@@ -339,7 +339,10 @@ class GPTNeoXParallelizer(Parallelizer):
 
 
 class LlamaParallelEmbedding(ParallelEmbedding):
-    EMBEDDING_NAME = "model.embed_tokens"
+    EMBEDDING_NAME = {
+        "default": "model.embed_tokens",
+        "LlamaForQuestionAnswering": "transformer.embed_tokens",
+    }
     LM_HEAD_NAME = "lm_head"
 
 

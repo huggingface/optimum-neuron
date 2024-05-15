@@ -308,8 +308,13 @@ class TestModelParallelization(DistributedTest):
         # It is ok to use this accelerator because `patch_model_for_neuron` does not depend on the TP or PP size.
         orig_model = accelerator.patch_model_for_neuron(orig_model)
 
-        # TODO: enable that again once it's working, seems to be an AWS issue.
-        orig_model.config.use_cache = False
+        # Since the new KV cache system it seems that if orig_model.use_cache != model.use_cache, the losses between
+        # the two models will not match. It either comes from Transformers itself or Optimum Neuron.
+        # TODO: investigate this.
+        if pp_size == 1:
+            orig_model.config.use_cache = True
+        else:
+            orig_model.config.use_cache = False
 
         move_model_to_device(orig_model, xm.xla_device())
         orig_model = orig_model.eval()

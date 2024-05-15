@@ -729,7 +729,7 @@ class Parallelizer(ABC):
 
                 if isinstance(pipeline_parallel_input_names, dict):
                     if model.__class__.__name__ in pipeline_parallel_input_names:
-                        pipeline_parallel_input_names = pipeline_parallel_input_names[model.__class.__name__]
+                        pipeline_parallel_input_names = pipeline_parallel_input_names[model.__class__.__name__]
                     elif "default" in pipeline_parallel_input_names:
                         pipeline_parallel_input_names = pipeline_parallel_input_names["default"]
                     else:
