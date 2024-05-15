@@ -86,6 +86,8 @@ else:
 
 CLASSES_TO_IGNORE = [
     "T5ForSequenceClassification",
+    # TODO: enable this class when it can be traced for pipeline parallelism.
+    "LlamaForQuestionAnswering",
 ]
 
 
