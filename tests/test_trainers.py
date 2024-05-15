@@ -54,13 +54,7 @@ if is_neuronx_distributed_available():
     )
 
 
-# LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-32kv-heads-random"
-# MODEL_NAME = "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random"
-MODEL_NAME = "michaelbenayoun/llama-2-tiny-4kv-heads-16layers-random"
-MODEL_NAME = "michaelbenayoun/llama-2-tiny-4kv-heads-8layers-random"
 MODEL_NAME = "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random"
-# MODEL_NAME = "michaelbenayoun/llama-2-tiny-4kv-heads-2layers-random"
-# MODEL_NAME = "hf-internal-testing/tiny-random-GPTNeoForCausalLM"
 
 
 def get_tokenizer_and_tiny_llama_model(parallel_sizes):

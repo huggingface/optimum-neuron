@@ -151,7 +151,6 @@ MODEL_TYPES_TO_TEST = [
     ),
     (
         "llama",
-        # "michaelbenayoun/llama-2-tiny-16layers-random",
         "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random",
     ),
     (

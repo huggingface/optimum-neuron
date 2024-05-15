@@ -582,7 +582,7 @@ class LlamaParallelizer(Parallelizer):
             )
 
         # The name of the LlamaModel attribute depends on the task.
-        # It is "model" for for every task except question-answering where it is "transformer".
+        # It is "model" for every task except question-answering where it is "transformer".
         if isinstance(model, LlamaForQuestionAnswering):
             layers = model.transformer.layers
         else:
