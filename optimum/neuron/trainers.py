@@ -1374,14 +1374,13 @@ class AugmentTrainerForNeuronMixin:
         ignore_keys_for_eval: Optional[List[str]] = None,
         **kwargs,
     ):
-        # with hub_neuronx_cache("training", entry=self.model_cache_entry):
-        result = super().train(
-            resume_from_checkpoint=resume_from_checkpoint,
-            trial=trial,
-            ignore_keys_for_eval=ignore_keys_for_eval,
-            **kwargs,
-        )
-        return result
+        with hub_neuronx_cache("training", entry=self.model_cache_entry):
+            result = super().train(
+                resume_from_checkpoint=resume_from_checkpoint,
+                trial=trial,
+                ignore_keys_for_eval=ignore_keys_for_eval,
+                **kwargs,
+            )
         if not is_precompilation():
             self.synchronize_hub_cache()
         return result
