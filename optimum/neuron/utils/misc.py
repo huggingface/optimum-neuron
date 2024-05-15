@@ -59,7 +59,7 @@ logger = logging.get_logger()
 
 
 def is_precompilation() -> bool:
-    return os.environ.get("NEURON_PARALLEL_COMPILE") == "1"
+    return os.environ.get("NEURON_EXTRACT_GRAPHS_ONLY") == "1"
 
 
 def is_main_worker(global_main: bool = True) -> bool:

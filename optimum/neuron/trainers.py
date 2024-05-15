@@ -109,13 +109,6 @@ if is_sagemaker_mp_enabled():
 else:
     IS_SAGEMAKER_MP_POST_1_10 = False
 
-
-# `neuron_parallel_compile` relies on the logs to retrieve the HLO graphs to compile.
-# For some reason, the logger logs strange characters that make `neuron_parallel_compile` fail when it tries to load
-# the log file to extract the graphs to compile. To avoid that, we disable logging when doing precompilation.
-if is_precompilation():
-    logging.logging.disable(sys.maxsize)
-
 logger = logging.get_logger("transformers.trainer")
 
 KEEP_HF_HUB_PROGRESS_BARS = os.environ.get("KEEP_HF_HUB_PROGRESS_BARS")
@@ -141,7 +134,7 @@ class AugmentTrainerForNeuronMixin:
                     self.use_amp = True
 
         if is_precompilation():
-            self.prepare_args_for_precompilation(training_args)
+            self.prepare_for_precompilation(training_args)
 
         super().__init__(*args, **kwargs)
 
@@ -184,7 +177,18 @@ class AugmentTrainerForNeuronMixin:
     def mp_enabled(self):
         return self.accelerator.distributed_type is NeuronDistributedType.MODEL_PARALLELISM
 
-    def prepare_args_for_precompilation(self, args: "TrainingArguments"):
+    def prepare_for_precompilation(self, args: "TrainingArguments"):
+        if not is_precompilation():
+            return
+
+        # `neuron_parallel_compile` relies on the logs to retrieve the HLO graphs to compile.
+        # For some reason, the logger logs strange characters that make `neuron_parallel_compile` fail when it tries to
+        # load the log file to extract the graphs to compile. To avoid that, we disable logging when doing
+        # precompilation.
+        logging.logging.disable(sys.maxsize)
+        # We disable tqdm as well just to be safe.
+        args.disable_tqdm = True
+
         if args.num_train_epochs != 1:
             if is_main_worker():
                 logger.info("Setting the number of epochs for precompilation to 1.")
@@ -334,6 +338,11 @@ class AugmentTrainerForNeuronMixin:
     @patch_within_function(("transformers.Trainer.get_optimizer_cls_and_kwargs", get_optimizer_cls_and_kwargs))
     def create_optimizer(self):
         return super().create_optimizer()
+
+    def log(self, logs: Dict[str, float]):
+        if is_precompilation():
+            return
+        return super().log(logs)
 
     def _prepare_input(self, data: Union[torch.Tensor, Any]) -> Union[torch.Tensor, Any]:
         # When pipeline parallelism is enabled, we should not put any tensor on device.
@@ -536,7 +545,7 @@ class AugmentTrainerForNeuronMixin:
             self.tokenizer.save_pretrained(output_dir)
 
     def save_model(self, output_dir: Optional[str] = None, _internal_call: bool = False):
-        if not os.environ.get("NEURON_PARALLEL_COMPILE"):  # Avoid unnecessary model saving during precompilation
+        if not is_precompilation():  # Avoid unnecessary model saving during precompilation
             with patch_neuron_cc_wrapper():
                 if self.model_cache_entry is not None and "input_specs" not in self.model_cache_entry.config["neuron"]:
                     model_cache_entry = None
@@ -1412,6 +1421,8 @@ class AugmentTrainerForNeuronMixin:
 
     @patch_within_function(("transformers.Trainer.is_world_process_zero", is_main_worker_for_metrics_method))
     def log_metrics(self, split, metrics):
+        if is_precompilation():
+            return
         return super().log_metrics(split, metrics)
 
     @patch_within_function(("transformers.Trainer.is_world_process_zero", is_main_worker_for_metrics_method))

@@ -102,8 +102,11 @@ class TestNeuronTrainer(DistributedTest):
         scope="class",
         # TODO: enable dp + tp + pp, currently produces communication error between replicas.
         # TODO: Fix pp as well.
-        params=[[2, 1, 1], [2, 2, 1]], # , [2, 1, 2]],  # [8, 2, 2]],
-        ids=["dp=2", "tp=2",], #"pp=2"],  # , "dp=4,tp=pp=2"],
+        params=[[2, 1, 1], [2, 2, 1]],  # , [2, 1, 2]],  # [8, 2, 2]],
+        ids=[
+            "dp=2",
+            "tp=2",
+        ],  # "pp=2"],  # , "dp=4,tp=pp=2"],
     )
     def parallel_sizes(self, request):
         return request.param
