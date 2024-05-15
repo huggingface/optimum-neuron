@@ -907,15 +907,9 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
             input_ids = torch.cat([input_ids, next_tokens[:, None]], dim=-1)
             attention_mask = torch.cat([attention_mask, attention_mask.new_ones((attention_mask.shape[0], 1))], dim=-1)
 
-            # if eos_token was found in one sentence, set sentence to finished
-            unfinished_sequences = unfinished_sequences * next_tokens.ne(selector.eos_token_id)
+            unfinished_sequences = unfinished_sequences & ~selector.stopping_criteria(input_ids, None)
 
-            # stop when each sentence is finished
             if unfinished_sequences.max() == 0:
-                break
-
-            # stop if we exceed the maximum length
-            if selector.stopping_criteria(input_ids, None):
                 break
 
             # forward pass to get next token

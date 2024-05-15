@@ -138,7 +138,7 @@ class TokenSelector:
             logger.warning(f"Setting `pad_token_id` to `eos_token_id`:{eos_token_id} for open-end generation.")
             generation_config.pad_token_id = eos_token_id
 
-        generation_mode = model._get_generation_mode(generation_config, None)
+        generation_mode = generation_config.get_generation_mode()
         if generation_mode not in [GenerationMode.GREEDY_SEARCH, GenerationMode.SAMPLE]:
             raise ValueError("Unsupported generation mode")
 
