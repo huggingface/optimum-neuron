@@ -25,7 +25,7 @@ from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neur
 
 @pytest.fixture(scope="module")
 def neuron_model_config():
-    model_id = "NousResearch/Llama-2-7b-chat-hf"
+    model_id = "NousResearch/Hermes-2-Pro-Llama-3-8B"
     model_kwargs = {"batch_size": 4, "sequence_length": 4096, "auto_cast_type": "f16", "num_cores": 2}
     model = NeuronModelForCausalLM.from_pretrained(model_id, export=True, **model_kwargs)
     tokenizer = AutoTokenizer.from_pretrained(model_id)
