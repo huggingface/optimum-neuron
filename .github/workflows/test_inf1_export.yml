@@ -1,12 +1,12 @@
 name: Optimum neuron / Test INF1 partial export
 
 on:
+  workflow_dispatch:
   push:
-    #branches: [ main ]
-    #paths:
-    #  - "setup.py"
-    #  - "optimum/**.py"
-    branches : ci-test
+    branches: [ main ]
+    paths:
+      - "setup.py"
+      - "optimum/**.py"
   pull_request:
     branches: [ main ]
     paths:
