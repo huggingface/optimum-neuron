@@ -336,6 +336,7 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
         Checks if inputs order of the model's forward pass correspond to the generated dummy inputs to ensure the dummy inputs tuple used for
         tracing are under the correct order.
         """
+        output_hidden_states = self.output_hidden_states
 
         class ModelWrapper(torch.nn.Module):
             def __init__(self, model: "PreTrainedModel", input_names: List[str]):
@@ -355,10 +356,13 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
                 if forward_with_tuple is True:
                     outputs = self.model(*ordered_inputs.values())
                 else:
+                    if output_hidden_states:
+                        ordered_inputs["output_hidden_states"] = True
                     outputs = self.model(**ordered_inputs)
 
-                if isinstance(outputs, dict) and eligible_outputs is not None:
-                    outputs = {name: outputs[name] for name in outputs.keys() & eligible_outputs}
+                if isinstance(outputs, dict):
+                    if eligible_outputs is not None:
+                        outputs = {name: outputs[name] for name in outputs.keys() & eligible_outputs}
 
                 if isinstance(outputs, tuple) and eligible_outputs is not None:
                     if not all(isinstance(x, int) for x in eligible_outputs):
@@ -383,7 +387,8 @@ class NeuronDecoderConfig(NeuronConfig):
         be passed to export the model,
     - NEURONX_CLASS (`str`) -- the name of the transformers-neuronx class to instantiate for the model.
     It is a full class name defined relatively to the transformers-neuronx module, e.g. `gpt2.model.GPT2ForSampling`
-    - CONTINUOUS_BATCHING (`bool`, , defaults to `False`) -- Whether the model supports continuous batching or not.
+    - CONTINUOUS_BATCHING (`bool`, defaults to `False`) -- Whether the model supports continuous batching or not.
+    - ATTENTION_LAYOUT (`str`, defaults to `HSB`) -- Layout to be used for attention computation.
 
     The NEURONX_CLASS must always be defined in each model configuration.
 
@@ -394,6 +399,7 @@ class NeuronDecoderConfig(NeuronConfig):
     INPUT_ARGS = ("batch_size", "sequence_length")
     NEURONX_CLASS = None
     CONTINUOUS_BATCHING = False
+    ATTENTION_lAYOUT = "HSB"
 
     def __init__(self, task: str):
         if not is_transformers_neuronx_available():
@@ -413,3 +419,7 @@ class NeuronDecoderConfig(NeuronConfig):
     @property
     def continuous_batching(self):
         return self.CONTINUOUS_BATCHING
+
+    @property
+    def attention_layout(self):
+        return self.ATTENTION_lAYOUT

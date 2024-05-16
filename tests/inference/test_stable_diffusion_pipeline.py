@@ -17,6 +17,7 @@ import copy
 import unittest
 
 import PIL
+from compel import Compel, ReturnedEmbeddingsType
 from parameterized import parameterized
 
 from optimum.neuron import (
@@ -165,6 +166,28 @@ class NeuronStableDiffusionPipelineIntegrationTest(unittest.TestCase):
         image = neuron_pipeline(prompts, num_images_per_prompt=num_images_per_prompt).images[0]
         self.assertIsInstance(image, PIL.Image.Image)
 
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    def test_compatibility_with_compel(self, model_arch):
+        num_images_per_prompt = 1
+        input_shapes = copy.deepcopy(self.STATIC_INPUTS_SHAPES)
+        input_shapes.update({"num_images_per_prompt": num_images_per_prompt})
+        pipe = self.NEURON_MODEL_CLASS.from_pretrained(
+            MODEL_NAMES[model_arch],
+            export=True,
+            inline_weights_to_neff=True,
+            output_hidden_states=True,
+            **input_shapes,
+            **self.COMPILER_ARGS,
+        )
+
+        prompt = "a red cat playing with a ball++"
+        compel_proc = Compel(tokenizer=pipe.tokenizer, text_encoder=pipe.text_encoder)
+
+        prompt_embeds = compel_proc(prompt)
+
+        image = pipe(prompt_embeds=prompt_embeds, num_inference_steps=2).images[0]
+        self.assertIsInstance(image, PIL.Image.Image)
+
 
 @is_inferentia_test
 @requires_neuronx
@@ -267,4 +290,43 @@ class NeuronStableDiffusionXLPipelineIntegrationTest(unittest.TestCase):
         mask_image = download_image(mask_url).resize((64, 64))
         prompt = "A deep sea diver floating"
         image = neuron_pipeline(prompt=prompt, image=init_image, mask_image=mask_image).images[0]
+        self.assertIsInstance(image, PIL.Image.Image)
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    def test_compatibility_with_compel(self, model_arch):
+        num_images_per_prompt = 1
+        input_shapes = copy.deepcopy(self.STATIC_INPUTS_SHAPES)
+        input_shapes.update({"num_images_per_prompt": num_images_per_prompt})
+        pipe = self.NEURON_MODEL_CLASS.from_pretrained(
+            MODEL_NAMES[model_arch],
+            export=True,
+            inline_weights_to_neff=True,
+            output_hidden_states=True,
+            **input_shapes,
+            **self.COMPILER_ARGS,
+        )
+
+        prompt = "Astronaut in a jungle, cold color palette, muted colors, detailed, 8k"
+        negative_prompt = "low quality, low resolution"
+
+        compel = Compel(
+            tokenizer=[pipe.tokenizer, pipe.tokenizer_2],
+            text_encoder=[pipe.text_encoder, pipe.text_encoder_2],
+            returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
+            requires_pooled=[False, True],
+        )
+        prompt_embeds, pooled = compel(prompt)
+        neg_prompt_embeds, neg_pooled = compel(negative_prompt)
+        positive_prompt_embeds, negative_prompt_embeds = compel.pad_conditioning_tensors_to_same_length(
+            [prompt_embeds, neg_prompt_embeds]
+        )
+
+        image = pipe(
+            prompt_embeds=positive_prompt_embeds,
+            pooled_prompt_embeds=pooled,
+            negative_prompt_embeds=negative_prompt_embeds,
+            negative_pooled_prompt_embeds=neg_pooled,
+            output_type="pil",
+            num_inference_steps=1,
+        ).images[0]
         self.assertIsInstance(image, PIL.Image.Image)

@@ -244,7 +244,7 @@ class CLIPNeuronConfig(TextAndVisionNeuronConfig):
 
 @register_in_tasks_manager("clip-text-with-projection", *["feature-extraction"], library_name="diffusers")
 class CLIPTextWithProjectionNeuronConfig(TextEncoderNeuronConfig):
-    MODEL_TYPE = "clip-text-model"
+    MODEL_TYPE = "clip-text-with-projection"
     ATOL_FOR_VALIDATION = 1e-3
 
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
@@ -461,6 +461,7 @@ class GPT2NeuronConfig(TextNeuronDecoderConfig):
 class LLamaNeuronConfig(TextNeuronDecoderConfig):
     NEURONX_CLASS = "llama.model.LlamaForSampling"
     CONTINUOUS_BATCHING = True
+    ATTENTION_lAYOUT = "BSH"
 
 
 @register_in_tasks_manager("t5-encoder", "text2text-generation")

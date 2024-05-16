@@ -121,6 +121,7 @@ def get_stable_diffusion_models_for_export(
     vae_encoder_input_shapes: Dict[str, int],
     vae_decoder_input_shapes: Dict[str, int],
     dynamic_batch_size: Optional[bool] = False,
+    output_hidden_states: bool = False,
     lora_model_ids: Optional[List[str]] = None,
     lora_weight_names: Optional[List[str]] = None,
     lora_adapter_names: Optional[List[str]] = None,
@@ -147,6 +148,8 @@ def get_stable_diffusion_models_for_export(
             Static shapes used for compiling vae decoder.
         dynamic_batch_size (`bool`, defaults to `False`):
             Whether the Neuron compiled model supports dynamic batch size.
+        output_hidden_states (`bool`, defaults to `False`):
+            Whether or not for the traced text encoders to return the hidden states of all layers.
         lora_model_ids (`Optional[List[str]]`, defaults to `None`):
             List of model ids (eg. `ostris/super-cereal-sdxl-lora`) of pretrained lora models hosted on the Hub or paths to local directories containing the lora weights.
         lora_weight_names (`Optional[List[str]]`, defaults to `None`):
@@ -183,6 +186,7 @@ def get_stable_diffusion_models_for_export(
             text_encoder.config,
             task="feature-extraction",
             dynamic_batch_size=dynamic_batch_size,
+            output_hidden_states=output_hidden_states,
             **text_encoder_input_shapes,
         )
         models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_NAME] = (text_encoder, text_encoder_neuron_config)
@@ -200,6 +204,7 @@ def get_stable_diffusion_models_for_export(
             text_encoder_2.config,
             task="feature-extraction",
             dynamic_batch_size=dynamic_batch_size,
+            output_hidden_states=output_hidden_states,
             **text_encoder_input_shapes,
         )
         models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME] = (text_encoder_2, text_encoder_neuron_config_2)
@@ -287,7 +292,7 @@ def _load_lora_weights_to_pipeline(
         if len(lora_model_ids) == 1:
             pipeline.load_lora_weights(lora_model_ids[0], weight_name=weight_names[0])
             # For tracing the lora weights, we need to use PEFT to fuse adapters directly into the model weights. It won't work by passing the lora scale to the Neuron pipeline during the inference.
-            pipeline.fuse_lora(lora_scale=lora_scales[0])
+            pipeline.fuse_lora(lora_scale=lora_scales[0] if lora_scales else 1.0)
         elif len(lora_model_ids) > 1:
             if not len(lora_model_ids) == len(weight_names) == len(adapter_names):
                 raise ValueError(
@@ -300,10 +305,13 @@ def _load_lora_weights_to_pipeline(
                 pipeline.set_adapters(adapter_names, adapter_weights=lora_scales)
             pipeline.fuse_lora()
 
+    return pipeline
+
 
 def get_submodels_for_export_stable_diffusion(
     pipeline: Union["StableDiffusionPipeline", "StableDiffusionXLImg2ImgPipeline"],
     task: str,
+    output_hidden_states: bool = False,
     lora_model_ids: Optional[Union[str, List[str]]] = None,
     lora_weight_names: Optional[Union[str, List[str]]] = None,
     lora_adapter_names: Optional[Union[str, List[str]]] = None,
@@ -314,7 +322,7 @@ def get_submodels_for_export_stable_diffusion(
     """
     is_sdxl = "xl" in task
 
-    _load_lora_weights_to_pipeline(
+    pipeline = _load_lora_weights_to_pipeline(
         pipeline=pipeline,
         lora_model_ids=lora_model_ids,
         weight_names=lora_weight_names,
@@ -330,7 +338,7 @@ def get_submodels_for_export_stable_diffusion(
 
     # Text encoders
     if pipeline.text_encoder is not None:
-        if is_sdxl:
+        if is_sdxl or output_hidden_states:
             pipeline.text_encoder.config.output_hidden_states = True
         models_for_export.append((DIFFUSION_MODEL_TEXT_ENCODER_NAME, copy.deepcopy(pipeline.text_encoder)))
 

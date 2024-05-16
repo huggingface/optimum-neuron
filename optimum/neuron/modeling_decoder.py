@@ -52,7 +52,9 @@ logger = logging.getLogger(__name__)
 
 
 def get_exporter(config, task):
-    return TasksManager.get_exporter_config_constructor(model_type=config.model_type, exporter="neuron", task=task)()
+    return TasksManager.get_exporter_config_constructor(
+        model_type=config.model_type, exporter="neuron", task=task, library_name="transformers"
+    )()
 
 
 # Note: with python 3.9, functools.cache would be more suited
@@ -177,11 +179,13 @@ class NeuronDecoderModel(OptimizedModel):
             # Continuous batching is always enabled for models that support it because static batching
             # is broken for these models:  see https://github.com/aws-neuron/transformers-neuronx/issues/79
             tnx_kwargs["neuron_config"] = NeuronConfig(
-                continuous_batching=ContinuousBatchingConfig(batch_size_for_shared_caches=batch_size)
+                continuous_batching=ContinuousBatchingConfig(batch_size_for_shared_caches=batch_size),
+                attention_layout=exporter.attention_layout,
             )
             tnx_kwargs["n_positions"] = [sequence_length]
             tnx_kwargs["context_length_estimate"] = [sequence_length]
         else:
+            tnx_kwargs["neuron_config"] = NeuronConfig(attention_layout=exporter.attention_layout)
             tnx_kwargs["n_positions"] = sequence_length
 
         # Instantiate neuronx model
@@ -281,8 +285,13 @@ class NeuronDecoderModel(OptimizedModel):
             batch_size = 1
         # If the sequence_length was not specified, deduce it from the model configuration
         if sequence_length is None:
-            # Note: for older models, max_position_embeddings is an alias for n_positions
-            sequence_length = config.max_position_embeddings
+            if hasattr(config, "n_positions"):
+                sequence_length = config.n_positions
+            elif hasattr(config, "max_position_embeddings"):
+                sequence_length = config.max_position_embeddings
+            else:
+                # Use transformers-neuronx default
+                sequence_length = 2048
         if num_cores is None:
             # Use all available cores
             num_cores = get_available_cores()
@@ -355,7 +364,7 @@ class NeuronDecoderModel(OptimizedModel):
         # Try to reload the generation config (if any)
         generation_config = None
         try:
-            generation_config = GenerationConfig.from_pretrained(model_id)
+            generation_config = GenerationConfig.from_pretrained(model_id, revision=revision)
         except OSError:
             pass
 
@@ -412,7 +421,7 @@ class NeuronDecoderModel(OptimizedModel):
         # Try to reload the generation config (if any)
         generation_config = None
         try:
-            generation_config = GenerationConfig.from_pretrained(model_id)
+            generation_config = GenerationConfig.from_pretrained(model_id, revision=revision)
         except OSError:
             pass
 

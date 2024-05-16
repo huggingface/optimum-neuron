@@ -50,10 +50,7 @@ from optimum.neuron import (
 )
 from optimum.neuron.utils import NEURON_FILE_NAME, is_neuron_available, is_neuronx_available
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
-from optimum.utils import (
-    CONFIG_NAME,
-    logging,
-)
+from optimum.utils import CONFIG_NAME, logging
 
 from .inference_utils import (
     MODEL_NAMES,
@@ -432,6 +429,24 @@ class NeuronModelForSentenceTransformersIntegrationTest(NeuronModelTestMixin):
         outputs = neuron_model(**inputs)
         self.assertIn("image_embeds", outputs)
         self.assertIn("text_embeds", outputs)
+
+        gc.collect()
+
+    @parameterized.expand(["transformer"], skip_on_empty=True)
+    @requires_neuronx
+    def test_pipeline_model(self, model_arch):
+        input_shapes = {
+            "batch_size": 1,
+            "sequence_length": 16,
+        }
+        model_id = SENTENCE_TRANSFORMERS_MODEL_NAMES[model_arch]
+        neuron_model = self.NEURON_MODEL_CLASS.from_pretrained(model_id, export=True, **input_shapes)
+        tokenizer = get_preprocessor(model_id)
+        pipe = pipeline(self.TASK, model=neuron_model, tokenizer=tokenizer)
+        text = "My Name is Philipp."
+        outputs = pipe(text)
+
+        self.assertTrue(all(isinstance(item, float) for item in outputs))
 
         gc.collect()
 

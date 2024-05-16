@@ -44,6 +44,10 @@ jobs:
           source aws_neuron_venv_pytorch/bin/activate
           python -m pip install -U pip
           python -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
+      - name: Install integration tests prerequisites
+        run: |
+          source aws_neuron_venv_pytorch/bin/activate
+          python -m pip install -r text-generation-inference/tests/requirements.txt
       - name: Run TGI server python tests
         run: |
           # gawk is required when invoking the Makefile targets
@@ -55,12 +59,8 @@ jobs:
         run: |
           source aws_neuron_venv_pytorch/bin/activate
           make neuronx-tgi
-      - name: Install integration tests prerequisites
-        run: |
-          source aws_neuron_venv_pytorch/bin/activate
-          python -m pip install -r text-generation-inference/integration-tests/requirements.txt
       - name: Run TGI docker tests
         shell: bash
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} python -m pytest -sv text-generation-inference/integration-tests
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} python -m pytest -sv text-generation-inference/tests -k integration
