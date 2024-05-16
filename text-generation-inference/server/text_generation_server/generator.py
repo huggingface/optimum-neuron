@@ -566,7 +566,9 @@ class NeuronGenerator(Generator):
         if neuron_config is None:
             export_kwargs = get_export_kwargs_from_env()
             logger.info(f"Exporting model to neuron with config: {export_kwargs}.")
-            model = NeuronModelForCausalLM.from_pretrained(model_id, revision=revision, export=True, **export_kwargs)
+            model = NeuronModelForCausalLM.from_pretrained(
+                model_id, revision=revision, low_cpu_mem_usage=True, export=True, **export_kwargs
+            )
         else:
             logger.info("Loading model on neuron devices (this can take a few minutes).")
             model = NeuronModelForCausalLM.from_pretrained(model_id, revision=revision)
