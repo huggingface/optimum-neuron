@@ -55,8 +55,9 @@ from optimum.neuron.utils.import_utils import (
 )
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
-from .distributed import DistributedTest
-from .utils import SEED, create_accelerator_for_mp, get_model, get_model_inputs
+from .. import DistributedTest
+from ..utils import SEED, create_static_seed_patcher, get_model
+from .utils import create_accelerator_for_mp, get_model_inputs
 
 
 if is_torch_xla_available():
@@ -85,6 +86,8 @@ else:
 
 CLASSES_TO_IGNORE = [
     "T5ForSequenceClassification",
+    # TODO: enable this class when it can be traced for pipeline parallelism.
+    "LlamaForQuestionAnswering",
 ]
 
 
@@ -148,7 +151,7 @@ MODEL_TYPES_TO_TEST = [
     ),
     (
         "llama",
-        "michaelbenayoun/llama-2-tiny-16layers-random",
+        "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random",
     ),
     (
         "t5",
@@ -306,8 +309,13 @@ class TestModelParallelization(DistributedTest):
         # It is ok to use this accelerator because `patch_model_for_neuron` does not depend on the TP or PP size.
         orig_model = accelerator.patch_model_for_neuron(orig_model)
 
-        # TODO: enable that again once it's working, seems to be an AWS issue.
-        orig_model.config.use_cache = False
+        # Since the new KV cache system it seems that if orig_model.use_cache != model.use_cache, the losses between
+        # the two models will not match. It either comes from Transformers itself or Optimum Neuron.
+        # TODO: investigate this.
+        if pp_size == 1:
+            orig_model.config.use_cache = True
+        else:
+            orig_model.config.use_cache = False
 
         move_model_to_device(orig_model, xm.xla_device())
         orig_model = orig_model.eval()
@@ -348,8 +356,6 @@ class TestModelParallelization(DistributedTest):
             config_overwrite=config_overwrite,
             use_static_seed_patcher=True,
         )
-
-        from .utils import create_static_seed_patcher
 
         static_seed_patcher = create_static_seed_patcher(model.__class__, SEED)
         with static_seed_patcher:

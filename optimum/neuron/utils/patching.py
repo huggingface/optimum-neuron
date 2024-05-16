@@ -216,7 +216,7 @@ def patch_everywhere(attribute_name: str, patch: Any, module_name_prefix: Option
         module_name_prefix (`Optional[str]`, defaults to `None`):
             If set, only module names starting with this prefix will be considered for patching.
     """
-    for name, module in sys.modules.items():
+    for name, module in dict(sys.modules).items():
         if module_name_prefix is not None and not name.startswith(module_name_prefix):
             continue
         if hasattr(module, attribute_name):

@@ -154,7 +154,7 @@ class ParallelEmbedding(ParallelLayer):
             a class name to LM head qualified name.
     """
 
-    EMBEDDING_NAME: str
+    EMBEDDING_NAME: Union[str, Dict[str, str]]
     VOCAB_SIZE_NAME: Optional[str] = "config.vocab_size"
     LM_HEAD_NAME: Optional[Union[str, Dict[str, str]]] = None
 
@@ -199,6 +199,16 @@ class ParallelEmbedding(ParallelLayer):
         else:
             model_has_lm_head = False
 
+        if isinstance(cls.EMBEDDING_NAME, dict):
+            if model.__class__.__name__ in cls.EMBEDDING_NAME:
+                embedding_name = cls.EMBEDDING_NAME[model.__class__.__name__]
+            elif "default" in cls.EMBEDDING_NAME:
+                embedding_name = cls.EMBEDDING_NAME["default"]
+            else:
+                raise ValueError(f"Could not infer the embedding name for {model.__class__.__name__}.")
+        else:
+            embedding_name = cls.EMBEDDING_NAME
+
         embedding_weight_info = None
         lm_head_weight_info = None
         lm_head_bias_weight_info = None
@@ -207,9 +217,9 @@ class ParallelEmbedding(ParallelLayer):
             layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
             layer_qualified_name = layer_to_fully_qualified_name[id(layer)]
             if layer_qualified_name:
-                embedding_weight_name = f"{layer_qualified_name}.{cls.EMBEDDING_NAME}.weight"
+                embedding_weight_name = f"{layer_qualified_name}.{embedding_name}.weight"
             else:
-                embedding_weight_name = f"{cls.EMBEDDING_NAME}.weight"
+                embedding_weight_name = f"{embedding_name}.weight"
             embedding_weight_info = WeightInformation(
                 weight_map[embedding_weight_name],
                 embedding_weight_name,
@@ -235,7 +245,7 @@ class ParallelEmbedding(ParallelLayer):
                         device=device,
                     )
 
-        embedding_layer = layer.get_submodule(cls.EMBEDDING_NAME)
+        embedding_layer = layer.get_submodule(embedding_name)
         tp_size = parallel_state.get_tensor_model_parallel_size()
         if embedding_layer.num_embeddings % tp_size != 0:
             if is_main_worker():
@@ -246,16 +256,14 @@ class ParallelEmbedding(ParallelLayer):
             return layer
 
         parallel_layers = embedding_to_parallel_embedding(
-            layer.get_submodule(cls.EMBEDDING_NAME),
+            layer.get_submodule(embedding_name),
             lm_head_layer=layer.get_submodule(lm_head_name) if model_has_lm_head else None,
             embedding_weight_info=embedding_weight_info,
             lm_head_weight_info=lm_head_weight_info,
             lm_head_bias_weight_info=lm_head_bias_weight_info,
             device=device,
         )
-        parent_embedding_module, embedding_attribute_name = cls._get_module_and_attribute_name(
-            layer, cls.EMBEDDING_NAME
-        )
+        parent_embedding_module, embedding_attribute_name = cls._get_module_and_attribute_name(layer, embedding_name)
         if model_has_lm_head:
             setattr(parent_embedding_module, embedding_attribute_name, parallel_layers[0])
             setattr(parent_lm_head_module, parent_lm_head_attribute_name, parallel_layers[1])

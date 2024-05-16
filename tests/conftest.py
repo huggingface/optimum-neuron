@@ -12,7 +12,22 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import os
+import shutil
+from pathlib import Path
+
 import pytest
+from huggingface_hub import create_repo, delete_repo, get_token, login, logout
+
+from optimum.neuron.utils.cache_utils import (
+    delete_custom_cache_repo_name_from_hf_home,
+    load_custom_cache_repo_name_from_hf_home,
+    set_custom_cache_repo_name_in_hf_home,
+    set_neuron_cache_path,
+)
+from optimum.utils.testing_utils import TOKEN, USER
+
+from .utils import OPTIMUM_INTERNAL_TESTING_CACHE_REPO, get_random_string
 
 
 # Inferentia fixtures
@@ -71,3 +86,117 @@ def inf_decoder_model(request):
 @pytest.fixture(scope="module", params=[INFERENTIA_MODEL_NAMES[model_arch] for model_arch in DIFFUSER_ARCHITECTURES])
 def inf_diffuser_model(request):
     return request.param
+
+
+@pytest.fixture(scope="module")
+def staging_test():
+    custom_cache_repo_name = "optimum-neuron-cache-testing"
+    custom_cache_repo = f"{USER}/{custom_cache_repo_name}"
+    custom_private_cache_repo = f"{custom_cache_repo}-private"
+
+    orig_token = get_token()
+    orig_custom_cache_repo = load_custom_cache_repo_name_from_hf_home()
+
+    seed = get_random_string(5)
+    custom_cache_repo_with_seed = f"{custom_cache_repo}-{seed}"
+    custom_private_cache_repo_with_seed = f"{custom_private_cache_repo}-{seed}"
+
+    login(token=TOKEN)
+    # We do not set which cache repo to use because there are two, it is up to the test to define that.
+
+    create_repo(custom_cache_repo_with_seed, repo_type="model", exist_ok=True)
+    create_repo(custom_private_cache_repo_with_seed, repo_type="model", exist_ok=True, private=True)
+
+    yield
+
+    delete_repo(custom_cache_repo_with_seed, repo_type="model")
+    delete_repo(custom_private_cache_repo_with_seed, repo_type="model")
+
+    if orig_token is not None:
+        login(token=orig_token)
+    else:
+        logout()
+    if orig_custom_cache_repo is not None:
+        set_custom_cache_repo_name_in_hf_home(orig_custom_cache_repo, check_repo=False)
+    else:
+        delete_custom_cache_repo_name_from_hf_home()
+
+
+def _hub_test(create_local_cache: bool = False):
+    orig_token = get_token()
+    orig_custom_cache_repo = load_custom_cache_repo_name_from_hf_home()
+
+    token = os.environ.get("HF_TOKEN", None)
+    if token is None:
+        raise ValueError(
+            "The token of the `optimum-internal-testing` member on the Hugging Face Hub must be specified via the "
+            "HF_TOKEN environment variable."
+        )
+
+    seed = get_random_string(5)
+    custom_cache_repo_with_seed = f"{OPTIMUM_INTERNAL_TESTING_CACHE_REPO}-{seed}"
+    create_repo(custom_cache_repo_with_seed, repo_type="model", exist_ok=True)
+
+    local_cache_path_with_seed = Path(f"/var/tmp/neuron-compile-cache-{seed}")
+    if create_local_cache:
+        set_neuron_cache_path(local_cache_path_with_seed)
+
+    login(token=token)
+    set_custom_cache_repo_name_in_hf_home(custom_cache_repo_with_seed)
+
+    if create_local_cache:
+        yield (custom_cache_repo_with_seed, local_cache_path_with_seed)
+    else:
+        yield custom_cache_repo_with_seed
+
+    delete_repo(custom_cache_repo_with_seed, repo_type="model")
+    if local_cache_path_with_seed.is_dir():
+        shutil.rmtree(local_cache_path_with_seed)
+    if orig_token is not None:
+        login(token=orig_token)
+    else:
+        logout()
+    if orig_custom_cache_repo is not None:
+        set_custom_cache_repo_name_in_hf_home(orig_custom_cache_repo, check_repo=False)
+    else:
+        delete_custom_cache_repo_name_from_hf_home()
+
+
+@pytest.fixture(scope="module")
+def hub_test():
+    yield from _hub_test()
+
+
+@pytest.fixture(scope="module")
+def hub_test_with_local_cache():
+    yield from _hub_test(create_local_cache=True)
+
+
+### The following part is for running distributed tests.
+
+
+# This hook is run before the default pytest_runtest_call
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_call(item):
+    # We want to use our own launching function for distributed tests
+    if getattr(item.cls, "is_dist_test", False):
+        dist_test_class = item.cls()
+        dist_test_class(item._request)
+        item.runtest = lambda: True  # Dummy function so test is not run twice
+
+
+# We allow DistributedTest to reuse distributed environments. When the last
+# test for a class is run, we want to make sure those distributed environments
+# are destroyed.
+def pytest_runtest_teardown(item, nextitem):
+    if getattr(item.cls, "reuse_dist_env", False) and not nextitem:
+        dist_test_class = item.cls()
+        for num_procs, pool in dist_test_class._pool_cache.items():
+            dist_test_class._close_pool(pool, num_procs, force=True)
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_fixture_setup(fixturedef, request):
+    if getattr(fixturedef.func, "is_dist_fixture", False):
+        dist_fixture_class = fixturedef.func()
+        dist_fixture_class(request)
