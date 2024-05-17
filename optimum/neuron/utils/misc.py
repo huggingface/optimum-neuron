@@ -204,14 +204,12 @@ def convert_checkpoint_to_safetensors(
     return safetensors_path
 
 
-@requires_torch_xla
 @functools.wraps(cached_file)
 def distributed_friendly_cached_file(*args, **kwargs):
-    import torch_xla.core.xla_model as xm
-
     if is_main_worker():
         output = cached_file(*args, **kwargs)
-    xm.rendezvous("Cached file done")
+    # xm.rendezvous("Cached file done")
+    torch.distributed.barrier()
     if not is_main_worker():
         output = cached_file(*args, **kwargs)
     return output

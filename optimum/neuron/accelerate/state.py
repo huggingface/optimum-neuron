@@ -97,7 +97,8 @@ class NeuronPartialState(PartialState):
 
     def wait_for_everyone(self):
         if self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
-            xm.rendezvous("accelerate.utils.wait_for_everyone")
+            # xm.rendezvous("accelerate.utils.wait_for_everyone")
+            torch.distributed.barrier()
         else:
             super().wait_for_everyone()
 

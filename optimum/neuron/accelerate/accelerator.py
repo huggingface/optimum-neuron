@@ -132,6 +132,13 @@ class NeuronAccelerator(Accelerator):
         if not isinstance(autocast_backend, AutocastBackend):
             autocast_backend = AutocastBackend(autocast_backend)
 
+
+        def patched_is_torch_xla_available(check_is_tpu: bool = False, check_is_gpu: bool = False) -> bool:
+            return is_torch_xla_available()
+
+        import accelerate
+        accelerate.state.is_torch_xla_available = patched_is_torch_xla_available
+
         patched_accelerator_state = partial(
             NeuronAcceleratorState, mp_plugin=mp_plugin, autocast_backend=autocast_backend
         )
