@@ -119,6 +119,8 @@ class NeuronBaseModel(OptimizedModel):
                 Path of the compiled model.
             to_neuron (`bool`, defaults to `False`):
                 Whether to move manually the traced model to NeuronCore. It's only needed when `inline_weights_to_neff=False`, otherwise it is loaded automatically to a Neuron device.
+            device_id (`int`, defaults to 0):
+                Index of NeuronCore to load the traced model to.
         """
         if not isinstance(path, Path):
             path = Path(path)
