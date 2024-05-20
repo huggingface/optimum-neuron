@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Callable, Dict, List, Literal, Optional, Set, 
 import torch
 from transformers import PretrainedConfig
 from transformers.utils import is_peft_available
+from transformers.utils.fx import HFTracer
 
 from ...utils import logging
 from ..utils import DynamicPatch, Patcher
@@ -44,7 +45,7 @@ from ..utils.require_utils import (
 if is_neuronx_distributed_available():
     from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
     from neuronx_distributed.parallel_layers import layers
-    from neuronx_distributed.pipeline.trace import HFTracerWrapper
+    from neuronx_distributed.pipeline.trace import HFTracerWrapper, NxDTracer
 else:
 
     class GQAQKVColumnParallelLinear(torch.nn.Module):
@@ -1361,7 +1362,11 @@ class ParameterMetadata:
 
 class OptimumNeuronFXTracer(HFTracerWrapper):
     def is_leaf_module(self, m: torch.nn.Module, module_qualified_name: str) -> bool:
-        return super().is_leaf_module(m, module_qualified_name) or isinstance(m, FakeProj)
+        return (
+            NxDTracer.is_leaf_module(self, m, module_qualified_name)
+            or HFTracer.is_leaf_module(self, m, module_qualified_name)
+            or isinstance(m, FakeProj)
+        )
 
 
 class SavedModelInTemporaryDirectory:

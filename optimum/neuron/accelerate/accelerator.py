@@ -54,10 +54,10 @@ from .utils import (
     ModelParallelismPlugin,
     NeuronDistributedType,
     get_tied_parameters_dict,
-    patch_accelerate_is_tpu_available,
+    patch_accelerate_is_torch_xla_available,
     tie_parameters,
 )
-from .utils.misc import apply_activation_checkpointing, create_patched_finfo
+from .utils.misc import apply_activation_checkpointing, create_patched_finfo, create_patched_save_pretrained
 from .utils.operations import _xla_gather
 
 
@@ -100,14 +100,15 @@ class NeuronAccelerator(Accelerator):
         **kwargs,
     ):
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
-        patch_accelerate_is_tpu_available()
+        # TODO: check that removing it does not break anything.
+        patch_accelerate_is_torch_xla_available()
 
         full_kwargs = args_and_kwargs_to_kwargs_only(
             super().__init__, args=args, kwargs=kwargs, include_default_values=True
         )
 
         # There is a check for gradient_accumulation_steps to be equal to 1 when
-        # DistributedType == DistributedType.TPU, so we change that for initialization
+        # DistributedType == DistributedType.XLA, so we change that for initialization
         # and restore it back afterwards.
         num_steps = 1
         gradient_accumulation_plugin = full_kwargs["gradient_accumulation_plugin"]
@@ -327,12 +328,21 @@ class NeuronAccelerator(Accelerator):
             ),
         )
 
+        if hasattr(model, "save_pretrained"):
+            patching_specs.append(
+                (
+                    "save_pretrained",
+                    DynamicPatch(create_patched_save_pretrained),
+                ),
+            )
+
         prepared_patching_specs = []
         for spec in patching_specs:
             prepared_patching_specs.append((model,) + spec)
 
         model_patcher = ModelPatcher(prepared_patching_specs, ignore_missing_attributes=True)
         model_patcher.patch()
+
         return model
 
     @requires_neuronx_distributed
@@ -494,6 +504,7 @@ class NeuronAccelerator(Accelerator):
             ["Accelerator", "torch.optim.Optimizer", "PreTrainedModel", Union[str, Path], int], Any
         ],
         output_dir: Optional[str] = None,
+        safe_serialization: bool = True,
         **save_model_func_kwargs: Any,
     ) -> str:
         if self.project_configuration.automatic_checkpoint_naming:
@@ -545,6 +556,9 @@ class NeuronAccelerator(Accelerator):
         # Save the lr schedulers taking care of DeepSpeed nuances
         schedulers = self._schedulers
 
+        # Save the samplers of the dataloaders
+        dataloaders = self._dataloaders
+
         # Setting those to be empty list so that `save_accelerator_state` does not redo the job.
         weights = []
         optimizers = []
@@ -555,10 +569,18 @@ class NeuronAccelerator(Accelerator):
             hook(self._models, weights, output_dir)
 
         save_location = save_accelerator_state(
-            output_dir, weights, optimizers, schedulers, self.state.process_index, self.scaler
+            output_dir,
+            weights,
+            optimizers,
+            schedulers,
+            dataloaders,
+            self.state.process_index,
+            self.scaler,
+            save_on_each_node=self.project_configuration.save_on_each_node,
+            safe_serialization=safe_serialization,
         )
         for i, obj in enumerate(self._custom_objects):
-            save_custom_state(obj, output_dir, i)
+            save_custom_state(obj, output_dir, i, save_on_each_node=self.project_configuration.save_on_each_node)
         self.project_configuration.iteration += 1
         return save_location
 
@@ -580,14 +602,21 @@ class NeuronAccelerator(Accelerator):
             logger.info(f"Parallel model and optimizer saved to the directory {output_dir}")
 
         return self._custom_save_state(
-            save_model_func, save_optimizer_func, output_dir=output_dir, **save_model_func_kwargs
+            save_model_func,
+            save_optimizer_func,
+            output_dir=output_dir,
+            safe_serialization=False,
+            **save_model_func_kwargs,
         )
 
-    @patch_within_function(("accelerate.checkpointing.xm", xm), ignore_missing_attributes=True)
-    def save_state(self, output_dir: Optional[str] = None, **save_model_func_kwargs) -> str:
+    def save_state(
+        self, output_dir: Optional[str] = None, safe_serialization: bool = True, **save_model_func_kwargs
+    ) -> str:
         if self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
             return self.save_state_for_mp(output_dir=output_dir, **save_model_func_kwargs)
-        return super().save_state(output_dir=output_dir, **save_model_func_kwargs)
+        return super().save_state(
+            output_dir=output_dir, safe_serialization=safe_serialization, **save_model_func_kwargs
+        )
 
     def gather(self, tensor, out_of_graph: bool = False):
         return _xla_gather(tensor, out_of_graph=out_of_graph)

@@ -35,8 +35,9 @@ from optimum.neuron.utils.import_utils import (
 )
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
-from .distributed import DistributedTest
-from .utils import create_accelerator_for_mp, create_static_seed_patcher, get_model, get_model_inputs
+from .. import DistributedTest
+from ..utils import create_static_seed_patcher, get_model
+from .utils import create_accelerator_for_mp, get_model_inputs
 
 
 if is_torch_xla_available():
@@ -248,7 +249,7 @@ class TestCommonDistributed(DistributedTest):
                     grads_on_cpu = move_grads_to_cpu(model.local_parameters())
                     if is_optimizer_update_step:
                         # At this point, no parameter should have a gradient.
-                        assert all(torch.all(grad == 0) for grad in grads_on_cpu)
+                        assert all(grad is None or torch.all(grad == 0) for grad in grads_on_cpu)
 
                     current_parameters = move_params_to_cpu(model.local_parameters())
                 else:
@@ -280,7 +281,7 @@ class TestCommonDistributed(DistributedTest):
                     # At this point, no parameter should have a gradient.
                     if is_optimizer_update_step:
                         grads_on_cpu = move_grads_to_cpu(model.parameters())
-                        assert all(torch.all(grad == 0) for grad in grads_on_cpu)
+                        assert all(grad is None or torch.all(grad == 0) for grad in grads_on_cpu)
 
                     current_parameters = move_params_to_cpu(model.parameters())
 

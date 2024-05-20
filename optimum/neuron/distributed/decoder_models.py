@@ -14,19 +14,21 @@
 # limitations under the License.
 """Classes related to `neuronx-distributed` to perform parallelism."""
 
+import math
 import warnings
-from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple
+from typing import TYPE_CHECKING, Callable, Optional, Tuple
 
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from transformers.cache_utils import Cache
 from transformers.models.gpt_neo.modeling_gpt_neo import GPTNeoBlock, GPTNeoSelfAttention
 from transformers.models.gpt_neox.modeling_gpt_neox import GPTNeoXAttention
 from transformers.models.llama.modeling_llama import (
     LlamaAttention,
     LlamaDecoderLayer,
+    LlamaForQuestionAnswering,
     LlamaRMSNorm,
-    _prepare_4d_causal_attention_mask,
-    apply_rotary_pos_emb,
     repeat_kv,
 )
 from transformers.models.mistral.modeling_mistral import (
@@ -200,18 +202,7 @@ class GPTNeoXSequenceParallelismSpecs(SequenceParallelismSpecs):
         if not sequence_parallel_enabled:
             return
 
-        def rotate_half(x):
-            x1 = x[..., : x.shape[-1] // 2]
-            x2 = x[..., x.shape[-1] // 2 :]
-            return torch.cat((-x2, x1), dim=-1)
-
-        # Remove this function once Transformers >= 4.36.0 is supported.
-        def apply_rotary_pos_emb(q, k, cos, sin, position_ids, unsqueeze_dim=1):
-            cos = cos[position_ids].unsqueeze(unsqueeze_dim)
-            sin = sin[position_ids].unsqueeze(unsqueeze_dim)
-            q_embed = (q * cos) + (rotate_half(q) * sin)
-            k_embed = (k * cos) + (rotate_half(k) * sin)
-            return q_embed, k_embed
+        from transformers.models.gpt_neox.modeling_gpt_neox import apply_rotary_pos_emb
 
         def sequence_parallel_forward(
             self,
@@ -348,7 +339,10 @@ class GPTNeoXParallelizer(Parallelizer):
 
 
 class LlamaParallelEmbedding(ParallelEmbedding):
-    EMBEDDING_NAME = "model.embed_tokens"
+    EMBEDDING_NAME = {
+        "default": "model.embed_tokens",
+        "LlamaForQuestionAnswering": "transformer.embed_tokens",
+    }
     LM_HEAD_NAME = "lm_head"
 
 
@@ -427,9 +421,9 @@ class LlamaParallelCrossEntropy(ParallelCrossEntropy):
 
 class LlamaSequenceParallelismSpecs(SequenceParallelismSpecs):
     SEQUENCE_PARALLEL_LAYERNORM_PATTERNS = [
-        "model.layers.[0-9]+.input_layernorm",
-        "model.layers.[0-9]+.post_attention_layernorm",
-        "model.norm",
+        "(model|transformer).layers.[0-9]+.input_layernorm",
+        "(model|transformer).layers.[0-9]+.post_attention_layernorm",
+        "(model|transformer).norm",
     ]
     LAYERNORM_TYPE = LayerNormType.RMS_NORM
     SEQUENCE_COLLECTIVE_OPS_INFOS = [
@@ -442,11 +436,7 @@ class LlamaSequenceParallelismSpecs(SequenceParallelismSpecs):
         if not sequence_parallel_enabled:
             return
 
-        import math
-
-        import torch
-        import torch.nn.functional as F
-        from torch import nn
+        from transformers.models.llama.modeling_llama import apply_rotary_pos_emb
 
         def attention_forward(
             self,
@@ -456,13 +446,9 @@ class LlamaSequenceParallelismSpecs(SequenceParallelismSpecs):
             past_key_value: Optional[Cache] = None,
             output_attentions: bool = False,
             use_cache: bool = False,
+            cache_position: Optional[torch.LongTensor] = None,
             **kwargs,
         ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
-            if "padding_mask" in kwargs:
-                warnings.warn(
-                    "Passing `padding_mask` is deprecated and removed since `transformers` v4.37. Please make sure to "
-                    "use `attention_mask` instead.`"
-                )
 
             if self.config.pretraining_tp > 1:
                 key_value_slicing = (self.num_key_value_heads * self.head_dim) // self.config.pretraining_tp
@@ -503,45 +489,29 @@ class LlamaSequenceParallelismSpecs(SequenceParallelismSpecs):
                 key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
                 value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
 
-            kv_seq_len = key_states.shape[-2]
-            if past_key_value is not None:
-                if self.layer_idx is None:
-                    raise ValueError(
-                        "The cache structure has changed since version `transformers v4.36. If you are using "
-                        f"{self.__class__.__name__} for auto-regressive decoding with k/v caching, please make sure to "
-                        "initialize the attention class with a layer index."
-                    )
-                kv_seq_len += past_key_value.get_usable_length(kv_seq_len, self.layer_idx)
-            cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
+            past_key_value = getattr(self, "past_key_value", past_key_value)
+            cos, sin = self.rotary_emb(value_states, position_ids)
             query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
 
             if past_key_value is not None:
-                cache_kwargs = {"sin": sin, "cos": cos}  # Specific to RoPE models
+                # sin and cos are specific to RoPE models; cache_position needed for the static cache
+                cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
                 key_states, value_states = past_key_value.update(
                     key_states, value_states, self.layer_idx, cache_kwargs
                 )
 
-            # repeat k/v heads if n_kv_heads < n_heads
             key_states = repeat_kv(key_states, self.num_key_value_groups)
             value_states = repeat_kv(value_states, self.num_key_value_groups)
 
             attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
 
-            if attn_weights.size() != (bsz, self.num_heads, q_len, kv_seq_len):
-                raise ValueError(
-                    f"Attention weights should be of size {(bsz, self.num_heads, q_len, kv_seq_len)}, but is"
-                    f" {attn_weights.size()}"
-                )
-
-            if attention_mask is not None:
-                if attention_mask.size() != (bsz, 1, q_len, kv_seq_len):
-                    raise ValueError(
-                        f"Attention mask should be of size {(bsz, 1, q_len, kv_seq_len)}, but is {attention_mask.size()}"
-                    )
-                attn_weights = attn_weights + attention_mask
+            if attention_mask is not None:  # no matter the length, we just slice it
+                causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
+                attn_weights = attn_weights + causal_mask
 
             # upcast attention to fp32
             attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
+            attn_weights = nn.functional.dropout(attn_weights, p=self.attention_dropout, training=self.training)
             attn_output = torch.matmul(attn_weights, value_states)
 
             if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
@@ -579,20 +549,12 @@ class LlamaSequenceParallelismSpecs(SequenceParallelismSpecs):
 
 class LlamaPipelineParallelismSpecs(PipelineParallelismSpecs):
     TRASNFORMER_LAYER_CLS = LlamaDecoderLayer
-    DEFAULT_INPUT_NAMES = ("input_ids", "attention_mask", "labels")
-    LEAF_MODULE_CLASSES_NAMES = [LlamaRMSNorm]
+    DEFAULT_INPUT_NAMES = {
+        "default": ("input_ids", "attention_mask", "labels"),
+        "LlamaForQuestionAnswering": ("input_ids", "attention_mask", "start_positions", "end_positions"),
+    }
 
-    @classmethod
-    def get_patching_specs(cls) -> List[Tuple[str, Any]]:
-        leaf_prepare_4d_causal_attention_mask = torch.fx._symbolic_trace._create_wrapped_func(
-            _prepare_4d_causal_attention_mask
-        )
-        return [
-            (
-                "transformers.models.llama.modeling_llama._prepare_4d_causal_attention_mask",
-                leaf_prepare_4d_causal_attention_mask,
-            ),
-        ]
+    LEAF_MODULE_CLASSES_NAMES = [LlamaRMSNorm]
 
 
 class LlamaParallelizer(Parallelizer):
@@ -618,7 +580,15 @@ class LlamaParallelizer(Parallelizer):
                 device=device,
                 **parallel_layer_specific_kwargs,
             )
-        for layer in model.model.layers:
+
+        # The name of the LlamaModel attribute depends on the task.
+        # It is "model" for every task except question-answering where it is "transformer".
+        if isinstance(model, LlamaForQuestionAnswering):
+            layers = model.transformer.layers
+        else:
+            layers = model.model.layers
+
+        for layer in layers:
             layer.self_attn = LlamaParallelSelfAttention.transform(
                 model,
                 layer.self_attn,
@@ -743,10 +713,7 @@ class MistralSequenceParallelismSpecs(SequenceParallelismSpecs):
         if not sequence_parallel_enabled:
             return
 
-        import math
-
-        import torch
-        from torch import nn
+        from transformers.models.mistral.modeling_mistral import apply_rotary_pos_emb
 
         def attention_forward(
             self,
@@ -883,7 +850,7 @@ class MistralParallelizer(Parallelizer):
                 device=device,
                 **parallel_layer_specific_kwargs,
             )
-            layer.mlp = LLamaParallelMLP.transform(
+            layer.mlp = MistralParallelMLP.transform(
                 model,
                 layer.mlp,
                 sequence_parallel_enabled=sequence_parallel_enabled,

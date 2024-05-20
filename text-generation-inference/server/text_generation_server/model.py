@@ -6,7 +6,7 @@ from typing import Optional
 from huggingface_hub import snapshot_download
 from huggingface_hub.constants import HF_HUB_CACHE
 from loguru import logger
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, GenerationConfig
+from transformers import AutoConfig
 
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.utils import get_hub_cached_entries
@@ -91,7 +91,7 @@ def fetch_model(
         # Prefetch the neuron model from the Hub
         logger.info(f"Fetching revision [{revision}] for neuron model {model_id} under {HF_HUB_CACHE}")
         log_cache_size()
-        return snapshot_download(model_id, revision=revision)
+        return snapshot_download(model_id, revision=revision, ignore_patterns="*.bin")
     # Model needs to be exported: look for compatible cached entries on the hub
     export_kwargs = get_export_kwargs_from_env()
     export_config = NeuronModelForCausalLM.get_export_config(model_id, config, revision=revision, **export_kwargs)
@@ -103,18 +103,13 @@ def fetch_model(
         )
         raise ValueError(error_msg)
     logger.warning(f"{model_id} is not a neuron model: it will be exported using cached artifacts.")
+    if os.path.isdir(model_id):
+        return model_id
     # Prefetch weights, tokenizer and generation config so that they are in cache
     log_cache_size()
     start = time.time()
-    AutoModelForCausalLM.from_pretrained(model_id, revision=revision)
-    mid = time.time()
-    logger.info(f"Model weights fetched in {mid - start:.2f} s.")
-    AutoTokenizer.from_pretrained(model_id, revision=revision)
+    snapshot_download(model_id, revision=revision, ignore_patterns="*.bin")
     end = time.time()
-    logger.info(f"Tokenizer fetched in {end - mid:.2f} s.")
-    try:
-        GenerationConfig.from_pretrained(model_id, revision=revision)
-    except Exception:
-        logger.warning(f"No default generation config found for {model_id}.")
+    logger.info(f"Model weights fetched in {end - start:.2f} s.")
     log_cache_size()
     return model_id

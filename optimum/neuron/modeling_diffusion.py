@@ -725,6 +725,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             save_dir = TemporaryDirectory()
             save_dir_path = Path(save_dir.name)
             # 1. Fetch all model configs
+            input_shapes_copy = copy.deepcopy(input_shapes)
             models_and_neuron_configs, _ = load_models_and_neuron_configs(
                 model_name_or_path=model_id,
                 output=save_dir_path,
@@ -744,7 +745,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 lora_weight_names=lora_weight_names,
                 lora_adapter_names=lora_adapter_names,
                 lora_scales=lora_scales,
-                **input_shapes,
+                **input_shapes_copy,
             )
 
             # 2. Build compilation config

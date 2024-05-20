@@ -12,420 +12,398 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Tests related to the Trainer derived classes."""
 
 import copy
 import json
-import os
-import random
-import subprocess
+import shutil
 import time
-import unittest
 from pathlib import Path
-from tempfile import TemporaryDirectory
-from unittest import TestCase
 
 import pytest
-from huggingface_hub import HfApi, delete_repo
-from huggingface_hub.utils import RepositoryNotFoundError
-from transformers import BertConfig, BertModel, BertTokenizer
-from transformers.testing_utils import is_staging_test
+from datasets import load_dataset
+from huggingface_hub import HfApi
+from transformers import (
+    AutoConfig,
+    AutoModelForCausalLM,
+    AutoModelForSequenceClassification,
+    AutoTokenizer,
+)
 
-from optimum.neuron.trainers import NeuronTrainer
-from optimum.neuron.training_args import NeuronTrainingArguments
+from optimum.neuron import NeuronTrainer, NeuronTrainingArguments
+from optimum.neuron.distributed.utils import MODEL_PARALLEL_SHARDS_DIR_NAME
+from optimum.neuron.utils import is_neuronx_distributed_available
 from optimum.neuron.utils.cache_utils import (
-    get_neuron_cache_path,
     list_files_in_neuron_cache,
-    set_neuron_cache_path,
 )
 from optimum.neuron.utils.testing_utils import is_trainium_test
-from optimum.utils.testing_utils import USER
+from optimum.neuron.utils.training_utils import get_model_param_count
 
+from . import DistributedTest
 from .utils import (
-    StagingTestMixin,
-    TrainiumTestMixin,
-    create_dummy_dataset,
-    create_dummy_text_classification_dataset,
-    create_tiny_pretrained_model,
-    get_random_string,
+    create_dummy_causal_lm_dataset,
+    default_data_collator_for_causal_lm,
 )
+
+
+if is_neuronx_distributed_available():
+    from neuronx_distributed.parallel_layers.parallel_state import (
+        get_data_parallel_rank,
+        get_pipeline_model_parallel_rank,
+        get_tensor_model_parallel_rank,
+    )
+
+
+MODEL_NAME = "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random"
+
+
+def get_tokenizer_and_tiny_llama_model(parallel_sizes):
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+    _, tp_size, pp_size = parallel_sizes
+    config = AutoConfig.from_pretrained(MODEL_NAME)
+    model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, config=config, ignore_mismatched_sizes=True)
+    return tokenizer, model
 
 
 @is_trainium_test
-@is_staging_test
-class StagingNeuronTrainerTestCase(StagingTestMixin, TestCase):
-    @pytest.mark.skip("Seems to be working but takes forever")
-    def test_train_and_eval(self):
-        os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_PRIVATE_CACHE_REPO
+class TestNeuronTrainingUtils(DistributedTest):
+    @pytest.fixture(
+        scope="class",
+        # TODO: enable dp + tp + pp, currently produces communication error between replicas.
+        params=[[2, 1, 1], [2, 2, 1], [2, 1, 2]],  # , [32, 2, 2]],
+        ids=["dp=2", "tp=2", "pp=2"],  # , "dp=8,tp=pp=2"],
+    )
+    def parallel_sizes(self, request):
+        return request.param
+
+    def test_get_model_param_count(self, parallel_sizes, tmpdir):
+        _, tp_size, pp_size = parallel_sizes
+        output_dir = Path(tmpdir)
+
+        _, model = get_tokenizer_and_tiny_llama_model(parallel_sizes)
+
+        target_num_parameters = sum(p.numel() for p in model.parameters())
+
+        args = NeuronTrainingArguments(
+            tensor_parallel_size=tp_size,
+            pipeline_parallel_size=pp_size,
+            output_dir=output_dir.as_posix(),
+        )
+        trainer = NeuronTrainer(args=args, model=model)
+        prepared_model = trainer.accelerator.prepare_model(model)
+        num_parameters = get_model_param_count(prepared_model)
+
+        assert num_parameters == target_num_parameters
+
+
+@is_trainium_test
+class TestNeuronTrainer(DistributedTest):
+    @pytest.fixture(
+        scope="class",
+        # TODO: enable dp + tp + pp, currently produces communication error between replicas.
+        # TODO: Fix pp as well.
+        params=[[2, 1, 1], [2, 2, 1]],  # , [2, 1, 2]],  # [8, 2, 2]],
+        ids=[
+            "dp=2",
+            "tp=2",
+        ],  # "pp=2"],  # , "dp=4,tp=pp=2"],
+    )
+    def parallel_sizes(self, request):
+        return request.param
+
+    def test_save_checkpoint(self, hub_test, tmpdir, parallel_sizes):
+        world_size, tp_size, pp_size = parallel_sizes
+        output_dir = Path(tmpdir)
+
+        dp_rank = get_data_parallel_rank()
+        tp_rank = get_tensor_model_parallel_rank()
+        pp_rank = get_pipeline_model_parallel_rank()
+
+        args = NeuronTrainingArguments(
+            tensor_parallel_size=tp_size,
+            pipeline_parallel_size=pp_size,
+            do_train=True,
+            do_eval=False,
+            per_device_train_batch_size=1,
+            save_steps=5,
+            max_steps=20,
+            output_dir=output_dir.as_posix(),
+        )
+
+        tokenizer, model = get_tokenizer_and_tiny_llama_model(parallel_sizes)
+        datasets = create_dummy_causal_lm_dataset(model.config.vocab_size, 120, 1, sequence_length=128)
+
+        trainer = NeuronTrainer(
+            args=args,
+            model=model,
+            tokenizer=tokenizer,
+            train_dataset=datasets["train"],
+            data_collator=default_data_collator_for_causal_lm,
+        )
+
+        trainer.train()
+
+        checkpoint_directories = [f"checkpoint-{k}" for k in range(5, 20, 5)]
+        for checkpoint_dir_name in checkpoint_directories:
+            # We check that each checkpoint dir exists and contains:
+            #   - The model config
+            #   - The tokenizer and its config
+            #   - The model weights, one file if tp_size = pp_size = 1 or the shards otherwise.
+            #   - The optimizer state if tp_size = pp_size = 1 (otherwise the state is in the sharded checkpoints)
+            #   - The scheduler state
+            #   - The trainer state
+            #   - The RNG state
+            #   - The training args
+            checkpoint_dir = output_dir / checkpoint_dir_name
+            assert checkpoint_dir.is_dir()
+            assert (checkpoint_dir / "config.json").is_file()
+            assert (checkpoint_dir / "tokenizer.json").is_file()
+            assert (checkpoint_dir / "tokenizer.model").is_file()
+            assert (checkpoint_dir / "tokenizer_config.json").is_file()
+            assert (checkpoint_dir / "special_tokens_map.json").is_file()
+
+            if tp_size == pp_size == 1:
+                assert (checkpoint_dir / "model.safetensors").is_file()
+                assert (checkpoint_dir / "optimizer.pt").is_file()
+            else:
+                shards_dir = checkpoint_dir / MODEL_PARALLEL_SHARDS_DIR_NAME
+                assert shards_dir.is_dir()
+                assert (shards_dir / "model").is_dir()
+                assert (shards_dir / "optim").is_dir()
+                sharded_stem = f"dp_rank_{dp_rank:02d}_tp_rank_{tp_rank:02d}_pp_rank_{pp_rank:02d}"
+                assert (shards_dir / "model" / f"{sharded_stem}.pt").is_file()
+                assert (shards_dir / "model" / f"{sharded_stem}.pt.tensors").is_dir()
+                assert (shards_dir / "optim" / f"{sharded_stem}.pt").is_file()
+                assert (shards_dir / "optim" / f"{sharded_stem}.pt.tensors").is_dir()
+
+            assert (checkpoint_dir / "scheduler.pt").is_file()
+            assert (checkpoint_dir / "trainer_state.json").is_file()
+            for worker_id in range(world_size):
+                assert (checkpoint_dir / f"rng_state_{worker_id}.pth").is_file()
+
+            assert (checkpoint_dir / "training_args.bin").is_file()
+
+    @pytest.mark.skip("Maybe merge with test_save_and_resume_from_checkpoint")
+    def test_train_and_eval_use_remote_cache(self, hub_test_with_local_cache, tmpdir, parallel_sizes):
+        repo_id, local_cache_path = hub_test_with_local_cache
+        output_dir = Path(tmpdir)
+        _, tp_size, pp_size = parallel_sizes
 
         # We take a batch size that does not divide the total number of samples.
-        num_train_samples = 1000
+        num_train_samples = 200
         per_device_train_batch_size = 32
-        dummy_train_dataset = create_dummy_dataset({"x": (1,), "labels": (1,)}, num_train_samples)
 
         # We take a batch size that does not divide the total number of samples.
         num_eval_samples = 100
         per_device_eval_batch_size = 16
-        dummy_eval_dataset = create_dummy_dataset({"x": (1,), "labels": (1,)}, num_eval_samples)
 
-        model = create_tiny_pretrained_model(random_num_linears=True)
+        tokenizer, model = get_tokenizer_and_tiny_llama_model(parallel_sizes)
         clone = copy.deepcopy(model)
 
-        with TemporaryDirectory() as tmpdirname:
-            set_neuron_cache_path(tmpdirname)
+        datasets = create_dummy_causal_lm_dataset(model.config.vocab_size, num_train_samples, num_eval_samples)
 
-            files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
-            files_in_repo = [f for f in files_in_repo if not f.startswith(".")]
-            files_in_cache = list_files_in_neuron_cache(get_neuron_cache_path(), only_relevant_files=True)
-            self.assertListEqual(files_in_repo, [], "Repo should be empty.")
-            self.assertListEqual(files_in_cache, [], "Cache should be empty.")
+        files_in_repo = HfApi().list_repo_files(repo_id=repo_id)
+        files_in_repo = [f for f in files_in_repo if not f.startswith(".")]
+        files_in_cache = list_files_in_neuron_cache(local_cache_path, only_relevant_files=True)
 
+        assert files_in_repo == [], "Repo should be empty."
+        assert files_in_cache == [], "Cache should be empty."
+
+        args = NeuronTrainingArguments(
+            output_dir=(output_dir / "first_run").as_posix(),
+            do_train=True,
+            do_eval=True,
+            bf16=True,
+            per_device_train_batch_size=per_device_train_batch_size,
+            per_device_eval_batch_size=per_device_eval_batch_size,
+            save_steps=10,
+            num_train_epochs=2,
+        )
+        trainer = NeuronTrainer(
+            model,
+            args,
+            tokenizer=tokenizer,
+            train_dataset=datasets["train"],
+            eval_dataset=datasets["eval"],
+            data_collator=default_data_collator_for_causal_lm,
+        )
+        start = time.time()
+        trainer.train()
+        end = time.time()
+        first_training_duration = end - start
+
+        files_in_repo = HfApi().list_repo_files(repo_id=repo_id)
+        files_in_repo = [f for f in files_in_repo if not f.startswith(".")]
+        files_in_cache = list_files_in_neuron_cache(local_cache_path, only_relevant_files=True)
+
+        assert files_in_repo != [], "Repo should not be empty after first training."
+        assert files_in_cache != [], "Cache should not be empty after first training."
+
+        shutil.rmtree(local_cache_path)
+
+        new_files_in_repo = HfApi().list_repo_files(repo_id=repo_id)
+        new_files_in_repo = [f for f in new_files_in_repo if not f.startswith(".")]
+        new_files_in_cache = list_files_in_neuron_cache(local_cache_path, only_relevant_files=True)
+
+        assert new_files_in_repo != [], "Repo should not be empty."
+        assert new_files_in_cache == [], "Cache should be empty."
+
+        args = NeuronTrainingArguments(
+            output_dir=(output_dir / "second_run").as_posix(),
+            do_train=True,
+            do_eval=True,
+            bf16=True,
+            per_device_train_batch_size=per_device_train_batch_size,
+            per_device_eval_batch_size=per_device_eval_batch_size,
+            save_steps=10,
+            num_train_epochs=2,
+        )
+        trainer = NeuronTrainer(
+            clone,
+            args,
+            tokenizer=tokenizer,
+            train_dataset=datasets["train"],
+            eval_dataset=datasets["eval"],
+            data_collator=default_data_collator_for_causal_lm,
+        )
+        start = time.time()
+        trainer.train()
+        end = time.time()
+        second_training_duration = end - start
+
+        last_files_in_repo = HfApi().list_repo_files(repo_id=repo_id)
+        last_files_in_repo = [f for f in last_files_in_repo if not f.startswith(".")]
+        last_files_in_cache = list_files_in_neuron_cache(local_cache_path, only_relevant_files=True)
+
+        # TODO: investigate that, not urgent.
+        assert files_in_repo == last_files_in_repo, "No file should have been added to the Hub after first training."
+        assert (
+            files_in_cache == last_files_in_cache
+        ), "No file should have been added to the cache after first training."
+        assert (
+            second_training_duration < first_training_duration
+        ), "Second training should be faster because cached graphs can be used."
+
+    @pytest.mark.skip("Test in later release")
+    def test_save_and_resume_from_checkpoint(self, parallel_sizes, tmpdir):
+
+        tmpdir = Path(tmpdir)
+        _, tp_size, pp_size = parallel_sizes
+        train_batch_size = 2
+        eval_batch_size = 2
+        max_steps = 10
+        do_eval = True
+        max_train_samples = 100
+        max_eval_samples = 16
+
+        tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+        tokenizer.pad_token = tokenizer.eos_token
+
+        def create_training_args(output_dir, resume_from_checkpoint=None, max_steps=max_steps):
+            if isinstance(output_dir, Path):
+                output_dir = output_dir.as_posix()
+            if isinstance(resume_from_checkpoint, Path):
+                resume_from_checkpoint = resume_from_checkpoint.as_posix()
             args = NeuronTrainingArguments(
-                tmpdirname,
-                do_train=True,
-                do_eval=True,
+                tensor_parallel_size=tp_size,
+                pipeline_parallel_size=pp_size,
                 bf16=True,
-                per_device_train_batch_size=per_device_train_batch_size,
-                per_device_eval_batch_size=per_device_eval_batch_size,
-                save_steps=10,
-                num_train_epochs=2,
+                per_device_train_batch_size=train_batch_size,
+                per_device_eval_batch_size=eval_batch_size,
+                max_steps=max_steps,
+                logging_steps=1,
+                save_steps=5,
+                do_eval=do_eval,
+                output_dir=output_dir,
+                resume_from_checkpoint=resume_from_checkpoint,
+                skip_cache_push=False,
             )
-            trainer = NeuronTrainer(
-                model,
-                args,
-                train_dataset=dummy_train_dataset,
-                eval_dataset=dummy_eval_dataset,
+            return args
+
+        def create_model():
+            config = AutoConfig.from_pretrained(MODEL_NAME)
+            config.num_hidden_layers = 2 * max(1, pp_size)
+            config.num_attention_heads = 2
+            config.num_key_value_heads = 2
+            config.problem_type = "single_label_classification"
+            # config.use_cache = False
+            model = AutoModelForSequenceClassification.from_pretrained(
+                MODEL_NAME, config=config, ignore_mismatched_sizes=True
             )
-            start = time.time()
-            trainer.train()
-            end = time.time()
-            first_training_duration = end - start
+            return model
 
-            files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
-            files_in_repo = [f for f in files_in_repo if not f.startswith(".")]
-            files_in_cache = list_files_in_neuron_cache(get_neuron_cache_path(), only_relevant_files=True)
-            self.assertNotEqual(files_in_repo, [], "Repo should not be empty after first training.")
-            self.assertNotEqual(files_in_cache, [], "Cache should not be empty after first training.")
+        # First run setting.
+        first_output_dir = tmpdir / "first_run"
+        args = create_training_args(first_output_dir)
+        model = create_model()
 
-        with TemporaryDirectory() as tmpdirname:
-            set_neuron_cache_path(tmpdirname)
+        # Dataset preprocessing
+        raw_datasets = load_dataset("glue", "sst2")
+        sentence1_key = "sentence"
+        sentence2_key = None
+        label_to_id = None
+        max_seq_length = 32
+        padding = "max_length"
 
-            new_files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
-            new_files_in_repo = [f for f in new_files_in_repo if not f.startswith(".")]
-            new_files_in_cache = list_files_in_neuron_cache(get_neuron_cache_path(), only_relevant_files=True)
-            self.assertNotEqual(new_files_in_repo, [], "Repo should not be empty.")
-            self.assertListEqual(new_files_in_cache, [], "Cache should be empty.")
-
-            args = NeuronTrainingArguments(
-                tmpdirname,
-                do_train=True,
-                do_eval=True,
-                bf16=True,
-                per_device_train_batch_size=per_device_train_batch_size,
-                per_device_eval_batch_size=per_device_eval_batch_size,
-                save_steps=10,
-                num_train_epochs=2,
+        def preprocess_function(examples):
+            # Tokenize the texts
+            args = (
+                (examples[sentence1_key],)
+                if sentence2_key is None
+                else (examples[sentence1_key], examples[sentence2_key])
             )
-            trainer = NeuronTrainer(
-                clone,
-                args,
-                train_dataset=dummy_train_dataset,
-                eval_dataset=dummy_eval_dataset,
-            )
-            start = time.time()
-            trainer.train()
-            end = time.time()
-            second_training_duration = end - start
+            result = tokenizer(*args, padding=padding, max_length=max_seq_length, truncation=True)
 
-            last_files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
-            last_files_in_repo = [f for f in last_files_in_repo if not f.startswith(".")]
-            last_files_in_cache = list_files_in_neuron_cache(get_neuron_cache_path(), only_relevant_files=True)
-            # TODO: investigate that, not urgent.
-            self.assertListEqual(
-                files_in_repo, last_files_in_repo, "No file should have been added to the Hub after first training."
-            )
-            self.assertListEqual(
-                files_in_cache,
-                last_files_in_cache,
-                "No file should have been added to the cache after first training.",
-            )
+            # Map labels to IDs (not necessary for GLUE tasks)
+            if label_to_id is not None and "label" in examples:
+                result["label"] = [(label_to_id[l] if l != -1 else -1) for l in examples["label"]]
+            return result
 
-            self.assertTrue(
-                second_training_duration < first_training_duration,
-                "Second training should be faster because cached graphs can be used.",
-            )
+        with args.main_process_first(desc="dataset map pre-processing"):
+            raw_datasets = raw_datasets.map(preprocess_function, batched=True)
+            train_dataset = raw_datasets["train"]
+            train_dataset = train_dataset.select(range(max_train_samples))
+            eval_dataset = raw_datasets["validation"]
+            eval_dataset = eval_dataset.select(range(max_eval_samples))
 
-    # Not using a fixture because they do not work with unittest.TestCase.
-    def create_model_and_dataset_on_staging_hub(self):
-        dataset_name = f"{USER}/random-text-dataset"
-        model_name = "tiny-bert"
+        trainer = NeuronTrainer(
+            model, args=args, train_dataset=train_dataset, eval_dataset=eval_dataset, tokenizer=tokenizer
+        )
 
-        self.remove_model_and_dataset_on_staging_hub(dataset_name, f"{USER}/{model_name}")
+        train_result = trainer.train()
+        trainer.evaluate()
+        trainer.save_metrics("train", train_result.metrics)
 
-        dummy_dataset = create_dummy_text_classification_dataset(1000, 100, 100)
-        dummy_dataset.push_to_hub(dataset_name)
+        with open(first_output_dir / "train_results.json") as fp:
+            first_training_report = json.load(fp)
 
-        with TemporaryDirectory() as tmpdirname:
-            vocab_size = 1024
-            config = BertConfig(
-                vocab_size=vocab_size,
-                hidden_size=128,
-                num_hidden_layers=2,
-                num_attention_heads=2,
-                intermediate_size=256,
-            )
+        # Case 1: Resuming from checkpoint by specifying a checkpoint directory.
+        second_output_dir = tmpdir / "second_run"
+        resume_from_checkpoint = first_output_dir / "checkpoint-5"
+        args = create_training_args(second_output_dir, resume_from_checkpoint=resume_from_checkpoint)
+        model = create_model()
+        trainer = NeuronTrainer(
+            model, args=args, train_dataset=train_dataset, eval_dataset=eval_dataset, tokenizer=tokenizer
+        )
 
-            special_tokens = ["[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]"]
+        train_result = trainer.train(resume_from_checkpoint=resume_from_checkpoint.as_posix())
+        trainer.evaluate()
+        trainer.save_metrics("train", train_result.metrics)
 
-            vocab_path = Path(tmpdirname) / "vocab.txt"
+        with open(first_output_dir / "train_results.json") as fp:
+            second_training_report = json.load(fp)
 
-            with open(vocab_path, "w") as fp:
-                tokens = [get_random_string(random.randint(1, 5)) for _ in range(vocab_size)]
-                fp.write("\n".join(special_tokens + tokens))
+        assert first_training_report["train_loss"] == second_training_report["train_loss"]
 
-            tokenizer = BertTokenizer(vocab_path.as_posix())
-            model = BertModel(config)
+        # Case 2: Resuming from checkpoint by specifying an output_dir with checkpoints.
+        # max_steps + 10 to do a some training steps than the previous run.
+        second_output_dir = first_output_dir
+        args = create_training_args(second_output_dir, max_steps=max_steps + 10)
+        model = create_model()
 
-            tokenizer.push_to_hub(model_name)
-            model.push_to_hub(model_name)
+        trainer = NeuronTrainer(
+            model, args=args, train_dataset=train_dataset, eval_dataset=eval_dataset, tokenizer=tokenizer
+        )
 
-        model_name = f"{USER}/{model_name}"
-
-        return dataset_name, model_name
-
-    def remove_model_and_dataset_on_staging_hub(self, dataset_name: str, model_name: str):
-        try:
-            delete_repo(repo_id=dataset_name, repo_type="dataset")
-        except RepositoryNotFoundError:
-            pass
-        try:
-            delete_repo(repo_id=model_name, repo_type="model")
-        except RepositoryNotFoundError:
-            pass
-
-    @unittest.skip("Need to understand how to work with staging and datasets")
-    def test_train_and_eval_multiple_workers(self):
-        os.environ["CUSTOM_CACHE_REPO"] = self.CUSTOM_PRIVATE_CACHE_REPO
-
-        dataset_name, model_name = self.create_model_and_dataset_on_staging_hub()
-
-        with TemporaryDirectory() as tmpdirname:
-            set_neuron_cache_path(tmpdirname)
-
-            files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
-            files_in_repo = [f for f in files_in_repo if not f.startswith(".")]
-            files_in_cache = list_files_in_neuron_cache(get_neuron_cache_path(), only_relevant_files=True)
-            self.assertListEqual(files_in_repo, [], "Repo should be empty.")
-            self.assertListEqual(files_in_cache, [], "Cache should be empty.")
-
-            cmd = [
-                "torchrun",
-                "--nproc_per_node=2",
-                "examples/text-classification/run_glue.py",
-                f"--model_name_or_path={model_name}",
-                f"--dataset_name={dataset_name}",
-                "--per_device_train_batch_size=16",
-                "--per_device_eval_batch_size=16",
-                f"--output_dir={tmpdirname}",
-                "--save_strategy=steps",
-                "--save_steps=10",
-                "--max_steps=100",
-                "--do_train",
-                "--do_eval",
-                "--bf16",
-            ]
-
-            start = time.time()
-            proc = subprocess.Popen(cmd, stderr=subprocess.PIPE)
-            end = time.time()
-            first_training_duration = end - start
-
-            _, stderr = proc.communicate()
-            stderr = stderr.decode("utf-8")
-            if stderr:
-                print(stderr)
-
-            self.assertEqual(proc.returncode, 0, "The first torchrun training command failed.")
-
-            files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
-            files_in_repo = [f for f in files_in_repo if not f.startswith(".")]
-            files_in_cache = list_files_in_neuron_cache(get_neuron_cache_path(), only_relevant_files=True)
-            self.assertNotEqual(files_in_repo, [], "Repo should not be empty after first training.")
-            self.assertNotEqual(files_in_cache, [], "Cache should not be empty after first training.")
-
-        with TemporaryDirectory() as tmpdirname:
-            set_neuron_cache_path(tmpdirname)
-
-            new_files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
-            new_files_in_repo = [f for f in new_files_in_repo if not f.startswith(".")]
-            new_files_in_cache = list_files_in_neuron_cache(get_neuron_cache_path(), only_relevant_files=True)
-            self.assertNotEqual(new_files_in_repo, [], "Repo should not be empty.")
-            self.assertListEqual(new_files_in_cache, [], "Cache should be empty.")
-
-            cmd = [
-                "torchrun",
-                "--nproc_per_node=2",
-                "examples/text-classification/run_glue.py",
-                f"--model_name_or_path={model_name}",
-                f"--dataset_name={dataset_name}",
-                "--per_device_train_batch_size=16",
-                "--per_device_eval_batch_size=16",
-                f"--output_dir={tmpdirname}",
-                "--save_strategy=steps",
-                "--save_steps=10",
-                "--max_steps=100",
-                "--do_train",
-                "--do_eval",
-                "--bf16",
-            ]
-
-            start = time.time()
-            proc = subprocess.Popen(cmd, stderr=subprocess.PIPE)
-            end = time.time()
-            second_training_duration = end - start
-
-            _, stderr = proc.communicate()
-            stderr = stderr.decode("utf-8")
-            if stderr:
-                print(stderr)
-
-            self.assertEqual(proc.returncode, 0, "The second torchrun training command failed.")
-
-            last_files_in_repo = HfApi().list_repo_files(repo_id=self.CUSTOM_PRIVATE_CACHE_REPO)
-            last_files_in_repo = [f for f in last_files_in_repo if not f.startswith(".")]
-            last_files_in_cache = list_files_in_neuron_cache(get_neuron_cache_path(), only_relevant_files=True)
-            # TODO: investigate that, not urgent.
-            self.assertListEqual(
-                files_in_repo, last_files_in_repo, "No file should have been added to the Hub after first training."
-            )
-            self.assertListEqual(
-                files_in_cache,
-                last_files_in_cache,
-                "No file should have been added to the cache after first training.",
-            )
-
-            self.assertTrue(
-                second_training_duration < first_training_duration,
-                "Second training should be faster because cached graphs can be used.",
-            )
-
-        self.remove_model_and_dataset_on_staging_hub(dataset_name, model_name)
-
-
-@is_trainium_test
-class NeuronTrainerTestCase(TrainiumTestMixin, TestCase):
-    def _test_training_with_fsdp_mode(self, fsdp_mode: str):
-        model_name = "prajjwal1/bert-tiny"
-        task_name = "sst2"
-
-        with TemporaryDirectory() as tmpdirname:
-            set_neuron_cache_path(tmpdirname)
-            output_1 = Path(tmpdirname) / "out_1"
-            fsdp_cmd = [
-                "torchrun",
-                "--nproc_per_node=2",
-                "examples/text-classification/run_glue.py",
-                f"--model_name_or_path={model_name}",
-                f"--task_name={task_name}",
-                "--per_device_train_batch_size=16",
-                "--per_device_eval_batch_size=16",
-                f"--output_dir={output_1}",
-                "--save_strategy=steps",
-                "--save_steps=10",
-                "--max_steps=100",
-                "--do_train",
-                # "--do_eval",
-                "--bf16",
-                f"--fsdp={fsdp_mode}",
-            ]
-
-            proc = subprocess.Popen(fsdp_cmd)
-            proc.wait()
-
-            checkpoint = output_1 / "checkpoint-50"
-            output_2 = Path(tmpdirname) / "out_2"
-
-            resume_fsdp_cmd = [
-                "torchrun",
-                "--nproc_per_node=2",
-                "examples/text-classification/run_glue.py",
-                f"--model_name_or_path={model_name}",
-                f"--task_name={task_name}",
-                "--per_device_train_batch_size=16",
-                "--per_device_eval_batch_size=16",
-                f"--output_dir={output_2}",
-                "--save_strategy=steps",
-                "--save_steps=10",
-                "--max_steps=100",
-                "--do_train",
-                # "--do_eval",
-                "--bf16",
-                f"--resume_from_checkpoint={checkpoint}",
-                f"--fsdp={fsdp_mode}",
-            ]
-
-            proc = subprocess.Popen(resume_fsdp_cmd)
-            proc.wait()
-
-            training_fsdp_metrics = {}
-            with open(output_1 / "all_results.json") as fp:
-                training_fsdp_metrics = json.load(fp)
-
-            resume_training_fsdp_metrics = {}
-            with open(output_2 / "all_results.json") as fp:
-                resume_training_fsdp_metrics = json.load(fp)
-
-            print(training_fsdp_metrics)
-            print(resume_training_fsdp_metrics)
-            # self.assertEqual(training_fsdp_metrics["eval_loss"], resume_training_fsdp_metrics["eval_loss"])
-            # self.assertEqual(training_fsdp_metrics["eval_accuracy"], resume_training_fsdp_metrics["eval_accuracy"])
-
-            output_3 = Path(tmpdirname) / "out_3"
-
-            cmd = [
-                "torchrun",
-                "--nproc_per_node=2",
-                "examples/text-classification/run_glue.py",
-                f"--model_name_or_path={model_name}",
-                f"--task_name={task_name}",
-                "--per_device_train_batch_size=16",
-                "--per_device_eval_batch_size=16",
-                f"--output_dir={output_3}",
-                "--save_strategy=steps",
-                "--save_steps=10",
-                "--max_steps=100",
-                "--do_train",
-                # "--do_eval",
-                "--bf16",
-                f"--fsdp={fsdp_mode}",
-            ]
-
-            proc = subprocess.Popen(cmd)
-            proc.wait()
-
-            regular_training_metrics = {}
-            with open(output_3 / "all_results.json") as fp:
-                regular_training_metrics = json.load(fp)
-
-            self.assertEqual(training_fsdp_metrics["train_loss"], regular_training_metrics["train_loss"])
-            # self.assertEqual(training_fsdp_metrics["eval_loss"], regular_training_metrics["eval_loss"])
-            # self.assertEqual(training_fsdp_metrics["eval_accuracy"], regular_training_metrics["eval_accuracy"])
-
-    @pytest.mark.skip("FSDP not supported yet")
-    def test_training_with_fsdp_full_shard(self):
-        return self._test_training_with_fsdp_mode("full_shard")
-
-    @pytest.mark.skip("FSDP not supported yet")
-    def test_training_with_fsdp_shard_grad_op(self):
-        return self._test_training_with_fsdp_mode("shard_grad_op")
-
-    @pytest.mark.skip("FSDP not supported yet")
-    def test_training_with_fsdp_no_shard(self):
-        return self._test_training_with_fsdp_mode("no_shard")
-
-    @pytest.mark.skip("FSDP not supported yet")
-    def test_training_with_fsdp_offload(self):
-        return self._test_training_with_fsdp_mode("offload")
-
-    @pytest.mark.skip("FSDP not supported yet")
-    def test_training_with_fsdp_auto_wrap(self):
-        return self._test_training_with_fsdp_mode("auto_wrap")
+        trainer.train(resume_from_checkpoint=True)
+        trainer.evaluate()

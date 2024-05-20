@@ -42,11 +42,7 @@ from transformers.utils.hub import get_checkpoint_shard_files
 
 from ...utils import is_diffusers_available, logging
 from .import_utils import is_torch_neuronx_available, is_torch_xla_available
-from .require_utils import (
-    requires_neuronx_distributed,
-    requires_safetensors,
-    requires_torch_xla,
-)
+from .require_utils import requires_safetensors, requires_torch_xla
 
 
 if is_torch_neuronx_available():
@@ -63,7 +59,7 @@ logger = logging.get_logger()
 
 
 def is_precompilation() -> bool:
-    return os.environ.get("NEURON_PARALLEL_COMPILE") == "1"
+    return os.environ.get("NEURON_EXTRACT_GRAPHS_ONLY") == "1"
 
 
 def is_main_worker(global_main: bool = True) -> bool:
@@ -206,28 +202,6 @@ def convert_checkpoint_to_safetensors(
         del checkpoint
 
     return safetensors_path
-
-
-@requires_neuronx_distributed
-@requires_safetensors
-def torch_xla_safe_save_file(
-    tensors: Dict[str, torch.Tensor],
-    filename: Union[str, os.PathLike],
-    metadata: Optional[Dict[str, str]] = None,
-    master_only: bool = True,
-    global_master: bool = False,
-):
-    """
-    Torch XLA compatible implementation of `safetensors.torch.save_file`.
-    """
-    from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
-    from safetensors.torch import save_file
-    from torch_xla.core.xla_model import is_master_ordinal
-
-    should_write_data = not master_only or is_master_ordinal(local=not global_master)
-    cpu_data = move_all_tensor_to_cpu(tensors, convert=should_write_data)
-    if should_write_data:
-        save_file(cpu_data, filename, metadata=metadata)
 
 
 @requires_torch_xla

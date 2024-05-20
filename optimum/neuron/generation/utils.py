@@ -1615,7 +1615,8 @@ class NeuronGenerationMixin(GenerationMixin):
                 scores_cpu = scores.to("cpu") if torch.is_tensor(scores) else scores
                 stop_criterion_2 = stopping_criteria(input_ids_cpu, scores_cpu)
 
-            if stop_criterion_1 or stop_criterion_2:
+            # TODO: validate with @JingyaHuang
+            if stop_criterion_1 or torch.all(stop_criterion_2):
                 if not synced_gpus:
                     break
                 else:

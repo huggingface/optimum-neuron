@@ -75,9 +75,9 @@ def set_neuron_cc_optlevel(optlevel: int = 2):
     """
     assert 1 <= optlevel <= 3
     neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
-    match_ = re.search(r"-O[123]", neuron_cc_flags)
+    match_ = re.search(r"-(O|optlevel)[123]", neuron_cc_flags)
     if match_:
-        neuron_cc_flags = neuron_cc_flags[: match_.start(0)] + f"-O{optlevel}" + neuron_cc_flags[match_.end(0) + 1 :]
+        neuron_cc_flags = neuron_cc_flags[: match_.start(0)] + f"-O{optlevel} " + neuron_cc_flags[match_.end(0) + 1 :]
     else:
         neuron_cc_flags += f" -O{optlevel}"
     os.environ["NEURON_CC_FLAGS"] = neuron_cc_flags

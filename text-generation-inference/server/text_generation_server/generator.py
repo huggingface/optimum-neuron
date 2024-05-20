@@ -271,7 +271,9 @@ class Slot:
 
     @property
     def stopped(self) -> bool:
-        return self._selector.stopping_criteria(self._tokens, None)
+        # Transformers stopping criteria expects a batch of input ids
+        input_ids = torch.unsqueeze(self._tokens, dim=0)
+        return self._selector.stopping_criteria(input_ids, None)
 
     @property
     def generated_text(self) -> str:
@@ -564,7 +566,9 @@ class NeuronGenerator(Generator):
         if neuron_config is None:
             export_kwargs = get_export_kwargs_from_env()
             logger.info(f"Exporting model to neuron with config: {export_kwargs}.")
-            model = NeuronModelForCausalLM.from_pretrained(model_id, revision=revision, export=True, **export_kwargs)
+            model = NeuronModelForCausalLM.from_pretrained(
+                model_id, revision=revision, low_cpu_mem_usage=True, export=True, **export_kwargs
+            )
         else:
             logger.info("Loading model on neuron devices (this can take a few minutes).")
             model = NeuronModelForCausalLM.from_pretrained(model_id, revision=revision)

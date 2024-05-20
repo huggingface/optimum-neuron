@@ -33,7 +33,6 @@ from ...utils import (
     NormalizedTextConfig,
     is_diffusers_available,
 )
-from ...utils.normalized_config import T5LikeNormalizedTextConfig
 from ..tasks import TasksManager
 from .config import (
     TextAndVisionNeuronConfig,
@@ -505,7 +504,7 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
     INPUT_ARGS = ("batch_size", "sequence_length", "num_beams")
     MODEL_TYPE = "t5-decoder"
     CUSTOM_MODEL_WRAPPER = T5DecoderWrapper
-    NORMALIZED_CONFIG_CLASS = T5LikeNormalizedTextConfig
+    NORMALIZED_CONFIG_CLASS = NormalizedSeq2SeqConfig
 
     @property
     def is_decoder(self) -> bool:
