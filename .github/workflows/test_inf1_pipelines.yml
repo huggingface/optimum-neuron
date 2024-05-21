@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main ]
     paths:
-     - "optimum/neuron/pipelines/**.py"
+      - "optimum/neuron/pipelines/**.py"
   pull_request:
     branches: [ main ]
     paths:

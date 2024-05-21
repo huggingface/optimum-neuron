@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main ]
     paths:
-     - "optimum/exporters/neuron/*.py"
+      - "optimum/exporters/neuron/*.py"
   pull_request:
     branches: [ main ]
     paths:
