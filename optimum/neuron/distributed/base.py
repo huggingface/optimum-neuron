@@ -25,7 +25,6 @@ from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Set, Tuple, Type, Union
 
 import torch
-import torch.distributed as dist
 from transformers import PreTrainedModel
 
 from ...utils import logging
@@ -632,8 +631,7 @@ class Parallelizer(ABC):
                 skip_linear_weight_load=skip_linear_weight_load,
                 kv_size_multiplier=kv_size_multiplier,
             )
-            # torch.distributed.barrier()
-            dist.barrier()
+            # dist.barrier()
             # xm.rendezvous("End of tensor parallelism")
             if is_main_worker():
                 logger.info("Tensor parallelism done.")
@@ -711,9 +709,9 @@ class Parallelizer(ABC):
                         # Initialize or load the weights for the parallelized model if it was lazily loaded.
                         cls._initialize_or_load_weights(model, names_of_the_parameters_to_consider, device=device)
                 gc.collect()
-                dist.barrier()
+                # dist.barrier()
                 # xm.rendezvous(f"weight_loading_and_initialization_{worker}")
-        dist.barrier()
+        # dist.barrier()
         # xm.rendezvous("End of initalization")
 
         if is_main_worker():
@@ -755,7 +753,7 @@ class Parallelizer(ABC):
                     tracer_cls=OptimumNeuronFXTracer,
                 )
 
-            dist.barrier()
+            # dist.barrier()
             # xm.rendezvous("End of pipeline paralellism")
             if is_main_worker():
                 logger.info("Pipeline parallelism done.")

@@ -25,7 +25,6 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
-import torch.distributed as dist
 from accelerate import __version__ as accelerate_version
 from accelerate.utils import AutocastKwargs, DataLoaderConfiguration, GradientAccumulationPlugin
 from packaging import version
@@ -60,7 +59,6 @@ from transformers.trainer_utils import (
     has_length,
     speed_metrics,
 )
-from transformers.training_args import ParallelMode
 from transformers.utils import WEIGHTS_NAME, is_accelerate_available, is_apex_available, is_sagemaker_mp_enabled
 
 from ..utils import logging
@@ -96,7 +94,7 @@ if is_apex_available():
     from apex import amp
 
 if is_sagemaker_mp_enabled():
-    import smdistributed.modelparallel.torch as smp
+    pass
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
@@ -337,8 +335,7 @@ class AugmentTrainerForNeuronMixin:
             if has_write_access:
                 cache_path = get_neuron_cache_path()
                 synchronize_hub_cache(cache_path=cache_path, cache_repo_id=repo_id)
-        # xm.rendezvous("Hub cache synchronization done")
-        dist.barrier()
+        xm.rendezvous("Hub cache synchronization done")
 
     def _wrap_model(self, model, training=True, dataloader=None):
         return super()._wrap_model(
@@ -536,8 +533,7 @@ class AugmentTrainerForNeuronMixin:
 
         # Save a trained model and configuration using `save_pretrained()`.
         # They can then be reloaded using `from_pretrained()`
-        dist.barrier()
-        # xm.rendezvous("saving_checkpoint")
+        xm.rendezvous("saving_checkpoint")
         if self.accelerator.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
             if is_main_worker():
                 logger.info("Model parallelism is enabled, only saving the model sharded state dict.")
@@ -620,8 +616,7 @@ class AugmentTrainerForNeuronMixin:
 
         # The optimizer state is saved in the shard alongside with the model parameters when doing model-parallelism.
         if self.accelerator.distributed_type is not NeuronDistributedType.MODEL_PARALLELISM:
-            dist.barrier()
-            # xm.rendezvous("saving_optimizer_states")
+            xm.rendezvous("saving_optimizer_states")
             xm.save(self.optimizer.state_dict(), os.path.join(output_dir, OPTIMIZER_NAME))
 
             if not self.args.save_only_model:
@@ -1077,7 +1072,7 @@ class AugmentTrainerForNeuronMixin:
                     self.state.epoch = epoch + (step + 1 + steps_skipped) / steps_in_epoch
                     self.control = self.callback_handler.on_step_end(args, self.state, self.control)
 
-                    self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval)
+                    # self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval)
                 else:
                     self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
 
@@ -1120,7 +1115,7 @@ class AugmentTrainerForNeuronMixin:
             logger.info("\n\nTraining completed. Do not forget to share your model on huggingface.co/models =)\n\n")
         if args.load_best_model_at_end and self.state.best_model_checkpoint is not None:
             # Wait for everyone to get here so we are sure the model has been saved by process 0.
-            dist.barrier()
+            xm.rendezvous("load_best_model")
 
             self._load_best_model()
 
