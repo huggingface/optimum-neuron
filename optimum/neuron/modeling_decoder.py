@@ -492,3 +492,10 @@ class NeuronDecoderModel(OptimizedModel):
             revision=revision,
             ignore_patterns=ignore_patterns,
         )
+
+    @staticmethod
+    def to(device: int = 0):
+        """
+        Dummy function for transformers pipeline compatibility.
+        """
+        pass
