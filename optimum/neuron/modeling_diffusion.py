@@ -695,7 +695,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
         pipe = replace_stable_diffusion_submodels(pipe, submodels)
 
         # Check if the cache exists
-        if not inline_weights_to_neff and not disable_neuron_cache:
+        if not disable_neuron_cache:
             save_dir = TemporaryDirectory()
             save_dir_path = Path(save_dir.name)
             # 1. Fetch all model configs
@@ -745,7 +745,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                     optlevel=optlevel,
                     model_type=getattr(neuron_config, "MODEL_TYPE", None),
                     task=getattr(neuron_config, "task", None),
-                    output_hidden_states=output_hidden_states,
+                    output_hidden_states=getattr(neuron_config, "output_hidden_states", False),
                 )
                 compilation_configs[name] = compilation_config
 
@@ -762,7 +762,8 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             # load cache
             neuron_model = cls.from_pretrained(model_cache_dir, data_parallel_mode=data_parallel_mode)
             # replace weights
-            neuron_model.replace_weights(weights=pipe)
+            if not inline_weights_to_neff:
+                neuron_model.replace_weights(weights=pipe)
             return neuron_model
         else:
             # compile
@@ -794,6 +795,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
                 lora_adapter_names=lora_adapter_names,
                 lora_scales=lora_scales,
                 library_name=cls.library_name,
+                checked_config=cache_config,
                 **input_shapes,
             )
 

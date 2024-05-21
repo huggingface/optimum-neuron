@@ -275,9 +275,7 @@ class NeuronBaseModel(OptimizedModel):
             "disable_fallback": disable_fallback,
         }
 
-        if (
-            not inline_weights_to_neff and not disable_neuron_cache and is_neuronx_available()
-        ):  # TODO: support caching of Inf1 as well
+        if not disable_neuron_cache and is_neuronx_available():  # TODO: support caching of Inf1 as well
             # Check if the cache exists
             compilation_config = store_compilation_config(
                 config=config,
@@ -316,8 +314,9 @@ class NeuronBaseModel(OptimizedModel):
                     force_download=force_download,
                     trust_remote_code=trust_remote_code,
                 )
-                # replace weights
-                neuron_model.replace_weights(weights=model)
+                if not inline_weights_to_neff:
+                    # replace weights
+                    neuron_model.replace_weights(weights=model)
                 return neuron_model
             except Exception as e:
                 logger.warning(
