@@ -57,7 +57,7 @@ from .utils import (
     patch_accelerate_is_torch_xla_available,
     tie_parameters,
 )
-from .utils.misc import apply_activation_checkpointing, create_patched_finfo, create_patched_save_pretrained
+from .utils.misc import apply_activation_checkpointing, create_patched_finfo, create_patched_save_pretrained, patched_gradient_checkpointing_enable
 from .utils.operations import _xla_gather
 
 
@@ -342,6 +342,13 @@ class NeuronAccelerator(Accelerator):
                     DynamicPatch(create_patched_save_pretrained),
                 ),
             )
+        if hasattr(model, "gradient_checkpointing_enable"):
+            patching_specs.append(
+                (
+                    "gradient_checkpointing_enable",
+                    patched_gradient_checkpointing_enable,
+                ),
+            )
 
         prepared_patching_specs = []
         for spec in patching_specs:
@@ -349,7 +356,6 @@ class NeuronAccelerator(Accelerator):
 
         model_patcher = ModelPatcher(prepared_patching_specs, ignore_missing_attributes=True)
         model_patcher.patch()
-
         return model
 
     @requires_neuronx_distributed
@@ -435,6 +441,13 @@ class NeuronAccelerator(Accelerator):
         model.config.output_attentions = False
         model.config.output_hidden_states = False
 
+        should_apply_gradient_checkpointing = False
+        for mod in model.modules():
+            if getattr(mod, "gradient_checkpointing", False):
+                should_apply_gradient_checkpointing = True
+                model.gradient_checkpointing_disable()
+              
+
         # It is needed for now otherwise sdpa is used since PT > 2.* is available.
         for module in model.modules():
             if getattr(module, "_use_sdpa", False):
@@ -446,13 +459,15 @@ class NeuronAccelerator(Accelerator):
             model = self._prepare_model_for_mp(
                 model, device_placement=device_placement, evaluation_mode=evaluation_mode
             )
-            apply_activation_checkpointing(model)
-            return model
+            if should_apply_gradient_checkpointing:
+                apply_activation_checkpointing(model)
         else:
-            apply_activation_checkpointing(model)
+            if should_apply_gradient_checkpointing:
+                apply_activation_checkpointing(model)
             move_model_to_device(model, xm.xla_device())
             device_placement = False
-            return super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
+            model = super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
+        return model
 
     def backward(self, loss, **kwargs):
         if self.distributed_type != DistributedType.DEEPSPEED:

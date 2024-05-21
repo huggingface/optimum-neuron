@@ -693,7 +693,7 @@ class Parallelizer(ABC):
         if is_main_worker():
             logger.info("Loading and initializing the weights, this might take a while on large models.")
 
-        if is_precompilation():
+        if False: # is_precompilation():
             cls._initialize_for_precompilation(model, names_of_the_parameters_to_consider)
         else:
             local_rank = xm.get_local_ordinal()

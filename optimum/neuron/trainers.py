@@ -191,37 +191,11 @@ class AugmentTrainerForNeuronMixin:
             return any(logger_name.startswith(lib_name) for lib_name in libraries)
 
         loggers = [std_logging.getLogger(name) for name in std_logging.root.manager.loggerDict if filter(name)]
-        for l in loggers:
-            l.setLevel(std_logging.CRITICAL)
+        # for l in loggers:
+        #     l.setLevel(std_logging.CRITICAL)
 
         # We disable tqdm as well just to be safe.
-        args.disable_tqdm = True
-
-        import codecs
-
-        import torch_neuronx
-        from torch_neuronx.parallel_compile.neuron_parallel_compile import LOGGER as torch_neuronx_logger
-
-        def get_hlos_from_run_log(trial_run_log):
-            # New graphs are detected by specific message matching key
-            hlo_key = "Extracting graphs"
-            new_hlo_list = []
-            # with open(trial_run_log, "r") as f:
-            print("I'm all good!")
-            with codecs.open(trial_run_log, "r", encoding="utf-8", errors="ignore") as f:
-                for line in f.readlines():
-                    # Move temporary MODULE_* files into workdir before checking if there are any
-                    # new graphs. In try_compilations, compile only new graphs (those without
-                    # corresponding neffs).
-                    if hlo_key in line:
-                        model_path = line.split("Extracting graphs (")[1].split(")")[0]
-                        new_hlo_list.append(model_path)
-
-            format_str = "\n\t"
-            torch_neuronx_logger.info(f"New graph list from script: {format_str.join(new_hlo_list)}")
-            return new_hlo_list
-
-        torch_neuronx.parallel_compile.neuron_parallel_compile.get_hlos_from_run_log = get_hlos_from_run_log
+        # args.disable_tqdm = True
 
         if args.num_train_epochs != 1:
             if is_main_worker():
@@ -1448,8 +1422,8 @@ class AugmentTrainerForNeuronMixin:
 
     @patch_within_function(("transformers.Trainer.is_world_process_zero", is_main_worker_for_metrics_method))
     def log_metrics(self, split, metrics):
-        if is_precompilation():
-            return
+        # if is_precompilation():
+        #     return
         return super().log_metrics(split, metrics)
 
     @patch_within_function(("transformers.Trainer.is_world_process_zero", is_main_worker_for_metrics_method))
