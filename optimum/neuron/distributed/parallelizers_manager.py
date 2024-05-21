@@ -15,7 +15,7 @@
 """Factory class mapping model architectures to their Parallelizer class."""
 
 import importlib
-from typing import Dict, List, Type, Union, Tuple
+from typing import Dict, List, Tuple, Type, Union
 
 from transformers import PreTrainedModel
 
@@ -86,7 +86,7 @@ class ParallelizersManager:
     def is_model_supported(cls, model_type_or_model: Union[str, PreTrainedModel]) -> Tuple[bool, bool, bool]:
         """
         Returns a tuple of 3 booleans where:
-            - The first element indicates if tensor parallelism can be used for this model, 
+            - The first element indicates if tensor parallelism can be used for this model,
             - The second element indicates if sequence parallelism can be used on top of tensor parallelism for this model,
             - The third element indicates if pipeline parallelism can be used for this model.
 
@@ -104,7 +104,6 @@ class ParallelizersManager:
             for_sp = for_pp = False
 
         return (for_tp, for_sp, for_pp)
-
 
     @classmethod
     def parallelizer_for_model(cls, model_type_or_model: Union[str, PreTrainedModel]) -> Type[Parallelizer]:
