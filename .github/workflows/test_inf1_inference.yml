@@ -2,11 +2,10 @@ name: Optimum neuron / Test INF1 inference
 
 on:
   push:
-    branches: ci-test*
-    #branches: [ main ]
-    #paths:
-    #  - "setup.py"
-    #  - "optimum/**.py"
+    branches: [ main ]
+    paths:
+     - "setup.py"
+     - "optimum/**.py"
   pull_request:
     branches: [ main ]
     paths:
@@ -20,7 +19,7 @@ concurrency:
 jobs:
   do-the-job:
     name: Run INF1 tests
-    runs-on: [self-hosted, 4-aws-inf1, 24-cpu, test-ci]
+    runs-on: [self-hosted, 4-aws-inf1, 24-cpu, ci]
     env:
       AWS_REGION: us-east-1
     steps:

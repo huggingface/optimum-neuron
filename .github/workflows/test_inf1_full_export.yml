@@ -2,10 +2,9 @@ name: Optimum neuron / Test INF1 full export
 
 on:
   push:
-    branches: ci-test*
-    #branches: [ main ]
-    #paths:
-    #  - "optimum/exporters/neuron/*.py"
+    branches: [ main ]
+    paths:
+     - "optimum/exporters/neuron/*.py"
   pull_request:
     branches: [ main ]
     paths:
@@ -18,7 +17,7 @@ concurrency:
 jobs:
   do-the-job:
     name: Run INF1 full export tests
-    runs-on: [self-hosted, 4-aws-inf1, 24-cpu, test-ci]
+    runs-on: [self-hosted, 4-aws-inf1, 24-cpu, ci]
     env:
       AWS_REGION: us-east-1
     steps:
