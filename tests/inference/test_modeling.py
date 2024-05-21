@@ -1068,6 +1068,8 @@ class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
                 "hf-internal-testing/tiny-random-t5", from_transformers=True, **self.STATIC_INPUTS_SHAPES
             )
 
+        assert ("doesn't support" in str(context.exception)) or ("is not supported" in str(context.exception))
+
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     @requires_neuronx
     def test_compare_to_transformers_dyn_bs(self, model_arch):
