@@ -280,13 +280,12 @@ class ExampleTestMeta(type):
             #     model_type, model_name_or_path, 1, True, True, config_overrides
             # )
 
-            tensor_parallel_size = 2 if tp_support is not TPSupport.NONE else 1
-
             if not is_neuronx_distributed_available():
-                pp_support = False
+                tensor_parallel_size = pipeline_parallel_size = 1
             else:
-                pp_support = ParallelizersManager.parallelizer_for_model(model_type).supports_pipeline_parallelism()
-            pipeline_parallel_size = 4 if pp_support else 1
+                is_tp_supported, _, is_pp_supported = ParallelizersManager.is_model_supported(model_type)
+                tensor_parallel_size = 2 if is_tp_supported else 1
+                pipeline_parallel_size = 4 if is_pp_supported else 1
 
             disable_embedding_parallelization = tp_support is TPSupport.PARTIAL
             if tensor_parallel_size > 1:
