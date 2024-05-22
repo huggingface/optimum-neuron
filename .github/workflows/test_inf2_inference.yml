@@ -38,10 +38,10 @@ jobs:
       - name: Install python dependencies
         run: |
           sudo apt install python3.8-venv python3-dev -y
-          sudo apt-get install --reinstall python-pkg-resources -y
           python3 -m venv aws_neuron_venv_pytorch
           source aws_neuron_venv_pytorch/bin/activate
           python -m pip install -U pip
+          pip install --upgrade setuptools distribute
           python -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
           python -m pip install .[neuronx,tests]
       - name: Run inference tests
