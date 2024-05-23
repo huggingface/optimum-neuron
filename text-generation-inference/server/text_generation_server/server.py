@@ -27,8 +27,9 @@ class TextGenerationService(generate_pb2_grpc.TextGenerationServiceServicer):
 
     async def ClearCache(self, request, context):
         if request.HasField("id"):
-            logger.warning(f"Clearing all batches instead of batch {request.id} only.")
-        self.generator.clear()
+            self.generator.clear(request.id)
+        else:
+            self.generator.clear()
         return generate_pb2.ClearCacheResponse()
 
     async def FilterBatch(self, request, context):
