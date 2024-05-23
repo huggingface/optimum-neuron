@@ -169,6 +169,7 @@ class Slot:
         self.seed = request.parameters.seed
         # TODO: watermark
         self._generation_config.max_new_tokens = request.stopping_parameters.max_new_tokens
+        self._max_new_tokens = self._generation_config.max_new_tokens
         # TODO: stop_sequences, ignore_eos_token
 
     def reset(self, input_ids: torch.LongTensor, attention_mask: torch.LongTensor, selector: TokenSelector):
@@ -197,8 +198,9 @@ class Slot:
         if reset_on_pause:
             # Drop the last token as it will be added back when resuming the slot
             self._generated_tokens -= 1
-            # Subtract the number of cached tokens from the maximum number of tokens
-            self._generation_config.max_new_tokens -= self._generated_tokens
+            # Since generated tokens are now part of the prefill, we need to reevaluate
+            # max_new_tokens for the next generation
+            self._generation_config.max_new_tokens = self._max_new_tokens - self._generated_tokens
         self._state = Slot.State.PAUSE
 
     def resume(self):
