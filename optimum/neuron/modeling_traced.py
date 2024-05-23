@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Union
 import torch
 from huggingface_hub import HfApi, HfFolder, hf_hub_download
 from huggingface_hub.utils import is_google_colab
-from transformers import AutoConfig, AutoModel
+from transformers import AutoConfig, AutoModel, GenerationMixin
 
 from ..exporters.neuron import main_export
 from ..exporters.neuron.model_configs import *  # noqa: F403
@@ -609,3 +609,9 @@ class NeuronTracedModel(NeuronModel):
         Whether the Neuron model has separated weights and neff graph (by setting `inline_weights_to_neff=False` during the compilation).
         """
         return not self.config.neuron.get("inline_weights_to_neff", True)
+
+    def can_generate(self) -> bool:
+        """
+        Returns whether this model can generate sequences with `.generate()`.
+        """
+        return isinstance(self, GenerationMixin)
