@@ -42,6 +42,7 @@ jobs:
           python3 -m venv aws_neuron_venv_pytorch
           source aws_neuron_venv_pytorch/bin/activate
           python -m pip install -U pip
+          pip install --upgrade setuptools==69.5.1
           python -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
           python -m pip install .[neuronx,tests]
       - name: Collect tests on Neuron Cores

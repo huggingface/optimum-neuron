@@ -38,7 +38,6 @@ from transformers import (
 from transformers.onnx.utils import get_preprocessor
 
 from optimum.neuron import (
-    NeuronBaseModel,
     NeuronModelForFeatureExtraction,
     NeuronModelForMaskedLM,
     NeuronModelForMultipleChoice,
@@ -46,6 +45,7 @@ from optimum.neuron import (
     NeuronModelForSentenceTransformers,
     NeuronModelForSequenceClassification,
     NeuronModelForTokenClassification,
+    NeuronTracedModel,
     pipeline,
 )
 from optimum.neuron.utils import NEURON_FILE_NAME, is_neuron_available, is_neuronx_available
@@ -79,12 +79,12 @@ class NeuronModelIntegrationTest(NeuronModelIntegrationTestMixin):
     TINY_MODEL_REMOTE = "Jingya/tiny-random-bert-remote-code"
 
     def test_load_model_from_local_path(self):
-        model = NeuronBaseModel.from_pretrained(self.local_model_path)
+        model = NeuronTracedModel.from_pretrained(self.local_model_path)
         self.assertIsInstance(model.model, torch.jit._script.ScriptModule)
         self.assertIsInstance(model.config, PretrainedConfig)
 
     def test_load_model_from_hub(self):
-        model = NeuronBaseModel.from_pretrained(self.neuron_model_id)
+        model = NeuronTracedModel.from_pretrained(self.neuron_model_id)
         self.assertIsInstance(model.model, torch.jit._script.ScriptModule)
         self.assertIsInstance(model.config, PretrainedConfig)
 
@@ -96,9 +96,9 @@ class NeuronModelIntegrationTest(NeuronModelIntegrationTestMixin):
         self.assertIsInstance(model.config, PretrainedConfig)
 
     def test_load_model_from_cache(self):
-        _ = NeuronBaseModel.from_pretrained(self.neuron_model_id)  # caching
+        _ = NeuronTracedModel.from_pretrained(self.neuron_model_id)  # caching
 
-        model = NeuronBaseModel.from_pretrained(self.neuron_model_id, local_files_only=True)
+        model = NeuronTracedModel.from_pretrained(self.neuron_model_id, local_files_only=True)
 
         self.assertIsInstance(model.model, torch.jit._script.ScriptModule)
         self.assertIsInstance(model.config, PretrainedConfig)
@@ -109,15 +109,15 @@ class NeuronModelIntegrationTest(NeuronModelIntegrationTestMixin):
         if os.path.exists(dirpath) and os.path.isdir(dirpath):
             shutil.rmtree(dirpath)
         with self.assertRaises(Exception):
-            _ = NeuronBaseModel.from_pretrained(self.neuron_model_id, local_files_only=True)
+            _ = NeuronTracedModel.from_pretrained(self.neuron_model_id, local_files_only=True)
 
     def test_load_model_from_hub_without_neuron_model(self):
         with self.assertRaises(FileNotFoundError):
-            NeuronBaseModel.from_pretrained(self.FAIL_NEURON_MODEL_ID)
+            NeuronTracedModel.from_pretrained(self.FAIL_NEURON_MODEL_ID)
 
     def test_save_model(self):
         with tempfile.TemporaryDirectory() as tmpdirname:
-            model = NeuronBaseModel.from_pretrained(self.local_model_path)
+            model = NeuronTracedModel.from_pretrained(self.local_model_path)
             model.save_pretrained(tmpdirname)
             # folder contains all config files and neuron exported model
             folder_contents = os.listdir(tmpdirname)
@@ -1068,7 +1068,7 @@ class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
                 "hf-internal-testing/tiny-random-t5", from_transformers=True, **self.STATIC_INPUTS_SHAPES
             )
 
-        self.assertIn("Unrecognized configuration class", str(context.exception))
+        assert ("doesn't support" in str(context.exception)) or ("is not supported" in str(context.exception))
 
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     @requires_neuronx

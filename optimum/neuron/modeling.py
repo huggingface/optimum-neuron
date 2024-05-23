@@ -43,8 +43,8 @@ from transformers.modeling_outputs import (
 from transformers.utils import ModelOutput
 
 from .generation import TokenSelector
-from .modeling_base import NeuronBaseModel
 from .modeling_decoder import NeuronDecoderModel
+from .modeling_traced import NeuronTracedModel
 
 
 if TYPE_CHECKING:
@@ -61,13 +61,13 @@ logger = logging.getLogger(__name__)
 _TOKENIZER_FOR_DOC = "AutoTokenizer"
 
 NEURON_MODEL_START_DOCSTRING = r"""
-    This model inherits from [`~neuron.modeling.NeuronBaseModel`]. Check the superclass documentation for the generic methods the
+    This model inherits from [`~neuron.modeling.NeuronTracedModel`]. Check the superclass documentation for the generic methods the
     library implements for all its model (such as downloading or saving)
 
     Args:
         config (`transformers.PretrainedConfig`): [PretrainedConfig](https://huggingface.co/docs/transformers/main_classes/configuration#transformers.PretrainedConfig) is the Model configuration class with all the parameters of the model.
             Initializing with a config file does not load the weights associated with the model, only the
-            configuration. Check out the [`optimum.neuron.modeling.NeuronBaseModel.from_pretrained`] method to load the model weights.
+            configuration. Check out the [`optimum.neuron.modeling.NeuronTracedModel.from_pretrained`] method to load the model weights.
         model (`torch.jit._script.ScriptModule`): [torch.jit._script.ScriptModule](https://pytorch.org/docs/stable/generated/torch.jit.ScriptModule.html) is the TorchScript module with embedded NEFF(Neuron Executable File Format) compiled by neuron(x) compiler.
 """
 
@@ -125,7 +125,7 @@ FEATURE_EXTRACTION_EXAMPLE = r"""
     """,
     NEURON_MODEL_START_DOCSTRING,
 )
-class NeuronModelForFeatureExtraction(NeuronBaseModel):
+class NeuronModelForFeatureExtraction(NeuronTracedModel):
     """
     Feature Extraction model on Neuron devices.
     """
@@ -198,7 +198,7 @@ SENTENCE_TRANSFORMERS_EXAMPLE = r"""
     """,
     NEURON_MODEL_START_DOCSTRING,
 )
-class NeuronModelForSentenceTransformers(NeuronBaseModel):
+class NeuronModelForSentenceTransformers(NeuronTracedModel):
     """
     Sentence Transformers model on Neuron devices.
     """
@@ -283,7 +283,7 @@ MASKED_LM_EXAMPLE = r"""
     """,
     NEURON_MODEL_START_DOCSTRING,
 )
-class NeuronModelForMaskedLM(NeuronBaseModel):
+class NeuronModelForMaskedLM(NeuronTracedModel):
     """
     Masked language model for on Neuron devices.
     """
@@ -353,7 +353,7 @@ QUESTION_ANSWERING_EXAMPLE = r"""
     """,
     NEURON_MODEL_START_DOCSTRING,
 )
-class NeuronModelForQuestionAnswering(NeuronBaseModel):
+class NeuronModelForQuestionAnswering(NeuronTracedModel):
     """
     Question Answering model on Neuron devices.
     """
@@ -422,7 +422,7 @@ SEQUENCE_CLASSIFICATION_EXAMPLE = r"""
     """,
     NEURON_MODEL_START_DOCSTRING,
 )
-class NeuronModelForSequenceClassification(NeuronBaseModel):
+class NeuronModelForSequenceClassification(NeuronTracedModel):
     """
     Sequence Classification model on Neuron devices.
     """
@@ -490,7 +490,7 @@ TOKEN_CLASSIFICATION_EXAMPLE = r"""
     """,
     NEURON_MODEL_START_DOCSTRING,
 )
-class NeuronModelForTokenClassification(NeuronBaseModel):
+class NeuronModelForTokenClassification(NeuronTracedModel):
     """
     Token Classification model on Neuron devices.
     """
@@ -571,7 +571,7 @@ MULTIPLE_CHOICE_EXAMPLE = r"""
     """,
     NEURON_MODEL_START_DOCSTRING,
 )
-class NeuronModelForMultipleChoice(NeuronBaseModel):
+class NeuronModelForMultipleChoice(NeuronTracedModel):
     """
     Multiple choice model on Neuron devices.
     """

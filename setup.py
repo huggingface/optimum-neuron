@@ -34,6 +34,7 @@ TESTS_REQUIRE = [
     "sentence-transformers >= 2.2.0",
     "peft",
     "compel",
+    "rjieba",
 ]
 
 QUALITY_REQUIRES = [
