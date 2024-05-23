@@ -462,19 +462,23 @@ class AugmentTrainerForNeuronMixin:
                 # It works even for PP because under PP we make it so that the main process to log for callbacks is
                 # the one on dp_rank = tp_rank = 0 and pp_rank = pp_size -1.
                 tr_loss_div = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_group(as_list=True))
-                tr_loss_scalar = tr_loss_div.detach().item()
+                tr_loss_scalar = tr_loss_div.detach().clone()
             else:
                 tr_loss_div = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div)
-                tr_loss_scalar = tr_loss.detach().item()
+                tr_loss_scalar = tr_loss.detach().clone()
 
             # reset tr_loss to zero
             tr_loss -= tr_loss
+
+            xm.mark_step()
+
+            tr_loss_scalar = tr_loss_scalar.to("cpu").item()
 
             logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
             logs["learning_rate"] = self._get_learning_rate()
 
             if grad_norm is not None:
-                logs["grad_norm"] = grad_norm.detach().item() if isinstance(grad_norm, torch.Tensor) else grad_norm
+                logs["grad_norm"] = grad_norm.detach().to("cpu").item() if isinstance(grad_norm, torch.Tensor) else grad_norm
 
             self._total_loss_scalar += tr_loss_scalar
             self._globalstep_last_logged = self.state.global_step
@@ -1096,7 +1100,8 @@ class AugmentTrainerForNeuronMixin:
             self._load_best_model()
 
         # add remaining tr_loss
-        self._total_loss_scalar += tr_loss.item()
+        loss_scalar = tr_loss.to("cpu").item()
+        self._total_loss_scalar += loss_scalar
         effective_global_step = max(self.state.global_step, 0.001)  # Avoid ZeroDivisionError
         train_loss = self._total_loss_scalar / effective_global_step
 
