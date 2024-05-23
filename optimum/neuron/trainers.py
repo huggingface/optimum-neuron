@@ -411,8 +411,10 @@ class AugmentTrainerForNeuronMixin:
                 loss = torch.tensor(0, dtype=dtype).to(xm.xla_device())
             else:
                 loss = loss.detach()
-            return loss / self.args.gradient_accumulation_steps
-        return super().training_step(model, inputs)
+            output = loss / self.args.gradient_accumulation_steps
+        else:
+            output =  super().training_step(model, inputs)
+        return output
 
     @requires_neuronx_distributed
     def prediction_step(
@@ -1046,7 +1048,7 @@ class AugmentTrainerForNeuronMixin:
                     self.state.epoch = epoch + (step + 1 + steps_skipped) / steps_in_epoch
                     self.control = self.callback_handler.on_step_end(args, self.state, self.control)
 
-                    # self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval)
+                    self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval)
                 else:
                     self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
 

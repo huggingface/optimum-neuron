@@ -441,10 +441,10 @@ class NeuronAccelerator(Accelerator):
         model.config.output_attentions = False
         model.config.output_hidden_states = False
 
-        should_apply_gradient_checkpointing = False
+        should_apply_activation_checkpointing = False
         for mod in model.modules():
             if getattr(mod, "gradient_checkpointing", False):
-                should_apply_gradient_checkpointing = True
+                should_apply_activation_checkpointing = True
                 model.gradient_checkpointing_disable()
               
 
@@ -459,14 +459,15 @@ class NeuronAccelerator(Accelerator):
             model = self._prepare_model_for_mp(
                 model, device_placement=device_placement, evaluation_mode=evaluation_mode
             )
-            if should_apply_gradient_checkpointing:
+            if should_apply_activation_checkpointing:
                 apply_activation_checkpointing(model)
         else:
-            if should_apply_gradient_checkpointing:
+            if should_apply_activation_checkpointing:
                 apply_activation_checkpointing(model)
             move_model_to_device(model, xm.xla_device())
             device_placement = False
             model = super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
+        xm.mark_step()
         return model
 
     def backward(self, loss, **kwargs):
