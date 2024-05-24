@@ -71,3 +71,27 @@ def test_decoder_generation_multiple_eos_token_ids(neuron_model_config):
     # Generate again an verify we stopped on that id
     outputs = model.generate(**tokens, do_sample=True, generation_config=generation_config)
     assert outputs[0, -1] == fake_eos_token_id
+
+
+@is_inferentia_test
+@requires_neuronx
+def test_decoder_generation_stop_strings(neuron_model_config):
+    model, tokenizer = neuron_model_config
+    prompt = "Name three fruits:"
+    tokens = tokenizer(prompt, return_tensors="pt")
+    generation_config = copy.deepcopy(model.generation_config)
+    generation_config.max_new_tokens = model.max_length - tokens["input_ids"].shape[-1]
+    # Generate once
+    outputs = model.generate(**tokens, do_sample=False, generation_config=generation_config)
+    output_string = tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
+    # Now create a generation_config with stop_strings corresponding to the beginning of the outputs
+    sos = len(prompt)
+    stop_string = output_string[sos : sos + 10]
+    generation_config.stop_strings = [stop_string]
+    # Generate and verify we stopped on the stop string
+    outputs = model.generate(**tokens, do_sample=False, generation_config=generation_config, tokenizer=tokenizer)
+    new_output_string = tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
+    # Verify we stopped on the stop string
+    assert len(new_output_string) < len(output_string)
+    # Verify the stop string is in the generated string (but not necessarily exactly at the end because of tokenization)
+    assert stop_string in output_string
