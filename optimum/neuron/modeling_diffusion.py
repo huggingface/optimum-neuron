@@ -40,7 +40,7 @@ from ..exporters.neuron import (
 from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..exporters.tasks import TasksManager
 from ..utils import is_diffusers_available
-from .modeling_base import NeuronBaseModel
+from .modeling_traced import NeuronTracedModel
 from .utils import (
     DIFFUSION_MODEL_TEXT_ENCODER_2_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_NAME,
@@ -103,7 +103,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
+class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
     auto_model_class = StableDiffusionPipeline
     library_name = "diffusers"
     base_model_prefix = "neuron_model"
@@ -337,7 +337,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             submodels.pop("unet")
             for submodel_name, submodel_path in submodels.items():
                 if submodel_path is not None and submodel_path.is_file():
-                    submodels[submodel_name] = NeuronBaseModel.load_model(submodel_path, to_neuron=to_neuron)
+                    submodels[submodel_name] = NeuronTracedModel.load_model(submodel_path, to_neuron=to_neuron)
                 else:
                     submodels[submodel_name] = None
             unet = NeuronBaseModel.load_model(unet_path, to_neuron=False)  # No need to load to neuron manually when dp
@@ -350,7 +350,7 @@ class NeuronStableDiffusionPipelineBase(NeuronBaseModel):
             logger.info("Loading the pipeline without any data parallelism...")
             for submodel_name, submodel_path in submodels.items():
                 if submodel_path is not None and submodel_path.is_file():
-                    submodels[submodel_name] = NeuronBaseModel.load_model(submodel_path, to_neuron=to_neuron)
+                    submodels[submodel_name] = NeuronTracedModel.load_model(submodel_path, to_neuron=to_neuron)
                 else:
                     submodels[submodel_name] = None
         else:
@@ -846,7 +846,7 @@ class _NeuronDiffusionModelPart:
     def __init__(
         self,
         model: torch.jit._script.ScriptModule,
-        parent_model: NeuronBaseModel,
+        parent_model: NeuronTracedModel,
         config: Optional[Union[DiffusersPretrainedConfig, PretrainedConfig]] = None,
         neuron_config: Optional["NeuronDefaultConfig"] = None,
         model_type: str = "unet",
@@ -871,7 +871,7 @@ class NeuronModelTextEncoder(_NeuronDiffusionModelPart):
     def __init__(
         self,
         model: torch.jit._script.ScriptModule,
-        parent_model: NeuronBaseModel,
+        parent_model: NeuronTracedModel,
         config: Optional[DiffusersPretrainedConfig] = None,
         neuron_config: Optional[Dict[str, str]] = None,
     ):
@@ -908,7 +908,7 @@ class NeuronModelUnet(_NeuronDiffusionModelPart):
     def __init__(
         self,
         model: torch.jit._script.ScriptModule,
-        parent_model: NeuronBaseModel,
+        parent_model: NeuronTracedModel,
         config: Optional[DiffusersPretrainedConfig] = None,
         neuron_config: Optional[Dict[str, str]] = None,
     ):
@@ -944,7 +944,7 @@ class NeuronModelVaeEncoder(_NeuronDiffusionModelPart):
     def __init__(
         self,
         model: torch.jit._script.ScriptModule,
-        parent_model: NeuronBaseModel,
+        parent_model: NeuronTracedModel,
         config: Optional[DiffusersPretrainedConfig] = None,
         neuron_config: Optional[Dict[str, str]] = None,
     ):
@@ -961,7 +961,7 @@ class NeuronModelVaeDecoder(_NeuronDiffusionModelPart):
     def __init__(
         self,
         model: torch.jit._script.ScriptModule,
-        parent_model: NeuronBaseModel,
+        parent_model: NeuronTracedModel,
         config: Optional[DiffusersPretrainedConfig] = None,
         neuron_config: Optional[Dict[str, str]] = None,
     ):

@@ -34,8 +34,7 @@ from transformers import pipeline as transformers_pipeline
 from transformers.feature_extraction_utils import PreTrainedFeatureExtractor
 from transformers.onnx.utils import get_preprocessor
 
-from optimum.modeling_base import OptimizedModel
-from optimum.neuron.modeling_base import NeuronBaseModel
+from optimum.neuron.modeling_base import NeuronModel
 from optimum.neuron.pipelines.transformers.sentence_transformers import (
     FeatureExtractionPipeline,
     is_sentence_transformer_model,
@@ -134,7 +133,7 @@ def load_pipeline(
             model, export=export, **compiler_args, **input_shapes, **hub_kwargs, **kwargs
         )
     # uses neuron model
-    elif isinstance(model, (NeuronBaseModel, NeuronModelForCausalLM)):
+    elif isinstance(model, NeuronModel):
         if tokenizer is None and load_tokenizer:
             for preprocessor in model.preprocessors:
                 if isinstance(preprocessor, (PreTrainedTokenizer, PreTrainedTokenizerFast)):
@@ -142,7 +141,7 @@ def load_pipeline(
                     break
             if tokenizer is None:
                 raise ValueError(
-                    "Could not automatically find a tokenizer for the NeuronBaseModel, you must pass a tokenizer explicitly"
+                    "Could not automatically find a tokenizer for the NeuronModel, you must pass a tokenizer explicitly"
                 )
         if feature_extractor is None and load_feature_extractor:
             for preprocessor in model.preprocessors:
@@ -165,7 +164,7 @@ def load_pipeline(
 
 def pipeline(
     task: str = None,
-    model: Optional[Union[str, NeuronBaseModel]] = None,
+    model: Optional[Union[str, NeuronModel]] = None,
     tokenizer: Optional[Union[str, PreTrainedTokenizer]] = None,
     feature_extractor: Optional[Union[str, PreTrainedFeatureExtractor]] = None,
     use_fast: bool = True,
@@ -195,7 +194,7 @@ def pipeline(
         if isinstance(model, str):
             config = AutoConfig.from_pretrained(model, _from_pipeline=task, **hub_kwargs, **kwargs)
             hub_kwargs["_commit_hash"] = config._commit_hash
-        elif isinstance(model, (PreTrainedModel, OptimizedModel)):
+        elif isinstance(model, (PreTrainedModel, NeuronModel)):
             config = model.config
 
     if export:
@@ -279,5 +278,6 @@ def pipeline(
         use_fast=use_fast,
         batch_size=batch_size,
         pipeline_class=NEURONX_SUPPORTED_TASKS[task]["impl"],
+        device=model.device,
         **kwargs,
     )
