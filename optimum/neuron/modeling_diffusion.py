@@ -773,7 +773,7 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
                     optlevel=optlevel,
                     model_type=getattr(neuron_config, "MODEL_TYPE", None),
                     task=getattr(neuron_config, "task", None),
-                    output_hidden_states=output_hidden_states,
+                    output_hidden_states=getattr(neuron_config, "output_hidden_states", False),
                 )
                 compilation_configs[name] = compilation_config
 
