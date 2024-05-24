@@ -376,9 +376,8 @@ class AugmentTrainerForNeuronMixin:
         if isinstance(model, NxDPPModel):
             inputs = self._prepare_inputs(inputs)
             loss = model.run_train(**inputs)
-            return loss
-
-        loss = super().compute_loss(model, inputs, return_outputs=return_outputs)
+        else:
+            loss = super().compute_loss(model, inputs, return_outputs=return_outputs)
         return loss
 
     def autocast_smart_context_manager(self, cache_enabled: Optional[bool] = True):
@@ -1102,7 +1101,6 @@ class AugmentTrainerForNeuronMixin:
                     self.control = self.callback_handler.on_step_end(args, self.state, self.control)
 
                     reduced_tr_loss = self._reduce_loss(tr_loss)
-
                     self._maybe_log_save_evaluate(reduced_tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval)
                 else:
                     self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
