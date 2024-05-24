@@ -322,7 +322,7 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
             logger.info("Loading the whole pipeline into both Neuron Cores...")
             for submodel_name, submodel_path in submodels.items():
                 if submodel_path is not None and submodel_path.is_file():
-                    submodel = NeuronBaseModel.load_model(
+                    submodel = NeuronTracedModel.load_model(
                         submodel_path, to_neuron=False
                     )  # No need to load to neuron manually when dp
                     submodels[submodel_name] = dp_cls(
@@ -340,7 +340,9 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
                     submodels[submodel_name] = NeuronTracedModel.load_model(submodel_path, to_neuron=to_neuron)
                 else:
                     submodels[submodel_name] = None
-            unet = NeuronBaseModel.load_model(unet_path, to_neuron=False)  # No need to load to neuron manually when dp
+            unet = NeuronTracedModel.load_model(
+                unet_path, to_neuron=False
+            )  # No need to load to neuron manually when dp
             submodels["unet"] = dp_cls(
                 unet,
                 [0, 1],
