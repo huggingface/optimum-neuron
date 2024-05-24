@@ -492,4 +492,3 @@ class NeuronDecoderModel(NeuronModel):
             revision=revision,
             ignore_patterns=ignore_patterns,
         )
-

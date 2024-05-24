@@ -55,7 +55,7 @@ if is_neuron_available():
 
 if is_neuronx_available():
     from torch_neuronx import move_trace_to_device
-    
+
     NEURON_COMPILER_TYPE = "neuronx-cc"
     NEURON_COMPILER_VERSION = get_neuronxcc_version()
 
@@ -196,7 +196,7 @@ class NeuronTracedModel(NeuronModel):
             model_compiler_type = config.neuron.get("compiler_type")
             model_compiler_version = config.neuron.get("compiler_version")
             check_compiler_compatibility(model_compiler_type, model_compiler_version)
-        
+
         # reconstruct neuron config
         neuron_config = cls._neuron_config_init(config) if neuron_config is None else neuron_config
         inline_weights_to_neff = config.neuron.get("inline_weights_to_neff", False)
