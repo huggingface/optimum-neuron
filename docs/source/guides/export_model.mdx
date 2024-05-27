@@ -392,5 +392,27 @@ Here is an example:
 
 This example can be adapted for other model types using the same export parameters as the `optimum-cli`.
 
+## Exporting neuron models using NeuronX TGI
+
+The NeuronX TGI image includes not only NeuronX runtime, but also all packages and tools required to export Neuron models.
+
+Use the following command to export a model to Neuron using a TGI image:
+
+```
+docker run --emtrypoint optimum-cli \
+       -v $(pwd)/data:/data \
+       --privileged \
+       ghcr.io/huggingface/neuronx-tgi:latest \
+       export neuron \
+       --model <organization>/<model> \
+       --batch_size 1 \
+       --sequence_length 4096 \
+       --auto_cast_type fp16 \
+       --num_cores 2 \
+       /data/<neuron_model_path>
+```
+
+The exported model will be saved under `./data/<neuron_model_path>`.
+
 
 

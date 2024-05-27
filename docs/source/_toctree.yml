@@ -40,6 +40,8 @@
       title: Export a model to Inferentia
     - local: guides/pipelines
       title: Inference pipelines with AWS Neuron
+    - local: guides/neuronx_tgi
+      title: NeuronX Text-generation-inference for AWS inferentia2
     title: How-To Guides
   - sections:
     - local: benchmarks/inferentia-llama2-7b
