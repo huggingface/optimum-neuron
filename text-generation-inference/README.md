@@ -76,26 +76,7 @@ docker run -p 8080:80 \
        <service_parameters>
 ```
 
-
-### Using a neuron model from the 🤗 [HuggingFace Hub](https://huggingface.co/aws-neuron) (recommended)
-
-There are plenty of already exported neuron models on the hub, under the [aws-neuron](https://huggingface.co/aws-neuron) organization.
-
-The snippet below shows how you can deploy a service from a hub neuron model:
-
-```
-docker run -p 8080:80 \
-       -v $(pwd)/data:/data \
-       --privileged \
-       -e HF_TOKEN=${HF_TOKEN} \
-       ghcr.io/huggingface/neuronx-tgi:latest \
-       --model-id aws-neuron/Llama-2-7b-hf-neuron-budget \
-       --max-batch-size 1 \
-       --max-input-length 1024 \
-       --max-total-tokens 2048
-```
-
-### Using a standard model from the 🤗 [HuggingFace Hub](https://huggingface.co/aws-neuron)
+### Using a standard model from the 🤗 [HuggingFace Hub](https://huggingface.co/aws-neuron) (recommended)
 
 
 We maintain a Neuron Model Cache of the most popular architecture and deployment parameters under [aws-neuron/optimum-neuron-cache](https://huggingface.co/aws-neuron/optimum-neuron-cache).
@@ -123,15 +104,47 @@ docker run -p 8080:80 \
 
 ### Using a model exported to a local path
 
-Alternatively, you can first [export the model to neuron format](https://huggingface.co/docs/optimum-neuron/main/en/guides/models#configuring-the-export-of-a-generative-model) locally, and deploy the service inside the shared volume:
+Alternatively, you can first [export the model to neuron format](https://huggingface.co/docs/optimum-neuron/main/en/guides/models#configuring-the-export-of-a-generative-model) locally:
+
+```
+docker run --emtrypoint optimum-cli \
+       -v $(pwd)/data:/data \
+       --privileged \
+       ghcr.io/huggingface/neuronx-tgi:latest \
+       export neuron \
+       --model <organization>/<model> \
+       --batch_size 1 \
+       --sequence_length 4096 \
+       --auto_cast_type fp16 \
+       --num_cores 2 \
+       /data/<neuron_model_path>
+```
+
+You can then deploy the service inside the shared volume:
 
 ```
 docker run -p 8080:80 \
        -v $(pwd)/data:/data \
        --privileged \
        ghcr.io/huggingface/neuronx-tgi:latest \
-       --model-id /data/<neuron_model_path> \
-       ...
+       --model-id /data/<neuron_model_path>
+```
+
+Note: You don't need to specify any service parameters, as they will all be deduced from the model export configuration.
+
+### Using a neuron model from the 🤗 [HuggingFace Hub](https://huggingface.co/)
+
+The easiest way to share a neuron model inside your organization is to push it on the Hugging Face hub, so that it can be deployed directly without requiring an export.
+
+The snippet below shows how you can deploy a service from a hub neuron model:
+
+```
+docker run -p 8080:80 \
+       -v $(pwd)/data:/data \
+       --privileged \
+       -e HF_TOKEN=${HF_TOKEN} \
+       ghcr.io/huggingface/neuronx-tgi:latest \
+       --model-id <organization>/<neuron-model>
 ```
 
 ### Choosing service parameters
@@ -164,8 +177,6 @@ Please refer to [text-generation-inference](https://github.com/huggingface/text-
 
 Note that the main constraint is to be able to fit the model for the specified `batch_size` within the total device memory available
 on your instance (16GB per neuron core, with 2 cores per device).
-
-All neuron models on the 🤗 [HuggingFace Hub](https://huggingface.co/aws-neuron) include the number of cores required to run them.
 
 ## Query the service
 
