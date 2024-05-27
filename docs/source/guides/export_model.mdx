@@ -40,20 +40,12 @@ AWS provides two generations of the Inferentia accelerator built for machine lea
 
 In production environments, to deploy 🤗 [Transformers](https://huggingface.co/docs/transformers/index) models on Neuron devices, you need to compile your models and export them to a serialized format before inference. Through Ahead-Of-Time (AOT) compilation with Neuron Compiler( [neuronx-cc](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/release-notes/compiler/neuronx-cc/index.html) or [neuron-cc](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/release-notes/compiler/neuron-cc/neuron-cc.html) ), your models will be converted to serialized and optimized [TorchScript modules](https://pytorch.org/docs/stable/generated/torch.jit.ScriptModule.html).
 
-<Tip>
-To understand a little bit more about the compilation, here are general steps executed under the hood:
-
-<img title="Compilation flow" alt="Compilation flow" src="https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/optimum/neuron/inf_compile_flow.png">
-
-**NEFF**: Neuron Executable File Format which is a binary executable on Neuron devices.
-</Tip>
-
-Although pre-compilation avoids overhead during the inference, traced Neuron module has some limitations:
-* Traced Neuron module will be static, which requires fixed input shapes and data types used during the compilation. As the model won't be dynamically recompiled, the inference will fail if any of the above conditions change.
-  (*But these limitations could be bypass with [dynamic batching](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/frameworks/torch/torch-neuronx/api-reference-guide/inference/api-torch-neuronx-trace.html#dynamic-batching) and [bucketing](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/appnotes/torch-neuron/bucketing-app-note.html#bucketing-app-note)*).
-* Neuron models are hardware-specialized, which means:
-  *  Models traced with Neuron can no longer be executed in non-Neuron environment.
-  *  Models compiled for inf1 (NeuronCore-v1) are not compatible with inf2 (NeuronCore-v2), and vice versa.
+Although pre-compilation avoids overhead during the inference, a compiled Neuron model has some limitations:
+* the input shapes and data types used during the compilation cannot be changed.
+* Neuron models are specialized for each hardware and SDK version, which means:
+  * Models compiled with Neuron can no longer be executed in non-Neuron environment.
+  * Models compiled for inf1 (NeuronCore-v1) are not compatible with inf2 (NeuronCore-v2), and vice versa.
+  * Models compiled for an SDK version are (generally) not compatible with another SDK version.
 
 In this guide, we'll show you how to export your models to serialized models optimized for Neuron devices.
 
@@ -167,9 +159,18 @@ Input shapes:
 
 ```
 
-In the last section, you can see some input shape options to pass for exporting static neuron model, meaning that exact shape inputs should be used during the inference as given during compilation. If you are going to use variable-size inputs, you can pad your inputs to the shape used for compilation as a workaround. If you want the batch size to be dynamic, you can pass `--dynamic-batch-size` to enable dynamic batching, which means that you will be able to use inputs with difference batch size during inference, but it comes with a potential tradeoff in terms of latency.
+### Exporting standard (non-LLM) NLP models
 
-Exporting a checkpoint can be done as follows:
+Most models present on the Hugging Face hub can be straightforwardly exported using torch trace, then converted to serialized and optimized TorchScript modules.
+
+<Tip>
+
+<img title="Compilation flow" alt="Compilation flow" src="https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/optimum/neuron/inf_compile_flow.png">
+
+**NEFF**: Neuron Executable File Format which is a binary executable on Neuron devices.
+</Tip>
+
+Exporting a standard NLP model can be done as follows:
 
 ```bash
 optimum-cli export neuron --model distilbert-base-uncased-distilled-squad --batch_size 1 --sequence_length 16 distilbert_base_uncased_squad_neuron/
@@ -196,23 +197,20 @@ optimum-cli export neuron --model local_path --task question-answering --batch_s
 
 Note that providing the `--task` argument for a model on the Hub will disable the automatic task detection. The resulting `model.neuron` file, can then be loaded and run on Neuron devices.
 
-## Exporting a model to Neuron via NeuronModel
-
-You will also be able to export your models to Neuron format with `optimum.neuron.NeuronModelForXXX` model classes. Here is an example:
+For each model architecture, you can find the list of supported tasks via the [`~exporters.tasks.TasksManager`]. For example, for DistilBERT, for the Neuron export, we have:
 
 ```python
->>> from optimum.neuron import NeuronModelForSequenceClassification
+>>> from optimum.exporters.tasks import TasksManager
+>>> from optimum.exporters.neuron.model_configs import *  # Register neuron specific configs to the TasksManager
 
->>> input_shapes = {"batch_size": 1, "sequence_length": 64}  # mandatory shapes
->>> model = NeuronModelForSequenceClassification.from_pretrained(
-...   "distilbert-base-uncased-finetuned-sst-2-english", export=True, **input_shapes
-... )
-
-# Save the model
->>> model.save_pretrained("./distilbert-base-uncased-finetuned-sst-2-english_neuron/")
+>>> distilbert_tasks = list(TasksManager.get_supported_tasks_for_model_type("distilbert", "neuron").keys())
+>>> print(distilbert_tasks)
+['feature-extraction', 'fill-mask', 'multiple-choice', 'question-answering', 'text-classification', 'token-classification']
 ```
 
-And the exported model can be used for inference directly with the `NeuronModelForXXX` class:
+You can then pass one of these tasks to the `--task` argument in the `optimum-cli export neuron` command, as mentioned above.
+
+Once exported, the neuron model can be used for inference directly with the `NeuronModelForXXX` class:
 
 ```python
 >>> from transformers import AutoTokenizer
@@ -227,7 +225,10 @@ And the exported model can be used for inference directly with the `NeuronModelF
 'POSITIVE'
 ```
 
-## Exporting Stable Diffusion to Neuron
+As you see, there is no need to pass the neuron arguments used during the export as they are
+saved in a `config.json` file, and will be restored automatically by `NeuronModelForXXX` class.
+
+### Exporting Stable Diffusion to Neuron
 
 With the Optimum CLI you can compile components in the Stable Diffusion pipeline to gain acceleration on neuron devices during the inference.
 
@@ -260,7 +261,7 @@ optimum-cli export neuron --model stabilityai/stable-diffusion-2-1-base \
   sd_neuron/
 ```
 
-## Exporting Stable Diffusion XL to Neuron
+### Exporting Stable Diffusion XL to Neuron
 
 Similar to Stable Diffusion, you will be able to use Optimum CLI to compile components in the SDXL pipeline for inference on neuron devices.
 
@@ -292,21 +293,104 @@ optimum-cli export neuron --model stabilityai/stable-diffusion-xl-base-1.0 \
   sd_neuron/
 ```
 
-## Selecting a task
+### Exporting LLM models to Neuron
 
-Specifying a `--task` should not be necessary in most cases when exporting from a model on the Hugging Face Hub.
+LLM models are not exported using Torch tracing, but converted directly to Neuron graphs into which the
+transformers checkpoint weights can be loaded.
 
-However, in case you need to check for a given a model architecture what tasks the Neuron export supports, we got you covered. First, you can check the list of supported tasks [here](https://huggingface.co/docs/optimum/exporters/task_manager#pytorch).
+Just like the standard NLP models, you need to specify static parameters when exporting an LLM model:
 
-For each model architecture, you can find the list of supported tasks via the [`~exporters.tasks.TasksManager`]. For example, for DistilBERT, for the Neuron export, we have:
+- `batch_size` is the number of input sequences that the model will accept. Defaults to 1,
+- `sequence_length` is the maximum number of tokens in an input sequence. Defaults to `max_position_embeddings` (`n_positions` for older models).
+- `auto_cast_type` specifies the format to encode the weights. It can be one of `fp32` (`float32`), `fp16` (`float16`) or `bf16` (`bfloat16`). Defaults to `fp32`.
+- `num_cores` is the number of neuron cores used when instantiating the model. Each neuron core has 16 Gb of memory, which means that
+bigger models need to be split on multiple cores. Defaults to 1,
 
-```python
->>> from optimum.exporters.tasks import TasksManager
->>> from optimum.exporters.neuron.model_configs import *  # Register neuron specific configs to the TasksManager
-
->>> distilbert_tasks = list(TasksManager.get_supported_tasks_for_model_type("distilbert", "neuron").keys())
->>> print(distilbert_tasks)
-['feature-extraction', 'fill-mask', 'multiple-choice', 'question-answering', 'text-classification', 'token-classification']
+```bash
+optimum-cli export neuron --model meta-llama/Meta-Llama-3-8B \
+  --batch_size 1 \
+  --sequence_length 4096 \
+  --auto_cast_type fp16 `# cast operations from BF16 to FP16` \
+  --num_cores 2 \
+  llama3_neuron/
 ```
 
-You can then pass one of these tasks to the `--task` argument in the `optimum-cli export neuron` command, as mentioned above.
+An important restriction is that LLM models can only be exported on Neuron platforms, as they are tailored
+to fit on the actual devices during export.
+
+<Tip>
+The export of LLM models can take much longer than standard models (sometimes more than one hour).
+</Tip>
+
+As explained before, the neuron model parameters are static.
+This means in particular that during inference:
+
+- the `batch_size` of the inputs should be lower to the `batch_size` used during export,
+- the `length` of the input sequences should be lower than the `sequence_length` used during export,
+- the maximum number of tokens (input + generated) cannot exceed the `sequence_length` used during export.
+
+Once exported, neuron mmodels can simply be reloaded using the `NeuronModelForCausalLM` class.
+As with the original transformers models, use `generate()` instead of `forward()` to generate text sequences.
+
+```diff
+from transformers import AutoTokenizer
+-from transformers import AutoModelForCausalLM
++from optimum.neuron import NeuronModelForCausalLM
+
+# Instantiate and convert to Neuron a PyTorch checkpoint
+-model = AutoModelForCausalLM.from_pretrained("gpt2")
++model = NeuronModelForCausalLM.from_pretrained("./gpt2-neuron")
+
+tokenizer = AutoTokenizer.from_pretrained("gpt2")
+tokenizer.pad_token_id = tokenizer.eos_token_id
+
+tokens = tokenizer("I really wish ", return_tensors="pt")
+with torch.inference_mode():
+    sample_output = model.generate(
+        **tokens,
+        do_sample=True,
+        min_length=128,
+        max_length=256,
+        temperature=0.7,
+    )
+    outputs = [tokenizer.decode(tok) for tok in sample_output]
+    print(outputs)
+```
+
+The generation is highly configurable. Please refer to https://huggingface.co/docs/transformers/generation_strategies for details.
+
+Please be aware that:
+
+- for each model architecture, default values are provided for all parameters, but values passed to the `generate` method will take precedence,
+- the generation parameters can be stored in a `generation_config.json` file. When such a file is present in model directory,
+it will be parsed to set the default parameters (the values passed to the `generate` method still take precedence).
+
+
+## Exporting a model to Neuron programmatically via NeuronModel
+
+As an alternative to the `optimim-cli`, you will also be able to export your models to Neuron
+inside your own python script or notebook with `optimum.neuron.NeuronModelForXXX` model classes.
+
+Here is an example:
+
+```python
+>>> from optimum.neuron import NeuronModelForSequenceClassification
+
+>>> input_shapes = {"batch_size": 1, "sequence_length": 64}  # mandatory shapes
+>>> model = NeuronModelForSequenceClassification.from_pretrained(
+...   "distilbert-base-uncased-finetuned-sst-2-english", export=True, **input_shapes
+... )
+
+# Save the model
+>>> model.save_pretrained("./distilbert-base-uncased-finetuned-sst-2-english_neuron/")
+
+# Push the neuron model to HF Hub
+>>> model.push_to_hub(  # doctest: +SKIP
+...     "a_local_path_for_compiled_neuron_model", repository_id="my-neuron-repo", use_auth_token=True
+... )
+```
+
+This example can be adapted for other model types using the same export parameters as the `optimum-cli`.
+
+
+

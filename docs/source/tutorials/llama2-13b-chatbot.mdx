@@ -33,11 +33,8 @@ For this guide, we will use the non-gated [NousResearch/Llama-2-13b-chat-hf](htt
 This model is part of the **Llama 2** family of models, and has been tuned to recognize chat interactions
 between a *user* and an *assistant* (more on that later).
 
-As explained in the [optimum-neuron documentation](https://huggingface.co/docs/optimum-neuron/guides/export_model#why-compile-to-neuron-model)
+As explained in the [optimum-neuron documentation](https://huggingface.co/docs/optimum-neuron/guides/export_model#exporting-llm-models-to-neuron)
 , models need to be compiled and exported to a serialized format before running them on Neuron devices.
-
-Fortunately, 🤗 **optimum-neuron** offers a [very simple API](https://huggingface.co/docs/optimum-neuron/guides/models#configuring-the-export-of-a-generative-model)
-to export standard 🤗 [transformers models](https://huggingface.co/docs/transformers/index) to the Neuron format.
 
 When exporting the model, we will specify two sets of parameters:
 
