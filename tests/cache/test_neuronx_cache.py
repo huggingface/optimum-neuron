@@ -126,6 +126,7 @@ def export_stable_diffusion_xl_model(model_id):
         width=width,
         num_images_per_prompt=num_images_per_prompt,
         inline_weights_to_neff=False,
+        data_parallel_mode="none",  # TODO: Remove when weights separated makesits way to a neuron sdk release.
     )
 
 
