@@ -17,14 +17,12 @@ from optimum.neuron.utils.version_utils import get_neuronxcc_version
 logger = logging.getLogger(__name__)
 
 tgi_router_env_vars = ["MAX_BATCH_SIZE", "MAX_TOTAL_TOKENS", "MAX_INPUT_LENGTH"]
-tgi_server_env_vars = ["HF_BATCH_SIZE", "HF_SEQUENCE_LENGTH", "HF_NUM_CORES", "HF_AUTO_CAST_TYPE"]
+tgi_server_env_vars = ["HF_NUM_CORES", "HF_AUTO_CAST_TYPE"]
 
 env_config_peering = [
     ("MAX_BATCH_SIZE", "batch_size"),
     ("MAX_TOTAL_TOKENS", "sequence_length"),
-    ("HF_BATCH_SIZE", "batch_size"),
     ("HF_AUTO_CAST_TYPE", "auto_cast_type"),
-    ("HF_SEQUENCE_LENGTH", "sequence_length"),
     ("HF_NUM_CORES", "num_cores"),
 ]
 
@@ -41,12 +39,8 @@ def parse_cmdline_and_set_env(argv: List[str] = None) -> argparse.Namespace:
         argv = sys.argv
     # All these are params passed to tgi and intercepted here
     parser.add_argument("--max-input-length", type=int, default=os.getenv("MAX_INPUT_LENGTH", 0))
-    parser.add_argument(
-        "--max-total-tokens", type=int, default=os.getenv("MAX_TOTAL_TOKENS", os.getenv("HF_SEQUENCE_LENGTH", 0))
-    )
-    parser.add_argument(
-        "--max-batch-size", type=int, default=os.getenv("MAX_BATCH_SIZE", os.getenv("HF_BATCH_SIZE", 0))
-    )
+    parser.add_argument("--max-total-tokens", type=int, default=os.getenv("MAX_TOTAL_TOKENS", 0))
+    parser.add_argument("--max-batch-size", type=int, default=os.getenv("MAX_BATCH_SIZE", 0))
     parser.add_argument("--model-id", type=str, default=os.getenv("MODEL_ID"))
     parser.add_argument("--revision", type=str, default=os.getenv("REVISION"))
 
@@ -62,14 +56,12 @@ def parse_cmdline_and_set_env(argv: List[str] = None) -> argparse.Namespace:
     # from the order of the parser defaults, the tgi router value can override the tgi server ones
     if args.max_total_tokens > 0:
         os.environ["MAX_TOTAL_TOKENS"] = str(args.max_total_tokens)
-        os.environ["HF_SEQUENCE_LENGTH"] = str(args.max_total_tokens)
 
     if args.max_input_length > 0:
         os.environ["MAX_INPUT_LENGTH"] = str(args.max_input_length)
 
     if args.max_batch_size > 0:
         os.environ["MAX_BATCH_SIZE"] = str(args.max_batch_size)
-        os.environ["HF_BATCH_SIZE"] = str(args.max_batch_size)
 
     if args.revision:
         os.environ["REVISION"] = str(args.revision)
@@ -184,6 +176,7 @@ def main():
     work properly
     :return:
     """
+    logging.basicConfig(level=logging.DEBUG, force=True)
     args = parse_cmdline_and_set_env()
 
     for env_var in env_vars:

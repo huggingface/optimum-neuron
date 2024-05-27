@@ -122,8 +122,6 @@ docker run -p 8080:80 \
        -v $(pwd)/data:/data \
        --device=/dev/neuron0 \
        -e HF_TOKEN=${HF_TOKEN} \
-       -e HF_BATCH_SIZE=1 \
-       -e HF_SEQUENCE_LENGTH=4096 \
        -e HF_AUTO_CAST_TYPE="fp16" \
        -e HF_NUM_CORES=2 \
        ghcr.io/huggingface/neuronx-tgi:latest \

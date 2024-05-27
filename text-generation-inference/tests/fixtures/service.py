@@ -128,7 +128,7 @@ def launcher(event_loop):
             env["HUGGING_FACE_HUB_TOKEN"] = HF_TOKEN
             env["HF_TOKEN"] = HF_TOKEN
 
-        for var in ["HF_BATCH_SIZE", "HF_SEQUENCE_LENGTH", "HF_AUTO_CAST_TYPE", "HF_NUM_CORES"]:
+        for var in ["MAX_BATCH_SIZE", "MAX_TOTAL_TOKENS", "HF_AUTO_CAST_TYPE", "HF_NUM_CORES"]:
             if var in os.environ:
                 env[var] = os.environ[var]
 

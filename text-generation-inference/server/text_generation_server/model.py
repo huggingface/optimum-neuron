@@ -13,10 +13,10 @@ from optimum.neuron.utils import get_hub_cached_entries
 
 
 def get_export_kwargs_from_env():
-    batch_size = os.environ.get("HF_BATCH_SIZE", None)
+    batch_size = os.environ.get("MAX_BATCH_SIZE", None)
     if batch_size is not None:
         batch_size = int(batch_size)
-    sequence_length = os.environ.get("HF_SEQUENCE_LENGTH", None)
+    sequence_length = os.environ.get("MAX_TOTAL_TOKENS", None)
     if sequence_length is not None:
         sequence_length = int(sequence_length)
     num_cores = os.environ.get("HF_NUM_CORES", None)
