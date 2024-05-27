@@ -49,38 +49,28 @@ When deploying a service, you will need a working Neuron model. The NeuronX TGI 
 Whenever you launch a TGI service, we highly recommend you to mount a shared volume mounted as `/data` in the container: this is where
 the models will be cached to speed up further instantiations of the service.
 
-Note also that all neuron devices have to be explicitly made visible to the container.
+Note also that enough neuron devices should be visible by the container.The simplest way to achieve that is to launch the service in `privileged` mode to get access to all neuron devices.
+Alternatively, each device can be explicitly exposed using the `--device` option.
 
-Finally, you might want to export the `HF_TOKEN` if you want to access gated repository.
+Finally, you might want to export the `HF_TOKEN` if you want to access gated repositories.
 
 Here is an example of a service instantiation:
 
 ```
 docker run -p 8080:80 \
        -v $(pwd)/data:/data \
-       --device=/dev/neuron0 \
+       --privileged \
        -e HF_TOKEN=${HF_TOKEN} \
        ghcr.io/huggingface/neuronx-tgi:latest \
        <service_parameters>
 ```
 
-If your instance has 12 neuron devices, the launch command becomes:
+If you only want to map the first device, the launch command becomes:
 
 ```
 docker run -p 8080:80 \
        -v $(pwd)/data:/data \
        --device=/dev/neuron0 \
-       --device=/dev/neuron1 \
-       --device=/dev/neuron2 \
-       --device=/dev/neuron3 \
-       --device=/dev/neuron4 \
-       --device=/dev/neuron5 \
-       --device=/dev/neuron6 \
-       --device=/dev/neuron7 \
-       --device=/dev/neuron8 \
-       --device=/dev/neuron9 \
-       --device=/dev/neuron10 \
-       --device=/dev/neuron11 \
        -e HF_TOKEN=${HF_TOKEN} \
        ghcr.io/huggingface/neuronx-tgi:latest \
        <service_parameters>
@@ -96,7 +86,7 @@ The snippet below shows how you can deploy a service from a hub neuron model:
 ```
 docker run -p 8080:80 \
        -v $(pwd)/data:/data \
-       --device=/dev/neuron0 \
+       --privileged \
        -e HF_TOKEN=${HF_TOKEN} \
        ghcr.io/huggingface/neuronx-tgi:latest \
        --model-id aws-neuron/Llama-2-7b-hf-neuron-budget \
@@ -110,7 +100,7 @@ docker run -p 8080:80 \
 
 We maintain a Neuron Model Cache of the most popular architecture and deployment parameters under [aws-neuron/optimum-neuron-cache](https://huggingface.co/aws-neuron/optimum-neuron-cache).
 
-If you just want to try the service quickly using a model that has not bee exported yet, it is thus still
+If you just want to try the service quickly using a model that has not been exported yet, it is thus still
 possible to export it dynamically, pending some conditions:
 - you must specify the export parameters when launching the service (or use default parameters),
 - the model configuration must be cached.
@@ -120,7 +110,7 @@ The snippet below shows how you can deploy a service from a hub standard model:
 ```
 docker run -p 8080:80 \
        -v $(pwd)/data:/data \
-       --device=/dev/neuron0 \
+       --privileged \
        -e HF_TOKEN=${HF_TOKEN} \
        -e HF_AUTO_CAST_TYPE="fp16" \
        -e HF_NUM_CORES=2 \
@@ -138,7 +128,7 @@ Alternatively, you can first [export the model to neuron format](https://hugging
 ```
 docker run -p 8080:80 \
        -v $(pwd)/data:/data \
-       --device=/dev/neuron0 \
+       --privileged \
        ghcr.io/huggingface/neuronx-tgi:latest \
        --model-id /data/<neuron_model_path> \
        ...
