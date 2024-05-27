@@ -13,4 +13,4 @@ ${SCRIPT_DIR}/tgi_env.py $@
 
 source $ENV_FILEPATH
 
-text-generation-launcher $@
+exec text-generation-launcher $@

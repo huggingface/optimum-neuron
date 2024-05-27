@@ -33,7 +33,7 @@ def tokenizer(request):
 def test_decode_streaming(tokenizer, input_text, generated_text):
     slot = Slot(0, tokenizer)
     request = Request(id=0, inputs=input_text)
-    slot.assign(request, GenerationConfig())
+    slot.assign(0, request, GenerationConfig())
     assert slot.cached_text == input_text
 
     inputs = tokenizer(input_text, padding="max_length", max_length=len(input_text) + 1, return_tensors="pt")
