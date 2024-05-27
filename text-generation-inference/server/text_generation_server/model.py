@@ -97,9 +97,12 @@ def fetch_model(
     export_config = NeuronModelForCausalLM.get_export_config(model_id, config, revision=revision, **export_kwargs)
     neuron_config = export_config.neuron
     if not is_cached(model_id, neuron_config):
+        hub_cache_url = "https://huggingface.co/aws-neuron/optimum-neuron-cache"
+        neuron_export_url = "https://huggingface.co/docs/optimum-neuron/main/en/guides/export_model#exporting-neuron-models-using-neuronx-tgi"
         error_msg = (
             f"No cached version found for {model_id} with {neuron_config}."
-            "You can start a discussion to request it on https://huggingface.co/aws-neuron/optimum-neuron-cache."
+            f"You can start a discussion to request it on {hub_cache_url}"
+            f"Alternatively, you can export your own neuron model as explained in {neuron_export_url}"
         )
         raise ValueError(error_msg)
     logger.warning(f"{model_id} is not a neuron model: it will be exported using cached artifacts.")
