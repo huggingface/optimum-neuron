@@ -252,6 +252,7 @@ class NeuronDecoderModel(NeuronModel):
 
         # Save the model checkpoint in a temporary directory
         checkpoint_dir = TemporaryDirectory()
+        os.chmod(checkpoint_dir.name, 0o775)
         model.save_pretrained(checkpoint_dir.name)
         return checkpoint_dir
 
