@@ -585,7 +585,7 @@ class NeuronGenerator(Generator):
             )
         else:
             logger.info("Loading model on neuron devices (this can take a few minutes).")
-            model = NeuronModelForCausalLM.from_pretrained(model_id, revision=revision)
+            model = NeuronModelForCausalLM.from_pretrained(model_id, low_cpu_mem_usage=True, revision=revision)
         end = time.time()
         logger.info(f"Model successfully loaded in {end - start:.2f} s.")
         tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision)

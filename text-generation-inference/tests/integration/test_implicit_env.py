@@ -19,9 +19,7 @@ async def tgi_service(request, launcher, neuron_model_config):
         "MAX_BATCH_SIZE",
         "MAX_INPUT_LENGTH",
         "MAX_TOTAL_TOKEN",
-        "HF_BATCH_SIZE",
         "HF_NUM_CORES",
-        "HF_SEQUENCE_LENGTH",
         "HF_AUTO_CAST_TYPE",
     ]:
         if var in os.environ:

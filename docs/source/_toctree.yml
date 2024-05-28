@@ -38,10 +38,10 @@
       title: Distributed Training
     - local: guides/export_model
       title: Export a model to Inferentia
-    - local: guides/models
-      title: Neuron models for inference
     - local: guides/pipelines
       title: Inference pipelines with AWS Neuron
+    - local: guides/neuronx_tgi
+      title: NeuronX Text-generation-inference for AWS inferentia2
     title: How-To Guides
   - sections:
     - local: benchmarks/inferentia-llama2-7b

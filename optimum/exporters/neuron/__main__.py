@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 from requests.exceptions import ConnectionError as RequestsConnectionError
-from transformers import AutoConfig, PretrainedConfig
+from transformers import AutoConfig, AutoTokenizer, PretrainedConfig
 
 from ...neuron.utils import (
     DECODER_NAME,
@@ -603,6 +603,7 @@ def main_export(
 def decoder_export(
     model_name_or_path: str,
     output: Union[str, Path],
+    trust_remote_code: Optional[bool] = None,
     **kwargs,
 ):
     from ...neuron import NeuronModelForCausalLM
@@ -611,8 +612,15 @@ def decoder_export(
     if not output.parent.exists():
         output.parent.mkdir(parents=True)
 
-    model = NeuronModelForCausalLM.from_pretrained(model_name_or_path, export=True, **kwargs)
+    model = NeuronModelForCausalLM.from_pretrained(
+        model_name_or_path, export=True, trust_remote_code=trust_remote_code, **kwargs
+    )
     model.save_pretrained(output)
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, trust_remote_code=trust_remote_code)
+        tokenizer.save_pretrained(output)
+    except Exception:
+        logger.warning(f"No tokenizer found while exporting {model_name_or_path}.")
 
 
 def main():
