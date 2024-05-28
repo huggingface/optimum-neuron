@@ -8,24 +8,24 @@
   - local: containers
     title: Optimum Containers
   - sections:
-    - local: tutorials/overview
-      title: Overview
-    - local: tutorials/notebooks
+    - local: training_tutorials/notebooks
       title: Notebooks
-    - local: tutorials/fine_tune_bert
+    - local: training_tutorials/fine_tune_bert
       title: Fine-tune BERT for Text Classification on AWS Trainium
-    - local: tutorials/stable_diffusion
-      title: Generate images with Stable Diffusion models on AWS Inferentia
-    - local: tutorials/llama2-13b-chatbot
-      title: Create your own chatbot with llama-2-13B on AWS Inferentia
-    - local: tutorials/fine_tune_llama_7b
-      title: Fine-tune Llama 2 7B on AWS Trainium
-    - local: tutorials/sentence_transformers
-      title: Sentence Transformers on AWS Inferentia
-    title: Tutorials
+    - local: training_tutorials/finetune_llm
+      title: Fine-tune Llama 3 8B on AWS Trainium
+    title: Training Tutorials
   - sections:
-    - local: guides/overview
-      title: Overview
+    - local: inference_tutorials/notebooks
+      title: Notebooks
+    - local: inference_tutorials/llama2-13b-chatbot
+      title: Create your own chatbot with llama-2-13B on AWS Inferentia
+    - local: inference_tutorials/sentence_transformers
+      title: Sentence Transformers on AWS Inferentia
+    - local: inference_tutorials/stable_diffusion
+      title: Generate images with Stable Diffusion models on AWS Inferentia
+    title: Inference Tutorials
+  - sections:
     - local: guides/setup_aws_instance
       title: Set up AWS Trainium instance
     - local: guides/sagemaker

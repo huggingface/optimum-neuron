@@ -16,6 +16,13 @@ limitations under the License.
 
 # Set up AWS Trainium instance
 
+In this guide, we will show you:
+
+1. How to create an AWS Trainium instance
+2. How to use and run Jupyter Notebooks on your instance
+
+## Create an AWS Trainium Instance
+
 The simplest way to work with AWS Trainium and Hugging Face Transformers is the [Hugging Face Neuron Deep Learning AMI](https://aws.amazon.com/marketplace/pp/prodview-gr3e6yiscria2) (DLAMI). The DLAMI comes with all required libraries pre-packaged for you, including the Neuron Drivers, Transformers, Datasets, and Accelerate.
 
 To create an EC2 Trainium instance, you can start from the console or the Marketplace. This guide will start from the [EC2 console](https://console.aws.amazon.com/ec2sp/v2/).
@@ -94,6 +101,20 @@ instance-id: i-0570615e41700a481
 +--------+--------+--------+---------+
 | 0      | 2      | 32 GB  | 00:1e.0 |
 +--------+--------+--------+---------+
+```
+
+## Configuring `Jupyter Notebook` on your AWS Trainium Instance
+
+With the instance is up and running, we can ssh into it. 
+But instead of developing inside a terminal it is also possible to use a `Jupyter Notebook` environment. We can use it for preparing our dataset and launching the training (at least when working on a single node). 
+
+For this, we need to add a port for forwarding in the `ssh` command, which will tunnel our localhost traffic to the Trainium instance.
+
+```bash
+PUBLIC_DNS="" # IP address, e.g. ec2-3-80-....
+KEY_PATH="" # local path to key, e.g. ssh/trn.pem
+
+ssh -L 8080:localhost:8080 -i ${KEY_NAME}.pem ubuntu@$PUBLIC_DNS
 ```
 
 You are done! You can now start using the Trainium accelerators with Hugging Face Transformers. Check out the [Fine-tune Transformers with AWS Trainium](./fine_tune) guide to get started.
