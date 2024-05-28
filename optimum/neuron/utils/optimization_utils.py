@@ -25,7 +25,6 @@ def get_attention_scores_sd15(self, query, key, attention_mask) -> torch.Tensor:
         query = query.float()
         key = key.float()
 
-    # og
     baddbmm_input = torch.empty(query.shape[0], query.shape[1], key.shape[1], dtype=query.dtype, device=query.device)
     beta = 0
 
