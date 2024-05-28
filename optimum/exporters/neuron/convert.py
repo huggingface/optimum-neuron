@@ -31,7 +31,7 @@ from ...neuron.utils import (
     store_compilation_config,
 )
 from ...neuron.utils.cache_utils import get_model_name_or_path
-from ...neuron.utils.hub_neuronx_cache import (
+from ...neuron.utils.hub_cache_utils import (
     ModelCacheEntry,
     build_cache_config,
     cache_traced_neuron_artifacts,
