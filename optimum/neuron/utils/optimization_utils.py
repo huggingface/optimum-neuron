@@ -17,8 +17,44 @@
 import torch
 
 
-def get_attention_scores_sd(self, query, key, attn_mask):
-    """Optimized attention for Stable Diffusion UNET."""
+def get_attention_scores_sd15(self, query, key, attention_mask) -> torch.Tensor:
+    """Optimized attention for Stable Diffusion 1.5 UNET."""
+    dtype = query.dtype
+
+    if self.upcast_attention:
+        query = query.float()
+        key = key.float()
+
+    # og
+    baddbmm_input = torch.empty(query.shape[0], query.shape[1], key.shape[1], dtype=query.dtype, device=query.device)
+    beta = 0
+
+    attention_scores = torch.baddbmm(
+        baddbmm_input,
+        query,
+        key.transpose(-1, -2),
+        beta=beta,
+        alpha=self.scale,
+    )
+    del baddbmm_input
+
+    # TODO: following line is supposed to give the same result and reduce unnecessary overhead(no attention mask)
+    # however the compiled model output is far off from the one on cpu, need to further investigate.
+    # attention_scores = self.scale * torch.bmm(query, key.transpose(-1, -2))  # -> bad perf, max diff: 5.696073055267334 (atol: 0.001)
+
+    if self.upcast_softmax:
+        attention_scores = attention_scores.float()
+
+    attention_probs = torch.nn.functional.softmax(attention_scores, dim=-1)
+    del attention_scores
+
+    attention_probs = attention_probs.to(dtype)
+
+    return attention_probs
+
+
+def get_attention_scores_sd2(self, query, key, attn_mask):
+    """Optimized attention for Stable Diffusion 2 UNET."""
     dtype = query.dtype
 
     if self.upcast_attention:

@@ -29,7 +29,8 @@ from ...neuron.utils import (
     DIFFUSION_MODEL_VAE_DECODER_NAME,
     DIFFUSION_MODEL_VAE_ENCODER_NAME,
     ENCODER_NAME,
-    get_attention_scores_sd,
+    get_attention_scores_sd2,
+    get_attention_scores_sd15,
     get_attention_scores_sdxl,
 )
 from ...utils import (
@@ -54,12 +55,7 @@ if is_diffusers_available():
     from diffusers import UNet2DConditionModel
     from diffusers.models.attention_processor import (
         Attention,
-        AttnAddedKVProcessor,
-        AttnAddedKVProcessor2_0,
         AttnProcessor,
-        AttnProcessor2_0,
-        LoRAAttnProcessor,
-        LoRAAttnProcessor2_0,
     )
 
 
@@ -357,8 +353,15 @@ def get_submodels_for_export_stable_diffusion(
     # Replace original cross-attention module with custom cross-attention module for better performance
     # For applying optimized attention score, we need to set env variable  `NEURON_FUSE_SOFTMAX=1`
     if os.environ.get("NEURON_FUSE_SOFTMAX") == "1":
-        logger.info("Applying optimized attention score computation.")
-        Attention.get_attention_scores = get_attention_scores_sdxl if is_sdxl else get_attention_scores_sd
+        if is_sdxl:
+            logger.info("Applying optimized attention score computation for sdxl.")
+            Attention.get_attention_scores = get_attention_scores_sdxl
+        elif "v1-5" in pipeline.config._name_or_path:
+            logger.info("Applying optimized attention score computation for stable diffusion 1.5.")
+            Attention.get_attention_scores = get_attention_scores_sd15
+        else:
+            logger.info("Applying optimized attention score computation for stable diffusion 2.")
+            Attention.get_attention_scores = get_attention_scores_sd2
     else:
         logger.warning(
             "You are not applying optimized attention score computation. If you want better performance, please"
@@ -380,29 +383,6 @@ def get_submodels_for_export_stable_diffusion(
     models_for_export.append((DIFFUSION_MODEL_VAE_DECODER_NAME, vae_decoder))
 
     return OrderedDict(models_for_export)
-
-
-# Using xformers or torch_2_0 can avoid overflow on float16, do not apply this unless compilation error.
-def override_diffusers_2_0_attn_processors(model):
-    for _, submodule in model.named_modules():
-        if isinstance(submodule, Attention):
-            if isinstance(submodule.processor, AttnProcessor2_0):
-                submodule.set_processor(AttnProcessor())
-            elif isinstance(submodule.processor, LoRAAttnProcessor2_0):
-                lora_attn_processor = LoRAAttnProcessor(
-                    hidden_size=submodule.processor.hidden_size,
-                    cross_attention_dim=submodule.processor.cross_attention_dim,
-                    rank=submodule.processor.rank,
-                    network_alpha=submodule.processor.to_q_lora.network_alpha,
-                )
-                lora_attn_processor.to_q_lora = copy.deepcopy(submodule.processor.to_q_lora)
-                lora_attn_processor.to_k_lora = copy.deepcopy(submodule.processor.to_k_lora)
-                lora_attn_processor.to_v_lora = copy.deepcopy(submodule.processor.to_v_lora)
-                lora_attn_processor.to_out_lora = copy.deepcopy(submodule.processor.to_out_lora)
-                submodule.set_processor(lora_attn_processor)
-            elif isinstance(submodule.processor, AttnAddedKVProcessor2_0):
-                submodule.set_processor(AttnAddedKVProcessor())
-    return model
 
 
 def check_mandatory_input_shapes(neuron_config_constructor, task, input_shapes):
