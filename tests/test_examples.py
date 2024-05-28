@@ -264,6 +264,8 @@ class ExampleTestMeta(type):
 
     def __new__(cls, name, bases, attrs, example_name=None):
         models_to_test = []
+        if not is_neuronx_distributed_available():
+            return
         if example_name is not None:
             models_to_test = _SCRIPT_TO_MODEL_MAPPING.get(example_name)
             if models_to_test is None:
@@ -281,6 +283,9 @@ class ExampleTestMeta(type):
             # )
 
             tensor_parallel_size = 2 if tp_support is not TPSupport.NONE else 1
+
+            if not ParallelizersManager.is_model_supported(model_type):
+                continue
 
             if not is_neuronx_distributed_available():
                 pp_support = False
