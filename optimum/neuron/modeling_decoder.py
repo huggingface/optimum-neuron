@@ -30,7 +30,7 @@ from transformers import AutoConfig, AutoModel, GenerationConfig
 
 from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..exporters.tasks import TasksManager
-from ..modeling_base import OptimizedModel
+from .modeling_base import NeuronModel
 from .utils import ModelCacheEntry, hub_neuronx_cache, is_transformers_neuronx_available
 from .utils.require_utils import requires_transformers_neuronx
 from .utils.version_utils import check_compiler_compatibility, get_neuronxcc_version
@@ -111,7 +111,7 @@ def get_available_cores() -> int:
     return visible_cores
 
 
-class NeuronDecoderModel(OptimizedModel):
+class NeuronDecoderModel(NeuronModel):
     """
     Base class to convert and run pre-trained transformers decoder models on Neuron devices.
 

@@ -29,7 +29,7 @@ _import_structure = {
     "hf_argparser": ["NeuronHfArgumentParser"],
     "trainers": ["NeuronTrainer", "Seq2SeqNeuronTrainer"],
     "training_args": ["NeuronTrainingArguments", "Seq2SeqNeuronTrainingArguments"],
-    "modeling_base": ["NeuronBaseModel"],
+    "modeling_traced": ["NeuronTracedModel"],
     "modeling": [
         "NeuronModelForFeatureExtraction",
         "NeuronModelForSentenceTransformers",
@@ -73,7 +73,6 @@ if TYPE_CHECKING:
         NeuronModelForSequenceClassification,
         NeuronModelForTokenClassification,
     )
-    from .modeling_base import NeuronBaseModel
     from .modeling_decoder import NeuronDecoderModel
     from .modeling_diffusion import (
         NeuronLatentConsistencyModelPipeline,
@@ -85,6 +84,7 @@ if TYPE_CHECKING:
         NeuronStableDiffusionXLPipeline,
     )
     from .modeling_seq2seq import NeuronModelForSeq2SeqLM
+    from .modeling_traced import NeuronTracedModel
     from .pipelines import pipeline
     from .trainers import NeuronTrainer, Seq2SeqNeuronTrainer
     from .training_args import NeuronTrainingArguments, Seq2SeqNeuronTrainingArguments
