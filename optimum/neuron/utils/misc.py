@@ -46,7 +46,7 @@ from .require_utils import requires_safetensors, requires_torch_xla
 
 
 if is_torch_neuronx_available():
-    from torch_neuronx.xla_impl.data_parallel import DataParallel
+    from torch_neuronx import DataParallel
 
 if TYPE_CHECKING:
     from transformers.modeling_utils import PreTrainedModel

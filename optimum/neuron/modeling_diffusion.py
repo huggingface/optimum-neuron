@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from huggingface_hub import snapshot_download
+from packaging.version import Version
 from transformers import CLIPFeatureExtractor, CLIPTokenizer, PretrainedConfig
 from transformers.modeling_outputs import ModelOutput
 
@@ -53,13 +54,14 @@ from .utils import (
     replace_weights,
     store_compilation_config,
 )
-from .utils.hub_neuronx_cache import (
+from .utils.hub_cache_utils import (
     ModelCacheEntry,
     build_cache_config,
     create_hub_compile_cache_proxy,
 )
 from .utils.require_utils import requires_torch_neuronx
 from .utils.version_utils import get_neuronxcc_version
+from .version import __sdk_version__
 
 
 if is_neuronx_available():
@@ -114,6 +116,8 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
         unet: torch.jit._script.ScriptModule,
         vae_decoder: Union[torch.jit._script.ScriptModule, "NeuronModelVaeDecoder"],
         config: Dict[str, Any],
+        configs: Dict[str, "PretrainedConfig"],
+        neuron_configs: Dict[str, "NeuronDefaultConfig"],
         tokenizer: CLIPTokenizer,
         scheduler: Union[DDIMScheduler, PNDMScheduler, LMSDiscreteScheduler, LCMScheduler],
         data_parallel_mode: str,
@@ -121,8 +125,6 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
         text_encoder_2: Optional[Union[torch.jit._script.ScriptModule, "NeuronModelTextEncoder"]] = None,
         tokenizer_2: Optional[CLIPTokenizer] = None,
         feature_extractor: Optional[CLIPFeatureExtractor] = None,
-        configs: Optional[Dict[str, "PretrainedConfig"]] = None,
-        neuron_configs: Optional[Dict[str, "NeuronDefaultConfig"]] = None,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
         model_and_config_save_paths: Optional[Dict[str, Tuple[str, Path]]] = None,
     ):
@@ -137,6 +139,10 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
             config (`Dict[str, Any]`):
                 A config dictionary from which the model components will be instantiated. Make sure to only load
                 configuration files of compatible classes.
+            configs (Dict[str, "PretrainedConfig"], defaults to `None`):
+                A dictionary configurations for components of the pipeline.
+            neuron_configs (Dict[str, "NeuronDefaultConfig"], defaults to `None`):
+                A list of Neuron configurations.
             tokenizer (`CLIPTokenizer`):
                 Tokenizer of class
                 [CLIPTokenizer](https://huggingface.co/docs/transformers/v4.21.0/en/model_doc/clip#transformers.CLIPTokenizer).
@@ -154,10 +160,6 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
                 [CLIPTokenizer](https://huggingface.co/docs/transformers/v4.21.0/en/model_doc/clip#transformers.CLIPTokenizer).
             feature_extractor (`Optional[CLIPFeatureExtractor]`, defaults to `None`):
                 A model extracting features from generated images to be used as inputs for the `safety_checker`
-            configs (Optional[Dict[str, "PretrainedConfig"]], defaults to `None`):
-                A dictionary configurations for components of the pipeline.
-            neuron_configs (Optional["NeuronDefaultConfig"], defaults to `None`):
-                A list of Neuron configurations.
             model_save_dir (`Optional[Union[str, Path, TemporaryDirectory]]`, defaults to `None`):
                 The directory under which the exported Neuron models were saved.
             model_and_config_save_paths (`Optional[Dict[str, Tuple[str, Path]]]`, defaults to `None`):
@@ -274,6 +276,7 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
         vae_encoder_path: Optional[Union[str, Path]] = None,
         text_encoder_2_path: Optional[Union[str, Path]] = None,
         dynamic_batch_size: bool = False,
+        to_neuron: bool = False,
     ):
         """
         Loads Stable Diffusion TorchScript modules compiled by neuron(x)-cc compiler. It will be first loaded onto CPU and then moved to
@@ -295,6 +298,8 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
                 Path of the compiled second frozen text encoder. SDXL only.
             dynamic_batch_size (`bool`, defaults to `False`):
                 Whether enable dynamic batch size for neuron compiled model. If `True`, the input batch size can be a multiple of the batch size during the compilation.
+            to_neuron (`bool`, defaults to `False`):
+                Whether to move manually the traced model to NeuronCore. It's only needed when `inline_weights_to_neff=False`, otherwise it is loaded automatically to a Neuron device.
         """
         submodels = {
             "text_encoder": text_encoder_path,
@@ -303,12 +308,25 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
             "vae_encoder": vae_encoder_path,
             "text_encoder_2": text_encoder_2_path,
         }
+        # DataParallel class to use (to remove after neuron sdk 2.20)
+        if to_neuron:
+            if Version(__sdk_version__) >= Version("2.20.0"):
+                raise NameError(
+                    "`WeightSeparatedDataParallel` class should be deprecated when neuron sdk 2.20 is out. Please replace it with `torch_neuronx.DataParallel`."
+                )
+            dp_cls = WeightSeparatedDataParallel
+        else:
+            dp_cls = torch_neuronx.DataParallel
+
         if data_parallel_mode == "all":
             logger.info("Loading the whole pipeline into both Neuron Cores...")
             for submodel_name, submodel_path in submodels.items():
                 if submodel_path is not None and submodel_path.is_file():
-                    submodels[submodel_name] = torch_neuronx.DataParallel(
-                        torch.jit.load(submodel_path),
+                    submodel = NeuronTracedModel.load_model(
+                        submodel_path, to_neuron=False
+                    )  # No need to load to neuron manually when dp
+                    submodels[submodel_name] = dp_cls(
+                        submodel,
                         [0, 1],
                         set_dynamic_batching=dynamic_batch_size,
                     )
@@ -319,11 +337,14 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
             submodels.pop("unet")
             for submodel_name, submodel_path in submodels.items():
                 if submodel_path is not None and submodel_path.is_file():
-                    submodels[submodel_name] = NeuronTracedModel.load_model(submodel_path)
+                    submodels[submodel_name] = NeuronTracedModel.load_model(submodel_path, to_neuron=to_neuron)
                 else:
                     submodels[submodel_name] = None
-            submodels["unet"] = torch_neuronx.DataParallel(
-                torch.jit.load(unet_path),
+            unet = NeuronTracedModel.load_model(
+                unet_path, to_neuron=False
+            )  # No need to load to neuron manually when dp
+            submodels["unet"] = dp_cls(
+                unet,
                 [0, 1],
                 set_dynamic_batching=dynamic_batch_size,
             )
@@ -331,7 +352,9 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
             logger.info("Loading the pipeline without any data parallelism...")
             for submodel_name, submodel_path in submodels.items():
                 if submodel_path is not None and submodel_path.is_file():
-                    submodels[submodel_name] = NeuronTracedModel.load_model(submodel_path)
+                    submodels[submodel_name] = NeuronTracedModel.load_model(submodel_path, to_neuron=to_neuron)
+                else:
+                    submodels[submodel_name] = None
         else:
             raise ValueError("You need to pass `data_parallel_mode` to define Neuron Core allocation.")
 
@@ -524,6 +547,10 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
                 model_config = DiffusersPretrainedConfig.from_json_file(file_paths[1])
                 configs[name] = model_config
                 neuron_configs[name] = cls._neuron_config_init(model_config)
+        inline_weights_to_neff = all(
+            neuron_config._config.neuron.get("inline_weights_to_neff", False)
+            for _, neuron_config in neuron_configs.items()
+        )
 
         if data_parallel_mode is None:
             data_parallel_mode = cls.set_default_dp_mode(configs["unet"])
@@ -536,6 +563,7 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
             vae_encoder_path=model_and_config_save_paths["vae_encoder"][0] if vae_encoder is None else None,
             text_encoder_2_path=model_and_config_save_paths["text_encoder_2"][0] if text_encoder_2 is None else None,
             dynamic_batch_size=neuron_configs[DIFFUSION_MODEL_UNET_NAME].dynamic_batch_size,
+            to_neuron=not inline_weights_to_neff,
         )
 
         if model_save_dir is None:
@@ -745,7 +773,7 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
                     optlevel=optlevel,
                     model_type=getattr(neuron_config, "MODEL_TYPE", None),
                     task=getattr(neuron_config, "task", None),
-                    output_hidden_states=output_hidden_states,
+                    output_hidden_states=getattr(neuron_config, "output_hidden_states", False),
                 )
                 compilation_configs[name] = compilation_config
 
@@ -1046,3 +1074,35 @@ class NeuronStableDiffusionXLInpaintPipeline(
     NeuronStableDiffusionXLPipelineBase, NeuronStableDiffusionXLInpaintPipelineMixin
 ):
     __call__ = NeuronStableDiffusionXLInpaintPipelineMixin.__call__
+
+
+if is_neuronx_available():
+    # TO REMOVE: This class will be included directly in the DDP API of Neuron SDK 2.20
+    class WeightSeparatedDataParallel(torch_neuronx.DataParallel):
+
+        def _load_modules(self, module):
+            try:
+                self.device_ids.sort()
+
+                loaded_modules = [module]
+                # If device_ids is non-consecutive, perform deepcopy's and load onto each core independently.
+                for i in range(len(self.device_ids) - 1):
+                    loaded_modules.append(copy.deepcopy(module))
+                for i, nc_index in enumerate(self.device_ids):
+                    torch_neuronx.experimental.placement.set_neuron_cores(loaded_modules[i], nc_index, 1)
+                    torch_neuronx.move_trace_to_device(loaded_modules[i], nc_index)
+
+            except ValueError as err:
+                self.dynamic_batching_failed = True
+                logger.warning(f"Automatic dynamic batching failed due to {err}.")
+                logger.warning(
+                    "Please disable dynamic batching by calling `disable_dynamic_batching()` "
+                    "on your DataParallel module."
+                )
+            self.num_workers = 2 * len(loaded_modules)
+            return loaded_modules
+
+else:
+
+    class WeightSeparatedDataParallel:
+        pass

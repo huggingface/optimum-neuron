@@ -38,7 +38,7 @@ from .utils import (
     replace_weights,
     store_compilation_config,
 )
-from .utils.hub_neuronx_cache import ModelCacheEntry, build_cache_config, create_hub_compile_cache_proxy
+from .utils.hub_cache_utils import ModelCacheEntry, build_cache_config, create_hub_compile_cache_proxy
 from .utils.import_utils import is_neuronx_available
 from .utils.misc import maybe_load_preprocessors
 from .utils.version_utils import check_compiler_compatibility, get_neuroncc_version, get_neuronxcc_version
@@ -54,6 +54,8 @@ if is_neuron_available():
     NEURON_COMPILER_VERSION = get_neuroncc_version()
 
 if is_neuronx_available():
+    from torch_neuronx import move_trace_to_device
+
     NEURON_COMPILER_TYPE = "neuronx-cc"
     NEURON_COMPILER_VERSION = get_neuronxcc_version()
 
@@ -100,12 +102,14 @@ class NeuronTracedModel(NeuronModel):
         self.model = model
         self.model_file_name = model_file_name or NEURON_FILE_NAME
         self.config = config
-        self.neuron_config = self._neuron_config_init(self.config) if neuron_config is None else neuron_config
+        self.neuron_config = neuron_config
         self.input_static_shapes = NeuronTracedModel.get_input_static_shapes(self.neuron_config)
         self._attributes_init(model_save_dir, preprocessors, **kwargs)
 
     @staticmethod
-    def load_model(path: Union[str, Path]) -> torch.jit._script.ScriptModule:
+    def load_model(
+        path: Union[str, Path], to_neuron: bool = False, device_id: int = 0
+    ) -> torch.jit._script.ScriptModule:
         """
         Loads a TorchScript module compiled by neuron(x)-cc compiler. It will be first loaded onto CPU and then moved to
         one or multiple [NeuronCore](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/neuroncores-arch.html).
@@ -113,12 +117,19 @@ class NeuronTracedModel(NeuronModel):
         Args:
             path (`Union[str, Path]`):
                 Path of the compiled model.
+            to_neuron (`bool`, defaults to `False`):
+                Whether to move manually the traced model to NeuronCore. It's only needed when `inline_weights_to_neff=False`, otherwise it is loaded automatically to a Neuron device.
+            device_id (`int`, defaults to 0):
+                Index of NeuronCore to load the traced model to.
         """
         if not isinstance(path, Path):
             path = Path(path)
 
         if path.is_file():
             model = torch.jit.load(path)
+            # For non-inlined models, send the module manually to device. This is important for weights/neff non-inlined module since when loading the module, the neff is automatically moved to Neuron but not the weights. We need to move the weights to Neuron as well manually to avoid great host to device IO penalty.
+            if is_neuronx_available() and to_neuron:
+                move_trace_to_device(model, device_id)
             return model
 
     def replace_weights(self, weights: Optional[Union[Dict[str, torch.Tensor], torch.nn.Module]] = None):
@@ -186,9 +197,13 @@ class NeuronTracedModel(NeuronModel):
             model_compiler_version = config.neuron.get("compiler_version")
             check_compiler_compatibility(model_compiler_type, model_compiler_version)
 
+        # reconstruct neuron config
+        neuron_config = cls._neuron_config_init(config) if neuron_config is None else neuron_config
+        inline_weights_to_neff = config.neuron.get("inline_weights_to_neff", False)
+
         preprocessors = None
         if model_path.is_dir():
-            model = NeuronTracedModel.load_model(model_path / file_name)
+            model = NeuronTracedModel.load_model(model_path / file_name, to_neuron=not inline_weights_to_neff)
             new_model_save_dir = model_path
         else:
             model_cache_path = hf_hub_download(
@@ -202,7 +217,7 @@ class NeuronTracedModel(NeuronModel):
                 local_files_only=local_files_only,
             )
 
-            model = NeuronTracedModel.load_model(model_cache_path)
+            model = NeuronTracedModel.load_model(model_cache_path, to_neuron=not inline_weights_to_neff)
             new_model_save_dir = Path(model_cache_path).parent
 
         preprocessors = maybe_load_preprocessors(model_id, subfolder=subfolder)
@@ -608,7 +623,7 @@ class NeuronTracedModel(NeuronModel):
         """
         Whether the Neuron model has separated weights and neff graph (by setting `inline_weights_to_neff=False` during the compilation).
         """
-        return not self.config.neuron.get("inline_weights_to_neff", True)
+        return not self.config.neuron.get("inline_weights_to_neff")
 
     def can_generate(self) -> bool:
         """
