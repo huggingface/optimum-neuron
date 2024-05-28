@@ -245,6 +245,11 @@ Once exported, the neuron model can be used for inference directly with the `Neu
 As you see, there is no need to pass the neuron arguments used during the export as they are
 saved in a `config.json` file, and will be restored automatically by `NeuronModelForXXX` class.
 
+<Tip>
+Be careful, inputs are always padded to the shapes used for the compilation, and the padding brings computation overhead.
+Adjust the static shapes to be higher than the shape of the inputs that you will feed into the model during the inference, but not much more.
+</Tip>
+
 ### Exporting Stable Diffusion to Neuron
 
 With the Optimum CLI you can compile components in the Stable Diffusion pipeline to gain acceleration on neuron devices during the inference.
