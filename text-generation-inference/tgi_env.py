@@ -176,7 +176,6 @@ def main():
     work properly
     :return:
     """
-    logging.basicConfig(level=logging.DEBUG, force=True)
     args = parse_cmdline_and_set_env()
 
     for env_var in env_vars:
