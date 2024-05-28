@@ -263,6 +263,8 @@ class ExampleTestMeta(type):
     """
 
     def __new__(cls, name, bases, attrs, example_name=None):
+        if not is_neuronx_distributed_available():
+            return
         models_to_test = []
         if example_name is not None:
             models_to_test = _SCRIPT_TO_MODEL_MAPPING.get(example_name)
@@ -280,12 +282,9 @@ class ExampleTestMeta(type):
             #     model_type, model_name_or_path, 1, True, True, config_overrides
             # )
 
-            if not is_neuronx_distributed_available():
-                tensor_parallel_size = pipeline_parallel_size = 1
-            else:
-                is_tp_supported, _, is_pp_supported = ParallelizersManager.is_model_supported(model_type)
-                tensor_parallel_size = 2 if is_tp_supported else 1
-                pipeline_parallel_size = 4 if is_pp_supported else 1
+            is_tp_supported, _, is_pp_supported = ParallelizersManager.is_model_supported(model_type)
+            tensor_parallel_size = 2 if is_tp_supported else 1
+            pipeline_parallel_size = 4 if is_pp_supported else 1
 
             disable_embedding_parallelization = tp_support is TPSupport.PARTIAL
             if tensor_parallel_size > 1:
