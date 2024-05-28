@@ -159,7 +159,7 @@ Input shapes:
 
 ```
 
-### Exporting standard (non-LLM) NLP models
+### Exporting standard (non-LLM) models
 
 Most models present on the Hugging Face hub can be straightforwardly exported using torch trace, then converted to serialized and optimized TorchScript modules.
 
@@ -170,13 +170,30 @@ Most models present on the Hugging Face hub can be straightforwardly exported us
 **NEFF**: Neuron Executable File Format which is a binary executable on Neuron devices.
 </Tip>
 
+When exporting a model, two sets of export arguments must be passed:
+
+- `compiler_args` are optional arguments for the compiler, these arguments usually control how the compiler makes tradeoff between the inference performance (latency and throughput) and the accuracy,
+- `input_shapes` are mandatory static shape information that you need to send to the neuron compiler.
+
+Please type the following command to see all export parameters:
+
+```bash
+optimum-cli export neuron -h
+```
+
 Exporting a standard NLP model can be done as follows:
 
 ```bash
-optimum-cli export neuron --model distilbert-base-uncased-distilled-squad --batch_size 1 --sequence_length 16 distilbert_base_uncased_squad_neuron/
+optimum-cli export neuron --model distilbert-base-uncased-distilled-squad \
+                          --batch_size 1 --sequence_length 16 \
+                          --auto_cast matmul --auto_cast_type fp16 \
+                          distilbert_base_uncased_squad_neuron/
 ```
 
-You should see the following logs which validate the model on Neuron devices by comparing with PyTorch model on CPU:
+Here the model was exported with a static input shape of `(1, 16)`, and with compiler arguments specifying
+that matmul operation must be performed with `float16` precision for faster inference.
+
+After export, you should see the following logs which validate the model on Neuron devices by comparing with PyTorch model on CPU:
 
 ```bash
 Validating Neuron model...
