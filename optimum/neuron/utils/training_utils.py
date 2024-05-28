@@ -14,7 +14,7 @@
 # limitations under the License.
 """Training utilities"""
 
-from typing import TYPE_CHECKING, List, Optional, Type, Union
+from typing import TYPE_CHECKING, List, Optional, Type, Union, Any
 
 import torch
 import transformers
@@ -46,6 +46,7 @@ from ...utils.logging import set_verbosity as set_verbosity_optimum
 from ..generation import GeneralNeuronGenerationMixin, NeuronGenerationMixin
 from . import is_neuronx_distributed_available
 from .require_utils import requires_neuronx_distributed, requires_torch_xla
+from .patching import replace_class_in_inheritance_hierarchy
 
 
 if is_neuronx_distributed_available():
@@ -140,25 +141,7 @@ def patch_generation_mixin_to_neuron_generation_mixin(
     Changes the vanilla `GenerationMixin` class from Transformers to `neuron_generation_mixin_cls` in the model's
     inheritance. This allows to make the model Neuron-compatible for generation without much hassle.
     """
-    to_visit = [model.__class__]
-    should_stop = False
-    while to_visit and not should_stop:
-        cls = to_visit.pop(0)
-        if cls is object:
-            continue
-        bases = cls.__bases__
-        new_bases = []
-        for base in bases:
-            to_visit.append(base)
-            if base == GenerationMixin:
-                new_bases.append(neuron_generation_mixin_cls)
-                should_stop = True
-            elif base == neuron_generation_mixin_cls:
-                should_stop = True
-                new_bases.append(base)
-            else:
-                new_bases.append(base)
-        cls.__bases__ = tuple(new_bases)
+    return replace_class_in_inheritance_hierarchy(model, GenerationMixin, neuron_generation_mixin_cls)
 
 
 def patch_generation_mixin_to_general_neuron_generation_mixin(model: "PreTrainedModel"):

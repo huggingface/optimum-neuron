@@ -59,7 +59,13 @@ from transformers.trainer_utils import (
     has_length,
     speed_metrics,
 )
-from transformers.utils import WEIGHTS_NAME, is_accelerate_available, is_apex_available, is_sagemaker_mp_enabled
+from transformers.utils import (
+    WEIGHTS_NAME,
+    is_accelerate_available,
+    is_apex_available,
+    is_peft_available,
+    is_sagemaker_mp_enabled,
+)
 
 from ..utils import logging
 from .accelerate import NeuronAccelerator, NeuronDistributedType
@@ -518,8 +524,15 @@ class AugmentTrainerForNeuronMixin:
                 num_local_ranks_per_step=self.accelerator.state.mp_plugin.num_local_ranks_per_step,
             )
         else:
-            if not isinstance(self.model, PreTrainedModel):
-                if isinstance(unwrap_model(self.model), PreTrainedModel):
+            if is_peft_available():
+                from peft import PeftModel
+
+                supported_classes = (PreTrainedModel, PeftModel)
+            else:
+                supported_classes = (PreTrainedModel,)
+
+            if not isinstance(self.model, supported_classes):
+                if isinstance(unwrap_model(self.model), supported_classes):
                     unwrap_model(self.model).save_pretrained(
                         output_dir,
                         is_main_process=self.args.should_save,

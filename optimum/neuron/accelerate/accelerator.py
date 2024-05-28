@@ -30,6 +30,7 @@ from accelerate import Accelerator
 from accelerate.checkpointing import save_accelerator_state, save_custom_state
 from accelerate.utils import AutocastKwargs, DistributedType
 from accelerate.utils.operations import gather_object, recursively_apply
+from transformers import PreTrainedModel
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
@@ -66,8 +67,6 @@ from .utils.operations import _xla_gather
 
 
 if TYPE_CHECKING:
-    from transformers import PreTrainedModel
-
     try:
         from torch.optim.lr_scheduler import LRScheduler
     except ImportError:
@@ -341,7 +340,7 @@ class NeuronAccelerator(Accelerator):
             ),
         )
 
-        if hasattr(model, "save_pretrained"):
+        if isinstance(model, PreTrainedModel):
             patching_specs.append(
                 (
                     "save_pretrained",
