@@ -38,7 +38,7 @@ docker run <system_parameters> ghcr.io/huggingface/neuronx-tgi:latest <service_p
 - system parameters are used to map ports, volumes and devices between the host and the service,
 - service parameters are forwarded to the `text-generation-launcher`.
 
-When deploying a service, you will need a working Neuron model. The NeuronX TGI service supports two main modes of operation:
+When deploying a service, you will need a pre-compiled Neuron model. The NeuronX TGI service supports two main modes of operation:
 
 - you can either deploy the service on a model that has already been exported to Neuron,
 - or alternatively you can take advantage of the Neuron Model Cache to export your own model.
