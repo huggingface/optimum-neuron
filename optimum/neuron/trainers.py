@@ -93,9 +93,6 @@ from .utils.version_utils import get_neuronxcc_version
 if is_apex_available():
     from apex import amp
 
-if is_sagemaker_mp_enabled():
-    pass
-
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
     import torch_xla.debug.metrics as met
@@ -179,23 +176,6 @@ class AugmentTrainerForNeuronMixin:
     def prepare_for_precompilation(self, args: "TrainingArguments"):
         if not is_precompilation():
             return
-
-        # `neuron_parallel_compile` relies on the logs to retrieve the HLO graphs to compile.
-        # For some reason, the logger logs strange characters that make `neuron_parallel_compile` fail when it tries to
-        # load the log file to extract the graphs to compile. To avoid that, we disable logging when doing
-        # precompilation.
-        std_logging = logging.logging  # The standard library logging module.
-
-        def filter(logger_name: str) -> bool:
-            libraries = ["datasets", "transformers", "accelerate", "optimum"]
-            return any(logger_name.startswith(lib_name) for lib_name in libraries)
-
-        loggers = [std_logging.getLogger(name) for name in std_logging.root.manager.loggerDict if filter(name)]
-        # for l in loggers:
-        #     l.setLevel(std_logging.CRITICAL)
-
-        # We disable tqdm as well just to be safe.
-        # args.disable_tqdm = True
 
         if args.num_train_epochs != 1:
             if is_main_worker():
@@ -347,9 +327,6 @@ class AugmentTrainerForNeuronMixin:
     def create_optimizer(self):
         return super().create_optimizer()
 
-    def log(self, logs: Dict[str, float]):
-        return super().log(logs)
-
     def _prepare_input(self, data: Union[torch.Tensor, Any]) -> Union[torch.Tensor, Any]:
         # When pipeline parallelism is enabled, we should not put any tensor on device.
         # It is handled by the NxDPPModel class.
@@ -412,7 +389,7 @@ class AugmentTrainerForNeuronMixin:
                 loss = loss.detach()
             output = loss / self.args.gradient_accumulation_steps
         else:
-            output =  super().training_step(model, inputs)
+            output = super().training_step(model, inputs)
         return output
 
     @requires_neuronx_distributed
@@ -438,78 +415,34 @@ class AugmentTrainerForNeuronMixin:
             return (loss, None, None)
         return super().prediction_step(model, inputs, prediction_loss_only, ignore_keys=ignore_keys)
 
-
     def _reduce_loss(self, tr_loss: torch.Tensor) -> torch.Tensor:
-            from neuronx_distributed.parallel_layers.parallel_state import (
-                get_data_parallel_group,
-                get_data_parallel_size,
-                model_parallel_is_initialized,
-            )
+        from neuronx_distributed.parallel_layers.parallel_state import (
+            get_data_parallel_group,
+            get_data_parallel_size,
+            model_parallel_is_initialized,
+        )
 
-            if model_parallel_is_initialized():
-                dp_size = get_data_parallel_size()
-            else:
-                dp_size = xm.xrt_world_size()
+        if model_parallel_is_initialized():
+            dp_size = get_data_parallel_size()
+        else:
+            dp_size = xm.xrt_world_size()
 
-            tr_loss_div = tr_loss / dp_size
+        tr_loss_div = tr_loss / dp_size
 
-            if self.args.mp_plugin.should_parallelize:
-                # It works even for PP because under PP we make it so that the main process to log for callbacks is
-                # the one on dp_rank = tp_rank = 0 and pp_rank = pp_size -1.
-                reduced_tr_loss = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_group(as_list=True))
-            else:
-                reduced_tr_loss = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div)
+        if self.args.mp_plugin.should_parallelize:
+            # It works even for PP because under PP we make it so that the main process to log for callbacks is
+            # the one on dp_rank = tp_rank = 0 and pp_rank = pp_size -1.
+            reduced_tr_loss = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_group(as_list=True))
+        else:
+            reduced_tr_loss = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div)
 
-            # reset tr_loss to zero
-            tr_loss.zero_()
+        # reset tr_loss to zero
+        tr_loss.zero_()
 
-            return reduced_tr_loss
-
+        return reduced_tr_loss
 
     def _maybe_log_save_evaluate(self, tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval):
         if self.control.should_log and self.state.global_step > self._globalstep_last_logged:
-            logs: Dict[str, float] = {}
-
-            # from neuronx_distributed.parallel_layers.parallel_state import (
-            #     get_data_parallel_group,
-            #     get_data_parallel_size,
-            #     model_parallel_is_initialized,
-            # )
-
-            # if model_parallel_is_initialized():
-            #     dp_size = get_data_parallel_size()
-            # else:
-            #     dp_size = xm.xrt_world_size()
-
-            # tr_loss_div = tr_loss / dp_size
-
-            # if self.args.mp_plugin.should_parallelize:
-            #     # It works even for PP because under PP we make it so that the main process to log for callbacks is
-            #     # the one on dp_rank = tp_rank = 0 and pp_rank = pp_size -1.
-            #     tr_loss_div = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_group(as_list=True))
-            #     # tr_loss_scalar = tr_loss_div.detach().clone()
-            # else:
-            #     tr_loss_div = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div)
-            #     # tr_loss_scalar = tr_loss.detach().clone()
-
-            # reset tr_loss to zero
-            # tr_loss.zero_()
-
-
-            # tr_loss_scalar = tr_loss_scalar.to("cpu").item()
-
-            # logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
-            # logs["learning_rate"] = self._get_learning_rate()
-
-            # if grad_norm is not None:
-            #     logs["grad_norm"] = grad_norm.detach().to("cpu").item() if isinstance(grad_norm, torch.Tensor) else grad_norm
-
-            # self._total_loss_scalar += tr_loss_scalar
-            # self._globalstep_last_logged = self.state.global_step
-            # self.store_flos()
-
-            # if is_main_worker_for_metrics():
-            #     self.log(logs)
 
             def log_closure(self, tr_loss, grad_norm):
                 if is_main_worker_for_metrics():
@@ -520,12 +453,13 @@ class AugmentTrainerForNeuronMixin:
                     logs["learning_rate"] = self._get_learning_rate()
 
                     if grad_norm is not None:
-                        logs["grad_norm"] = grad_norm.detach().to("cpu").item() if isinstance(grad_norm, torch.Tensor) else grad_norm
+                        logs["grad_norm"] = (
+                            grad_norm.detach().to("cpu").item() if isinstance(grad_norm, torch.Tensor) else grad_norm
+                        )
 
                     self._total_loss_scalar += tr_loss_scalar
                     self._globalstep_last_logged = self.state.global_step
                     self.store_flos()
-
                     self.log(logs)
 
             xm.add_step_closure(log_closure, (self, tr_loss, grad_norm))
@@ -543,12 +477,11 @@ class AugmentTrainerForNeuronMixin:
                 self.lr_scheduler.step(metrics[metric_to_check])
 
         if self.control.should_save:
-            # self._save_checkpoint(model, trial, metrics=metrics)
-            # self.control = self.callback_handler.on_save(self.args, self.state, self.control)
 
             def save_closure(self, model, trial, metrics):
                 self._save_checkpoint(model, trial, metrics=metrics)
                 self.control = self.callback_handler.on_save(self.args, self.state, self.control)
+
             xm.add_step_closure(save_closure, (self, model, trial, metrics))
 
     def _save_xla(self, output_dir: Optional[str] = None):
@@ -1101,7 +1034,9 @@ class AugmentTrainerForNeuronMixin:
                     self.control = self.callback_handler.on_step_end(args, self.state, self.control)
 
                     reduced_tr_loss = self._reduce_loss(tr_loss)
-                    self._maybe_log_save_evaluate(reduced_tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval)
+                    self._maybe_log_save_evaluate(
+                        reduced_tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval
+                    )
                 else:
                     self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
 
@@ -1475,12 +1410,6 @@ class AugmentTrainerForNeuronMixin:
         if not is_precompilation():
             self.synchronize_hub_cache()
         return result
-
-    @patch_within_function(("transformers.Trainer.is_world_process_zero", is_main_worker_for_metrics_method))
-    def log_metrics(self, split, metrics):
-        # if is_precompilation():
-        #     return
-        return super().log_metrics(split, metrics)
 
     @patch_within_function(("transformers.Trainer.is_world_process_zero", is_main_worker_for_metrics_method))
     def save_metrics(self, split, metrics, combined=True):

@@ -15,8 +15,8 @@
 """Utilities of various sorts related to accelerate with Neuron."""
 
 import functools
-import inspect
 import gc
+import inspect
 from typing import TYPE_CHECKING, Callable, Dict, Optional, Union
 
 import torch
@@ -195,6 +195,8 @@ def tie_parameters(model: Union["torch.nn.Module", "NxDPPModel"], tied_parameter
             setattr(param_to_tie_parent_module, param_to_tie_name[1], param)
 
 
+# TODO: @michaelbenayoun
+# Needs to make it work in the general case or be deleted and only use `apply_activation_checkpointing`.
 @requires_torch_xla
 def patched_gradient_checkpointing_enable(self, gradient_checkpointing_kwargs=None):
     from torch_xla.utils.checkpoint import checkpoint
@@ -227,6 +229,7 @@ def patched_gradient_checkpointing_enable(self, gradient_checkpointing_kwargs=No
         # the gradients to make sure the gradient flows.
         self.enable_input_require_grads()
 
+
 @requires_neuronx_distributed
 def apply_activation_checkpointing(model: Union["PreTrainedModel", "NxDPPModel"]):
     from neuronx_distributed.pipeline import NxDPPModel
@@ -243,6 +246,8 @@ def apply_activation_checkpointing(model: Union["PreTrainedModel", "NxDPPModel"]
     for module in modules:
         if isinstance(module, torch.nn.ModuleList):
             for mod in module:
+                # TODO: @michaelbenayoun. Need to find a better way to identify the blocks to apply gradient
+                # checkpointing to.
                 if "Layer" in mod.__class__.__name__ or "Block" in mod.__class__.__name__:
                     gradient_checkpointing_modules.add(mod)
 

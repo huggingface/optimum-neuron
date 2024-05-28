@@ -57,7 +57,11 @@ from .utils import (
     patch_accelerate_is_torch_xla_available,
     tie_parameters,
 )
-from .utils.misc import apply_activation_checkpointing, create_patched_finfo, create_patched_save_pretrained, patched_gradient_checkpointing_enable
+from .utils.misc import (
+    apply_activation_checkpointing,
+    create_patched_finfo,
+    create_patched_save_pretrained,
+)
 from .utils.operations import _xla_gather
 
 
@@ -132,6 +136,8 @@ class NeuronAccelerator(Accelerator):
         if not isinstance(autocast_backend, AutocastBackend):
             autocast_backend = AutocastBackend(autocast_backend)
 
+        # The original `is_torch_xla_available` function is checking for TPU or GPU in `accelerate`.
+        # Here, we patch it to return True for Neuron cores as well.
         def patched_is_torch_xla_available(check_is_tpu: bool = False, check_is_gpu: bool = False) -> bool:
             return is_torch_xla_available()
 
@@ -342,13 +348,18 @@ class NeuronAccelerator(Accelerator):
                     DynamicPatch(create_patched_save_pretrained),
                 ),
             )
-        if hasattr(model, "gradient_checkpointing_enable"):
-            patching_specs.append(
-                (
-                    "gradient_checkpointing_enable",
-                    patched_gradient_checkpointing_enable,
-                ),
-            )
+
+        # TODO: @michaelbenayoun generalize an implementation of gradient checkpointing working for:
+        #   - DDP
+        #   - TP
+        #   - PP
+        # if hasattr(model, "gradient_checkpointing_enable"):
+        #     patching_specs.append(
+        #         (
+        #             "gradient_checkpointing_enable",
+        #             patched_gradient_checkpointing_enable,
+        #         ),
+        #     )
 
         prepared_patching_specs = []
         for spec in patching_specs:
@@ -446,7 +457,6 @@ class NeuronAccelerator(Accelerator):
             if getattr(mod, "gradient_checkpointing", False):
                 should_apply_activation_checkpointing = True
                 model.gradient_checkpointing_disable()
-              
 
         # It is needed for now otherwise sdpa is used since PT > 2.* is available.
         for module in model.modules():
