@@ -404,7 +404,7 @@ def export_models(
     logger.info(f"[Total compilation Time] {np.round(total_compilation_time, 2)} seconds.")
 
     # cache neuronx model
-    if not disable_neuron_cache and is_neuronx_available() and not inline_weights_to_neff:
+    if not disable_neuron_cache and is_neuronx_available():
         model_id = get_model_name_or_path(model_config) if model_name_or_path is None else model_name_or_path
         cache_config = build_cache_config(compile_configs)
         cache_entry = ModelCacheEntry(model_id=model_id, config=cache_config)
