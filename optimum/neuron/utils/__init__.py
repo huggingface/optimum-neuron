@@ -49,7 +49,11 @@ _import_structure = {
         "is_precompilation",
         "replace_weights",
     ],
-    "optimization_utils": ["get_attention_scores_sd", "get_attention_scores_sdxl"],
+    "optimization_utils": [
+        "get_attention_scores_sd2",
+        "get_attention_scores_sd15",
+        "get_attention_scores_sdxl",
+    ],
     "patching": [
         "DynamicPatch",
         "ModelPatcher",
@@ -96,7 +100,11 @@ if TYPE_CHECKING:
         is_precompilation,
         replace_weights,
     )
-    from .optimization_utils import get_attention_scores_sd, get_attention_scores_sdxl
+    from .optimization_utils import (
+        get_attention_scores_sd2,
+        get_attention_scores_sd15,
+        get_attention_scores_sdxl,
+    )
     from .patching import (
         DynamicPatch,
         ModelPatcher,
