@@ -30,9 +30,9 @@ from accelerate import Accelerator
 from accelerate.checkpointing import save_accelerator_state, save_custom_state
 from accelerate.utils import AutocastKwargs, DistributedType
 from accelerate.utils.operations import gather_object, recursively_apply
-from transformers import PreTrainedModel
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
+from transformers import PreTrainedModel
 
 from ...utils import logging
 from ..distributed import Parallelizer, ParallelizersManager

@@ -15,7 +15,6 @@
 """Utilities for tests distributed."""
 
 import inspect
-from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 import torch
@@ -39,7 +38,6 @@ from transformers.models.auto.modeling_auto import (
     MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING_NAMES,
 )
 
-from optimum.neuron import ModelParallelismPlugin, NeuronAccelerator
 from optimum.neuron.utils.require_utils import requires_neuronx_distributed, requires_torch_xla
 
 
@@ -258,28 +256,3 @@ def get_model_inputs(
                 )
                 inputs[name] = tensor
     return inputs
-
-
-def create_accelerator_for_mp(
-    tp_size: int,
-    pp_size: int,
-    zero_1: bool = False,
-    gradient_accumulation_steps: int = 1,
-    parallelize_embeddings: bool = True,
-    sequence_parallel_enabled: bool = True,
-    kv_size_multiplier: Optional[int] = None,
-    checkpoint_dir: Optional[Union[Path, str]] = None,
-    use_xser: bool = True,
-) -> NeuronAccelerator:
-    mp_plugin = ModelParallelismPlugin(
-        tensor_parallel_size=tp_size,
-        kv_size_multiplier=kv_size_multiplier,
-        parallelize_embeddings=parallelize_embeddings,
-        sequence_parallel_enabled=sequence_parallel_enabled,
-        pipeline_parallel_size=pp_size,
-        checkpoint_dir=checkpoint_dir,
-        use_xser=use_xser,
-    )
-    return NeuronAccelerator(
-        mp_plugin=mp_plugin, zero_1=zero_1, gradient_accumulation_steps=gradient_accumulation_steps
-    )

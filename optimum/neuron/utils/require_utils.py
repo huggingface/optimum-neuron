@@ -17,7 +17,7 @@
 import functools
 from typing import Any, Callable, Dict
 
-from transformers.utils import is_safetensors_available
+from transformers.utils import is_peft_available, is_safetensors_available
 
 from .import_utils import (
     is_neuronx_distributed_available,
@@ -27,12 +27,13 @@ from .import_utils import (
 )
 
 
-_AVAILABILITIES: Dict[str, Callable[[], bool]] = {
+_AVAILABILITIES: Dict[str, Callable] = {
     "safetensors": is_safetensors_available,
     "torch_xla": is_torch_xla_available,
     "neuronx_distributed": is_neuronx_distributed_available,
     "torch_neuronx": is_torch_neuronx_available,
     "transformers_neuronx": is_transformers_neuronx_available,
+    "peft": is_peft_available,
 }
 
 
@@ -59,3 +60,4 @@ requires_torch_xla = _create_requires_function("torch_xla")
 requires_neuronx_distributed = _create_requires_function("neuronx_distributed")
 requires_torch_neuronx = _create_requires_function("torch_neuronx")
 requires_transformers_neuronx = _create_requires_function("transformers_neuronx")
+requires_peft = _create_requires_function("peft")

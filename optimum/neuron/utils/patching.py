@@ -19,7 +19,7 @@ import importlib
 import inspect
 import sys
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple, Union, Type
+from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple, Type, Union
 
 
 if TYPE_CHECKING:

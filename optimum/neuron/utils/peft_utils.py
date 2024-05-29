@@ -13,18 +13,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Utilities related to the PEFT library and support."""
-import gc
 import functools
+import gc
 from typing import Any, List, Optional, Union
 
 from transformers.utils import is_peft_available
 
-from .patching import Patcher, replace_class_in_inheritance_hierarchy
+from .patching import replace_class_in_inheritance_hierarchy
 from .require_utils import requires_neuronx_distributed
 
 
 if is_peft_available():
-    from peft import PeftModel, get_peft_model as orig_get_peft_model
+    from peft import PeftModel
+    from peft import get_peft_model as orig_get_peft_model
     from peft.utils import get_peft_model_state_dict, set_peft_model_state_dict
 
 else:
@@ -105,11 +106,8 @@ class NeuronPeftModel(PeftModel):
         return output
 
 
-
 @functools.wraps(orig_get_peft_model)
 def get_peft_model(*args, **kwargs):
     peft_model = orig_get_peft_model(*args, **kwargs)
     replace_class_in_inheritance_hierarchy(peft_model, PeftModel, NeuronPeftModel)
     return peft_model
-
-
