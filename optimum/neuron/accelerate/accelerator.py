@@ -33,16 +33,19 @@ from accelerate.utils.operations import gather_object, recursively_apply
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from transformers import PreTrainedModel
+from transformers.utils import is_peft_available
 
 from ...utils import logging
 from ..distributed import Parallelizer, ParallelizersManager
 from ..utils import (
     DynamicPatch,
     ModelPatcher,
+    NeuronPeftModel,
     Patcher,
     is_neuronx_distributed_available,
     is_torch_xla_available,
     patch_within_function,
+    replace_class_in_inheritance_hierarchy,
 )
 from ..utils.misc import args_and_kwargs_to_kwargs_only, is_main_worker
 from ..utils.require_utils import requires_neuronx_distributed, requires_torch_xla
@@ -366,6 +369,21 @@ class NeuronAccelerator(Accelerator):
 
         model_patcher = ModelPatcher(prepared_patching_specs, ignore_missing_attributes=True)
         model_patcher.patch()
+
+        if is_peft_available():
+            from peft import PeftModel
+            from peft.tuners.tuners_utils import BaseTunerLayer
+            from peft.utils import ModulesToSaveWrapper
+
+            if isinstance(model, PeftModel):
+                replace_class_in_inheritance_hierarchy(model, PeftModel, NeuronPeftModel)
+            else:
+                for _, module in model.named_modules():
+                    if isinstance(module, (BaseTunerLayer, ModulesToSaveWrapper)):
+                        raise ValueError(
+                            "It appears that the model is using a PEFT method, please wrap your model with `PeftModel` "
+                            "to make it work with `optimum-neuron`"
+                        )
         return model
 
     @requires_neuronx_distributed
@@ -465,6 +483,8 @@ class NeuronAccelerator(Accelerator):
                 module._use_flash_attention_2 = False
 
         if self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
+            if isinstance(model, NeuronPeftModel):
+                raise NotImplementedError("PEFT is not supported with model parallelism for now.")
             model = self._prepare_model_for_mp(
                 model, device_placement=device_placement, evaluation_mode=evaluation_mode
             )

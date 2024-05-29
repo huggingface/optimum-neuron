@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 import torch
-from peft import LoraConfig, PeftModel
+from peft import AutoPeftModelForCausalLM, LoraConfig, PeftModel
 from peft import get_peft_model as orig_get_peft_model
 from safetensors.torch import load_file
 from transformers import LlamaForCausalLM
@@ -62,6 +62,14 @@ class TestPeft(DistributedTest):
     )
     def parallel_sizes(self, request):
         return request.param
+
+    @pytest.mark.world_size(2)
+    def test_peft_model_is_converted_to_neuron_peft_model(self):
+        model = AutoPeftModelForCausalLM.from_pretrained("peft-internal-testing/tiny-random-BertModel-lora")
+        assert isinstance(model, PeftModel)
+        accelerator = create_accelerator(1, 1)
+        model = accelerator.prepare(model)
+        assert isinstance(model, NeuronPeftModel)
 
     def test_save_pretrained(self, parallel_sizes, tmpdir):
         _, tp_size, pp_size = parallel_sizes

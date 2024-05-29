@@ -15,7 +15,7 @@
 """Utilities related to the PEFT library and support."""
 import functools
 import gc
-from typing import Any, List, Optional, Union
+from typing import TYPE_CHECKING, Any, List, Optional, Union
 
 from transformers.utils import is_peft_available
 
@@ -41,6 +41,10 @@ else:
 
     def set_peft_model_state_dict(*args, **kwargs):
         pass
+
+
+if TYPE_CHECKING:
+    pass
 
 
 class NeuronPeftModel(PeftModel):
