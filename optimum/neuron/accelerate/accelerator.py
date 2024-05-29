@@ -483,8 +483,6 @@ class NeuronAccelerator(Accelerator):
                 module._use_flash_attention_2 = False
 
         if self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
-            if isinstance(model, NeuronPeftModel):
-                raise NotImplementedError("PEFT is not supported with model parallelism for now.")
             model = self._prepare_model_for_mp(
                 model, device_placement=device_placement, evaluation_mode=evaluation_mode
             )

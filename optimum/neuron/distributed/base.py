@@ -26,11 +26,13 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, 
 
 import torch
 from transformers import PreTrainedModel
+from transformers.utils import is_peft_available
 
 from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
 from ..utils.misc import is_main_worker, is_precompilation
 from ..utils.patching import Patcher
+from ..utils.peft_utils import NeuronPeftModel
 from ..utils.require_utils import requires_neuronx_distributed, requires_torch_xla
 from .parallel_layers import (
     IOSequenceParallelizer,
@@ -574,8 +576,27 @@ class Parallelizer(ABC):
         """
         import torch_xla.core.xla_model as xm
 
+        if isinstance(model, NeuronPeftModel):
+            weight_prefix = "base_model"
+            orig_model = model.base_model
+            if is_peft_available():
+                from peft.tuners.tuners_utils import BaseTuner
+
+                if isinstance(model.base_model, BaseTuner):
+                    weight_prefix = "base_model.model"
+                    orig_model = model.base_model.model
+            model_class = orig_model.__class__
+
+            # We update the weight_map to contain both the original parameter names, and the ones in the PeftModel.
+            # The reason we keep both is because depending on the context during parallelization one or the other name
+            # will be used. Since the names with prefix should not overwrite anything, it is safe to have both.
+            if hasattr(orig_model, "_weight_map"):
+                weight_map = orig_model._weight_map
+                peft_model_weight_map = {f"{weight_prefix}.{name}": filename for name, filename in weight_map.items()}
+                weight_map.update(**peft_model_weight_map)
+
         if sequence_parallel_enabled and not cls.supports_sequence_parallelism():
-            raise NotImplementedError(f"Sequence parallelism is not supported for {model.__class__}.")
+            raise NotImplementedError(f"Sequence parallelism is not supported for {model_class}.")
 
         from neuronx_distributed.parallel_layers.parallel_state import (
             get_pipeline_model_parallel_size,
@@ -725,8 +746,8 @@ class Parallelizer(ABC):
                     pipeline_parallel_input_names = cls.PIPELINE_PARALLELISM_SPECS_CLS.DEFAULT_INPUT_NAMES
 
                 if isinstance(pipeline_parallel_input_names, dict):
-                    if model.__class__.__name__ in pipeline_parallel_input_names:
-                        pipeline_parallel_input_names = pipeline_parallel_input_names[model.__class__.__name__]
+                    if model_class.__name__ in pipeline_parallel_input_names:
+                        pipeline_parallel_input_names = pipeline_parallel_input_names[model_class.__name__]
                     elif "default" in pipeline_parallel_input_names:
                         pipeline_parallel_input_names = pipeline_parallel_input_names["default"]
                     else:
