@@ -16,16 +16,20 @@
 
 import functools
 import gc
+import inspect
 from typing import TYPE_CHECKING, Callable, Dict, Optional, Union
 
 import torch
 from transformers.modeling_utils import get_parameter_dtype
 
+from ....utils import logging
 from ...distributed.utils import named_parameters
 from ...utils import is_torch_neuronx_available, is_torch_xla_available, patch_everywhere
 from ...utils.patching import Patcher
-from ...utils.require_utils import requires_neuronx_distributed, requires_safetensors
+from ...utils.require_utils import requires_neuronx_distributed, requires_safetensors, requires_torch_xla
 
+
+logger = logging.get_logger(__name__)
 
 if TYPE_CHECKING:
     import os
@@ -191,6 +195,41 @@ def tie_parameters(model: Union["torch.nn.Module", "NxDPPModel"], tied_parameter
             setattr(param_to_tie_parent_module, param_to_tie_name[1], param)
 
 
+# TODO: @michaelbenayoun
+# Needs to make it work in the general case or be deleted and only use `apply_activation_checkpointing`.
+@requires_torch_xla
+def patched_gradient_checkpointing_enable(self, gradient_checkpointing_kwargs=None):
+    from torch_xla.utils.checkpoint import checkpoint
+
+    if not self.supports_gradient_checkpointing:
+        raise ValueError(f"{self.__class__.__name__} does not support gradient checkpointing.")
+
+    if gradient_checkpointing_kwargs is None:
+        gradient_checkpointing_kwargs = {"use_reentrant": True}
+
+    gradient_checkpointing_func = functools.partial(checkpoint, **gradient_checkpointing_kwargs)
+
+    # For old GC format (transformers < 4.35.0) for models that live on the Hub
+    # we will fall back to the overwritten `_set_gradient_checkpointing` method
+    _is_using_old_format = "value" in inspect.signature(self._set_gradient_checkpointing).parameters
+
+    if not _is_using_old_format:
+        self._set_gradient_checkpointing(enable=True, gradient_checkpointing_func=gradient_checkpointing_func)
+    else:
+        self.apply(functools.partial(self._set_gradient_checkpointing, value=True))
+        logger.warning(
+            "You are using an old version of the checkpointing format that is deprecated (We will also silently ignore `gradient_checkpointing_kwargs` in case you passed it)."
+            "Please update to the new format on your modeling file. To use the new format, you need to completely remove the definition of the method `_set_gradient_checkpointing` in your model."
+        )
+
+    if getattr(self, "_hf_peft_config_loaded", False):
+        # When using PEFT + gradient checkpointing + Trainer we need to make sure the input has requires_grad=True
+        # we do it also on PEFT: https://github.com/huggingface/peft/blob/85013987aa82aa1af3da1236b6902556ce3e483e/src/peft/peft_model.py#L334
+        # When training with PEFT, only LoRA layers will have requires grad set to True, but the output of frozen layers need to propagate
+        # the gradients to make sure the gradient flows.
+        self.enable_input_require_grads()
+
+
 @requires_neuronx_distributed
 def apply_activation_checkpointing(model: Union["PreTrainedModel", "NxDPPModel"]):
     from neuronx_distributed.pipeline import NxDPPModel
@@ -205,9 +244,12 @@ def apply_activation_checkpointing(model: Union["PreTrainedModel", "NxDPPModel"]
 
     gradient_checkpointing_modules = set()
     for module in modules:
-        if getattr(module, "gradient_checkpointing", False):
-            module.gradient_checkpointing = False
-            gradient_checkpointing_modules.add(module)
+        if isinstance(module, torch.nn.ModuleList):
+            for mod in module:
+                # TODO: @michaelbenayoun. Need to find a better way to identify the blocks to apply gradient
+                # checkpointing to.
+                if "Layer" in mod.__class__.__name__ or "Block" in mod.__class__.__name__:
+                    gradient_checkpointing_modules.add(mod)
 
     def check_fn(m: torch.nn.Module) -> bool:
         return m in gradient_checkpointing_modules

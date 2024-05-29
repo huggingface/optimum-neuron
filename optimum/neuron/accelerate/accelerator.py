@@ -57,7 +57,11 @@ from .utils import (
     patch_accelerate_is_torch_xla_available,
     tie_parameters,
 )
-from .utils.misc import apply_activation_checkpointing, create_patched_finfo, create_patched_save_pretrained
+from .utils.misc import (
+    apply_activation_checkpointing,
+    create_patched_finfo,
+    create_patched_save_pretrained,
+)
 from .utils.operations import _xla_gather
 
 
@@ -131,6 +135,15 @@ class NeuronAccelerator(Accelerator):
 
         if not isinstance(autocast_backend, AutocastBackend):
             autocast_backend = AutocastBackend(autocast_backend)
+
+        # The original `is_torch_xla_available` function is checking for TPU or GPU in `accelerate`.
+        # Here, we patch it to return True for Neuron cores as well.
+        def patched_is_torch_xla_available(check_is_tpu: bool = False, check_is_gpu: bool = False) -> bool:
+            return is_torch_xla_available()
+
+        import accelerate
+
+        accelerate.state.is_torch_xla_available = patched_is_torch_xla_available
 
         patched_accelerator_state = partial(
             NeuronAcceleratorState, mp_plugin=mp_plugin, autocast_backend=autocast_backend
@@ -336,13 +349,24 @@ class NeuronAccelerator(Accelerator):
                 ),
             )
 
+        # TODO: @michaelbenayoun generalize an implementation of gradient checkpointing working for:
+        #   - DDP
+        #   - TP
+        #   - PP
+        # if hasattr(model, "gradient_checkpointing_enable"):
+        #     patching_specs.append(
+        #         (
+        #             "gradient_checkpointing_enable",
+        #             patched_gradient_checkpointing_enable,
+        #         ),
+        #     )
+
         prepared_patching_specs = []
         for spec in patching_specs:
             prepared_patching_specs.append((model,) + spec)
 
         model_patcher = ModelPatcher(prepared_patching_specs, ignore_missing_attributes=True)
         model_patcher.patch()
-
         return model
 
     @requires_neuronx_distributed
@@ -428,6 +452,12 @@ class NeuronAccelerator(Accelerator):
         model.config.output_attentions = False
         model.config.output_hidden_states = False
 
+        should_apply_activation_checkpointing = False
+        for mod in model.modules():
+            if getattr(mod, "gradient_checkpointing", False):
+                should_apply_activation_checkpointing = True
+                model.gradient_checkpointing_disable()
+
         # It is needed for now otherwise sdpa is used since PT > 2.* is available.
         for module in model.modules():
             if getattr(module, "_use_sdpa", False):
@@ -439,13 +469,16 @@ class NeuronAccelerator(Accelerator):
             model = self._prepare_model_for_mp(
                 model, device_placement=device_placement, evaluation_mode=evaluation_mode
             )
-            apply_activation_checkpointing(model)
-            return model
+            if should_apply_activation_checkpointing:
+                apply_activation_checkpointing(model)
         else:
-            apply_activation_checkpointing(model)
+            if should_apply_activation_checkpointing:
+                apply_activation_checkpointing(model)
             move_model_to_device(model, xm.xla_device())
             device_placement = False
-            return super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
+            model = super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
+        xm.mark_step()
+        return model
 
     def backward(self, loss, **kwargs):
         if self.distributed_type != DistributedType.DEEPSPEED:

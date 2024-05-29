@@ -355,6 +355,8 @@ class TestCommonDistributed(DistributedTest):
         accelerator.state._reset_state(reset_partial_state=True)
         del accelerator
 
+        xm.rendezvous("wait_after_save")
+
         if pp_size > 1:
             # We need to disable `NxDPPModel._set_distributed` since it is already done during the creation of the
             # first model, otherwise creating new `NxDPPModel`s will fail.

@@ -100,5 +100,10 @@ setup(
     dependency_links=["https://pip.repos.neuron.amazonaws.com"],
     include_package_data=True,
     zip_safe=False,
-    entry_points={"console_scripts": ["optimum-cli=optimum.commands.optimum_cli:main"]},
+    entry_points={
+        "console_scripts": [
+            "optimum-cli=optimum.commands.optimum_cli:main",
+            "neuron_parallel_compile=optimum.neuron.utils.neuron_parallel_compile:main",
+        ]
+    },
 )
