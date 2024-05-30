@@ -818,13 +818,20 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
         """
         # The actual generation configuration is a combination of config and parameters
         generation_config = copy.deepcopy(self.generation_config if generation_config is None else generation_config)
+        # Extract tokenizer if any (used only for stop strings)
+        tokenizer = kwargs.pop("tokenizer", None)
         model_kwargs = generation_config.update(**kwargs)  # All unused kwargs must be model kwargs
         # Check model kwargs are actually used by either prepare_inputs_for_generation or forward
         self._validate_model_kwargs(model_kwargs)
 
         # Instantiate a TokenSelector for the specified configuration
         selector = TokenSelector.create(
-            input_ids, generation_config, self, self.max_length, stopping_criteria=stopping_criteria
+            input_ids,
+            generation_config,
+            self,
+            self.max_length,
+            stopping_criteria=stopping_criteria,
+            tokenizer=tokenizer,
         )
 
         # Verify that the inputs are compatible with the model static input dimensions

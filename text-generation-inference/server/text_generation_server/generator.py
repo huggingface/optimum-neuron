@@ -173,10 +173,11 @@ class Slot:
         if request.parameters.repetition_penalty != 0:
             self._generation_config.repetition_penalty = request.parameters.repetition_penalty
         self.seed = request.parameters.seed
-        # TODO: watermark
         self._generation_config.max_new_tokens = request.stopping_parameters.max_new_tokens
         self._max_new_tokens = self._generation_config.max_new_tokens
-        # TODO: stop_sequences, ignore_eos_token
+        stop_strings = request.stopping_parameters.stop_sequences
+        if stop_strings:
+            self._generation_config.stop_strings = stop_strings
 
     def reset(self, input_ids: torch.LongTensor, attention_mask: torch.LongTensor, selector: TokenSelector):
         """Reset the slot for the next generation.
@@ -413,7 +414,12 @@ class NeuronGenerator(Generator):
                 slot_input_ids = input_ids[i : i + 1, :]
                 # Padded input ids are also required to set logits processors and stopping criterias
                 selector = TokenSelector.create(
-                    slot_input_ids, slot.generation_config, self.model, self.model.max_length, seed=slot.seed
+                    slot_input_ids,
+                    slot.generation_config,
+                    self.model,
+                    self.model.max_length,
+                    tokenizer=self.tokenizer,
+                    seed=slot.seed,
                 )
                 slot_input_ids = slot_input_ids.squeeze(dim=0).type(torch.int64)
                 slot_attention_mask = attention_mask[i]
