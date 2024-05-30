@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Dict, List
 
 import torch
 
-from ...neuron.utils import DummyBeamValuesGenerator
+from ...neuron.utils import DummyBeamValuesGenerator, DummyMaskedPosGenerator
 from ...utils import (
     DummyInputGenerator,
     DummySeq2SeqDecoderTextInputGenerator,
@@ -31,6 +31,7 @@ from ...utils import (
     NormalizedSeq2SeqConfig,
     NormalizedTextAndVisionConfig,
     NormalizedTextConfig,
+    NormalizedVisionConfig,
     is_diffusers_available,
 )
 from ..tasks import TasksManager
@@ -312,6 +313,21 @@ class SentenceTransformersCLIPNeuronConfig(CLIPNeuronConfig):
             DummyTextInputGenerator(self.task, self._normalized_config, batch_size=text_batch_size, **other_axes),
             DummyVisionInputGenerator(self.task, self._normalized_config, batch_size=images_batch_size, **other_axes),
         ]
+
+
+@register_in_tasks_manager("vit", *["feature-extraction", "image-classification"])
+class ViTNeuronConfig(VisionNeuronConfig):
+    ATOL_FOR_VALIDATION = 1e-3
+    NORMALIZED_CONFIG_CLASS = NormalizedVisionConfig
+    DUMMY_INPUT_GENERATOR_CLASSES = (DummyVisionInputGenerator, DummyMaskedPosGenerator)
+    INPUT_ARGS = ("batch_size",)  # `num_channels` and `image_size` are inferred from the config
+
+    @property
+    def inputs(self) -> List[str]:
+        common_inputs = ["pixel_values"]
+        if self.task == "masked-im":
+            common_inputs.append("bool_masked_pos")
+        return common_inputs
 
 
 @register_in_tasks_manager("unet", *["semantic-segmentation"], library_name="diffusers")

@@ -151,6 +151,8 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
         num_choices: Optional[int] = None,
         width: Optional[int] = None,
         height: Optional[int] = None,
+        image_size: Optional[int] = None,
+        patch_size: Optional[int] = None,
         num_channels: Optional[int] = None,
         feature_size: Optional[int] = None,
         nb_max_frames: Optional[int] = None,
@@ -184,13 +186,15 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
             "num_choices": num_choices,
             "width": width,
             "height": height,
-            "num_channels": num_channels,
+            "num_channels": num_channels or getattr(self._config, "num_channels", None),
             "feature_size": feature_size,
             "nb_max_frames": nb_max_frames,
             "audio_sequence_length": audio_sequence_length,
             "point_batch_size": point_batch_size,
             "nb_points_per_image": nb_points_per_image,
             "num_beams": num_beams,
+            "image_size": image_size or getattr(self._config, "image_size", None),
+            "patch_size": patch_size or getattr(self._config, "patch_size", None),
         }
         input_shapes = {}
         for name, value in axes_values.items():

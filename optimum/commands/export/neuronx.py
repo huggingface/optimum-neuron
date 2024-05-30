@@ -227,6 +227,16 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         help=f"Image tasks only. Height {doc_input}",
     )
     input_group.add_argument(
+        "--image_size",
+        type=int,
+        help="Image tasks only. Size (resolution) of each image.",
+    )
+    input_group.add_argument(
+        "--patch_size",
+        type=int,
+        help="Image tasks only. Size (resolution) of patch.",
+    )
+    input_group.add_argument(
         "--num_images_per_prompt",
         type=int,
         default=1,

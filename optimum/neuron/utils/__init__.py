@@ -40,7 +40,7 @@ _import_structure = {
         "is_torch_xla_available",
         "is_transformers_neuronx_available",
     ],
-    "input_generators": ["DummyBeamValuesGenerator"],
+    "input_generators": ["DummyBeamValuesGenerator", "DummyMaskedPosGenerator"],
     "misc": [
         "DiffusersPretrainedConfig",
         "check_if_weights_replacable",
@@ -85,7 +85,7 @@ if TYPE_CHECKING:
         is_torch_xla_available,
         is_transformers_neuronx_available,
     )
-    from .input_generators import DummyBeamValuesGenerator
+    from .input_generators import DummyBeamValuesGenerator, DummyMaskedPosGenerator
     from .misc import (
         DiffusersPretrainedConfig,
         check_if_weights_replacable,
