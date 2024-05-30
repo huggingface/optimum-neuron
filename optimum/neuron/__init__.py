@@ -39,6 +39,7 @@ _import_structure = {
         "NeuronModelForTokenClassification",
         "NeuronModelForMultipleChoice",
         "NeuronModelForCausalLM",
+        "NeuronModelForImageClassification",
     ],
     "modeling_diffusion": [
         "NeuronStableDiffusionPipeline",
@@ -66,6 +67,7 @@ if TYPE_CHECKING:
     from .modeling import (
         NeuronModelForCausalLM,
         NeuronModelForFeatureExtraction,
+        NeuronModelForImageClassification,
         NeuronModelForMaskedLM,
         NeuronModelForMultipleChoice,
         NeuronModelForQuestionAnswering,

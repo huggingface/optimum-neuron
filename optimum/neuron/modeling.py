@@ -22,6 +22,7 @@ import torch
 from transformers import (
     AutoModel,
     AutoModelForCausalLM,
+    AutoModelForImageClassification,
     AutoModelForMaskedLM,
     AutoModelForMultipleChoice,
     AutoModelForQuestionAnswering,
@@ -34,6 +35,7 @@ from transformers.generation import (
 )
 from transformers.modeling_outputs import (
     BaseModelOutputWithPooling,
+    ImageClassifierOutput,
     MaskedLMOutput,
     MultipleChoiceModelOutput,
     QuestionAnsweringModelOutput,
@@ -59,6 +61,7 @@ logger = logging.getLogger(__name__)
 
 
 _TOKENIZER_FOR_DOC = "AutoTokenizer"
+_PROCESSOR_FOR_IMAGE = "AutoImageProcessor"
 
 NEURON_MODEL_START_DOCSTRING = r"""
     This model inherits from [`~neuron.modeling.NeuronTracedModel`]. Check the superclass documentation for the generic methods the
@@ -610,6 +613,70 @@ class NeuronModelForMultipleChoice(NeuronTracedModel):
         logits = outputs[0]
 
         return MultipleChoiceModelOutput(logits=logits)
+
+
+IMAGE_CLASSIFICATION_EXAMPLE = r"""
+    Example of image classification:
+
+    ```python
+    >>> import requests
+    >>> from PIL import Image
+    >>> from optimum.neuron import {model_class}
+    >>> from transformers import {processor_class}
+
+    >>> url = "http://images.cocodataset.org/val2017/000000039769.jpg"
+    >>> image = Image.open(requests.get(url, stream=True).raw)
+
+    >>> preprocessor = {processor_class}.from_pretrained("{checkpoint}")
+    >>> model = {model_class}.from_pretrained("{checkpoint}")
+
+    >>> inputs = preprocessor(images=image, return_tensors="pt")
+
+    >>> outputs = model(**inputs)
+    >>> logits = outputs.logits
+    >>> predicted_label = logits.argmax(-1).item()
+    ```
+"""
+
+
+@add_start_docstrings(
+    """
+    Neuron Model with  with an image classification head on top (a linear layer on top of the final hidden state of the [CLS] token) e.g. for ImageNet.
+    """,
+    NEURON_MODEL_START_DOCSTRING,
+)
+class NeuronModelForImageClassification(NeuronTracedModel):
+    """
+    ONNX Model for image-classification tasks. This class officially supports beit, convnext, convnextv2, data2vec_vision, deit, levit, mobilenet_v1, mobilenet_v2, mobilevit, poolformer, resnet, segformer, swin, vit.
+    """
+
+    auto_model_class = AutoModelForImageClassification
+
+    @add_start_docstrings_to_model_forward(
+        NEURON_IMAGE_INPUTS_DOCSTRING.format("batch_size, num_channels, height, width")
+        + IMAGE_CLASSIFICATION_EXAMPLE.format(
+            processor_class=_PROCESSOR_FOR_IMAGE,
+            model_class="NeuronModelForImageClassification",
+            checkpoint="optimum/vit-base-patch16-224-neuronx",
+        )
+    )
+    def forward(
+        self,
+        pixel_values: torch.Tensor,
+        **kwargs,
+    ):
+        neuron_inputs = {"pixel_values": pixel_values}
+
+        # run inference
+        with self.neuron_padding_manager(neuron_inputs) as inputs:
+            outputs = self.model(*inputs)  # shape: [batch_size, num_channels, image_size, image_size]
+            outputs = self.remove_padding(
+                outputs, dims=[0], indices=[pixel_values.shape[0]]
+            )  # Remove padding on batch_size(0)
+
+        logits = outputs[0]
+
+        return ImageClassifierOutput(logits=logits)
 
 
 NEURON_CAUSALLM_MODEL_START_DOCSTRING = r"""
