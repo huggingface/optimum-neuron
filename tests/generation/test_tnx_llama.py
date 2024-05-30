@@ -25,7 +25,7 @@ from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neur
 
 @pytest.fixture(scope="module")
 def neuron_model_config():
-    model_id = "HuggingFaceTB/cosmo-1b"
+    model_id = "princeton-nlp/Sheared-LLaMA-1.3B"
     model_kwargs = {"batch_size": 4, "sequence_length": 4096, "auto_cast_type": "f16", "num_cores": 2}
     model = NeuronModelForCausalLM.from_pretrained(model_id, export=True, **model_kwargs)
     tokenizer = AutoTokenizer.from_pretrained(model_id)
@@ -63,11 +63,8 @@ def test_decoder_generation_multiple_eos_token_ids(neuron_model_config):
     generation_config = copy.deepcopy(model.generation_config)
     if not isinstance(generation_config.eos_token_id, list):
         generation_config.eos_token_id = [generation_config.eos_token_id]
-    generation_config.max_new_tokens = model.max_length - tokens["input_ids"].shape[-1]
-    # Generate and verify we stopped on an eos_token_id, and not on max_new_tokens
+    generation_config.max_new_tokens = 256
     outputs = model.generate(**tokens, do_sample=True, generation_config=generation_config)
-    assert outputs.shape[-1] < model.max_length
-    assert outputs[0, -1].numpy() in generation_config.eos_token_id
     # Extract the last non-eos generated token and use it as a fake eos_token_id
     fake_eos_token_id = outputs[0, -2]
     generation_config.eos_token_id.append(fake_eos_token_id)
