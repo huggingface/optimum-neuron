@@ -10,6 +10,12 @@ Edit the `.env` file to select the model to use for the benchmark and its config
 $ docker compose --env-file llama-7b/.env up
 ```
 
+for larger models, use their specific docker files:
+
+```shell
+$ docker compose -f llama3-70b/docker-compose.yaml --env-file llama3-70b/.env up
+```
+
 Note: replace the .env file to change the model configuration
 
 ## Run the benchmark
