@@ -120,10 +120,12 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
     MODEL_TYPE = None
 
     _TASK_TO_COMMON_OUTPUTS = {
+        "depth-estimation": ["predicted_depth"],
         "feature-extraction": ["last_hidden_state", "pooler_output"],
         "fill-mask": ["logits"],
         "image-classification": ["logits"],
-        "image-segmentation": ["logits", "pred_boxes", "pred_masks"],
+        "image-segmentation": ["logits"],
+        "image-to-image": ["reconstruction"],
         "masked-im": ["logits"],
         "multiple-choice": ["logits"],
         "object-detection": ["logits", "pred_boxes"],

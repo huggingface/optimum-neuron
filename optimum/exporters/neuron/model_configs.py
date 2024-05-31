@@ -330,6 +330,77 @@ class ViTNeuronConfig(VisionNeuronConfig):
         return common_inputs
 
 
+@register_in_tasks_manager("beit", *["feature-extraction", "image-classification"])
+class BeitNeuronConfig(ViTNeuronConfig):
+    pass
+
+
+@register_in_tasks_manager("convnext", *["feature-extraction", "image-classification"])
+class ConvNextNeuronConfig(ViTNeuronConfig):
+    pass
+
+
+@register_in_tasks_manager("convnextv2", *["feature-extraction", "image-classification"])
+class ConvNextV2NeuronConfig(ViTNeuronConfig):
+    pass
+
+
+@register_in_tasks_manager("cvt", *["feature-extraction", "image-classification"])
+class CvTNeuronConfig(ViTNeuronConfig):
+    @property
+    def outputs(self) -> List[str]:
+        common_outputs = super().outputs
+        if self.task == "feature-extraction":
+            return ["last_hidden_state", "cls_token_value"]
+        else:
+            return common_outputs
+
+
+@register_in_tasks_manager("deit", *["feature-extraction", "image-classification"])
+class DeiTNeuronConfig(ViTNeuronConfig):
+    pass
+
+
+@register_in_tasks_manager("donut-swin", *["feature-extraction"])
+class DonutSwinNeuronConfig(ViTNeuronConfig):
+    pass
+
+
+@register_in_tasks_manager("dpt", *["feature-extraction"])
+class DptNeuronConfig(ViTNeuronConfig):
+    pass
+
+
+@register_in_tasks_manager("levit", *["feature-extraction", "image-classification"])
+class LevitNeuronConfig(ViTNeuronConfig):
+    pass
+
+
+@register_in_tasks_manager("mobilenet-v2", *["feature-extraction", "image-classification", "semantic-segmentation"])
+class MobileNetV2NeuronConfig(ViTNeuronConfig):
+    pass
+
+
+@register_in_tasks_manager("mobilevit", *["feature-extraction", "image-classification", "semantic-segmentation"])
+class MobileViTNeuronConfig(ViTNeuronConfig):
+    pass
+
+
+@register_in_tasks_manager("swin", *["feature-extraction", "image-classification"])
+class SwinNeuronConfig(ViTNeuronConfig):
+    pass
+
+
+@register_in_tasks_manager("yolos", *["feature-extraction", "object-detection"])
+class YolosTNeuronConfig(ViTNeuronConfig):
+    @property
+    def outputs(self) -> List[str]:
+        common_outputs = super().outputs
+        if self.task == "object-detection":
+            common_outputs.append("last_hidden_state")
+        return common_outputs
+
+
 @register_in_tasks_manager("unet", *["semantic-segmentation"], library_name="diffusers")
 class UNetNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3

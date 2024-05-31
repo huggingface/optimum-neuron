@@ -465,6 +465,7 @@ class NeuronTracedModel(NeuronModel):
         task = getattr(config, "task") or TasksManager.infer_task_from_model(cls.auto_model_class)
         task = TasksManager.map_from_synonym(task)
         model_type = neuron_config.get("model_type", None) or config.model_type
+        model_type = model_type.replace("_", "-")
         neuron_config_constructor = TasksManager.get_exporter_config_constructor(
             model_type=model_type,
             exporter="neuron",
@@ -540,7 +541,7 @@ class NeuronTracedModel(NeuronModel):
             if (
                 self.preprocessors is not None
                 and len(self.preprocessors) > 0
-                and self.preprocessors[0].pad_token_id is not None
+                and getattr(self.preprocessors[0], "pad_token_id", None)
                 and input_name == "input_ids"
             ):
                 pad_id = self.preprocessors[0].pad_token_id

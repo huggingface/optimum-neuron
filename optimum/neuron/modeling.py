@@ -647,7 +647,7 @@ IMAGE_CLASSIFICATION_EXAMPLE = r"""
 )
 class NeuronModelForImageClassification(NeuronTracedModel):
     """
-    ONNX Model for image-classification tasks. This class officially supports beit, convnext, convnextv2, data2vec_vision, deit, levit, mobilenet_v1, mobilenet_v2, mobilevit, poolformer, resnet, segformer, swin, vit.
+    Neuron Model for image-classification tasks. This class officially supports beit, convnext, convnextv2, data2vec_vision, deit, levit, mobilenet_v1, mobilenet_v2, mobilevit, poolformer, resnet, segformer, swin, vit.
     """
 
     auto_model_class = AutoModelForImageClassification
