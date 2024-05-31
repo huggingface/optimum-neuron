@@ -35,11 +35,7 @@ from ..utils import DynamicPatch, Patcher
 from ..utils.deprecate_utils import deprecate
 from ..utils.import_utils import is_neuronx_distributed_available
 from ..utils.misc import download_checkpoints_in_cache
-from ..utils.require_utils import (
-    requires_neuronx_distributed,
-    requires_safetensors,
-    requires_torch_xla,
-)
+from ..utils.require_utils import requires_neuronx_distributed, requires_peft, requires_safetensors, requires_torch_xla
 
 
 if is_neuronx_distributed_available():
@@ -59,6 +55,9 @@ else:
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
+
+    if is_peft_available():
+        from peft.tuners.tuners_utils import BaseTunerLayer
 
 
 logger = logging.get_logger()
@@ -120,10 +119,16 @@ class WeightInformation:
             self.device = torch.device("cpu")
 
         prefix = None
+        peft_prefix = None
         if self.weight_map is not None:
             prefix = self.weight_map.get("lazy_load_used_prefix", None)
+            peft_prefix = self.weight_map.get("peft_prefix", None)
         if prefix is not None and self.qualified_name.startswith(prefix):
             self.qualified_name = self.qualified_name[len(prefix) :]
+        if peft_prefix is not None and self.qualified_name.startswith(peft_prefix):
+            # `peft_prefix` does not contain the `"."` character, that is why we skip the first len(peft_prefix) + 1
+            # characters.
+            self.qualified_name = self.qualified_name[len(peft_prefix) + 1 :]
 
 
 class FakeProj(torch.nn.Module):
@@ -879,6 +884,67 @@ def maybe_load_linear_weight_to_parallel_linear(
                         mark_parameter_init_status_during_parallelization(parallel_linear_layer.bias, False)
 
 
+@requires_peft
+def peft_tuner_linear_to_parallel_linear(
+    tuner_layer: "BaseTunerLayer",
+    axis: Union[Literal["row"], Literal["column"]],
+    input_is_parallel: bool = False,
+    gather_output: bool = True,
+    stride: int = 1,
+    linear_layer_weight_info: Optional[WeightInformation] = None,
+    linear_layer_bias_weight_info: Optional[WeightInformation] = None,
+    embedding_weight_to_tie: Optional["torch.nn.Parameter"] = None,
+    sequence_parallel_enabled: bool = False,
+    skip_weight_load: bool = False,
+    device: Optional["torch.device"] = None,
+) -> "BaseTunerLayer":
+    from peft.tuners import LoraLayer
+    from peft.tuners.tuners_utils import BaseTunerLayer
+
+    # This is necessary for the case that the tuner layer wraps another tuner layer.
+    parent = tuner_layer
+    base_layer = tuner_layer
+    while hasattr(base_layer, "base_layer"):
+        parent = base_layer
+        base_layer = base_layer.base_layer
+
+    parallel_base_layer = linear_to_parallel_linear(
+        base_layer,
+        axis,
+        input_is_parallel=input_is_parallel,
+        gather_output=gather_output,
+        stride=stride,
+        linear_layer_weight_info=linear_layer_weight_info,
+        linear_layer_bias_weight_info=linear_layer_bias_weight_info,
+        embedding_weight_to_tie=embedding_weight_to_tie,
+        sequence_parallel_enabled=sequence_parallel_enabled,
+        skip_weight_load=skip_weight_load,
+        device=device,
+    )
+
+    if isinstance(base_layer, BaseTunerLayer):
+        tuner_layer = parallel_base_layer
+    else:
+        parent.base_layer = parallel_base_layer
+
+    if isinstance(parent, LoraLayer):
+        # Cases to handle:
+        #   1. The base linear layer is a RowParallelLinear, then:
+        #       - The lora A matrix needs to be a RowParallelLinear as well,
+        #       - The lora B matrix does not need to be parallelized.
+        #   2. The base linear layer is a ColumnParallelLinear, then:
+        #       - The lora A matrix does not need to be parallelized,
+        #       - The lora B matrix needs to be a ColumnParallelLinear as well.
+        if axis == "row":
+            pass
+            # parent.lora_a
+
+    else:
+        raise NotImplementedError(f"{parent.__class__.__name__} is not supported yet for model parallelism.")
+
+    return tuner_layer
+
+
 @requires_neuronx_distributed
 def linear_to_parallel_linear(
     linear_layer: "torch.nn.Linear",
@@ -926,7 +992,28 @@ def linear_to_parallel_linear(
     Returns:
         `Union[RowParallelLinear, ColumnParallelLinear]`: The parallel linear layer.
     """
+    import torch_xla.core.xla_model as xm
     from neuronx_distributed.parallel_layers import layers
+
+    xm.master_print("layer", linear_layer)
+
+    if is_peft_available():
+        from peft.tuners.tuners_utils import BaseTunerLayer
+
+        if isinstance(linear_layer, BaseTunerLayer):
+            return peft_tuner_linear_to_parallel_linear(
+                linear_layer,
+                axis,
+                input_is_parallel=input_is_parallel,
+                gather_output=gather_output,
+                stride=stride,
+                linear_layer_weight_info=linear_layer_weight_info,
+                linear_layer_bias_weight_info=linear_layer_bias_weight_info,
+                embedding_weight_to_tie=embedding_weight_to_tie,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                skip_weight_load=skip_weight_load,
+                device=device,
+            )
 
     if axis not in ["row", "column"]:
         raise ValueError(f'axis must either be "row" or "column", but {axis} was given here.')

@@ -19,14 +19,13 @@ import gc
 import math
 from abc import ABC, abstractclassmethod
 from collections import defaultdict
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Set, Tuple, Type, Union
 
 import torch
 from transformers import PreTrainedModel
-from transformers.utils import is_peft_available
 
 from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
@@ -576,23 +575,30 @@ class Parallelizer(ABC):
         """
         import torch_xla.core.xla_model as xm
 
-        if isinstance(model, NeuronPeftModel):
-            weight_prefix = "base_model"
-            orig_model = model.base_model
-            if is_peft_available():
-                from peft.tuners.tuners_utils import BaseTuner
-
-                if isinstance(model.base_model, BaseTuner):
-                    weight_prefix = "base_model.model"
+        def get_base_model_and_peft_prefix(model: torch.nn.Module) -> Tuple[torch.nn.Module, str]:
+            if isinstance(model, NeuronPeftModel):
+                if model.active_peft_config.is_prompt_learning or str(model.peft_type) == "poly":
+                    peft_prefix = "base_model"
+                    orig_model = model.base_model
+                else:
+                    peft_prefix = "base_model.model"
                     orig_model = model.base_model.model
-            model_class = orig_model.__class__
+            else:
+                peft_prefix = ""
+                orig_model = model
+            return orig_model, peft_prefix
 
+        orig_model, peft_prefix = get_base_model_and_peft_prefix(model)
+        model_class = orig_model.__class__
+
+        if peft_prefix:
             # We update the weight_map to contain both the original parameter names, and the ones in the PeftModel.
             # The reason we keep both is because depending on the context during parallelization one or the other name
             # will be used. Since the names with prefix should not overwrite anything, it is safe to have both.
             if hasattr(orig_model, "_weight_map"):
                 weight_map = orig_model._weight_map
-                peft_model_weight_map = {f"{weight_prefix}.{name}": filename for name, filename in weight_map.items()}
+                weight_map["peft_prefix"] = peft_prefix
+                peft_model_weight_map = {f"{peft_prefix}.{name}": filename for name, filename in weight_map.items()}
                 weight_map.update(**peft_model_weight_map)
 
         if sequence_parallel_enabled and not cls.supports_sequence_parallelism():
@@ -619,6 +625,11 @@ class Parallelizer(ABC):
         names_of_the_parameters_to_consider = cls._get_parameter_names_for_current_pipeline(
             model, remove_duplicate=True
         )
+
+        if peft_prefix:
+            names_of_the_parameters_to_consider = {
+                f"{peft_prefix}.{name}" for name in names_of_the_parameters_to_consider
+            }
 
         # We delay weight loading when the model was instantiated from pretrained lazily.
         # We do not skip for cases such as:
@@ -694,6 +705,17 @@ class Parallelizer(ABC):
                 if sp_specs_cls.SEQUENCE_PARALLEL_LAYERNORM_PATTERNS is not None
                 else []
             )
+            sequence_collective_op_infos = sp_specs_cls.SEQUENCE_COLLECTIVE_OPS_INFOS
+            if peft_prefix and sequence_collective_op_infos is not None:
+                layer_norm_qualified_name_patterns = [
+                    f"{peft_prefix}.{pattern}" for pattern in layer_norm_qualified_name_patterns
+                ]
+                for idx, sp_collective_info in enumerate(sequence_collective_op_infos):
+                    if isinstance(sp_collective_info.layer, str):
+                        sequence_collective_op_infos[idx] = replace(
+                            sp_collective_info, layer=f"{peft_prefix}.{sp_collective_info.layer}"
+                        )
+
             layer_norm_sequence_parallelizer = LayerNormSequenceParallelizer(
                 sequence_parallel_enabled, layer_norm_qualified_name_patterns
             )
@@ -702,7 +724,7 @@ class Parallelizer(ABC):
             # 2. Taking care of scattering / gathering on the sequence axis in the model via the IOSequenceParallelizer.
             io_sequence_parallelizer = IOSequenceParallelizer(
                 sequence_parallel_enabled,
-                sequence_collective_op_infos=sp_specs_cls.SEQUENCE_COLLECTIVE_OPS_INFOS,
+                sequence_collective_op_infos=sequence_collective_op_infos,
             )
             io_sequence_parallelizer.sequence_parallelize(model)
 
@@ -719,6 +741,7 @@ class Parallelizer(ABC):
             if num_local_ranks_per_step <= 0:
                 num_local_ranks_per_step = get_local_world_size()
             for worker in range(math.ceil(get_local_world_size() / num_local_ranks_per_step)):
+                continue
                 if local_rank // num_local_ranks_per_step == worker:
                     if skip_linear_weight_load:
                         # Load the weights to the parallel linears if the loading was skipped during parallelization.
@@ -776,6 +799,9 @@ class Parallelizer(ABC):
             cls.load_model_sharded_checkpoint(model, checkpoint_dir)
 
         model._gqa_qkv_metadata = gqa_qkv_metadata
+
+        print("Parallelized PEFT model", model)
+        assert 3 == 2
 
         return model
 
