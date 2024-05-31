@@ -20,6 +20,9 @@ from typing import Any, Dict, Optional, Union
 from transformers import (
     AutoConfig,
     FillMaskPipeline,
+    ImageClassificationPipeline,
+    ImageSegmentationPipeline,
+    ObjectDetectionPipeline,
     Pipeline,
     PreTrainedModel,
     PreTrainedTokenizer,
@@ -43,8 +46,10 @@ from optimum.neuron.pipelines.transformers.sentence_transformers import (
 from ...modeling import (
     NeuronModelForCausalLM,
     NeuronModelForFeatureExtraction,
+    NeuronModelForImageClassification,
     NeuronModelForMaskedLM,
     NeuronModelForQuestionAnswering,
+    NeuronModelForSemanticSegmentation,
     NeuronModelForSentenceTransformers,
     NeuronModelForSequenceClassification,
     NeuronModelForTokenClassification,
@@ -90,6 +95,24 @@ NEURONX_SUPPORTED_TASKS = {
         "class": (NeuronModelForCausalLM,),
         "default": "gpt2",
         "type": "text",
+    },
+    "image-classification": {
+        "impl": ImageClassificationPipeline,
+        "class": (NeuronModelForImageClassification,),
+        "default": "microsoft/beit-base-patch16-224-pt22k-ft22k",
+        "type": "image",
+    },
+    "image-segmentation": {
+        "impl": ImageSegmentationPipeline,
+        "class": (NeuronModelForSemanticSegmentation,),
+        "default": "apple/deeplabv3-mobilevit-small",
+        "type": "image",
+    },
+    "object-detection": {
+        "impl": ObjectDetectionPipeline,
+        "class": (NeuronModelForSemanticSegmentation,),
+        "default": "apple/deeplabv3-mobilevit-small",
+        "type": "image",
     },
 }
 

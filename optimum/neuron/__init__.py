@@ -40,6 +40,8 @@ _import_structure = {
         "NeuronModelForMultipleChoice",
         "NeuronModelForCausalLM",
         "NeuronModelForImageClassification",
+        "NeuronModelForSemanticSegmentation",
+        "NeuronModelForObjectDetection",
     ],
     "modeling_diffusion": [
         "NeuronStableDiffusionPipeline",
@@ -70,7 +72,9 @@ if TYPE_CHECKING:
         NeuronModelForImageClassification,
         NeuronModelForMaskedLM,
         NeuronModelForMultipleChoice,
+        NeuronModelForObjectDetection,
         NeuronModelForQuestionAnswering,
+        NeuronModelForSemanticSegmentation,
         NeuronModelForSentenceTransformers,
         NeuronModelForSequenceClassification,
         NeuronModelForTokenClassification,
