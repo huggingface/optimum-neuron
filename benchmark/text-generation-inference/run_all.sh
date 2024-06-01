@@ -4,7 +4,6 @@
 # at the end of this script, run 
 # python generate_csv.py
 
-
 # change the modelname on the next line.
 set modelname=$1
 echo on
