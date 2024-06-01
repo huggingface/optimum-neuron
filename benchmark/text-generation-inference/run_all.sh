@@ -5,7 +5,7 @@
 # python generate_csv.py
 
 # change the modelname on the next line.
-set modelname=$1
+modelname=${1:-NousResearch/Llama-2-7b-chat-hf}
 echo on
 #set for your environment if not already set
 #export LLMPerf=/home/ubuntu/llmperf
@@ -13,7 +13,7 @@ echo on
 for concurrency in 1 2 4 8 16 32 64 128 256 512
     do
 
-    ./benchmark.sh $modelname $concurrency
+    ./benchmark.sh ${modelname} ${concurrency}
 
 
 done
