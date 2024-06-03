@@ -20,6 +20,7 @@ import logging
 import os
 import re
 import shutil
+import warnings
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Optional, Tuple, Union
@@ -249,6 +250,13 @@ class NeuronDecoderModel(NeuronModel):
             torch_dtype="auto",
             **kwargs,
         )
+
+        if model.generation_config is not None:
+            with warnings.catch_warnings(record=True) as caught_warnings:
+                model.generation_config.validate()
+            if len(caught_warnings) > 0:
+                logger.warning("Invalid generation config: recreating it from model config.")
+                model.generation_config = GenerationConfig.from_model_config(model.config)
 
         # Save the model checkpoint in a temporary directory
         checkpoint_dir = TemporaryDirectory()
