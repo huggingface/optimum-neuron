@@ -16,7 +16,12 @@
 
 import torch
 
-from ...utils import DTYPE_MAPPER, DummyInputGenerator, NormalizedTextConfig
+from ...utils import (
+    DTYPE_MAPPER,
+    DummyInputGenerator,
+    NormalizedTextConfig,
+    NormalizedVisionConfig,
+)
 
 
 class DummyBeamValuesGenerator(DummyInputGenerator):
@@ -44,3 +49,27 @@ class DummyBeamValuesGenerator(DummyInputGenerator):
             return torch.arange(0, self.num_beams, dtype=DTYPE_MAPPER.pt(int_dtype))
         elif input_name == "beam_scores":
             return torch.zeros((self.num_beams,), dtype=DTYPE_MAPPER.pt(float_dtype))
+
+
+class DummyMaskedPosGenerator(DummyInputGenerator):
+    SUPPORTED_INPUT_NAMES = ("masked_pos", "bool_masked_pos")
+
+    def __init__(
+        self,
+        task: str,
+        normalized_config: NormalizedVisionConfig,
+        batch_size: int,
+        **kwargs,
+    ):
+        self.task = task
+        self.image_size = getattr(normalized_config, "image_size", None)
+        self.patch_size = getattr(normalized_config, "patch_size", None)
+        self.batch_size = batch_size
+
+    def generate(self, input_name: str, framework: str = "pt", int_dtype: str = "int64", float_dtype: str = "fp32"):
+        num_patches = (self.image_size // self.patch_size) ** 2
+        masked_pos = torch.randint(low=0, high=2, size=(self.batch_size, num_patches))
+        if input_name == "masked_pos":
+            return masked_pos
+        elif input_name == "bool_masked_pos":
+            return masked_pos.bool()

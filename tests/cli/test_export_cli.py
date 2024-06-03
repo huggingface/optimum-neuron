@@ -114,10 +114,6 @@ class TestExportCLI(unittest.TestCase):
         model_id = "hf-internal-testing/tiny-random-BertModel"
         with tempfile.TemporaryDirectory() as tempdir:
             save_path = f"{tempdir}/neff"
-            if is_neuronx_available():
-                neff_path = os.path.join(save_path, "graph.neff")
-            else:
-                neff_path = os.path.join(save_path, "32", "neff.json")
             subprocess.run(
                 [
                     "optimum-cli",
@@ -138,7 +134,11 @@ class TestExportCLI(unittest.TestCase):
                 shell=False,
                 check=True,
             )
-            self.assertTrue(os.path.exists(neff_path))
+            if is_neuronx_available():
+                neff_path = os.path.join(save_path, "graph.neff")
+                self.assertTrue(os.path.exists(neff_path))
+            else:
+                neff_path = os.path.join(save_path, "32", "neff.json")
 
     @requires_neuronx
     def test_stable_diffusion(self):

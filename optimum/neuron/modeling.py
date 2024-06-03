@@ -22,9 +22,12 @@ import torch
 from transformers import (
     AutoModel,
     AutoModelForCausalLM,
+    AutoModelForImageClassification,
     AutoModelForMaskedLM,
     AutoModelForMultipleChoice,
+    AutoModelForObjectDetection,
     AutoModelForQuestionAnswering,
+    AutoModelForSemanticSegmentation,
     AutoModelForSequenceClassification,
     AutoModelForTokenClassification,
 )
@@ -34,13 +37,15 @@ from transformers.generation import (
 )
 from transformers.modeling_outputs import (
     BaseModelOutputWithPooling,
+    ImageClassifierOutput,
     MaskedLMOutput,
+    ModelOutput,
     MultipleChoiceModelOutput,
     QuestionAnsweringModelOutput,
+    SemanticSegmenterOutput,
     SequenceClassifierOutput,
     TokenClassifierOutput,
 )
-from transformers.utils import ModelOutput
 
 from .generation import TokenSelector
 from .modeling_decoder import NeuronDecoderModel
@@ -59,6 +64,7 @@ logger = logging.getLogger(__name__)
 
 
 _TOKENIZER_FOR_DOC = "AutoTokenizer"
+_PROCESSOR_FOR_IMAGE = "AutoImageProcessor"
 
 NEURON_MODEL_START_DOCSTRING = r"""
     This model inherits from [`~neuron.modeling.NeuronTracedModel`]. Check the superclass documentation for the generic methods the
@@ -610,6 +616,246 @@ class NeuronModelForMultipleChoice(NeuronTracedModel):
         logits = outputs[0]
 
         return MultipleChoiceModelOutput(logits=logits)
+
+
+IMAGE_CLASSIFICATION_EXAMPLE = r"""
+    Example of image classification:
+
+    ```python
+    >>> import requests
+    >>> from PIL import Image
+    >>> from optimum.neuron import {model_class}
+    >>> from transformers import {processor_class}
+
+    >>> url = "http://images.cocodataset.org/val2017/000000039769.jpg"
+    >>> image = Image.open(requests.get(url, stream=True).raw)
+
+    >>> preprocessor = {processor_class}.from_pretrained("{checkpoint}")
+    >>> model = {model_class}.from_pretrained("{checkpoint}")
+
+    >>> inputs = preprocessor(images=image, return_tensors="pt")
+
+    >>> outputs = model(**inputs)
+    >>> logits = outputs.logits
+    >>> predicted_label = logits.argmax(-1).item()
+    ```
+    Example using `transformers.pipeline`:
+
+    ```python
+    >>> import requests
+    >>> from PIL import Image
+    >>> from transformers import {processor_class}, pipeline
+    >>> from optimum.neuron import {model_class}
+
+    >>> preprocessor = {processor_class}.from_pretrained("{checkpoint}")
+    >>> model = {model_class}.from_pretrained("{checkpoint}")
+    >>> pipe = pipeline("image-classification", model=model, feature_extractor=preprocessor)
+
+    >>> url = "http://images.cocodataset.org/val2017/000000039769.jpg"
+    >>> pred = pipe(url)
+    ```
+"""
+
+
+@add_start_docstrings(
+    """
+    Neuron Model with an image classification head on top (a linear layer on top of the final hidden state of the [CLS] token) e.g. for ImageNet.
+    """,
+    NEURON_MODEL_START_DOCSTRING,
+)
+class NeuronModelForImageClassification(NeuronTracedModel):
+    """
+    Neuron Model for image-classification tasks. This class officially supports beit, convnext, convnextv2, deit, levit, mobilenet_v2, mobilevit, vit, etc.
+    """
+
+    auto_model_class = AutoModelForImageClassification
+
+    @add_start_docstrings_to_model_forward(
+        NEURON_IMAGE_INPUTS_DOCSTRING.format("batch_size, num_channels, height, width")
+        + IMAGE_CLASSIFICATION_EXAMPLE.format(
+            processor_class=_PROCESSOR_FOR_IMAGE,
+            model_class="NeuronModelForImageClassification",
+            checkpoint="optimum/vit-base-patch16-224-neuronx",
+        )
+    )
+    def forward(
+        self,
+        pixel_values: torch.Tensor,
+        **kwargs,
+    ):
+        neuron_inputs = {"pixel_values": pixel_values}
+
+        # run inference
+        with self.neuron_padding_manager(neuron_inputs) as inputs:
+            outputs = self.model(*inputs)  # shape: [batch_size, num_channels, image_size, image_size]
+            outputs = self.remove_padding(
+                outputs, dims=[0], indices=[pixel_values.shape[0]]
+            )  # Remove padding on batch_size(0)
+
+        logits = outputs[0]
+
+        return ImageClassifierOutput(logits=logits)
+
+
+SEMANTIC_SEGMENTATION_EXAMPLE = r"""
+    Example of semantic segmentation:
+
+    ```python
+    >>> import requests
+    >>> from PIL import Image
+    >>> from optimum.neuronimport {model_class}
+    >>> from transformers import {processor_class}
+
+    >>> url = "http://images.cocodataset.org/val2017/000000039769.jpg"
+    >>> image = Image.open(requests.get(url, stream=True).raw)
+
+    >>> preprocessor = {processor_class}.from_pretrained("{checkpoint}")
+    >>> model = {model_class}.from_pretrained("{checkpoint}")
+
+    >>> inputs = preprocessor(images=image, return_tensors="pt")
+
+    >>> outputs = model(**inputs)
+    >>> logits = outputs.logits
+    ```
+
+    Example using `transformers.pipeline`:
+
+    ```python
+    >>> import requests
+    >>> from PIL import Image
+    >>> from transformers import {processor_class}, pipeline
+    >>> from optimum.neuron import {model_class}
+
+    >>> preprocessor = {processor_class}.from_pretrained("{checkpoint}")
+    >>> model = {model_class}.from_pretrained("{checkpoint}")
+    >>> pipe = pipeline("image-segmentation", model=model, feature_extractor=preprocessor)
+
+    >>> url = "http://images.cocodataset.org/val2017/000000039769.jpg"
+    >>> pred = pipe(url)
+    ```
+"""
+
+
+@add_start_docstrings(
+    """
+    Neuron Model with a semantic segmentation head on top, e.g. for Pascal VOC.
+    """,
+    NEURON_MODEL_START_DOCSTRING,
+)
+class NeuronModelForSemanticSegmentation(NeuronTracedModel):
+    """
+    Neuron Model for semantic-segmentation, with an all-MLP decode head on top e.g. for ADE20k, CityScapes. This class officially supports mobilevit, mobilenet-v2, etc.
+    """
+
+    auto_model_class = AutoModelForSemanticSegmentation
+
+    @add_start_docstrings_to_model_forward(
+        NEURON_IMAGE_INPUTS_DOCSTRING.format("batch_size, num_channels, height, width")
+        + SEMANTIC_SEGMENTATION_EXAMPLE.format(
+            processor_class=_PROCESSOR_FOR_IMAGE,
+            model_class="NeuronModelForSemanticSegmentation",
+            checkpoint="optimum/deeplabv3-mobilevit-small-neuronx",
+        )
+    )
+    def forward(
+        self,
+        pixel_values: torch.Tensor,
+        **kwargs,
+    ):
+        neuron_inputs = {"pixel_values": pixel_values}
+
+        # run inference
+        with self.neuron_padding_manager(neuron_inputs) as inputs:
+            outputs = self.model(*inputs)  # shape: [batch_size, num_channels, image_size, image_size]
+            outputs = self.remove_padding(
+                outputs, dims=[0], indices=[pixel_values.shape[0]]
+            )  # Remove padding on batch_size(0)
+
+        logits = outputs[0]
+
+        return SemanticSegmenterOutput(logits=logits)
+
+
+OBJECT_DETECTION_EXAMPLE = r"""
+    Example of object detection:
+
+    ```python
+    >>> import requests
+    >>> from PIL import Image
+    >>> from optimum.neuronimport {model_class}
+    >>> from transformers import {processor_class}
+
+    >>> url = "http://images.cocodataset.org/val2017/000000039769.jpg"
+    >>> image = Image.open(requests.get(url, stream=True).raw)
+
+    >>> preprocessor = {processor_class}.from_pretrained("{checkpoint}")
+    >>> model = {model_class}.from_pretrained("{checkpoint}", export=True, batch_size=1)
+
+    >>> inputs = preprocessor(images=image, return_tensors="pt")
+
+    >>> outputs = model(**inputs)
+    >>> target_sizes = torch.tensor([image.size[::-1]])
+    >>> results = image_processor.post_process_object_detection(outputs, threshold=0.9, target_sizes=target_sizes)[0]
+    ```
+
+    Example using `transformers.pipeline`:
+
+    ```python
+    >>> import requests
+    >>> from PIL import Image
+    >>> from transformers import {processor_class}, pipeline
+    >>> from optimum.neuron import {model_class}
+
+    >>> preprocessor = {processor_class}.from_pretrained("{checkpoint}")
+    >>> model = {model_class}.from_pretrained("{checkpoint}")
+    >>> pipe = pipeline("object-detection", model=model, feature_extractor=preprocessor)
+
+    >>> url = "http://images.cocodataset.org/val2017/000000039769.jpg"
+    >>> pred = pipe(url)
+    ```
+"""
+
+
+@add_start_docstrings(
+    """
+    Neuron Model with object detection heads on top, for tasks such as COCO detection.
+    """,
+    NEURON_MODEL_START_DOCSTRING,
+)
+class NeuronModelForObjectDetection(NeuronTracedModel):
+    """
+    Neuron Model for object-detection, with object detection heads on top, for tasks such as COCO detection.
+    """
+
+    auto_model_class = AutoModelForObjectDetection
+
+    @add_start_docstrings_to_model_forward(
+        NEURON_IMAGE_INPUTS_DOCSTRING.format("batch_size, num_channels, height, width")
+        + OBJECT_DETECTION_EXAMPLE.format(
+            processor_class=_PROCESSOR_FOR_IMAGE,
+            model_class="NeuronModelForObjectDetection",
+            checkpoint="hustvl/yolos-tiny",
+        )
+    )
+    def forward(
+        self,
+        pixel_values: torch.Tensor,
+        **kwargs,
+    ):
+        neuron_inputs = {"pixel_values": pixel_values}
+
+        # run inference
+        with self.neuron_padding_manager(neuron_inputs) as inputs:
+            outputs = self.model(*inputs)  # shape: [batch_size, num_channels, image_size, image_size]
+            outputs = self.remove_padding(
+                outputs, dims=[0], indices=[pixel_values.shape[0]]
+            )  # Remove padding on batch_size(0)
+
+        logits = outputs[0]
+        pred_boxes = outputs[1]
+        last_hidden_state = outputs[2]
+
+        return ModelOutput(logits=logits, pred_boxes=pred_boxes, last_hidden_state=last_hidden_state)
 
 
 NEURON_CAUSALLM_MODEL_START_DOCSTRING = r"""
