@@ -56,7 +56,7 @@ For larger models, use their specific docker files:
 $ docker compose -f llama3-70b/docker-compose.yaml --env-file llama3-70b/.env up
 ```
 
-Note: replace the .env file to change the model configuration
+Note: edit the .env file to change the model configuration
 
 ## Run the benchmark
 
@@ -93,7 +93,7 @@ See the [llama3-70b-trn1.32xlarge](llama3-70b-trn1.32xlarge) as an example.
 
 It is best to compile the model with the software in the container you will be using to ensure all library versions match.
 
-As an example, you can compile with the following command.  **Make sure your batch size, sequence length, and num_cores for compilation match the same settings in the .env file**
+As an example, you can compile with the following command.  **If you make changes, make sure your batch size, sequence length, and num_cores for compilation match the same settings in the .env file**
 
 ```
 docker run -p 8080:80 \
@@ -125,11 +125,11 @@ export neuron --model NousResearch/Meta-Llama-3-70B-Instruct \
 
 Note that the .env file has a path for MODEL_ID to load the model from the /data directory.
 
-Also, the docker-compose.yaml file includes an additional parameter to map the volume to the current working directory, as well as additional Neuron device mappings for Trainium.
+Also, the docker-compose.yaml file includes an additional parameter to map the volume to the current working directory, as well as additional Neuron device mappings because trn1.32xlarge has 32 cores (16 devices).
 
-Make sure you run the above command and the docker compose command from the same directory since you are mapping the current working directory.
+Make sure you run the above command and the docker compose command from the same directory since it maps the /data director to the current working directory.
 
-For example:
+For this example:
 ```
 $ docker compose -f llama3-70b-trn1.32xlarge/docker-compose.yaml --env-file llama3-70b-trn1.32xlarge/.env up
 ```
