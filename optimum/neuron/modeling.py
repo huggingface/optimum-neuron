@@ -732,6 +732,7 @@ SEMANTIC_SEGMENTATION_EXAMPLE = r"""
 
     >>> url = "http://images.cocodataset.org/val2017/000000039769.jpg"
     >>> pred = pipe(url)
+    ```
 """
 
 
@@ -811,6 +812,7 @@ OBJECT_DETECTION_EXAMPLE = r"""
 
     >>> url = "http://images.cocodataset.org/val2017/000000039769.jpg"
     >>> pred = pipe(url)
+    ```
 """
 
 
