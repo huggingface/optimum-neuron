@@ -898,7 +898,7 @@ def peft_tuner_linear_to_parallel_linear(
     skip_weight_load: bool = False,
     device: Optional["torch.device"] = None,
 ) -> "BaseTunerLayer":
-    from peft.tuners import LoraLayer
+    from peft.tuners.lora import LoraLayer
     from peft.tuners.tuners_utils import BaseTunerLayer
 
     # This is necessary for the case that the tuner layer wraps another tuner layer.
@@ -935,10 +935,27 @@ def peft_tuner_linear_to_parallel_linear(
         #   2. The base linear layer is a ColumnParallelLinear, then:
         #       - The lora A matrix does not need to be parallelized,
         #       - The lora B matrix needs to be a ColumnParallelLinear as well.
-        if axis == "row":
-            pass
-            # parent.lora_a
-
+        print(parent)
+        for adapter_name in parent.active_adapters:
+            if axis == "row":
+                layer_to_parallelize = parent.lora_A[adapter_name] 
+            else:
+                layer_to_parallelize = parent.lora_B[adapter_name]
+            # TODO: handle the case were weights already exist for this adapter.
+            parallel_layer = linear_to_parallel_linear(
+                layer_to_parallelize,
+                axis,
+                input_is_parallel=input_is_parallel,
+                gather_output=gather_output,
+                stride=stride,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                skip_weight_load=skip_weight_load,
+                device=device,
+            )
+            if axis == "row":
+                parent.lora_A[adapter_name] = parallel_layer
+            else:
+                parent.lora_B[adapter_name] = parallel_layer
     else:
         raise NotImplementedError(f"{parent.__class__.__name__} is not supported yet for model parallelism.")
 

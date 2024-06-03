@@ -801,8 +801,6 @@ class Parallelizer(ABC):
         model._gqa_qkv_metadata = gqa_qkv_metadata
 
         print("Parallelized PEFT model", model)
-        assert 3 == 2
-
         return model
 
     @classmethod
