@@ -123,11 +123,11 @@ export neuron --model NousResearch/Meta-Llama-3-70B-Instruct \
 /data/exportedmodel/
 ```
 
-Note that the .env file has a different path to load the model from the /data directory.
+Note that the .env file has a path for MODEL_ID to load the model from the /data directory.
 
-Also, the docker-compose.yaml file includes an additional parameter to map the volume to the current working directory, as well as additional Neuron device mappings.
+Also, the docker-compose.yaml file includes an additional parameter to map the volume to the current working directory, as well as additional Neuron device mappings for Trainium.
 
-Make sure you run the above command along with the docker compose command from the same directory since you are mapping the current working directory.
+Make sure you run the above command and the docker compose command from the same directory since you are mapping the current working directory.
 
 For example:
 ```
