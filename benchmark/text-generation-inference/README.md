@@ -79,4 +79,59 @@ The `model_id` must match the one corresponding to the selected `.env` file.
 $ ./benchmark.sh NousResearch/Llama-2-7b-chat-hf 128
 ```
 
+If you would like to run the benchmark script multiple times with different concurrent user parameters, you can use:
+
+```
+$ ./run_all.sh NousResearch/Meta-Llama-3-70B-Instruct
+```
+
+### Compiling the model
+
+If you are trying to run a configuration or a model that is not available in the cache, you can compile the model before you run it, then load it locally. 
+
+See the [llama3-70b-trn1.32xlarge](llama3-70b-trn1.32xlarge) as an example.
+
+It is best to compile the model with the software in the container you will be using to ensure all library versions match.
+
+As an example, you can compile with the following command.  **Make sure your batch size, sequence length, and num_cores for compilation match the same settings in the .env file**
+
+```
+docker run -p 8080:80 \
+-v $(pwd):/data \
+--device=/dev/neuron0 \
+--device=/dev/neuron1 \
+--device=/dev/neuron2 \
+--device=/dev/neuron3 \
+--device=/dev/neuron4 \
+--device=/dev/neuron5 \
+--device=/dev/neuron6 \
+--device=/dev/neuron7 \
+--device=/dev/neuron8 \
+--device=/dev/neuron9 \
+--device=/dev/neuron10 \
+--device=/dev/neuron11 \
+--device=/dev/neuron12 \
+--device=/dev/neuron13 \
+--device=/dev/neuron14 \
+--device=/dev/neuron15 \
+-ti \
+--entrypoint "optimum-cli" neuronx-tgi:latest \
+export neuron --model NousResearch/Meta-Llama-3-70B-Instruct \
+--sequence_length 4096 \
+--batch_size 4 \
+--num_cores 32 \
+/data/exportedmodel/
+```
+
+Note that the .env file has a different path to load the model from the /data directory.
+
+Also, the docker-compose.yaml file includes an additional parameter to map the volume to the current working directory, as well as additional Neuron device mappings.
+
+Make sure you run the above command along with the docker compose command from the same directory since you are mapping the current working directory.
+
+For example:
+```
+$ docker compose -f llama3-70b-trn1.32xlarge/docker-compose.yaml --env-file llama3-70b-trn1.32xlarge/.env up
+```
+
 

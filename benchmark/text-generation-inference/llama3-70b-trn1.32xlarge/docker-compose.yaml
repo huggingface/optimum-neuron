@@ -16,6 +16,8 @@ services:
       - MAX_INPUT_LENGTH=${MAX_INPUT_LENGTH}
       - MAX_TOTAL_TOKENS=${MAX_TOTAL_TOKENS}
       - MAX_CONCURRENT_REQUESTS=512
+    volumes:
+      - $PWD:/data
     devices:
       - "/dev/neuron0"
       - "/dev/neuron1"
