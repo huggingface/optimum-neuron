@@ -30,25 +30,38 @@ SEED = 42
 
 MODEL_NAMES = {
     "albert": "hf-internal-testing/tiny-random-AlbertModel",
+    "beit": "hf-internal-testing/tiny-random-BeitForImageClassification",
     "bert": "hf-internal-testing/tiny-random-BertModel",
     "camembert": "hf-internal-testing/tiny-random-camembert",
     "convbert": "hf-internal-testing/tiny-random-ConvBertModel",
+    "convnext": "hf-internal-testing/tiny-random-convnext",
+    "convnextv2": "hf-internal-testing/tiny-random-ConvNextV2Model",
+    "cvt": "hf-internal-testing/tiny-random-CvTModel",
     "deberta": "hf-internal-testing/tiny-random-DebertaModel",  # Failed for INF1: 'XSoftmax'
     "deberta-v2": "hf-internal-testing/tiny-random-DebertaV2Model",  # Failed for INF1: 'XSoftmax'
+    "deit": "hf-internal-testing/tiny-random-DeiTModel",
     "distilbert": "hf-internal-testing/tiny-random-DistilBertModel",
+    "donut-swin": "hf-internal-testing/tiny-random-DonutSwinModel",
+    "dpt": "hf-internal-testing/tiny-random-DPTModel",
     "electra": "hf-internal-testing/tiny-random-ElectraModel",
     "flaubert": "flaubert/flaubert_small_cased",
     "gpt2": "hf-internal-testing/tiny-random-gpt2",
     "latent-consistency": "echarlaix/tiny-random-latent-consistency",
+    "levit": "hf-internal-testing/tiny-random-LevitModel",
     "mobilebert": "hf-internal-testing/tiny-random-MobileBertModel",
+    "mobilenet-v2": "hf-internal-testing/tiny-random-MobileNetV2Model",
+    "mobilevit": "hf-internal-testing/tiny-random-mobilevit",
     "mpnet": "hf-internal-testing/tiny-random-MPNetModel",
     "phi": "bumblebee-testing/tiny-random-PhiModel",
     "roberta": "hf-internal-testing/tiny-random-RobertaModel",
     "roformer": "hf-internal-testing/tiny-random-RoFormerModel",
+    "swin": "hf-internal-testing/tiny-random-SwinModel",
+    "vit": "hf-internal-testing/tiny-random-vit",
     "stable-diffusion": "hf-internal-testing/tiny-stable-diffusion-torch",
     "stable-diffusion-xl": "echarlaix/tiny-random-stable-diffusion-xl",
     "xlm": "hf-internal-testing/tiny-random-XLMModel",
     "xlm-roberta": "hf-internal-testing/tiny-xlm-roberta",
+    "yolos": "hf-internal-testing/tiny-random-YolosModel",
 }
 
 LORA_WEIGHTS_TINY = {

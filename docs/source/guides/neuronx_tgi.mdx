@@ -87,6 +87,7 @@ possible to export it dynamically, pending some conditions:
 The snippet below shows how you can deploy a service from a hub standard model:
 
 ```
+export HF_TOKEN=<YOUR_TOKEN>
 docker run -p 8080:80 \
        -v $(pwd)/data:/data \
        --privileged \
@@ -94,7 +95,7 @@ docker run -p 8080:80 \
        -e HF_AUTO_CAST_TYPE="fp16" \
        -e HF_NUM_CORES=2 \
        ghcr.io/huggingface/neuronx-tgi:latest \
-       --model-id NousResearch/Llama-2-7b-chat-hf \
+       --model-id meta-llama/Meta-Llama-3-8B \
        --max-batch-size 1 \
        --max-input-length 3164 \
        --max-total-tokens 4096

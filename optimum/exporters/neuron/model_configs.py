@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Dict, List
 
 import torch
 
-from ...neuron.utils import DummyBeamValuesGenerator
+from ...neuron.utils import DummyBeamValuesGenerator, DummyMaskedPosGenerator
 from ...utils import (
     DummyInputGenerator,
     DummySeq2SeqDecoderTextInputGenerator,
@@ -31,6 +31,7 @@ from ...utils import (
     NormalizedSeq2SeqConfig,
     NormalizedTextAndVisionConfig,
     NormalizedTextConfig,
+    NormalizedVisionConfig,
     is_diffusers_available,
 )
 from ..tasks import TasksManager
@@ -314,6 +315,92 @@ class SentenceTransformersCLIPNeuronConfig(CLIPNeuronConfig):
         ]
 
 
+@register_in_tasks_manager("vit", *["feature-extraction", "image-classification"])
+class ViTNeuronConfig(VisionNeuronConfig):
+    ATOL_FOR_VALIDATION = 1e-3
+    NORMALIZED_CONFIG_CLASS = NormalizedVisionConfig
+    DUMMY_INPUT_GENERATOR_CLASSES = (DummyVisionInputGenerator, DummyMaskedPosGenerator)
+    INPUT_ARGS = ("batch_size",)  # `num_channels` and `image_size` are inferred from the config
+
+    @property
+    def inputs(self) -> List[str]:
+        common_inputs = ["pixel_values"]
+        if self.task == "masked-im":
+            common_inputs.append("bool_masked_pos")
+        return common_inputs
+
+
+@register_in_tasks_manager("beit", *["feature-extraction", "image-classification"])
+class BeitNeuronConfig(ViTNeuronConfig):
+    pass
+
+
+@register_in_tasks_manager("convnext", *["feature-extraction", "image-classification"])
+class ConvNextNeuronConfig(ViTNeuronConfig):
+    pass
+
+
+@register_in_tasks_manager("convnextv2", *["feature-extraction", "image-classification"])
+class ConvNextV2NeuronConfig(ViTNeuronConfig):
+    pass
+
+
+@register_in_tasks_manager("cvt", *["feature-extraction", "image-classification"])
+class CvTNeuronConfig(ViTNeuronConfig):
+    @property
+    def outputs(self) -> List[str]:
+        common_outputs = super().outputs
+        if self.task == "feature-extraction":
+            return ["last_hidden_state", "cls_token_value"]
+        else:
+            return common_outputs
+
+
+@register_in_tasks_manager("deit", *["feature-extraction", "image-classification"])
+class DeiTNeuronConfig(ViTNeuronConfig):
+    pass
+
+
+@register_in_tasks_manager("donut-swin", *["feature-extraction"])
+class DonutSwinNeuronConfig(ViTNeuronConfig):
+    pass
+
+
+@register_in_tasks_manager("dpt", *["feature-extraction"])
+class DptNeuronConfig(ViTNeuronConfig):
+    pass
+
+
+@register_in_tasks_manager("levit", *["feature-extraction", "image-classification"])
+class LevitNeuronConfig(ViTNeuronConfig):
+    pass
+
+
+@register_in_tasks_manager("mobilenet-v2", *["feature-extraction", "image-classification", "semantic-segmentation"])
+class MobileNetV2NeuronConfig(ViTNeuronConfig):
+    pass
+
+
+@register_in_tasks_manager("mobilevit", *["feature-extraction", "image-classification", "semantic-segmentation"])
+class MobileViTNeuronConfig(ViTNeuronConfig):
+    pass
+
+
+@register_in_tasks_manager("swin", *["feature-extraction", "image-classification"])
+class SwinNeuronConfig(ViTNeuronConfig):
+    pass
+
+
+@register_in_tasks_manager("yolos", *["feature-extraction", "object-detection"])
+class YolosTNeuronConfig(ViTNeuronConfig):
+    @property
+    def outputs(self) -> List[str]:
+        common_outputs = super().outputs
+        if self.task == "object-detection":
+            common_outputs.append("last_hidden_state")
+        return common_outputs
+
+
 @register_in_tasks_manager("unet", *["semantic-segmentation"], library_name="diffusers")
 class UNetNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
@@ -321,7 +408,8 @@ class UNetNeuronConfig(VisionNeuronConfig):
     MODEL_TYPE = "unet"
     CUSTOM_MODEL_WRAPPER = UnetNeuronWrapper
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
-        image_size="sample_size",
+        height="height",
+        width="width",
         num_channels="in_channels",
         hidden_size="cross_attention_dim",
         vocab_size="norm_num_groups",
@@ -353,14 +441,6 @@ class UNetNeuronConfig(VisionNeuronConfig):
         return ["sample"]
 
     def generate_dummy_inputs(self, return_tuple: bool = False, **kwargs):
-        # For neuron, we use static shape for compiling the unet. Unlike `optimum`, we use the given `height` and `width` instead of the `sample_size`.
-        # TODO: Modify optimum.utils.DummyVisionInputGenerator to enable unequal height and width (it prioritize `image_size` to custom h/w now)
-        if self.height == self.width:
-            self._normalized_config.image_size = self.height
-        else:
-            raise ValueError(
-                "You need to input the same value for `self.height({self.height})` and `self.width({self.width})`."
-            )
         dummy_inputs = super().generate_dummy_inputs(**kwargs)
         dummy_inputs["timestep"] = dummy_inputs["timestep"].float()
         dummy_inputs["encoder_hidden_states"] = dummy_inputs["encoder_hidden_states"][0]
@@ -395,7 +475,6 @@ class VaeEncoderNeuronConfig(VisionNeuronConfig):
 
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
         num_channels="in_channels",
-        image_size="sample_size",
         allow_new=True,
     )
 
@@ -408,14 +487,6 @@ class VaeEncoderNeuronConfig(VisionNeuronConfig):
         return ["latent_sample"]
 
     def generate_dummy_inputs(self, return_tuple: bool = False, **kwargs):
-        # For neuron, we use static shape for compiling the unet. Unlike `optimum`, we use the given `height` and `width` instead of the `sample_size`.
-        # TODO: Modify optimum.utils.DummyVisionInputGenerator to enable unequal height and width (it prioritize `image_size` to custom h/w now)
-        if self.height == self.width:
-            self._normalized_config.image_size = self.height
-        else:
-            raise ValueError(
-                "You need to input the same value for `self.height({self.height})` and `self.width({self.width})`."
-            )
         dummy_inputs = super().generate_dummy_inputs(**kwargs)
 
         if return_tuple is True:
