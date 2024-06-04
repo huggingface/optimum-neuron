@@ -73,3 +73,27 @@ class DummyMaskedPosGenerator(DummyInputGenerator):
             return masked_pos
         elif input_name == "bool_masked_pos":
             return masked_pos.bool()
+
+
+class DummyControNetInputGenerator(DummyInputGenerator):
+    SUPPORTED_INPUT_NAMES = ("controlnet_cond", "conditioning_scale")
+
+    def __init__(
+        self,
+        task: str,
+        normalized_config: NormalizedVisionConfig,
+        batch_size: int,
+        sequence_length: int,
+        **kwargs,
+    ):
+        self.task = task
+        self.batch_size = batch_size
+        self.sequence_length = sequence_length
+        self.hidden_size = normalized_config.hidden_size
+
+    def generate(self, input_name: str, framework: str = "pt", int_dtype: str = "int64", float_dtype: str = "fp32"):
+        if input_name == "controlnet_cond":
+            shape = (self.batch_size, self.sequence_length, self.hidden_size)
+            return self.random_float_tensor(shape, framework=framework, dtype=float_dtype)
+        elif input_name == "conditioning_scale":
+            return torch.rand(1, dtype=DTYPE_MAPPER.pt(float_dtype))

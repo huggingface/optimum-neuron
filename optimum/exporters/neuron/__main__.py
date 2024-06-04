@@ -256,6 +256,7 @@ def get_submodels_and_neuron_configs(
     lora_weight_names: Optional[Union[str, List[str]]] = None,
     lora_adapter_names: Optional[Union[str, List[str]]] = None,
     lora_scales: Optional[Union[float, List[float]]] = None,
+    controlnet_model_ids: Optional[Union[str, List[str]]] = None,
 ):
     is_stable_diffusion = "stable-diffusion" in task
     is_encoder_decoder = (
@@ -278,6 +279,7 @@ def get_submodels_and_neuron_configs(
             lora_weight_names=lora_weight_names,
             lora_adapter_names=lora_adapter_names,
             lora_scales=lora_scales,
+            controlnet_model_ids=controlnet_model_ids,
         )
     elif is_encoder_decoder:
         optional_outputs = {"output_attentions": output_attentions, "output_hidden_states": output_hidden_states}
@@ -338,6 +340,7 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
     lora_weight_names: Optional[Union[str, List[str]]] = None,
     lora_adapter_names: Optional[Union[str, List[str]]] = None,
     lora_scales: Optional[Union[float, List[float]]] = None,
+    controlnet_model_ids: Optional[Union[str, List[str]]] = None,
 ):
     check_compiler_compatibility_for_stable_diffusion()
     model = replace_stable_diffusion_submodels(model, submodels)
@@ -373,6 +376,7 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
         lora_weight_names=lora_weight_names,
         lora_adapter_names=lora_adapter_names,
         lora_scales=lora_scales,
+        controlnet_model_ids=controlnet_model_ids,
     )
     output_model_names = {
         DIFFUSION_MODEL_UNET_NAME: os.path.join(DIFFUSION_MODEL_UNET_NAME, NEURON_FILE_NAME),
@@ -387,6 +391,8 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
         output_model_names[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME] = os.path.join(
             DIFFUSION_MODEL_TEXT_ENCODER_2_NAME, NEURON_FILE_NAME
         )
+    # ControlNet models
+
     del model
 
     return models_and_neuron_configs, output_model_names
@@ -442,6 +448,7 @@ def load_models_and_neuron_configs(
     lora_weight_names: Optional[Union[str, List[str]]],
     lora_adapter_names: Optional[Union[str, List[str]]],
     lora_scales: Optional[Union[float, List[float]]],
+    controlnet_model_ids: Optional[Union[str, List[str]]],
     output_attentions: bool = False,
     output_hidden_states: bool = False,
     library_name: Optional[str] = None,
@@ -483,6 +490,7 @@ def load_models_and_neuron_configs(
         lora_weight_names=lora_weight_names,
         lora_adapter_names=lora_adapter_names,
         lora_scales=lora_scales,
+        controlnet_model_ids=controlnet_model_ids,
     )
 
     return models_and_neuron_configs, output_model_names
@@ -516,6 +524,7 @@ def main_export(
     lora_weight_names: Optional[Union[str, List[str]]] = None,
     lora_adapter_names: Optional[Union[str, List[str]]] = None,
     lora_scales: Optional[Union[float, List[float]]] = None,
+    controlnet_model_ids: Optional[Union[str, List[str]]] = None,
     **input_shapes,
 ):
     output = Path(output)
@@ -545,6 +554,7 @@ def main_export(
         lora_weight_names=lora_weight_names,
         lora_adapter_names=lora_adapter_names,
         lora_scales=lora_scales,
+        controlnet_model_ids=controlnet_model_ids,
         **input_shapes,
     )
 
@@ -687,6 +697,7 @@ def main():
         lora_weight_names=getattr(args, "lora_weight_names", None),
         lora_adapter_names=getattr(args, "lora_adapter_names", None),
         lora_scales=getattr(args, "lora_scales", None),
+        controlnet_model_ids=getattr(args, "controlnet_model_ids", None),
         **optional_outputs,
         **input_shapes,
     )

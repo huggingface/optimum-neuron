@@ -27,6 +27,7 @@ _import_structure = {
         "DIFFUSION_MODEL_UNET_NAME",
         "DIFFUSION_MODEL_VAE_DECODER_NAME",
         "DIFFUSION_MODEL_VAE_ENCODER_NAME",
+        "DIFFUSION_MODEL_CONTROLNET_NAME",
         "ENCODER_NAME",
         "NEURON_FILE_NAME",
     ],
@@ -71,6 +72,7 @@ if TYPE_CHECKING:
     from .argument_utils import convert_neuronx_compiler_args_to_neuron, store_compilation_config
     from .constant import (
         DECODER_NAME,
+        DIFFUSION_MODEL_CONTROLNET_NAME,
         DIFFUSION_MODEL_TEXT_ENCODER_2_NAME,
         DIFFUSION_MODEL_TEXT_ENCODER_NAME,
         DIFFUSION_MODEL_UNET_NAME,

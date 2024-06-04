@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Dict, List
 
 import torch
 
-from ...neuron.utils import DummyBeamValuesGenerator, DummyMaskedPosGenerator
+from ...neuron.utils import DummyBeamValuesGenerator, DummyControNetInputGenerator, DummyMaskedPosGenerator
 from ...utils import (
     DummyInputGenerator,
     DummySeq2SeqDecoderTextInputGenerator,
@@ -43,6 +43,7 @@ from .config import (
     VisionNeuronConfig,
 )
 from .model_wrappers import (
+    ControlNetNeuronWrapper,
     NoCacheModelWrapper,
     SentenceTransformersCLIPNeuronWrapper,
     SentenceTransformersTransformerNeuronWrapper,
@@ -466,6 +467,51 @@ class UNetNeuronConfig(VisionNeuronConfig):
     @is_sdxl.setter
     def is_sdxl(self, is_sdxl: bool):
         self._is_sdxl = is_sdxl
+
+
+@register_in_tasks_manager("controlnet", *["controlnet"], library_name="diffusers")
+class ControlNetNeuronConfig(VisionNeuronConfig):
+    ATOL_FOR_VALIDATION = 1e-3
+    INPUT_ARGS = ("batch_size", "sequence_length", "num_channels", "width", "height")
+    MODEL_TYPE = "controlnet"
+    CUSTOM_MODEL_WRAPPER = ControlNetNeuronWrapper
+    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
+        height="height",
+        width="width",
+        num_channels="in_channels",
+        hidden_size="cross_attention_dim",
+        vocab_size="norm_num_groups",
+        allow_new=True,
+    )
+
+    DUMMY_INPUT_GENERATOR_CLASSES = (
+        DummyVisionInputGenerator,
+        DummyTimestepInputGenerator,
+        DummySeq2SeqDecoderTextInputGenerator,
+        DummyControNetInputGenerator,
+    )
+
+    @property
+    def inputs(self) -> List[str]:
+        common_inputs = ["sample", "timestep", "encoder_hidden_states", "controlnet_cond", "conditioning_scale"]
+        return common_inputs
+
+    @property
+    def outputs(self) -> List[str]:
+        return ["down_block_res_samples", "mid_block_res_sample"]
+
+    def generate_dummy_inputs(self, return_tuple: bool = False, **kwargs):
+        dummy_inputs = super().generate_dummy_inputs(**kwargs)
+        dummy_inputs["timestep"] = dummy_inputs["timestep"].float()
+        dummy_inputs["encoder_hidden_states"] = dummy_inputs["encoder_hidden_states"][0]
+
+        if return_tuple is True:
+            return tuple(dummy_inputs.values())
+        else:
+            return dummy_inputs
+
+    def patch_model_for_export(self, model, dummy_inputs):
+        return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
 
 
 @register_in_tasks_manager("vae-encoder", *["semantic-segmentation"], library_name="diffusers")

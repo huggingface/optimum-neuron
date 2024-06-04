@@ -73,6 +73,7 @@ if is_neuronx_available():
 
 if is_diffusers_available():
     from diffusers import (
+        ControlNetModel,
         DDIMScheduler,
         LCMScheduler,
         LMSDiscreteScheduler,
@@ -87,9 +88,11 @@ if is_diffusers_available():
 
     from .pipelines import (
         NeuronLatentConsistencyPipelineMixin,
+        NeuronStableDiffusionControlNetPipelineMixin,
         NeuronStableDiffusionImg2ImgPipelineMixin,
         NeuronStableDiffusionInpaintPipelineMixin,
         NeuronStableDiffusionPipelineMixin,
+        NeuronStableDiffusionXLControlNetPipelineMixin,
         NeuronStableDiffusionXLImg2ImgPipelineMixin,
         NeuronStableDiffusionXLInpaintPipelineMixin,
         NeuronStableDiffusionXLPipelineMixin,
@@ -987,6 +990,38 @@ class NeuronModelVaeDecoder(_NeuronDiffusionModelPart):
         return tuple(output for output in outputs.values())
 
 
+class NeuronControlNetModel(NeuronTracedModel):
+    auto_model_class = ControlNetModel
+    library_name = "diffusers"
+    base_model_prefix = "neuron_model"
+    config_name = "model_index.json"
+    sub_component_config_name = "config.json"
+
+    def __init__(
+        self,
+        model: torch.jit._script.ScriptModule,
+        parent_model: NeuronTracedModel,
+        config: Optional[DiffusersPretrainedConfig] = None,
+        neuron_config: Optional[Dict[str, str]] = None,
+    ):
+        super().__init__(model, parent_model, config, neuron_config, DIFFUSION_MODEL_VAE_DECODER_NAME)
+
+    def forward(
+        self,
+        latent_sample: torch.Tensor,
+        image: Optional[torch.Tensor] = None,
+        mask: Optional[torch.Tensor] = None,
+    ):
+        inputs = (latent_sample,)
+        if image is not None:
+            inputs += (image,)
+        if mask is not None:
+            inputs += (mask,)
+        outputs = self.model(*inputs)
+
+        return tuple(output for output in outputs.values())
+
+
 class NeuronStableDiffusionPipeline(NeuronStableDiffusionPipelineBase, NeuronStableDiffusionPipelineMixin):
     __call__ = NeuronStableDiffusionPipelineMixin.__call__
 
@@ -1005,6 +1040,12 @@ class NeuronStableDiffusionInpaintPipeline(
 
 class NeuronLatentConsistencyModelPipeline(NeuronStableDiffusionPipelineBase, NeuronLatentConsistencyPipelineMixin):
     __call__ = NeuronLatentConsistencyPipelineMixin.__call__
+
+
+class NeuronStableDiffusionControlNetPipeline(
+    NeuronStableDiffusionPipelineBase, NeuronStableDiffusionControlNetPipelineMixin
+):
+    __call__ = NeuronStableDiffusionControlNetPipelineMixin.__call__
 
 
 class NeuronStableDiffusionXLPipelineBase(NeuronStableDiffusionPipelineBase):
@@ -1076,6 +1117,12 @@ class NeuronStableDiffusionXLInpaintPipeline(
     NeuronStableDiffusionXLPipelineBase, NeuronStableDiffusionXLInpaintPipelineMixin
 ):
     __call__ = NeuronStableDiffusionXLInpaintPipelineMixin.__call__
+
+
+class NeuronStableDiffusionXLControlNetPipeline(
+    NeuronStableDiffusionPipelineBase, NeuronStableDiffusionXLControlNetPipelineMixin
+):
+    __call__ = NeuronStableDiffusionXLControlNetPipelineMixin.__call__
 
 
 if is_neuronx_available():

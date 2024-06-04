@@ -57,6 +57,41 @@ class UnetNeuronWrapper(torch.nn.Module):
         return out_tuple
 
 
+class ControlNetNeuronWrapper(torch.nn.Module):
+    def __init__(self, model, input_names: List[str]):
+        super().__init__()
+        self.model = model
+        self.input_names = input_names
+
+    def forward(self, *inputs):
+        if len(inputs) != len(self.input_names):
+            raise ValueError(
+                f"The model needs {len(self.input_names)} inputs: {self.input_names}."
+                f" But only {len(input)} inputs are passed."
+            )
+
+        ordered_inputs = dict(zip(self.input_names, inputs))
+
+        sample = ordered_inputs.pop("sample", None)
+        timestep = ordered_inputs.pop("timestep").float().expand((sample.shape[0],))
+        encoder_hidden_states = ordered_inputs.pop("encoder_hidden_states", None)
+        controlnet_cond = ordered_inputs.pop("controlnet_cond", None)
+        conditioning_scale = ordered_inputs.pop("conditioning_scale", None)
+
+        out_tuple = self.model(
+            sample=sample,
+            timestep=timestep,
+            encoder_hidden_states=encoder_hidden_states,
+            controlnet_cond=controlnet_cond,
+            conditioning_scale=conditioning_scale,
+            guess_mode=False,  # TODO: support guess mode of ControlNet
+            return_dict=False,
+            **ordered_inputs,
+        )
+
+        return out_tuple
+
+
 # Adapted from https://awsdocs-neuron.readthedocs-hosted.com/en/latest/src/examples/pytorch/torch-neuronx/t5-inference-tutorial.html
 class T5EncoderWrapper(torch.nn.Module):
     """Wrapper to trace the encoder and the kv cache initialization in the decoder."""

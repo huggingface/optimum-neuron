@@ -173,6 +173,13 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         help="List of scaling factors for the lora adapters.",
     )
     optional_group.add_argument(
+        "--controlnet_model_ids",
+        default=None,
+        nargs="*",
+        type=str,
+        help=("List of model ids (eg. `thibaud/controlnet-openpose-sdxl-1.0`) of ControlNet models."),
+    )
+    optional_group.add_argument(
         "--output_attentions",
         action="store_true",
         help="Whether or not for the traced model to return the attentions tensors of all attention layers.",
