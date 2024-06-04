@@ -92,8 +92,10 @@ def generate_input_ids(vocab_size: int, batch_size: int, sequence_length: int) -
     return torch.randint(0, vocab_size, (batch_size, sequence_length))
 
 
-def generate_attention_mask(batch_size: int, sequence_length: int) -> torch.Tensor:
-    return torch.randint(0, 2, (batch_size, sequence_length))
+def generate_attention_mask(batch_size: int, sequence_length: int, random: bool = False) -> torch.Tensor:
+    if random:
+        return torch.randint(0, 2, (batch_size, sequence_length))
+    return torch.ones((batch_size, sequence_length))
 
 
 def create_dummy_causal_lm_dataset(
@@ -101,21 +103,31 @@ def create_dummy_causal_lm_dataset(
     num_train_examples: int,
     num_eval_examples: int,
     num_test_examples: Optional[int] = None,
+    max_number_of_unique_examples: Optional[int] = None,
     sequence_length: int = 32,
+    random_attention_mask: bool = False,
 ) -> DatasetDict:
     if num_test_examples is None:
         num_test_examples = num_eval_examples
 
+    if max_number_of_unique_examples is None:
+        max_number_of_unique_examples = max(num_train_examples, num_eval_examples, num_test_examples)
+
     def create_gen(num_examples):
         def gen():
-            for _ in range(num_examples):
+            examples = []
+            for _ in range(min(num_examples, max_number_of_unique_examples)):
                 input_ids = generate_input_ids(vocab_size, 1, sequence_length)
-                attention_mask = generate_attention_mask(1, sequence_length)
-                yield {
-                    "input_ids": input_ids,
-                    "attention_mask": attention_mask,
-                    "labels": input_ids,
-                }
+                attention_mask = generate_attention_mask(1, sequence_length, random=random_attention_mask)
+                examples.append(
+                    {
+                        "input_ids": input_ids,
+                        "attention_mask": attention_mask,
+                        "labels": input_ids,
+                    }
+                )
+            for i in range(num_examples):
+                yield examples[i % max_number_of_unique_examples]
 
         return gen
 
