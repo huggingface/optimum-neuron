@@ -429,8 +429,6 @@ class NeuronAccelerator(Accelerator):
                 cpu_ids[name]: xla_params[name] for name, _ in model.local_named_parameters()
             }
         else:
-            for n, p in model.named_parameters():
-                print(f"{n} => {p.device}")
             move_model_to_device(model, self.device)
             tie_parameters(model, tied_parameters_dict)
             xla_params = dict(model.named_parameters())

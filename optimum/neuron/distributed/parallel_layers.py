@@ -32,6 +32,7 @@ from .utils import (
     FakeProj,
     OptimumGQAQKVColumnParallelLinear,
     WeightInformation,
+    get_base_model_and_peft_prefix,
     embedding_to_parallel_embedding,
     get_linear_weight_info,
     linear_to_parallel_linear,
@@ -970,9 +971,10 @@ class ParallelCrossEntropy(ParallelLayer):
         from neuronx_distributed import parallel_layers
 
         linear_projection_name = None
+        orig_model, _ = get_base_model_and_peft_prefix(model)
         if cls.LAST_LINEAR_PROJECTION_NAME is not None:
             if isinstance(cls.LAST_LINEAR_PROJECTION_NAME, dict):
-                linear_projection_name = cls.LAST_LINEAR_PROJECTION_NAME.get(model.__class__.__name__, None)
+                linear_projection_name = cls.LAST_LINEAR_PROJECTION_NAME.get(orig_model.__class__.__name__, None)
             else:
                 linear_projection_name = cls.LAST_LINEAR_PROJECTION_NAME
 
@@ -1011,6 +1013,7 @@ class ParallelCrossEntropy(ParallelLayer):
                 # It means there are no weight available for the linear, but no need to fail here.
                 pass
 
+        print("HAS BIAS", getattr(linear_projection_parent, linear_projection_attr_name).bias is not None)
         parallel_linear_projection = linear_to_parallel_linear(
             getattr(linear_projection_parent, linear_projection_attr_name),
             axis="column",

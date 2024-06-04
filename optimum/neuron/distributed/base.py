@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, 
 
 import torch
 from transformers import PreTrainedModel
+from transformers.utils import is_peft_available
 
 from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
@@ -45,6 +46,7 @@ from .utils import (
     OptimumNeuronFXTracer,
     ParameterMetadata,
     WeightInformation,
+    get_base_model_and_peft_prefix,
     get_linear_weight_info,
     get_output_projection_qualified_names_after_qga_qkv_replacement,
     get_parameter_names_mapping_after_gqa_qkv_replacement,
@@ -56,7 +58,6 @@ from .utils import (
     maybe_load_linear_weight_to_parallel_linear,
     maybe_load_weights_to_gqa_qkv_column_parallel_linear,
     maybe_load_weights_to_output_projection_when_using_gqa_qkv_column_parallel_linear,
-    named_parameters,
     parameter_can_be_initialized,
     try_to_hf_initialize,
     was_already_initialized_during_parallelization,
@@ -186,7 +187,7 @@ class Parallelizer(ABC):
 
         pp_size = get_pipeline_model_parallel_size()
         pp_rank = get_pipeline_model_parallel_rank()
-        all_parameter_names = {n for n, _ in named_parameters(model, remove_duplicate=remove_duplicate)}
+        all_parameter_names = {n for n, _ in model.named_parameters(remove_duplicate=remove_duplicate)}
         if pp_size == 1:
             return all_parameter_names
 
@@ -197,7 +198,7 @@ class Parallelizer(ABC):
 
         start_module_name = cuts[pp_rank - 1] if pp_rank >= 1 else None
         end_module_name = None if pp_rank == pp_size - 1 else cuts[pp_rank]
-        parameter2name = {p: n for n, p in named_parameters(model, remove_duplicate=remove_duplicate)}
+        parameter2name = {p: n for n, p in model.named_parameters(remove_duplicate=remove_duplicate)}
         parameter_names = set()
         should_add = False
         for name, mod in model.named_modules():
@@ -207,7 +208,7 @@ class Parallelizer(ABC):
             if start_module_name is None:
                 should_add = True
             if should_add:
-                for _, param in named_parameters(mod, remove_duplicate=remove_duplicate):
+                for _, param in mod.named_parameters(remove_duplicate=remove_duplicate):
                     # It is important to use this dictionary (built with `model.named_parameters()`) instead of using
                     # `mod.named_parameters()` to get the fully qualified names.
                     param_name = parameter2name[param]
@@ -223,11 +224,11 @@ class Parallelizer(ABC):
             p
             for mod in model.modules()
             if isinstance(mod, cls.PIPELINE_PARALLELISM_SPECS_CLS.TRASNFORMER_LAYER_CLS)
-            for _, p in named_parameters(mod, remove_duplicate=remove_duplicate)
+            for _, p in mod.named_parameters(remove_duplicate=remove_duplicate)
         }
         parameter_outside_of_transformer_layers_names = {
             name
-            for name, param in named_parameters(model, remove_duplicate=remove_duplicate)
+            for name, param in model.named_parameters(remove_duplicate=remove_duplicate)
             if param not in parameters_inside_transformer_layers
         }
         return parameter_names | parameter_outside_of_transformer_layers_names
@@ -332,7 +333,7 @@ class Parallelizer(ABC):
             tied_weights = {}
             new_parameters = set()
             modules_to_initialize = defaultdict(list)
-            for name, parameter in named_parameters(model, remove_duplicate=False):
+            for name, parameter in model.named_parameters(remove_duplicate=False):
                 split = name.rsplit(".", maxsplit=1)
                 module = model.get_submodule(split[0])
                 attribute_name = split[1]
@@ -384,8 +385,8 @@ class Parallelizer(ABC):
                         weight_data = weight_data.to(device)
                     new_parameter = torch.nn.Parameter(weight_data)
                 elif parameter.device != torch.device("meta") and (
-                    was_already_initialized_during_parallelization(parameter)
-                    or not parameter_can_be_initialized(model, module, attribute_name)
+                        was_already_initialized_during_parallelization(parameter)
+                        or not parameter_can_be_initialized(model, module, attribute_name)
                 ):
                     tied_weights[parameter] = parameter
                     new_parameters.add(parameter)
@@ -500,7 +501,7 @@ class Parallelizer(ABC):
         device: Optional[torch.device] = None,
     ):
         with torch.no_grad():
-            for name, parameter in named_parameters(model, remove_duplicate=False):
+            for name, parameter in model.named_parameters(remove_duplicate=False):
                 split = name.rsplit(".", maxsplit=1)
                 module = model.get_submodule(split[0])
                 attribute_name = split[1]
@@ -575,19 +576,6 @@ class Parallelizer(ABC):
         """
         import torch_xla.core.xla_model as xm
 
-        def get_base_model_and_peft_prefix(model: torch.nn.Module) -> Tuple[torch.nn.Module, str]:
-            if isinstance(model, NeuronPeftModel):
-                if model.active_peft_config.is_prompt_learning or str(model.peft_type) == "poly":
-                    peft_prefix = "base_model"
-                    orig_model = model.base_model
-                else:
-                    peft_prefix = "base_model.model"
-                    orig_model = model.base_model.model
-            else:
-                peft_prefix = ""
-                orig_model = model
-            return orig_model, peft_prefix
-
         orig_model, peft_prefix = get_base_model_and_peft_prefix(model)
         model_class = orig_model.__class__
 
@@ -619,7 +607,7 @@ class Parallelizer(ABC):
 
         # Parallelizing the model.
         # This needs to be done prior to preparing the model for sequence parallelism because modules can be overriden.
-        name_to_parameter = dict(named_parameters(model, remove_duplicate=False))
+        name_to_parameter = dict(model.named_parameters(remove_duplicate=False))
         parameter_to_name = {p: n for n, p in name_to_parameter.items()}
 
         names_of_the_parameters_to_consider = cls._get_parameter_names_for_current_pipeline(
@@ -741,7 +729,6 @@ class Parallelizer(ABC):
             if num_local_ranks_per_step <= 0:
                 num_local_ranks_per_step = get_local_world_size()
             for worker in range(math.ceil(get_local_world_size() / num_local_ranks_per_step)):
-                continue
                 if local_rank // num_local_ranks_per_step == worker:
                     if skip_linear_weight_load:
                         # Load the weights to the parallel linears if the loading was skipped during parallelization.
@@ -800,7 +787,8 @@ class Parallelizer(ABC):
 
         model._gqa_qkv_metadata = gqa_qkv_metadata
 
-        print("Parallelized PEFT model", model)
+        if xm.get_ordinal() == 0:
+            print("Parallelized PEFT model", model)
         return model
 
     @classmethod

@@ -33,6 +33,7 @@ from transformers.utils.fx import HFTracer
 from ...utils import logging
 from ..utils import DynamicPatch, Patcher
 from ..utils.deprecate_utils import deprecate
+from ..utils.peft_utils import NeuronPeftModel
 from ..utils.import_utils import is_neuronx_distributed_available
 from ..utils.misc import download_checkpoints_in_cache
 from ..utils.require_utils import requires_neuronx_distributed, requires_peft, requires_safetensors, requires_torch_xla
@@ -66,31 +67,24 @@ logger = logging.get_logger()
 MODEL_PARALLEL_SHARDS_DIR_NAME = "shards"
 
 
-@deprecate(
-    "2.0.0",
-    package_name="torch",
-    reason="torch.nn.Module._named_members takes a `remove_duplicate` parameter starting from 2.0.0",
-)
-def _named_members(module, get_members_fn, prefix="", recurse=True, remove_duplicate: bool = True):
-    r"""Helper method for yielding various names + members of modules."""
-    memo = set()
-    modules = module.named_modules(prefix=prefix, remove_duplicate=remove_duplicate) if recurse else [(prefix, module)]
-    for module_prefix, mod in modules:
-        members = get_members_fn(mod)
-        for k, v in members:
-            if v is None or v in memo:
-                continue
-            if remove_duplicate:
-                memo.add(v)
-            name = module_prefix + ("." if module_prefix else "") + k
-            yield name, v
+def get_base_model_and_peft_prefix(model: torch.nn.Module) -> Tuple[torch.nn.Module, str]:
+    if is_peft_available() and isinstance(model, NeuronPeftModel):
+        from peft.tuners.tuners_utils import BaseTunerLayer
+        if model.active_peft_config.is_prompt_learning or str(model.peft_type) == "poly":
+            peft_prefix = "base_model"
+            orig_model = model.base_model
+        else:
+            peft_prefix = "base_model.model"
+            orig_model = model.base_model.model
 
-
-def named_parameters(module: "torch.nn.Module", prefix: str = "", recurse: bool = True, remove_duplicate: bool = True):
-    gen = _named_members(
-        module, lambda mod: mod._parameters.items(), prefix=prefix, recurse=recurse, remove_duplicate=remove_duplicate
-    )
-    yield from gen
+        # We need to attach this information to enable initialization of tuner layers during parallelization.
+        for mod in model.modules():
+            if isinstance(mod, BaseTunerLayer):
+                mod._peft_config = model.peft_config
+    else:
+        peft_prefix = ""
+        orig_model = model
+    return orig_model, peft_prefix
 
 
 @dataclass
@@ -898,7 +892,7 @@ def peft_tuner_linear_to_parallel_linear(
     skip_weight_load: bool = False,
     device: Optional["torch.device"] = None,
 ) -> "BaseTunerLayer":
-    from peft.tuners.lora import LoraLayer
+    from peft.tuners.lora import Linear as LoraLinear
     from peft.tuners.tuners_utils import BaseTunerLayer
 
     # This is necessary for the case that the tuner layer wraps another tuner layer.
@@ -927,7 +921,7 @@ def peft_tuner_linear_to_parallel_linear(
     else:
         parent.base_layer = parallel_base_layer
 
-    if isinstance(parent, LoraLayer):
+    if isinstance(parent, LoraLinear):
         # Cases to handle:
         #   1. The base linear layer is a RowParallelLinear, then:
         #       - The lora A matrix needs to be a RowParallelLinear as well,
@@ -935,8 +929,23 @@ def peft_tuner_linear_to_parallel_linear(
         #   2. The base linear layer is a ColumnParallelLinear, then:
         #       - The lora A matrix does not need to be parallelized,
         #       - The lora B matrix needs to be a ColumnParallelLinear as well.
-        print(parent)
+
+        base_layer_is_on_meta_device = parallel_base_layer.weight.device == torch.device("meta")
+        if base_layer_is_on_meta_device:
+            parallel_base_layer.weight.data = torch.empty_like(parallel_base_layer.weight, device="cpu")
+
+        try:
+            peft_config = parent._peft_config
+        except AttributeError:
+            raise AttributeError(
+                f'It seems that {parent} does not have a "_peft_config" attribute. Please use the `parallelize` method '
+                "to attach this information to each tuner that needs to be parallelized."
+            )
+            
         for adapter_name in parent.active_adapters:
+            config = peft_config[adapter_name]
+            parent.update_layer(
+                adapter_name, parent.r[adapter_name], parent.lora_alpha[adapter_name], config.lora_dropout, config.init_lora_weights, config.use_rslora, config.use_dora) 
             if axis == "row":
                 layer_to_parallelize = parent.lora_A[adapter_name] 
             else:
@@ -956,6 +965,12 @@ def peft_tuner_linear_to_parallel_linear(
                 parent.lora_A[adapter_name] = parallel_layer
             else:
                 parent.lora_B[adapter_name] = parallel_layer
+
+            mark_parameter_init_status_during_parallelization(parent.lora_A[adapter_name].weight, True)
+            mark_parameter_init_status_during_parallelization(parent.lora_B[adapter_name].weight, True)
+
+        if base_layer_is_on_meta_device:
+            parallel_base_layer.weight.data = parallel_base_layer.weight.to("meta")
     else:
         raise NotImplementedError(f"{parent.__class__.__name__} is not supported yet for model parallelism.")
 
@@ -1012,8 +1027,6 @@ def linear_to_parallel_linear(
     import torch_xla.core.xla_model as xm
     from neuronx_distributed.parallel_layers import layers
 
-    xm.master_print("layer", linear_layer)
-
     if is_peft_available():
         from peft.tuners.tuners_utils import BaseTunerLayer
 
@@ -1060,7 +1073,6 @@ def linear_to_parallel_linear(
         stride=stride,
         **kwargs,
     )
-
     # Not skipping when we tie an embedding layer to make things easier.
     # Should not produce a big overhead.
     skip_weight_load = skip_weight_load and embedding_weight_to_tie is None
@@ -1193,8 +1205,34 @@ def initialize_parallel_linear(mod: "layers.BaseParallelLinear", parameter_names
         raise RuntimeError(f"This kind of parallel linear is not supported yet: {mod.__class__.__name__}")
 
 
+def duplicate_module_on_cpu(module: torch.nn.Module) -> torch.nn.Module:
+    """
+    Create a clone of `module` on CPU without moving any tensor from the XLA device to CPU.
+    This has the advantage to not accumulate any graph / trigger any compilation. 
+    """
+    clone = torch.nn.Module()
+
+    buffer_names = set(n for n, _ in module.named_buffers())
+    parameter_names = set(n for n, _ in module.named_parameters())
+
+    for name in dir(module):
+        attr = getattr(module, name)
+        if name in buffer_names or parameter_names:
+            continue
+        setattr(clone, name, copy.deepcopy(attr))
+
+    for name, buffer in module.named_buffers():
+        clone.register_buffer(name, torch.empty_like(buffer, device="cpu"))
+
+    for name, param in module.named_parameters():
+        clone.register_parameter(name, torch.nn.Parameter(torch.empty_like(param, device="cpu")))
+
+    clone.__class__ = module.__class__
+    return clone
+
 def parameter_can_be_initialized(model: torch.nn.Module, parent_module: torch.nn.Module, parameter_name: str) -> bool:
-    clone = copy.deepcopy(parent_module)
+    clone = duplicate_module_on_cpu(parent_module)
+    # TODO: print clone fails.
     left_uninitialized = try_to_hf_initialize(model, clone, [parameter_name])
     is_parallel_linear = isinstance(parent_module, layers.BaseParallelLinear)
     return (
