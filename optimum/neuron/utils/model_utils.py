@@ -14,18 +14,16 @@
 # limitations under the License.
 """Utilities related to the model."""
 
-from typing import TYPE_CHECKING, Callable, Dict, Optional, Union
+from typing import TYPE_CHECKING, Dict, Tuple, Union
 
 import torch
 
-from .require_utils import requires_neuronx_distributed
 from .import_utils import is_torch_neuronx_available
+from .require_utils import requires_neuronx_distributed
 
 
 if TYPE_CHECKING:
-    import os
 
-    from transformers import PreTrainedModel
 
     if is_torch_neuronx_available():
         from neuronx_distributed.pipeline import NxDPPModel
@@ -50,6 +48,15 @@ def get_tied_parameters_dict(model: Union["torch.nn.Module", "NxDPPModel"]) -> D
     return tied_parameters
 
 
+def get_parent_module_and_param_name_from_fully_qualified_name(
+    module: "torch.nn.Module", fully_qualified_name: str
+) -> Tuple["torch.nn.Module", str]:
+    fully_qualified_name = fully_qualified_name.rsplit(".", maxsplit=1)
+    parent_module = module if len(fully_qualified_name) == 1 else module.get_submodule(fully_qualified_name[0])
+    param_name = fully_qualified_name[0] if len(fully_qualified_name) == 1 else fully_qualified_name[1]
+    return parent_module, param_name
+
+
 @requires_neuronx_distributed
 def tie_parameters(model: Union["torch.nn.Module", "NxDPPModel"], tied_parameters_dict: Dict[str, str]):
     from neuronx_distributed.pipeline import NxDPPModel
@@ -60,17 +67,14 @@ def tie_parameters(model: Union["torch.nn.Module", "NxDPPModel"], tied_parameter
         module = model
 
     for param_to_tie_name, param_name in tied_parameters_dict.items():
-        param_to_tie_name = param_to_tie_name.rsplit(".", maxsplit=1)
-
-        param_to_tie_parent_module = (
-            module if len(param_to_tie_name) == 1 else module.get_submodule(param_to_tie_name[0])
+        param_to_tie_parent_module, param_to_tie_name = get_parent_module_and_param_name_from_fully_qualified_name(
+            module, param_to_tie_name
         )
-        param_to_tie = getattr(param_to_tie_parent_module, param_to_tie_name[1])
+        param_to_tie = getattr(param_to_tie_parent_module, param_to_tie_name)
 
-        param_name = param_name.rsplit(".", maxsplit=1)
-        parent_module = module if len(param_name) == 1 else module.get_submodule(param_name[0])
-        param = getattr(parent_module, param_name[1])
+        parent_module, param_name = get_parent_module_and_param_name_from_fully_qualified_name(module, param_name)
+        param = getattr(parent_module, param_name)
 
         if param_to_tie is not param:
             del param_to_tie
-            setattr(param_to_tie_parent_module, param_to_tie_name[1], param)
+            setattr(param_to_tie_parent_module, param_to_tie_name, param)

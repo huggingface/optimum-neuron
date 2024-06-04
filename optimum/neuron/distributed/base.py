@@ -26,13 +26,15 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, 
 
 import torch
 from transformers import PreTrainedModel
-from transformers.utils import is_peft_available
 
 from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
 from ..utils.misc import is_main_worker, is_precompilation
+from ..utils.model_utils import (
+    get_parent_module_and_param_name_from_fully_qualified_name,
+    get_tied_parameters_dict,
+)
 from ..utils.patching import Patcher
-from ..utils.peft_utils import NeuronPeftModel
 from ..utils.require_utils import requires_neuronx_distributed, requires_torch_xla
 from .parallel_layers import (
     IOSequenceParallelizer,
@@ -357,7 +359,9 @@ class Parallelizer(ABC):
                     new_parameter = tied_weights[parameter]
                 elif weight_info is not None:
                     if getattr(parameter, "tensor_model_parallel", False):
-                        if parameter.device == torch.device("meta"):
+                        if parameter.device == torch.device(
+                            "meta"
+                        ) or not was_already_initialized_during_parallelization(parameter):
                             # This must either be a torch.nn.Embedding or a torch.nn.Linear that was not handled during
                             # parallelization since those are the only classes that we initialize on the `meta` device.
                             num_dims = parameter.dim()
@@ -385,8 +389,8 @@ class Parallelizer(ABC):
                         weight_data = weight_data.to(device)
                     new_parameter = torch.nn.Parameter(weight_data)
                 elif parameter.device != torch.device("meta") and (
-                        was_already_initialized_during_parallelization(parameter)
-                        or not parameter_can_be_initialized(model, module, attribute_name)
+                    was_already_initialized_during_parallelization(parameter)
+                    or not parameter_can_be_initialized(model, module, attribute_name)
                 ):
                     tied_weights[parameter] = parameter
                     new_parameters.add(parameter)
@@ -642,6 +646,8 @@ class Parallelizer(ABC):
                 # It means that `_MODEL_PARALLEL_RNG_TRACKER_NAME` was already added to the rng tracker, we can ignore.
                 pass
 
+            tied_parameters = get_tied_parameters_dict(model)
+
             model = cls._parallelize(
                 model,
                 device=device,
@@ -651,6 +657,28 @@ class Parallelizer(ABC):
                 skip_linear_weight_load=skip_linear_weight_load,
                 kv_size_multiplier=kv_size_multiplier,
             )
+
+            for param_name, root_tied_param_name in tied_parameters.items():
+                parent_mod, attr_name = get_parent_module_and_param_name_from_fully_qualified_name(model, param_name)
+                param = getattr(parent_mod, attr_name)
+                root_parent_mod, root_attr_name = get_parent_module_and_param_name_from_fully_qualified_name(
+                    model, root_tied_param_name
+                )
+                root_tied_param = getattr(root_parent_mod, root_attr_name)
+                if getattr(param, "tensor_model_parallel", False) and not getattr(
+                    root_tied_param, "tensor_model_parallel", False
+                ):
+                    # In this case it means that `param` was parallelized but not `root_tied_param`.
+                    # It will be overwritten by root_tied_param when tiying the weights if we do not do anything.
+                    # We tie `root_tied_param` to `param`.
+                    # What will happen is as follows:
+                    #   - If weight_map contains a checkpoint for `param_name`, it has already been initialized or will
+                    #   be initialized with `cls._maybe_load_weights_to_parallel_linear`.
+                    #   - Otherwise, it has not been initialized and `cls._initialize_or_load_weights` will take care
+                    #   of it.
+                    root_parent_base_mod, _ = get_base_model_and_peft_prefix(root_parent_mod)
+                    setattr(root_parent_base_mod, root_attr_name, param)
+
             if is_main_worker():
                 logger.info("Tensor parallelism done.")
 

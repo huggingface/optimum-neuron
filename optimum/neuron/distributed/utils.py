@@ -32,10 +32,9 @@ from transformers.utils.fx import HFTracer
 
 from ...utils import logging
 from ..utils import DynamicPatch, Patcher
-from ..utils.deprecate_utils import deprecate
-from ..utils.peft_utils import NeuronPeftModel
 from ..utils.import_utils import is_neuronx_distributed_available
 from ..utils.misc import download_checkpoints_in_cache
+from ..utils.peft_utils import NeuronPeftModel
 from ..utils.require_utils import requires_neuronx_distributed, requires_peft, requires_safetensors, requires_torch_xla
 
 
@@ -70,6 +69,7 @@ MODEL_PARALLEL_SHARDS_DIR_NAME = "shards"
 def get_base_model_and_peft_prefix(model: torch.nn.Module) -> Tuple[torch.nn.Module, str]:
     if is_peft_available() and isinstance(model, NeuronPeftModel):
         from peft.tuners.tuners_utils import BaseTunerLayer
+
         if model.active_peft_config.is_prompt_learning or str(model.peft_type) == "poly":
             peft_prefix = "base_model"
             orig_model = model.base_model
@@ -941,13 +941,20 @@ def peft_tuner_linear_to_parallel_linear(
                 f'It seems that {parent} does not have a "_peft_config" attribute. Please use the `parallelize` method '
                 "to attach this information to each tuner that needs to be parallelized."
             )
-            
+
         for adapter_name in parent.active_adapters:
             config = peft_config[adapter_name]
             parent.update_layer(
-                adapter_name, parent.r[adapter_name], parent.lora_alpha[adapter_name], config.lora_dropout, config.init_lora_weights, config.use_rslora, config.use_dora) 
+                adapter_name,
+                parent.r[adapter_name],
+                parent.lora_alpha[adapter_name],
+                config.lora_dropout,
+                config.init_lora_weights,
+                config.use_rslora,
+                config.use_dora,
+            )
             if axis == "row":
-                layer_to_parallelize = parent.lora_A[adapter_name] 
+                layer_to_parallelize = parent.lora_A[adapter_name]
             else:
                 layer_to_parallelize = parent.lora_B[adapter_name]
             # TODO: handle the case were weights already exist for this adapter.
@@ -1024,7 +1031,6 @@ def linear_to_parallel_linear(
     Returns:
         `Union[RowParallelLinear, ColumnParallelLinear]`: The parallel linear layer.
     """
-    import torch_xla.core.xla_model as xm
     from neuronx_distributed.parallel_layers import layers
 
     if is_peft_available():
@@ -1208,7 +1214,7 @@ def initialize_parallel_linear(mod: "layers.BaseParallelLinear", parameter_names
 def duplicate_module_on_cpu(module: torch.nn.Module) -> torch.nn.Module:
     """
     Create a clone of `module` on CPU without moving any tensor from the XLA device to CPU.
-    This has the advantage to not accumulate any graph / trigger any compilation. 
+    This has the advantage to not accumulate any graph / trigger any compilation.
     """
     clone = torch.nn.Module()
 
@@ -1229,6 +1235,7 @@ def duplicate_module_on_cpu(module: torch.nn.Module) -> torch.nn.Module:
 
     clone.__class__ = module.__class__
     return clone
+
 
 def parameter_can_be_initialized(model: torch.nn.Module, parent_module: torch.nn.Module, parameter_name: str) -> bool:
     clone = duplicate_module_on_cpu(parent_module)

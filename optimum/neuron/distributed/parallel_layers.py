@@ -32,8 +32,8 @@ from .utils import (
     FakeProj,
     OptimumGQAQKVColumnParallelLinear,
     WeightInformation,
-    get_base_model_and_peft_prefix,
     embedding_to_parallel_embedding,
+    get_base_model_and_peft_prefix,
     get_linear_weight_info,
     linear_to_parallel_linear,
     mark_parameter_init_status_during_parallelization,
@@ -1013,7 +1013,6 @@ class ParallelCrossEntropy(ParallelLayer):
                 # It means there are no weight available for the linear, but no need to fail here.
                 pass
 
-        print("HAS BIAS", getattr(linear_projection_parent, linear_projection_attr_name).bias is not None)
         parallel_linear_projection = linear_to_parallel_linear(
             getattr(linear_projection_parent, linear_projection_attr_name),
             axis="column",
