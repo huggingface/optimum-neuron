@@ -28,8 +28,8 @@ from optimum.neuron import NeuronTrainer, NeuronTrainingArguments, get_peft_mode
 from optimum.neuron.utils.peft_utils import NeuronPeftModel
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
-from . import DistributedTest
-from .utils import (
+from .. import DistributedTest
+from ..utils import (
     create_accelerator,
     create_dummy_causal_lm_dataset,
     create_static_seed_patcher,
