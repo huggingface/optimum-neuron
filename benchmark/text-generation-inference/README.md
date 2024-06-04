@@ -127,7 +127,7 @@ Note that the .env file has a path for MODEL_ID to load the model from the /data
 
 Also, the docker-compose.yaml file includes an additional parameter to map the volume to the current working directory, as well as additional Neuron device mappings because trn1.32xlarge has 32 cores (16 devices).
 
-Make sure you run the above command and the docker compose command from the same directory since it maps the /data director to the current working directory.
+Make sure you run the above command and the docker compose command from the same directory since it maps the /data directory to the current working directory.
 
 For this example:
 ```
