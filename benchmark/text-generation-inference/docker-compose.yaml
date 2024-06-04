@@ -8,8 +8,6 @@ services:
     environment:
       - PORT=8081
       - MODEL_ID=${MODEL_ID}
-      - HF_BATCH_SIZE=${HF_BATCH_SIZE}
-      - HF_SEQUENCE_LENGTH=${HF_SEQUENCE_LENGTH}
       - HF_AUTO_CAST_TYPE=${HF_AUTO_CAST_TYPE}
       - HF_NUM_CORES=8
       - MAX_BATCH_SIZE=${MAX_BATCH_SIZE}
@@ -29,8 +27,6 @@ services:
     environment:
       - PORT=8082
       - MODEL_ID=${MODEL_ID}
-      - HF_BATCH_SIZE=${HF_BATCH_SIZE}
-      - HF_SEQUENCE_LENGTH=${HF_SEQUENCE_LENGTH}
       - HF_AUTO_CAST_TYPE=${HF_AUTO_CAST_TYPE}
       - HF_NUM_CORES=8
       - MAX_BATCH_SIZE=${MAX_BATCH_SIZE}
@@ -50,8 +46,6 @@ services:
     environment:
       - PORT=8083
       - MODEL_ID=${MODEL_ID}
-      - HF_BATCH_SIZE=${HF_BATCH_SIZE}
-      - HF_SEQUENCE_LENGTH=${HF_SEQUENCE_LENGTH}
       - HF_AUTO_CAST_TYPE=${HF_AUTO_CAST_TYPE}
       - HF_NUM_CORES=8
       - MAX_BATCH_SIZE=${MAX_BATCH_SIZE}
