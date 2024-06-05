@@ -421,7 +421,7 @@ The NeuronX TGI image includes not only NeuronX runtime, but also all packages a
 Use the following command to export a model to Neuron using a TGI image:
 
 ```
-docker run --emtrypoint optimum-cli \
+docker run --entrypoint optimum-cli \
        -v $(pwd)/data:/data \
        --privileged \
        ghcr.io/huggingface/neuronx-tgi:latest \
