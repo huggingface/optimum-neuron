@@ -63,8 +63,8 @@ def neuron_model_config(request):
     """Expose a pre-trained neuron model
 
     The fixture first makes sure the following model artifacts are present on the hub:
-    - exported neuron model under optimum/neuron-testing-<version>-<name>,
-    - cached artifacts under optimum/neuron-testing-cache.
+    - exported neuron model under optimum-internal-testing/neuron-testing-<version>-<name>,
+    - cached artifacts under optimum-internal-testing/neuron-testing-cache.
     If not, it will export the model and push it to the hub.
 
     It then fetches the model locally and return a dictionary containing:

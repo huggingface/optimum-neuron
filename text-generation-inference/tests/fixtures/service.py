@@ -18,7 +18,7 @@ from text_generation import AsyncClient
 from text_generation.types import Response
 
 
-OPTIMUM_CACHE_REPO_ID = "optimum/neuron-testing-cache"
+OPTIMUM_CACHE_REPO_ID = "optimum-internal-testing/neuron-testing-cache"
 DOCKER_IMAGE = os.getenv("DOCKER_IMAGE", "neuronx-tgi:latest")
 HF_TOKEN = huggingface_hub.get_token()
 
