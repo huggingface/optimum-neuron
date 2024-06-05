@@ -21,7 +21,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__file__)
 
-OPTIMUM_CACHE_REPO_ID = "optimum/neuron-testing-cache"
+OPTIMUM_CACHE_REPO_ID = "optimum-internal-testing/neuron-testing-cache"
 
 # All model configurations below will be added to the neuron_model_config fixture
 MODEL_CONFIGURATIONS = {
@@ -41,7 +41,7 @@ MODEL_CONFIGURATIONS = {
 
 
 def get_hub_neuron_model_id(config_name: str):
-    return f"optimum/neuron-testing-{version}-{sdk_version}-{config_name}"
+    return f"optimum-internal-testing/neuron-testing-{version}-{sdk_version}-{config_name}"
 
 
 def export_model(model_id, export_kwargs, neuron_model_path):
