@@ -33,7 +33,7 @@ from transformers.utils.fx import HFTracer
 from ...utils import logging
 from ..utils import DynamicPatch, Patcher
 from ..utils.import_utils import is_neuronx_distributed_available
-from ..utils.misc import download_checkpoints_in_cache
+from ..utils.misc import download_checkpoints_in_cache, is_precompilation
 from ..utils.peft_utils import NeuronPeftModel
 from ..utils.require_utils import requires_neuronx_distributed, requires_peft, requires_safetensors, requires_torch_xla
 
@@ -293,15 +293,43 @@ def load_tensor_for_weight(
     # device = str(weight_info.device)
     device = "cpu"
     with safe_open(weight_info.filename, framework="pt", device=device) as fp:
-        if tensor_slices is None:
+        if tensor_slices is not None:
+            slices = [slice(*slice_) if slice_ is not None else slice(None, None, None) for slice_ in tensor_slices]
+        else:
+            slices = None
+        if is_precompilation():
+            # During precompilation the actual value of the weights is not important so we skip the loading to make
+            # things faster.
+            tensor_slice = fp.get_slice(weight_info.qualified_name)
+            shape = tuple(tensor_slice.get_shape())
+            # Commented entries are supported by later versions of torch. Will uncomment when relevant.
+            dtype_str_to_torch_dtype = {
+                "BOOL": torch.bool,
+                "U8": torch.uint8,
+                "F8_E4M3": torch.float8_e4m3fn,
+                "F8_E5M2": torch.float8_e5m2,
+                "I16": torch.int16,
+                # "U16": torch.uint16,
+                "F16": torch.float16,
+                "BF16": torch.bfloat16,
+                "I32": torch.int32,
+                # "U32": torch.uint32,
+                "F32": torch.float32,
+                "F64": torch.float64,
+                "I64": torch.int64,
+                # "U64": torch.uint64,
+            }
+            dtype = dtype_str_to_torch_dtype[tensor_slice.get_dtype()]
+            tensor = torch.empty(shape, dtype=dtype)
+            if tensor_slices is not None:
+                tensor = tensor[slices]
+        elif tensor_slices is None:
             tensor = fp.get_tensor(weight_info.qualified_name)
         else:
             tensor_slice = fp.get_slice(weight_info.qualified_name)
-            slices = [slice(*slice_) if slice_ is not None else slice(None, None, None) for slice_ in tensor_slices]
             tensor = tensor_slice[slices].contiguous()
             # This is needed to make sure tensor.numel() == tensor.storage().size().
             tensor = torch.empty_like(tensor).copy_(tensor)
-
     return tensor
 
 

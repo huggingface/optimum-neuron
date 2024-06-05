@@ -488,41 +488,13 @@ class Parallelizer(ABC):
                         initialize(mod, "k", mod.output_sizes[1])
                         initialize(mod, "v", mod.output_sizes[1])
                 else:
+                    # TODO: maybe we should not allow that. Since the module should already be initialized because it
+                    # is ignored by lazy loading.
                     left_uninitialized = try_to_hf_initialize(model, mod, parameter_names)
                     if left_uninitialized and hasattr(mod, "reset_parameters"):
                         initialize_torch_nn_module(mod, parameter_names)
 
-                if device is not None:
-                    mod.to(device)
                 gc.collect()
-
-    @classmethod
-    @requires_neuronx_distributed
-    def _initialize_for_precompilation(
-        cls,
-        model: "PreTrainedModel",
-        names_of_the_parameters_to_consider: Set[str],
-        device: Optional[torch.device] = None,
-    ):
-        with torch.no_grad():
-            for name, parameter in model.named_parameters(remove_duplicate=False):
-                split = name.rsplit(".", maxsplit=1)
-                module = model.get_submodule(split[0])
-                attribute_name = split[1]
-
-                # Skipping the parameters that will not end-up in this pipeline rank.
-                if name not in names_of_the_parameters_to_consider:
-                    continue
-
-                if parameter.device == torch.device("meta"):
-                    device = torch.device("cpu") if device is None else device
-                    new_parameter = torch.nn.Parameter(torch.empty_like(parameter, device=device))
-
-                    setattr(
-                        module,
-                        attribute_name,
-                        new_parameter,
-                    )
 
     @classmethod
     @requires_neuronx_distributed
@@ -754,22 +726,21 @@ class Parallelizer(ABC):
         if is_main_worker():
             logger.info("Loading and initializing the weights, this might take a while on large models.")
 
-        if is_precompilation():
-            cls._initialize_for_precompilation(model, names_of_the_parameters_to_consider)
-        else:
-            local_rank = xm.get_local_ordinal()
-            if num_local_ranks_per_step <= 0:
-                num_local_ranks_per_step = get_local_world_size()
-            for worker in range(math.ceil(get_local_world_size() / num_local_ranks_per_step)):
-                if local_rank // num_local_ranks_per_step == worker:
-                    if skip_linear_weight_load:
-                        # Load the weights to the parallel linears if the loading was skipped during parallelization.
-                        cls._maybe_load_weights_to_parallel_linears(model)
+        local_rank = xm.get_local_ordinal()
+        if num_local_ranks_per_step <= 0:
+            num_local_ranks_per_step = get_local_world_size()
+        for worker in range(math.ceil(get_local_world_size() / num_local_ranks_per_step)):
+            if local_rank // num_local_ranks_per_step == worker:
+                if skip_linear_weight_load:
+                    # Load the weights to the parallel linears if the loading was skipped during parallelization.
+                    cls._maybe_load_weights_to_parallel_linears(model)
 
-                    if skip_linear_weight_load or any(p.device == torch.device("meta") for p in model.parameters()):
-                        # Initialize or load the weights for the parallelized model if it was lazily loaded.
-                        cls._initialize_or_load_weights(model, names_of_the_parameters_to_consider, device=device)
-                gc.collect()
+                if skip_linear_weight_load or any(p.device == torch.device("meta") for p in model.parameters()):
+                    # Initialize or load the weights for the parallelized model if it was lazily loaded.
+                    cls._initialize_or_load_weights(model, names_of_the_parameters_to_consider, device=device)
+            gc.collect()
+
+        xm.mark_step()
 
         if is_main_worker():
             logger.info("Load and initialization of the weights done.")
