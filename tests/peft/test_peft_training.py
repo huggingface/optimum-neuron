@@ -120,7 +120,6 @@ class TestPeft(DistributedTest):
             print(f"Checking that the parameter {name} matches")
             torch.testing.assert_close(tensor, state_dict[name])
 
-    @pytest.mark.skip
     def test_peft_training(self, parallel_sizes, tmpdir):
         _, tp_size, pp_size = parallel_sizes
 
