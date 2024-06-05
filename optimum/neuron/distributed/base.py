@@ -591,6 +591,10 @@ class Parallelizer(ABC):
                 weight_map = orig_model._weight_map
                 weight_map["peft_prefix"] = peft_prefix
                 peft_model_weight_map = {f"{peft_prefix}.{name}": filename for name, filename in weight_map.items()}
+                for name, _ in model.named_parameters():
+                    name_without_base_layer = name.replace(".base_layer", "")
+                    if name not in peft_model_weight_map and name_without_base_layer in peft_model_weight_map:
+                        peft_model_weight_map[name] = peft_model_weight_map.pop(name_without_base_layer)
                 weight_map.update(**peft_model_weight_map)
 
         if sequence_parallel_enabled and not cls.supports_sequence_parallelism():

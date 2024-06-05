@@ -122,7 +122,7 @@ class WeightInformation:
         if peft_prefix is not None and self.qualified_name.startswith(peft_prefix):
             # `peft_prefix` does not contain the `"."` character, that is why we skip the first len(peft_prefix) + 1
             # characters.
-            self.qualified_name = self.qualified_name[len(peft_prefix) + 1 :]
+            self.qualified_name = self.qualified_name[len(peft_prefix) + 1 :].replace(".base_layer", "")
 
 
 class FakeProj(torch.nn.Module):
@@ -1211,7 +1211,7 @@ def initialize_parallel_linear(mod: "layers.BaseParallelLinear", parameter_names
         raise RuntimeError(f"This kind of parallel linear is not supported yet: {mod.__class__.__name__}")
 
 
-def duplicate_module_on_cpu(module: torch.nn.Module) -> torch.nn.Module:
+def duplicate_module_with_random_weights_on_cpu(module: torch.nn.Module) -> torch.nn.Module:
     """
     Create a clone of `module` on CPU without moving any tensor from the XLA device to CPU.
     This has the advantage to not accumulate any graph / trigger any compilation.
@@ -1238,7 +1238,7 @@ def duplicate_module_on_cpu(module: torch.nn.Module) -> torch.nn.Module:
 
 
 def parameter_can_be_initialized(model: torch.nn.Module, parent_module: torch.nn.Module, parameter_name: str) -> bool:
-    clone = duplicate_module_on_cpu(parent_module)
+    clone = duplicate_module_with_random_weights_on_cpu(parent_module)
     # TODO: print clone fails.
     left_uninitialized = try_to_hf_initialize(model, clone, [parameter_name])
     is_parallel_linear = isinstance(parent_module, layers.BaseParallelLinear)
