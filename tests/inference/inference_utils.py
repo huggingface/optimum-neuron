@@ -62,7 +62,7 @@ SENTENCE_TRANSFORMERS_MODEL_NAMES = {
 
 
 class NeuronModelIntegrationTestMixin(unittest.TestCase):
-    USER = "optimum-internal-tesing"
+    USER = "optimum-internal-testing"
     MODEL_ID = None
     NEURON_MODEL_REPO = None
     NEURON_MODEL_CLASS = None
