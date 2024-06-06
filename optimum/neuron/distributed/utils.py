@@ -514,6 +514,8 @@ def embedding_to_parallel_embedding(
         dtype=embedding_layer.weight.dtype,
     )
 
+    parallel_embedding_layer.weight.requires_grad = embedding_layer.weight.requires_grad
+
     tp_rank = get_tensor_model_parallel_rank()
     row_size, _ = parallel_embedding_layer.weight.shape
 
@@ -1227,6 +1229,10 @@ def linear_to_parallel_linear(
 
     if embedding_weight_to_tie is not None:
         parallel_linear_layer.weight = embedding_weight_to_tie
+
+    parallel_linear_layer.weight.requires_grad = linear_layer.weight.requires_grad
+    if linear_layer.bias is not None:
+        parallel_linear_layer.bias.requires_grad = linear_layer.bias.requires_grad
 
     return parallel_linear_layer
 

@@ -15,7 +15,7 @@
 """Utilities related to the PEFT library and support."""
 import functools
 import gc
-from typing import Any, List, Optional, Union
+from typing import Any, List, Optional, Tuple, Union
 
 import torch
 import torch.nn.functional as F
@@ -23,6 +23,7 @@ from transformers.utils import is_peft_available
 
 from .patching import replace_class_in_inheritance_hierarchy
 from .require_utils import requires_neuronx_distributed
+from .training_utils import _get_model_param_count
 
 
 if is_peft_available():
@@ -110,6 +111,9 @@ class NeuronPeftModel(PeftModel):
         del cpu_state_dicts
         gc.collect()
         return output
+
+    def get_nb_trainable_parameters(self) -> Tuple[int, int]:
+        return _get_model_param_count(self)
 
 
 @functools.wraps(orig_get_peft_model)

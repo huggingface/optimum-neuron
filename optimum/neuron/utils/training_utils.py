@@ -182,7 +182,7 @@ def skip_first_batches(dataloader, num_batches=0):
 
 
 @requires_neuronx_distributed
-def get_model_param_count(model: Union[torch.nn.Module, "NxDPPModel"], trainable_only: bool = False):
+def _get_model_param_count(model: Union[torch.nn.Module, "NxDPPModel"]):
     """Counts the number of parameters of the model."""
     import torch_xla.core.xla_model as xm
     from neuronx_distributed.parallel_layers.parallel_state import (
@@ -190,6 +190,7 @@ def get_model_param_count(model: Union[torch.nn.Module, "NxDPPModel"], trainable
         get_pipeline_model_parallel_rank,
         get_pipeline_model_parallel_size,
         get_tensor_model_parallel_size,
+        model_parallel_is_initialized,
     )
     from neuronx_distributed.pipeline import NxDPPModel
     from neuronx_distributed.pipeline.partition import analyze_shared_weights_across_stages
@@ -204,7 +205,10 @@ def get_model_param_count(model: Union[torch.nn.Module, "NxDPPModel"], trainable
         named_parameters = model.named_parameters()
         shared_parameters_across_pipeline_stages = {}
 
-    if torch.distributed.is_initialized():
+    # We make sure `named_parameters` is not an iterator because we are going to iterate over it twice.
+    named_parameters = list(named_parameters)
+
+    if torch.distributed.is_initialized() and model_parallel_is_initialized():
         tp_size = get_tensor_model_parallel_size()
         pp_size = get_pipeline_model_parallel_size()
         pp_rank = get_pipeline_model_parallel_rank()
@@ -220,17 +224,44 @@ def get_model_param_count(model: Union[torch.nn.Module, "NxDPPModel"], trainable
         if getattr(parameter, "tensor_model_parallel", False):
             num_elements *= tp_size
 
+        if parameter.__class__.__name__ == "Params4bit":
+            if hasattr(parameter, "element_size"):
+                num_bytes = parameter.element_size()
+            elif not hasattr(parameter, "quant_storage"):
+                num_bytes = 1
+            else:
+                num_bytes = parameter.quant_storage.itemsize
+            num_elements = num_elements * 2 * num_bytes
+
         return num_elements if should_count_param else 0
 
-    param_count = sum(numel(n, p) for n, p in named_parameters if not trainable_only or p.requires_grad)
-
-    if pp_size > 1:
+    def reduce_param_count_over_pp_ranks(param_count: int):
         param_count = torch.tensor(param_count, dtype=torch.float32).to(xm.xla_device())
         param_count = xm.all_reduce(xm.REDUCE_SUM, param_count, groups=get_pipeline_model_parallel_group(as_list=True))
         xm.mark_step()
         param_count = int(param_count.detach().cpu().item())
+        return param_count
 
-    return param_count
+    all_param_count = sum(numel(n, p) for n, p in named_parameters)
+    trainable_param_count = sum(numel(n, p) for n, p in named_parameters if p.requires_grad)
+    for n, p in model.named_parameters():
+        print(f"{n} => {p.requires_grad}")
+    print(all_param_count, trainable_param_count)
+    if pp_size > 1:
+        all_param_count = reduce_param_count_over_pp_ranks(all_param_count)
+        trainable_param_count = reduce_param_count_over_pp_ranks(trainable_param_count)
+
+    return trainable_param_count, all_param_count
+
+
+@requires_neuronx_distributed
+def get_model_param_count(model: Union[torch.nn.Module, "NxDPPModel"], trainable_only: bool = False) -> int:
+    trainable_param_count, all_param_count = _get_model_param_count(model)
+    if trainable_only:
+        output = trainable_param_count
+    else:
+        output = all_param_count
+    return output
 
 
 @requires_neuronx_distributed
