@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Literal, Optional, 
 
 import torch
 from torch.nn.modules.loss import _WeightedLoss
+from transformers.utils import is_peft_available
 
 from ...utils import NormalizedConfigManager, logging
 from ..utils import patch_everywhere, patch_within_function
@@ -186,9 +187,10 @@ class ParallelEmbedding(ParallelLayer):
     ) -> "torch.nn.Module":
         from neuronx_distributed.parallel_layers import parallel_state
 
+        orig_model, _ = get_base_model_and_peft_prefix(model)
         if cls.LM_HEAD_NAME is not None:
             if isinstance(cls.LM_HEAD_NAME, dict):
-                lm_head_name = cls.LM_HEAD_NAME.get(model.__class__.__name__, None)
+                lm_head_name = cls.LM_HEAD_NAME.get(orig_model.__class__.__name__, None)
             else:
                 lm_head_name = cls.LM_HEAD_NAME
             model_has_lm_head = False
@@ -202,7 +204,7 @@ class ParallelEmbedding(ParallelLayer):
 
         if isinstance(cls.EMBEDDING_NAME, dict):
             if model.__class__.__name__ in cls.EMBEDDING_NAME:
-                embedding_name = cls.EMBEDDING_NAME[model.__class__.__name__]
+                embedding_name = cls.EMBEDDING_NAME[orig_model.__class__.__name__]
             elif "default" in cls.EMBEDDING_NAME:
                 embedding_name = cls.EMBEDDING_NAME["default"]
             else:
@@ -247,12 +249,22 @@ class ParallelEmbedding(ParallelLayer):
                     )
 
         embedding_layer = layer.get_submodule(embedding_name)
+        if is_peft_available():
+            from peft.tuners.tuners_utils import BaseTunerLayer
+
+            if isinstance(embedding_layer, BaseTunerLayer):
+                num_embeddings = embedding_layer.get_base_layer().num_embeddings
+            else:
+                num_embeddings = embedding_layer.num_embeddings
+        else:
+            num_embeddings = embedding_layer.num_embeddings
+
         tp_size = parallel_state.get_tensor_model_parallel_size()
-        if embedding_layer.num_embeddings % tp_size != 0:
+        if num_embeddings % tp_size != 0:
             if is_main_worker():
                 logger.warning(
                     f"Embedding parallelization for TP was skipped because the tensor parallel size ({tp_size}) does not "
-                    f"divide the number of embeddings ({embedding_layer.num_embeddings})"
+                    f"divide the number of embeddings ({num_embeddings})"
                 )
             return layer
 

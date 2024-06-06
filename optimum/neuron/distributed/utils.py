@@ -349,6 +349,94 @@ def was_already_initialized_during_parallelization(parameter: "torch.nn.Paramete
     return getattr(parameter, "_was_initialized_during_parallelization", False)
 
 
+@requires_peft
+@requires_neuronx_distributed
+def _peft_tuner_embedding_to_parallel_embedding(
+    tuner_layer: "torch.nn.Embedding",
+    lm_head_layer: Optional["torch.nn.Linear"] = None,
+    embedding_weight_info: Optional[WeightInformation] = None,
+    lm_head_weight_info: Optional[WeightInformation] = None,
+    lm_head_bias_weight_info: Optional[WeightInformation] = None,
+    sequence_parallel_enabled: bool = False,
+    device: Optional["torch.device"] = None,
+):
+    from neuronx_distributed.parallel_layers.parallel_state import (
+        get_tensor_model_parallel_rank,
+        get_tensor_model_parallel_size,
+    )
+    from peft.tuners.lora import Embedding as LoraEmbedding
+    from peft.tuners.tuners_utils import BaseTunerLayer
+
+    # This is necessary for the case that the tuner layer wraps another tuner layer.
+    parent = tuner_layer
+    base_layer = tuner_layer
+    while hasattr(base_layer, "base_layer"):
+        parent = base_layer
+        base_layer = base_layer.base_layer
+
+    parallel_layers = embedding_to_parallel_embedding(
+        base_layer,
+        lm_head_layer=lm_head_layer,
+        embedding_weight_info=embedding_weight_info,
+        lm_head_weight_info=lm_head_weight_info,
+        lm_head_bias_weight_info=lm_head_bias_weight_info,
+        sequence_parallel_enabled=sequence_parallel_enabled,
+        device=device,
+    )
+    if lm_head_layer is None:
+        parallel_embedding = parallel_layers
+    else:
+        parallel_embedding, parallel_linear = parallel_layers
+
+    if isinstance(base_layer, BaseTunerLayer):
+        tuner_layer = parallel_embedding
+    else:
+        parent.base_layer = parallel_embedding
+
+    if isinstance(parent, LoraEmbedding):
+        base_layer_is_on_meta_device = parallel_embedding.weight.device == torch.device("meta")
+        if base_layer_is_on_meta_device:
+            parallel_embedding.weight.data = torch.empty_like(parallel_embedding.weight, device="cpu")
+
+        try:
+            peft_config = parent._peft_config
+        except AttributeError:
+            raise AttributeError(
+                f'It seems that {parent} does not have a "_peft_config" attribute. Please use the `parallelize` method '
+                "to attach this information to each tuner that needs to be parallelized."
+            )
+
+        with torch.no_grad():
+            for adapter_name in parent.active_adapters:
+                config = peft_config[adapter_name]
+                parent.update_layer(
+                    adapter_name,
+                    parent.r[adapter_name],
+                    parent.lora_alpha[adapter_name],
+                    config.lora_dropout,
+                    config.init_lora_weights,
+                    config.use_rslora,
+                    config.use_dora,
+                )
+
+                _, vocab_size = parent.lora_embedding_A[adapter_name].shape
+                tp_size = get_tensor_model_parallel_size()
+                tp_rank = get_tensor_model_parallel_rank()
+                vocab_size_per_rank = vocab_size // tp_size
+                parallel_lora_embedding_A = parent.lora_embedding_A[adapter_name].data[
+                    :, tp_rank * vocab_size_per_rank : (tp_rank + 1) * vocab_size_per_rank
+                ]
+                parent.lora_embedding_A[adapter_name].data = parallel_lora_embedding_A
+                mark_parameter_init_status_during_parallelization(parent.lora_embedding_A[adapter_name], True)
+                mark_parameter_init_status_during_parallelization(parent.lora_embedding_B[adapter_name], True)
+
+        if base_layer_is_on_meta_device:
+            parallel_embedding.weight.data = parallel_embedding.weight.to("meta")
+    if lm_head_layer is None:
+        return parent
+    return parent, parallel_linear
+
+
 @requires_neuronx_distributed
 def embedding_to_parallel_embedding(
     embedding_layer: "torch.nn.Embedding",
@@ -394,6 +482,20 @@ def embedding_to_parallel_embedding(
         if weight_info is None:
             continue
         _validate_weight_info_device_matches_specified_device(device, weight_info)
+
+    if is_peft_available():
+        from peft.tuners.tuners_utils import BaseTunerLayer
+
+        if isinstance(embedding_layer, BaseTunerLayer):
+            return _peft_tuner_embedding_to_parallel_embedding(
+                embedding_layer,
+                lm_head_layer=lm_head_layer,
+                embedding_weight_info=embedding_weight_info,
+                lm_head_weight_info=lm_head_weight_info,
+                lm_head_bias_weight_info=lm_head_bias_weight_info,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                device=device,
+            )
 
     parallel_embedding_layer = layers.ParallelEmbedding(
         embedding_layer.num_embeddings,
@@ -907,7 +1009,7 @@ def maybe_load_linear_weight_to_parallel_linear(
 
 
 @requires_peft
-def peft_tuner_linear_to_parallel_linear(
+def _peft_tuner_linear_to_parallel_linear(
     tuner_layer: "BaseTunerLayer",
     axis: Union[Literal["row"], Literal["column"]],
     input_is_parallel: bool = False,
@@ -1065,7 +1167,7 @@ def linear_to_parallel_linear(
         from peft.tuners.tuners_utils import BaseTunerLayer
 
         if isinstance(linear_layer, BaseTunerLayer):
-            return peft_tuner_linear_to_parallel_linear(
+            return _peft_tuner_linear_to_parallel_linear(
                 linear_layer,
                 axis,
                 input_is_parallel=input_is_parallel,
