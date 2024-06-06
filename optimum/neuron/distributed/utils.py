@@ -34,7 +34,7 @@ from ...utils import logging
 from ..utils import DynamicPatch, Patcher
 from ..utils.import_utils import is_neuronx_distributed_available
 from ..utils.misc import download_checkpoints_in_cache, is_precompilation
-from ..utils.peft_utils import NeuronPeftModel
+from ..utils.peft_utils import NeuronPeftModel, ParallelLoraEmbedding
 from ..utils.require_utils import requires_neuronx_distributed, requires_peft, requires_safetensors, requires_torch_xla
 
 
@@ -397,7 +397,6 @@ def _peft_tuner_embedding_to_parallel_embedding(
         base_layer_is_on_meta_device = parallel_embedding.weight.device == torch.device("meta")
         if base_layer_is_on_meta_device:
             parallel_embedding.weight.data = torch.empty_like(parallel_embedding.weight, device="cpu")
-
         try:
             peft_config = parent._peft_config
         except AttributeError:
@@ -405,6 +404,9 @@ def _peft_tuner_embedding_to_parallel_embedding(
                 f'It seems that {parent} does not have a "_peft_config" attribute. Please use the `parallelize` method '
                 "to attach this information to each tuner that needs to be parallelized."
             )
+
+        # This is important because we need to all-reduce after computing the output parallel embeddings.
+        parent.__class__ = ParallelLoraEmbedding
 
         with torch.no_grad():
             for adapter_name in parent.active_adapters:
@@ -432,6 +434,9 @@ def _peft_tuner_embedding_to_parallel_embedding(
 
         if base_layer_is_on_meta_device:
             parallel_embedding.weight.data = parallel_embedding.weight.to("meta")
+    else:
+        raise NotImplementedError(f"{parent.__class__.__name__} is not supported yet for model parallelism.")
+
     if lm_head_layer is None:
         return parent
     return parent, parallel_linear
@@ -1063,7 +1068,6 @@ def _peft_tuner_linear_to_parallel_linear(
         base_layer_is_on_meta_device = parallel_base_layer.weight.device == torch.device("meta")
         if base_layer_is_on_meta_device:
             parallel_base_layer.weight.data = torch.empty_like(parallel_base_layer.weight, device="cpu")
-
         try:
             peft_config = parent._peft_config
         except AttributeError:
