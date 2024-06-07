@@ -605,6 +605,8 @@ class Parallelizer(ABC):
         #   - Loaded a model `from_pretrained` but not lazily.
         skip_linear_weight_load = hasattr(model, "_weight_map")
 
+        requires_grad_information = {n: p.requires_grad for n, p in model.named_parameters()}
+
         def should_parallelize_layer_predicate_func(layer):
             if pp_size == 1:
                 return True
@@ -739,6 +741,11 @@ class Parallelizer(ABC):
                     # Initialize or load the weights for the parallelized model if it was lazily loaded.
                     cls._initialize_or_load_weights(model, names_of_the_parameters_to_consider, device=device)
             gc.collect()
+
+        # Because we initialize new parameters, we need to make sure that only the ones that required grads before
+        # parallelization require grad after parallelization.
+        for name, parameter in model.named_parameters():
+            parameter.requires_grad = requires_grad_information[name]
 
         xm.mark_step()
 
