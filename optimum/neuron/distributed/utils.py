@@ -117,12 +117,12 @@ class WeightInformation:
         if self.weight_map is not None:
             prefix = self.weight_map.get("lazy_load_used_prefix", None)
             peft_prefix = self.weight_map.get("peft_prefix", None)
-        if prefix is not None and self.qualified_name.startswith(prefix):
-            self.qualified_name = self.qualified_name[len(prefix) :]
         if peft_prefix is not None and self.qualified_name.startswith(peft_prefix):
             # `peft_prefix` does not contain the `"."` character, that is why we skip the first len(peft_prefix) + 1
             # characters.
             self.qualified_name = self.qualified_name[len(peft_prefix) + 1 :].replace(".base_layer", "")
+        if prefix is not None and self.qualified_name.startswith(prefix):
+            self.qualified_name = self.qualified_name[len(prefix) :]
 
 
 class FakeProj(torch.nn.Module):
@@ -1631,6 +1631,20 @@ class ParameterMetadata:
     @property
     def is_sharded(self):
         return self.kind == "sharded"
+
+
+def get_parameters_tp_metadata(named_parameters: Dict[str, "torch.nn.Parameter"]):
+    tp_metadata = {}
+    for name, param in named_parameters.items():
+        if getattr(param, "tensor_model_parallel", False):
+            param_metadata = ParameterMetadata(
+                "sharded",
+                partition_dim=param.partition_dim,
+            )
+        else:
+            param_metadata = ParameterMetadata("tied")
+        tp_metadata[name] = param_metadata
+    return tp_metadata
 
 
 class OptimumNeuronFXTracer(HFTracerWrapper):

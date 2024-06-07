@@ -248,7 +248,12 @@ class ParallelEmbedding(ParallelLayer):
                         device=device,
                     )
 
-        embedding_layer = layer.get_submodule(embedding_name)
+        # import torch_xla.core.xla_model as xm
+        # if xm.get_ordinal() == 0:
+        #     import pdb; pdb.set_trace()
+        # xm.rendezvous("test")
+        orig_layer, _ = get_base_model_and_peft_prefix(layer)
+        embedding_layer = orig_layer.get_submodule(embedding_name)
         if is_peft_available():
             from peft.tuners.tuners_utils import BaseTunerLayer
 
@@ -269,14 +274,16 @@ class ParallelEmbedding(ParallelLayer):
             return layer
 
         parallel_layers = embedding_to_parallel_embedding(
-            layer.get_submodule(embedding_name),
-            lm_head_layer=layer.get_submodule(lm_head_name) if model_has_lm_head else None,
+            orig_layer.get_submodule(embedding_name),
+            lm_head_layer=orig_layer.get_submodule(lm_head_name) if model_has_lm_head else None,
             embedding_weight_info=embedding_weight_info,
             lm_head_weight_info=lm_head_weight_info,
             lm_head_bias_weight_info=lm_head_bias_weight_info,
             device=device,
         )
-        parent_embedding_module, embedding_attribute_name = cls._get_module_and_attribute_name(layer, embedding_name)
+        parent_embedding_module, embedding_attribute_name = cls._get_module_and_attribute_name(
+            orig_layer, embedding_name
+        )
         if model_has_lm_head:
             setattr(parent_embedding_module, embedding_attribute_name, parallel_layers[0])
             setattr(parent_lm_head_module, parent_lm_head_attribute_name, parallel_layers[1])

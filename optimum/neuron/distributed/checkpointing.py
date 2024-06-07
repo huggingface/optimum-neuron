@@ -20,10 +20,28 @@ from typing import Any, Callable, Dict, List, Literal, Union
 
 import torch
 from transformers.modeling_utils import shard_checkpoint
-from transformers.utils import SAFE_WEIGHTS_INDEX_NAME, SAFE_WEIGHTS_NAME, WEIGHTS_INDEX_NAME, WEIGHTS_NAME
+from transformers.utils import (
+    SAFE_WEIGHTS_INDEX_NAME,
+    SAFE_WEIGHTS_NAME,
+    WEIGHTS_INDEX_NAME,
+    WEIGHTS_NAME,
+    is_peft_available,
+)
 
+from ..utils.peft_utils import ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME
 from ..utils.require_utils import requires_neuronx_distributed, requires_safetensors
 from .utils import MODEL_PARALLEL_SHARDS_DIR_NAME, ParameterMetadata, compute_query_indices_for_rank
+
+
+if is_peft_available():
+    from peft.utils.constants import (
+        SAFETENSORS_WEIGHTS_NAME as PEFT_SAFETENSORS_WEIGHTS_NAME,
+    )
+    from peft.utils.constants import (
+        WEIGHTS_NAME as PEFT_WEIGHTS_NAME,
+    )
+else:
+    PEFT_SAFETENSORS_WEIGHTS_NAME = PEFT_WEIGHTS_NAME = ""
 
 
 def create_gqa_query_or_output_projection_weight_from_full_weight(
@@ -129,17 +147,8 @@ def consolidate_tensor_parallel_checkpoints(
 
 
 @requires_neuronx_distributed
-def consolidate_model_parallel_checkpoints(checkpoint_dir: Union[str, Path]) -> Dict[str, "torch.Tensor"]:
+def consolidate_model_parallel_checkpoints(checkpoint_dir: Path) -> Dict[str, "torch.Tensor"]:
     from neuronx_distributed.parallel_layers.checkpointing import _xser_load
-
-    if not isinstance(checkpoint_dir, Path):
-        checkpoint_dir = Path(checkpoint_dir)
-
-    if checkpoint_dir.name != MODEL_PARALLEL_SHARDS_DIR_NAME:
-        if (checkpoint_dir / MODEL_PARALLEL_SHARDS_DIR_NAME).is_dir():
-            checkpoint_dir = checkpoint_dir / MODEL_PARALLEL_SHARDS_DIR_NAME
-        else:
-            raise ValueError(f"Could not find the tensor parallel shards from {checkpoint_dir}")
 
     model_checkpoint_dir = checkpoint_dir / "model"
 
@@ -191,14 +200,33 @@ def consolidate_model_parallel_checkpoints_to_unified_checkpoint(
 ):
     from safetensors.torch import save_file
 
+    if not isinstance(checkpoint_dir, Path):
+        checkpoint_dir = Path(checkpoint_dir)
+
+    if checkpoint_dir.name not in [MODEL_PARALLEL_SHARDS_DIR_NAME, ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME]:
+        if (checkpoint_dir / MODEL_PARALLEL_SHARDS_DIR_NAME).is_dir():
+            checkpoint_dir = checkpoint_dir / MODEL_PARALLEL_SHARDS_DIR_NAME
+        elif (checkpoint_dir / ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME).is_dir():
+            checkpoint_dir = checkpoint_dir / ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME
+        else:
+            raise ValueError(f"Could not find the tensor parallel shards from {checkpoint_dir}")
+
     if not isinstance(output_dir, Path):
         output_dir = Path(output_dir)
+
+    is_adapter_model = checkpoint_dir.name == ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME
+    if is_adapter_model:
+        safe_weights_name = PEFT_SAFETENSORS_WEIGHTS_NAME
+        weights_name = PEFT_WEIGHTS_NAME
+    else:
+        safe_weights_name = SAFE_WEIGHTS_NAME
+        weights_name = WEIGHTS_NAME
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
     state_dict = consolidate_model_parallel_checkpoints(checkpoint_dir)
     shards, index = shard_checkpoint(
-        state_dict, weights_name=SAFE_WEIGHTS_NAME if save_format == "safetensors" else WEIGHTS_NAME
+        state_dict, weights_name=safe_weights_name if save_format == "safetensors" else weights_name
     )
     for shard_file, shard in shards.items():
         if save_format == "safetensors":

@@ -25,6 +25,7 @@ from safetensors.torch import load_file
 from transformers import LlamaForCausalLM
 
 from optimum.neuron import NeuronTrainer, NeuronTrainingArguments, get_peft_model
+from optimum.neuron.distributed.checkpointing import consolidate_model_parallel_checkpoints_to_unified_checkpoint
 from optimum.neuron.utils.peft_utils import NeuronPeftModel
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
@@ -39,7 +40,7 @@ from ..utils import (
 
 
 def get_peft_config():
-    target_modules = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+    target_modules = ["embed_tokens", "q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
     return LoraConfig(
         r=4, lora_alpha=16, target_modules=target_modules, lora_dropout=0.1, bias="none", task_type="CAUSAL_LM"
     )
@@ -63,8 +64,8 @@ def test_get_peft_model():
 class TestPeft(DistributedTest):
     @pytest.fixture(
         scope="class",
-        params=[[2, 1, 1]],
-        ids=["dp=2"],
+        params=[[2, 1, 1], [2, 2, 1]],
+        ids=["dp=2", "tp=2"],
     )
     def parallel_sizes(self, request):
         return request.param
@@ -113,7 +114,19 @@ class TestPeft(DistributedTest):
         assert orig_adapter_config_content == adapter_config_content, "adapter_config.json files do not match"
 
         orig_state_dict = load_file(orig_model_path / "adapter_model.safetensors")
-        state_dict = load_file(model_path / "adapter_model.safetensors")
+
+        if tp_size > 1 or pp_size > 1:
+            # In this case, only shards have been saved:
+            #   1. We check that they do exist
+            #   2. We consolidate them
+            #   3. We check that the values match just as the case where tp_size = pp_size = 1.
+            assert (model_path / "adapter_shards").is_dir()
+            consolidate_model_parallel_checkpoints_to_unified_checkpoint(
+                model_path, model_path / "consolidated_checkpoint"
+            )
+            state_dict = load_file(model_path / "consolidated_checkpoint" / "adapter_model.safetensors")
+        else:
+            state_dict = load_file(model_path / "adapter_model.safetensors")
 
         assert orig_state_dict.keys() == state_dict.keys()
         for name, tensor in orig_state_dict.items():

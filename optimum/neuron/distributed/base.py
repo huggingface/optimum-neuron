@@ -46,12 +46,12 @@ from .utils import (
     MODEL_PARALLEL_SHARDS_DIR_NAME,
     OptimumGQAQKVColumnParallelLinear,
     OptimumNeuronFXTracer,
-    ParameterMetadata,
     WeightInformation,
     get_base_model_and_peft_prefix,
     get_linear_weight_info,
     get_output_projection_qualified_names_after_qga_qkv_replacement,
     get_parameter_names_mapping_after_gqa_qkv_replacement,
+    get_parameters_tp_metadata,
     initialize_parallel_linear,
     initialize_torch_nn_module,
     linear_to_parallel_linear,
@@ -626,8 +626,8 @@ class Parallelizer(ABC):
 
             tied_parameters = get_tied_parameters_dict(model)
 
-            model = cls._parallelize(
-                model,
+            cls._parallelize(
+                orig_model,
                 device=device,
                 parallelize_embeddings=parallelize_embeddings,
                 sequence_parallel_enabled=sequence_parallel_enabled,
@@ -937,20 +937,6 @@ class Parallelizer(ABC):
         return optimizer_for_mp
 
     @classmethod
-    def _get_parameters_tp_metadata(cls, named_parameters: Dict[str, "torch.nn.Parameter"]):
-        tp_metadata = {}
-        for name, param in named_parameters.items():
-            if getattr(param, "tensor_model_parallel", False):
-                param_metadata = ParameterMetadata(
-                    "sharded",
-                    partition_dim=param.partition_dim,
-                )
-            else:
-                param_metadata = ParameterMetadata("tied")
-            tp_metadata[name] = param_metadata
-        return tp_metadata
-
-    @classmethod
     @requires_neuronx_distributed
     def save_model_sharded_checkpoint(
         cls,
@@ -979,7 +965,7 @@ class Parallelizer(ABC):
 
         metadata = {}
         metadata["sharded_metadata"] = {
-            k: asdict(v) for k, v in cls._get_parameters_tp_metadata(dict(model.named_parameters())).items()
+            k: asdict(v) for k, v in get_parameters_tp_metadata(dict(model.named_parameters())).items()
         }
         metadata["gqa_qkv_metadata"] = model._gqa_qkv_metadata
 

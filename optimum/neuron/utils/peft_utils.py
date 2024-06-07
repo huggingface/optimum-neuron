@@ -15,9 +15,10 @@
 """Utilities related to the PEFT library and support."""
 import collections
 import functools
-import gc
 import os
 import warnings
+from dataclasses import asdict
+from pathlib import Path
 from typing import Any, List, Optional, Tuple, Union
 
 import torch
@@ -59,6 +60,9 @@ else:
         pass
 
 
+ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME = "adapter_shards"
+
+
 class NeuronPeftModel(PeftModel):
     @requires_neuronx_distributed
     @requires_safetensors
@@ -76,7 +80,9 @@ class NeuronPeftModel(PeftModel):
         import torch_xla.core.xla_model as xm
         from neuronx_distributed.parallel_layers.parallel_state import (
             get_data_parallel_rank,
+            get_pipeline_model_parallel_rank,
             get_pipeline_model_parallel_size,
+            get_tensor_model_parallel_rank,
             get_tensor_model_parallel_size,
             model_parallel_is_initialized,
         )
@@ -156,6 +162,28 @@ class NeuronPeftModel(PeftModel):
                     model=dummy_mod,
                     async_save=True,
                 )
+
+                # Importing here to avoid ciruclar imports.
+                from ..distributed.utils import get_parameters_tp_metadata
+
+                metadata = {}
+                metadata["sharded_metadata"] = {
+                    k: asdict(v) for k, v in get_parameters_tp_metadata(dict(self.named_parameters())).items()
+                }
+                # TODO: when supporting QGA
+                # metadata["gqa_qkv_metadata"] = model._gqa_qkv_metadata
+
+                if get_data_parallel_rank() == 0 and get_tensor_model_parallel_rank() == 0:
+                    pp_rank = get_pipeline_model_parallel_rank()
+                    metadata_path = (
+                        Path(output_dir) / ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME / f"mp_metadata_pp_rank_{pp_rank}.pt"
+                    )
+                    # Checking that the parent directory exists, it should exist, but let's make sure since g_iostate.end() is
+                    # called at the end of `neuronx_distributed.trainer.save_checkpoint` and it can remove checkpoint
+                    # directories if the max limit has been reached.
+                    if metadata_path.parent.is_dir():
+                        torch.save(metadata, metadata_path)
+
             elif is_main_process and safe_serialization:
                 output_state_dict = move_all_tensor_to_cpu(output_state_dict, convert=should_write_data)
                 # Section copied from: https://github.com/huggingface/transformers/blob/main/src/transformers/modeling_utils.py#L2111-L2134
