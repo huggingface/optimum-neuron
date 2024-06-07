@@ -94,6 +94,7 @@ if is_diffusers_available():
         NeuronStableDiffusionControlNetPipelineMixin,
         NeuronStableDiffusionImg2ImgPipelineMixin,
         NeuronStableDiffusionInpaintPipelineMixin,
+        NeuronStableDiffusionInstructPix2PixPipelineMixin,
         NeuronStableDiffusionPipelineMixin,
         NeuronStableDiffusionXLControlNetPipelineMixin,
         NeuronStableDiffusionXLImg2ImgPipelineMixin,
@@ -1222,6 +1223,12 @@ class NeuronStableDiffusionInpaintPipeline(
     __call__ = NeuronStableDiffusionInpaintPipelineMixin.__call__
 
 
+class NeuronStableDiffusionInstructPix2PixPipeline(
+    NeuronStableDiffusionPipelineBase, NeuronStableDiffusionInstructPix2PixPipelineMixin
+):
+    __call__ = NeuronStableDiffusionInstructPix2PixPipelineMixin.__call__
+
+
 class NeuronLatentConsistencyModelPipeline(NeuronStableDiffusionPipelineBase, NeuronLatentConsistencyPipelineMixin):
     __call__ = NeuronLatentConsistencyPipelineMixin.__call__
 
@@ -1321,7 +1328,6 @@ class NeuronStableDiffusionXLControlNetPipeline(
 if is_neuronx_available():
     # TO REMOVE: This class will be included directly in the DDP API of Neuron SDK 2.20
     class WeightSeparatedDataParallel(torch_neuronx.DataParallel):
-
         def _load_modules(self, module):
             try:
                 self.device_ids.sort()

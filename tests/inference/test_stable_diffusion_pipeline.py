@@ -29,6 +29,7 @@ from optimum.neuron import (
     NeuronStableDiffusionControlNetPipeline,
     NeuronStableDiffusionImg2ImgPipeline,
     NeuronStableDiffusionInpaintPipeline,
+    NeuronStableDiffusionInstructPix2PixPipeline,
     NeuronStableDiffusionPipeline,
     NeuronStableDiffusionXLImg2ImgPipeline,
     NeuronStableDiffusionXLInpaintPipeline,
@@ -130,6 +131,22 @@ class NeuronStableDiffusionPipelineIntegrationTest(unittest.TestCase):
         mask_image = download_image(mask_url).resize((512, 512))
         prompt = "Face of a yellow cat, high resolution, sitting on a park bench"
         image = neuron_pipeline(prompt=prompt, image=init_image, mask_image=mask_image).images[0]
+        self.assertIsInstance(image, PIL.Image.Image)
+
+    @parameterized.expand(["stable-diffusion-ip2p"], skip_on_empty=True)
+    def test_instruct_pix2pix_export_and_inference(self, model_arch):
+        neuron_pipeline = NeuronStableDiffusionInstructPix2PixPipeline.from_pretrained(
+            MODEL_NAMES[model_arch],
+            export=True,
+            dynamic_batch_size=True,
+            **self.STATIC_INPUTS_SHAPES,
+            **self.COMPILER_ARGS,
+        )
+
+        img_url = "https://huggingface.co/datasets/diffusers/diffusers-images-docs/resolve/main/mountain.png"
+        init_image = download_image(img_url).resize((512, 512))
+        prompt = "in the style of Van Gogh"
+        image = neuron_pipeline(prompt=prompt, image=init_image).images[0]
         self.assertIsInstance(image, PIL.Image.Image)
 
     @parameterized.expand(["latent-consistency"], skip_on_empty=True)
