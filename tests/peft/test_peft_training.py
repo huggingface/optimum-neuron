@@ -103,7 +103,7 @@ class TestPeft(DistributedTest):
 
         accelerator = create_accelerator(tp_size, pp_size)
         peft_model = accelerator.prepare_model(peft_model)
-        peft_model.save_pretrained(model_path.as_posix())
+        peft_model.save_pretrained(model_path.as_posix(), async_save=False)
 
         with open(orig_model_path / "adapter_config.json") as fp:
             orig_adapter_config_content = json.dumps(json.load(fp), sort_keys=True)
@@ -128,6 +128,11 @@ class TestPeft(DistributedTest):
         else:
             state_dict = load_file(model_path / "adapter_model.safetensors")
 
+        # import torch_xla.core.xla_model as xm
+        # diff = set(orig_state_dict.keys()).symmetric_difference(state_dict.keys())
+        # xm.master_print(diff)
+        # for name in diff:
+        #     xm.master_print(name, name in orig_state_dict.keys(), name in state_dict.keys())
         assert orig_state_dict.keys() == state_dict.keys()
         for name, tensor in orig_state_dict.items():
             print(f"Checking that the parameter {name} matches")

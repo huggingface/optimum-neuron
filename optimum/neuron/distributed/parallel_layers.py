@@ -34,7 +34,6 @@ from .utils import (
     OptimumGQAQKVColumnParallelLinear,
     WeightInformation,
     embedding_to_parallel_embedding,
-    get_base_model_and_peft_prefix,
     get_linear_weight_info,
     linear_to_parallel_linear,
     mark_parameter_init_status_during_parallelization,
@@ -187,10 +186,9 @@ class ParallelEmbedding(ParallelLayer):
     ) -> "torch.nn.Module":
         from neuronx_distributed.parallel_layers import parallel_state
 
-        orig_model, _ = get_base_model_and_peft_prefix(model)
         if cls.LM_HEAD_NAME is not None:
             if isinstance(cls.LM_HEAD_NAME, dict):
-                lm_head_name = cls.LM_HEAD_NAME.get(orig_model.__class__.__name__, None)
+                lm_head_name = cls.LM_HEAD_NAME.get(model.__class__.__name__, None)
             else:
                 lm_head_name = cls.LM_HEAD_NAME
             model_has_lm_head = False
@@ -204,7 +202,7 @@ class ParallelEmbedding(ParallelLayer):
 
         if isinstance(cls.EMBEDDING_NAME, dict):
             if model.__class__.__name__ in cls.EMBEDDING_NAME:
-                embedding_name = cls.EMBEDDING_NAME[orig_model.__class__.__name__]
+                embedding_name = cls.EMBEDDING_NAME[model.__class__.__name__]
             elif "default" in cls.EMBEDDING_NAME:
                 embedding_name = cls.EMBEDDING_NAME["default"]
             else:
@@ -252,8 +250,7 @@ class ParallelEmbedding(ParallelLayer):
         # if xm.get_ordinal() == 0:
         #     import pdb; pdb.set_trace()
         # xm.rendezvous("test")
-        orig_layer, _ = get_base_model_and_peft_prefix(layer)
-        embedding_layer = orig_layer.get_submodule(embedding_name)
+        embedding_layer = layer.get_submodule(embedding_name)
         if is_peft_available():
             from peft.tuners.tuners_utils import BaseTunerLayer
 
@@ -274,16 +271,14 @@ class ParallelEmbedding(ParallelLayer):
             return layer
 
         parallel_layers = embedding_to_parallel_embedding(
-            orig_layer.get_submodule(embedding_name),
-            lm_head_layer=orig_layer.get_submodule(lm_head_name) if model_has_lm_head else None,
+            layer.get_submodule(embedding_name),
+            lm_head_layer=layer.get_submodule(lm_head_name) if model_has_lm_head else None,
             embedding_weight_info=embedding_weight_info,
             lm_head_weight_info=lm_head_weight_info,
             lm_head_bias_weight_info=lm_head_bias_weight_info,
             device=device,
         )
-        parent_embedding_module, embedding_attribute_name = cls._get_module_and_attribute_name(
-            orig_layer, embedding_name
-        )
+        parent_embedding_module, embedding_attribute_name = cls._get_module_and_attribute_name(layer, embedding_name)
         if model_has_lm_head:
             setattr(parent_embedding_module, embedding_attribute_name, parallel_layers[0])
             setattr(parent_lm_head_module, parent_lm_head_attribute_name, parallel_layers[1])
@@ -990,10 +985,9 @@ class ParallelCrossEntropy(ParallelLayer):
         from neuronx_distributed import parallel_layers
 
         linear_projection_name = None
-        orig_model, _ = get_base_model_and_peft_prefix(model)
         if cls.LAST_LINEAR_PROJECTION_NAME is not None:
             if isinstance(cls.LAST_LINEAR_PROJECTION_NAME, dict):
-                linear_projection_name = cls.LAST_LINEAR_PROJECTION_NAME.get(orig_model.__class__.__name__, None)
+                linear_projection_name = cls.LAST_LINEAR_PROJECTION_NAME.get(model.__class__.__name__, None)
             else:
                 linear_projection_name = cls.LAST_LINEAR_PROJECTION_NAME
 

@@ -74,6 +74,7 @@ class NeuronPeftModel(PeftModel):
         save_embedding_layers: Union[str, bool] = "auto",
         is_main_process: bool = True,
         convert_pissa_to_lora: Optional[str] = None,
+        async_save: bool = False,
         **kwargs: Any,
     ):
         import neuronx_distributed
@@ -160,7 +161,7 @@ class NeuronPeftModel(PeftModel):
                     output_dir,
                     tag="adapter_shards",
                     model=dummy_mod,
-                    async_save=True,
+                    async_save=async_save,
                 )
 
                 # Importing here to avoid ciruclar imports.
@@ -170,8 +171,7 @@ class NeuronPeftModel(PeftModel):
                 metadata["sharded_metadata"] = {
                     k: asdict(v) for k, v in get_parameters_tp_metadata(dict(self.named_parameters())).items()
                 }
-                # TODO: when supporting QGA
-                # metadata["gqa_qkv_metadata"] = model._gqa_qkv_metadata
+                metadata["gqa_qkv_metadata"] = self._gqa_qkv_metadata
 
                 if get_data_parallel_rank() == 0 and get_tensor_model_parallel_rank() == 0:
                     pp_rank = get_pipeline_model_parallel_rank()

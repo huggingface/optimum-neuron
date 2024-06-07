@@ -535,11 +535,17 @@ class AugmentTrainerForNeuronMixin:
             supported_classes = (PreTrainedModel, NeuronPeftModel)
             if not isinstance(self.model, supported_classes):
                 if isinstance(unwrap_model(self.model), supported_classes):
+                    kwargs = (
+                        {}
+                        if isinstance(unwrap_model(self.model), PreTrainedModel)
+                        else {"async_save": self.args.async_save}
+                    )
                     unwrap_model(self.model).save_pretrained(
                         output_dir,
                         is_main_process=self.args.should_save,
                         state_dict=self.model.state_dict(),
                         save_function=xm.save,
+                        **kwargs,
                     )
                 else:
                     if is_main_worker():
@@ -547,7 +553,10 @@ class AugmentTrainerForNeuronMixin:
                     state_dict = self.model.state_dict()
                     xm.save(state_dict, os.path.join(output_dir, WEIGHTS_NAME))
             else:
-                self.model.save_pretrained(output_dir, is_main_process=self.args.should_save, save_function=xm.save)
+                kwargs = {} if isinstance(self.model, PreTrainedModel) else {"async_save": self.args.async_save}
+                self.model.save_pretrained(
+                    output_dir, is_main_process=self.args.should_save, save_function=xm.save, **kwargs
+                )
 
         if self.tokenizer is not None and self.args.should_save:
             self.tokenizer.save_pretrained(output_dir)
