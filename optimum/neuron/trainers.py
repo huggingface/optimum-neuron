@@ -63,7 +63,6 @@ from transformers.utils import (
     WEIGHTS_NAME,
     is_accelerate_available,
     is_apex_available,
-    is_peft_available,
     is_sagemaker_mp_enabled,
 )
 
@@ -85,6 +84,7 @@ from .utils.cache_utils import (
 )
 from .utils.hub_cache_utils import ModelCacheEntry, hub_neuronx_cache, patch_neuron_cc_wrapper, synchronize_hub_cache
 from .utils.misc import is_main_worker, is_precompilation
+from .utils.peft_utils import NeuronPeftModel
 from .utils.require_utils import requires_neuronx_distributed, requires_torch_neuronx
 from .utils.training_utils import (
     get_model_param_count,
@@ -504,9 +504,14 @@ class AugmentTrainerForNeuronMixin:
         # Save a trained model and configuration using `save_pretrained()`.
         # They can then be reloaded using `from_pretrained()`
         xm.rendezvous("saving_checkpoint")
-        if self.accelerator.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
+        if (
+            not isinstance(self.model, NeuronPeftModel)
+            and self.accelerator.distributed_type is NeuronDistributedType.MODEL_PARALLELISM
+        ):
             if is_main_worker():
-                logger.info("Model parallelism is enabled, only saving the model sharded state dict.")
+                logger.info(
+                    "Model parallelism is enabled, saving the model sharded state dict instead of the full state dict."
+                )
             # TODO: how to handle pp?
             if isinstance(self.model, PreTrainedModel):
                 from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
@@ -527,13 +532,7 @@ class AugmentTrainerForNeuronMixin:
                 num_local_ranks_per_step=self.accelerator.state.mp_plugin.num_local_ranks_per_step,
             )
         else:
-            if is_peft_available():
-                from peft import PeftModel
-
-                supported_classes = (PreTrainedModel, PeftModel)
-            else:
-                supported_classes = (PreTrainedModel,)
-
+            supported_classes = (PreTrainedModel, NeuronPeftModel)
             if not isinstance(self.model, supported_classes):
                 if isinstance(unwrap_model(self.model), supported_classes):
                     unwrap_model(self.model).save_pretrained(
