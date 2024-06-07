@@ -17,8 +17,6 @@ import functools
 import gc
 from typing import Any, List, Optional, Tuple, Union
 
-import torch
-import torch.nn.functional as F
 from transformers.utils import is_peft_available
 
 from .patching import replace_class_in_inheritance_hierarchy
@@ -29,15 +27,11 @@ from .training_utils import _get_model_param_count
 if is_peft_available():
     from peft import PeftModel
     from peft import get_peft_model as orig_get_peft_model
-    from peft.tuners.lora import Embedding as LoraEmbedding
     from peft.utils import get_peft_model_state_dict, set_peft_model_state_dict
 
 else:
 
     class PeftModel:
-        pass
-
-    class LoraEmbedding:
         pass
 
     def orig_get_peft_model(*args, **kwargs):
@@ -121,22 +115,3 @@ def get_peft_model(*args, **kwargs):
     peft_model = orig_get_peft_model(*args, **kwargs)
     replace_class_in_inheritance_hierarchy(peft_model, PeftModel, NeuronPeftModel)
     return peft_model
-
-
-class ParallelLoraEmbedding(LoraEmbedding):
-    @requires_neuronx_distributed
-    def _embed(self, input: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
-        from neuronx_distributed.parallel_layers.mappings import reduce_from_tensor_model_parallel_region
-
-        base_layer = self.get_base_layer()
-        output_parallel = F.embedding(
-            input,
-            weight,
-            padding_idx=base_layer.padding_idx,
-            max_norm=base_layer.max_norm,
-            norm_type=base_layer.norm_type,
-            scale_grad_by_freq=base_layer.scale_grad_by_freq,
-            sparse=base_layer.sparse,
-        )
-        output = reduce_from_tensor_model_parallel_region(output_parallel)
-        return output

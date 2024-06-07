@@ -360,10 +360,6 @@ def _peft_tuner_embedding_to_parallel_embedding(
     sequence_parallel_enabled: bool = False,
     device: Optional["torch.device"] = None,
 ):
-    from neuronx_distributed.parallel_layers.parallel_state import (
-        get_tensor_model_parallel_rank,
-        get_tensor_model_parallel_size,
-    )
     from peft.tuners.lora import Embedding as LoraEmbedding
     from peft.tuners.tuners_utils import BaseTunerLayer
 
@@ -405,9 +401,6 @@ def _peft_tuner_embedding_to_parallel_embedding(
                 "to attach this information to each tuner that needs to be parallelized."
             )
 
-        # This is important because we need to all-reduce after computing the output parallel embeddings.
-        parent.__class__ = ParallelLoraEmbedding
-
         with torch.no_grad():
             for adapter_name in parent.active_adapters:
                 config = peft_config[adapter_name]
@@ -420,15 +413,6 @@ def _peft_tuner_embedding_to_parallel_embedding(
                     config.use_rslora,
                     config.use_dora,
                 )
-
-                _, vocab_size = parent.lora_embedding_A[adapter_name].shape
-                tp_size = get_tensor_model_parallel_size()
-                tp_rank = get_tensor_model_parallel_rank()
-                vocab_size_per_rank = vocab_size // tp_size
-                parallel_lora_embedding_A = parent.lora_embedding_A[adapter_name].data[
-                    :, tp_rank * vocab_size_per_rank : (tp_rank + 1) * vocab_size_per_rank
-                ]
-                parent.lora_embedding_A[adapter_name].data = parallel_lora_embedding_A
                 mark_parameter_init_status_during_parallelization(parent.lora_embedding_A[adapter_name], True)
                 mark_parameter_init_status_during_parallelization(parent.lora_embedding_B[adapter_name], True)
 
