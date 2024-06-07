@@ -25,9 +25,7 @@ from datasets import load_dataset
 from huggingface_hub import HfApi
 from transformers import (
     AutoConfig,
-    AutoModelForCausalLM,
     AutoModelForSequenceClassification,
-    AutoTokenizer,
 )
 
 from optimum.neuron import NeuronTrainer, NeuronTrainingArguments
@@ -41,8 +39,10 @@ from optimum.neuron.utils.training_utils import get_model_param_count
 
 from . import DistributedTest
 from .utils import (
+    MODEL_NAME,
     create_dummy_causal_lm_dataset,
     default_data_collator_for_causal_lm,
+    get_tokenizer_and_tiny_llama_model,
 )
 
 
@@ -52,17 +52,6 @@ if is_neuronx_distributed_available():
         get_pipeline_model_parallel_rank,
         get_tensor_model_parallel_rank,
     )
-
-
-MODEL_NAME = "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random"
-
-
-def get_tokenizer_and_tiny_llama_model(parallel_sizes):
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-    _, tp_size, pp_size = parallel_sizes
-    config = AutoConfig.from_pretrained(MODEL_NAME)
-    model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, config=config, ignore_mismatched_sizes=True)
-    return tokenizer, model
 
 
 @is_trainium_test
@@ -80,7 +69,7 @@ class TestNeuronTrainingUtils(DistributedTest):
         _, tp_size, pp_size = parallel_sizes
         output_dir = Path(tmpdir)
 
-        _, model = get_tokenizer_and_tiny_llama_model(parallel_sizes)
+        _, model = get_tokenizer_and_tiny_llama_model()
 
         target_num_parameters = sum(p.numel() for p in model.parameters())
 
@@ -130,7 +119,7 @@ class TestNeuronTrainer(DistributedTest):
             output_dir=output_dir.as_posix(),
         )
 
-        tokenizer, model = get_tokenizer_and_tiny_llama_model(parallel_sizes)
+        tokenizer, model = get_tokenizer_and_tiny_llama_model()
         datasets = create_dummy_causal_lm_dataset(model.config.vocab_size, 120, 1, sequence_length=128)
 
         trainer = NeuronTrainer(
@@ -197,7 +186,7 @@ class TestNeuronTrainer(DistributedTest):
         num_eval_samples = 100
         per_device_eval_batch_size = 16
 
-        tokenizer, model = get_tokenizer_and_tiny_llama_model(parallel_sizes)
+        tokenizer, model = get_tokenizer_and_tiny_llama_model()
         clone = copy.deepcopy(model)
 
         datasets = create_dummy_causal_lm_dataset(model.config.vocab_size, num_train_samples, num_eval_samples)
@@ -296,7 +285,7 @@ class TestNeuronTrainer(DistributedTest):
         max_train_samples = 100
         max_eval_samples = 16
 
-        tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+        tokenizer, _ = get_tokenizer_and_tiny_llama_model()
         tokenizer.pad_token = tokenizer.eos_token
 
         def create_training_args(output_dir, resume_from_checkpoint=None, max_steps=max_steps):

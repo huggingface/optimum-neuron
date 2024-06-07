@@ -59,7 +59,13 @@ from transformers.trainer_utils import (
     has_length,
     speed_metrics,
 )
-from transformers.utils import WEIGHTS_NAME, is_accelerate_available, is_apex_available, is_sagemaker_mp_enabled
+from transformers.utils import (
+    WEIGHTS_NAME,
+    is_accelerate_available,
+    is_apex_available,
+    is_peft_available,
+    is_sagemaker_mp_enabled,
+)
 
 from ..utils import logging
 from .accelerate import NeuronAccelerator, NeuronDistributedType
@@ -436,18 +442,21 @@ class AugmentTrainerForNeuronMixin:
         else:
             reduced_tr_loss = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div)
 
-        # reset tr_loss to zero
-        tr_loss.zero_()
-
         return reduced_tr_loss
 
     def _maybe_log_save_evaluate(self, tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval):
-        if self.control.should_log and self.state.global_step > self._globalstep_last_logged:
+        # We always reduce the loss, even when we do not use it to avoid a new graph.
+        # This communication is not costly.
+        reduced_tr_loss = self._reduce_loss(tr_loss)
 
-            def log_closure(self, tr_loss, grad_norm):
+        if self.control.should_log and self.state.global_step > self._globalstep_last_logged:
+            # reset tr_loss to zero
+            tr_loss.zero_()
+
+            def log_closure(self, reduced_tr_loss, grad_norm):
                 if is_main_worker_for_metrics():
                     logs: Dict[str, float] = {}
-                    tr_loss_scalar = tr_loss.to("cpu").item()
+                    tr_loss_scalar = reduced_tr_loss.to("cpu").item()
 
                     logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
                     logs["learning_rate"] = self._get_learning_rate()
@@ -462,7 +471,7 @@ class AugmentTrainerForNeuronMixin:
                     self.store_flos()
                     self.log(logs)
 
-            xm.add_step_closure(log_closure, (self, tr_loss, grad_norm))
+            xm.add_step_closure(log_closure, (self, reduced_tr_loss, grad_norm))
 
         metrics = None
         if self.control.should_evaluate:
@@ -518,8 +527,15 @@ class AugmentTrainerForNeuronMixin:
                 num_local_ranks_per_step=self.accelerator.state.mp_plugin.num_local_ranks_per_step,
             )
         else:
-            if not isinstance(self.model, PreTrainedModel):
-                if isinstance(unwrap_model(self.model), PreTrainedModel):
+            if is_peft_available():
+                from peft import PeftModel
+
+                supported_classes = (PreTrainedModel, PeftModel)
+            else:
+                supported_classes = (PreTrainedModel,)
+
+            if not isinstance(self.model, supported_classes):
+                if isinstance(unwrap_model(self.model), supported_classes):
                     unwrap_model(self.model).save_pretrained(
                         output_dir,
                         is_main_process=self.args.should_save,
@@ -981,6 +997,7 @@ class AugmentTrainerForNeuronMixin:
                             f"{tr_loss_step.device}"
                         )
                     tr_loss += tr_loss_step
+                    print("tr loss", tr_loss)
 
                 self.current_flos += float(self.floating_point_ops(inputs))
 
@@ -1032,11 +1049,7 @@ class AugmentTrainerForNeuronMixin:
                     self.state.global_step += 1
                     self.state.epoch = epoch + (step + 1 + steps_skipped) / steps_in_epoch
                     self.control = self.callback_handler.on_step_end(args, self.state, self.control)
-
-                    reduced_tr_loss = self._reduce_loss(tr_loss)
-                    self._maybe_log_save_evaluate(
-                        reduced_tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval
-                    )
+                    self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval)
                 else:
                     self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
 

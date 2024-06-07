@@ -60,7 +60,9 @@ _import_structure = {
         "Patcher",
         "patch_everywhere",
         "patch_within_function",
+        "replace_class_in_inheritance_hierarchy",
     ],
+    "peft_utils": ["NeuronPeftModel", "get_peft_model"],
     "training_utils": [
         "is_model_officially_supported",
         "patch_transformers_for_neuron_sdk",
@@ -103,7 +105,15 @@ if TYPE_CHECKING:
         get_attention_scores_sd15,
         get_attention_scores_sdxl,
     )
-    from .patching import DynamicPatch, ModelPatcher, Patcher, patch_everywhere, patch_within_function
+    from .patching import (
+        DynamicPatch,
+        ModelPatcher,
+        Patcher,
+        patch_everywhere,
+        patch_within_function,
+        replace_class_in_inheritance_hierarchy,
+    )
+    from .peft_utils import NeuronPeftModel, get_peft_model
     from .training_utils import (
         is_model_officially_supported,
         patch_transformers_for_neuron_sdk,

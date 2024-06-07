@@ -20,15 +20,17 @@ import inspect
 import os
 import random
 import string
-from typing import Callable, Dict, List, Optional, Tuple, Type
+from pathlib import Path
+from typing import Callable, Dict, List, Optional, Tuple, Type, Union
 
 import torch
 from datasets import Dataset, DatasetDict
 from huggingface_hub import CommitOperationDelete, HfApi, create_repo, delete_repo, get_token, login, logout
 from huggingface_hub.utils import RepositoryNotFoundError
-from transformers import AutoConfig, PreTrainedModel
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, PreTrainedModel
 from transformers.testing_utils import ENDPOINT_STAGING
 
+from optimum.neuron import ModelParallelismPlugin, NeuronAccelerator
 from optimum.neuron.distributed import lazy_load_for_parallelism
 from optimum.neuron.utils.cache_utils import (
     delete_custom_cache_repo_name_from_hf_home,
@@ -44,6 +46,8 @@ logger = logging.get_logger(__name__)
 
 SEED = 42
 OPTIMUM_INTERNAL_TESTING_CACHE_REPO = "optimum-internal-testing/optimum-neuron-cache-for-testing"
+
+MODEL_NAME = "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random"
 
 
 def get_random_string(length) -> str:
@@ -88,8 +92,10 @@ def generate_input_ids(vocab_size: int, batch_size: int, sequence_length: int) -
     return torch.randint(0, vocab_size, (batch_size, sequence_length))
 
 
-def generate_attention_mask(batch_size: int, sequence_length: int) -> torch.Tensor:
-    return torch.randint(0, 2, (batch_size, sequence_length))
+def generate_attention_mask(batch_size: int, sequence_length: int, random: bool = False) -> torch.Tensor:
+    if random:
+        return torch.randint(0, 2, (batch_size, sequence_length))
+    return torch.ones((batch_size, sequence_length))
 
 
 def create_dummy_causal_lm_dataset(
@@ -97,21 +103,31 @@ def create_dummy_causal_lm_dataset(
     num_train_examples: int,
     num_eval_examples: int,
     num_test_examples: Optional[int] = None,
+    max_number_of_unique_examples: Optional[int] = None,
     sequence_length: int = 32,
+    random_attention_mask: bool = False,
 ) -> DatasetDict:
     if num_test_examples is None:
         num_test_examples = num_eval_examples
 
+    if max_number_of_unique_examples is None:
+        max_number_of_unique_examples = max(num_train_examples, num_eval_examples, num_test_examples)
+
     def create_gen(num_examples):
         def gen():
-            for _ in range(num_examples):
+            examples = []
+            for _ in range(min(num_examples, max_number_of_unique_examples)):
                 input_ids = generate_input_ids(vocab_size, 1, sequence_length)
-                attention_mask = generate_attention_mask(1, sequence_length)
-                yield {
-                    "input_ids": input_ids,
-                    "attention_mask": attention_mask,
-                    "labels": input_ids,
-                }
+                attention_mask = generate_attention_mask(1, sequence_length, random=random_attention_mask)
+                examples.append(
+                    {
+                        "input_ids": input_ids,
+                        "attention_mask": attention_mask,
+                        "labels": input_ids,
+                    }
+                )
+            for i in range(num_examples):
+                yield examples[i % max_number_of_unique_examples]
 
         return gen
 
@@ -211,6 +227,38 @@ def get_model(
             param.data.add_(torch.randn_like(param))
 
     return model
+
+
+def get_tokenizer_and_tiny_llama_model():
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+    config = AutoConfig.from_pretrained(MODEL_NAME)
+    model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, config=config, ignore_mismatched_sizes=True)
+    return tokenizer, model
+
+
+def create_accelerator(
+    tp_size: int,
+    pp_size: int,
+    zero_1: bool = False,
+    gradient_accumulation_steps: int = 1,
+    parallelize_embeddings: bool = True,
+    sequence_parallel_enabled: bool = True,
+    kv_size_multiplier: Optional[int] = None,
+    checkpoint_dir: Optional[Union[Path, str]] = None,
+    use_xser: bool = True,
+) -> NeuronAccelerator:
+    mp_plugin = ModelParallelismPlugin(
+        tensor_parallel_size=tp_size,
+        kv_size_multiplier=kv_size_multiplier,
+        parallelize_embeddings=parallelize_embeddings,
+        sequence_parallel_enabled=sequence_parallel_enabled,
+        pipeline_parallel_size=pp_size,
+        checkpoint_dir=checkpoint_dir,
+        use_xser=use_xser,
+    )
+    return NeuronAccelerator(
+        mp_plugin=mp_plugin, zero_1=zero_1, gradient_accumulation_steps=gradient_accumulation_steps
+    )
 
 
 class TrainiumTestMixin:
