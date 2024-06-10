@@ -22,21 +22,25 @@ import torch
 from peft import AutoPeftModelForCausalLM, LoraConfig, PeftModel
 from peft import get_peft_model as orig_get_peft_model
 from safetensors.torch import load_file
-from transformers import LlamaForCausalLM
 
 from optimum.neuron import NeuronTrainer, NeuronTrainingArguments, get_peft_model
 from optimum.neuron.distributed.checkpointing import consolidate_model_parallel_checkpoints_to_unified_checkpoint
+from optimum.neuron.utils.import_utils import is_torch_xla_available
 from optimum.neuron.utils.peft_utils import NeuronPeftModel
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
 from .. import DistributedTest
 from ..utils import (
+    StaticSeedPatcher,
     create_accelerator,
     create_dummy_causal_lm_dataset,
-    create_static_seed_patcher,
     default_data_collator_for_causal_lm,
     get_tokenizer_and_tiny_llama_model,
 )
+
+
+if is_torch_xla_available():
+    import torch_xla.core.xla_model as xm
 
 
 def get_peft_config():
@@ -86,7 +90,7 @@ class TestPeft(DistributedTest):
         peft_config = get_peft_config()
 
         # PEFT model saved using `PeftModel`.
-        seed_patcher = create_static_seed_patcher(LlamaForCausalLM, 42)
+        seed_patcher = StaticSeedPatcher(42)
         with seed_patcher:
             _, model = get_tokenizer_and_tiny_llama_model()
             orig_model_path = output_dir / "orig_peft"
@@ -95,14 +99,14 @@ class TestPeft(DistributedTest):
         orig_peft_model.save_pretrained(orig_model_path.as_posix())
 
         # PEFT model saved using `NeuronPeftModel`.
-        seed_patcher = create_static_seed_patcher(LlamaForCausalLM, 42)
         with seed_patcher:
             _, model = get_tokenizer_and_tiny_llama_model()
             model_path = output_dir / "peft"
             peft_model = get_peft_model(model, peft_config)
 
-        accelerator = create_accelerator(tp_size, pp_size)
-        peft_model = accelerator.prepare_model(peft_model)
+        with seed_patcher:
+            accelerator = create_accelerator(tp_size, pp_size)
+            peft_model = accelerator.prepare_model(peft_model)
         peft_model.save_pretrained(model_path.as_posix(), async_save=False)
 
         with open(orig_model_path / "adapter_config.json") as fp:
@@ -128,15 +132,11 @@ class TestPeft(DistributedTest):
         else:
             state_dict = load_file(model_path / "adapter_model.safetensors")
 
-        # import torch_xla.core.xla_model as xm
-        # diff = set(orig_state_dict.keys()).symmetric_difference(state_dict.keys())
-        # xm.master_print(diff)
-        # for name in diff:
-        #     xm.master_print(name, name in orig_state_dict.keys(), name in state_dict.keys())
         assert orig_state_dict.keys() == state_dict.keys()
-        for name, tensor in orig_state_dict.items():
-            print(f"Checking that the parameter {name} matches")
-            torch.testing.assert_close(tensor, state_dict[name])
+        if xm.is_master_ordinal():
+            for name, tensor in orig_state_dict.items():
+                print(f"Checking that the parameter {name} matches")
+                torch.testing.assert_close(tensor, state_dict[name])
 
     def test_peft_training(self, parallel_sizes, tmpdir):
         _, tp_size, pp_size = parallel_sizes

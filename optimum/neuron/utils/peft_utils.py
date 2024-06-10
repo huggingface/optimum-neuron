@@ -24,7 +24,7 @@ from typing import Any, List, Optional, Tuple, Union
 import torch
 from transformers.utils import is_peft_available
 
-from .patching import replace_class_in_inheritance_hierarchy
+from .patching import Patcher, replace_class_in_inheritance_hierarchy
 from .require_utils import requires_neuronx_distributed, requires_safetensors
 from .training_utils import _get_model_param_count
 
@@ -35,9 +35,11 @@ if is_peft_available():
     from peft.utils import (
         SAFETENSORS_WEIGHTS_NAME,
         WEIGHTS_NAME,
-        get_peft_model_state_dict,
         id_tensor_storage,
         set_peft_model_state_dict,
+    )
+    from peft.utils import (
+        get_peft_model_state_dict as orig_get_peft_model_state_dict,
     )
 
 else:
@@ -50,7 +52,7 @@ else:
     def orig_get_peft_model(*args, **kwargs):
         pass
 
-    def get_peft_model_state_dict(*args, **kwargs):
+    def orig_get_peft_model_state_dict(*args, **kwargs):
         pass
 
     def set_peft_model_state_dict(*args, **kwargs):
@@ -61,6 +63,22 @@ else:
 
 
 ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME = "adapter_shards"
+
+
+@requires_neuronx_distributed
+def has_valid_embedding_base_layer(layer):
+    """Check if the layer has an embedding base layer"""
+    from neuronx_distributed.parallel_layers.layers import ParallelEmbedding
+
+    return hasattr(layer, "base_layer") and isinstance(
+        layer.base_layer, (torch.nn.Linear, torch.nn.Embedding, ParallelEmbedding)
+    )
+
+
+@functools.wraps(orig_get_peft_model_state_dict)
+def get_peft_model_state_dict(*args, **kwargs):
+    with Patcher([("peft.utils.save_and_load.has_valid_embedding_base_layer", has_valid_embedding_base_layer)]):
+        return orig_get_peft_model_state_dict(*args, **kwargs)
 
 
 class NeuronPeftModel(PeftModel):
@@ -168,8 +186,11 @@ class NeuronPeftModel(PeftModel):
                 from ..distributed.utils import get_parameters_tp_metadata
 
                 metadata = {}
+                named_parameters_without_adapter_name = {
+                    n.replace(f".{adapter_name}", ""): p for n, p in self.named_parameters()
+                }
                 metadata["sharded_metadata"] = {
-                    k: asdict(v) for k, v in get_parameters_tp_metadata(dict(self.named_parameters())).items()
+                    k: asdict(v) for k, v in get_parameters_tp_metadata(named_parameters_without_adapter_name).items()
                 }
                 metadata["gqa_qkv_metadata"] = self._gqa_qkv_metadata
 

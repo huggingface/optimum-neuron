@@ -56,7 +56,7 @@ from optimum.neuron.utils.import_utils import (
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
 from .. import DistributedTest
-from ..utils import SEED, create_accelerator, create_static_seed_patcher, get_model
+from ..utils import SEED, StaticSeedPatcher, create_accelerator, get_model
 from .utils import get_model_inputs
 
 
@@ -356,7 +356,7 @@ class TestModelParallelization(DistributedTest):
             use_static_seed_patcher=True,
         )
 
-        static_seed_patcher = create_static_seed_patcher(model.__class__, SEED)
+        static_seed_patcher = StaticSeedPatcher(SEED)
         with static_seed_patcher:
             model = accelerator.prepare(model)
 

@@ -16,7 +16,6 @@
 
 import contextlib
 import functools
-import inspect
 import os
 import random
 import string
@@ -155,37 +154,40 @@ def static_initializer_seed(initialization_function: Callable, seed: int):
     return wrapper
 
 
-@contextlib.contextmanager
-def create_static_seed_patcher(model_class: Type["PreTrainedModel"], seed: int):
+class StaticSeedPatcher:
     """
     Context manager that resets the seed to a given value for every initialization function.
     This is useful because lazy initialization works but does not respect the random state of the non-lazy case.
     This allows us to test that lazy initialization works if we ignore the random seed.
     """
-    specialized_static_initializer_seed = functools.partial(static_initializer_seed, seed=seed)
 
-    inspect.getmodule(model_class).__name__
-    dynamic_patch = DynamicPatch(specialized_static_initializer_seed)
-    patcher = Patcher(
-        [
-            # (fully_qualified_method_name, dynamic_patch),
-            ("torch.nn.Embedding.reset_parameters", dynamic_patch),
-            ("torch.nn.Linear.reset_parameters", dynamic_patch),
-            ("torch.Tensor.normal_", dynamic_patch),
-            ("neuronx_distributed.parallel_layers.layers.ColumnParallelLinear.init_weight_cpu", dynamic_patch),
-            ("neuronx_distributed.parallel_layers.layers.RowParallelLinear.init_weight_cpu", dynamic_patch),
-            (
-                "neuronx_distributed.modules.qkv_linear.GQAQKVColumnParallelLinear._init_per_layer_weight",
-                dynamic_patch,
-            ),
-            ("neuronx_distributed.modules.qkv_linear.GQAQKVColumnParallelLinear._init_per_layer_bias", dynamic_patch),
-        ]
-    )
-    with patcher:
-        try:
-            yield
-        finally:
-            pass
+    def __init__(self, seed: int):
+        specialized_static_initializer_seed = functools.partial(static_initializer_seed, seed=seed)
+        dynamic_patch = DynamicPatch(specialized_static_initializer_seed)
+        self.patcher = Patcher(
+            [
+                # (fully_qualified_method_name, dynamic_patch),
+                ("torch.nn.Embedding.reset_parameters", dynamic_patch),
+                ("torch.nn.Linear.reset_parameters", dynamic_patch),
+                ("torch.Tensor.normal_", dynamic_patch),
+                ("neuronx_distributed.parallel_layers.layers.ColumnParallelLinear.init_weight_cpu", dynamic_patch),
+                ("neuronx_distributed.parallel_layers.layers.RowParallelLinear.init_weight_cpu", dynamic_patch),
+                (
+                    "neuronx_distributed.modules.qkv_linear.GQAQKVColumnParallelLinear._init_per_layer_weight",
+                    dynamic_patch,
+                ),
+                (
+                    "neuronx_distributed.modules.qkv_linear.GQAQKVColumnParallelLinear._init_per_layer_bias",
+                    dynamic_patch,
+                ),
+            ]
+        )
+
+    def __enter__(self, *args, **kwargs):
+        self.patcher.__enter__(*args, **kwargs)
+
+    def __exit__(self, *args, **kwargs):
+        self.patcher.__exit__(*args, **kwargs)
 
 
 def get_model(
@@ -204,7 +206,7 @@ def get_model(
     else:
         ctx = contextlib.nullcontext()
     if use_static_seed_patcher:
-        seed_patcher = create_static_seed_patcher(model_class, SEED)
+        seed_patcher = StaticSeedPatcher(SEED)
     else:
         seed_patcher = contextlib.nullcontext()
     with ctx:

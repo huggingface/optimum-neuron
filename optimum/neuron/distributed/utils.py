@@ -1342,8 +1342,8 @@ def duplicate_module_with_random_weights_on_cpu(module: torch.nn.Module) -> torc
     """
     clone = torch.nn.Module()
 
-    buffer_names = set(n for n, _ in module.named_buffers())
-    parameter_names = set(n for n, _ in module.named_parameters())
+    buffer_names = {n for n, _ in module.named_buffers()}
+    parameter_names = {n for n, _ in module.named_parameters()}
 
     for name in dir(module):
         attr = getattr(module, name)
