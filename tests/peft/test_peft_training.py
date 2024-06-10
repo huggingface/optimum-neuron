@@ -14,6 +14,7 @@
 # limitations under the License.
 """Tests related to PEFT integration."""
 
+import copy
 import json
 from pathlib import Path
 
@@ -25,7 +26,8 @@ from safetensors.torch import load_file
 
 from optimum.neuron import NeuronTrainer, NeuronTrainingArguments, get_peft_model
 from optimum.neuron.distributed.checkpointing import consolidate_model_parallel_checkpoints_to_unified_checkpoint
-from optimum.neuron.utils.import_utils import is_torch_xla_available
+from optimum.neuron.distributed.utils import lazy_load_for_parallelism
+from optimum.neuron.utils.import_utils import is_neuronx_distributed_available, is_torch_xla_available
 from optimum.neuron.utils.peft_utils import NeuronPeftModel
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
@@ -35,6 +37,7 @@ from ..utils import (
     create_accelerator,
     create_dummy_causal_lm_dataset,
     default_data_collator_for_causal_lm,
+    get_model_inputs,
     get_tokenizer_and_tiny_llama_model,
 )
 
@@ -42,9 +45,20 @@ from ..utils import (
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
 
+if is_neuronx_distributed_available():
+    from neuronx_distributed.parallel_layers.parallel_state import (
+        get_tensor_model_parallel_group,
+        get_tensor_model_parallel_size,
+    )
+    from neuronx_distributed.utils.model_utils import move_model_to_device
 
-def get_peft_config():
-    target_modules = ["embed_tokens", "q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+
+def get_peft_config(lora_on_embeddings: bool = False, lora_on_lm_head: bool = False):
+    target_modules = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+    if lora_on_embeddings:
+        target_modules.append("embed_tokens")
+    if lora_on_lm_head:
+        target_modules.append("lm_head")
     return LoraConfig(
         r=4, lora_alpha=16, target_modules=target_modules, lora_dropout=0.1, bias="none", task_type="CAUSAL_LM"
     )
@@ -87,7 +101,7 @@ class TestPeft(DistributedTest):
 
         output_dir = Path(tmpdir)
 
-        peft_config = get_peft_config()
+        peft_config = get_peft_config(lora_on_embeddings=True, lora_on_lm_head=True)
 
         # PEFT model saved using `PeftModel`.
         seed_patcher = StaticSeedPatcher(42)
@@ -173,3 +187,96 @@ class TestPeft(DistributedTest):
         )
 
         trainer.train()
+
+    def test_tied_weights(self, parallel_sizes):
+        _, tp_size, pp_size = parallel_sizes
+
+        _, model = get_tokenizer_and_tiny_llama_model()
+        model.model.embed_tokens.weight = model.lm_head.weight
+        assert model.model.embed_tokens.weight is model.lm_head.weight
+
+        # Case 1: LoRA on embeddings / No LoRA on the LM head
+        peft_config = get_peft_config(lora_on_embeddings=True)
+        peft_model = get_peft_model(copy.deepcopy(model), peft_config)
+        assert peft_model.base_model.model.model.embed_tokens.weight is peft_model.base_model.model.lm_head.weight
+
+        # Case 2: No LoRA on embeddings / LoRA on the LM head
+        peft_config = get_peft_config(lora_on_lm_head=True)
+        peft_model = get_peft_model(copy.deepcopy(model), peft_config)
+        assert peft_model.base_model.model.model.embed_tokens.weight is peft_model.base_model.model.lm_head.weight
+
+        # Case 3: LoRA on embeddings / LoRA on the LM head
+        peft_config = get_peft_config(lora_on_embeddings=True, lora_on_lm_head=True)
+        peft_model = get_peft_model(copy.deepcopy(model), peft_config)
+        assert peft_model.base_model.model.model.embed_tokens.weight is peft_model.base_model.model.lm_head.weight
+
+    def test_outputs_match(self, parallel_sizes):
+        world_size, tp_size, pp_size = parallel_sizes
+        dp_size = world_size // (tp_size * pp_size)
+
+        peft_config = get_peft_config()
+
+        seed_patcher = StaticSeedPatcher(42)
+        with seed_patcher:
+            _, orig_model = get_tokenizer_and_tiny_llama_model()
+        with seed_patcher:
+            orig_model = orig_get_peft_model(orig_model, peft_config)
+
+        inputs = get_model_inputs(
+            orig_model,
+            orig_model.config.name_or_path,
+            batch_size=dp_size,
+            pad_to_multiple_of=32,
+        )
+        xla_inputs = {k: v.to(xm.xla_device()) for k, v in inputs.items()}
+
+        move_model_to_device(orig_model, xm.xla_device())
+        orig_model.eval()
+        xm.mark_step()
+
+        orig_outputs = orig_model(**xla_inputs)
+        xm.mark_step()
+
+        with lazy_load_for_parallelism(tensor_parallel_size=tp_size, pipeline_parallel_size=pp_size):
+            with seed_patcher:
+                _, model = get_tokenizer_and_tiny_llama_model()
+        with seed_patcher:
+            model = get_peft_model(model, peft_config)
+
+        accelerator = create_accelerator(
+            tp_size,
+            pp_size,
+            parallelize_embeddings=True,
+            sequence_parallel_enabled=True,
+        )
+
+        with seed_patcher:
+            model = accelerator.prepare(model)
+        outputs = model(**xla_inputs)
+        xm.mark_step()
+
+        outputs_to_test = ["loss", "logits"]
+        orig_outputs = {k: v.to("cpu") for k, v in orig_outputs.items() if k in outputs_to_test}
+        outputs = {k: v.to("cpu") for k, v in outputs.items() if k in outputs_to_test}
+        xm.mark_step()
+
+        for name in outputs_to_test:
+            print(f"Checking that the output {name} matches")
+            orig_output = orig_outputs[name]
+            output = outputs[name]
+
+            # Taken from `tests/distributed/test_model_parallelization::TestModelParallelization._check_output
+            tp_size = get_tensor_model_parallel_size()
+            tp_group = get_tensor_model_parallel_group()
+            if orig_output.shape != output.shape:
+                gather_dim = min(
+                    idx for idx in range(orig_output.dim()) if orig_output.shape[idx] != output.shape[idx]
+                )
+                output = output.to(xm.xla_device())
+                gathered = [torch.empty_like(output) for _ in range(tp_size)]
+                torch.distributed.all_gather(gathered, output, group=tp_group)
+                gathered_output = torch.cat(gathered, dim=gather_dim)
+                xm.mark_step()
+                output = gathered_output.to("cpu")
+
+            torch.testing.assert_close(orig_output, output)
