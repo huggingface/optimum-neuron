@@ -138,6 +138,11 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         ),
     )
     optional_group.add_argument(
+        "--do_classifier_free_guidance",
+        action="store_true",
+        help=("whether to use classifier free guidance or not."),
+    )
+    optional_group.add_argument(
         "--output_hidden_states",
         action="store_true",
         help=("Whether or not for the traced model to return the hidden states of all layers."),

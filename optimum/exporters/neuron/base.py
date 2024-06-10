@@ -162,6 +162,8 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
         point_batch_size: Optional[int] = None,
         nb_points_per_image: Optional[int] = None,
         num_beams: Optional[int] = None,
+        vae_scale_factor: Optional[int] = None,
+        encoder_hidden_size: Optional[int] = None,
         output_attentions: bool = False,
         output_hidden_states: bool = False,
         # TODO: add custom dtype after optimum 1.13 release
@@ -197,6 +199,8 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
             "num_beams": num_beams,
             "image_size": image_size or getattr(self._config, "image_size", None),
             "patch_size": patch_size or getattr(self._config, "patch_size", None),
+            "vae_scale_factor": vae_scale_factor,
+            "encoder_hidden_size": encoder_hidden_size,
         }
         input_shapes = {}
         for name, value in axes_values.items():

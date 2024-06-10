@@ -31,6 +31,7 @@ from ...neuron.utils import (
     DIFFUSION_MODEL_UNET_NAME,
     DIFFUSION_MODEL_VAE_DECODER_NAME,
     DIFFUSION_MODEL_VAE_ENCODER_NAME,
+    DIFFUSION_MODEL_CONTROLNET_NAME,
     ENCODER_NAME,
     NEURON_FILE_NAME,
     is_neuron_available,
@@ -52,6 +53,7 @@ from .utils import (
     get_encoder_decoder_models_for_export,
     get_stable_diffusion_models_for_export,
     replace_stable_diffusion_submodels,
+    load_controlnets,
 )
 
 
@@ -74,7 +76,7 @@ if TYPE_CHECKING:
     from transformers import PreTrainedModel
 
     if is_diffusers_available():
-        from diffusers import DiffusionPipeline, ModelMixin, StableDiffusionPipeline
+        from diffusers import DiffusionPipeline, ModelMixin, StableDiffusionPipeline, ControlNetModel
 
 
 logger = logging.get_logger()
@@ -183,6 +185,7 @@ def normalize_stable_diffusion_input_shapes(
     args: argparse.Namespace,
 ) -> Dict[str, Dict[str, int]]:
     args = vars(args) if isinstance(args, argparse.Namespace) else args
+    do_classifier_free_guidance = args.pop("do_classifier_free_guidance")
     mandatory_axes = set(getattr(inspect.getfullargspec(build_stable_diffusion_components_mandatory_shapes), "args"))
     # Remove `sequence_length` as diffusers will pad it to the max and remove number of channels.
     mandatory_axes = mandatory_axes - {
@@ -191,6 +194,7 @@ def normalize_stable_diffusion_input_shapes(
         "vae_encoder_num_channels",
         "vae_decoder_num_channels",
         "num_images_per_prompt",  # default to 1
+        "do_classifier_free_guidance",
     }
     if not mandatory_axes.issubset(set(args.keys())):
         raise AttributeError(
@@ -198,13 +202,14 @@ def normalize_stable_diffusion_input_shapes(
         )
     mandatory_shapes = {name: args[name] for name in mandatory_axes}
     mandatory_shapes["num_images_per_prompt"] = args.get("num_images_per_prompt", 1)
-    input_shapes = build_stable_diffusion_components_mandatory_shapes(**mandatory_shapes)
+    input_shapes = build_stable_diffusion_components_mandatory_shapes(do_classifier_free_guidance=do_classifier_free_guidance, **mandatory_shapes)
     return input_shapes
 
 
 def infer_stable_diffusion_shapes_from_diffusers(
     input_shapes: Dict[str, Dict[str, int]],
     model: Union["StableDiffusionPipeline", "StableDiffusionXLPipeline"],
+    controlnets: Optional[List["ControlNetModel"]] = None,
 ):
     if model.tokenizer is not None:
         sequence_length = model.tokenizer.model_max_length
@@ -232,10 +237,25 @@ def infer_stable_diffusion_shapes_from_diffusers(
             "width": scaled_width,
         }
     )
+    if controlnets:
+        # axes for extra inputs of controlnets: down_block_res_samples and mid_block_res_sample
+        input_shapes["unet"]["vae_scale_factor"] = vae_scale_factor
     input_shapes["vae_encoder"].update({"num_channels": vae_encoder_num_channels, "height": height, "width": width})
     input_shapes["vae_decoder"].update(
         {"num_channels": vae_decoder_num_channels, "height": scaled_height, "width": scaled_width}
     )
+    
+    # ControlNet
+    if controlnets:
+        input_shapes["controlnet"] = {
+            "batch_size": input_shapes["unet"]["batch_size"],
+            "sequence_length": sequence_length,
+            "num_channels": unet_num_channels,
+            "height": scaled_height,
+            "width": scaled_width,
+            "vae_scale_factor": vae_scale_factor,
+            "encoder_hidden_size": model.text_encoder.config.hidden_size, 
+        }
 
     return input_shapes
 
@@ -256,7 +276,7 @@ def get_submodels_and_neuron_configs(
     lora_weight_names: Optional[Union[str, List[str]]] = None,
     lora_adapter_names: Optional[Union[str, List[str]]] = None,
     lora_scales: Optional[Union[float, List[float]]] = None,
-    controlnet_model_ids: Optional[Union[str, List[str]]] = None,
+    controlnets: Optional[List["ControlNetModel"]] = None,
 ):
     is_stable_diffusion = "stable-diffusion" in task
     is_encoder_decoder = (
@@ -279,7 +299,7 @@ def get_submodels_and_neuron_configs(
             lora_weight_names=lora_weight_names,
             lora_adapter_names=lora_adapter_names,
             lora_scales=lora_scales,
-            controlnet_model_ids=controlnet_model_ids,
+            controlnets=controlnets,
         )
     elif is_encoder_decoder:
         optional_outputs = {"output_attentions": output_attentions, "output_hidden_states": output_hidden_states}
@@ -340,7 +360,7 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
     lora_weight_names: Optional[Union[str, List[str]]] = None,
     lora_adapter_names: Optional[Union[str, List[str]]] = None,
     lora_scales: Optional[Union[float, List[float]]] = None,
-    controlnet_model_ids: Optional[Union[str, List[str]]] = None,
+    controlnets: Optional[List["ControlNetModel"]] = None,
 ):
     check_compiler_compatibility_for_stable_diffusion()
     model = replace_stable_diffusion_submodels(model, submodels)
@@ -348,7 +368,11 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
         raise RuntimeError(
             "Stable diffusion export is not supported by neuron-cc on inf1, please use neuronx-cc on either inf2/trn1 instead."
         )
-    input_shapes = infer_stable_diffusion_shapes_from_diffusers(input_shapes, model)
+    input_shapes = infer_stable_diffusion_shapes_from_diffusers(
+        input_shapes=input_shapes, 
+        model=model, 
+        controlnets=controlnets,
+    )
 
     # Saving the model config and preprocessor as this is needed sometimes.
     model.scheduler.save_pretrained(output.joinpath("scheduler"))
@@ -376,7 +400,8 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
         lora_weight_names=lora_weight_names,
         lora_adapter_names=lora_adapter_names,
         lora_scales=lora_scales,
-        controlnet_model_ids=controlnet_model_ids,
+        controlnets=controlnets,
+        controlnet_input_shapes=input_shapes.get("controlnet", None),
     )
     output_model_names = {
         DIFFUSION_MODEL_UNET_NAME: os.path.join(DIFFUSION_MODEL_UNET_NAME, NEURON_FILE_NAME),
@@ -391,9 +416,17 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
         output_model_names[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME] = os.path.join(
             DIFFUSION_MODEL_TEXT_ENCODER_2_NAME, NEURON_FILE_NAME
         )
+
     # ControlNet models
+    if controlnets:
+        for idx in range(len(controlnets)):
+            controlnet_name = DIFFUSION_MODEL_CONTROLNET_NAME + "_" + str(idx)
+            output_model_names[controlnet_name] = os.path.join(
+                controlnet_name, NEURON_FILE_NAME
+            )
 
     del model
+    del controlnets
 
     return models_and_neuron_configs, output_model_names
 
@@ -473,6 +506,8 @@ def load_models_and_neuron_configs(
     }
     if model is None:
         model = TasksManager.get_model_from_task(**model_kwargs)
+    if controlnet_model_ids:
+        controlnets = load_controlnets(controlnet_model_ids)
 
     models_and_neuron_configs, output_model_names = get_submodels_and_neuron_configs(
         model=model,
@@ -490,7 +525,7 @@ def load_models_and_neuron_configs(
         lora_weight_names=lora_weight_names,
         lora_adapter_names=lora_adapter_names,
         lora_scales=lora_scales,
-        controlnet_model_ids=controlnet_model_ids,
+        controlnets=controlnets,
     )
 
     return models_and_neuron_configs, output_model_names

@@ -64,7 +64,7 @@ EXTRAS_REQUIRE = {
         "torchvision==0.16.*",
         "neuronx_distributed==0.7.0",
     ],
-    "diffusers": ["diffusers ~= 0.26.1", "peft"],
+    "diffusers": ["diffusers ~= 0.26.1", "peft", "opencv_python"],
     "sentence-transformers": ["sentence-transformers >= 2.2.0"],
 }
 
