@@ -1000,6 +1000,7 @@ def maybe_load_linear_weight_to_parallel_linear(
 
 
 @requires_peft
+@requires_neuronx_distributed
 def _peft_tuner_linear_to_parallel_linear(
     tuner_layer: "BaseTunerLayer",
     axis: Union[Literal["row"], Literal["column"]],
@@ -1013,6 +1014,7 @@ def _peft_tuner_linear_to_parallel_linear(
     skip_weight_load: bool = False,
     device: Optional["torch.device"] = None,
 ) -> "BaseTunerLayer":
+    from neuronx_distributed.parallel_layers.layers import BaseParallelLinear
     from peft.tuners.lora import Linear as LoraLinear
     from peft.tuners.tuners_utils import BaseTunerLayer
 
@@ -1023,19 +1025,24 @@ def _peft_tuner_linear_to_parallel_linear(
         parent = base_layer
         base_layer = base_layer.base_layer
 
-    parallel_base_layer = linear_to_parallel_linear(
-        base_layer,
-        axis,
-        input_is_parallel=input_is_parallel,
-        gather_output=gather_output,
-        stride=stride,
-        linear_layer_weight_info=linear_layer_weight_info,
-        linear_layer_bias_weight_info=linear_layer_bias_weight_info,
-        embedding_weight_to_tie=embedding_weight_to_tie,
-        sequence_parallel_enabled=sequence_parallel_enabled,
-        skip_weight_load=skip_weight_load,
-        device=device,
-    )
+    if isinstance(base_layer, BaseParallelLinear):
+        # It can be the case for instance if the embeddings were parallelized and are tied to the LM head.
+        # If we apply LoRA to the LM head, it will actually already be a `ColumnParallelLinear`.
+        parallel_base_layer = base_layer
+    else:
+        parallel_base_layer = linear_to_parallel_linear(
+            base_layer,
+            axis,
+            input_is_parallel=input_is_parallel,
+            gather_output=gather_output,
+            stride=stride,
+            linear_layer_weight_info=linear_layer_weight_info,
+            linear_layer_bias_weight_info=linear_layer_bias_weight_info,
+            embedding_weight_to_tie=embedding_weight_to_tie,
+            sequence_parallel_enabled=sequence_parallel_enabled,
+            skip_weight_load=skip_weight_load,
+            device=device,
+        )
 
     if isinstance(base_layer, BaseTunerLayer):
         tuner_layer = parallel_base_layer
@@ -1077,6 +1084,7 @@ def _peft_tuner_linear_to_parallel_linear(
                 layer_to_parallelize = parent.lora_A[adapter_name]
             else:
                 layer_to_parallelize = parent.lora_B[adapter_name]
+
             # TODO: handle the case were weights already exist for this adapter.
             parallel_layer = linear_to_parallel_linear(
                 layer_to_parallelize,

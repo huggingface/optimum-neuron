@@ -399,9 +399,12 @@ class TestModelParallelization(DistributedTest):
         monkeypatch,
     ):
         _, model_class, model_name_or_path, config_overwrite = model_specs
+
+        # This is very important otherwise the parallel cross entropy loss will modify the logits inplace.
         monkeypatch.setattr(
             optimum.neuron.distributed.parallel_layers, "_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT", True
         )
+
         return self._parallel_model_matches_original_model(
             model_class, model_name_or_path, config_overwrite, parallel_sizes, True, True, True, True
         )

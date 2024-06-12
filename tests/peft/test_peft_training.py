@@ -24,6 +24,7 @@ from peft import AutoPeftModelForCausalLM, LoraConfig, PeftModel
 from peft import get_peft_model as orig_get_peft_model
 from safetensors.torch import load_file
 
+import optimum
 from optimum.neuron import NeuronTrainer, NeuronTrainingArguments, get_peft_model
 from optimum.neuron.distributed.checkpointing import consolidate_model_parallel_checkpoints_to_unified_checkpoint
 from optimum.neuron.distributed.utils import lazy_load_for_parallelism
@@ -53,14 +54,19 @@ if is_neuronx_distributed_available():
     from neuronx_distributed.utils.model_utils import move_model_to_device
 
 
-def get_peft_config(lora_on_embeddings: bool = False, lora_on_lm_head: bool = False):
+def get_peft_config(lora_on_embeddings: bool = False, lora_on_lm_head: bool = False, lora_droupout: float = 0.1):
     target_modules = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
     if lora_on_embeddings:
         target_modules.append("embed_tokens")
     if lora_on_lm_head:
         target_modules.append("lm_head")
     return LoraConfig(
-        r=4, lora_alpha=16, target_modules=target_modules, lora_dropout=0.1, bias="none", task_type="CAUSAL_LM"
+        r=4,
+        lora_alpha=16,
+        target_modules=target_modules,
+        lora_dropout=lora_droupout,
+        bias="none",
+        task_type="CAUSAL_LM",
     )
 
 
@@ -210,38 +216,15 @@ class TestPeft(DistributedTest):
         peft_model = get_peft_model(copy.deepcopy(model), peft_config)
         assert peft_model.base_model.model.model.embed_tokens.weight is peft_model.base_model.model.lm_head.weight
 
-    def test_outputs_match(self, parallel_sizes):
+    def test_outputs_match(self, parallel_sizes, monkeypatch):
+        # This is very important otherwise the parallel cross entropy loss will modify the logits inplace.
+        monkeypatch.setattr(
+            optimum.neuron.distributed.parallel_layers, "_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT", True
+        )
         world_size, tp_size, pp_size = parallel_sizes
         dp_size = world_size // (tp_size * pp_size)
 
-        peft_config = get_peft_config()
-
-        seed_patcher = StaticSeedPatcher(42)
-        with seed_patcher:
-            _, orig_model = get_tokenizer_and_tiny_llama_model()
-        with seed_patcher:
-            orig_model = orig_get_peft_model(orig_model, peft_config)
-
-        inputs = get_model_inputs(
-            orig_model,
-            orig_model.config.name_or_path,
-            batch_size=dp_size,
-            pad_to_multiple_of=32,
-        )
-        xla_inputs = {k: v.to(xm.xla_device()) for k, v in inputs.items()}
-
-        move_model_to_device(orig_model, xm.xla_device())
-        orig_model.eval()
-        xm.mark_step()
-
-        orig_outputs = orig_model(**xla_inputs)
-        xm.mark_step()
-
-        with lazy_load_for_parallelism(tensor_parallel_size=tp_size, pipeline_parallel_size=pp_size):
-            with seed_patcher:
-                _, model = get_tokenizer_and_tiny_llama_model()
-        with seed_patcher:
-            model = get_peft_model(model, peft_config)
+        peft_config = get_peft_config(lora_on_embeddings=True, lora_on_lm_head=True)
 
         accelerator = create_accelerator(
             tp_size,
@@ -250,8 +233,40 @@ class TestPeft(DistributedTest):
             sequence_parallel_enabled=True,
         )
 
+        seed_patcher = StaticSeedPatcher(42)
+        with seed_patcher:
+            _, orig_model = get_tokenizer_and_tiny_llama_model()
+        with seed_patcher:
+            orig_model = orig_get_peft_model(orig_model, peft_config)
+
+        # It is ok to use this accelerator because `patch_model_for_neuron` does not depend on the TP or PP size.
+        orig_model = accelerator.patch_model_for_neuron(orig_model)
+
+        inputs = get_model_inputs(
+            orig_model,
+            orig_model.config.name_or_path,
+            batch_size=dp_size,
+            pad_to_multiple_of=16,
+        )
+        xla_inputs = {k: v.to(xm.xla_device()) for k, v in inputs.items()}
+
+        move_model_to_device(orig_model, xm.xla_device())
+        xm.mark_step()
+
+        orig_model.eval()
+        orig_outputs = orig_model(**xla_inputs)
+        xm.mark_step()
+
+        with lazy_load_for_parallelism(tensor_parallel_size=tp_size, pipeline_parallel_size=pp_size):
+            with seed_patcher:
+                _, model = get_tokenizer_and_tiny_llama_model()
+
+        model = get_peft_model(model, peft_config)
+
         with seed_patcher:
             model = accelerator.prepare(model)
+
+        model.eval()
         outputs = model(**xla_inputs)
         xm.mark_step()
 
@@ -272,6 +287,13 @@ class TestPeft(DistributedTest):
                 gather_dim = min(
                     idx for idx in range(orig_output.dim()) if orig_output.shape[idx] != output.shape[idx]
                 )
+
+                # We could also slice `orig_output` to get the output for the current rank only but we prefer to
+                # gather everything as it would happen in a real setting.
+                # size = orig_output.size(gather_dim) // tp_size
+                # tp_rank = get_tensor_model_parallel_rank()
+                # slices = [slice(None, None) if i != gather_dim else slice(tp_rank * size, (tp_rank + 1) * size)  for i in range(orig_output.dim())]
+                # orig_output = orig_output[slices]
                 output = output.to(xm.xla_device())
                 gathered = [torch.empty_like(output) for _ in range(tp_size)]
                 torch.distributed.all_gather(gathered, output, group=tp_group)
