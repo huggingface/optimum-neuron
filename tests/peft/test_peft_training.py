@@ -302,3 +302,25 @@ class TestPeft(DistributedTest):
                 output = gathered_output.to("cpu")
 
             torch.testing.assert_close(orig_output, output)
+
+    def test_only_adapters_require_grad(self, parallel_sizes):
+        _, tp_size, pp_size = parallel_sizes
+
+        peft_config = get_peft_config(lora_on_embeddings=True, lora_on_lm_head=True)
+
+        _, orig_model = get_tokenizer_and_tiny_llama_model()
+        orig_model = orig_get_peft_model(orig_model, peft_config)
+        orig_requires_grad = {n: p.requires_grad for n, p in orig_model.named_parameters()}
+
+        _, model = get_tokenizer_and_tiny_llama_model()
+        model = get_peft_model(model, peft_config)
+        accelerator = create_accelerator(
+            tp_size,
+            pp_size,
+            parallelize_embeddings=True,
+            sequence_parallel_enabled=True,
+        )
+        model = accelerator.prepare_model(model)
+        requires_grad = {n: p.requires_grad for n, p in model.named_parameters()}
+
+        assert orig_requires_grad == requires_grad
