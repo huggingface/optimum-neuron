@@ -14,15 +14,9 @@
 # limitations under the License.
 """Utilities for tests distributed."""
 
-from typing import TYPE_CHECKING
-
 import torch
 
 from optimum.neuron.utils.require_utils import requires_neuronx_distributed, requires_torch_xla
-
-
-if TYPE_CHECKING:
-    pass
 
 
 @requires_torch_xla

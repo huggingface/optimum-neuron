@@ -246,10 +246,6 @@ class ParallelEmbedding(ParallelLayer):
                         device=device,
                     )
 
-        # import torch_xla.core.xla_model as xm
-        # if xm.get_ordinal() == 0:
-        #     import pdb; pdb.set_trace()
-        # xm.rendezvous("test")
         embedding_layer = layer.get_submodule(embedding_name)
         if is_peft_available():
             from peft.tuners.tuners_utils import BaseTunerLayer

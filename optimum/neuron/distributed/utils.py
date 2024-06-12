@@ -1057,7 +1057,6 @@ def _peft_tuner_linear_to_parallel_linear(
         #   2. The base linear layer is a ColumnParallelLinear, then:
         #       - The lora A matrix does not need to be parallelized,
         #       - The lora B matrix needs to be a ColumnParallelLinear as well.
-
         base_layer_is_on_meta_device = parallel_base_layer.weight.device == torch.device("meta")
         if base_layer_is_on_meta_device:
             parallel_base_layer.weight.data = torch.empty_like(parallel_base_layer.weight, device="cpu")
@@ -1370,8 +1369,9 @@ def duplicate_module_with_random_weights_on_cpu(module: torch.nn.Module) -> torc
 
 
 def parameter_can_be_initialized(model: torch.nn.Module, parent_module: torch.nn.Module, parameter_name: str) -> bool:
+    # TODO: cannot alwats print the duplicated clone because it does not have all the same attributes.
+    # Might be worth spending some time to fix if printing is needed at some point.
     clone = duplicate_module_with_random_weights_on_cpu(parent_module)
-    # TODO: print clone fails.
     left_uninitialized = try_to_hf_initialize(model, clone, [parameter_name])
     is_parallel_linear = isinstance(parent_module, layers.BaseParallelLinear)
     return (

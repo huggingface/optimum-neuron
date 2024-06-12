@@ -801,8 +801,6 @@ class Parallelizer(ABC):
 
         model._gqa_qkv_metadata = gqa_qkv_metadata
 
-        if xm.get_ordinal() == 0:
-            print("Parallelized PEFT model", model)
         return model
 
     @classmethod

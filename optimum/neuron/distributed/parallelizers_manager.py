@@ -18,7 +18,6 @@ import importlib
 from typing import Dict, List, Tuple, Type, Union
 
 from transformers import PreTrainedModel
-from transformers.utils import is_peft_available
 
 from ..utils.peft_utils import NeuronPeftModel
 from ..utils.require_utils import requires_neuronx_distributed
@@ -79,12 +78,8 @@ class ParallelizersManager:
         if isinstance(model_type_or_model, NxDPPModel):
             model_type_or_model = model_type_or_model.original_torch_module
         elif isinstance(model_type_or_model, NeuronPeftModel):
-            model_type_or_model = model_type_or_model.base_model
-            if is_peft_available():
-                from peft.tuners.tuners_utils import BaseTuner
+            model_type_or_model = model_type_or_model.get_base_model()
 
-                if isinstance(model_type_or_model, BaseTuner):
-                    model_type_or_model = model_type_or_model.model
         if isinstance(model_type_or_model, PreTrainedModel):
             model_type = model_type_or_model.config.model_type
         else:
