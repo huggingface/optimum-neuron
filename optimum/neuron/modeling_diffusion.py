@@ -1328,6 +1328,7 @@ class NeuronStableDiffusionXLControlNetPipeline(
 if is_neuronx_available():
     # TO REMOVE: This class will be included directly in the DDP API of Neuron SDK 2.20
     class WeightSeparatedDataParallel(torch_neuronx.DataParallel):
+
         def _load_modules(self, module):
             try:
                 self.device_ids.sort()
