@@ -35,6 +35,7 @@ from ..utils.model_utils import (
     get_tied_parameters_dict,
 )
 from ..utils.patching import Patcher
+from ..utils.peft_utils import NeuronPeftModel
 from ..utils.require_utils import requires_neuronx_distributed, requires_torch_xla
 from .parallel_layers import (
     IOSequenceParallelizer,
@@ -753,6 +754,9 @@ class Parallelizer(ABC):
             logger.info("Load and initialization of the weights done.")
 
         if pp_size > 1:
+            if isinstance(model, NeuronPeftModel):
+                raise NotImplementedError("PEFT is not supported with model parallelism for now.")
+
             if not cls.supports_pipeline_parallelism():
                 raise NotImplementedError("{cls} does not support pipeline parallelism.")
 
