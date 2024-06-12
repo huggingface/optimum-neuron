@@ -72,7 +72,7 @@ class ParallelizersManager:
 
     @classmethod
     @requires_neuronx_distributed
-    def _get_model_type(cls, model_type_or_model: Union[str, PreTrainedModel]) -> str:
+    def _get_model_type(cls, model_type_or_model: Union[str, PreTrainedModel, NeuronPeftModel]) -> str:
         from neuronx_distributed.pipeline import NxDPPModel
 
         if isinstance(model_type_or_model, NxDPPModel):
@@ -87,7 +87,9 @@ class ParallelizersManager:
         return model_type
 
     @classmethod
-    def is_model_supported(cls, model_type_or_model: Union[str, PreTrainedModel]) -> Tuple[bool, bool, bool]:
+    def is_model_supported(
+        cls, model_type_or_model: Union[str, PreTrainedModel, NeuronPeftModel]
+    ) -> Tuple[bool, bool, bool]:
         """
         Returns a tuple of 3 booleans where:
             - The first element indicates if tensor parallelism can be used for this model,
@@ -110,7 +112,9 @@ class ParallelizersManager:
         return (for_tp, for_sp, for_pp)
 
     @classmethod
-    def parallelizer_for_model(cls, model_type_or_model: Union[str, PreTrainedModel]) -> Type[Parallelizer]:
+    def parallelizer_for_model(
+        cls, model_type_or_model: Union[str, PreTrainedModel, NeuronPeftModel]
+    ) -> Type[Parallelizer]:
         """
         Returns the parallelizer class associated to the model.
 

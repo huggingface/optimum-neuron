@@ -501,7 +501,7 @@ class Parallelizer(ABC):
     @requires_neuronx_distributed
     def parallelize(
         cls,
-        model: "PreTrainedModel",
+        model: Union["PreTrainedModel", NeuronPeftModel],
         device: Optional[torch.device] = None,
         parallelize_embeddings: bool = True,
         sequence_parallel_enabled: bool = False,
@@ -521,7 +521,7 @@ class Parallelizer(ABC):
         weights associated to it.
 
         Args:
-            model (`PreTrainedModel`):
+            model (`Union[PreTrainedModel, NeuronPeftModel]`):
                 The model to parallelize.
             device (`Optional[torch.device]`, defaults to `None`):
                 The device where the new parallel layers should be put.

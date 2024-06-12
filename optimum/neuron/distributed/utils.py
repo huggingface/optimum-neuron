@@ -352,8 +352,8 @@ def was_already_initialized_during_parallelization(parameter: "torch.nn.Paramete
 @requires_peft
 @requires_neuronx_distributed
 def _peft_tuner_embedding_to_parallel_embedding(
-    tuner_layer: "torch.nn.Embedding",
-    lm_head_layer: Optional["torch.nn.Linear"] = None,
+    tuner_layer: "BaseTunerLayer",
+    lm_head_layer: Optional[Union["torch.nn.Linear", "BaseTunerLayer"]] = None,
     embedding_weight_info: Optional[WeightInformation] = None,
     lm_head_weight_info: Optional[WeightInformation] = None,
     lm_head_bias_weight_info: Optional[WeightInformation] = None,
@@ -428,8 +428,8 @@ def _peft_tuner_embedding_to_parallel_embedding(
 
 @requires_neuronx_distributed
 def embedding_to_parallel_embedding(
-    embedding_layer: "torch.nn.Embedding",
-    lm_head_layer: Optional["torch.nn.Linear"] = None,
+    embedding_layer: Union["torch.nn.Embedding", "BaseTunerLayer"],
+    lm_head_layer: Optional[Union["torch.nn.Linear", "BaseTunerLayer"]] = None,
     embedding_weight_info: Optional[WeightInformation] = None,
     lm_head_weight_info: Optional[WeightInformation] = None,
     lm_head_bias_weight_info: Optional[WeightInformation] = None,
@@ -1113,7 +1113,7 @@ def _peft_tuner_linear_to_parallel_linear(
 
 @requires_neuronx_distributed
 def linear_to_parallel_linear(
-    linear_layer: "torch.nn.Linear",
+    linear_layer: Union["torch.nn.Linear", "BaseTunerLayer"],
     axis: Union[Literal["row"], Literal["column"]],
     input_is_parallel: bool = False,
     gather_output: bool = True,
