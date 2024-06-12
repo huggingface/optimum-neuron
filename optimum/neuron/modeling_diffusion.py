@@ -823,7 +823,6 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
                 lora_adapter_names=lora_adapter_names,
                 lora_scales=lora_scales,
                 library_name=cls.library_name,
-                checked_config=cache_config,
                 **input_shapes,
             )
 
