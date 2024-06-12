@@ -25,21 +25,21 @@ def get_attention_scores_sd15(self, query, key, attention_mask) -> torch.Tensor:
         query = query.float()
         key = key.float()
 
-    baddbmm_input = torch.empty(query.shape[0], query.shape[1], key.shape[1], dtype=query.dtype, device=query.device)
-    beta = 0
+    # baddbmm_input = torch.empty(query.shape[0], query.shape[1], key.shape[1], dtype=query.dtype, device=query.device)
+    # beta = 0
 
-    attention_scores = torch.baddbmm(
-        baddbmm_input,
-        query,
-        key.transpose(-1, -2),
-        beta=beta,
-        alpha=self.scale,
-    )
-    del baddbmm_input
+    # attention_scores = torch.baddbmm(
+    #     baddbmm_input,
+    #     query,
+    #     key.transpose(-1, -2),
+    #     beta=beta,
+    #     alpha=self.scale,
+    # )
+    # del baddbmm_input
 
     # TODO: following line is supposed to give the same result and reduce unnecessary overhead(no attention mask)
     # however the compiled model output is far off from the one on cpu, need to further investigate.
-    # attention_scores = self.scale * torch.bmm(query, key.transpose(-1, -2))  # -> bad perf, max diff: 5.696073055267334 (atol: 0.001)
+    attention_scores = self.scale * torch.bmm(query, key.transpose(-1, -2))  # -> bad perf, max diff: 5.696073055267334 (atol: 0.001)
 
     if self.upcast_softmax:
         attention_scores = attention_scores.float()
