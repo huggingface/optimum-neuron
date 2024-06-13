@@ -182,7 +182,7 @@ class NeuronPeftModel(PeftModel):
                     async_save=async_save,
                 )
 
-                # Importing here to avoid ciruclar imports.
+                # Importing here to avoid circular imports.
                 from ..distributed.utils import get_parameters_tp_metadata
 
                 metadata = {}

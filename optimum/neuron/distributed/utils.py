@@ -1369,7 +1369,7 @@ def duplicate_module_with_random_weights_on_cpu(module: torch.nn.Module) -> torc
 
 
 def parameter_can_be_initialized(model: torch.nn.Module, parent_module: torch.nn.Module, parameter_name: str) -> bool:
-    # TODO: cannot alwats print the duplicated clone because it does not have all the same attributes.
+    # TODO: cannot always print the duplicated clone because it does not have all the same attributes.
     # Might be worth spending some time to fix if printing is needed at some point.
     clone = duplicate_module_with_random_weights_on_cpu(parent_module)
     left_uninitialized = try_to_hf_initialize(model, clone, [parameter_name])
