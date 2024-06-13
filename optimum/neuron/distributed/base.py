@@ -746,7 +746,18 @@ class Parallelizer(ABC):
         # Because we initialize new parameters, we need to make sure that only the ones that required grads before
         # parallelization require grad after parallelization.
         for name, parameter in model.named_parameters():
-            parameter.requires_grad = requires_grad_information[name]
+            gqa_qkv_names_to_original_names = {
+                v: k for k, v in gqa_qkv_metadata["original_names_to_gqa_qkv_names"].items()
+            }
+            if name in requires_grad_information:
+                parameter.requires_grad = requires_grad_information[name]
+            elif gqa_qkv_names_to_original_names.get(name, None) in requires_grad_information:
+                gqa_qkv_name = gqa_qkv_names_to_original_names[name]
+                parameter.requires_grad = requires_grad_information[gqa_qkv_name]
+            else:
+                raise ValueError(
+                    f"Could not find information for the parameter {name} to set its `requires_grad` attribute."
+                )
 
         xm.mark_step()
 

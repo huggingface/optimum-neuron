@@ -68,7 +68,7 @@ ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME = "adapter_shards"
 @requires_neuronx_distributed
 def has_valid_embedding_base_layer(layer):
     """Check if the layer has an embedding base layer"""
-    from neuronx_distributed.parallel_layers.layers import ParallelEmbedding, BaseParallelLinear
+    from neuronx_distributed.parallel_layers.layers import BaseParallelLinear, ParallelEmbedding
 
     return hasattr(layer, "base_layer") and isinstance(
         layer.base_layer, (torch.nn.Linear, torch.nn.Embedding, ParallelEmbedding, BaseParallelLinear)
