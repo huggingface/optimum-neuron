@@ -176,7 +176,7 @@ class DistributedExec(ABC):
             # hang (causing super long unit test runtimes)
             pytest.exit("Test hanged, exiting", returncode=0)
         except Exception as e:
-            self._close_pool(pool, num_procs)
+            self._close_pool(pool, num_procs, use_terminate=True)
             raise e
         finally:
             # Tear down distributed environment and close process pools
@@ -235,11 +235,14 @@ class DistributedExec(ABC):
             dist.barrier()
             dist.destroy_process_group()
 
-    def _close_pool(self, pool, num_procs, force=False):
+    def _close_pool(self, pool, num_procs, force=False, use_terminate=False):
         if force or not self.reuse_dist_env:
             try:
                 _ = pool.starmap(self._dist_destroy, [() for _ in range(num_procs)])
-                pool.close()
+                if use_terminate:
+                    pool.terminate()
+                else:
+                    pool.close()
                 pool.join()
             except ValueError:
                 pass
