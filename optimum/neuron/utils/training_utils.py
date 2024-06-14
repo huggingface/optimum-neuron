@@ -244,9 +244,6 @@ def _get_model_param_count(model: Union[torch.nn.Module, "NxDPPModel"]):
 
     all_param_count = sum(numel(n, p) for n, p in named_parameters)
     trainable_param_count = sum(numel(n, p) for n, p in named_parameters if p.requires_grad)
-    for n, p in model.named_parameters():
-        print(f"{n} => {p.requires_grad}")
-    print(all_param_count, trainable_param_count)
     if pp_size > 1:
         all_param_count = reduce_param_count_over_pp_ranks(all_param_count)
         trainable_param_count = reduce_param_count_over_pp_ranks(trainable_param_count)
