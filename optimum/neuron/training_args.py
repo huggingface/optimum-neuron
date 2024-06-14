@@ -75,8 +75,8 @@ class NeuronTrainingArgumentsMixin:
         default=False,
         metadata={"help": "Whether or not to disable sequence parallelism."},
     )
-    neuron_cc_optlevel: int = field(
-        default=2,
+    neuron_cc_optlevel: Optional[int] = field(
+        default=None,
         metadata={
             "choices": [1, 2, 3],
             "help": "Specify the level of optimization the Neuron compiler should perform.",
@@ -182,7 +182,8 @@ class NeuronTrainingArgumentsMixin:
         else:
             os.environ["ACCELERATE_USE_AMP"] = "false"
 
-        set_neuron_cc_optlevel(self.neuron_cc_optlevel)
+        if self.neuron_cc_optlevel is not None:
+            set_neuron_cc_optlevel(self.neuron_cc_optlevel)
 
         self._world_size_should_behave_as_dp_size = False
 
