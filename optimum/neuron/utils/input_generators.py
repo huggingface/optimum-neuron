@@ -16,6 +16,7 @@
 
 import copy
 from typing import Optional
+
 import torch
 
 from ...utils import (
@@ -81,11 +82,11 @@ class DummyControNetInputGenerator(DummyInputGenerator):
     SUPPORTED_INPUT_NAMES = (
         # ControlNet inputs
         "timestep",
-        "controlnet_prompt_embeds",  # depending on the hidden_size of text encoder
-        "controlnet_cond", 
+        "encoder_hidden_states",  # depending on the hidden_size of text encoder
+        "controlnet_cond",
         "conditioning_scale",
         # ControlNet outputs -> UNet inputs
-        "down_block_additional_residuals", 
+        "down_block_additional_residuals",
         "mid_block_additional_residual",
     )
 
@@ -111,17 +112,24 @@ class DummyControNetInputGenerator(DummyInputGenerator):
         self.width = width
         self.vae_scale_factor = vae_scale_factor
         self.text_encoder_hidden_size = encoder_hidden_size
-   
+
     def generate(self, input_name: str, framework: str = "pt", int_dtype: str = "int64", float_dtype: str = "fp32"):
         if input_name == "timestep":
             shape = [self.batch_size // 2]  # do_classifier_free_guidance = True
             return self.random_int_tensor(shape, max_value=999, framework=framework, dtype=int_dtype)
-        elif input_name == "controlnet_prompt_embeds":
+        elif input_name == "encoder_hidden_states":
             shape = (self.batch_size, self.sequence_length, self.text_encoder_hidden_size)
             return self.random_float_tensor(shape, framework=framework, dtype=float_dtype)
         elif input_name == "controlnet_cond":
-            num_channels = getattr(self.normalized_config, "conditioning_channels", 3)  # num_channels = 3 since `do_convert_rgb=True`
-            shape = (self.batch_size, num_channels, self.height * self.vae_scale_factor, self.width * self.vae_scale_factor)
+            num_channels = getattr(
+                self.normalized_config, "conditioning_channels", 3
+            )  # num_channels = 3 since `do_convert_rgb=True`
+            shape = (
+                self.batch_size,
+                num_channels,
+                self.height * self.vae_scale_factor,
+                self.width * self.vae_scale_factor,
+            )
             return self.random_float_tensor(shape, framework=framework, dtype=float_dtype)
         elif input_name == "conditioning_scale":
             return torch.tensor(1.0)
@@ -137,21 +145,24 @@ class DummyControNetInputGenerator(DummyInputGenerator):
                 shape = (self.batch_size, self.normalized_config.block_out_channels[idx], height, width)
                 for _ in range(self.normalized_config.layers_per_block):
                     res_samples += (self.random_float_tensor(shape, framework=framework, dtype=float_dtype),)
-                if down_block_type=="CrossAttnDownBlock2D":
+                if idx == len(self.normalized_config.down_block_types) - 1:
+                    pass
+                else:
                     # add output of downsampler
                     num_past_cross_attn_blocks += 1
                     height = height // 2
                     width = width // 2
                     shape = (self.batch_size, self.normalized_config.block_out_channels[idx], height, width)
                     res_samples += (self.random_float_tensor(shape, framework=framework, dtype=float_dtype),)
-                elif down_block_type=="DownBlock2D":
-                    pass
-                else:
-                    raise ValueError(f"Supported down block types are: CrossAttnDownBlock2D, DownBlock2D. {down_block_type} is not yet supported, please file us an issue here: https://github.com/huggingface/optimum-neuron/issues.")
                 down_block_res_samples += res_samples
             return down_block_res_samples
         elif input_name == "mid_block_additional_residual":
             num_cross_attn_blocks = self.normalized_config.down_block_types.count("CrossAttnDownBlock2D")
             out_channels = self.normalized_config.block_out_channels[-1]
-            shape = (self.batch_size, out_channels, self.height // 2**num_cross_attn_blocks, self.width // 2**num_cross_attn_blocks)
+            shape = (
+                self.batch_size,
+                out_channels,
+                self.height // 2**num_cross_attn_blocks,
+                self.width // 2**num_cross_attn_blocks,
+            )
             return self.random_float_tensor(shape, framework=framework, dtype=float_dtype)

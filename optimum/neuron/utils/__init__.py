@@ -91,7 +91,7 @@ if TYPE_CHECKING:
         is_torch_xla_available,
         is_transformers_neuronx_available,
     )
-    from .input_generators import DummyBeamValuesGenerator, DummyMaskedPosGenerator, DummyControNetInputGenerator
+    from .input_generators import DummyBeamValuesGenerator, DummyControNetInputGenerator, DummyMaskedPosGenerator
     from .misc import (
         DiffusersPretrainedConfig,
         check_if_weights_replacable,

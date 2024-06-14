@@ -435,9 +435,9 @@ class UNetNeuronConfig(VisionNeuronConfig):
 
         if getattr(self._normalized_config, "time_cond_proj_dim", None) is not None:
             common_inputs.append("timestep_cond")
-        
+
         if self.with_contronet:
-            # outputs of controlnet 
+            # outputs of controlnet
             common_inputs += ["down_block_additional_residuals", "mid_block_additional_residual"]
 
         return common_inputs
@@ -450,15 +450,16 @@ class UNetNeuronConfig(VisionNeuronConfig):
         dummy_inputs = super().generate_dummy_inputs(**kwargs)
         dummy_inputs["timestep"] = dummy_inputs["timestep"].float()
         dummy_inputs["encoder_hidden_states"] = dummy_inputs["encoder_hidden_states"][0]
-        
+
         # break down down_block_additional_residuals
-        num_down_block_outputs = len(self._normalized_config.down_block_types) * (self._normalized_config.layers_per_block + 1)
+        num_down_block_outputs = len(self._normalized_config.down_block_types) * (
+            self._normalized_config.layers_per_block + 1
+        )
         down_block_additional_residuals = dummy_inputs.pop("down_block_additional_residuals", None)
-        
+
         if down_block_additional_residuals:
             for idx in range(num_down_block_outputs):
                 dummy_inputs[f"down_block_additional_residuals_{idx}"] = down_block_additional_residuals[idx]
-            
 
         if getattr(self._normalized_config, "addition_embed_type", None) == "text_time":
             dummy_inputs["added_cond_kwargs"] = {
@@ -481,7 +482,7 @@ class UNetNeuronConfig(VisionNeuronConfig):
     @is_sdxl.setter
     def is_sdxl(self, is_sdxl: bool):
         self._is_sdxl = is_sdxl
-    
+
     @property
     def with_contronet(self) -> bool:
         return self._with_contronet
@@ -494,7 +495,15 @@ class UNetNeuronConfig(VisionNeuronConfig):
 @register_in_tasks_manager("controlnet", *["semantic-segmentation"], library_name="diffusers")
 class ControlNetNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
-    INPUT_ARGS = ("batch_size", "sequence_length", "num_channels", "height", "width", "vae_scale_factor", "encoder_hidden_size")
+    INPUT_ARGS = (
+        "batch_size",
+        "sequence_length",
+        "num_channels",
+        "height",
+        "width",
+        "vae_scale_factor",
+        "encoder_hidden_size",
+    )
     MODEL_TYPE = "controlnet"
     CUSTOM_MODEL_WRAPPER = ControlNetNeuronWrapper
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
@@ -513,7 +522,7 @@ class ControlNetNeuronConfig(VisionNeuronConfig):
 
     @property
     def inputs(self) -> List[str]:
-        common_inputs = ["sample", "timestep", "controlnet_prompt_embeds", "controlnet_cond", "conditioning_scale"]
+        common_inputs = ["sample", "timestep", "encoder_hidden_states", "controlnet_cond", "conditioning_scale"]
         return common_inputs
 
     @property

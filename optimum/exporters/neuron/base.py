@@ -15,6 +15,7 @@
 """Neuron configuration base classes."""
 
 import importlib
+import re
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
@@ -334,6 +335,30 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
             else:
                 flatten[name] = value
         return flatten
+
+    @classmethod
+    def unflatten_inputs(cls, inputs: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Re-construct inputs that have been flatten for tracing.
+        """
+        unflatten = {}
+        to_group = {}
+        for name, value in inputs.items():
+            name_with_idx = re.findall(r"(.*?)_(\d+)", name)
+            if len(name_with_idx) > 0:
+                if name_with_idx[0][0] in to_group:
+                    to_group[name_with_idx[0][0]].append((int(name_with_idx[0][1]), value))
+                else:
+                    to_group[name_with_idx[0][0]] = [(int(name_with_idx[0][1]), value)]
+            else:
+                unflatten[name] = value
+
+        if to_group:
+            for name, values in to_group.items():
+                ordered = sorted(values, key=lambda x: x[0])
+            unflatten[name] = tuple([item[1] for item in ordered])
+
+        return unflatten
 
     def patch_model_for_export(
         self,
