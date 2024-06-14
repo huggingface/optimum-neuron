@@ -1005,7 +1005,6 @@ class AugmentTrainerForNeuronMixin:
                             f"{tr_loss_step.device}"
                         )
                     tr_loss += tr_loss_step
-                    print("tr loss", tr_loss)
 
                 self.current_flos += float(self.floating_point_ops(inputs))
 
