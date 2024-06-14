@@ -49,6 +49,7 @@ _import_structure = {
         "is_precompilation",
         "replace_weights",
     ],
+    "model_utils": ["get_tied_parameters_dict", "tie_parameters"],
     "optimization_utils": [
         "get_attention_scores_sd2",
         "get_attention_scores_sd15",
@@ -100,6 +101,7 @@ if TYPE_CHECKING:
         is_precompilation,
         replace_weights,
     )
+    from .model_utils import get_tied_parameters_dict, tie_parameters
     from .optimization_utils import (
         get_attention_scores_sd2,
         get_attention_scores_sd15,

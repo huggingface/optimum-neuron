@@ -36,8 +36,7 @@ from optimum.neuron.utils.import_utils import (
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
 from .. import DistributedTest
-from ..utils import create_accelerator, create_static_seed_patcher, get_model
-from .utils import get_model_inputs
+from ..utils import StaticSeedPatcher, create_accelerator, get_model, get_model_inputs
 
 
 if is_torch_xla_available():
@@ -306,7 +305,7 @@ class TestCommonDistributed(DistributedTest):
         lazy_model = get_tiny_llama_model(
             tp_size=tp_size, pp_size=pp_size, lazy_load=True, from_config=from_config, use_static_seed_patcher=True
         )
-        static_seed_patcher = create_static_seed_patcher(model.__class__, 42)
+        static_seed_patcher = StaticSeedPatcher(42)
         with static_seed_patcher:
             lazy_model = accelerator.prepare(lazy_model)
 

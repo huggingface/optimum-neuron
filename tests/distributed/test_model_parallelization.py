@@ -56,8 +56,7 @@ from optimum.neuron.utils.import_utils import (
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
 from .. import DistributedTest
-from ..utils import SEED, create_accelerator, create_static_seed_patcher, get_model
-from .utils import get_model_inputs
+from ..utils import SEED, StaticSeedPatcher, create_accelerator, get_model, get_model_inputs
 
 
 if is_torch_xla_available():
@@ -356,7 +355,7 @@ class TestModelParallelization(DistributedTest):
             use_static_seed_patcher=True,
         )
 
-        static_seed_patcher = create_static_seed_patcher(model.__class__, SEED)
+        static_seed_patcher = StaticSeedPatcher(SEED)
         with static_seed_patcher:
             model = accelerator.prepare(model)
 
@@ -400,9 +399,12 @@ class TestModelParallelization(DistributedTest):
         monkeypatch,
     ):
         _, model_class, model_name_or_path, config_overwrite = model_specs
+
+        # This is very important otherwise the parallel cross entropy loss will modify the logits inplace.
         monkeypatch.setattr(
             optimum.neuron.distributed.parallel_layers, "_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT", True
         )
+
         return self._parallel_model_matches_original_model(
             model_class, model_name_or_path, config_overwrite, parallel_sizes, True, True, True, True
         )

@@ -48,6 +48,7 @@ from ..utils import (
     replace_class_in_inheritance_hierarchy,
 )
 from ..utils.misc import args_and_kwargs_to_kwargs_only, is_main_worker
+from ..utils.model_utils import get_tied_parameters_dict, tie_parameters
 from ..utils.require_utils import requires_neuronx_distributed, requires_torch_xla
 from ..utils.torch_xla_and_neuronx_initialization import check_neuron_cc_flags_for_model
 from .optimizer import NeuronAcceleratedOptimizer
@@ -57,9 +58,7 @@ from .utils import (
     AutocastBackend,
     ModelParallelismPlugin,
     NeuronDistributedType,
-    get_tied_parameters_dict,
     patch_accelerate_is_torch_xla_available,
-    tie_parameters,
 )
 from .utils.misc import (
     apply_activation_checkpointing,
@@ -483,8 +482,6 @@ class NeuronAccelerator(Accelerator):
                 module._use_flash_attention_2 = False
 
         if self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
-            if isinstance(model, NeuronPeftModel):
-                raise NotImplementedError("PEFT is not supported with model parallelism for now.")
             model = self._prepare_model_for_mp(
                 model, device_placement=device_placement, evaluation_mode=evaluation_mode
             )
