@@ -362,13 +362,16 @@ class NeuronDecoderModel(NeuronModel):
             auto_cast_type=auto_cast_type,
         )
 
-        # Instantiate the transformers model checkpoint
-        checkpoint_dir = cls._create_checkpoint(
-            model_id,
-            task=new_config.neuron["task"],
-            revision=revision,
-            **kwargs,
-        )
+        if os.path.isdir(model_id):
+            checkpoint_dir = model_id
+        else:
+            # Create the local transformers model checkpoint
+            checkpoint_dir = cls._create_checkpoint(
+                model_id,
+                task=new_config.neuron["task"],
+                revision=revision,
+                **kwargs,
+            )
 
         # Try to reload the generation config (if any)
         generation_config = None
