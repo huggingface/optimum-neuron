@@ -32,6 +32,7 @@ from ..utils import logging
 from .accelerate import NeuronAcceleratorState, NeuronPartialState
 from .accelerate.utils import ModelParallelismPlugin, patch_accelerate_is_torch_xla_available
 from .utils import is_main_worker
+from .utils.misc import is_precompilation
 from .utils.patching import Patcher, patch_within_function
 from .utils.torch_xla_and_neuronx_initialization import set_neuron_cc_optlevel
 
@@ -176,6 +177,25 @@ class NeuronTrainingArgumentsMixin:
             use_xser=self.use_xser,
             async_save=self.async_save,
         )
+
+        # If the user did not specify bf16=True but the flags are set, we set bf16=True.
+        # Without this we can fall in the case where XLA will compile the graph in bf16 with torch.finfo unpatched,
+        # leading to NaNs.
+        if not self.bf16 and (
+            os.environ.get("XLA_USE_BF16", "0") == "1" or os.environ.get("XLA_DOWNCAST_BF16", "0") == "1"
+        ):
+            self.bf16 = True
+
+        if (
+            is_precompilation()
+            and self.bf16
+            and os.environ.get("XLA_USE_BF16", "0") == "0"
+            and os.environ.get("XLA_DOWNCAST_BF16", "0") == "0"
+        ):
+            raise ValueError(
+                "bf16=True but both of the environment variables XLA_USE_BF16 and XLA_DOWNCAST_BF16 are not set. You "
+                "must set them manually when using `neuron_parallel_compile`."
+            )
 
         if self.bf16 and self.half_precision_backend == "amp":
             os.environ["ACCELERATE_USE_AMP"] = "true"
