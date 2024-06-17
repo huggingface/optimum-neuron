@@ -179,7 +179,7 @@ class NeuronTrainingArgumentsMixin:
         )
 
         # If the user did not specify bf16=True but the flags are set, we set bf16=True.
-        # Without this we can fall in the case where XLA will compile the graph in bf16 with torch.finfo unpacthed,
+        # Without this we can fall in the case where XLA will compile the graph in bf16 with torch.finfo unpatched,
         # leading to NaNs.
         if not self.bf16 and (
             os.environ.get("XLA_USE_BF16", "0") == "1" or os.environ.get("XLA_DOWNCAST_BF16", "0") == "1"
