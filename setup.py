@@ -77,7 +77,7 @@ setup(
     version=__version__,
     description=(
         "Optimum Neuron is the interface between the Hugging Face Transformers and Diffusers libraries and AWS "
-        "Tranium and Inferentia accelerators. It provides a set of tools enabling easy model loading, training and "
+        "Trainium and Inferentia accelerators. It provides a set of tools enabling easy model loading, training and "
         "inference on single and multiple neuron core settings for different downstream tasks."
     ),
     long_description=open("README.md", "r", encoding="utf-8").read(),
