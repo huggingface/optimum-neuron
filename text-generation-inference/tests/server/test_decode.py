@@ -36,9 +36,9 @@ def _test_decode(config_name, generator, do_sample):
     assert output.finish_reason == 0
     if do_sample:
         expected_text = {
-            "gpt2": " The sun was up on the horizon, and the air was chilly. I glanced over at the stars",
+            "gpt2": " The sun was set just three miles south of the city. I had just watched a big fireworks display",
             "llama": " In the corner booth of O'Malley's Pub sat two old friends, retired police officer",
-            "mistral": " The sun was scornful in the eyes of the young people who were trying to get along with",
+            "mistral": " The sun was out and there was an unusual amount of light, so I wandered along the",
         }[config_name]
     else:
         expected_text = {
