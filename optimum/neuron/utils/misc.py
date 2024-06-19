@@ -669,7 +669,6 @@ class DiffusersPretrainedConfig(PretrainedConfig):
 
 def get_stable_diffusion_configs(
     models_for_export: Dict[str, Union["PreTrainedModel", "ModelMixin"]],
-    # submodels: Optional[Dict[str, Union[Path, str]]] = None,
 ):
     subfolders = ["text_encoder", "text_encoder_2", "unet", "vae"]
     configs = {}

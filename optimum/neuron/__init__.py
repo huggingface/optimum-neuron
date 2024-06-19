@@ -44,6 +44,7 @@ _import_structure = {
         "NeuronModelForObjectDetection",
     ],
     "modeling_diffusion": [
+        "NeuronStableDiffusionPipelineBase",
         "NeuronStableDiffusionPipeline",
         "NeuronStableDiffusionImg2ImgPipeline",
         "NeuronStableDiffusionInpaintPipeline",
@@ -51,6 +52,7 @@ _import_structure = {
         "NeuronStableDiffusionXLPipeline",
         "NeuronStableDiffusionXLImg2ImgPipeline",
         "NeuronStableDiffusionXLInpaintPipeline",
+        "NeuronStableDiffusionControlNetPipeline",
     ],
     "modeling_decoder": ["NeuronDecoderModel"],
     "modeling_seq2seq": ["NeuronModelForSeq2SeqLM"],
@@ -81,6 +83,7 @@ if TYPE_CHECKING:
     )
     from .modeling_decoder import NeuronDecoderModel
     from .modeling_diffusion import (
+        NeuronStableDiffusionPipelineBase,
         NeuronLatentConsistencyModelPipeline,
         NeuronStableDiffusionImg2ImgPipeline,
         NeuronStableDiffusionInpaintPipeline,
@@ -88,6 +91,7 @@ if TYPE_CHECKING:
         NeuronStableDiffusionXLImg2ImgPipeline,
         NeuronStableDiffusionXLInpaintPipeline,
         NeuronStableDiffusionXLPipeline,
+        NeuronStableDiffusionControlNetPipeline,
     )
     from .modeling_seq2seq import NeuronModelForSeq2SeqLM
     from .modeling_traced import NeuronTracedModel

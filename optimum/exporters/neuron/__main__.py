@@ -506,8 +506,7 @@ def load_models_and_neuron_configs(
     }
     if model is None:
         model = TasksManager.get_model_from_task(**model_kwargs)
-    if controlnet_model_ids:
-        controlnets = load_controlnets(controlnet_model_ids)
+    controlnets = load_controlnets(controlnet_model_ids)
 
     models_and_neuron_configs, output_model_names = get_submodels_and_neuron_configs(
         model=model,

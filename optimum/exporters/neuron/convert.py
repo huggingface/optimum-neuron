@@ -121,17 +121,17 @@ def validate_models_outputs(
             else output_dir.joinpath(model_name + ".neuron")
         )
         neuron_paths.append(neuron_model_path)
-        # try:
-        logger.info(f"Validating {model_name} model...")
-        validate_model_outputs(
-            config=sub_neuron_config,
-            reference_model=ref_submodel,
-            neuron_model_path=neuron_model_path,
-            neuron_named_outputs=neuron_named_outputs[model_name],
-            atol=atol,
-        )
-        # except Exception as e:
-        #     exceptions.append(f"Validation of {model_name} fails: {e}")
+        try:
+            logger.info(f"Validating {model_name} model...")
+            validate_model_outputs(
+                config=sub_neuron_config,
+                reference_model=ref_submodel,
+                neuron_model_path=neuron_model_path,
+                neuron_named_outputs=neuron_named_outputs[model_name],
+                atol=atol,
+            )
+        except Exception as e:
+            exceptions.append(f"Validation of {model_name} fails: {e}")
 
     if len(exceptions) != 0:
         for i, exception in enumerate(exceptions[:-1]):

@@ -14,6 +14,8 @@
 # limitations under the License.
 """Override some diffusers API for NeuronStableDiffusionControlNetPipelineMixin"""
 
+from diffusers import StableDiffusionControlNetPipeline
+from .pipeline_utils import StableDiffusionPipelineMixin
 
-class NeuronStableDiffusionControlNetPipelineMixin:
+class NeuronStableDiffusionControlNetPipelineMixin(StableDiffusionPipelineMixin, StableDiffusionControlNetPipeline):
     pass
