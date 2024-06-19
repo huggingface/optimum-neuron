@@ -20,6 +20,8 @@ COPY --from=tgi /tgi/proto proto
 COPY --from=tgi /tgi/benchmark benchmark
 COPY --from=tgi /tgi/router router
 COPY --from=tgi /tgi/launcher launcher
+# Remove the next line when bumping rust version
+RUN cargo update ravif --precise 0.11.6
 RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
