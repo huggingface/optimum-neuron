@@ -46,6 +46,8 @@ neuronx-tgi: $(PACKAGE_DIST)
 	docker build --rm -f text-generation-inference/Dockerfile \
 	             --build-arg VERSION=$(VERSION) \
 	             --build-arg TGI_VERSION=$(TGI_VERSION) \
+	             --build-arg REPO_USER=$(REPO_USER) \
+	             --build-arg REPO_SECRET=$(REPO_SECRET) \
 				 -t neuronx-tgi:$(VERSION) .
 	docker tag neuronx-tgi:$(VERSION) neuronx-tgi:latest
 
