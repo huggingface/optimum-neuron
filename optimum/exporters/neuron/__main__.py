@@ -185,7 +185,6 @@ def normalize_stable_diffusion_input_shapes(
     args: argparse.Namespace,
 ) -> Dict[str, Dict[str, int]]:
     args = vars(args) if isinstance(args, argparse.Namespace) else args
-    do_classifier_free_guidance = args.pop("do_classifier_free_guidance")
     mandatory_axes = set(getattr(inspect.getfullargspec(build_stable_diffusion_components_mandatory_shapes), "args"))
     # Remove `sequence_length` as diffusers will pad it to the max and remove number of channels.
     mandatory_axes = mandatory_axes - {
@@ -194,7 +193,6 @@ def normalize_stable_diffusion_input_shapes(
         "vae_encoder_num_channels",
         "vae_decoder_num_channels",
         "num_images_per_prompt",  # default to 1
-        "do_classifier_free_guidance",
     }
     if not mandatory_axes.issubset(set(args.keys())):
         raise AttributeError(
@@ -202,9 +200,7 @@ def normalize_stable_diffusion_input_shapes(
         )
     mandatory_shapes = {name: args[name] for name in mandatory_axes}
     mandatory_shapes["num_images_per_prompt"] = args.get("num_images_per_prompt", 1)
-    input_shapes = build_stable_diffusion_components_mandatory_shapes(
-        do_classifier_free_guidance=do_classifier_free_guidance, **mandatory_shapes
-    )
+    input_shapes = build_stable_diffusion_components_mandatory_shapes(**mandatory_shapes)
     return input_shapes
 
 

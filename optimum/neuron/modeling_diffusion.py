@@ -42,12 +42,12 @@ from ..exporters.tasks import TasksManager
 from ..utils import is_diffusers_available
 from .modeling_traced import NeuronTracedModel
 from .utils import (
+    DIFFUSION_MODEL_CONTROLNET_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_2_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_NAME,
     DIFFUSION_MODEL_UNET_NAME,
     DIFFUSION_MODEL_VAE_DECODER_NAME,
     DIFFUSION_MODEL_VAE_ENCODER_NAME,
-    DIFFUSION_MODEL_CONTROLNET_NAME,
     NEURON_FILE_NAME,
     DiffusersPretrainedConfig,
     check_if_weights_replacable,
@@ -82,12 +82,12 @@ if is_diffusers_available():
         StableDiffusionPipeline,
         StableDiffusionXLImg2ImgPipeline,
     )
-    from diffusers.models.controlnet import ControlNetOutput
     from diffusers.configuration_utils import FrozenDict
     from diffusers.image_processor import VaeImageProcessor
+    from diffusers.models.controlnet import ControlNetOutput
+    from diffusers.pipelines.controlnet import MultiControlNetModel
     from diffusers.schedulers.scheduling_utils import SCHEDULER_CONFIG_NAME
     from diffusers.utils import CONFIG_NAME, is_invisible_watermark_available
-    from diffusers.pipelines.controlnet import MultiControlNetModel
 
     from .pipelines import (
         NeuronLatentConsistencyPipelineMixin,
@@ -131,7 +131,14 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
         text_encoder_2: Optional[Union[torch.jit._script.ScriptModule, "NeuronModelTextEncoder"]] = None,
         tokenizer_2: Optional[CLIPTokenizer] = None,
         feature_extractor: Optional[CLIPFeatureExtractor] = None,
-        controlnet: Optional[Union[torch.jit._script.ScriptModule, List[torch.jit._script.ScriptModule], "NeuronControlNetModel", "NeuronMultiControlNetModel"]] = None,
+        controlnet: Optional[
+            Union[
+                torch.jit._script.ScriptModule,
+                List[torch.jit._script.ScriptModule],
+                "NeuronControlNetModel",
+                "NeuronMultiControlNetModel",
+            ]
+        ] = None,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
         model_and_config_save_paths: Optional[Dict[str, Tuple[str, Path]]] = None,
     ):
@@ -225,13 +232,21 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
             )
         else:
             self.vae_decoder = vae_decoder
-        
-        if controlnet and not isinstance(controlnet, NeuronControlNetModel) and not isinstance(controlnet, NeuronMultiControlNetModel):
-            controlnet_cls = NeuronMultiControlNetModel if isinstance(controlnet, list) and len(controlnet) > 1 else NeuronControlNetModel
+
+        if (
+            controlnet
+            and not isinstance(controlnet, NeuronControlNetModel)
+            and not isinstance(controlnet, NeuronMultiControlNetModel)
+        ):
+            controlnet_cls = (
+                NeuronMultiControlNetModel
+                if isinstance(controlnet, list) and len(controlnet) > 1
+                else NeuronControlNetModel
+            )
             self.controlnet = controlnet_cls(
-                controlnet, 
-                self, 
-                self.configs[DIFFUSION_MODEL_CONTROLNET_NAME], 
+                controlnet,
+                self,
+                self.configs[DIFFUSION_MODEL_CONTROLNET_NAME],
                 self.neuron_configs[DIFFUSION_MODEL_CONTROLNET_NAME],
             )
         else:
@@ -279,6 +294,9 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
             self.num_images_per_prompt = 1
 
         self.image_processor = VaeImageProcessor(vae_scale_factor=self.vae_scale_factor)
+        self.control_image_processor = VaeImageProcessor(
+            vae_scale_factor=self.vae_scale_factor, do_convert_rgb=True, do_normalize=False
+        )
 
     @staticmethod
     def is_lcm(unet_config):
@@ -341,7 +359,7 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
             dp_cls = WeightSeparatedDataParallel
         else:
             dp_cls = torch_neuronx.DataParallel
-        
+
         if data_parallel_mode == "all":
             logger.info("Loading the whole pipeline into both Neuron Cores...")
             for submodel_name, submodel_paths in submodels.items():
@@ -366,18 +384,13 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
         elif data_parallel_mode == "unet":
             logger.info("Loading only U-Net into both Neuron Cores...")
             submodels.pop("unet")
-            for submodel_name, submodel_paths in submodels.items():
-                if not isinstance(submodel_paths, list):
-                    submodel_paths = [submodel_paths]
-                submodels_list = []
-                for submodel_path in submodel_paths:
-                    if submodel_path is not None and submodel_path.is_file():
-                        submodel = NeuronTracedModel.load_model(submodel_path, to_neuron=to_neuron)
-                        submodels_list.append(submodel)
-                if submodels_list:
-                    submodels[submodel_name] = submodels_list if len(submodels_list) > 1 else submodels_list[0]
+            submodels.pop("controlnet")  # controlnet takes inputs with the same batch_size as the unet
+            for submodel_name, submodel_path in submodels.items():
+                if submodel_path is not None and submodel_path.is_file():
+                    submodels[submodel_name] = NeuronTracedModel.load_model(submodel_path, to_neuron=to_neuron)
                 else:
-                    submodels[submodel_name] = None       
+                    submodels[submodel_name] = None
+            # load unet
             unet = NeuronTracedModel.load_model(
                 unet_path, to_neuron=False
             )  # No need to load to neuron manually when dp
@@ -386,6 +399,17 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
                 [0, 1],
                 set_dynamic_batching=dynamic_batch_size,
             )
+            # load controlnets
+            controlnets = []
+            for controlnet_path in controlnet_paths:
+                controlnet = NeuronTracedModel.load_model(
+                    controlnet_path, to_neuron=False
+                )  # No need to load to neuron manually when dp
+                controlnets.append(dp_cls(controlnet, [0, 1], set_dynamic_batching=dynamic_batch_size))
+            if controlnets:
+                submodels["controlnet"] = controlnets if len(controlnets) > 1 else controlnets[0]
+            else:
+                submodels["controlnet"] = None
         elif data_parallel_mode == "none":
             logger.info("Loading the pipeline without any data parallelism...")
             for submodel_name, submodel_paths in submodels.items():
@@ -451,7 +475,7 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
 
         if not self.model_and_config_save_paths.get(DIFFUSION_MODEL_TEXT_ENCODER_2_NAME)[0].is_file():
             self.model_and_config_save_paths.pop(DIFFUSION_MODEL_TEXT_ENCODER_2_NAME)
-        
+
         if not self.model_and_config_save_paths.get(DIFFUSION_MODEL_CONTROLNET_NAME)[0]:
             self.model_and_config_save_paths.pop(DIFFUSION_MODEL_CONTROLNET_NAME)
             num_controlnet = 0
@@ -475,8 +499,11 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
             / DIFFUSION_MODEL_VAE_DECODER_NAME
             / vae_decoder_file_name,
         }
-        dst_paths[DIFFUSION_MODEL_CONTROLNET_NAME] = [save_directory / (DIFFUSION_MODEL_CONTROLNET_NAME + f"_{str(idx)}") / controlnet_file_name for idx in range(num_controlnet)]
-        
+        dst_paths[DIFFUSION_MODEL_CONTROLNET_NAME] = [
+            save_directory / (DIFFUSION_MODEL_CONTROLNET_NAME + f"_{str(idx)}") / controlnet_file_name
+            for idx in range(num_controlnet)
+        ]
+
         src_paths_list = []
         dst_paths_list = []
         for model_name in set(self.model_and_config_save_paths.keys()).intersection(dst_paths.keys()):
@@ -485,16 +512,16 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
                 # neuron model
                 src_paths_list += model_src_path
                 dst_paths_list += dst_paths[model_name]
-                
+
                 # config
                 src_paths_list += self.model_and_config_save_paths[model_name][1]
                 dst_paths_list += [model_path.parent / CONFIG_NAME for model_path in dst_paths[model_name]]
-                
+
             else:
                 # neuron model
                 src_paths_list.append(model_src_path)
                 dst_paths_list.append(dst_paths[model_name])
-                
+
                 # config
                 src_paths_list.append(self.model_and_config_save_paths[model_name][1])
                 dst_paths_list.append(dst_paths[model_name].parent / CONFIG_NAME)
@@ -605,7 +632,7 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
                 new_model_save_dir / DIFFUSION_MODEL_VAE_DECODER_NAME / cls.sub_component_config_name,
             ),
         }
-        
+
         # Add ControlNet paths
         controlnet_model_paths = []
         controlnet_config_paths = []
@@ -627,7 +654,9 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
                 if config_path.is_file():
                     model_config = DiffusersPretrainedConfig.from_json_file(config_path)
                     neuron_config = cls._neuron_config_init(model_config)
-                    inline_weights_to_neff = inline_weights_to_neff and neuron_config._config.neuron.get("inline_weights_to_neff", True)
+                    inline_weights_to_neff = inline_weights_to_neff and neuron_config._config.neuron.get(
+                        "inline_weights_to_neff", True
+                    )
                     sub_model_configs.append(model_config)
                     sub_neuron_configs.append(neuron_config)
             if sub_model_configs and sub_neuron_configs:
@@ -644,7 +673,11 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
             vae_decoder_path=model_and_config_save_paths["vae_decoder"][0] if vae_decoder is None else None,
             vae_encoder_path=model_and_config_save_paths["vae_encoder"][0] if vae_encoder is None else None,
             text_encoder_2_path=model_and_config_save_paths["text_encoder_2"][0] if text_encoder_2 is None else None,
-            controlnet_paths=model_and_config_save_paths["controlnet"][0] if controlnet is None and model_and_config_save_paths["controlnet"][0] else None,
+            controlnet_paths=(
+                model_and_config_save_paths["controlnet"][0]
+                if controlnet is None and model_and_config_save_paths["controlnet"][0]
+                else None
+            ),
             dynamic_batch_size=neuron_configs[DIFFUSION_MODEL_UNET_NAME].dynamic_batch_size,
             to_neuron=not inline_weights_to_neff,
         )
@@ -768,7 +801,7 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
             data_parallel_mode (`Optional[str]`, defaults to `None`):
                 Mode to decide what components to load into both NeuronCores of a Neuron device. Can be "none"(no data parallel), "unet"(only
                 load unet into both cores of each device), "all"(load the whole pipeline into both cores).
-            do_classifier_free_guidance (bool, defaults to `False`): 
+            do_classifier_free_guidance (bool, defaults to `False`):
                 Whether to use classifier-free guidance (guidance_scale > 1.0).
             lora_model_ids (`Optional[Union[str, List[str]]]`, defaults to `None`):
                 Lora model local paths or repo ids (eg. `ostris/super-cereal-sdxl-lora`) on the Hugginface Hub.
@@ -1024,23 +1057,20 @@ class NeuronModelUnet(_NeuronDiffusionModelPart):
         mid_block_additional_residual: Optional[torch.Tensor] = None,
     ):
         timestep = timestep.float().expand((sample.shape[0],))
-        inputs = {
-            "sample": sample,
-            "timestep": timestep,
-            "encoder_hidden_states": encoder_hidden_states,
-        }
+        inputs = (sample, timestep, encoder_hidden_states)
         if timestep_cond is not None:
-            inputs["timestep_cond"] = timestep_cond
+            inputs = inputs + (timestep_cond,)
         if added_cond_kwargs is not None:
-            inputs["text_embeds"] = added_cond_kwargs.pop("text_embeds", None)
-            inputs["time_ids"] = added_cond_kwargs.pop("time_ids", None)
+            text_embeds = added_cond_kwargs.pop("text_embeds", None)
+            time_ids = added_cond_kwargs.pop("time_ids", None)
+            inputs = inputs + (text_embeds, time_ids)
+        if mid_block_additional_residual is not None:
+            inputs = inputs + (mid_block_additional_residual,)
         if down_block_additional_residuals is not None:
             for idx in range(len(down_block_additional_residuals)):
-                inputs[f"down_block_additional_residuals_{idx}"] = down_block_additional_residuals[idx]
-        if mid_block_additional_residual is not None:
-            inputs["mid_block_additional_residual"] = mid_block_additional_residual
+                inputs = inputs + (down_block_additional_residuals[idx],)
 
-        outputs = self.model(*tuple(inputs.values()))
+        outputs = self.model(*inputs)
         return outputs
 
 
@@ -1101,7 +1131,7 @@ class NeuronControlNetModel(_NeuronDiffusionModelPart):
         config: Optional[DiffusersPretrainedConfig] = None,
         neuron_config: Optional[Dict[str, str]] = None,
     ):
-        super().__init__(model, parent_model, config, neuron_config, DIFFUSION_MODEL_VAE_DECODER_NAME)
+        super().__init__(model, parent_model, config, neuron_config, DIFFUSION_MODEL_CONTROLNET_NAME)
 
     def forward(
         self,
@@ -1110,16 +1140,24 @@ class NeuronControlNetModel(_NeuronDiffusionModelPart):
         encoder_hidden_states: torch.Tensor,
         controlnet_cond: torch.Tensor,
         conditioning_scale: float = 1.0,
+        guess_mode: bool = False,
         return_dict: bool = True,
     ) -> Union["ControlNetOutput", Tuple[Tuple[torch.Tensor, ...], torch.Tensor]]:
         inputs = (sample, timestep, encoder_hidden_states, controlnet_cond, conditioning_scale)
+        # import pdb
+        # pdb.set_trace()
         outputs = self.model(*inputs)
-        
+
+        if guess_mode:
+            logger.info(
+                "Guess mode is not yet supported. File us an issue on: https://github.com/huggingface/optimum-neuron/issues."
+            )
+
         if return_dict:
             outputs = ControlNetOutput(dict(zip(self.neuron_config.outputs, outputs)))
 
         return outputs
-    
+
 
 class NeuronMultiControlNetModel(_NeuronDiffusionModelPart):
     auto_model_class = MultiControlNetModel
@@ -1135,7 +1173,12 @@ class NeuronMultiControlNetModel(_NeuronDiffusionModelPart):
         config: Optional[DiffusersPretrainedConfig] = None,
         neuron_config: Optional[Dict[str, str]] = None,
     ):
-        super().__init__(models, parent_model, config, neuron_config, DIFFUSION_MODEL_VAE_DECODER_NAME)
+        self.nets = models
+        self.parent_model = parent_model
+        self.config = config
+        self.neuron_config = neuron_config
+        self.model_type = DIFFUSION_MODEL_CONTROLNET_NAME
+        self.device = None
 
     def forward(
         self,
@@ -1149,7 +1192,7 @@ class NeuronMultiControlNetModel(_NeuronDiffusionModelPart):
         for i, (image, scale, controlnet) in enumerate(zip(controlnet_cond, conditioning_scale, self.model)):
             inputs = (sample, timestep, encoder_hidden_states, image, scale)
             down_samples, mid_sample = controlnet(*inputs)
-            
+
             # merge samples
             if i == 0:
                 down_block_res_samples, mid_block_res_sample = down_samples, mid_sample
@@ -1159,9 +1202,11 @@ class NeuronMultiControlNetModel(_NeuronDiffusionModelPart):
                     for samples_prev, samples_curr in zip(down_block_res_samples, down_samples)
                 ]
                 mid_block_res_sample += mid_sample
-        
+
         if return_dict:
-            return ControlNetOutput(down_block_res_samples=down_block_res_samples, mid_block_res_sample=mid_block_res_sample)
+            return ControlNetOutput(
+                down_block_res_samples=down_block_res_samples, mid_block_res_sample=mid_block_res_sample
+            )
 
         return down_block_res_samples, mid_block_res_sample
 

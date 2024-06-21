@@ -78,10 +78,7 @@ def build_stable_diffusion_components_mandatory_shapes(
     height: Optional[int] = None,
     width: Optional[int] = None,
     num_images_per_prompt: Optional[int] = 1,
-    do_classifier_free_guidance: bool = False,
 ):
-    if do_classifier_free_guidance:
-        batch_size = batch_size * 2
     text_encoder_input_shapes = {"batch_size": batch_size, "sequence_length": sequence_length}
     vae_encoder_input_shapes = {
         "batch_size": batch_size * num_images_per_prompt,

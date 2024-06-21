@@ -115,7 +115,7 @@ class DummyControNetInputGenerator(DummyInputGenerator):
 
     def generate(self, input_name: str, framework: str = "pt", int_dtype: str = "int64", float_dtype: str = "fp32"):
         if input_name == "timestep":
-            shape = [self.batch_size // 2]  # do_classifier_free_guidance = True
+            shape = [self.batch_size]
             return self.random_int_tensor(shape, max_value=999, framework=framework, dtype=int_dtype)
         elif input_name == "encoder_hidden_states":
             shape = (self.batch_size, self.sequence_length, self.text_encoder_hidden_size)
@@ -132,7 +132,7 @@ class DummyControNetInputGenerator(DummyInputGenerator):
             )
             return self.random_float_tensor(shape, framework=framework, dtype=float_dtype)
         elif input_name == "conditioning_scale":
-            return torch.tensor(1.0)
+            return torch.tensor([1.0])
         elif input_name == "down_block_additional_residuals":
             sample_shape = (self.batch_size, self.normalized_config.block_out_channels[0], self.height, self.width)
             sample = self.random_float_tensor(sample_shape, framework=framework, dtype=float_dtype)

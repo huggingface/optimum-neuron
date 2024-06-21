@@ -83,15 +83,15 @@ if TYPE_CHECKING:
     )
     from .modeling_decoder import NeuronDecoderModel
     from .modeling_diffusion import (
-        NeuronStableDiffusionPipelineBase,
         NeuronLatentConsistencyModelPipeline,
+        NeuronStableDiffusionControlNetPipeline,
         NeuronStableDiffusionImg2ImgPipeline,
         NeuronStableDiffusionInpaintPipeline,
         NeuronStableDiffusionPipeline,
+        NeuronStableDiffusionPipelineBase,
         NeuronStableDiffusionXLImg2ImgPipeline,
         NeuronStableDiffusionXLInpaintPipeline,
         NeuronStableDiffusionXLPipeline,
-        NeuronStableDiffusionControlNetPipeline,
     )
     from .modeling_seq2seq import NeuronModelForSeq2SeqLM
     from .modeling_traced import NeuronTracedModel
