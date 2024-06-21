@@ -2,7 +2,7 @@
 
 ## Local environment setup
 
-These configurations are tested and run on an inf2.48xlarge with the Hugging Face Deep Learning AMI from the AWS Marketplace.  
+These configurations are tested and run on an inf2.48xlarge with the Hugging Face Deep Learning AMI from the AWS Marketplace.
 
 Copy the configurations down using
 
@@ -44,16 +44,8 @@ Alternatively, you can edit the appropriate docker-compose.yaml to supply the fu
 
 ## Start the servers
 
-For smaller models, you can use the multi-server configuration with a load balancer:
-
 ```shell
-$ docker compose --env-file llama-7b/.env up
-```
-
-For larger models, use their specific docker files:
-
-```shell
-$ docker compose -f llama3-70b/docker-compose.yaml --env-file llama3-70b/.env up
+$ docker compose -f llama3-8b/docker-compose.yaml --env-file llama3-8b/.env up
 ```
 
 Note: edit the .env file to change the model configuration
@@ -87,7 +79,7 @@ $ ./run_all.sh NousResearch/Meta-Llama-3-70B-Instruct
 
 ### Compiling the model
 
-If you are trying to run a configuration or a model that is not available in the cache, you can compile the model before you run it, then load it locally. 
+If you are trying to run a configuration or a model that is not available in the cache, you can compile the model before you run it, then load it locally.
 
 See the [llama3-70b-trn1.32xlarge](llama3-70b-trn1.32xlarge) as an example.
 
