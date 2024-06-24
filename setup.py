@@ -35,7 +35,7 @@ TESTS_REQUIRE = [
     "peft",
     "compel",
     "rjieba",
-    "opencv_python",
+    "opencv-python-headless",
 ]
 
 QUALITY_REQUIRES = [
@@ -65,7 +65,7 @@ EXTRAS_REQUIRE = {
         "torchvision==0.16.*",
         "neuronx_distributed==0.7.0",
     ],
-    "diffusers": ["diffusers >= 0.28.0", "peft", "opencv_python"],
+    "diffusers": ["diffusers >= 0.28.0", "peft"],
     "sentence-transformers": ["sentence-transformers >= 2.2.0"],
 }
 
