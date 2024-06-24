@@ -71,6 +71,6 @@ EXTREA_DEFAULT_DUMMY_SHAPES = {
     "image_batch_size": 1,
 }
 
-WEIGHTS_NEFF_SEPARATION_UNSUPPORTED_ARCH = ["camembert", "roberta"]
+WEIGHTS_NEFF_SEPARATION_UNSUPPORTED_ARCH = ["camembert", "roberta", "mobilenet-v2"]
 
 SEED = 42

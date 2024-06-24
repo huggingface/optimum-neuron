@@ -32,18 +32,23 @@ from accelerate.utils import AutocastKwargs, DistributedType
 from accelerate.utils.operations import gather_object, recursively_apply
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
+from transformers import PreTrainedModel
+from transformers.utils import is_peft_available
 
 from ...utils import logging
 from ..distributed import Parallelizer, ParallelizersManager
 from ..utils import (
     DynamicPatch,
     ModelPatcher,
+    NeuronPeftModel,
     Patcher,
     is_neuronx_distributed_available,
     is_torch_xla_available,
     patch_within_function,
+    replace_class_in_inheritance_hierarchy,
 )
 from ..utils.misc import args_and_kwargs_to_kwargs_only, is_main_worker
+from ..utils.model_utils import get_tied_parameters_dict, tie_parameters
 from ..utils.require_utils import requires_neuronx_distributed, requires_torch_xla
 from ..utils.torch_xla_and_neuronx_initialization import check_neuron_cc_flags_for_model
 from .optimizer import NeuronAcceleratedOptimizer
@@ -53,9 +58,7 @@ from .utils import (
     AutocastBackend,
     ModelParallelismPlugin,
     NeuronDistributedType,
-    get_tied_parameters_dict,
     patch_accelerate_is_torch_xla_available,
-    tie_parameters,
 )
 from .utils.misc import (
     apply_activation_checkpointing,
@@ -66,8 +69,6 @@ from .utils.operations import _xla_gather
 
 
 if TYPE_CHECKING:
-    from transformers import PreTrainedModel
-
     try:
         from torch.optim.lr_scheduler import LRScheduler
     except ImportError:
@@ -341,7 +342,7 @@ class NeuronAccelerator(Accelerator):
             ),
         )
 
-        if hasattr(model, "save_pretrained"):
+        if isinstance(model, PreTrainedModel):
             patching_specs.append(
                 (
                     "save_pretrained",
@@ -367,6 +368,21 @@ class NeuronAccelerator(Accelerator):
 
         model_patcher = ModelPatcher(prepared_patching_specs, ignore_missing_attributes=True)
         model_patcher.patch()
+
+        if is_peft_available():
+            from peft import PeftModel
+            from peft.tuners.tuners_utils import BaseTunerLayer
+            from peft.utils import ModulesToSaveWrapper
+
+            if isinstance(model, PeftModel):
+                replace_class_in_inheritance_hierarchy(model, PeftModel, NeuronPeftModel)
+            else:
+                for _, module in model.named_modules():
+                    if isinstance(module, (BaseTunerLayer, ModulesToSaveWrapper)):
+                        raise ValueError(
+                            "It appears that the model is using a PEFT method, please wrap your model with `PeftModel` "
+                            "to make it work with `optimum-neuron`"
+                        )
         return model
 
     @requires_neuronx_distributed

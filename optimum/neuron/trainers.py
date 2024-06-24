@@ -59,7 +59,12 @@ from transformers.trainer_utils import (
     has_length,
     speed_metrics,
 )
-from transformers.utils import WEIGHTS_NAME, is_accelerate_available, is_apex_available, is_sagemaker_mp_enabled
+from transformers.utils import (
+    WEIGHTS_NAME,
+    is_accelerate_available,
+    is_apex_available,
+    is_sagemaker_mp_enabled,
+)
 
 from ..utils import logging
 from .accelerate import NeuronAccelerator, NeuronDistributedType
@@ -79,6 +84,7 @@ from .utils.cache_utils import (
 )
 from .utils.hub_cache_utils import ModelCacheEntry, hub_neuronx_cache, patch_neuron_cc_wrapper, synchronize_hub_cache
 from .utils.misc import is_main_worker, is_precompilation
+from .utils.peft_utils import NeuronPeftModel
 from .utils.require_utils import requires_neuronx_distributed, requires_torch_neuronx
 from .utils.training_utils import (
     get_model_param_count,
@@ -436,18 +442,21 @@ class AugmentTrainerForNeuronMixin:
         else:
             reduced_tr_loss = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div)
 
-        # reset tr_loss to zero
-        tr_loss.zero_()
-
         return reduced_tr_loss
 
     def _maybe_log_save_evaluate(self, tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval):
-        if self.control.should_log and self.state.global_step > self._globalstep_last_logged:
+        # We always reduce the loss, even when we do not use it to avoid a new graph.
+        # This communication is not costly.
+        reduced_tr_loss = self._reduce_loss(tr_loss)
 
-            def log_closure(self, tr_loss, grad_norm):
+        if self.control.should_log and self.state.global_step > self._globalstep_last_logged:
+            # reset tr_loss to zero
+            tr_loss.zero_()
+
+            def log_closure(self, reduced_tr_loss, grad_norm):
                 if is_main_worker_for_metrics():
                     logs: Dict[str, float] = {}
-                    tr_loss_scalar = tr_loss.to("cpu").item()
+                    tr_loss_scalar = reduced_tr_loss.to("cpu").item()
 
                     logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
                     logs["learning_rate"] = self._get_learning_rate()
@@ -462,7 +471,7 @@ class AugmentTrainerForNeuronMixin:
                     self.store_flos()
                     self.log(logs)
 
-            xm.add_step_closure(log_closure, (self, tr_loss, grad_norm))
+            xm.add_step_closure(log_closure, (self, reduced_tr_loss, grad_norm))
 
         metrics = None
         if self.control.should_evaluate:
@@ -495,9 +504,14 @@ class AugmentTrainerForNeuronMixin:
         # Save a trained model and configuration using `save_pretrained()`.
         # They can then be reloaded using `from_pretrained()`
         xm.rendezvous("saving_checkpoint")
-        if self.accelerator.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
+        if (
+            not isinstance(self.model, NeuronPeftModel)
+            and self.accelerator.distributed_type is NeuronDistributedType.MODEL_PARALLELISM
+        ):
             if is_main_worker():
-                logger.info("Model parallelism is enabled, only saving the model sharded state dict.")
+                logger.info(
+                    "Model parallelism is enabled, saving the model sharded state dict instead of the full state dict."
+                )
             # TODO: how to handle pp?
             if isinstance(self.model, PreTrainedModel):
                 from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
@@ -518,13 +532,20 @@ class AugmentTrainerForNeuronMixin:
                 num_local_ranks_per_step=self.accelerator.state.mp_plugin.num_local_ranks_per_step,
             )
         else:
-            if not isinstance(self.model, PreTrainedModel):
-                if isinstance(unwrap_model(self.model), PreTrainedModel):
+            supported_classes = (PreTrainedModel, NeuronPeftModel)
+            if not isinstance(self.model, supported_classes):
+                if isinstance(unwrap_model(self.model), supported_classes):
+                    kwargs = (
+                        {}
+                        if isinstance(unwrap_model(self.model), PreTrainedModel)
+                        else {"async_save": self.args.async_save}
+                    )
                     unwrap_model(self.model).save_pretrained(
                         output_dir,
                         is_main_process=self.args.should_save,
                         state_dict=self.model.state_dict(),
                         save_function=xm.save,
+                        **kwargs,
                     )
                 else:
                     if is_main_worker():
@@ -532,7 +553,10 @@ class AugmentTrainerForNeuronMixin:
                     state_dict = self.model.state_dict()
                     xm.save(state_dict, os.path.join(output_dir, WEIGHTS_NAME))
             else:
-                self.model.save_pretrained(output_dir, is_main_process=self.args.should_save, save_function=xm.save)
+                kwargs = {} if isinstance(self.model, PreTrainedModel) else {"async_save": self.args.async_save}
+                self.model.save_pretrained(
+                    output_dir, is_main_process=self.args.should_save, save_function=xm.save, **kwargs
+                )
 
         if self.tokenizer is not None and self.args.should_save:
             self.tokenizer.save_pretrained(output_dir)
@@ -1032,11 +1056,7 @@ class AugmentTrainerForNeuronMixin:
                     self.state.global_step += 1
                     self.state.epoch = epoch + (step + 1 + steps_skipped) / steps_in_epoch
                     self.control = self.callback_handler.on_step_end(args, self.state, self.control)
-
-                    reduced_tr_loss = self._reduce_loss(tr_loss)
-                    self._maybe_log_save_evaluate(
-                        reduced_tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval
-                    )
+                    self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval)
                 else:
                     self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
 
