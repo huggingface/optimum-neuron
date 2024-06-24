@@ -230,8 +230,9 @@ def get_stable_diffusion_models_for_export(
     )
     if task == "stable-diffusion-xl":
         unet_neuron_config.is_sdxl = True
-    if controlnets:
-        unet_neuron_config.with_contronet = True
+
+    unet_neuron_config.with_controlnet = True if controlnets else False
+
     models_for_export[DIFFUSION_MODEL_UNET_NAME] = (unet, unet_neuron_config)
 
     # VAE Encoder
@@ -331,12 +332,12 @@ def _load_lora_weights_to_pipeline(
     return pipeline
 
 
-def load_controlnets(controlnet_model_ids: Optional[Union[str, List[str]]] = None):
+def load_controlnets(controlnet_ids: Optional[Union[str, List[str]]] = None):
     contronets = []
-    if controlnet_model_ids:
-        if isinstance(controlnet_model_ids, str):
-            controlnet_model_ids = [controlnet_model_ids]
-        for model_id in controlnet_model_ids:
+    if controlnet_ids:
+        if isinstance(controlnet_ids, str):
+            controlnet_ids = [controlnet_ids]
+        for model_id in controlnet_ids:
             model = ControlNetModel.from_pretrained(model_id)
             contronets.append(model)
     return contronets

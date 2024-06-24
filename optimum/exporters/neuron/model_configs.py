@@ -436,7 +436,7 @@ class UNetNeuronConfig(VisionNeuronConfig):
         if getattr(self._normalized_config, "time_cond_proj_dim", None) is not None:
             common_inputs.append("timestep_cond")
 
-        if self.with_contronet:
+        if self.with_controlnet:
             # outputs of controlnet
             common_inputs += ["down_block_additional_residuals", "mid_block_additional_residual"]
 
@@ -484,12 +484,12 @@ class UNetNeuronConfig(VisionNeuronConfig):
         self._is_sdxl = is_sdxl
 
     @property
-    def with_contronet(self) -> bool:
-        return self._with_contronet
+    def with_controlnet(self) -> bool:
+        return self._with_controlnet
 
-    @with_contronet.setter
-    def with_contronet(self, with_contronet: bool):
-        self._with_contronet = with_contronet
+    @with_controlnet.setter
+    def with_controlnet(self, with_controlnet: bool):
+        self._with_controlnet = with_controlnet
 
 
 @register_in_tasks_manager("controlnet", *["semantic-segmentation"], library_name="diffusers")

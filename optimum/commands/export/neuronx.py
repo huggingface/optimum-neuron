@@ -173,7 +173,7 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         help="List of scaling factors for the lora adapters.",
     )
     optional_group.add_argument(
-        "--controlnet_model_ids",
+        "--controlnet_ids",
         default=None,
         nargs="*",
         type=str,

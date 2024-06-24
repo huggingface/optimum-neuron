@@ -23,7 +23,7 @@ from abc import abstractmethod
 from collections import OrderedDict
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple, Union
 
 import torch
 from huggingface_hub import snapshot_download
@@ -126,7 +126,7 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
         neuron_configs: Dict[str, "NeuronDefaultConfig"],
         tokenizer: CLIPTokenizer,
         scheduler: Union[DDIMScheduler, PNDMScheduler, LMSDiscreteScheduler, LCMScheduler],
-        data_parallel_mode: str,
+        data_parallel_mode: Literal["none", "unet", "all"],
         vae_encoder: Optional[Union[torch.jit._script.ScriptModule, "NeuronModelVaeEncoder"]] = None,
         text_encoder_2: Optional[Union[torch.jit._script.ScriptModule, "NeuronModelTextEncoder"]] = None,
         tokenizer_2: Optional[CLIPTokenizer] = None,
@@ -162,7 +162,7 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
                 [CLIPTokenizer](https://huggingface.co/docs/transformers/v4.21.0/en/model_doc/clip#transformers.CLIPTokenizer).
             scheduler (`Union[DDIMScheduler, PNDMScheduler, LMSDiscreteScheduler]`):
                 A scheduler to be used in combination with the U-NET component to denoise the encoded image latents.
-            data_parallel_mode (`str`):
+            data_parallel_mode (`Literal["none", "unet", "all"]`):
                 Mode to decide what components to load into both NeuronCores of a Neuron device. Can be "none"(no data parallel), "unet"(only
                 load unet into both cores of each device), "all"(load the whole pipeline into both cores).
             vae_encoder (`Optional[torch.jit._script.ScriptModule]`, defaults to `None`):
@@ -307,7 +307,7 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
     @staticmethod
     @requires_torch_neuronx
     def load_model(
-        data_parallel_mode: Optional[str],
+        data_parallel_mode: Optional[Literal["none", "unet", "all"]],
         text_encoder_path: Union[str, Path],
         unet_path: Union[str, Path],
         vae_decoder_path: Optional[Union[str, Path]] = None,
@@ -322,7 +322,7 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
         one or multiple [NeuronCore](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/neuroncores-arch.html).
 
         Args:
-            data_parallel_mode (`Optional[str]`):
+            data_parallel_mode (`Optional[Literal["none", "unet", "all"]]`):
                 Mode to decide what components to load into both NeuronCores of a Neuron device. Can be "none"(no data parallel), "unet"(only
                 load unet into both cores of each device), "all"(load the whole pipeline into both cores).
             text_encoder_path (`Union[str, Path]`):
@@ -400,16 +400,18 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
                 set_dynamic_batching=dynamic_batch_size,
             )
             # load controlnets
-            controlnets = []
-            for controlnet_path in controlnet_paths:
-                controlnet = NeuronTracedModel.load_model(
-                    controlnet_path, to_neuron=False
-                )  # No need to load to neuron manually when dp
-                controlnets.append(dp_cls(controlnet, [0, 1], set_dynamic_batching=dynamic_batch_size))
-            if controlnets:
-                submodels["controlnet"] = controlnets if len(controlnets) > 1 else controlnets[0]
-            else:
-                submodels["controlnet"] = None
+            if controlnet_paths:
+                controlnets = []
+                for controlnet_path in controlnet_paths:
+                    if controlnet_path.is_file():
+                        controlnet = NeuronTracedModel.load_model(
+                            controlnet_path, to_neuron=False
+                        )  # No need to load to neuron manually when dp
+                        controlnets.append(dp_cls(controlnet, [0, 1], set_dynamic_batching=dynamic_batch_size))
+                if controlnets:
+                    submodels["controlnet"] = controlnets if len(controlnets) > 1 else controlnets[0]
+                else:
+                    submodels["controlnet"] = None
         elif data_parallel_mode == "none":
             logger.info("Loading the pipeline without any data parallelism...")
             for submodel_name, submodel_paths in submodels.items():
@@ -561,7 +563,7 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
         controlnet: Optional[Union["NeuronControlNetModel", "NeuronMultiControlNetModel"]] = None,
         local_files_only: bool = False,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
-        data_parallel_mode: Optional[str] = None,
+        data_parallel_mode: Optional[Literal["none", "unet", "all"]] = None,
         **kwargs,  # To share kwargs only available for `_from_transformers`
     ):
         model_id = str(model_id)
@@ -733,13 +735,12 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
         auto_cast_type: Optional[str] = "bf16",
         dynamic_batch_size: bool = False,
         output_hidden_states: bool = False,
-        data_parallel_mode: Optional[str] = None,
-        do_classifier_free_guidance: bool = False,
+        data_parallel_mode: Optional[Literal["none", "unet", "all"]] = None,
         lora_model_ids: Optional[Union[str, List[str]]] = None,
         lora_weight_names: Optional[Union[str, List[str]]] = None,
         lora_adapter_names: Optional[Union[str, List[str]]] = None,
         lora_scales: Optional[Union[float, List[float]]] = None,
-        controlnet_model_ids: Optional[Union[str, List[str]]] = None,
+        controlnet_ids: Optional[Union[str, List[str]]] = None,
         **kwargs_shapes,
     ) -> "NeuronStableDiffusionPipelineBase":
         """
@@ -798,11 +799,9 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
                 batch size during the compilation, but it comes with a potential tradeoff in terms of latency.
             output_hidden_states (`bool`, defaults to `False`):
                 Whether or not for the traced text encoders to return the hidden states of all layers.
-            data_parallel_mode (`Optional[str]`, defaults to `None`):
+            data_parallel_mode (`Optional[Literal["none", "unet", "all"]]`, defaults to `None`):
                 Mode to decide what components to load into both NeuronCores of a Neuron device. Can be "none"(no data parallel), "unet"(only
                 load unet into both cores of each device), "all"(load the whole pipeline into both cores).
-            do_classifier_free_guidance (bool, defaults to `False`):
-                Whether to use classifier-free guidance (guidance_scale > 1.0).
             lora_model_ids (`Optional[Union[str, List[str]]]`, defaults to `None`):
                 Lora model local paths or repo ids (eg. `ostris/super-cereal-sdxl-lora`) on the Hugginface Hub.
             lora_weight_names (`Optional[Union[str, List[str]]]`, defaults to `None`):
@@ -811,7 +810,7 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
                 Adapter names to be used for referencing the loaded adapter models.
             lora_scales (`Optional[List[float]]`, defaults to `None`):
                 Lora adapters scaling factors.
-            controlnet_model_ids (`Optional[Union[str, List[str]]]`, defaults to `None`):
+            controlnet_ids (`Optional[Union[str, List[str]]]`, defaults to `None`):
                 List of ControlNet model ids (eg. `thibaud/controlnet-openpose-sdxl-1.0`)."
             kwargs_shapes (`Dict[str, int]`):
                 Shapes to use during inference. This argument allows to override the default shapes used during the export.
@@ -820,7 +819,6 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
             task = TasksManager.infer_task_from_model(cls.auto_model_class)
 
         # mandatory shapes
-        kwargs_shapes["do_classifier_free_guidance"] = do_classifier_free_guidance
         input_shapes = normalize_stable_diffusion_input_shapes(kwargs_shapes)
 
         # Get compilation arguments
@@ -871,7 +869,7 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
                 lora_weight_names=lora_weight_names,
                 lora_adapter_names=lora_adapter_names,
                 lora_scales=lora_scales,
-                controlnet_model_ids=controlnet_model_ids,
+                controlnet_ids=controlnet_ids,
                 **input_shapes_copy,
             )
 
@@ -947,9 +945,8 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
                 lora_weight_names=lora_weight_names,
                 lora_adapter_names=lora_adapter_names,
                 lora_scales=lora_scales,
-                controlnet_model_ids=controlnet_model_ids,
+                controlnet_ids=controlnet_ids,
                 library_name=cls.library_name,
-                checked_config=cache_config,
                 **input_shapes,
             )
 
@@ -1144,8 +1141,6 @@ class NeuronControlNetModel(_NeuronDiffusionModelPart):
         return_dict: bool = True,
     ) -> Union["ControlNetOutput", Tuple[Tuple[torch.Tensor, ...], torch.Tensor]]:
         inputs = (sample, timestep, encoder_hidden_states, controlnet_cond, conditioning_scale)
-        # import pdb
-        # pdb.set_trace()
         outputs = self.model(*inputs)
 
         if guess_mode:
@@ -1249,11 +1244,19 @@ class NeuronStableDiffusionXLPipelineBase(NeuronStableDiffusionPipelineBase):
         config: Dict[str, Any],
         tokenizer: CLIPTokenizer,
         scheduler: Union[DDIMScheduler, PNDMScheduler, LMSDiscreteScheduler],
-        data_parallel_mode: str,
+        data_parallel_mode: Literal["none", "unet", "all"],
         vae_encoder: Optional[torch.jit._script.ScriptModule] = None,
         text_encoder_2: Optional[torch.jit._script.ScriptModule] = None,
         tokenizer_2: Optional[CLIPTokenizer] = None,
         feature_extractor: Optional[CLIPFeatureExtractor] = None,
+        controlnet: Optional[
+            Union[
+                torch.jit._script.ScriptModule,
+                List[torch.jit._script.ScriptModule],
+                "NeuronControlNetModel",
+                "NeuronMultiControlNetModel",
+            ]
+        ] = None,
         configs: Optional[Dict[str, "PretrainedConfig"]] = None,
         neuron_configs: Optional[Dict[str, "NeuronDefaultConfig"]] = None,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
@@ -1272,6 +1275,7 @@ class NeuronStableDiffusionXLPipelineBase(NeuronStableDiffusionPipelineBase):
             text_encoder_2=text_encoder_2,
             tokenizer_2=tokenizer_2,
             feature_extractor=feature_extractor,
+            controlnet=controlnet,
             configs=configs,
             neuron_configs=neuron_configs,
             model_save_dir=model_save_dir,

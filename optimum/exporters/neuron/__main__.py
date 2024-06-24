@@ -235,9 +235,7 @@ def infer_stable_diffusion_shapes_from_diffusers(
             "width": scaled_width,
         }
     )
-    if controlnets:
-        # axes for extra inputs of controlnets: down_block_res_samples and mid_block_res_sample
-        input_shapes["unet"]["vae_scale_factor"] = vae_scale_factor
+    input_shapes["unet"]["vae_scale_factor"] = vae_scale_factor
     input_shapes["vae_encoder"].update({"num_channels": vae_encoder_num_channels, "height": height, "width": width})
     input_shapes["vae_decoder"].update(
         {"num_channels": vae_decoder_num_channels, "height": scaled_height, "width": scaled_width}
@@ -477,7 +475,7 @@ def load_models_and_neuron_configs(
     lora_weight_names: Optional[Union[str, List[str]]],
     lora_adapter_names: Optional[Union[str, List[str]]],
     lora_scales: Optional[Union[float, List[float]]],
-    controlnet_model_ids: Optional[Union[str, List[str]]],
+    controlnet_ids: Optional[Union[str, List[str]]],
     output_attentions: bool = False,
     output_hidden_states: bool = False,
     library_name: Optional[str] = None,
@@ -502,7 +500,7 @@ def load_models_and_neuron_configs(
     }
     if model is None:
         model = TasksManager.get_model_from_task(**model_kwargs)
-    controlnets = load_controlnets(controlnet_model_ids)
+    controlnets = load_controlnets(controlnet_ids)
 
     models_and_neuron_configs, output_model_names = get_submodels_and_neuron_configs(
         model=model,
@@ -554,7 +552,7 @@ def main_export(
     lora_weight_names: Optional[Union[str, List[str]]] = None,
     lora_adapter_names: Optional[Union[str, List[str]]] = None,
     lora_scales: Optional[Union[float, List[float]]] = None,
-    controlnet_model_ids: Optional[Union[str, List[str]]] = None,
+    controlnet_ids: Optional[Union[str, List[str]]] = None,
     **input_shapes,
 ):
     output = Path(output)
@@ -584,7 +582,7 @@ def main_export(
         lora_weight_names=lora_weight_names,
         lora_adapter_names=lora_adapter_names,
         lora_scales=lora_scales,
-        controlnet_model_ids=controlnet_model_ids,
+        controlnet_ids=controlnet_ids,
         **input_shapes,
     )
 
@@ -727,7 +725,7 @@ def main():
         lora_weight_names=getattr(args, "lora_weight_names", None),
         lora_adapter_names=getattr(args, "lora_adapter_names", None),
         lora_scales=getattr(args, "lora_scales", None),
-        controlnet_model_ids=getattr(args, "controlnet_model_ids", None),
+        controlnet_ids=getattr(args, "controlnet_ids", None),
         **optional_outputs,
         **input_shapes,
     )
