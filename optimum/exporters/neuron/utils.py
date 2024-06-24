@@ -270,21 +270,25 @@ def get_stable_diffusion_models_for_export(
     models_for_export[DIFFUSION_MODEL_VAE_DECODER_NAME] = (vae_decoder, vae_decoder_neuron_config)
 
     # ControlNet
-    for idx, controlnet in enumerate(controlnets):
-        controlnet_config_constructor = TasksManager.get_exporter_config_constructor(
-            model=controlnet,
-            exporter="neuron",
-            task="semantic-segmentation",
-            model_type="controlnet",
-            library_name=library_name,
-        )
-        controlnet_neuron_config = controlnet_config_constructor(
-            controlnet.config,
-            task="semantic-segmentation",
-            dynamic_batch_size=dynamic_batch_size,
-            **controlnet_input_shapes,
-        )
-        models_for_export[DIFFUSION_MODEL_CONTROLNET_NAME + "_" + str(idx)] = (controlnet, controlnet_neuron_config)
+    if controlnets:
+        for idx, controlnet in enumerate(controlnets):
+            controlnet_config_constructor = TasksManager.get_exporter_config_constructor(
+                model=controlnet,
+                exporter="neuron",
+                task="semantic-segmentation",
+                model_type="controlnet",
+                library_name=library_name,
+            )
+            controlnet_neuron_config = controlnet_config_constructor(
+                controlnet.config,
+                task="semantic-segmentation",
+                dynamic_batch_size=dynamic_batch_size,
+                **controlnet_input_shapes,
+            )
+            models_for_export[DIFFUSION_MODEL_CONTROLNET_NAME + "_" + str(idx)] = (
+                controlnet,
+                controlnet_neuron_config,
+            )
 
     return models_for_export
 
