@@ -516,4 +516,89 @@ image = pipe(prompt, num_inference_steps=4, guidance_scale=0).images[0]
   alt="stable diffusion generated image with LoRA adapter."
 />
 
+
+## ControlNet
+
+ControlNet conditions the stable diffusion model with an additional input image. In Optimum Neuron, we support the compilation of one or multiple ControlNet(s) along with the stable diffusion checkpoint. The you can use the compiled artifacts to generate styled images.
+
+### Compile ControlNet
+
+We can either compile one or multiple ControlNet via CLI or via `NeuronStableDiffusionControlNetPipeline` class by passing the `controlnet_ids`.
+
+* Export via CLI
+
+```bash
+optimum-cli export neuron -m runwayml/stable-diffusion-v1-5 --task stable-diffusion --batch_size 1 --height 512 --width 512 --controlnet_ids lllyasviel/sd-controlnet-canny --num_images_per_prompt 1 sd_neuron_controlnet/
+```
+
+* Export via Python API
+
+```python
+from optimum.neuron import NeuronStableDiffusionControlNetPipeline
+
+model_id = "runwayml/stable-diffusion-v1-5"
+controlnet_id = "lllyasviel/sd-controlnet-canny"
+
+# [Neuron] pipeline
+input_shapes = {"batch_size": 1, "height": 512, "width": 512, "num_images_per_prompt": 1}
+compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
+pipe = NeuronStableDiffusionControlNetPipeline.from_pretrained(
+    model_id,
+    controlnet_ids=controlnet_id,
+    export=True,
+    **input_shapes,
+    **compiler_args,
+)
+pipe.save_pretrained("sd_neuron_controlnet")
+```
+
+### Text-to-Image
+
+For text-to-image, we can specify an additional conditioning input. 
+
+Here is an example with a canny image, a white outline of an image on a black background. The ControlNet will use the canny image as a control to guide the model to generate an image with the same outline.
+
+```python
+import cv2
+import numpy as np
+from diffusers import UniPCMultistepScheduler
+from diffusers.utils import load_image, make_image_grid
+from PIL import Image
+
+from optimum.neuron import NeuronStableDiffusionControlNetPipeline
+
+
+# prepare canny image
+original_image = load_image(
+    "https://hf.co/datasets/huggingface/documentation-images/resolve/main/diffusers/input_image_vermeer.png"
+)
+
+image = np.array(original_image)
+
+low_threshold = 100
+high_threshold = 200
+
+image = cv2.Canny(image, low_threshold, high_threshold)
+image = image[:, :, None]
+image = np.concatenate([image, image, image], axis=2)
+canny_image = Image.fromarray(image)
+
+# load pre-compiled neuron model
+pipe = NeuronStableDiffusionControlNetPipeline.from_pretrained("sd_neuron_controlnet")
+pipe.scheduler = UniPCMultistepScheduler.from_config(pipe.scheduler.config)
+
+# inference
+output = pipe("the mona lisa", image=canny_image).images[0]
+compare = make_image_grid([original_image, canny_image, output], rows=1, cols=3)
+compare.save("compare.png")
+```
+
+<img
+  src="https://huggingface.co/datasets/optimum/documentation-images/resolve/main/neuron/models/10-sd-text2img-controlnet.png?download=true"
+  width="768"
+  height="256"
+  alt="stable diffusion 1.5 generated image with controlnet."
+/>
+
+
 Are there any other stable diffusion features that you want us to support in 🤗`Optimum-neuron`? Please file an issue to [`Optimum-neuron` Github repo](https://github.com/huggingface/optimum-neuron) or discuss with us on [HuggingFace’s community forum](https://discuss.huggingface.co/c/optimum/), cheers 🤗 !
