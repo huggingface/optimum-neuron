@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Override some diffusers API for StableDiffusionControlNetPipeline"""
+"""Override some diffusers API for NeuronStableDiffusionControlNetPipeline"""
 
 import logging
 from typing import Any, Callable, Dict, List, Optional, Union
