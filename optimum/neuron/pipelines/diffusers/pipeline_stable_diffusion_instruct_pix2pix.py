@@ -234,7 +234,6 @@ class NeuronStableDiffusionInstructPix2PixPipelineMixin(
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
 
         # 9. Denoising loop
-        num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
         self._num_timesteps = len(timesteps)
         with self.progress_bar(total=num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps):
@@ -470,3 +469,7 @@ class NeuronStableDiffusionInstructPix2PixPipelineMixin(
             prompt_embeds = torch.cat([prompt_embeds, negative_prompt_embeds, negative_prompt_embeds])
 
         return prompt_embeds
+
+    @property
+    def do_classifier_free_guidance(self):
+        return self.guidance_scale > 1.0 and self.image_guidance_scale >= 1.0 and self.dynamic_batch_size
