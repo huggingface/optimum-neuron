@@ -16,4 +16,7 @@
 
 
 class NeuronStableDiffusionXLControlNetPipelineMixin:
-    pass
+    def __call__(self):
+        raise NotImplementedError(
+            "`NeuronStableDiffusionXLControlNetPipelineMixin` is not yet supported but will come soon."
+        )
