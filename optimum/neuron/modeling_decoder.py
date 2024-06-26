@@ -445,21 +445,19 @@ class NeuronDecoderModel(NeuronModel):
     def _save_pretrained(self, save_directory: Union[str, Path]):
         dst_checkpoint_path, dst_compiled_path = self._get_neuron_dirs(save_directory)
 
-        def copy_dir_to_path(src_dir: Union[str, Path, TemporaryDirectory], dst_path: Union[str, Path]):
-            if isinstance(src_dir, TemporaryDirectory):
-                shutil.copytree(src_dir.name, dst_path, dirs_exist_ok=True)
-            elif not os.path.samefile(src_dir, dst_path):
-                os.symlink(dst_path, src_dir)
-
-        # Copy checkpoint directory (it always exists)
-        copy_dir_to_path(self.checkpoint_dir, dst_checkpoint_path)
+        neuron_config = getattr(self.config, "neuron")
+        checkpoint_id = neuron_config.get("checkpoint_id", None)
+        if checkpoint_id is None:
+            # Model was exported from a local path, so we need to save the checkpoint
+            shutil.copytree(self.checkpoint_dir, dst_checkpoint_path, dirs_exist_ok=True)
         self.checkpoint_dir = dst_checkpoint_path
+
         # Save or create compiled directory
         if self.compiled_dir is None:
             # The compilation artifacts have never been saved, do it now
             self.model.save(dst_compiled_path)
         else:
-            copy_dir_to_path(self.compiled_dir, dst_compiled_path)
+            shutil.copytree(self.compiled_dir, dst_compiled_path)
         self.compiled_dir = dst_compiled_path
         self.generation_config.save_pretrained(save_directory)
 
