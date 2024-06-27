@@ -525,7 +525,7 @@ ControlNet conditions the stable diffusion model with an additional input image.
 
 We can either compile one or multiple ControlNet via the Optimum CLI or programatically via the `NeuronStableDiffusionControlNetPipeline` class by passing the `controlnet_ids`.
 
-* Export via CLI
+* Export via the Optimum CLI
 
 ```bash
 optimum-cli export neuron -m runwayml/stable-diffusion-v1-5 --task stable-diffusion --batch_size 1 --height 512 --width 512 --controlnet_ids lllyasviel/sd-controlnet-canny --num_images_per_prompt 1 sd_neuron_controlnet/
