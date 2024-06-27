@@ -389,7 +389,6 @@ class NeuronAccelerator(Accelerator):
     def _prepare_model_for_mp(
         self, model: torch.nn.Module, device_placement: Optional[bool] = None, evaluation_mode: bool = False
     ):
-        import torch_xla.core.xla_model as xm
         from neuronx_distributed.pipeline import NxDPPModel
 
         if model in self._models or Parallelizer.was_parallelized(model):
@@ -443,7 +442,6 @@ class NeuronAccelerator(Accelerator):
             }
 
         return model
-
 
     @requires_torch_xla
     @requires_neuronx_distributed
