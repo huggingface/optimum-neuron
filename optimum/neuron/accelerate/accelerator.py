@@ -442,10 +442,8 @@ class NeuronAccelerator(Accelerator):
                 cpu_ids[name]: xla_params[name] for name, _ in model.named_parameters()
             }
 
-        xm.mark_step()
-        device_placement = False
+        return model
 
-        return super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
 
     @requires_torch_xla
     @requires_neuronx_distributed
@@ -491,8 +489,8 @@ class NeuronAccelerator(Accelerator):
             if should_apply_activation_checkpointing:
                 apply_activation_checkpointing(model)
             move_model_to_device(model, xm.xla_device())
-            device_placement = False
-            model = super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
+        device_placement = False
+        model = super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
         xm.mark_step()
         return model
 
