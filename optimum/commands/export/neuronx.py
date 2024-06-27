@@ -177,7 +177,7 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         default=None,
         nargs="*",
         type=str,
-        help=("List of model ids (eg. `thibaud/controlnet-openpose-sdxl-1.0`) of ControlNet models."),
+        help="List of model ids (eg. `thibaud/controlnet-openpose-sdxl-1.0`) of ControlNet models.",
     )
     optional_group.add_argument(
         "--output_attentions",
