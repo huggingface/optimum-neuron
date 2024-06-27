@@ -33,7 +33,6 @@ jobs:
       - name: Install Neuron runtime
         run: |
           . /etc/os-release
-          sudo apt update
           sudo apt install wget
           sudo tee /etc/apt/sources.list.d/neuron.list > /dev/null <<EOF
           deb https://apt.repos.neuron.amazonaws.com ${VERSION_CODENAME} main
@@ -46,7 +45,7 @@ jobs:
         uses: actions/checkout@v4
       - name: Install python and create venv
         run: |
-          sudo apt install python3.8-venv python3-dev -y
+          sudo apt install python3.10-venv python3-dev -y
           python3 -m venv aws_neuron_venv_pytorch
           source aws_neuron_venv_pytorch/bin/activate
           python -m pip install -U pip
