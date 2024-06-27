@@ -33,6 +33,7 @@ jobs:
       - name: Install Neuron runtime
         run: |
           . /etc/os-release
+          sudo apt install wget
           sudo tee /etc/apt/sources.list.d/neuron.list > /dev/null <<EOF
           deb https://apt.repos.neuron.amazonaws.com ${VERSION_CODENAME} main
           EOF
