@@ -35,6 +35,8 @@ TESTS_REQUIRE = [
     "peft",
     "compel",
     "rjieba",
+    "soundfile",
+    "librosa",
 ]
 
 QUALITY_REQUIRES = [

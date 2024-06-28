@@ -25,6 +25,7 @@ from ...utils import (
     DummySeq2SeqPastKeyValuesGenerator,
     DummyTextInputGenerator,
     DummyVisionInputGenerator,
+    DummyAudioInputGenerator,
     logging,
 )
 from .base import NeuronDecoderConfig, NeuronDefaultConfig
@@ -57,6 +58,15 @@ class TextAndVisionNeuronConfig(NeuronDefaultConfig):
     """
 
     DUMMY_INPUT_GENERATOR_CLASSES = (DummyTextInputGenerator, DummyVisionInputGenerator, DummyBboxInputGenerator)
+
+
+class AudioNeuronConfig(NeuronDefaultConfig):
+    """
+    Handles audio architectures.
+    """
+
+    DUMMY_INPUT_GENERATOR_CLASSES = (DummyAudioInputGenerator, DummyTextInputGenerator)
+    INPUT_ARGS = ("batch_size", "audio_sequence_length")
 
 
 class TextNeuronDecoderConfig(NeuronDecoderConfig):
