@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2023 The HuggingFace Inc. team. All rights reserved.
+# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,10 +12,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Override some diffusers API for NeuronStableDiffusionXLControlNetPipelineMixin"""
 
-from .dataclasses import (
-    AutocastBackend,
-    ModelParallelismPlugin,
-    NeuronDistributedType,
-)
-from .misc import patch_accelerate_is_torch_xla_available
+
+class NeuronStableDiffusionXLControlNetPipelineMixin:
+    def __call__(self):
+        raise NotImplementedError(
+            "`NeuronStableDiffusionXLControlNetPipelineMixin` is not yet supported but will come soon."
+        )

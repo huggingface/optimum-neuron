@@ -23,6 +23,7 @@ import torch
 
 from ...neuron.utils import (
     DECODER_NAME,
+    DIFFUSION_MODEL_CONTROLNET_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_2_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_NAME,
     DIFFUSION_MODEL_UNET_NAME,
@@ -51,7 +52,7 @@ if is_diffusers_available():
             f"We found an older version of diffusers {_diffusers_version} but we require diffusers to be >= {DIFFUSERS_MINIMUM_VERSION}. "
             "Please update diffusers by running `pip install --upgrade diffusers`"
         )
-    from diffusers import UNet2DConditionModel
+    from diffusers import ControlNetModel, UNet2DConditionModel
     from diffusers.models.attention_processor import Attention
 
 
@@ -118,6 +119,8 @@ def get_stable_diffusion_models_for_export(
     lora_weight_names: Optional[List[str]] = None,
     lora_adapter_names: Optional[List[str]] = None,
     lora_scales: Optional[List[float]] = None,
+    controlnets: Optional[List["ControlNetModel"]] = None,
+    controlnet_input_shapes: Optional[Dict[str, int]] = None,
 ) -> Dict[str, Tuple[Union["PreTrainedModel", "ModelMixin"], "NeuronDefaultConfig"]]:
     """
     Returns the components of a Stable Diffusion model and their subsequent neuron configs.
@@ -150,6 +153,11 @@ def get_stable_diffusion_models_for_export(
             List of adapter names to be used for referencing the loaded adapter models.
         lora_scales (`Optional[List[float]]`, defaults to `None`):
             List of scaling factors for lora adapters.
+        controlnets (`Optional[List["ControlNetModel"]]]`, defaults to `None`):
+            One or multiple ControlNets providing additional conditioning to the `unet` during the denoising process. If you set multiple
+            ControlNets as a list, the outputs from each ControlNet are added together to create one combined additional conditioning.
+        controlnet_input_shapes (`Optional[Dict[str, int]]`, defaults to `None`):
+            Static shapes used for compiling ControlNets.
 
     Returns:
         `Dict[str, Tuple[Union[`PreTrainedModel`, `ModelMixin`], `NeuronDefaultConfig`]`: A Dict containing the model and
@@ -218,6 +226,9 @@ def get_stable_diffusion_models_for_export(
     )
     if task == "stable-diffusion-xl":
         unet_neuron_config.is_sdxl = True
+
+    unet_neuron_config.with_controlnet = True if controlnets else False
+
     models_for_export[DIFFUSION_MODEL_UNET_NAME] = (unet, unet_neuron_config)
 
     # VAE Encoder
@@ -253,6 +264,27 @@ def get_stable_diffusion_models_for_export(
         **vae_decoder_input_shapes,
     )
     models_for_export[DIFFUSION_MODEL_VAE_DECODER_NAME] = (vae_decoder, vae_decoder_neuron_config)
+
+    # ControlNet
+    if controlnets:
+        for idx, controlnet in enumerate(controlnets):
+            controlnet_config_constructor = TasksManager.get_exporter_config_constructor(
+                model=controlnet,
+                exporter="neuron",
+                task="semantic-segmentation",
+                model_type="controlnet",
+                library_name=library_name,
+            )
+            controlnet_neuron_config = controlnet_config_constructor(
+                controlnet.config,
+                task="semantic-segmentation",
+                dynamic_batch_size=dynamic_batch_size,
+                **controlnet_input_shapes,
+            )
+            models_for_export[DIFFUSION_MODEL_CONTROLNET_NAME + "_" + str(idx)] = (
+                controlnet,
+                controlnet_neuron_config,
+            )
 
     return models_for_export
 
@@ -300,6 +332,17 @@ def _load_lora_weights_to_pipeline(
     return pipeline
 
 
+def load_controlnets(controlnet_ids: Optional[Union[str, List[str]]] = None):
+    contronets = []
+    if controlnet_ids:
+        if isinstance(controlnet_ids, str):
+            controlnet_ids = [controlnet_ids]
+        for model_id in controlnet_ids:
+            model = ControlNetModel.from_pretrained(model_id)
+            contronets.append(model)
+    return contronets
+
+
 def get_submodels_for_export_stable_diffusion(
     pipeline: Union["StableDiffusionPipeline", "StableDiffusionXLImg2ImgPipeline"],
     task: str,
@@ -314,6 +357,7 @@ def get_submodels_for_export_stable_diffusion(
     """
     is_sdxl = "xl" in task
 
+    # Lora
     pipeline = _load_lora_weights_to_pipeline(
         pipeline=pipeline,
         lora_model_ids=lora_model_ids,

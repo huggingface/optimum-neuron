@@ -23,9 +23,9 @@ import torch
 from transformers.modeling_utils import get_parameter_dtype
 
 from ....utils import logging
-from ...distributed.utils import named_parameters
 from ...utils import is_torch_neuronx_available, is_torch_xla_available, patch_everywhere
 from ...utils.patching import Patcher
+from ...utils.peft_utils import NeuronPeftModel
 from ...utils.require_utils import requires_neuronx_distributed, requires_safetensors, requires_torch_xla
 
 
@@ -151,51 +151,6 @@ def create_patched_save_pretrained(orig_save_pretrained_function: Callable[["Pre
     return wrapper.__get__(orig_self)
 
 
-@requires_neuronx_distributed
-def get_tied_parameters_dict(model: Union["torch.nn.Module", "NxDPPModel"]) -> Dict[str, str]:
-    from neuronx_distributed.pipeline import NxDPPModel
-
-    unique_parameters = {}
-    tied_parameters = {}
-    if isinstance(model, NxDPPModel):
-        module = model.local_module
-    else:
-        module = model
-    for name, param in named_parameters(module, remove_duplicate=False):
-        if param in unique_parameters:
-            tied_parameter_name = unique_parameters[param]
-            tied_parameters[name] = tied_parameter_name
-        else:
-            unique_parameters[param] = name
-    return tied_parameters
-
-
-@requires_neuronx_distributed
-def tie_parameters(model: Union["torch.nn.Module", "NxDPPModel"], tied_parameters_dict: Dict[str, str]):
-    from neuronx_distributed.pipeline import NxDPPModel
-
-    if isinstance(model, NxDPPModel):
-        module = model.local_module
-    else:
-        module = model
-
-    for param_to_tie_name, param_name in tied_parameters_dict.items():
-        param_to_tie_name = param_to_tie_name.rsplit(".", maxsplit=1)
-
-        param_to_tie_parent_module = (
-            module if len(param_to_tie_name) == 1 else module.get_submodule(param_to_tie_name[0])
-        )
-        param_to_tie = getattr(param_to_tie_parent_module, param_to_tie_name[1])
-
-        param_name = param_name.rsplit(".", maxsplit=1)
-        parent_module = module if len(param_name) == 1 else module.get_submodule(param_name[0])
-        param = getattr(parent_module, param_name[1])
-
-        if param_to_tie is not param:
-            del param_to_tie
-            setattr(param_to_tie_parent_module, param_to_tie_name[1], param)
-
-
 # TODO: @michaelbenayoun
 # Needs to make it work in the general case or be deleted and only use `apply_activation_checkpointing`.
 @requires_torch_xla
@@ -232,11 +187,14 @@ def patched_gradient_checkpointing_enable(self, gradient_checkpointing_kwargs=No
 
 
 @requires_neuronx_distributed
-def apply_activation_checkpointing(model: Union["PreTrainedModel", "NxDPPModel"]):
+def apply_activation_checkpointing(model: Union["PreTrainedModel", "NxDPPModel", NeuronPeftModel]):
     from neuronx_distributed.pipeline import NxDPPModel
     from neuronx_distributed.utils.activation_checkpoint import (
         apply_activation_checkpointing as nxd_apply_activation_checkpointing,
     )
+
+    if isinstance(model, NeuronPeftModel):
+        model._prepare_model_for_gradient_checkpointing(model.get_base_model())
 
     if isinstance(model, NxDPPModel):
         modules = model.local_module.modules()

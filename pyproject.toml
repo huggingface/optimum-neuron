@@ -41,4 +41,8 @@ markers = [
     "is_staging_test",
     "is_trainium_test",
     "is_inferentia_test",
+    "world_size",
+    "tp_size",
+    "pp_size",
+    "parallel_size",
 ]
