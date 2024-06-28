@@ -14,7 +14,6 @@
 # limitations under the License.
 """Dummy input generation classes."""
 
-import copy
 from typing import Optional
 
 import torch
@@ -138,16 +137,14 @@ class DummyControNetInputGenerator(DummyInputGenerator):
             sample = self.random_float_tensor(sample_shape, framework=framework, dtype=float_dtype)
             down_block_res_samples = (sample,)
             num_past_cross_attn_blocks = 0
-            height = copy.deepcopy(self.height)
-            width = copy.deepcopy(self.width)
+            height = self.height
+            width = self.width
             for idx, down_block_type in enumerate(self.normalized_config.down_block_types):
                 res_samples = ()
                 shape = (self.batch_size, self.normalized_config.block_out_channels[idx], height, width)
                 for _ in range(self.normalized_config.layers_per_block):
                     res_samples += (self.random_float_tensor(shape, framework=framework, dtype=float_dtype),)
-                if idx == len(self.normalized_config.down_block_types) - 1:
-                    pass
-                else:
+                if idx != len(self.normalized_config.down_block_types) - 1:
                     # add output of downsampler
                     num_past_cross_attn_blocks += 1
                     height = height // 2
