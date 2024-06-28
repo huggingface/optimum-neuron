@@ -27,6 +27,7 @@ _import_structure = {
         "DIFFUSION_MODEL_UNET_NAME",
         "DIFFUSION_MODEL_VAE_DECODER_NAME",
         "DIFFUSION_MODEL_VAE_ENCODER_NAME",
+        "DIFFUSION_MODEL_CONTROLNET_NAME",
         "ENCODER_NAME",
         "NEURON_FILE_NAME",
     ],
@@ -40,7 +41,7 @@ _import_structure = {
         "is_torch_xla_available",
         "is_transformers_neuronx_available",
     ],
-    "input_generators": ["DummyBeamValuesGenerator", "DummyMaskedPosGenerator"],
+    "input_generators": ["DummyBeamValuesGenerator", "DummyMaskedPosGenerator", "DummyControNetInputGenerator"],
     "misc": [
         "DiffusersPretrainedConfig",
         "check_if_weights_replacable",
@@ -74,6 +75,7 @@ if TYPE_CHECKING:
     from .argument_utils import convert_neuronx_compiler_args_to_neuron, store_compilation_config
     from .constant import (
         DECODER_NAME,
+        DIFFUSION_MODEL_CONTROLNET_NAME,
         DIFFUSION_MODEL_TEXT_ENCODER_2_NAME,
         DIFFUSION_MODEL_TEXT_ENCODER_NAME,
         DIFFUSION_MODEL_UNET_NAME,
@@ -92,7 +94,7 @@ if TYPE_CHECKING:
         is_torch_xla_available,
         is_transformers_neuronx_available,
     )
-    from .input_generators import DummyBeamValuesGenerator, DummyMaskedPosGenerator
+    from .input_generators import DummyBeamValuesGenerator, DummyControNetInputGenerator, DummyMaskedPosGenerator
     from .misc import (
         DiffusersPretrainedConfig,
         check_if_weights_replacable,
