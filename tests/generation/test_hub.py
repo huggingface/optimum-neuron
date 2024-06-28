@@ -14,31 +14,13 @@
 # limitations under the License.
 import os
 import re
-from tempfile import TemporaryDirectory
 
-import pytest
-from generation_utils import check_neuron_model
 from huggingface_hub import HfApi
 from transformers.testing_utils import ENDPOINT_STAGING
 
-from optimum.neuron import NeuronModelForCausalLM, NeuronModelForSeq2SeqLM
+from optimum.neuron import NeuronModelForSeq2SeqLM
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 from optimum.utils.testing_utils import TOKEN, USER
-
-
-@is_inferentia_test
-@requires_neuronx
-@pytest.mark.parametrize(
-    "model_id, revision",
-    [
-        ["dacorvo/tiny-random-gpt2-neuronx", "1b3456cf877cc42c053ee8464f1067021eccde4b"],
-        ["dacorvo/tiny-random-gpt2-neuronx-no-checkpoint", "78eb2313ab7e149bbc22ff32257db93ba09e3033"],
-    ],
-    ids=["checkpoint", "no-checkpoint"],
-)
-def test_decoder_model_from_hub(model_id, revision):
-    model = NeuronModelForCausalLM.from_pretrained(model_id, revision=revision)
-    check_neuron_model(model, batch_size=16, sequence_length=512, num_cores=2, auto_cast_type="fp32")
 
 
 def _test_push_to_hub(model, model_path, repo_id, ignore_patterns=[]):
@@ -64,18 +46,6 @@ def neuron_push_model_id(model_id):
     model_name = model_id.split("/")[-1]
     repo_id = f"{USER}/{model_name}-neuronx"
     return repo_id
-
-
-@is_inferentia_test
-@requires_neuronx
-def test_push_decoder_to_hub():
-    model_id = "hf-internal-testing/tiny-random-gpt2"
-    model = NeuronModelForCausalLM.from_pretrained(model_id, export=True)
-    with TemporaryDirectory() as tmpdir:
-        model.save_pretrained(tmpdir)
-        ignore_patterns = [model.CHECKPOINT_DIR + "/*"]
-        neuron_push_decoder_id = neuron_push_model_id(model_id)
-        _test_push_to_hub(model, tmpdir, neuron_push_decoder_id, ignore_patterns)
 
 
 @is_inferentia_test

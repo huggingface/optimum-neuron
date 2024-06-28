@@ -15,22 +15,13 @@
 from tempfile import TemporaryDirectory
 
 import pytest
-from transformers import AutoTokenizer, T5ForConditionalGeneration
+from transformers import T5ForConditionalGeneration
 
-from optimum.neuron import NeuronModelForCausalLM, NeuronModelForSeq2SeqLM
+from optimum.neuron import NeuronModelForSeq2SeqLM
 from optimum.neuron.utils.testing_utils import requires_neuronx
 from optimum.utils.testing_utils import USER
 
 
-DECODER_MODEL_ARCHITECTURES = ["bloom", "gpt2", "llama", "mistral", "mixtral", "opt"]
-DECODER_MODEL_NAMES = {
-    "bloom": "hf-internal-testing/tiny-random-BloomForCausalLM",
-    "gpt2": "hf-internal-testing/tiny-random-gpt2",
-    "llama": "dacorvo/tiny-random-llama",
-    "mistral": "dacorvo/tiny-random-MistralForCausalLM",
-    "mixtral": "dacorvo/Mixtral-tiny",
-    "opt": "hf-internal-testing/tiny-random-OPTForCausalLM",
-}
 TRN_DECODER_MODEL_ARCHITECTURES = ["bloom", "llama", "opt"]
 TRN_DECODER_MODEL_NAMES = {
     "bloom": "bigscience/bloom-560m",
@@ -43,13 +34,6 @@ SEQ2SEQ_MODEL_NAMES = {
 SEQ2SEQ_MODEL_CLASSES = {
     "t5": T5ForConditionalGeneration,
 }
-
-
-@pytest.fixture(
-    scope="session", params=[DECODER_MODEL_NAMES[model_arch] for model_arch in DECODER_MODEL_ARCHITECTURES]
-)
-def export_decoder_id(request):
-    return request.param
 
 
 @pytest.fixture(
@@ -67,23 +51,6 @@ def export_seq2seq_id(request):
 @pytest.fixture(scope="module", params=[SEQ2SEQ_MODEL_CLASSES[model_arch] for model_arch in SEQ2SEQ_MODEL_NAMES])
 def export_seq2seq_model_class(request):
     return request.param
-
-
-@pytest.fixture(scope="session")
-@requires_neuronx
-def neuron_decoder_path(export_decoder_id):
-    model = NeuronModelForCausalLM.from_pretrained(export_decoder_id, export=True, batch_size=2, num_cores=2)
-    model_dir = TemporaryDirectory()
-    model_path = model_dir.name
-    model.save_pretrained(model_path)
-    del model
-    tokenizer = AutoTokenizer.from_pretrained(export_decoder_id)
-    tokenizer.save_pretrained(model_path)
-    del tokenizer
-    # Yield instead of returning to keep a reference to the temporary directory.
-    # It will go out of scope and be released only once all tests needing the fixture
-    # have been completed.
-    yield model_path
 
 
 @pytest.fixture(scope="module")

@@ -18,24 +18,78 @@ import copy
 import pytest
 import torch
 from transformers import AutoTokenizer
+from transformers.generation import StoppingCriteria
 
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 
 
 @pytest.fixture(scope="module")
-def neuron_model_config():
-    model_id = "princeton-nlp/Sheared-LLaMA-1.3B"
-    model_kwargs = {"batch_size": 4, "sequence_length": 4096, "auto_cast_type": "f16", "num_cores": 2}
-    model = NeuronModelForCausalLM.from_pretrained(model_id, export=True, **model_kwargs)
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
+def model_and_tokenizer(neuron_decoder_path):
+    model = NeuronModelForCausalLM.from_pretrained(neuron_decoder_path)
+    tokenizer = AutoTokenizer.from_pretrained(neuron_decoder_path)
     yield (model, tokenizer)
+
+
+def _test_generation(model, batch_size, input_length, **gen_kwargs):
+    input_ids = torch.ones((batch_size, input_length), dtype=torch.int64)
+    sample_output = model.generate(input_ids, **gen_kwargs)
+    assert sample_output.shape[0] == batch_size
+
+
+@pytest.mark.parametrize(
+    "gen_kwargs",
+    [
+        {"do_sample": True},
+        {"do_sample": True, "temperature": 0.7},
+        {"do_sample": False},
+        {"do_sample": False, "repetition_penalty": 1.2},
+    ],
+    ids=["sample", "sample-with-temp", "greedy", "greedy_no-repeat"],
+)
+@is_inferentia_test
+@requires_neuronx
+def test_decoder_generation_base(model_and_tokenizer, gen_kwargs):
+    model = model_and_tokenizer[0]
+    _test_generation(model, model.batch_size, 10, **gen_kwargs)
 
 
 @is_inferentia_test
 @requires_neuronx
-def test_generation_llama_padded_inputs(neuron_model_config):
-    model, tokenizer = neuron_model_config
+def test_decoder_generation_input_dimensions(model_and_tokenizer):
+    model, tokenizer = model_and_tokenizer
+    # Using valid input dimensions
+    _test_generation(model, model.batch_size, model.max_length // 2)
+    # Using an incompatible batch_size
+    with pytest.raises(ValueError, match="The specified batch_size"):
+        _test_generation(model, model.batch_size + 1, model.max_length)
+    # Using an incompatible input length
+    with pytest.raises(ValueError, match="The input sequence length"):
+        _test_generation(model, model.batch_size, input_length=model.max_length * 2)
+
+
+@is_inferentia_test
+@requires_neuronx
+def test_decoder_generation_custom_stopping_criteria(model_and_tokenizer):
+    model = model_and_tokenizer[0]
+
+    class CustomStoppingCriteria(StoppingCriteria):
+        def __init__(self):
+            self.called = False
+
+        def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor, **kwargs) -> bool:
+            self.called = True
+            return True
+
+    criteria = CustomStoppingCriteria()
+    model.generate(input_ids=torch.ones([1, 10], dtype=torch.int64), stopping_criteria=[criteria])
+    assert criteria.called, "Custom StoppingCriteria should have been called"
+
+
+@is_inferentia_test
+@requires_neuronx
+def test_decoder_generation_padded_inputs(model_and_tokenizer):
+    model, tokenizer = model_and_tokenizer
     prompt = "One of my fondest memory is of my grandmother making homemade bread"
     first_input = tokenizer(prompt)
     first_ids = first_input["input_ids"]
@@ -56,8 +110,8 @@ def test_generation_llama_padded_inputs(neuron_model_config):
 
 @is_inferentia_test
 @requires_neuronx
-def test_decoder_generation_multiple_eos_token_ids(neuron_model_config):
-    model, tokenizer = neuron_model_config
+def test_decoder_generation_multiple_eos_token_ids(model_and_tokenizer):
+    model, tokenizer = model_and_tokenizer
     prompt = "Name three fruits:"
     tokens = tokenizer(prompt, return_tensors="pt")
     generation_config = copy.deepcopy(model.generation_config)
@@ -75,8 +129,8 @@ def test_decoder_generation_multiple_eos_token_ids(neuron_model_config):
 
 @is_inferentia_test
 @requires_neuronx
-def test_decoder_generation_stop_strings(neuron_model_config):
-    model, tokenizer = neuron_model_config
+def test_decoder_generation_stop_strings(model_and_tokenizer):
+    model, tokenizer = model_and_tokenizer
     prompt = "Name three fruits:"
     tokens = tokenizer(prompt, return_tensors="pt")
     generation_config = copy.deepcopy(model.generation_config)
