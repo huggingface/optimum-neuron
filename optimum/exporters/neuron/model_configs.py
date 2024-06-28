@@ -41,6 +41,7 @@ from .config import (
     TextNeuronDecoderConfig,
     TextSeq2SeqNeuronConfig,
     VisionNeuronConfig,
+    AudioNeuronConfig,
 )
 from .model_wrappers import (
     NoCacheModelWrapper,
@@ -399,6 +400,15 @@ class YolosTNeuronConfig(ViTNeuronConfig):
         if self.task == "object-detection":
             common_outputs.append("last_hidden_state")
         return common_outputs
+
+
+@register_in_tasks_manager("wav2vec2", *["feature-extraction", "audio-classification", "audio-frame-classification", "audio-xvector"])
+class Wav2Vec2NeuronConfig(AudioNeuronConfig):
+    NORMALIZED_CONFIG_CLASS = NormalizedConfig
+    
+    @property
+    def inputs(self) -> List[str]:
+        return ["input_values"]
 
 
 @register_in_tasks_manager("unet", *["semantic-segmentation"], library_name="diffusers")
