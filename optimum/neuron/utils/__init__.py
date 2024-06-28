@@ -50,8 +50,7 @@ _import_structure = {
         "replace_weights",
     ],
     "optimization_utils": [
-        "get_attention_scores_sd2",
-        "get_attention_scores_sd15",
+        "get_attention_scores_sd",
         "get_attention_scores_sdxl",
     ],
     "patching": [
@@ -101,8 +100,7 @@ if TYPE_CHECKING:
         replace_weights,
     )
     from .optimization_utils import (
-        get_attention_scores_sd2,
-        get_attention_scores_sd15,
+        get_attention_scores_sd,
         get_attention_scores_sdxl,
     )
     from .patching import (
