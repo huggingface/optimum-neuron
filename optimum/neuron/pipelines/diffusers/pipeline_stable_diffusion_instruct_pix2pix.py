@@ -138,7 +138,7 @@ class NeuronStableDiffusionInstructPix2PixPipelineMixin(
         ... )
         >>> pipe.save_pretrained("sd_ip2p/")
 
-        >>> prompt = "in the style of Van Gogh"
+        >>> prompt = "Add a beautiful sunset"
         >>> image = pipe(prompt=prompt, image=init_image).images[0]
         ```
 

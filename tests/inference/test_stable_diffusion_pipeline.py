@@ -145,7 +145,7 @@ class NeuronStableDiffusionPipelineIntegrationTest(unittest.TestCase):
 
         img_url = "https://huggingface.co/datasets/diffusers/diffusers-images-docs/resolve/main/mountain.png"
         init_image = download_image(img_url).resize((512, 512))
-        prompt = "in the style of Van Gogh"
+        prompt = "Add a beautiful sunset"
         image = neuron_pipeline(prompt=prompt, image=init_image).images[0]
         self.assertIsInstance(image, PIL.Image.Image)
 

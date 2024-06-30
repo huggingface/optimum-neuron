@@ -173,6 +173,40 @@ image.save("cat_on_bench.png")
 :-------------------------:|:-------------------------:|:-------------------------:|-------------------------:|
 <img src="https://raw.githubusercontent.com/CompVis/latent-diffusion/main/data/inpainting_examples/overture-creations-5sI6fQgYIuo.png" alt="drawing" width="250"/> | <img src="https://raw.githubusercontent.com/CompVis/latent-diffusion/main/data/inpainting_examples/overture-creations-5sI6fQgYIuo_mask.png" alt="drawing" width="250"/> | ***Face of a yellow cat, high resolution, sitting on a park bench*** | <img src="https://huggingface.co/datasets/optimum/documentation-images/resolve/main/neuron/models/05-sd-inpaint.png" alt="drawing" width="250"/> |
 
+### InstructPix2Pix
+
+With the `NeuronStableDiffusionInstructPix2PixPipeline` class, you can apply instruction-based image editing using both text guidance and image guidance.
+
+```python
+import requests
+import PIL
+from io import BytesIO
+from optimum.neuron import NeuronStableDiffusionInstructPix2PixPipeline
+
+def download_image(url):
+    response = requests.get(url)
+    return PIL.Image.open(BytesIO(response.content)).convert("RGB")
+
+model_id = "timbrooks/instruct-pix2pix"
+input_shapes = {"batch_size": 1, "height": 512, "width": 512}
+
+pipe = NeuronStableDiffusionInstructPix2PixPipeline.from_pretrained(
+  model_id, export=True, dynamic_batch_size=True, **input_shapes,
+)
+pipe.save_pretrained("sd_ip2p/")
+
+img_url = "https://huggingface.co/datasets/diffusers/diffusers-images-docs/resolve/main/mountain.png"
+init_image = download_image(img_url).resize((512, 512))
+
+prompt = "Add a beautiful sunset"
+image = pipe(prompt=prompt, image=init_image).images[0]
+image.save("sunset_mountain.png")
+```
+
+`image`          | `prompt` | output |
+:-------------------------:|:-------------------------:|-------------------------:|
+<img src="https://huggingface.co/datasets/diffusers/diffusers-images-docs/resolve/main/mountain.png" alt="drawing" width="250"/> | ***Add a beautiful sunset*** | <img src="https://huggingface.co/datasets/optimum/documentation-images/resolve/main/neuron/models/11-sd-ip2p.png" alt="drawing" width="250"/> |
+
 ## Stable Diffusion XL
 
 *There is a notebook version of that tutorial [here](https://github.com/huggingface/optimum-neuron/blob/main/notebooks/stable-diffusion/stable-diffusion-xl-txt2img.ipynb)*.
