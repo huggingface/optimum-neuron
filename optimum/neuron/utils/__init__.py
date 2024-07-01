@@ -52,8 +52,7 @@ _import_structure = {
     ],
     "model_utils": ["get_tied_parameters_dict", "tie_parameters"],
     "optimization_utils": [
-        "get_attention_scores_sd2",
-        "get_attention_scores_sd15",
+        "get_attention_scores_sd",
         "get_attention_scores_sdxl",
     ],
     "patching": [
@@ -105,8 +104,7 @@ if TYPE_CHECKING:
     )
     from .model_utils import get_tied_parameters_dict, tie_parameters
     from .optimization_utils import (
-        get_attention_scores_sd2,
-        get_attention_scores_sd15,
+        get_attention_scores_sd,
         get_attention_scores_sdxl,
     )
     from .patching import (
