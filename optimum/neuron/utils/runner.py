@@ -130,6 +130,7 @@ class ExampleRunner:
             "extra_command_line_arguments": [
                 "--pad_to_max_length",
                 "--ignore_mismatched_sizes",
+                "--trust-remote-code",
             ],
         },
         "multiple-choice": {
