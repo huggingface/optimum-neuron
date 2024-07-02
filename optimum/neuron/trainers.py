@@ -433,7 +433,7 @@ class AugmentTrainerForNeuronMixin:
         else:
             dp_size = xm.xrt_world_size()
 
-        tr_loss = tr_loss - self._prev_tr_loss
+        # tr_loss = tr_loss - self._prev_tr_loss
         tr_loss_div = tr_loss / dp_size
 
         if self.args.mp_plugin.should_parallelize:
@@ -454,7 +454,7 @@ class AugmentTrainerForNeuronMixin:
             # xm.mark_step()
             # reset tr_loss to zero
             # tr_loss.zero_()
-            self._prev_tr_loss = tr_loss.clone()
+            self._prev_tr_loss = tr_loss
 
             def log_closure(self, reduced_tr_loss, grad_norm):
                 if is_main_worker_for_metrics():
@@ -771,7 +771,7 @@ class AugmentTrainerForNeuronMixin:
                 self.state.save_steps = args.save_steps
 
         # Activate gradient checkpointing if needed
-        # It is handled differentlt if pipeline parallelism is enabled.
+        # It is handled differently if pipeline parallelism is enabled.
         if args.gradient_checkpointing and args.pipeline_parallel_size == 1:
             if args.gradient_checkpointing_kwargs is None:
                 gradient_checkpointing_kwargs = {}
@@ -1012,7 +1012,8 @@ class AugmentTrainerForNeuronMixin:
                             f"Calculated loss must be on the original device: {tr_loss.device} but device in use is "
                             f"{tr_loss_step.device}"
                         )
-                    tr_loss += tr_loss_step
+                    # tr_loss += tr_loss_step
+                    tr_loss = tr_loss + tr_loss_step
 
                 self.current_flos += float(self.floating_point_ops(inputs))
 
