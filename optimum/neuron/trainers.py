@@ -433,6 +433,7 @@ class AugmentTrainerForNeuronMixin:
         else:
             dp_size = xm.xrt_world_size()
 
+        tr_loss = tr_loss - self._prev_tr_loss
         tr_loss_div = tr_loss / dp_size
 
         if self.args.mp_plugin.should_parallelize:
@@ -450,8 +451,10 @@ class AugmentTrainerForNeuronMixin:
         reduced_tr_loss = self._reduce_loss(tr_loss)
 
         if self.control.should_log and self.state.global_step > self._globalstep_last_logged:
+            # xm.mark_step()
             # reset tr_loss to zero
-            tr_loss.zero_()
+            # tr_loss.zero_()
+            self._prev_tr_loss = tr_loss.clone()
 
             def log_closure(self, reduced_tr_loss, grad_norm):
                 if is_main_worker_for_metrics():
@@ -893,6 +896,8 @@ class AugmentTrainerForNeuronMixin:
 
         # tr_loss is a tensor to avoid synchronization of TPUs through .item()
         tr_loss = torch.tensor(0.0).to(args.device)
+        # `_prev_tr_loss` is used to keep track of the previously saved loss. This way we do not create multiple graphs when resetting it.
+        self._prev_tr_loss = torch.tensor(0.0).to(args.device)
         # _total_loss_scalar is updated everytime .item() has to be called on tr_loss and stores the sum of all losses
         self._total_loss_scalar = 0.0
         self._globalstep_last_logged = self.state.global_step
