@@ -10,7 +10,8 @@ from text_generation_server.pb.generate_pb2 import (
 def create_request(
     id: int,
     inputs: str,
-    max_new_tokens=20,
+    truncate: int = 0,
+    max_new_tokens: int = 20,
     do_sample: bool = False,
     top_k: int = 50,
     top_p: float = 0.9,
@@ -27,7 +28,9 @@ def create_request(
         repetition_penalty=repetition_penalty,
     )
     stopping_parameters = StoppingCriteriaParameters(max_new_tokens=max_new_tokens)
-    return Request(id=id, inputs=inputs, parameters=parameters, stopping_parameters=stopping_parameters)
+    return Request(
+        id=id, inputs=inputs, truncate=truncate, parameters=parameters, stopping_parameters=stopping_parameters
+    )
 
 
 def check_prefill(input_text, expected_token_id, expected_token_text, do_sample, batch_size, model_path):
