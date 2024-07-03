@@ -367,7 +367,6 @@ class AugmentTrainerForNeuronMixin:
         A helper wrapper that creates an appropriate context manager for `autocast` while feeding it the desired
         arguments, depending on the situation.
         """
-
         autocast_handler = AutocastKwargs(
             enabled=self.accelerator.autocast_handler.enabled,
             cache_enabled=cache_enabled,
