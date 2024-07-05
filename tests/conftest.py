@@ -25,7 +25,6 @@ from optimum.neuron.utils.cache_utils import (
     set_custom_cache_repo_name_in_hf_home,
     set_neuron_cache_path,
 )
-from optimum.utils.testing_utils import TOKEN, USER
 
 from .utils import OPTIMUM_INTERNAL_TESTING_CACHE_REPO, get_random_string
 
@@ -86,40 +85,6 @@ def inf_decoder_model(request):
 @pytest.fixture(scope="module", params=[INFERENTIA_MODEL_NAMES[model_arch] for model_arch in DIFFUSER_ARCHITECTURES])
 def inf_diffuser_model(request):
     return request.param
-
-
-@pytest.fixture(scope="module")
-def staging_test():
-    custom_cache_repo_name = "optimum-neuron-cache-testing"
-    custom_cache_repo = f"{USER}/{custom_cache_repo_name}"
-    custom_private_cache_repo = f"{custom_cache_repo}-private"
-
-    orig_token = get_token()
-    orig_custom_cache_repo = load_custom_cache_repo_name_from_hf_home()
-
-    seed = get_random_string(5)
-    custom_cache_repo_with_seed = f"{custom_cache_repo}-{seed}"
-    custom_private_cache_repo_with_seed = f"{custom_private_cache_repo}-{seed}"
-
-    login(token=TOKEN)
-    # We do not set which cache repo to use because there are two, it is up to the test to define that.
-
-    create_repo(custom_cache_repo_with_seed, repo_type="model", exist_ok=True)
-    create_repo(custom_private_cache_repo_with_seed, repo_type="model", exist_ok=True, private=True)
-
-    yield
-
-    delete_repo(custom_cache_repo_with_seed, repo_type="model")
-    delete_repo(custom_private_cache_repo_with_seed, repo_type="model")
-
-    if orig_token is not None:
-        login(token=orig_token)
-    else:
-        logout()
-    if orig_custom_cache_repo is not None:
-        set_custom_cache_repo_name_in_hf_home(orig_custom_cache_repo, check_repo=False)
-    else:
-        delete_custom_cache_repo_name_from_hf_home()
 
 
 def _hub_test(create_local_cache: bool = False):

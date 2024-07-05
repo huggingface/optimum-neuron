@@ -58,6 +58,7 @@ MODEL_NAMES = {
     "swin": "hf-internal-testing/tiny-random-SwinModel",
     "vit": "hf-internal-testing/tiny-random-vit",
     "stable-diffusion": "hf-internal-testing/tiny-stable-diffusion-torch",
+    "stable-diffusion-ip2p": "asntr/tiny-stable-diffusion-pix2pix-torch",
     "stable-diffusion-xl": "echarlaix/tiny-random-stable-diffusion-xl",
     "xlm": "hf-internal-testing/tiny-random-XLMModel",
     "xlm-roberta": "hf-internal-testing/tiny-xlm-roberta",

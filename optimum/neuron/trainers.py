@@ -353,7 +353,6 @@ class AugmentTrainerForNeuronMixin:
         return inputs
 
     def compute_loss(self, model, inputs, return_outputs: bool = False):
-        self.state.last_inputs = inputs
         from neuronx_distributed.pipeline import NxDPPModel
 
         if isinstance(model, NxDPPModel):
@@ -368,7 +367,6 @@ class AugmentTrainerForNeuronMixin:
         A helper wrapper that creates an appropriate context manager for `autocast` while feeding it the desired
         arguments, depending on the situation.
         """
-
         autocast_handler = AutocastKwargs(
             enabled=self.accelerator.autocast_handler.enabled,
             cache_enabled=cache_enabled,
@@ -407,8 +405,6 @@ class AugmentTrainerForNeuronMixin:
         ignore_keys: Optional[List[str]] = None,
     ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
         from neuronx_distributed.pipeline import NxDPPModel
-
-        self.state.last_inputs = inputs
 
         if isinstance(model, NxDPPModel):
             if not prediction_loss_only:

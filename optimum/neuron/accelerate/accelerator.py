@@ -517,8 +517,13 @@ class NeuronAccelerator(Accelerator):
             #   - `self.state.mixed_precision == "bf16"`
             #   - `self.state.autocast_backend is AutocastBackend.AMP`
             autocast_handler = self.autocast_handler
-        autocast_kwargs = autocast_handler.to_kwargs()
-        autocast_context = torch.autocast(dtype=torch.bfloat16, device_type="cuda", **autocast_kwargs)
+
+        if autocast_handler.enabled:
+            autocast_kwargs = autocast_handler.to_kwargs()
+            autocast_context = torch.autocast(dtype=torch.bfloat16, device_type="cuda", **autocast_kwargs)
+        else:
+            autocast_context = contextlib.nullcontext()
+
         autocast_context.__enter__()
         yield
         autocast_context.__exit__(*sys.exc_info())
