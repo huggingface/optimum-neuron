@@ -114,7 +114,6 @@ def consolidate_tensor_parallel_checkpoints(
         if not sharded_checkpoint.is_file():
             continue
         state_dicts.append(load_function(sharded_checkpoint.as_posix()))
-        break
 
     parameter_names = state_dicts[0].keys()
     sharded_metadatas = {
