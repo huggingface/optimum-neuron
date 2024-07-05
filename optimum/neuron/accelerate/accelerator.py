@@ -389,7 +389,6 @@ class NeuronAccelerator(Accelerator):
     def _prepare_model_for_mp(
         self, model: torch.nn.Module, device_placement: Optional[bool] = None, evaluation_mode: bool = False
     ):
-        import torch_xla.core.xla_model as xm
         from neuronx_distributed.pipeline import NxDPPModel
 
         if model in self._models or Parallelizer.was_parallelized(model):
@@ -442,10 +441,7 @@ class NeuronAccelerator(Accelerator):
                 cpu_ids[name]: xla_params[name] for name, _ in model.named_parameters()
             }
 
-        xm.mark_step()
-        device_placement = False
-
-        return super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
+        return model
 
     @requires_torch_xla
     @requires_neuronx_distributed
@@ -491,8 +487,8 @@ class NeuronAccelerator(Accelerator):
             if should_apply_activation_checkpointing:
                 apply_activation_checkpointing(model)
             move_model_to_device(model, xm.xla_device())
-            device_placement = False
-            model = super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
+        device_placement = False
+        model = super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
         xm.mark_step()
         return model
 
