@@ -1005,8 +1005,7 @@ class AugmentTrainerForNeuronMixin:
                             f"Calculated loss must be on the original device: {tr_loss.device} but device in use is "
                             f"{tr_loss_step.device}"
                         )
-                    # tr_loss += tr_loss_step
-                    tr_loss = tr_loss + tr_loss_step
+                    tr_loss += tr_loss_step
 
                 self.current_flos += float(self.floating_point_ops(inputs))
 
