@@ -353,7 +353,6 @@ class AugmentTrainerForNeuronMixin:
         return inputs
 
     def compute_loss(self, model, inputs, return_outputs: bool = False):
-        self.state.last_inputs = inputs
         from neuronx_distributed.pipeline import NxDPPModel
 
         if isinstance(model, NxDPPModel):
@@ -368,7 +367,6 @@ class AugmentTrainerForNeuronMixin:
         A helper wrapper that creates an appropriate context manager for `autocast` while feeding it the desired
         arguments, depending on the situation.
         """
-
         autocast_handler = AutocastKwargs(
             enabled=self.accelerator.autocast_handler.enabled,
             cache_enabled=cache_enabled,
@@ -407,8 +405,6 @@ class AugmentTrainerForNeuronMixin:
         ignore_keys: Optional[List[str]] = None,
     ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
         from neuronx_distributed.pipeline import NxDPPModel
-
-        self.state.last_inputs = inputs
 
         if isinstance(model, NxDPPModel):
             if not prediction_loss_only:
@@ -450,8 +446,10 @@ class AugmentTrainerForNeuronMixin:
         reduced_tr_loss = self._reduce_loss(tr_loss)
 
         if self.control.should_log and self.state.global_step > self._globalstep_last_logged:
-            # reset tr_loss to zero
-            tr_loss.zero_()
+            if isinstance(getattr(self, "_zero_loss_value"), torch.Tensor):
+                tr_loss.data = self._zero_loss_value.data
+            else:
+                tr_loss.zero_()
 
             def log_closure(self, reduced_tr_loss, grad_norm):
                 if is_main_worker_for_metrics():
@@ -768,7 +766,7 @@ class AugmentTrainerForNeuronMixin:
                 self.state.save_steps = args.save_steps
 
         # Activate gradient checkpointing if needed
-        # It is handled differentlt if pipeline parallelism is enabled.
+        # It is handled differently if pipeline parallelism is enabled.
         if args.gradient_checkpointing and args.pipeline_parallel_size == 1:
             if args.gradient_checkpointing_kwargs is None:
                 gradient_checkpointing_kwargs = {}
@@ -900,6 +898,9 @@ class AugmentTrainerForNeuronMixin:
         self.optimizer.zero_grad()
         grad_norm: Optional[float] = None
         self.control = self.callback_handler.on_train_begin(args, self.state, self.control)
+
+        # Mark step before training to materialize any tensor before creating the training graph.
+        xm.mark_step()
 
         # Skip the first epochs_trained epochs to get the random state of the dataloader at the right point.
         if not args.ignore_data_skip:
@@ -1056,6 +1057,15 @@ class AugmentTrainerForNeuronMixin:
                     self.state.global_step += 1
                     self.state.epoch = epoch + (step + 1 + steps_skipped) / steps_in_epoch
                     self.control = self.callback_handler.on_step_end(args, self.state, self.control)
+
+                    # `_zero_loss_value` is used to reset the value of `tr_loss`.
+                    # By doing that, we do not have to do `tr_loss.zero_()` when logging the loss.
+                    # This way we do not insert a new op in the XLA graph (for `tr_loss.zero_()`) which woud create
+                    # multiple graphs depending on the fact that we are logging or not.
+                    # Here we always create a scalar whose value is `0.0`, this way the graph stays the same whether or
+                    # not we are logging. The only difference when logging is that we set
+                    # `tr_loss.data = self._zero_loss_value.data`, which should not create new graph ops.
+                    self._zero_loss_value = torch.tensor(0.0, device=args.device)
                     self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval)
                 else:
                     self.control = self.callback_handler.on_substep_end(args, self.state, self.control)

@@ -759,8 +759,6 @@ class Parallelizer(ABC):
                     f"Could not find information for the parameter {name} to set its `requires_grad` attribute."
                 )
 
-        xm.mark_step()
-
         if is_main_worker():
             logger.info("Load and initialization of the weights done.")
 
