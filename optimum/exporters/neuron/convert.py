@@ -229,8 +229,6 @@ def validate_model_outputs(
         ref_outputs = dict(zip(neuron_named_outputs, ref_outputs))
 
     # Check if the number of outputs matches the number of output names
-    import pdb
-    pdb.set_trace()
     if len(neuron_output_names_set) != len(neuron_outputs):
         raise OutputMatchError(
             f"The exported Neuron model has {len(neuron_outputs)} outputs while {len(neuron_output_names_set)} are expected."

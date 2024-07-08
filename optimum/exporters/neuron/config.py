@@ -19,13 +19,13 @@ configurations.
 from typing import List
 
 from ...utils import (
+    DummyAudioInputGenerator,
     DummyBboxInputGenerator,
     DummyInputGenerator,
     DummySeq2SeqDecoderTextInputGenerator,
     DummySeq2SeqPastKeyValuesGenerator,
     DummyTextInputGenerator,
     DummyVisionInputGenerator,
-    DummyAudioInputGenerator,
     logging,
 )
 from .base import NeuronDecoderConfig, NeuronDefaultConfig
