@@ -85,7 +85,7 @@ def set_neuron_cc_optlevel(optlevel: int = 2):
 
 def check_neuron_cc_flags_for_model(model: "PreTrainedModel"):
     """
-    Sets flags for the Neuron compiler depending on the model.
+    Checks flags for the Neuron compiler depending on the model.
     """
     neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
     if "ForCausalLM" or "ForConditionalGeneration" in model.__class__.__name__:

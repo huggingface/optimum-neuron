@@ -15,13 +15,93 @@
 """Core functionalities and tools for rewriting modules for Neuron."""
 
 import math
-from typing import Optional
+from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, Callable, Optional
 
 import torch
 import torch.nn as nn
+from transformers.modeling_utils import get_parameter_dtype
+
+from ..utils.require_utils import requires_neuronx_distributed
 
 
-class NeuronAttention:
+if TYPE_CHECKING:
+    from transformers import PreTrainedModel
+
+
+_ORIG_TORCH_FINFO = torch.finfo
+
+
+def create_patched_finfo(xla_downcast_bf16: bool = False, use_amp: bool = False, xla_use_bf16: bool = False):
+    def patched_finfo(dtype):
+        if xla_downcast_bf16 or use_amp or xla_use_bf16:
+            return _ORIG_TORCH_FINFO(torch.bfloat16)
+        return _ORIG_TORCH_FINFO(dtype)
+
+    return patched_finfo
+
+
+def create_patched_get_parameter_dtype(
+    xla_downcast_bf16: bool = False, use_amp: bool = False, xla_use_bf16: bool = False
+):
+    def patched_get_parameter_dtype(module):
+        dtype = get_parameter_dtype(module)
+        if xla_downcast_bf16 or use_amp or xla_use_bf16:
+            return torch.bfloat16
+        return dtype
+
+    return patched_get_parameter_dtype
+
+
+@requires_neuronx_distributed
+def create_patched_save_pretrained(orig_save_pretrained_function: Callable[["PreTrainedModel"], None]):
+    """
+    Creates a wrapper around the `transformers.modeling_utils.PreTrainedModel.save_pretrained` method.
+    This methods calls `tensor.data_ptr()` on the model parameters, which causes segmentation fault when the tensors
+    are on the XLA device. To prevent that, this wrapper calls `save_pretrained` with the model on the CPU device.
+    """
+    import torch_xla.core.xla_model as xm
+    from neuronx_distributed.parallel_layers.parallel_state import (
+        get_data_parallel_rank,
+        model_parallel_is_initialized,
+    )
+    from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
+
+    orig_self = orig_save_pretrained_function.__self__
+    orig_func = orig_save_pretrained_function.__func__
+
+    patcher = Patcher([("transformers.modeling_utils.safe_save_file", torch_xla_safe_save_file)])
+
+    @functools.wraps(orig_func)
+    def wrapper(*args, **kwargs):
+        self = args[0]
+        if model_parallel_is_initialized():
+            should_write_data = get_data_parallel_rank() == 0
+        else:
+            should_write_data = xm.is_master_ordinal(local=True)
+        orig_state_dict = self.state_dict()
+        cpu_state_dict = move_all_tensor_to_cpu(self.state_dict(), convert=should_write_data)
+        self.load_state_dict(cpu_state_dict, assign=True)
+        output = None
+        if should_write_data:
+            with patcher:
+                output = orig_func(*args, **kwargs)
+        self.load_state_dict(orig_state_dict, assign=True)
+        xm.mark_step()
+        del cpu_state_dict
+        gc.collect()
+        return output
+
+    return wrapper.__get__(orig_self)
+
+
+class PatchedModule(ABC):
+    @abstractmethod
+    def from_original(cls, orig_module: torch.nn.Module, **options) -> "PatchedModule":
+        pass
+
+
+class NeuronAttention(PatchedModule):
     # TODO: add dosctring
     @property
     def sequence_parallel_enabled(self) -> bool:

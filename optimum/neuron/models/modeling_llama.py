@@ -14,27 +14,33 @@
 # limitations under the License.
 """Parallelization of the Llama architecture."""
 
-from typing import TYPE_CHECKING, Optional, Tuple
+from typing import Optional, Tuple
 
 import torch
 import torch.nn.functional as F
-
 from transformers import LlamaConfig
 from transformers.cache_utils import Cache
 from transformers.models.llama.modeling_llama import (
     LlamaAttention,
+    LlamaModel,
     apply_rotary_pos_emb,
     repeat_kv,
 )
 
 from ..utils.require_utils import requires_neuronx_distributed
-from .core import NeuronAttention, CoreAttention
+from .core import CoreAttention, NeuronAttention, PatchedModule
 
 
 class NeuronLlamaAttention(LlamaAttention, NeuronAttention):
     def __init__(self, config: LlamaConfig, layer_idx: Optional[int] = None):
         super().__init__(config, layer_idx=layer_idx)
         self.core_attn = CoreAttention()
+
+    @classmethod
+    def from_original(cls, orig_module: torch.nn.Module, **options) -> "NeuronLlamaAttention":
+        orig_module.core_attn = CoreAttention()
+        orig_module.__class__ = cls
+        return orig_module
 
     @requires_neuronx_distributed
     def forward(
@@ -130,3 +136,25 @@ class NeuronLlamaAttention(LlamaAttention, NeuronAttention):
             attn_weights = None
 
         return attn_output, attn_weights, past_key_value
+
+
+class NeuronLlamaModel(LlamaModel, PatchedModule):
+    @classmethod
+    def from_original(cls, orig_module: torch.nn.Module, **options) -> "NeuronLlamaModel":
+        orig_module.__class__ = cls
+        return orig_module
+
+    def _update_causal_mask(
+        self,
+        attention_mask: torch.Tensor,
+        input_tensor: torch.Tensor,
+        cache_position: torch.Tensor,
+        past_key_values: Cache,
+        output_attentions: bool,
+    ):
+        # TODO: work on the validity of that.
+        if self.training:
+            return None
+        return super()._update_causal_mask(
+            attention_mask, input_tensor, cache_position, past_key_values, output_attentions
+        )

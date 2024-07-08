@@ -23,7 +23,7 @@ import sys
 import warnings
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Optional, Union
 
 import torch
 from accelerate import Accelerator
@@ -33,19 +33,14 @@ from accelerate.utils.operations import gather_object, recursively_apply
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from transformers import PreTrainedModel
-from transformers.utils import is_peft_available
 
 from ...utils import logging
 from ..distributed import Parallelizer, ParallelizersManager
 from ..utils import (
-    DynamicPatch,
-    ModelPatcher,
-    NeuronPeftModel,
     Patcher,
     is_neuronx_distributed_available,
     is_torch_xla_available,
     patch_within_function,
-    replace_class_in_inheritance_hierarchy,
 )
 from ..utils.misc import args_and_kwargs_to_kwargs_only, is_main_worker
 from ..utils.model_utils import get_tied_parameters_dict, tie_parameters
@@ -62,8 +57,6 @@ from .utils import (
 )
 from .utils.misc import (
     apply_activation_checkpointing,
-    create_patched_finfo,
-    create_patched_save_pretrained,
 )
 from .utils.operations import _xla_gather
 
@@ -85,14 +78,6 @@ if is_neuronx_distributed_available():
 
 
 logger = logging.get_logger(__name__)
-
-
-MODEL_PATCHING_SPECS = [
-    ("config.layerdrop", 0),
-    ("no_sync", lambda: contextlib.nullcontext()),
-]
-
-NxDPPMODEL_PATCHING_SPECS = []
 
 
 class NeuronAccelerator(Accelerator):
@@ -317,73 +302,6 @@ class NeuronAccelerator(Accelerator):
     @patch_within_function(("accelerate.accelerator.AcceleratedScheduler", NeuronAcceleratedScheduler))
     def prepare_scheduler(self, scheduler: "LRScheduler"):
         return super().prepare_scheduler(scheduler)
-
-    def patch_model_for_neuron(
-        self,
-        model: "torch.nn.Module",
-        patching_specs: Optional[List[Tuple[str, Any]]] = None,
-    ) -> "torch.nn.Module":
-        if patching_specs is None:
-            patching_specs = MODEL_PATCHING_SPECS
-
-        # Working on a copy for safety.
-        patching_specs = list(patching_specs)
-
-        mixed_precision_is_bf16 = self.state.mixed_precision == "bf16"
-        patched_finfo = create_patched_finfo(
-            xla_downcast_bf16=mixed_precision_is_bf16 and self.state.downcast_bfloat,
-            use_amp=mixed_precision_is_bf16 and self.state.autocast_backend is AutocastBackend.AMP,
-            xla_use_bf16=mixed_precision_is_bf16 and not self.state.downcast_bfloat,
-        )
-        patching_specs.append(
-            (
-                "forward",
-                DynamicPatch(patch_within_function(("torch.finfo", patched_finfo))),
-            ),
-        )
-
-        if isinstance(model, PreTrainedModel):
-            patching_specs.append(
-                (
-                    "save_pretrained",
-                    DynamicPatch(create_patched_save_pretrained),
-                ),
-            )
-
-        # TODO: @michaelbenayoun generalize an implementation of gradient checkpointing working for:
-        #   - DDP
-        #   - TP
-        #   - PP
-        # if hasattr(model, "gradient_checkpointing_enable"):
-        #     patching_specs.append(
-        #         (
-        #             "gradient_checkpointing_enable",
-        #             patched_gradient_checkpointing_enable,
-        #         ),
-        #     )
-
-        prepared_patching_specs = []
-        for spec in patching_specs:
-            prepared_patching_specs.append((model,) + spec)
-
-        model_patcher = ModelPatcher(prepared_patching_specs, ignore_missing_attributes=True)
-        model_patcher.patch()
-
-        if is_peft_available():
-            from peft import PeftModel
-            from peft.tuners.tuners_utils import BaseTunerLayer
-            from peft.utils import ModulesToSaveWrapper
-
-            if isinstance(model, PeftModel):
-                replace_class_in_inheritance_hierarchy(model, PeftModel, NeuronPeftModel)
-            else:
-                for _, module in model.named_modules():
-                    if isinstance(module, (BaseTunerLayer, ModulesToSaveWrapper)):
-                        raise ValueError(
-                            "It appears that the model is using a PEFT method, please wrap your model with `PeftModel` "
-                            "to make it work with `optimum-neuron`"
-                        )
-        return model
 
     @requires_neuronx_distributed
     def _prepare_model_for_mp(
