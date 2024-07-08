@@ -22,6 +22,7 @@ import torch
 from transformers import (
     AutoModel,
     AutoModelForCausalLM,
+    AutoModelForCTC,
     AutoModelForImageClassification,
     AutoModelForMaskedLM,
     AutoModelForMultipleChoice,
@@ -37,6 +38,7 @@ from transformers.generation import (
 )
 from transformers.modeling_outputs import (
     BaseModelOutputWithPooling,
+    CausalLMOutput,
     ImageClassifierOutput,
     MaskedLMOutput,
     ModelOutput,
@@ -65,6 +67,7 @@ logger = logging.getLogger(__name__)
 
 _TOKENIZER_FOR_DOC = "AutoTokenizer"
 _PROCESSOR_FOR_IMAGE = "AutoImageProcessor"
+_GENERIC_PROCESSOR = "AutoProcessor"
 
 NEURON_MODEL_START_DOCSTRING = r"""
     This model inherits from [`~neuron.modeling.NeuronTracedModel`]. Check the superclass documentation for the generic methods the
@@ -102,6 +105,13 @@ NEURON_IMAGE_INPUTS_DOCSTRING = r"""
         pixel_values (`Union[torch.Tensor, None]` of shape `({0})`, defaults to `None`):
             Pixel values corresponding to the images in the current batch.
             Pixel values can be obtained from encoded images using [`AutoFeatureExtractor`](https://huggingface.co/docs/transformers/autoclass_tutorial#autofeatureextractor).
+"""
+
+NEURON_AUDIO_INPUTS_DOCSTRING = r"""
+    Args:
+        input_values (`torch.Tensor` of shape `({0})`):
+            Float values of input raw speech waveform..
+            Input values can be obtained from audio file loaded into an array using [`AutoFeatureExtractor`](https://huggingface.co/docs/transformers/autoclass_tutorial#autofeatureextractor).
 """
 
 FEATURE_EXTRACTION_EXAMPLE = r"""
@@ -856,6 +866,75 @@ class NeuronModelForObjectDetection(NeuronTracedModel):
         last_hidden_state = outputs[2]
 
         return ModelOutput(logits=logits, pred_boxes=pred_boxes, last_hidden_state=last_hidden_state)
+
+
+CTC_EXAMPLE = r"""
+    Example of CTC:
+
+    ```python
+    >>> from transformers import {processor_class}, Wav2Vec2ForCTC
+    >>> from optimum.neuron import {model_class}
+    >>> from datasets import load_dataset
+    >>> import torch
+
+    >>> dataset = load_dataset("hf-internal-testing/librispeech_asr_demo", "clean", split="validation")
+    >>> dataset = dataset.sort("id")
+    >>> sampling_rate = dataset.features["audio"].sampling_rate
+
+    >>> processor = {processor_class}.from_pretrained("{checkpoint}")
+    >>> input_shapes = {"batch_size": 1, "audio_sequence_length": 100000}
+    >>> compiler_args = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
+    >>> model = {model_class}.from_pretrained("{checkpoint}", export=True, **input_shapes, **compiler_args)
+
+    >>> # audio file is decoded on the fly
+    >>> inputs = processor(dataset[0]["audio"]["array"], sampling_rate=sampling_rate, return_tensors="pt")
+    >>> with torch.no_grad():
+    ...     logits = model(**inputs).logits
+    >>> predicted_ids = torch.argmax(logits, dim=-1)
+
+    >>> transcription = processor.batch_decode(predicted_ids)
+    ```
+"""
+
+
+@add_start_docstrings(
+    """
+    Neuron Model with a connectionist temporal classification head.
+    """,
+    NEURON_MODEL_START_DOCSTRING,
+)
+class NeuronModelForCTC(NeuronTracedModel):
+    """
+    Neuron Model with a language modeling head on top for Connectionist Temporal Classification (CTC).
+    """
+
+    auto_model_class = AutoModelForCTC
+
+    @add_start_docstrings_to_model_forward(
+        NEURON_AUDIO_INPUTS_DOCSTRING.format("batch_size, sequence_length")
+        + CTC_EXAMPLE.format(
+            processor_class=_GENERIC_PROCESSOR,
+            model_class="NeuronModelForCTC",
+            checkpoint="facebook/wav2vec2-large-960h-lv60-self",
+        )
+    )
+    def forward(
+        self,
+        input_values: torch.Tensor,
+        **kwargs,
+    ):
+        neuron_inputs = {"input_values": input_values}
+
+        # run inference
+        with self.neuron_padding_manager(neuron_inputs) as inputs:
+            outputs = self.model(*inputs)  # shape: [batch_size, sequence_length]
+            outputs = self.remove_padding(
+                outputs, dims=[0], indices=[input_values.shape[0]]
+            )  # Remove padding on batch_size(0)
+
+        logits = outputs[0]
+
+        return CausalLMOutput(logits=logits)
 
 
 NEURON_CAUSALLM_MODEL_START_DOCSTRING = r"""

@@ -42,6 +42,7 @@ _import_structure = {
         "NeuronModelForImageClassification",
         "NeuronModelForSemanticSegmentation",
         "NeuronModelForObjectDetection",
+        "NeuronModelForCTC",
     ],
     "modeling_diffusion": [
         "NeuronStableDiffusionPipelineBase",
@@ -72,6 +73,7 @@ if TYPE_CHECKING:
     from .hf_argparser import NeuronHfArgumentParser
     from .modeling import (
         NeuronModelForCausalLM,
+        NeuronModelForCTC,
         NeuronModelForFeatureExtraction,
         NeuronModelForImageClassification,
         NeuronModelForMaskedLM,

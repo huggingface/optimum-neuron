@@ -404,7 +404,14 @@ class YolosTNeuronConfig(ViTNeuronConfig):
 
 
 @register_in_tasks_manager(
-    "wav2vec2", *["feature-extraction", "audio-classification", "audio-frame-classification", "audio-xvector"]
+    "wav2vec2",
+    *[
+        "feature-extraction",
+        "automatic-speech-recognition",
+        "audio-classification",
+        "audio-frame-classification",
+        "audio-xvector",
+    ],
 )
 class Wav2Vec2NeuronConfig(AudioNeuronConfig):
     NORMALIZED_CONFIG_CLASS = NormalizedConfig
