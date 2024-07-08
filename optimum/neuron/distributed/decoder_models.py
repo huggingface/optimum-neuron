@@ -36,6 +36,7 @@ from transformers.models.mistral.modeling_mistral import (
     MistralRMSNorm,
 )
 
+from ..models.core import NeuronAttention
 from .base import Parallelizer, PipelineParallelismSpecs, SequenceParallelismSpecs
 from .parallel_layers import (
     LayerNormType,
@@ -432,12 +433,12 @@ class LlamaSequenceParallelismSpecs(SequenceParallelismSpecs):
 
     @classmethod
     def patch_for_sequence_parallelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
-        if not sequence_parallel_enabled:
-            return
-
         for module in model.modules():
-            if isinstance(module, LlamaAttention):
-                module.forward = attention_forward.__get__(module)
+            if isinstance(module, LlamaAttention) and not isinstance(module, NeuronAttention):
+                raise ValueError(
+                    "The llama model has not been prepare by the NeuronPreparator. It is required for sequence "
+                    "parallelism."
+                )
 
 
 class LlamaPipelineParallelismSpecs(PipelineParallelismSpecs):

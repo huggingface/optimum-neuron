@@ -36,6 +36,7 @@ from transformers import PreTrainedModel
 
 from ...utils import logging
 from ..distributed import Parallelizer, ParallelizersManager
+from ..models.preparator import NeuronPreparator
 from ..utils import (
     Patcher,
     is_neuronx_distributed_available,
@@ -78,6 +79,8 @@ if is_neuronx_distributed_available():
 
 
 logger = logging.get_logger(__name__)
+
+NxDPPMODEL_PATCHING_SPECS = []
 
 
 class NeuronAccelerator(Accelerator):
@@ -322,7 +325,7 @@ class NeuronAccelerator(Accelerator):
             setattr(model, "main_input_name", model_main_input_name)
 
         if isinstance(model, NxDPPModel):
-            model.local_module = self.patch_model_for_neuron(
+            model.local_module = NeuronPreparator.patch_model_for_neuron(
                 model.local_module, patching_specs=NxDPPMODEL_PATCHING_SPECS
             )
 
@@ -374,7 +377,8 @@ class NeuronAccelerator(Accelerator):
         # we get access to the model, we simply check if the flags are the best and notify the user otherwise.
         check_neuron_cc_flags_for_model(model)
 
-        model = self.patch_model_for_neuron(model)
+        NeuronPreparator.prepare_modeling(model)
+        NeuronPreparator.patch_model_for_neuron(model)
 
         # We do not want to use the cache, or output unused tensors as it would imply more communication that we do not
         # need.

@@ -14,15 +14,19 @@
 # limitations under the License.
 """Core functionalities and tools for rewriting modules for Neuron."""
 
+import functools
+import gc
 import math
+import os
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING, Callable, Dict, Optional, Union
 
 import torch
 import torch.nn as nn
 from transformers.modeling_utils import get_parameter_dtype
 
-from ..utils.require_utils import requires_neuronx_distributed
+from ..utils.patching import Patcher
+from ..utils.require_utils import requires_neuronx_distributed, requires_safetensors
 
 
 if TYPE_CHECKING:
@@ -51,6 +55,28 @@ def create_patched_get_parameter_dtype(
         return dtype
 
     return patched_get_parameter_dtype
+
+
+@requires_neuronx_distributed
+@requires_safetensors
+def torch_xla_safe_save_file(
+    tensors: Dict[str, torch.Tensor],
+    filename: Union[str, "os.PathLike"],
+    metadata: Optional[Dict[str, str]] = None,
+    master_only: bool = True,
+    global_master: bool = False,
+):
+    """
+    Torch XLA compatible implementation of `safetensors.torch.save_file`.
+    """
+    from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
+    from safetensors.torch import save_file
+    from torch_xla.core.xla_model import is_master_ordinal
+
+    should_write_data = not master_only or is_master_ordinal(local=not global_master)
+    cpu_data = move_all_tensor_to_cpu(tensors, convert=should_write_data)
+    if should_write_data:
+        save_file(cpu_data, filename, metadata=metadata)
 
 
 @requires_neuronx_distributed

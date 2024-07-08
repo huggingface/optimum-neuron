@@ -16,7 +16,7 @@
 
 import contextlib
 import importlib
-from typing import Dict
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 from transformers import PreTrainedModel
@@ -34,12 +34,10 @@ from ..utils import (
 from .core import create_patched_finfo, create_patched_save_pretrained
 
 
-MODEL_PATCHING_SPECS = [
+DEFAULT_MODEL_PATCHING_SPECS = [
     ("config.layerdrop", 0),
     ("no_sync", lambda: contextlib.nullcontext()),
 ]
-
-NxDPPMODEL_PATCHING_SPECS = []
 
 
 class NeuronPreparator:
@@ -52,6 +50,10 @@ class NeuronPreparator:
 
     @classmethod
     def prepare_modeling(cls, model: PreTrainedModel, **options):
+        """
+        Prepares the modeling of a model by potentially changing some of its modules with Neuron optimized versions of
+        them.
+        """
         if model.config.model_type not in cls._TRANSFORMERS_TO_NEURON_CLASSES:
             return
 
@@ -74,8 +76,11 @@ class NeuronPreparator:
         model: "torch.nn.Module",
         patching_specs: Optional[List[Tuple[str, Any]]] = None,
     ) -> "torch.nn.Module":
+        """
+        Patches the model in various ways to make sure it works properly on Neuron devices.
+        """
         if patching_specs is None:
-            patching_specs = MODEL_PATCHING_SPECS
+            patching_specs = DEFAULT_MODEL_PATCHING_SPECS
 
         # Working on a copy for safety.
         patching_specs = list(patching_specs)
@@ -136,4 +141,3 @@ class NeuronPreparator:
                             "It appears that the model is using a PEFT method, please wrap your model with `PeftModel` "
                             "to make it work with `optimum-neuron`"
                         )
-        return model
