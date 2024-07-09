@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Core functionalities and tools for rewriting modules for Neuron."""
+"""Core functions and classes to adapt models for Neuron."""
 
 import functools
 import gc
@@ -122,13 +122,23 @@ def create_patched_save_pretrained(orig_save_pretrained_function: Callable[["Pre
 
 
 class PatchedModule(ABC):
+    """
+    Abstract class that represents a module that is being "patched" or adapted for Neuron.
+    """
+
     @abstractmethod
     def from_original(cls, orig_module: torch.nn.Module, **options) -> "PatchedModule":
+        """
+        Constructs a `PatchedModule` instance from the original module it is adapting.
+        """
         pass
 
 
 class NeuronAttention(PatchedModule):
-    # TODO: add dosctring
+    """
+    Abstract class that represents a Neuron-adapted version of an attention mechanism.
+    It provides getters and setters that are useful to enable / disable Neuron features in the attention computation.
+    """
     @property
     def sequence_parallel_enabled(self) -> bool:
         return getattr(self, "_sequence_parallel_enabled", False)
@@ -151,8 +161,9 @@ class NeuronAttention(PatchedModule):
 
 
 class CoreAttention(nn.Module):
-    def __init__(self):
-        super().__init__()
+    """
+    Implements the classical attention computation.
+    """
 
     def forward(
         self,
