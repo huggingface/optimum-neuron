@@ -32,6 +32,8 @@ from transformers import (
     TextClassificationPipeline,
     TextGenerationPipeline,
     TokenClassificationPipeline,
+    AutomaticSpeechRecognitionPipeline,
+    AudioClassificationPipeline,
 )
 from transformers import pipeline as transformers_pipeline
 from transformers.feature_extraction_utils import PreTrainedFeatureExtractor
@@ -53,6 +55,8 @@ from ...modeling import (
     NeuronModelForSentenceTransformers,
     NeuronModelForSequenceClassification,
     NeuronModelForTokenClassification,
+    NeuronModelForCTC,
+    NeuronModelForAudioClassification,
 )
 
 
@@ -114,6 +118,18 @@ NEURONX_SUPPORTED_TASKS = {
         "default": "apple/deeplabv3-mobilevit-small",
         "type": "image",
     },
+    "automatic-speech-recognition": {
+        "impl": AutomaticSpeechRecognitionPipeline,
+        "class": (NeuronModelForCTC,),
+        "default": "facebook/wav2vec2-large-960h-lv60-self",
+        "type": "multimodal",
+    },
+    "audio-classification": {
+        "impl": AudioClassificationPipeline,
+        "class": (NeuronModelForAudioClassification,),
+        "default": "facebook/wav2vec2-large-960h-lv60-self",
+        "type": "audio",
+    }, 
 }
 
 

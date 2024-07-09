@@ -43,6 +43,8 @@ _import_structure = {
         "NeuronModelForSemanticSegmentation",
         "NeuronModelForObjectDetection",
         "NeuronModelForCTC",
+        "NeuronModelForAudioClassification",
+        "NeuronModelForAudioFrameClassification",
     ],
     "modeling_diffusion": [
         "NeuronStableDiffusionPipelineBase",
@@ -84,6 +86,8 @@ if TYPE_CHECKING:
         NeuronModelForSentenceTransformers,
         NeuronModelForSequenceClassification,
         NeuronModelForTokenClassification,
+        NeuronModelForAudioClassification,
+        NeuronModelForAudioFrameClassification,
     )
     from .modeling_decoder import NeuronDecoderModel
     from .modeling_diffusion import (
