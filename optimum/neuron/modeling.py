@@ -1055,6 +1055,7 @@ CTC_EXAMPLE = r"""
 
     >>> model = {model_class}.from_pretrained("{checkpoint}")
     >>> asr = pipeline("automatic-speech-recognition", model=model, feature_extractor=processor.feature_extractor, tokenizer=processor.tokenizer)
+    ```
 """
 
 
