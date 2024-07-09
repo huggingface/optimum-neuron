@@ -41,6 +41,8 @@ COPY --from=tgi /tgi/proto proto
 COPY --from=tgi /tgi/benchmark benchmark
 COPY --from=tgi /tgi/router router
 COPY --from=tgi /tgi/launcher launcher
+# Remove this line once TGI has fixed the conflict
+RUN cargo update ureq --precise 2.9.7
 RUN cargo build --release --workspace --exclude benchmark
 
 # Python base image
