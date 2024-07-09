@@ -50,6 +50,10 @@ class NeuronPreparator:
             "MistralAttention": "NeuronMistralAttention",
             "MistralModel": "NeuronMistralModel",
         },
+        "gpt_neox": {
+            "GPTNeoXAttention": "NeuronGPTNeoXAttention",
+            "GPTNeoXModel": "NeuronGPTNeoXModel",
+        },
     }
 
     @classmethod
