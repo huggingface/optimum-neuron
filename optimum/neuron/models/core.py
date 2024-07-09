@@ -139,6 +139,7 @@ class NeuronAttention(PatchedModule):
     Abstract class that represents a Neuron-adapted version of an attention mechanism.
     It provides getters and setters that are useful to enable / disable Neuron features in the attention computation.
     """
+
     @property
     def sequence_parallel_enabled(self) -> bool:
         return getattr(self, "_sequence_parallel_enabled", False)
@@ -170,8 +171,8 @@ class CoreAttention(nn.Module):
         query_states: torch.Tensor,
         key_states: torch.Tensor,
         value_states: torch.Tensor,
-        attention_mask: Optional[torch.tensor],
         attention_dropout: float = 0.0,
+        attention_mask: Optional[torch.tensor] = None,
     ) -> torch.Tensor:
         bsz, num_heads, q_len, head_dim = query_states.shape
         kv_seq_len = key_states.shape[-2]
@@ -183,14 +184,16 @@ class CoreAttention(nn.Module):
                 f" {attn_weights.size()}"
             )
 
-        causal_mask = torch.triu(torch.ones((1, 1, q_len, kv_seq_len), device="xla"), diagonal=1).bool()
-        # TODO: change -10000.0 with a better value (dtype.min)
-        attn_weights = attn_weights.masked_fill_(causal_mask, -10000.0)
-
-        # TODO: enable that.
-        # if attention_mask is not None:  # no matter the length, we just slice it
-        #     causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
-        #     attn_weights = attn_weights + causal_mask
+        if attention_mask is not None:  # no matter the length, we just slice it
+            # This is the Transformers way of applying the mask.
+            causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
+            attn_weights = attn_weights + causal_mask
+        else:
+            # This is the recommended way for Neuron. This way the attention is not passed as an argument
+            # avoiding communication that is not needed.
+            causal_mask = torch.triu(torch.ones((1, 1, q_len, kv_seq_len), device="xla"), diagonal=1).bool()
+            mask_value = torch.finfo(attn_weights.dtype).min
+            attn_weights = attn_weights.masked_fill_(causal_mask, mask_value)
 
         attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.double).to(query_states.dtype)
         attn_weights = nn.functional.dropout(attn_weights, p=attention_dropout, training=self.training)

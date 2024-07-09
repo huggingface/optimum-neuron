@@ -105,11 +105,22 @@ class NeuronLlamaAttention(LlamaAttention, NeuronAttention):
         key_states = repeat_kv(key_states, self.num_key_value_groups)
         value_states = repeat_kv(value_states, self.num_key_value_groups)
 
-        attn_output = (
-            nki_flash_attn_func(query_states, key_states, value_states, droupout_p=self.attention_dropout)
-            if self.flash_attention_enabled
-            else self.core_attn(query_states, key_states, value_states, attention_dropout=self.attention_dropout)
-        )
+        if self.flash_attention_enabled:
+            if attention_mask is not None:
+                raise ValueError(
+                    "Only a causal mask can be used with flash attention, but you provided an attention mask here."
+                )
+            attn_output = nki_flash_attn_func(
+                query_states, key_states, value_states, droupout_p=self.attention_dropout
+            )
+        else:
+            attn_output = self.core_attn(
+                query_states,
+                key_states,
+                value_states,
+                attention_dropout=self.attention_dropout,
+                attention_mask=attention_mask,
+            )
 
         if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
             raise ValueError(
@@ -152,8 +163,9 @@ class NeuronLlamaModel(LlamaModel, PatchedModule):
         past_key_values: Cache,
         output_attentions: bool,
     ):
-        # TODO: work on the validity of that.
-        if self.training:
+        # If there is no any `0.0` in the attention mask it means that the mask will be causal.
+        # In this case, we return `None` here since both `CoreAttention` and flash attention handle this case better.
+        if 0.0 not in attention_mask:
             return None
         return super()._update_causal_mask(
             attention_mask, input_tensor, cache_position, past_key_values, output_attentions

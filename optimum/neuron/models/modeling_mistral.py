@@ -22,6 +22,7 @@ from transformers import MistralConfig
 from transformers.cache_utils import Cache
 from transformers.models.llama.modeling_mistral import (
     MistralAttention,
+    MistralModel,
     apply_rotary_pos_emb,
     repeat_kv,
 )
@@ -98,19 +99,22 @@ class NeuronMistralAttention(MistralAttention, NeuronAttention):
         key_states = repeat_kv(key_states, self.num_key_value_groups)
         value_states = repeat_kv(value_states, self.num_key_value_groups)
 
-        # if attention_mask is not None:
-        #     if attention_mask.size() != (bsz, 1, q_len, kv_seq_len):
-        #         raise ValueError(
-        #             f"Attention mask should be of size {(bsz, 1, q_len, kv_seq_len)}, but is {attention_mask.size()}"
-        #         )
-
-        #     attn_weights = attn_weights + attention_mask
-
-        attn_output = (
-            nki_flash_attn_func(query_states, key_states, value_states, droupout_p=self.attention_dropout)
-            if self.flash_attention_enabled
-            else self.core_attn(query_states, key_states, value_states, attention_dropout=self.attention_dropout)
-        )
+        if self.flash_attention_enabled:
+            if attention_mask is not None:
+                raise ValueError(
+                    "Only a causal mask can be used with flash attention, but you provided an attention mask here."
+                )
+            attn_output = nki_flash_attn_func(
+                query_states, key_states, value_states, droupout_p=self.attention_dropout
+            )
+        else:
+            attn_output = self.core_attn(
+                query_states,
+                key_states,
+                value_states,
+                attention_dropout=self.attention_dropout,
+                attention_mask=attention_mask,
+            )
 
         if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
             raise ValueError(
@@ -132,3 +136,27 @@ class NeuronMistralAttention(MistralAttention, NeuronAttention):
             attn_weights = None
 
         return attn_output, attn_weights, past_key_value
+
+
+class NeuronMistralModel(MistralModel):
+    @classmethod
+    def from_original(cls, orig_module: torch.nn.Module, **options) -> "NeuronMistralModel":
+        orig_module.__class__ = cls
+        return orig_module
+
+    def _update_causal_mask(
+        self,
+        attention_mask: torch.Tensor,
+        input_tensor: torch.Tensor,
+        cache_position: torch.Tensor,
+        past_key_values: Cache,
+        use_cache: bool,
+        output_attentions: bool,
+    ):
+        # If there is no any `0.0` in the attention mask it means that the mask will be causal.
+        # In this case, we return `None` here since both `CoreAttention` and flash attention handle this case better.
+        if 0.0 not in attention_mask:
+            return None
+        return super()._update_causal_mask(
+            attention_mask, input_tensor, cache_position, past_key_values, output_attentions
+        )

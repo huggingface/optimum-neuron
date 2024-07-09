@@ -45,7 +45,11 @@ class NeuronPreparator:
         "llama": {
             "LlamaAttention": "NeuronLlamaAttention",
             "LlamaModel": "NeuronLlamaModel",
-        }
+        },
+        "mistral": {
+            "MistralAttention": "NeuronMistralAttention",
+            "MistralModel": "NeuronMistralModel",
+        },
     }
 
     @classmethod
