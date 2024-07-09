@@ -90,6 +90,7 @@ class NeuronAccelerator(Accelerator):
         mp_plugin: Optional[ModelParallelismPlugin] = None,
         zero_1: bool = False,
         autocast_backend: Union[str, AutocastBackend] = "xla",
+        enable_flash_attention_when_supported: bool = True,
         **kwargs,
     ):
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
@@ -151,6 +152,8 @@ class NeuronAccelerator(Accelerator):
 
         if num_steps != 1:
             self.gradient_accumulation_steps = num_steps
+
+        self.enable_flash_attention_when_supported = enable_flash_attention_when_supported
 
     def _prepare_data_loader_for_distributed(
         self,
@@ -377,7 +380,7 @@ class NeuronAccelerator(Accelerator):
         # we get access to the model, we simply check if the flags are the best and notify the user otherwise.
         check_neuron_cc_flags_for_model(model)
 
-        NeuronPreparator.prepare_modeling(model)
+        NeuronPreparator.prepare_modeling(model, flash_attention_enabled=self.enable_flash_attention_when_supported)
         NeuronPreparator.patch_model_for_neuron(model)
 
         # We do not want to use the cache, or output unused tensors as it would imply more communication that we do not

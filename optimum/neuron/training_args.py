@@ -76,6 +76,10 @@ class NeuronTrainingArgumentsMixin:
         default=False,
         metadata={"help": "Whether or not to disable sequence parallelism."},
     )
+    disable_flash_attention: bool = field(
+        default=False,
+        metadata={"help": "Whether or not to disable flash attention when it is available."},
+    )
     neuron_cc_optlevel: Optional[int] = field(
         default=None,
         metadata={

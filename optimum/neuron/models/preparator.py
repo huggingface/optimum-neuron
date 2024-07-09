@@ -31,7 +31,7 @@ from ..utils import (
     patch_within_function,
     replace_class_in_inheritance_hierarchy,
 )
-from .core import create_patched_finfo, create_patched_save_pretrained
+from .core import NeuronAttention, create_patched_finfo, create_patched_save_pretrained
 
 
 DEFAULT_MODEL_PATCHING_SPECS = [
@@ -69,6 +69,20 @@ class NeuronPreparator:
                     parent, attr_name = model.get_submodule(names[0]), names[1]
                 replacement_cls = getattr(module, replacement_cls_name)
                 setattr(parent, attr_name, replacement_cls.from_original(mod, **options))
+
+        # Flash attention
+        attn_implementation = getattr(model.config, "_attn_implementation", None)
+        flash_attention_enabled = options.get("flash_attention_enabled", None)
+        enabled = False
+        if attn_implementation is not None:
+            enabled = attn_implementation == "flash_attention_v2"
+            model.config._attn_implementation = "eager"
+        if flash_attention_enabled is not None:
+            enabled = flash_attention_enabled
+
+        for mod in model.modules():
+            if isinstance(mod, NeuronAttention):
+                mod.flash_attention_enabled = enabled
 
     @classmethod
     def patch_model_for_neuron(
