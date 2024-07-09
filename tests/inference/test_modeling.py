@@ -1762,7 +1762,9 @@ class NeuronModelForCTCIntegrationTest(NeuronModelTestMixin):
         return transformers_model
 
     def _prepare_inputs(self, processor, batch_size=1):
-        dataset = load_dataset("hf-internal-testing/librispeech_asr_demo", "clean", split="validation")
+        dataset = load_dataset(
+            "hf-internal-testing/librispeech_asr_demo", "clean", split="validation", trust_remote_code=True
+        )
         dataset = dataset.sort("id")
         sampling_rate = dataset.features["audio"].sampling_rate
         inputs = processor(dataset[0]["audio"]["array"], sampling_rate=sampling_rate, return_tensors="pt")
@@ -1833,7 +1835,9 @@ class NeuronModelForCTCIntegrationTest(NeuronModelTestMixin):
             feature_extractor=processor.feature_extractor,
             tokenizer=processor.tokenizer,
         )
-        dataset = load_dataset("hf-internal-testing/librispeech_asr_demo", "clean", split="validation")
+        dataset = load_dataset(
+            "hf-internal-testing/librispeech_asr_demo", "clean", split="validation", trust_remote_code=True
+        )
         dataset = dataset.sort("id")
         _ = pipe(dataset[0]["audio"]["array"])
 
@@ -1870,7 +1874,9 @@ class NeuronModelForAudioClassificationIntegrationTest(NeuronModelTestMixin):
         return transformers_model
 
     def _prepare_inputs(self, processor, batch_size=1):
-        dataset = load_dataset("hf-internal-testing/librispeech_asr_demo", "clean", split="validation")
+        dataset = load_dataset(
+            "hf-internal-testing/librispeech_asr_demo", "clean", split="validation", trust_remote_code=True
+        )
         dataset = dataset.sort("id")
         sampling_rate = dataset.features["audio"].sampling_rate
         inputs = processor(dataset[0]["audio"]["array"], sampling_rate=sampling_rate, return_tensors="pt")
@@ -1941,7 +1947,9 @@ class NeuronModelForAudioClassificationIntegrationTest(NeuronModelTestMixin):
             feature_extractor=processor.feature_extractor,
             tokenizer=processor.tokenizer,
         )
-        dataset = load_dataset("hf-internal-testing/librispeech_asr_demo", "clean", split="validation")
+        dataset = load_dataset(
+            "hf-internal-testing/librispeech_asr_demo", "clean", split="validation", trust_remote_code=True
+        )
         dataset = dataset.sort("id")
         _ = pipe(dataset[0]["audio"]["array"])
 
@@ -1980,7 +1988,9 @@ class NeuronModelForAudioFrameClassificationIntegrationTest(NeuronModelTestMixin
         return transformers_model
 
     def _prepare_inputs(self, processor, batch_size=1):
-        dataset = load_dataset("hf-internal-testing/librispeech_asr_demo", "clean", split="validation")
+        dataset = load_dataset(
+            "hf-internal-testing/librispeech_asr_demo", "clean", split="validation", trust_remote_code=True
+        )
         dataset = dataset.sort("id")
         sampling_rate = dataset.features["audio"].sampling_rate
         inputs = processor(dataset[0]["audio"]["array"], sampling_rate=sampling_rate, return_tensors="pt")
@@ -2069,7 +2079,9 @@ class NeuronModelForXVectorIntegrationTest(NeuronModelTestMixin):
         return transformers_model
 
     def _prepare_inputs(self, processor, batch_size=1):
-        dataset = load_dataset("hf-internal-testing/librispeech_asr_demo", "clean", split="validation")
+        dataset = load_dataset(
+            "hf-internal-testing/librispeech_asr_demo", "clean", split="validation", trust_remote_code=True
+        )
         dataset = dataset.sort("id")
         sampling_rate = dataset.features["audio"].sampling_rate
         inputs = processor(dataset[0]["audio"]["array"], sampling_rate=sampling_rate, return_tensors="pt")
