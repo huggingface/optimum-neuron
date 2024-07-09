@@ -8,7 +8,7 @@ RUN tar -C /tgi -xf /tgi/sources.tar.gz --strip-components=1
 
 # Build cargo components (adapted from TGI original Dockerfile)
 # Note that the build image is aligned on the same Linux version as the base image (Debian bookworm/ Ubuntu 22.04)
-FROM lukemathwalker/cargo-chef:latest-rust-1.75-bookworm AS chef
+FROM lukemathwalker/cargo-chef:latest-rust-1.79-bookworm AS chef
 WORKDIR /usr/src
 
 ARG CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
@@ -20,8 +20,6 @@ COPY --from=tgi /tgi/proto proto
 COPY --from=tgi /tgi/benchmark benchmark
 COPY --from=tgi /tgi/router router
 COPY --from=tgi /tgi/launcher launcher
-# Remove the next line when bumping rust version
-RUN cargo update ravif --precise 0.11.6
 RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
