@@ -18,7 +18,9 @@ import logging
 from typing import Any, Dict, Optional, Union
 
 from transformers import (
+    AudioClassificationPipeline,
     AutoConfig,
+    AutomaticSpeechRecognitionPipeline,
     FillMaskPipeline,
     ImageClassificationPipeline,
     ImageSegmentationPipeline,
@@ -32,8 +34,6 @@ from transformers import (
     TextClassificationPipeline,
     TextGenerationPipeline,
     TokenClassificationPipeline,
-    AutomaticSpeechRecognitionPipeline,
-    AudioClassificationPipeline,
 )
 from transformers import pipeline as transformers_pipeline
 from transformers.feature_extraction_utils import PreTrainedFeatureExtractor
@@ -46,7 +46,9 @@ from optimum.neuron.pipelines.transformers.sentence_transformers import (
 )
 
 from ...modeling import (
+    NeuronModelForAudioClassification,
     NeuronModelForCausalLM,
+    NeuronModelForCTC,
     NeuronModelForFeatureExtraction,
     NeuronModelForImageClassification,
     NeuronModelForMaskedLM,
@@ -55,8 +57,6 @@ from ...modeling import (
     NeuronModelForSentenceTransformers,
     NeuronModelForSequenceClassification,
     NeuronModelForTokenClassification,
-    NeuronModelForCTC,
-    NeuronModelForAudioClassification,
 )
 
 
@@ -129,7 +129,7 @@ NEURONX_SUPPORTED_TASKS = {
         "class": (NeuronModelForAudioClassification,),
         "default": "facebook/wav2vec2-large-960h-lv60-self",
         "type": "audio",
-    }, 
+    },
 }
 
 

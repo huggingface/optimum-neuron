@@ -21,6 +21,9 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Union
 import torch
 from transformers import (
     AutoModel,
+    AutoModelForAudioClassification,
+    AutoModelForAudioFrameClassification,
+    AutoModelForAudioXVector,
     AutoModelForCausalLM,
     AutoModelForCTC,
     AutoModelForImageClassification,
@@ -31,9 +34,6 @@ from transformers import (
     AutoModelForSemanticSegmentation,
     AutoModelForSequenceClassification,
     AutoModelForTokenClassification,
-    AutoModelForAudioClassification,
-    AutoModelForAudioFrameClassification,
-    AutoModelForAudioXVector,
 )
 from transformers.file_utils import add_start_docstrings, add_start_docstrings_to_model_forward
 from transformers.generation import (
@@ -50,6 +50,7 @@ from transformers.modeling_outputs import (
     SemanticSegmenterOutput,
     SequenceClassifierOutput,
     TokenClassifierOutput,
+    XVectorOutput,
 )
 
 from .generation import TokenSelector
@@ -1042,8 +1043,7 @@ CTC_EXAMPLE = r"""
 
     >>> transcription = processor.batch_decode(predicted_ids)
     ```
-    
-     Example using `transformers.pipeline`:
+    Example using `transformers.pipeline`:
 
     ```python
     >>> from transformers import {processor_class}, pipeline
@@ -1097,6 +1097,80 @@ class NeuronModelForCTC(NeuronTracedModel):
         logits = outputs[0]
 
         return CausalLMOutput(logits=logits)
+
+
+AUDIO_XVECTOR_EXAMPLE = r"""
+    Example of Audio XVector:
+
+    ```python
+    >>> from transformers import {processor_class}
+    >>> from optimum.neuron import {model_class}
+    >>> from datasets import load_dataset
+    >>> import torch
+
+    >>> dataset = load_dataset("hf-internal-testing/librispeech_asr_demo", "clean", split="validation")
+    >>> dataset = dataset.sort("id")
+    >>> sampling_rate = dataset.features["audio"].sampling_rate
+
+    >>> feature_extractor = {processor_class}.from_pretrained("{checkpoint}")
+    >>> model = {model_class}.from_pretrained("{checkpoint}")
+
+    >>> inputs = feature_extractor(
+    ...     [d["array"] for d in dataset[:2]["audio"]], sampling_rate=sampling_rate, return_tensors="pt", padding=True
+    ... )
+    >>> embeddings = model(**inputs).embeddings
+
+    >>> embeddings = torch.nn.functional.normalize(embeddings, dim=-1)
+
+    >>> cosine_sim = torch.nn.CosineSimilarity(dim=-1)
+    >>> similarity = cosine_sim(embeddings[0], embeddings[1])
+    >>> threshold = 0.7
+    >>> if similarity < threshold:
+    ...     print("Speakers are not the same!")
+    >>> round(similarity.item(), 2)
+    ```
+"""
+
+
+@add_start_docstrings(
+    """
+    Neuron Model with an XVector feature extraction head on top for tasks like Speaker Verification.
+    """,
+    NEURON_MODEL_START_DOCSTRING,
+)
+class NeuronModelForXVector(NeuronTracedModel):
+    """
+    Neuron Model with an XVector feature extraction head on top for tasks like Speaker Verification.
+    """
+
+    auto_model_class = AutoModelForAudioXVector
+
+    @add_start_docstrings_to_model_forward(
+        NEURON_AUDIO_INPUTS_DOCSTRING.format("batch_size, sequence_length")
+        + AUDIO_XVECTOR_EXAMPLE.format(
+            processor_class=_GENERIC_PROCESSOR,
+            model_class="NeuronModelForXVector",
+            checkpoint="Jingya/wav2vec2-base-superb-sv-neuronx",
+        )
+    )
+    def forward(
+        self,
+        input_values: torch.Tensor,
+        **kwargs,
+    ):
+        neuron_inputs = {"input_values": input_values}
+
+        # run inference
+        with self.neuron_padding_manager(neuron_inputs) as inputs:
+            outputs = self.model(*inputs)  # shape: [batch_size, num_labels]
+            outputs = self.remove_padding(
+                outputs, dims=[0], indices=[input_values.shape[0]]
+            )  # Remove padding on batch_size(0)
+
+        logits = outputs[0]
+        embeddings = outputs[1]
+
+        return XVectorOutput(logits=logits, embeddings=embeddings)
 
 
 NEURON_CAUSALLM_MODEL_START_DOCSTRING = r"""
