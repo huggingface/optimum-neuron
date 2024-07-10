@@ -1,16 +1,7 @@
 name: Optimum neuron / Test INF1 partial export
 
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - "setup.py"
-      - "optimum/**.py"
-  pull_request:
-    branches: [ main ]
-    paths:
-      - "setup.py"
-      - "optimum/**.py"
+  workflow_dispatch
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
