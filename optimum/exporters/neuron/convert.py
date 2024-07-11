@@ -263,17 +263,12 @@ def validate_model_outputs(
                 logger.info(f"\t\t-[✓] {output.shape} matches {ref_output.shape}")
 
             # Values
-            try:
-                if not np.allclose(ref_output, output, atol=atol):
-                    max_diff = np.amax(np.abs(ref_output - output))
-                    logger.error(f"\t\t-[x] values not close enough, max diff: {max_diff} (atol: {atol})")
-                    value_failures.append((name, max_diff))
-                else:
-                    logger.info(f"\t\t-[✓] all values close (atol: {atol})")
-            except Exception:
-                import pdb
-
-                pdb.set_trace()
+            if not np.allclose(ref_output, output, atol=atol):
+                max_diff = np.amax(np.abs(ref_output - output))
+                logger.error(f"\t\t-[x] values not close enough, max diff: {max_diff} (atol: {atol})")
+                value_failures.append((name, max_diff))
+            else:
+                logger.info(f"\t\t-[✓] all values close (atol: {atol})")
 
     if shape_failures:
         msg = "\n".join(f"- {t[0]}: got {t[1]} (reference) and {t[2]} (neuron)" for t in shape_failures)
