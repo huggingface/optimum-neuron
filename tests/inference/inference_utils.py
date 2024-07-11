@@ -63,6 +63,8 @@ MODEL_NAMES = {
     "stable-diffusion": "hf-internal-testing/tiny-stable-diffusion-torch",
     "stable-diffusion-ip2p": "asntr/tiny-stable-diffusion-pix2pix-torch",
     "stable-diffusion-xl": "echarlaix/tiny-random-stable-diffusion-xl",
+    "unispeech": "hf-internal-testing/tiny-random-unispeech",
+    "unispeech-sat": "hf-internal-testing/tiny-random-unispeech-sat",
     "vit": "hf-internal-testing/tiny-random-vit",
     "wav2vec2": "hf-internal-testing/tiny-random-Wav2Vec2Model",
     # "wav2vec2-conformer": "hf-internal-testing/tiny-random-wav2vec2-conformer",  # blocked
