@@ -30,6 +30,7 @@ SEED = 42
 
 MODEL_NAMES = {
     "albert": "hf-internal-testing/tiny-random-AlbertModel",
+    "audio-spectrogram-transformer": "Ericwang/tiny-random-ast",
     "beit": "hf-internal-testing/tiny-random-BeitForImageClassification",
     "bert": "hf-internal-testing/tiny-random-BertModel",
     "camembert": "hf-internal-testing/tiny-random-camembert",
@@ -45,6 +46,7 @@ MODEL_NAMES = {
     "dpt": "hf-internal-testing/tiny-random-DPTModel",
     "electra": "hf-internal-testing/tiny-random-ElectraModel",
     "flaubert": "flaubert/flaubert_small_cased",
+    "hubert": "hf-internal-testing/tiny-random-HubertModel",
     "gpt2": "hf-internal-testing/tiny-random-gpt2",
     "latent-consistency": "echarlaix/tiny-random-latent-consistency",
     "levit": "hf-internal-testing/tiny-random-LevitModel",
@@ -55,12 +57,16 @@ MODEL_NAMES = {
     "phi": "bumblebee-testing/tiny-random-PhiModel",
     "roberta": "hf-internal-testing/tiny-random-RobertaModel",
     "roformer": "hf-internal-testing/tiny-random-RoFormerModel",
+    # "sew": "hf-internal-testing/tiny-random-SEWModel",  # blocked
+    # "sew-d": "hf-internal-testing/tiny-random-SEWDModel",  # blocked
     "swin": "hf-internal-testing/tiny-random-SwinModel",
-    "vit": "hf-internal-testing/tiny-random-vit",
     "stable-diffusion": "hf-internal-testing/tiny-stable-diffusion-torch",
     "stable-diffusion-ip2p": "asntr/tiny-stable-diffusion-pix2pix-torch",
     "stable-diffusion-xl": "echarlaix/tiny-random-stable-diffusion-xl",
+    "vit": "hf-internal-testing/tiny-random-vit",
     "wav2vec2": "hf-internal-testing/tiny-random-Wav2Vec2Model",
+    # "wav2vec2-conformer": "hf-internal-testing/tiny-random-wav2vec2-conformer",  # blocked
+    "wavlm": "hf-internal-testing/tiny-random-wavlm",
     "xlm": "hf-internal-testing/tiny-random-XLMModel",
     "xlm-roberta": "hf-internal-testing/tiny-xlm-roberta",
     "yolos": "hf-internal-testing/tiny-random-YolosModel",

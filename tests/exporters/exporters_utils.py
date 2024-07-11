@@ -16,6 +16,7 @@
 
 EXPORT_MODELS_TINY = {
     "albert": "hf-internal-testing/tiny-random-AlbertModel",
+    "audio-spectrogram-transformer": "Ericwang/tiny-random-ast",
     "beit": "hf-internal-testing/tiny-random-BeitForImageClassification",
     "bert": "hf-internal-testing/tiny-random-BertModel",
     "camembert": "hf-internal-testing/tiny-random-camembert",
@@ -32,6 +33,7 @@ EXPORT_MODELS_TINY = {
     "electra": "hf-internal-testing/tiny-random-ElectraModel",
     "esm": "hf-internal-testing/tiny-random-EsmModel",
     "flaubert": "flaubert/flaubert_small_cased",
+    "hubert": "hf-internal-testing/tiny-random-HubertModel",
     "levit": "hf-internal-testing/tiny-random-LevitModel",
     "mobilebert": "hf-internal-testing/tiny-random-MobileBertModel",
     "mobilenet-v2": "hf-internal-testing/tiny-random-MobileNetV2Model",
@@ -40,8 +42,15 @@ EXPORT_MODELS_TINY = {
     "phi": "bumblebee-testing/tiny-random-PhiModel",
     "roberta": "hf-internal-testing/tiny-random-RobertaModel",
     "roformer": "hf-internal-testing/tiny-random-RoFormerModel",
+    # "sew": "hf-internal-testing/tiny-random-SEWModel",  # blocked
+    # "sew-d": "hf-internal-testing/tiny-random-SEWDModel",  # blocked
     "swin": "hf-internal-testing/tiny-random-SwinModel",
+    "unispeech": "hf-internal-testing/tiny-random-unispeech",
+    "unispeech-sat": "hf-internal-testing/tiny-random-unispeech-sat",
     "vit": "hf-internal-testing/tiny-random-vit",
+    "wav2vec2": "hf-internal-testing/tiny-random-Wav2Vec2Model",
+    # "wav2vec2-conformer": "hf-internal-testing/tiny-random-wav2vec2-conformer",  # blocked
+    "wavlm": "hf-internal-testing/tiny-random-wavlm",
     "xlm": "hf-internal-testing/tiny-random-XLMModel",
     "xlm-roberta": "hf-internal-testing/tiny-xlm-roberta",
     "yolos": "hf-internal-testing/tiny-random-YolosModel",
