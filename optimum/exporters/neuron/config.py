@@ -19,6 +19,7 @@ configurations.
 from typing import List
 
 from ...utils import (
+    DummyAudioInputGenerator,
     DummyBboxInputGenerator,
     DummyInputGenerator,
     DummySeq2SeqDecoderTextInputGenerator,
@@ -57,6 +58,15 @@ class TextAndVisionNeuronConfig(NeuronDefaultConfig):
     """
 
     DUMMY_INPUT_GENERATOR_CLASSES = (DummyTextInputGenerator, DummyVisionInputGenerator, DummyBboxInputGenerator)
+
+
+class AudioNeuronConfig(NeuronDefaultConfig):
+    """
+    Handles audio architectures.
+    """
+
+    DUMMY_INPUT_GENERATOR_CLASSES = (DummyAudioInputGenerator, DummyTextInputGenerator)
+    INPUT_ARGS = ("batch_size", "audio_sequence_length")
 
 
 class TextNeuronDecoderConfig(NeuronDecoderConfig):

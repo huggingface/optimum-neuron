@@ -249,6 +249,11 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         default=1,
         help=f"Stable diffusion only. Number of images per prompt {doc_input}",
     )
+    input_group.add_argument(
+        "--audio_sequence_length",
+        type=int,
+        help=f"Audio tasks only. Audio sequence length {doc_input}",
+    )
 
     level_group = parser.add_mutually_exclusive_group()
     level_group.add_argument(

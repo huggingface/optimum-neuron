@@ -197,6 +197,7 @@ class NeuronStableDiffusionPipelineIntegrationTest(unittest.TestCase):
         pipe = self.NEURON_MODEL_CLASS.from_pretrained(
             MODEL_NAMES[model_arch],
             export=True,
+            disable_neuron_cache=True,
             inline_weights_to_neff=True,
             output_hidden_states=True,
             **input_shapes,

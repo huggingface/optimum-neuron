@@ -35,6 +35,8 @@ TESTS_REQUIRE = [
     "peft",
     "compel",
     "rjieba",
+    "soundfile",
+    "librosa",
     "opencv-python-headless",
 ]
 
@@ -55,6 +57,7 @@ EXTRAS_REQUIRE = {
         "neuron-cc[tensorflow]==1.22.0.0",
         "protobuf",
         "torchvision",
+        "numpy==1.22.3",
     ],
     "neuronx": [
         "wheel",

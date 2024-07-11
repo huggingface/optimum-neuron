@@ -18,7 +18,9 @@ import logging
 from typing import Any, Dict, Optional, Union
 
 from transformers import (
+    AudioClassificationPipeline,
     AutoConfig,
+    AutomaticSpeechRecognitionPipeline,
     FillMaskPipeline,
     ImageClassificationPipeline,
     ImageSegmentationPipeline,
@@ -44,7 +46,9 @@ from optimum.neuron.pipelines.transformers.sentence_transformers import (
 )
 
 from ...modeling import (
+    NeuronModelForAudioClassification,
     NeuronModelForCausalLM,
+    NeuronModelForCTC,
     NeuronModelForFeatureExtraction,
     NeuronModelForImageClassification,
     NeuronModelForMaskedLM,
@@ -113,6 +117,18 @@ NEURONX_SUPPORTED_TASKS = {
         "class": (NeuronModelForSemanticSegmentation,),
         "default": "apple/deeplabv3-mobilevit-small",
         "type": "image",
+    },
+    "automatic-speech-recognition": {
+        "impl": AutomaticSpeechRecognitionPipeline,
+        "class": (NeuronModelForCTC,),
+        "default": "facebook/wav2vec2-large-960h-lv60-self",
+        "type": "multimodal",
+    },
+    "audio-classification": {
+        "impl": AudioClassificationPipeline,
+        "class": (NeuronModelForAudioClassification,),
+        "default": "facebook/wav2vec2-large-960h-lv60-self",
+        "type": "audio",
     },
 }
 

@@ -60,6 +60,7 @@ MODEL_NAMES = {
     "stable-diffusion": "hf-internal-testing/tiny-stable-diffusion-torch",
     "stable-diffusion-ip2p": "asntr/tiny-stable-diffusion-pix2pix-torch",
     "stable-diffusion-xl": "echarlaix/tiny-random-stable-diffusion-xl",
+    "wav2vec2": "hf-internal-testing/tiny-random-Wav2Vec2Model",
     "xlm": "hf-internal-testing/tiny-random-XLMModel",
     "xlm-roberta": "hf-internal-testing/tiny-xlm-roberta",
     "yolos": "hf-internal-testing/tiny-random-YolosModel",

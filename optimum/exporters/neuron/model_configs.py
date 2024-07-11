@@ -36,6 +36,7 @@ from ...utils import (
 )
 from ..tasks import TasksManager
 from .config import (
+    AudioNeuronConfig,
     TextAndVisionNeuronConfig,
     TextEncoderNeuronConfig,
     TextNeuronDecoderConfig,
@@ -399,6 +400,31 @@ class YolosTNeuronConfig(ViTNeuronConfig):
         common_outputs = super().outputs
         if self.task == "object-detection":
             common_outputs.append("last_hidden_state")
+        return common_outputs
+
+
+@register_in_tasks_manager(
+    "wav2vec2",
+    *[
+        "feature-extraction",
+        "automatic-speech-recognition",
+        "audio-classification",
+        "audio-frame-classification",
+        "audio-xvector",
+    ],
+)
+class Wav2Vec2NeuronConfig(AudioNeuronConfig):
+    NORMALIZED_CONFIG_CLASS = NormalizedConfig
+
+    @property
+    def inputs(self) -> List[str]:
+        return ["input_values"]
+
+    @property
+    def outputs(self) -> List[str]:
+        common_outputs = super().outputs
+        if self.task == "audio-xvector":
+            common_outputs.append("embeddings")
         return common_outputs
 
 
