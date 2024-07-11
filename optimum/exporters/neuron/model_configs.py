@@ -470,7 +470,7 @@ class HubertNeuronConfig(Wav2Vec2NeuronConfig):
         return common_outputs
 
 
-# TODO: compilation failed due to a bug in xla, https://github.com/huggingface/transformers/pull/31912 might be a workaround.
+# TODO: compilation failed due to a bug in xla: https://github.com/pytorch/xla/issues/6398.
 # @register_in_tasks_manager(
 #     "sew",
 #     *[
@@ -483,7 +483,7 @@ class HubertNeuronConfig(Wav2Vec2NeuronConfig):
 #     pass
 
 
-# TODO: compilation failed due to a bug in xla, https://github.com/huggingface/transformers/pull/31912 might be a workaround.
+# TODO: compilation failed due to a bug in xla: https://github.com/pytorch/xla/issues/6398.
 # @register_in_tasks_manager(
 #     "sew-d",
 #     *[
@@ -522,7 +522,7 @@ class UniSpeechSATNeuronConfig(Wav2Vec2NeuronConfig):
     pass
 
 
-# TODO: compilation failed due to a bug in xla, https://github.com/huggingface/transformers/pull/31912 might be a workaround.
+# TODO: compilation failed due to a bug in xla: https://github.com/pytorch/xla/issues/6398.
 # @register_in_tasks_manager(
 #     "wav2vec2-bert",
 #     *[
@@ -537,7 +537,7 @@ class UniSpeechSATNeuronConfig(Wav2Vec2NeuronConfig):
 #     pass
 
 
-# TODO: compilation failed due to a bug in xla, https://github.com/huggingface/transformers/pull/31912 might be a workaround.
+# TODO: compilation failed due to a bug in xla: https://github.com/pytorch/xla/issues/6398.
 # @register_in_tasks_manager(
 #     "wav2vec2-conformer",
 #     *[
