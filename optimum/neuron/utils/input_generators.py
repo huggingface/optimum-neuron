@@ -20,6 +20,7 @@ import torch
 
 from ...utils import (
     DTYPE_MAPPER,
+    DummyAudioInputGenerator,
     DummyInputGenerator,
     NormalizedTextConfig,
     NormalizedVisionConfig,
@@ -163,3 +164,12 @@ class DummyControNetInputGenerator(DummyInputGenerator):
                 self.width // 2**num_cross_attn_blocks,
             )
             return self.random_float_tensor(shape, framework=framework, dtype=float_dtype)
+
+
+# copied from https://github.com/huggingface/optimum/blob/171020c775cec6ff77826c3f5f5e5c1498b23f81/optimum/exporters/onnx/model_configs.py#L1363C1-L1368C111
+class ASTDummyAudioInputGenerator(DummyAudioInputGenerator):
+    def generate(self, input_name: str, framework: str = "pt", int_dtype: str = "int64", float_dtype: str = "fp32"):
+        shape = [self.batch_size, self.normalized_config.max_length, self.normalized_config.num_mel_bins]
+        if input_name == "input_values":
+            return self.random_float_tensor(shape, min_value=-1, max_value=1, framework=framework, dtype=float_dtype)
+        return super().generate(input_name, framework=framework, int_dtype=int_dtype, float_dtype=float_dtype)
