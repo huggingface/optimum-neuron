@@ -25,7 +25,8 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Un
 
 import torch
 from huggingface_hub import snapshot_download
-from transformers import AutoConfig, AutoModelForSeq2SeqLM, GenerationConfig
+from transformers import AutoConfig, AutoModelForSeq2SeqLM, AutoModelForSpeechSeq2Seq, GenerationConfig
+from transformers.file_utils import add_start_docstrings, add_start_docstrings_to_model_forward
 from transformers.generation.logits_process import LogitsProcessorList
 from transformers.generation.stopping_criteria import StoppingCriteriaList
 from transformers.utils import ModelOutput
@@ -53,6 +54,49 @@ if is_neuronx_available():
     import torch_neuronx
 
 logger = logging.getLogger(__name__)
+
+
+_TOKENIZER_FOR_DOC = "AutoTokenizer"
+_GENERIC_PROCESSOR = "AutoProcessor"
+
+NEURON_MODEL_START_DOCSTRING = r"""
+    This model inherits from [`~neuron.modeling_seq2seq.NeuronModelForConditionalGeneration`]. Check the superclass documentation for the generic methods the
+    library implements for all its model (such as downloading or saving)
+
+    Args:
+        config (`transformers.PretrainedConfig`): [PretrainedConfig](https://huggingface.co/docs/transformers/main_classes/configuration#transformers.PretrainedConfig) is the Model configuration class with all the parameters of the model.
+            Initializing with a config file does not load the weights associated with the model, only the
+            configuration. Check out the [`optimum.neuron.modeling.NeuronTracedModel.from_pretrained`] method to load the model weights.
+        model (`torch.jit._script.ScriptModule`): [torch.jit._script.ScriptModule](https://pytorch.org/docs/stable/generated/torch.jit.ScriptModule.html) is the TorchScript module with embedded NEFF(Neuron Executable File Format) compiled by neuron(x) compiler.
+"""
+
+
+NEURON_SEQ2SEQ_TEXT_INPUTS_DOCSTRING = r"""
+    Args:
+        attention_mask (`torch.LongTensor`):
+            Mask to avoid performing attention on padding token indices, of shape
+            `(batch_size, encoder_sequence_length)`. Mask values selected in `[0, 1]`.
+        decoder_input_ids (`torch.Tensor` of shape `({0})`):
+            Indices of decoder input sequence tokens in the vocabulary of shape `(batch_size, decoder_sequence_length)`.
+        decoder_attention_mask (`torch.LongTensor`):
+            Mask to avoid performing attention on padding token indices, of shape
+            `(batch_size, decoder_sequence_length)`. Mask values selected in `[0, 1]`.
+        encoder_outputs (`torch.FloatTensor`):
+            The encoder `last_hidden_state` of shape `(batch_size, encoder_sequence_length, hidden_size)`.
+        beam_scores (`torch.FloatTensor`):
+            Beam scores consisting of log softmax scores for each vocabulary token and sum of log softmax of previously generated tokens in this beam.
+"""
+
+NEURON_SPEECH_SEQ2SEQ_INPUTS_DOCSTRING = r"""
+    Args:
+        input_features (`torch.FloatTensor`):
+            Mel features extracted from the raw speech waveform.
+            `(batch_size, feature_size, encoder_sequence_length)`.
+        decoder_input_ids (`torch.LongTensor`):
+            Indices of decoder input sequence tokens in the vocabulary of shape `(batch_size, decoder_sequence_length)`.
+        encoder_outputs (`torch.FloatTensor`):
+            The encoder `last_hidden_state` of shape `(batch_size, encoder_sequence_length, hidden_size)`.
+"""
 
 
 class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
@@ -350,10 +394,45 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
         return combined_config
 
 
+SEQ2SEQ_LM_EXAMPLE = r"""
+    Example of Sequence-to-sequence LM:
+
+    ```python
+    >>> from transformers import {processor_class}
+    >>> from optimum.neuron import {model_class}
+
+    >>> tokenizer = {processor_class}.from_pretrained("{checkpoint}")
+    >>> model = {model_class}.from_pretrained("{checkpoint}")
+
+    >>> prompt = "translate English to German: Lets eat good food."
+    >>> inputs = tokenizer(prompt, return_tensors="pt")
+    >>> output = neuron_model.generate(**inputs, num_return_sequences=num_return_sequences)
+    >>> results = [tokenizer.decode(t, skip_special_tokens=True) for t in output]
+    >>> print("Results:")
+    >>> for i, summary in enumerate(results):
+        ... print(i + 1, summary)
+    ```
+"""
+
+
+@add_start_docstrings(
+    """
+    Neuron Model with a sequence-to-sequence language modeling head.
+    """,
+    NEURON_MODEL_START_DOCSTRING,
+)
 class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerationMixin):
     auto_model_class = AutoModelForSeq2SeqLM
     main_input_name = "input_ids"
 
+    @add_start_docstrings_to_model_forward(
+        NEURON_SEQ2SEQ_TEXT_INPUTS_DOCSTRING
+        + SEQ2SEQ_LM_EXAMPLE.format(
+            processor_class=_TOKENIZER_FOR_DOC,
+            model_class="NeuronModelForSeq2SeqLM",
+            checkpoint="Jingya/t5-small-neuronx",
+        )
+    )
     def forward(
         self,
         attention_mask: Optional[torch.FloatTensor] = None,
@@ -610,3 +689,63 @@ class NeuronDecoder(_NeuronSeq2SeqModelPart):
         )
         outputs = self.model(*inputs)
         return outputs
+
+
+SPEECH_SEQ2SEQ_EXAMPLE = r"""
+    Example of Speech Sequence-to-sequence:
+
+    ```python
+    >>> from transformers import {processor_class}
+    >>> from optimum.neuron import {model_class}
+    >>> from datasets import load_dataset
+    >>> import torch
+
+    >>> dataset = load_dataset("distil-whisper/librispeech_long", "clean", split="validation")
+    >>> dataset = dataset.sort("id")
+    >>> sample = dataset[0]["audio"]
+    >>> sampling_rate = sample["sampling_rate"]
+
+    >>> processor = {processor_class}.from_pretrained("{checkpoint}")
+    >>> model = {model_class}.from_pretrained("{checkpoint}")
+
+    >>> input_features = processor(
+    ...     sample["array"], sampling_rate=sampling_rate, return_tensors="pt"
+    ... ).input_features
+    >>> predicted_ids = model.generate(input_features)
+
+    >>> transcription = processor.batch_decode(predicted_ids, skip_special_tokens=True)
+    >>> print(transcription)
+    ```
+"""
+
+
+@add_start_docstrings(
+    """
+    Neuron Model with a sequence-to-sequence speech-to-text modeling head.
+    """,
+    NEURON_MODEL_START_DOCSTRING,
+)
+class NeuronModelForSpeechSeq2Seq(NeuronModelForConditionalGeneration, NeuronGenerationMixin):
+    """
+    Neuron Model with a sequence-to-sequence speech-to-text modeling head.
+    """
+
+    auto_model_class = AutoModelForSpeechSeq2Seq
+
+    @add_start_docstrings_to_model_forward(
+        NEURON_SPEECH_SEQ2SEQ_INPUTS_DOCSTRING
+        + SPEECH_SEQ2SEQ_EXAMPLE.format(
+            processor_class=_GENERIC_PROCESSOR,
+            model_class="NeuronModelForSpeechSeq2Seq",
+            checkpoint="Jingya/whisper-tiny-neuronx",
+        )
+    )
+    def forward(
+        self,
+        input_features: torch.Tensor,
+        decoder_input_ids: Optional[torch.LongTensor] = None,
+        decoder_attention_mask: Optional[torch.BoolTensor] = None,
+        encoder_outputs: Optional[Tuple[Tuple[torch.Tensor]]] = None,
+        **kwargs,
+    ):
+        pass
