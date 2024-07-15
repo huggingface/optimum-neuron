@@ -46,7 +46,7 @@ from .require_utils import requires_safetensors, requires_torch_xla
 
 
 if is_torch_neuronx_available():
-    from torch_neuronx.xla_impl.data_parallel import DataParallel
+    from torch_neuronx import DataParallel
 
 if TYPE_CHECKING:
     from transformers.modeling_utils import PreTrainedModel
@@ -239,7 +239,7 @@ def download_checkpoints_in_cache(
     kwargs.pop("state_dict", None)
     from_tf = kwargs.pop("from_tf", False)
     from_flax = kwargs.pop("from_flax", False)
-    resume_download = kwargs.pop("resume_download", False)
+    resume_download = kwargs.pop("resume_download", None)
     proxies = kwargs.pop("proxies", None)
     kwargs.pop("output_loading_info", False)
     kwargs.pop("use_auth_token", None)
@@ -669,7 +669,6 @@ class DiffusersPretrainedConfig(PretrainedConfig):
 
 def get_stable_diffusion_configs(
     models_for_export: Dict[str, Union["PreTrainedModel", "ModelMixin"]],
-    # submodels: Optional[Dict[str, Union[Path, str]]] = None,
 ):
     subfolders = ["text_encoder", "text_encoder_2", "unet", "vae"]
     configs = {}

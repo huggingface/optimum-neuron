@@ -56,8 +56,7 @@ from optimum.neuron.utils.import_utils import (
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
 from .. import DistributedTest
-from ..utils import SEED, create_static_seed_patcher, get_model
-from .utils import create_accelerator_for_mp, get_model_inputs
+from ..utils import SEED, StaticSeedPatcher, create_accelerator, get_model, get_model_inputs
 
 
 if is_torch_xla_available():
@@ -85,7 +84,6 @@ else:
 
 
 CLASSES_TO_IGNORE = [
-    "T5ForSequenceClassification",
     # TODO: enable this class when it can be traced for pipeline parallelism.
     "LlamaForQuestionAnswering",
 ]
@@ -128,7 +126,7 @@ def _generate_supported_model_classes(
     for task in supported_tasks:
         config_class = CONFIG_MAPPING[model_type]
         model_class = task_mapping[task].get(config_class, None)
-        if model_class is not None and model_class not in CLASSES_TO_IGNORE:
+        if model_class is not None and model_class.__name__ not in CLASSES_TO_IGNORE:
             model_classes.append(model_class)
 
     return list(set(model_classes))
@@ -299,7 +297,7 @@ class TestModelParallelization(DistributedTest):
             use_static_seed_patcher=True,
         )
 
-        accelerator = create_accelerator_for_mp(
+        accelerator = create_accelerator(
             tp_size,
             pp_size,
             parallelize_embeddings=parallelize_embeddings,
@@ -357,7 +355,7 @@ class TestModelParallelization(DistributedTest):
             use_static_seed_patcher=True,
         )
 
-        static_seed_patcher = create_static_seed_patcher(model.__class__, SEED)
+        static_seed_patcher = StaticSeedPatcher(SEED)
         with static_seed_patcher:
             model = accelerator.prepare(model)
 
@@ -401,9 +399,12 @@ class TestModelParallelization(DistributedTest):
         monkeypatch,
     ):
         _, model_class, model_name_or_path, config_overwrite = model_specs
+
+        # This is very important otherwise the parallel cross entropy loss will modify the logits inplace.
         monkeypatch.setattr(
             optimum.neuron.distributed.parallel_layers, "_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT", True
         )
+
         return self._parallel_model_matches_original_model(
             model_class, model_name_or_path, config_overwrite, parallel_sizes, True, True, True, True
         )

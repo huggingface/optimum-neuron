@@ -37,7 +37,7 @@ from ..exporters.neuron import (
 from ..exporters.tasks import TasksManager
 from ..utils.save_utils import maybe_load_preprocessors
 from .generation import NeuronGenerationMixin
-from .modeling_base import NeuronBaseModel
+from .modeling_traced import NeuronTracedModel
 from .utils import (
     DECODER_NAME,
     ENCODER_NAME,
@@ -55,7 +55,7 @@ if is_neuronx_available():
 logger = logging.getLogger(__name__)
 
 
-class NeuronModelForConditionalGeneration(NeuronBaseModel, ABC):
+class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
     base_model_prefix = "neuron_model"
     config_name = "config.json"
 
@@ -531,7 +531,7 @@ class _NeuronSeq2SeqModelPart:
     def __init__(
         self,
         model: torch.jit._script.ScriptModule,
-        parent_model: NeuronBaseModel,
+        parent_model: NeuronTracedModel,
         config: Optional["PretrainedConfig"] = None,
         neuron_config: Optional["NeuronDefaultConfig"] = None,
         model_type: str = "encoder",
@@ -562,7 +562,7 @@ class NeuronEncoder(_NeuronSeq2SeqModelPart):
     def __init__(
         self,
         model: torch.jit._script.ScriptModule,
-        parent_model: NeuronBaseModel,
+        parent_model: NeuronTracedModel,
         config: Optional["PretrainedConfig"] = None,
         neuron_config: Optional[Dict[str, str]] = None,
     ):
@@ -585,7 +585,7 @@ class NeuronDecoder(_NeuronSeq2SeqModelPart):
     def __init__(
         self,
         model: torch.jit._script.ScriptModule,
-        parent_model: NeuronBaseModel,
+        parent_model: NeuronTracedModel,
         config: Optional["PretrainedConfig"] = None,
         neuron_config: Optional[Dict[str, str]] = None,
     ):

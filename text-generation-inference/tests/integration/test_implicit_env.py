@@ -1,7 +1,7 @@
 import os
 
 import pytest
-from text_generation.errors import ValidationError
+from huggingface_hub.errors import ValidationError
 
 
 @pytest.fixture(scope="module", params=["hub-neuron", "hub", "local-neuron"])
@@ -19,9 +19,7 @@ async def tgi_service(request, launcher, neuron_model_config):
         "MAX_BATCH_SIZE",
         "MAX_INPUT_LENGTH",
         "MAX_TOTAL_TOKEN",
-        "HF_BATCH_SIZE",
         "HF_NUM_CORES",
-        "HF_SEQUENCE_LENGTH",
         "HF_AUTO_CAST_TYPE",
     ]:
         if var in os.environ:
@@ -44,20 +42,21 @@ async def test_model_single_request(tgi_service):
     # Just verify that the generation works, and nothing is raised, with several set of params
 
     # No params
-    await tgi_service.client.generate(
+    await tgi_service.client.text_generation(
         "What is Deep Learning?",
     )
 
-    response = await tgi_service.client.generate(
+    response = await tgi_service.client.text_generation(
         "How to cook beans ?",
         max_new_tokens=17,
+        details=True,
         decoder_input_details=True,
     )
     assert response.details.generated_tokens == 17
 
     # check error
     try:
-        await tgi_service.client.generate("What is Deep Learning?", max_new_tokens=170000)
+        await tgi_service.client.text_generation("What is Deep Learning?", max_new_tokens=170000)
     except ValidationError:
         pass
     else:
@@ -67,7 +66,7 @@ async def test_model_single_request(tgi_service):
         )
 
     # Sampling
-    await tgi_service.client.generate(
+    await tgi_service.client.text_generation(
         "What is Deep Learning?",
         do_sample=True,
         top_k=50,
@@ -75,5 +74,4 @@ async def test_model_single_request(tgi_service):
         repetition_penalty=1.2,
         max_new_tokens=128,
         seed=42,
-        decoder_input_details=True,
     )

@@ -16,22 +16,44 @@
 
 EXPORT_MODELS_TINY = {
     "albert": "hf-internal-testing/tiny-random-AlbertModel",
+    "audio-spectrogram-transformer": "Ericwang/tiny-random-ast",
+    "beit": "hf-internal-testing/tiny-random-BeitForImageClassification",
     "bert": "hf-internal-testing/tiny-random-BertModel",
     "camembert": "hf-internal-testing/tiny-random-camembert",
     "convbert": "hf-internal-testing/tiny-random-ConvBertModel",
+    "convnext": "hf-internal-testing/tiny-random-convnext",
+    "convnextv2": "hf-internal-testing/tiny-random-ConvNextV2Model",
+    "cvt": "hf-internal-testing/tiny-random-CvTModel",
     "deberta": "hf-internal-testing/tiny-random-DebertaModel",  # Failed for INF1: 'XSoftmax'
     "deberta-v2": "hf-internal-testing/tiny-random-DebertaV2Model",  # Failed for INF1: 'XSoftmax'
+    "deit": "hf-internal-testing/tiny-random-DeiTModel",
     "distilbert": "hf-internal-testing/tiny-random-DistilBertModel",
+    "donut-swin": "hf-internal-testing/tiny-random-DonutSwinModel",
+    "dpt": "hf-internal-testing/tiny-random-DPTModel",
     "electra": "hf-internal-testing/tiny-random-ElectraModel",
     "esm": "hf-internal-testing/tiny-random-EsmModel",
     "flaubert": "flaubert/flaubert_small_cased",
+    "hubert": "hf-internal-testing/tiny-random-HubertModel",
+    "levit": "hf-internal-testing/tiny-random-LevitModel",
     "mobilebert": "hf-internal-testing/tiny-random-MobileBertModel",
+    "mobilenet-v2": "hf-internal-testing/tiny-random-MobileNetV2Model",
+    "mobilevit": "hf-internal-testing/tiny-random-mobilevit",
     "mpnet": "hf-internal-testing/tiny-random-MPNetModel",
     "phi": "bumblebee-testing/tiny-random-PhiModel",
     "roberta": "hf-internal-testing/tiny-random-RobertaModel",
     "roformer": "hf-internal-testing/tiny-random-RoFormerModel",
+    # "sew": "hf-internal-testing/tiny-random-SEWModel",  # blocked
+    # "sew-d": "hf-internal-testing/tiny-random-SEWDModel",  # blocked
+    "swin": "hf-internal-testing/tiny-random-SwinModel",
+    "unispeech": "hf-internal-testing/tiny-random-unispeech",
+    "unispeech-sat": "hf-internal-testing/tiny-random-unispeech-sat",
+    "vit": "hf-internal-testing/tiny-random-vit",
+    "wav2vec2": "hf-internal-testing/tiny-random-Wav2Vec2Model",
+    # "wav2vec2-conformer": "hf-internal-testing/tiny-random-wav2vec2-conformer",  # blocked
+    "wavlm": "hf-internal-testing/tiny-random-wavlm",
     "xlm": "hf-internal-testing/tiny-random-XLMModel",
     "xlm-roberta": "hf-internal-testing/tiny-xlm-roberta",
+    "yolos": "hf-internal-testing/tiny-random-YolosModel",
 }
 
 ENCODER_DECODER_MODELS_TINY = {
@@ -58,6 +80,6 @@ EXTREA_DEFAULT_DUMMY_SHAPES = {
     "image_batch_size": 1,
 }
 
-WEIGHTS_NEFF_SEPARATION_UNSUPPORTED_ARCH = ["camembert", "roberta"]
+WEIGHTS_NEFF_SEPARATION_UNSUPPORTED_ARCH = ["camembert", "roberta", "mobilenet-v2"]
 
 SEED = 42

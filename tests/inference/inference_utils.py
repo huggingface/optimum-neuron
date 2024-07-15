@@ -30,25 +30,48 @@ SEED = 42
 
 MODEL_NAMES = {
     "albert": "hf-internal-testing/tiny-random-AlbertModel",
+    "audio-spectrogram-transformer": "Ericwang/tiny-random-ast",
+    "beit": "hf-internal-testing/tiny-random-BeitForImageClassification",
     "bert": "hf-internal-testing/tiny-random-BertModel",
     "camembert": "hf-internal-testing/tiny-random-camembert",
     "convbert": "hf-internal-testing/tiny-random-ConvBertModel",
+    "convnext": "hf-internal-testing/tiny-random-convnext",
+    "convnextv2": "hf-internal-testing/tiny-random-ConvNextV2Model",
+    "cvt": "hf-internal-testing/tiny-random-CvTModel",
     "deberta": "hf-internal-testing/tiny-random-DebertaModel",  # Failed for INF1: 'XSoftmax'
     "deberta-v2": "hf-internal-testing/tiny-random-DebertaV2Model",  # Failed for INF1: 'XSoftmax'
+    "deit": "hf-internal-testing/tiny-random-DeiTModel",
     "distilbert": "hf-internal-testing/tiny-random-DistilBertModel",
+    "donut-swin": "hf-internal-testing/tiny-random-DonutSwinModel",
+    "dpt": "hf-internal-testing/tiny-random-DPTModel",
     "electra": "hf-internal-testing/tiny-random-ElectraModel",
     "flaubert": "flaubert/flaubert_small_cased",
+    "hubert": "hf-internal-testing/tiny-random-HubertModel",
     "gpt2": "hf-internal-testing/tiny-random-gpt2",
     "latent-consistency": "echarlaix/tiny-random-latent-consistency",
+    "levit": "hf-internal-testing/tiny-random-LevitModel",
     "mobilebert": "hf-internal-testing/tiny-random-MobileBertModel",
+    "mobilenet-v2": "hf-internal-testing/tiny-random-MobileNetV2Model",
+    "mobilevit": "hf-internal-testing/tiny-random-mobilevit",
     "mpnet": "hf-internal-testing/tiny-random-MPNetModel",
     "phi": "bumblebee-testing/tiny-random-PhiModel",
     "roberta": "hf-internal-testing/tiny-random-RobertaModel",
     "roformer": "hf-internal-testing/tiny-random-RoFormerModel",
+    # "sew": "hf-internal-testing/tiny-random-SEWModel",  # blocked
+    # "sew-d": "hf-internal-testing/tiny-random-SEWDModel",  # blocked
+    "swin": "hf-internal-testing/tiny-random-SwinModel",
     "stable-diffusion": "hf-internal-testing/tiny-stable-diffusion-torch",
+    "stable-diffusion-ip2p": "asntr/tiny-stable-diffusion-pix2pix-torch",
     "stable-diffusion-xl": "echarlaix/tiny-random-stable-diffusion-xl",
+    "unispeech": "hf-internal-testing/tiny-random-unispeech",
+    "unispeech-sat": "hf-internal-testing/tiny-random-unispeech-sat",
+    "vit": "hf-internal-testing/tiny-random-vit",
+    "wav2vec2": "hf-internal-testing/tiny-random-Wav2Vec2Model",
+    # "wav2vec2-conformer": "hf-internal-testing/tiny-random-wav2vec2-conformer",  # blocked
+    "wavlm": "hf-internal-testing/tiny-random-wavlm",
     "xlm": "hf-internal-testing/tiny-random-XLMModel",
     "xlm-roberta": "hf-internal-testing/tiny-xlm-roberta",
+    "yolos": "hf-internal-testing/tiny-random-YolosModel",
 }
 
 LORA_WEIGHTS_TINY = {
@@ -62,7 +85,7 @@ SENTENCE_TRANSFORMERS_MODEL_NAMES = {
 
 
 class NeuronModelIntegrationTestMixin(unittest.TestCase):
-    USER = "optimum"
+    USER = "optimum-internal-testing"
     MODEL_ID = None
     NEURON_MODEL_REPO = None
     NEURON_MODEL_CLASS = None
@@ -110,7 +133,7 @@ class NeuronModelTestMixin(unittest.TestCase):
         dynamic_batch_size = model_args.get("dynamic_batch_size", False)
 
         if model_arch_and_params not in self.neuron_model_dirs:
-            # model_args will contain kwargs to pass to NeuronBaseModel.from_pretrained()
+            # model_args will contain kwargs to pass to NeuronTracedModel.from_pretrained()
             model_args.pop("test_name")
             model_args.pop("model_arch")
             model_args.pop("dynamic_batch_size", None)

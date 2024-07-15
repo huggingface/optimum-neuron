@@ -36,8 +36,7 @@ from optimum.neuron.utils.import_utils import (
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
 from .. import DistributedTest
-from ..utils import create_static_seed_patcher, get_model
-from .utils import create_accelerator_for_mp, get_model_inputs
+from ..utils import StaticSeedPatcher, create_accelerator, get_model, get_model_inputs
 
 
 if is_torch_xla_available():
@@ -159,7 +158,7 @@ class TestCommonDistributed(DistributedTest):
         model = get_tiny_llama_model(tp_size=tp_size, pp_size=pp_size, lazy_load=lazy_load)
         optimizer = get_optimizer(model, lazy_optimizer, with_groups)
 
-        accelerator = create_accelerator_for_mp(tp_size, pp_size, zero_1=zero_1)
+        accelerator = create_accelerator(tp_size, pp_size, zero_1=zero_1)
         if tp_size > 1 or pp_size > 1:
             assert accelerator.state.distributed_type is NeuronDistributedType.MODEL_PARALLELISM
 
@@ -198,7 +197,7 @@ class TestCommonDistributed(DistributedTest):
 
         optimizer = get_optimizer(model, with_groups=False)
 
-        accelerator = create_accelerator_for_mp(
+        accelerator = create_accelerator(
             tp_size, pp_size, zero_1=zero_1, gradient_accumulation_steps=gradient_accumulation_steps
         )
 
@@ -302,11 +301,11 @@ class TestCommonDistributed(DistributedTest):
 
         orig_parameters: Dict[str, torch.nn.Parameter] = dict(model.named_parameters())
 
-        accelerator = create_accelerator_for_mp(tp_size, pp_size)
+        accelerator = create_accelerator(tp_size, pp_size)
         lazy_model = get_tiny_llama_model(
             tp_size=tp_size, pp_size=pp_size, lazy_load=True, from_config=from_config, use_static_seed_patcher=True
         )
-        static_seed_patcher = create_static_seed_patcher(model.__class__, 42)
+        static_seed_patcher = StaticSeedPatcher(42)
         with static_seed_patcher:
             lazy_model = accelerator.prepare(lazy_model)
 
@@ -349,11 +348,13 @@ class TestCommonDistributed(DistributedTest):
 
         model = get_tiny_llama_model(tp_size=tp_size, pp_size=pp_size, lazy_load=False, add_random_noise=True)
 
-        accelerator = create_accelerator_for_mp(tp_size, pp_size)
+        accelerator = create_accelerator(tp_size, pp_size)
         model = accelerator.prepare(model)
         accelerator.save_state(tmpdir.as_posix())
         accelerator.state._reset_state(reset_partial_state=True)
         del accelerator
+
+        xm.rendezvous("wait_after_save")
 
         if pp_size > 1:
             # We need to disable `NxDPPModel._set_distributed` since it is already done during the creation of the
@@ -380,7 +381,7 @@ class TestCommonDistributed(DistributedTest):
 
         # Making sure that we end-up with a different model when starting over.
         new_model = get_tiny_llama_model(tp_size=tp_size, pp_size=pp_size, lazy_load=False, add_random_noise=True)
-        new_accelerator = create_accelerator_for_mp(tp_size, pp_size)
+        new_accelerator = create_accelerator(tp_size, pp_size)
         new_model = new_accelerator.prepare(new_model)
         new_accelerator.state._reset_state(reset_partial_state=True)
         del new_accelerator
@@ -399,7 +400,7 @@ class TestCommonDistributed(DistributedTest):
 
         # Checking that when providing a checkpoint, we end-up with the same model as the original.
         new_model = get_tiny_llama_model(tp_size=tp_size, pp_size=pp_size, lazy_load=False, add_random_noise=True)
-        new_accelerator = create_accelerator_for_mp(tp_size, pp_size, checkpoint_dir=tmpdir)
+        new_accelerator = create_accelerator(tp_size, pp_size, checkpoint_dir=tmpdir)
         new_model = new_accelerator.prepare(new_model)
 
         # If there is no model parallelism, the checkpoint weights will not be loaded automatically since we do not
@@ -461,9 +462,7 @@ class TestCommonDistributed(DistributedTest):
             # Saving to pytorch instead of safetensors because it fails otherwise for pickling issues with distributed tests.
             orig_model.save_pretrained(orig_model_path, safe_serialization=False)
 
-        accelerator = create_accelerator_for_mp(
-            tp_size, pp_size, kv_size_multiplier=kv_size_multiplier, use_xser=use_xser
-        )
+        accelerator = create_accelerator(tp_size, pp_size, kv_size_multiplier=kv_size_multiplier, use_xser=use_xser)
         _ = accelerator.prepare(orig_model)
 
         output_dir = Path(tmpdir) / "parallel_model"

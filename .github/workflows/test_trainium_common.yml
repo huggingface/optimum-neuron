@@ -42,6 +42,7 @@ jobs:
           python3 -m venv aws_neuron_venv_pytorch
           source aws_neuron_venv_pytorch/bin/activate
           python -m pip install -U pip
+          pip install --upgrade setuptools==69.5.1
           python -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
           python -m pip install .[neuronx,tests]
       - name: Collect tests on Neuron Cores
@@ -51,7 +52,7 @@ jobs:
       - name: Run tests on Neuron cores
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} USE_VENV="false" pytest -m "is_trainium_test" $TESTS_TO_IGNORE_FLAGS tests --durations=0
+          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} USE_VENV="false" pytest -m "is_trainium_test" $TESTS_TO_IGNORE_FLAGS tests --durations=0 -v
       - name: Collect staging tests on Neuron Cores
         run: |
           source aws_neuron_venv_pytorch/bin/activate

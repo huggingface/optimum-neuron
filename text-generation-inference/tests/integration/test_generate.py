@@ -16,10 +16,8 @@ async def test_model_single_request(tgi_service):
     service_name = tgi_service.client.service_name
     prompt = "What is Deep Learning?"
     # Greedy bounded without input
-    response = await tgi_service.client.generate(
-        prompt,
-        max_new_tokens=17,
-        decoder_input_details=True,
+    response = await tgi_service.client.text_generation(
+        prompt, max_new_tokens=17, details=True, decoder_input_details=True
     )
     assert response.details.generated_tokens == 17
     greedy_expectations = {
@@ -30,17 +28,14 @@ async def test_model_single_request(tgi_service):
     assert response.generated_text == greedy_expectations[service_name]
 
     # Greedy bounded with input
-    response = await tgi_service.client.generate(
-        "What is Deep Learning?",
-        max_new_tokens=17,
-        return_full_text=True,
-        decoder_input_details=True,
+    response = await tgi_service.client.text_generation(
+        "What is Deep Learning?", max_new_tokens=17, return_full_text=True, details=True, decoder_input_details=True
     )
     assert response.details.generated_tokens == 17
     assert response.generated_text == prompt + greedy_expectations[service_name]
 
     # Sampling
-    response = await tgi_service.client.generate(
+    response = await tgi_service.client.text_generation(
         "What is Deep Learning?",
         do_sample=True,
         top_k=50,
@@ -48,14 +43,27 @@ async def test_model_single_request(tgi_service):
         repetition_penalty=1.2,
         max_new_tokens=128,
         seed=42,
-        decoder_input_details=True,
     )
     sample_expectations = {
         "gpt2": "A lot of researchers have tried to make a broad, intuitive definition of Deep Learning",
         "llama": "Deep Learning is a technique for training artificial neural networks",
         "mistral": "Why is deep learning important?",
     }
-    assert sample_expectations[service_name] in response.generated_text
+    assert sample_expectations[service_name] in response
+
+    # Sampling with stop sequence
+    stop_sequence = sample_expectations[service_name][-5:]
+    response = await tgi_service.client.text_generation(
+        "What is Deep Learning?",
+        do_sample=True,
+        top_k=50,
+        top_p=0.9,
+        repetition_penalty=1.2,
+        max_new_tokens=128,
+        seed=42,
+        stop_sequences=[stop_sequence],
+    )
+    assert response.endswith(stop_sequence)
 
 
 @pytest.mark.asyncio

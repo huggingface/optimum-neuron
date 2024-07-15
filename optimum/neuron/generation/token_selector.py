@@ -1,6 +1,6 @@
 import copy
 import logging
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 import torch
 from transformers.generation import (
@@ -13,6 +13,9 @@ from transformers.generation.utils import GenerationMode
 
 from .logits_process import FusedLogitsWarper
 
+
+if TYPE_CHECKING:
+    from transformers import PreTrainedTokenizer
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +66,7 @@ class TokenSelector:
         model: GenerationMixin,
         max_seq_length: int,
         stopping_criteria: Optional[StoppingCriteriaList] = None,
+        tokenizer: Optional["PreTrainedTokenizer"] = None,
         seed: Optional[int] = 0,
     ) -> "TokenSelector":
         r"""Creates the `TokenSelector` for a specific generation configuration.
@@ -78,7 +82,9 @@ class TokenSelector:
                 The maximum number of input + generated tokens for this model. It depends on the model compilation parameters.
             stopping_criteria (`Optional[transformers.generation.StoppingCriteriaList], defaults to `None`):
                 Custom stopping criteria that complement the default stopping criteria built from arguments and a
-                generation config.
+                generation config
+            tokenizer (`Optional[transformers.PreTrainedTokenizer]`, default to `None`):
+                A tokenizer used when stop strings are passed to generate.
             seed(`Optional[int]`):
                 The optional seed for sampling. Defaults to zero.
         Return:
@@ -128,7 +134,9 @@ class TokenSelector:
         )
         if stopping_criteria is None:
             stopping_criteria = StoppingCriteriaList()
-        stopping_criteria = model._get_stopping_criteria(generation_config, stopping_criteria=stopping_criteria)
+        stopping_criteria = model._get_stopping_criteria(
+            generation_config, stopping_criteria=stopping_criteria, tokenizer=tokenizer
+        )
 
         # This is not supposed to happen for any of the models we support
         eos_token_id = generation_config.eos_token_id

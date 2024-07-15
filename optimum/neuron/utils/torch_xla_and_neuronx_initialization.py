@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 import torch
 
 from ...utils import logging
-from .hub_neuronx_cache import patch_neuron_cc_wrapper
+from .hub_cache_utils import patch_neuron_cc_wrapper
 from .misc import is_main_worker
 from .require_utils import requires_torch_xla
 
@@ -38,7 +38,7 @@ def init_process_group():
         import torch_xla.distributed.xla_backend as xbn
 
         if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
-            torch.distributed.init_process_group(backend="xla")
+            torch.distributed.init_process_group(backend="xla", init_method="xla://")
             if not isinstance(torch.distributed.group.WORLD, xbn.ProcessGroupXla):
                 raise AssertionError("Failed to initialize torch.distributed process group using XLA backend.")
 

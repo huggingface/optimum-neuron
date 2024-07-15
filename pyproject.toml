@@ -12,7 +12,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 [build-system]
-requires = ["setuptools>=69.5.1"]
+requires = ["setuptools==69.5.1"]
 build-backend = "setuptools.build_meta"
 
 [tool.black]
@@ -41,4 +41,8 @@ markers = [
     "is_staging_test",
     "is_trainium_test",
     "is_inferentia_test",
+    "world_size",
+    "tp_size",
+    "pp_size",
+    "parallel_size",
 ]

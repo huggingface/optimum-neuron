@@ -20,6 +20,7 @@ import logging
 import os
 import re
 import shutil
+import warnings
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Optional, Tuple, Union
@@ -30,7 +31,7 @@ from transformers import AutoConfig, AutoModel, GenerationConfig
 
 from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..exporters.tasks import TasksManager
-from ..modeling_base import OptimizedModel
+from .modeling_base import NeuronModel
 from .utils import ModelCacheEntry, hub_neuronx_cache, is_transformers_neuronx_available
 from .utils.require_utils import requires_transformers_neuronx
 from .utils.version_utils import check_compiler_compatibility, get_neuronxcc_version
@@ -111,7 +112,7 @@ def get_available_cores() -> int:
     return visible_cores
 
 
-class NeuronDecoderModel(OptimizedModel):
+class NeuronDecoderModel(NeuronModel):
     """
     Base class to convert and run pre-trained transformers decoder models on Neuron devices.
 
@@ -250,8 +251,16 @@ class NeuronDecoderModel(OptimizedModel):
             **kwargs,
         )
 
+        if model.generation_config is not None:
+            with warnings.catch_warnings(record=True) as caught_warnings:
+                model.generation_config.validate()
+            if len(caught_warnings) > 0:
+                logger.warning("Invalid generation config: recreating it from model config.")
+                model.generation_config = GenerationConfig.from_model_config(model.config)
+
         # Save the model checkpoint in a temporary directory
         checkpoint_dir = TemporaryDirectory()
+        os.chmod(checkpoint_dir.name, 0o775)
         model.save_pretrained(checkpoint_dir.name)
         return checkpoint_dir
 
@@ -353,13 +362,16 @@ class NeuronDecoderModel(OptimizedModel):
             auto_cast_type=auto_cast_type,
         )
 
-        # Instantiate the transformers model checkpoint
-        checkpoint_dir = cls._create_checkpoint(
-            model_id,
-            task=new_config.neuron["task"],
-            revision=revision,
-            **kwargs,
-        )
+        if os.path.isdir(model_id):
+            checkpoint_dir = model_id
+        else:
+            # Create the local transformers model checkpoint
+            checkpoint_dir = cls._create_checkpoint(
+                model_id,
+                task=new_config.neuron["task"],
+                revision=revision,
+                **kwargs,
+            )
 
         # Try to reload the generation config (if any)
         generation_config = None
@@ -433,21 +445,19 @@ class NeuronDecoderModel(OptimizedModel):
     def _save_pretrained(self, save_directory: Union[str, Path]):
         dst_checkpoint_path, dst_compiled_path = self._get_neuron_dirs(save_directory)
 
-        def copy_dir_to_path(src_dir: Union[str, Path, TemporaryDirectory], dst_path: Union[str, Path]):
-            if isinstance(src_dir, TemporaryDirectory):
-                shutil.copytree(src_dir.name, dst_path, dirs_exist_ok=True)
-            elif not os.path.samefile(src_dir, dst_path):
-                os.symlink(dst_path, src_dir)
-
-        # Copy checkpoint directory (it always exists)
-        copy_dir_to_path(self.checkpoint_dir, dst_checkpoint_path)
+        neuron_config = getattr(self.config, "neuron")
+        checkpoint_id = neuron_config.get("checkpoint_id", None)
+        if checkpoint_id is None:
+            # Model was exported from a local path, so we need to save the checkpoint
+            shutil.copytree(self.checkpoint_dir, dst_checkpoint_path, dirs_exist_ok=True)
         self.checkpoint_dir = dst_checkpoint_path
+
         # Save or create compiled directory
         if self.compiled_dir is None:
             # The compilation artifacts have never been saved, do it now
             self.model.save(dst_compiled_path)
         else:
-            copy_dir_to_path(self.compiled_dir, dst_compiled_path)
+            shutil.copytree(self.compiled_dir, dst_compiled_path)
         self.compiled_dir = dst_compiled_path
         self.generation_config.save_pretrained(save_directory)
 

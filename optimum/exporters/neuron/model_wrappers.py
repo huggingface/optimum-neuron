@@ -45,11 +45,62 @@ class UnetNeuronWrapper(torch.nn.Module):
         }
         sample = ordered_inputs.pop("sample", None)
         timestep = ordered_inputs.pop("timestep").float().expand((sample.shape[0],))
+        encoder_hidden_states = ordered_inputs.pop("encoder_hidden_states", None)
+
+        # Re-build down_block_additional_residual
+        down_block_additional_residuals = ()
+        down_block_additional_residuals_names = [
+            name for name in ordered_inputs.keys() if "down_block_additional_residuals" in name
+        ]
+        for name in down_block_additional_residuals_names:
+            value = ordered_inputs.pop(name)
+            down_block_additional_residuals += (value,)
+
+        mid_block_additional_residual = ordered_inputs.pop("mid_block_additional_residual", None)
 
         out_tuple = self.model(
             sample=sample,
             timestep=timestep,
+            encoder_hidden_states=encoder_hidden_states,
+            down_block_additional_residuals=(
+                down_block_additional_residuals if down_block_additional_residuals else None
+            ),
+            mid_block_additional_residual=mid_block_additional_residual,
             added_cond_kwargs=added_cond_kwargs,
+            return_dict=False,
+        )
+
+        return out_tuple
+
+
+class ControlNetNeuronWrapper(torch.nn.Module):
+    def __init__(self, model, input_names: List[str]):
+        super().__init__()
+        self.model = model
+        self.input_names = input_names
+
+    def forward(self, *inputs):
+        if len(inputs) != len(self.input_names):
+            raise ValueError(
+                f"The model needs {len(self.input_names)} inputs: {self.input_names}."
+                f" But only {len(input)} inputs are passed."
+            )
+
+        ordered_inputs = dict(zip(self.input_names, inputs))
+
+        sample = ordered_inputs.pop("sample", None)
+        timestep = ordered_inputs.pop("timestep", None)
+        encoder_hidden_states = ordered_inputs.pop("encoder_hidden_states", None)
+        controlnet_cond = ordered_inputs.pop("controlnet_cond", None)
+        conditioning_scale = ordered_inputs.pop("conditioning_scale", None)
+
+        out_tuple = self.model(
+            sample=sample,
+            timestep=timestep,
+            encoder_hidden_states=encoder_hidden_states,
+            controlnet_cond=controlnet_cond,
+            conditioning_scale=conditioning_scale,
+            guess_mode=False,  # TODO: support guess mode of ControlNet
             return_dict=False,
             **ordered_inputs,
         )

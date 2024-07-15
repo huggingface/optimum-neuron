@@ -125,7 +125,7 @@ class ExampleRunner:
             "task_name": "sst2",
         },
         "token-classification": {
-            "dataset_name": "conll2003",
+            "dataset_name": "bnsapa/cybersecurity-ner",
             "set_max_length": True,
             "extra_command_line_arguments": [
                 "--pad_to_max_length",
@@ -539,7 +539,7 @@ class ExampleRunner:
                     precompilation_cmd.pop(-1)  # Removing the --output_dir argument.
                     max_steps_cmd_str = "--max_steps 10"
                     max_train_samples = compute_max_train_samples(
-                        10, num_cores, tensor_parallel_size, train_batch_size
+                        10, num_cores, tensor_parallel_size, pipeline_parallel_size, train_batch_size
                     )
                     max_train_samples_cmd = f"--max_train_samples {max_train_samples}"
                     if max_steps_idx >= 0:

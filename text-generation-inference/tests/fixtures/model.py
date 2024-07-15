@@ -21,7 +21,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__file__)
 
-OPTIMUM_CACHE_REPO_ID = "optimum/neuron-testing-cache"
+OPTIMUM_CACHE_REPO_ID = "optimum-internal-testing/neuron-testing-cache"
 
 # All model configurations below will be added to the neuron_model_config fixture
 MODEL_CONFIGURATIONS = {
@@ -41,7 +41,7 @@ MODEL_CONFIGURATIONS = {
 
 
 def get_hub_neuron_model_id(config_name: str):
-    return f"optimum/neuron-testing-{version}-{sdk_version}-{config_name}"
+    return f"optimum-internal-testing/neuron-testing-{version}-{sdk_version}-{config_name}"
 
 
 def export_model(model_id, export_kwargs, neuron_model_path):
@@ -63,8 +63,8 @@ def neuron_model_config(request):
     """Expose a pre-trained neuron model
 
     The fixture first makes sure the following model artifacts are present on the hub:
-    - exported neuron model under optimum/neuron-testing-<version>-<name>,
-    - cached artifacts under optimum/neuron-testing-cache.
+    - exported neuron model under optimum-internal-testing/neuron-testing-<version>-<name>,
+    - cached artifacts under optimum-internal-testing/neuron-testing-cache.
     If not, it will export the model and push it to the hub.
 
     It then fetches the model locally and return a dictionary containing:

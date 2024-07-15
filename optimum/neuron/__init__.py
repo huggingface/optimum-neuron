@@ -29,7 +29,7 @@ _import_structure = {
     "hf_argparser": ["NeuronHfArgumentParser"],
     "trainers": ["NeuronTrainer", "Seq2SeqNeuronTrainer"],
     "training_args": ["NeuronTrainingArguments", "Seq2SeqNeuronTrainingArguments"],
-    "modeling_base": ["NeuronBaseModel"],
+    "modeling_traced": ["NeuronTracedModel"],
     "modeling": [
         "NeuronModelForFeatureExtraction",
         "NeuronModelForSentenceTransformers",
@@ -39,15 +39,25 @@ _import_structure = {
         "NeuronModelForTokenClassification",
         "NeuronModelForMultipleChoice",
         "NeuronModelForCausalLM",
+        "NeuronModelForImageClassification",
+        "NeuronModelForSemanticSegmentation",
+        "NeuronModelForObjectDetection",
+        "NeuronModelForCTC",
+        "NeuronModelForAudioClassification",
+        "NeuronModelForAudioFrameClassification",
+        "NeuronModelForXVector",
     ],
     "modeling_diffusion": [
+        "NeuronStableDiffusionPipelineBase",
         "NeuronStableDiffusionPipeline",
         "NeuronStableDiffusionImg2ImgPipeline",
         "NeuronStableDiffusionInpaintPipeline",
+        "NeuronStableDiffusionInstructPix2PixPipeline",
         "NeuronLatentConsistencyModelPipeline",
         "NeuronStableDiffusionXLPipeline",
         "NeuronStableDiffusionXLImg2ImgPipeline",
         "NeuronStableDiffusionXLInpaintPipeline",
+        "NeuronStableDiffusionControlNetPipeline",
     ],
     "modeling_decoder": ["NeuronDecoderModel"],
     "modeling_seq2seq": ["NeuronModelForSeq2SeqLM"],
@@ -58,36 +68,48 @@ _import_structure = {
         "ModelParallelismPlugin",
     ],
     "pipelines": ["pipeline"],
+    "utils": ["get_peft_model"],
 }
 
 if TYPE_CHECKING:
     from .accelerate import ModelParallelismPlugin, NeuronAccelerator, NeuronAcceleratorState, NeuronPartialState
     from .hf_argparser import NeuronHfArgumentParser
     from .modeling import (
+        NeuronModelForAudioClassification,
+        NeuronModelForAudioFrameClassification,
         NeuronModelForCausalLM,
+        NeuronModelForCTC,
         NeuronModelForFeatureExtraction,
+        NeuronModelForImageClassification,
         NeuronModelForMaskedLM,
         NeuronModelForMultipleChoice,
+        NeuronModelForObjectDetection,
         NeuronModelForQuestionAnswering,
+        NeuronModelForSemanticSegmentation,
         NeuronModelForSentenceTransformers,
         NeuronModelForSequenceClassification,
         NeuronModelForTokenClassification,
+        NeuronModelForXVector,
     )
-    from .modeling_base import NeuronBaseModel
     from .modeling_decoder import NeuronDecoderModel
     from .modeling_diffusion import (
         NeuronLatentConsistencyModelPipeline,
+        NeuronStableDiffusionControlNetPipeline,
         NeuronStableDiffusionImg2ImgPipeline,
         NeuronStableDiffusionInpaintPipeline,
+        NeuronStableDiffusionInstructPix2PixPipeline,
         NeuronStableDiffusionPipeline,
+        NeuronStableDiffusionPipelineBase,
         NeuronStableDiffusionXLImg2ImgPipeline,
         NeuronStableDiffusionXLInpaintPipeline,
         NeuronStableDiffusionXLPipeline,
     )
     from .modeling_seq2seq import NeuronModelForSeq2SeqLM
+    from .modeling_traced import NeuronTracedModel
     from .pipelines import pipeline
     from .trainers import NeuronTrainer, Seq2SeqNeuronTrainer
     from .training_args import NeuronTrainingArguments, Seq2SeqNeuronTrainingArguments
+    from .utils import get_peft_model
 
 else:
     import sys

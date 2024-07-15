@@ -18,4 +18,4 @@ from .dataclasses import (
     ModelParallelismPlugin,
     NeuronDistributedType,
 )
-from .misc import get_tied_parameters_dict, patch_accelerate_is_torch_xla_available, tie_parameters
+from .misc import patch_accelerate_is_torch_xla_available

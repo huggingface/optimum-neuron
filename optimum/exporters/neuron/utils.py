@@ -23,6 +23,7 @@ import torch
 
 from ...neuron.utils import (
     DECODER_NAME,
+    DIFFUSION_MODEL_CONTROLNET_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_2_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_NAME,
     DIFFUSION_MODEL_UNET_NAME,
@@ -51,16 +52,8 @@ if is_diffusers_available():
             f"We found an older version of diffusers {_diffusers_version} but we require diffusers to be >= {DIFFUSERS_MINIMUM_VERSION}. "
             "Please update diffusers by running `pip install --upgrade diffusers`"
         )
-    from diffusers import UNet2DConditionModel
-    from diffusers.models.attention_processor import (
-        Attention,
-        AttnAddedKVProcessor,
-        AttnAddedKVProcessor2_0,
-        AttnProcessor,
-        AttnProcessor2_0,
-        LoRAAttnProcessor,
-        LoRAAttnProcessor2_0,
-    )
+    from diffusers import ControlNetModel, UNet2DConditionModel
+    from diffusers.models.attention_processor import Attention
 
 
 if TYPE_CHECKING:
@@ -126,6 +119,8 @@ def get_stable_diffusion_models_for_export(
     lora_weight_names: Optional[List[str]] = None,
     lora_adapter_names: Optional[List[str]] = None,
     lora_scales: Optional[List[float]] = None,
+    controlnets: Optional[List["ControlNetModel"]] = None,
+    controlnet_input_shapes: Optional[Dict[str, int]] = None,
 ) -> Dict[str, Tuple[Union["PreTrainedModel", "ModelMixin"], "NeuronDefaultConfig"]]:
     """
     Returns the components of a Stable Diffusion model and their subsequent neuron configs.
@@ -158,6 +153,11 @@ def get_stable_diffusion_models_for_export(
             List of adapter names to be used for referencing the loaded adapter models.
         lora_scales (`Optional[List[float]]`, defaults to `None`):
             List of scaling factors for lora adapters.
+        controlnets (`Optional[List["ControlNetModel"]]]`, defaults to `None`):
+            One or multiple ControlNets providing additional conditioning to the `unet` during the denoising process. If you set multiple
+            ControlNets as a list, the outputs from each ControlNet are added together to create one combined additional conditioning.
+        controlnet_input_shapes (`Optional[Dict[str, int]]`, defaults to `None`):
+            Static shapes used for compiling ControlNets.
 
     Returns:
         `Dict[str, Tuple[Union[`PreTrainedModel`, `ModelMixin`], `NeuronDefaultConfig`]`: A Dict containing the model and
@@ -226,6 +226,9 @@ def get_stable_diffusion_models_for_export(
     )
     if task == "stable-diffusion-xl":
         unet_neuron_config.is_sdxl = True
+
+    unet_neuron_config.with_controlnet = True if controlnets else False
+
     models_for_export[DIFFUSION_MODEL_UNET_NAME] = (unet, unet_neuron_config)
 
     # VAE Encoder
@@ -261,6 +264,27 @@ def get_stable_diffusion_models_for_export(
         **vae_decoder_input_shapes,
     )
     models_for_export[DIFFUSION_MODEL_VAE_DECODER_NAME] = (vae_decoder, vae_decoder_neuron_config)
+
+    # ControlNet
+    if controlnets:
+        for idx, controlnet in enumerate(controlnets):
+            controlnet_config_constructor = TasksManager.get_exporter_config_constructor(
+                model=controlnet,
+                exporter="neuron",
+                task="semantic-segmentation",
+                model_type="controlnet",
+                library_name=library_name,
+            )
+            controlnet_neuron_config = controlnet_config_constructor(
+                controlnet.config,
+                task="semantic-segmentation",
+                dynamic_batch_size=dynamic_batch_size,
+                **controlnet_input_shapes,
+            )
+            models_for_export[DIFFUSION_MODEL_CONTROLNET_NAME + "_" + str(idx)] = (
+                controlnet,
+                controlnet_neuron_config,
+            )
 
     return models_for_export
 
@@ -308,6 +332,17 @@ def _load_lora_weights_to_pipeline(
     return pipeline
 
 
+def load_controlnets(controlnet_ids: Optional[Union[str, List[str]]] = None):
+    contronets = []
+    if controlnet_ids:
+        if isinstance(controlnet_ids, str):
+            controlnet_ids = [controlnet_ids]
+        for model_id in controlnet_ids:
+            model = ControlNetModel.from_pretrained(model_id)
+            contronets.append(model)
+    return contronets
+
+
 def get_submodels_for_export_stable_diffusion(
     pipeline: Union["StableDiffusionPipeline", "StableDiffusionXLImg2ImgPipeline"],
     task: str,
@@ -322,6 +357,7 @@ def get_submodels_for_export_stable_diffusion(
     """
     is_sdxl = "xl" in task
 
+    # Lora
     pipeline = _load_lora_weights_to_pipeline(
         pipeline=pipeline,
         lora_model_ids=lora_model_ids,
@@ -348,7 +384,6 @@ def get_submodels_for_export_stable_diffusion(
         models_for_export.append((DIFFUSION_MODEL_TEXT_ENCODER_2_NAME, copy.deepcopy(text_encoder_2)))
 
     # U-NET
-    pipeline.unet.set_attn_processor(AttnProcessor())
     pipeline.unet.config.text_encoder_projection_dim = projection_dim
     # The U-NET time_ids inputs shapes depends on the value of `requires_aesthetics_score`
     # https://github.com/huggingface/diffusers/blob/v0.18.2/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl_img2img.py#L571
@@ -357,8 +392,12 @@ def get_submodels_for_export_stable_diffusion(
     # Replace original cross-attention module with custom cross-attention module for better performance
     # For applying optimized attention score, we need to set env variable  `NEURON_FUSE_SOFTMAX=1`
     if os.environ.get("NEURON_FUSE_SOFTMAX") == "1":
-        logger.info("Applying optimized attention score computation.")
-        Attention.get_attention_scores = get_attention_scores_sdxl if is_sdxl else get_attention_scores_sd
+        if is_sdxl:
+            logger.info("Applying optimized attention score computation for sdxl.")
+            Attention.get_attention_scores = get_attention_scores_sdxl
+        else:
+            logger.info("Applying optimized attention score computation for stable diffusion.")
+            Attention.get_attention_scores = get_attention_scores_sd
     else:
         logger.warning(
             "You are not applying optimized attention score computation. If you want better performance, please"
@@ -380,29 +419,6 @@ def get_submodels_for_export_stable_diffusion(
     models_for_export.append((DIFFUSION_MODEL_VAE_DECODER_NAME, vae_decoder))
 
     return OrderedDict(models_for_export)
-
-
-# Using xformers or torch_2_0 can avoid overflow on float16, do not apply this unless compilation error.
-def override_diffusers_2_0_attn_processors(model):
-    for _, submodule in model.named_modules():
-        if isinstance(submodule, Attention):
-            if isinstance(submodule.processor, AttnProcessor2_0):
-                submodule.set_processor(AttnProcessor())
-            elif isinstance(submodule.processor, LoRAAttnProcessor2_0):
-                lora_attn_processor = LoRAAttnProcessor(
-                    hidden_size=submodule.processor.hidden_size,
-                    cross_attention_dim=submodule.processor.cross_attention_dim,
-                    rank=submodule.processor.rank,
-                    network_alpha=submodule.processor.to_q_lora.network_alpha,
-                )
-                lora_attn_processor.to_q_lora = copy.deepcopy(submodule.processor.to_q_lora)
-                lora_attn_processor.to_k_lora = copy.deepcopy(submodule.processor.to_k_lora)
-                lora_attn_processor.to_v_lora = copy.deepcopy(submodule.processor.to_v_lora)
-                lora_attn_processor.to_out_lora = copy.deepcopy(submodule.processor.to_out_lora)
-                submodule.set_processor(lora_attn_processor)
-            elif isinstance(submodule.processor, AttnAddedKVProcessor2_0):
-                submodule.set_processor(AttnAddedKVProcessor())
-    return model
 
 
 def check_mandatory_input_shapes(neuron_config_constructor, task, input_shapes):

@@ -15,15 +15,59 @@
 """Functions handling checkpointing under parallel settings."""
 
 import json
+import os
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Literal, Union
 
 import torch
 from transformers.modeling_utils import shard_checkpoint
-from transformers.utils import SAFE_WEIGHTS_INDEX_NAME, SAFE_WEIGHTS_NAME, WEIGHTS_INDEX_NAME, WEIGHTS_NAME
+from transformers.utils import (
+    SAFE_WEIGHTS_INDEX_NAME,
+    SAFE_WEIGHTS_NAME,
+    WEIGHTS_INDEX_NAME,
+    WEIGHTS_NAME,
+    is_peft_available,
+)
 
-from ..utils.require_utils import requires_neuronx_distributed, requires_safetensors
+from ..utils.peft_utils import ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME
+from ..utils.require_utils import requires_neuronx_distributed, requires_safetensors, requires_torch_xla
 from .utils import MODEL_PARALLEL_SHARDS_DIR_NAME, ParameterMetadata, compute_query_indices_for_rank
+
+
+if is_peft_available():
+    from peft.utils.constants import (
+        SAFETENSORS_WEIGHTS_NAME as PEFT_SAFETENSORS_WEIGHTS_NAME,
+    )
+    from peft.utils.constants import (
+        WEIGHTS_NAME as PEFT_WEIGHTS_NAME,
+    )
+else:
+    PEFT_SAFETENSORS_WEIGHTS_NAME = PEFT_WEIGHTS_NAME = ""
+
+
+@requires_torch_xla
+def xser_load_on_cpu(path: str):
+    """
+    Modified version from neuronx_distributed `_xser_load` function load located at:
+    https://github.com/aws-neuron/neuronx-distributed/blob/main/src/neuronx_distributed/parallel_layers/checkpointing.py#L265-L283.
+
+    Instead of moving the loaded tensors to the XLA device, it keeps them on CPU.
+    """
+    import torch_xla.core.xla_model as xm
+    import torch_xla.utils.serialization as xser
+
+    ref_data = torch.load(path)
+
+    def convert_fn(tensors):
+        rewritten_tensors = []
+        for t in tensors:
+            rewritten_tensors.append(torch.load(os.path.join(path + ".tensors", "tensor_{}.pt".format(t.tid))))
+        return rewritten_tensors
+
+    def select_fn(v):
+        return type(v) == xser.TensorReference
+
+    return xm.ToXlaTensorArena(convert_fn, select_fn).transform(ref_data)
 
 
 def create_gqa_query_or_output_projection_weight_from_full_weight(
@@ -129,18 +173,7 @@ def consolidate_tensor_parallel_checkpoints(
 
 
 @requires_neuronx_distributed
-def consolidate_model_parallel_checkpoints(checkpoint_dir: Union[str, Path]) -> Dict[str, "torch.Tensor"]:
-    from neuronx_distributed.parallel_layers.checkpointing import _xser_load
-
-    if not isinstance(checkpoint_dir, Path):
-        checkpoint_dir = Path(checkpoint_dir)
-
-    if checkpoint_dir.name != MODEL_PARALLEL_SHARDS_DIR_NAME:
-        if (checkpoint_dir / MODEL_PARALLEL_SHARDS_DIR_NAME).is_dir():
-            checkpoint_dir = checkpoint_dir / MODEL_PARALLEL_SHARDS_DIR_NAME
-        else:
-            raise ValueError(f"Could not find the tensor parallel shards from {checkpoint_dir}")
-
+def consolidate_model_parallel_checkpoints(checkpoint_dir: Path) -> Dict[str, "torch.Tensor"]:
     model_checkpoint_dir = checkpoint_dir / "model"
 
     # Case 1: the checkpoint was saved with xser.
@@ -150,7 +183,7 @@ def consolidate_model_parallel_checkpoints(checkpoint_dir: Union[str, Path]) -> 
         sharded_checkpoints = [
             p for p in sharded_checkpoints if not (p.name.endswith("info.pt") or p.name.endswith("tensors"))
         ]
-        load_function = _xser_load
+        load_function = xser_load_on_cpu
 
     # Case 2: If no file was found, maybe the checkpoint was saved without xser.
     if not sharded_checkpoints:
@@ -191,14 +224,33 @@ def consolidate_model_parallel_checkpoints_to_unified_checkpoint(
 ):
     from safetensors.torch import save_file
 
+    if not isinstance(checkpoint_dir, Path):
+        checkpoint_dir = Path(checkpoint_dir)
+
+    if checkpoint_dir.name not in [MODEL_PARALLEL_SHARDS_DIR_NAME, ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME]:
+        if (checkpoint_dir / MODEL_PARALLEL_SHARDS_DIR_NAME).is_dir():
+            checkpoint_dir = checkpoint_dir / MODEL_PARALLEL_SHARDS_DIR_NAME
+        elif (checkpoint_dir / ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME).is_dir():
+            checkpoint_dir = checkpoint_dir / ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME
+        else:
+            raise ValueError(f"Could not find the tensor parallel shards from {checkpoint_dir}")
+
     if not isinstance(output_dir, Path):
         output_dir = Path(output_dir)
+
+    is_adapter_model = checkpoint_dir.name == ADAPTER_MODEL_PARALLEL_SHARDS_DIR_NAME
+    if is_adapter_model:
+        safe_weights_name = PEFT_SAFETENSORS_WEIGHTS_NAME
+        weights_name = PEFT_WEIGHTS_NAME
+    else:
+        safe_weights_name = SAFE_WEIGHTS_NAME
+        weights_name = WEIGHTS_NAME
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
     state_dict = consolidate_model_parallel_checkpoints(checkpoint_dir)
     shards, index = shard_checkpoint(
-        state_dict, weights_name=SAFE_WEIGHTS_NAME if save_format == "safetensors" else WEIGHTS_NAME
+        state_dict, weights_name=safe_weights_name if save_format == "safetensors" else weights_name
     )
     for shard_file, shard in shards.items():
         if save_format == "safetensors":

@@ -6,17 +6,17 @@ from typing import Optional
 from huggingface_hub import snapshot_download
 from huggingface_hub.constants import HF_HUB_CACHE
 from loguru import logger
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, GenerationConfig
+from transformers import AutoConfig
 
 from optimum.neuron import NeuronModelForCausalLM
 from optimum.neuron.utils import get_hub_cached_entries
 
 
 def get_export_kwargs_from_env():
-    batch_size = os.environ.get("HF_BATCH_SIZE", None)
+    batch_size = os.environ.get("MAX_BATCH_SIZE", None)
     if batch_size is not None:
         batch_size = int(batch_size)
-    sequence_length = os.environ.get("HF_SEQUENCE_LENGTH", None)
+    sequence_length = os.environ.get("MAX_TOTAL_TOKENS", None)
     if sequence_length is not None:
         sequence_length = int(sequence_length)
     num_cores = os.environ.get("HF_NUM_CORES", None)
@@ -91,30 +91,28 @@ def fetch_model(
         # Prefetch the neuron model from the Hub
         logger.info(f"Fetching revision [{revision}] for neuron model {model_id} under {HF_HUB_CACHE}")
         log_cache_size()
-        return snapshot_download(model_id, revision=revision)
+        return snapshot_download(model_id, revision=revision, ignore_patterns="*.bin")
     # Model needs to be exported: look for compatible cached entries on the hub
     export_kwargs = get_export_kwargs_from_env()
     export_config = NeuronModelForCausalLM.get_export_config(model_id, config, revision=revision, **export_kwargs)
     neuron_config = export_config.neuron
     if not is_cached(model_id, neuron_config):
+        hub_cache_url = "https://huggingface.co/aws-neuron/optimum-neuron-cache"
+        neuron_export_url = "https://huggingface.co/docs/optimum-neuron/main/en/guides/export_model#exporting-neuron-models-using-neuronx-tgi"
         error_msg = (
             f"No cached version found for {model_id} with {neuron_config}."
-            "You can start a discussion to request it on https://huggingface.co/aws-neuron/optimum-neuron-cache."
+            f"You can start a discussion to request it on {hub_cache_url}"
+            f"Alternatively, you can export your own neuron model as explained in {neuron_export_url}"
         )
         raise ValueError(error_msg)
     logger.warning(f"{model_id} is not a neuron model: it will be exported using cached artifacts.")
+    if os.path.isdir(model_id):
+        return model_id
     # Prefetch weights, tokenizer and generation config so that they are in cache
     log_cache_size()
     start = time.time()
-    AutoModelForCausalLM.from_pretrained(model_id, revision=revision)
-    mid = time.time()
-    logger.info(f"Model weights fetched in {mid - start:.2f} s.")
-    AutoTokenizer.from_pretrained(model_id, revision=revision)
+    snapshot_download(model_id, revision=revision, ignore_patterns="*.bin")
     end = time.time()
-    logger.info(f"Tokenizer fetched in {end - mid:.2f} s.")
-    try:
-        GenerationConfig.from_pretrained(model_id, revision=revision)
-    except Exception:
-        logger.warning(f"No default generation config found for {model_id}.")
+    logger.info(f"Model weights fetched in {end - start:.2f} s.")
     log_cache_size()
     return model_id

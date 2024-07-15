@@ -13,9 +13,9 @@ except Exception as error:
 
 
 INSTALL_REQUIRES = [
-    "transformers == 4.40.2",
+    "transformers == 4.41.1",
     "accelerate == 0.29.2",
-    "optimum ~= 1.19.1",
+    "optimum ~= 1.20.0",
     "huggingface_hub >= 0.20.1",
     "numpy>=1.22.2, <=1.25.2",
     "protobuf<4",
@@ -29,11 +29,15 @@ TESTS_REQUIRE = [
     "sentencepiece",
     "datasets",
     "sacremoses",
-    "diffusers >= 0.26.1",
+    "diffusers>=0.28.0, <0.29.0",
     "safetensors",
     "sentence-transformers >= 2.2.0",
     "peft",
     "compel",
+    "rjieba",
+    "soundfile",
+    "librosa",
+    "opencv-python-headless",
 ]
 
 QUALITY_REQUIRES = [
@@ -53,6 +57,7 @@ EXTRAS_REQUIRE = {
         "neuron-cc[tensorflow]==1.22.0.0",
         "protobuf",
         "torchvision",
+        "numpy==1.22.3",
     ],
     "neuronx": [
         "wheel",
@@ -63,7 +68,7 @@ EXTRAS_REQUIRE = {
         "torchvision==0.16.*",
         "neuronx_distributed==0.7.0",
     ],
-    "diffusers": ["diffusers ~= 0.26.1", "peft"],
+    "diffusers": ["diffusers>=0.28.0, <0.29.0", "peft"],
     "sentence-transformers": ["sentence-transformers >= 2.2.0"],
 }
 
@@ -99,5 +104,10 @@ setup(
     dependency_links=["https://pip.repos.neuron.amazonaws.com"],
     include_package_data=True,
     zip_safe=False,
-    entry_points={"console_scripts": ["optimum-cli=optimum.commands.optimum_cli:main"]},
+    entry_points={
+        "console_scripts": [
+            "optimum-cli=optimum.commands.optimum_cli:main",
+            "neuron_parallel_compile=optimum.neuron.utils.neuron_parallel_compile:main",
+        ]
+    },
 )

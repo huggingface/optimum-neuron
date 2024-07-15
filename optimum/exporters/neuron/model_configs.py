@@ -19,7 +19,12 @@ from typing import TYPE_CHECKING, Dict, List
 
 import torch
 
-from ...neuron.utils import DummyBeamValuesGenerator
+from ...neuron.utils import (
+    ASTDummyAudioInputGenerator,
+    DummyBeamValuesGenerator,
+    DummyControNetInputGenerator,
+    DummyMaskedPosGenerator,
+)
 from ...utils import (
     DummyInputGenerator,
     DummySeq2SeqDecoderTextInputGenerator,
@@ -31,10 +36,12 @@ from ...utils import (
     NormalizedSeq2SeqConfig,
     NormalizedTextAndVisionConfig,
     NormalizedTextConfig,
+    NormalizedVisionConfig,
     is_diffusers_available,
 )
 from ..tasks import TasksManager
 from .config import (
+    AudioNeuronConfig,
     TextAndVisionNeuronConfig,
     TextEncoderNeuronConfig,
     TextNeuronDecoderConfig,
@@ -42,6 +49,7 @@ from .config import (
     VisionNeuronConfig,
 )
 from .model_wrappers import (
+    ControlNetNeuronWrapper,
     NoCacheModelWrapper,
     SentenceTransformersCLIPNeuronWrapper,
     SentenceTransformersTransformerNeuronWrapper,
@@ -314,14 +322,259 @@ class SentenceTransformersCLIPNeuronConfig(CLIPNeuronConfig):
         ]
 
 
+@register_in_tasks_manager("vit", *["feature-extraction", "image-classification"])
+class ViTNeuronConfig(VisionNeuronConfig):
+    ATOL_FOR_VALIDATION = 1e-3
+    NORMALIZED_CONFIG_CLASS = NormalizedVisionConfig
+    DUMMY_INPUT_GENERATOR_CLASSES = (DummyVisionInputGenerator, DummyMaskedPosGenerator)
+    INPUT_ARGS = ("batch_size",)  # `num_channels` and `image_size` are inferred from the config
+
+    @property
+    def inputs(self) -> List[str]:
+        common_inputs = ["pixel_values"]
+        if self.task == "masked-im":
+            common_inputs.append("bool_masked_pos")
+        return common_inputs
+
+
+@register_in_tasks_manager("beit", *["feature-extraction", "image-classification"])
+class BeitNeuronConfig(ViTNeuronConfig):
+    pass
+
+
+@register_in_tasks_manager("convnext", *["feature-extraction", "image-classification"])
+class ConvNextNeuronConfig(ViTNeuronConfig):
+    pass
+
+
+@register_in_tasks_manager("convnextv2", *["feature-extraction", "image-classification"])
+class ConvNextV2NeuronConfig(ViTNeuronConfig):
+    pass
+
+
+@register_in_tasks_manager("cvt", *["feature-extraction", "image-classification"])
+class CvTNeuronConfig(ViTNeuronConfig):
+    @property
+    def outputs(self) -> List[str]:
+        common_outputs = super().outputs
+        if self.task == "feature-extraction":
+            return ["last_hidden_state", "cls_token_value"]
+        else:
+            return common_outputs
+
+
+@register_in_tasks_manager("deit", *["feature-extraction", "image-classification"])
+class DeiTNeuronConfig(ViTNeuronConfig):
+    pass
+
+
+@register_in_tasks_manager("donut-swin", *["feature-extraction"])
+class DonutSwinNeuronConfig(ViTNeuronConfig):
+    pass
+
+
+@register_in_tasks_manager("dpt", *["feature-extraction"])
+class DptNeuronConfig(ViTNeuronConfig):
+    pass
+
+
+@register_in_tasks_manager("levit", *["feature-extraction", "image-classification"])
+class LevitNeuronConfig(ViTNeuronConfig):
+    pass
+
+
+@register_in_tasks_manager("mobilenet-v2", *["feature-extraction", "image-classification", "semantic-segmentation"])
+class MobileNetV2NeuronConfig(ViTNeuronConfig):
+    pass
+
+
+@register_in_tasks_manager("mobilevit", *["feature-extraction", "image-classification", "semantic-segmentation"])
+class MobileViTNeuronConfig(ViTNeuronConfig):
+    pass
+
+
+@register_in_tasks_manager("swin", *["feature-extraction", "image-classification"])
+class SwinNeuronConfig(ViTNeuronConfig):
+    pass
+
+
+@register_in_tasks_manager("yolos", *["feature-extraction", "object-detection"])
+class YolosTNeuronConfig(ViTNeuronConfig):
+    @property
+    def outputs(self) -> List[str]:
+        common_outputs = super().outputs
+        if self.task == "object-detection":
+            common_outputs.append("last_hidden_state")
+        return common_outputs
+
+
+@register_in_tasks_manager(
+    "wav2vec2",
+    *[
+        "feature-extraction",
+        "automatic-speech-recognition",
+        "audio-classification",
+        "audio-frame-classification",
+        "audio-xvector",
+    ],
+)
+class Wav2Vec2NeuronConfig(AudioNeuronConfig):
+    NORMALIZED_CONFIG_CLASS = NormalizedConfig
+
+    @property
+    def inputs(self) -> List[str]:
+        return ["input_values"]
+
+    @property
+    def outputs(self) -> List[str]:
+        common_outputs = super().outputs
+        if self.task == "feature-extraction":
+            common_outputs = ["last_hidden_state", "extract_features"]
+        if self.task == "audio-xvector":
+            common_outputs.append("embeddings")
+        return common_outputs
+
+
+@register_in_tasks_manager(
+    "audio-spectrogram-transformer",
+    *[
+        "feature-extraction",
+        "audio-classification",
+    ],
+)
+class ASTNeuronConfig(AudioNeuronConfig):
+    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
+        num_mel_bins="num_mel_bins", max_length="max_length", allow_new=True
+    )
+    DUMMY_INPUT_GENERATOR_CLASSES = (ASTDummyAudioInputGenerator,)
+
+    @property
+    def inputs(self) -> List[str]:
+        return ["input_values"]
+
+
+@register_in_tasks_manager(
+    "hubert",
+    *[
+        "feature-extraction",
+        "automatic-speech-recognition",
+        "audio-classification",
+    ],
+)
+class HubertNeuronConfig(Wav2Vec2NeuronConfig):
+    @property
+    def outputs(self) -> List[str]:
+        common_outputs = super().outputs
+        if self.task == "feature-extraction":
+            common_outputs = ["last_hidden_state"]
+        return common_outputs
+
+
+# TODO: compilation failed due to a bug in xla: https://github.com/pytorch/xla/issues/6398.
+# @register_in_tasks_manager(
+#     "sew",
+#     *[
+#         "feature-extraction",
+#         "automatic-speech-recognition",
+#         "audio-classification",
+#     ],
+# )
+# class SEWNeuronConfig(Wav2Vec2NeuronConfig):
+#     pass
+
+
+# TODO: compilation failed due to a bug in xla: https://github.com/pytorch/xla/issues/6398.
+# @register_in_tasks_manager(
+#     "sew-d",
+#     *[
+#         "feature-extraction",
+#         "automatic-speech-recognition",
+#         "audio-classification",
+#     ],
+# )
+# class SEWDNeuronConfig(Wav2Vec2NeuronConfig):
+#     pass
+
+
+@register_in_tasks_manager(
+    "unispeech",
+    *[
+        "feature-extraction",
+        "automatic-speech-recognition",
+        "audio-classification",
+    ],
+)
+class UniSpeechNeuronConfig(Wav2Vec2NeuronConfig):
+    pass
+
+
+@register_in_tasks_manager(
+    "unispeech-sat",
+    *[
+        "feature-extraction",
+        "automatic-speech-recognition",
+        "audio-classification",
+        "audio-frame-classification",
+        "audio-xvector",
+    ],
+)
+class UniSpeechSATNeuronConfig(Wav2Vec2NeuronConfig):
+    pass
+
+
+# TODO: compilation failed due to a bug in xla: https://github.com/pytorch/xla/issues/6398.
+# @register_in_tasks_manager(
+#     "wav2vec2-bert",
+#     *[
+#         "feature-extraction",
+#         "automatic-speech-recognition",
+#         "audio-classification",
+#         "audio-frame-classification",
+#         "audio-xvector",
+#     ],
+# )
+# class Wav2Vec2BertNeuronConfig(Wav2Vec2NeuronConfig):
+#     pass
+
+
+# TODO: compilation failed due to a bug in xla: https://github.com/pytorch/xla/issues/6398.
+# @register_in_tasks_manager(
+#     "wav2vec2-conformer",
+#     *[
+#         "feature-extraction",
+#         "automatic-speech-recognition",
+#         "audio-classification",
+#         "audio-frame-classification",
+#         "audio-xvector",
+#     ],
+# )
+# class Wav2Vec2ConformerNeuronConfig(Wav2Vec2NeuronConfig):
+#     pass
+
+
+@register_in_tasks_manager(
+    "wavlm",
+    *[
+        "feature-extraction",
+        "automatic-speech-recognition",
+        "audio-classification",
+        "audio-frame-classification",
+        "audio-xvector",
+    ],
+)
+class WavLMNeuronConfig(Wav2Vec2NeuronConfig):
+    pass
+
+
 @register_in_tasks_manager("unet", *["semantic-segmentation"], library_name="diffusers")
 class UNetNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
-    INPUT_ARGS = ("batch_size", "sequence_length", "num_channels", "width", "height")
+    INPUT_ARGS = ("batch_size", "sequence_length", "num_channels", "width", "height", "vae_scale_factor")
     MODEL_TYPE = "unet"
     CUSTOM_MODEL_WRAPPER = UnetNeuronWrapper
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
-        image_size="sample_size",
+        height="height",
+        width="width",
         num_channels="in_channels",
         hidden_size="cross_attention_dim",
         vocab_size="norm_num_groups",
@@ -332,6 +585,7 @@ class UNetNeuronConfig(VisionNeuronConfig):
         DummyVisionInputGenerator,
         DummyTimestepInputGenerator,
         DummySeq2SeqDecoderTextInputGenerator,
+        DummyControNetInputGenerator,
     )
 
     @property
@@ -346,6 +600,10 @@ class UNetNeuronConfig(VisionNeuronConfig):
         if getattr(self._normalized_config, "time_cond_proj_dim", None) is not None:
             common_inputs.append("timestep_cond")
 
+        if self.with_controlnet:
+            # outputs of controlnet
+            common_inputs += ["down_block_additional_residuals", "mid_block_additional_residual"]
+
         return common_inputs
 
     @property
@@ -353,17 +611,19 @@ class UNetNeuronConfig(VisionNeuronConfig):
         return ["sample"]
 
     def generate_dummy_inputs(self, return_tuple: bool = False, **kwargs):
-        # For neuron, we use static shape for compiling the unet. Unlike `optimum`, we use the given `height` and `width` instead of the `sample_size`.
-        # TODO: Modify optimum.utils.DummyVisionInputGenerator to enable unequal height and width (it prioritize `image_size` to custom h/w now)
-        if self.height == self.width:
-            self._normalized_config.image_size = self.height
-        else:
-            raise ValueError(
-                "You need to input the same value for `self.height({self.height})` and `self.width({self.width})`."
-            )
         dummy_inputs = super().generate_dummy_inputs(**kwargs)
         dummy_inputs["timestep"] = dummy_inputs["timestep"].float()
         dummy_inputs["encoder_hidden_states"] = dummy_inputs["encoder_hidden_states"][0]
+
+        # break down down_block_additional_residuals
+        num_down_block_outputs = len(self._normalized_config.down_block_types) * (
+            self._normalized_config.layers_per_block + 1
+        )
+        down_block_additional_residuals = dummy_inputs.pop("down_block_additional_residuals", None)
+
+        if down_block_additional_residuals:
+            for idx in range(num_down_block_outputs):
+                dummy_inputs[f"down_block_additional_residuals_{idx}"] = down_block_additional_residuals[idx]
 
         if getattr(self._normalized_config, "addition_embed_type", None) == "text_time":
             dummy_inputs["added_cond_kwargs"] = {
@@ -387,6 +647,55 @@ class UNetNeuronConfig(VisionNeuronConfig):
     def is_sdxl(self, is_sdxl: bool):
         self._is_sdxl = is_sdxl
 
+    @property
+    def with_controlnet(self) -> bool:
+        return self._with_controlnet
+
+    @with_controlnet.setter
+    def with_controlnet(self, with_controlnet: bool):
+        self._with_controlnet = with_controlnet
+
+
+@register_in_tasks_manager("controlnet", *["semantic-segmentation"], library_name="diffusers")
+class ControlNetNeuronConfig(VisionNeuronConfig):
+    ATOL_FOR_VALIDATION = 1e-3
+    INPUT_ARGS = (
+        "batch_size",
+        "sequence_length",
+        "num_channels",
+        "height",
+        "width",
+        "vae_scale_factor",
+        "encoder_hidden_size",
+    )
+    MODEL_TYPE = "controlnet"
+    CUSTOM_MODEL_WRAPPER = ControlNetNeuronWrapper
+    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
+        height="height",
+        width="width",
+        num_channels="in_channels",
+        hidden_size="cross_attention_dim",
+        vocab_size="norm_num_groups",
+        allow_new=True,
+    )
+
+    DUMMY_INPUT_GENERATOR_CLASSES = (
+        DummyVisionInputGenerator,
+        DummyControNetInputGenerator,
+    )
+
+    @property
+    def inputs(self) -> List[str]:
+        common_inputs = ["sample", "timestep", "encoder_hidden_states", "controlnet_cond", "conditioning_scale"]
+        return common_inputs
+
+    @property
+    def outputs(self) -> List[str]:
+        return ["down_block_res_samples", "mid_block_res_sample"]
+
+    def patch_model_for_export(self, model, dummy_inputs):
+        return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
+
 
 @register_in_tasks_manager("vae-encoder", *["semantic-segmentation"], library_name="diffusers")
 class VaeEncoderNeuronConfig(VisionNeuronConfig):
@@ -395,7 +704,6 @@ class VaeEncoderNeuronConfig(VisionNeuronConfig):
 
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
         num_channels="in_channels",
-        image_size="sample_size",
         allow_new=True,
     )
 
@@ -408,14 +716,6 @@ class VaeEncoderNeuronConfig(VisionNeuronConfig):
         return ["latent_sample"]
 
     def generate_dummy_inputs(self, return_tuple: bool = False, **kwargs):
-        # For neuron, we use static shape for compiling the unet. Unlike `optimum`, we use the given `height` and `width` instead of the `sample_size`.
-        # TODO: Modify optimum.utils.DummyVisionInputGenerator to enable unequal height and width (it prioritize `image_size` to custom h/w now)
-        if self.height == self.width:
-            self._normalized_config.image_size = self.height
-        else:
-            raise ValueError(
-                "You need to input the same value for `self.height({self.height})` and `self.width({self.width})`."
-            )
         dummy_inputs = super().generate_dummy_inputs(**kwargs)
 
         if return_tuple is True:

@@ -32,18 +32,23 @@ from accelerate.utils import AutocastKwargs, DistributedType
 from accelerate.utils.operations import gather_object, recursively_apply
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
+from transformers import PreTrainedModel
+from transformers.utils import is_peft_available
 
 from ...utils import logging
 from ..distributed import Parallelizer, ParallelizersManager
 from ..utils import (
     DynamicPatch,
     ModelPatcher,
+    NeuronPeftModel,
     Patcher,
     is_neuronx_distributed_available,
     is_torch_xla_available,
     patch_within_function,
+    replace_class_in_inheritance_hierarchy,
 )
 from ..utils.misc import args_and_kwargs_to_kwargs_only, is_main_worker
+from ..utils.model_utils import get_tied_parameters_dict, tie_parameters
 from ..utils.require_utils import requires_neuronx_distributed, requires_torch_xla
 from ..utils.torch_xla_and_neuronx_initialization import check_neuron_cc_flags_for_model
 from .optimizer import NeuronAcceleratedOptimizer
@@ -53,17 +58,17 @@ from .utils import (
     AutocastBackend,
     ModelParallelismPlugin,
     NeuronDistributedType,
-    get_tied_parameters_dict,
     patch_accelerate_is_torch_xla_available,
-    tie_parameters,
 )
-from .utils.misc import apply_activation_checkpointing, create_patched_finfo, create_patched_save_pretrained
+from .utils.misc import (
+    apply_activation_checkpointing,
+    create_patched_finfo,
+    create_patched_save_pretrained,
+)
 from .utils.operations import _xla_gather
 
 
 if TYPE_CHECKING:
-    from transformers import PreTrainedModel
-
     try:
         from torch.optim.lr_scheduler import LRScheduler
     except ImportError:
@@ -131,6 +136,15 @@ class NeuronAccelerator(Accelerator):
 
         if not isinstance(autocast_backend, AutocastBackend):
             autocast_backend = AutocastBackend(autocast_backend)
+
+        # The original `is_torch_xla_available` function is checking for TPU or GPU in `accelerate`.
+        # Here, we patch it to return True for Neuron cores as well.
+        def patched_is_torch_xla_available(check_is_tpu: bool = False, check_is_gpu: bool = False) -> bool:
+            return is_torch_xla_available()
+
+        import accelerate
+
+        accelerate.state.is_torch_xla_available = patched_is_torch_xla_available
 
         patched_accelerator_state = partial(
             NeuronAcceleratorState, mp_plugin=mp_plugin, autocast_backend=autocast_backend
@@ -328,13 +342,25 @@ class NeuronAccelerator(Accelerator):
             ),
         )
 
-        if hasattr(model, "save_pretrained"):
+        if isinstance(model, PreTrainedModel):
             patching_specs.append(
                 (
                     "save_pretrained",
                     DynamicPatch(create_patched_save_pretrained),
                 ),
             )
+
+        # TODO: @michaelbenayoun generalize an implementation of gradient checkpointing working for:
+        #   - DDP
+        #   - TP
+        #   - PP
+        # if hasattr(model, "gradient_checkpointing_enable"):
+        #     patching_specs.append(
+        #         (
+        #             "gradient_checkpointing_enable",
+        #             patched_gradient_checkpointing_enable,
+        #         ),
+        #     )
 
         prepared_patching_specs = []
         for spec in patching_specs:
@@ -343,13 +369,26 @@ class NeuronAccelerator(Accelerator):
         model_patcher = ModelPatcher(prepared_patching_specs, ignore_missing_attributes=True)
         model_patcher.patch()
 
+        if is_peft_available():
+            from peft import PeftModel
+            from peft.tuners.tuners_utils import BaseTunerLayer
+            from peft.utils import ModulesToSaveWrapper
+
+            if isinstance(model, PeftModel):
+                replace_class_in_inheritance_hierarchy(model, PeftModel, NeuronPeftModel)
+            else:
+                for _, module in model.named_modules():
+                    if isinstance(module, (BaseTunerLayer, ModulesToSaveWrapper)):
+                        raise ValueError(
+                            "It appears that the model is using a PEFT method, please wrap your model with `PeftModel` "
+                            "to make it work with `optimum-neuron`"
+                        )
         return model
 
     @requires_neuronx_distributed
     def _prepare_model_for_mp(
         self, model: torch.nn.Module, device_placement: Optional[bool] = None, evaluation_mode: bool = False
     ):
-        import torch_xla.core.xla_model as xm
         from neuronx_distributed.pipeline import NxDPPModel
 
         if model in self._models or Parallelizer.was_parallelized(model):
@@ -402,10 +441,7 @@ class NeuronAccelerator(Accelerator):
                 cpu_ids[name]: xla_params[name] for name, _ in model.named_parameters()
             }
 
-        xm.mark_step()
-        device_placement = False
-
-        return super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
+        return model
 
     @requires_torch_xla
     @requires_neuronx_distributed
@@ -428,6 +464,12 @@ class NeuronAccelerator(Accelerator):
         model.config.output_attentions = False
         model.config.output_hidden_states = False
 
+        should_apply_activation_checkpointing = False
+        for mod in model.modules():
+            if getattr(mod, "gradient_checkpointing", False):
+                should_apply_activation_checkpointing = True
+                model.gradient_checkpointing_disable()
+
         # It is needed for now otherwise sdpa is used since PT > 2.* is available.
         for module in model.modules():
             if getattr(module, "_use_sdpa", False):
@@ -439,13 +481,16 @@ class NeuronAccelerator(Accelerator):
             model = self._prepare_model_for_mp(
                 model, device_placement=device_placement, evaluation_mode=evaluation_mode
             )
-            apply_activation_checkpointing(model)
-            return model
+            if should_apply_activation_checkpointing:
+                apply_activation_checkpointing(model)
         else:
-            apply_activation_checkpointing(model)
+            if should_apply_activation_checkpointing:
+                apply_activation_checkpointing(model)
             move_model_to_device(model, xm.xla_device())
-            device_placement = False
-            return super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
+        device_placement = False
+        model = super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
+        xm.mark_step()
+        return model
 
     def backward(self, loss, **kwargs):
         if self.distributed_type != DistributedType.DEEPSPEED:
@@ -472,8 +517,13 @@ class NeuronAccelerator(Accelerator):
             #   - `self.state.mixed_precision == "bf16"`
             #   - `self.state.autocast_backend is AutocastBackend.AMP`
             autocast_handler = self.autocast_handler
-        autocast_kwargs = autocast_handler.to_kwargs()
-        autocast_context = torch.autocast(dtype=torch.bfloat16, device_type="cuda", **autocast_kwargs)
+
+        if autocast_handler.enabled:
+            autocast_kwargs = autocast_handler.to_kwargs()
+            autocast_context = torch.autocast(dtype=torch.bfloat16, device_type="cuda", **autocast_kwargs)
+        else:
+            autocast_context = contextlib.nullcontext()
+
         autocast_context.__enter__()
         yield
         autocast_context.__exit__(*sys.exc_info())

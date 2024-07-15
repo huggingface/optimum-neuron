@@ -22,10 +22,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 from requests.exceptions import ConnectionError as RequestsConnectionError
-from transformers import AutoConfig, PretrainedConfig
+from transformers import AutoConfig, AutoTokenizer, PretrainedConfig
 
 from ...neuron.utils import (
     DECODER_NAME,
+    DIFFUSION_MODEL_CONTROLNET_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_2_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_NAME,
     DIFFUSION_MODEL_UNET_NAME,
@@ -51,6 +52,7 @@ from .utils import (
     check_mandatory_input_shapes,
     get_encoder_decoder_models_for_export,
     get_stable_diffusion_models_for_export,
+    load_controlnets,
     replace_stable_diffusion_submodels,
 )
 
@@ -74,7 +76,7 @@ if TYPE_CHECKING:
     from transformers import PreTrainedModel
 
     if is_diffusers_available():
-        from diffusers import DiffusionPipeline, ModelMixin, StableDiffusionPipeline
+        from diffusers import ControlNetModel, DiffusionPipeline, ModelMixin, StableDiffusionPipeline
 
 
 logger = logging.get_logger()
@@ -205,6 +207,7 @@ def normalize_stable_diffusion_input_shapes(
 def infer_stable_diffusion_shapes_from_diffusers(
     input_shapes: Dict[str, Dict[str, int]],
     model: Union["StableDiffusionPipeline", "StableDiffusionXLPipeline"],
+    controlnets: Optional[List["ControlNetModel"]] = None,
 ):
     if model.tokenizer is not None:
         sequence_length = model.tokenizer.model_max_length
@@ -232,10 +235,23 @@ def infer_stable_diffusion_shapes_from_diffusers(
             "width": scaled_width,
         }
     )
+    input_shapes["unet"]["vae_scale_factor"] = vae_scale_factor
     input_shapes["vae_encoder"].update({"num_channels": vae_encoder_num_channels, "height": height, "width": width})
     input_shapes["vae_decoder"].update(
         {"num_channels": vae_decoder_num_channels, "height": scaled_height, "width": scaled_width}
     )
+
+    # ControlNet
+    if controlnets:
+        input_shapes["controlnet"] = {
+            "batch_size": input_shapes["unet"]["batch_size"],
+            "sequence_length": sequence_length,
+            "num_channels": unet_num_channels,
+            "height": scaled_height,
+            "width": scaled_width,
+            "vae_scale_factor": vae_scale_factor,
+            "encoder_hidden_size": model.text_encoder.config.hidden_size,
+        }
 
     return input_shapes
 
@@ -256,6 +272,7 @@ def get_submodels_and_neuron_configs(
     lora_weight_names: Optional[Union[str, List[str]]] = None,
     lora_adapter_names: Optional[Union[str, List[str]]] = None,
     lora_scales: Optional[Union[float, List[float]]] = None,
+    controlnets: Optional[List["ControlNetModel"]] = None,
 ):
     is_stable_diffusion = "stable-diffusion" in task
     is_encoder_decoder = (
@@ -278,6 +295,7 @@ def get_submodels_and_neuron_configs(
             lora_weight_names=lora_weight_names,
             lora_adapter_names=lora_adapter_names,
             lora_scales=lora_scales,
+            controlnets=controlnets,
         )
     elif is_encoder_decoder:
         optional_outputs = {"output_attentions": output_attentions, "output_hidden_states": output_hidden_states}
@@ -338,6 +356,7 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
     lora_weight_names: Optional[Union[str, List[str]]] = None,
     lora_adapter_names: Optional[Union[str, List[str]]] = None,
     lora_scales: Optional[Union[float, List[float]]] = None,
+    controlnets: Optional[List["ControlNetModel"]] = None,
 ):
     check_compiler_compatibility_for_stable_diffusion()
     model = replace_stable_diffusion_submodels(model, submodels)
@@ -345,7 +364,11 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
         raise RuntimeError(
             "Stable diffusion export is not supported by neuron-cc on inf1, please use neuronx-cc on either inf2/trn1 instead."
         )
-    input_shapes = infer_stable_diffusion_shapes_from_diffusers(input_shapes, model)
+    input_shapes = infer_stable_diffusion_shapes_from_diffusers(
+        input_shapes=input_shapes,
+        model=model,
+        controlnets=controlnets,
+    )
 
     # Saving the model config and preprocessor as this is needed sometimes.
     model.scheduler.save_pretrained(output.joinpath("scheduler"))
@@ -373,6 +396,8 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
         lora_weight_names=lora_weight_names,
         lora_adapter_names=lora_adapter_names,
         lora_scales=lora_scales,
+        controlnets=controlnets,
+        controlnet_input_shapes=input_shapes.get("controlnet", None),
     )
     output_model_names = {
         DIFFUSION_MODEL_UNET_NAME: os.path.join(DIFFUSION_MODEL_UNET_NAME, NEURON_FILE_NAME),
@@ -387,7 +412,15 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
         output_model_names[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME] = os.path.join(
             DIFFUSION_MODEL_TEXT_ENCODER_2_NAME, NEURON_FILE_NAME
         )
+
+    # ControlNet models
+    if controlnets:
+        for idx in range(len(controlnets)):
+            controlnet_name = DIFFUSION_MODEL_CONTROLNET_NAME + "_" + str(idx)
+            output_model_names[controlnet_name] = os.path.join(controlnet_name, NEURON_FILE_NAME)
+
     del model
+    del controlnets
 
     return models_and_neuron_configs, output_model_names
 
@@ -442,6 +475,7 @@ def load_models_and_neuron_configs(
     lora_weight_names: Optional[Union[str, List[str]]],
     lora_adapter_names: Optional[Union[str, List[str]]],
     lora_scales: Optional[Union[float, List[float]]],
+    controlnet_ids: Optional[Union[str, List[str]]],
     output_attentions: bool = False,
     output_hidden_states: bool = False,
     library_name: Optional[str] = None,
@@ -466,6 +500,7 @@ def load_models_and_neuron_configs(
     }
     if model is None:
         model = TasksManager.get_model_from_task(**model_kwargs)
+    controlnets = load_controlnets(controlnet_ids)
 
     models_and_neuron_configs, output_model_names = get_submodels_and_neuron_configs(
         model=model,
@@ -483,6 +518,7 @@ def load_models_and_neuron_configs(
         lora_weight_names=lora_weight_names,
         lora_adapter_names=lora_adapter_names,
         lora_scales=lora_scales,
+        controlnets=controlnets,
     )
 
     return models_and_neuron_configs, output_model_names
@@ -516,6 +552,7 @@ def main_export(
     lora_weight_names: Optional[Union[str, List[str]]] = None,
     lora_adapter_names: Optional[Union[str, List[str]]] = None,
     lora_scales: Optional[Union[float, List[float]]] = None,
+    controlnet_ids: Optional[Union[str, List[str]]] = None,
     **input_shapes,
 ):
     output = Path(output)
@@ -545,6 +582,7 @@ def main_export(
         lora_weight_names=lora_weight_names,
         lora_adapter_names=lora_adapter_names,
         lora_scales=lora_scales,
+        controlnet_ids=controlnet_ids,
         **input_shapes,
     )
 
@@ -565,7 +603,7 @@ def main_export(
         is_stable_diffusion = "stable-diffusion" in task
         if is_stable_diffusion:
             # Do not validate vae encoder due to the sampling randomness
-            del neuron_outputs[-2]  # -2 is the index of `vae_encoder`
+            neuron_outputs.pop("vae_encoder")
             models_and_neuron_configs.pop("vae_encoder", None)
             output_model_names.pop("vae_encoder", None)
 
@@ -603,6 +641,7 @@ def main_export(
 def decoder_export(
     model_name_or_path: str,
     output: Union[str, Path],
+    trust_remote_code: Optional[bool] = None,
     **kwargs,
 ):
     from ...neuron import NeuronModelForCausalLM
@@ -611,8 +650,15 @@ def decoder_export(
     if not output.parent.exists():
         output.parent.mkdir(parents=True)
 
-    model = NeuronModelForCausalLM.from_pretrained(model_name_or_path, export=True, **kwargs)
+    model = NeuronModelForCausalLM.from_pretrained(
+        model_name_or_path, export=True, trust_remote_code=trust_remote_code, **kwargs
+    )
     model.save_pretrained(output)
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, trust_remote_code=trust_remote_code)
+        tokenizer.save_pretrained(output)
+    except Exception:
+        logger.warning(f"No tokenizer found while exporting {model_name_or_path}.")
 
 
 def main():
@@ -679,6 +725,7 @@ def main():
         lora_weight_names=getattr(args, "lora_weight_names", None),
         lora_adapter_names=getattr(args, "lora_adapter_names", None),
         lora_scales=getattr(args, "lora_scales", None),
+        controlnet_ids=getattr(args, "controlnet_ids", None),
         **optional_outputs,
         **input_shapes,
     )

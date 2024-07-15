@@ -14,11 +14,10 @@ import huggingface_hub
 import pytest
 from aiohttp import ClientConnectorError, ClientOSError, ServerDisconnectedError
 from docker.errors import NotFound
-from text_generation import AsyncClient
-from text_generation.types import Response
+from huggingface_hub import AsyncInferenceClient, TextGenerationOutput
 
 
-OPTIMUM_CACHE_REPO_ID = "optimum/neuron-testing-cache"
+OPTIMUM_CACHE_REPO_ID = "optimum-internal-testing/neuron-testing-cache"
 DOCKER_IMAGE = os.getenv("DOCKER_IMAGE", "neuronx-tgi:latest")
 HF_TOKEN = huggingface_hub.get_token()
 
@@ -30,10 +29,10 @@ logging.basicConfig(
 logger = logging.getLogger(__file__)
 
 
-class TestClient(AsyncClient):
+class TestClient(AsyncInferenceClient):
 
     def __init__(self, service_name: str, base_url: str):
-        super().__init__(base_url)
+        super().__init__(model=base_url)
         self.service_name = service_name
 
 
@@ -51,7 +50,7 @@ class LauncherHandle:
                 raise RuntimeError(f"Service crashed after {i} seconds.")
 
             try:
-                await self.client.generate("test", max_new_tokens=1)
+                await self.client.text_generation("test", max_new_tokens=1)
                 logger.info(f"Service started after {i} seconds")
                 return
             except (ClientConnectorError, ClientOSError, ServerDisconnectedError):
@@ -128,7 +127,7 @@ def launcher(event_loop):
             env["HUGGING_FACE_HUB_TOKEN"] = HF_TOKEN
             env["HF_TOKEN"] = HF_TOKEN
 
-        for var in ["HF_BATCH_SIZE", "HF_SEQUENCE_LENGTH", "HF_AUTO_CAST_TYPE", "HF_NUM_CORES"]:
+        for var in ["MAX_BATCH_SIZE", "MAX_TOTAL_TOKENS", "HF_AUTO_CAST_TYPE", "HF_NUM_CORES"]:
             if var in os.environ:
                 env[var] = os.environ[var]
 
@@ -226,12 +225,15 @@ def generate_load():
             The number of requests
 
     Returns:
-        A list of `text_generation.Response`.
+        A list of `huggingface_hub.TextGenerationOutput`.
     """
 
-    async def generate_load_inner(client: AsyncClient, prompt: str, max_new_tokens: int, n: int) -> List[Response]:
+    async def generate_load_inner(
+        client: AsyncInferenceClient, prompt: str, max_new_tokens: int, n: int
+    ) -> List[TextGenerationOutput]:
         futures = [
-            client.generate(prompt, max_new_tokens=max_new_tokens, decoder_input_details=True) for _ in range(n)
+            client.text_generation(prompt, max_new_tokens=max_new_tokens, details=True, decoder_input_details=True)
+            for _ in range(n)
         ]
 
         return await asyncio.gather(*futures)

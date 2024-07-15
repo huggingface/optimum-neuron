@@ -96,10 +96,7 @@ class NeuronPartialState(PartialState):
         self.fork_launched = parse_flag_from_env("FORK_LAUNCHED", 0)
 
     def wait_for_everyone(self):
-        if self.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
-            xm.rendezvous("accelerate.utils.wait_for_everyone")
-        else:
-            super().wait_for_everyone()
+        xm.rendezvous("accelerate.utils.wait_for_everyone")
 
 
 class NeuronAcceleratorState(AcceleratorState):
