@@ -18,6 +18,7 @@ import math
 from typing import Optional, Tuple, Union
 
 import torch
+import torch.nn as nn
 from transformers import GPTNeoXConfig
 from transformers.modeling_attn_mask_utils import (
     _prepare_4d_causal_attention_mask,
@@ -30,8 +31,12 @@ from transformers.models.llama.modeling_mistral import (
     apply_rotary_pos_emb,
 )
 
+from ....utils import logging
 from ..utils.require_utils import requires_neuronx_distributed
 from .core import CoreAttention, NeuronAttention
+
+
+logger = logging.get_logger(__name__)
 
 
 class GPTNeoXCoreAttention(CoreAttention):
