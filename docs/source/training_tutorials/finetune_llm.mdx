@@ -16,6 +16,8 @@ limitations under the License.
 
 # Fine-tune and Test Llama-3 8B on AWS Trainium 
 
+_Note: The complete script for this tutorial can be downloaded [here](https://github.com/huggingface/optimum-neuron/docs/source/training_tutorials/finetune_llm.py)._
+
 This tutorial will teach you how to fine-tune open source LLMs like [Llama 3](https://huggingface.co/meta-llama/Meta-Llama-3-8B) on AWS Trainium. In our example, we are going to leverage the [Optimum Neuron](https://huggingface.co/docs/optimum-neuron/index), [Transformers](https://huggingface.co/docs/transformers/index) and [Datasets](https://huggingface.co/docs/datasets/index) libraries.
 
 You will learn how to:
@@ -55,9 +57,6 @@ huggingface-cli login --token YOUR_TOKEN
 ```bash
 git clone https://github.com/huggingface/optimum-neuron.git
 ```
-
-# TODO: rename files and update notebook
-_Note: There is a notebook version of that this [here](https://github.com/huggingface/optimum-neuron/blob/main/notebooks/text-generation/llama2-7b-fine-tuning.ipynb)._
 
 ## 2. Load and prepare the dataset
 
@@ -249,10 +248,9 @@ We prepared a script called [finetune_llm.py](https://github.com/huggingface/opt
 
 <Tip>
 
-This script, and everything presented in this tutorial are inspired from our official example training script to run causal language modeling fine-tuning, called [run_clm.py](https://github.com/huggingface/optimum-neuron/blob/main/examples/language-modeling/run_clm.py).
+This script is a minimalistic version of our official example training script to run causal language modeling fine-tuning, called [run_clm.py](https://github.com/huggingface/optimum-neuron/blob/main/examples/language-modeling/run_clm.py). For the sake of this tutorial, we tried to get rid of anything that is not necessary, but if you want to do more custom things, maybe the solution is already implemented in `run_clm.py`!
 
-Feel free to take `finetune_llm.py` or `run_clm.py` and adapt them to your own needs.
-They mostly consist in dataset preparation and model loading. All the heavy lifting is performed under the hood in the `NeuronTrainer`.
+Also, these scripts are more designed as templates than final scripts. Feel free to take `finetune_llm.py` or `run_clm.py` and adapt them to your own needs!
 
 </Tip>
 
