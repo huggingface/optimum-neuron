@@ -443,33 +443,40 @@ class AugmentTrainerForNeuronMixin:
     def _maybe_log_save_evaluate(self, tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval):
         # We always reduce the loss, even when we do not use it to avoid a new graph.
         # This communication is not costly.
-        reduced_tr_loss = self._reduce_loss(tr_loss)
+        if self.state.global_step > self._globalstep_last_logged:
+            reduced_tr_loss = self._reduce_loss(tr_loss)
 
-        if self.control.should_log and self.state.global_step > self._globalstep_last_logged:
-            if isinstance(getattr(self, "_zero_loss_value"), torch.Tensor):
-                tr_loss.data = self._zero_loss_value.data
-            else:
-                tr_loss.zero_()
+            if self.control.should_log:
+                with torch.no_grad():
+                    if isinstance(getattr(self, "_zero_loss_value"), torch.Tensor):
+                        tr_loss.data = self._zero_loss_value.data
+                    else:
+                        tr_loss.zero_()
 
-            def log_closure(self, reduced_tr_loss, grad_norm):
-                if is_main_worker_for_metrics():
-                    logs: Dict[str, float] = {}
-                    tr_loss_scalar = reduced_tr_loss.to("cpu").item()
+                def log_closure(self, reduced_tr_loss, grad_norm):
+                    if is_main_worker_for_metrics():
+                        logs: Dict[str, float] = {}
+                        tr_loss_scalar = reduced_tr_loss.to("cpu").item()
 
-                    logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
-                    logs["learning_rate"] = self._get_learning_rate()
-
-                    if grad_norm is not None:
-                        logs["grad_norm"] = (
-                            grad_norm.detach().to("cpu").item() if isinstance(grad_norm, torch.Tensor) else grad_norm
+                        logs["loss"] = round(
+                            tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4
                         )
+                        logs["learning_rate"] = self._get_learning_rate()
 
-                    self._total_loss_scalar += tr_loss_scalar
+                        if grad_norm is not None:
+                            logs["grad_norm"] = (
+                                grad_norm.detach().to("cpu").item()
+                                if isinstance(grad_norm, torch.Tensor)
+                                else grad_norm
+                            )
+
+                        self._total_loss_scalar += tr_loss_scalar
+                        self.store_flos()
+                        self.log(logs)
+
                     self._globalstep_last_logged = self.state.global_step
-                    self.store_flos()
-                    self.log(logs)
 
-            xm.add_step_closure(log_closure, (self, reduced_tr_loss, grad_norm))
+                xm.add_step_closure(log_closure, (self, reduced_tr_loss, grad_norm))
 
         metrics = None
         if self.control.should_evaluate:
