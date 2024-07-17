@@ -14,6 +14,7 @@
 
 import os
 import re
+from functools import lru_cache
 from pathlib import Path
 from typing import List, Optional, Union
 from uuid import uuid4
@@ -128,6 +129,7 @@ def is_private_repo(repo_id: str) -> bool:
     return private
 
 
+@lru_cache
 def has_write_access_to_repo(repo_id: str, repo_type: Optional[str] = None) -> bool:
     api = HfApi()
 
@@ -149,6 +151,7 @@ def has_write_access_to_repo(repo_id: str, repo_type: Optional[str] = None) -> b
             raise ValueError(f"Cannot determine write access to {repo_id} (repo_type: {repo_type})") from e
 
 
+@lru_cache
 def has_write_access_to_repo_without_api_action(repo_id: str) -> bool:
     """
     It is supposed to perform the same thing as `has_write_access_to_repo` without performing any concrete action to the repo.
