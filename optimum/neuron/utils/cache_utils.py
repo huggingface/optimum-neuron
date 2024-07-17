@@ -12,9 +12,9 @@
 # limitations under the License.
 """Utilities for caching."""
 
+import functools
 import os
 import re
-from functools import lru_cache
 from pathlib import Path
 from typing import List, Optional, Union
 from uuid import uuid4
@@ -129,12 +129,34 @@ def is_private_repo(repo_id: str) -> bool:
     return private
 
 
-@lru_cache
-def has_write_access_to_repo(repo_id: str, repo_type: Optional[str] = None) -> bool:
-    api = HfApi()
+_CACHED_HAS_WRITE_ACCESS_TO_REPO = {}
 
+
+def cache_has_write_access(user_function):
+    """
+    Makes it possible to cache the results of functions that check if the user has write access to a given repo while
+    handling the case where tokens were updated.
+    This is useful to not request the HF Hub too much when it is not needed.
+    """
+
+    @functools.wraps(user_function)
+    def wrapper(repo_id: str):
+        token = get_token()
+        key = (token, repo_id)
+        if key in _CACHED_HAS_WRITE_ACCESS_TO_REPO:
+            return _CACHED_HAS_WRITE_ACCESS_TO_REPO[key]
+        result = user_function(repo_id)
+        _CACHED_HAS_WRITE_ACCESS_TO_REPO[key] = result
+        return result
+
+    return wrapper
+
+
+@cache_has_write_access
+def has_write_access_to_repo(repo_id: str) -> bool:
+    api = HfApi()
     try:
-        api.delete_branch(repo_id=repo_id, repo_type=repo_type, branch=f"this-branch-does-not-exist-{uuid4()}")
+        api.delete_branch(repo_id=repo_id, repo_type="model", branch=f"this-branch-does-not-exist-{uuid4()}")
     except GatedRepoError:
         return False
     except RepositoryNotFoundError:
@@ -148,10 +170,10 @@ def has_write_access_to_repo(repo_id: str, repo_type: Optional[str] = None) -> b
         if e.response.status_code == 403:
             return False
         else:
-            raise ValueError(f"Cannot determine write access to {repo_id} (repo_type: {repo_type})") from e
+            raise ValueError(f"Cannot determine write access to {repo_id}") from e
 
 
-@lru_cache
+@cache_has_write_access
 def has_write_access_to_repo_without_api_action(repo_id: str) -> bool:
     """
     It is supposed to perform the same thing as `has_write_access_to_repo` without performing any concrete action to the repo.
