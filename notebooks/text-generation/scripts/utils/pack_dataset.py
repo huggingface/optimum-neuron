@@ -2,10 +2,10 @@ from functools import partial
 from itertools import chain
 
 
+# empty list to save remainder from batches to use in next batch
 remainder = {"input_ids": [], "attention_mask": [], "token_type_ids": []}
 
 
-# empty list to save remainder from batches to use in next batch
 def pack_dataset(dataset, chunk_length=2048):
     print(f"Chunking dataset into chunks of {chunk_length} tokens.")
 
