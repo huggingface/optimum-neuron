@@ -1030,8 +1030,6 @@ class AugmentTrainerForNeuronMixin:
 
                     # Gradient clipping
                     if args.max_grad_norm is not None and args.max_grad_norm > 0:
-                        # deepspeed does its own clipping
-
                         if is_sagemaker_mp_enabled() and args.fp16:
                             self.optimizer.clip_master_grads(args.max_grad_norm)
                             _grad_norm = self.optimizer.clip_master_grads(args.max_grad_norm)
