@@ -549,7 +549,7 @@ def replace_weights(
     prefix: str = "model",
 ):
     """
-    Replaces the weights in a Neuron Model with weights from another model, the original neuron model should have separated weights(by setting `inline_weights_to_neff=Talse` during the tracing).
+    Replaces the weights in a Neuron Model with weights from another model, the original neuron model should have separated weights(by setting `inline_weights_to_neff=False` during the tracing).
     """
 
     if isinstance(weights, torch.nn.Module):
@@ -592,7 +592,7 @@ def check_if_weights_replacable(
 
     if weights is not None and not is_weights_neff_separated:
         raise RuntimeError(
-            "Unable to replace weights of the neuron model since its weights and neff are not separated, please set `inline_weights_to_neff=Talse` when converting the model to Neuron format."
+            "Unable to replace weights of the neuron model since its weights and neff are not separated, please set `inline_weights_to_neff=False` when converting the model to Neuron format."
         )
 
 
