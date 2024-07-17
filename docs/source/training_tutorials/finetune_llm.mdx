@@ -286,7 +286,7 @@ Make sure to run this precompilation phase for around 10 training steps. It is u
 
 </Tip>
 
-_Note: Compiling without a cache can take a while. It will also create dummy files in the `dolly_llama_sharded` during compilation you we have to remove them afterwards. We also need to add `MALLOC_ARENA_MAX=64` to limit the CPU allocation to avoid potential crashes, don't remove it for now._
+_Note: Compiling without a cache can take a while. It will also create dummy files in the `dolly_llama_sharded` during compilation you will have to remove them afterwards. We also need to add `MALLOC_ARENA_MAX=64` to limit the CPU allocation to avoid potential crashes, don't remove it for now._
 
 ```bash
 # remove dummy artifacts which are created by the precompilation command
@@ -320,7 +320,7 @@ MALLOC_ARENA_MAX=64 XLA_USE_BF16=1 torchrun --nproc_per_node=32 finetune_llm.py 
  --logging_steps 10
 ```
 
-That's it, we successfully trained Llama-3 8B on AWS Trainium. # TODO: UPDATE THE TIME HERE.The training took for 3 epochs on dolly (15k samples) took 43:24 minutes where the raw training time was only 31:46 minutes. This leads to a cost of ~$15.5 for the e2e training on the trn1.32xlarge instance. Not Bad!
+That's it, we successfully trained Llama-3 8B on AWS Trainium!
 
 But before we can share and test our model we need to consolidate our model. Since we used Tensor Parallelism during training, we saved sharded versions of the checkpoints. We need to consolidate them now.
 
