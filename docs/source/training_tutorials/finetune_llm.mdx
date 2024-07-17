@@ -334,7 +334,7 @@ optimum-cli neuron consolidate dolly_llama dolly_llama
 
 ## 5. Evaluate and test fine-tuned Llama model
 
-As for training, to be able to run inferece on AWS Trainium or AWS Inferentia2 we need to compile our model. In this case, we will use our Trainium instance for the inference test, but we recommend customer to switch to Inferentia2 for inference.
+As for training, to be able to run inference on AWS Trainium or AWS Inferentia2 we need to compile our model. In this case, we will use our Trainium instance for the inference test, but we recommend customer to switch to Inferentia2 for inference.
 
 Optimum Neuron implements similar to Transformers AutoModel classes for easy inference use. We will use the `NeuronModelForCausalLM` class to load our vanilla transformers checkpoint and convert it to neuron.
 
