@@ -351,7 +351,7 @@ class NeuronGenerator(Generator):
         batch_size = self.model.batch_size
         if len(batch.requests) > batch_size:
             raise ValueError(
-                f"Inconsistent server configuration: please make sure max-prefill-tokens does not exceed {batch_size} x max-input-length."
+                f"Inconsistent batch_size configuration: Please make sure the batch_size in the compiled model (currently {batch_size}) matches the batch_size passed to TGI.  The compiled model batch_size is usually in the neuron section of the model config.json file. You may also have passed it into optimum-cli during the compilation process.  The batch size for TGI is usually set in the environment as MAX_BATCH_SIZE."
             )
         self.prefill(batch)
         self.clear()
