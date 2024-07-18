@@ -14,14 +14,9 @@
 # limitations under the License.
 """Classes related to `neuronx-distributed` to perform parallelism."""
 
-import math
-import warnings
-from typing import TYPE_CHECKING, Callable, Optional, Tuple
+from typing import TYPE_CHECKING, Callable, Optional
 
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from transformers.cache_utils import Cache
 from transformers.models.gpt_neo.modeling_gpt_neo import GPTNeoBlock, GPTNeoSelfAttention
 from transformers.models.gpt_neox.modeling_gpt_neox import GPTNeoXAttention
 from transformers.models.llama.modeling_llama import (
@@ -29,7 +24,6 @@ from transformers.models.llama.modeling_llama import (
     LlamaDecoderLayer,
     LlamaForQuestionAnswering,
     LlamaRMSNorm,
-    repeat_kv,
 )
 from transformers.models.mistral.modeling_mistral import (
     MistralAttention,
@@ -37,6 +31,7 @@ from transformers.models.mistral.modeling_mistral import (
     MistralRMSNorm,
 )
 
+from ..models.core import NeuronAttention
 from .base import Parallelizer, PipelineParallelismSpecs, SequenceParallelismSpecs
 from .parallel_layers import (
     LayerNormType,
@@ -202,89 +197,14 @@ class GPTNeoXSequenceParallelismSpecs(SequenceParallelismSpecs):
         if not sequence_parallel_enabled:
             return
 
-        from transformers.models.gpt_neox.modeling_gpt_neox import apply_rotary_pos_emb
-
-        def sequence_parallel_forward(
-            self,
-            hidden_states: torch.FloatTensor,
-            attention_mask: torch.FloatTensor,
-            position_ids: torch.LongTensor,
-            head_mask: Optional[torch.FloatTensor] = None,
-            layer_past: Optional[Tuple[torch.Tensor]] = None,
-            use_cache: Optional[bool] = False,
-            output_attentions: Optional[bool] = False,
-        ):
-            has_layer_past = layer_past is not None
-
-            # Compute QKV
-            # If sequence_parallel_enabled:
-            #   --> [seq_len, batch, (num_heads * 3 * head_size)]
-            # Else:
-            #   --> [batch, seq_len, (num_heads * 3 * head_size)]
-            qkv = self.query_key_value(hidden_states)
-
-            # If sequence_parallel_enabled:
-            #   --> [seq_len, batch, num_heads, 3 * head_size]
-            # Else:
-            #   --> [batch, seq_len, num_heads, 3 * head_size]
-            new_qkv_shape = qkv.size()[:-1] + (self.num_attention_heads, 3 * self.head_size)
-            qkv = qkv.view(*new_qkv_shape)
-
-            if sequence_parallel_enabled:
-                # [seq_len, batch, num_attention_heads, 3 * head_size] --> 3 [batch, num_attention_heads, seq_len, head_size]
-                query = qkv[..., : self.head_size].permute(1, 2, 0, 3)
-                key = qkv[..., self.head_size : 2 * self.head_size].permute(1, 2, 0, 3)
-                value = qkv[..., 2 * self.head_size :].permute(1, 2, 0, 3)
-            else:
-                # [batch, seq_len, num_attention_heads, 3 * head_size] --> 3 [batch, num_attention_heads, seq_len, head_size]
-                query = qkv[..., : self.head_size].permute(0, 2, 1, 3)
-                key = qkv[..., self.head_size : 2 * self.head_size].permute(0, 2, 1, 3)
-                value = qkv[..., 2 * self.head_size :].permute(0, 2, 1, 3)
-
-            # Compute rotary embeddings on rotary_ndims
-            query_rot = query[..., : self.rotary_ndims]
-            query_pass = query[..., self.rotary_ndims :]
-            key_rot = key[..., : self.rotary_ndims]
-            key_pass = key[..., self.rotary_ndims :]
-
-            # Compute token offset for rotary embeddings (when decoding)
-            seq_len = key.shape[-2]
-            if has_layer_past:
-                seq_len += layer_past[0].shape[-2]
-            cos, sin = self.rotary_emb(value, seq_len=seq_len)
-            query, key = apply_rotary_pos_emb(query_rot, key_rot, cos, sin, position_ids)
-            query = torch.cat((query, query_pass), dim=-1)
-            key = torch.cat((key, key_pass), dim=-1)
-
-            # Cache QKV values
-            if has_layer_past:
-                past_key = layer_past[0]
-                past_value = layer_past[1]
-                key = torch.cat((past_key, key), dim=-2)
-                value = torch.cat((past_value, value), dim=-2)
-            present = (key, value) if use_cache else None
-
-            # Compute attention
-            attn_output, attn_weights = self._attn(query, key, value, attention_mask, head_mask)
-
-            # Reshape outputs
-            if sequence_parallel_enabled:
-                # [batch, num_attention_heads, seq_len, head_size] -> [seq_len, batch, hidden_size]
-                attn_output = attn_output.permute(2, 0, 1, 3).contiguous()
-                attn_output = attn_output.view(*attn_output.shape[:2], -1)
-            else:
-                attn_output = self._merge_heads(attn_output, self.num_attention_heads, self.head_size)
-            attn_output = self.dense(attn_output)
-
-            outputs = (attn_output, present)
-            if output_attentions:
-                outputs += (attn_weights,)
-
-            return outputs
-
         for module in model.modules():
             if isinstance(module, GPTNeoXAttention):
-                module.forward = sequence_parallel_forward.__get__(module)
+                if not isinstance(module, NeuronAttention):
+                    raise ValueError(
+                        "The gpt neox model has not been prepared by the NeuronPreparator. It is required for sequence "
+                        "parallelism."
+                    )
+                module.sequence_parallel_enabled = sequence_parallel_enabled
 
 
 class GPTNeoXParallelizer(Parallelizer):
@@ -433,118 +353,14 @@ class LlamaSequenceParallelismSpecs(SequenceParallelismSpecs):
 
     @classmethod
     def patch_for_sequence_parallelism(cls, model: "PreTrainedModel", sequence_parallel_enabled: bool):
-        if not sequence_parallel_enabled:
-            return
-
-        from transformers.models.llama.modeling_llama import apply_rotary_pos_emb
-
-        def attention_forward(
-            self,
-            hidden_states: torch.Tensor,
-            attention_mask: Optional[torch.Tensor] = None,
-            position_ids: Optional[torch.LongTensor] = None,
-            past_key_value: Optional[Cache] = None,
-            output_attentions: bool = False,
-            use_cache: bool = False,
-            cache_position: Optional[torch.LongTensor] = None,
-            **kwargs,
-        ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
-
-            if self.config.pretraining_tp > 1:
-                key_value_slicing = (self.num_key_value_heads * self.head_dim) // self.config.pretraining_tp
-                query_slices = self.q_proj.weight.split(
-                    (self.num_heads * self.head_dim) // self.config.pretraining_tp, dim=0
-                )
-                key_slices = self.k_proj.weight.split(key_value_slicing, dim=0)
-                value_slices = self.v_proj.weight.split(key_value_slicing, dim=0)
-
-                query_states = [F.linear(hidden_states, query_slices[i]) for i in range(self.config.pretraining_tp)]
-                query_states = torch.cat(query_states, dim=-1)
-
-                key_states = [F.linear(hidden_states, key_slices[i]) for i in range(self.config.pretraining_tp)]
-                key_states = torch.cat(key_states, dim=-1)
-
-                value_states = [F.linear(hidden_states, value_slices[i]) for i in range(self.config.pretraining_tp)]
-                value_states = torch.cat(value_states, dim=-1)
-
-            else:
-                query_states = self.q_proj(hidden_states)
-                key_states = self.k_proj(hidden_states)
-                value_states = self.v_proj(hidden_states)
-
-            if sequence_parallel_enabled:
-                q_len, bsz, _ = query_states.size()
-            else:
-                bsz, q_len, _ = query_states.size()
-
-            if sequence_parallel_enabled:
-                # [S, B, hidden_dim] -> [S, B, num_heads, head_dim] -> [B, num_heads, S, head_dim]
-                query_states = query_states.view(q_len, bsz, self.num_heads, self.head_dim).permute(1, 2, 0, 3)
-                key_states = key_states.view(q_len, bsz, self.num_key_value_heads, self.head_dim).permute(1, 2, 0, 3)
-                value_states = value_states.view(q_len, bsz, self.num_key_value_heads, self.head_dim).permute(
-                    1, 2, 0, 3
-                )
-            else:
-                query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-                key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-                value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-
-            past_key_value = getattr(self, "past_key_value", past_key_value)
-            cos, sin = self.rotary_emb(value_states, position_ids)
-            query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
-
-            if past_key_value is not None:
-                # sin and cos are specific to RoPE models; cache_position needed for the static cache
-                cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
-                key_states, value_states = past_key_value.update(
-                    key_states, value_states, self.layer_idx, cache_kwargs
-                )
-
-            key_states = repeat_kv(key_states, self.num_key_value_groups)
-            value_states = repeat_kv(value_states, self.num_key_value_groups)
-
-            attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
-
-            if attention_mask is not None:  # no matter the length, we just slice it
-                causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
-                attn_weights = attn_weights + causal_mask
-
-            # upcast attention to fp32
-            attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
-            attn_weights = nn.functional.dropout(attn_weights, p=self.attention_dropout, training=self.training)
-            attn_output = torch.matmul(attn_weights, value_states)
-
-            if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
-                raise ValueError(
-                    f"`attn_output` should be of size {(bsz, self.num_heads, q_len, self.head_dim)}, but is"
-                    f" {attn_output.size()}"
-                )
-
-            if sequence_parallel_enabled:
-                # [B, num_heads, S, head_dim] -> [S, B, num_heads, head_dim]
-                attn_output = attn_output.permute(2, 0, 1, 3)
-                attn_output = attn_output.reshape(q_len, bsz, -1)
-            else:
-                attn_output = attn_output.transpose(1, 2).contiguous()
-                attn_output = attn_output.reshape(bsz, q_len, self.hidden_size)
-
-            if self.config.pretraining_tp > 1:
-                attn_output = attn_output.split(self.hidden_size // self.config.pretraining_tp, dim=2)
-                o_proj_slices = self.o_proj.weight.split(self.hidden_size // self.config.pretraining_tp, dim=1)
-                attn_output = sum(
-                    [F.linear(attn_output[i], o_proj_slices[i]) for i in range(self.config.pretraining_tp)]
-                )
-            else:
-                attn_output = self.o_proj(attn_output)
-
-            if not output_attentions:
-                attn_weights = None
-
-            return attn_output, attn_weights, past_key_value
-
         for module in model.modules():
             if isinstance(module, LlamaAttention):
-                module.forward = attention_forward.__get__(module)
+                if not isinstance(module, NeuronAttention):
+                    raise ValueError(
+                        "The llama model has not been prepared by the NeuronPreparator. It is required for sequence "
+                        "parallelism."
+                    )
+                module.sequence_parallel_enabled = sequence_parallel_enabled
 
 
 class LlamaPipelineParallelismSpecs(PipelineParallelismSpecs):
@@ -713,110 +529,14 @@ class MistralSequenceParallelismSpecs(SequenceParallelismSpecs):
         if not sequence_parallel_enabled:
             return
 
-        from transformers.models.mistral.modeling_mistral import apply_rotary_pos_emb
-
-        def attention_forward(
-            self,
-            hidden_states: torch.Tensor,
-            attention_mask: Optional[torch.Tensor] = None,
-            position_ids: Optional[torch.LongTensor] = None,
-            past_key_value: Optional[Cache] = None,
-            output_attentions: bool = False,
-            use_cache: bool = False,
-            **kwargs,
-        ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
-            if "padding_mask" in kwargs:
-                warnings.warn(
-                    "Passing `padding_mask` is deprecated and removed since `transformers` v4.37. Please make sure to "
-                    "use `attention_mask` instead.`"
-                )
-            query_states = self.q_proj(hidden_states)
-            key_states = self.k_proj(hidden_states)
-            value_states = self.v_proj(hidden_states)
-
-            if sequence_parallel_enabled:
-                q_len, bsz, _ = query_states.size()
-            else:
-                bsz, q_len, _ = query_states.size()
-
-            if sequence_parallel_enabled:
-                # [S, B, hidden_dim] -> [S, B, num_heads, head_dim] -> [B, num_heads, S, head_dim]
-                query_states = query_states.view(q_len, bsz, self.num_heads, self.head_dim).permute(1, 2, 0, 3)
-                key_states = key_states.view(q_len, bsz, self.num_key_value_heads, self.head_dim).permute(1, 2, 0, 3)
-                value_states = value_states.view(q_len, bsz, self.num_key_value_heads, self.head_dim).permute(
-                    1, 2, 0, 3
-                )
-            else:
-                query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-                key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-                value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-
-            kv_seq_len = key_states.shape[-2]
-            if past_key_value is not None:
-                if self.layer_idx is None:
-                    raise ValueError(
-                        "The cache structure has changed since `transformers` v4.36. If you are using "
-                        f"{self.__class__.__name__} for auto-regressive decoding with k/v caching, please make sure to "
-                        "initialize the attention class with a layer index."
-                    )
-                kv_seq_len += past_key_value.get_usable_length(kv_seq_len, self.layer_idx)
-            cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
-            query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
-
-            if past_key_value is not None:
-                cache_kwargs = {"sin": sin, "cos": cos}  # Specific to RoPE models
-                key_states, value_states = past_key_value.update(
-                    key_states, value_states, self.layer_idx, cache_kwargs
-                )
-
-            # repeat k/v heads if n_kv_heads < n_heads
-            key_states = repeat_kv(key_states, self.num_key_value_groups)
-            value_states = repeat_kv(value_states, self.num_key_value_groups)
-
-            attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
-
-            if attn_weights.size() != (bsz, self.num_heads, q_len, kv_seq_len):
-                raise ValueError(
-                    f"Attention weights should be of size {(bsz, self.num_heads, q_len, kv_seq_len)}, but is"
-                    f" {attn_weights.size()}"
-                )
-
-            if attention_mask is not None:
-                if attention_mask.size() != (bsz, 1, q_len, kv_seq_len):
-                    raise ValueError(
-                        f"Attention mask should be of size {(bsz, 1, q_len, kv_seq_len)}, but is {attention_mask.size()}"
-                    )
-
-                attn_weights = attn_weights + attention_mask
-
-            # upcast attention to fp32
-            attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
-            attn_output = torch.matmul(attn_weights, value_states)
-
-            if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
-                raise ValueError(
-                    f"`attn_output` should be of size {(bsz, self.num_heads, q_len, self.head_dim)}, but is"
-                    f" {attn_output.size()}"
-                )
-
-            if sequence_parallel_enabled:
-                # [B, num_heads, S, head_dim] -> [S, B, num_heads, head_dim]
-                attn_output = attn_output.permute(2, 0, 1, 3)
-                attn_output = attn_output.reshape(q_len, bsz, -1)
-            else:
-                attn_output = attn_output.transpose(1, 2).contiguous()
-                attn_output = attn_output.reshape(bsz, q_len, self.hidden_size)
-
-            attn_output = self.o_proj(attn_output)
-
-            if not output_attentions:
-                attn_weights = None
-
-            return attn_output, attn_weights, past_key_value
-
         for module in model.modules():
             if isinstance(module, MistralAttention):
-                module.forward = attention_forward.__get__(module)
+                if not isinstance(module, NeuronAttention):
+                    raise ValueError(
+                        "The mistral model has not been prepared by the NeuronPreparator. It is required for sequence "
+                        "parallelism."
+                    )
+                module.sequence_parallel_enabled = sequence_parallel_enabled
 
 
 class MistralParallelizer(Parallelizer):

@@ -244,6 +244,7 @@ class AugmentTrainerForNeuronMixin:
             zero_1=self.args.zero_1,
             mixed_precision="bf16" if self.args.bf16 else "no",
             autocast_backend=self.args.half_precision_backend,
+            enable_flash_attention_when_supported=not self.args.disable_flash_attention,
         )
 
         # some Trainer classes need to use `gather` instead of `gather_for_metrics`, thus we store a flag
