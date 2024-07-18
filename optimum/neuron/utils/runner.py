@@ -71,8 +71,10 @@ def download_example_script_from_github(task_name: str, target_directory: Path, 
     # TODO: test that every existing task can be downloaded.
     script_name = f"{_TASK_TO_EXAMPLE_SCRIPT[task_name]}.py"
     example_script_path = target_directory / script_name
+    requirements_path = target_directory / "requirements.txt"
     was_saved = False
     for folder in _GH_REPO_EXAMPLE_FOLDERS:
+        # Download the python script.
         url = f"{_BASE_RAW_FILES_PATH_IN_GH_REPO}/{revision}/examples/{folder}/{script_name}"
         r = requests.get(url)
         if r.status_code != 200:
@@ -80,6 +82,15 @@ def download_example_script_from_github(task_name: str, target_directory: Path, 
         with open(example_script_path, "w") as fp:
             fp.write(r.text)
         was_saved = True
+        
+        # Try to download the associated requirements if it exists.
+        url_requirements = f"{_BASE_RAW_FILES_PATH_IN_GH_REPO}/{revision}/examples/{folder}/requirements.txt"
+        r = requests.get(url_requirements)
+        if r.status_code != 200:
+            continue
+        with open(requirements_path, "w") as fp:
+            fp.write(r.text)
+
     if not was_saved:
         raise FileNotFoundError(f"Could not find an example script for the task {task_name} on the GitHub repo")
 
@@ -198,16 +209,16 @@ class ExampleRunner:
         self.task = task
 
         self.example_dir = example_dir
-        if example_dir is None:
-            example_dir = Path(__file__).parent.parent.parent.parent / "examples"
-            if not example_dir.exists():
-                logger.info(
-                    f"Could not find the example script for the task {task} locally. Please provide the path manually "
-                    "or install `optimum-neuron` from sources. Otherwise the example will be downloaded from the "
-                    "GitHub repo."
-                )
-            else:
-                self.example_dir = example_dir
+        # if example_dir is None:
+        #     example_dir = Path(__file__).parent.parent.parent.parent / "examples"
+        #     if not example_dir.exists():
+        #         logger.info(
+        #             f"Could not find the example script for the task {task} locally. Please provide the path manually "
+        #             "or install `optimum-neuron` from sources. Otherwise the example will be downloaded from the "
+        #             "GitHub repo."
+        #         )
+        #     else:
+        #         self.example_dir = example_dir
 
         if use_venv:
             raise NotImplementedError("use_venv=True is not supported yet.")
