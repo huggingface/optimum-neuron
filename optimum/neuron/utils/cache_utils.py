@@ -12,7 +12,6 @@
 # limitations under the License.
 """Utilities for caching."""
 
-import functools
 import os
 import re
 from pathlib import Path
@@ -24,7 +23,6 @@ from huggingface_hub import (
     RepoUrl,
     create_repo,
     get_token,
-    whoami,
 )
 from huggingface_hub.utils import GatedRepoError, HfHubHTTPError, RepositoryNotFoundError, RevisionNotFoundError
 from transformers import PretrainedConfig
@@ -132,93 +130,37 @@ def is_private_repo(repo_id: str) -> bool:
 _CACHED_HAS_WRITE_ACCESS_TO_REPO = {}
 
 
-def cache_has_write_access(user_function):
-    """
-    Makes it possible to cache the results of functions that check if the user has write access to a given repo while
-    handling the case where tokens were updated.
-    This is useful to not request the HF Hub too much when it is not needed.
-    """
-
-    @functools.wraps(user_function)
-    def wrapper(repo_id: str):
-        token = get_token()
-        key = (token, repo_id)
-        if key in _CACHED_HAS_WRITE_ACCESS_TO_REPO:
-            return _CACHED_HAS_WRITE_ACCESS_TO_REPO[key]
-        result = user_function(repo_id)
-        _CACHED_HAS_WRITE_ACCESS_TO_REPO[key] = result
-        return result
-
-    return wrapper
-
-
-@cache_has_write_access
 def has_write_access_to_repo(repo_id: str) -> bool:
+    # If the result has already been cached, use it instead of requesting the HF Hub again.
+    token = get_token()
+    key = (token, repo_id)
+    if key in _CACHED_HAS_WRITE_ACCESS_TO_REPO:
+        return _CACHED_HAS_WRITE_ACCESS_TO_REPO[key]
+
     api = HfApi()
+    has_access = None
     try:
         api.delete_branch(repo_id=repo_id, repo_type="model", branch=f"this-branch-does-not-exist-{uuid4()}")
     except GatedRepoError:
-        return False
+        has_access = False
     except RepositoryNotFoundError:
         # We could raise an error to indicate the user that the repository could not even be found:
         # raise ValueError(f"Repository {repo_id} not found (repo_type: {repo_type}). Is it a private one?") from e
         # But here we simply return `False`, because it means that we do not have write access to this repo in the end.
-        return False
+        has_access = False
     except RevisionNotFoundError:
-        return True  # has write access, otherwise would have been 403 forbidden.
+        has_access = True  # has write access, otherwise would have been 403 forbidden.
     except HfHubHTTPError as e:
         if e.response.status_code == 403:
-            return False
-        else:
-            raise ValueError(f"Cannot determine write access to {repo_id}") from e
+            has_access = False
 
+    if has_access is None:
+        raise ValueError(f"Cannot determine write access to {repo_id}")
 
-@cache_has_write_access
-def has_write_access_to_repo_without_api_action(repo_id: str) -> bool:
-    """
-    It is supposed to perform the same thing as `has_write_access_to_repo` without performing any concrete action to the repo.
-    Compared to `has_write_access_repo` it might:
-        - Break if there are some server-side changes with `huggingface_hub.whoami` result
-        - Might not cover all the cases for fine-grained tokens
-    The only advantage of this solution is that it might not get blocked by the server, even if a lot of requests are done.
-    """
-    # It is assumed that the user does not have write access to a canonical repo.
-    # In any case, since this function is designed to check for write access on cache repos, it should never be the
-    # case.
-    if "/" not in repo_id:
-        return False
-    try:
-        user = whoami()
-    except Exception:
-        return False
-    # Token role can either be "read", "write" or "fineGrained".
-    token_role = user["auth"]["accessToken"]["role"]
-    username_or_organization = repo_id.rsplit("/", maxsplit=1)[0]
-    if token_role == "read":
-        return False
-    elif token_role == "write":
-        if user["name"] == username_or_organization:
-            return True
-        else:
-            for org in user["orgs"]:
-                if org["name"] == username_or_organization:
-                    # Role in an organization can be either:
-                    # "admin", "write", "contributor", "read".
-                    if is_main_worker() and org["roleInOrg"] == "contributor":
-                        logger.warning(
-                            f"You are logged in as a contributor to the cache repo {repo_id}. It is not possible to infer "
-                            "whether you have write access on this repo or not, so it will be assumed you do not."
-                        )
-                    return org["roleInOrg"] in ["admin", "write"]
-            return False
-    elif token_role == "fineGrained":
-        scoped = user["auth"]["accessToken"]["fineGrained"]["scoped"]
-        for scope in scoped:
-            if scope["entity"]["name"] == username_or_organization:
-                permissions = scope["permissions"]
-                return "repo.write" in permissions
-    else:
-        raise ValueError(f"Unknown token role: {token_role}.")
+    # Cache the result for subsequent calls.
+    _CACHED_HAS_WRITE_ACCESS_TO_REPO[key] = has_access
+
+    return has_access
 
 
 def get_hf_hub_cache_repos(log_warnings: bool = False) -> List[str]:
