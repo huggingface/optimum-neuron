@@ -52,10 +52,6 @@ jobs:
       - name: Run tests on Neuron cores
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} USE_VENV="false" pytest -m "is_trainium_test" tests/cli/test_neuron_cache_cli.py --durations=0 -v
-      - name: Run tests on Neuron cores
-        run: |
-          source aws_neuron_venv_pytorch/bin/activate
           HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} USE_VENV="false" pytest -m "is_trainium_test" $TESTS_TO_IGNORE_FLAGS tests --durations=0 -v
       - name: Collect staging tests on Neuron Cores
         run: |
