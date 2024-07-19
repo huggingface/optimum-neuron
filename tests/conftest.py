@@ -17,7 +17,7 @@ import shutil
 from pathlib import Path
 
 import pytest
-from huggingface_hub import create_repo, delete_repo, get_token, login, logout, HfApi
+from huggingface_hub import HfApi, create_repo, delete_repo, get_token, login, logout
 
 from optimum.neuron.utils.cache_utils import (
     delete_custom_cache_repo_name_from_hf_home,
@@ -171,5 +171,3 @@ def pytest_fixture_setup(fixturedef, request):
     if getattr(fixturedef.func, "is_dist_fixture", False):
         dist_fixture_class = fixturedef.func()
         dist_fixture_class(request)
-
-

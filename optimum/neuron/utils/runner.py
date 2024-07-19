@@ -82,7 +82,7 @@ def download_example_script_from_github(task_name: str, target_directory: Path, 
         with open(example_script_path, "w") as fp:
             fp.write(r.text)
         was_saved = True
-        
+
         # Try to download the associated requirements if it exists.
         url_requirements = f"{_BASE_RAW_FILES_PATH_IN_GH_REPO}/{revision}/examples/{folder}/requirements.txt"
         r = requests.get(url_requirements)
@@ -209,16 +209,6 @@ class ExampleRunner:
         self.task = task
 
         self.example_dir = example_dir
-        # if example_dir is None:
-        #     example_dir = Path(__file__).parent.parent.parent.parent / "examples"
-        #     if not example_dir.exists():
-        #         logger.info(
-        #             f"Could not find the example script for the task {task} locally. Please provide the path manually "
-        #             "or install `optimum-neuron` from sources. Otherwise the example will be downloaded from the "
-        #             "GitHub repo."
-        #         )
-        #     else:
-        #         self.example_dir = example_dir
 
         if use_venv:
             raise NotImplementedError("use_venv=True is not supported yet.")
