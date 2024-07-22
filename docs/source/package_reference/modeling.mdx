@@ -82,6 +82,22 @@ The following Neuron model classes are available for computer vision tasks.
 ### NeuronModelForObjectDetection
 [[autodoc]] modeling.NeuronModelForObjectDetection
 
+## Audio
+
+The following auto classes are available for the following audio tasks.
+
+### NeuronModelForAudioClassification
+[[autodoc]] modeling.NeuronModelForAudioClassification
+
+### NeuronModelForAudioFrameClassification
+[[autodoc]] modeling.NeuronModelForAudioFrameClassification
+
+### NeuronModelForCTC
+[[autodoc]] modeling.NeuronModelForCTC
+
+### NeuronModelForXVector
+[[autodoc]] modeling.NeuronModelForXVector
+
 ## Stable Diffusion
 
 The following Neuron model classes are available for stable diffusion tasks.
@@ -104,6 +120,11 @@ The following Neuron model classes are available for stable diffusion tasks.
 ### NeuronLatentConsistencyModelPipeline
 
 [[autodoc]] modeling_diffusion.NeuronLatentConsistencyModelPipeline
+    - __call__
+
+### NeuronStableDiffusionControlNetPipeline
+
+[[autodoc]] modeling_diffusion.NeuronStableDiffusionControlNetPipeline
     - __call__
 
 ### NeuronStableDiffusionXLPipeline

@@ -1349,19 +1349,27 @@ def duplicate_module_with_random_weights_on_cpu(module: torch.nn.Module) -> torc
     """
     clone = torch.nn.Module()
 
+    children_names = {n for n, _ in module.named_children()}
     buffer_names = {n for n, _ in module.named_buffers()}
     parameter_names = {n for n, _ in module.named_parameters()}
 
     for name in dir(module):
         attr = getattr(module, name)
-        if name in buffer_names or parameter_names:
+        if name in (children_names | buffer_names | parameter_names) or name.startswith("__"):
             continue
         setattr(clone, name, copy.deepcopy(attr))
 
+    for name, mod in module.named_children():
+        clone.add_module(name, duplicate_module_with_random_weights_on_cpu(mod))
+
     for name, buffer in module.named_buffers():
+        if "." in name:
+            continue
         clone.register_buffer(name, torch.empty_like(buffer, device="cpu"))
 
     for name, param in module.named_parameters():
+        if "." in name:
+            continue
         clone.register_parameter(name, torch.nn.Parameter(torch.empty_like(param, device="cpu")))
 
     clone.__class__ = module.__class__
@@ -1585,11 +1593,12 @@ def lazy_load_for_parallelism(tensor_parallel_size: int = 1, pipeline_parallel_s
         patcher = Patcher(patching_specs=patching_specs)
     else:
         patcher = contextlib.nullcontext()
-    with patcher:
-        try:
-            yield
-        finally:
-            pass
+    try:
+        patcher.__enter__()
+        yield
+    finally:
+        patcher.__exit__(None, None, None)
+        pass
 
 
 def make_optimizer_constructor_lazy(optimizer_cls: Type["torch.optim.Optimizer"]):

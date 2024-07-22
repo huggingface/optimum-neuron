@@ -20,13 +20,17 @@ import warnings
 
 import requests
 import torch
+from datasets import load_dataset
 from huggingface_hub.constants import default_cache_path
 from parameterized import parameterized
 from PIL import Image
 from sentence_transformers import SentenceTransformer, util
 from transformers import (
+    AutoFeatureExtractor,
     AutoImageProcessor,
     AutoModel,
+    AutoModelForAudioClassification,
+    AutoModelForCTC,
     AutoModelForImageClassification,
     AutoModelForMaskedLM,
     AutoModelForMultipleChoice,
@@ -35,14 +39,17 @@ from transformers import (
     AutoModelForSemanticSegmentation,
     AutoModelForSequenceClassification,
     AutoModelForTokenClassification,
+    AutoProcessor,
     AutoTokenizer,
-    CLIPProcessor,
     PretrainedConfig,
     set_seed,
 )
 from transformers.onnx.utils import get_preprocessor
 
 from optimum.neuron import (
+    NeuronModelForAudioClassification,
+    NeuronModelForAudioFrameClassification,
+    NeuronModelForCTC,
     NeuronModelForFeatureExtraction,
     NeuronModelForImageClassification,
     NeuronModelForMaskedLM,
@@ -53,6 +60,7 @@ from optimum.neuron import (
     NeuronModelForSentenceTransformers,
     NeuronModelForSequenceClassification,
     NeuronModelForTokenClassification,
+    NeuronModelForXVector,
     NeuronTracedModel,
     pipeline,
 )
@@ -432,7 +440,7 @@ class NeuronModelForSentenceTransformersIntegrationTest(NeuronModelTestMixin):
             "two_dogs_in_snow.jpg",
         )
 
-        processor = CLIPProcessor.from_pretrained(model_id, subfolder="0_CLIPModel")
+        processor = AutoProcessor.from_pretrained(model_id, subfolder="0_CLIPModel")
         inputs = processor(text=texts, images=Image.open("two_dogs_in_snow.jpg"), return_tensors="pt", padding=True)
         outputs = neuron_model(**inputs)
         self.assertIn("image_embeds", outputs)
@@ -1722,3 +1730,411 @@ class NeuronModelForObjectDetectionIntegrationTest(NeuronModelTestMixin):
         _ = pipe(url)
 
         gc.collect()
+
+
+@is_inferentia_test
+class NeuronModelForCTCIntegrationTest(NeuronModelTestMixin):
+    NEURON_MODEL_CLASS = NeuronModelForCTC
+    TASK = "automatic-speech-recognition"
+    STATIC_INPUTS_SHAPES = {"batch_size": 1, "audio_sequence_length": 100000}
+    if is_neuron_available():
+        ATOL_FOR_VALIDATION = 1e-3
+        SUPPORTED_ARCHITECTURES = []
+    elif is_neuronx_available():
+        ATOL_FOR_VALIDATION = 1e-3
+        SUPPORTED_ARCHITECTURES = ["wav2vec2"]
+    else:
+        ATOL_FOR_VALIDATION = 1e-5
+        SUPPORTED_ARCHITECTURES = []
+
+    def _load_neuron_model_and_processor(self, model_arch, suffix):
+        model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
+        neuron_model = NeuronModelForCTC.from_pretrained(self.neuron_model_dirs[model_arch + suffix])
+        preprocessor = AutoProcessor.from_pretrained(model_id)
+        self.assertIsInstance(neuron_model.model, torch.jit._script.ScriptModule)
+        self.assertIsInstance(neuron_model.config, PretrainedConfig)
+        return neuron_model, preprocessor
+
+    def _load_transformers_model(self, model_arch):
+        model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
+        set_seed(SEED)
+        transformers_model = AutoModelForCTC.from_pretrained(model_id)
+        return transformers_model
+
+    def _prepare_inputs(self, processor, batch_size=1):
+        dataset = load_dataset(
+            "hf-internal-testing/librispeech_asr_demo", "clean", split="validation", trust_remote_code=True
+        )
+        dataset = dataset.sort("id")
+        sampling_rate = dataset.features["audio"].sampling_rate
+        inputs = processor(dataset[0]["audio"]["array"], sampling_rate=sampling_rate, return_tensors="pt")
+        if batch_size > 1:
+            for name, tensor in inputs.items():
+                inputs[name] = torch.cat(batch_size * [tensor])
+        return inputs
+
+    def _validate_outputs(self, model_arch, suffix):
+        neuron_model, preprocessor = self._load_neuron_model_and_processor(model_arch, suffix)
+        inputs = self._prepare_inputs(preprocessor)
+        neuron_outputs = neuron_model(**inputs)
+        self.assertIn("logits", neuron_outputs)
+        self.assertIsInstance(neuron_outputs.logits, torch.Tensor)
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @requires_neuronx
+    def test_compare_to_transformers_dyn_bs(self, model_arch):
+        # Neuron model with dynamic batching
+        model_args = {
+            "test_name": model_arch + "_dyn_bs_true",
+            "model_arch": model_arch,
+            "dynamic_batch_size": True,
+        }
+        self._setup(model_args)
+        self._validate_outputs(model_arch, "_dyn_bs_true")
+
+        gc.collect()
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    def test_compare_to_transformers_non_dyn_bs(self, model_arch):
+        model_args = {
+            "test_name": model_arch + "_dyn_bs_false",
+            "model_arch": model_arch,
+            "dynamic_batch_size": False,
+        }
+        self._setup(model_args)
+        self._validate_outputs(model_arch, "_dyn_bs_false")
+
+        gc.collect()
+
+    def test_non_dyn_bs_neuron_model_on_false_batch_size(self):
+        model_arch = "wav2vec2"
+        model_args = {
+            "test_name": model_arch + "_dyn_bs_false",
+            "model_arch": model_arch,
+            "dynamic_batch_size": False,
+        }
+        self._setup(model_args)
+        neuron_model, preprocessor = self._load_neuron_model_and_processor(model_arch, "_dyn_bs_false")
+        inputs = self._prepare_inputs(preprocessor, batch_size=2)
+
+        with self.assertRaises(Exception) as context:
+            _ = neuron_model(**inputs)
+
+        self.assertIn("set `dynamic_batch_size=True` during the compilation", str(context.exception))
+
+    def test_pipeline_model(self):
+        model_arch = "wav2vec2"
+        model_args = {"test_name": model_arch + "_dyn_bs_false", "model_arch": model_arch}
+        self._setup(model_args)
+
+        neuron_model, processor = self._load_neuron_model_and_processor(model_arch, "_dyn_bs_false")
+
+        pipe = pipeline(
+            "automatic-speech-recognition",
+            model=neuron_model,
+            feature_extractor=processor.feature_extractor,
+            tokenizer=processor.tokenizer,
+        )
+        dataset = load_dataset(
+            "hf-internal-testing/librispeech_asr_demo", "clean", split="validation", trust_remote_code=True
+        )
+        dataset = dataset.sort("id")
+        _ = pipe(dataset[0]["audio"]["array"])
+
+        gc.collect()
+
+
+@is_inferentia_test
+class NeuronModelForAudioClassificationIntegrationTest(NeuronModelTestMixin):
+    NEURON_MODEL_CLASS = NeuronModelForAudioClassification
+    TASK = "audio-classification"
+    STATIC_INPUTS_SHAPES = {"batch_size": 1, "audio_sequence_length": 100000}
+    if is_neuron_available():
+        ATOL_FOR_VALIDATION = 1e-3
+        SUPPORTED_ARCHITECTURES = []
+    elif is_neuronx_available():
+        ATOL_FOR_VALIDATION = 1e-3
+        SUPPORTED_ARCHITECTURES = ["wav2vec2"]
+    else:
+        ATOL_FOR_VALIDATION = 1e-5
+        SUPPORTED_ARCHITECTURES = []
+
+    def _load_neuron_model_and_processor(self, model_arch, suffix):
+        model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
+        neuron_model = NeuronModelForAudioClassification.from_pretrained(self.neuron_model_dirs[model_arch + suffix])
+        preprocessor = AutoProcessor.from_pretrained(model_id)
+        self.assertIsInstance(neuron_model.model, torch.jit._script.ScriptModule)
+        self.assertIsInstance(neuron_model.config, PretrainedConfig)
+        return neuron_model, preprocessor
+
+    def _load_transformers_model(self, model_arch):
+        model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
+        set_seed(SEED)
+        transformers_model = AutoModelForAudioClassification.from_pretrained(model_id)
+        return transformers_model
+
+    def _prepare_inputs(self, processor, batch_size=1):
+        dataset = load_dataset(
+            "hf-internal-testing/librispeech_asr_demo", "clean", split="validation", trust_remote_code=True
+        )
+        dataset = dataset.sort("id")
+        sampling_rate = dataset.features["audio"].sampling_rate
+        inputs = processor(dataset[0]["audio"]["array"], sampling_rate=sampling_rate, return_tensors="pt")
+        if batch_size > 1:
+            for name, tensor in inputs.items():
+                inputs[name] = torch.cat(batch_size * [tensor])
+        return inputs
+
+    def _validate_outputs(self, model_arch, suffix):
+        neuron_model, preprocessor = self._load_neuron_model_and_processor(model_arch, suffix)
+        inputs = self._prepare_inputs(preprocessor)
+        neuron_outputs = neuron_model(**inputs)
+        self.assertIn("logits", neuron_outputs)
+        self.assertIsInstance(neuron_outputs.logits, torch.Tensor)
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @requires_neuronx
+    def test_compare_to_transformers_dyn_bs(self, model_arch):
+        # Neuron model with dynamic batching
+        model_args = {
+            "test_name": model_arch + "_dyn_bs_true",
+            "model_arch": model_arch,
+            "dynamic_batch_size": True,
+        }
+        self._setup(model_args)
+        self._validate_outputs(model_arch, "_dyn_bs_true")
+
+        gc.collect()
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    def test_compare_to_transformers_non_dyn_bs(self, model_arch):
+        model_args = {
+            "test_name": model_arch + "_dyn_bs_false",
+            "model_arch": model_arch,
+            "dynamic_batch_size": False,
+        }
+        self._setup(model_args)
+        self._validate_outputs(model_arch, "_dyn_bs_false")
+
+        gc.collect()
+
+    def test_non_dyn_bs_neuron_model_on_false_batch_size(self):
+        model_arch = "wav2vec2"
+        model_args = {
+            "test_name": model_arch + "_dyn_bs_false",
+            "model_arch": model_arch,
+            "dynamic_batch_size": False,
+        }
+        self._setup(model_args)
+        neuron_model, preprocessor = self._load_neuron_model_and_processor(model_arch, "_dyn_bs_false")
+        inputs = self._prepare_inputs(preprocessor, batch_size=2)
+
+        with self.assertRaises(Exception) as context:
+            _ = neuron_model(**inputs)
+
+        self.assertIn("set `dynamic_batch_size=True` during the compilation", str(context.exception))
+
+    def test_pipeline_model(self):
+        model_arch = "wav2vec2"
+        model_args = {"test_name": model_arch + "_dyn_bs_false", "model_arch": model_arch}
+        self._setup(model_args)
+
+        neuron_model, processor = self._load_neuron_model_and_processor(model_arch, "_dyn_bs_false")
+
+        pipe = pipeline(
+            "audio-classification",
+            model=neuron_model,
+            feature_extractor=processor.feature_extractor,
+            tokenizer=processor.tokenizer,
+        )
+        dataset = load_dataset(
+            "hf-internal-testing/librispeech_asr_demo", "clean", split="validation", trust_remote_code=True
+        )
+        dataset = dataset.sort("id")
+        _ = pipe(dataset[0]["audio"]["array"])
+
+        gc.collect()
+
+
+@is_inferentia_test
+class NeuronModelForAudioFrameClassificationIntegrationTest(NeuronModelTestMixin):
+    NEURON_MODEL_CLASS = NeuronModelForAudioFrameClassification
+    TASK = "audio-frame-classification"
+    STATIC_INPUTS_SHAPES = {"batch_size": 1, "audio_sequence_length": 100000}
+    if is_neuron_available():
+        ATOL_FOR_VALIDATION = 1e-3
+        SUPPORTED_ARCHITECTURES = []
+    elif is_neuronx_available():
+        ATOL_FOR_VALIDATION = 1e-3
+        SUPPORTED_ARCHITECTURES = ["wav2vec2"]
+    else:
+        ATOL_FOR_VALIDATION = 1e-5
+        SUPPORTED_ARCHITECTURES = []
+
+    def _load_neuron_model_and_processor(self, model_arch, suffix):
+        model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
+        neuron_model = NeuronModelForAudioFrameClassification.from_pretrained(
+            self.neuron_model_dirs[model_arch + suffix]
+        )
+        preprocessor = AutoFeatureExtractor.from_pretrained(model_id)
+        self.assertIsInstance(neuron_model.model, torch.jit._script.ScriptModule)
+        self.assertIsInstance(neuron_model.config, PretrainedConfig)
+        return neuron_model, preprocessor
+
+    def _load_transformers_model(self, model_arch):
+        model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
+        set_seed(SEED)
+        transformers_model = NeuronModelForAudioFrameClassification.from_pretrained(model_id)
+        return transformers_model
+
+    def _prepare_inputs(self, processor, batch_size=1):
+        dataset = load_dataset(
+            "hf-internal-testing/librispeech_asr_demo", "clean", split="validation", trust_remote_code=True
+        )
+        dataset = dataset.sort("id")
+        sampling_rate = dataset.features["audio"].sampling_rate
+        inputs = processor(dataset[0]["audio"]["array"], sampling_rate=sampling_rate, return_tensors="pt")
+        if batch_size > 1:
+            for name, tensor in inputs.items():
+                inputs[name] = torch.cat(batch_size * [tensor])
+        return inputs
+
+    def _validate_outputs(self, model_arch, suffix):
+        neuron_model, preprocessor = self._load_neuron_model_and_processor(model_arch, suffix)
+        inputs = self._prepare_inputs(preprocessor)
+        neuron_outputs = neuron_model(**inputs)
+        self.assertIn("logits", neuron_outputs)
+        self.assertIsInstance(neuron_outputs.logits, torch.Tensor)
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @requires_neuronx
+    def test_compare_to_transformers_dyn_bs(self, model_arch):
+        # Neuron model with dynamic batching
+        model_args = {
+            "test_name": model_arch + "_dyn_bs_true",
+            "model_arch": model_arch,
+            "dynamic_batch_size": True,
+        }
+        self._setup(model_args)
+        self._validate_outputs(model_arch, "_dyn_bs_true")
+
+        gc.collect()
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    def test_compare_to_transformers_non_dyn_bs(self, model_arch):
+        model_args = {
+            "test_name": model_arch + "_dyn_bs_false",
+            "model_arch": model_arch,
+            "dynamic_batch_size": False,
+        }
+        self._setup(model_args)
+        self._validate_outputs(model_arch, "_dyn_bs_false")
+
+        gc.collect()
+
+    def test_non_dyn_bs_neuron_model_on_false_batch_size(self):
+        model_arch = "wav2vec2"
+        model_args = {
+            "test_name": model_arch + "_dyn_bs_false",
+            "model_arch": model_arch,
+            "dynamic_batch_size": False,
+        }
+        self._setup(model_args)
+        neuron_model, preprocessor = self._load_neuron_model_and_processor(model_arch, "_dyn_bs_false")
+        inputs = self._prepare_inputs(preprocessor, batch_size=2)
+
+        with self.assertRaises(Exception) as context:
+            _ = neuron_model(**inputs)
+
+        self.assertIn("set `dynamic_batch_size=True` during the compilation", str(context.exception))
+
+
+@is_inferentia_test
+class NeuronModelForXVectorIntegrationTest(NeuronModelTestMixin):
+    NEURON_MODEL_CLASS = NeuronModelForXVector
+    TASK = "audio-xvector"
+    STATIC_INPUTS_SHAPES = {"batch_size": 1, "audio_sequence_length": 100000}
+    if is_neuron_available():
+        ATOL_FOR_VALIDATION = 1e-3
+        SUPPORTED_ARCHITECTURES = []
+    elif is_neuronx_available():
+        ATOL_FOR_VALIDATION = 1e-3
+        SUPPORTED_ARCHITECTURES = ["wav2vec2"]
+    else:
+        ATOL_FOR_VALIDATION = 1e-5
+        SUPPORTED_ARCHITECTURES = []
+
+    def _load_neuron_model_and_processor(self, model_arch, suffix):
+        model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
+        neuron_model = NeuronModelForXVector.from_pretrained(self.neuron_model_dirs[model_arch + suffix])
+        preprocessor = AutoFeatureExtractor.from_pretrained(model_id)
+        self.assertIsInstance(neuron_model.model, torch.jit._script.ScriptModule)
+        self.assertIsInstance(neuron_model.config, PretrainedConfig)
+        return neuron_model, preprocessor
+
+    def _load_transformers_model(self, model_arch):
+        model_id = self.ARCH_MODEL_MAP[model_arch] if model_arch in self.ARCH_MODEL_MAP else MODEL_NAMES[model_arch]
+        set_seed(SEED)
+        transformers_model = NeuronModelForXVector.from_pretrained(model_id)
+        return transformers_model
+
+    def _prepare_inputs(self, processor, batch_size=1):
+        dataset = load_dataset(
+            "hf-internal-testing/librispeech_asr_demo", "clean", split="validation", trust_remote_code=True
+        )
+        dataset = dataset.sort("id")
+        sampling_rate = dataset.features["audio"].sampling_rate
+        inputs = processor(dataset[0]["audio"]["array"], sampling_rate=sampling_rate, return_tensors="pt")
+        if batch_size > 1:
+            for name, tensor in inputs.items():
+                inputs[name] = torch.cat(batch_size * [tensor])
+        return inputs
+
+    def _validate_outputs(self, model_arch, suffix):
+        neuron_model, preprocessor = self._load_neuron_model_and_processor(model_arch, suffix)
+        inputs = self._prepare_inputs(preprocessor)
+        neuron_outputs = neuron_model(**inputs)
+        self.assertIn("logits", neuron_outputs)
+        self.assertIsInstance(neuron_outputs.logits, torch.Tensor)
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    @requires_neuronx
+    def test_compare_to_transformers_dyn_bs(self, model_arch):
+        # Neuron model with dynamic batching
+        model_args = {
+            "test_name": model_arch + "_dyn_bs_true",
+            "model_arch": model_arch,
+            "dynamic_batch_size": True,
+        }
+        self._setup(model_args)
+        self._validate_outputs(model_arch, "_dyn_bs_true")
+
+        gc.collect()
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    def test_compare_to_transformers_non_dyn_bs(self, model_arch):
+        model_args = {
+            "test_name": model_arch + "_dyn_bs_false",
+            "model_arch": model_arch,
+            "dynamic_batch_size": False,
+        }
+        self._setup(model_args)
+        self._validate_outputs(model_arch, "_dyn_bs_false")
+
+        gc.collect()
+
+    def test_non_dyn_bs_neuron_model_on_false_batch_size(self):
+        model_arch = "wav2vec2"
+        model_args = {
+            "test_name": model_arch + "_dyn_bs_false",
+            "model_arch": model_arch,
+            "dynamic_batch_size": False,
+        }
+        self._setup(model_args)
+        neuron_model, preprocessor = self._load_neuron_model_and_processor(model_arch, "_dyn_bs_false")
+        inputs = self._prepare_inputs(preprocessor, batch_size=2)
+
+        with self.assertRaises(Exception) as context:
+            _ = neuron_model(**inputs)
+
+        self.assertIn("set `dynamic_batch_size=True` during the compilation", str(context.exception))

@@ -173,6 +173,13 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         help="List of scaling factors for the lora adapters.",
     )
     optional_group.add_argument(
+        "--controlnet_ids",
+        default=None,
+        nargs="*",
+        type=str,
+        help="List of model ids (eg. `thibaud/controlnet-openpose-sdxl-1.0`) of ControlNet models.",
+    )
+    optional_group.add_argument(
         "--output_attentions",
         action="store_true",
         help="Whether or not for the traced model to return the attentions tensors of all attention layers.",
@@ -241,6 +248,11 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         type=int,
         default=1,
         help=f"Stable diffusion only. Number of images per prompt {doc_input}",
+    )
+    input_group.add_argument(
+        "--audio_sequence_length",
+        type=int,
+        help=f"Audio tasks only. Audio sequence length {doc_input}",
     )
 
     level_group = parser.add_mutually_exclusive_group()

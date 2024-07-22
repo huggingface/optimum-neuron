@@ -2,7 +2,9 @@ from functools import partial
 from itertools import chain
 
 
+# empty list to save remainder from batches to use in next batch
 remainder = {"input_ids": [], "attention_mask": [], "token_type_ids": []}
+
 
 
 # empty list to save remainder from batches to use in next batch

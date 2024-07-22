@@ -1,18 +1,34 @@
-name: Optimum neuron / Test INF1 partial export
+name: Optimum neuron inference cache builder
 
 on:
-  workflow_dispatch
+  workflow_dispatch:
+  schedule:
+    # Schedule the workflow to run every day at midnight UTC
+    - cron: '0 0 * * *'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-  cancel-in-progress: true
 
 jobs:
-  do-the-job:
-    name: Run INF1 export tests
-    runs-on: [self-hosted, 4-aws-inf1, 24-cpu, ci]
+  cache:
+    name: Create optimum-neuron inference cache
+    runs-on: [self-hosted, 12-aws-inf2, 192-cpu, ci] # run the job on the newly created runner
     env:
       AWS_REGION: us-east-1
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [
+          gpt2,
+          llama3-8b,
+          llama3-70b,
+          llama2-7b-13b,
+          llama2-70b,
+          mistral,
+          llama-variants,
+          mistral-variants,
+          mixtral
+        ]
     steps:
       - name: Install Neuron runtime
         run: |
@@ -25,25 +41,21 @@ jobs:
           sudo apt-get install aws-neuronx-tools=2.17.1.0 aws-neuronx-runtime-lib=2.20.22.0-1b3ca6425 aws-neuronx-collectives=2.20.22.0-c101c322e  -y
           export PATH=/opt/aws/neuron/bin:$PATH
       - name: Checkout
-        uses: actions/checkout@v2
-      - name: Install system packages
+        uses: actions/checkout@v4
+      - name: Install python and create venv
         run: |
           sudo apt install python3.8-venv python3-dev -y
-      - name: Install python packages
-        run: |
           python3 -m venv aws_neuron_venv_pytorch
           source aws_neuron_venv_pytorch/bin/activate
           python -m pip install -U pip
           python -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
-          python -m pip install .[neuron,tests]
-          python -m pip uninstall optimum -y
-          python -m pip install optimum
-      - name: Run CLI tests
+      - name: Install optimum neuron
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m is_inferentia_test tests/cli
-      - name: Run export tests
+          python -m pip install .[neuronx]
+      - name: Create cache for ${{matrix.config}} models
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          export MAX_EXPORT_TEST_COMBINATIONS=1
-          HF_TOKEN=${{ secrets.HF_TOKEN_OPTIMUM_NEURON_CI }} pytest -m is_inferentia_test tests/exporters
+          config_prefix_url=https://huggingface.co/aws-neuron/optimum-neuron-cache/raw/main/inference-cache-config
+          HF_TOKEN=${{secrets.HF_TOKEN_OPTIMUM_NEURON_CACHE}} \
+            python tools/auto_fill_inference_cache.py --config_file ${config_prefix_url}/${{matrix.config}}.json

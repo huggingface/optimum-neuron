@@ -29,12 +29,15 @@ TESTS_REQUIRE = [
     "sentencepiece",
     "datasets",
     "sacremoses",
-    "diffusers >= 0.26.1",
+    "diffusers>=0.28.0, <0.29.0",
     "safetensors",
     "sentence-transformers >= 2.2.0",
     "peft",
     "compel",
     "rjieba",
+    "soundfile",
+    "librosa",
+    "opencv-python-headless",
 ]
 
 QUALITY_REQUIRES = [
@@ -54,6 +57,7 @@ EXTRAS_REQUIRE = {
         "neuron-cc[tensorflow]==1.22.0.0",
         "protobuf",
         "torchvision",
+        "numpy==1.22.3",
     ],
     "neuronx": [
         "wheel",
@@ -64,7 +68,7 @@ EXTRAS_REQUIRE = {
         "torchvision==0.16.*",
         "neuronx_distributed==0.7.0",
     ],
-    "diffusers": ["diffusers ~= 0.26.1", "peft"],
+    "diffusers": ["diffusers>=0.28.0, <0.29.0", "peft"],
     "sentence-transformers": ["sentence-transformers >= 2.2.0"],
 }
 

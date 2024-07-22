@@ -125,7 +125,7 @@ class ExampleRunner:
             "task_name": "sst2",
         },
         "token-classification": {
-            "dataset_name": "conll2003",
+            "dataset_name": "bnsapa/cybersecurity-ner",
             "set_max_length": True,
             "extra_command_line_arguments": [
                 "--pad_to_max_length",
