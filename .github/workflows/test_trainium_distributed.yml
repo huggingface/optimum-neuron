@@ -6,11 +6,13 @@ on:
     paths:
       - "setup.py"
       - "optimum/neuron/distributed/**.py"
+      - ".github/workflows/test_trainium_distributed.yml"
   pull_request:
     branches: [ main ]
     paths:
       - "setup.py"
       - "optimum/neuron/distributed/**.py"
+      -  ".github/workflows/test_trainium_distributed.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -20,9 +22,8 @@ concurrency:
 jobs:
   optimum-neuron-tests:
     name: Run distributed tests on Trainium 1
-    runs-on: [self-hosted, 16-aws-trn, 128-cpu, ci]
-    env:
-      AWS_REGION: us-east-1
+    runs-on:
+      group: aws-trn1-32xlarge
     steps:
       - name: Install Neuron runtime
         run: |
@@ -40,7 +41,7 @@ jobs:
         run: echo "/home/ubuntu/.local/bin" >> $GITHUB_PATH
       - name: Install python dependencies
         run: |
-          sudo apt install python3.8-venv python3-dev -y
+          sudo apt install python3-venv python3-dev -y
           python3 -m venv aws_neuron_venv_pytorch
           source aws_neuron_venv_pytorch/bin/activate
           python -m pip install -U pip

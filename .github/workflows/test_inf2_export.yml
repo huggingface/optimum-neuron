@@ -6,6 +6,7 @@ on:
     paths:
       - "setup.py"
       - "optimum/**.py"
+      - ".github/workflows/test_inf2_export.yml"
   pull_request:
     branches: [ main ]
     paths:

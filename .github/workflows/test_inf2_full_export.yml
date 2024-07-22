@@ -5,10 +5,12 @@ on:
     branches: [ main ]
     paths:
       - "optimum/exporters/neuron/*.py"
+      - ".github/workflows/test_inf2_full_export.yml"
   pull_request:
     branches: [ main ]
     paths:
       - "optimum/exporters/neuron/*.py"
+      - ".github/workflows/test_inf2_full_export.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -17,9 +19,8 @@ concurrency:
 jobs:
   do-the-job:
     name: Run INF2 full export tests
-    runs-on: [self-hosted, 1-aws-inf2, 32-cpu, ci] # run the job on the newly created runner
-    env:
-      AWS_REGION: us-east-1
+    runs-on:
+      group: aws-inf2-8xlarge
     steps:
       - name: Install Neuron runtime
         run: |
@@ -35,7 +36,7 @@ jobs:
         uses: actions/checkout@v2
       - name: Install python dependencies
         run: |
-          sudo apt install python3.8-venv python3-dev -y
+          sudo apt install python3-venv python3-dev -y
           python3 -m venv aws_neuron_venv_pytorch
           source aws_neuron_venv_pytorch/bin/activate
           python -m pip install -U pip
