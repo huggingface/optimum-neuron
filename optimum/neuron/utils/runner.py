@@ -39,7 +39,7 @@ from .cache_utils import get_hf_hub_cache_repos, has_write_access_to_repo, load_
 
 logger = logging.get_logger()
 
-_BASE_RAW_FILES_PATH_IN_GH_REPO = "https://raw.githubusercontent.com/huggingface/optimum-neuron/"
+_BASE_RAW_FILES_PATH_IN_GH_REPO = "https://raw.githubusercontent.com/huggingface/optimum-neuron"
 _GH_REPO_EXAMPLE_FOLDERS = [
     "audio-classification",
     "image-classification",
