@@ -11,6 +11,7 @@ on:
     paths:
       - "setup.py"
       - "optimum/**.py"
+      - ".github/workflows/test_inf2_export.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
