@@ -12,7 +12,8 @@ concurrency:
 jobs:
   cache:
     name: Create optimum-neuron inference cache
-    runs-on: [self-hosted, 12-aws-inf2, 192-cpu, ci] # run the job on the newly created runner
+    runs-on:
+      group: aws-inf2-48xlarge
     env:
       AWS_REGION: us-east-1
     strategy:
