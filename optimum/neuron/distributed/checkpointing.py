@@ -65,7 +65,7 @@ def xser_load_on_cpu(path: str):
         return rewritten_tensors
 
     def select_fn(v):
-        return type(v) == xser.TensorReference
+        return type(v) is xser.TensorReference
 
     return xm.ToXlaTensorArena(convert_fn, select_fn).transform(ref_data)
 

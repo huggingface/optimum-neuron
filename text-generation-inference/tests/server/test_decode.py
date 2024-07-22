@@ -36,14 +36,14 @@ def _test_decode(config_name, generator, do_sample):
     assert output.finish_reason == 0
     if do_sample:
         expected_text = {
-            "gpt2": " The sun was up on the horizon, and the air was chilly. I glanced over at the stars",
-            "llama": " In the corner booth of O'Malley's Pub sat two old friends, retired police officer",
-            "mistral": " The sun was scornful in the eyes of the young people who were trying to get along with",
+            "gpt2": " The sun was set just three miles south of the city. I had just watched a big fireworks display",
+            "llama": " George Orwell, 1984\nThe government is not interested in the truth. They want to control",
+            "mistral": " The sky was as pale as a white horse's skull. A pigeon flew",
         }[config_name]
     else:
         expected_text = {
             "gpt2": '\n\n"I\'m going to go to bed," I said.\n\n"I\'m going',
-            "llama": " In the small town of Meadowgrove, everyone knew each other, and they all took",
+            "llama": " George Orwell’s classic dystopian novel, 1984, begins with this ominous sentence. The story",
             "mistral": "\nThe clocks were striking thirteen.\nThe clocks were striking thirteen.",
         }[config_name]
     assert output.text == expected_text

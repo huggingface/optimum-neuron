@@ -1628,7 +1628,7 @@ class NeuronGenerationMixin(GenerationMixin):
         )
 
         for k, v in sequence_outputs.items():
-            if type(v) == torch.Tensor:
+            if type(v) is torch.Tensor:
                 sequence_outputs[k] = sequence_outputs[k].to(input_ids.device)
 
         if return_dict_in_generate:

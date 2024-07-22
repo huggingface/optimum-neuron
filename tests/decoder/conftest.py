@@ -30,12 +30,16 @@ DECODER_MODEL_CONFIGURATIONS = {
         "export_kwargs": {"batch_size": 4, "sequence_length": 1024, "num_cores": 2, "auto_cast_type": "fp16"},
     },
     "llama": {
-        "model_id": "princeton-nlp/Sheared-LLaMA-1.3B",
+        "model_id": "NousResearch/Hermes-2-Theta-Llama-3-8B",
         "export_kwargs": {"batch_size": 4, "sequence_length": 4096, "num_cores": 2, "auto_cast_type": "fp16"},
     },
     "mistral": {
         "model_id": "optimum/mistral-1.1b-testing",
         "export_kwargs": {"batch_size": 4, "sequence_length": 4096, "num_cores": 2, "auto_cast_type": "bf16"},
+    },
+    "mixtral": {
+        "model_id": "dacorvo/Mixtral-tiny",
+        "export_kwargs": {"batch_size": 4, "sequence_length": 1024, "num_cores": 2, "auto_cast_type": "fp16"},
     },
 }
 

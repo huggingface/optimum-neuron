@@ -869,4 +869,4 @@ class MistralNeuronConfig(TextNeuronDecoderConfig):
 @register_in_tasks_manager("mixtral", "text-generation")
 class MixtralNeuronConfig(TextNeuronDecoderConfig):
     NEURONX_CLASS = "mixtral.model.MixtralForSampling"
-    CONTINUOUS_BATCHING = True
+    CONTINUOUS_BATCHING = False

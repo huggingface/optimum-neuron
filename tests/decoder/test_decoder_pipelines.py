@@ -43,45 +43,44 @@ def _test_generation(p):
 
 @is_inferentia_test
 @requires_neuronx
-def test_export_no_parameters(inf_decoder_model):
-    p = pipeline("text-generation", inf_decoder_model, export=True)
+def test_export_no_parameters():
+    p = pipeline("text-generation", "gpt2", export=True)
     _test_generation(p)
 
 
 @is_inferentia_test
 @requires_neuronx
-def test_load_no_parameters(inf_decoder_path):
-    p = pipeline("text-generation", inf_decoder_path)
+def test_load_no_parameters(neuron_decoder_path):
+    p = pipeline("text-generation", neuron_decoder_path)
     _test_generation(p)
 
 
 @is_inferentia_test
 @requires_neuronx
-def test_from_model_and_tokenizer(inf_decoder_path):
-    m = NeuronModelForCausalLM.from_pretrained(inf_decoder_path)
-    t = AutoTokenizer.from_pretrained(inf_decoder_path)
+def test_from_model_and_tokenizer(neuron_decoder_path):
+    m = NeuronModelForCausalLM.from_pretrained(neuron_decoder_path)
+    t = AutoTokenizer.from_pretrained(neuron_decoder_path)
     p = pipeline("text-generation", model=m, tokenizer=t)
     _test_generation(p)
 
 
 @is_inferentia_test
 @requires_neuronx
-def test_error_already_exported(inf_decoder_path):
+def test_error_already_exported(neuron_decoder_path):
     with pytest.raises(ValueError, match="already been exported"):
-        pipeline("text-generation", inf_decoder_path, export=True)
+        pipeline("text-generation", neuron_decoder_path, export=True)
 
 
 @is_inferentia_test
 @requires_neuronx
-def test_error_needs_export(inf_decoder_model):
+def test_error_needs_export():
     with pytest.raises(ValueError, match="must be exported"):
-        pipeline("text-generation", inf_decoder_model, export=False)
+        pipeline("text-generation", "gpt2", export=False)
 
 
 @is_inferentia_test
 @requires_neuronx
-def test_from_hub():
-    model_id = "dacorvo/tiny-random-gpt2-neuronx"
-    revision = "1b3456cf877cc42c053ee8464f1067021eccde4b"
-    p = pipeline("text-generation", model_id, revision=revision)
+def test_from_hub(neuron_decoder_config):
+    model_id = neuron_decoder_config["neuron_model_id"]
+    p = pipeline("text-generation", model_id)
     _test_generation(p)

@@ -61,12 +61,12 @@ EXTRAS_REQUIRE = {
     ],
     "neuronx": [
         "wheel",
-        "neuronx-cc==2.13.66.0",
-        "torch-neuronx==2.1.2.2.1.0",
-        "transformers-neuronx==0.10.0.21",
+        "neuronx-cc==2.14.227.0",
+        "torch-neuronx==2.1.2.2.2.0",
+        "transformers-neuronx==0.11.351",
         "torch==2.1.2.*",
         "torchvision==0.16.*",
-        "neuronx_distributed==0.7.0",
+        "neuronx_distributed==0.8.0",
     ],
     "diffusers": ["diffusers>=0.28.0, <0.29.0", "peft"],
     "sentence-transformers": ["sentence-transformers >= 2.2.0"],
@@ -77,7 +77,7 @@ setup(
     version=__version__,
     description=(
         "Optimum Neuron is the interface between the Hugging Face Transformers and Diffusers libraries and AWS "
-        "Tranium and Inferentia accelerators. It provides a set of tools enabling easy model loading, training and "
+        "Trainium and Inferentia accelerators. It provides a set of tools enabling easy model loading, training and "
         "inference on single and multiple neuron core settings for different downstream tasks."
     ),
     long_description=open("README.md", "r", encoding="utf-8").read(),

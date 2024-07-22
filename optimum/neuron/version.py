@@ -14,4 +14,4 @@
 
 __version__ = "0.0.24.dev0"
 
-__sdk_version__ = "2.18.0"
+__sdk_version__ = "2.19.1"
