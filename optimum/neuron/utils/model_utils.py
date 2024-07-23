@@ -32,13 +32,15 @@ if TYPE_CHECKING:
 def get_tied_parameters_dict(model: Union["torch.nn.Module", "NxDPPModel"]) -> Dict[str, str]:
     from neuronx_distributed.pipeline import NxDPPModel
 
+    if isinstance(model, NxDPPModel):
+        tied_parameters = {}
+        for module in model.local_stage_modules:
+            tied_parameters.update(get_tied_parameters_dict(module))
+        return tied_parameters
+
     unique_parameters = {}
     tied_parameters = {}
-    if isinstance(model, NxDPPModel):
-        module = model.local_module
-    else:
-        module = model
-    for name, param in module.named_parameters(remove_duplicate=False):
+    for name, param in model.named_parameters(remove_duplicate=False):
         if param in unique_parameters:
             tied_parameter_name = unique_parameters[param]
             tied_parameters[name] = tied_parameter_name
@@ -61,19 +63,18 @@ def tie_parameters(model: Union["torch.nn.Module", "NxDPPModel"], tied_parameter
     from neuronx_distributed.pipeline import NxDPPModel
 
     if isinstance(model, NxDPPModel):
-        module = model.local_module
+        for module in model.local_stage_modules:
+            tie_parameters(module, tied_parameters_dict)
     else:
-        module = model
+        for param_to_tie_name, param_name in tied_parameters_dict.items():
+            param_to_tie_parent_module, param_to_tie_name = get_parent_module_and_param_name_from_fully_qualified_name(
+                model, param_to_tie_name
+            )
+            param_to_tie = getattr(param_to_tie_parent_module, param_to_tie_name)
 
-    for param_to_tie_name, param_name in tied_parameters_dict.items():
-        param_to_tie_parent_module, param_to_tie_name = get_parent_module_and_param_name_from_fully_qualified_name(
-            module, param_to_tie_name
-        )
-        param_to_tie = getattr(param_to_tie_parent_module, param_to_tie_name)
+            parent_module, param_name = get_parent_module_and_param_name_from_fully_qualified_name(model, param_name)
+            param = getattr(parent_module, param_name)
 
-        parent_module, param_name = get_parent_module_and_param_name_from_fully_qualified_name(module, param_name)
-        param = getattr(parent_module, param_name)
-
-        if param_to_tie is not param:
-            del param_to_tie
-            setattr(param_to_tie_parent_module, param_to_tie_name, param)
+            if param_to_tie is not param:
+                del param_to_tie
+                setattr(param_to_tie_parent_module, param_to_tie_name, param)
