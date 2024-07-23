@@ -404,9 +404,10 @@ class NeuronAccelerator(Accelerator):
             setattr(model, "main_input_name", model_main_input_name)
 
         if isinstance(model, NxDPPModel):
-            model.local_module = self.patch_model_for_neuron(
-                model.local_module, patching_specs=NxDPPMODEL_PATCHING_SPECS
-            )
+            for idx, module in enumerate(model.local_stage_modules):
+                model.local_stage_modules[idx] = self.patch_model_for_neuron(
+                    module, patching_specs=NxDPPMODEL_PATCHING_SPECS
+                )
 
         # Update CPU ids
         original_parameter_names_to_gqa_qkv_names = model._gqa_qkv_metadata["original_names_to_gqa_qkv_names"]
