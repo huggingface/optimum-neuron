@@ -472,8 +472,18 @@ class NeuronGenerator(Generator):
         # just carry on with decoding. We adopt the id of the first
         # batch in the list as our next batch id.
         next_batch_id = batches[0].id
+        request_ids = []
+        for batch in batches:
+            request_ids += batch.request_ids
+        cleared_request_ids = []
+        for slot in self.slots:
+            if slot.state == slot.State.READY and slot.request_id not in request_ids:
+                cleared_request_ids.append(slot.request_id)
+                slot.clear()
+        if len(cleared_request_ids) > 0:
+            logger.info(f"Clearing slot for requests {cleared_request_ids} as they are not requested.")
         active_slots = [slot for slot in self.slots if slot.state == slot.State.READY]
-        if len(active_slots) == 0:
+        if len(active_slots) < len(request_ids):
             raise ValueError("Unable to decode tokens for non-prefilled batches (probably due to a previous failure)")
         if self.model.continuous_batching:
             decode_slots = active_slots
