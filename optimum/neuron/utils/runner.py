@@ -39,7 +39,8 @@ from .cache_utils import get_hf_hub_cache_repos, has_write_access_to_repo, load_
 
 logger = logging.get_logger()
 
-_BASE_RAW_FILES_PATH_IN_GH_REPO = "https://raw.githubusercontent.com/huggingface/optimum-neuron"
+_GH_REPO_RAW_URL = "https://raw.githubusercontent.com/huggingface/optimum-neuron"
+_GH_REPO_URL = "https://github.com/huggingface/optimum-neuron"
 _GH_REPO_EXAMPLE_FOLDERS = [
     "audio-classification",
     "image-classification",
@@ -109,12 +110,13 @@ def download_example_script_from_github(task_name: str, target_directory: Path, 
     script_name = f"{_TASK_TO_EXAMPLE_SCRIPT[task_name]}.py"
     example_script_path = target_directory
     for folder in _GH_REPO_EXAMPLE_FOLDERS:
-        url_folder = f"{_BASE_RAW_FILES_PATH_IN_GH_REPO}/{revision}/examples/{folder}"
+        raw_url_folder = f"{_GH_REPO_RAW_URL}/{revision}/examples/{folder}"
+        url_folder = f"{_GH_REPO_URL}/{revision}/examples/{folder}"
         filenames_for_example = list_filenames_in_github_repo_directory(url_folder, only_files=True)
         if script_name not in filenames_for_example:
             continue
         for filename in filenames_for_example:
-            r = requests.get(f"{url_folder}/{filename}")
+            r = requests.get(f"{raw_url_folder}/{filename}")
             if r.status_code != 200:
                 continue
             local_path = target_directory / filename
