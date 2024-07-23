@@ -42,7 +42,7 @@ logger = logging.get_logger()
 _GH_REPO_RAW_URL = "https://raw.githubusercontent.com/huggingface/optimum-neuron"
 _GH_REPO_URL = "https://github.com/huggingface/optimum-neuron"
 _GH_REPO_EXAMPLE_FOLDERS = [
-    "audio-classification",
+    # "audio-classification",
     "image-classification",
     "language-modeling",
     "multiple-choice",
@@ -63,7 +63,7 @@ _TASK_TO_EXAMPLE_SCRIPT = {
     "summarization": "run_summarization",
     "translation": "run_translation",
     "image-classification": "run_image_classification",
-    "audio-classification": "run_audio_classification",
+    # "audio-classification": "run_audio_classification",
     "speech-recognition": "run_speech_recognition_ctc",
 }
 
