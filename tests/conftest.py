@@ -17,7 +17,7 @@ import shutil
 from pathlib import Path
 
 import pytest
-from huggingface_hub import create_repo, delete_repo, get_token, login, logout
+from huggingface_hub import HfApi, create_repo, delete_repo, get_token, login, logout
 
 from optimum.neuron.utils.cache_utils import (
     delete_custom_cache_repo_name_from_hf_home,
@@ -115,6 +115,12 @@ def _hub_test(create_local_cache: bool = False):
         yield custom_cache_repo_with_seed
 
     delete_repo(custom_cache_repo_with_seed, repo_type="model")
+
+    model_repos = HfApi().list_models()
+    for repo in model_repos:
+        if repo.id.startswith("optimum-neuron-cache-for-testing-"):
+            delete_repo(repo.id)
+
     if local_cache_path_with_seed.is_dir():
         shutil.rmtree(local_cache_path_with_seed)
     if orig_token is not None:
