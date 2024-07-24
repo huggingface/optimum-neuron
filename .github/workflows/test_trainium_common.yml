@@ -6,11 +6,13 @@ on:
     paths:
       - "setup.py"
       - "optimum/**.py"
+      - ".github/workflows/test_trainium_common.yml"
   pull_request:
     branches: [ main ]
     paths:
       - "setup.py"
       - "optimum/**.py"
+      - ".github/workflows/test_trainium_common.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -19,9 +21,9 @@ concurrency:
 jobs:
   optimum-neuron-tests:
     name: Run common tests on Trainium 1
-    runs-on: [self-hosted, 16-aws-trn, 128-cpu, ci]
+    runs-on:
+      group: aws-trn1-32xlarge
     env:
-      AWS_REGION: us-east-1
       TESTS_TO_IGNORE_FLAGS: --ignore tests/distributed/ --ignore tests/test_examples.py
     steps:
       - name: Install Neuron runtime
@@ -38,7 +40,7 @@ jobs:
         uses: actions/checkout@v2
       - name: Install python dependencies
         run: |
-          sudo apt install python3.8-venv python3-dev -y
+          sudo apt install python3-venv python3-dev -y
           python3 -m venv aws_neuron_venv_pytorch
           source aws_neuron_venv_pytorch/bin/activate
           python -m pip install -U pip

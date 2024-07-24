@@ -12,7 +12,8 @@ concurrency:
 jobs:
   cache:
     name: Create optimum-neuron inference cache
-    runs-on: [self-hosted, 12-aws-inf2, 192-cpu, ci] # run the job on the newly created runner
+    runs-on:
+      group: aws-inf2-48xlarge
     env:
       AWS_REGION: us-east-1
     strategy:
@@ -44,7 +45,7 @@ jobs:
         uses: actions/checkout@v4
       - name: Install python and create venv
         run: |
-          sudo apt install python3.8-venv python3-dev -y
+          sudo apt install python-venv python3-dev -y
           python3 -m venv aws_neuron_venv_pytorch
           source aws_neuron_venv_pytorch/bin/activate
           python -m pip install -U pip
