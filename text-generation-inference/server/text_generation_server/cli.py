@@ -39,11 +39,11 @@ def serve(
             The server logger level. Defaults to *INFO*.
         json_output (`bool`):
             Use JSON format for log serialization.
-        otlp_endpoint (Optional[`str`]):
+        otlp_endpoint (`Optional[str]`, defaults to `None`):
             The Open Telemetry endpoint to use.
-        otlp_service_name (Optional[`str`]):
+        otlp_service_name (`Optional[str]`, defaults to `None`):
             The name to use when pushing data to the Open Telemetry endpoint.
-        max_input_tokens (Optional[`int`]):
+        max_input_tokens (`Optional[int]`, defaults to `None`):
             The maximum number of input tokens each request should contain.
     """
     if sharded:
