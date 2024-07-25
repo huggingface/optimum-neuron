@@ -734,6 +734,7 @@ class Parallelizer(ABC):
             num_local_ranks_per_step = get_local_world_size()
         for worker in range(math.ceil(get_local_world_size() / num_local_ranks_per_step)):
             if local_rank // num_local_ranks_per_step == worker:
+                continue
                 if skip_linear_weight_load:
                     # Load the weights to the parallel linears if the loading was skipped during parallelization.
                     cls._maybe_load_weights_to_parallel_linears(model)
