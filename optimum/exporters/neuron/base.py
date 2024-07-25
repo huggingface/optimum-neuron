@@ -16,6 +16,7 @@
 
 import importlib
 import re
+import enum
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
@@ -458,3 +459,14 @@ class NeuronDecoderConfig(NeuronConfig):
     @property
     def attention_layout(self):
         return self.ATTENTION_lAYOUT
+
+
+class ConfigBehavior(str, enum.Enum):
+    """
+    Specifies the behavior of sequence-to-sequence Neuron config:
+        - ENCODER: the config can be used to export the encoder part (and the initialization of the KV cache) of the seq2seq model.
+        - DECODER: the config can be used to export the decoder part of the seq2seq model.
+    """
+
+    ENCODER = "encoder"
+    DECODER = "decoder"

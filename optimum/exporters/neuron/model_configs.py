@@ -42,6 +42,7 @@ from .config import (
     TextNeuronDecoderConfig,
     TextSeq2SeqNeuronConfig,
     VisionNeuronConfig,
+    AudioToTextNeuronConfig,
 )
 from .model_wrappers import (
     ControlNetNeuronWrapper,
@@ -51,6 +52,8 @@ from .model_wrappers import (
     T5DecoderWrapper,
     T5EncoderWrapper,
     UnetNeuronWrapper,
+    WhisperEncoderWrapper,
+    WhisperDecoderWrapper,
 )
 
 
@@ -732,3 +735,42 @@ class MistralNeuronConfig(TextNeuronDecoderConfig):
 class MixtralNeuronConfig(TextNeuronDecoderConfig):
     NEURONX_CLASS = "mixtral.model.MixtralForSampling"
     CONTINUOUS_BATCHING = True
+
+
+@register_in_tasks_manager("whisper-encoder", *["automatic-speech-recognition"])
+class WhisperEncoderNeuronConfig(AudioToTextNeuronConfig):
+    MANDATORY_AXES = ("batch_size", "sequence_length")
+    MODEL_TYPE = "whisper-encoder"
+    CUSTOM_MODEL_WRAPPER = WhisperEncoderWrapper
+    NORMALIZED_CONFIG_CLASS = NormalizedSeq2SeqConfig.with_args(
+        encoder_num_layers="encoder_layers",
+        decoder_num_layers="decoder_layers",
+        feature_size="num_mel_bins",
+        allow_new=True,
+    )
+    
+    @property
+    def is_decoder(self) -> bool:
+        return False
+
+    def patch_model_for_export(self, model, device="xla", **kwargs):
+        return self.CUSTOM_MODEL_WRAPPER(model, device=device)
+
+
+@register_in_tasks_manager("whisper-decoder", *["automatic-speech-recognition"])
+class WhisperDecoderNeuronConfig(AudioToTextNeuronConfig):
+    NORMALIZED_CONFIG_CLASS = NormalizedSeq2SeqConfig.with_args(
+        encoder_num_layers="encoder_layers",
+        decoder_num_layers="decoder_layers",
+        feature_size="num_mel_bins",
+        allow_new=True,
+    )
+    
+    @property
+    def is_decoder(self) -> bool:
+        return True
+    
+    @property
+    def inputs(self) -> Dict[str, Dict[int, str]]:
+        common_inputs = super().inputs + ["beam_idx", "beam_scores"]
+        return common_inputs

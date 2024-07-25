@@ -17,7 +17,10 @@
 from typing import TYPE_CHECKING, List, Optional
 
 import torch
+from transformers import GenerationConfig
 from transformers.models.t5.modeling_t5 import T5LayerCrossAttention
+from transformers.models.whisper.modeling_whisper import WhisperAttention
+from transformers.modeling_attn_mask_utils import _prepare_4d_causal_attention_mask
 
 
 if TYPE_CHECKING:
@@ -110,7 +113,7 @@ class ControlNetNeuronWrapper(torch.nn.Module):
 
 # Adapted from https://awsdocs-neuron.readthedocs-hosted.com/en/latest/src/examples/pytorch/torch-neuronx/t5-inference-tutorial.html
 class T5EncoderWrapper(torch.nn.Module):
-    """Wrapper to trace the encoder and the kv cache initialization in the decoder."""
+    """Wrapper to trace the T5 encoder and the kv cache initialization in the decoder."""
 
     def __init__(
         self,
@@ -186,7 +189,7 @@ class T5EncoderWrapper(torch.nn.Module):
 
 # Adapted from https://awsdocs-neuron.readthedocs-hosted.com/en/latest/src/examples/pytorch/torch-neuronx/t5-inference-tutorial.html
 class T5DecoderWrapper(torch.nn.Module):
-    """Wrapper to trace the decoder with past keys values with a language head."""
+    """Wrapper to trace the T5 decoder with past keys values with a language head."""
 
     def __init__(
         self,
@@ -214,13 +217,13 @@ class T5DecoderWrapper(torch.nn.Module):
         if device == "cpu":
             self.past_key_values_sa = [
                 torch.ones(
-                    (num_beams, self.config.num_heads, self.sequence_length - 1, self.config.d_kv), dtype=torch.float32
+                    (self.batch_size * num_beams, self.config.num_heads, self.sequence_length - 1, self.config.d_kv), dtype=torch.float32
                 )
                 for _ in range(self.config.num_decoder_layers * 2)
             ]
             self.past_key_values_ca = [
                 torch.ones(
-                    (num_beams, self.config.num_heads, self.sequence_length, self.config.d_kv), dtype=torch.float32
+                    (self.batch_size * num_beams, self.config.num_heads, self.sequence_length, self.config.d_kv), dtype=torch.float32
                 )
                 for _ in range(self.config.num_decoder_layers * 2)
             ]
@@ -438,3 +441,254 @@ class NoCacheModelWrapper(torch.nn.Module):
         outputs = self.model(use_cache=False, **ordered_inputs)
 
         return outputs
+
+
+class WhisperMonolithWrapper(torch.nn.Module):
+    """Wrapper to trace the Whisper encoder and the decoder's first pass."""
+    def __init__(
+        self,
+        model: "PreTrainedModel",
+        device: str = "xla",
+        tp_degree: Optional[int] = None,
+    ):
+        super().__init__()
+        self.encoder = model.get_encoder()
+        self.decoder = model.get_decoder()
+        self.config = model.config
+        self.device = device
+        self.tp_degree = tp_degree
+    
+    def forward(self, input_features, attention_mask):
+        pass
+
+class WhisperEncoderWrapper(torch.nn.Module):
+    """Wrapper to trace the Whisper encoder and the kv cache initialization in the decoder."""
+
+    def __init__(
+        self,
+        model: "PreTrainedModel",
+        device: str = "xla",
+        tp_degree: Optional[int] = None,
+    ):
+        super().__init__()
+        self.encoder = model.get_encoder()
+        self.decoder = model.get_decoder()
+        self.config = model.config
+        self.device = device
+        self.tp_degree = tp_degree
+
+    def forward(self, input_features, attention_mask):
+        
+        # Infer shapes
+        batch_size = input_features.shape[0]
+        sequence_length = input_features.shape[1]
+
+        # Encoder
+        input_features = self.model._mask_input_features(input_features, attention_mask=attention_mask)
+        encoder_output = self.model.encoder(
+            input_features, 
+            attention_mask=attention_mask, 
+            output_attentions=False, 
+            output_hidden_states=False, 
+            return_dict=True
+        )
+
+        # Decoder w/o past (initialisation of past key values)
+        encoder_hidden_states = encoder_output["last_hidden_state"]
+
+        decoder_layers = self.model.decoder.layers
+        present_key_value_states_sa = []
+        present_key_value_states_ca = []
+
+        for layer in decoder_layers:
+            # Cross attention has to be initialized with the encoder hidden states
+            cross_attention: WhisperAttention = layer.encoder_attn
+            
+            key_states = cross_attention._shape(cross_attention.k_proj(encoder_hidden_states), -1, batch_size)
+            value_states = cross_attention._shape(cross_attention.v_proj(encoder_hidden_states), -1, batch_size)
+
+            # cross_attn_kv_state
+            present_key_value_states_ca.append(key_states)
+            present_key_value_states_ca.append(value_states)
+
+            # Self attention kv states are initialized to zeros. This is done to keep the size of the kv cache tensor constant.
+            # The kv cache is padded here to keep a fixed shape.
+            # [key states]
+            present_key_value_states_sa.append(
+                torch.zeros(
+                    (batch_size, self.config.decoder_attention_heads, sequence_length - 1, self.config.d_model // self.config.decoder_attention_heads),
+                    dtype=torch.float32,
+                    device=self.device,
+                )
+            )
+            # [value states]
+            present_key_value_states_sa.append(
+                torch.zeros(
+                    (batch_size, self.config.decoder_attention_heads, sequence_length - 1, self.config.d_model // self.config.decoder_attention_heads),
+                    dtype=torch.float32,
+                    device=self.device,
+                )
+            )
+
+        return present_key_value_states_sa + present_key_value_states_ca
+
+
+class WhisperDecoderWrapper(torch.nn.Module):
+    """Wrapper to trace the Whisper decoder with past keys values with a language head."""
+
+    def __init__(
+        self,
+        model: "PreTrainedModel",
+        batch_size: int,
+        sequence_length: int,
+        device: str = "xla",
+        tp_degree: Optional[int] = None,
+        output_hidden_states: bool = False,
+        output_attentions: bool = False,
+    ):
+        super().__init__()
+        self.model = model
+        self.config = model.config
+        self.batch_size = batch_size
+        self.sequence_length = sequence_length
+        self.device = device
+        self.tp_degree = tp_degree
+        self.output_hidden_states = output_hidden_states
+        self.output_attentions = output_attentions
+
+        # Initialize KV cache (self.batch_size * num_beams, n_heads, seq_length, dim_per_head)
+        if device == "cpu":
+            self.past_key_values_sa = [
+                torch.ones(
+                    (self.batch_size, self.config.decoder_attention_heads, self.sequence_length - 1, self.config.d_model), dtype=torch.float32
+                )
+                for _ in range(self.config.decoder_layers * 2)
+            ]
+            self.past_key_values_ca = [
+                torch.ones(
+                    (self.batch_size, self.config.decoder_attention_heads, self.sequence_length, self.config.d_model), dtype=torch.float32
+                )
+                for _ in range(self.config.decoder_layers * 2)
+            ]
+        elif device == "xla":
+            self.past_key_values_sa = torch.nn.ParameterList(
+                [
+                    torch.nn.Parameter(
+                        torch.ones(
+                            (
+                                self.batch_size,
+                                self.config.decoder_attention_heads,
+                                sequence_length - 1,
+                                self.config.d_model,
+                            ),
+                            dtype=torch.float32,
+                        ),
+                        requires_grad=False,
+                    )
+                    for _ in range(self.config.decoder_layers * 2)
+                ]
+            )
+            self.past_key_values_ca = torch.nn.ParameterList(
+                [
+                    torch.nn.Parameter(
+                        torch.ones(
+                            (
+                                self.batch_size,
+                                self.config.decoder_attention_heads,
+                                sequence_length,
+                                self.config.d_model,
+                            ),
+                            dtype=torch.float32,
+                        ),
+                        requires_grad=False,
+                    )
+                    for _ in range(self.config.decoder_layers * 2)
+                ]
+            )
+    
+    def update_past(self, past_key_values):
+        new_past_sa = []
+        new_past_ca = []
+        for past_layer in past_key_values:
+            new_past_layer = list(past_layer)
+            for i in range(len(new_past_layer[:2])):
+                new_past_layer[i] = past_layer[i][:, :, 1:]
+            new_past_sa += [
+                new_past_layer[:2],
+            ]
+            new_past_ca += [
+                new_past_layer[2:],
+            ]
+        return new_past_sa, new_past_ca
+
+    def forward(
+        self,
+        decoder_input_ids,
+        decoder_attention_mask,
+        encoder_hidden_states,
+        encoder_attention_mask,
+        **kwargs,
+    ):
+        # We do not need to reorder for greedy sampling
+        past_key_values_sa = self.past_key_values_sa
+        past_key_values_ca = self.past_key_values_ca
+
+        # The cache is stored in a flatten form. We order the cache per layer before passing it to the decoder.
+        # Each layer has 4 tensors, so we group by 4.
+        past_key_values = [
+            [*past_key_values_sa[i * 2 : i * 2 + 2], *past_key_values_ca[i * 2 : i * 2 + 2]]
+            for i in range(0, int(len(past_key_values_ca) / 2))
+        ]
+
+        decoder_output = self.model.decoder(
+            input_ids=decoder_input_ids,
+            attention_mask=decoder_attention_mask,
+            past_key_values=past_key_values,
+            encoder_hidden_states=encoder_hidden_states,
+            encoder_attention_mask=encoder_attention_mask,
+            use_cache=True,
+        )
+
+        last_hidden_state = decoder_output["last_hidden_state"]
+        past_key_values = decoder_output["past_key_values"]
+        if self.output_hidden_states:
+            decoder_hidden_states = list(
+                decoder_output["hidden_states"]
+            )  # flatten `hidden_states` which is a tuple of tensors
+
+        if self.output_attentions:
+            decoder_attentions = list(
+                decoder_output["attentions"]
+            )  # flatten `decoder_attentions` which is a tuple of tensors
+            cross_attentions = list(
+                decoder_output["cross_attentions"]
+            )  # flatten `cross_attentions` which is a tuple of tensors
+
+        lm_logits = self.model.proj_out(last_hidden_state)
+
+        past_key_values_sa, past_key_values_ca = self.update_past(past_key_values)
+
+        # We flatten the cache to a single array. This is required for the input output aliasing to work
+        past_key_values_sa = [vec for kv_per_layer in past_key_values_sa for vec in kv_per_layer]
+        past_key_values_ca = [vec for kv_per_layer in past_key_values_ca for vec in kv_per_layer]
+
+        if self.device == "cpu":
+            self.past_key_values_sa = past_key_values_sa
+            self.past_key_values_ca = past_key_values_ca
+
+        # We calculate topk inside the wrapper
+        next_token_logits = lm_logits[:, -1, :]
+
+        # Greedy
+        next_tokens = torch.argmax(next_token_logits, dim=-1)
+
+        neuron_outputs = [next_tokens] + past_key_values_sa + past_key_values_ca
+
+        if self.output_hidden_states:
+            neuron_outputs += decoder_hidden_states
+
+        if self.output_attentions:
+            neuron_outputs += decoder_attentions
+            neuron_outputs += cross_attentions
+
+        return neuron_outputs

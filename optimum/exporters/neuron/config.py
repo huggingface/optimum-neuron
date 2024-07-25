@@ -165,3 +165,67 @@ class TextSeq2SeqNeuronConfig(NeuronDefaultConfig):
         ]
 
         return dummy_inputs_generators
+
+
+class AudioToTextNeuronConfig(DummySeq2SeqPastKeyValuesGenerator):
+    """
+    Handles encoder-decoder-based audio tasks.
+    """
+    DUMMY_INPUT_GENERATOR_CLASSES = (
+        DummyAudioInputGenerator,
+        DummySeq2SeqDecoderTextInputGenerator,
+        DummySeq2SeqPastKeyValuesGenerator,
+    )
+    
+    @property
+    def inputs(self) -> List[str]:
+        common_inputs = []
+        # encoder + decoder without past
+        if "encoder" in self.MODEL_TYPE:
+            common_inputs = ["input_features", "attention_mask"]
+        # decoder with past
+        if "decoder" in self.MODEL_TYPE:
+            common_inputs = [
+                "decoder_input_ids",
+                "decoder_attention_mask",
+                "encoder_hidden_states",
+                "attention_mask",
+            ]  # no past key values since it's updated within the decoder
+
+        return common_inputs
+    
+    @property
+    def outputs(self) -> List[str]:
+        common_outputs = []
+        # encoder + decoder without past
+        if "encoder" in self.MODEL_TYPE:
+            common_outputs = (
+                [f"present.{idx}.self.key" for idx in range(self._config.decoder_attention_heads)]
+                + [f"present.{idx}.self.value" for idx in range(self._config.decoder_attention_heads)]
+                + [f"present.{idx}.cross.key" for idx in range(self._config.decoder_attention_heads)]
+                + [f"present.{idx}.cross.value" for idx in range(self._config.decoder_attention_heads)]
+            )
+        # decoder with past
+        if "decoder" in self.MODEL_TYPE:
+            common_outputs = ["next_tokens"]
+            common_outputs = (
+                common_outputs
+                + [f"past.{idx}.self.key" for idx in range(self._config.decoder_attention_heads)]
+                + [f"past.{idx}.self.value" for idx in range(self._config.decoder_attention_heads)]
+                + [f"past.{idx}.cross.key" for idx in range(self._config.decoder_attention_heads)]
+                + [f"past.{idx}.cross.value" for idx in range(self._config.decoder_attention_heads)]
+            )
+
+            if self.output_hidden_states:
+                # Flatten hidden states of all layers
+                common_outputs += [
+                    f"decoder_hidden_state.{idx}" for idx in range(self._config.decoder_attention_heads + 1)
+                ]  # +1 for the embedding layer
+
+            if self.output_attentions:
+                # Flatten attentions tensors of all attention layers
+                common_outputs += [f"decoder_attention.{idx}" for idx in range(self._config.decoder_attention_heads)]
+                if getattr(self._config, "is_encoder_decoder", False) is True:
+                    common_outputs += [f"cross_attention.{idx}" for idx in range(self._config.decoder_attention_heads)]
+
+        return common_outputs
