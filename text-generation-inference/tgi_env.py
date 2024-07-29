@@ -16,7 +16,7 @@ from optimum.neuron.utils.version_utils import get_neuronxcc_version
 
 logger = logging.getLogger(__name__)
 
-tgi_router_env_vars = ["MAX_BATCH_SIZE", "MAX_TOTAL_TOKENS", "MAX_INPUT_LENGTH"]
+tgi_router_env_vars = ["MAX_BATCH_SIZE", "MAX_TOTAL_TOKENS", "MAX_INPUT_TOKENS"]
 tgi_server_env_vars = ["HF_NUM_CORES", "HF_AUTO_CAST_TYPE"]
 
 env_config_peering = [
@@ -38,7 +38,9 @@ def parse_cmdline_and_set_env(argv: List[str] = None) -> argparse.Namespace:
     if not argv:
         argv = sys.argv
     # All these are params passed to tgi and intercepted here
-    parser.add_argument("--max-input-length", type=int, default=os.getenv("MAX_INPUT_LENGTH", 0))
+    parser.add_argument(
+        "--max-input-tokens", type=int, default=os.getenv("MAX_INPUT_TOKENS", os.getenv("MAX_INPUT_LENGTH", 0))
+    )
     parser.add_argument("--max-total-tokens", type=int, default=os.getenv("MAX_TOTAL_TOKENS", 0))
     parser.add_argument("--max-batch-size", type=int, default=os.getenv("MAX_BATCH_SIZE", 0))
     parser.add_argument("--model-id", type=str, default=os.getenv("MODEL_ID"))
@@ -57,8 +59,8 @@ def parse_cmdline_and_set_env(argv: List[str] = None) -> argparse.Namespace:
     if args.max_total_tokens > 0:
         os.environ["MAX_TOTAL_TOKENS"] = str(args.max_total_tokens)
 
-    if args.max_input_length > 0:
-        os.environ["MAX_INPUT_LENGTH"] = str(args.max_input_length)
+    if args.max_input_tokens > 0:
+        os.environ["MAX_INPUT_TOKENS"] = str(args.max_input_tokens)
 
     if args.max_batch_size > 0:
         os.environ["MAX_BATCH_SIZE"] = str(args.max_batch_size)
@@ -73,12 +75,12 @@ def neuron_config_to_env(neuron_config):
     with open(os.environ["ENV_FILEPATH"], "w") as f:
         for env_var, config_key in env_config_peering:
             f.write("export {}={}\n".format(env_var, neuron_config[config_key]))
-        max_input_length = os.getenv("MAX_INPUT_LENGTH")
-        if not max_input_length:
-            max_input_length = int(neuron_config["sequence_length"]) // 2
-            if max_input_length == 0:
+        max_input_tokens = os.getenv("MAX_INPUT_TOKENS")
+        if not max_input_tokens:
+            max_input_tokens = int(neuron_config["sequence_length"]) // 2
+            if max_input_tokens == 0:
                 raise Exception("Model sequence length should be greater than 1")
-        f.write("export MAX_INPUT_LENGTH={}\n".format(max_input_length))
+        f.write("export MAX_INPUT_TOKENS={}\n".format(max_input_tokens))
 
 
 def sort_neuron_configs(dictionary):
@@ -149,13 +151,13 @@ def check_env_and_neuron_config_compatibility(neuron_config: Dict[str, Any], che
             )
             return False
 
-    if os.getenv("MAX_INPUT_LENGTH"):
-        max_input_length = int(os.environ["MAX_INPUT_LENGTH"])
+    max_input_tokens = int(os.getenv("MAX_INPUT_TOKENS", os.getenv("MAX_INPUT_LENGTH", 0)))
+    if max_input_tokens > 0:
         sequence_length = neuron_config["sequence_length"]
-        if max_input_length >= sequence_length:
+        if max_input_tokens >= sequence_length:
             logger.debug(
-                "Specified max input length is not compatible with config sequence length " "( %s >= %s)",
-                max_input_length,
+                "Specified max input tokens is not compatible with config sequence length " "( %s >= %s)",
+                max_input_tokens,
                 sequence_length,
             )
             return False
