@@ -259,6 +259,38 @@ class TestExportCLI(unittest.TestCase):
                     "neuron",
                     "--model",
                     model_id,
+                    "--inline-weights-neff",
+                    "--task",
+                    "stable-diffusion-xl",
+                    "--batch_size",
+                    "1",
+                    "--height",
+                    "64",
+                    "--width",
+                    "64",
+                    "--num_images_per_prompt",
+                    "4",
+                    "--auto_cast",
+                    "matmul",
+                    "--auto_cast_type",
+                    "bf16",
+                    tempdir,
+                ],
+                shell=False,
+                check=True,
+            )
+
+    @requires_neuronx
+    def test_stable_diffusion_xl_non_inlined(self):
+        model_id = "echarlaix/tiny-random-stable-diffusion-xl"
+        with tempfile.TemporaryDirectory() as tempdir:
+            subprocess.run(
+                [
+                    "optimum-cli",
+                    "export",
+                    "neuron",
+                    "--model",
+                    model_id,
                     "--task",
                     "stable-diffusion-xl",
                     "--batch_size",
