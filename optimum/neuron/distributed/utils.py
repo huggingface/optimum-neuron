@@ -221,6 +221,9 @@ class OptimumGQAQKVColumnParallelLinear(GQAQKVColumnParallelLinear):
             mapping = {v: k for k, v in mapping.items()}
         return mapping
 
+    def forward(self, input: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        output_q, output_k, output_v = super().forward(input)
+
 
 @requires_neuronx_distributed
 def get_parameter_names_mapping_after_gqa_qkv_replacement(
@@ -1226,6 +1229,127 @@ def linear_to_parallel_linear(
         parallel_linear_layer.bias.requires_grad = linear_layer.bias.requires_grad
 
     return parallel_linear_layer
+
+
+@requires_neuronx_distributed
+def inplace_linears_to_gqa_qkv_column_parallel_linear(
+    model: torch.nn.Module,
+    attention_layer: torch.nn.Module,
+    gqa_qkv_proj_name: str,
+    queries_name: str,
+    keys_name: str,
+    values_name: str,
+    output_projection_name: str,
+    num_attention_heads: int,
+    num_key_value_heads: int,
+    sequence_parallel_enabled: bool = False,
+    kv_size_multiplier: Optional[int] = None,
+    skip_linear_weight_load: bool = False,
+):
+    from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
+
+    query_linear = getattr(attention_layer, queries_name)
+    key_linear = getattr(attention_layer, keys_name)
+    value_linear = getattr(attention_layer, values_name)
+
+    hidden_size = query_linear.weight.size(1)
+    query_in_features = query_linear.weight.size(0)
+    key_value_in_features = key_linear.weight.size(0)
+
+    if kv_size_multiplier is None:
+        kv_size_multiplier = get_tensor_model_parallel_size() // num_key_value_heads
+
+    device = query_linear.weight.device
+    if device == torch.device("meta"):
+        device = None
+
+    gqa_qkv_column_parallel_linear = OptimumGQAQKVColumnParallelLinear(
+        queries_name,
+        keys_name,
+        values_name,
+        output_projection_name,
+        num_attention_heads,
+        num_key_value_heads,
+        hidden_size,
+        [query_in_features, key_value_in_features],
+        gather_output=False,
+        bias=query_linear.bias is not None,
+        sequence_parallel_enabled=sequence_parallel_enabled,
+        device=device,
+        kv_size_multiplier=kv_size_multiplier,
+    )
+
+    setattr(attention_layer, gqa_qkv_proj_name, gqa_qkv_column_parallel_linear)
+
+    maybe_load_weights_to_gqa_qkv_column_parallel_linear(
+        model,
+        gqa_qkv_column_parallel_linear,
+        try_from_checkpoint=not skip_linear_weight_load,
+        try_from_original_layer=not skip_linear_weight_load,
+    )
+    layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
+    attention_layer_qualified_name = layer_to_fully_qualified_name[id(attention_layer)]
+
+    query_is_peft_tuner = False
+    key_is_peft_tuner = False
+    value_is_peft_tuner = False
+    if is_peft_available():
+        from peft.tuners.tuners_utils import BaseTunerLayer
+
+        query_is_peft_tuner = isinstance(query_linear, BaseTunerLayer)
+        key_is_peft_tuner = isinstance(key_linear, BaseTunerLayer)
+        value_is_peft_tuner = isinstance(value_linear, BaseTunerLayer)
+
+    def get_parent_and_base_layer_in_tuner_layer(tuner_layer):
+        parent = tuner_layer
+        base_layer = tuner_layer
+        while hasattr(base_layer, "base_layer"):
+            parent = base_layer
+            base_layer = base_layer.base_layer
+        return parent, base_layer
+
+    fake_q_proj = FakeProj(
+        f"{attention_layer_qualified_name}.{queries_name}",
+        "q",
+        0,
+        lambda: attention_layer,
+        attention_layer_qualified_name,
+        gqa_qkv_proj_name,
+    )
+    if query_is_peft_tuner:
+        parent, _ = get_parent_and_base_layer_in_tuner_layer(query_linear)
+        setattr(parent, "base_layer", fake_q_proj)
+    else:
+        setattr(attention_layer, queries_name, fake_q_proj)
+
+    fake_k_proj = FakeProj(
+        f"{attention_layer_qualified_name}.{keys_name}",
+        "k",
+        1,
+        lambda: attention_layer,
+        attention_layer_qualified_name,
+        gqa_qkv_proj_name,
+    )
+    if key_is_peft_tuner:
+        parent, _ = get_parent_and_base_layer_in_tuner_layer(key_linear)
+        setattr(parent, "base_layer", fake_k_proj)
+        print(parent, fake_k_proj)
+    else:
+        setattr(attention_layer, keys_name, fake_k_proj)
+
+    fake_v_proj = FakeProj(
+        f"{attention_layer_qualified_name}.{values_name}",
+        "v",
+        2,
+        lambda: attention_layer,
+        attention_layer_qualified_name,
+        gqa_qkv_proj_name,
+    )
+    if value_is_peft_tuner:
+        parent, _ = get_parent_and_base_layer_in_tuner_layer(value_linear)
+        setattr(parent, "base_layer", fake_v_proj)
+    else:
+        setattr(attention_layer, values_name, fake_v_proj)
 
 
 @requires_neuronx_distributed

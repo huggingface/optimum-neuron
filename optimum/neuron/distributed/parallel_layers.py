@@ -30,14 +30,12 @@ from ..utils import patch_everywhere, patch_within_function
 from ..utils.misc import is_main_worker
 from ..utils.require_utils import requires_neuronx_distributed
 from .utils import (
-    FakeProj,
-    OptimumGQAQKVColumnParallelLinear,
     WeightInformation,
     embedding_to_parallel_embedding,
     get_linear_weight_info,
+    inplace_linears_to_gqa_qkv_column_parallel_linear,
     linear_to_parallel_linear,
     mark_parameter_init_status_during_parallelization,
-    maybe_load_weights_to_gqa_qkv_column_parallel_linear,
     maybe_load_weights_to_output_projection_when_using_gqa_qkv_column_parallel_linear,
 )
 
@@ -327,124 +325,6 @@ class ParallelSelfAttention(ParallelLayer):
     GQA_QKV_PROJ_NAME: str = "qkv_proj"
 
     @classmethod
-    def get_layer_qualified_name(cls, model: torch.nn.Module, layer: torch.nn.Module) -> str:
-        layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
-        return layer_to_fully_qualified_name[id(layer)]
-
-    @classmethod
-    def patch_proj_to_use_gqa_qkv_column_parallel_linear(
-        cls,
-        attention_layer: torch.nn.Module,
-        attention_layer_qualified_name: str,
-        proj_qualified_name: str,
-        proj_name: str,
-        output_index: int,
-    ):
-        fake_proj = FakeProj(
-            proj_qualified_name,
-            proj_name,
-            output_index,
-            lambda: attention_layer,
-            attention_layer_qualified_name,
-            cls.GQA_QKV_PROJ_NAME,
-        )
-
-        setattr(attention_layer, proj_name, fake_proj)
-
-    @classmethod
-    @requires_neuronx_distributed
-    def replace_qkv_by_gqa_qkv_column_parallel_linear(
-        cls,
-        model: "torch.nn.Module",
-        attention_layer: "torch.nn.Module",
-        sequence_parallel_enabled: bool = False,
-        kv_size_multiplier: Optional[int] = None,
-        skip_linear_weight_load: bool = False,
-    ):
-        from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
-
-        if cls.NUM_KEY_VALUE_HEADS_NAME is None:
-            raise ValueError(f"{cls} does not defined the name of the number of key value heads.")
-        tp_size = get_tensor_model_parallel_size()
-        num_key_value_heads = getattr(attention_layer, cls.NUM_KEY_VALUE_HEADS_NAME)
-        if tp_size < num_key_value_heads:
-            raise ValueError(
-                f"The TP size ({tp_size}) is lower than the number of key value heads, using "
-                "GQAQKVColumnParallelLinear is not needed."
-            )
-
-        num_attention_heads = getattr(attention_layer, cls.NUM_ATTENTION_HEADS_NAME)
-        query_linear = getattr(attention_layer, cls.QUERIES_NAME)
-        key_linear = getattr(attention_layer, cls.KEYS_NAME)
-
-        hidden_size = query_linear.weight.size(1)
-        query_in_features = query_linear.weight.size(0)
-        key_value_in_features = key_linear.weight.size(0)
-
-        if kv_size_multiplier is None:
-            kv_size_multiplier = get_tensor_model_parallel_size() // num_key_value_heads
-
-        device = query_linear.weight.device
-        if device == torch.device("meta"):
-            device = None
-
-        gqa_qkv_column_parallel_linear = OptimumGQAQKVColumnParallelLinear(
-            cls.QUERIES_NAME,
-            cls.KEYS_NAME,
-            cls.VALUES_NAME,
-            cls.OUTPUT_PROJECTION_NAME,
-            num_attention_heads,
-            num_key_value_heads,
-            hidden_size,
-            [query_in_features, key_value_in_features],
-            gather_output=False,
-            bias=query_linear.bias is not None,
-            sequence_parallel_enabled=sequence_parallel_enabled,
-            device=device,
-            kv_size_multiplier=kv_size_multiplier,
-        )
-
-        setattr(attention_layer, cls.GQA_QKV_PROJ_NAME, gqa_qkv_column_parallel_linear)
-
-        maybe_load_weights_to_gqa_qkv_column_parallel_linear(
-            model,
-            gqa_qkv_column_parallel_linear,
-            try_from_checkpoint=not skip_linear_weight_load,
-            try_from_original_layer=not skip_linear_weight_load,
-        )
-
-        attention_layer_qualified_name = cls.get_layer_qualified_name(model, attention_layer)
-        fake_q_proj = FakeProj(
-            f"{attention_layer_qualified_name}.{cls.QUERIES_NAME}",
-            "q",
-            0,
-            lambda: attention_layer,
-            attention_layer_qualified_name,
-            cls.GQA_QKV_PROJ_NAME,
-        )
-        setattr(attention_layer, cls.QUERIES_NAME, fake_q_proj)
-
-        fake_k_proj = FakeProj(
-            f"{attention_layer_qualified_name}.{cls.KEYS_NAME}",
-            "k",
-            1,
-            lambda: attention_layer,
-            attention_layer_qualified_name,
-            cls.GQA_QKV_PROJ_NAME,
-        )
-        setattr(attention_layer, cls.KEYS_NAME, fake_k_proj)
-
-        fake_v_proj = FakeProj(
-            f"{attention_layer_qualified_name}.{cls.VALUES_NAME}",
-            "v",
-            2,
-            lambda: attention_layer,
-            attention_layer_qualified_name,
-            cls.GQA_QKV_PROJ_NAME,
-        )
-        setattr(attention_layer, cls.VALUES_NAME, fake_v_proj)
-
-    @classmethod
     @requires_neuronx_distributed
     def _transform(
         cls,
@@ -503,9 +383,24 @@ class ParallelSelfAttention(ParallelLayer):
             needs_gqa_qkv_column_parallel_linear = False
 
         if needs_gqa_qkv_column_parallel_linear:
-            cls.replace_qkv_by_gqa_qkv_column_parallel_linear(
+            tp_size = get_tensor_model_parallel_size()
+            if cls.NUM_KEY_VALUE_HEADS_NAME is None:
+                raise ValueError(f"{cls} does not defined the name of the number of key value heads.")
+            if tp_size < num_key_value_heads:
+                raise ValueError(
+                    f"The TP size ({tp_size}) is lower than the number of key value heads, using "
+                    "GQAQKVColumnParallelLinear is not needed."
+                )
+            inplace_linears_to_gqa_qkv_column_parallel_linear(
                 model,
                 layer,
+                cls.GQA_QKV_PROJ_NAME,
+                cls.QUERIES_NAME,
+                cls.KEYS_NAME,
+                cls.VALUES_NAME,
+                cls.OUTPUT_PROJECTION_NAME,
+                num_attention_heads,
+                num_key_value_heads,
                 sequence_parallel_enabled=sequence_parallel_enabled,
                 kv_size_multiplier=kv_size_multiplier,
                 skip_linear_weight_load=skip_linear_weight_load,
