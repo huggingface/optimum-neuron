@@ -1,0 +1,133 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creates an EC2 trn1.32xlarge and inf2.24xlarge instance, and an S3 bucket.
+
+Parameters:
+  VPC:
+    Type: AWS::EC2::VPC::Id
+    Description: The VPC ID where the resources will be deployed.
+  Subnet:
+    Type: AWS::EC2::Subnet::Id
+    Description: The public subnet ID where the EC2 instances will be deployed.
+  KeyPair:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: The key pair to use for SSH access to the EC2 instances.
+
+Resources:
+  # S3 Bucket
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub aws-hfon-${AWS::AccountId} 
+
+  # EC2 trn1.32xlarge Instance
+  trn1Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-0ce2d16d374f959dd
+      InstanceType: trn1.32xlarge
+      KeyName: !Ref KeyPair
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          GroupSet:
+            - !Ref InstanceSecurityGroup
+          SubnetId: !Ref Subnet
+      IamInstanceProfile: !Ref InstanceProfile
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 512
+            VolumeType: gp3
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y aws-cli
+          su - ubuntu
+          echo "export S3_BUCKET=s3://${S3Bucket}" >> /home/ubuntu/.bashrc 
+
+  # EC2 inf2.24xlarge Instance  
+  inf2Instance:
+    Type: AWS::EC2::Instance
+    # Wait until the trn1 instance was successfully provisioned
+    DependsOn: trn1Instance
+    Properties:
+      ImageId: ami-0ce2d16d374f959dd
+      InstanceType: inf2.24xlarge
+      KeyName: !Ref KeyPair
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          GroupSet:
+            - !Ref InstanceSecurityGroup
+          SubnetId: !Ref Subnet
+      IamInstanceProfile: !Ref InstanceProfile
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 256
+            VolumeType: gp3
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y aws-cli
+          su - ubuntu
+          echo "export S3_BUCKET=s3://${S3Bucket}" >> /home/ubuntu/.bashrc 
+
+  # Security Group
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allows SSH access
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+      VpcId: !Ref VPC
+
+  # Instance Role
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: 
+                - ec2.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: ec2-hfon-s3-bucket-access
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt S3Bucket.Arn
+                  - !Sub "${S3Bucket.Arn}/*"
+
+  # IAM Instance Profile
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref InstanceRole
+
+Outputs:
+  S3BucketName:
+    Description: The name of the S3 bucket
+    Value: !Ref S3Bucket
+  trn1InstanceId:
+    Description: The ID of the trn1.32xlarge EC2 instance
+    Value: !Ref trn1Instance
+  inf2InstanceId:
+    Description: The ID of the inf2.24xlarge EC2 instance
+    Value: !Ref inf2Instance
