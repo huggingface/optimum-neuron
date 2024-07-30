@@ -1246,11 +1246,18 @@ def try_to_hf_initialize(
     """
     Tries to initialize the parameters in `parameter_names` that belong to the module `mod` by using the
     `model._init_weights` method. It returns the names of the parameters that were left uninitialized.
-
     """
+    if parameter_names_mapping is None:
+        parameter_names_mapping = {}
+
+    reverse_parameter_names_mapping = {v: k for k, v in parameter_names_mapping.items()}
+
+    def name_in_mod(name: str):
+        return parameter_names_mapping.get(name, name)
+
     device = torch.device("cpu")
     for name in parameter_names:
-        param_device = getattr(mod, name).device
+        param_device = getattr(mod, name_in_mod(name)).device
         if param_device != torch.device("meta"):
             device = param_device
 
@@ -1260,14 +1267,6 @@ def try_to_hf_initialize(
 
     # We initialize on cpu to have the same RNG state (mostly useful for tests).
     model._init_weights(mod)
-
-    if parameter_names_mapping is None:
-        parameter_names_mapping = {}
-
-    reverse_parameter_names_mapping = {v: k for k, v in parameter_names_mapping.items()}
-
-    def name_in_mod(name: str):
-        return parameter_names_mapping.get(name, name)
 
     dummy_mod = copy.deepcopy(mod)
     for name in parameter_names:
