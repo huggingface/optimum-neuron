@@ -15,7 +15,7 @@
     - local: training_tutorials/finetune_llm
       title: Fine-tune Llama 3 8B on AWS Trainium
     - local: training_tutorials/lora_fintune_llm
-      title: Fine-tune Llama 3 70B on AWS Trainium
+      title: Fine-tune Llama 3 70B on one AWS Trainium instance with LoRA
     title: Training Tutorials
   - sections:
     - local: inference_tutorials/notebooks
