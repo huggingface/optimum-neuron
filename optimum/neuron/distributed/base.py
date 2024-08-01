@@ -624,8 +624,6 @@ class Parallelizer(ABC):
         else:
             peft_parameter_names = set()
 
-        print(peft_parameter_names)
-
         def should_parallelize_layer_predicate_func(layer):
             if pp_size == 1:
                 return True
@@ -767,13 +765,6 @@ class Parallelizer(ABC):
             gqa_qkv_names_to_original_names = {
                 v: k for k, v in gqa_qkv_metadata["original_names_to_gqa_qkv_names"].items()
             }
-            if peft_prefix:
-                name_without_prefix = name.replace(f"{peft_prefix}.", "")
-            else:
-                name_without_prefix = name
-            print("name", name_without_prefix)
-            print(gqa_qkv_names_to_original_names)
-            print(requires_grad_information)
             if name in requires_grad_information:
                 parameter.requires_grad = requires_grad_information[name]
             elif gqa_qkv_names_to_original_names.get(name, None) in requires_grad_information:
