@@ -1,3 +1,5 @@
+# This is a simple command-line chat application that has contextual memory.
+
 from transformers import AutoTokenizer
 from optimum.neuron import NeuronModelForCausalLM
 

@@ -6,7 +6,7 @@ input_shapes = {"batch_size": 1, "sequence_length": 4096}
 
 # Compiles an Optimum Neuron model from the previously trained (uncompiled) model
 model = NeuronModelForCausalLM.from_pretrained(
-    "mistral",
+    "mistral_trained",
     export=True,
     **compiler_args,
     **input_shapes)

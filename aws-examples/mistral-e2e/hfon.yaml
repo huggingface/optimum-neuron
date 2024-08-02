@@ -1,6 +1,8 @@
+# This is an AWS CloudFormation template to deploy the environment used in this example. Must be deployed in us-east-1.
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Creates an EC2 trn1.32xlarge and inf2.24xlarge instance, and an S3 bucket.
+Description: Creates an EC2 trn1.32xlarge and inf2.24xlarge instance, and an S3 bucket, for end-to-end training and deployment of LLMs.
 
+# Selectable parameters in the AWS CloudFormation deployment
 Parameters:
   VPC:
     Type: AWS::EC2::VPC::Id
