@@ -27,9 +27,10 @@ cd optimum-neuron
 pip install ".[neuronx, diffusers, sentence-transformers]"
 cd ..
 
-mkdir /home/ubuntu/huggingface-neuron-samples/ /home/ubuntu/huggingface-neuron-notebooks/
+mkdir /home/ubuntu/huggingface-neuron-samples/ /home/ubuntu/huggingface-neuron-notebooks/ /home/ubuntu/aws-examples/
 mv optimum-neuron/examples/* /home/ubuntu/huggingface-neuron-samples/
 mv optimum-neuron/notebooks/* /home/ubuntu/huggingface-neuron-notebooks/
+mv optimum-neuron/aws-examples/* /home/ubuntu/aws-examples/
 rm -rf optimum-neuron
 chmod -R 777 /home/ubuntu/huggingface-neuron-samples /home/ubuntu/huggingface-neuron-notebooks
 
