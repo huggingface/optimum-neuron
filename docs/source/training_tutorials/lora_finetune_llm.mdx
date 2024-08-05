@@ -176,23 +176,14 @@ dataset = dataset.map(
 lm_dataset = pack_dataset(dataset, chunk_length=2048) # We use 2048 as the maximum length for packing
 ```
 
-After we processed the datasets we can save them to disk. You could also save it to S3 or the Hugging Face Hub for later use.
-
-_Note: Packing and preprocessing your dataset can be run outside of the Trainium instance._
-
-```python
-# save train_dataset to disk
-dataset_path = "tokenized_dolly"
-lm_dataset.save_to_disk(dataset_path)
-```
-
 ## 3. Fine-tune Llama using LoRA on AWS Trainium with the `NeuronTrainer`
 
 Normally you would use the **[Trainer](https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.Trainer)** and **[TrainingArguments](https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments)** classes to fine-tune PyTorch-based transformer models.
 
 But together with AWS, we have developed the [~`optimum.neuron.NeuronTrainer`] to improve performance, robustness, and ease-of-use when training on Trainium instances. It can be used as a 1-to-1 replacement for the `Trainer`.
 
-Since Llama-3 70B is a big model it will not fit on a single Neuron device, even with distributed training. To actually fine-tune a 70B model using only one Trainium instance we need to use both LoRA and distributed training. In Optimum Neuron we support:
+Since Llama-3 70B is a big model it will not fit on a single Neuron device, even with distributed training. To actually fine-tune a 70B model using only one Trainium instance we need to use both LoRA and distributed training. 
+In Optimum Neuron we support:
   1. [ZeRO-1](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/frameworks/torch/torch-neuronx/tutorials/training/zero1_gpt2.html): It is an optimization of data-parallelism which consists in sharding the optimizer state (which usually represents half or more of the memory needed on the device) over the data-parallel ranks.
   2. [Tensor Parallelism](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/libraries/neuronx-distributed/tensor_parallelism_overview.html): It is a technique which consists in sharding each of your model matrix-multiplications along a given axis (row or column) on multiple devices. It also known as intra-layer model parallelism. The number of devices to shard your parameters on is called the `tensor_parallel_size`. 
   3. [Sequence parallelism](https://arxiv.org/pdf/2205.05198.pdf): It is an optimization over Tensor Parallelism which shards the activations on the sequence axis outside of the tensor parallel regions. It is useful because it saves memory by sharding the activations.
@@ -204,12 +195,14 @@ If you want to know more about distributed training you can take a look at the [
 
 </Tip>
 
-Here, since we want to fine-tune an 8B model, we will not need to use pipeline parallelism.
+Here, we will use tensor parallelism in conjuction with LoRA.
 Our training code will look as follows:
 
 ```python
+from peft import LoraConfig
 from optimum.neuron import NeuronTrainer as Trainer
 from optimum.neuron.distributed import lazy_load_for_parallelism
+from optimum.neuron.utils import get_peft_model
 
 # Define the tensor_parallel_size
 tensor_parallel_size = 8
@@ -217,6 +210,15 @@ tensor_parallel_size = 8
 # Load model from the Hugging face Hub 
 with lazy_load_for_parallelism(tensor_parallel_size=tensor_parallel_size):
     model = AutoModelForCausalLM.from_pretrained(model_id)
+
+config = LoraConfig(
+    r=64,
+    lora_alpha=128,
+    lora_dropout=0.0,
+    target_modules=["embed_tokens", "lm_head", "q_proj", "v_proj"],
+    task_type="CAUSAL_LM",
+)
+model = get_peft_model(model, config)
 
 trainer = Trainer(
     model=model,
@@ -239,15 +241,7 @@ The key points here are:
 
 ## 4. Launch Training 
 
-We prepared a script called [finetune_llm.py](https://github.com/huggingface/optimum-neuron/blob/main/docs/source/training_tutorials/finetune_llm.py) summing up everything mentioned in this tutorial.
-
-<Tip>
-
-This script is a minimalistic version of our official example training script to run causal language modeling fine-tuning, called [run_clm.py](https://github.com/huggingface/optimum-neuron/blob/main/examples/language-modeling/run_clm.py). For the sake of this tutorial, we tried to get rid of anything that is not necessary, and added the formatting step necessary for fine-tuning, but if you want to do more custom things, maybe the solution is already implemented in `run_clm.py`!
-
-Also, these scripts are more designed as templates than final scripts. Feel free to take `finetune_llm.py` or `run_clm.py` and adapt them to your own needs!
-
-</Tip>
+We prepared a script called [lora_finetune_llm.py](https://github.com/huggingface/optimum-neuron/blob/main/docs/source/training_tutorials/lora_finetune_llm.py) summing up everything mentioned in this tutorial.
 
 ### Precompilation
 
@@ -260,8 +254,8 @@ _Note: If your model configuration is not cached please open an issue on [Github
 The compilation command simply consists in calling your script as an input to the `neuron_parallel_compile` utility:
 
 ```bash
-MALLOC_ARENA_MAX=64 XLA_USE_BF16=1 neuron_parallel_compile torchrun --nproc_per_node=32 finetune_llm.py \
- --model_id meta-llama/Llama-2-7b-hf \
+MALLOC_ARENA_MAX=64 XLA_USE_BF16=1 neuron_parallel_compile torchrun --nproc_per_node=32 lora_finetune_llm.py \
+ --model_id meta-llama/Meta-Llama-3-70B \
  --bf16 True \
  --learning_rate 5e-5 \
  --output_dir dolly_llama \
@@ -298,8 +292,8 @@ The difference to the compilation command is that we changed from `max_steps=10`
 Launch the training, with the following command.
 
 ```bash
-MALLOC_ARENA_MAX=64 XLA_USE_BF16=1 torchrun --nproc_per_node=32 finetune_llm.py \
- --model_id meta-llama/Llama-2-7b-hf \
+MALLOC_ARENA_MAX=64 XLA_USE_BF16=1 torchrun --nproc_per_node=32 lora_finetune_llm.py \
+ --model_id meta-llama/Meta-Llama-3-70B \
  --bf16 True \
  --learning_rate 5e-5 \
  --output_dir dolly_llama \

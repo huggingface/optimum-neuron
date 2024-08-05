@@ -183,16 +183,6 @@ dataset = dataset.map(
 lm_dataset = pack_dataset(dataset, chunk_length=2048) # We use 2048 as the maximum length for packing
 ```
 
-After we processed the datasets we can save them to disk. You could also save it to S3 or the Hugging Face Hub for later use.
-
-_Note: Packing and preprocessing your dataset can be run outside of the Trainium instance._
-
-```python
-# save train_dataset to disk
-dataset_path = "tokenized_dolly"
-lm_dataset.save_to_disk(dataset_path)
-```
-
 ## 3. Fine-tune Llama on AWS Trainium using the `NeuronTrainer`
 
 Normally you would use the **[Trainer](https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.Trainer)** and **[TrainingArguments](https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments)** classes to fine-tune PyTorch-based transformer models.
