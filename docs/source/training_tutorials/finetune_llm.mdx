@@ -47,7 +47,7 @@ And many others!
 
 Before starting this tutorial, you will need to setup your environment:
 
-1. Create an AWS Trainium instance. You can follow this [guide](https://huggingface.co/docs/optimum-neuron/guides/setup_aws_instance) to create one.
+1. Create an AWS Trainium instance. **You will need a `trn1.32xlarge`, which contains 16 Neuron Devices.** You can follow this [guide](https://huggingface.co/docs/optimum-neuron/guides/setup_aws_instance) to create one.
 2. Make sure you are logged in on the Hugging Face Hub:
 ```bash
 huggingface-cli login --token YOUR_TOKEN
@@ -70,7 +70,10 @@ Example:
 {
   "instruction": "What is world of warcraft",
   "context": "",
-  "response": "World of warcraft is a massive online multi player role playing game. It was released in 2004 by bizarre entertainment"
+  "response": (
+        "World of warcraft is a massive online multi player role playing game. "
+        "It was released in 2004 by blizarre entertainment"
+    )
 }
 ```
 
@@ -245,6 +248,8 @@ This script is a minimalistic version of our official example training script to
 Also, these scripts are more designed as templates than final scripts. Feel free to take `finetune_llm.py` or `run_clm.py` and adapt them to your own needs!
 
 </Tip>
+
+PyTorch Neuron uses `torch_xla`. It evaluates operations lazily during execution of the training loops, which means it builds a symbolic graph in the background and the graph is executed on the hardware only when the tensor is printed, transfered to CPU, or `xm.mark_step()` is called. During execution, multiple graphs can be build depending on control-flow and it can take time to compile each graph sequentially. To alleviate that, the Neuron SDK provides `neuron_parallel_compile`, a tool which performs a fast trial run that builds all the graphs and compile them in parallel. This step is usually called precompilation.
 
 ### Precompilation
 

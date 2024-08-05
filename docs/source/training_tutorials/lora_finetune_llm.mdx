@@ -20,7 +20,7 @@ limitations under the License.
 
 _Note: The complete script for this tutorial can be downloaded [here](https://github.com/huggingface/optimum-neuron/blob/main/docs/source/training_tutorials/lora_finetune_llm.py)._
 
-This tutorial will teach you how to fine-tune open source LLMs like [Llama 3](https://huggingface.co/meta-llama/Meta-Llama-3-8B) on AWS Trainium. In our example, we are going to leverage the [Optimum Neuron](https://huggingface.co/docs/optimum-neuron/index), [Transformers](https://huggingface.co/docs/transformers/index) and [Datasets](https://huggingface.co/docs/datasets/index) libraries.
+This tutorial will teach you how to fine-tune open source LLMs like [Llama 3](https://huggingface.co/meta-llama/Meta-Llama-3-70B) on AWS Trainium. In our example, we are going to leverage the [Optimum Neuron](https://huggingface.co/docs/optimum-neuron/index), [Transformers](https://huggingface.co/docs/transformers/index) and [Datasets](https://huggingface.co/docs/datasets/index) libraries.
 
 You will learn how to:
 
@@ -40,12 +40,12 @@ While we will use `Llama-3 70B` in this tutorial, it is completely possible to u
 
 Before starting this tutorial, you will need to setup your environment:
 
-1. Create an AWS Trainium instance. You can follow this [guide](https://huggingface.co/docs/optimum-neuron/guides/setup_aws_instance) to create one.
+1. Create an AWS Trainium instance. **You will need a `trn1.32xlarge`, which contains 16 Neuron Devices.** You can follow this [guide](https://huggingface.co/docs/optimum-neuron/guides/setup_aws_instance) to create one.
 2. Make sure you are logged in on the Hugging Face Hub:
 ```bash
 huggingface-cli login --token YOUR_TOKEN
 ```
-3. Check that you have access to the model. Some open source models are gated, meaning that users need to apply to the model owner to be able to use the model weights. Here we will be training Llama-3 8B, for which there are two possibilities:
+3. Check that you have access to the model. Some open source models are gated, meaning that users need to apply to the model owner to be able to use the model weights. Here we will be training Llama-3 70B, for which there are two possibilities:
   * The official gated repo: [`meta-llama/Meta-Llama-3-70B`](https://huggingface.co/meta-llama/Meta-Llama-3-70B)
   * The non-official un-gated repo: [`NousResearch/Meta-Llama-3-70B`](https://huggingface.co/NousResearch/Meta-Llama-3-70B)
 4. Clone the Optimum Neuron repository, **which contains the [complete script](https://github.com/huggingface/optimum-neuron/blob/main/docs/source/training_tutorials/lora_finetune_llm.py) described in this tutorial:**
@@ -63,7 +63,10 @@ Example:
 {
   "instruction": "What is world of warcraft",
   "context": "",
-  "response": "World of warcraft is a massive online multi player role playing game. It was released in 2004 by bizarre entertainment"
+  "response": (
+        "World of warcraft is a massive online multi player role playing game. "
+        "It was released in 2004 by blizarre entertainment"
+    )
 }
 ```
 
@@ -195,7 +198,7 @@ If you want to know more about distributed training you can take a look at the [
 
 </Tip>
 
-Here, we will use tensor parallelism in conjuction with LoRA.
+Here, we will use Tensor Parallelism in conjuction with LoRA.
 Our training code will look as follows:
 
 ```python
@@ -211,6 +214,7 @@ tensor_parallel_size = 8
 with lazy_load_for_parallelism(tensor_parallel_size=tensor_parallel_size):
     model = AutoModelForCausalLM.from_pretrained(model_id)
 
+# Injecting the LoRA adapters
 config = LoraConfig(
     r=64,
     lora_alpha=128,
@@ -237,11 +241,14 @@ trainer.save_model()  # saves the tokenizer too for easy upload
 The key points here are:
 
 - We use the `lazy_load_for_parallelism` context manager to lazily load the model. This will not load the full model weights on each worker, but instead only load the required weights (sharded or full). **This is much more memory efficient, and often mandatory to use.**
+- We inject the LoRA adapters using `optimum.neuron.utils.get_peft_model` by specifying both the model to transform and the LoRA config.
 - We use the [~`optimum.neuron.NeuronTrainer`] to perform training. It will take the lazily loaded model, along with the `training_args`, which are an instance of [~`optimum.neuron.NeuronTrainingArguments`], and will handle all the parallelization and training on the Neuron cores.
 
 ## 4. Launch Training 
 
 We prepared a script called [lora_finetune_llm.py](https://github.com/huggingface/optimum-neuron/blob/main/docs/source/training_tutorials/lora_finetune_llm.py) summing up everything mentioned in this tutorial.
+
+PyTorch Neuron uses `torch_xla`. It evaluates operations lazily during execution of the training loops, which means it builds a symbolic graph in the background and the graph is executed on the hardware only when the tensor is printed, transfered to CPU, or `xm.mark_step()` is called. During execution, multiple graphs can be build depending on control-flow and it can take time to compile each graph sequentially. To alleviate that, the Neuron SDK provides `neuron_parallel_compile`, a tool which performs a fast trial run that builds all the graphs and compile them in parallel. This step is usually called precompilation.
 
 ### Precompilation
 
@@ -307,7 +314,7 @@ MALLOC_ARENA_MAX=64 XLA_USE_BF16=1 torchrun --nproc_per_node=32 lora_finetune_ll
  --logging_steps 10
 ```
 
-That's it, we successfully trained Llama-3 8B on AWS Trainium!
+That's it, we successfully trained Llama-3 70B on AWS Trainium!
 
 But before we can share and test our model we need to consolidate our model. Since we used Tensor Parallelism during training, we saved sharded versions of the checkpoints. We need to consolidate them now.
 
@@ -318,6 +325,10 @@ The Optimum CLI provides a way of doing that very easily via the `optimum neuron
 ```bash
 optimum-cli neuron consolidate dolly_llama dolly_llama
 ```
+
+### Merge the LoRA adapters
+
+TODO
 
 ## 5. Evaluate and test fine-tuned Llama model
 
