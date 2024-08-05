@@ -32,7 +32,7 @@ mv optimum-neuron/examples/* /home/ubuntu/huggingface-neuron-samples/
 mv optimum-neuron/notebooks/* /home/ubuntu/huggingface-neuron-notebooks/
 mv optimum-neuron/aws-examples/* /home/ubuntu/aws-examples/
 rm -rf optimum-neuron
-chmod -R 777 /home/ubuntu/huggingface-neuron-samples /home/ubuntu/huggingface-neuron-notebooks
+chmod -R 777 /home/ubuntu/huggingface-neuron-samples /home/ubuntu/huggingface-neuron-notebooks /home/ubuntu/aws-examples/
 
 echo "Step: validate-imports-of-huggingface-libraries"
 bash -c 'python -c "import transformers;import datasets;import accelerate;import evaluate;import tensorboard; import torch;from optimum.neuron import pipeline"'
