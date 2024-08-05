@@ -2,7 +2,9 @@ from dataclasses import dataclass, field
 from functools import partial
 from itertools import chain
 
+import torch_xla.core.xla_model as xm
 from datasets import load_dataset
+from peft import LoraConfig
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -14,6 +16,7 @@ from optimum.neuron import NeuronHfArgumentParser as HfArgumentParser
 from optimum.neuron import NeuronTrainer as Trainer
 from optimum.neuron import NeuronTrainingArguments as TrainingArguments
 from optimum.neuron.distributed import lazy_load_for_parallelism
+from optimum.neuron.utils import get_peft_model
 
 
 def format_dolly(sample):
@@ -94,6 +97,16 @@ def training_function(script_args, training_args):
 
     with lazy_load_for_parallelism(tensor_parallel_size=training_args.tensor_parallel_size):
         model = AutoModelForCausalLM.from_pretrained(script_args.model_id)
+
+    config = LoraConfig(
+        r=64,
+        lora_alpha=128,
+        lora_dropout=0.0,
+        target_modules=["embed_tokens", "lm_head", "q_proj", "v_proj"],
+        task_type="CAUSAL_LM",
+    )
+    model = get_peft_model(model, config)
+    xm.master_print(model)
 
     # Create Trainer instance
     trainer = Trainer(
