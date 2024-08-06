@@ -34,10 +34,42 @@ def _test_prefill(config_name, generator, batch_size, do_sample):
     assert next_batch.max_tokens == batch_size * max_length
     assert len(generations) == batch_size
     if do_sample:
-        expectations = {"gpt2": [383, " The"], "llama": [560, " In"], "mistral": [450, " The"]}[config_name]
+        expectations = {"gpt2": [383, " The"], "llama": [10058, " George"], "mistral": [450, " The"]}[config_name]
     else:
-        expectations = {"gpt2": [198, "\n"], "llama": [560, " In"], "mistral": [13, "\n"]}[config_name]
+        expectations = {"gpt2": [198, "\n"], "llama": [10058, " George"], "mistral": [13, "\n"]}[config_name]
     for g in generations:
         tokens = g.tokens
         assert tokens.ids[0] == expectations[0]
         assert tokens.texts[0] == expectations[1]
+
+
+def test_prefill_truncate(neuron_model_config):
+    config_name = neuron_model_config["name"]
+    neuron_model_path = neuron_model_config["neuron_model_path"]
+    generator = NeuronGenerator.from_pretrained(neuron_model_path)
+    batch_size = generator.model.batch_size
+    # We apply truncation to all requests but the first one
+    truncate = [
+        None,
+    ] + [i * 3 for i in range(1, batch_size)]
+    input_text = (
+        "Two gin-scented tears trickled down the sides of his nose."
+        " But it was all right, everything was all right, the struggle was finished."
+        " He had won the victory over himself. He loved Big Brother."
+    )
+    requests = []
+    for i in range(batch_size):
+        requests.append(create_request(id=i, inputs=input_text, truncate=truncate[i]))
+    max_length = generator.model.max_length
+    batch = Batch(id=0, requests=requests, size=batch_size, max_tokens=batch_size * max_length)
+    generations, _ = generator.prefill(batch)
+    # Even if the input text is identical for all requests, the first generated token might
+    # be different because of the truncation
+    expectations = {
+        "gpt2": [" He", " He", "\n", " He"],
+        "llama": [" —", " The", " He", " He"],
+        "mistral": [" He", "\n", " He", " He"],
+    }[config_name]
+    for i, g in enumerate(generations):
+        tokens = g.tokens
+        assert tokens.texts[0] == expectations[i]

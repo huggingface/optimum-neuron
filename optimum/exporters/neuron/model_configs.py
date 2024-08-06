@@ -19,7 +19,12 @@ from typing import TYPE_CHECKING, Dict, List
 
 import torch
 
-from ...neuron.utils import DummyBeamValuesGenerator, DummyControNetInputGenerator, DummyMaskedPosGenerator
+from ...neuron.utils import (
+    ASTDummyAudioInputGenerator,
+    DummyBeamValuesGenerator,
+    DummyControNetInputGenerator,
+    DummyMaskedPosGenerator,
+)
 from ...utils import (
     DummyInputGenerator,
     DummySeq2SeqDecoderTextInputGenerator,
@@ -36,6 +41,7 @@ from ...utils import (
 )
 from ..tasks import TasksManager
 from .config import (
+    AudioNeuronConfig,
     TextAndVisionNeuronConfig,
     TextEncoderNeuronConfig,
     TextNeuronDecoderConfig,
@@ -402,6 +408,164 @@ class YolosTNeuronConfig(ViTNeuronConfig):
         return common_outputs
 
 
+@register_in_tasks_manager(
+    "wav2vec2",
+    *[
+        "feature-extraction",
+        "automatic-speech-recognition",
+        "audio-classification",
+        "audio-frame-classification",
+        "audio-xvector",
+    ],
+)
+class Wav2Vec2NeuronConfig(AudioNeuronConfig):
+    NORMALIZED_CONFIG_CLASS = NormalizedConfig
+
+    @property
+    def inputs(self) -> List[str]:
+        return ["input_values"]
+
+    @property
+    def outputs(self) -> List[str]:
+        common_outputs = super().outputs
+        if self.task == "feature-extraction":
+            common_outputs = ["last_hidden_state", "extract_features"]
+        if self.task == "audio-xvector":
+            common_outputs.append("embeddings")
+        return common_outputs
+
+
+@register_in_tasks_manager(
+    "audio-spectrogram-transformer",
+    *[
+        "feature-extraction",
+        "audio-classification",
+    ],
+)
+class ASTNeuronConfig(AudioNeuronConfig):
+    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
+        num_mel_bins="num_mel_bins", max_length="max_length", allow_new=True
+    )
+    DUMMY_INPUT_GENERATOR_CLASSES = (ASTDummyAudioInputGenerator,)
+
+    @property
+    def inputs(self) -> List[str]:
+        return ["input_values"]
+
+
+@register_in_tasks_manager(
+    "hubert",
+    *[
+        "feature-extraction",
+        "automatic-speech-recognition",
+        "audio-classification",
+    ],
+)
+class HubertNeuronConfig(Wav2Vec2NeuronConfig):
+    @property
+    def outputs(self) -> List[str]:
+        common_outputs = super().outputs
+        if self.task == "feature-extraction":
+            common_outputs = ["last_hidden_state"]
+        return common_outputs
+
+
+# TODO: compilation failed due to a bug in xla: https://github.com/pytorch/xla/issues/6398.
+# @register_in_tasks_manager(
+#     "sew",
+#     *[
+#         "feature-extraction",
+#         "automatic-speech-recognition",
+#         "audio-classification",
+#     ],
+# )
+# class SEWNeuronConfig(Wav2Vec2NeuronConfig):
+#     pass
+
+
+# TODO: compilation failed due to a bug in xla: https://github.com/pytorch/xla/issues/6398.
+# @register_in_tasks_manager(
+#     "sew-d",
+#     *[
+#         "feature-extraction",
+#         "automatic-speech-recognition",
+#         "audio-classification",
+#     ],
+# )
+# class SEWDNeuronConfig(Wav2Vec2NeuronConfig):
+#     pass
+
+
+@register_in_tasks_manager(
+    "unispeech",
+    *[
+        "feature-extraction",
+        "automatic-speech-recognition",
+        "audio-classification",
+    ],
+)
+class UniSpeechNeuronConfig(Wav2Vec2NeuronConfig):
+    pass
+
+
+@register_in_tasks_manager(
+    "unispeech-sat",
+    *[
+        "feature-extraction",
+        "automatic-speech-recognition",
+        "audio-classification",
+        "audio-frame-classification",
+        "audio-xvector",
+    ],
+)
+class UniSpeechSATNeuronConfig(Wav2Vec2NeuronConfig):
+    pass
+
+
+# TODO: compilation failed due to a bug in xla: https://github.com/pytorch/xla/issues/6398.
+# @register_in_tasks_manager(
+#     "wav2vec2-bert",
+#     *[
+#         "feature-extraction",
+#         "automatic-speech-recognition",
+#         "audio-classification",
+#         "audio-frame-classification",
+#         "audio-xvector",
+#     ],
+# )
+# class Wav2Vec2BertNeuronConfig(Wav2Vec2NeuronConfig):
+#     pass
+
+
+# TODO: compilation failed due to a bug in xla: https://github.com/pytorch/xla/issues/6398.
+# @register_in_tasks_manager(
+#     "wav2vec2-conformer",
+#     *[
+#         "feature-extraction",
+#         "automatic-speech-recognition",
+#         "audio-classification",
+#         "audio-frame-classification",
+#         "audio-xvector",
+#     ],
+# )
+# class Wav2Vec2ConformerNeuronConfig(Wav2Vec2NeuronConfig):
+#     pass
+
+
+@register_in_tasks_manager(
+    "wavlm",
+    *[
+        "feature-extraction",
+        "automatic-speech-recognition",
+        "audio-classification",
+        "audio-frame-classification",
+        "audio-xvector",
+    ],
+)
+class WavLMNeuronConfig(Wav2Vec2NeuronConfig):
+    pass
+
+
 @register_in_tasks_manager("unet", *["semantic-segmentation"], library_name="diffusers")
 class UNetNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
@@ -705,4 +869,4 @@ class MistralNeuronConfig(TextNeuronDecoderConfig):
 @register_in_tasks_manager("mixtral", "text-generation")
 class MixtralNeuronConfig(TextNeuronDecoderConfig):
     NEURONX_CLASS = "mixtral.model.MixtralForSampling"
-    CONTINUOUS_BATCHING = True
+    CONTINUOUS_BATCHING = False

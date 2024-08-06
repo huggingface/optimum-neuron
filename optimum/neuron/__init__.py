@@ -42,12 +42,17 @@ _import_structure = {
         "NeuronModelForImageClassification",
         "NeuronModelForSemanticSegmentation",
         "NeuronModelForObjectDetection",
+        "NeuronModelForCTC",
+        "NeuronModelForAudioClassification",
+        "NeuronModelForAudioFrameClassification",
+        "NeuronModelForXVector",
     ],
     "modeling_diffusion": [
         "NeuronStableDiffusionPipelineBase",
         "NeuronStableDiffusionPipeline",
         "NeuronStableDiffusionImg2ImgPipeline",
         "NeuronStableDiffusionInpaintPipeline",
+        "NeuronStableDiffusionInstructPix2PixPipeline",
         "NeuronLatentConsistencyModelPipeline",
         "NeuronStableDiffusionXLPipeline",
         "NeuronStableDiffusionXLImg2ImgPipeline",
@@ -70,7 +75,10 @@ if TYPE_CHECKING:
     from .accelerate import ModelParallelismPlugin, NeuronAccelerator, NeuronAcceleratorState, NeuronPartialState
     from .hf_argparser import NeuronHfArgumentParser
     from .modeling import (
+        NeuronModelForAudioClassification,
+        NeuronModelForAudioFrameClassification,
         NeuronModelForCausalLM,
+        NeuronModelForCTC,
         NeuronModelForFeatureExtraction,
         NeuronModelForImageClassification,
         NeuronModelForMaskedLM,
@@ -81,6 +89,7 @@ if TYPE_CHECKING:
         NeuronModelForSentenceTransformers,
         NeuronModelForSequenceClassification,
         NeuronModelForTokenClassification,
+        NeuronModelForXVector,
     )
     from .modeling_decoder import NeuronDecoderModel
     from .modeling_diffusion import (
@@ -88,6 +97,7 @@ if TYPE_CHECKING:
         NeuronStableDiffusionControlNetPipeline,
         NeuronStableDiffusionImg2ImgPipeline,
         NeuronStableDiffusionInpaintPipeline,
+        NeuronStableDiffusionInstructPix2PixPipeline,
         NeuronStableDiffusionPipeline,
         NeuronStableDiffusionPipelineBase,
         NeuronStableDiffusionXLImg2ImgPipeline,

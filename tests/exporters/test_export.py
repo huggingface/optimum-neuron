@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import copy
 import os
 import random
 import unittest
@@ -129,15 +128,16 @@ class NeuronExportTestCase(unittest.TestCase):
         if library_name == "sentence_transformers":
             model_class = TasksManager.get_model_class_for_task(task, framework="pt", library=library_name)
             model = model_class(model_name)
+            reference_model = model_class(model_name)
             if "clip" in model[0].__class__.__name__.lower():
                 config = model[0].model.config
             else:
                 config = model[0].auto_model.config
         else:
-            model_class = TasksManager.get_model_class_for_task(task, framework="pt")
+            model_class = TasksManager.get_model_class_for_task(task, model_type=model_type, framework="pt")
             config = AutoConfig.from_pretrained(model_name)
             model = model_class.from_config(config)
-        reference_model = copy.deepcopy(model)
+            reference_model = model_class.from_config(config)
 
         mandatory_shapes = {
             name: DEFAULT_DUMMY_SHAPES.get(name) or EXTREA_DEFAULT_DUMMY_SHAPES.get(name)

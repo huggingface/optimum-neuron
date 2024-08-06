@@ -94,6 +94,7 @@ if is_diffusers_available():
         NeuronStableDiffusionControlNetPipelineMixin,
         NeuronStableDiffusionImg2ImgPipelineMixin,
         NeuronStableDiffusionInpaintPipelineMixin,
+        NeuronStableDiffusionInstructPix2PixPipelineMixin,
         NeuronStableDiffusionPipelineMixin,
         NeuronStableDiffusionXLControlNetPipelineMixin,
         NeuronStableDiffusionXLImg2ImgPipelineMixin,
@@ -1220,6 +1221,12 @@ class NeuronStableDiffusionInpaintPipeline(
     NeuronStableDiffusionPipelineBase, NeuronStableDiffusionInpaintPipelineMixin
 ):
     __call__ = NeuronStableDiffusionInpaintPipelineMixin.__call__
+
+
+class NeuronStableDiffusionInstructPix2PixPipeline(
+    NeuronStableDiffusionPipelineBase, NeuronStableDiffusionInstructPix2PixPipelineMixin
+):
+    __call__ = NeuronStableDiffusionInstructPix2PixPipelineMixin.__call__
 
 
 class NeuronLatentConsistencyModelPipeline(NeuronStableDiffusionPipelineBase, NeuronLatentConsistencyPipelineMixin):

@@ -30,8 +30,7 @@ from ...neuron.utils import (
     DIFFUSION_MODEL_VAE_DECODER_NAME,
     DIFFUSION_MODEL_VAE_ENCODER_NAME,
     ENCODER_NAME,
-    get_attention_scores_sd2,
-    get_attention_scores_sd15,
+    get_attention_scores_sd,
     get_attention_scores_sdxl,
 )
 from ...utils import (
@@ -54,10 +53,7 @@ if is_diffusers_available():
             "Please update diffusers by running `pip install --upgrade diffusers`"
         )
     from diffusers import ControlNetModel, UNet2DConditionModel
-    from diffusers.models.attention_processor import (
-        Attention,
-        AttnProcessor,
-    )
+    from diffusers.models.attention_processor import Attention
 
 
 if TYPE_CHECKING:
@@ -388,7 +384,6 @@ def get_submodels_for_export_stable_diffusion(
         models_for_export.append((DIFFUSION_MODEL_TEXT_ENCODER_2_NAME, copy.deepcopy(text_encoder_2)))
 
     # U-NET
-    pipeline.unet.set_attn_processor(AttnProcessor())
     pipeline.unet.config.text_encoder_projection_dim = projection_dim
     # The U-NET time_ids inputs shapes depends on the value of `requires_aesthetics_score`
     # https://github.com/huggingface/diffusers/blob/v0.18.2/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl_img2img.py#L571
@@ -400,12 +395,9 @@ def get_submodels_for_export_stable_diffusion(
         if is_sdxl:
             logger.info("Applying optimized attention score computation for sdxl.")
             Attention.get_attention_scores = get_attention_scores_sdxl
-        elif "v1-5" in pipeline.config._name_or_path:
-            logger.info("Applying optimized attention score computation for stable diffusion 1.5.")
-            Attention.get_attention_scores = get_attention_scores_sd15
         else:
-            logger.info("Applying optimized attention score computation for stable diffusion 2.")
-            Attention.get_attention_scores = get_attention_scores_sd2
+            logger.info("Applying optimized attention score computation for stable diffusion.")
+            Attention.get_attention_scores = get_attention_scores_sd
     else:
         logger.warning(
             "You are not applying optimized attention score computation. If you want better performance, please"

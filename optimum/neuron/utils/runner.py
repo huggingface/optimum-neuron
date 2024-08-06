@@ -39,9 +39,10 @@ from .cache_utils import get_hf_hub_cache_repos, has_write_access_to_repo, load_
 
 logger = logging.get_logger()
 
-_BASE_RAW_FILES_PATH_IN_GH_REPO = "https://raw.githubusercontent.com/huggingface/optimum-neuron/"
+_GH_REPO_RAW_URL = "https://raw.githubusercontent.com/huggingface/optimum-neuron"
+_GH_REPO_URL = "https://github.com/huggingface/optimum-neuron"
 _GH_REPO_EXAMPLE_FOLDERS = [
-    "audio-classification",
+    # "audio-classification",
     "image-classification",
     "language-modeling",
     "multiple-choice",
@@ -62,27 +63,72 @@ _TASK_TO_EXAMPLE_SCRIPT = {
     "summarization": "run_summarization",
     "translation": "run_translation",
     "image-classification": "run_image_classification",
-    "audio-classification": "run_audio_classification",
+    # "audio-classification": "run_audio_classification",
     "speech-recognition": "run_speech_recognition_ctc",
 }
 
 
+def list_filenames_in_github_repo_directory(
+    github_repo_directory_url: str, only_files: bool = False, only_directories: bool = False
+) -> List[str]:
+    """
+    Lists the content of a repository on GitHub.
+    """
+    if only_files and only_directories:
+        raise ValueError("Either `only_files` or `only_directories` can be set to True.")
+
+    response = requests.get(github_repo_directory_url)
+
+    if response.status_code != 200:
+        raise ValueError(f"Could not fetch the content of the page: {github_repo_directory_url}.")
+
+    # Here we use regex instead of beautiful soup to not rely on yet another library.
+    table_regex = r"\<table aria-labelledby=\"folders-and-files\".*\<\/table\>"
+    filename_column_regex = r"\<div class=\"react-directory-filename-cell\".*?\<\/div>"
+    if only_files:
+        filename_regex = r"\<a .* aria-label=\"([\w\.]+), \(File\)\""
+    elif only_directories:
+        filename_regex = r"\<a .* aria-label=\"([\w\.]+), \(Directory\)\""
+    else:
+        filename_regex = r"\<a .* aria-label=\"([\w\.]+)"
+
+    filenames = []
+
+    table_match = re.search(table_regex, response.text)
+    if table_match is not None:
+        table_content = response.text[table_match.start(0) : table_match.end(0)]
+        for column in re.finditer(filename_column_regex, table_content):
+            match = re.search(filename_regex, column.group(0))
+            if match:
+                filenames.append(match.group(1))
+
+    return list(set(filenames))
+
+
 def download_example_script_from_github(task_name: str, target_directory: Path, revision: str = "main") -> Path:
-    # TODO: test that every existing task can be downloaded.
-    script_name = f"{_TASK_TO_EXAMPLE_SCRIPT[task_name]}.py"
-    example_script_path = target_directory / script_name
     was_saved = False
+    script_name = f"{_TASK_TO_EXAMPLE_SCRIPT[task_name]}.py"
+    example_script_path = target_directory
     for folder in _GH_REPO_EXAMPLE_FOLDERS:
-        url = f"{_BASE_RAW_FILES_PATH_IN_GH_REPO}/{revision}/examples/{folder}/{script_name}"
-        r = requests.get(url)
-        if r.status_code != 200:
+        raw_url_folder = f"{_GH_REPO_RAW_URL}/{revision}/examples/{folder}"
+        url_folder = f"{_GH_REPO_URL}/{revision}/examples/{folder}"
+        filenames_for_example = list_filenames_in_github_repo_directory(url_folder, only_files=True)
+        if script_name not in filenames_for_example:
             continue
-        with open(example_script_path, "w") as fp:
-            fp.write(r.text)
-        was_saved = True
+        for filename in filenames_for_example:
+            r = requests.get(f"{raw_url_folder}/{filename}")
+            if r.status_code != 200:
+                continue
+            local_path = target_directory / filename
+            with open(local_path, "w") as fp:
+                fp.write(r.text)
+            if filename == script_name:
+                was_saved = True
+                example_script_path = local_path
+        if was_saved:
+            break
     if not was_saved:
         raise FileNotFoundError(f"Could not find an example script for the task {task_name} on the GitHub repo")
-
     return example_script_path
 
 
@@ -125,7 +171,7 @@ class ExampleRunner:
             "task_name": "sst2",
         },
         "token-classification": {
-            "dataset_name": "conll2003",
+            "dataset_name": "bnsapa/cybersecurity-ner",
             "set_max_length": True,
             "extra_command_line_arguments": [
                 "--pad_to_max_length",
@@ -198,16 +244,6 @@ class ExampleRunner:
         self.task = task
 
         self.example_dir = example_dir
-        if example_dir is None:
-            example_dir = Path(__file__).parent.parent.parent.parent / "examples"
-            if not example_dir.exists():
-                logger.info(
-                    f"Could not find the example script for the task {task} locally. Please provide the path manually "
-                    "or install `optimum-neuron` from sources. Otherwise the example will be downloaded from the "
-                    "GitHub repo."
-                )
-            else:
-                self.example_dir = example_dir
 
         if use_venv:
             raise NotImplementedError("use_venv=True is not supported yet.")

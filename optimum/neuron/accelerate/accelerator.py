@@ -389,7 +389,6 @@ class NeuronAccelerator(Accelerator):
     def _prepare_model_for_mp(
         self, model: torch.nn.Module, device_placement: Optional[bool] = None, evaluation_mode: bool = False
     ):
-        import torch_xla.core.xla_model as xm
         from neuronx_distributed.pipeline import NxDPPModel
 
         if model in self._models or Parallelizer.was_parallelized(model):
@@ -405,9 +404,10 @@ class NeuronAccelerator(Accelerator):
             setattr(model, "main_input_name", model_main_input_name)
 
         if isinstance(model, NxDPPModel):
-            model.local_module = self.patch_model_for_neuron(
-                model.local_module, patching_specs=NxDPPMODEL_PATCHING_SPECS
-            )
+            for idx, module in enumerate(model.local_stage_modules):
+                model.local_stage_modules[idx] = self.patch_model_for_neuron(
+                    module, patching_specs=NxDPPMODEL_PATCHING_SPECS
+                )
 
         # Update CPU ids
         original_parameter_names_to_gqa_qkv_names = model._gqa_qkv_metadata["original_names_to_gqa_qkv_names"]
@@ -442,10 +442,7 @@ class NeuronAccelerator(Accelerator):
                 cpu_ids[name]: xla_params[name] for name, _ in model.named_parameters()
             }
 
-        xm.mark_step()
-        device_placement = False
-
-        return super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
+        return model
 
     @requires_torch_xla
     @requires_neuronx_distributed
@@ -491,8 +488,8 @@ class NeuronAccelerator(Accelerator):
             if should_apply_activation_checkpointing:
                 apply_activation_checkpointing(model)
             move_model_to_device(model, xm.xla_device())
-            device_placement = False
-            model = super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
+        device_placement = False
+        model = super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
         xm.mark_step()
         return model
 
@@ -521,8 +518,13 @@ class NeuronAccelerator(Accelerator):
             #   - `self.state.mixed_precision == "bf16"`
             #   - `self.state.autocast_backend is AutocastBackend.AMP`
             autocast_handler = self.autocast_handler
-        autocast_kwargs = autocast_handler.to_kwargs()
-        autocast_context = torch.autocast(dtype=torch.bfloat16, device_type="cuda", **autocast_kwargs)
+
+        if autocast_handler.enabled:
+            autocast_kwargs = autocast_handler.to_kwargs()
+            autocast_context = torch.autocast(dtype=torch.bfloat16, device_type="cuda", **autocast_kwargs)
+        else:
+            autocast_context = contextlib.nullcontext()
+
         autocast_context.__enter__()
         yield
         autocast_context.__exit__(*sys.exc_info())

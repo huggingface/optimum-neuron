@@ -41,7 +41,12 @@ _import_structure = {
         "is_torch_xla_available",
         "is_transformers_neuronx_available",
     ],
-    "input_generators": ["DummyBeamValuesGenerator", "DummyMaskedPosGenerator", "DummyControNetInputGenerator"],
+    "input_generators": [
+        "DummyBeamValuesGenerator",
+        "DummyMaskedPosGenerator",
+        "DummyControNetInputGenerator",
+        "ASTDummyAudioInputGenerator",
+    ],
     "misc": [
         "DiffusersPretrainedConfig",
         "check_if_weights_replacable",
@@ -52,8 +57,7 @@ _import_structure = {
     ],
     "model_utils": ["get_tied_parameters_dict", "tie_parameters"],
     "optimization_utils": [
-        "get_attention_scores_sd2",
-        "get_attention_scores_sd15",
+        "get_attention_scores_sd",
         "get_attention_scores_sdxl",
     ],
     "patching": [
@@ -94,7 +98,12 @@ if TYPE_CHECKING:
         is_torch_xla_available,
         is_transformers_neuronx_available,
     )
-    from .input_generators import DummyBeamValuesGenerator, DummyControNetInputGenerator, DummyMaskedPosGenerator
+    from .input_generators import (
+        ASTDummyAudioInputGenerator,
+        DummyBeamValuesGenerator,
+        DummyControNetInputGenerator,
+        DummyMaskedPosGenerator,
+    )
     from .misc import (
         DiffusersPretrainedConfig,
         check_if_weights_replacable,
@@ -105,8 +114,7 @@ if TYPE_CHECKING:
     )
     from .model_utils import get_tied_parameters_dict, tie_parameters
     from .optimization_utils import (
-        get_attention_scores_sd2,
-        get_attention_scores_sd15,
+        get_attention_scores_sd,
         get_attention_scores_sdxl,
     )
     from .patching import (

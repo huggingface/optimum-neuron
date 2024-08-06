@@ -1,14 +1,7 @@
 name: Optimum neuron / Test INF1 pipelines
 
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - "optimum/neuron/pipelines/**.py"
-  pull_request:
-    branches: [ main ]
-    paths:
-      - "optimum/neuron/pipelines/**.py"
+  workflow_dispatch
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -17,9 +10,8 @@ concurrency:
 jobs:
   do-the-job:
     name: Run INF1 tests
-    runs-on: [self-hosted, 4-aws-inf1, 24-cpu, ci]
-    env:
-      AWS_REGION: us-east-1
+    runs-on:
+      group: aws-inf1-6xlarge
     steps:
       - name: Install Neuron runtime
         run: |
@@ -35,7 +27,7 @@ jobs:
         uses: actions/checkout@v2
       - name: Install system packages
         run: |
-          sudo apt install python3.8-venv python3-dev -y
+          sudo apt install python3-venv python3-dev -y
       - name: Install python packages
         run: |
           python3 -m venv aws_neuron_venv_pytorch

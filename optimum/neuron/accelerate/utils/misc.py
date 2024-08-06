@@ -17,6 +17,7 @@
 import functools
 import gc
 import inspect
+import itertools
 from typing import TYPE_CHECKING, Callable, Dict, Optional, Union
 
 import torch
@@ -197,7 +198,7 @@ def apply_activation_checkpointing(model: Union["PreTrainedModel", "NxDPPModel",
         model._prepare_model_for_gradient_checkpointing(model.get_base_model())
 
     if isinstance(model, NxDPPModel):
-        modules = model.local_module.modules()
+        modules = itertools.chain(module.modules() for module in model.local_stage_modules)
     else:
         modules = model.modules()
 

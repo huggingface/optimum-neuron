@@ -1,0 +1,87 @@
+# coding=utf-8
+# Copyright 2022 The HuggingFace Team. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from tempfile import TemporaryDirectory
+
+import pytest
+from transformers import AutoModelForCausalLM
+
+from optimum.neuron import NeuronModelForCausalLM
+from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
+
+
+DECODER_MODEL_ARCHITECTURES = ["bloom", "gpt2", "llama", "mistral", "mixtral", "opt"]
+DECODER_MODEL_NAMES = {
+    "bloom": "hf-internal-testing/tiny-random-BloomForCausalLM",
+    "gpt2": "hf-internal-testing/tiny-random-gpt2",
+    "llama": "dacorvo/tiny-random-llama",
+    "mistral": "dacorvo/tiny-random-MistralForCausalLM",
+    "mixtral": "dacorvo/Mixtral-tiny",
+    "opt": "hf-internal-testing/tiny-random-OPTForCausalLM",
+}
+
+
+@pytest.fixture(
+    scope="session", params=[DECODER_MODEL_NAMES[model_arch] for model_arch in DECODER_MODEL_ARCHITECTURES]
+)
+def export_decoder_id(request):
+    return request.param
+
+
+def check_neuron_model(neuron_model, batch_size=None, sequence_length=None, num_cores=None, auto_cast_type=None):
+    neuron_config = getattr(neuron_model.config, "neuron", None)
+    assert neuron_config
+    if batch_size:
+        assert neuron_config["batch_size"] == batch_size
+    if sequence_length:
+        assert neuron_config["sequence_length"] == sequence_length
+    if num_cores:
+        assert neuron_config["num_cores"] == num_cores
+    if auto_cast_type:
+        assert neuron_config["auto_cast_type"] == auto_cast_type
+
+
+@pytest.mark.parametrize(
+    "batch_size, sequence_length, num_cores, auto_cast_type",
+    [
+        [1, 100, 2, "fp32"],
+        [1, 100, 2, "fp16"],
+        [2, 100, 2, "fp16"],
+    ],
+)
+@is_inferentia_test
+@requires_neuronx
+@pytest.mark.parametrize("local", [True, False], ids=["local", "from_hub"])
+def test_decoder_export_save_reload(local, export_decoder_id, batch_size, sequence_length, num_cores, auto_cast_type):
+    export_kwargs = {
+        "batch_size": batch_size,
+        "sequence_length": sequence_length,
+        "num_cores": num_cores,
+        "auto_cast_type": auto_cast_type,
+    }
+    with TemporaryDirectory() as model_path:
+        if local:
+            with TemporaryDirectory() as tmpdir:
+                model = AutoModelForCausalLM.from_pretrained(export_decoder_id)
+                model.save_pretrained(tmpdir)
+                model = NeuronModelForCausalLM.from_pretrained(tmpdir, export=True, **export_kwargs)
+                model.save_pretrained(model_path)
+        else:
+            model = NeuronModelForCausalLM.from_pretrained(export_decoder_id, export=True, **export_kwargs)
+            model.save_pretrained(model_path)
+        check_neuron_model(model, **export_kwargs)
+        del model
+        model = NeuronModelForCausalLM.from_pretrained(model_path)
+        check_neuron_model(model, **export_kwargs)

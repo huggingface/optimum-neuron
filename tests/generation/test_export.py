@@ -13,49 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from tempfile import TemporaryDirectory
 
 import pytest
-from generation_utils import check_neuron_model
-from transformers import AutoModelForCausalLM
 
-from optimum.neuron import NeuronModelForCausalLM, NeuronModelForSeq2SeqLM
+from optimum.neuron import NeuronModelForSeq2SeqLM
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
-
-
-@pytest.mark.parametrize(
-    "batch_size, sequence_length, num_cores, auto_cast_type",
-    [
-        [1, 100, 2, "fp32"],
-        [1, 100, 2, "fp16"],
-        [2, 100, 2, "fp16"],
-    ],
-)
-@is_inferentia_test
-@requires_neuronx
-@pytest.mark.parametrize("local", [True, False], ids=["local", "from_hub"])
-def test_decoder_export(local, export_decoder_id, batch_size, sequence_length, num_cores, auto_cast_type):
-    export_kwargs = {
-        "batch_size": batch_size,
-        "sequence_length": sequence_length,
-        "num_cores": num_cores,
-        "auto_cast_type": auto_cast_type,
-    }
-    if local:
-        with TemporaryDirectory() as model_path:
-            model = AutoModelForCausalLM.from_pretrained(export_decoder_id)
-            model.save_pretrained(model_path)
-            model = NeuronModelForCausalLM.from_pretrained(model_path, export=True, **export_kwargs)
-    else:
-        model = NeuronModelForCausalLM.from_pretrained(export_decoder_id, export=True, **export_kwargs)
-    check_neuron_model(model, batch_size, sequence_length, num_cores, auto_cast_type)
-
-
-@is_inferentia_test
-@requires_neuronx
-def test_model_from_path(neuron_decoder_path):
-    model = NeuronModelForCausalLM.from_pretrained(neuron_decoder_path)
-    check_neuron_model(model)
 
 
 @pytest.mark.parametrize(

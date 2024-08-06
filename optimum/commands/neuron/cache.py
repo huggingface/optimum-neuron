@@ -130,7 +130,7 @@ class AddToCacheRepoCommand(BaseOptimumCLICommand):
             "--example_dir", type=str, default=None, help="Path to where the example scripts are stored."
         )
         parser.add_argument(
-            "--max_steps", type=int, default=200, help="The maximum number of steps to run compilation for."
+            "--max_steps", type=int, default=10, help="The maximum number of steps to run compilation for."
         )
 
     def run(self):
@@ -148,7 +148,7 @@ class AddToCacheRepoCommand(BaseOptimumCLICommand):
             raise ValueError("Both the encoder_sequence_length and the decoder_sequence_length must be provided.")
         else:
             sequence_length = [self.args.encoder_sequence_length, self.args.decoder_sequence_length]
-        runner.run(
+        returncode, stdout = runner.run(
             self.args.num_cores,
             self.args.precision,
             self.args.train_batch_size,
@@ -158,8 +158,10 @@ class AddToCacheRepoCommand(BaseOptimumCLICommand):
             gradient_accumulation_steps=self.args.gradient_accumulation_steps,
             num_epochs=3,
             max_steps=self.args.max_steps,
-            save_steps=10,
+            save_steps=self.args.max_steps // 2,
         )
+        if returncode != 0:
+            raise ValueError(f"Could not add the model to the cache. Full log:\n{stdout}.")
 
 
 class SynchronizeRepoCommand(BaseOptimumCLICommand):
