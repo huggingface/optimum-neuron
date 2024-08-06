@@ -52,7 +52,6 @@ from .utils import (
     check_mandatory_input_shapes,
     get_encoder_decoder_models_for_export,
     get_stable_diffusion_models_for_export,
-    load_controlnets,
     replace_stable_diffusion_submodels,
 )
 
@@ -76,7 +75,7 @@ if TYPE_CHECKING:
     from transformers import PreTrainedModel
 
     if is_diffusers_available():
-        from diffusers import ControlNetModel, DiffusionPipeline, ModelMixin, StableDiffusionPipeline
+        from diffusers import DiffusionPipeline, ModelMixin, StableDiffusionPipeline
 
 
 logger = logging.get_logger()
@@ -207,7 +206,7 @@ def normalize_stable_diffusion_input_shapes(
 def infer_stable_diffusion_shapes_from_diffusers(
     input_shapes: Dict[str, Dict[str, int]],
     model: Union["StableDiffusionPipeline", "StableDiffusionXLPipeline"],
-    controlnets: Optional[List["ControlNetModel"]] = None,
+    has_controlnets: bool,
 ):
     if model.tokenizer is not None:
         sequence_length = model.tokenizer.model_max_length
@@ -242,7 +241,7 @@ def infer_stable_diffusion_shapes_from_diffusers(
     )
 
     # ControlNet
-    if controlnets:
+    if has_controlnets:
         input_shapes["controlnet"] = {
             "batch_size": input_shapes["unet"]["batch_size"],
             "sequence_length": sequence_length,
@@ -272,7 +271,7 @@ def get_submodels_and_neuron_configs(
     lora_weight_names: Optional[Union[str, List[str]]] = None,
     lora_adapter_names: Optional[Union[str, List[str]]] = None,
     lora_scales: Optional[Union[float, List[float]]] = None,
-    controlnets: Optional[List["ControlNetModel"]] = None,
+    controlnet_ids: Optional[Union[str, List[str]]] = None,
 ):
     is_stable_diffusion = "stable-diffusion" in task
     is_encoder_decoder = (
@@ -295,7 +294,7 @@ def get_submodels_and_neuron_configs(
             lora_weight_names=lora_weight_names,
             lora_adapter_names=lora_adapter_names,
             lora_scales=lora_scales,
-            controlnets=controlnets,
+            controlnet_ids=controlnet_ids,
         )
     elif is_encoder_decoder:
         optional_outputs = {"output_attentions": output_attentions, "output_hidden_states": output_hidden_states}
@@ -356,7 +355,7 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
     lora_weight_names: Optional[Union[str, List[str]]] = None,
     lora_adapter_names: Optional[Union[str, List[str]]] = None,
     lora_scales: Optional[Union[float, List[float]]] = None,
-    controlnets: Optional[List["ControlNetModel"]] = None,
+    controlnet_ids: Optional[Union[str, List[str]]] = None,
 ):
     check_compiler_compatibility_for_stable_diffusion()
     model = replace_stable_diffusion_submodels(model, submodels)
@@ -367,7 +366,7 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
     input_shapes = infer_stable_diffusion_shapes_from_diffusers(
         input_shapes=input_shapes,
         model=model,
-        controlnets=controlnets,
+        has_controlnets=controlnet_ids is not None,
     )
 
     # Saving the model config and preprocessor as this is needed sometimes.
@@ -396,7 +395,7 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
         lora_weight_names=lora_weight_names,
         lora_adapter_names=lora_adapter_names,
         lora_scales=lora_scales,
-        controlnets=controlnets,
+        controlnet_ids=controlnet_ids,
         controlnet_input_shapes=input_shapes.get("controlnet", None),
     )
     output_model_names = {
@@ -414,13 +413,12 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
         )
 
     # ControlNet models
-    if controlnets:
-        for idx in range(len(controlnets)):
+    if controlnet_ids:
+        for idx in range(len(controlnet_ids)):
             controlnet_name = DIFFUSION_MODEL_CONTROLNET_NAME + "_" + str(idx)
             output_model_names[controlnet_name] = os.path.join(controlnet_name, NEURON_FILE_NAME)
 
     del model
-    del controlnets
 
     return models_and_neuron_configs, output_model_names
 
@@ -475,7 +473,7 @@ def load_models_and_neuron_configs(
     lora_weight_names: Optional[Union[str, List[str]]],
     lora_adapter_names: Optional[Union[str, List[str]]],
     lora_scales: Optional[Union[float, List[float]]],
-    controlnet_ids: Optional[Union[str, List[str]]],
+    controlnet_ids: Optional[Union[str, List[str]]] = None,
     output_attentions: bool = False,
     output_hidden_states: bool = False,
     library_name: Optional[str] = None,
@@ -500,7 +498,6 @@ def load_models_and_neuron_configs(
     }
     if model is None:
         model = TasksManager.get_model_from_task(**model_kwargs)
-    controlnets = load_controlnets(controlnet_ids)
 
     models_and_neuron_configs, output_model_names = get_submodels_and_neuron_configs(
         model=model,
@@ -518,7 +515,7 @@ def load_models_and_neuron_configs(
         lora_weight_names=lora_weight_names,
         lora_adapter_names=lora_adapter_names,
         lora_scales=lora_scales,
-        controlnets=controlnets,
+        controlnet_ids=controlnet_ids,
     )
 
     return models_and_neuron_configs, output_model_names

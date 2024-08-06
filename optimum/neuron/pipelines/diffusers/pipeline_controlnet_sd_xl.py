@@ -15,7 +15,7 @@
 """Override some diffusers API for NeuronStableDiffusionXLControlNetPipelineMixin"""
 
 import logging
-from typing import Any, Callable, Dict, List, Optional, Union, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 from diffusers import StableDiffusionXLControlNetPipeline
@@ -29,7 +29,10 @@ from .pipeline_utils import StableDiffusionXLPipelineMixin
 
 logger = logging.getLogger(__name__)
 
-class NeuronStableDiffusionXLControlNetPipelineMixin(StableDiffusionXLPipelineMixin, StableDiffusionXLControlNetPipeline):
+
+class NeuronStableDiffusionXLControlNetPipelineMixin(
+    StableDiffusionXLPipelineMixin, StableDiffusionXLControlNetPipeline
+):
     # Adapted from https://github.com/huggingface/diffusers/blob/1f81fbe274e67c843283e69eb8f00bb56f75ffc4/src/diffusers/pipelines/controlnet/pipeline_controlnet_sd_xl.py#L1001
     def __call__(
         self,
