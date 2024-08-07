@@ -94,12 +94,19 @@ class ControlNetNeuronWrapper(torch.nn.Module):
         controlnet_cond = ordered_inputs.pop("controlnet_cond", None)
         conditioning_scale = ordered_inputs.pop("conditioning_scale", None)
 
+        # Additional conditions for the Stable Diffusion XL UNet.
+        added_cond_kwargs = {
+            "text_embeds": ordered_inputs.pop("text_embeds", None),
+            "time_ids": ordered_inputs.pop("time_ids", None),
+        }
+
         out_tuple = self.model(
             sample=sample,
             timestep=timestep,
             encoder_hidden_states=encoder_hidden_states,
             controlnet_cond=controlnet_cond,
             conditioning_scale=conditioning_scale,
+            added_cond_kwargs=added_cond_kwargs,
             guess_mode=False,  # TODO: support guess mode of ControlNet
             return_dict=False,
             **ordered_inputs,
