@@ -242,6 +242,9 @@ def infer_stable_diffusion_shapes_from_diffusers(
 
     # ControlNet
     if has_controlnets:
+        encoder_hidden_size = model.text_encoder.config.hidden_size
+        if hasattr(model, "text_encoder_2"):
+            encoder_hidden_size += model.text_encoder_2.config.hidden_size
         input_shapes["controlnet"] = {
             "batch_size": input_shapes["unet"]["batch_size"],
             "sequence_length": sequence_length,
@@ -249,7 +252,7 @@ def infer_stable_diffusion_shapes_from_diffusers(
             "height": scaled_height,
             "width": scaled_width,
             "vae_scale_factor": vae_scale_factor,
-            "encoder_hidden_size": model.text_encoder.config.hidden_size,
+            "encoder_hidden_size": encoder_hidden_size,
         }
 
     return input_shapes

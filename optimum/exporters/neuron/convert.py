@@ -194,8 +194,12 @@ def validate_model_outputs(
             ref_inputs = tuple(ref_inputs.values())
             ref_outputs = reference_model(*ref_inputs)
             neuron_inputs = tuple(inputs.values())
+        elif "controlnet" in getattr(config._config, "_class_name", "").lower():
+            reference_model = config.patch_model_for_export(reference_model, ref_inputs)
+            neuron_inputs = ref_inputs = tuple(ref_inputs.values())
+            ref_outputs = reference_model(*ref_inputs)
         else:
-            ref_outputs = reference_model(**ref_inputs)
+            ref_outputs = reference_model(*ref_inputs)
             neuron_inputs = tuple(config.flatten_inputs(inputs).values())
 
     # Neuron outputs
