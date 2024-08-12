@@ -417,6 +417,8 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
 
     # ControlNet models
     if controlnet_ids:
+        if isinstance(controlnet_ids, str):
+            controlnet_ids = [controlnet_ids]
         for idx in range(len(controlnet_ids)):
             controlnet_name = DIFFUSION_MODEL_CONTROLNET_NAME + "_" + str(idx)
             output_model_names[controlnet_name] = os.path.join(controlnet_name, NEURON_FILE_NAME)

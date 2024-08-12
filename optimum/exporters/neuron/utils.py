@@ -268,6 +268,8 @@ def get_stable_diffusion_models_for_export(
 
     # ControlNet
     if controlnet_ids:
+        if isinstance(controlnet_ids, str):
+            controlnet_ids = [controlnet_ids]
         for idx in range(len(controlnet_ids)):
             controlnet_name = DIFFUSION_MODEL_CONTROLNET_NAME + "_" + str(idx)
             controlnet = models_for_export[controlnet_name]

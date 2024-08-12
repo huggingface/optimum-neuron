@@ -1320,7 +1320,7 @@ class NeuronStableDiffusionXLInpaintPipeline(
 
 
 class NeuronStableDiffusionXLControlNetPipeline(
-    NeuronStableDiffusionPipelineBase, NeuronStableDiffusionXLControlNetPipelineMixin
+    NeuronStableDiffusionXLPipelineBase, NeuronStableDiffusionXLControlNetPipelineMixin
 ):
     __call__ = NeuronStableDiffusionXLControlNetPipelineMixin.__call__
 

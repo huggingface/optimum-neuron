@@ -199,7 +199,7 @@ def validate_model_outputs(
             neuron_inputs = ref_inputs = tuple(ref_inputs.values())
             ref_outputs = reference_model(*ref_inputs)
         else:
-            ref_outputs = reference_model(*ref_inputs)
+            ref_outputs = reference_model(**ref_inputs)
             neuron_inputs = tuple(config.flatten_inputs(inputs).values())
 
     # Neuron outputs

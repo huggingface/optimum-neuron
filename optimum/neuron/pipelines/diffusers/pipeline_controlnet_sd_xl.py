@@ -21,8 +21,8 @@ import torch
 from diffusers import StableDiffusionXLControlNetPipeline
 from diffusers.callbacks import MultiPipelineCallbacks, PipelineCallback
 from diffusers.image_processor import PipelineImageInput
-from diffusers.pipelines.stable_diffusion import StableDiffusionXLPipelineOutput
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import retrieve_timesteps
+from diffusers.pipelines.stable_diffusion_xl import StableDiffusionXLPipelineOutput
 
 from .pipeline_utils import StableDiffusionXLPipelineMixin
 
