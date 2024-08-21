@@ -14,8 +14,8 @@
 # limitations under the License.
 """Override some diffusers API for NeuronStableDiffusionXLControlNetPipelineMixin"""
 
-import logging
 import copy
+import logging
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
@@ -53,7 +53,7 @@ class NeuronStableDiffusionXLControlNetPipelineMixin(
         control_guidance_start=0.0,
         control_guidance_end=1.0,
         callback_on_step_end_tensor_inputs=None,
-    ):      
+    ):
         if callback_on_step_end_tensor_inputs is not None and not all(
             k in self._callback_tensor_inputs for k in callback_on_step_end_tensor_inputs
         ):
@@ -129,9 +129,7 @@ class NeuronStableDiffusionXLControlNetPipelineMixin(
         elif self.controlnet.__class__.__name__ == "NeuronMultiControlNetModel":
             if isinstance(controlnet_conditioning_scale, list):
                 if any(isinstance(i, list) for i in controlnet_conditioning_scale):
-                    raise ValueError(
-                        "A single batch of multiple conditionings are not supported at the moment."
-                    )
+                    raise ValueError("A single batch of multiple conditionings are not supported at the moment.")
             elif isinstance(controlnet_conditioning_scale, list) and len(controlnet_conditioning_scale) != len(
                 self.controlnet.nets
             ):
@@ -183,9 +181,11 @@ class NeuronStableDiffusionXLControlNetPipelineMixin(
                 raise ValueError(
                     f"`ip_adapter_image_embeds` has to be a list of 3D or 4D tensors but is {ip_adapter_image_embeds[0].ndim}D"
                 )
-    
+
     # Adapted from https://github.com/huggingface/diffusers/blob/v0.30.0/src/diffusers/pipelines/controlnet/pipeline_controlnet_sd_xl.py#L899
-    def _get_add_time_ids(self, original_size, crops_coords_top_left, target_size, dtype, text_encoder_projection_dim=None):
+    def _get_add_time_ids(
+        self, original_size, crops_coords_top_left, target_size, dtype, text_encoder_projection_dim=None
+    ):
         add_time_ids = list(original_size + crops_coords_top_left + target_size)
         add_time_ids = torch.tensor([add_time_ids], dtype=dtype)
         return add_time_ids
@@ -654,7 +654,7 @@ class NeuronStableDiffusionXLControlNetPipelineMixin(
                     if self.data_parallel_mode == "unet"
                     else torch.tensor(cond_scale)
                 )
-                
+
                 down_block_res_samples, mid_block_res_sample = self.controlnet(
                     control_model_input,
                     t,
@@ -720,8 +720,12 @@ class NeuronStableDiffusionXLControlNetPipelineMixin(
         if not output_type == "latent":
             # unscale/denormalize the latents
             # denormalize with the mean and std if available and not None
-            has_latents_mean = hasattr(self.vae_decoder.config, "latents_mean") and self.vae_decoder.config.latents_mean is not None
-            has_latents_std = hasattr(self.vae_decoder.config, "latents_std") and self.vae_decoder.config.latents_std is not None
+            has_latents_mean = (
+                hasattr(self.vae_decoder.config, "latents_mean") and self.vae_decoder.config.latents_mean is not None
+            )
+            has_latents_std = (
+                hasattr(self.vae_decoder.config, "latents_std") and self.vae_decoder.config.latents_std is not None
+            )
             if has_latents_mean and has_latents_std:
                 latents_mean = (
                     torch.tensor(self.vae.config.latents_mean).view(1, 4, 1, 1).to(latents.device, latents.dtype)
@@ -729,7 +733,9 @@ class NeuronStableDiffusionXLControlNetPipelineMixin(
                 latents_std = (
                     torch.tensor(self.vae.config.latents_std).view(1, 4, 1, 1).to(latents.device, latents.dtype)
                 )
-                latents = latents * latents_std / getattr(self.vae_decoder.config, "scaling_factor", 0.18215) + latents_mean
+                latents = (
+                    latents * latents_std / getattr(self.vae_decoder.config, "scaling_factor", 0.18215) + latents_mean
+                )
             else:
                 latents = latents / getattr(self.vae_decoder.config, "scaling_factor", 0.18215)
 
@@ -744,7 +750,6 @@ class NeuronStableDiffusionXLControlNetPipelineMixin(
                 image = self.watermark.apply_watermark(image)
 
             image = self.image_processor.postprocess(image, output_type=output_type)
-
 
         if not return_dict:
             return (image,)
