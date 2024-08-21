@@ -647,6 +647,14 @@ class NeuronStableDiffusionXLControlNetPipelineMixin(
                         controlnet_cond_scale = controlnet_cond_scale[0]
                     cond_scale = controlnet_cond_scale * controlnet_keep[i]
 
+                # Duplicate inputs for ddp
+                t = torch.tensor([t] * 2) if self.data_parallel_mode == "unet" else t
+                cond_scale = (
+                    torch.tensor([cond_scale]).repeat(2)
+                    if self.data_parallel_mode == "unet"
+                    else torch.tensor(cond_scale)
+                )
+                
                 down_block_res_samples, mid_block_res_sample = self.controlnet(
                     control_model_input,
                     t,
@@ -680,8 +688,6 @@ class NeuronStableDiffusionXLControlNetPipelineMixin(
                     mid_block_additional_residual=mid_block_res_sample,
                     added_cond_kwargs=added_cond_kwargs,
                 )[0]
-                import pdb
-                pdb.set_trace()
 
                 # perform guidance
                 if do_classifier_free_guidance:
