@@ -15,6 +15,7 @@
 """Defines Trainer subclasses to perform training on AWS Neuron instances."""
 
 import copy
+import inspect
 import math
 import os
 import shutil
@@ -31,7 +32,7 @@ from packaging import version
 from torch.utils.data import Dataset
 
 from huggingface_hub.utils._deprecation import _deprecate_arguments
-from transformers import PreTrainedModel, Seq2SeqTrainer, Trainer, TrainingArguments, AutoModelForCausalLM, PreTrainedTokenizerBase
+from transformers import PreTrainedModel, Seq2SeqTrainer, Trainer, TrainingArguments, AutoModelForCausalLM, PreTrainedTokenizerBase, DataCollator
 from transformers.trainer_callback import TrainerCallback
 from transformers.trainer_utils import EvalPrediction
 from transformers.debug_utils import DebugOption, DebugUnderflowOverflow
@@ -88,6 +89,7 @@ from .utils.cache_utils import (
     get_num_neuron_cores_used,
     has_write_access_to_repo,
 )
+from .utils.trl_utils import NeuronSFTConfig
 from .utils.hub_cache_utils import ModelCacheEntry, hub_neuronx_cache, patch_neuron_cc_wrapper, synchronize_hub_cache
 from .utils.misc import is_main_worker, is_precompilation
 from .utils.peft_utils import NeuronPeftModel
@@ -1508,7 +1510,7 @@ class NeuronSFTTrainer(AugmentTrainerForNeuronMixin, SFTTrainer):
     )
     def __init__(
         self,
-        model: Optional[Union[PreTrainedModel, nn.Module, str]] = None,
+        model: Optional[Union[PreTrainedModel, torch.nn.Module, str]] = None,
         args: Optional[SFTConfig] = None,
         data_collator: Optional[DataCollator] = None,  # type: ignore
         train_dataset: Optional[Dataset] = None,
@@ -1534,30 +1536,37 @@ class NeuronSFTTrainer(AugmentTrainerForNeuronMixin, SFTTrainer):
         dataset_kwargs: Optional[Dict] = None,
         eval_packing: Optional[bool] = None,
     ):
+        if not is_trl_available():
+            raise RuntimeError("Using NeuronSFTTrainer requires the trl library.")
+
         from trl import SFTConfig
         from trl.trainer.utils import DataCollatorForCompletionOnlyLM
+        from trl.extras.dataset_formatting import get_formatting_func_from_dataset
+
         if is_peft_available():
-            from peft import PeftConfig
+            from peft import PeftConfig, prepare_model_for_kbit_training
 
         if args is None:
             output_dir = "tmp_trainer"
             warnings.warn(f"No `SFTConfig` passed, using `output_dir={output_dir}`.")
-            args = SFTConfig(output_dir=output_dir)
-        elif args is not None and args.__class__.__name__ == "TrainingArguments":
+            args = NeuronSFTConfig(output_dir=output_dir)
+        elif args is not None and args.__class__.__name__ == "NeuronTrainingArguments":
             args_as_dict = args.to_dict()
             # Manually copy token values as TrainingArguments.to_dict() redacts them
             args_as_dict.update({k: getattr(args, k) for k in args_as_dict.keys() if k.endswith("_token")})
-            args = SFTConfig(**args_as_dict)
+            xm.master_print(args_as_dict)
+            args = NeuronSFTConfig(**args_as_dict)
+
 
         if model_init_kwargs is not None:
             warnings.warn(
-                "You passed `model_init_kwargs` to the SFTTrainer, the value you passed will override the one in the `SFTConfig`."
+                "You passed `model_init_kwargs` to the SFTTrainer, the value you passed will override the one in the `NeuronSFTConfig`."
             )
             args.model_init_kwargs = model_init_kwargs
         if getattr(args, "model_init_kwargs", None) is None:
             model_init_kwargs = {}
         elif not isinstance(model, str):
-            raise ValueError("You passed model_init_kwargs to the SFTConfig, but your model is already instantiated.")
+            raise ValueError("You passed model_init_kwargs to the NeuronSFTConfig, but your model is already instantiated.")
         else:
             model_init_kwargs = args.model_init_kwargs
             torch_dtype = model_init_kwargs.get("torch_dtype")
@@ -1567,7 +1576,7 @@ class NeuronSFTTrainer(AugmentTrainerForNeuronMixin, SFTTrainer):
                     torch_dtype = getattr(torch, torch_dtype)
                 if torch_dtype != "auto" and not isinstance(torch_dtype, torch.dtype):
                     raise ValueError(
-                        f"Invalid `torch_dtype` passed to the SFTConfig. Expected a string with either `torch.dtype` or 'auto', but got {torch_dtype}."
+                        f"Invalid `torch_dtype` passed to the NeuronSFTConfig. Expected a string with either `torch.dtype` or 'auto', but got {torch_dtype}."
                     )
                 model_init_kwargs["torch_dtype"] = torch_dtype
 
@@ -1585,12 +1594,12 @@ class NeuronSFTTrainer(AugmentTrainerForNeuronMixin, SFTTrainer):
 
         if packing:
             warnings.warn(
-                "You passed a `packing` argument to the SFTTrainer, the value you passed will override the one in the `SFTConfig`."
+                "You passed a `packing` argument to the SFTTrainer, the value you passed will override the one in the `NeuronSFTConfig`."
             )
             args.packing = packing
         if eval_packing is not None:
             warnings.warn(
-                "You passed a `eval_packing` argument to the SFTTrainer, the value you passed will override the one in the `SFTConfig`."
+                "You passed a `eval_packing` argument to the SFTTrainer, the value you passed will override the one in the `NeuronSFTConfig`."
             )
             args.eval_packing = eval_packing
 
@@ -1673,7 +1682,7 @@ class NeuronSFTTrainer(AugmentTrainerForNeuronMixin, SFTTrainer):
 
         if max_seq_length is not None:
             warnings.warn(
-                "You passed a `max_seq_length` argument to the SFTTrainer, the value you passed will override the one in the `SFTConfig`."
+                "You passed a `max_seq_length` argument to the SFTTrainer, the value you passed will override the one in the `NeuronSFTConfig`."
             )
             args.max_seq_length = max_seq_length
 
@@ -1687,14 +1696,14 @@ class NeuronSFTTrainer(AugmentTrainerForNeuronMixin, SFTTrainer):
 
         if dataset_num_proc is not None:
             warnings.warn(
-                "You passed a `dataset_num_proc` argument to the SFTTrainer, the value you passed will override the one in the `SFTConfig`."
+                "You passed a `dataset_num_proc` argument to the SFTTrainer, the value you passed will override the one in the `NeuronSFTConfig`."
             )
             args.dataset_num_proc = dataset_num_proc
         self.dataset_num_proc = args.dataset_num_proc
 
         if dataset_batch_size is not None:
             warnings.warn(
-                "You passed a `dataset_batch_size` argument to the SFTTrainer, the value you passed will override the one in the `SFTConfig`."
+                "You passed a `dataset_batch_size` argument to the SFTTrainer, the value you passed will override the one in the `NeuronSFTConfig`."
             )
             args.dataset_batch_size = dataset_batch_size
         self.dataset_batch_size = args.dataset_batch_size
@@ -1703,7 +1712,7 @@ class NeuronSFTTrainer(AugmentTrainerForNeuronMixin, SFTTrainer):
         if neftune_noise_alpha is not None and self._trainer_supports_neftune:
             args.neftune_noise_alpha = neftune_noise_alpha
             warnings.warn(
-                "You passed a `neftune_noise_alpha` argument to the SFTTrainer, the value you passed will override the one in the `SFTConfig`."
+                "You passed a `neftune_noise_alpha` argument to the SFTTrainer, the value you passed will override the one in the `NeuronSFTConfig`."
             )
             # self.neftune_noise_alpha is done at Trainer level
         elif not self._trainer_supports_neftune:
@@ -1711,13 +1720,13 @@ class NeuronSFTTrainer(AugmentTrainerForNeuronMixin, SFTTrainer):
 
         if dataset_text_field is not None:
             warnings.warn(
-                "You passed a `dataset_text_field` argument to the SFTTrainer, the value you passed will override the one in the `SFTConfig`."
+                "You passed a `dataset_text_field` argument to the SFTTrainer, the value you passed will override the one in the `NeuronSFTConfig`."
             )
             args.dataset_text_field = dataset_text_field
 
         if dataset_kwargs is not None:
             warnings.warn(
-                "You passed a `dataset_kwargs` argument to the SFTTrainer, the value you passed will override the one in the `SFTConfig`."
+                "You passed a `dataset_kwargs` argument to the SFTTrainer, the value you passed will override the one in the `NeuronSFTConfig`."
             )
             args.dataset_kwargs = dataset_kwargs
         if args.dataset_kwargs is None:
@@ -1740,7 +1749,7 @@ class NeuronSFTTrainer(AugmentTrainerForNeuronMixin, SFTTrainer):
                 and not args.dataset_kwargs.get("skip_prepare_dataset", False)
             ):
                 raise ValueError(
-                    "You passed `packing=False` to the SFTTrainer/SFTConfig, but you didn't pass a `dataset_text_field` or `formatting_func` argument."
+                    "You passed `packing=False` to the NeuronSFTTrainer/NeuronSFTConfig, but you didn't pass a `dataset_text_field` or `formatting_func` argument."
                 )
 
             if data_collator is None:
