@@ -107,7 +107,7 @@ if TYPE_CHECKING:
     from .modeling_seq2seq import NeuronModelForSeq2SeqLM
     from .modeling_traced import NeuronTracedModel
     from .pipelines import pipeline
-    from .trainers import NeuronTrainer, Seq2SeqNeuronTrainer, NeuronSFTTrainer
+    from .trainers import NeuronSFTTrainer, NeuronTrainer, Seq2SeqNeuronTrainer
     from .training_args import NeuronTrainingArguments, Seq2SeqNeuronTrainingArguments
     from .utils import get_peft_model
 
