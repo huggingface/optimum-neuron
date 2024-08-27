@@ -1,4 +1,4 @@
-name: Optimum neuron inference cache builder
+name: Optimum neuron SD inference cache builder
 
 on:
   workflow_dispatch:
