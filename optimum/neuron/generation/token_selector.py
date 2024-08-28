@@ -92,6 +92,7 @@ class TokenSelector:
         """
         generation_config.validate()
         generation_config = copy.deepcopy(generation_config)
+        model._prepare_special_tokens(generation_config)
 
         unsupported_generation_flags = [
             "output_attentions",
