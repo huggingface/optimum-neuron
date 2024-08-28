@@ -26,7 +26,7 @@ from optimum.neuron.utils.cache_utils import (
     set_neuron_cache_path,
 )
 
-from .utils import OPTIMUM_INTERNAL_TESTING_CACHE_REPO, get_random_string
+# from .utils import OPTIMUM_INTERNAL_TESTING_CACHE_REPO, get_random_string
 
 
 # Inferentia fixtures

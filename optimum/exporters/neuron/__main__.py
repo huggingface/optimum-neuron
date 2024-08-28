@@ -470,6 +470,7 @@ def load_models_and_neuron_configs(
     force_download: bool,
     local_files_only: bool,
     use_auth_token: Optional[Union[bool, str]],
+    token: Optional[Union[bool, str]],
     submodels: Optional[Dict[str, Union[Path, str]]],
     lora_model_ids: Optional[Union[str, List[str]]],
     lora_weight_names: Optional[Union[str, List[str]]],
@@ -478,11 +479,10 @@ def load_models_and_neuron_configs(
     controlnet_ids: Optional[Union[str, List[str]]],
     output_attentions: bool = False,
     output_hidden_states: bool = False,
-    library_name: Optional[str] = None,
     **input_shapes,
 ):
     library_name = TasksManager.infer_library_from_model(
-        model_name_or_path, subfolder=subfolder, library_name=library_name
+        model_name_or_path, revision=revision, cache_dir=cache_dir, token=token
     )
 
     model_kwargs = {
@@ -543,11 +543,11 @@ def main_export(
     force_download: bool = False,
     local_files_only: bool = False,
     use_auth_token: Optional[Union[bool, str]] = None,
+    token: Optional[Union[bool, str]] = None,
     do_validation: bool = True,
     submodels: Optional[Dict[str, Union[Path, str]]] = None,
     output_attentions: bool = False,
     output_hidden_states: bool = False,
-    library_name: Optional[str] = None,
     lora_model_ids: Optional[Union[str, List[str]]] = None,
     lora_weight_names: Optional[Union[str, List[str]]] = None,
     lora_adapter_names: Optional[Union[str, List[str]]] = None,
@@ -574,10 +574,10 @@ def main_export(
         force_download=force_download,
         local_files_only=local_files_only,
         use_auth_token=use_auth_token,
+        token=token,
         submodels=submodels,
         output_attentions=output_attentions,
         output_hidden_states=output_hidden_states,
-        library_name=library_name,
         lora_model_ids=lora_model_ids,
         lora_weight_names=lora_weight_names,
         lora_adapter_names=lora_adapter_names,
@@ -720,7 +720,6 @@ def main():
         subfolder=args.subfolder,
         do_validation=not args.disable_validation,
         submodels=submodels,
-        library_name=args.library_name,
         lora_model_ids=getattr(args, "lora_model_ids", None),
         lora_weight_names=getattr(args, "lora_weight_names", None),
         lora_adapter_names=getattr(args, "lora_adapter_names", None),

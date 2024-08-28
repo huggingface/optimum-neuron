@@ -429,7 +429,7 @@ class NeuronModelForSentenceTransformersIntegrationTest(NeuronModelTestMixin):
         }
 
         neuron_model = self.NEURON_MODEL_CLASS.from_pretrained(
-            model_id, subfolder="0_CLIPModel", export=True, library_name="sentence_transformers", **input_shapes
+            model_id, subfolder="0_CLIPModel", export=True, **input_shapes
         )
         self.assertIsInstance(neuron_model.model, torch.jit._script.ScriptModule)
         self.assertIsInstance(neuron_model.config, PretrainedConfig)
