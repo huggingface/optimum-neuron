@@ -721,6 +721,7 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
         config: Dict[str, Any],
         unet_id: Optional[Union[str, Path]] = None,
         use_auth_token: Optional[Union[bool, str]] = None,
+        token: Optional[Union[bool, str]] = None,
         revision: str = "main",
         force_download: bool = True,
         cache_dir: Optional[str] = None,
@@ -829,6 +830,8 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
             "auto_cast_type": auto_cast_type,
         }
 
+        # import pdb
+        # pdb.set_trace()
         pipe = TasksManager.get_model_from_task(
             task=task,
             model_name_or_path=model_id,
@@ -861,9 +864,11 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
                 trust_remote_code=trust_remote_code,
                 subfolder=subfolder,
                 revision=revision,
+                library_name=cls.library_name,
                 force_download=force_download,
                 local_files_only=local_files_only,
                 use_auth_token=use_auth_token,
+                token=token,
                 submodels=submodels,
                 output_hidden_states=output_hidden_states,
                 lora_model_ids=lora_model_ids,

@@ -261,7 +261,7 @@ def get_submodels_and_neuron_configs(
     input_shapes: Dict[str, int],
     task: str,
     output: Path,
-    library_name: Optional[str] = None,
+    library_name: str,
     subfolder: str = "",
     dynamic_batch_size: bool = False,
     model_name_or_path: Optional[Union[str, Path]] = None,
@@ -274,19 +274,17 @@ def get_submodels_and_neuron_configs(
     lora_scales: Optional[Union[float, List[float]]] = None,
     controlnets: Optional[List["ControlNetModel"]] = None,
 ):
-    is_stable_diffusion = "stable-diffusion" in task
     is_encoder_decoder = (
         getattr(model.config, "is_encoder_decoder", False) if isinstance(model.config, PretrainedConfig) else False
     )
 
-    if is_stable_diffusion:
+    if library_name == "diffusers":
         # TODO: Enable optional outputs for Stable Diffusion
         if output_attentions:
             raise ValueError(f"`output_attentions`is not supported by the {task} task yet.")
         models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs_for_stable_diffusion(
             model=model,
             input_shapes=input_shapes,
-            task=task,
             output=output,
             dynamic_batch_size=dynamic_batch_size,
             submodels=submodels,
@@ -347,7 +345,6 @@ def _normalize_lora_params(lora_model_ids, lora_weight_names, lora_adapter_names
 def _get_submodels_and_neuron_configs_for_stable_diffusion(
     model: Union["PreTrainedModel", "DiffusionPipeline"],
     input_shapes: Dict[str, int],
-    task: str,
     output: Path,
     dynamic_batch_size: bool = False,
     submodels: Optional[Dict[str, Union[Path, str]]] = None,
@@ -385,7 +382,6 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
     )
     models_and_neuron_configs = get_stable_diffusion_models_for_export(
         pipeline=model,
-        task=task,
         text_encoder_input_shapes=input_shapes["text_encoder"],
         unet_input_shapes=input_shapes["unet"],
         vae_encoder_input_shapes=input_shapes["vae_encoder"],
@@ -467,6 +463,7 @@ def load_models_and_neuron_configs(
     trust_remote_code: bool,
     subfolder: str,
     revision: str,
+    library_name: str,
     force_download: bool,
     local_files_only: bool,
     use_auth_token: Optional[Union[bool, str]],
@@ -481,10 +478,6 @@ def load_models_and_neuron_configs(
     output_hidden_states: bool = False,
     **input_shapes,
 ):
-    library_name = TasksManager.infer_library_from_model(
-        model_name_or_path, revision=revision, cache_dir=cache_dir, token=token
-    )
-
     model_kwargs = {
         "task": task,
         "model_name_or_path": model_name_or_path,
@@ -492,6 +485,7 @@ def load_models_and_neuron_configs(
         "revision": revision,
         "cache_dir": cache_dir,
         "use_auth_token": use_auth_token,
+        "token": token,
         "local_files_only": local_files_only,
         "force_download": force_download,
         "trust_remote_code": trust_remote_code,
@@ -548,6 +542,7 @@ def main_export(
     submodels: Optional[Dict[str, Union[Path, str]]] = None,
     output_attentions: bool = False,
     output_hidden_states: bool = False,
+    library_name: Optional[str] = None,
     lora_model_ids: Optional[Union[str, List[str]]] = None,
     lora_weight_names: Optional[Union[str, List[str]]] = None,
     lora_adapter_names: Optional[Union[str, List[str]]] = None,
@@ -560,6 +555,10 @@ def main_export(
         output.parent.mkdir(parents=True)
 
     task = TasksManager.map_from_synonym(task)
+    if library_name is None:
+        library_name = TasksManager.infer_library_from_model(
+            model_name_or_path, revision=revision, cache_dir=cache_dir, token=token
+        )
 
     models_and_neuron_configs, output_model_names = load_models_and_neuron_configs(
         model_name_or_path=model_name_or_path,
@@ -571,6 +570,7 @@ def main_export(
         trust_remote_code=trust_remote_code,
         subfolder=subfolder,
         revision=revision,
+        library_name=library_name,
         force_download=force_download,
         local_files_only=local_files_only,
         use_auth_token=use_auth_token,
@@ -600,8 +600,7 @@ def main_export(
 
     # Validate compiled model
     if do_validation is True:
-        is_stable_diffusion = "stable-diffusion" in task
-        if is_stable_diffusion:
+        if library_name == "diffusers":
             # Do not validate vae encoder due to the sampling randomness
             neuron_outputs.pop("vae_encoder")
             models_and_neuron_configs.pop("vae_encoder", None)
@@ -670,13 +669,12 @@ def main():
     args = parser.parse_args()
 
     task = infer_task(args.task, args.model)
-    is_stable_diffusion = "stable-diffusion" in task
-    is_sentence_transformers = args.library_name == "sentence_transformers"
+    library_name = TasksManager.infer_library_from_model(args.model, cache_dir=args.cache_dir)
 
-    if is_stable_diffusion:
+    if library_name == "diffusers":
         input_shapes = normalize_stable_diffusion_input_shapes(args)
         submodels = {"unet": args.unet}
-    elif is_sentence_transformers:
+    elif library_name == "sentence_transformers":
         input_shapes = normalize_sentence_transformers_input_shapes(args)
         submodels = None
     else:
@@ -720,6 +718,7 @@ def main():
         subfolder=args.subfolder,
         do_validation=not args.disable_validation,
         submodels=submodels,
+        library_name=library_name,
         lora_model_ids=getattr(args, "lora_model_ids", None),
         lora_weight_names=getattr(args, "lora_weight_names", None),
         lora_adapter_names=getattr(args, "lora_adapter_names", None),
