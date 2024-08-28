@@ -13,39 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import os
-import re
 
 from huggingface_hub import HfApi
 from transformers.testing_utils import ENDPOINT_STAGING
 
 from optimum.neuron import NeuronModelForSeq2SeqLM
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
-from optimum.utils.testing_utils import TOKEN, USER
-
-
-def _test_push_to_hub(model, model_path, repo_id, ignore_patterns=[]):
-    model.push_to_hub(model_path, repo_id, use_auth_token=TOKEN, endpoint=ENDPOINT_STAGING)
-    api = HfApi(endpoint=ENDPOINT_STAGING, token=TOKEN)
-    try:
-        hub_files_path = api.list_repo_files(repo_id)
-        for path, _, files in os.walk(model_path):
-            for name in files:
-                local_file_path = os.path.join(path, name)
-                hub_file_path = os.path.relpath(local_file_path, model_path)
-                excluded = False
-                for pattern in ignore_patterns:
-                    if re.compile(pattern).match(hub_file_path) is not None:
-                        excluded = True
-                        break
-                assert excluded or hub_file_path in hub_files_path
-    finally:
-        api.delete_repo(repo_id)
-
-
-def neuron_push_model_id(model_id):
-    model_name = model_id.split("/")[-1]
-    repo_id = f"{USER}/{model_name}-neuronx"
-    return repo_id
 
 
 @is_inferentia_test
@@ -59,6 +32,18 @@ def test_seq2seq_model_from_hub():
 
 @is_inferentia_test
 @requires_neuronx
-def test_push_seq2seq_to_hub(neuron_seq2seq_greedy_path, neuron_push_seq2seq_id):
+def test_push_seq2seq_to_hub(neuron_seq2seq_greedy_path, neuron_push_seq2seq_id, staging):
     model = NeuronModelForSeq2SeqLM.from_pretrained(neuron_seq2seq_greedy_path)
-    _test_push_to_hub(model, neuron_seq2seq_greedy_path, neuron_push_seq2seq_id)
+    model.push_to_hub(
+        neuron_seq2seq_greedy_path, neuron_push_seq2seq_id, use_auth_token=staging.token, endpoint=ENDPOINT_STAGING
+    )
+    api = HfApi(endpoint=ENDPOINT_STAGING, token=staging.token)
+    try:
+        hub_files_path = api.list_repo_files(neuron_push_seq2seq_id)
+        for path, _, files in os.walk(neuron_seq2seq_greedy_path):
+            for name in files:
+                local_file_path = os.path.join(path, name)
+                hub_file_path = os.path.relpath(local_file_path, neuron_seq2seq_greedy_path)
+                assert hub_file_path in hub_files_path
+    finally:
+        api.delete_repo(neuron_push_seq2seq_id)
