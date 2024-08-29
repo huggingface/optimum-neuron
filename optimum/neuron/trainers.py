@@ -26,6 +26,7 @@ import warnings
 from functools import wraps
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
+import datasets
 import numpy as np
 import torch
 from accelerate import __version__ as accelerate_version
@@ -1884,3 +1885,63 @@ class NeuronSFTTrainer(AugmentTrainerForNeuronMixin, SFTTrainer):
             del embeddings.neftune_noise_alpha
 
         return output
+
+    def _prepare_non_packed_dataloader(
+        self,
+        tokenizer,
+        dataset,
+        dataset_text_field,
+        max_seq_length,
+        formatting_func=None,
+        add_special_tokens=True,
+        remove_unused_columns=True,
+    ):
+        use_formatting_func = formatting_func is not None and dataset_text_field is None
+        self._dataset_sanity_checked = False
+
+        # Inspired from: https://huggingface.co/learn/nlp-course/chapter7/6?fw=pt
+        def tokenize(element):
+            outputs = tokenizer(
+                element[dataset_text_field] if not use_formatting_func else formatting_func(element),
+                add_special_tokens=add_special_tokens,
+                truncation=True,
+                # For Neuron we need to pad because otherwise it will trigger compilation for each new sequence length.
+                padding="max_length",
+                max_length=max_seq_length,
+                return_overflowing_tokens=False,
+                return_length=False,
+            )
+
+            if use_formatting_func and not self._dataset_sanity_checked:
+                if not isinstance(formatting_func(element), list):
+                    raise ValueError(
+                        "The `formatting_func` should return a list of processed strings since it can lead to silent bugs."
+                    )
+                else:
+                    self._dataset_sanity_checked = True
+
+            return {"input_ids": outputs["input_ids"], "attention_mask": outputs["attention_mask"]}
+
+        signature_columns = ["input_ids", "labels", "attention_mask"]
+
+        if dataset.column_names is not None:  # None for IterableDataset
+            extra_columns = list(set(dataset.column_names) - set(signature_columns))
+        else:
+            extra_columns = []
+
+        if not remove_unused_columns and len(extra_columns) > 0:
+            warnings.warn(
+                "You passed `remove_unused_columns=False` on a non-packed dataset. This might create some issues with the default collator and yield to errors. If you want to "
+                f"inspect dataset other columns (in this case {extra_columns}), you can subclass `DataCollatorForLanguageModeling` in case you used the default collator and create your own data collator in order to inspect the unused dataset columns."
+            )
+
+        map_kwargs = {
+            "batched": True,
+            "remove_columns": dataset.column_names if remove_unused_columns else None,
+            "batch_size": self.dataset_batch_size,
+        }
+        if isinstance(dataset, datasets.Dataset):
+            map_kwargs["num_proc"] = self.dataset_num_proc  # this arg is not available for IterableDataset
+        tokenized_dataset = dataset.map(tokenize, **map_kwargs)
+
+        return tokenized_dataset
