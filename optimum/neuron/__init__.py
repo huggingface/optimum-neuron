@@ -68,7 +68,7 @@ _import_structure = {
         "ModelParallelismPlugin",
     ],
     "pipelines": ["pipeline"],
-    "utils": ["get_peft_model"],
+    "utils": ["NeuronSFTConfig", "get_peft_model"],
 }
 
 if TYPE_CHECKING:
@@ -109,7 +109,7 @@ if TYPE_CHECKING:
     from .pipelines import pipeline
     from .trainers import NeuronSFTTrainer, NeuronTrainer, Seq2SeqNeuronTrainer
     from .training_args import NeuronTrainingArguments, Seq2SeqNeuronTrainingArguments
-    from .utils import get_peft_model
+    from .utils import NeuronSFTConfig, get_peft_model
 
 else:
     import sys
