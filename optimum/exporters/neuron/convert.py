@@ -358,7 +358,7 @@ def export_models(
         # TODO: Remove after the weights/neff separation compilation of sdxl is patched by a neuron sdk release: https://github.com/aws-neuron/aws-neuron-sdk/issues/859
         if not inline_weights_to_neff and getattr(sub_neuron_config, "is_sdxl", False):
             logger.warning(
-                "The compilation of SDXL's unet with the weights/neff separation is broken since the Neuron sdk 2.18 release. `inline_weights_to_neff` will be set to True and the caching will be disabled. If you still want to separate the neff and weights, please downgrade your Neuron setup to the 2.17.1 release."
+                "The compilation of SDXL's unet with the weights/neff separation is broken since the Neuron SDK 2.18 release. `inline_weights_to_neff` will be set to True and the caching will be disabled. If you still want to separate the neff and weights, please downgrade your Neuron setup to the 2.17.1 release."
             )
             inline_weights_to_neff = True
 

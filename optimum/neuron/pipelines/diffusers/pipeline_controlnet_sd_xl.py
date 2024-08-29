@@ -197,7 +197,7 @@ class NeuronStableDiffusionXLControlNetPipelineMixin(
     # Adapted from https://github.com/huggingface/diffusers/blob/1f81fbe274e67c843283e69eb8f00bb56f75ffc4/src/diffusers/pipelines/controlnet/pipeline_controlnet_sd_xl.py#L1001
     def __call__(
         self,
-        prompt: Union[str, List[str]] = None,
+        prompt: Optional[Union[str, List[str]]] = None,
         prompt_2: Optional[Union[str, List[str]]] = None,
         image: PipelineImageInput = None,
         num_inference_steps: int = 50,
