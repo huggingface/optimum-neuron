@@ -120,7 +120,9 @@ class NeuronStableDiffusionXLControlNetPipelineMixin(
                 for image_ in image:
                     self.check_image(image_, prompt, prompt_embeds)
         else:
-            assert False
+            raise ValueError(
+                f"{self.controlnet.__class__.__name__} is not a supported class for ControlNet. The class must be either `NeuronControlNetModel` or `NeuronMultiControlNetModel`."
+            )
 
         # Check `controlnet_conditioning_scale`
         if self.controlnet.__class__.__name__ == "NeuronControlNetModel":
@@ -138,7 +140,9 @@ class NeuronStableDiffusionXLControlNetPipelineMixin(
                     " the same length as the number of controlnets"
                 )
         else:
-            assert False
+            raise ValueError(
+                f"{self.controlnet.__class__.__name__} is not a supported class for ControlNet. The class must be either `NeuronControlNetModel` or `NeuronMultiControlNetModel`."
+            )
 
         if not isinstance(control_guidance_start, (tuple, list)):
             control_guidance_start = [control_guidance_start]
