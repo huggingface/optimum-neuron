@@ -830,8 +830,6 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
             "auto_cast_type": auto_cast_type,
         }
 
-        # import pdb
-        # pdb.set_trace()
         pipe = TasksManager.get_model_from_task(
             task=task,
             model_name_or_path=model_id,
