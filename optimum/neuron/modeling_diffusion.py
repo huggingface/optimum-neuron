@@ -1058,15 +1058,15 @@ class NeuronModelUnet(_NeuronDiffusionModelPart):
         inputs = (sample, timestep, encoder_hidden_states)
         if timestep_cond is not None:
             inputs = inputs + (timestep_cond,)
-        if added_cond_kwargs is not None:
-            text_embeds = added_cond_kwargs.pop("text_embeds", None)
-            time_ids = added_cond_kwargs.pop("time_ids", None)
-            inputs = inputs + (text_embeds, time_ids)
         if mid_block_additional_residual is not None:
             inputs = inputs + (mid_block_additional_residual,)
         if down_block_additional_residuals is not None:
             for idx in range(len(down_block_additional_residuals)):
                 inputs = inputs + (down_block_additional_residuals[idx],)
+        if added_cond_kwargs:
+            text_embeds = added_cond_kwargs.pop("text_embeds", None)
+            time_ids = added_cond_kwargs.pop("time_ids", None)
+            inputs = inputs + (text_embeds, time_ids)
 
         outputs = self.model(*inputs)
         return outputs
@@ -1139,9 +1139,15 @@ class NeuronControlNetModel(_NeuronDiffusionModelPart):
         controlnet_cond: torch.Tensor,
         conditioning_scale: float = 1.0,
         guess_mode: bool = False,
+        added_cond_kwargs: Optional[Dict] = None,
         return_dict: bool = True,
     ) -> Union["ControlNetOutput", Tuple[Tuple[torch.Tensor, ...], torch.Tensor]]:
+        timestep = timestep.expand((sample.shape[0],)).to(torch.long)
         inputs = (sample, timestep, encoder_hidden_states, controlnet_cond, conditioning_scale)
+        if added_cond_kwargs:
+            text_embeds = added_cond_kwargs.pop("text_embeds", None)
+            time_ids = added_cond_kwargs.pop("time_ids", None)
+            inputs += (text_embeds, time_ids)
         outputs = self.model(*inputs)
 
         if guess_mode:
@@ -1320,7 +1326,7 @@ class NeuronStableDiffusionXLInpaintPipeline(
 
 
 class NeuronStableDiffusionXLControlNetPipeline(
-    NeuronStableDiffusionPipelineBase, NeuronStableDiffusionXLControlNetPipelineMixin
+    NeuronStableDiffusionXLPipelineBase, NeuronStableDiffusionXLControlNetPipelineMixin
 ):
     __call__ = NeuronStableDiffusionXLControlNetPipelineMixin.__call__
 

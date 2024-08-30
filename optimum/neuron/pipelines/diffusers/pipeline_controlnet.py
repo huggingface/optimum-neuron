@@ -238,7 +238,7 @@ class NeuronStableDiffusionControlNetPipelineMixin(StableDiffusionPipelineMixin,
                 it will be overriden by the static batch size of neuron (except for dynamic batching).
             eta (`float`, defaults to 0.0):
                 Corresponds to parameter eta (η) from the [DDIM](https://arxiv.org/abs/2010.02502) paper. Only applies
-                to the [`~schedulers.DDIMScheduler`], and is ignored in other schedulers.
+                to the [`diffusers.schedulers.DDIMScheduler`], and is ignored in other schedulers.
             generator (`Optional[Union[torch.Generator, List[torch.Generator]]]`, defaults to `None`):
                 A [`torch.Generator`](https://pytorch.org/docs/stable/generated/torch.Generator.html) to make
                 generation deterministic.
