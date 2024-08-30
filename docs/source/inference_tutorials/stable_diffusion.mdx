@@ -633,4 +633,55 @@ compare.save("compare.png")
 />
 
 
+
+## ControlNet with Stable Diffusion XL
+
+### Compile
+
+```bash
+optimum-cli export neuron -m stabilityai/stable-diffusion-xl-base-1.0 --task stable-diffusion-xl --batch_size 1 --height 1024 --width 1024 --controlnet_ids diffusers/controlnet-canny-sdxl-1.0-small --num_images_per_prompt 1 sdxl_neuron_controlnet/
+```
+
+### Text-to-Image
+
+```python
+import cv2
+import numpy as np
+from diffusers.utils import load_image
+from PIL import Image
+from optimum.neuron import NeuronStableDiffusionXLControlNetPipeline
+
+# Inputs
+prompt = "aerial view, a futuristic research complex in a bright foggy jungle, hard lighting"
+negative_prompt = "low quality, bad quality, sketches"
+
+image = load_image(
+    "https://huggingface.co/datasets/hf-internal-testing/diffusers-images/resolve/main/sd_controlnet/hf-logo.png"
+)
+image = np.array(image)
+image = cv2.Canny(image, 100, 200)
+image = image[:, :, None]
+image = np.concatenate([image, image, image], axis=2)
+image = Image.fromarray(image)
+
+controlnet_conditioning_scale = 0.5  # recommended for good generalization
+
+pipe = NeuronStableDiffusionXLControlNetPipeline.from_pretrained("sdxl_neuron_controlnet")
+
+images = pipe(
+    prompt,
+    negative_prompt=negative_prompt,
+    image=image,
+    controlnet_conditioning_scale=controlnet_conditioning_scale,
+).images
+images[0].save("hug_lab.png")
+```
+
+<img
+  src="https://huggingface.co/datasets/optimum/documentation-images/resolve/main/neuron/models/12-sdxl-text2img-controlnet.png?download=true"
+  width="768"
+  height="256"
+  alt="stable diffusion xl generated image with controlnet."
+/>
+
 Are there any other stable diffusion features that you want us to support in 🤗`Optimum-neuron`? Please file an issue to [`Optimum-neuron` Github repo](https://github.com/huggingface/optimum-neuron) or discuss with us on [HuggingFace’s community forum](https://discuss.huggingface.co/c/optimum/), cheers 🤗 !
