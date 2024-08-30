@@ -1406,9 +1406,9 @@ def create_wrapper_for_resize_token_embedding(orig_resize_token_embeddings):
                     weight_map=self._weight_map,
                 )
                 setattr(embeddings, "weight", torch.nn.Parameter(load_tensor_for_weight(embeddings_weight_info)))
+                self._weight_map.pop(embeddings_qualified_name)
             else:
                 self._init_weights(embeddings)
-            self._weight_map.pop(embeddings_qualified_name)
 
         if lm_head is not None and lm_head.weight.device == torch.device("meta"):
             lm_head_qualified_name = param2name[lm_head.weight]
@@ -1421,6 +1421,7 @@ def create_wrapper_for_resize_token_embedding(orig_resize_token_embeddings):
                     weight_map=self._weight_map,
                 )
                 setattr(lm_head, "weight", torch.nn.Parameter(load_tensor_for_weight(lm_head_weight_info)))
+                self._weight_map.pop(lm_head_qualified_name)
 
                 if lm_head.bias is not None:
                     lm_head_bias_qualified_name = param2name[lm_head.bias]
@@ -1431,12 +1432,9 @@ def create_wrapper_for_resize_token_embedding(orig_resize_token_embeddings):
                         weight_map=self._weight_map,
                     )
                     setattr(lm_head, "bias", torch.nn.Parameter(load_tensor_for_weight(lm_head_bias_weight_info)))
+                    self._weight_map.pop(lm_head_bias_qualified_name)
             else:
                 self._init_weights(lm_head)
-
-            self._weight_map.pop(lm_head_qualified_name)
-            if lm_head.bias is not None:
-                self._weight_map.pop(lm_head_bias_qualified_name)
 
         return orig_resize_token_embeddings(new_num_tokens=new_num_tokens, pad_to_multiple_of=pad_to_multiple_of)
         new_embedding_shape = resized_embedding.weight.shape

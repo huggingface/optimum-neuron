@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, List, Optional, Type, Union
 import pytest
 import torch
 import torch.utils._pytree as pytree
-from transformers import AutoTokenizer, LlamaForCausalLM
+from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaForCausalLM
 from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 from transformers.models.auto.modeling_auto import (
     MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING,
@@ -44,7 +44,7 @@ from transformers.models.auto.modeling_auto import (
 
 import optimum
 from optimum.neuron.distributed.parallelizers_manager import ParallelizersManager
-from optimum.neuron.distributed.utils import compute_query_indices_for_rank
+from optimum.neuron.distributed.utils import compute_query_indices_for_rank, lazy_load_for_parallelism
 from optimum.neuron.utils.cache_utils import (
     get_num_neuron_cores,
 )
@@ -228,7 +228,7 @@ class TestModelParallelization(DistributedTest):
             pp_size = parallel_sizes[-1]
         model_specs = fixtures_kwargs.get("model_specs", None)
 
-        if pp_size > 1 and model_specs is not None:
+        if pp_size is not None and pp_size > 1 and model_specs is not None:
             model_type = model_specs[0]
             manager = ParallelizersManager.parallelizer_for_model(model_type)
             if not manager.supports_pipeline_parallelism():
@@ -560,6 +560,51 @@ class TestModelParallelization(DistributedTest):
             sequence_parallel_enabled,
             parallelize_embeddings,
         )
+
+    @pytest.mark.parallel_sizes((8, 2, 1))
+    def test_resize_embedding(self):
+        tp_size = get_tensor_model_parallel_size()
+        tp_group = get_tensor_model_parallel_group()
+
+        static_seed_patcher = StaticSeedPatcher(42)
+
+        with static_seed_patcher:
+            orig_model = AutoModelForCausalLM.from_pretrained(LLAMA_V2_MODEL_NAME)
+            orig_model.eval()
+            vocab_size = orig_model.config.vocab_size
+            new_vocab_size = (vocab_size // tp_size) * (tp_size + 1)
+            orig_model.resize_token_embeddings(new_vocab_size)
+
+        with lazy_load_for_parallelism(tensor_parallel_size=tp_size):
+            with static_seed_patcher:
+                model = AutoModelForCausalLM.from_pretrained(LLAMA_V2_MODEL_NAME)
+                model.eval()
+                model.resize_token_embeddings(new_vocab_size)
+        accelerator = create_accelerator(
+            tp_size,
+            1,
+            parallelize_embeddings=True,
+            sequence_parallel_enabled=True,
+        )
+        with static_seed_patcher:
+            model = accelerator.prepare_model(model)
+        gathered = [torch.empty_like(model.model.embed_tokens.weight) for _ in range(tp_size)]
+        torch.distributed.all_gather(gathered, model.model.embed_tokens.weight, group=tp_group)
+        gathered_embedding = torch.cat(gathered, dim=0)
+        xm.mark_step()
+        torch.testing.assert_close(orig_model.model.embed_tokens.weight, gathered_embedding.to("cpu"))
+
+        tok = AutoTokenizer.from_pretrained(LLAMA_V2_MODEL_NAME)
+        tok.pad_token = tok.eos_token
+        inputs = tok("This is a test", max_length=24, padding="max_length", return_tensors="pt")
+        orig_logits = orig_model(**inputs).logits
+        logits = model(**{k: v.to("xla") for k, v in inputs.items()}).logits
+        gathered = [torch.empty_like(logits) for _ in range(tp_size)]
+        torch.distributed.all_gather(gathered, logits, group=tp_group)
+        gathered_logits = torch.cat(gathered, dim=2)
+        xm.master_print(logits)
+        xm.master_print(gathered_logits)
+        torch.testing.assert_close(orig_logits, gathered_logits.to("cpu"))
 
 
 @pytest.mark.parametrize(

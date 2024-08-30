@@ -291,7 +291,7 @@ class DistributedTest(DistributedExec):
             world_size = try_to_override_via_pytest_mark(mark, "world_size")
             tp_size = try_to_override_via_pytest_mark(mark, "tp_size")
             pp_size = try_to_override_via_pytest_mark(mark, "pp_size")
-            parallel_sizes = try_to_override_via_pytest_mark(mark, "parallel_size")
+            parallel_sizes = try_to_override_via_pytest_mark(mark, "parallel_sizes")
 
         # Catch world_size, tp_size or pp_size override via fixture.
         def try_to_override_via_fixture(name, current_value):
@@ -299,7 +299,7 @@ class DistributedTest(DistributedExec):
                 if current_value is not None:
                     raise ValueError(f"It is not possible to override {name} both via pytest.mark and fixtures.")
                 return self._fixture_kwargs[name]
-            return None
+            return current_value
 
         world_size = try_to_override_via_fixture("world_size", world_size)
         tp_size = try_to_override_via_fixture("tp_size", tp_size)
