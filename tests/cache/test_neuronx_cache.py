@@ -34,14 +34,14 @@ from optimum.neuron import (
 )
 from optimum.neuron.utils import get_hub_cached_entries, synchronize_hub_cache
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
-from optimum.utils.testing_utils import TOKEN
 
 
 @pytest.fixture
-def cache_repos():
+def cache_repos(staging):
     # Setup: create temporary Hub repository and local cache directory
-    api = HfApi(endpoint=ENDPOINT_STAGING, token=TOKEN)
-    user = api.whoami()["name"]
+    token = staging["token"]
+    user = staging["user"]
+    api = HfApi(endpoint=ENDPOINT_STAGING, token=token)
     hostname = socket.gethostname()
     cache_repo_id = f"{user}/{hostname}-optimum-neuron-cache"
     if api.repo_exists(cache_repo_id):
@@ -57,7 +57,7 @@ def cache_repos():
     os.environ["NEURON_COMPILE_CACHE_URL"] = cache_path
     os.environ["CUSTOM_CACHE_REPO"] = cache_repo_id
     os.environ["HF_ENDPOINT"] = ENDPOINT_STAGING
-    os.environ["HF_TOKEN"] = TOKEN
+    os.environ["HF_TOKEN"] = token
     yield (cache_path, cache_repo_id)
     # Teardown
     api.delete_repo(cache_repo_id)
@@ -173,7 +173,8 @@ def check_traced_cache_entry(cache_path):
 
 
 def assert_local_and_hub_cache_sync(cache_path, cache_repo_id):
-    api = HfApi(endpoint=ENDPOINT_STAGING, token=TOKEN)
+    # Since created models are public on the staging endpoint we don't need a token
+    api = HfApi(endpoint=ENDPOINT_STAGING)
     remote_files = api.list_repo_files(cache_repo_id)
     local_files = get_local_cached_files(cache_path)
     for file in local_files:

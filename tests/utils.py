@@ -58,10 +58,14 @@ from optimum.neuron.utils.cache_utils import (
 from optimum.neuron.utils.patching import DynamicPatch, Patcher
 from optimum.neuron.utils.require_utils import requires_neuronx_distributed
 from optimum.utils import logging
-from optimum.utils.testing_utils import TOKEN, USER
 
 
 logger = logging.get_logger(__name__)
+
+
+# Not critical, only usable on the sandboxed CI instance.
+USER_STAGING = "__DUMMY_OPTIMUM_USER__"
+TOKEN_STAGING = "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"
 
 SEED = 42
 OPTIMUM_INTERNAL_TESTING_CACHE_REPO = "optimum-internal-testing/optimum-neuron-cache-for-testing"
@@ -450,7 +454,7 @@ class TrainiumTestMixin:
 
 class StagingTestMixin:
     CUSTOM_CACHE_REPO_NAME = "optimum-neuron-cache-testing"
-    CUSTOM_CACHE_REPO = f"{USER}/{CUSTOM_CACHE_REPO_NAME}"
+    CUSTOM_CACHE_REPO = f"{USER_STAGING}/{CUSTOM_CACHE_REPO_NAME}"
     CUSTOM_PRIVATE_CACHE_REPO = f"{CUSTOM_CACHE_REPO}-private"
     _token = ""
     MAX_NUM_LINEARS = 20
@@ -468,8 +472,8 @@ class StagingTestMixin:
 
     @classmethod
     def setUpClass(cls):
-        cls._staging_token = TOKEN
-        cls._token = cls.set_hf_hub_token(TOKEN)
+        cls._staging_token = TOKEN_STAGING
+        cls._token = cls.set_hf_hub_token(TOKEN_STAGING)
         cls._custom_cache_repo_name = load_custom_cache_repo_name_from_hf_home()
         delete_custom_cache_repo_name_from_hf_home()
 
@@ -511,6 +515,6 @@ class StagingTestMixin:
             pass
 
     def tearDown(self):
-        login(TOKEN)
+        login(TOKEN_STAGING)
         self.remove_all_files_in_repo(self.CUSTOM_CACHE_REPO)
         self.remove_all_files_in_repo(self.CUSTOM_PRIVATE_CACHE_REPO)

@@ -387,6 +387,7 @@ def get_submodels_for_export_stable_diffusion(
     text_encoder_2 = getattr(pipeline, "text_encoder_2", None)
     if text_encoder_2 is not None:
         text_encoder_2.config.output_hidden_states = True
+        text_encoder_2.text_model.config.output_hidden_states = True
         models_for_export.append((DIFFUSION_MODEL_TEXT_ENCODER_2_NAME, copy.deepcopy(text_encoder_2)))
 
     # U-NET
