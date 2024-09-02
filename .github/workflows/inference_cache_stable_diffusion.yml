@@ -43,7 +43,7 @@ jobs:
       - name: Install optimum neuron
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          python -m pip install .[neuronx]
+          python -m pip install .[neuronx,diffusers]
       - name: Create cache for ${{matrix.config}} models
         run: |
           source aws_neuron_venv_pytorch/bin/activate
