@@ -194,6 +194,10 @@ def validate_model_outputs(
             ref_inputs = tuple(ref_inputs.values())
             ref_outputs = reference_model(*ref_inputs)
             neuron_inputs = tuple(inputs.values())
+        elif "controlnet" in getattr(config._config, "_class_name", "").lower():
+            reference_model = config.patch_model_for_export(reference_model, ref_inputs)
+            neuron_inputs = ref_inputs = tuple(ref_inputs.values())
+            ref_outputs = reference_model(*ref_inputs)
         else:
             ref_outputs = reference_model(**ref_inputs)
             neuron_inputs = tuple(config.flatten_inputs(inputs).values())
@@ -351,66 +355,58 @@ def export_models(
         output_path = output_dir / output_file_name
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        try:
-            # TODO: Remove after the weights/neff separation compilation of sdxl is patched by a neuron sdk release: https://github.com/aws-neuron/aws-neuron-sdk/issues/859
-            if not inline_weights_to_neff and getattr(sub_neuron_config, "is_sdxl", False):
-                logger.warning(
-                    "The compilation of SDXL's unet with the weights/neff separation is broken since the Neuron sdk 2.18 release. `inline_weights_to_neff` will be set to True and the caching will be disabled. If you still want to separate the neff and weights, please downgrade your Neuron setup to the 2.17.1 release."
-                )
-                inline_weights_to_neff = True
-
-            start_time = time.time()
-            neuron_inputs, neuron_outputs = export(
-                model=submodel,
-                config=sub_neuron_config,
-                output=output_path,
-                compiler_workdir=compiler_workdir,
-                inline_weights_to_neff=inline_weights_to_neff,
-                optlevel=optlevel,
-                **compiler_kwargs,
+        # TODO: Remove after the weights/neff separation compilation of sdxl is patched by a neuron sdk release: https://github.com/aws-neuron/aws-neuron-sdk/issues/859
+        if not inline_weights_to_neff and getattr(sub_neuron_config, "is_sdxl", False):
+            logger.warning(
+                "The compilation of SDXL's unet with the weights/neff separation is broken since the Neuron SDK 2.18 release. `inline_weights_to_neff` will be set to True and the caching will be disabled. If you still want to separate the neff and weights, please downgrade your Neuron setup to the 2.17.1 release."
             )
-            compilation_time = time.time() - start_time
-            total_compilation_time += compilation_time
-            logger.info(f"[Compilation Time] {np.round(compilation_time, 2)} seconds.")
-            all_inputs[model_name] = neuron_inputs
-            all_outputs[model_name] = neuron_outputs
-            # Add neuron specific configs to model components' original config
-            if hasattr(submodel, "config"):
-                model_config = submodel.config
-            elif configs and (model_name in configs.keys()):
-                model_config = configs[model_name]
-            else:
-                raise AttributeError("Cannot find model's configuration, please pass it with `configs`.")
+            inline_weights_to_neff = True
 
-            if is_diffusers_available() and isinstance(model_config, FrozenDict):
-                model_config = OrderedDict(model_config)
-                model_config = DiffusersPretrainedConfig.from_dict(model_config)
+        start_time = time.time()
+        neuron_inputs, neuron_outputs = export(
+            model=submodel,
+            config=sub_neuron_config,
+            output=output_path,
+            compiler_workdir=compiler_workdir,
+            inline_weights_to_neff=inline_weights_to_neff,
+            optlevel=optlevel,
+            **compiler_kwargs,
+        )
+        compilation_time = time.time() - start_time
+        total_compilation_time += compilation_time
+        logger.info(f"[Compilation Time] {np.round(compilation_time, 2)} seconds.")
+        all_inputs[model_name] = neuron_inputs
+        all_outputs[model_name] = neuron_outputs
+        # Add neuron specific configs to model components' original config
+        if hasattr(submodel, "config"):
+            model_config = submodel.config
+        elif configs and (model_name in configs.keys()):
+            model_config = configs[model_name]
+        else:
+            raise AttributeError("Cannot find model's configuration, please pass it with `configs`.")
 
-            model_config = store_compilation_config(
-                config=model_config,
-                input_shapes=sub_neuron_config.input_shapes,
-                compiler_kwargs=compiler_kwargs,
-                input_names=neuron_inputs,
-                output_names=neuron_outputs,
-                dynamic_batch_size=sub_neuron_config.dynamic_batch_size,
-                compiler_type=NEURON_COMPILER_TYPE,
-                compiler_version=NEURON_COMPILER_VERSION,
-                inline_weights_to_neff=inline_weights_to_neff,
-                optlevel=optlevel,
-                model_type=getattr(sub_neuron_config, "MODEL_TYPE", None),
-                task=getattr(sub_neuron_config, "task", None),
-                output_attentions=getattr(sub_neuron_config, "output_attentions", False),
-                output_hidden_states=getattr(sub_neuron_config, "output_hidden_states", False),
-            )
-            model_config.save_pretrained(output_path.parent)
-            compile_configs[model_name] = model_config
-        except Exception as e:
-            failed_models.append((i, model_name))
-            output_path.parent.rmdir()
-            logger.error(
-                f"An error occured when trying to trace {model_name} with the error message: {e}.\n"
-                f"The export is failed and {model_name} neuron model won't be stored."
-            )
+        if is_diffusers_available() and isinstance(model_config, FrozenDict):
+            model_config = OrderedDict(model_config)
+            model_config = DiffusersPretrainedConfig.from_dict(model_config)
+
+        model_config = store_compilation_config(
+            config=model_config,
+            input_shapes=sub_neuron_config.input_shapes,
+            compiler_kwargs=compiler_kwargs,
+            input_names=neuron_inputs,
+            output_names=neuron_outputs,
+            dynamic_batch_size=sub_neuron_config.dynamic_batch_size,
+            compiler_type=NEURON_COMPILER_TYPE,
+            compiler_version=NEURON_COMPILER_VERSION,
+            inline_weights_to_neff=inline_weights_to_neff,
+            optlevel=optlevel,
+            model_type=getattr(sub_neuron_config, "MODEL_TYPE", None),
+            task=getattr(sub_neuron_config, "task", None),
+            output_attentions=getattr(sub_neuron_config, "output_attentions", False),
+            output_hidden_states=getattr(sub_neuron_config, "output_hidden_states", False),
+        )
+        model_config.save_pretrained(output_path.parent)
+        compile_configs[model_name] = model_config
 
     logger.info(f"[Total compilation Time] {np.round(total_compilation_time, 2)} seconds.")
 
