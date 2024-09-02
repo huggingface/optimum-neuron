@@ -32,7 +32,6 @@ import torch
 from accelerate import __version__ as accelerate_version
 from accelerate.state import PartialState
 from accelerate.utils import AutocastKwargs, DataLoaderConfiguration, GradientAccumulationPlugin
-from huggingface_hub.utils._deprecation import _deprecate_arguments
 from packaging import version
 from torch.utils.data import Dataset
 from transformers import (
@@ -1507,23 +1506,6 @@ class Seq2SeqNeuronTrainer(AugmentTrainerForNeuronMixin, Seq2SeqTrainer):
 
 
 class NeuronSFTTrainer(AugmentTrainerForNeuronMixin, SFTTrainer):
-    @_deprecate_arguments(
-        version="1.0.0",
-        deprecated_args=[
-            "dataset_text_field",
-            "packing",
-            "max_seq_length",
-            "dataset_num_proc",
-            "dataset_batch_size",
-            "neftune_noise_alpha",
-            "model_init_kwargs",
-            "dataset_kwargs",
-            "eval_packing",
-            "num_of_sequences",
-            "chars_per_token",
-        ],
-        custom_message="Deprecated positional argument(s) used in SFTTrainer, please use the SFTConfig to set these arguments instead.",
-    )
     def __init__(
         self,
         model: Optional[Union[PreTrainedModel, torch.nn.Module, str]] = None,
@@ -1538,19 +1520,8 @@ class NeuronSFTTrainer(AugmentTrainerForNeuronMixin, SFTTrainer):
         optimizers: Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LambdaLR] = (None, None),
         preprocess_logits_for_metrics: Optional[Callable[[torch.Tensor, torch.Tensor], torch.Tensor]] = None,
         peft_config: Optional["PeftConfig"] = None,
-        dataset_text_field: Optional[str] = None,
-        packing: Optional[bool] = False,
         formatting_func: Optional[Callable] = None,
-        max_seq_length: Optional[int] = None,
         infinite: Optional[bool] = None,
-        num_of_sequences: Optional[int] = None,
-        chars_per_token: Optional[float] = None,
-        dataset_num_proc: Optional[int] = None,
-        dataset_batch_size: Optional[int] = None,
-        neftune_noise_alpha: Optional[float] = None,
-        model_init_kwargs: Optional[Dict] = None,
-        dataset_kwargs: Optional[Dict] = None,
-        eval_packing: Optional[bool] = None,
     ):
         if not is_trl_available():
             raise RuntimeError("Using NeuronSFTTrainer requires the trl library.")
@@ -1558,11 +1529,9 @@ class NeuronSFTTrainer(AugmentTrainerForNeuronMixin, SFTTrainer):
         from trl.extras.dataset_formatting import get_formatting_func_from_dataset
 
         # This will be changed to :
-        # from trl.trainer.callbacks import RichProgressCallback
-        # In the next release.
+        from trl.trainer.callbacks import RichProgressCallback
         from trl.trainer.utils import (
             DataCollatorForCompletionOnlyLM,
-            RichProgressCallback,
             peft_module_casting_to_bf16,
         )
 
@@ -1579,11 +1548,6 @@ class NeuronSFTTrainer(AugmentTrainerForNeuronMixin, SFTTrainer):
             args_as_dict.update({k: getattr(args, k) for k in args_as_dict.keys() if k.endswith("_token")})
             args = NeuronSFTConfig(**args_as_dict)
 
-        if model_init_kwargs is not None:
-            warnings.warn(
-                "You passed `model_init_kwargs` to the SFTTrainer, the value you passed will override the one in the `SFTConfig`."
-            )
-            args.model_init_kwargs = model_init_kwargs
         if getattr(args, "model_init_kwargs", None) is None:
             model_init_kwargs = {}
         elif not isinstance(model, str):
@@ -1612,17 +1576,6 @@ class NeuronSFTTrainer(AugmentTrainerForNeuronMixin, SFTTrainer):
                 "`AutoModelForCausalLM` or a `PeftModel` (if you passed a `peft_config`) for you."
             )
             model = AutoModelForCausalLM.from_pretrained(model, **model_init_kwargs)
-
-        if packing:
-            warnings.warn(
-                "You passed a `packing` argument to the SFTTrainer, the value you passed will override the one in the `SFTConfig`."
-            )
-            args.packing = packing
-        if eval_packing is not None:
-            warnings.warn(
-                "You passed a `eval_packing` argument to the SFTTrainer, the value you passed will override the one in the `SFTConfig`."
-            )
-            args.eval_packing = eval_packing
 
         if args.packing and data_collator is not None and isinstance(data_collator, DataCollatorForCompletionOnlyLM):
             raise ValueError(
@@ -1701,12 +1654,6 @@ class NeuronSFTTrainer(AugmentTrainerForNeuronMixin, SFTTrainer):
             if getattr(tokenizer, "pad_token", None) is None:
                 tokenizer.pad_token = tokenizer.eos_token
 
-        if max_seq_length is not None:
-            warnings.warn(
-                "You passed a `max_seq_length` argument to the SFTTrainer, the value you passed will override the one in the `SFTConfig`."
-            )
-            args.max_seq_length = max_seq_length
-
         if args.max_seq_length is None:
             # to overcome some issues with broken tokenizers
             args.max_seq_length = min(tokenizer.model_max_length, 1024)
@@ -1715,41 +1662,12 @@ class NeuronSFTTrainer(AugmentTrainerForNeuronMixin, SFTTrainer):
                 f"You didn't pass a `max_seq_length` argument to the SFTTrainer, this will default to {args.max_seq_length}"
             )
 
-        if dataset_num_proc is not None:
-            warnings.warn(
-                "You passed a `dataset_num_proc` argument to the SFTTrainer, the value you passed will override the one in the `SFTConfig`."
-            )
-            args.dataset_num_proc = dataset_num_proc
         self.dataset_num_proc = args.dataset_num_proc
 
-        if dataset_batch_size is not None:
-            warnings.warn(
-                "You passed a `dataset_batch_size` argument to the SFTTrainer, the value you passed will override the one in the `SFTConfig`."
-            )
-            args.dataset_batch_size = dataset_batch_size
         self.dataset_batch_size = args.dataset_batch_size
 
         self._trainer_supports_neftune = hasattr(args, "neftune_noise_alpha")
-        if neftune_noise_alpha is not None and self._trainer_supports_neftune:
-            args.neftune_noise_alpha = neftune_noise_alpha
-            warnings.warn(
-                "You passed a `neftune_noise_alpha` argument to the SFTTrainer, the value you passed will override the one in the `SFTConfig`."
-            )
-            # self.neftune_noise_alpha is done at Trainer level
-        elif not self._trainer_supports_neftune:
-            self.neftune_noise_alpha = neftune_noise_alpha
 
-        if dataset_text_field is not None:
-            warnings.warn(
-                "You passed a `dataset_text_field` argument to the SFTTrainer, the value you passed will override the one in the `SFTConfig`."
-            )
-            args.dataset_text_field = dataset_text_field
-
-        if dataset_kwargs is not None:
-            warnings.warn(
-                "You passed a `dataset_kwargs` argument to the SFTTrainer, the value you passed will override the one in the `SFTConfig`."
-            )
-            args.dataset_kwargs = dataset_kwargs
         if args.dataset_kwargs is None:
             args.dataset_kwargs = {}
 
@@ -1775,18 +1693,6 @@ class NeuronSFTTrainer(AugmentTrainerForNeuronMixin, SFTTrainer):
 
             if data_collator is None:
                 data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
-
-        if num_of_sequences is not None:
-            warnings.warn(
-                "You passed a `num_of_sequences` argument to the SFTTrainer, the value you passed will override the one in the `SFTConfig`."
-            )
-            args.num_of_sequences = num_of_sequences
-
-        if chars_per_token is not None:
-            warnings.warn(
-                "You passed a `chars_per_token` argument to the SFTTrainer, the value you passed will override the one in the `SFTConfig`."
-            )
-            args.chars_per_token = chars_per_token
 
         # Pre-process the datasets only once per node. The remaining processes will use the cache.
         with PartialState().local_main_process_first():
