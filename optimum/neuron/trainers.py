@@ -1521,7 +1521,6 @@ class NeuronSFTTrainer(AugmentTrainerForNeuronMixin, SFTTrainer):
         preprocess_logits_for_metrics: Optional[Callable[[torch.Tensor, torch.Tensor], torch.Tensor]] = None,
         peft_config: Optional["PeftConfig"] = None,
         formatting_func: Optional[Callable] = None,
-        infinite: Optional[bool] = None,
     ):
         if not is_trl_available():
             raise RuntimeError("Using NeuronSFTTrainer requires the trl library.")
@@ -1564,11 +1563,6 @@ class NeuronSFTTrainer(AugmentTrainerForNeuronMixin, SFTTrainer):
                         f"Invalid `torch_dtype` passed to the SFTConfig. Expected a string with either `torch.dtype` or 'auto', but got {torch_dtype}."
                     )
                 model_init_kwargs["torch_dtype"] = torch_dtype
-
-        if infinite is not None:
-            warnings.warn(
-                "The `infinite` argument is deprecated and will be removed in a future version of TRL. Use `TrainingArguments.max_steps` or `TrainingArguments.num_train_epochs` instead to control training length."
-            )
 
         if isinstance(model, str):
             warnings.warn(
