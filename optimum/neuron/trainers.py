@@ -1524,6 +1524,7 @@ class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
         - Adapts the `_prepare_non_packed_dataloader` to pad to max lenght. In the original `SFTTrainer` examples are
           not padded, which is an issue here because it triggers compilation every time.
     """
+
     def __init__(
         self,
         model: Optional[Union[PreTrainedModel, torch.nn.Module, str]] = None,

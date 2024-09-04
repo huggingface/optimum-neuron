@@ -27,7 +27,7 @@ else:
     @dataclass
     class SFTConfig:
         def __init__(self, *args, **kwargs):
-            raise RuntimeError(f"You need to install the `trl` library to use the `NeuronSFTConfig`.")
+            raise RuntimeError("You need to install the `trl` library to use the `NeuronSFTConfig`.")
 
 
 @dataclass
