@@ -54,8 +54,7 @@ def export_model(model_id, export_kwargs, neuron_model_path):
     try:
         subprocess.run(export_command, check=True)
     except subprocess.CalledProcessError as e:
-        logger.error(f"Failed to export model: {e}")
-        return
+        raise ValueError(f"Failed to export model: {e}")
 
 
 @pytest.fixture(scope="session", params=MODEL_CONFIGURATIONS.keys())

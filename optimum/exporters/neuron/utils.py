@@ -119,7 +119,7 @@ def get_stable_diffusion_models_for_export(
     lora_weight_names: Optional[List[str]] = None,
     lora_adapter_names: Optional[List[str]] = None,
     lora_scales: Optional[List[float]] = None,
-    controlnets: Optional[List["ControlNetModel"]] = None,
+    controlnet_ids: Optional[Union[str, List[str]]] = None,
     controlnet_input_shapes: Optional[Dict[str, int]] = None,
 ) -> Dict[str, Tuple[Union["PreTrainedModel", "ModelMixin"], "NeuronDefaultConfig"]]:
     """
@@ -153,8 +153,8 @@ def get_stable_diffusion_models_for_export(
             List of adapter names to be used for referencing the loaded adapter models.
         lora_scales (`Optional[List[float]]`, defaults to `None`):
             List of scaling factors for lora adapters.
-        controlnets (`Optional[List["ControlNetModel"]]]`, defaults to `None`):
-            One or multiple ControlNets providing additional conditioning to the `unet` during the denoising process. If you set multiple
+        controlnet_ids (`Optional[Union[str, List[str]]]`, defaults to `None`):
+            Model ID of one or multiple ControlNets providing additional conditioning to the `unet` during the denoising process. If you set multiple
             ControlNets as a list, the outputs from each ControlNet are added together to create one combined additional conditioning.
         controlnet_input_shapes (`Optional[Dict[str, int]]`, defaults to `None`):
             Static shapes used for compiling ControlNets.
@@ -170,6 +170,7 @@ def get_stable_diffusion_models_for_export(
         lora_weight_names=lora_weight_names,
         lora_adapter_names=lora_adapter_names,
         lora_scales=lora_scales,
+        controlnet_ids=controlnet_ids,
     )
     library_name = "diffusers"
 
@@ -227,7 +228,7 @@ def get_stable_diffusion_models_for_export(
     if task == "stable-diffusion-xl":
         unet_neuron_config.is_sdxl = True
 
-    unet_neuron_config.with_controlnet = True if controlnets else False
+    unet_neuron_config.with_controlnet = True if controlnet_ids else False
 
     models_for_export[DIFFUSION_MODEL_UNET_NAME] = (unet, unet_neuron_config)
 
@@ -266,8 +267,12 @@ def get_stable_diffusion_models_for_export(
     models_for_export[DIFFUSION_MODEL_VAE_DECODER_NAME] = (vae_decoder, vae_decoder_neuron_config)
 
     # ControlNet
-    if controlnets:
-        for idx, controlnet in enumerate(controlnets):
+    if controlnet_ids:
+        if isinstance(controlnet_ids, str):
+            controlnet_ids = [controlnet_ids]
+        for idx in range(len(controlnet_ids)):
+            controlnet_name = DIFFUSION_MODEL_CONTROLNET_NAME + "_" + str(idx)
+            controlnet = models_for_export[controlnet_name]
             controlnet_config_constructor = TasksManager.get_exporter_config_constructor(
                 model=controlnet,
                 exporter="neuron",
@@ -281,7 +286,7 @@ def get_stable_diffusion_models_for_export(
                 dynamic_batch_size=dynamic_batch_size,
                 **controlnet_input_shapes,
             )
-            models_for_export[DIFFUSION_MODEL_CONTROLNET_NAME + "_" + str(idx)] = (
+            models_for_export[controlnet_name] = (
                 controlnet,
                 controlnet_neuron_config,
             )
@@ -351,6 +356,7 @@ def get_submodels_for_export_stable_diffusion(
     lora_weight_names: Optional[Union[str, List[str]]] = None,
     lora_adapter_names: Optional[Union[str, List[str]]] = None,
     lora_scales: Optional[List[float]] = None,
+    controlnet_ids: Optional[Union[str, List[str]]] = None,
 ) -> Dict[str, Union["PreTrainedModel", "ModelMixin"]]:
     """
     Returns the components of a Stable Diffusion model.
@@ -381,6 +387,7 @@ def get_submodels_for_export_stable_diffusion(
     text_encoder_2 = getattr(pipeline, "text_encoder_2", None)
     if text_encoder_2 is not None:
         text_encoder_2.config.output_hidden_states = True
+        text_encoder_2.text_model.config.output_hidden_states = True
         models_for_export.append((DIFFUSION_MODEL_TEXT_ENCODER_2_NAME, copy.deepcopy(text_encoder_2)))
 
     # U-NET
@@ -417,6 +424,15 @@ def get_submodels_for_export_stable_diffusion(
     vae_decoder = copy.deepcopy(pipeline.vae)
     vae_decoder.forward = lambda latent_sample: vae_decoder.decode(z=latent_sample)
     models_for_export.append((DIFFUSION_MODEL_VAE_DECODER_NAME, vae_decoder))
+
+    # ControlNets
+    controlnets = load_controlnets(controlnet_ids)
+    if controlnets:
+        for idx, controlnet in enumerate(controlnets):
+            controlnet.config.text_encoder_projection_dim = pipeline.unet.config.text_encoder_projection_dim
+            controlnet.config.requires_aesthetics_score = pipeline.unet.config.requires_aesthetics_score
+            controlnet.config.time_cond_proj_dim = pipeline.unet.config.time_cond_proj_dim
+            models_for_export.append((DIFFUSION_MODEL_CONTROLNET_NAME + "_" + str(idx), controlnet))
 
     return OrderedDict(models_for_export)
 
