@@ -14,7 +14,7 @@ build {
     ]
   }
   provisioner "shell" {
-    inline = ["echo 'source /opt/aws_neuron_venv_pytorch/bin/activate' >> /home/ubuntu/.bashrc"]
+    inline = ["echo 'source /opt/aws_neuronx_venv_pytorch_2_1/bin/activate' | sudo tee -a /home/ubuntu/.bashrc"]
   }
   provisioner "file" {
     source      = "scripts/welcome-msg.sh"
