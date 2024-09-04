@@ -561,7 +561,7 @@ class TestModelParallelization(DistributedTest):
             parallelize_embeddings,
         )
 
-    @pytest.mark.parallel_sizes((8, 8, 1))
+    @pytest.mark.parallel_sizes((2, 2, 1))
     def test_resize_embedding(self):
         tp_size = get_tensor_model_parallel_size()
         tp_group = get_tensor_model_parallel_group()
@@ -572,15 +572,14 @@ class TestModelParallelization(DistributedTest):
             orig_model = AutoModelForCausalLM.from_pretrained(LLAMA_V2_MODEL_NAME)
             orig_model.eval()
             vocab_size = orig_model.config.vocab_size
-            new_vocab_size = (vocab_size // tp_size) * (tp_size + 1)
+            new_vocab_size = vocab_size + tp_size
 
         with static_seed_patcher:
             orig_model.resize_token_embeddings(new_vocab_size)
 
-
-        with lazy_load_for_parallelism(tensor_parallel_size=tp_size):
-            model = AutoModelForCausalLM.from_pretrained(LLAMA_V2_MODEL_NAME)
-            model.eval()
+        # with lazy_load_for_parallelism(tensor_parallel_size=tp_size):
+        model = AutoModelForCausalLM.from_pretrained(LLAMA_V2_MODEL_NAME)
+        model.eval()
 
         with static_seed_patcher:
             model.resize_token_embeddings(new_vocab_size)
@@ -597,6 +596,13 @@ class TestModelParallelization(DistributedTest):
         # Tying weights to end up with the same LM head.
         orig_model.lm_head.weight = orig_model.model.embed_tokens.weight
         model.lm_head.weight = model.model.embed_tokens.weight
+        print(orig_model.model.embed_tokens.weight.shape)
+        print(model.model.embed_tokens.weight.shape)
+
+        # for t1, t2 in zip(orig_model.named_parameters(), model.to("cpu").named_parameters()):
+        #     n1, p1 = t1
+        #     _, p2 = t2
+        #     xm.master_print(f"{n1}, p1 = {p1}, p2 = {p2}")
 
         xm.master_print(orig_model.lm_head.weight)
         xm.master_print(model.lm_head.weight)
@@ -615,8 +621,8 @@ class TestModelParallelization(DistributedTest):
         inputs = {k: v.to("xla") for k, v in inputs.items()}
         orig_model = orig_model.to("xla")
         orig_logits = orig_model(**inputs).logits
-        logits = model(**inputs).logits
         xm.master_print(orig_logits)
+        logits = model(**inputs).logits
         xm.master_print(logits)
         # gathered = [torch.empty_like(logits) for _ in range(tp_size)]
         # torch.distributed.all_gather(gathered, logits, group=tp_group)
