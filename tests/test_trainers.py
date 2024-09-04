@@ -414,7 +414,6 @@ class TestNeuronSFTTrainer(DistributedTest):
         output_dir = Path(tmpdir)
 
         dataset = load_dataset("databricks/databricks-dolly-15k", split="train")
-        # dataset = dataset.select(range(1000))
 
         def format_dolly(sample):
             instruction = f"### Instruction\n{sample['instruction']}"
