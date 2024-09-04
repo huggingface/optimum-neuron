@@ -1515,6 +1515,15 @@ class _SFTTrainerTrainerInit(SFTTrainer):
 
 
 class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
+    """
+    `SFTTrainer` adapted for Neuron.
+
+    It differs from the original `SFTTrainer` by:
+        - Using `_TrainerForNeuron.__init__()` instead of `Trainer.__init__()`
+        - Using the `_TrainerForNeuron.train()` instead of `Trainer.train()`
+        - Adapts the `_prepare_non_packed_dataloader` to pad to max lenght. In the original `SFTTrainer` examples are
+          not padded, which is an issue here because it triggers compilation every time.
+    """
     def __init__(
         self,
         model: Optional[Union[PreTrainedModel, torch.nn.Module, str]] = None,
