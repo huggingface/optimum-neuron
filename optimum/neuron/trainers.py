@@ -158,7 +158,7 @@ if KEEP_HF_HUB_PROGRESS_BARS is None:
 transformers_get_optimizer_cls_and_kwargs = Trainer.get_optimizer_cls_and_kwargs
 
 
-class AugmentTrainerForNeuronMixin:
+class _TrainerForNeuron:
     def __init__(self, *args, **kwargs):
         if not isinstance(self, Trainer):
             raise TypeError(f"{self.__class__.__name__} can only be mixed with Trainer subclasses.")
@@ -492,7 +492,11 @@ class AugmentTrainerForNeuronMixin:
                         tr_loss.zero_()
 
                 def log_closure(self, reduced_tr_loss, grad_norm):
-                    if is_main_worker_for_metrics():
+                    # We need to check that self.state.global_step > self._globalstep_last_logged because if two
+                    # closures are added in a row (which can happen at the end of the training), then it will fail the
+                    # second time because at this point we will have:
+                    # self.state.global_step = self._globalstep_last_logged
+                    if is_main_worker_for_metrics() and self.state.global_step > self._globalstep_last_logged:
                         logs: Dict[str, float] = {}
                         tr_loss_scalar = reduced_tr_loss.to("cpu").item()
 
@@ -1493,19 +1497,24 @@ class AugmentTrainerForNeuronMixin:
         return super().save_state()
 
 
-class NeuronTrainer(AugmentTrainerForNeuronMixin, Trainer):
+class NeuronTrainer(_TrainerForNeuron, Trainer):
     """
     Trainer that is suited for performing training on AWS Tranium instances.
     """
 
 
-class Seq2SeqNeuronTrainer(AugmentTrainerForNeuronMixin, Seq2SeqTrainer):
+class Seq2SeqNeuronTrainer(_TrainerForNeuron, Seq2SeqTrainer):
     """
     Seq2SeqTrainer that is suited for performing training on AWS Tranium instances.
     """
 
 
-class NeuronSFTTrainer(AugmentTrainerForNeuronMixin, SFTTrainer):
+class _SFTTrainerTrainerInit(SFTTrainer):
+    def __init__(self, *args, **kwargs):
+        return Trainer.__init__(self, *args, **kwargs)
+
+
+class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
     def __init__(
         self,
         model: Optional[Union[PreTrainedModel, torch.nn.Module, str]] = None,
@@ -1731,8 +1740,7 @@ class NeuronSFTTrainer(AugmentTrainerForNeuronMixin, SFTTrainer):
                 "overflow issues when training a model in half-precision. You might consider adding `tokenizer.padding_side = 'right'` to your code."
             )
 
-        AugmentTrainerForNeuronMixin.__init__(
-            self,
+        super().__init__(
             model=model,
             args=args,
             data_collator=data_collator,
@@ -1764,7 +1772,7 @@ class NeuronSFTTrainer(AugmentTrainerForNeuronMixin, SFTTrainer):
                 if callback.__class__.__name__ == "PrinterCallback":
                     self.callback_handler.pop_callback(callback)
 
-    @wraps(AugmentTrainerForNeuronMixin.train)
+    @wraps(_TrainerForNeuron.train)
     def train(self, *args, **kwargs):
         # Activate neftune right before training.
         if self.neftune_noise_alpha is not None and not self._trainer_supports_neftune:
