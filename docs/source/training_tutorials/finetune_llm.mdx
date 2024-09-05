@@ -16,6 +16,8 @@ limitations under the License.
 
 # Fine-tune and Test Llama-3 8B on AWS Trainium 
 
+[[open-in-collab]]
+
 _Note: The complete script for this tutorial can be downloaded [here](https://github.com/huggingface/optimum-neuron/blob/main/docs/source/training_tutorials/finetune_llm.py)._
 
 This tutorial will teach you how to fine-tune open source LLMs like [Llama 3](https://huggingface.co/meta-llama/Meta-Llama-3-8B) on AWS Trainium. In our example, we are going to leverage the [Optimum Neuron](https://huggingface.co/docs/optimum-neuron/index), [Transformers](https://huggingface.co/docs/transformers/index) and [Datasets](https://huggingface.co/docs/datasets/index) libraries.
@@ -45,7 +47,7 @@ And many others!
 
 Before starting this tutorial, you will need to setup your environment:
 
-1. Create an AWS Trainium instance. You can follow this [guide](https://huggingface.co/docs/optimum-neuron/guides/setup_aws_instance) to create one.
+1. Create an AWS Trainium instance. **You will need a `trn1.32xlarge`, which contains 16 Neuron Devices.** You can follow this [guide](https://huggingface.co/docs/optimum-neuron/guides/setup_aws_instance) to create one.
 2. Make sure you are logged in on the Hugging Face Hub:
 ```bash
 huggingface-cli login --token YOUR_TOKEN
@@ -53,7 +55,7 @@ huggingface-cli login --token YOUR_TOKEN
 3. Check that you have access to the model. Some open source models are gated, meaning that users need to apply to the model owner to be able to use the model weights. Here we will be training Llama-3 8B, for which there are two possibilities:
   * The official gated repo: [`meta-llama/Meta-Llama-3-8B`](https://huggingface.co/meta-llama/Meta-Llama-3-8B)
   * The non-official un-gated repo: [`NousResearch/Meta-Llama-3-8B`](https://huggingface.co/NousResearch/Meta-Llama-3-8B)
-4. Clone the Optimum Neuron repository, **which contains the [complete script](https://github.com/huggingface/optimum-neuron/docs/source/training_tutorials/finetune_llm.py) described in this tutorial:**
+4. Clone the Optimum Neuron repository, **which contains the [complete script](https://github.com/huggingface/optimum-neuron/blob/main/docs/source/training_tutorials/finetune_llm.py) described in this tutorial:**
 ```bash
 git clone https://github.com/huggingface/optimum-neuron.git
 ```
@@ -68,7 +70,10 @@ Example:
 {
   "instruction": "What is world of warcraft",
   "context": "",
-  "response": "World of warcraft is a massive online multi player role playing game. It was released in 2004 by bizarre entertainment"
+  "response": (
+        "World of warcraft is a massive online multi player role playing game. "
+        "It was released in 2004 by blizarre entertainment"
+    )
 }
 ```
 
@@ -98,7 +103,7 @@ def format_dolly(sample):
     return prompt
 ```
 
-In addition to formatting our samples, we also want to pack multiple samples to one sequence to have a more efficient training. In other words, we are stacking multiple samples to one sequence and split them with an EOS Token. Packing/stacking samples can be done during training or before. Here, we will do it before training to save time. 
+In addition to formatting our samples, we also want to pack multiple samples to one sequence to have a more efficient training. In other words, we are stacking multiple samples to one sequence and split them with an EOS Token. Packing/stacking samples can be done during training or before.
 
 The following function `pack_dataset` takes a `dataset` and a `chunk_length` and returns a packed dataset:
 
@@ -181,16 +186,6 @@ dataset = dataset.map(
 lm_dataset = pack_dataset(dataset, chunk_length=2048) # We use 2048 as the maximum length for packing
 ```
 
-After we processed the datasets we are going save it to disk. You could also save it to S3 or the Hugging Face Hub for later use.
-
-_Note: Packing and preprocessing your dataset can be run outside of the Trainium instance._
-
-```python
-# save train_dataset to disk
-dataset_path = "tokenized_dolly"
-lm_dataset.save_to_disk(dataset_path)
-```
-
 ## 3. Fine-tune Llama on AWS Trainium using the `NeuronTrainer`
 
 Normally you would use the **[Trainer](https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.Trainer)** and **[TrainingArguments](https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments)** classes to fine-tune PyTorch-based transformer models.
@@ -244,15 +239,17 @@ The key points here are:
 
 ## 4. Launch Training 
 
-We prepared a script called [finetune_llm.py](https://github.com/huggingface/optimum-neuron/docs/source/training_tutorials/finetune_llm.py) summing up everything mentioned in this tutorial.
+We prepared a script called [finetune_llm.py](https://github.com/huggingface/optimum-neuron/blob/main/docs/source/training_tutorials/finetune_llm.py) summing up everything mentioned in this tutorial.
 
 <Tip>
 
-This script is a minimalistic version of our official example training script to run causal language modeling fine-tuning, called [run_clm.py](https://github.com/huggingface/optimum-neuron/blob/main/examples/language-modeling/run_clm.py). For the sake of this tutorial, we tried to get rid of anything that is not necessary, but if you want to do more custom things, maybe the solution is already implemented in `run_clm.py`!
+This script is a minimalistic version of our official example training script to run causal language modeling fine-tuning, called [run_clm.py](https://github.com/huggingface/optimum-neuron/blob/main/examples/language-modeling/run_clm.py). For the sake of this tutorial, we tried to get rid of anything that is not necessary, and added the formatting step necessary for fine-tuning, but if you want to do more custom things, maybe the solution is already implemented in `run_clm.py`!
 
 Also, these scripts are more designed as templates than final scripts. Feel free to take `finetune_llm.py` or `run_clm.py` and adapt them to your own needs!
 
 </Tip>
+
+PyTorch Neuron uses `torch_xla`. It evaluates operations lazily during execution of the training loops, which means it builds a symbolic graph in the background and the graph is executed on the hardware only when the tensor is printed, transfered to CPU, or `xm.mark_step()` is called. During execution, multiple graphs can be build depending on control-flow and it can take time to compile each graph sequentially. To alleviate that, the Neuron SDK provides `neuron_parallel_compile`, a tool which performs a fast trial run that builds all the graphs and compile them in parallel. This step is usually called precompilation.
 
 ### Precompilation
 
@@ -266,8 +263,7 @@ The compilation command simply consists in calling your script as an input to th
 
 ```bash
 MALLOC_ARENA_MAX=64 XLA_USE_BF16=1 neuron_parallel_compile torchrun --nproc_per_node=32 finetune_llm.py \
- --model_id {model_id} \
- --dataset_path {dataset_path} \
+ --model_id meta-llama/Llama-2-7b-hf \
  --bf16 True \
  --learning_rate 5e-5 \
  --output_dir dolly_llama \
@@ -305,8 +301,7 @@ Launch the training, with the following command.
 
 ```bash
 MALLOC_ARENA_MAX=64 XLA_USE_BF16=1 torchrun --nproc_per_node=32 finetune_llm.py \
- --model_id {model_id} \
- --dataset_path {dataset_path} \
+ --model_id meta-llama/Llama-2-7b-hf \
  --bf16 True \
  --learning_rate 5e-5 \
  --output_dir dolly_llama \
