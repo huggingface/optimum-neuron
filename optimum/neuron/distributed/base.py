@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, 
 
 import torch
 from transformers import PreTrainedModel
+from transformers.utils import is_peft_available
 
 from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
@@ -607,6 +608,21 @@ class Parallelizer(ABC):
         skip_linear_weight_load = hasattr(model, "_weight_map")
 
         requires_grad_information = {n: p.requires_grad for n, p in model.named_parameters()}
+        if is_peft_available():
+            from peft.tuners.tuners_utils import BaseTunerLayer
+
+            peft_parameters = set()
+            for mod in model.modules():
+                if isinstance(mod, BaseTunerLayer):
+                    base_layer = mod.get_base_layer()
+                    for m in mod.modules():
+                        if m is base_layer:
+                            continue
+                        for p in m.parameters():
+                            peft_parameters.add(p)
+            peft_parameter_names = {n for n, p in model.named_parameters() if p in peft_parameters}
+        else:
+            peft_parameter_names = set()
 
         def should_parallelize_layer_predicate_func(layer):
             if pp_size == 1:
@@ -754,10 +770,15 @@ class Parallelizer(ABC):
             elif gqa_qkv_names_to_original_names.get(name, None) in requires_grad_information:
                 gqa_qkv_name = gqa_qkv_names_to_original_names[name]
                 parameter.requires_grad = requires_grad_information[gqa_qkv_name]
+            elif name in peft_parameter_names:
+                continue
             else:
                 raise ValueError(
                     f"Could not find information for the parameter {name} to set its `requires_grad` attribute."
                 )
+
+        for name, parameter in model.named_parameters():
+            print(f"{name} => {parameter.requires_grad}")
 
         if is_main_worker():
             logger.info("Load and initialization of the weights done.")
