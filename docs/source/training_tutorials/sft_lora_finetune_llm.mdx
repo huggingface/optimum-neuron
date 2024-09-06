@@ -18,7 +18,7 @@ limitations under the License.
 
 [[open-in-collab]]
 
-_Note: The complete script for this tutorial can be downloaded [here](https://github.com/huggingface/optimum-neuron/blob/main/docs/source/training_tutorials/lora_finetune_llm.py)._
+_Note: The complete script for this tutorial can be downloaded [here](https://github.com/huggingface/optimum-neuron/blob/main/docs/source/training_tutorials/sft_lora_finetune_llm.py)._
 
 This tutorial will teach you how to fine-tune open source LLMs like [Llama 3](https://huggingface.co/meta-llama/Meta-Llama-3-70B) on AWS Trainium. In our example, we are going to leverage the [Optimum Neuron](https://huggingface.co/docs/optimum-neuron/index), [Transformers](https://huggingface.co/docs/transformers/index) and [Datasets](https://huggingface.co/docs/datasets/index) libraries.
 
@@ -48,7 +48,7 @@ huggingface-cli login --token YOUR_TOKEN
 3. Check that you have access to the model. Some open source models are gated, meaning that users need to apply to the model owner to be able to use the model weights. Here we will be training Llama-3 70B, for which there are two possibilities:
   * The official gated repo: [`meta-llama/Meta-Llama-3-70B`](https://huggingface.co/meta-llama/Meta-Llama-3-70B)
   * The non-official un-gated repo: [`NousResearch/Meta-Llama-3-70B`](https://huggingface.co/NousResearch/Meta-Llama-3-70B)
-4. Clone the Optimum Neuron repository, **which contains the [complete script](https://github.com/huggingface/optimum-neuron/blob/main/docs/source/training_tutorials/lora_finetune_llm.py) described in this tutorial:**
+4. Clone the Optimum Neuron repository, **which contains the [complete script](https://github.com/huggingface/optimum-neuron/blob/main/docs/source/training_tutorials/sft_lora_finetune_llm.py) described in this tutorial:**
 ```bash
 git clone https://github.com/huggingface/optimum-neuron.git
 ```
@@ -84,34 +84,39 @@ print(dataset[randrange(len(dataset))])
 # dataset size: 15011
 ```
 
-To instruct tune our model we need to convert our structured examples into a collection of tasks described via instructions. We define a `format_dolly` that takes a raw sample and returns a string with our format instruction.
+To instruct fine-tune our model we need to:
+    1. Convert our structured examples into collection of tasks described via instructions
+    2. (Optional) Pack multiple examples to one sequence for more efficient training. In other words, we are stacking multiple examples into one example, 
+    and split them with the EOS token.
 
-```python
-def format_dolly(sample):
-    instruction = f"### Instruction\n{sample['instruction']}"
-    context = f"### Context\n{sample['context']}" if len(sample["context"]) > 0 else None
-    response = f"### Answer\n{sample['response']}"
-    # join all the parts together
-    prompt = "\n\n".join([i for i in [instruction, context, response] if i is not None])
-    return prompt
-```
-
-In addition to formatting our samples, we also want to pack multiple samples to one sequence to have a more efficient training. In other words, we are stacking multiple samples to one sequence and split them with an EOS Token. 
-
-While we could do this manually, we will use the `NeuronSFTTrainer` instead in the next section to do so.
-
+We could do this manually, but we will use the `NeuronSFTTrainer` instead.
+    
 ## 3. Supervised Fine-Tuning of Llama on AWS Trainium with the `NeuronSFTTrainer`
 
-Normally you would use the **[SFTTrainer](https://huggingface.co/docs/trl/main/en/sft_trainer)** and **[SFTConfig](https://huggingface.co/docs/trl/main/en/sft_trainer#trl.SFTConfig)** classes to perform supervised fine-tuning of PyTorch-based transformer models.
+Normally you would use the **[SFTConfig](https://huggingface.co/docs/trl/main/en/sft_trainer#trl.SFTConfig)** **[SFTTrainer](https://huggingface.co/docs/trl/main/en/sft_trainer)** classes to perform supervised fine-tuning of PyTorch-based transformer models.
 
-Instead, here we will be using the [~`optimum.neuron.NeuronSFTTrainer`]  and [~`optimum.neuron.NeuronSFTConfig`], these classes replicate the ones from the `trl` library while making sure they work properly on Neuron cores.
+Instead, here we will be using the [~`optimum.neuron.NeuronSFTConfig`] and [~`optimum.neuron.NeuronSFTTrainer`], these classes replicate the ones from the `trl` library while making sure they work properly on Neuron cores.
 
-Since Llama-3 70B is a big model it will not fit on a single Neuron device, even with distributed training. To actually fine-tune a 70B model using only one Trainium instance we need to use both LoRA and distributed training. 
-In Optimum Neuron we support:
-  1. [ZeRO-1](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/frameworks/torch/torch-neuronx/tutorials/training/zero1_gpt2.html): It is an optimization of data-parallelism which consists in sharding the optimizer state (which usually represents half or more of the memory needed on the device) over the data-parallel ranks.
-  2. [Tensor Parallelism](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/libraries/neuronx-distributed/tensor_parallelism_overview.html): It is a technique which consists in sharding each of your model matrix-multiplications along a given axis (row or column) on multiple devices. It also known as intra-layer model parallelism. The number of devices to shard your parameters on is called the `tensor_parallel_size`. 
-  3. [Sequence parallelism](https://arxiv.org/pdf/2205.05198.pdf): It is an optimization over Tensor Parallelism which shards the activations on the sequence axis outside of the tensor parallel regions. It is useful because it saves memory by sharding the activations.
-  4. [Pipeline Parallelism](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/libraries/neuronx-distributed/pipeline_parallelism_overview.html): It consists in sharding the model block layers on multiple devices. It is also known as inter-layer model parallelism. The number of devices to shard your layers on is called the `pipeline_parallel_size`.
+### Formatting our dataset
+
+There are multiple ways to give a dataset to the `NeuronSFTTrainer`, and one of them consists in providing a formatting function.
+For `dolly` without packing the examples it looks as follows:
+
+```python
+def format_dolly(examples):
+    output_text = []
+    for i in range(len(examples["instruction"])):
+        instruction = f"### Instruction\n{examples['instruction'][i]}"
+        context = f"### Context\n{examples['context'][i]}" if len(examples["context"][i]) > 0 else None
+        response = f"### Answer\n{examples['response'][i]}"
+        prompt = "\n\n".join([i for i in [instruction, context, response] if i is not None])
+        output_text.append(prompt)
+    return output_text
+```
+
+### Preparing the model
+
+Since Llama-3 70B is a big model it will not fit on a single `trn1.32xlarge` instance, even with distributed training. To actually fine-tune a 70B model using only one Trainium instance we need to use both LoRA and distributed training. 
 
 <Tip>
 
@@ -124,52 +129,72 @@ Our training code will look as follows:
 
 ```python
 from peft import LoraConfig
-from optimum.neuron import NeuronTrainer as Trainer
+from optimum.neuron import NeuronSFTConfig, NeuronSFTTrainer
 from optimum.neuron.distributed import lazy_load_for_parallelism
-from optimum.neuron.utils import get_peft_model
 
 # Define the tensor_parallel_size
 tensor_parallel_size = 8
 
-# Load model from the Hugging face Hub 
-with lazy_load_for_parallelism(tensor_parallel_size=tensor_parallel_size):
-    model = AutoModelForCausalLM.from_pretrained(model_id)
+dataset = load_dataset("databricks/databricks-dolly-15k", split="train")
 
-# Injecting the LoRA adapters
+tokenizer = AutoTokenizer.from_pretrained(script_args.model_id)
+tokenizer.pad_token = tokenizer.eos_token
+
+with lazy_load_for_parallelism(tensor_parallel_size=training_args.tensor_parallel_size):
+    model = AutoModelForCausalLM.from_pretrained(script_args.model_id)
+
 config = LoraConfig(
-    r=64,
-    lora_alpha=128,
-    lora_dropout=0.0,
-    target_modules=["embed_tokens", "lm_head", "q_proj", "v_proj"],
+    r=16,
+    lora_alpha=16,
+    lora_dropout=0.05,
+    target_modules=[
+        "q_proj",
+        "gate_proj",
+        "v_proj",
+        "o_proj",
+        "k_proj",
+        "up_proj",
+        "down_proj"
+    ],
+    bias="none",
     task_type="CAUSAL_LM",
 )
-model = get_peft_model(model, config)
 
-trainer = Trainer(
+# training_args is an instance of NeuronTrainingArguments
+args = training_args.to_dict()
+sft_config = NeuronSFTConfig(
+    max_seq_length=1024,
+    packing=False,
+    **args,
+)
+
+trainer = NeuronSFTTrainer(
+    args=sft_config,
     model=model,
+    peft_config=config,
     tokenizer=tokenizer,
-    args=training_args,
     train_dataset=dataset,
-    data_collator=default_data_collator,  # no special collator needed since we stacked the dataset
+    formatting_func=format_dolly,
 )
 
 # Start training
 trainer.train()
 
-trainer.save_model()  # saves the tokenizer too for easy upload
+trainer.save_model()  # Saves the tokenizer too for easy upload
 ```
 
 The key points here are:
 
 - We use the `lazy_load_for_parallelism` context manager to lazily load the model. This will not load the full model weights on each worker, but instead only load the required weights (sharded or full). **This is much more memory efficient, and often mandatory to use.**
-- We inject the LoRA adapters using `optimum.neuron.utils.get_peft_model` by specifying both the model to transform and the LoRA config.
-- We use the [~`optimum.neuron.NeuronTrainer`] to perform training. It will take the lazily loaded model, along with the `training_args`, which are an instance of [~`optimum.neuron.NeuronTrainingArguments`], and will handle all the parallelization and training on the Neuron cores.
+- We define a `LoraConfig` that specifies which layers should have adapters, and the hyperparameters for theses adapters.
+- We define a [~`optimum.neuron.NeuronSFTConfig`] from regular `NeuronTrainingArguments`. In this configuration we specify that we do not want to pack our examples, and that the max sequence length should be `1024`, meaning that every example will be either padded or truncated to a length of `1024`.
+- We use the [~`optimum.neuron.NeuronSFTTrainer`] to perform training. It will take the lazily loaded model, along with `lora_config`, `sft_config` and `format_dolly` and prepare the dataset and model for supervised fine-tuning.
 
 ## 4. Launch Training 
 
-We prepared a script called [lora_finetune_llm.py](https://github.com/huggingface/optimum-neuron/blob/main/docs/source/training_tutorials/lora_finetune_llm.py) summing up everything mentioned in this tutorial.
+We prepared a script called [sft_lora_finetune_llm.py](https://github.com/huggingface/optimum-neuron/blob/main/docs/source/training_tutorials/lora_finetune_llm.py) summing up everything mentioned in this tutorial.
 
-PyTorch Neuron uses `torch_xla`. It evaluates operations lazily during execution of the training loops, which means it builds a symbolic graph in the background and the graph is executed on the hardware only when the tensor is printed, transfered to CPU, or `xm.mark_step()` is called. During execution, multiple graphs can be build depending on control-flow and it can take time to compile each graph sequentially. To alleviate that, the Neuron SDK provides `neuron_parallel_compile`, a tool which performs a fast trial run that builds all the graphs and compile them in parallel. This step is usually called precompilation.
+PyTorch Neuron uses `torch_xla`. It evaluates operations lazily during execution of the training loops, which means it builds a symbolic graph in the background and the graph is executed on the hardware only when the tensor is printed, transfered to CPU, or `xm.mark_step()` is called. During execution, multiple graphs can be built depending on control-flow and it can take time to compile each graph sequentially. To alleviate that, the Neuron SDK provides `neuron_parallel_compile`, a tool which performs a fast trial run that builds all the graphs and compile them in parallel. This step is usually called precompilation.
 
 ### Precompilation
 
@@ -181,8 +206,10 @@ _Note: If your model configuration is not cached please open an issue on [Github
 
 The compilation command simply consists in calling your script as an input to the `neuron_parallel_compile` utility:
 
+### TODO: change the hyperparameters
+
 ```bash
-MALLOC_ARENA_MAX=64 XLA_USE_BF16=1 neuron_parallel_compile torchrun --nproc_per_node=32 lora_finetune_llm.py \
+MALLOC_ARENA_MAX=64 XLA_USE_BF16=1 neuron_parallel_compile torchrun --nproc_per_node=32 sft_lora_finetune_llm.py \
  --model_id meta-llama/Meta-Llama-3-70B \
  --bf16 True \
  --learning_rate 5e-5 \
@@ -218,9 +245,10 @@ We will use `torchrun` to launch our training script. `torchrun` is a tool that 
 The difference to the compilation command is that we changed from `max_steps=10` to `num_train_epochs=3`.
 
 Launch the training, with the following command.
+### TODO: change the hyperparameters
 
 ```bash
-MALLOC_ARENA_MAX=64 XLA_USE_BF16=1 torchrun --nproc_per_node=32 lora_finetune_llm.py \
+MALLOC_ARENA_MAX=64 XLA_USE_BF16=1 torchrun --nproc_per_node=32 sft_lora_finetune_llm.py \
  --model_id meta-llama/Meta-Llama-3-70B \
  --bf16 True \
  --learning_rate 5e-5 \
@@ -246,10 +274,6 @@ The Optimum CLI provides a way of doing that very easily via the `optimum neuron
 ```bash
 optimum-cli neuron consolidate dolly_llama dolly_llama
 ```
-
-### Merge the LoRA adapters
-
-TODO
 
 ## 5. Evaluate and test fine-tuned Llama model
 
