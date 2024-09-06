@@ -39,6 +39,8 @@ TESTS_REQUIRE = [
     "soundfile",
     "librosa",
     "opencv-python-headless",
+    "controlnet-aux",
+    "mediapipe",
 ]
 
 QUALITY_REQUIRES = [

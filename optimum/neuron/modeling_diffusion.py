@@ -1189,9 +1189,14 @@ class NeuronMultiControlNetModel(_NeuronDiffusionModelPart):
         encoder_hidden_states: torch.Tensor,
         controlnet_cond: torch.Tensor,
         conditioning_scale: float = 1.0,
+        guess_mode: bool = False,
         return_dict: bool = True,
     ) -> Union["ControlNetOutput", Tuple[Tuple[torch.Tensor, ...], torch.Tensor]]:
-        for i, (image, scale, controlnet) in enumerate(zip(controlnet_cond, conditioning_scale, self.model)):
+        if guess_mode:
+            logger.info(
+                "Guess mode is not yet supported. File us an issue on: https://github.com/huggingface/optimum-neuron/issues."
+            )
+        for i, (image, scale, controlnet) in enumerate(zip(controlnet_cond, conditioning_scale, self.nets)):
             inputs = (sample, timestep, encoder_hidden_states, image, scale)
             down_samples, mid_sample = controlnet(*inputs)
 
