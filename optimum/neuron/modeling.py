@@ -1257,7 +1257,8 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
     ):
         # Evaluate the output logits, storing the current key and values at the indices specified by cache_ids
         out_logits = self.model.forward(input_ids, cache_ids, start_ids)
-        out_logits = out_logits[:, None, :]
+        if not self.model.neuron_config.output_all_logits:
+            out_logits = out_logits[:, None, :]
         # Since we are using a static cache, we don't need to return past keys and values
         if return_dict:
             return ModelOutput([("logits", out_logits)])

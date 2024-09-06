@@ -185,6 +185,13 @@ class NeuronDecoderModel(NeuronModel):
             )
             tnx_kwargs["n_positions"] = [sequence_length]
             tnx_kwargs["context_length_estimate"] = [sequence_length]
+        elif batch_size == 1 and exporter.can_output_all_logits:
+            # When batch_size is 1, we return all logits to be able to evaluate perplexity
+            tnx_kwargs["neuron_config"] = NeuronConfig(
+                attention_layout=exporter.attention_layout,
+                output_all_logits=True,
+            )
+            tnx_kwargs["n_positions"] = sequence_length
         else:
             tnx_kwargs["neuron_config"] = NeuronConfig(attention_layout=exporter.attention_layout)
             tnx_kwargs["n_positions"] = sequence_length

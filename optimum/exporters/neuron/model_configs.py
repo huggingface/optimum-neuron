@@ -761,6 +761,7 @@ class VaeDecoderNeuronConfig(VisionNeuronConfig):
 @register_in_tasks_manager("gpt2", "text-generation")
 class GPT2NeuronConfig(TextNeuronDecoderConfig):
     NEURONX_CLASS = "gpt2.model.GPT2ForSampling"
+    CAN_OUTPUT_ALL_LOGITS = False
 
 
 @register_in_tasks_manager("llama", "text-generation")

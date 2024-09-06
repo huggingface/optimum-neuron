@@ -424,6 +424,8 @@ class NeuronDecoderConfig(NeuronConfig):
     It is a full class name defined relatively to the transformers-neuronx module, e.g. `gpt2.model.GPT2ForSampling`
     - CONTINUOUS_BATCHING (`bool`, defaults to `False`) -- Whether the model supports continuous batching or not.
     - ATTENTION_LAYOUT (`str`, defaults to `HSB`) -- Layout to be used for attention computation.
+    - CAN_OUTPUT_ALL_LOGITS (`bool`, defaults to `True`) -- Whether the model forward method can return logits for all
+    input tokens or only the ones corresponding to the last input token.
 
     The NEURONX_CLASS must always be defined in each model configuration.
 
@@ -435,6 +437,7 @@ class NeuronDecoderConfig(NeuronConfig):
     NEURONX_CLASS = None
     CONTINUOUS_BATCHING = False
     ATTENTION_lAYOUT = "HSB"
+    CAN_OUTPUT_ALL_LOGITS = True
 
     def __init__(self, task: str):
         if not is_transformers_neuronx_available():
@@ -458,3 +461,7 @@ class NeuronDecoderConfig(NeuronConfig):
     @property
     def attention_layout(self):
         return self.ATTENTION_lAYOUT
+
+    @property
+    def can_output_all_logits(self):
+        return self.CAN_OUTPUT_ALL_LOGITS

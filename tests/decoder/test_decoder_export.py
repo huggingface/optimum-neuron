@@ -16,6 +16,7 @@
 from tempfile import TemporaryDirectory
 
 import pytest
+import torch
 from transformers import AutoModelForCausalLM
 
 from optimum.neuron import NeuronModelForCausalLM
@@ -51,6 +52,18 @@ def check_neuron_model(neuron_model, batch_size=None, sequence_length=None, num_
         assert neuron_config["num_cores"] == num_cores
     if auto_cast_type:
         assert neuron_config["auto_cast_type"] == auto_cast_type
+    input_tokens = sequence_length // 2
+    input_ids = torch.ones((batch_size, input_tokens), dtype=torch.int64)
+    attention_mask = torch.ones_like(input_ids)
+    inputs = neuron_model.prepare_inputs_for_prefill(input_ids, attention_mask)
+    outputs = neuron_model.forward(**inputs)
+    assert isinstance(outputs.logits, torch.Tensor)
+    output_shape = outputs.logits.size()
+    assert output_shape[0] == batch_size
+    if neuron_model.model.neuron_config.output_all_logits:
+        assert output_shape[1] == input_tokens
+    else:
+        assert output_shape[1] == 1
 
 
 @pytest.mark.parametrize(
