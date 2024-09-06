@@ -26,7 +26,7 @@ You will learn how to:
 
 1. [Setup AWS Environment](#1-setup-aws-environment)
 2. [Load and process the dataset](#2-load-and-prepare-the-dataset)
-3. [Fine-tune Llama using LoRA on AWS Trainium with the `NeuronTrainer`](#3-fine-tune-llama-using-lora-on-aws-trainium-with-the-neurontrainer)
+3. [Fine-tune Llama using LoRA on AWS Trainium with the `NeuronSFTTrainer`](#3-fine-tune-llama-using-lora-on-aws-trainium-with-the-neuronsfttrainer)
 4. [Launch Training](#4-launch-training)
 5. [Evaluate and test fine-tuned Llama model](#5-evaluate-and-test-fine-tuned-llama-model)
 
@@ -93,9 +93,9 @@ We could do this manually, but we will use the `NeuronSFTTrainer` instead.
     
 ## 3. Supervised Fine-Tuning of Llama on AWS Trainium with the `NeuronSFTTrainer`
 
-Normally you would use the **[SFTConfig](https://huggingface.co/docs/trl/main/en/sft_trainer#trl.SFTConfig)** **[SFTTrainer](https://huggingface.co/docs/trl/main/en/sft_trainer)** classes to perform supervised fine-tuning of PyTorch-based transformer models.
+Normally you would use the **[SFTConfig](https://huggingface.co/docs/trl/main/en/sft_trainer#trl.SFTConfig)** and **[SFTTrainer](https://huggingface.co/docs/trl/main/en/sft_trainer)** classes to perform supervised fine-tuning of PyTorch-based transformer models.
 
-Instead, here we will be using the [~`optimum.neuron.NeuronSFTConfig`] and [~`optimum.neuron.NeuronSFTTrainer`], these classes replicate the ones from the `trl` library while making sure they work properly on Neuron cores.
+Instead, here we will be using the [`~optimum.neuron.NeuronSFTConfig`] and [`~optimum.neuron.NeuronSFTTrainer`]. These classes replicate the ones from the `trl` library while making sure they work properly on Neuron cores.
 
 ### Formatting our dataset
 
@@ -124,7 +124,7 @@ If you want to know more about distributed training you can take a look at the [
 
 </Tip>
 
-Here, we will use Tensor Parallelism in conjuction with LoRA.
+Here, we will use tensor parallelism in conjuction with LoRA.
 Our training code will look as follows:
 
 ```python
@@ -133,15 +133,17 @@ from optimum.neuron import NeuronSFTConfig, NeuronSFTTrainer
 from optimum.neuron.distributed import lazy_load_for_parallelism
 
 # Define the tensor_parallel_size
-tensor_parallel_size = 8
+tensor_parallel_size = 2
 
 dataset = load_dataset("databricks/databricks-dolly-15k", split="train")
 
-tokenizer = AutoTokenizer.from_pretrained(script_args.model_id)
+model_id = "meta-llama/Meta-Llama-3-8B"
+
+tokenizer = AutoTokenizer.from_pretrained(model_id)
 tokenizer.pad_token = tokenizer.eos_token
 
-with lazy_load_for_parallelism(tensor_parallel_size=training_args.tensor_parallel_size):
-    model = AutoModelForCausalLM.from_pretrained(script_args.model_id)
+with lazy_load_for_parallelism(tensor_parallel_size=tensor_parallel_size):
+    model = AutoModelForCausalLM.from_pretrained(model_id)
 
 config = LoraConfig(
     r=16,
@@ -187,8 +189,8 @@ The key points here are:
 
 - We use the `lazy_load_for_parallelism` context manager to lazily load the model. This will not load the full model weights on each worker, but instead only load the required weights (sharded or full). **This is much more memory efficient, and often mandatory to use.**
 - We define a `LoraConfig` that specifies which layers should have adapters, and the hyperparameters for theses adapters.
-- We define a [~`optimum.neuron.NeuronSFTConfig`] from regular `NeuronTrainingArguments`. In this configuration we specify that we do not want to pack our examples, and that the max sequence length should be `1024`, meaning that every example will be either padded or truncated to a length of `1024`.
-- We use the [~`optimum.neuron.NeuronSFTTrainer`] to perform training. It will take the lazily loaded model, along with `lora_config`, `sft_config` and `format_dolly` and prepare the dataset and model for supervised fine-tuning.
+- We create a [`~optimum.neuron.NeuronSFTConfig`] from regular `NeuronTrainingArguments`. Here we specify that we do not want to pack our examples, and that the max sequence length should be `1024`, meaning that every example will be either padded or truncated to a length of `1024`.
+- We use the [`~optimum.neuron.NeuronSFTTrainer`] to perform training. It will take the lazily loaded model, along with `lora_config`, `sft_config` and `format_dolly` and prepare the dataset and model for supervised fine-tuning.
 
 ## 4. Launch Training 
 
@@ -265,7 +267,7 @@ MALLOC_ARENA_MAX=64 XLA_USE_BF16=1 torchrun --nproc_per_node=32 sft_lora_finetun
 
 That's it, we successfully trained Llama-3 70B on AWS Trainium!
 
-But before we can share and test our model we need to consolidate our model. Since we used Tensor Parallelism during training, we saved sharded versions of the checkpoints. We need to consolidate them now.
+But before we can share and test our model we need to consolidate our model. Since we used tensor parallelism during training, we saved sharded versions of the checkpoints. We need to consolidate them now.
 
 ### Consolidate the Checkpoint
 
