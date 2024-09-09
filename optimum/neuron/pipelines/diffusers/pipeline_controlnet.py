@@ -510,7 +510,11 @@ class NeuronStableDiffusionControlNetPipelineMixin(StableDiffusionPipelineMixin,
                     )
                 else:
                     for i, scale in enumerate(cond_scale):
-                        new_scale = torch.tensor([scale]).repeat(2) if self.data_parallel_mode == "unet" else torch.tensor(scale)
+                        new_scale = (
+                            torch.tensor([scale]).repeat(2)
+                            if self.data_parallel_mode == "unet"
+                            else torch.tensor(scale)
+                        )
                         cond_scale[i] = new_scale
 
                 down_block_res_samples, mid_block_res_sample = self.controlnet(

@@ -37,11 +37,11 @@ from optimum.neuron import (
 )
 from optimum.neuron.modeling_diffusion import (
     NeuronControlNetModel,
-    NeuronMultiControlNetModel,
     NeuronModelTextEncoder,
     NeuronModelUnet,
     NeuronModelVaeDecoder,
     NeuronModelVaeEncoder,
+    NeuronMultiControlNetModel,
 )
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 from optimum.utils import logging
@@ -225,9 +225,9 @@ class NeuronStableDiffusionPipelineIntegrationTest(unittest.TestCase):
         image = image[:, :, None]
         image = np.concatenate([image, image, image], axis=2)
         canny_image = PIL.Image.fromarray(image)
-        
-        return canny_image   
-    
+
+        return canny_image
+
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_export_and_inference_with_single_controlnet(self, model_arch):
         input_shapes = copy.deepcopy(self.STATIC_INPUTS_SHAPES)
@@ -251,13 +251,13 @@ class NeuronStableDiffusionPipelineIntegrationTest(unittest.TestCase):
         image = neuron_pipeline(prompt, image=canny_image).images[0]
         neuron_pipeline.scheduler = UniPCMultistepScheduler.from_config(neuron_pipeline.scheduler.config)
         self.assertIsInstance(image, PIL.Image.Image)
-    
+
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_export_and_inference_with_multiple_controlnet(self, model_arch):
         input_shapes = copy.deepcopy(self.STATIC_INPUTS_SHAPES)
         input_shapes.update({"num_images_per_prompt": 1})
         controlnet_id = "hf-internal-testing/tiny-controlnet"
-        
+
         neuron_pipeline = NeuronStableDiffusionControlNetPipeline.from_pretrained(
             MODEL_NAMES[model_arch],
             controlnet_ids=[controlnet_id, controlnet_id],
