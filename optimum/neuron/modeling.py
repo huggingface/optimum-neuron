@@ -684,6 +684,13 @@ class NeuronModelForImageClassification(NeuronTracedModel):
 
     auto_model_class = AutoModelForImageClassification
 
+    @property
+    def dtype(self) -> Optional["torch.dtype"]:
+        """
+        Torch dtype of the inputs to avoid error in transformers on casting a BatchFeature to type None.
+        """
+        return getattr(self.config.neuron, "input_dtype", torch.float32)
+
     @add_start_docstrings_to_model_forward(
         NEURON_IMAGE_INPUTS_DOCSTRING.format("batch_size, num_channels, height, width")
         + IMAGE_CLASSIFICATION_EXAMPLE.format(
@@ -762,6 +769,13 @@ class NeuronModelForSemanticSegmentation(NeuronTracedModel):
     """
 
     auto_model_class = AutoModelForSemanticSegmentation
+
+    @property
+    def dtype(self) -> Optional["torch.dtype"]:
+        """
+        Torch dtype of the inputs to avoid error in transformers on casting a BatchFeature to type None.
+        """
+        return getattr(self.config.neuron, "input_dtype", torch.float32)
 
     @add_start_docstrings_to_model_forward(
         NEURON_IMAGE_INPUTS_DOCSTRING.format("batch_size, num_channels, height, width")
@@ -842,6 +856,13 @@ class NeuronModelForObjectDetection(NeuronTracedModel):
     """
 
     auto_model_class = AutoModelForObjectDetection
+
+    @property
+    def dtype(self) -> Optional["torch.dtype"]:
+        """
+        Torch dtype of the inputs to avoid error in transformers on casting a BatchFeature to type None.
+        """
+        return getattr(self.config.neuron, "input_dtype", torch.float32)
 
     @add_start_docstrings_to_model_forward(
         NEURON_IMAGE_INPUTS_DOCSTRING.format("batch_size, num_channels, height, width")
