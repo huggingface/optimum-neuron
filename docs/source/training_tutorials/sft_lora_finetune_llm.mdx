@@ -14,25 +14,23 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-# Supervised Fine-Tuning of Llama 3 70B on one AWS Trainium instance 
-
-[[open-in-collab]]
+# Supervised Fine-Tuning of Llama 3 8B on one AWS Trainium instance 
 
 _Note: The complete script for this tutorial can be downloaded [here](https://github.com/huggingface/optimum-neuron/blob/main/docs/source/training_tutorials/sft_lora_finetune_llm.py)._
 
-This tutorial will teach you how to fine-tune open source LLMs like [Llama 3](https://huggingface.co/meta-llama/Meta-Llama-3-70B) on AWS Trainium. In our example, we are going to leverage the [Optimum Neuron](https://huggingface.co/docs/optimum-neuron/index), [Transformers](https://huggingface.co/docs/transformers/index) and [Datasets](https://huggingface.co/docs/datasets/index) libraries.
+This tutorial will teach you how to fine-tune open source LLMs like [Llama 3](https://huggingface.co/meta-llama/Meta-Llama-3-8B) on AWS Trainium. In our example, we are going to leverage the [Optimum Neuron](https://huggingface.co/docs/optimum-neuron/index), [Transformers](https://huggingface.co/docs/transformers/index) and [Datasets](https://huggingface.co/docs/datasets/index) libraries.
 
 You will learn how to:
 
 1. [Setup AWS Environment](#1-setup-aws-environment)
 2. [Load and process the dataset](#2-load-and-prepare-the-dataset)
-3. [Fine-tune Llama using LoRA on AWS Trainium with the `NeuronSFTTrainer`](#3-fine-tune-llama-using-lora-on-aws-trainium-with-the-neuronsfttrainer)
+3. [Supervised Fine-Tuning of Llama on AWS Trainium with the `NeuronSFTTrainer`](#3-supervised-fined-tuning-of-llama-on-aws-trainium-with-the-neuronsfttrainer)
 4. [Launch Training](#4-launch-training)
 5. [Evaluate and test fine-tuned Llama model](#5-evaluate-and-test-fine-tuned-llama-model)
 
 <Tip>
 
-While we will use `Llama-3 70B` in this tutorial, it is completely possible to use other models, simply by swtiching the `model_id`.
+While we will use `Llama-3 8B` in this tutorial, it is completely possible to use other models, simply by swtiching the `model_id`.
 
 </Tip>
 
@@ -45,9 +43,9 @@ Before starting this tutorial, you will need to setup your environment:
 ```bash
 huggingface-cli login --token YOUR_TOKEN
 ```
-3. Check that you have access to the model. Some open source models are gated, meaning that users need to apply to the model owner to be able to use the model weights. Here we will be training Llama-3 70B, for which there are two possibilities:
-  * The official gated repo: [`meta-llama/Meta-Llama-3-70B`](https://huggingface.co/meta-llama/Meta-Llama-3-70B)
-  * The non-official un-gated repo: [`NousResearch/Meta-Llama-3-70B`](https://huggingface.co/NousResearch/Meta-Llama-3-70B)
+3. Check that you have access to the model. Some open source models are gated, meaning that users need to apply to the model owner to be able to use the model weights. Here we will be training Llama-3 8B, for which there are two possibilities:
+  * The official gated repo: [`meta-llama/Meta-Llama-3-8B`](https://huggingface.co/meta-llama/Meta-Llama-3-8B)
+  * The non-official un-gated repo: [`NousResearch/Meta-Llama-3-8B`](https://huggingface.co/NousResearch/Meta-Llama-3-8B)
 4. Clone the Optimum Neuron repository, **which contains the [complete script](https://github.com/huggingface/optimum-neuron/blob/main/docs/source/training_tutorials/sft_lora_finetune_llm.py) described in this tutorial:**
 ```bash
 git clone https://github.com/huggingface/optimum-neuron.git
@@ -116,7 +114,7 @@ def format_dolly(examples):
 
 ### Preparing the model
 
-Since Llama-3 70B is a big model it will not fit on a single `trn1.32xlarge` instance, even with distributed training. To actually fine-tune a 70B model using only one Trainium instance we need to use both LoRA and distributed training. 
+Since Llama-3 8B is a big model it will not fit on a single `trn1.32xlarge` instance, even with distributed training. To actually fine-tune a 8B model using only one Trainium instance we need to use both LoRA and distributed training. 
 
 <Tip>
 
@@ -212,7 +210,7 @@ The compilation command simply consists in calling your script as an input to th
 
 ```bash
 MALLOC_ARENA_MAX=64 XLA_USE_BF16=1 neuron_parallel_compile torchrun --nproc_per_node=32 sft_lora_finetune_llm.py \
- --model_id meta-llama/Meta-Llama-3-70B \
+ --model_id meta-llama/Meta-Llama-3-8B \
  --bf16 True \
  --learning_rate 5e-5 \
  --output_dir dolly_llama \
@@ -251,7 +249,7 @@ Launch the training, with the following command.
 
 ```bash
 MALLOC_ARENA_MAX=64 XLA_USE_BF16=1 torchrun --nproc_per_node=32 sft_lora_finetune_llm.py \
- --model_id meta-llama/Meta-Llama-3-70B \
+ --model_id meta-llama/Meta-Llama-3-8B \
  --bf16 True \
  --learning_rate 5e-5 \
  --output_dir dolly_llama \
@@ -265,7 +263,7 @@ MALLOC_ARENA_MAX=64 XLA_USE_BF16=1 torchrun --nproc_per_node=32 sft_lora_finetun
  --logging_steps 10
 ```
 
-That's it, we successfully trained Llama-3 70B on AWS Trainium!
+That's it, we successfully trained Llama-3 8B on AWS Trainium!
 
 But before we can share and test our model we need to consolidate our model. Since we used tensor parallelism during training, we saved sharded versions of the checkpoints. We need to consolidate them now.
 
