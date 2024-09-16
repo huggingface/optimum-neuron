@@ -35,7 +35,7 @@ def test_seq2seq_model_from_hub():
 def test_push_seq2seq_to_hub(neuron_seq2seq_greedy_path, neuron_push_seq2seq_id, staging):
     model = NeuronModelForSeq2SeqLM.from_pretrained(neuron_seq2seq_greedy_path)
     model.push_to_hub(
-        neuron_seq2seq_greedy_path, neuron_push_seq2seq_id, use_auth_token=staging.token, endpoint=ENDPOINT_STAGING
+        neuron_seq2seq_greedy_path, neuron_push_seq2seq_id, token=staging.token, endpoint=ENDPOINT_STAGING
     )
     api = HfApi(endpoint=ENDPOINT_STAGING, token=staging.token)
     try:
