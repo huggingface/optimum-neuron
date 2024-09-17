@@ -482,7 +482,6 @@ class NeuronAccelerator(Accelerator):
             model = self._prepare_model_for_mp(
                 model, device_placement=device_placement, evaluation_mode=evaluation_mode
             )
-            xm.master_print(model)
             if should_apply_activation_checkpointing:
                 apply_activation_checkpointing(model)
         else:
@@ -492,11 +491,6 @@ class NeuronAccelerator(Accelerator):
         device_placement = False
         model = super().prepare_model(model, device_placement=device_placement, evaluation_mode=evaluation_mode)
         xm.mark_step()
-        xm.master_print(model)
-        # xm.master_print(model.lm_head.base_layer.input_size, model.lm_head.base_layer.output_size, model.lm_head.base_layer.output_size_per_partition)
-        # xm.master_print(model.lm_head.lora_B["default"].input_size, model.lm_head.lora_B["default"].output_size, model.lm_head.lora_B["default"].output_size_per_partition)
-        # print(model.lm_head.base_layer(torch.randn((4096, ), device="xla")).shape, xm.get_ordinal())
-        # exit()
         return model
 
     def backward(self, loss, **kwargs):
