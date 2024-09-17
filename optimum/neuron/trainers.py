@@ -949,7 +949,7 @@ class _TrainerForNeuron:
         self.control = self.callback_handler.on_train_begin(args, self.state, self.control)
 
         # Mark step before training to materialize any tensor before creating the training graph.
-        # xm.mark_step()
+        xm.mark_step()
 
         # Skip the first epochs_trained epochs to get the random state of the dataloader at the right point.
         if not args.ignore_data_skip:

@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, List, Optional, Type, Union
 import pytest
 import torch
 import torch.utils._pytree as pytree
-from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaForCausalLM
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, LlamaForCausalLM
 from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 from transformers.models.auto.modeling_auto import (
     MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING,
@@ -44,7 +44,7 @@ from transformers.models.auto.modeling_auto import (
 
 import optimum
 from optimum.neuron.distributed.parallelizers_manager import ParallelizersManager
-from optimum.neuron.distributed.utils import compute_query_indices_for_rank, lazy_load_for_parallelism
+from optimum.neuron.distributed.utils import compute_query_indices_for_rank
 from optimum.neuron.utils.cache_utils import (
     get_num_neuron_cores,
 )
@@ -219,6 +219,10 @@ class TestModelParallelization(DistributedTest):
 
     @pytest.fixture(scope="class", params=[False, True], ids=["embeddings_not_parallel", "parallelized_embeddings"])
     def parallelize_embeddings(self, request):
+        return request.param
+
+    @pytest.fixture(scope="class", params=[False, True], ids=["embeddings_not_tied", "tied_embeddings"])
+    def tie_embeddings(self, request):
         return request.param
 
     def early_skip(self, fixtures_kwargs):
@@ -562,14 +566,17 @@ class TestModelParallelization(DistributedTest):
         )
 
     @pytest.mark.parallel_sizes((2, 2, 1))
-    def test_resize_embedding(self):
+    def test_resize_embedding(self, tie_embeddings):
         tp_size = get_tensor_model_parallel_size()
         tp_group = get_tensor_model_parallel_group()
 
         static_seed_patcher = StaticSeedPatcher(42)
 
+        config = AutoConfig.from_pretrained(LLAMA_V2_MODEL_NAME)
+        config.tie_word_embeddings = tie_embeddings
+
         with static_seed_patcher:
-            orig_model = AutoModelForCausalLM.from_pretrained(LLAMA_V2_MODEL_NAME)
+            orig_model = AutoModelForCausalLM.from_pretrained(LLAMA_V2_MODEL_NAME, config=config)
             orig_model.eval()
             vocab_size = orig_model.config.vocab_size
             new_vocab_size = vocab_size + tp_size
@@ -577,9 +584,9 @@ class TestModelParallelization(DistributedTest):
         with static_seed_patcher:
             orig_model.resize_token_embeddings(new_vocab_size)
 
-        # with lazy_load_for_parallelism(tensor_parallel_size=tp_size):
-        model = AutoModelForCausalLM.from_pretrained(LLAMA_V2_MODEL_NAME)
-        model.eval()
+        with static_seed_patcher:
+            model = AutoModelForCausalLM.from_pretrained(LLAMA_V2_MODEL_NAME, config=config)
+            model.eval()
 
         with static_seed_patcher:
             model.resize_token_embeddings(new_vocab_size)
@@ -592,20 +599,6 @@ class TestModelParallelization(DistributedTest):
         )
         with static_seed_patcher:
             model = accelerator.prepare_model(model)
-
-        # Tying weights to end up with the same LM head.
-        orig_model.lm_head.weight = orig_model.model.embed_tokens.weight
-        model.lm_head.weight = model.model.embed_tokens.weight
-        print(orig_model.model.embed_tokens.weight.shape)
-        print(model.model.embed_tokens.weight.shape)
-
-        # for t1, t2 in zip(orig_model.named_parameters(), model.to("cpu").named_parameters()):
-        #     n1, p1 = t1
-        #     _, p2 = t2
-        #     xm.master_print(f"{n1}, p1 = {p1}, p2 = {p2}")
-
-        xm.master_print(orig_model.lm_head.weight)
-        xm.master_print(model.lm_head.weight)
 
         # First we check that the embedding weights match
         gathered = [torch.empty_like(model.model.embed_tokens.weight) for _ in range(tp_size)]
@@ -621,13 +614,14 @@ class TestModelParallelization(DistributedTest):
         inputs = {k: v.to("xla") for k, v in inputs.items()}
         orig_model = orig_model.to("xla")
         orig_logits = orig_model(**inputs).logits
-        xm.master_print(orig_logits)
+        xm.mark_step()
         logits = model(**inputs).logits
-        xm.master_print(logits)
-        # gathered = [torch.empty_like(logits) for _ in range(tp_size)]
-        # torch.distributed.all_gather(gathered, logits, group=tp_group)
-        # gathered_logits = torch.cat(gathered, dim=2)
-        # torch.testing.assert_close(orig_logits, gathered_logits.to("cpu"))
+        xm.mark_step()
+        gathered = [torch.empty_like(logits) for _ in range(tp_size)]
+        torch.distributed.all_gather(gathered, logits, group=tp_group)
+        gathered_logits = torch.cat(gathered, dim=2)
+        xm.mark_step()
+        torch.testing.assert_close(orig_logits, gathered_logits)
 
 
 @pytest.mark.parametrize(

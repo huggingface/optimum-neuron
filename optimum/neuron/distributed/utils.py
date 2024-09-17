@@ -1437,13 +1437,6 @@ def create_wrapper_for_resize_token_embedding(orig_resize_token_embeddings):
                 self._init_weights(lm_head)
 
         return orig_resize_token_embeddings(new_num_tokens=new_num_tokens, pad_to_multiple_of=pad_to_multiple_of)
-        new_embedding_shape = resized_embedding.weight.shape
-        if embedding_shape != new_embedding_shape:
-            resized_embedding._shape_before_resized = embedding_shape
-            lm_head = self.get_output_embeddings()
-            if lm_head is not None:
-                lm_head._shape_before_resized = embedding_shape
-        return resized_embedding
 
     bound_wrapper = wrapper.__get__(orig_resize_token_embeddings.__self__)
     return bound_wrapper
