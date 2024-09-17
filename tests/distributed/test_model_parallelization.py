@@ -14,6 +14,7 @@
 # limitations under the License.
 """Tests validating that models can be parallelized correctly."""
 
+from contextlib import nullcontext
 from pathlib import Path
 from typing import TYPE_CHECKING, List, Optional, Type, Union
 
@@ -44,7 +45,7 @@ from transformers.models.auto.modeling_auto import (
 
 import optimum
 from optimum.neuron.distributed.parallelizers_manager import ParallelizersManager
-from optimum.neuron.distributed.utils import compute_query_indices_for_rank
+from optimum.neuron.distributed.utils import compute_query_indices_for_rank, lazy_load_for_parallelism
 from optimum.neuron.utils.cache_utils import (
     get_num_neuron_cores,
 )
@@ -566,7 +567,7 @@ class TestModelParallelization(DistributedTest):
         )
 
     @pytest.mark.parallel_sizes((2, 2, 1))
-    def test_resize_embedding(self, tie_embeddings):
+    def test_resize_embedding(self, tie_embeddings, lazy_load):
         tp_size = get_tensor_model_parallel_size()
         tp_group = get_tensor_model_parallel_group()
 
@@ -584,9 +585,11 @@ class TestModelParallelization(DistributedTest):
         with static_seed_patcher:
             orig_model.resize_token_embeddings(new_vocab_size)
 
-        with static_seed_patcher:
-            model = AutoModelForCausalLM.from_pretrained(LLAMA_V2_MODEL_NAME, config=config)
-            model.eval()
+        ctx = lazy_load_for_parallelism(tensor_parallel_size=tp_size) if lazy_load else nullcontext()
+        with ctx:
+            with static_seed_patcher:
+                model = AutoModelForCausalLM.from_pretrained(LLAMA_V2_MODEL_NAME, config=config)
+                model.eval()
 
         with static_seed_patcher:
             model.resize_token_embeddings(new_vocab_size)
