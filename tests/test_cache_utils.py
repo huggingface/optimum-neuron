@@ -37,9 +37,8 @@ from optimum.neuron.utils.cache_utils import (
     set_neuron_cache_path,
 )
 from optimum.neuron.utils.testing_utils import is_trainium_test
-from optimum.utils.testing_utils import TOKEN, USER
 
-from .utils import StagingTestMixin, TrainiumTestMixin, get_random_string
+from .utils import TOKEN_STAGING, USER_STAGING, StagingTestMixin, TrainiumTestMixin, get_random_string
 
 
 DUMMY_COMPILER_VERSION = "1.2.3"
@@ -147,10 +146,10 @@ class NeuronUtilsTestCase(TrainiumTestMixin, TestCase):
 class StagingNeuronUtilsTestCase(StagingTestMixin, TestCase):
     def test_set_custom_cache_repo_name_in_hf_home(self):
         orig_token = get_token()
-        login(TOKEN)
+        login(TOKEN_STAGING)
 
         repo_name = f"blablabla-{self.seed}"
-        repo_id = f"{USER}/{repo_name}"
+        repo_id = f"{USER_STAGING}/{repo_name}"
         create_repo(repo_name, repo_type="model")
 
         def remove_repo():

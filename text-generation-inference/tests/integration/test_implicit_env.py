@@ -17,8 +17,8 @@ async def tgi_service(request, launcher, neuron_model_config):
     # the tgi_env.py script will take care of setting these
     for var in [
         "MAX_BATCH_SIZE",
-        "MAX_INPUT_LENGTH",
-        "MAX_TOTAL_TOKEN",
+        "MAX_INPUT_TOKENS",
+        "MAX_TOTAL_TOKENS",
         "HF_NUM_CORES",
         "HF_AUTO_CAST_TYPE",
     ]:

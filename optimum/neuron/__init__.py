@@ -27,7 +27,7 @@ from transformers.utils import _LazyModule
 
 _import_structure = {
     "hf_argparser": ["NeuronHfArgumentParser"],
-    "trainers": ["NeuronTrainer", "Seq2SeqNeuronTrainer"],
+    "trainers": ["NeuronTrainer", "Seq2SeqNeuronTrainer", "NeuronSFTTrainer"],
     "training_args": ["NeuronTrainingArguments", "Seq2SeqNeuronTrainingArguments"],
     "modeling_traced": ["NeuronTracedModel"],
     "modeling": [
@@ -58,6 +58,7 @@ _import_structure = {
         "NeuronStableDiffusionXLImg2ImgPipeline",
         "NeuronStableDiffusionXLInpaintPipeline",
         "NeuronStableDiffusionControlNetPipeline",
+        "NeuronStableDiffusionXLControlNetPipeline",
     ],
     "modeling_decoder": ["NeuronDecoderModel"],
     "modeling_seq2seq": ["NeuronModelForSeq2SeqLM"],
@@ -68,7 +69,7 @@ _import_structure = {
         "ModelParallelismPlugin",
     ],
     "pipelines": ["pipeline"],
-    "utils": ["get_peft_model"],
+    "utils": ["NeuronSFTConfig", "get_peft_model"],
 }
 
 if TYPE_CHECKING:
@@ -100,6 +101,7 @@ if TYPE_CHECKING:
         NeuronStableDiffusionInstructPix2PixPipeline,
         NeuronStableDiffusionPipeline,
         NeuronStableDiffusionPipelineBase,
+        NeuronStableDiffusionXLControlNetPipeline,
         NeuronStableDiffusionXLImg2ImgPipeline,
         NeuronStableDiffusionXLInpaintPipeline,
         NeuronStableDiffusionXLPipeline,
@@ -107,9 +109,9 @@ if TYPE_CHECKING:
     from .modeling_seq2seq import NeuronModelForSeq2SeqLM
     from .modeling_traced import NeuronTracedModel
     from .pipelines import pipeline
-    from .trainers import NeuronTrainer, Seq2SeqNeuronTrainer
+    from .trainers import NeuronSFTTrainer, NeuronTrainer, Seq2SeqNeuronTrainer
     from .training_args import NeuronTrainingArguments, Seq2SeqNeuronTrainingArguments
-    from .utils import get_peft_model
+    from .utils import NeuronSFTConfig, get_peft_model
 
 else:
     import sys

@@ -40,6 +40,7 @@ _import_structure = {
         "is_torch_neuronx_available",
         "is_torch_xla_available",
         "is_transformers_neuronx_available",
+        "is_trl_available",
     ],
     "input_generators": [
         "DummyBeamValuesGenerator",
@@ -73,6 +74,7 @@ _import_structure = {
         "is_model_officially_supported",
         "patch_transformers_for_neuron_sdk",
     ],
+    "trl_utils": ["NeuronSFTConfig"],
 }
 
 if TYPE_CHECKING:
@@ -97,6 +99,7 @@ if TYPE_CHECKING:
         is_torch_neuronx_available,
         is_torch_xla_available,
         is_transformers_neuronx_available,
+        is_trl_available,
     )
     from .input_generators import (
         ASTDummyAudioInputGenerator,
@@ -130,6 +133,7 @@ if TYPE_CHECKING:
         is_model_officially_supported,
         patch_transformers_for_neuron_sdk,
     )
+    from .trl_utils import NeuronSFTConfig
 else:
     import sys
 

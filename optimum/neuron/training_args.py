@@ -130,7 +130,7 @@ class NeuronTrainingArgumentsMixin:
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
         patch_accelerate_is_torch_xla_available()
 
-        if self.fsdp != "":
+        if self.fsdp not in ["", []]:
             raise RuntimeError("FSDP is not supported.")
 
         if self.fp16:

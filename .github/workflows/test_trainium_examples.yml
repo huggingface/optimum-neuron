@@ -28,9 +28,9 @@ concurrency:
 jobs:
   optimum-neuron-tests:
     name: Run example script tests on Trainium 1
-    runs-on: [self-hosted, 1-aws-trn, 8-cpu, ci] # run the job on the newly created runner
+    runs-on:
+      group: aws-trn1-2xlarge
     env:
-      AWS_REGION: us-east-1
       RUN_TINY: ${{ github.event.inputs.model_size == "tiny" && "1" || "0" }}
     steps:
       - name: Install Neuron runtime
@@ -49,7 +49,7 @@ jobs:
         run: echo "/home/ubuntu/.local/bin" >> $GITHUB_PATH
       - name: Install python dependencies
         run: |
-          sudo apt install python3.8-venv python3-dev -y
+          sudo apt install python3-venv python3-dev -y
           python3 -m venv aws_neuron_venv_pytorch
           source aws_neuron_venv_pytorch/bin/activate
           python -m pip install -U pip

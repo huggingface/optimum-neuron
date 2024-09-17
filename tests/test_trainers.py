@@ -28,7 +28,7 @@ from transformers import (
     AutoModelForSequenceClassification,
 )
 
-from optimum.neuron import NeuronTrainer, NeuronTrainingArguments
+from optimum.neuron import NeuronSFTConfig, NeuronSFTTrainer, NeuronTrainer, NeuronTrainingArguments
 from optimum.neuron.distributed.utils import MODEL_PARALLEL_SHARDS_DIR_NAME
 from optimum.neuron.utils import is_neuronx_distributed_available
 from optimum.neuron.utils.cache_utils import (
@@ -300,7 +300,7 @@ class TestNeuronTrainer(DistributedTest):
                 per_device_train_batch_size=train_batch_size,
                 per_device_eval_batch_size=eval_batch_size,
                 max_steps=max_steps,
-                logging_steps=1,
+                logging_steps=2,
                 save_steps=5,
                 do_eval=do_eval,
                 output_dir=output_dir,
@@ -396,3 +396,69 @@ class TestNeuronTrainer(DistributedTest):
 
         trainer.train(resume_from_checkpoint=True)
         trainer.evaluate()
+
+
+@is_trainium_test
+class TestNeuronSFTTrainer(DistributedTest):
+    @pytest.fixture(
+        scope="class",
+        params=[[2, 1, 1], [2, 2, 1]],
+        ids=["dp=2", "tp=2"],
+    )
+    def parallel_sizes(self, request):
+        return request.param
+
+    def _test_sft_trainer(self, parallel_sizes, tmpdir, packing):
+        _, tp_size, pp_size = parallel_sizes
+
+        output_dir = Path(tmpdir)
+
+        dataset = load_dataset("databricks/databricks-dolly-15k", split="train")
+
+        def format_dolly(sample):
+            instruction = f"### Instruction\n{sample['instruction']}"
+            context = f"### Context\n{sample['context']}" if len(sample["context"]) > 0 else None
+            response = f"### Answer\n{sample['response']}"
+            # join all the parts together
+            prompt = "\n\n".join([i for i in [instruction, context, response] if i is not None])
+            if packing:
+                return prompt
+            return [prompt]
+
+        tokenizer, model = get_tokenizer_and_tiny_llama_model()
+        tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.padding_side = "left"  # to prevent warnings
+
+        args = NeuronTrainingArguments(
+            output_dir=output_dir,
+            do_train=True,
+            max_steps=20,
+            per_device_train_batch_size=1,
+            tensor_parallel_size=tp_size,
+            pipeline_parallel_size=pp_size,
+            logging_steps=1,
+        )
+        args = args.to_dict()
+        sft_config = NeuronSFTConfig(
+            max_seq_length=512,
+            packing=packing,
+            dataset_num_proc=1,
+            **args,
+        )
+
+        # Create Trainer instance
+        trainer = NeuronSFTTrainer(
+            model=model,
+            tokenizer=tokenizer,
+            train_dataset=dataset,
+            formatting_func=format_dolly,
+            args=sft_config,
+        )
+
+        trainer.train()
+
+    def test_without_packing(self, parallel_sizes, tmpdir):
+        return self._test_sft_trainer(parallel_sizes, tmpdir, False)
+
+    def test_with_packing(self, parallel_sizes, tmpdir):
+        return self._test_sft_trainer(parallel_sizes, tmpdir, True)

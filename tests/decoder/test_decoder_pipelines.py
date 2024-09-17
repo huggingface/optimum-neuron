@@ -35,7 +35,7 @@ def _test_generation(p):
             # We only ever generate one sequence per input
             sequence = output[0]
             if return_tensors:
-                input_ids = p.tokenizer(input, add_special_tokens=False).input_ids
+                input_ids = p.tokenizer(input).input_ids
                 assert sequence["generated_token_ids"][: len(input_ids)] == input_ids
             else:
                 assert sequence["generated_text"].startswith(input)

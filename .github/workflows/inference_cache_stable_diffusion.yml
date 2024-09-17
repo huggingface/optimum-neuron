@@ -1,10 +1,10 @@
-name: Optimum neuron inference cache builder
+name: Optimum neuron SD inference cache builder
 
 on:
   workflow_dispatch:
   schedule:
-    # Schedule the workflow to run every day at midnight UTC
-    - cron: '0 0 * * *'
+    # Schedule the workflow to run every Saturday at midnight UTC
+    - cron: '0 0 * * 6'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -12,23 +12,14 @@ concurrency:
 jobs:
   cache:
     name: Create optimum-neuron inference cache
-    runs-on: [self-hosted, 12-aws-inf2, 192-cpu, ci] # run the job on the newly created runner
+    runs-on:
+      group: aws-inf2-8xlarge
     env:
       AWS_REGION: us-east-1
     strategy:
       fail-fast: false
       matrix:
-        config: [
-          gpt2,
-          llama3-8b,
-          llama3-70b,
-          llama2-7b-13b,
-          llama2-70b,
-          mistral,
-          llama-variants,
-          mistral-variants,
-          mixtral
-        ]
+        config: [stable-diffusion]
     steps:
       - name: Install Neuron runtime
         run: |
@@ -38,13 +29,13 @@ jobs:
           EOF
           wget -qO - https://apt.repos.neuron.amazonaws.com/GPG-PUB-KEY-AMAZON-AWS-NEURON.PUB | sudo apt-key add -
           sudo apt-get update -y
-          sudo apt-get install aws-neuronx-tools=2.17.1.0 aws-neuronx-runtime-lib=2.20.22.0-1b3ca6425 aws-neuronx-collectives=2.20.22.0-c101c322e  -y
+          sudo apt-get install aws-neuronx-tools=2.18.3.0 aws-neuronx-runtime-lib=2.21.41.0-fb1705f5f aws-neuronx-collectives=2.21.46.0-69b77134b  -y
           export PATH=/opt/aws/neuron/bin:$PATH
       - name: Checkout
         uses: actions/checkout@v4
       - name: Install python and create venv
         run: |
-          sudo apt install python3.8-venv python3-dev -y
+          sudo apt install python3-venv python3-dev -y
           python3 -m venv aws_neuron_venv_pytorch
           source aws_neuron_venv_pytorch/bin/activate
           python -m pip install -U pip
@@ -52,7 +43,7 @@ jobs:
       - name: Install optimum neuron
         run: |
           source aws_neuron_venv_pytorch/bin/activate
-          python -m pip install .[neuronx]
+          python -m pip install .[neuronx,diffusers]
       - name: Create cache for ${{matrix.config}} models
         run: |
           source aws_neuron_venv_pytorch/bin/activate
