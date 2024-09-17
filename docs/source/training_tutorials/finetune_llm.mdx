@@ -16,8 +16,6 @@ limitations under the License.
 
 # Fine-tune and Test Llama-3 8B on AWS Trainium 
 
-[[open-in-collab]]
-
 _Note: The complete script for this tutorial can be downloaded [here](https://github.com/huggingface/optimum-neuron/blob/main/docs/source/training_tutorials/finetune_llm.py)._
 
 This tutorial will teach you how to fine-tune open source LLMs like [Llama 3](https://huggingface.co/meta-llama/Meta-Llama-3-8B) on AWS Trainium. In our example, we are going to leverage the [Optimum Neuron](https://huggingface.co/docs/optimum-neuron/index), [Transformers](https://huggingface.co/docs/transformers/index) and [Datasets](https://huggingface.co/docs/datasets/index) libraries.
@@ -263,7 +261,7 @@ The compilation command simply consists in calling your script as an input to th
 
 ```bash
 MALLOC_ARENA_MAX=64 XLA_USE_BF16=1 neuron_parallel_compile torchrun --nproc_per_node=32 finetune_llm.py \
- --model_id meta-llama/Llama-2-7b-hf \
+ --model_id meta-llama/Meta-Llama-3-8B \
  --bf16 True \
  --learning_rate 5e-5 \
  --output_dir dolly_llama \
@@ -301,7 +299,7 @@ Launch the training, with the following command.
 
 ```bash
 MALLOC_ARENA_MAX=64 XLA_USE_BF16=1 torchrun --nproc_per_node=32 finetune_llm.py \
- --model_id meta-llama/Llama-2-7b-hf \
+ --model_id meta-llama/Meta-Llama-3-8B \
  --bf16 True \
  --learning_rate 5e-5 \
  --output_dir dolly_llama \

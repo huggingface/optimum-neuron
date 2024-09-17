@@ -83,7 +83,9 @@ print(dataset[randrange(len(dataset))])
 ```
 
 To instruct fine-tune our model we need to:
+
     1. Convert our structured examples into collection of tasks described via instructions
+
     2. (Optional) Pack multiple examples to one sequence for more efficient training. In other words, we are stacking multiple examples into one example, 
     and split them with the EOS token.
 
@@ -194,15 +196,19 @@ The key points here are:
 
 We prepared a script called [sft_lora_finetune_llm.py](https://github.com/huggingface/optimum-neuron/blob/main/docs/source/training_tutorials/lora_finetune_llm.py) summing up everything mentioned in this tutorial.
 
-PyTorch Neuron uses `torch_xla`. It evaluates operations lazily during execution of the training loops, which means it builds a symbolic graph in the background and the graph is executed on the hardware only when the tensor is printed, transfered to CPU, or `xm.mark_step()` is called. During execution, multiple graphs can be built depending on control-flow and it can take time to compile each graph sequentially. To alleviate that, the Neuron SDK provides `neuron_parallel_compile`, a tool which performs a fast trial run that builds all the graphs and compile them in parallel. This step is usually called precompilation.
+PyTorch Neuron uses `torch_xla`. It evaluates operations lazily during the execution of the training loops, which means it builds a symbolic graph in the background, and the graph is executed on the hardware only when the tensor is printed, transferred to CPU, or when `xm.mark_step()` is called. During execution, multiple graphs can be built depending on control-flow, and it can take time to compile each graph sequentially. To alleviate that, the Neuron SDK provides `neuron_parallel_compile`, a tool which performs a fast trial run that builds all the graphs and compile them in parallel. This step is usually called precompilation.
 
 ### Precompilation
 
 When training models on AWS Trainium we first need to compile our model with our training arguments. 
 
-To overcome this, we added a [model cache repository](https://huggingface.co/docs/optimum-neuron/guides/cache_system), which allows us to use precompiled models from the Hugging Face Hub to skip the compilation step. But be careful: every change in the model configuration might lead to a new compilation, which could result in some cache misses.
+To ease this step, we added a [model cache repository](https://huggingface.co/aws-neuron/optimum-neuron-cache), which allows us to use precompiled models from the Hugging Face Hub to skip the compilation step. But be careful: every change in the model configuration might lead to a new compilation, which could result in some cache misses.
 
-_Note: If your model configuration is not cached please open an issue on [Github](https://github.com/huggingface/optimum-neuron/issues), we are happy to include it._
+<Tip>
+
+To learn more about the caching system, and how you can create your own private cache repository, check this [guide](https://huggingface.co/docs/optimum-neuron/guides/cache_system).
+
+</Tip>
 
 The compilation command simply consists in calling your script as an input to the `neuron_parallel_compile` utility:
 
@@ -341,7 +347,7 @@ optimum-cli neuron consolidate dolly_llama dolly_llama
 
 ## 5. Evaluate and test fine-tuned Llama model
 
-As for training, to be able to run inference on AWS Trainium or AWS Inferentia2 we need to compile our model. In this case, we will use our Trainium instance for the inference test, but we recommend customer to switch to Inferentia2 for inference.
+As for training, to be able to run inference on AWS Trainium or AWS Inferentia2 we need to compile our model. In this case, we will use our Trainium instance for the inference test, but we recommend customer to switch to Inferentia2 (`inf2.24xlarge`) for inference.
 
 Optimum Neuron implements similar to Transformers AutoModel classes for easy inference use. We will use the `NeuronModelForCausalLM` class to load our vanilla transformers checkpoint and convert it to neuron.
 
