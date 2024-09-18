@@ -15,12 +15,12 @@
 
 from libneuronxla.neuron_cc_wrapper import main as neuron_cc_wrapper_main
 
-from .cache_utils import get_hf_hub_cache_repos
-from .hub_neuronx_cache import hub_neuronx_cache
+from .cache_utils import get_hf_hub_cache_repos, get_neuron_cache_path
+from .hub_cache_utils import hub_neuronx_cache
 
 
 def main():
-    with hub_neuronx_cache("training", cache_repo_id=get_hf_hub_cache_repos()[0]):
+    with hub_neuronx_cache("training", cache_repo_id=get_hf_hub_cache_repos()[0], cache_dir=get_neuron_cache_path()):
         return neuron_cc_wrapper_main()
 
 

@@ -15,21 +15,27 @@
 """Base class related to `neuronx_distributed` to perform parallelism."""
 
 import contextlib
-import shutil
+import gc
+import math
 from abc import ABC, abstractclassmethod
 from collections import defaultdict
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Set, Tuple, Type, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Set, Tuple, Type, Union
 
 import torch
 from transformers import PreTrainedModel
-from transformers.utils import WEIGHTS_NAME
 
 from ...utils import logging
 from ..utils import is_neuronx_distributed_available, is_torch_xla_available
+from ..utils.misc import is_main_worker, is_precompilation
+from ..utils.model_utils import (
+    get_parent_module_and_param_name_from_fully_qualified_name,
+    get_tied_parameters_dict,
+)
 from ..utils.patching import Patcher
+from ..utils.peft_utils import NeuronPeftModel
 from ..utils.require_utils import requires_neuronx_distributed, requires_torch_xla
 from .parallel_layers import (
     IOSequenceParallelizer,
@@ -38,14 +44,23 @@ from .parallel_layers import (
     SequenceCollectiveOpInfo,
 )
 from .utils import (
-    TENSOR_PARALLEL_SHARDS_DIR_NAME,
-    ParameterMetadata,
+    MODEL_PARALLEL_SHARDS_DIR_NAME,
+    OptimumGQAQKVColumnParallelLinear,
+    OptimumNeuronFXTracer,
     WeightInformation,
+    get_base_model_and_peft_prefix,
+    get_linear_weight_info,
+    get_output_projection_qualified_names_after_qga_qkv_replacement,
+    get_parameter_names_mapping_after_gqa_qkv_replacement,
+    get_parameters_tp_metadata,
     initialize_parallel_linear,
     initialize_torch_nn_module,
     linear_to_parallel_linear,
     load_tensor_for_weight,
-    named_parameters,
+    maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear,
+    maybe_load_linear_weight_to_parallel_linear,
+    maybe_load_weights_to_gqa_qkv_column_parallel_linear,
+    maybe_load_weights_to_output_projection_when_using_gqa_qkv_column_parallel_linear,
     parameter_can_be_initialized,
     try_to_hf_initialize,
     was_already_initialized_during_parallelization,
@@ -57,19 +72,6 @@ if TYPE_CHECKING:
         from neuronx_distributed.pipeline import NxDPPModel
 
 logger = logging.get_logger()
-
-
-class SavedModelInTemporaryDirectory:
-    def __init__(self, model: "PreTrainedModel"):
-        self.tmpdir = TemporaryDirectory()
-        self.model = model
-
-    def __enter__(self):
-        self.model.save_pretrained(self.tmpdir.name)
-        return self.tmpdir.name
-
-    def __exit__(self, *exc):
-        self.tmpdir.cleanup()
 
 
 class SequenceParallelismSpecs:
@@ -90,18 +92,17 @@ class SequenceParallelismSpecs:
 
 
 class PipelineParallelismSpecs:
-    TRASNFORMER_LAYER_CLS: Type["torch.nn.Module"]
-    DEFAULT_INPUT_NAMES: Tuple[str, ...]
-    LEAF_MODULE_CLASSES_NAMES: Optional[List[Union[str, Type["torch.nn.Module"]]]] = None
+    TRASNFORMER_LAYER_CLS: Type[torch.nn.Module]
+    DEFAULT_INPUT_NAMES: Union[Tuple[str, ...], Dict[str, Tuple[str, ...]]]
+    LEAF_MODULE_CLASSES_NAMES: Optional[List[Union[str, Type[torch.nn.Module]]]] = None
     OUTPUT_LOSS_SPECS: Tuple[bool, ...] = (True, False)
 
     @classmethod
     @requires_torch_xla
-    def create_pipeline_cuts(cls, model: PreTrainedModel, pipeline_parallel_size: int) -> List[str]:
+    def create_pipeline_cuts(cls, model: PreTrainedModel, pipeline_parallel_size: int, log: bool = True) -> List[str]:
         """
         Creates the pipeline cuts, e.g. the name of the layers at each the cuts happen for pipeline parallelism.
         """
-        import torch_xla.core.xla_model as xm
 
         num_layers = sum(1 if isinstance(mod, cls.TRASNFORMER_LAYER_CLS) else 0 for mod in model.modules())
         if num_layers % pipeline_parallel_size != 0:
@@ -116,7 +117,7 @@ class PipelineParallelismSpecs:
             for cut_idx in range(num_layers_per_partition - 1, num_layers - 1, num_layers_per_partition)
         ]
 
-        if xm.get_local_ordinal() == 0:
+        if is_main_worker() and log:
             logger.info(f"Pipeline parallelism cuts: {pipeline_cuts}.")
 
         return pipeline_cuts
@@ -176,7 +177,7 @@ class Parallelizer(ABC):
     @classmethod
     @requires_neuronx_distributed
     def _get_parameter_names_for_current_pipeline(
-        cls, model: "torch.nn.Module", remove_duplicate: bool = True
+        cls, model: torch.nn.Module, remove_duplicate: bool = True
     ) -> Set[str]:
         """
         Retrieves the names of the parameters that will be in the current pipeline stage by using the pipeline
@@ -189,18 +190,18 @@ class Parallelizer(ABC):
 
         pp_size = get_pipeline_model_parallel_size()
         pp_rank = get_pipeline_model_parallel_rank()
-        all_parameter_names = {n for n, _ in named_parameters(model, remove_duplicate=remove_duplicate)}
+        all_parameter_names = {n for n, _ in model.named_parameters(remove_duplicate=remove_duplicate)}
         if pp_size == 1:
             return all_parameter_names
 
         if not cls.supports_pipeline_parallelism():
             raise NotImplementedError(f"{cls} does not support pipeline parallelism.")
 
-        cuts = cls.PIPELINE_PARALLELISM_SPECS_CLS.create_pipeline_cuts(model, pp_size)
+        cuts = cls.PIPELINE_PARALLELISM_SPECS_CLS.create_pipeline_cuts(model, pp_size, log=False)
 
         start_module_name = cuts[pp_rank - 1] if pp_rank >= 1 else None
         end_module_name = None if pp_rank == pp_size - 1 else cuts[pp_rank]
-        parameter2name = {p: n for n, p in named_parameters(model, remove_duplicate=remove_duplicate)}
+        parameter2name = {p: n for n, p in model.named_parameters(remove_duplicate=remove_duplicate)}
         parameter_names = set()
         should_add = False
         for name, mod in model.named_modules():
@@ -210,7 +211,7 @@ class Parallelizer(ABC):
             if start_module_name is None:
                 should_add = True
             if should_add:
-                for _, param in named_parameters(mod, remove_duplicate=remove_duplicate):
+                for _, param in mod.named_parameters(remove_duplicate=remove_duplicate):
                     # It is important to use this dictionary (built with `model.named_parameters()`) instead of using
                     # `mod.named_parameters()` to get the fully qualified names.
                     param_name = parameter2name[param]
@@ -226,11 +227,11 @@ class Parallelizer(ABC):
             p
             for mod in model.modules()
             if isinstance(mod, cls.PIPELINE_PARALLELISM_SPECS_CLS.TRASNFORMER_LAYER_CLS)
-            for _, p in named_parameters(mod, remove_duplicate=remove_duplicate)
+            for _, p in mod.named_parameters(remove_duplicate=remove_duplicate)
         }
         parameter_outside_of_transformer_layers_names = {
             name
-            for name, param in named_parameters(model, remove_duplicate=remove_duplicate)
+            for name, param in model.named_parameters(remove_duplicate=remove_duplicate)
             if param not in parameters_inside_transformer_layers
         }
         return parameter_names | parameter_outside_of_transformer_layers_names
@@ -239,9 +240,11 @@ class Parallelizer(ABC):
     def _parallelize(
         cls,
         model: "PreTrainedModel",
-        device: Optional["torch.device"] = None,
+        device: Optional[torch.device] = None,
         parallelize_embeddings: bool = True,
         sequence_parallel_enabled: bool = False,
+        should_parallelize_layer_predicate_func: Optional[Callable[[torch.nn.Module], bool]] = None,
+        **parallel_layer_specific_kwargs,
     ) -> "PreTrainedModel":
         """
         Parallelizes the model by transforming regular layer into their parallel counterparts.
@@ -257,115 +260,83 @@ class Parallelizer(ABC):
                 This can be disabled in the case when the TP size does not divide the vocabulary size.
             sequence_parallel_enabled (`bool`, defaults to `False`):
                 Whether or not sequence parallelism is enabled.
+            should_parallelize_layer_predicate_func (Optional[Callable[[torch.nn.Module], bool]], defaults to `None`):
+                A function that takes a layer as input and returns a boolean specifying if the input layer should be
+                parallelized. This is useful to skip unnecessary parallelization, for pipeline parallelism for instance.
+            **parallel_layer_specific_kwargs (`Dict[str, Any]`):
+                Keyword arguments specific to some parallel layers, they will be ignored by the other parallel layers.
         Returns:
             `PreTrainedModel`: The parallelized model.
         """
+        pass
 
     @classmethod
     @requires_neuronx_distributed
-    def parallelize(
+    def _maybe_load_weights_to_parallel_linears(cls, model: "PreTrainedModel"):
+        from neuronx_distributed.parallel_layers.layers import (
+            ColumnParallelLinear,
+            RowParallelLinear,
+        )
+
+        weight_map = getattr(model, "_weight_map", {})
+        name_to_module = dict(model.named_modules())
+
+        gqa_output_projections = {}
+        for fully_qualified_name, layer in name_to_module.items():
+            if isinstance(layer, OptimumGQAQKVColumnParallelLinear):
+                parent_name = fully_qualified_name.rsplit(".", maxsplit=1)[0]
+                output_projection_name = f"{parent_name}.{layer.output_proj_name}"
+                gqa_output_projections[output_projection_name] = (
+                    layer.num_attention_heads,
+                    layer.num_key_value_heads,
+                    layer.kv_size_multiplier,
+                )
+
+        for fully_qualified_name, layer in name_to_module.items():
+            if isinstance(layer, (RowParallelLinear, ColumnParallelLinear)):
+                linear_weight_info, linear_bias_weight_info = get_linear_weight_info(
+                    weight_map, fully_qualified_name, fail_if_not_found=False
+                )
+                if linear_weight_info is not None:
+                    if fully_qualified_name in gqa_output_projections:
+                        num_attention_heads, num_key_value_heads, kv_size_multiplier = gqa_output_projections[
+                            fully_qualified_name
+                        ]
+                        maybe_load_weights_to_output_projection_when_using_gqa_qkv_column_parallel_linear(
+                            layer,
+                            num_attention_heads,
+                            num_key_value_heads,
+                            kv_size_multiplier,
+                            linear_layer_weight_info=linear_weight_info,
+                            linear_layer_bias_weight_info=linear_bias_weight_info,
+                        )
+                    else:
+                        maybe_load_linear_weight_to_parallel_linear(
+                            layer,
+                            linear_layer_weight_info=linear_weight_info,
+                            linear_layer_bias_weight_info=linear_bias_weight_info,
+                        )
+            elif isinstance(layer, OptimumGQAQKVColumnParallelLinear):
+                maybe_load_weights_to_gqa_qkv_column_parallel_linear(model, layer)
+
+    @classmethod
+    @requires_neuronx_distributed
+    def _initialize_or_load_weights(
         cls,
         model: "PreTrainedModel",
-        device: Optional["torch.device"] = None,
-        parallelize_embeddings: bool = True,
-        sequence_parallel_enabled: bool = False,
-        pipeline_parallel_input_names: Optional[Union[Tuple[str, ...], List[str]]] = None,
-        pipeline_parallel_num_microbatches: int = 1,
-        pipeline_parallel_use_zero1_optimizer: bool = False,
-        checkpoint_dir: Optional[Union[str, Path]] = None,
-    ) -> "PreTrainedModel":
-        """
-        Parallelizes the model by transforming regular layer into their parallel counterparts using
-        `cls._parallelize()`.
-
-        It also makes sure that each parameter has loaded its weights or has been initialized if there is no pre-trained
-        weights associated to it.
-
-        Args:
-            model (`PreTrainedModel`):
-                The model to parallelize.
-            device (`Optional[torch.device]`, defaults to `None`):
-                The device where the new parallel layers should be put.
-            parallelize_embeddings (`bool`, defaults to `True`):
-                Whether or not the embeddings should be parallelized.
-                This can be disabled in the case when the TP size does not divide the vocabulary size.
-            sequence_parallel_enabled (`bool`, defaults to `False`):
-                Whether or not sequence parallelism is enabled.
-            pipeline_parallel_num_microbatches (`int`, defaults to 1):
-                The number of microbatches used for pipeline execution.
-            pipeline_parallel_use_zero1_optimizer (`bool`, defaults to `False`):
-                When zero-1 optimizer is used, set this to True, so the PP model will understand that zero-1 optimizer
-                will handle data parallel gradient averaging.
-            checkpoint_dir (`Optional[Union[str, Path]]`):
-                Path to a sharded checkpoint. If specified, the checkpoint weights will be loaded to the parallelized
-                model.
-
-        Returns:
-            `PreTrainedModel`: The parallelized model.
-        """
+        names_of_the_parameters_to_consider: Set[str],
+        device: Optional[torch.device] = None,
+    ):
         from neuronx_distributed import parallel_layers
+        from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
+        from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_rank
 
-        if sequence_parallel_enabled and not cls.supports_sequence_parallelism():
-            raise NotImplementedError(f"Sequence parallelism is not supported for {model.__class__}.")
-
-        from neuronx_distributed.parallel_layers.parallel_state import (
-            get_pipeline_model_parallel_size,
-            get_tensor_model_parallel_rank,
-            get_tensor_model_parallel_size,
-        )
-        from neuronx_distributed.pipeline import NxDPPModel
-
-        tp_size = get_tensor_model_parallel_size()
-
-        sequence_parallel_enabled = sequence_parallel_enabled and tp_size > 1
-
-        # Parallelizing the model.
-        # This needs to be done prior to preparing the model for sequence parallelism because modules can be overriden.
-        if tp_size > 1:
-            model = cls._parallelize(
-                model,
-                device=device,
-                parallelize_embeddings=parallelize_embeddings,
-                sequence_parallel_enabled=sequence_parallel_enabled,
-            )
-
-        # Preparing the model for sequence parallelism:
-        sp_specs_cls = cls.SEQUENCE_PARALLELSIM_SPECS_CLS
-
-        if sequence_parallel_enabled:
-            # 1. Transforming the LayerNorms.
-            layer_norm_qualified_name_patterns = (
-                sp_specs_cls.SEQUENCE_PARALLEL_LAYERNORM_PATTERNS
-                if sp_specs_cls.SEQUENCE_PARALLEL_LAYERNORM_PATTERNS is not None
-                else []
-            )
-            layer_norm_sequence_parallelizer = LayerNormSequenceParallelizer(
-                sequence_parallel_enabled, layer_norm_qualified_name_patterns
-            )
-            layer_norm_sequence_parallelizer.sequence_parallelize(model, sp_specs_cls.LAYERNORM_TYPE)
-
-            # 2. Taking care of scattering / gathering on the sequence axis in the model via the IOSequenceParallelizer.
-            io_sequence_parallelizer = IOSequenceParallelizer(
-                sequence_parallel_enabled,
-                sequence_collective_op_infos=sp_specs_cls.SEQUENCE_COLLECTIVE_OPS_INFOS,
-            )
-            io_sequence_parallelizer.sequence_parallelize(model)
-
-            # 3. Applying model specific patching for sequence parallelism.
-            sp_specs_cls.patch_for_sequence_parallelism(model, sequence_parallel_enabled)
-
-        # The model was not loaded lazily, it is already ready.
         weight_map = getattr(model, "_weight_map", {})
-
-        names_of_the_parameters_to_consider = cls._get_parameter_names_for_current_pipeline(
-            model, remove_duplicate=True
-        )
-
         with torch.no_grad():
             tied_weights = {}
             new_parameters = set()
             modules_to_initialize = defaultdict(list)
-            for name, parameter in named_parameters(model, remove_duplicate=False):
+            for name, parameter in model.named_parameters(remove_duplicate=False):
                 split = name.rsplit(".", maxsplit=1)
                 module = model.get_submodule(split[0])
                 attribute_name = split[1]
@@ -389,7 +360,9 @@ class Parallelizer(ABC):
                     new_parameter = tied_weights[parameter]
                 elif weight_info is not None:
                     if getattr(parameter, "tensor_model_parallel", False):
-                        if parameter.device == torch.device("meta"):
+                        if parameter.device == torch.device(
+                            "meta"
+                        ) or not was_already_initialized_during_parallelization(parameter):
                             # This must either be a torch.nn.Embedding or a torch.nn.Linear that was not handled during
                             # parallelization since those are the only classes that we initialize on the `meta` device.
                             num_dims = parameter.dim()
@@ -412,10 +385,10 @@ class Parallelizer(ABC):
                             continue
                     else:
                         slices = None
-
-                    new_parameter = torch.nn.Parameter(
-                        load_tensor_for_weight(weight_info, tensor_slices=slices).to(parameter.dtype)
-                    )
+                    weight_data = load_tensor_for_weight(weight_info, tensor_slices=slices).to(parameter.dtype)
+                    if device is not None:
+                        weight_data = weight_data.to(device)
+                    new_parameter = torch.nn.Parameter(weight_data)
                 elif parameter.device != torch.device("meta") and (
                     was_already_initialized_during_parallelization(parameter)
                     or not parameter_can_be_initialized(model, module, attribute_name)
@@ -425,7 +398,8 @@ class Parallelizer(ABC):
                     continue
                 else:
                     # This means that there is no information about where to find the weights for this parameter.
-                    device = torch.device("cpu") if device is None else device
+                    # We first create the module on CPU, initialize it and then move it on device if needed.
+                    device = torch.device("cpu")
                     new_parameter = torch.nn.Parameter(torch.empty_like(parameter, device=device))
                     modules_to_initialize[module].append(attribute_name)
 
@@ -436,6 +410,7 @@ class Parallelizer(ABC):
                 )
                 tied_weights[parameter] = new_parameter
                 new_parameters.add(new_parameter)
+                gc.collect()
 
             for mod, parameter_names in modules_to_initialize.items():
                 if isinstance(mod, torch.nn.Embedding):
@@ -458,44 +433,362 @@ class Parallelizer(ABC):
                     if isinstance(mod, parallel_layers.layers.RowParallelLinear):
                         axis = "row"
                         input_is_parallel = mod.input_is_parallel
-                    else:
+                    elif isinstance(mod, parallel_layers.layers.ColumnParallelLinear):
                         axis = "column"
                         gather_output = mod.gather_output
-                    fake_linear_mod = torch.nn.Linear(mod.input_size, mod.output_size)
-                    left_uninitialized = try_to_hf_initialize(model, fake_linear_mod, parameter_names)
-                    if left_uninitialized:
-                        initialize_parallel_linear(mod, left_uninitialized)
+                    elif isinstance(mod, GQAQKVColumnParallelLinear):
+                        axis = "qga_qkv_column"
+                        gather_output = mod.gather_output
                     else:
-                        fake_parallel_linear_mod = linear_to_parallel_linear(
-                            fake_linear_mod,
-                            axis,
-                            input_is_parallel=input_is_parallel,
-                            gather_output=gather_output,
-                            sequence_parallel_enabled=mod.sequence_parallel_enabled,
+                        raise RuntimeError(
+                            f"This kind of parallel linear is not supported yet: {mod.__class__.__name__}"
                         )
-                        mod.weight.data = fake_parallel_linear_mod.weight.data.clone()
-                        if mod.bias is not None:
-                            mod.bias.data = fake_parallel_linear_mod.bias.data.clone()
+
+                    if axis in ["row", "column"]:
+                        fake_linear_mod = torch.nn.Linear(mod.input_size, mod.output_size)
+                        left_uninitialized = try_to_hf_initialize(model, fake_linear_mod, parameter_names)
+                        if left_uninitialized:
+                            initialize_parallel_linear(mod, left_uninitialized)
+                        else:
+                            fake_parallel_linear_mod = linear_to_parallel_linear(
+                                fake_linear_mod,
+                                axis,
+                                input_is_parallel=input_is_parallel,
+                                gather_output=gather_output,
+                                sequence_parallel_enabled=mod.sequence_parallel_enabled,
+                            )
+                            mod.weight.copy_(fake_parallel_linear_mod.weight.data)
+                            if mod.bias is not None:
+                                mod.bias.copy_(fake_parallel_linear_mod.bias.data)
+                            del fake_parallel_linear_mod
                         del fake_linear_mod
-                        del fake_parallel_linear_mod
+                    else:
+
+                        def initialize(mod: GQAQKVColumnParallelLinear, proj_name: str, output_size: int):
+                            fake_linear_mod = torch.nn.Linear(mod.input_size, output_size)
+                            parameter_names_to_consider = [
+                                name for name in parameter_names if name.endswith(f"_{proj_name}")
+                            ]
+                            mapping = {
+                                f"weight_{proj_name}": "weight",
+                                f"bias_{proj_name}": "bias",
+                            }
+                            left_uninitialized = try_to_hf_initialize(
+                                model, fake_linear_mod, parameter_names_to_consider, parameter_names_mapping=mapping
+                            )
+                            if left_uninitialized:
+                                initialize_parallel_linear(mod, left_uninitialized)
+                            else:
+                                # TODO: change kv heads.
+                                maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
+                                    mod, f"weight_{proj_name}", linear_layer=fake_linear_mod
+                                )
+                            del fake_linear_mod
+
+                        initialize(mod, "q", mod.output_sizes[0])
+                        initialize(mod, "k", mod.output_sizes[1])
+                        initialize(mod, "v", mod.output_sizes[1])
                 else:
+                    # TODO: maybe we should not allow that. Since the module should already be initialized because it
+                    # is ignored by lazy loading.
                     left_uninitialized = try_to_hf_initialize(model, mod, parameter_names)
                     if left_uninitialized and hasattr(mod, "reset_parameters"):
                         initialize_torch_nn_module(mod, parameter_names)
 
+                gc.collect()
+
+    @classmethod
+    @requires_neuronx_distributed
+    def parallelize(
+        cls,
+        model: Union["PreTrainedModel", NeuronPeftModel],
+        device: Optional[torch.device] = None,
+        parallelize_embeddings: bool = True,
+        sequence_parallel_enabled: bool = False,
+        kv_size_multiplier: Optional[int] = None,
+        pipeline_parallel_input_names: Optional[Union[Tuple[str, ...], Dict[str, Tuple[str, ...]]]] = None,
+        pipeline_parallel_num_microbatches: int = 1,
+        pipeline_parallel_use_zero1_optimizer: bool = False,
+        pipeline_parallel_gradient_checkpointing_enabled: bool = False,
+        checkpoint_dir: Optional[Union[str, Path]] = None,
+        num_local_ranks_per_step: int = 8,
+    ) -> "PreTrainedModel":
+        """
+        Parallelizes the model by transforming regular layer into their parallel counterparts using
+        `cls._parallelize()`.
+
+        It also makes sure that each parameter has loaded its weights or has been initialized if there is no pre-trained
+        weights associated to it.
+
+        Args:
+            model (`Union[PreTrainedModel, NeuronPeftModel]`):
+                The model to parallelize.
+            device (`Optional[torch.device]`, defaults to `None`):
+                The device where the new parallel layers should be put.
+            parallelize_embeddings (`bool`, defaults to `True`):
+                Whether or not the embeddings should be parallelized.
+                This can be disabled in the case when the TP size does not divide the vocabulary size.
+            sequence_parallel_enabled (`bool`, defaults to `False`):
+                Whether or not sequence parallelism is enabled.
+            kv_size_multiplier (`Optional[int], defaults to `None`):
+                The number of times to replicate the KV heads when the TP size is bigger than the number of KV heads.
+                If left unspecified, the smallest multiplier that makes the number of KV heads divisible by the TP size
+                will be used.
+            pipeline_parallel_num_microbatches (`int`, defaults to 1):
+                The number of microbatches used for pipeline execution.
+            pipeline_parallel_use_zero1_optimizer (`bool`, defaults to `False`):
+                When zero-1 optimizer is used, set this to True, so the PP model will understand that zero-1 optimizer
+                will handle data parallel gradient averaging.
+            pipeline_parallel_gradient_checkpointing_enabled (`bool`, defaults to `False`):
+                Whether or not gradient checkpointing should be enabled when doing pipeline parallelism.
+            checkpoint_dir (`Optional[Union[str, Path]]`):
+                Path to a sharded checkpoint. If specified, the checkpoint weights will be loaded to the parallelized
+                model.
+            num_local_ranks_per_step (`int`, defaults to `8`):
+                Corresponds to the number of local ranks that can initialize and load the model weights at the same
+                time. If the value is inferior to 0, the maximum number of ranks will be used.
+
+        Returns:
+            `PreTrainedModel`: The parallelized model.
+        """
+        import torch_xla.core.xla_model as xm
+
+        orig_model, peft_prefix = get_base_model_and_peft_prefix(model)
+        model_class = orig_model.__class__
+
+        if peft_prefix:
+            # We update the weight_map to contain both the original parameter names, and the ones in the PeftModel.
+            # The reason we keep both is because depending on the context during parallelization one or the other name
+            # will be used. Since the names with prefix should not overwrite anything, it is safe to have both.
+            if hasattr(orig_model, "_weight_map"):
+                weight_map = orig_model._weight_map
+                weight_map["peft_prefix"] = peft_prefix
+                peft_model_weight_map = {f"{peft_prefix}.{name}": filename for name, filename in weight_map.items()}
+                for name, _ in model.named_parameters():
+                    name_without_base_layer = name.replace(".base_layer", "")
+                    if name not in peft_model_weight_map and name_without_base_layer in peft_model_weight_map:
+                        peft_model_weight_map[name] = peft_model_weight_map.pop(name_without_base_layer)
+                weight_map.update(**peft_model_weight_map)
+
+        if sequence_parallel_enabled and not cls.supports_sequence_parallelism():
+            raise NotImplementedError(f"Sequence parallelism is not supported for {model_class}.")
+
+        from neuronx_distributed.parallel_layers.parallel_state import (
+            get_pipeline_model_parallel_size,
+            get_tensor_model_parallel_size,
+        )
+        from neuronx_distributed.parallel_layers.random import _MODEL_PARALLEL_RNG_TRACKER_NAME, get_xla_rng_tracker
+        from neuronx_distributed.parallel_layers.utils import get_local_world_size
+        from neuronx_distributed.pipeline import NxDPPModel
+
+        tp_size = get_tensor_model_parallel_size()
         pp_size = get_pipeline_model_parallel_size()
+
+        sequence_parallel_enabled = sequence_parallel_enabled and tp_size > 1
+
+        # Parallelizing the model.
+        # This needs to be done prior to preparing the model for sequence parallelism because modules can be overriden.
+        name_to_parameter = dict(model.named_parameters(remove_duplicate=False))
+        parameter_to_name = {p: n for n, p in name_to_parameter.items()}
+
+        names_of_the_parameters_to_consider = cls._get_parameter_names_for_current_pipeline(
+            model, remove_duplicate=True
+        )
+
+        if peft_prefix:
+            names_of_the_parameters_to_consider = {
+                f"{peft_prefix}.{name}" for name in names_of_the_parameters_to_consider
+            }
+
+        # We delay weight loading when the model was instantiated from pretrained lazily.
+        # We do not skip for cases such as:
+        #   - Loaded a model `from_config`: in this case we simply initialize later in `_initialize_or_load_weights`.
+        #   - Loaded a model `from_pretrained` but not lazily.
+        skip_linear_weight_load = hasattr(model, "_weight_map")
+
+        requires_grad_information = {n: p.requires_grad for n, p in model.named_parameters()}
+
+        def should_parallelize_layer_predicate_func(layer):
+            if pp_size == 1:
+                return True
+            for p in layer.parameters():
+                if p not in parameter_to_name:
+                    return True
+            names = {parameter_to_name[p] for p in layer.parameters()}
+            return names < names_of_the_parameters_to_consider
+
+        if tp_size > 1:
+            # TODO: remove that once it is solved on the `neuronx_distributed` side.
+            try:
+                get_xla_rng_tracker().add(_MODEL_PARALLEL_RNG_TRACKER_NAME, 42)
+            except Exception:
+                # It means that `_MODEL_PARALLEL_RNG_TRACKER_NAME` was already added to the rng tracker, we can ignore.
+                pass
+
+            tied_parameters = get_tied_parameters_dict(model)
+
+            cls._parallelize(
+                orig_model,
+                device=device,
+                parallelize_embeddings=parallelize_embeddings,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
+                skip_linear_weight_load=skip_linear_weight_load,
+                kv_size_multiplier=kv_size_multiplier,
+            )
+
+            for param_name, root_tied_param_name in tied_parameters.items():
+                parent_mod, attr_name = get_parent_module_and_param_name_from_fully_qualified_name(model, param_name)
+                param = getattr(parent_mod, attr_name)
+                root_parent_mod, root_attr_name = get_parent_module_and_param_name_from_fully_qualified_name(
+                    model, root_tied_param_name
+                )
+                root_tied_param = getattr(root_parent_mod, root_attr_name)
+                if getattr(param, "tensor_model_parallel", False) and not getattr(
+                    root_tied_param, "tensor_model_parallel", False
+                ):
+                    # In this case it means that `param` was parallelized but not `root_tied_param`.
+                    # It will be overwritten by root_tied_param when tiying the weights if we do not do anything.
+                    # We tie `root_tied_param` to `param`.
+                    # What will happen is as follows:
+                    #   - If weight_map contains a checkpoint for `param_name`, it has already been initialized or will
+                    #   be initialized with `cls._maybe_load_weights_to_parallel_linear`.
+                    #   - Otherwise, it has not been initialized and `cls._initialize_or_load_weights` will take care
+                    #   of it.
+                    root_parent_base_mod, _ = get_base_model_and_peft_prefix(root_parent_mod)
+                    setattr(root_parent_base_mod, root_attr_name, param)
+
+            if is_main_worker():
+                logger.info("Tensor parallelism done.")
+
+            # We need to refresh the names because they might have changed after `_parallelize`.
+            # For instance if we changed regular linears to GQAQKVColumnParallelLinear.
+            names_of_the_parameters_to_consider = cls._get_parameter_names_for_current_pipeline(
+                model, remove_duplicate=True
+            )
+
+        # We need to retrieve this mapping here because PP works with `torch.fx` so we will not end-up with the same
+        # names after tracing.
+        gqa_qkv_metadata = {
+            "original_names_to_gqa_qkv_names": {},
+            "output_projections_names": set(),
+            "num_attention_heads": None,
+            "num_key_value_heads": None,
+            "kv_size_multiplier": None,
+        }
+        for mod in model.modules():
+            if isinstance(mod, OptimumGQAQKVColumnParallelLinear):
+                num_attention_heads = mod.num_attention_heads
+                num_key_value_heads = mod.num_key_value_heads
+                kv_size_multiplier = mod.kv_size_multiplier
+                gqa_qkv_metadata = {
+                    "original_names_to_gqa_qkv_names": get_parameter_names_mapping_after_gqa_qkv_replacement(model),
+                    "output_projections_names": get_output_projection_qualified_names_after_qga_qkv_replacement(model),
+                    "num_attention_heads": num_attention_heads,
+                    "num_key_value_heads": num_key_value_heads,
+                    "kv_size_multiplier": kv_size_multiplier,
+                }
+                break
+
+        # Preparing the model for sequence parallelism:
+        sp_specs_cls = cls.SEQUENCE_PARALLELSIM_SPECS_CLS
+
+        if sequence_parallel_enabled:
+            # 1. Transforming the LayerNorms.
+            layer_norm_qualified_name_patterns = (
+                sp_specs_cls.SEQUENCE_PARALLEL_LAYERNORM_PATTERNS
+                if sp_specs_cls.SEQUENCE_PARALLEL_LAYERNORM_PATTERNS is not None
+                else []
+            )
+            sequence_collective_op_infos = sp_specs_cls.SEQUENCE_COLLECTIVE_OPS_INFOS
+            if peft_prefix and sequence_collective_op_infos is not None:
+                layer_norm_qualified_name_patterns = [
+                    f"{peft_prefix}.{pattern}" for pattern in layer_norm_qualified_name_patterns
+                ]
+                for idx, sp_collective_info in enumerate(sequence_collective_op_infos):
+                    if isinstance(sp_collective_info.layer, str):
+                        sequence_collective_op_infos[idx] = replace(
+                            sp_collective_info, layer=f"{peft_prefix}.{sp_collective_info.layer}"
+                        )
+
+            layer_norm_sequence_parallelizer = LayerNormSequenceParallelizer(
+                sequence_parallel_enabled, layer_norm_qualified_name_patterns
+            )
+            layer_norm_sequence_parallelizer.sequence_parallelize(model, sp_specs_cls.LAYERNORM_TYPE)
+
+            # 2. Taking care of scattering / gathering on the sequence axis in the model via the IOSequenceParallelizer.
+            io_sequence_parallelizer = IOSequenceParallelizer(
+                sequence_parallel_enabled,
+                sequence_collective_op_infos=sequence_collective_op_infos,
+            )
+            io_sequence_parallelizer.sequence_parallelize(model)
+
+            # 3. Applying model specific patching for sequence parallelism.
+            sp_specs_cls.patch_for_sequence_parallelism(model, sequence_parallel_enabled)
+
+        if is_main_worker():
+            logger.info("Loading and initializing the weights, this might take a while on large models.")
+
+        local_rank = xm.get_local_ordinal()
+        if num_local_ranks_per_step <= 0:
+            num_local_ranks_per_step = get_local_world_size()
+        for worker in range(math.ceil(get_local_world_size() / num_local_ranks_per_step)):
+            if local_rank // num_local_ranks_per_step == worker:
+                if skip_linear_weight_load:
+                    # Load the weights to the parallel linears if the loading was skipped during parallelization.
+                    cls._maybe_load_weights_to_parallel_linears(model)
+
+                if skip_linear_weight_load or any(p.device == torch.device("meta") for p in model.parameters()):
+                    # Initialize or load the weights for the parallelized model if it was lazily loaded.
+                    cls._initialize_or_load_weights(model, names_of_the_parameters_to_consider, device=device)
+            gc.collect()
+
+        # Because we initialize new parameters, we need to make sure that only the ones that required grads before
+        # parallelization require grad after parallelization.
+        for name, parameter in model.named_parameters():
+            gqa_qkv_names_to_original_names = {
+                v: k for k, v in gqa_qkv_metadata["original_names_to_gqa_qkv_names"].items()
+            }
+            if name in requires_grad_information:
+                parameter.requires_grad = requires_grad_information[name]
+            elif gqa_qkv_names_to_original_names.get(name, None) in requires_grad_information:
+                gqa_qkv_name = gqa_qkv_names_to_original_names[name]
+                parameter.requires_grad = requires_grad_information[gqa_qkv_name]
+            else:
+                raise ValueError(
+                    f"Could not find information for the parameter {name} to set its `requires_grad` attribute."
+                )
+
+        if is_main_worker():
+            logger.info("Load and initialization of the weights done.")
+
         if pp_size > 1:
+            if isinstance(model, NeuronPeftModel):
+                raise NotImplementedError("PEFT is not supported with model parallelism for now.")
+
             if not cls.supports_pipeline_parallelism():
                 raise NotImplementedError("{cls} does not support pipeline parallelism.")
 
-            model.config.return_dict = False
             model.config.use_cache = False
+            model.config.return_dict = False
             model.config.output_attentions = False
             model.config.output_hidden_states = False
 
             with Patcher(cls.PIPELINE_PARALLELISM_SPECS_CLS.get_patching_specs()):
                 if pipeline_parallel_input_names is None:
                     pipeline_parallel_input_names = cls.PIPELINE_PARALLELISM_SPECS_CLS.DEFAULT_INPUT_NAMES
+
+                if isinstance(pipeline_parallel_input_names, dict):
+                    if model_class.__name__ in pipeline_parallel_input_names:
+                        pipeline_parallel_input_names = pipeline_parallel_input_names[model_class.__name__]
+                    elif "default" in pipeline_parallel_input_names:
+                        pipeline_parallel_input_names = pipeline_parallel_input_names["default"]
+                    else:
+                        raise ValueError(
+                            "Cannot guess the names of the input for the model, which is required for pipeline "
+                            "parallelism."
+                        )
+
                 model = NxDPPModel(
                     model,
                     transformer_layer_cls=cls.PIPELINE_PARALLELISM_SPECS_CLS.TRASNFORMER_LAYER_CLS,
@@ -505,10 +798,17 @@ class Parallelizer(ABC):
                     pipeline_cuts=cls.PIPELINE_PARALLELISM_SPECS_CLS.create_pipeline_cuts(model, pp_size),
                     leaf_module_cls=cls.PIPELINE_PARALLELISM_SPECS_CLS.leaf_module_cls(),
                     use_zero1_optimizer=pipeline_parallel_use_zero1_optimizer,
+                    tracer_cls=OptimumNeuronFXTracer,
                 )
 
-        if checkpoint_dir is not None:
-            cls.load_model_checkpoint(model, checkpoint_dir)
+            if is_main_worker():
+                logger.info("Pipeline parallelism done.")
+
+        # TODO: can we optimize by skipping initialization and weight loading when `checkpoint_dir` is not None.
+        if not is_precompilation() and checkpoint_dir is not None:
+            cls.load_model_sharded_checkpoint(model, checkpoint_dir)
+
+        model._gqa_qkv_metadata = gqa_qkv_metadata
 
         return model
 
@@ -648,176 +948,90 @@ class Parallelizer(ABC):
         return optimizer_for_mp
 
     @classmethod
-    def _get_parameters_tp_metadata(cls, named_parameters: Dict[str, "torch.nn.Parameter"]):
-        tp_metadata = {}
-        for name, param in named_parameters.items():
-            if getattr(param, "tensor_model_parallel", False):
-                param_metadata = ParameterMetadata(
-                    "sharded",
-                    partition_dim=param.partition_dim,
-                )
-            else:
-                param_metadata = ParameterMetadata("tied")
-            tp_metadata[name] = param_metadata
-        return tp_metadata
-
-    @classmethod
     @requires_neuronx_distributed
-    def save_model_checkpoint_as_regular(
-        cls,
-        model: "PreTrainedModel",
-        output_dir: Union[str, Path],
-        optimizer: Optional["torch.optim.Optimizer"] = None,
-    ):
-        import neuronx_distributed
-        import torch_xla.core.xla_model as xm
-        from neuronx_distributed.parallel_layers.parallel_state import (
-            get_data_parallel_rank,
-            get_tensor_model_parallel_rank,
-        )
-
-        cls._check_model_was_parallelized(model)
-
-        data_parallel_rank = get_data_parallel_rank()
-        tensor_parallel_rank = get_tensor_model_parallel_rank()
-
-        if data_parallel_rank != 0:
-            return
-
-        if not isinstance(output_dir, Path):
-            output_dir = Path(output_dir)
-
-        if optimizer is not None:
-            logger.warning(
-                "Saving the optimizer state as a regular file under the tensor parallel setting is not supported yet."
-            )
-
-        state_dict = {}
-        for name, param in model.named_parameters():
-            if getattr(param, "tensor_model_parallel", False):
-                if param.partition_dim == 1:
-                    tensor = neuronx_distributed.utils.gather_from_tensor_model_parallel_region(param)
-                else:
-                    # Because the gather works only on last dim. Need to make it work for all dims.
-                    tensor = neuronx_distributed.utils.gather_from_tensor_model_parallel_region(
-                        param.transpose()
-                    ).transpose()
-            else:
-                tensor = param
-            state_dict[name] = tensor
-
-        model_state_dict = {"model": state_dict}
-        should_save = tensor_parallel_rank == 0
-        xm._maybe_convert_to_cpu(model_state_dict, convert=should_save)
-        if should_save:
-            output_path = output_dir / WEIGHTS_NAME
-            torch.save(model_state_dict["model"], output_path.as_posix())
-        xm.rendezvous("saving regular checkpoint")
-
-    @classmethod
-    @requires_neuronx_distributed
-    def save_model_checkpoint_as_sharded(
+    def save_model_sharded_checkpoint(
         cls,
         model: Union["PreTrainedModel", "NxDPPModel"],
         output_dir: Union[str, Path],
         optimizer: Optional["torch.optim.Optimizer"] = None,
+        use_xser: bool = True,
+        async_save: bool = False,
+        num_local_ranks_per_step: int = 8,
     ):
-        import torch_xla.core.xla_model as xm
-        from neuronx_distributed import parallel_layers
-        from neuronx_distributed.pipeline import NxDPPModel
+        import neuronx_distributed
+        from neuronx_distributed.parallel_layers.parallel_state import (
+            get_data_parallel_rank,
+            get_pipeline_model_parallel_rank,
+            get_tensor_model_parallel_rank,
+        )
+        from neuronx_distributed.parallel_layers.utils import get_local_world_size
 
         cls._check_model_was_parallelized(model)
 
         if not isinstance(output_dir, Path):
             output_dir = Path(output_dir)
 
-        if isinstance(model, NxDPPModel):
-            model_state_dict = model.local_state_dict()
-        else:
-            model_state_dict = model.state_dict()
+        if num_local_ranks_per_step <= 0:
+            num_local_ranks_per_step = get_local_world_size()
 
-        state_dict = {"model": model_state_dict}
-        state_dict["sharded_metadata"] = {
-            k: asdict(v) for k, v in cls._get_parameters_tp_metadata(dict(model.named_parameters())).items()
+        metadata = {}
+        metadata["sharded_metadata"] = {
+            k: asdict(v) for k, v in get_parameters_tp_metadata(dict(model.named_parameters())).items()
         }
+        metadata["gqa_qkv_metadata"] = model._gqa_qkv_metadata
 
-        if optimizer is not None:
-            # TODO: have metadata working for the optimizer.
-            state_dict["optimizer_state_dict"] = optimizer.state_dict()
+        neuronx_distributed.trainer.save_checkpoint(
+            output_dir.as_posix(),
+            tag=MODEL_PARALLEL_SHARDS_DIR_NAME,
+            model=model,
+            optimizer=optimizer,
+            use_xser=use_xser,
+            async_save=async_save,
+            num_workers=num_local_ranks_per_step,
+        )
 
-        output_path = output_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME
-
-        if xm.get_local_ordinal() == 0:
-            if output_path.is_dir():
-                shutil.rmtree(output_path, ignore_errors=True)
-            output_path.mkdir()
-        xm.rendezvous("waiting before saving")
-        parallel_layers.save(state_dict, output_path.as_posix(), save_xser=True)
-
-    @classmethod
-    def save_model_checkpoint(
-        cls,
-        model: "PreTrainedModel",
-        output_dir: Union[str, Path],
-        as_regular: bool = False,
-        as_sharded: bool = True,
-        optimizer: Optional["torch.optim.Optimizer"] = None,
-    ):
-        if not as_regular and not as_sharded:
-            raise ValueError("At least as_regular or as_sharded must be True.")
-        if as_regular:
-            cls.save_model_checkpoint_as_regular(model, output_dir, optimizer=optimizer)
-        if as_sharded:
-            cls.save_model_checkpoint_as_sharded(model, output_dir, optimizer=optimizer)
+        if get_data_parallel_rank() == 0 and get_tensor_model_parallel_rank() == 0:
+            pp_rank = get_pipeline_model_parallel_rank()
+            metadata_path = output_dir / MODEL_PARALLEL_SHARDS_DIR_NAME / f"mp_metadata_pp_rank_{pp_rank}.pt"
+            # Checking that the parent directory exists, it should exist, but let's make sure since g_iostate.end() is
+            # called at the end of `neuronx_distributed.trainer.save_checkpoint` and it can remove checkpoint
+            # directories if the max limit has been reached.
+            if metadata_path.parent.is_dir():
+                torch.save(metadata, metadata_path)
 
     @classmethod
     @requires_neuronx_distributed
-    def load_model_sharded_checkpoint(cls, model: "PreTrainedModel", load_dir: Union[str, Path]):
+    def load_sharded_checkpoint(
+        cls,
+        load_dir: Union[str, Path],
+        model: Optional["PreTrainedModel"] = None,
+        optimizer: Optional[torch.optim.Optimizer] = None,
+    ):
         import neuronx_distributed
 
-        cls._check_model_was_parallelized(model)
+        if model is None and optimizer is None:
+            raise ValueError("At least a model or an optimizer must be provided")
+
+        if model is not None:
+            cls._check_model_was_parallelized(model)
 
         if not isinstance(load_dir, Path):
             load_dir = Path(load_dir)
-        neuronx_distributed.parallel_layers.load(
-            load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME,
-            model_or_optimizer=model,
-            load_xser=True,
-            sharded=True,
-        )
 
-    @classmethod
-    def load_model_checkpoint(cls, model: "PreTrainedModel", load_dir: Union[str, Path]):
-        if not isinstance(load_dir, Path):
-            load_dir = Path(load_dir)
-
-        if (load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME).is_dir():
-            cls.load_model_sharded_checkpoint(model, load_dir)
-        else:
+        if not (load_dir / MODEL_PARALLEL_SHARDS_DIR_NAME).is_dir():
             raise FileNotFoundError(f"Could not find a sharded checkpoint directory under {load_dir.as_posix()}.")
 
+        neuronx_distributed.trainer.load_checkpoint(
+            load_dir.as_posix(),
+            tag=MODEL_PARALLEL_SHARDS_DIR_NAME,
+            model=model,
+            optimizer=optimizer,
+        )
+
     @classmethod
-    @requires_neuronx_distributed
+    def load_model_sharded_checkpoint(cls, model: "PreTrainedModel", load_dir: Union[str, Path]):
+        return cls.load_sharded_checkpoint(load_dir, model=model)
+
+    @classmethod
     def load_optimizer_sharded_checkpoint(cls, optimizer: "torch.optim.Optimizer", load_dir: Union[str, Path]):
-        import neuronx_distributed
-        from neuronx_distributed.optimizer import NeuronZero1Optimizer
-
-        is_zero_1_optimizer = optimizer.__class__.__name__ == "NeuronAcceleratedOptimizer" and isinstance(
-            optimizer.optimizer, NeuronZero1Optimizer
-        )
-        is_zero_1_optimizer = is_zero_1_optimizer or isinstance(optimizer, NeuronZero1Optimizer)
-        if is_zero_1_optimizer:
-            raise NotImplementedError(
-                "It is not possible to load a sharded optimizer checkpoint when using ZeRO-1 yet."
-            )
-
-        if not isinstance(load_dir, Path):
-            load_dir = Path(load_dir)
-
-        neuronx_distributed.parallel_layers.load(
-            load_dir / TENSOR_PARALLEL_SHARDS_DIR_NAME,
-            model_or_optimizer=optimizer,
-            model_key="optimizer_state_dict",
-            load_xser=True,
-            sharded=True,
-        )
+        return cls.load_sharded_checkpoint(load_dir, optimizer=optimizer)

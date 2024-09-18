@@ -17,6 +17,9 @@ def serve(
     uds_path: str = "/tmp/text-generation-server",
     logger_level: str = "INFO",
     json_output: bool = False,
+    otlp_endpoint: Optional[str] = None,
+    otlp_service_name: str = "text-generation-inference.server",
+    max_input_tokens: Optional[int] = None,
 ):
     """This is the main entry-point for the server CLI.
 
@@ -36,6 +39,12 @@ def serve(
             The server logger level. Defaults to *INFO*.
         json_output (`bool`):
             Use JSON format for log serialization.
+        otlp_endpoint (`Optional[str]`, defaults to `None`):
+            The Open Telemetry endpoint to use.
+        otlp_service_name (`Optional[str]`, defaults to `None`):
+            The name to use when pushing data to the Open Telemetry endpoint.
+        max_input_tokens (`Optional[int]`, defaults to `None`):
+            The maximum number of input tokens each request should contain.
     """
     if sharded:
         raise ValueError("Sharding is not supported.")
@@ -55,11 +64,9 @@ def serve(
         logger.warning("'trust_remote_code' argument is not supported and will be ignored.")
 
     # Import here after the logger is added to log potential import exceptions
-    from .model import fetch_model
     from .server import serve
 
-    model_path = fetch_model(model_id, revision)
-    serve(model_path, uds_path)
+    serve(model_id, revision, uds_path)
 
 
 @app.command()

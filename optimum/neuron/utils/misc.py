@@ -14,13 +14,16 @@
 # limitations under the License.
 """Utilities of various sorts."""
 
+import copy
+import functools
 import inspect
 import os
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
+from transformers import AutoFeatureExtractor, AutoProcessor, AutoTokenizer, CLIPProcessor, PretrainedConfig
 from transformers.modeling_utils import _add_variant
 from transformers.utils import (
     FLAX_WEIGHTS_NAME,
@@ -37,22 +40,33 @@ from transformers.utils import (
 )
 from transformers.utils.hub import get_checkpoint_shard_files
 
-from ...utils import logging
-from .import_utils import is_torch_xla_available
-from .require_utils import requires_safetensors
+from ...utils import is_diffusers_available, logging
+from .import_utils import is_torch_neuronx_available, is_torch_xla_available
+from .require_utils import requires_safetensors, requires_torch_xla
 
+
+if is_torch_neuronx_available():
+    from torch_neuronx import DataParallel
 
 if TYPE_CHECKING:
-    from transformers import PretrainedConfig
+    from transformers.modeling_utils import PreTrainedModel
+
+    if is_diffusers_available():
+        from diffusers import ModelMixin
+
 
 logger = logging.get_logger()
 
 
-def is_main_worker() -> bool:
+def is_precompilation() -> bool:
+    return os.environ.get("NEURON_EXTRACT_GRAPHS_ONLY") == "1"
+
+
+def is_main_worker(global_main: bool = True) -> bool:
     if torch.distributed.is_initialized() and is_torch_xla_available():
         import torch_xla.core.xla_model as xm
 
-        return xm.get_local_ordinal() == 0
+        return xm.get_ordinal() == 0 if global_main else xm.get_local_ordinal() == 0
     return True
 
 
@@ -190,6 +204,19 @@ def convert_checkpoint_to_safetensors(
     return safetensors_path
 
 
+@requires_torch_xla
+@functools.wraps(cached_file)
+def distributed_friendly_cached_file(*args, **kwargs):
+    import torch_xla.core.xla_model as xm
+
+    if is_main_worker():
+        output = cached_file(*args, **kwargs)
+    xm.rendezvous("Cached file done")
+    if not is_main_worker():
+        output = cached_file(*args, **kwargs)
+    return output
+
+
 def download_checkpoints_in_cache(
     pretrained_model_name_or_path: Optional[Union[str, os.PathLike]],
     cache_dir: Optional[Union[str, os.PathLike]] = None,
@@ -212,7 +239,7 @@ def download_checkpoints_in_cache(
     kwargs.pop("state_dict", None)
     from_tf = kwargs.pop("from_tf", False)
     from_flax = kwargs.pop("from_flax", False)
-    resume_download = kwargs.pop("resume_download", False)
+    resume_download = kwargs.pop("resume_download", None)
     proxies = kwargs.pop("proxies", None)
     kwargs.pop("output_loading_info", False)
     kwargs.pop("use_auth_token", None)
@@ -373,13 +400,16 @@ def download_checkpoints_in_cache(
                     "_raise_exceptions_for_missing_entries": False,
                     "_commit_hash": commit_hash,
                 }
-                resolved_archive_file = cached_file(pretrained_model_name_or_path, filename, **cached_file_kwargs)
+
+                resolved_archive_file = distributed_friendly_cached_file(
+                    pretrained_model_name_or_path, filename, **cached_file_kwargs
+                )
 
                 # Since we set _raise_exceptions_for_missing_entries=False, we don't get an exception but a None
                 # result when internet is up, the repo and revision exist, but the file does not.
                 if resolved_archive_file is None and filename == _add_variant(SAFE_WEIGHTS_NAME, variant):
                     # Maybe the checkpoint is sharded, we try to grab the index name in this case.
-                    resolved_archive_file = cached_file(
+                    resolved_archive_file = distributed_friendly_cached_file(
                         pretrained_model_name_or_path,
                         _add_variant(SAFE_WEIGHTS_INDEX_NAME, variant),
                         **cached_file_kwargs,
@@ -396,12 +426,12 @@ def download_checkpoints_in_cache(
                     else:
                         # This repo has no safetensors file of any kind, we switch to PyTorch.
                         filename = _add_variant(WEIGHTS_NAME, variant)
-                        resolved_archive_file = cached_file(
+                        resolved_archive_file = distributed_friendly_cached_file(
                             pretrained_model_name_or_path, filename, **cached_file_kwargs
                         )
                 if resolved_archive_file is None and filename == _add_variant(WEIGHTS_NAME, variant):
                     # Maybe the checkpoint is sharded, we try to grab the index name in this case.
-                    resolved_archive_file = cached_file(
+                    resolved_archive_file = distributed_friendly_cached_file(
                         pretrained_model_name_or_path,
                         _add_variant(WEIGHTS_INDEX_NAME, variant),
                         **cached_file_kwargs,
@@ -514,18 +544,23 @@ def download_checkpoints_in_cache(
 
 
 def replace_weights(
-    model: torch.jit._script.RecursiveScriptModule,
+    model: Union[torch.jit._script.RecursiveScriptModule, "DataParallel"],
     weights: Union[Dict[str, torch.Tensor], torch.nn.Module],
     prefix: str = "model",
 ):
     """
-    Replaces the weights in a Neuron Model with weights from another model, the original neuron model should have separated weights(by setting `inline_weights_to_neff=Talse` during the tracing).
+    Replaces the weights in a Neuron Model with weights from another model, the original neuron model should have separated weights(by setting `inline_weights_to_neff=False` during the tracing).
     """
+
     if isinstance(weights, torch.nn.Module):
         weights = weights.state_dict()
 
     # extract module paths from the weights c module
-    code = model.weights._c.code
+    if is_torch_neuronx_available() and isinstance(model, DataParallel):
+        model_weights = model.module.weights
+    else:
+        model_weights = model.weights
+    code = model_weights._c.code
     start_str = "__parameters__ = ["
     end_str = "]\n"
     module_paths = code.split(start_str)[1].split(end_str)[0].strip()[:-1:].replace('"', "").split(", ")
@@ -535,16 +570,110 @@ def replace_weights(
         if len(re.findall("\w\d+", module_path)) > 0:
             continue
         else:
-            model.weights._c.setattr(module_path, weights[module_path.replace(prefix + "->", "").replace("->", ".")])
+            model_weights._c.setattr(
+                module_path, weights[module_path.replace(prefix + "->", "", 1).replace("->", ".")]
+            )
 
 
 def check_if_weights_replacable(
-    config: "PretrainedConfig", weights: Optional[Union[Dict[str, torch.Tensor], torch.nn.Module]]
+    config: Union["PretrainedConfig", Dict[str, "PretrainedConfig"]],
+    weights: Optional[Union[Dict[str, torch.Tensor], torch.nn.Module]],
 ):
-    is_weights_neff_separated = (
-        not config.neuron.get("inline_weights_to_neff", True) if hasattr(config, "neuron") else False
-    )
+    def _is_weights_neff_separated(config):
+        return not config.neuron.get("inline_weights_to_neff", True) if hasattr(config, "neuron") else False
+
+    if isinstance(config, PretrainedConfig):
+        is_weights_neff_separated = _is_weights_neff_separated(config)
+    elif isinstance(config, Dict):
+        is_weights_neff_separated = []
+        for _, config_value in config.items():
+            is_weights_neff_separated.append(_is_weights_neff_separated(config_value))
+        is_weights_neff_separated = all(is_weights_neff_separated)
+
     if weights is not None and not is_weights_neff_separated:
         raise RuntimeError(
-            "Unable to replace weights of the neuron model since its weights and neff are not separated, please set `inline_weights_to_neff=Talse` when converting the model to Neuron format."
+            "Unable to replace weights of the neuron model since its weights and neff are not separated, please set `inline_weights_to_neff=False` when converting the model to Neuron format."
         )
+
+
+# Copied and adapted from https://github.com/huggingface/optimum/blob/d03ab100206cb9f0e62167a36ee6997424bb9bb5/optimum/utils/save_utils.py#L27
+# To remove once we can bump to a transformers release including https://github.com/huggingface/transformers/pull/29169
+def maybe_load_preprocessors(
+    src_name_or_path: Union[str, Path], subfolder: str = "", trust_remote_code: bool = False
+) -> List:
+    preprocessors = []
+
+    try:
+        preprocessors.append(
+            AutoTokenizer.from_pretrained(src_name_or_path, subfolder=subfolder, trust_remote_code=trust_remote_code)
+        )
+    except Exception:
+        pass
+
+    try:
+        preprocessors.append(
+            AutoProcessor.from_pretrained(src_name_or_path, subfolder=subfolder, trust_remote_code=trust_remote_code)
+        )
+    except Exception:
+        pass
+
+    try:
+        preprocessors.append(
+            CLIPProcessor.from_pretrained(src_name_or_path, subfolder=subfolder, trust_remote_code=trust_remote_code)
+        )
+    except Exception:
+        pass
+
+    try:
+        preprocessors.append(
+            AutoFeatureExtractor.from_pretrained(
+                src_name_or_path, subfolder=subfolder, trust_remote_code=trust_remote_code
+            )
+        )
+    except Exception:
+        pass
+    return preprocessors
+
+
+# Copied and adapted from https://github.com/huggingface/optimum/blob/d03ab100206cb9f0e62167a36ee6997424bb9bb5/optimum/utils/save_utils.py#L56
+# To remove once we can bump to a transformers release including https://github.com/huggingface/transformers/pull/29169
+def maybe_save_preprocessors(
+    src_name_or_path: Union[str, Path],
+    dest_dir: Union[str, Path],
+    src_subfolder: str = "",
+    trust_remote_code: bool = False,
+):
+    if not isinstance(dest_dir, Path):
+        dest_dir = Path(dest_dir)
+
+    dest_dir.mkdir(exist_ok=True)
+    for preprocessor in maybe_load_preprocessors(
+        src_name_or_path, subfolder=src_subfolder, trust_remote_code=trust_remote_code
+    ):
+        preprocessor.save_pretrained(dest_dir)
+
+
+class DiffusersPretrainedConfig(PretrainedConfig):
+    """override to update `model_type`."""
+
+    def to_dict(self):
+        """
+        Serializes this instance to a Python dictionary.
+
+        Returns:
+            :obj:`Dict[str, any]`: Dictionary of all the attributes that make up this configuration instance.
+        """
+        output = copy.deepcopy(self.__dict__)
+        return output
+
+
+def get_stable_diffusion_configs(
+    models_for_export: Dict[str, Union["PreTrainedModel", "ModelMixin"]],
+):
+    subfolders = ["text_encoder", "text_encoder_2", "unet", "vae"]
+    configs = {}
+    for name in subfolders:
+        if name in models_for_export:
+            configs[name] = models_for_export[name].config
+
+    return configs

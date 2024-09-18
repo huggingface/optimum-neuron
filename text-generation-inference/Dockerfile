@@ -8,7 +8,7 @@ RUN tar -C /tgi -xf /tgi/sources.tar.gz --strip-components=1
 
 # Build cargo components (adapted from TGI original Dockerfile)
 # Note that the build image is aligned on the same Linux version as the base image (Debian bookworm/ Ubuntu 22.04)
-FROM lukemathwalker/cargo-chef:latest-rust-1.75-bookworm AS chef
+FROM lukemathwalker/cargo-chef:latest-rust-1.79-bookworm AS chef
 WORKDIR /usr/src
 
 ARG CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
@@ -39,6 +39,8 @@ COPY --from=tgi /tgi/proto proto
 COPY --from=tgi /tgi/benchmark benchmark
 COPY --from=tgi /tgi/router router
 COPY --from=tgi /tgi/launcher launcher
+# Remove this line once TGI has fixed the conflict
+RUN cargo update ureq --precise 2.9.7
 RUN cargo build --release --workspace --exclude benchmark
 
 # Python base image
@@ -53,14 +55,12 @@ RUN apt-get update -y \
     && apt-get clean
 RUN pip3 --no-cache-dir install --upgrade pip
 
-# VERSION is a mandatory parameter
-ARG VERSION
-RUN test -n ${VERSION:?}
-
 # Python server build image
 FROM base AS pyserver
 
-RUN apt-get update -y \
+ARG VERSION
+
+RUN test -n ${VERSION:?} && apt-get update -y \
  && apt-get install -y --no-install-recommends \
     make \
     python3-venv \
@@ -77,11 +77,14 @@ RUN VERBOSE=1 BUILDDIR=/pyserver/build PROTODIR=/pyserver/proto VERSION=${VERSIO
 # Neuron base image (used for deployment)
 FROM base AS neuron
 
+ARG VERSION
+
 # Install system prerequisites
-RUN apt-get update -y \
+RUN test -n ${VERSION:?} && apt-get update -y \
  && apt-get install -y --no-install-recommends \
     gnupg2 \
     wget \
+    python3-dev \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -91,27 +94,27 @@ RUN wget -qO - https://apt.repos.neuron.amazonaws.com/GPG-PUB-KEY-AMAZON-AWS-NEU
 # Install neuronx packages
 RUN apt-get update -y \
  && apt-get install -y --no-install-recommends \
-    aws-neuronx-dkms=2.15.9.0 \
-    aws-neuronx-collectives=2.20.11.0-c101c322e \
-    aws-neuronx-runtime-lib=2.20.11.0-b7d33e68b \
-    aws-neuronx-tools=2.17.0.0 \
+    aws-neuronx-dkms=2.17.17.0 \
+    aws-neuronx-collectives=2.21.46.0-69b77134b \
+    aws-neuronx-runtime-lib=2.21.41.0-fb1705f5f \
+    aws-neuronx-tools=2.18.3.0 \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
 ENV PATH="/opt/bin/:/opt/aws/neuron/bin:${PATH}"
 
 RUN pip3 install \
-    neuronx-cc==2.12.68.0 \
-    torch-neuronx==1.13.1.1.13.1 \
-    transformers-neuronx==0.9.474 \
+    neuronx-cc==2.14.227.0 \
+    torch-neuronx==2.1.2.2.2.0 \
+    transformers-neuronx==0.11.351 \
     --extra-index-url=https://pip.repos.neuron.amazonaws.com
 
 # Install HuggingFace packages
 RUN pip3 install \
-    hf_transfer
+    hf_transfer huggingface_hub
 
 # Install optimum-neuron
-COPY dist/optimum-neuron-${VERSION}.tar.gz optimum-neuron.tar.gz
+COPY dist/optimum_neuron-${VERSION}.tar.gz optimum-neuron.tar.gz
 RUN pip3 install optimum-neuron.tar.gz
 
 # TGI base env
@@ -125,7 +128,7 @@ COPY --from=builder /usr/src/target/release/text-generation-router /usr/local/bi
 COPY --from=builder /usr/src/target/release/text-generation-launcher /usr/local/bin/text-generation-launcher
 # Install python server
 COPY --from=pyserver /pyserver/build/dist dist
-RUN pip install dist/text-generation-server*.tar.gz
+RUN pip install dist/text_generation_server*.tar.gz
 
 # AWS Sagemaker compatible image
 FROM neuron as sagemaker
@@ -137,6 +140,6 @@ ENTRYPOINT ["./entrypoint.sh"]
 
 # Final image
 FROM neuron
-
-ENTRYPOINT ["text-generation-launcher"]
+COPY text-generation-inference/tgi-entrypoint.sh text-generation-inference/tgi_env.py /
+ENTRYPOINT ["/tgi-entrypoint.sh"]
 CMD ["--json-output"]

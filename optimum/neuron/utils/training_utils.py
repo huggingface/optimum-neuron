@@ -14,15 +14,11 @@
 # limitations under the License.
 """Training utilities"""
 
-import os
-import re
-from typing import TYPE_CHECKING, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, List, Optional, Type, Union
 
 import torch
 import transformers
 from accelerate import skip_first_batches as accelerate_skip_first_batches
-from torch.utils._pytree import tree_map
-from torch.utils.data import DataLoader, Dataset, IterableDataset
 from transformers import GenerationMixin
 from transformers.models.auto.modeling_auto import (
     MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING_NAMES,
@@ -44,21 +40,21 @@ from transformers.models.auto.modeling_auto import (
     MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING_NAMES,
     MODEL_MAPPING_NAMES,
 )
-from transformers.trainer_pt_utils import get_model_param_count as transformers_get_model_param_count
 from transformers.utils.logging import set_verbosity as set_verbosity_transformers
 
 from ...utils.logging import set_verbosity as set_verbosity_optimum
 from ..generation import GeneralNeuronGenerationMixin, NeuronGenerationMixin
-from . import is_torch_xla_available
-from .require_utils import requires_neuronx_distributed, requires_safetensors, requires_torch_xla
+from . import is_neuronx_distributed_available
+from .patching import replace_class_in_inheritance_hierarchy
+from .require_utils import requires_neuronx_distributed, requires_torch_xla
+
+
+if is_neuronx_distributed_available():
+    from neuronx_distributed.pipeline import NxDPPModel
 
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
-
-
-TRANSFORMERS_MIN_VERSION_FOR_XLA_FSDP = "4.30.0.dev0"
-TRANSFORMERS_MIN_VERSION_USE_ACCELERATE = "4.30.0.dev0"
 
 
 def _generate_supported_model_class_names(
@@ -124,30 +120,8 @@ for model_type in _SUPPORTED_MODEL_TYPES:
     _SUPPORTED_MODEL_NAMES.update(_generate_supported_model_class_names(*model_type))
 
 
-_MODEL_TYPE_TO_OPTLEVEL: Dict[str, str] = {
-    "default": "-O2",
-    "llama": "-O1",
-}
-
-
-def is_precompilation() -> bool:
-    return os.environ.get("NEURON_PARALLEL_COMPILE") == "1"
-
-
 def is_model_officially_supported(model: "PreTrainedModel") -> bool:
-    # In theory the type annotation is not correct since we can have also a XlaFullyShardedDataParallel
-    # but let's ignore it here.
-    if not is_torch_xla_available():
-        raise RuntimeError(
-            "is_model_officially_supported requires torch_xla to run, please install it by running: "
-            "pip install torch_xla"
-        )
-    from torch_xla.distributed.fsdp import XlaFullyShardedDataParallel
-
-    if isinstance(model, XlaFullyShardedDataParallel):
-        class_name = model.module.__class__.__name__
-    else:
-        class_name = model.__class__.__name__
+    class_name = model.__class__.__name__
     return class_name in _SUPPORTED_MODEL_NAMES
 
 
@@ -160,107 +134,14 @@ def is_topology_supported() -> bool:
     return num_devices in allowed_number_of_devices or num_devices % 32 == 0
 
 
-class FirstAndLastDataset(Dataset):
-    def __init__(
-        self, dataloader: DataLoader, num_repeat: int = 10, gradient_accumulation_steps: int = 1, world_size: int = 1
-    ):
-        self.dataloader = dataloader
-        self.num_repeat = num_repeat * gradient_accumulation_steps * world_size
-        self.samples = self.create_samples()
-
-    def _create_samples_for_map_style_dataset(self):
-        samples = []
-        num_samples = len(self.dataloader.dataset)
-        batch_size = self.dataloader.batch_size
-        if batch_size is None and self.dataloader.batch_sampler is not None:
-            batch_size = self.dataloader.batch_sampler.batch_size
-
-        # TODO: validate that.
-        if batch_size is None:
-            samples = [self.dataloader.dataset[0]] * self.num_repeat + [self.dataloader.dataset[-1]] * self.num_repeat
-            return samples
-
-        num_batches = num_samples // batch_size
-        remaining = num_samples % batch_size
-
-        iterator = iter(self.dataloader)
-        first_batch = next(iterator)
-        samples = [first_batch] * self.num_repeat
-
-        if num_batches >= 1 and remaining != 0:
-
-            def map_fn(example):
-                if isinstance(example, torch.Tensor):
-                    return example[:remaining]
-                else:
-                    return example
-
-            last_batch = tree_map(map_fn, first_batch)
-            samples += [last_batch] * self.num_repeat
-
-        return samples
-
-    def _create_samples_for_iterable_dataset(self):
-        # Will not work if the iterable dataset yields dynamic batch sizes.
-        iterator = iter(self.dataloader)
-        first_batch = next(iterator)
-        samples = [first_batch] * self.num_repeat
-        last_batch = None
-        while True:
-            try:
-                last_batch = next(iterator)
-            except StopIteration:
-                if last_batch is not None:
-                    samples += [last_batch] * self.num_repeat
-                break
-        return samples
-
-    def create_samples(self):
-        if isinstance(self.dataloader.dataset, IterableDataset):
-            return self._create_samples_for_iterable_dataset()
-        else:
-            return self._create_samples_for_map_style_dataset()
-
-    def __getitem__(self, idx: int):
-        return self.samples[idx]
-
-    def __len__(self):
-        return len(self.samples)
-
-
-orig_finfo = torch.finfo
-
-
-def patched_finfo(dtype):
-    if dtype is torch.float32:
-        return orig_finfo(torch.bfloat16)
-    return orig_finfo(dtype)
-
-
-def patch_generation_mixin_to_neuron_generation_mixin(model: "PreTrainedModel"):
+def patch_generation_mixin_to_neuron_generation_mixin(
+    model: "PreTrainedModel", neuron_generation_mixin_cls: Type = NeuronGenerationMixin
+):
     """
-    Changes the vanilla `GenerationMixin` class from Transformers to `NeuronGenerationMixin` in the model's
+    Changes the vanilla `GenerationMixin` class from Transformers to `neuron_generation_mixin_cls` in the model's
     inheritance. This allows to make the model Neuron-compatible for generation without much hassle.
     """
-    to_visit = [model.__class__]
-    should_stop = False
-    while to_visit and not should_stop:
-        cls = to_visit.pop(0)
-        if cls is object:
-            continue
-        bases = cls.__bases__
-        new_bases = []
-        for base in bases:
-            to_visit.append(base)
-            if base == GenerationMixin:
-                new_bases.append(NeuronGenerationMixin)
-                should_stop = True
-            elif base == NeuronGenerationMixin:
-                should_stop = True
-                new_bases.append(base)
-            else:
-                new_bases.append(base)
-        cls.__bases__ = tuple(new_bases)
+    return replace_class_in_inheritance_hierarchy(model, GenerationMixin, neuron_generation_mixin_cls)
 
 
 def patch_generation_mixin_to_general_neuron_generation_mixin(model: "PreTrainedModel"):
@@ -268,54 +149,9 @@ def patch_generation_mixin_to_general_neuron_generation_mixin(model: "PreTrained
     Changes the vanilla `GenerationMixin` class from Transformers to `GeneralNeuronGenerationMixin` in the model's
     inheritance. This allows to make the model Neuron-compatible for generation without much hassle.
     """
-    to_visit = [model.__class__]
-    should_stop = False
-    while to_visit and not should_stop:
-        cls = to_visit.pop(0)
-        if cls is object:
-            continue
-        bases = cls.__bases__
-        new_bases = []
-        for base in bases:
-            to_visit.append(base)
-            if base == GenerationMixin:
-                new_bases.append(GeneralNeuronGenerationMixin)
-                should_stop = True
-            elif base == GeneralNeuronGenerationMixin:
-                should_stop = True
-                new_bases.append(base)
-            else:
-                new_bases.append(base)
-        cls.__bases__ = tuple(new_bases)
-
-
-def prepare_environment_for_neuron():
-    """
-    Prepares the system environment for Transformers models training on AWS Neuron.
-    """
-    # Set compiler flag to compile for transformer model type
-    os.environ["NEURON_CC_FLAGS"] = os.environ.get("NEURON_CC_FLAGS", "") + " --model-type=transformer"
-    # Setting MALLOC_ARENA_MAX is needed because of a memory issue in XLA/glic, otherwise OOM can happen during
-    # checkpointing. More information here:
-    # https://awsdocs-neuron.readthedocs-hosted.com/en/latest/release-notes/torch/torch-neuronx/index.html#memory-leaking-in-glibc
-    os.environ["MALLOC_ARENA_MAX"] = "64"
-
-
-def set_neuron_cc_optlevel_for_model(model: "PreTrainedModel", optlevel: str = "auto"):
-    """
-    Sets the Neuron compiler optimization level considering both `model` and `optlevel`.
-    If `optlevel` is different than `"auto"`, it will be set to that value, otherwise the default value for a given
-    model is used.
-    """
-    if optlevel == "auto":
-        optlevel = _MODEL_TYPE_TO_OPTLEVEL.get(model.config.model_type, _MODEL_TYPE_TO_OPTLEVEL["default"])
-    neuron_cc_flags = os.environ.get("NEURON_CC_FLAGS", "")
-    match_ = re.search(r"-O[123]", neuron_cc_flags)
-    if match_:
-        neuron_cc_flags = neuron_cc_flags[: match_.start(0)] + f"{optlevel}" + neuron_cc_flags[match_.end(0) + 1 :]
-    else:
-        neuron_cc_flags += f" {optlevel} "
-    os.environ["NEURON_CC_FLAGS"] = neuron_cc_flags
+    return patch_generation_mixin_to_neuron_generation_mixin(
+        model, neuron_generation_mixin_cls=GeneralNeuronGenerationMixin
+    )
 
 
 def set_verbosity(verbosity: int):
@@ -346,28 +182,109 @@ def skip_first_batches(dataloader, num_batches=0):
 
 
 @requires_neuronx_distributed
-@requires_safetensors
-def torch_xla_safe_save_file(
-    tensors: Dict[str, torch.Tensor],
-    filename: Union[str, os.PathLike],
-    metadata: Optional[Dict[str, str]] = None,
-    master_only: bool = True,
-    global_master: bool = False,
-):
+def _get_model_param_count(model: Union[torch.nn.Module, "NxDPPModel"]):
+    """Counts the number of parameters of the model."""
+    import torch_xla.core.xla_model as xm
+    from neuronx_distributed.parallel_layers.parallel_state import (
+        get_pipeline_model_parallel_group,
+        get_pipeline_model_parallel_rank,
+        get_pipeline_model_parallel_size,
+        get_tensor_model_parallel_size,
+        model_parallel_is_initialized,
+    )
+    from neuronx_distributed.pipeline import NxDPPModel
+    from neuronx_distributed.pipeline.partition import analyze_shared_weights_across_stages
+
+    if isinstance(model, NxDPPModel):
+        named_parameters = model.local_named_parameters()
+        shared = analyze_shared_weights_across_stages(model.traced_model, model.partitions)
+        shared_parameters_across_pipeline_stages = {
+            t[0]: t[1] for shared_parameter_info in shared for t in shared_parameter_info
+        }
+    else:
+        named_parameters = model.named_parameters()
+        shared_parameters_across_pipeline_stages = {}
+
+    # We make sure `named_parameters` is not an iterator because we are going to iterate over it twice.
+    named_parameters = list(named_parameters)
+
+    if torch.distributed.is_initialized() and model_parallel_is_initialized():
+        tp_size = get_tensor_model_parallel_size()
+        pp_size = get_pipeline_model_parallel_size()
+        pp_rank = get_pipeline_model_parallel_rank()
+    else:
+        tp_size = 1
+        pp_size = 1
+        pp_rank = 0
+
+    def numel(parameter_name, parameter) -> int:
+        should_count_param = shared_parameters_across_pipeline_stages.get(parameter_name, pp_rank) == pp_rank
+
+        num_elements = parameter.numel()
+        if getattr(parameter, "tensor_model_parallel", False):
+            num_elements *= tp_size
+
+        if parameter.__class__.__name__ == "Params4bit":
+            if hasattr(parameter, "element_size"):
+                num_bytes = parameter.element_size()
+            elif not hasattr(parameter, "quant_storage"):
+                num_bytes = 1
+            else:
+                num_bytes = parameter.quant_storage.itemsize
+            num_elements = num_elements * 2 * num_bytes
+
+        return num_elements if should_count_param else 0
+
+    def reduce_param_count_over_pp_ranks(param_count: int):
+        param_count = torch.tensor(param_count, dtype=torch.float32).to(xm.xla_device())
+        param_count = xm.all_reduce(xm.REDUCE_SUM, param_count, groups=get_pipeline_model_parallel_group(as_list=True))
+        xm.mark_step()
+        param_count = int(param_count.detach().cpu().item())
+        return param_count
+
+    all_param_count = sum(numel(n, p) for n, p in named_parameters)
+    trainable_param_count = sum(numel(n, p) for n, p in named_parameters if p.requires_grad)
+    if pp_size > 1:
+        all_param_count = reduce_param_count_over_pp_ranks(all_param_count)
+        trainable_param_count = reduce_param_count_over_pp_ranks(trainable_param_count)
+
+    return trainable_param_count, all_param_count
+
+
+@requires_neuronx_distributed
+def get_model_param_count(model: Union[torch.nn.Module, "NxDPPModel"], trainable_only: bool = False) -> int:
+    trainable_param_count, all_param_count = _get_model_param_count(model)
+    if trainable_only:
+        output = trainable_param_count
+    else:
+        output = all_param_count
+    return output
+
+
+@requires_neuronx_distributed
+def is_main_worker_for_metrics() -> bool:
+    from neuronx_distributed.parallel_layers.parallel_state import (
+        get_data_parallel_rank,
+        get_pipeline_model_parallel_rank,
+        get_pipeline_model_parallel_size,
+        get_tensor_model_parallel_rank,
+    )
+
+    if not torch.distributed.is_initialized():
+        return True
+
+    dp_rank = get_data_parallel_rank()
+    tp_rank = get_tensor_model_parallel_rank()
+    pp_rank = get_pipeline_model_parallel_rank()
+    pp_size = get_pipeline_model_parallel_size()
+
+    can_log_loss = dp_rank == tp_rank == 0 and pp_rank == pp_size - 1
+
+    return can_log_loss
+
+
+def is_main_worker_for_metrics_method(self) -> bool:
     """
-    Torch XLA compatible implementation of `safetensors.torch.save_file`.
+    Method version of `is_main_worker_for_metrics`, useful when this is used to patch a method from the Trainer class.
     """
-    from neuronx_distributed.parallel_layers.utils import move_all_tensor_to_cpu
-    from safetensors.torch import save_file
-    from torch_xla.core.xla_model import is_master_ordinal
-
-    should_write_data = not master_only or is_master_ordinal(local=not global_master)
-    cpu_data = move_all_tensor_to_cpu(tensors, convert=should_write_data)
-    if should_write_data:
-        save_file(cpu_data, filename, metadata=metadata)
-
-
-def get_model_param_count(model, trainable_only=False):
-    """Wrapper around `transformers.trainer_pt_utils.get_model_param_count` to handle tensor parallelism."""
-    # TODO: make it work for TP
-    return transformers_get_model_param_count(model, trainable_only=trainable_only)
+    return is_main_worker_for_metrics()

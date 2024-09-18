@@ -15,28 +15,33 @@
 """Base class for text-generation model architectures on neuron devices."""
 
 import copy
+import functools
 import logging
 import os
+import re
 import shutil
+import warnings
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Optional, Tuple, Union
 
-from huggingface_hub import HfApi, get_token, snapshot_download
-from huggingface_hub.utils import is_google_colab
+from huggingface_hub import HfApi, snapshot_download
 from transformers import AutoConfig, AutoModel, GenerationConfig
 
 from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..exporters.tasks import TasksManager
-from ..modeling_base import OptimizedModel
+from .modeling_base import NeuronModel
 from .utils import ModelCacheEntry, hub_neuronx_cache, is_transformers_neuronx_available
 from .utils.require_utils import requires_transformers_neuronx
 from .utils.version_utils import check_compiler_compatibility, get_neuronxcc_version
 
 
+NEURON_DEV_PATTERN = re.compile(r"^neuron\d+$", re.IGNORECASE)
+MAJORS_FILE = "/proc/devices"
+NEURON_MAJOR_LINE = re.compile(r"^\s*(\d+)\s+neuron\s*$")
+
 if is_transformers_neuronx_available():
     from transformers_neuronx.config import ContinuousBatchingConfig, NeuronConfig
-    from transformers_neuronx.module import save_split
 
 
 if TYPE_CHECKING:
@@ -47,7 +52,21 @@ logger = logging.getLogger(__name__)
 
 
 def get_exporter(config, task):
-    return TasksManager.get_exporter_config_constructor(model_type=config.model_type, exporter="neuron", task=task)()
+    return TasksManager.get_exporter_config_constructor(
+        model_type=config.model_type, exporter="neuron", task=task, library_name="transformers"
+    )()
+
+
+# Note: with python 3.9, functools.cache would be more suited
+@functools.lru_cache()
+def get_neuron_major() -> int:
+    with open(MAJORS_FILE, "r") as f:
+        for l in f.readlines():
+            m = NEURON_MAJOR_LINE.match(l)
+            if m:
+                return int(m.group(1))
+    logger.error("No major for neuron device could be found in /proc/devices!")
+    return -1
 
 
 @requires_transformers_neuronx
@@ -57,7 +76,25 @@ def get_available_cores() -> int:
     This number depends first on the actual number of cores, then on the
     content of the NEURON_RT_NUM_CORES and NEURON_RT_VISIBLE_CORES variables.
     """
-    max_cores = len(os.listdir("/sys/class/neuron_device/")) * 2
+    device_count = 0
+    neuron_major = get_neuron_major()
+    root, _, files = next(os.walk("/dev"))
+    # Just look for devices in dev, non recursively
+    for f in files:
+        if neuron_major > 0:
+            try:
+                dev_major = os.major(os.stat("{}/{}".format(root, f)).st_rdev)
+                if dev_major == neuron_major:
+                    device_count += 1
+            except FileNotFoundError:
+                # Just to avoid race conditions where some devices would be deleted while running this
+                pass
+        else:
+            # We were not able to get the neuron major properly we fallback on counting neuron devices based on the
+            # device name
+            if NEURON_DEV_PATTERN.match(f):
+                device_count += 1
+    max_cores = device_count * 2
     num_cores = os.environ.get("NEURON_RT_NUM_CORES", max_cores)
     if num_cores != max_cores:
         num_cores = int(num_cores)
@@ -74,7 +111,7 @@ def get_available_cores() -> int:
     return visible_cores
 
 
-class NeuronDecoderModel(OptimizedModel):
+class NeuronDecoderModel(NeuronModel):
     """
     Base class to convert and run pre-trained transformers decoder models on Neuron devices.
 
@@ -142,11 +179,13 @@ class NeuronDecoderModel(OptimizedModel):
             # Continuous batching is always enabled for models that support it because static batching
             # is broken for these models:  see https://github.com/aws-neuron/transformers-neuronx/issues/79
             tnx_kwargs["neuron_config"] = NeuronConfig(
-                continuous_batching=ContinuousBatchingConfig(batch_size_for_shared_caches=batch_size)
+                continuous_batching=ContinuousBatchingConfig(batch_size_for_shared_caches=batch_size),
+                attention_layout=exporter.attention_layout,
             )
             tnx_kwargs["n_positions"] = [sequence_length]
             tnx_kwargs["context_length_estimate"] = [sequence_length]
         else:
+            tnx_kwargs["neuron_config"] = NeuronConfig(attention_layout=exporter.attention_layout)
             tnx_kwargs["n_positions"] = sequence_length
 
         # Instantiate neuronx model
@@ -185,7 +224,7 @@ class NeuronDecoderModel(OptimizedModel):
     def _create_checkpoint(
         cls,
         model_id: str,
-        use_auth_token: Optional[Union[bool, str]] = None,
+        token: Optional[Union[bool, str]] = None,
         revision: Optional[str] = None,
         force_download: bool = False,
         cache_dir: Optional[str] = None,
@@ -203,18 +242,25 @@ class NeuronDecoderModel(OptimizedModel):
             revision=revision,
             framework="pt",
             cache_dir=cache_dir,
-            use_auth_token=use_auth_token,
+            token=token,
             local_files_only=local_files_only,
             force_download=force_download,
             trust_remote_code=trust_remote_code,
+            torch_dtype="auto",
             **kwargs,
         )
 
+        if model.generation_config is not None:
+            with warnings.catch_warnings(record=True) as caught_warnings:
+                model.generation_config.validate()
+            if len(caught_warnings) > 0:
+                logger.warning("Invalid generation config: recreating it from model config.")
+                model.generation_config = GenerationConfig.from_model_config(model.config)
+
         # Save the model checkpoint in a temporary directory
         checkpoint_dir = TemporaryDirectory()
-        model.save_pretrained(
-            checkpoint_dir.name, save_function=save_split, safe_serialization=False, max_shard_size="10000GB"
-        )
+        os.chmod(checkpoint_dir.name, 0o775)
+        model.save_pretrained(checkpoint_dir.name)
         return checkpoint_dir
 
     @classmethod
@@ -222,7 +268,7 @@ class NeuronDecoderModel(OptimizedModel):
         cls,
         model_id: str,
         config: "PretrainedConfig",
-        use_auth_token: Optional[str] = None,
+        token: Optional[Union[bool, str]] = None,
         revision: Optional[str] = None,
         task: Optional[str] = None,
         batch_size: Optional[int] = None,
@@ -239,7 +285,7 @@ class NeuronDecoderModel(OptimizedModel):
         else:
             checkpoint_id = model_id
             # Get the exact checkpoint revision (SHA1)
-            api = HfApi(token=use_auth_token)
+            api = HfApi(token=token)
             model_info = api.repo_info(model_id, revision=revision)
             checkpoint_revision = model_info.sha
 
@@ -247,8 +293,13 @@ class NeuronDecoderModel(OptimizedModel):
             batch_size = 1
         # If the sequence_length was not specified, deduce it from the model configuration
         if sequence_length is None:
-            # Note: for older models, max_position_embeddings is an alias for n_positions
-            sequence_length = config.max_position_embeddings
+            if hasattr(config, "n_positions"):
+                sequence_length = config.n_positions
+            elif hasattr(config, "max_position_embeddings"):
+                sequence_length = config.max_position_embeddings
+            else:
+                # Use transformers-neuronx default
+                sequence_length = 2048
         if num_cores is None:
             # Use all available cores
             num_cores = get_available_cores()
@@ -285,7 +336,7 @@ class NeuronDecoderModel(OptimizedModel):
         cls,
         model_id: str,
         config: "PretrainedConfig",
-        use_auth_token: Optional[str] = None,
+        token: Optional[Union[bool, str]] = None,
         revision: Optional[str] = None,
         task: Optional[str] = None,
         batch_size: Optional[int] = None,
@@ -301,7 +352,7 @@ class NeuronDecoderModel(OptimizedModel):
         new_config = cls.get_export_config(
             model_id,
             config,
-            use_auth_token=use_auth_token,
+            token=token,
             revision=revision,
             task=task,
             batch_size=batch_size,
@@ -310,18 +361,21 @@ class NeuronDecoderModel(OptimizedModel):
             auto_cast_type=auto_cast_type,
         )
 
-        # Instantiate the transformers model checkpoint
-        checkpoint_dir = cls._create_checkpoint(
-            model_id,
-            task=new_config.neuron["task"],
-            revision=revision,
-            **kwargs,
-        )
+        if os.path.isdir(model_id):
+            checkpoint_dir = model_id
+        else:
+            # Create the local transformers model checkpoint
+            checkpoint_dir = cls._create_checkpoint(
+                model_id,
+                task=new_config.neuron["task"],
+                revision=revision,
+                **kwargs,
+            )
 
         # Try to reload the generation config (if any)
         generation_config = None
         try:
-            generation_config = GenerationConfig.from_pretrained(model_id)
+            generation_config = GenerationConfig.from_pretrained(model_id, revision=revision)
         except OSError:
             pass
 
@@ -341,7 +395,7 @@ class NeuronDecoderModel(OptimizedModel):
         cls,
         model_id: Union[str, Path],
         config: "PretrainedConfig",
-        use_auth_token: Optional[str] = None,
+        token: Optional[Union[bool, str]] = None,
         revision: Optional[str] = None,
         **kwargs,
     ) -> "NeuronDecoderModel":
@@ -356,7 +410,7 @@ class NeuronDecoderModel(OptimizedModel):
 
         model_path = model_id
         if not os.path.isdir(model_id):
-            model_path = snapshot_download(model_id, token=use_auth_token, revision=revision)
+            model_path = snapshot_download(model_id, token=token, revision=revision)
 
         checkpoint_dir, compiled_dir = cls._get_neuron_dirs(model_path)
         if not os.path.isdir(checkpoint_dir):
@@ -370,7 +424,7 @@ class NeuronDecoderModel(OptimizedModel):
                 checkpoint_id,
                 task=task,
                 revision=checkpoint_revision,
-                use_auth_token=use_auth_token,
+                token=token,
                 **kwargs,
             )
         assert os.path.isdir(compiled_dir)
@@ -378,7 +432,7 @@ class NeuronDecoderModel(OptimizedModel):
         # Try to reload the generation config (if any)
         generation_config = None
         try:
-            generation_config = GenerationConfig.from_pretrained(model_id)
+            generation_config = GenerationConfig.from_pretrained(model_id, revision=revision)
         except OSError:
             pass
 
@@ -390,21 +444,19 @@ class NeuronDecoderModel(OptimizedModel):
     def _save_pretrained(self, save_directory: Union[str, Path]):
         dst_checkpoint_path, dst_compiled_path = self._get_neuron_dirs(save_directory)
 
-        def copy_dir_to_path(src_dir: Union[str, Path, TemporaryDirectory], dst_path: Union[str, Path]):
-            if isinstance(src_dir, TemporaryDirectory):
-                shutil.copytree(src_dir.name, dst_path, dirs_exist_ok=True)
-            elif not os.path.samefile(src_dir, dst_path):
-                os.symlink(dst_path, src_dir)
-
-        # Copy checkpoint directory (it always exists)
-        copy_dir_to_path(self.checkpoint_dir, dst_checkpoint_path)
+        neuron_config = getattr(self.config, "neuron")
+        checkpoint_id = neuron_config.get("checkpoint_id", None)
+        if checkpoint_id is None:
+            # Model was exported from a local path, so we need to save the checkpoint
+            shutil.copytree(self.checkpoint_dir, dst_checkpoint_path, dirs_exist_ok=True)
         self.checkpoint_dir = dst_checkpoint_path
+
         # Save or create compiled directory
         if self.compiled_dir is None:
             # The compilation artifacts have never been saved, do it now
             self.model.save(dst_compiled_path)
         else:
-            copy_dir_to_path(self.compiled_dir, dst_compiled_path)
+            shutil.copytree(self.compiled_dir, dst_compiled_path)
         self.compiled_dir = dst_compiled_path
         self.generation_config.save_pretrained(save_directory)
 
@@ -414,24 +466,13 @@ class NeuronDecoderModel(OptimizedModel):
         repository_id: str,
         private: Optional[bool] = None,
         revision: Optional[str] = None,
-        use_auth_token: Union[bool, str] = True,
+        token: Union[bool, str] = True,
         endpoint: Optional[str] = None,
     ) -> str:
-        if isinstance(use_auth_token, str):
-            huggingface_token = use_auth_token
-        elif use_auth_token:
-            huggingface_token = get_token()
-        else:
-            raise ValueError("You need to provide `use_auth_token` to be able to push to the hub")
         api = HfApi(endpoint=endpoint)
 
-        user = api.whoami(huggingface_token)
-        if is_google_colab():
-            # Only in Google Colab to avoid the warning message
-            self.git_config_username_and_email(git_email=user["email"], git_user=user["fullname"])
-
         api.create_repo(
-            token=huggingface_token,
+            token=token,
             repo_id=repository_id,
             exist_ok=True,
             private=private,
@@ -445,7 +486,7 @@ class NeuronDecoderModel(OptimizedModel):
         api.upload_folder(
             repo_id=repository_id,
             folder_path=save_directory,
-            token=huggingface_token,
+            token=token,
             revision=revision,
             ignore_patterns=ignore_patterns,
         )

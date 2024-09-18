@@ -5,10 +5,12 @@ on:
     branches: [ main ]
     paths:
       - "optimum/exporters/neuron/*.py"
+      - ".github/workflows/test_inf2_full_export.yml"
   pull_request:
     branches: [ main ]
     paths:
       - "optimum/exporters/neuron/*.py"
+      - ".github/workflows/test_inf2_full_export.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -17,20 +19,28 @@ concurrency:
 jobs:
   do-the-job:
     name: Run INF2 full export tests
-    runs-on: [self-hosted, 1-aws-inf2, 32-cpu, ci] # run the job on the newly created runner
-    env:
-      AWS_REGION: us-east-1
+    runs-on:
+      group: aws-inf2-8xlarge
     steps:
-      - name: Check AMI
-        run: dpkg -l | grep neuron
+      - name: Install Neuron runtime
+        run: |
+          . /etc/os-release
+          sudo tee /etc/apt/sources.list.d/neuron.list > /dev/null <<EOF
+          deb https://apt.repos.neuron.amazonaws.com ${VERSION_CODENAME} main
+          EOF
+          wget -qO - https://apt.repos.neuron.amazonaws.com/GPG-PUB-KEY-AMAZON-AWS-NEURON.PUB | sudo apt-key add -
+          sudo apt-get update -y
+          sudo apt-get install aws-neuronx-tools=2.17.1.0 aws-neuronx-runtime-lib=2.20.22.0-1b3ca6425 aws-neuronx-collectives=2.20.22.0-c101c322e  -y
+          export PATH=/opt/aws/neuron/bin:$PATH
       - name: Checkout
         uses: actions/checkout@v2
       - name: Install python dependencies
         run: |
-          sudo apt install python3.8-venv -y
+          sudo apt install python3-venv python3-dev -y
           python3 -m venv aws_neuron_venv_pytorch
           source aws_neuron_venv_pytorch/bin/activate
           python -m pip install -U pip
+          pip install --upgrade setuptools==69.5.1
           python -m pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
           python -m pip install .[neuronx,tests]
       - name: Run exporters tests

@@ -15,8 +15,8 @@
 
 from .base import Parallelizer
 from .checkpointing import (
-    consolidate_tensor_parallel_checkpoints,
-    consolidate_tensor_parallel_checkpoints_to_unified_checkpoint,
+    consolidate_model_parallel_checkpoints,
+    consolidate_model_parallel_checkpoints_to_unified_checkpoint,
 )
 from .parallelizers_manager import ParallelizersManager
 from .utils import lazy_load_for_parallelism, make_optimizer_constructor_lazy

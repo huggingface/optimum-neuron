@@ -37,7 +37,7 @@ from ..exporters.neuron import (
 from ..exporters.tasks import TasksManager
 from ..utils.save_utils import maybe_load_preprocessors
 from .generation import NeuronGenerationMixin
-from .modeling_base import NeuronBaseModel
+from .modeling_traced import NeuronTracedModel
 from .utils import (
     DECODER_NAME,
     ENCODER_NAME,
@@ -55,7 +55,7 @@ if is_neuronx_available():
 logger = logging.getLogger(__name__)
 
 
-class NeuronModelForConditionalGeneration(NeuronBaseModel, ABC):
+class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
     base_model_prefix = "neuron_model"
     config_name = "config.json"
 
@@ -157,7 +157,7 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel, ABC):
         cls,
         model_id: Union[str, Path],
         config: "PretrainedConfig",
-        use_auth_token: Optional[Union[bool, str]] = None,
+        token: Optional[Union[bool, str]] = None,
         revision: Optional[str] = None,
         force_download: bool = False,
         cache_dir: Optional[str] = None,
@@ -176,7 +176,7 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel, ABC):
                 model_id,
                 cache_dir=cache_dir,
                 local_files_only=local_files_only,
-                use_auth_token=use_auth_token,
+                token=token,
                 revision=revision,
                 force_download=force_download,
                 ignore_patterns=["*.msgpack", "*.safetensors", "*.bin"],  # only download *.neuron artifacts
@@ -224,7 +224,7 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel, ABC):
                 cache_dir=cache_dir,
                 force_download=force_download,
                 local_files_only=local_files_only,
-                use_auth_token=use_auth_token,
+                token=token,
                 revision=revision,
                 subfolder=os.path.join(subfolder, DECODER_NAME),
             )
@@ -255,7 +255,7 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel, ABC):
         cls,
         model_id: str,
         config: "PretrainedConfig",
-        use_auth_token: Optional[Union[bool, str]] = None,
+        token: Optional[Union[bool, str]] = None,
         revision: str = "main",
         force_download: bool = True,
         cache_dir: Optional[str] = None,
@@ -310,7 +310,7 @@ class NeuronModelForConditionalGeneration(NeuronBaseModel, ABC):
             revision=revision,
             force_download=force_download,
             local_files_only=local_files_only,
-            use_auth_token=use_auth_token,
+            token=token,
             do_validation=False,
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
@@ -531,7 +531,7 @@ class _NeuronSeq2SeqModelPart:
     def __init__(
         self,
         model: torch.jit._script.ScriptModule,
-        parent_model: NeuronBaseModel,
+        parent_model: NeuronTracedModel,
         config: Optional["PretrainedConfig"] = None,
         neuron_config: Optional["NeuronDefaultConfig"] = None,
         model_type: str = "encoder",
@@ -562,7 +562,7 @@ class NeuronEncoder(_NeuronSeq2SeqModelPart):
     def __init__(
         self,
         model: torch.jit._script.ScriptModule,
-        parent_model: NeuronBaseModel,
+        parent_model: NeuronTracedModel,
         config: Optional["PretrainedConfig"] = None,
         neuron_config: Optional[Dict[str, str]] = None,
     ):
@@ -585,7 +585,7 @@ class NeuronDecoder(_NeuronSeq2SeqModelPart):
     def __init__(
         self,
         model: torch.jit._script.ScriptModule,
-        parent_model: NeuronBaseModel,
+        parent_model: NeuronTracedModel,
         config: Optional["PretrainedConfig"] = None,
         neuron_config: Optional[Dict[str, str]] = None,
     ):

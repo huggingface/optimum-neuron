@@ -27,8 +27,9 @@ class TextGenerationService(generate_pb2_grpc.TextGenerationServiceServicer):
 
     async def ClearCache(self, request, context):
         if request.HasField("id"):
-            logger.warning(f"Clearing all batches instead of batch {request.id} only.")
-        self.generator.clear()
+            self.generator.clear(request.id)
+        else:
+            self.generator.clear()
         return generate_pb2.ClearCacheResponse()
 
     async def FilterBatch(self, request, context):
@@ -49,16 +50,17 @@ class TextGenerationService(generate_pb2_grpc.TextGenerationServiceServicer):
 
 
 def serve(
-    model_path: str,
+    model_id: str,
+    revision: str,
     uds_path: Path,
 ):
-    async def serve_inner(model_path: str):
+    async def serve_inner(model_id: str, revision: str):
         unix_socket_template = "unix://{}-{}"
         local_url = unix_socket_template.format(uds_path, 0)
         server_urls = [local_url]
 
         try:
-            generator = NeuronGenerator.from_pretrained(model_path)
+            generator = NeuronGenerator.from_pretrained(model_id, revision)
         except Exception:
             logger.exception("Error when initializing model")
             raise
@@ -84,4 +86,4 @@ def serve(
             logger.info("Signal received. Shutting down")
             await server.stop(0)
 
-    asyncio.run(serve_inner(model_path))
+    asyncio.run(serve_inner(model_id, revision))

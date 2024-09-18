@@ -1,6 +1,6 @@
 import copy
 import logging
-from typing import Optional
+from typing import TYPE_CHECKING, List, Optional
 
 import torch
 from transformers.generation import (
@@ -13,6 +13,9 @@ from transformers.generation.utils import GenerationMode
 
 from .logits_process import FusedLogitsWarper
 
+
+if TYPE_CHECKING:
+    from transformers import PreTrainedTokenizer
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +44,7 @@ class TokenSelector:
         mode: GenerationMode,
         logits_processor: LogitsProcessorList,
         stopping_criteria: StoppingCriteriaList,
-        eos_token_id: int,
+        eos_token_ids: List[int],
         pad_token_id: int,
         logits_warper: Optional[LogitsProcessorList] = None,
         seed: Optional[int] = 0,
@@ -49,7 +52,7 @@ class TokenSelector:
         self.mode = mode
         self.logits_processor = logits_processor
         self.stopping_criteria = stopping_criteria
-        self.eos_token_id = eos_token_id
+        self.eos_token_ids = eos_token_ids
         self.pad_token_id = pad_token_id
         self.logits_warper = logits_warper
         self.generator = torch.Generator()
@@ -63,6 +66,7 @@ class TokenSelector:
         model: GenerationMixin,
         max_seq_length: int,
         stopping_criteria: Optional[StoppingCriteriaList] = None,
+        tokenizer: Optional["PreTrainedTokenizer"] = None,
         seed: Optional[int] = 0,
     ) -> "TokenSelector":
         r"""Creates the `TokenSelector` for a specific generation configuration.
@@ -78,7 +82,9 @@ class TokenSelector:
                 The maximum number of input + generated tokens for this model. It depends on the model compilation parameters.
             stopping_criteria (`Optional[transformers.generation.StoppingCriteriaList], defaults to `None`):
                 Custom stopping criteria that complement the default stopping criteria built from arguments and a
-                generation config.
+                generation config
+            tokenizer (`Optional[transformers.PreTrainedTokenizer]`, default to `None`):
+                A tokenizer used when stop strings are passed to generate.
             seed(`Optional[int]`):
                 The optional seed for sampling. Defaults to zero.
         Return:
@@ -86,6 +92,7 @@ class TokenSelector:
         """
         generation_config.validate()
         generation_config = copy.deepcopy(generation_config)
+        model._prepare_special_tokens(generation_config)
 
         unsupported_generation_flags = [
             "output_attentions",
@@ -128,17 +135,20 @@ class TokenSelector:
         )
         if stopping_criteria is None:
             stopping_criteria = StoppingCriteriaList()
-        stopping_criteria = model._get_stopping_criteria(generation_config, stopping_criteria=stopping_criteria)
+        stopping_criteria = model._get_stopping_criteria(
+            generation_config, stopping_criteria=stopping_criteria, tokenizer=tokenizer
+        )
 
-        # The generation requires special tokens
-        eos_token_id = generation_config.eos_token_id
         # This is not supposed to happen for any of the models we support
-        assert eos_token_id is not None and not isinstance(eos_token_id, list)
+        eos_token_id = generation_config.eos_token_id
+        assert eos_token_id is not None
+        # The generation requires special tokens
+        eos_token_ids = eos_token_id if isinstance(eos_token_id, list) else [eos_token_id]
         if generation_config.pad_token_id is None:
-            logger.warning(f"Setting `pad_token_id` to `eos_token_id`:{eos_token_id} for open-end generation.")
-            generation_config.pad_token_id = eos_token_id
+            logger.warning(f"Setting `pad_token_id` to `eos_token_id`:{eos_token_ids[0]} for open-ended generation.")
+            generation_config.pad_token_id = eos_token_ids[0]
 
-        generation_mode = model._get_generation_mode(generation_config, None)
+        generation_mode = generation_config.get_generation_mode()
         if generation_mode not in [GenerationMode.GREEDY_SEARCH, GenerationMode.SAMPLE]:
             raise ValueError("Unsupported generation mode")
 
@@ -151,7 +161,7 @@ class TokenSelector:
             logits_processor=logits_processor,
             stopping_criteria=stopping_criteria,
             logits_warper=logits_warper,
-            eos_token_id=eos_token_id,
+            eos_token_ids=eos_token_ids,
             pad_token_id=generation_config.pad_token_id,
             seed=seed,
         )

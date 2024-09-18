@@ -15,7 +15,6 @@
 """Utilities related to CLI arguments."""
 
 import os
-from collections import OrderedDict
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 
 from ...utils import logging
@@ -137,23 +136,23 @@ def convert_neuronx_compiler_args_to_neuron(
 
 
 def store_compilation_config(
-    config: Union["PretrainedConfig", OrderedDict],
+    config: Union["PretrainedConfig", Dict],
     input_shapes: Dict[str, int],
     compiler_kwargs: Dict[str, Any],
-    input_names: List[str],
-    output_names: List[str],
     dynamic_batch_size: bool,
     compiler_type: str,
     compiler_version: str,
     inline_weights_to_neff: bool,
     optlevel: str,
     model_type: Optional[str] = None,
-    task: str = None,
+    task: Optional[str] = None,
+    input_names: Optional[List[str]] = None,
+    output_names: Optional[List[str]] = None,
     output_attentions: bool = False,
     output_hidden_states: bool = False,
     **kwargs,
 ):
-    if isinstance(config, OrderedDict):
+    if isinstance(config, Dict):
         update_func = config.__setitem__
     else:
         update_func = config.__setattr__
@@ -166,8 +165,9 @@ def store_compilation_config(
 
     # Add input shapes during compilation to the config
     for axis, shape in input_shapes.items():
-        axis = f"static_{axis}"
-        config_args[axis] = shape
+        if shape is not None:
+            axis = f"static_{axis}"
+            config_args[axis] = shape
 
     config_args["dynamic_batch_size"] = dynamic_batch_size
 

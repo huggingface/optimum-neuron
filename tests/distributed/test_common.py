@@ -24,8 +24,9 @@ from transformers import LlamaForCausalLM
 
 from optimum.neuron.accelerate.optimizer import NeuronAcceleratedOptimizer
 from optimum.neuron.accelerate.utils.dataclasses import NeuronDistributedType
+from optimum.neuron.distributed.checkpointing import consolidate_model_parallel_checkpoints_to_unified_checkpoint
 from optimum.neuron.distributed.utils import (
-    TENSOR_PARALLEL_SHARDS_DIR_NAME,
+    MODEL_PARALLEL_SHARDS_DIR_NAME,
     make_optimizer_constructor_lazy,
 )
 from optimum.neuron.utils.import_utils import (
@@ -34,8 +35,8 @@ from optimum.neuron.utils.import_utils import (
 )
 from optimum.neuron.utils.testing_utils import is_trainium_test
 
-from .distributed import DistributedTest
-from .utils import create_accelerator_for_mp, create_static_seed_patcher, get_model, get_model_inputs
+from .. import DistributedTest
+from ..utils import StaticSeedPatcher, create_accelerator, get_model, get_model_inputs
 
 
 if is_torch_xla_available():
@@ -56,6 +57,7 @@ if TYPE_CHECKING:
     from transformers import PreTrainedModel
 
 MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-random"
+MODEL_NAME_WITH_4_KV_HEADS = "michaelbenayoun/llama-2-tiny-4kv-heads-16layers-random"
 
 
 def get_tiny_llama_model(
@@ -113,7 +115,7 @@ class TestCommonDistributed(DistributedTest):
     def parallel_sizes(self, request):
         return request.param
 
-    @pytest.fixture(scope="class", params=[False, True], ids=["no_lazy_load", "lazy_load"])
+    @pytest.fixture(scope="class", params=[False, True], ids=["regular_load", "lazy_load"])
     def lazy_load(self, request):
         return request.param
 
@@ -121,7 +123,7 @@ class TestCommonDistributed(DistributedTest):
     def from_config(self, request):
         return request.param
 
-    @pytest.fixture(scope="class", params=[False, True], ids=["no_lazy_optimizer", "lazy_optimizer"])
+    @pytest.fixture(scope="class", params=[False, True], ids=["regular_optimizer", "lazy_optimizer"])
     def lazy_optimizer(self, request):
         return request.param
 
@@ -129,16 +131,20 @@ class TestCommonDistributed(DistributedTest):
     def with_groups(self, request):
         return request.param
 
-    @pytest.fixture(scope="class", params=[False, True], ids=["no_zero_1", "zero_1"])
+    @pytest.fixture(scope="class", params=[False, True], ids=["without_zero_1", "with_zero_1"])
     def zero_1(self, request):
         return request.param
 
-    @pytest.fixture(scope="class", params=[1, 12], ids=["no_grad_acc", "grad_acc=12"])
+    @pytest.fixture(scope="class", params=[1, 12], ids=["without_grad_acc", "with_grad_acc=12"])
     def gradient_accumulation_steps(self, request):
         return request.param
 
-    @pytest.fixture(scope="class", params=[None, 0.01], ids=["no_clip_grad_norm", "clip_grad_norm"])
+    @pytest.fixture(scope="class", params=[None, 0.01], ids=["without_clip_grad_norm", "with_clip_grad_norm"])
     def max_grad_norm(self, request):
+        return request.param
+
+    @pytest.fixture(scope="class", params=[False, True], ids=["xser_disabled", "xser_enabled"])
+    def use_xser(self, request):
         return request.param
 
     def test_optimizer_parameters_match_model_parameters(
@@ -152,7 +158,7 @@ class TestCommonDistributed(DistributedTest):
         model = get_tiny_llama_model(tp_size=tp_size, pp_size=pp_size, lazy_load=lazy_load)
         optimizer = get_optimizer(model, lazy_optimizer, with_groups)
 
-        accelerator = create_accelerator_for_mp(tp_size, pp_size, zero_1=zero_1)
+        accelerator = create_accelerator(tp_size, pp_size, zero_1=zero_1)
         if tp_size > 1 or pp_size > 1:
             assert accelerator.state.distributed_type is NeuronDistributedType.MODEL_PARALLELISM
 
@@ -191,7 +197,7 @@ class TestCommonDistributed(DistributedTest):
 
         optimizer = get_optimizer(model, with_groups=False)
 
-        accelerator = create_accelerator_for_mp(
+        accelerator = create_accelerator(
             tp_size, pp_size, zero_1=zero_1, gradient_accumulation_steps=gradient_accumulation_steps
         )
 
@@ -242,7 +248,7 @@ class TestCommonDistributed(DistributedTest):
                     grads_on_cpu = move_grads_to_cpu(model.local_parameters())
                     if is_optimizer_update_step:
                         # At this point, no parameter should have a gradient.
-                        assert all(torch.all(grad == 0) for grad in grads_on_cpu)
+                        assert all(grad is None or torch.all(grad == 0) for grad in grads_on_cpu)
 
                     current_parameters = move_params_to_cpu(model.local_parameters())
                 else:
@@ -274,7 +280,7 @@ class TestCommonDistributed(DistributedTest):
                     # At this point, no parameter should have a gradient.
                     if is_optimizer_update_step:
                         grads_on_cpu = move_grads_to_cpu(model.parameters())
-                        assert all(torch.all(grad == 0) for grad in grads_on_cpu)
+                        assert all(grad is None or torch.all(grad == 0) for grad in grads_on_cpu)
 
                     current_parameters = move_params_to_cpu(model.parameters())
 
@@ -295,11 +301,11 @@ class TestCommonDistributed(DistributedTest):
 
         orig_parameters: Dict[str, torch.nn.Parameter] = dict(model.named_parameters())
 
-        accelerator = create_accelerator_for_mp(tp_size, pp_size)
+        accelerator = create_accelerator(tp_size, pp_size)
         lazy_model = get_tiny_llama_model(
             tp_size=tp_size, pp_size=pp_size, lazy_load=True, from_config=from_config, use_static_seed_patcher=True
         )
-        static_seed_patcher = create_static_seed_patcher(model.__class__, 42)
+        static_seed_patcher = StaticSeedPatcher(42)
         with static_seed_patcher:
             lazy_model = accelerator.prepare(lazy_model)
 
@@ -342,11 +348,13 @@ class TestCommonDistributed(DistributedTest):
 
         model = get_tiny_llama_model(tp_size=tp_size, pp_size=pp_size, lazy_load=False, add_random_noise=True)
 
-        accelerator = create_accelerator_for_mp(tp_size, pp_size)
+        accelerator = create_accelerator(tp_size, pp_size)
         model = accelerator.prepare(model)
         accelerator.save_state(tmpdir.as_posix())
         accelerator.state._reset_state(reset_partial_state=True)
         del accelerator
+
+        xm.rendezvous("wait_after_save")
 
         if pp_size > 1:
             # We need to disable `NxDPPModel._set_distributed` since it is already done during the creation of the
@@ -358,19 +366,22 @@ class TestCommonDistributed(DistributedTest):
         safetensors_checkpoint_exists = "model.safetensors" in tmpdir_content
 
         if tp_size > 1 or pp_size > 1:
-            ref_data_file_name = f"tp_rank_{tp_rank:02d}_pp_rank_{pp_rank:02d}"
-            tensors_directory = f"{ref_data_file_name}.tensors"
-            assert not pytorch_checkpoint_exists
-            assert not safetensors_checkpoint_exists
-            assert TENSOR_PARALLEL_SHARDS_DIR_NAME in tmpdir_content
-            assert ref_data_file_name in tmpdir_content
-            assert tensors_directory in tmpdir_content
+            if dp_rank == 0:
+                stem = f"dp_rank_{dp_rank:02d}_tp_rank_{tp_rank:02d}_pp_rank_{pp_rank:02d}"
+                ref_data_file_name = f"{stem}.pt"
+                tensors_directory = f"{stem}.pt.tensors"
+                assert not pytorch_checkpoint_exists
+                assert not safetensors_checkpoint_exists
+                assert MODEL_PARALLEL_SHARDS_DIR_NAME in tmpdir_content
+                assert "model" in tmpdir_content
+                assert ref_data_file_name in tmpdir_content
+                assert tensors_directory in tmpdir_content
         else:
             assert pytorch_checkpoint_exists or safetensors_checkpoint_exists
 
         # Making sure that we end-up with a different model when starting over.
         new_model = get_tiny_llama_model(tp_size=tp_size, pp_size=pp_size, lazy_load=False, add_random_noise=True)
-        new_accelerator = create_accelerator_for_mp(tp_size, pp_size)
+        new_accelerator = create_accelerator(tp_size, pp_size)
         new_model = new_accelerator.prepare(new_model)
         new_accelerator.state._reset_state(reset_partial_state=True)
         del new_accelerator
@@ -389,7 +400,7 @@ class TestCommonDistributed(DistributedTest):
 
         # Checking that when providing a checkpoint, we end-up with the same model as the original.
         new_model = get_tiny_llama_model(tp_size=tp_size, pp_size=pp_size, lazy_load=False, add_random_noise=True)
-        new_accelerator = create_accelerator_for_mp(tp_size, pp_size, checkpoint_dir=tmpdir)
+        new_accelerator = create_accelerator(tp_size, pp_size, checkpoint_dir=tmpdir)
         new_model = new_accelerator.prepare(new_model)
 
         # If there is no model parallelism, the checkpoint weights will not be loaded automatically since we do not
@@ -413,3 +424,63 @@ class TestCommonDistributed(DistributedTest):
 
         if dp_rank == 0:
             assert all(torch.all(p1 == p2) for p1, p2 in zip(model_parameters, new_model_parameters))
+
+    @pytest.mark.parametrize(
+        "world_size,tp_size,pp_size,kv_size_multiplier,model_name",
+        [
+            [8, 2, 1, None, MODEL_NAME_WITH_4_KV_HEADS],
+            [8, 1, 2, None, MODEL_NAME_WITH_4_KV_HEADS],
+            [16, 2, 2, None, MODEL_NAME_WITH_4_KV_HEADS],
+            [16, 8, 2, None, MODEL_NAME_WITH_4_KV_HEADS],
+            [16, 8, 2, 4, MODEL_NAME_WITH_4_KV_HEADS],
+        ],
+        ids=[
+            "tp=2",
+            "pp=2",
+            "dp=4,tp=pp=2",
+            "dp=1,tp=8,pp=2,kv_size_multiplier=None,GQAQKVColumnParallelLinear",
+            "dp=1,tp=8,pp=2,kv_size_multiplier=4,GQAQKVColumnParallelLinear",
+        ],
+    )
+    def test_consolidate_model_parallel_checkpoints(
+        self,
+        tmpdir,
+        world_size,
+        tp_size,
+        pp_size,
+        kv_size_multiplier,
+        model_name,
+        use_xser,
+    ):
+        orig_model = get_model(
+            LlamaForCausalLM,
+            model_name,
+            use_static_seed_patcher=True,
+        )
+        orig_model_path = Path(tmpdir) / "orig_model"
+        if xm.get_ordinal() == 0:
+            # Saving to pytorch instead of safetensors because it fails otherwise for pickling issues with distributed tests.
+            orig_model.save_pretrained(orig_model_path, safe_serialization=False)
+
+        accelerator = create_accelerator(tp_size, pp_size, kv_size_multiplier=kv_size_multiplier, use_xser=use_xser)
+        _ = accelerator.prepare(orig_model)
+
+        output_dir = Path(tmpdir) / "parallel_model"
+        accelerator.save_state(output_dir.as_posix())
+
+        xm.rendezvous("Saving done.")
+
+        consolidation_dir = Path(tmpdir) / "consolidated"
+        if xm.get_ordinal() == 0:
+            consolidate_model_parallel_checkpoints_to_unified_checkpoint(
+                output_dir, consolidation_dir, save_format="pytorch"
+            )
+            consolidated_state_dict = torch.load(consolidation_dir / "pytorch_model.bin")
+            orig_state_dict = torch.load(orig_model_path / "pytorch_model.bin")
+
+            assert orig_state_dict.keys() == consolidated_state_dict.keys()
+            for key in orig_state_dict:
+                orig_tensor = orig_state_dict[key]
+                consolidated_tensor = consolidated_state_dict[key]
+                print(f"Testing that {key} match")
+                torch.testing.assert_close(orig_tensor, consolidated_tensor)

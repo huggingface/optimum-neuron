@@ -65,3 +65,14 @@ def is_accelerate_available(min_version: Optional[str] = MIN_ACCELERATE_VERSION)
 
 def is_torch_neuronx_available() -> bool:
     return importlib.util.find_spec("torch_neuronx") is not None
+
+
+def is_trl_available() -> bool:
+    trl_available = importlib.util.find_spec("trl") is not None
+    if trl_available:
+        import trl
+
+        if version.parse(trl.__version__) >= version.parse("0.10.0"):
+            return True
+        raise RuntimeError("Only `trl` 0.10.0 and more recent is supported.")
+    return False

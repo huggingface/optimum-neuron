@@ -16,29 +16,38 @@
 import copy
 import unittest
 
+import cv2
+import numpy as np
 import PIL
+from compel import Compel, ReturnedEmbeddingsType
+from diffusers import UniPCMultistepScheduler
+from diffusers.utils import load_image
 from parameterized import parameterized
 
 from optimum.neuron import (
     NeuronLatentConsistencyModelPipeline,
+    NeuronStableDiffusionControlNetPipeline,
     NeuronStableDiffusionImg2ImgPipeline,
     NeuronStableDiffusionInpaintPipeline,
+    NeuronStableDiffusionInstructPix2PixPipeline,
     NeuronStableDiffusionPipeline,
     NeuronStableDiffusionXLImg2ImgPipeline,
     NeuronStableDiffusionXLInpaintPipeline,
     NeuronStableDiffusionXLPipeline,
 )
 from optimum.neuron.modeling_diffusion import (
+    NeuronControlNetModel,
     NeuronModelTextEncoder,
     NeuronModelUnet,
     NeuronModelVaeDecoder,
-    NeuronModelVaeEncoder,  # noqa
+    NeuronModelVaeEncoder,
+    NeuronMultiControlNetModel,
 )
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 from optimum.utils import logging
 from optimum.utils.testing_utils import require_diffusers
 
-from .inference_utils import MODEL_NAMES, download_image
+from .inference_utils import LORA_WEIGHTS_TINY, MODEL_NAMES, download_image
 
 
 logger = logging.get_logger()
@@ -125,6 +134,22 @@ class NeuronStableDiffusionPipelineIntegrationTest(unittest.TestCase):
         image = neuron_pipeline(prompt=prompt, image=init_image, mask_image=mask_image).images[0]
         self.assertIsInstance(image, PIL.Image.Image)
 
+    @parameterized.expand(["stable-diffusion-ip2p"], skip_on_empty=True)
+    def test_instruct_pix2pix_export_and_inference(self, model_arch):
+        neuron_pipeline = NeuronStableDiffusionInstructPix2PixPipeline.from_pretrained(
+            MODEL_NAMES[model_arch],
+            export=True,
+            dynamic_batch_size=True,
+            **self.STATIC_INPUTS_SHAPES,
+            **self.COMPILER_ARGS,
+        )
+
+        img_url = "https://huggingface.co/datasets/diffusers/diffusers-images-docs/resolve/main/mountain.png"
+        init_image = download_image(img_url).resize((512, 512))
+        prompt = "Add a beautiful sunset"
+        image = neuron_pipeline(prompt=prompt, image=init_image).images[0]
+        self.assertIsInstance(image, PIL.Image.Image)
+
     @parameterized.expand(["latent-consistency"], skip_on_empty=True)
     def test_lcm_export_and_inference(self, model_arch):
         neuron_pipeline = NeuronLatentConsistencyModelPipeline.from_pretrained(
@@ -137,6 +162,119 @@ class NeuronStableDiffusionPipelineIntegrationTest(unittest.TestCase):
 
         prompt = "Self-portrait oil painting, a beautiful cyborg with golden hair, 8k"
         image = neuron_pipeline(prompt, num_inference_steps=4, guidance_scale=8.0).images[0]
+        self.assertIsInstance(image, PIL.Image.Image)
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    def test_export_and_inference_with_fused_lora(self, model_arch):
+        num_images_per_prompt = 4
+        input_shapes = copy.deepcopy(self.STATIC_INPUTS_SHAPES)
+        input_shapes.update({"num_images_per_prompt": num_images_per_prompt})
+        lora_params = LORA_WEIGHTS_TINY[model_arch]
+        neuron_pipeline = self.NEURON_MODEL_CLASS.from_pretrained(
+            MODEL_NAMES[model_arch],
+            export=True,
+            dynamic_batch_size=False,
+            lora_model_ids=lora_params[0],
+            lora_weight_names=lora_params[1],
+            lora_adapter_names=lora_params[2],
+            lora_scales=0.9,
+            **input_shapes,
+            **self.COMPILER_ARGS,
+        )
+        self.assertIsInstance(neuron_pipeline.text_encoder, NeuronModelTextEncoder)
+        self.assertIsInstance(neuron_pipeline.unet, NeuronModelUnet)
+        self.assertIsInstance(neuron_pipeline.vae_encoder, NeuronModelVaeEncoder)
+        self.assertIsInstance(neuron_pipeline.vae_decoder, NeuronModelVaeDecoder)
+
+        prompts = ["A cute brown bear eating a slice of pizza"]
+        image = neuron_pipeline(prompts, num_images_per_prompt=num_images_per_prompt).images[0]
+        self.assertIsInstance(image, PIL.Image.Image)
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    def test_compatibility_with_compel(self, model_arch):
+        num_images_per_prompt = 1
+        input_shapes = copy.deepcopy(self.STATIC_INPUTS_SHAPES)
+        input_shapes.update({"num_images_per_prompt": num_images_per_prompt})
+        pipe = self.NEURON_MODEL_CLASS.from_pretrained(
+            MODEL_NAMES[model_arch],
+            export=True,
+            disable_neuron_cache=True,
+            inline_weights_to_neff=True,
+            output_hidden_states=True,
+            **input_shapes,
+            **self.COMPILER_ARGS,
+        )
+
+        prompt = "a red cat playing with a ball++"
+        compel_proc = Compel(tokenizer=pipe.tokenizer, text_encoder=pipe.text_encoder)
+
+        prompt_embeds = compel_proc(prompt)
+
+        image = pipe(prompt_embeds=prompt_embeds, num_inference_steps=2).images[0]
+        self.assertIsInstance(image, PIL.Image.Image)
+
+    @staticmethod
+    def prepare_canny_image(image_url=None):
+        if image_url is None:
+            image_url = "https://hf.co/datasets/huggingface/documentation-images/resolve/main/diffusers/input_image_vermeer.png"
+        original_image = load_image(image_url)
+        image = np.array(original_image)
+        low_threshold = 100
+        high_threshold = 200
+        image = cv2.Canny(image, low_threshold, high_threshold)
+        image = image[:, :, None]
+        image = np.concatenate([image, image, image], axis=2)
+        canny_image = PIL.Image.fromarray(image)
+
+        return canny_image
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    def test_export_and_inference_with_single_controlnet(self, model_arch):
+        input_shapes = copy.deepcopy(self.STATIC_INPUTS_SHAPES)
+        input_shapes.update({"num_images_per_prompt": 1})
+        controlnet_id = "hf-internal-testing/tiny-controlnet"
+        neuron_pipeline = NeuronStableDiffusionControlNetPipeline.from_pretrained(
+            MODEL_NAMES[model_arch],
+            controlnet_ids=controlnet_id,
+            export=True,
+            **input_shapes,
+            **self.COMPILER_ARGS,
+        )
+        self.assertIsInstance(neuron_pipeline.text_encoder, NeuronModelTextEncoder)
+        self.assertIsInstance(neuron_pipeline.unet, NeuronModelUnet)
+        self.assertIsInstance(neuron_pipeline.vae_encoder, NeuronModelVaeEncoder)
+        self.assertIsInstance(neuron_pipeline.vae_decoder, NeuronModelVaeDecoder)
+        self.assertIsInstance(neuron_pipeline.controlnet, NeuronControlNetModel)
+
+        prompt = "the mona lisa"
+        canny_image = NeuronStableDiffusionPipelineIntegrationTest.prepare_canny_image()
+        image = neuron_pipeline(prompt, image=canny_image).images[0]
+        neuron_pipeline.scheduler = UniPCMultistepScheduler.from_config(neuron_pipeline.scheduler.config)
+        self.assertIsInstance(image, PIL.Image.Image)
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    def test_export_and_inference_with_multiple_controlnet(self, model_arch):
+        input_shapes = copy.deepcopy(self.STATIC_INPUTS_SHAPES)
+        input_shapes.update({"num_images_per_prompt": 1})
+        controlnet_id = "hf-internal-testing/tiny-controlnet"
+
+        neuron_pipeline = NeuronStableDiffusionControlNetPipeline.from_pretrained(
+            MODEL_NAMES[model_arch],
+            controlnet_ids=[controlnet_id, controlnet_id],
+            export=True,
+            **input_shapes,
+            **self.COMPILER_ARGS,
+        )
+        self.assertIsInstance(neuron_pipeline.text_encoder, NeuronModelTextEncoder)
+        self.assertIsInstance(neuron_pipeline.unet, NeuronModelUnet)
+        self.assertIsInstance(neuron_pipeline.vae_encoder, NeuronModelVaeEncoder)
+        self.assertIsInstance(neuron_pipeline.vae_decoder, NeuronModelVaeDecoder)
+        self.assertIsInstance(neuron_pipeline.controlnet, NeuronMultiControlNetModel)
+
+        prompt = "the mona lisa"
+        canny_image = NeuronStableDiffusionPipelineIntegrationTest.prepare_canny_image()
+        image = neuron_pipeline(prompt, image=[canny_image, canny_image]).images[0]
+        neuron_pipeline.scheduler = UniPCMultistepScheduler.from_config(neuron_pipeline.scheduler.config)
         self.assertIsInstance(image, PIL.Image.Image)
 
 
@@ -241,4 +379,43 @@ class NeuronStableDiffusionXLPipelineIntegrationTest(unittest.TestCase):
         mask_image = download_image(mask_url).resize((64, 64))
         prompt = "A deep sea diver floating"
         image = neuron_pipeline(prompt=prompt, image=init_image, mask_image=mask_image).images[0]
+        self.assertIsInstance(image, PIL.Image.Image)
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    def test_compatibility_with_compel(self, model_arch):
+        num_images_per_prompt = 1
+        input_shapes = copy.deepcopy(self.STATIC_INPUTS_SHAPES)
+        input_shapes.update({"num_images_per_prompt": num_images_per_prompt})
+        pipe = self.NEURON_MODEL_CLASS.from_pretrained(
+            MODEL_NAMES[model_arch],
+            export=True,
+            inline_weights_to_neff=True,
+            output_hidden_states=True,
+            **input_shapes,
+            **self.COMPILER_ARGS,
+        )
+
+        prompt = "Astronaut in a jungle, cold color palette, muted colors, detailed, 8k"
+        negative_prompt = "low quality, low resolution"
+
+        compel = Compel(
+            tokenizer=[pipe.tokenizer, pipe.tokenizer_2],
+            text_encoder=[pipe.text_encoder, pipe.text_encoder_2],
+            returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
+            requires_pooled=[False, True],
+        )
+        prompt_embeds, pooled = compel(prompt)
+        neg_prompt_embeds, neg_pooled = compel(negative_prompt)
+        positive_prompt_embeds, negative_prompt_embeds = compel.pad_conditioning_tensors_to_same_length(
+            [prompt_embeds, neg_prompt_embeds]
+        )
+
+        image = pipe(
+            prompt_embeds=positive_prompt_embeds,
+            pooled_prompt_embeds=pooled,
+            negative_prompt_embeds=negative_prompt_embeds,
+            negative_pooled_prompt_embeds=neg_pooled,
+            output_type="pil",
+            num_inference_steps=1,
+        ).images[0]
         self.assertIsInstance(image, PIL.Image.Image)

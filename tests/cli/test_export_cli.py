@@ -114,10 +114,6 @@ class TestExportCLI(unittest.TestCase):
         model_id = "hf-internal-testing/tiny-random-BertModel"
         with tempfile.TemporaryDirectory() as tempdir:
             save_path = f"{tempdir}/neff"
-            if is_neuronx_available():
-                neff_path = os.path.join(save_path, model_id.split("/")[-1], "graph.neff")
-            else:
-                neff_path = os.path.join(save_path, model_id.split("/")[-1], "32", "neff.json")
             subprocess.run(
                 [
                     "optimum-cli",
@@ -138,7 +134,11 @@ class TestExportCLI(unittest.TestCase):
                 shell=False,
                 check=True,
             )
-            self.assertTrue(os.path.exists(neff_path))
+            if is_neuronx_available():
+                neff_path = os.path.join(save_path, "graph.neff")
+                self.assertTrue(os.path.exists(neff_path))
+            else:
+                neff_path = os.path.join(save_path, "32", "neff.json")
 
     @requires_neuronx
     def test_stable_diffusion(self):
@@ -171,6 +171,82 @@ class TestExportCLI(unittest.TestCase):
                     shell=False,
                     check=True,
                 )
+
+    @requires_neuronx
+    def test_stable_diffusion_multi_lora(self):
+        model_id = "hf-internal-testing/tiny-stable-diffusion-torch"
+        lora_model_id = "Jingya/tiny-stable-diffusion-lora-64"
+        lora_weight_name = "pytorch_lora_weights.safetensors"
+        adpater_name = "pokemon"
+        with tempfile.TemporaryDirectory() as tempdir:
+            subprocess.run(
+                [
+                    "optimum-cli",
+                    "export",
+                    "neuron",
+                    "--model",
+                    model_id,
+                    "--task",
+                    "stable-diffusion",
+                    "--batch_size",
+                    "1",
+                    "--height",
+                    "64",
+                    "--width",
+                    "64",
+                    "--num_images_per_prompt",
+                    "4",
+                    "--lora_model_ids",
+                    lora_model_id,
+                    "--lora_weight_names",
+                    lora_weight_name,
+                    "lora_adapter_names",
+                    adpater_name,
+                    "--lora_scales",
+                    "0.9",
+                    "--auto_cast",
+                    "matmul",
+                    "--auto_cast_type",
+                    "bf16",
+                    tempdir,
+                ],
+                shell=False,
+                check=True,
+            )
+
+    @requires_neuronx
+    def test_stable_diffusion_single_controlnet(self):
+        model_id = "hf-internal-testing/tiny-stable-diffusion-torch"
+        controlnet_id = "hf-internal-testing/tiny-controlnet"
+        with tempfile.TemporaryDirectory() as tempdir:
+            subprocess.run(
+                [
+                    "optimum-cli",
+                    "export",
+                    "neuron",
+                    "--model",
+                    model_id,
+                    "--task",
+                    "stable-diffusion",
+                    "--batch_size",
+                    "1",
+                    "--height",
+                    "64",
+                    "--width",
+                    "64",
+                    "--controlnet_ids",
+                    controlnet_id,
+                    "--num_images_per_prompt",
+                    "1",
+                    "--auto_cast",
+                    "matmul",
+                    "--auto_cast_type",
+                    "bf16",
+                    tempdir,
+                ],
+                shell=False,
+                check=True,
+            )
 
     @requires_neuronx
     def test_stable_diffusion_xl(self):

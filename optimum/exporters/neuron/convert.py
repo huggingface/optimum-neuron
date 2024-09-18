@@ -24,10 +24,17 @@ import torch
 
 from ...exporters.error_utils import OutputMatchError, ShapeError
 from ...neuron.utils import (
+    DiffusersPretrainedConfig,
     convert_neuronx_compiler_args_to_neuron,
     is_neuron_available,
     is_neuronx_available,
     store_compilation_config,
+)
+from ...neuron.utils.cache_utils import get_model_name_or_path
+from ...neuron.utils.hub_cache_utils import (
+    ModelCacheEntry,
+    build_cache_config,
+    cache_traced_neuron_artifacts,
 )
 from ...neuron.utils.version_utils import get_neuroncc_version, get_neuronxcc_version
 from ...utils import (
@@ -35,7 +42,6 @@ from ...utils import (
     is_sentence_transformers_available,
     logging,
 )
-from .utils import DiffusersPretrainedConfig
 
 
 if TYPE_CHECKING:
@@ -69,7 +75,7 @@ def validate_models_outputs(
     models_and_neuron_configs: Dict[
         str, Tuple[Union["PreTrainedModel", "ModelMixin", torch.nn.Module], "NeuronDefaultConfig"]
     ],
-    neuron_named_outputs: List[List[str]],
+    neuron_named_outputs: Dict[str, List[str]],
     output_dir: Path,
     atol: Optional[float] = None,
     neuron_files_subpaths: Optional[Dict[str, str]] = None,
@@ -121,7 +127,7 @@ def validate_models_outputs(
                 config=sub_neuron_config,
                 reference_model=ref_submodel,
                 neuron_model_path=neuron_model_path,
-                neuron_named_outputs=neuron_named_outputs[i],
+                neuron_named_outputs=neuron_named_outputs[model_name],
                 atol=atol,
             )
         except Exception as e:
@@ -167,29 +173,34 @@ def validate_model_outputs(
     input_shapes = {}
     for axis in config.mandatory_axes:
         input_shapes[axis] = getattr(config, axis)
-    if config.dynamic_batch_size is True:
+    if config.dynamic_batch_size is True and "batch_size" in input_shapes:
         input_shapes["batch_size"] *= 2
 
     # Reference outputs
     with torch.no_grad():
         reference_model.eval()
-        ref_inputs = config.generate_dummy_inputs(return_tuple=False, **input_shapes)
+        inputs = config.generate_dummy_inputs(return_tuple=False, **input_shapes)
+        ref_inputs = config.unflatten_inputs(inputs)
         if hasattr(reference_model, "config") and getattr(reference_model.config, "is_encoder_decoder", False):
             reference_model = config.patch_model_for_export(reference_model, device="cpu", **input_shapes)
         if "SentenceTransformer" in reference_model.__class__.__name__:
             reference_model = config.patch_model_for_export(reference_model, ref_inputs)
             ref_outputs = reference_model(**ref_inputs)
-            neuron_inputs = tuple(config.flatten_inputs(ref_inputs).values())
+            neuron_inputs = tuple(config.flatten_inputs(inputs).values())
         elif "AutoencoderKL" in getattr(config._config, "_class_name", "") or getattr(
             reference_model.config, "is_encoder_decoder", False
         ):
             # VAE components for stable diffusion or Encoder-Decoder models
             ref_inputs = tuple(ref_inputs.values())
             ref_outputs = reference_model(*ref_inputs)
-            neuron_inputs = ref_inputs
+            neuron_inputs = tuple(inputs.values())
+        elif "controlnet" in getattr(config._config, "_class_name", "").lower():
+            reference_model = config.patch_model_for_export(reference_model, ref_inputs)
+            neuron_inputs = ref_inputs = tuple(ref_inputs.values())
+            ref_outputs = reference_model(*ref_inputs)
         else:
             ref_outputs = reference_model(**ref_inputs)
-            neuron_inputs = tuple(config.flatten_inputs(ref_inputs).values())
+            neuron_inputs = tuple(config.flatten_inputs(inputs).values())
 
     # Neuron outputs
     neuron_model = torch.jit.load(neuron_model_path)
@@ -230,30 +241,38 @@ def validate_model_outputs(
     # Check the shape and values match
     shape_failures = []
     value_failures = []
-    for i, (name, output) in enumerate(zip(neuron_output_names_list, neuron_outputs)):
-        if isinstance(output, torch.Tensor):
+    for i, (name, neuron_output) in enumerate(zip(neuron_output_names_list, neuron_outputs)):
+        if isinstance(neuron_output, torch.Tensor):
             ref_output = ref_outputs[name].numpy() if isinstance(ref_outputs, dict) else ref_outputs[i].numpy()
-            output = output.numpy()
-        elif isinstance(output, tuple):  # eg. `hidden_states` of `AutoencoderKL` is a tuple of tensors.
+            neuron_output = neuron_output.numpy()
+        elif isinstance(neuron_output, tuple):  # eg. `hidden_states` of `AutoencoderKL` is a tuple of tensors;
             ref_output = torch.stack(ref_outputs[name]).numpy()
-            output = torch.stack(output).numpy()
+            neuron_output = torch.stack(neuron_output).numpy()
+        elif isinstance(neuron_output, list):
+            ref_output = [output.numpy() for output in ref_outputs[name]]
+            neuron_output = [output.numpy() for output in neuron_output]
 
         logger.info(f'\t- Validating Neuron Model output "{name}":')
 
         # Shape
-        if not output.shape == ref_output.shape:
-            logger.error(f"\t\t-[x] shape {output.shape} doesn't match {ref_output.shape}")
-            shape_failures.append((name, ref_output.shape, output.shape))
-        else:
-            logger.info(f"\t\t-[✓] {output.shape} matches {ref_output.shape}")
+        output_list = (
+            neuron_output if isinstance(neuron_output, list) else [neuron_output]
+        )  # eg. `down_block_res_samples` of `ControlNet` is a list of tensors.
+        ref_output_list = ref_output if isinstance(ref_output, list) else [ref_output]
+        for output, ref_output in zip(output_list, ref_output_list):
+            if not output.shape == ref_output.shape:
+                logger.error(f"\t\t-[x] shape {output.shape} doesn't match {ref_output.shape}")
+                shape_failures.append((name, ref_output.shape, output.shape))
+            else:
+                logger.info(f"\t\t-[✓] {output.shape} matches {ref_output.shape}")
 
-        # Values
-        if not np.allclose(ref_output, output, atol=atol):
-            max_diff = np.amax(np.abs(ref_output - output))
-            logger.error(f"\t\t-[x] values not close enough, max diff: {max_diff} (atol: {atol})")
-            value_failures.append((name, max_diff))
-        else:
-            logger.info(f"\t\t-[✓] all values close (atol: {atol})")
+            # Values
+            if not np.allclose(ref_output, output, atol=atol):
+                max_diff = np.amax(np.abs(ref_output - output))
+                logger.error(f"\t\t-[x] values not close enough, max diff: {max_diff} (atol: {atol})")
+                value_failures.append((name, max_diff))
+            else:
+                logger.info(f"\t\t-[✓] all values close (atol: {atol})")
 
     if shape_failures:
         msg = "\n".join(f"- {t[0]}: got {t[1]} (reference) and {t[2]} (neuron)" for t in shape_failures)
@@ -272,13 +291,15 @@ def export_models(
         str, Tuple[Union["PreTrainedModel", "ModelMixin", torch.nn.Module], "NeuronDefaultConfig"]
     ],
     output_dir: Path,
+    disable_neuron_cache: Optional[bool] = False,
     compiler_workdir: Optional[Path] = None,
     inline_weights_to_neff: bool = True,
     optlevel: str = "2",
     output_file_names: Optional[Dict[str, str]] = None,
     compiler_kwargs: Optional[Dict[str, Any]] = {},
     configs: Optional[Dict[str, Any]] = {},
-) -> Tuple[List[List[str]], List[List[str]]]:
+    model_name_or_path: Optional[str] = None,
+) -> Tuple[Dict[str, List[str]], Dict[str, List[str]]]:
     """
     Exports a Pytorch model with multiple component models to separate files.
 
@@ -287,6 +308,8 @@ def export_models(
             A dictionnary containing the models to export and their corresponding neuron configs.
         output_dir (`Path`):
             Output directory to store the exported Neuron models.
+        disable_neuron_cache (`Optional[bool]`, defaults to `False`):
+            Whether to disable automatic caching of AOT compiled models (not applicable for JIT compilation).
         compiler_workdir (`Optional[Path]`, defaults to `None`):
             The directory to store intermediary outputs of the neuron compiler.
         inline_weights_to_neff (`bool`, defaults to `True`):
@@ -303,11 +326,14 @@ def export_models(
             Arguments to pass to the Neuron(x) compiler for exporting Neuron models.
         configs (`Optional[Dict[str, Any]]`, defaults to `None`):
             A list of pretrained model configs.
+        model_name_or_path (`Optional[str]`, defaults to `None`):
+            Path to pretrained model or model identifier from the Hugging Face Hub.
     Returns:
-        `Tuple[List[List[str]], List[List[str]]]`: A tuple with an ordered list of the model's inputs, and the named
+        `Tuple[Dict[str, List[str]], Dict[str, List[str]]]`: A tuple with two dictionaries containing ordered list of the model's inputs, and the named
         outputs from the Neuron configuration.
     """
-    outputs = []
+    all_inputs = {}
+    all_outputs = {}
     if compiler_workdir is not None:
         compiler_workdir = Path(compiler_workdir)
 
@@ -318,6 +344,7 @@ def export_models(
 
     failed_models = []
     total_compilation_time = 0
+    compile_configs = {}
     for i, model_name in enumerate(models_and_neuron_configs.keys()):
         logger.info(f"***** Compiling {model_name} *****")
         submodel, sub_neuron_config = models_and_neuron_configs[model_name]
@@ -328,68 +355,74 @@ def export_models(
         output_path = output_dir / output_file_name
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        compiler_workdir_path = compiler_workdir / model_name if compiler_workdir is not None else None
-
-        try:
-            start_time = time.time()
-            neuron_inputs, neuron_outputs = export(
-                model=submodel,
-                config=sub_neuron_config,
-                output=output_path,
-                compiler_workdir=compiler_workdir_path,
-                inline_weights_to_neff=inline_weights_to_neff,
-                optlevel=optlevel,
-                **compiler_kwargs,
+        # TODO: Remove after the weights/neff separation compilation of sdxl is patched by a neuron sdk release: https://github.com/aws-neuron/aws-neuron-sdk/issues/859
+        if not inline_weights_to_neff and getattr(sub_neuron_config, "is_sdxl", False):
+            logger.warning(
+                "The compilation of SDXL's unet with the weights/neff separation is broken since the Neuron SDK 2.18 release. `inline_weights_to_neff` will be set to True and the caching will be disabled. If you still want to separate the neff and weights, please downgrade your Neuron setup to the 2.17.1 release."
             )
-            compilation_time = time.time() - start_time
-            total_compilation_time += compilation_time
-            logger.info(f"[Compilation Time] {np.round(compilation_time, 2)} seconds.")
-            outputs.append((neuron_inputs, neuron_outputs))
-            # Add neuron specific configs to model components' original config
-            if hasattr(submodel, "config"):
-                model_config = submodel.config
-            elif configs and (model_name in configs.keys()):
-                model_config = configs[model_name]
-            else:
-                raise AttributeError("Cannot find model's configuration, please pass it with `configs`.")
+            inline_weights_to_neff = True
 
-            if is_diffusers_available() and isinstance(model_config, FrozenDict):
-                model_config = OrderedDict(model_config)
-                model_config = DiffusersPretrainedConfig.from_dict(model_config)
+        start_time = time.time()
+        neuron_inputs, neuron_outputs = export(
+            model=submodel,
+            config=sub_neuron_config,
+            output=output_path,
+            compiler_workdir=compiler_workdir,
+            inline_weights_to_neff=inline_weights_to_neff,
+            optlevel=optlevel,
+            **compiler_kwargs,
+        )
+        compilation_time = time.time() - start_time
+        total_compilation_time += compilation_time
+        logger.info(f"[Compilation Time] {np.round(compilation_time, 2)} seconds.")
+        all_inputs[model_name] = neuron_inputs
+        all_outputs[model_name] = neuron_outputs
+        # Add neuron specific configs to model components' original config
+        if hasattr(submodel, "config"):
+            model_config = submodel.config
+        elif configs and (model_name in configs.keys()):
+            model_config = configs[model_name]
+        else:
+            raise AttributeError("Cannot find model's configuration, please pass it with `configs`.")
 
-            model_config = store_compilation_config(
-                config=model_config,
-                input_shapes=sub_neuron_config.input_shapes,
-                compiler_kwargs=compiler_kwargs,
-                input_names=neuron_inputs,
-                output_names=neuron_outputs,
-                dynamic_batch_size=sub_neuron_config.dynamic_batch_size,
-                compiler_type=NEURON_COMPILER_TYPE,
-                compiler_version=NEURON_COMPILER_VERSION,
-                inline_weights_to_neff=inline_weights_to_neff,
-                optlevel=optlevel,
-                model_type=getattr(sub_neuron_config, "MODEL_TYPE", None),
-                task=getattr(sub_neuron_config, "task", None),
-                output_attentions=getattr(sub_neuron_config, "output_attentions", False),
-                output_hidden_states=getattr(sub_neuron_config, "output_hidden_states", False),
-            )
-            model_config.save_pretrained(output_path.parent)
-        except Exception as e:
-            failed_models.append((i, model_name))
-            output_path.parent.rmdir()
-            logger.error(
-                f"An error occured when trying to trace {model_name} with the error message: {e}.\n"
-                f"The export is failed and {model_name} neuron model won't be stored."
-            )
+        if is_diffusers_available() and isinstance(model_config, FrozenDict):
+            model_config = OrderedDict(model_config)
+            model_config = DiffusersPretrainedConfig.from_dict(model_config)
+
+        model_config = store_compilation_config(
+            config=model_config,
+            input_shapes=sub_neuron_config.input_shapes,
+            compiler_kwargs=compiler_kwargs,
+            input_names=neuron_inputs,
+            output_names=neuron_outputs,
+            dynamic_batch_size=sub_neuron_config.dynamic_batch_size,
+            compiler_type=NEURON_COMPILER_TYPE,
+            compiler_version=NEURON_COMPILER_VERSION,
+            inline_weights_to_neff=inline_weights_to_neff,
+            optlevel=optlevel,
+            model_type=getattr(sub_neuron_config, "MODEL_TYPE", None),
+            task=getattr(sub_neuron_config, "task", None),
+            output_attentions=getattr(sub_neuron_config, "output_attentions", False),
+            output_hidden_states=getattr(sub_neuron_config, "output_hidden_states", False),
+        )
+        model_config.save_pretrained(output_path.parent)
+        compile_configs[model_name] = model_config
+
     logger.info(f"[Total compilation Time] {np.round(total_compilation_time, 2)} seconds.")
+
+    # cache neuronx model
+    if not disable_neuron_cache and is_neuronx_available():
+        model_id = get_model_name_or_path(model_config) if model_name_or_path is None else model_name_or_path
+        cache_config = build_cache_config(compile_configs)
+        cache_entry = ModelCacheEntry(model_id=model_id, config=cache_config)
+        cache_traced_neuron_artifacts(neuron_dir=output_dir, cache_entry=cache_entry)
 
     # remove models failed to export
     for i, model_name in failed_models:
         output_file_names.pop(model_name)
         models_and_neuron_configs.pop(model_name)
 
-    outputs = list(map(list, zip(*outputs)))
-    return outputs
+    return all_inputs, all_outputs
 
 
 def export(
@@ -519,6 +552,12 @@ def export_neuronx(
     # diffusers specific
     compiler_args = add_stable_diffusion_compiler_args(config, compiler_args)
 
+    if config.dynamic_batch_size and not inline_weights_to_neff:
+        logger.warning(
+            "Dynamic batching is not yet compatible with the weights/neff non-inlined model. `inline_weights_to_neff` is set to True. If you still want to separate the neff and weights, please set `dynamic_batch_size=False`."
+        )
+        inline_weights_to_neff = True
+
     neuron_model = neuronx.trace(
         checked_model,
         dummy_inputs_tuple,
@@ -529,10 +568,6 @@ def export_neuronx(
     )
 
     if config.dynamic_batch_size is True:
-        if not inline_weights_to_neff:
-            raise ValueError(
-                "Dynamic batching is not yet compatible with the weights/neff non-inlined model. Please set `dynamic_batch_size=False` or `inline_weights_to_neff=True`."
-            )
         neuron_model = neuronx.dynamic_batch(neuron_model)
 
     # diffusers specific
@@ -552,11 +587,11 @@ def add_stable_diffusion_compiler_args(config, compiler_args):
     identifier = getattr(config._config, "_name_or_path", "") + " " + getattr(config._config, "_class_name", "")
     identifier = identifier.lower()
 
-    sd_components = ["text_encoder", "vae", "vae_encoder", "vae_decoder"]
+    sd_components = ["text_encoder", "vae", "vae_encoder", "vae_decoder", "controlnet"]
     if any(component in identifier for component in sd_components):
         compiler_args.append("--enable-fast-loading-neuron-binaries")
-    # unet
-    if "unet" in identifier:
+    # unet or controlnet
+    if "unet" in identifier or "controlnet" in identifier:
         # SDXL unet doesn't support fast loading neuron binaries
         if not getattr(config, "is_sdxl", False):
             compiler_args.append("--enable-fast-loading-neuron-binaries")
@@ -568,11 +603,11 @@ def improve_stable_diffusion_loading(config, neuron_model):
     # Combine the model name and its path to identify which is the subcomponent in Stable Diffusion pipeline
     identifier = getattr(config._config, "_name_or_path", "") + " " + getattr(config._config, "_class_name", "")
     identifier = identifier.lower()
-    sd_components = ["text_encoder", "unet", "vae", "vae_encoder", "vae_decoder"]
+    sd_components = ["text_encoder", "unet", "vae", "vae_encoder", "vae_decoder", "controlnet"]
     if any(component in identifier for component in sd_components):
         neuronx.async_load(neuron_model)
     # unet
-    if "unet" in identifier:
+    if "unet" in identifier or "controlnet" in identifier:
         neuronx.lazy_load(neuron_model)
 
 
@@ -638,6 +673,12 @@ def export_neuron(
     dummy_inputs_tuple = tuple(dummy_inputs.values())
     checked_model = config.patch_model_for_export(model, dummy_inputs)
     compiler_args = convert_neuronx_compiler_args_to_neuron(auto_cast, auto_cast_type, disable_fast_relayout)
+
+    if config.dynamic_batch_size is True and not inline_weights_to_neff:
+        logger.warning(
+            "Dynamic batching is not yet compatible with the weights/neff non-inlined model. `inline_weights_to_neff` is set to True. If you still want to separate the neff and weights, please set `dynamic_batch_size=False`."
+        )
+        inline_weights_to_neff = True
 
     neuron_model = neuron.trace(
         checked_model,

@@ -212,9 +212,11 @@ class NeuronStableDiffusionImg2ImgPipelineMixin(StableDiffusionPipelineMixin, St
         )
 
         # 3. Encode input prompt
-        text_encoder_lora_scale = (
-            cross_attention_kwargs.get("scale", None) if cross_attention_kwargs is not None else None
-        )
+        if cross_attention_kwargs is not None and cross_attention_kwargs.get("scale", None) is not None:
+            logger.warning(
+                "Lora scale need to be fused with model weights during the compilation. The scale passed through the pipeline during inference will be ignored."
+            )
+        text_encoder_lora_scale = None
         prompt_embeds, negative_prompt_embeds = self.encode_prompt(
             prompt,
             num_images_per_prompt,

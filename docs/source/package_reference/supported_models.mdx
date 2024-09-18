@@ -1,0 +1,92 @@
+<!---
+Copyright 2024 The HuggingFace Team. All rights reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+# Supported architectures
+
+## Transformers
+
+| Architecture              | Task                                                                                                                                          |
+|---------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
+| ALBERT                    | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| AST                       | feature-extraction, audio-classification                                                                                                      |
+| BERT                      | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| BLOOM                     | text-generation                                                                                                                               |
+| Beit                      | feature-extraction, image-classification                                                                                                      |
+| CamemBERT                 | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| ConvBERT                  | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| ConvNext                  | feature-extraction, image-classification                                                                                                      |
+| ConvNextV2                | feature-extraction, image-classification                                                                                                      |
+| CvT                       | feature-extraction, image-classification                                                                                                      |
+| DeBERTa (INF2 only)       | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| DeBERTa-v2 (INF2 only)    | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| Deit                      | feature-extraction, image-classification                                                                                                      |
+| DistilBERT                | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| DonutSwin                 | feature-extraction                                                                                                                            |
+| Dpt                       | feature-extraction                                                                                                                            |
+| ELECTRA                   | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| ESM                       | feature-extraction, fill-mask, text-classification, token-classification                                                                      |
+| FlauBERT                  | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| GPT2                      | text-generation                                                                                                                               |
+| Hubert                    | feature-extraction, automatic-speech-recognition, audio-classification                                                                        |
+| Levit                     | feature-extraction, image-classification                                                                                                      |
+| Llama, Llama 2, Llama 3   | text-generation                                                                                                                               |
+| Mistral                   | text-generation                                                                                                                               |
+| Mixtral                   | text-generation                                                                                                                               |
+| MobileBERT                | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| MobileNetV2               | feature-extraction, image-classification, semantic-segmentation                                                                               |
+| MobileViT                 | feature-extraction, image-classification, semantic-segmentation                                                                               |
+| MPNet                     | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| OPT                       | text-generation                                                                                                                               |
+| Phi                       | feature-extraction, text-classification, token-classification                                                                                 |
+| RoBERTa                   | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| RoFormer                  | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| Swin                      | feature-extraction, image-classification                                                                                                      |
+| T5                        | text2text-generation                                                                                                                          |
+| UniSpeech                 | feature-extraction, automatic-speech-recognition, audio-classification                                                                        |
+| UniSpeech-SAT             | feature-extraction, automatic-speech-recognition, audio-classification, audio-frame-classification, audio-xvector                             |
+| ViT                       | feature-extraction, image-classification                                                                                                      |
+| Wav2Vec2                  | feature-extraction, automatic-speech-recognition, audio-classification, audio-frame-classification, audio-xvector                             |
+| WavLM                     | feature-extraction, automatic-speech-recognition, audio-classification, audio-frame-classification, audio-xvector                             |
+| XLM                       | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| XLM-RoBERTa               | feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification                                 |
+| Yolos                     | feature-extraction, object-detection                                                                                                          |
+
+
+## Diffusers
+
+| Architecture                  | Task                                                                                                                                   |
+|-------------------------------|----------------------------------------------------------------------------------------------------------------------------------------|
+| Stable Diffusion              | text-to-image, image-to-image, inpaint                                                                                                 |
+| Stable Diffusion XL Base      | text-to-image, image-to-image, inpaint                                                                                                 |
+| Stable Diffusion XL Refiner   | image-to-image, inpaint                                                                                                                |
+| SDXL Turbo                    | text-to-image, image-to-image, inpaint                                                                                                 |
+| LCM                           | text-to-image                                                                                                                          |
+
+## Sentence Transformers
+
+| Architecture                  | Task                                                                                                                                   |
+|-------------------------------|----------------------------------------------------------------------------------------------------------------------------------------|
+| Transformer                   | feature-extraction, sentence-similarity                                                                                                |
+| CLIP                          | feature-extraction, zero-shot-image-classification                                                                                     |
+
+
+<Tip>
+
+More details for checking supported tasks [here](https://huggingface.co/docs/optimum-neuron/guides/export_model#selecting-a-task).
+
+</Tip>
+
+More architectures coming soon, stay tuned! 🚀

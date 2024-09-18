@@ -19,7 +19,7 @@ import importlib
 import inspect
 import sys
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple, Type, Union
 
 
 if TYPE_CHECKING:
@@ -216,8 +216,33 @@ def patch_everywhere(attribute_name: str, patch: Any, module_name_prefix: Option
         module_name_prefix (`Optional[str]`, defaults to `None`):
             If set, only module names starting with this prefix will be considered for patching.
     """
-    for name, module in sys.modules.items():
+    for name, module in dict(sys.modules).items():
         if module_name_prefix is not None and not name.startswith(module_name_prefix):
             continue
         if hasattr(module, attribute_name):
             setattr(module, attribute_name, patch)
+
+
+def replace_class_in_inheritance_hierarchy(obj: Any, orig_cls: Type, replacement_cls: Type):
+    """
+    Inspects the inheritance hierarchy of `obj` and replace `orig_cls` by `replacement_cls` if found.
+    """
+    to_visit = [obj.__class__]
+    should_stop = False
+    while to_visit and not should_stop:
+        cls = to_visit.pop(0)
+        if cls is object:
+            continue
+        bases = cls.__bases__
+        new_bases = []
+        for base in bases:
+            to_visit.append(base)
+            if base == orig_cls:
+                new_bases.append(replacement_cls)
+                should_stop = True
+            elif base == replacement_cls:
+                should_stop = True
+                new_bases.append(base)
+            else:
+                new_bases.append(base)
+        cls.__bases__ = tuple(new_bases)

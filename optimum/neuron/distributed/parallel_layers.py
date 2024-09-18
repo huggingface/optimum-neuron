@@ -19,21 +19,26 @@ import re
 from abc import ABC, abstractclassmethod
 from dataclasses import dataclass
 from enum import Enum
-from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Tuple, Type, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Literal, Optional, Tuple, Type, Union
 
 import torch
 from torch.nn.modules.loss import _WeightedLoss
+from transformers.utils import is_peft_available
 
 from ...utils import NormalizedConfigManager, logging
 from ..utils import patch_everywhere, patch_within_function
+from ..utils.misc import is_main_worker
 from ..utils.require_utils import requires_neuronx_distributed
 from .utils import (
-    GroupedQueryAttentionInfo,
+    FakeProj,
+    OptimumGQAQKVColumnParallelLinear,
     WeightInformation,
     embedding_to_parallel_embedding,
-    gqa_key_value_slicing_when_tp_size_greater_than_num_key_value_heads,
+    get_linear_weight_info,
     linear_to_parallel_linear,
+    mark_parameter_init_status_during_parallelization,
+    maybe_load_weights_to_gqa_qkv_column_parallel_linear,
+    maybe_load_weights_to_output_projection_when_using_gqa_qkv_column_parallel_linear,
 )
 
 
@@ -50,6 +55,8 @@ _PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT: bool = False
 
 
 class ParallelLayer(ABC):
+    PARALLEL_LAYER_SPECIFIC_KWARGS: Optional[Dict[str, Any]] = None
+
     @classmethod
     def _get_module_and_attribute_name(
         cls,
@@ -65,51 +72,14 @@ class ParallelLayer(ABC):
             attribute_name = split[1]
         return leaf_module, attribute_name
 
-    @classmethod
-    def _get_linear_weight_info(
-        cls,
-        weight_map: Dict[str, Union[Path, str]],
-        linear_layer_qualified_name: str,
-        device: Optional["torch.device"] = None,
-        fail_if_not_found: bool = True,
-    ) -> Tuple[Optional[WeightInformation], Optional[WeightInformation]]:
-        linear_layer_weight_qualified_name = f"{linear_layer_qualified_name}.weight"
-        if linear_layer_weight_qualified_name not in weight_map:
-            if fail_if_not_found:
-                raise ValueError(
-                    f"Could not find the linear weight called {linear_layer_weight_qualified_name} in the weight map."
-                )
-            else:
-                linear_layer_weight_info = None
-        else:
-            linear_layer_weight_info = WeightInformation(
-                weight_map[linear_layer_weight_qualified_name],
-                linear_layer_weight_qualified_name,
-                weight_map=weight_map,
-                device=device,
-            )
-
-        linear_layer_bias_qualified_name = f"{linear_layer_qualified_name}.bias"
-        linear_layer_bias_filename = weight_map.get(linear_layer_bias_qualified_name, None)
-        if linear_layer_bias_filename is not None:
-            linear_layer_bias_weight_info = WeightInformation(
-                linear_layer_bias_filename,
-                linear_layer_bias_qualified_name,
-                weight_map=weight_map,
-                device=device,
-            )
-        else:
-            linear_layer_bias_weight_info = None
-
-        return linear_layer_weight_info, linear_layer_bias_weight_info
-
     @abstractclassmethod
-    def transform(
+    def _transform(
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
         sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
+        **parallel_layer_specific_kwargs,
     ) -> "torch.nn.Module":
         """
         Transforms a layer to its parallel counterpart.
@@ -123,7 +93,50 @@ class ParallelLayer(ABC):
                 Whether or not sequence parallelism is enabled.
             device (`Optional[torch.device]`, defaults to `None`):
                 The device where the new parallel layer should be put.
+            **parallel_layer_specific_kwargs (`Dict[str, Any]):
+                Arguments that are specific to a given ParallelLayer subclass transformation.
         """
+
+    @classmethod
+    def prepare_parallel_layer_specific_kwargs(cls, **parallel_layer_specific_kwargs) -> Dict[str, Any]:
+        default_parallel_layer_specific_kwargs = cls.PARALLEL_LAYER_SPECIFIC_KWARGS
+        if default_parallel_layer_specific_kwargs is None:
+            default_parallel_layer_specific_kwargs = {}
+
+        if not set(parallel_layer_specific_kwargs.keys()) <= set(default_parallel_layer_specific_kwargs.keys()):
+            wrong_argument_names = [
+                name for name in parallel_layer_specific_kwargs if name not in default_parallel_layer_specific_kwargs
+            ]
+            logger.debug(
+                f'The following arguments are not allowed for {cls.__name__}: {", ".join(wrong_argument_names)}, they '
+                "will be ignored."
+            )
+
+        return {
+            k: parallel_layer_specific_kwargs.get(k, default_parallel_layer_specific_kwargs[k])
+            for k in default_parallel_layer_specific_kwargs
+        }
+
+    @classmethod
+    def transform(
+        cls,
+        model: "PreTrainedModel",
+        layer: "torch.nn.Module",
+        sequence_parallel_enabled: bool = False,
+        device: Optional["torch.device"] = None,
+        should_parallelize_layer_predicate_func: Optional[Callable[["torch.nn.Module"], bool]] = None,
+        **parallel_layer_specific_kwargs,
+    ) -> "torch.nn.Module":
+        parallel_layer_specific_kwargs = cls.prepare_parallel_layer_specific_kwargs(**parallel_layer_specific_kwargs)
+        if should_parallelize_layer_predicate_func is not None and not should_parallelize_layer_predicate_func(layer):
+            return layer
+        return cls._transform(
+            model,
+            layer,
+            sequence_parallel_enabled=sequence_parallel_enabled,
+            device=device,
+            **parallel_layer_specific_kwargs,
+        )
 
 
 class ParallelEmbedding(ParallelLayer):
@@ -142,7 +155,7 @@ class ParallelEmbedding(ParallelLayer):
             a class name to LM head qualified name.
     """
 
-    EMBEDDING_NAME: str
+    EMBEDDING_NAME: Union[str, Dict[str, str]]
     VOCAB_SIZE_NAME: Optional[str] = "config.vocab_size"
     LM_HEAD_NAME: Optional[Union[str, Dict[str, str]]] = None
 
@@ -163,12 +176,13 @@ class ParallelEmbedding(ParallelLayer):
 
     @classmethod
     @requires_neuronx_distributed
-    def transform(
+    def _transform(
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
         sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
+        **parallel_layer_specific_kwargs,
     ) -> "torch.nn.Module":
         from neuronx_distributed.parallel_layers import parallel_state
 
@@ -186,6 +200,16 @@ class ParallelEmbedding(ParallelLayer):
         else:
             model_has_lm_head = False
 
+        if isinstance(cls.EMBEDDING_NAME, dict):
+            if model.__class__.__name__ in cls.EMBEDDING_NAME:
+                embedding_name = cls.EMBEDDING_NAME[model.__class__.__name__]
+            elif "default" in cls.EMBEDDING_NAME:
+                embedding_name = cls.EMBEDDING_NAME["default"]
+            else:
+                raise ValueError(f"Could not infer the embedding name for {model.__class__.__name__}.")
+        else:
+            embedding_name = cls.EMBEDDING_NAME
+
         embedding_weight_info = None
         lm_head_weight_info = None
         lm_head_bias_weight_info = None
@@ -194,9 +218,9 @@ class ParallelEmbedding(ParallelLayer):
             layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
             layer_qualified_name = layer_to_fully_qualified_name[id(layer)]
             if layer_qualified_name:
-                embedding_weight_name = f"{layer_qualified_name}.{cls.EMBEDDING_NAME}.weight"
+                embedding_weight_name = f"{layer_qualified_name}.{embedding_name}.weight"
             else:
-                embedding_weight_name = f"{cls.EMBEDDING_NAME}.weight"
+                embedding_weight_name = f"{embedding_name}.weight"
             embedding_weight_info = WeightInformation(
                 weight_map[embedding_weight_name],
                 embedding_weight_name,
@@ -222,29 +246,35 @@ class ParallelEmbedding(ParallelLayer):
                         device=device,
                     )
 
-        embedding_layer = layer.get_submodule(cls.EMBEDDING_NAME)
-        tp_size = parallel_state.get_tensor_model_parallel_size()
-        if embedding_layer.num_embeddings % tp_size != 0:
-            import torch_xla.core.xla_model as xm
+        embedding_layer = layer.get_submodule(embedding_name)
+        if is_peft_available():
+            from peft.tuners.tuners_utils import BaseTunerLayer
 
-            if xm.get_ordinal() == 0:
+            if isinstance(embedding_layer, BaseTunerLayer):
+                num_embeddings = embedding_layer.get_base_layer().num_embeddings
+            else:
+                num_embeddings = embedding_layer.num_embeddings
+        else:
+            num_embeddings = embedding_layer.num_embeddings
+
+        tp_size = parallel_state.get_tensor_model_parallel_size()
+        if num_embeddings % tp_size != 0:
+            if is_main_worker():
                 logger.warning(
                     f"Embedding parallelization for TP was skipped because the tensor parallel size ({tp_size}) does not "
-                    f"divide the number of embeddings ({embedding_layer.num_embeddings})"
+                    f"divide the number of embeddings ({num_embeddings})"
                 )
             return layer
 
         parallel_layers = embedding_to_parallel_embedding(
-            layer.get_submodule(cls.EMBEDDING_NAME),
+            layer.get_submodule(embedding_name),
             lm_head_layer=layer.get_submodule(lm_head_name) if model_has_lm_head else None,
             embedding_weight_info=embedding_weight_info,
             lm_head_weight_info=lm_head_weight_info,
             lm_head_bias_weight_info=lm_head_bias_weight_info,
             device=device,
         )
-        parent_embedding_module, embedding_attribute_name = cls._get_module_and_attribute_name(
-            layer, cls.EMBEDDING_NAME
-        )
+        parent_embedding_module, embedding_attribute_name = cls._get_module_and_attribute_name(layer, embedding_name)
         if model_has_lm_head:
             setattr(parent_embedding_module, embedding_attribute_name, parallel_layers[0])
             setattr(parent_lm_head_module, parent_lm_head_attribute_name, parallel_layers[1])
@@ -283,6 +313,8 @@ class ParallelSelfAttention(ParallelLayer):
             If left unspecified, the attribute will be fetched by using the NormalizedConfig associated to the model.
     """
 
+    PARALLEL_LAYER_SPECIFIC_KWARGS = {"skip_linear_weight_load": False, "kv_size_multiplier": None}
+
     QUERIES_NAME = "query"
     KEYS_NAME = "key"
     VALUES_NAME = "value"
@@ -292,19 +324,143 @@ class ParallelSelfAttention(ParallelLayer):
     NUM_KEY_VALUE_GROUPS_NAME: Optional[str] = None
     ALL_HEAD_SIZE_NAME: Optional[str] = None
 
+    GQA_QKV_PROJ_NAME: str = "qkv_proj"
+
+    @classmethod
+    def get_layer_qualified_name(cls, model: torch.nn.Module, layer: torch.nn.Module) -> str:
+        layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
+        return layer_to_fully_qualified_name[id(layer)]
+
+    @classmethod
+    def patch_proj_to_use_gqa_qkv_column_parallel_linear(
+        cls,
+        attention_layer: torch.nn.Module,
+        attention_layer_qualified_name: str,
+        proj_qualified_name: str,
+        proj_name: str,
+        output_index: int,
+    ):
+        fake_proj = FakeProj(
+            proj_qualified_name,
+            proj_name,
+            output_index,
+            lambda: attention_layer,
+            attention_layer_qualified_name,
+            cls.GQA_QKV_PROJ_NAME,
+        )
+
+        setattr(attention_layer, proj_name, fake_proj)
+
     @classmethod
     @requires_neuronx_distributed
-    def transform(
+    def replace_qkv_by_gqa_qkv_column_parallel_linear(
+        cls,
+        model: "torch.nn.Module",
+        attention_layer: "torch.nn.Module",
+        sequence_parallel_enabled: bool = False,
+        kv_size_multiplier: Optional[int] = None,
+        skip_linear_weight_load: bool = False,
+    ):
+        from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
+
+        if cls.NUM_KEY_VALUE_HEADS_NAME is None:
+            raise ValueError(f"{cls} does not defined the name of the number of key value heads.")
+        tp_size = get_tensor_model_parallel_size()
+        num_key_value_heads = getattr(attention_layer, cls.NUM_KEY_VALUE_HEADS_NAME)
+        if tp_size < num_key_value_heads:
+            raise ValueError(
+                f"The TP size ({tp_size}) is lower than the number of key value heads, using "
+                "GQAQKVColumnParallelLinear is not needed."
+            )
+
+        num_attention_heads = getattr(attention_layer, cls.NUM_ATTENTION_HEADS_NAME)
+        query_linear = getattr(attention_layer, cls.QUERIES_NAME)
+        key_linear = getattr(attention_layer, cls.KEYS_NAME)
+
+        hidden_size = query_linear.weight.size(1)
+        query_in_features = query_linear.weight.size(0)
+        key_value_in_features = key_linear.weight.size(0)
+
+        if kv_size_multiplier is None:
+            kv_size_multiplier = get_tensor_model_parallel_size() // num_key_value_heads
+
+        device = query_linear.weight.device
+        if device == torch.device("meta"):
+            device = None
+
+        gqa_qkv_column_parallel_linear = OptimumGQAQKVColumnParallelLinear(
+            cls.QUERIES_NAME,
+            cls.KEYS_NAME,
+            cls.VALUES_NAME,
+            cls.OUTPUT_PROJECTION_NAME,
+            num_attention_heads,
+            num_key_value_heads,
+            hidden_size,
+            [query_in_features, key_value_in_features],
+            gather_output=False,
+            bias=query_linear.bias is not None,
+            sequence_parallel_enabled=sequence_parallel_enabled,
+            device=device,
+            kv_size_multiplier=kv_size_multiplier,
+        )
+
+        setattr(attention_layer, cls.GQA_QKV_PROJ_NAME, gqa_qkv_column_parallel_linear)
+
+        maybe_load_weights_to_gqa_qkv_column_parallel_linear(
+            model,
+            gqa_qkv_column_parallel_linear,
+            try_from_checkpoint=not skip_linear_weight_load,
+            try_from_original_layer=not skip_linear_weight_load,
+        )
+
+        attention_layer_qualified_name = cls.get_layer_qualified_name(model, attention_layer)
+        fake_q_proj = FakeProj(
+            f"{attention_layer_qualified_name}.{cls.QUERIES_NAME}",
+            "q",
+            0,
+            lambda: attention_layer,
+            attention_layer_qualified_name,
+            cls.GQA_QKV_PROJ_NAME,
+        )
+        setattr(attention_layer, cls.QUERIES_NAME, fake_q_proj)
+
+        fake_k_proj = FakeProj(
+            f"{attention_layer_qualified_name}.{cls.KEYS_NAME}",
+            "k",
+            1,
+            lambda: attention_layer,
+            attention_layer_qualified_name,
+            cls.GQA_QKV_PROJ_NAME,
+        )
+        setattr(attention_layer, cls.KEYS_NAME, fake_k_proj)
+
+        fake_v_proj = FakeProj(
+            f"{attention_layer_qualified_name}.{cls.VALUES_NAME}",
+            "v",
+            2,
+            lambda: attention_layer,
+            attention_layer_qualified_name,
+            cls.GQA_QKV_PROJ_NAME,
+        )
+        setattr(attention_layer, cls.VALUES_NAME, fake_v_proj)
+
+    @classmethod
+    @requires_neuronx_distributed
+    def _transform(
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
         sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
+        **parallel_layer_specific_kwargs,
     ) -> "torch.nn.Module":
         if (cls.NUM_KEY_VALUE_HEADS_NAME is not None and cls.NUM_KEY_VALUE_GROUPS_NAME is None) or (
             cls.NUM_KEY_VALUE_HEADS_NAME is None and cls.NUM_KEY_VALUE_GROUPS_NAME is not None
         ):
             raise AttributeError("Both NUM_KEY_VALUE_HEADS_NAME and NUM_KEY_VALUE_GROUPS_NAME must be specified.")
+
+        skip_linear_weight_load = parallel_layer_specific_kwargs["skip_linear_weight_load"]
+        kv_size_multiplier = parallel_layer_specific_kwargs["kv_size_multiplier"]
 
         from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
 
@@ -314,11 +470,8 @@ class ParallelSelfAttention(ParallelLayer):
         config = model.config
         normalized_config = NormalizedConfigManager.get_normalized_config_class(config.model_type)(config)
 
-        if weight_map is not None:
-            layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
-            layer_qualified_name = layer_to_fully_qualified_name[id(layer)]
-        else:
-            layer_qualified_name = ""
+        layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
+        layer_qualified_name = layer_to_fully_qualified_name[id(layer)]
 
         if cls.NUM_ATTENTION_HEADS_NAME is None:
             num_attention_heads_name = normalized_config.NUM_ATTENTION_HEADS
@@ -344,37 +497,27 @@ class ParallelSelfAttention(ParallelLayer):
                 raise ValueError(
                     "Only the cases where the number of key value heads is divisible by the TP size, or the other way around are supported."
                 )
-            elif num_key_value_heads < tp_size:
-                logger.warning(
-                    f"The TP size ({tp_size}) is bigger than the number of key value heads ({num_key_value_heads}). "
-                    "This is not ideal because the key and value projections will not be sharded accross the TP ranks. "
-                    "For better performance choose the number of key value heads to be divisible by the TP size."
-                )
-            kv_heads_are_parallelized = num_key_value_heads >= tp_size
+            needs_gqa_qkv_column_parallel_linear = num_key_value_heads < tp_size
         else:
             num_key_value_heads = getattr(layer, num_attention_heads_name)
-            kv_heads_are_parallelized = True
+            needs_gqa_qkv_column_parallel_linear = False
 
-        for name in [cls.QUERIES_NAME, cls.KEYS_NAME, cls.VALUES_NAME]:
-            linear_layer_weight_info, linear_layer_bias_weight_info = None, None
-            if weight_map is not None:
-                linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
+        if needs_gqa_qkv_column_parallel_linear:
+            cls.replace_qkv_by_gqa_qkv_column_parallel_linear(
+                model,
+                layer,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                kv_size_multiplier=kv_size_multiplier,
+                skip_linear_weight_load=skip_linear_weight_load,
+            )
+        else:
+            for name in [cls.QUERIES_NAME, cls.KEYS_NAME, cls.VALUES_NAME]:
+                linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
                     weight_map,
                     f"{layer_qualified_name}.{name}",
                     device=device,
+                    fail_if_not_found=False,
                 )
-            # Under GQA setting with num_key_value_heads < tp_size, the key and value projections are replicated accross
-            # workers.
-            if not kv_heads_are_parallelized and name in [cls.KEYS_NAME, cls.VALUES_NAME]:
-                gqa_info = GroupedQueryAttentionInfo(num_attention_heads, num_key_value_heads)
-                parallel_linear = gqa_key_value_slicing_when_tp_size_greater_than_num_key_value_heads(
-                    gqa_info,
-                    getattr(layer, name),
-                    linear_layer_weight_info=linear_layer_weight_info,
-                    linear_layer_bias_weight_info=linear_layer_bias_weight_info,
-                    device=device,
-                )
-            else:
                 parallel_linear = linear_to_parallel_linear(
                     getattr(layer, name),
                     "column",
@@ -382,31 +525,46 @@ class ParallelSelfAttention(ParallelLayer):
                     linear_layer_weight_info=linear_layer_weight_info,
                     linear_layer_bias_weight_info=linear_layer_bias_weight_info,
                     sequence_parallel_enabled=sequence_parallel_enabled,
+                    skip_weight_load=skip_linear_weight_load,
                     device=device,
                 )
-            setattr(layer, name, parallel_linear)
+                setattr(layer, name, parallel_linear)
 
         if cls.OUTPUT_PROJECTION_NAME is not None:
-            linear_layer_weight_info, linear_layer_bias_weight_info = None, None
-            if weight_map is not None:
-                linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
-                    weight_map,
-                    f"{layer_qualified_name}.{cls.OUTPUT_PROJECTION_NAME}",
-                    device=device,
-                )
-            setattr(
-                layer,
-                cls.OUTPUT_PROJECTION_NAME,
-                linear_to_parallel_linear(
-                    getattr(layer, cls.OUTPUT_PROJECTION_NAME),
-                    "row",
-                    input_is_parallel=True,
+            linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
+                weight_map,
+                f"{layer_qualified_name}.{cls.OUTPUT_PROJECTION_NAME}",
+                device=device,
+                fail_if_not_found=False,
+            )
+            parallel_output_proj = linear_to_parallel_linear(
+                getattr(layer, cls.OUTPUT_PROJECTION_NAME),
+                "row",
+                input_is_parallel=True,
+                linear_layer_weight_info=linear_layer_weight_info,
+                linear_layer_bias_weight_info=linear_layer_bias_weight_info,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                skip_weight_load=skip_linear_weight_load,
+                device=device,
+            )
+
+            if needs_gqa_qkv_column_parallel_linear:
+                qga_qkv_layer = getattr(layer, cls.GQA_QKV_PROJ_NAME)
+                # We need to re-initialize the output projection in this case since the queries are "shuffled".
+                mark_parameter_init_status_during_parallelization(parallel_output_proj.weight, False)
+                maybe_load_weights_to_output_projection_when_using_gqa_qkv_column_parallel_linear(
+                    parallel_output_proj,
+                    qga_qkv_layer.num_attention_heads,
+                    qga_qkv_layer.num_key_value_heads,
+                    qga_qkv_layer.kv_size_multiplier,
+                    original_output_projection=getattr(layer, cls.OUTPUT_PROJECTION_NAME),
                     linear_layer_weight_info=linear_layer_weight_info,
                     linear_layer_bias_weight_info=linear_layer_bias_weight_info,
-                    sequence_parallel_enabled=sequence_parallel_enabled,
-                    device=device,
-                ),
-            )
+                    try_from_checkpoint=not skip_linear_weight_load,
+                    try_from_original_layer=not skip_linear_weight_load,
+                )
+
+            setattr(layer, cls.OUTPUT_PROJECTION_NAME, parallel_output_proj)
 
         setattr(
             layer,
@@ -419,7 +577,7 @@ class ParallelSelfAttention(ParallelLayer):
             # Since those heads end-up sharded accross TP ranks just as the query heads, only the number of kv heads
             # needs to be updated. The number of query groups remains the same here because it is the ratio between the
             # number of query heads and the number of kv heads.
-            if kv_heads_are_parallelized:
+            if not needs_gqa_qkv_column_parallel_linear:
                 setattr(
                     layer,
                     cls.NUM_KEY_VALUE_HEADS_NAME,
@@ -430,15 +588,17 @@ class ParallelSelfAttention(ParallelLayer):
             # In this case, multiple ranks will end-up with the same kv head, and each rank will only have one kv head
             # and query group.
             else:
+                gqa_qkv_proj = getattr(layer, cls.GQA_QKV_PROJ_NAME)
+                new_num_key_value_heads = (num_key_value_heads * gqa_qkv_proj.kv_size_multiplier) // tp_size
                 setattr(
                     layer,
                     cls.NUM_KEY_VALUE_HEADS_NAME,
-                    1,
+                    new_num_key_value_heads,
                 )
                 setattr(
                     layer,
                     cls.NUM_KEY_VALUE_GROUPS_NAME,
-                    1,
+                    getattr(layer, num_attention_heads_name) // new_num_key_value_heads,
                 )
 
         setattr(
@@ -466,6 +626,8 @@ class ParallelSelfAttentionWithFusedQKV(ParallelLayer):
             If left unspecified, the attribute will be fetched by using the NormalizedConfig associated to the model.
     """
 
+    PARALLEL_LAYER_SPECIFIC_KWARGS = {"skip_linear_weight_load": False}
+
     QUERY_KEY_VALUE_NAME = "query_key_value"
     OUTPUT_PROJECTION_NAME: Optional[str] = None
     NUM_ATTENTION_HEADS_NAME: Optional[str] = None
@@ -474,14 +636,17 @@ class ParallelSelfAttentionWithFusedQKV(ParallelLayer):
 
     @classmethod
     @requires_neuronx_distributed
-    def transform(
+    def _transform(
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
         sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
+        **parallel_layer_specific_kwargs,
     ) -> "torch.nn.Module":
         from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
+
+        skip_linear_weight_load = parallel_layer_specific_kwargs["skip_linear_weight_load"]
 
         tp_size = get_tensor_model_parallel_size()
 
@@ -515,7 +680,7 @@ class ParallelSelfAttentionWithFusedQKV(ParallelLayer):
 
         linear_layer_weight_info, linear_layer_bias_weight_info = None, None
         if weight_map is not None:
-            linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
+            linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
                 weight_map,
                 f"{layer_qualified_name}.{cls.QUERY_KEY_VALUE_NAME}",
                 device=device,
@@ -529,6 +694,7 @@ class ParallelSelfAttentionWithFusedQKV(ParallelLayer):
             linear_layer_weight_info=linear_layer_weight_info,
             linear_layer_bias_weight_info=linear_layer_bias_weight_info,
             sequence_parallel_enabled=sequence_parallel_enabled,
+            skip_weight_load=skip_linear_weight_load,
             device=device,
         )
 
@@ -537,7 +703,7 @@ class ParallelSelfAttentionWithFusedQKV(ParallelLayer):
         if cls.OUTPUT_PROJECTION_NAME is not None:
             linear_layer_weight_info, linear_layer_bias_weight_info = None, None
             if weight_map is not None:
-                linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
+                linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
                     weight_map,
                     f"{layer_qualified_name}.{cls.OUTPUT_PROJECTION_NAME}",
                     device=device,
@@ -552,6 +718,7 @@ class ParallelSelfAttentionWithFusedQKV(ParallelLayer):
                     linear_layer_weight_info=linear_layer_weight_info,
                     linear_layer_bias_weight_info=linear_layer_bias_weight_info,
                     sequence_parallel_enabled=sequence_parallel_enabled,
+                    skip_weight_load=skip_linear_weight_load,
                     device=device,
                 ),
             )
@@ -578,23 +745,27 @@ class ParallelSelfOutput(ParallelLayer):
             The name of the projection layer in the module containing it.
     """
 
+    PARALLEL_LAYER_SPECIFIC_KWARGS = {"skip_linear_weight_load": False}
+
     OUTPUT_PROJECTION_NAME = "dense"
 
     @classmethod
-    def transform(
+    def _transform(
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
         sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
+        **parallel_layer_specific_kwargs,
     ) -> "torch.nn.Module":
+        skip_linear_weight_load = parallel_layer_specific_kwargs["skip_linear_weight_load"]
         weight_map = getattr(model, "_weight_map", None)
 
         linear_layer_weight_info, linear_layer_bias_weight_info = None, None
         if weight_map is not None:
             layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
             layer_qualified_name = layer_to_fully_qualified_name[id(layer)]
-            linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
+            linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
                 weight_map,
                 f"{layer_qualified_name}.{cls.OUTPUT_PROJECTION_NAME}",
                 device=device,
@@ -610,6 +781,7 @@ class ParallelSelfOutput(ParallelLayer):
                 linear_layer_weight_info=linear_layer_weight_info,
                 linear_layer_bias_weight_info=linear_layer_bias_weight_info,
                 sequence_parallel_enabled=sequence_parallel_enabled,
+                skip_weight_load=skip_linear_weight_load,
                 device=device,
             ),
         )
@@ -627,17 +799,21 @@ class ParallelMLP(ParallelLayer):
             The qualified name of the second linear projection in the module.
     """
 
+    PARALLEL_LAYER_SPECIFIC_KWARGS = {"skip_linear_weight_load": False}
+
     FIRST_LINEAR_NAME: str
     SECOND_LINEAR_NAME: str
 
     @classmethod
-    def transform(
+    def _transform(
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
         sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
+        **parallel_layer_specific_kwargs,
     ) -> "torch.nn.Module":
+        skip_linear_weight_load = parallel_layer_specific_kwargs["skip_linear_weight_load"]
         layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
         weight_map = getattr(model, "_weight_map", None)
 
@@ -645,7 +821,7 @@ class ParallelMLP(ParallelLayer):
         module, attribute_name = cls._get_module_and_attribute_name(layer, cls.FIRST_LINEAR_NAME)
         if weight_map is not None:
             layer_qualified_name = layer_to_fully_qualified_name[id(module)]
-            linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
+            linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
                 weight_map,
                 f"{layer_qualified_name}.{attribute_name}",
                 device=device,
@@ -661,6 +837,7 @@ class ParallelMLP(ParallelLayer):
                 linear_layer_weight_info=linear_layer_weight_info,
                 linear_layer_bias_weight_info=linear_layer_bias_weight_info,
                 sequence_parallel_enabled=sequence_parallel_enabled,
+                skip_weight_load=skip_linear_weight_load,
                 device=device,
             ),
         )
@@ -669,7 +846,7 @@ class ParallelMLP(ParallelLayer):
         linear_layer_weight_info, linear_layer_bias_weight_info = None, None
         if weight_map is not None:
             layer_qualified_name = layer_to_fully_qualified_name[id(module)]
-            linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
+            linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
                 weight_map,
                 f"{layer_qualified_name}.{attribute_name}",
                 device=device,
@@ -685,6 +862,7 @@ class ParallelMLP(ParallelLayer):
                 linear_layer_weight_info=linear_layer_weight_info,
                 linear_layer_bias_weight_info=linear_layer_bias_weight_info,
                 sequence_parallel_enabled=sequence_parallel_enabled,
+                skip_weight_load=skip_linear_weight_load,
                 device=device,
             ),
         )
@@ -765,6 +943,8 @@ class ParallelCrossEntropyLoss(_WeightedLoss):
 
 
 class ParallelCrossEntropy(ParallelLayer):
+    PARALLEL_LAYER_SPECIFIC_KWARGS = {"skip_linear_weight_load": False}
+
     LAST_LINEAR_PROJECTION_NAME: Union[str, Dict[str, str]]
 
     @classmethod
@@ -788,13 +968,16 @@ class ParallelCrossEntropy(ParallelLayer):
 
     @classmethod
     @requires_neuronx_distributed
-    def transform(
+    def _transform(
         cls,
         model: "PreTrainedModel",
         layer: "torch.nn.Module",
         sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
+        **parallel_layer_specific_kwargs,
     ) -> "torch.nn.Module":
+        skip_linear_weight_load = parallel_layer_specific_kwargs["skip_linear_weight_load"]
+
         from neuronx_distributed import parallel_layers
 
         linear_projection_name = None
@@ -829,11 +1012,15 @@ class ParallelCrossEntropy(ParallelLayer):
         if weight_map is not None:
             layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
             linear_projection_qualified_name = layer_to_fully_qualified_name[id(linear_projection)]
-            linear_projection_weight_info, linear_projection_bias_weight_info = cls._get_linear_weight_info(
-                weight_map,
-                linear_projection_qualified_name,
-                device=device,
-            )
+            try:
+                linear_projection_weight_info, linear_projection_bias_weight_info = get_linear_weight_info(
+                    weight_map,
+                    linear_projection_qualified_name,
+                    device=device,
+                )
+            except ValueError:
+                # It means there are no weight available for the linear, but no need to fail here.
+                pass
 
         parallel_linear_projection = linear_to_parallel_linear(
             getattr(linear_projection_parent, linear_projection_attr_name),
@@ -844,6 +1031,7 @@ class ParallelCrossEntropy(ParallelLayer):
             gather_output=False,
             # Since it is the last linear projection, we do not want the output to be sequence parallel.
             sequence_parallel_enabled=False,
+            skip_weight_load=skip_linear_weight_load,
             device=device,
         )
         setattr(linear_projection_parent, linear_projection_attr_name, parallel_linear_projection)

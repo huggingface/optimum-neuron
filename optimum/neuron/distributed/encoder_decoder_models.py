@@ -14,7 +14,7 @@
 # limitations under the License.
 """Classes related to `neuronx-distributed` to perform parallelism."""
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 import torch
 from transformers.models.t5.modeling_t5 import T5Attention, T5ForSequenceClassification, T5LayerNorm
@@ -29,7 +29,7 @@ from .parallel_layers import (
     ParallelSelfAttention,
     SequenceCollectiveOpInfo,
 )
-from .utils import linear_to_parallel_linear
+from .utils import get_linear_weight_info, linear_to_parallel_linear
 
 
 if TYPE_CHECKING:
@@ -53,10 +53,14 @@ class T5ParallelSelfAttention(ParallelSelfAttention):
     def transform(
         cls,
         model: "PreTrainedModel",
-        layer: "torch.nn.Module",
-        device: Optional["torch.device"] = None,
+        layer: torch.nn.Module,
         sequence_parallel_enabled: bool = False,
-    ) -> "torch.nn.Module":
+        device: Optional[torch.device] = None,
+        should_parallelize_layer_predicate_func: Optional[Callable[[torch.nn.Module], bool]] = None,
+        **parallel_layer_specific_kwargs,
+    ) -> torch.nn.Module:
+        if should_parallelize_layer_predicate_func is not None and not should_parallelize_layer_predicate_func(layer):
+            return layer
         from neuronx_distributed.parallel_layers.parallel_state import (
             get_tensor_model_parallel_rank,
             get_tensor_model_parallel_size,
@@ -84,7 +88,13 @@ class T5ParallelSelfAttention(ParallelSelfAttention):
                 layer.relative_attention_bias.num_embeddings = num_attention_heads_per_rank
                 set_tensor_model_parallel_attributes(layer.relative_attention_bias.weight, True, 1, stride=1)
 
-        layer = super().transform(model, layer, sequence_parallel_enabled=sequence_parallel_enabled, device=device)
+        layer = super().transform(
+            model,
+            layer,
+            sequence_parallel_enabled=sequence_parallel_enabled,
+            device=device,
+            **parallel_layer_specific_kwargs,
+        )
 
         return layer
 
@@ -97,10 +107,14 @@ class T5ParallelMLP(ParallelMLP):
     def transform(
         cls,
         model: "PreTrainedModel",
-        layer: "torch.nn.Module",
+        layer: torch.nn.Module,
         sequence_parallel_enabled: bool = False,
-        device: Optional["torch.device"] = None,
-    ) -> "torch.nn.Module":
+        device: Optional[torch.device] = None,
+        should_parallelize_layer_predicate_func: Optional[Callable[[torch.nn.Module], bool]] = None,
+    ) -> torch.nn.Module:
+        if should_parallelize_layer_predicate_func is not None and not should_parallelize_layer_predicate_func(layer):
+            return layer
+
         from transformers.models.t5.modeling_t5 import T5DenseGatedActDense
 
         if cls.FIRST_LINEAR_NAME is None or cls.SECOND_LINEAR_NAME is None:
@@ -125,7 +139,7 @@ class T5ParallelMLP(ParallelMLP):
             module, attribute_name = cls._get_module_and_attribute_name(layer, cls.FIRST_LINEAR_NAME)
             if weight_map is not None:
                 layer_qualified_name = layer_to_fully_qualified_name[id(module)]
-                linear_layer_weight_info, linear_layer_bias_weight_info = cls._get_linear_weight_info(
+                linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
                     weight_map,
                     f"{layer_qualified_name}.{attribute_name}",
                     device=device,
@@ -322,9 +336,11 @@ class T5Parallelizer(Parallelizer):
     def _parallelize(
         cls,
         model: "PreTrainedModel",
-        device: Optional["torch.device"] = None,
+        device: Optional[torch.device] = None,
         parallelize_embeddings: bool = True,
         sequence_parallel_enabled: bool = False,
+        should_parallelize_layer_predicate_func: Optional[Callable[[torch.nn.Module], bool]] = None,
+        **parallel_layer_specific_kwargs,
     ) -> "PreTrainedModel":
         if isinstance(model, T5ForSequenceClassification):
             raise NotImplementedError(
@@ -334,7 +350,12 @@ class T5Parallelizer(Parallelizer):
             )
         if parallelize_embeddings:
             model = T5ParallelEmbedding.transform(
-                model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+                model,
+                model,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
+                device=device,
+                **parallel_layer_specific_kwargs,
             )
         if parallelize_embeddings and model.encoder.embed_tokens is not None:
             model.encoder.embed_tokens = model.shared
@@ -345,35 +366,50 @@ class T5Parallelizer(Parallelizer):
                 model,
                 block.layer[0].SelfAttention,
                 sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
                 device=device,
+                **parallel_layer_specific_kwargs,
             )
             block.layer[1].DenseReluDense = T5ParallelMLP.transform(
                 model,
                 block.layer[1].DenseReluDense,
                 sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
                 device=device,
+                **parallel_layer_specific_kwargs,
             )
         for block in model.decoder.block:
             block.layer[0].SelfAttention = T5ParallelSelfAttention.transform(
                 model,
                 block.layer[0].SelfAttention,
                 sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
                 device=device,
+                **parallel_layer_specific_kwargs,
             )
             block.layer[1].EncDecAttention = T5ParallelSelfAttention.transform(
                 model,
                 block.layer[1].EncDecAttention,
                 sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
                 device=device,
+                **parallel_layer_specific_kwargs,
             )
             block.layer[2].DenseReluDense = T5ParallelMLP.transform(
                 model,
                 block.layer[2].DenseReluDense,
                 sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
                 device=device,
+                **parallel_layer_specific_kwargs,
             )
         if parallelize_embeddings:
             model = T5ParallelCrossEntropy.transform(
-                model, model, sequence_parallel_enabled=sequence_parallel_enabled, device=device
+                model,
+                model,
+                sequence_parallel_enabled=sequence_parallel_enabled,
+                should_parallelize_layer_predicate_func=should_parallelize_layer_predicate_func,
+                device=device,
+                **parallel_layer_specific_kwargs,
             )
         return model

@@ -15,7 +15,7 @@
 
 
 import logging
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 from diffusers import StableDiffusionXLInpaintPipeline
@@ -28,10 +28,6 @@ from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl_inpain
 from diffusers.utils import deprecate
 
 from .pipeline_utils import StableDiffusionXLPipelineMixin
-
-
-if TYPE_CHECKING:
-    from diffusers.image_processor import PipelineImageInput
 
 
 logger = logging.getLogger(__name__)
@@ -374,9 +370,11 @@ class NeuronStableDiffusionXLInpaintPipelineMixin(StableDiffusionXLPipelineMixin
         )
 
         # 3. Encode input prompt
-        text_encoder_lora_scale = (
-            cross_attention_kwargs.get("scale", None) if self.cross_attention_kwargs is not None else None
-        )
+        if cross_attention_kwargs is not None and cross_attention_kwargs.get("scale", None) is not None:
+            logger.warning(
+                "Lora scale need to be fused with model weights during the compilation. The scale passed through the pipeline during inference will be ignored."
+            )
+        text_encoder_lora_scale = None
 
         (
             prompt_embeds,

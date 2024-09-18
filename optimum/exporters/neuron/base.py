@@ -15,6 +15,7 @@
 """Neuron configuration base classes."""
 
 import importlib
+import re
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
@@ -120,10 +121,12 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
     MODEL_TYPE = None
 
     _TASK_TO_COMMON_OUTPUTS = {
+        "depth-estimation": ["predicted_depth"],
         "feature-extraction": ["last_hidden_state", "pooler_output"],
         "fill-mask": ["logits"],
         "image-classification": ["logits"],
-        "image-segmentation": ["logits", "pred_boxes", "pred_masks"],
+        "image-segmentation": ["logits"],
+        "image-to-image": ["reconstruction"],
         "masked-im": ["logits"],
         "multiple-choice": ["logits"],
         "object-detection": ["logits", "pred_boxes"],
@@ -144,18 +147,24 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
         compiler_type: Optional[str] = None,
         compiler_version: Optional[str] = None,
         batch_size: Optional[int] = None,
+        text_batch_size: Optional[int] = None,
+        image_batch_size: Optional[int] = None,
         dynamic_batch_size: bool = False,
         sequence_length: Optional[int] = None,
         num_choices: Optional[int] = None,
         width: Optional[int] = None,
         height: Optional[int] = None,
+        image_size: Optional[int] = None,
+        patch_size: Optional[int] = None,
         num_channels: Optional[int] = None,
         feature_size: Optional[int] = None,
         nb_max_frames: Optional[int] = None,
         audio_sequence_length: Optional[int] = None,
         point_batch_size: Optional[int] = None,
         nb_points_per_image: Optional[int] = None,
-        num_beams: int = 1,
+        num_beams: Optional[int] = None,
+        vae_scale_factor: Optional[int] = None,
+        encoder_hidden_size: Optional[int] = None,
         output_attentions: bool = False,
         output_hidden_states: bool = False,
         # TODO: add custom dtype after optimum 1.13 release
@@ -176,17 +185,23 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
         # To avoid using **kwargs.
         axes_values = {
             "batch_size": batch_size,
+            "text_batch_size": text_batch_size,
+            "image_batch_size": image_batch_size,
             "sequence_length": sequence_length,
             "num_choices": num_choices,
             "width": width,
             "height": height,
-            "num_channels": num_channels,
+            "num_channels": num_channels or getattr(self._config, "num_channels", None),
             "feature_size": feature_size,
             "nb_max_frames": nb_max_frames,
             "audio_sequence_length": audio_sequence_length,
             "point_batch_size": point_batch_size,
             "nb_points_per_image": nb_points_per_image,
             "num_beams": num_beams,
+            "image_size": image_size or getattr(self._config, "image_size", None),
+            "patch_size": patch_size or getattr(self._config, "patch_size", None),
+            "vae_scale_factor": vae_scale_factor,
+            "encoder_hidden_size": encoder_hidden_size,
         }
         input_shapes = {}
         for name, value in axes_values.items():
@@ -321,6 +336,30 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
                 flatten[name] = value
         return flatten
 
+    @classmethod
+    def unflatten_inputs(cls, inputs: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Re-construct inputs that have been flatten for tracing.
+        """
+        unflatten = {}
+        to_group = {}
+        for name, value in inputs.items():
+            name_with_idx = re.findall(r"(.*?)_(\d+)", name)
+            if len(name_with_idx) > 0:
+                if name_with_idx[0][0] in to_group:
+                    to_group[name_with_idx[0][0]].append((int(name_with_idx[0][1]), value))
+                else:
+                    to_group[name_with_idx[0][0]] = [(int(name_with_idx[0][1]), value)]
+            else:
+                unflatten[name] = value
+
+        if to_group:
+            for name, values in to_group.items():
+                ordered = sorted(values, key=lambda x: x[0])
+            unflatten[name] = tuple([item[1] for item in ordered])
+
+        return unflatten
+
     def patch_model_for_export(
         self,
         model: "PreTrainedModel",
@@ -332,6 +371,7 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
         Checks if inputs order of the model's forward pass correspond to the generated dummy inputs to ensure the dummy inputs tuple used for
         tracing are under the correct order.
         """
+        output_hidden_states = self.output_hidden_states
 
         class ModelWrapper(torch.nn.Module):
             def __init__(self, model: "PreTrainedModel", input_names: List[str]):
@@ -351,10 +391,13 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
                 if forward_with_tuple is True:
                     outputs = self.model(*ordered_inputs.values())
                 else:
+                    if output_hidden_states:
+                        ordered_inputs["output_hidden_states"] = True
                     outputs = self.model(**ordered_inputs)
 
-                if isinstance(outputs, dict) and eligible_outputs is not None:
-                    outputs = {name: outputs[name] for name in outputs.keys() & eligible_outputs}
+                if isinstance(outputs, dict):
+                    if eligible_outputs is not None:
+                        outputs = {name: outputs[name] for name in outputs.keys() & eligible_outputs}
 
                 if isinstance(outputs, tuple) and eligible_outputs is not None:
                     if not all(isinstance(x, int) for x in eligible_outputs):
@@ -379,7 +422,8 @@ class NeuronDecoderConfig(NeuronConfig):
         be passed to export the model,
     - NEURONX_CLASS (`str`) -- the name of the transformers-neuronx class to instantiate for the model.
     It is a full class name defined relatively to the transformers-neuronx module, e.g. `gpt2.model.GPT2ForSampling`
-    - CONTINUOUS_BATCHING (`bool`, , defaults to `False`) -- Whether the model supports continuous batching or not.
+    - CONTINUOUS_BATCHING (`bool`, defaults to `False`) -- Whether the model supports continuous batching or not.
+    - ATTENTION_LAYOUT (`str`, defaults to `HSB`) -- Layout to be used for attention computation.
 
     The NEURONX_CLASS must always be defined in each model configuration.
 
@@ -390,6 +434,7 @@ class NeuronDecoderConfig(NeuronConfig):
     INPUT_ARGS = ("batch_size", "sequence_length")
     NEURONX_CLASS = None
     CONTINUOUS_BATCHING = False
+    ATTENTION_lAYOUT = "HSB"
 
     def __init__(self, task: str):
         if not is_transformers_neuronx_available():
@@ -409,3 +454,7 @@ class NeuronDecoderConfig(NeuronConfig):
     @property
     def continuous_batching(self):
         return self.CONTINUOUS_BATCHING
+
+    @property
+    def attention_layout(self):
+        return self.ATTENTION_lAYOUT

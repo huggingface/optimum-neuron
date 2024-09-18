@@ -13,9 +13,9 @@ except Exception as error:
 
 
 INSTALL_REQUIRES = [
-    "transformers == 4.36.2",
-    "accelerate == 0.23.0",
-    "optimum ~= 1.17.0",
+    "transformers == 4.43.2",
+    "accelerate == 0.29.2",
+    "optimum ~= 1.21.0",
     "huggingface_hub >= 0.20.1",
     "numpy>=1.22.2, <=1.25.2",
     "protobuf<4",
@@ -29,10 +29,18 @@ TESTS_REQUIRE = [
     "sentencepiece",
     "datasets",
     "sacremoses",
-    "diffusers >= 0.26.1",
+    "diffusers>=0.28.0, <0.29.0",
     "safetensors",
     "sentence-transformers >= 2.2.0",
-    "sacremoses",
+    "peft",
+    "trl",
+    "compel",
+    "rjieba",
+    "soundfile",
+    "librosa",
+    "opencv-python-headless",
+    "controlnet-aux",
+    "mediapipe",
 ]
 
 QUALITY_REQUIRES = [
@@ -47,22 +55,24 @@ EXTRAS_REQUIRE = {
     "quality": QUALITY_REQUIRES,
     "neuron": [
         "wheel",
-        "torch-neuron==1.13.1.2.9.17.0",
+        "torch-neuron==1.13.1.2.9.74.0",
         "torch==1.13.1.*",
-        "neuron-cc[tensorflow]==1.21.0.0",
+        "neuron-cc[tensorflow]==1.22.0.0",
         "protobuf",
         "torchvision",
+        "numpy==1.22.3",
     ],
     "neuronx": [
         "wheel",
-        "neuronx-cc==2.12.68.0",
-        "torch-neuronx==1.13.1.1.13.1",
-        "transformers-neuronx==0.9.474",
-        "torch==1.13.1.*",
-        "torchvision==0.14.*",
-        "neuronx_distributed==0.6.0",
+        "neuronx-cc==2.14.227.0",
+        "torch-neuronx==2.1.2.2.2.0",
+        "transformers-neuronx==0.11.351",
+        "torch==2.1.2.*",
+        "torchvision==0.16.*",
+        "neuronx_distributed==0.8.0",
+        "libneuronxla==2.0.2335",
     ],
-    "diffusers": ["diffusers ~= 0.26.1"],
+    "diffusers": ["diffusers>=0.28.0, <0.29.0", "peft"],
     "sentence-transformers": ["sentence-transformers >= 2.2.0"],
 }
 
@@ -71,7 +81,7 @@ setup(
     version=__version__,
     description=(
         "Optimum Neuron is the interface between the Hugging Face Transformers and Diffusers libraries and AWS "
-        "Tranium and Inferentia accelerators. It provides a set of tools enabling easy model loading, training and "
+        "Trainium and Inferentia accelerators. It provides a set of tools enabling easy model loading, training and "
         "inference on single and multiple neuron core settings for different downstream tasks."
     ),
     long_description=open("README.md", "r", encoding="utf-8").read(),
@@ -98,5 +108,10 @@ setup(
     dependency_links=["https://pip.repos.neuron.amazonaws.com"],
     include_package_data=True,
     zip_safe=False,
-    entry_points={"console_scripts": ["optimum-cli=optimum.commands.optimum_cli:main"]},
+    entry_points={
+        "console_scripts": [
+            "optimum-cli=optimum.commands.optimum_cli:main",
+            "neuron_parallel_compile=optimum.neuron.utils.neuron_parallel_compile:main",
+        ]
+    },
 )

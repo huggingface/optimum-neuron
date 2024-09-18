@@ -15,10 +15,11 @@
 """Factory class mapping model architectures to their Parallelizer class."""
 
 import importlib
-from typing import Dict, List, Type, Union
+from typing import Dict, List, Tuple, Type, Union
 
 from transformers import PreTrainedModel
 
+from ..utils.peft_utils import NeuronPeftModel
 from ..utils.require_utils import requires_neuronx_distributed
 from .base import Parallelizer
 
@@ -71,11 +72,14 @@ class ParallelizersManager:
 
     @classmethod
     @requires_neuronx_distributed
-    def _get_model_type(cls, model_type_or_model: Union[str, PreTrainedModel]) -> str:
+    def _get_model_type(cls, model_type_or_model: Union[str, PreTrainedModel, NeuronPeftModel]) -> str:
         from neuronx_distributed.pipeline import NxDPPModel
 
         if isinstance(model_type_or_model, NxDPPModel):
             model_type_or_model = model_type_or_model.original_torch_module
+        elif isinstance(model_type_or_model, NeuronPeftModel):
+            model_type_or_model = model_type_or_model.get_base_model()
+
         if isinstance(model_type_or_model, PreTrainedModel):
             model_type = model_type_or_model.config.model_type
         else:
@@ -83,19 +87,34 @@ class ParallelizersManager:
         return model_type
 
     @classmethod
-    def is_model_supported(cls, model_type_or_model: Union[str, PreTrainedModel]) -> bool:
+    def is_model_supported(
+        cls, model_type_or_model: Union[str, PreTrainedModel, NeuronPeftModel]
+    ) -> Tuple[bool, bool, bool]:
         """
-        Returns `True` if the model can be parallelized, `False` otherwise.
+        Returns a tuple of 3 booleans where:
+            - The first element indicates if tensor parallelism can be used for this model,
+            - The second element indicates if sequence parallelism can be used on top of tensor parallelism for this model,
+            - The third element indicates if pipeline parallelism can be used for this model.
 
         Args:
             model_type_or_model (`Union[str, PreTrainedModel]`):
                 Either the model type or an instance of the model.
         """
         model_type = cls._get_model_type(model_type_or_model)
-        return model_type in cls._MODEL_TYPE_TO_PARALLEL_MODEL_CLASS
+        for_tp = model_type in cls._MODEL_TYPE_TO_PARALLEL_MODEL_CLASS
+        if for_tp:
+            parallelizer = cls._MODEL_TYPE_TO_PARALLEL_MODEL_CLASS[model_type]
+            for_sp = parallelizer.supports_sequence_parallelism()
+            for_pp = parallelizer.supports_pipeline_parallelism()
+        else:
+            for_sp = for_pp = False
+
+        return (for_tp, for_sp, for_pp)
 
     @classmethod
-    def parallelizer_for_model(cls, model_type_or_model: Union[str, PreTrainedModel]) -> Type[Parallelizer]:
+    def parallelizer_for_model(
+        cls, model_type_or_model: Union[str, PreTrainedModel, NeuronPeftModel]
+    ) -> Type[Parallelizer]:
         """
         Returns the parallelizer class associated to the model.
 
@@ -105,7 +124,8 @@ class ParallelizersManager:
 
         """
         model_type = cls._get_model_type(model_type_or_model)
-        if not cls.is_model_supported(model_type_or_model):
+        is_tp_supported, _, _ = cls.is_model_supported(model_type_or_model)
+        if not is_tp_supported:
             supported_models = ", ".join(cls._MODEL_TYPE_TO_PARALLEL_MODEL_CLASS.keys())
             raise NotImplementedError(
                 f"{model_type} is not supported for parallelization, supported models: {supported_models}"

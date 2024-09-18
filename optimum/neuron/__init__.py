@@ -13,16 +13,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 from typing import TYPE_CHECKING
+
+from .utils.training_utils import patch_transformers_for_neuron_sdk
+
+
+if not os.environ.get("DISABLE_TRANSFORMERS_PATCHING", False):
+    patch_transformers_for_neuron_sdk()
 
 from transformers.utils import _LazyModule
 
 
 _import_structure = {
     "hf_argparser": ["NeuronHfArgumentParser"],
-    "trainers": ["NeuronTrainer", "Seq2SeqNeuronTrainer"],
+    "trainers": ["NeuronTrainer", "Seq2SeqNeuronTrainer", "NeuronSFTTrainer"],
     "training_args": ["NeuronTrainingArguments", "Seq2SeqNeuronTrainingArguments"],
-    "modeling_base": ["NeuronBaseModel"],
+    "modeling_traced": ["NeuronTracedModel"],
     "modeling": [
         "NeuronModelForFeatureExtraction",
         "NeuronModelForSentenceTransformers",
@@ -32,15 +39,26 @@ _import_structure = {
         "NeuronModelForTokenClassification",
         "NeuronModelForMultipleChoice",
         "NeuronModelForCausalLM",
+        "NeuronModelForImageClassification",
+        "NeuronModelForSemanticSegmentation",
+        "NeuronModelForObjectDetection",
+        "NeuronModelForCTC",
+        "NeuronModelForAudioClassification",
+        "NeuronModelForAudioFrameClassification",
+        "NeuronModelForXVector",
     ],
     "modeling_diffusion": [
+        "NeuronStableDiffusionPipelineBase",
         "NeuronStableDiffusionPipeline",
         "NeuronStableDiffusionImg2ImgPipeline",
         "NeuronStableDiffusionInpaintPipeline",
+        "NeuronStableDiffusionInstructPix2PixPipeline",
         "NeuronLatentConsistencyModelPipeline",
         "NeuronStableDiffusionXLPipeline",
         "NeuronStableDiffusionXLImg2ImgPipeline",
         "NeuronStableDiffusionXLInpaintPipeline",
+        "NeuronStableDiffusionControlNetPipeline",
+        "NeuronStableDiffusionXLControlNetPipeline",
     ],
     "modeling_decoder": ["NeuronDecoderModel"],
     "modeling_seq2seq": ["NeuronModelForSeq2SeqLM"],
@@ -51,36 +69,49 @@ _import_structure = {
         "ModelParallelismPlugin",
     ],
     "pipelines": ["pipeline"],
+    "utils": ["NeuronSFTConfig", "get_peft_model"],
 }
 
 if TYPE_CHECKING:
     from .accelerate import ModelParallelismPlugin, NeuronAccelerator, NeuronAcceleratorState, NeuronPartialState
     from .hf_argparser import NeuronHfArgumentParser
     from .modeling import (
+        NeuronModelForAudioClassification,
+        NeuronModelForAudioFrameClassification,
         NeuronModelForCausalLM,
+        NeuronModelForCTC,
         NeuronModelForFeatureExtraction,
+        NeuronModelForImageClassification,
         NeuronModelForMaskedLM,
         NeuronModelForMultipleChoice,
+        NeuronModelForObjectDetection,
         NeuronModelForQuestionAnswering,
+        NeuronModelForSemanticSegmentation,
         NeuronModelForSentenceTransformers,
         NeuronModelForSequenceClassification,
         NeuronModelForTokenClassification,
+        NeuronModelForXVector,
     )
-    from .modeling_base import NeuronBaseModel
     from .modeling_decoder import NeuronDecoderModel
     from .modeling_diffusion import (
         NeuronLatentConsistencyModelPipeline,
+        NeuronStableDiffusionControlNetPipeline,
         NeuronStableDiffusionImg2ImgPipeline,
         NeuronStableDiffusionInpaintPipeline,
+        NeuronStableDiffusionInstructPix2PixPipeline,
         NeuronStableDiffusionPipeline,
+        NeuronStableDiffusionPipelineBase,
+        NeuronStableDiffusionXLControlNetPipeline,
         NeuronStableDiffusionXLImg2ImgPipeline,
         NeuronStableDiffusionXLInpaintPipeline,
         NeuronStableDiffusionXLPipeline,
     )
     from .modeling_seq2seq import NeuronModelForSeq2SeqLM
+    from .modeling_traced import NeuronTracedModel
     from .pipelines import pipeline
-    from .trainers import NeuronTrainer, Seq2SeqNeuronTrainer
+    from .trainers import NeuronSFTTrainer, NeuronTrainer, Seq2SeqNeuronTrainer
     from .training_args import NeuronTrainingArguments, Seq2SeqNeuronTrainingArguments
+    from .utils import NeuronSFTConfig, get_peft_model
 
 else:
     import sys
@@ -93,11 +124,5 @@ else:
     )
 
 
-import os
-
 from .utils import is_neuron_available, is_neuronx_available, patch_transformers_for_neuron_sdk
 from .version import __version__
-
-
-if not os.environ.get("DISABLE_TRANSFORMERS_PATCHING", False):
-    patch_transformers_for_neuron_sdk()

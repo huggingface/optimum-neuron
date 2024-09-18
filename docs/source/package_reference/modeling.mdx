@@ -18,12 +18,12 @@ limitations under the License.
 
 ## Generic model classes
 
-### NeuronBaseModel
+### NeuronTracedModel
 
-The `NeuronBaseModel` class is available for instantiating a base Neuron model without a specific head.
+The `NeuronTracedModel` class is available for instantiating a base Neuron model without a specific head.
 It is used as the base class for all tasks but text generation.
 
-[[autodoc]] modeling_base.NeuronBaseModel
+[[autodoc]] modeling_traced.NeuronTracedModel
 
 ### NeuronDecoderModel
 
@@ -66,12 +66,41 @@ The following Neuron model classes are available for natural language processing
 ### NeuronModelForCausalLM
 
 [[autodoc]] modeling.NeuronModelForCausalLM
+    - forward
+
+## Computer Vision
+
+The following Neuron model classes are available for computer vision tasks.
+
+### NeuronModelForImageClassification
+
+[[autodoc]] modeling.NeuronModelForImageClassification
+
+### NeuronModelForSemanticSegmentation
+[[autodoc]] modeling.NeuronModelForSemanticSegmentation
+
+### NeuronModelForObjectDetection
+[[autodoc]] modeling.NeuronModelForObjectDetection
+
+## Audio
+
+The following auto classes are available for the following audio tasks.
+
+### NeuronModelForAudioClassification
+[[autodoc]] modeling.NeuronModelForAudioClassification
+
+### NeuronModelForAudioFrameClassification
+[[autodoc]] modeling.NeuronModelForAudioFrameClassification
+
+### NeuronModelForCTC
+[[autodoc]] modeling.NeuronModelForCTC
+
+### NeuronModelForXVector
+[[autodoc]] modeling.NeuronModelForXVector
 
 ## Stable Diffusion
 
-### NeuronStableDiffusionPipelineBase
-
-[[autodoc]] modeling_diffusion.NeuronStableDiffusionPipelineBase
+The following Neuron model classes are available for stable diffusion tasks.
 
 ### NeuronStableDiffusionPipeline
 
@@ -93,6 +122,11 @@ The following Neuron model classes are available for natural language processing
 [[autodoc]] modeling_diffusion.NeuronLatentConsistencyModelPipeline
     - __call__
 
+### NeuronStableDiffusionControlNetPipeline
+
+[[autodoc]] modeling_diffusion.NeuronStableDiffusionControlNetPipeline
+    - __call__
+
 ### NeuronStableDiffusionXLPipeline
 
 [[autodoc]] modeling_diffusion.NeuronStableDiffusionXLPipeline
@@ -104,4 +138,9 @@ The following Neuron model classes are available for natural language processing
 
 ### NeuronStableDiffusionXLInpaintPipeline
 [[autodoc]] modeling_diffusion.NeuronStableDiffusionXLInpaintPipeline
+    - __call__
+
+### NeuronStableDiffusionXLControlNetPipeline
+
+[[autodoc]] modeling_diffusion.NeuronStableDiffusionXLControlNetPipeline
     - __call__

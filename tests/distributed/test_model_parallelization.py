@@ -14,12 +14,13 @@
 # limitations under the License.
 """Tests validating that models can be parallelized correctly."""
 
+from pathlib import Path
 from typing import TYPE_CHECKING, List, Optional, Type, Union
 
 import pytest
 import torch
 import torch.utils._pytree as pytree
-from transformers import LlamaForCausalLM
+from transformers import AutoTokenizer, LlamaForCausalLM
 from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 from transformers.models.auto.modeling_auto import (
     MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING,
@@ -42,8 +43,8 @@ from transformers.models.auto.modeling_auto import (
 )
 
 import optimum
-from optimum.neuron.accelerate.accelerator import NeuronAccelerator
 from optimum.neuron.distributed.parallelizers_manager import ParallelizersManager
+from optimum.neuron.distributed.utils import compute_query_indices_for_rank
 from optimum.neuron.utils.cache_utils import (
     get_num_neuron_cores,
 )
@@ -53,16 +54,16 @@ from optimum.neuron.utils.import_utils import (
     is_torch_xla_available,
 )
 from optimum.neuron.utils.testing_utils import is_trainium_test
-from optimum.neuron.utils.training_utils import set_neuron_cc_optlevel_for_model
 
-from .distributed import DistributedTest
-from .utils import SEED, create_accelerator_for_mp, get_model, get_model_inputs
+from .. import DistributedTest
+from ..utils import SEED, StaticSeedPatcher, create_accelerator, get_model, get_model_inputs
 
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
 
 if is_neuronx_distributed_available():
+    from neuronx_distributed.modules.qkv_linear import get_kv_shared_group
     from neuronx_distributed.parallel_layers.parallel_state import (
         get_pipeline_model_parallel_rank,
         get_tensor_model_parallel_group,
@@ -83,7 +84,8 @@ else:
 
 
 CLASSES_TO_IGNORE = [
-    "T5ForSequenceClassification",
+    # TODO: enable this class when it can be traced for pipeline parallelism.
+    "LlamaForQuestionAnswering",
 ]
 
 
@@ -124,7 +126,7 @@ def _generate_supported_model_classes(
     for task in supported_tasks:
         config_class = CONFIG_MAPPING[model_type]
         model_class = task_mapping[task].get(config_class, None)
-        if model_class is not None and model_class not in CLASSES_TO_IGNORE:
+        if model_class is not None and model_class.__name__ not in CLASSES_TO_IGNORE:
             model_classes.append(model_class)
 
     return list(set(model_classes))
@@ -147,7 +149,7 @@ MODEL_TYPES_TO_TEST = [
     ),
     (
         "llama",
-        "michaelbenayoun/llama-2-tiny-16layers-random",
+        "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random",
     ),
     (
         "t5",
@@ -182,65 +184,7 @@ MODEL_CLASSES_TO_IGNORE = [
 ]
 
 
-LLAMA_GQA_VARIANTS_TO_TEST = {
-    "MHA-setup": (
-        8,
-        2,
-        1,
-        {
-            "num_hidden_layers": "2",
-            "num_attention_heads": "8",
-            "num_key_value_heads": "8",
-        },
-    ),
-    "num_key_value_heads > tp_size": (
-        8,
-        2,
-        1,
-        {
-            "num_hidden_layers": "2",
-            "num_attention_heads": "8",
-            "num_key_value_heads": "4",
-        },
-    ),
-    "num_key_value_heads = tp_size": (
-        8,
-        8,
-        1,
-        {
-            "num_hidden_layers": "2",
-            "hidden_size": "32",
-            "num_attention_heads": "16",
-            "num_key_value_heads": "8",
-        },
-    ),
-    "num_key_value_heads < tp_size": (
-        8,
-        8,
-        1,
-        {
-            "num_hidden_layers": "2",
-            "hidden_size": "32",
-            "num_attention_heads": "16",
-            "num_key_value_heads": "2",
-        },
-    ),
-    "MQA-setup": (
-        8,
-        8,
-        1,
-        {
-            "num_hidden_layers": "2",
-            "hidden_size": "32",
-            "num_attention_heads": "16",
-            "num_key_value_heads": "1",
-        },
-    ),
-}
-# LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-32kv-heads-random"
-LLAMA_V2_MODEL_NAME = "anushehchaudry/llama-2-tiny-random"
-# LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-random"
-# LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-32kv-heads-random"
+LLAMA_V2_MODEL_NAME = "michaelbenayoun/llama-2-tiny-16layers-32kv-heads-random"
 
 
 @is_trainium_test
@@ -257,6 +201,24 @@ class TestModelParallelization(DistributedTest):
 
     @pytest.fixture(scope="class", params=MODELS_TO_TEST, ids=[specs[1].__name__ for specs in MODELS_TO_TEST])
     def model_specs(self, request):
+        return request.param
+
+    @pytest.fixture(scope="class", params=[True, False], ids=["from_pretrained", "from_config"])
+    def from_pretrained(self, request):
+        return request.param
+
+    @pytest.fixture(scope="class", params=[False, True], ids=["regular_load", "lazy_load"])
+    def lazy_load(self, request):
+        return request.param
+
+    @pytest.fixture(
+        scope="class", params=[False, True], ids=["sequence_parallel_disabled", "sequence_parallel_enabled"]
+    )
+    def sequence_parallel_enabled(self, request):
+        return request.param
+
+    @pytest.fixture(scope="class", params=[False, True], ids=["embeddings_not_parallel", "parallelized_embeddings"])
+    def parallelize_embeddings(self, request):
         return request.param
 
     def early_skip(self, fixtures_kwargs):
@@ -287,16 +249,24 @@ class TestModelParallelization(DistributedTest):
         elif isinstance(original_output, torch.Tensor):
             xm.master_print(f"Comparing output named {name}")
             tp_size = get_tensor_model_parallel_size()
+            tp_group = get_tensor_model_parallel_group()
             if original_output.shape != output.shape:
                 gather_dim = min(
                     idx for idx in range(original_output.dim()) if original_output.shape[idx] != output.shape[idx]
                 )
                 output = output.to(xm.xla_device())
                 gathered = [torch.empty_like(output) for _ in range(tp_size)]
-                torch.distributed.all_gather(gathered, output, group=get_tensor_model_parallel_group())
+                torch.distributed.all_gather(gathered, output, group=tp_group)
                 gathered_output = torch.cat(gathered, dim=gather_dim)
                 xm.mark_step()
                 output = gathered_output.to("cpu")
+
+            # In this case, we assume GQAQKVColumnParallelLinear was used, we retrieve only the non-repeated KV heads.
+            if "past" in name and original_output.size(1) != output.size(1):
+                kv_size_multiplier = len(get_kv_shared_group(as_list=True)[0])
+                output = torch.chunk(output, kv_size_multiplier, dim=1)[0]
+
+            xm.master_print("Diff tensor:", original_output - output)
             torch.testing.assert_close(original_output, output)
         else:
             assert original_output == output, f"Output named {name} do not match."
@@ -326,9 +296,24 @@ class TestModelParallelization(DistributedTest):
             config_overwrite=config_overwrite,
             use_static_seed_patcher=True,
         )
-        orig_model = NeuronAccelerator.patch_model_for_neuron(orig_model)
 
-        set_neuron_cc_optlevel_for_model(orig_model)
+        accelerator = create_accelerator(
+            tp_size,
+            pp_size,
+            parallelize_embeddings=parallelize_embeddings,
+            sequence_parallel_enabled=sequence_parallel_enabled,
+        )
+
+        # It is ok to use this accelerator because `patch_model_for_neuron` does not depend on the TP or PP size.
+        orig_model = accelerator.patch_model_for_neuron(orig_model)
+
+        # Since the new KV cache system it seems that if orig_model.use_cache != model.use_cache, the losses between
+        # the two models will not match. It either comes from Transformers itself or Optimum Neuron.
+        # TODO: investigate this.
+        if pp_size == 1:
+            orig_model.config.use_cache = True
+        else:
+            orig_model.config.use_cache = False
 
         move_model_to_device(orig_model, xm.xla_device())
         orig_model = orig_model.eval()
@@ -340,6 +325,9 @@ class TestModelParallelization(DistributedTest):
 
         if sequence_parallel_enabled and not manager.supports_sequence_parallelism():
             pytest.skip(f"Sequence parallelism is not supported for {model_class.__name__}.")
+
+        if not from_pretrained and lazy_load:
+            pytest.skip("This is not supported, issue with tying weights.")
 
         pad_to_multiple_of = None if not sequence_parallel_enabled else tp_size
         inputs = get_model_inputs(
@@ -367,24 +355,17 @@ class TestModelParallelization(DistributedTest):
             use_static_seed_patcher=True,
         )
 
-        accelerator = create_accelerator_for_mp(
-            tp_size,
-            pp_size,
-            parallelize_embeddings=parallelize_embeddings,
-            sequence_parallel_enabled=sequence_parallel_enabled,
-        )
-
-        from .utils import create_static_seed_patcher
-
-        static_seed_patcher = create_static_seed_patcher(model.__class__, SEED)
+        static_seed_patcher = StaticSeedPatcher(SEED)
         with static_seed_patcher:
             model = accelerator.prepare(model)
 
         xm.mark_step()
 
-        model = accelerator.patch_model_for_neuron(model)
         with torch.no_grad():
             if pp_size == 1:
+                # This is set to False by `accelerator.prepare`, which we want in the general case, but here let's
+                # enable the cache to test that the KV cache matches the original model.
+                model.config.use_cache = True
                 model = model.eval()
                 model_outputs = model(**xla_inputs)
             else:
@@ -418,9 +399,12 @@ class TestModelParallelization(DistributedTest):
         monkeypatch,
     ):
         _, model_class, model_name_or_path, config_overwrite = model_specs
+
+        # This is very important otherwise the parallel cross entropy loss will modify the logits inplace.
         monkeypatch.setattr(
             optimum.neuron.distributed.parallel_layers, "_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT", True
         )
+
         return self._parallel_model_matches_original_model(
             model_class, model_name_or_path, config_overwrite, parallel_sizes, True, True, True, True
         )
@@ -446,20 +430,247 @@ class TestModelParallelization(DistributedTest):
     )
     @pytest.mark.parametrize(
         "world_size,tp_size,pp_size,config_overwrite",
-        LLAMA_GQA_VARIANTS_TO_TEST.values(),
-        ids=LLAMA_GQA_VARIANTS_TO_TEST.keys(),
+        [
+            [
+                8,
+                2,
+                1,
+                {
+                    "num_hidden_layers": "2",
+                    "hidden_size": "32",
+                    "num_attention_heads": "8",
+                    "num_key_value_heads": "8",
+                },
+            ],
+            [
+                8,
+                2,
+                1,
+                {
+                    "num_hidden_layers": "2",
+                    "hidden_size": "32",
+                    "num_attention_heads": "8",
+                    "num_key_value_heads": "4",
+                },
+            ],
+            [
+                8,
+                8,
+                1,
+                {
+                    "num_hidden_layers": "2",
+                    "hidden_size": "32",
+                    "num_attention_heads": "16",
+                    "num_key_value_heads": "8",
+                },
+            ],
+            [
+                8,
+                8,
+                1,
+                {
+                    "num_hidden_layers": "2",
+                    "hidden_size": "32",
+                    "num_attention_heads": "16",
+                    "num_key_value_heads": "2",
+                },
+            ],
+            [
+                16,
+                8,
+                2,
+                {
+                    "num_hidden_layers": "2",
+                    "hidden_size": "32",
+                    "num_attention_heads": "16",
+                    "num_key_value_heads": "2",
+                },
+            ],
+            [
+                8,
+                8,
+                1,
+                {
+                    "num_hidden_layers": "2",
+                    "hidden_size": "32",
+                    "num_attention_heads": "16",
+                    "num_key_value_heads": "1",
+                },
+            ],
+        ],
+        ids=[
+            "MHA-setup",
+            "num_key_value_heads bigger than tp_size",
+            "num_key_value_heads equal to tp_size",
+            "num_key_value_heads lower than tp_size",
+            "num_key_value_heads lower than tp_size,pp enabled",
+            "MQA-setup",
+        ],
     )
-    def test_llama_v2_gqa_variants(self, world_size, tp_size, pp_size, config_overwrite, monkeypatch):
+    def test_llama_v2_gqa(
+        self,
+        monkeypatch,
+        tmpdir,
+        world_size,
+        tp_size,
+        pp_size,
+        config_overwrite,
+        from_pretrained,
+        lazy_load,
+        sequence_parallel_enabled,
+        parallelize_embeddings,
+    ):
         monkeypatch.setattr(
             optimum.neuron.distributed.parallel_layers, "_PARALLEL_CROSS_ENTROPY_SHOULD_PRESERVE_INPUT", True
         )
+        num_kv_heads = int(config_overwrite["num_key_value_heads"])
+        # if num_kv_heads >= tp_size and (from_pretrained or lazy_load or sequence_parallel_enabled):
+        #     pytest.skip("No need to test this setting.")
+
+        # The following case can be skipped because since we set the seed, we would need to shuffle the output
+        # projections for this case to work. This is not needed in the real-case scenario, and since we test for every
+        # other setting, we can skip.
+        if num_kv_heads < tp_size and (not from_pretrained):
+            pytest.skip("This case will  not work here because we set the seed. We can skip.")
+
+        model_name_or_path = Path(tmpdir) / "llama_v2_gqa"
+
+        # Since we are creating the model from config, we actually first create a model locally from config and then
+        # use that as a `from_pretrained` to have proper initialization. Without that we can end-up with uninitialized
+        # weights.
+        if xm.get_ordinal() == 0:
+            tokenizer = AutoTokenizer.from_pretrained(LLAMA_V2_MODEL_NAME)
+            tokenizer.save_pretrained(model_name_or_path)
+            model = get_model(
+                LlamaForCausalLM,
+                LLAMA_V2_MODEL_NAME,
+                from_config=True,
+                config_overwrite=config_overwrite,
+            )
+            model.save_pretrained(model_name_or_path)
+        xm.rendezvous("Model creation done.")
+
         return self._parallel_model_matches_original_model(
             LlamaForCausalLM,
-            LLAMA_V2_MODEL_NAME,
+            model_name_or_path,
             config_overwrite,
             (world_size, tp_size, pp_size),
-            False,
-            False,
-            False,
-            False,
+            from_pretrained,
+            lazy_load,
+            sequence_parallel_enabled,
+            parallelize_embeddings,
         )
+
+
+@pytest.mark.parametrize(
+    "tp_size,num_attention_heads,num_key_value_heads,kv_size_multiplier,ground_truth",
+    [
+        [
+            8,
+            32,
+            4,
+            2,
+            [
+                [0, 1, 2, 3],
+                [8, 9, 10, 11],
+                [16, 17, 18, 19],
+                [24, 25, 26, 27],
+                [4, 5, 6, 7],
+                [12, 13, 14, 15],
+                [20, 21, 22, 23],
+                [28, 29, 30, 31],
+            ],
+        ],
+        [
+            8,
+            32,
+            4,
+            4,
+            [
+                [0, 1, 8, 9],
+                [16, 17, 24, 25],
+                [2, 3, 10, 11],
+                [18, 19, 26, 27],
+                [4, 5, 12, 13],
+                [20, 21, 28, 29],
+                [6, 7, 14, 15],
+                [22, 23, 30, 31],
+            ],
+        ],
+        [
+            8,
+            32,
+            4,
+            8,
+            [
+                [0, 8, 16, 24],
+                [1, 9, 17, 25],
+                [2, 10, 18, 26],
+                [3, 11, 19, 27],
+                [4, 12, 20, 28],
+                [5, 13, 21, 29],
+                [6, 14, 22, 30],
+                [7, 15, 23, 31],
+            ],
+        ],
+        [
+            32,
+            32,
+            4,
+            8,
+            [
+                [0],
+                [8],
+                [16],
+                [24],
+                [1],
+                [9],
+                [17],
+                [25],
+                [2],
+                [10],
+                [18],
+                [26],
+                [3],
+                [11],
+                [19],
+                [27],
+                [4],
+                [12],
+                [20],
+                [28],
+                [5],
+                [13],
+                [21],
+                [29],
+                [6],
+                [14],
+                [22],
+                [30],
+                [7],
+                [15],
+                [23],
+                [31],
+            ],
+        ],
+    ],
+    ids=[
+        "32-heads-4kv-heads-kv-mul-2,one kv head per rank",
+        "32-heads-4kv-heads-kv-mul-4,multiple kv heads per rank",
+        "32-heads-4kv-heads-kv-mul-8,all kv heads per rank",
+        "tp=32,32-heads-4kv-heads-kv-mul-8,one query head per rank",
+    ],
+)
+@is_trainium_test
+def test_compute_query_indices_for_rank(
+    tp_size, num_attention_heads, num_key_value_heads, kv_size_multiplier, ground_truth
+):
+    for tp_rank in range(tp_size):
+        expected = torch.tensor(ground_truth[tp_rank])
+        computed = compute_query_indices_for_rank(
+            tp_size, tp_rank, num_attention_heads, num_key_value_heads, kv_size_multiplier
+        )
+        print(f"TP rank = {tp_rank}")
+        print(f"Expected {expected}")
+        print(f"Computed {computed}")
+        torch.testing.assert_close(expected, computed)

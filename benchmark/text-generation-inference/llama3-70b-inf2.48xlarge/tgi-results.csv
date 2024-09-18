@@ -1,0 +1,4 @@
+model_id,concurrent requests,throughput (t/s),Time-to-first-token @ P50 (s),average latency (ms)
+huggingface/NousResearch/Meta-Llama-3-70B-Instruct,1,22.4846564103628,1.2006561384987435,43.7079989917263
+huggingface/NousResearch/Meta-Llama-3-70B-Instruct,8,64.09420641185218,4.925495064999268,85.36754380113435
+huggingface/NousResearch/Meta-Llama-3-70B-Instruct,16,66.62450133873871,22.87049979600488,135.4123021951354

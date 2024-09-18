@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import copy
 import os
 import random
 import unittest
@@ -33,7 +32,7 @@ from optimum.exporters.neuron import (
     validate_model_outputs,
     validate_models_outputs,
 )
-from optimum.exporters.neuron.__main__ import _get_submodels_and_neuron_configs
+from optimum.exporters.neuron.__main__ import get_submodels_and_neuron_configs
 from optimum.exporters.neuron.model_configs import *  # noqa: F403
 from optimum.exporters.tasks import TasksManager
 from optimum.neuron.utils import is_neuron_available
@@ -44,6 +43,8 @@ from optimum.utils.testing_utils import require_diffusers, require_sentence_tran
 from .exporters_utils import (
     ENCODER_DECODER_MODELS_TINY,
     EXPORT_MODELS_TINY,
+    EXTREA_DEFAULT_DUMMY_SHAPES,
+    LORA_WEIGHTS_TINY,
     SENTENCE_TRANSFORMERS_MODELS,
     STABLE_DIFFUSION_MODELS_TINY,
     WEIGHTS_NEFF_SEPARATION_UNSUPPORTED_ARCH,
@@ -127,18 +128,19 @@ class NeuronExportTestCase(unittest.TestCase):
         if library_name == "sentence_transformers":
             model_class = TasksManager.get_model_class_for_task(task, framework="pt", library=library_name)
             model = model_class(model_name)
+            reference_model = model_class(model_name)
             if "clip" in model[0].__class__.__name__.lower():
                 config = model[0].model.config
             else:
                 config = model[0].auto_model.config
         else:
-            model_class = TasksManager.get_model_class_for_task(task, framework="pt")
+            model_class = TasksManager.get_model_class_for_task(task, model_type=model_type, framework="pt")
             config = AutoConfig.from_pretrained(model_name)
             model = model_class.from_config(config)
-        reference_model = copy.deepcopy(model)
+            reference_model = model_class.from_config(config)
 
         mandatory_shapes = {
-            name: DEFAULT_DUMMY_SHAPES[name]
+            name: DEFAULT_DUMMY_SHAPES.get(name) or EXTREA_DEFAULT_DUMMY_SHAPES.get(name)
             for name in neuron_config_constructor.func.get_mandatory_axes_for_task(task)
         }
         neuron_config = neuron_config_constructor(
@@ -220,7 +222,7 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
         )
 
         with TemporaryDirectory() as tmpdirname:
-            models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs(
+            models_and_neuron_configs, output_model_names = get_submodels_and_neuron_configs(
                 model=model,
                 input_shapes=input_shapes,
                 task="stable-diffusion",
@@ -250,12 +252,47 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
         )
 
         with TemporaryDirectory() as tmpdirname:
-            models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs(
+            models_and_neuron_configs, output_model_names = get_submodels_and_neuron_configs(
                 model=model,
                 input_shapes=input_shapes,
                 task="stable-diffusion-xl",
                 output=Path(tmpdirname),
                 model_name_or_path=model_id,
+            )
+            _, neuron_outputs = export_models(
+                models_and_neuron_configs=models_and_neuron_configs,
+                output_dir=Path(tmpdirname),
+                output_file_names=output_model_names,
+            )
+            validate_models_outputs(
+                models_and_neuron_configs=models_and_neuron_configs,
+                neuron_named_outputs=neuron_outputs,
+                output_dir=Path(tmpdirname),
+                neuron_files_subpaths=output_model_names,
+            )
+
+    def test_export_sd_with_fused_lora_weights(self):
+        model_id = STABLE_DIFFUSION_MODELS_TINY["stable-diffusion"]
+        lora_params = LORA_WEIGHTS_TINY["stable-diffusion"]
+        set_seed(SEED)
+
+        # prepare neuron config / models
+        model = StableDiffusionPipeline.from_pretrained(model_id)
+        input_shapes = build_stable_diffusion_components_mandatory_shapes(
+            **{"batch_size": 1, "height": 64, "width": 64, "num_images_per_prompt": 4}
+        )
+
+        with TemporaryDirectory() as tmpdirname:
+            models_and_neuron_configs, output_model_names = get_submodels_and_neuron_configs(
+                model=model,
+                input_shapes=input_shapes,
+                task="stable-diffusion",
+                output=Path(tmpdirname),
+                model_name_or_path=model_id,
+                lora_model_ids=lora_params[0],
+                lora_weight_names=lora_params[1],
+                lora_adapter_names=lora_params[2],
+                lora_scales=0.9,
             )
             _, neuron_outputs = export_models(
                 models_and_neuron_configs=models_and_neuron_configs,
@@ -286,7 +323,7 @@ class NeuronEncoderDecoderExportTestCase(unittest.TestCase):
         input_shapes = {"batch_size": 1, "sequence_length": 18, "num_beams": 4}
 
         with TemporaryDirectory() as tmpdirname:
-            models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs(
+            models_and_neuron_configs, output_model_names = get_submodels_and_neuron_configs(
                 model=model,
                 input_shapes=input_shapes,
                 task="text2text-generation",
