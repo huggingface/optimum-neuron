@@ -758,7 +758,7 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
                 configuration files of compatible classes.
             unet_id (`Optional[Union[str, Path]]`, defaults to `None`):
                 A string or a path point to the U-NET model to replace the one in the original pipeline.
-            token (`Optional[Union[bool,str]]`, defaults to `None`):
+            token (`Optional[Union[bool, str]]`, defaults to `None`):
                 The token to use as HTTP bearer authorization for remote files. If `True`, will use the token generated
                 when running `huggingface-cli login` (stored in `huggingface_hub.constants.HF_TOKEN_PATH`).
             revision (`str`, defaults to `"main"`):
