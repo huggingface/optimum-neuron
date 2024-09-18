@@ -349,7 +349,7 @@ class NeuronStableDiffusionControlNetPipelineMixin(StableDiffusionPipelineMixin,
         global_pool_conditions = (
             controlnet.config.global_pool_conditions
             if controlnet.__class__.__name__ == "NeuronControlNetModel"
-            else controlnet.nets[0].config.global_pool_conditions
+            else controlnet.config[0].global_pool_conditions
         )
         guess_mode = guess_mode or global_pool_conditions
         # TODO: support guess mode of ControlNet
@@ -502,11 +502,20 @@ class NeuronStableDiffusionControlNetPipelineMixin(StableDiffusionPipelineMixin,
 
                 # Duplicate inputs for ddp
                 t = torch.tensor([t] * 2) if self.data_parallel_mode == "unet" else t
-                cond_scale = (
-                    torch.tensor([cond_scale]).repeat(2)
-                    if self.data_parallel_mode == "unet"
-                    else torch.tensor(cond_scale)
-                )
+                if controlnet.__class__.__name__ == "NeuronControlNetModel":
+                    cond_scale = (
+                        torch.tensor([cond_scale]).repeat(2)
+                        if self.data_parallel_mode == "unet"
+                        else torch.tensor(cond_scale)
+                    )
+                else:
+                    for i, scale in enumerate(cond_scale):
+                        new_scale = (
+                            torch.tensor([scale]).repeat(2)
+                            if self.data_parallel_mode == "unet"
+                            else torch.tensor(scale)
+                        )
+                        cond_scale[i] = new_scale
 
                 down_block_res_samples, mid_block_res_sample = self.controlnet(
                     control_model_input,

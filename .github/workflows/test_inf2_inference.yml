@@ -34,6 +34,9 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install aws-neuronx-tools=2.17.1.0 aws-neuronx-runtime-lib=2.20.22.0-1b3ca6425 aws-neuronx-collectives=2.20.22.0-c101c322e  -y
           export PATH=/opt/aws/neuron/bin:$PATH
+      - name: Install cv2 dependencies
+        run: |
+          sudo apt-get install ffmpeg libsm6 libxext6  -y
       - name: Checkout
         uses: actions/checkout@v2
       - name: Install python dependencies
