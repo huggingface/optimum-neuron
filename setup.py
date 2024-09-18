@@ -70,6 +70,7 @@ EXTRAS_REQUIRE = {
         "torch==2.1.2.*",
         "torchvision==0.16.*",
         "neuronx_distributed==0.8.0",
+        "libneuronxla==2.0.2335",
     ],
     "diffusers": ["diffusers>=0.28.0, <0.29.0", "peft"],
     "sentence-transformers": ["sentence-transformers >= 2.2.0"],
