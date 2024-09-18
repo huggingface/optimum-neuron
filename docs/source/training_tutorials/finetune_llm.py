@@ -1,9 +1,8 @@
 from dataclasses import dataclass, field
 from functools import partial
 from itertools import chain
-from typing import Optional
 
-from datasets import load_dataset, load_from_disk
+from datasets import load_dataset
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -15,10 +14,6 @@ from optimum.neuron import NeuronHfArgumentParser as HfArgumentParser
 from optimum.neuron import NeuronTrainer as Trainer
 from optimum.neuron import NeuronTrainingArguments as TrainingArguments
 from optimum.neuron.distributed import lazy_load_for_parallelism
-
-
-# Load dataset from the hub
-dataset = load_dataset("databricks/databricks-dolly-15k", split="train")
 
 
 def format_dolly(sample):
@@ -70,9 +65,7 @@ def pack_dataset(dataset, chunk_length=2048):
     return lm_dataset
 
 
-def create_and_save_dataset(model_id: str, dataset_path: str):
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
-
+def prepare_dataset(tokenizer, dataset):
     # template dataset to add prompt to each sample
     def template_dataset(sample):
         sample["text"] = f"{format_dolly(sample)}{tokenizer.eos_token}"
@@ -89,15 +82,16 @@ def create_and_save_dataset(model_id: str, dataset_path: str):
     # chunk dataset
     lm_dataset = pack_dataset(dataset, chunk_length=2048)  # We use 2048 as the maximum length for packing
 
-    # save train_dataset to disk
-    lm_dataset.save_to_disk(dataset_path)
+    return lm_dataset
 
 
 def training_function(script_args, training_args):
-    # load dataset
-    dataset = load_from_disk(script_args.dataset_path)
-
     tokenizer = AutoTokenizer.from_pretrained(script_args.model_id)
+
+    # Load dataset from the hub and prepare it for training.
+    dataset = load_dataset("databricks/databricks-dolly-15k", split="train")
+    dataset = prepare_dataset(tokenizer, dataset)
+
     with lazy_load_for_parallelism(tensor_parallel_size=training_args.tensor_parallel_size):
         model = AutoModelForCausalLM.from_pretrained(script_args.model_id)
 
@@ -122,19 +116,11 @@ class ScriptArguments:
         default="meta-llama/Meta-Llama-3-8B",
         metadata={"help": "The model that you want to train from the Hugging Face hub."},
     )
-    dataset_path: Optional[str] = field(
-        metadata={"help": "Path to the preprocessed and tokenized dataset."},
-        default=None,
-    )
 
 
 def main():
     parser = HfArgumentParser([ScriptArguments, TrainingArguments])
     script_args, training_args = parser.parse_args_into_dataclasses()
-
-    if script_args.dataset_path is None:
-        create_and_save_dataset(script_args.model_id, "tokenized_dolly")
-        script_args.dataset_path = "tokenized_dolly"
 
     # set seed
     set_seed(training_args.seed)

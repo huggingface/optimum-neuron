@@ -14,6 +14,8 @@
       title: Fine-tune BERT for Text Classification on AWS Trainium
     - local: training_tutorials/finetune_llm
       title: Fine-tune Llama 3 8B on AWS Trainium
+    - local: training_tutorials/sft_lora_finetune_llm
+      title: Fine-tune Llama 3 8B on with LoRA and the SFTTrainer
     title: Training Tutorials
   - sections:
     - local: inference_tutorials/notebooks
