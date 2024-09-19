@@ -331,6 +331,7 @@ class NeuronEncoderDecoderExportTestCase(unittest.TestCase):
                 input_shapes=input_shapes,
                 task="text2text-generation",
                 output=Path(tmpdirname),
+                library_name="transformers",
                 model_name_or_path=model_id,
                 output_attentions=True,
                 output_hidden_states=True,
