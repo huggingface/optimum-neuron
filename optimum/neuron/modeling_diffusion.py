@@ -27,7 +27,6 @@ from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple, Uni
 
 import torch
 from huggingface_hub import snapshot_download
-from packaging.version import Version
 from transformers import CLIPFeatureExtractor, CLIPTokenizer, PretrainedConfig
 from transformers.modeling_outputs import ModelOutput
 
@@ -62,7 +61,6 @@ from .utils.hub_cache_utils import (
 )
 from .utils.require_utils import requires_torch_neuronx
 from .utils.version_utils import get_neuronxcc_version
-from .version import __sdk_version__
 
 
 if is_neuronx_available():
@@ -351,15 +349,6 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
             "text_encoder_2": text_encoder_2_path,
             "controlnet": controlnet_paths,
         }
-        # DataParallel class to use (to remove after neuron sdk 2.20)
-        if to_neuron:
-            if Version(__sdk_version__) >= Version("2.20.0"):
-                raise NameError(
-                    "`WeightSeparatedDataParallel` class should be deprecated when neuron sdk 2.20 is out. Please replace it with `torch_neuronx.DataParallel`."
-                )
-            dp_cls = WeightSeparatedDataParallel
-        else:
-            dp_cls = torch_neuronx.DataParallel
 
         if data_parallel_mode == "all":
             logger.info("Loading the whole pipeline into both Neuron Cores...")
@@ -372,7 +361,7 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
                         submodel = NeuronTracedModel.load_model(
                             submodel_path, to_neuron=False
                         )  # No need to load to neuron manually when dp
-                        submodel = dp_cls(
+                        submodel = torch_neuronx.DataParallel(
                             submodel,
                             [0, 1],
                             set_dynamic_batching=dynamic_batch_size,
@@ -395,7 +384,7 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
             unet = NeuronTracedModel.load_model(
                 unet_path, to_neuron=False
             )  # No need to load to neuron manually when dp
-            submodels["unet"] = dp_cls(
+            submodels["unet"] = torch_neuronx.DataParallel(
                 unet,
                 [0, 1],
                 set_dynamic_batching=dynamic_batch_size,
@@ -408,7 +397,9 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
                         controlnet = NeuronTracedModel.load_model(
                             controlnet_path, to_neuron=False
                         )  # No need to load to neuron manually when dp
-                        controlnets.append(dp_cls(controlnet, [0, 1], set_dynamic_batching=dynamic_batch_size))
+                        controlnets.append(
+                            torch_neuronx.DataParallel(controlnet, [0, 1], set_dynamic_batching=dynamic_batch_size)
+                        )
                 if controlnets:
                     submodels["controlnet"] = controlnets if len(controlnets) > 1 else controlnets[0]
                 else:
