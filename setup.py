@@ -13,9 +13,9 @@ except Exception as error:
 
 
 INSTALL_REQUIRES = [
-    "transformers == 4.41.1",
+    "transformers == 4.43.2",
     "accelerate == 0.29.2",
-    "optimum @ git+https://github.com/huggingface/optimum.git",  # Need to release which includes #1947
+    "optimum ~= 1.22.0",
     "huggingface_hub >= 0.20.1",
     "numpy>=1.22.2, <=1.25.2",
     "protobuf<4",
@@ -33,11 +33,14 @@ TESTS_REQUIRE = [
     "safetensors",
     "sentence-transformers >= 2.2.0",
     "peft",
+    "trl",
     "compel",
     "rjieba",
     "soundfile",
     "librosa",
     "opencv-python-headless",
+    "controlnet-aux",
+    "mediapipe",
 ]
 
 QUALITY_REQUIRES = [
@@ -67,6 +70,7 @@ EXTRAS_REQUIRE = {
         "torch==2.1.2.*",
         "torchvision==0.16.*",
         "neuronx_distributed==0.8.0",
+        "libneuronxla==2.0.2335",
     ],
     "diffusers": ["diffusers>=0.28.0, <0.29.0", "peft"],
     "sentence-transformers": ["sentence-transformers >= 2.2.0"],

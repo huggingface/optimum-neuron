@@ -41,6 +41,7 @@ from optimum.neuron.modeling_diffusion import (
     NeuronModelUnet,
     NeuronModelVaeDecoder,
     NeuronModelVaeEncoder,
+    NeuronMultiControlNetModel,
 )
 from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neuronx
 from optimum.utils import logging
@@ -212,6 +213,21 @@ class NeuronStableDiffusionPipelineIntegrationTest(unittest.TestCase):
         image = pipe(prompt_embeds=prompt_embeds, num_inference_steps=2).images[0]
         self.assertIsInstance(image, PIL.Image.Image)
 
+    @staticmethod
+    def prepare_canny_image(image_url=None):
+        if image_url is None:
+            image_url = "https://hf.co/datasets/huggingface/documentation-images/resolve/main/diffusers/input_image_vermeer.png"
+        original_image = load_image(image_url)
+        image = np.array(original_image)
+        low_threshold = 100
+        high_threshold = 200
+        image = cv2.Canny(image, low_threshold, high_threshold)
+        image = image[:, :, None]
+        image = np.concatenate([image, image, image], axis=2)
+        canny_image = PIL.Image.fromarray(image)
+
+        return canny_image
+
     @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
     def test_export_and_inference_with_single_controlnet(self, model_arch):
         input_shapes = copy.deepcopy(self.STATIC_INPUTS_SHAPES)
@@ -231,21 +247,33 @@ class NeuronStableDiffusionPipelineIntegrationTest(unittest.TestCase):
         self.assertIsInstance(neuron_pipeline.controlnet, NeuronControlNetModel)
 
         prompt = "the mona lisa"
-        # prepare canny image
-        original_image = load_image(
-            "https://hf.co/datasets/huggingface/documentation-images/resolve/main/diffusers/input_image_vermeer.png"
-        )
-
-        image = np.array(original_image)
-
-        low_threshold = 100
-        high_threshold = 200
-
-        image = cv2.Canny(image, low_threshold, high_threshold)
-        image = image[:, :, None]
-        image = np.concatenate([image, image, image], axis=2)
-        canny_image = PIL.Image.fromarray(image)
+        canny_image = NeuronStableDiffusionPipelineIntegrationTest.prepare_canny_image()
         image = neuron_pipeline(prompt, image=canny_image).images[0]
+        neuron_pipeline.scheduler = UniPCMultistepScheduler.from_config(neuron_pipeline.scheduler.config)
+        self.assertIsInstance(image, PIL.Image.Image)
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    def test_export_and_inference_with_multiple_controlnet(self, model_arch):
+        input_shapes = copy.deepcopy(self.STATIC_INPUTS_SHAPES)
+        input_shapes.update({"num_images_per_prompt": 1})
+        controlnet_id = "hf-internal-testing/tiny-controlnet"
+
+        neuron_pipeline = NeuronStableDiffusionControlNetPipeline.from_pretrained(
+            MODEL_NAMES[model_arch],
+            controlnet_ids=[controlnet_id, controlnet_id],
+            export=True,
+            **input_shapes,
+            **self.COMPILER_ARGS,
+        )
+        self.assertIsInstance(neuron_pipeline.text_encoder, NeuronModelTextEncoder)
+        self.assertIsInstance(neuron_pipeline.unet, NeuronModelUnet)
+        self.assertIsInstance(neuron_pipeline.vae_encoder, NeuronModelVaeEncoder)
+        self.assertIsInstance(neuron_pipeline.vae_decoder, NeuronModelVaeDecoder)
+        self.assertIsInstance(neuron_pipeline.controlnet, NeuronMultiControlNetModel)
+
+        prompt = "the mona lisa"
+        canny_image = NeuronStableDiffusionPipelineIntegrationTest.prepare_canny_image()
+        image = neuron_pipeline(prompt, image=[canny_image, canny_image]).images[0]
         neuron_pipeline.scheduler = UniPCMultistepScheduler.from_config(neuron_pipeline.scheduler.config)
         self.assertIsInstance(image, PIL.Image.Image)
 

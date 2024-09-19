@@ -24,7 +24,6 @@ from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Union
 
 import torch
 from huggingface_hub import HfApi, HfFolder, hf_hub_download
-from huggingface_hub.utils import is_google_colab
 from transformers import AutoConfig, AutoModel, GenerationMixin
 
 from ..exporters.neuron import main_export
@@ -156,7 +155,7 @@ class NeuronTracedModel(NeuronModel):
         cls,
         model_id: Union[str, Path],
         config: "PretrainedConfig",
-        use_auth_token: Optional[Union[bool, str]] = None,
+        token: Optional[Union[bool, str]] = None,
         revision: Optional[str] = None,
         force_download: bool = False,
         cache_dir: Optional[str] = None,
@@ -173,10 +172,10 @@ class NeuronTracedModel(NeuronModel):
             if model_path.is_dir():
                 neuron_files = list(model_path.glob("*.neuron"))
             else:
-                if isinstance(use_auth_token, bool):
+                if isinstance(token, bool):
                     token = HfFolder().get_token()
                 else:
-                    token = use_auth_token
+                    token = token
                 repo_files = map(Path, HfApi().list_repo_files(model_id, revision=revision, token=token))
                 pattern = "*.neuron" if subfolder == "" else f"{subfolder}/*.neuron"
                 neuron_files = [p for p in repo_files if p.match(pattern)]
@@ -210,7 +209,7 @@ class NeuronTracedModel(NeuronModel):
                 repo_id=model_id,
                 filename=file_name,
                 subfolder=subfolder,
-                use_auth_token=use_auth_token,
+                token=token,
                 revision=revision,
                 cache_dir=cache_dir,
                 force_download=force_download,
@@ -246,7 +245,6 @@ class NeuronTracedModel(NeuronModel):
         cls,
         model_id: str,
         config: "PretrainedConfig",
-        use_auth_token: Optional[Union[bool, str]] = None,
         token: Optional[Union[bool, str]] = None,
         revision: Optional[str] = None,
         force_download: bool = False,
@@ -323,7 +321,6 @@ class NeuronTracedModel(NeuronModel):
                     cache_dir=cache_dir,
                     token=token,
                     framework="pt",
-                    use_auth_token=use_auth_token,
                     local_files_only=local_files_only,
                     force_download=force_download,
                     trust_remote_code=trust_remote_code,
@@ -359,7 +356,6 @@ class NeuronTracedModel(NeuronModel):
                 revision=revision,
                 force_download=force_download,
                 local_files_only=local_files_only,
-                use_auth_token=use_auth_token,
                 token=token,
                 do_validation=False,
                 **kwargs_shapes,
@@ -374,24 +370,13 @@ class NeuronTracedModel(NeuronModel):
         repository_id: str,
         private: Optional[bool] = None,
         revision: Optional[str] = None,
-        use_auth_token: Union[bool, str] = True,
+        token: Optional[Union[bool, str]] = None,
         endpoint: Optional[str] = None,
     ) -> str:
-        if isinstance(use_auth_token, str):
-            huggingface_token = use_auth_token
-        elif use_auth_token:
-            huggingface_token = HfFolder.get_token()
-        else:
-            raise ValueError("You need to provide `use_auth_token` to be able to push to the hub")
         api = HfApi(endpoint=endpoint)
 
-        user = api.whoami(huggingface_token)
-        if is_google_colab():
-            # Only in Google Colab to avoid the warning message
-            self.git_config_username_and_email(git_email=user["email"], git_user=user["fullname"])
-
         api.create_repo(
-            token=huggingface_token,
+            token=token,
             repo_id=repository_id,
             exist_ok=True,
             private=private,
@@ -401,7 +386,7 @@ class NeuronTracedModel(NeuronModel):
                 local_file_path = os.path.join(path, name)
                 hub_file_path = os.path.relpath(local_file_path, save_directory)
                 api.upload_file(
-                    token=huggingface_token,
+                    token=token,
                     repo_id=repository_id,
                     path_or_fileobj=os.path.join(os.getcwd(), local_file_path),
                     path_in_repo=hub_file_path,

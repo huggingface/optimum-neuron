@@ -26,7 +26,7 @@ from optimum.neuron.utils.cache_utils import (
     set_neuron_cache_path,
 )
 
-from .utils import OPTIMUM_INTERNAL_TESTING_CACHE_REPO, get_random_string
+from .utils import OPTIMUM_INTERNAL_TESTING_CACHE_REPO, TOKEN_STAGING, USER_STAGING, get_random_string
 
 
 # Inferentia fixtures
@@ -171,3 +171,19 @@ def pytest_fixture_setup(fixturedef, request):
     if getattr(fixturedef.func, "is_dist_fixture", False):
         dist_fixture_class = fixturedef.func()
         dist_fixture_class(request)
+
+
+@pytest.fixture
+def staging():
+    """A pytest fixture only available in huggingface_hub staging mode
+
+    If the huggingface_hub is not operating in staging mode, tests using
+    that fixture are automatically skipped.
+
+    Returns:
+        a Dict containing a valid staging user and token.
+    """
+    return {
+        "user": USER_STAGING,
+        "token": TOKEN_STAGING,
+    }

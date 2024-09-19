@@ -47,7 +47,7 @@ def test_decoder_push_to_hub(from_local):
         model_name = f"neuron-testing-{hostname}-decoder-push"
         model_name += "-from-local" if from_local else "-from-hub"
         repo_id = f"optimum-internal-testing/{model_name}"
-        model.push_to_hub(model_path, repo_id, use_auth_token=get_token())
+        model.push_to_hub(model_path, repo_id, token=get_token())
         api = HfApi()
         try:
             hub_files_path = api.list_repo_files(repo_id)

@@ -25,8 +25,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Optional, Tuple, Union
 
-from huggingface_hub import HfApi, get_token, snapshot_download
-from huggingface_hub.utils import is_google_colab
+from huggingface_hub import HfApi, snapshot_download
 from transformers import AutoConfig, AutoModel, GenerationConfig
 
 from ..exporters.neuron.model_configs import *  # noqa: F403
@@ -225,7 +224,7 @@ class NeuronDecoderModel(NeuronModel):
     def _create_checkpoint(
         cls,
         model_id: str,
-        use_auth_token: Optional[Union[bool, str]] = None,
+        token: Optional[Union[bool, str]] = None,
         revision: Optional[str] = None,
         force_download: bool = False,
         cache_dir: Optional[str] = None,
@@ -243,7 +242,7 @@ class NeuronDecoderModel(NeuronModel):
             revision=revision,
             framework="pt",
             cache_dir=cache_dir,
-            use_auth_token=use_auth_token,
+            token=token,
             local_files_only=local_files_only,
             force_download=force_download,
             trust_remote_code=trust_remote_code,
@@ -269,7 +268,7 @@ class NeuronDecoderModel(NeuronModel):
         cls,
         model_id: str,
         config: "PretrainedConfig",
-        use_auth_token: Optional[str] = None,
+        token: Optional[Union[bool, str]] = None,
         revision: Optional[str] = None,
         task: Optional[str] = None,
         batch_size: Optional[int] = None,
@@ -286,7 +285,7 @@ class NeuronDecoderModel(NeuronModel):
         else:
             checkpoint_id = model_id
             # Get the exact checkpoint revision (SHA1)
-            api = HfApi(token=use_auth_token)
+            api = HfApi(token=token)
             model_info = api.repo_info(model_id, revision=revision)
             checkpoint_revision = model_info.sha
 
@@ -337,7 +336,7 @@ class NeuronDecoderModel(NeuronModel):
         cls,
         model_id: str,
         config: "PretrainedConfig",
-        use_auth_token: Optional[str] = None,
+        token: Optional[Union[bool, str]] = None,
         revision: Optional[str] = None,
         task: Optional[str] = None,
         batch_size: Optional[int] = None,
@@ -353,7 +352,7 @@ class NeuronDecoderModel(NeuronModel):
         new_config = cls.get_export_config(
             model_id,
             config,
-            use_auth_token=use_auth_token,
+            token=token,
             revision=revision,
             task=task,
             batch_size=batch_size,
@@ -396,7 +395,7 @@ class NeuronDecoderModel(NeuronModel):
         cls,
         model_id: Union[str, Path],
         config: "PretrainedConfig",
-        use_auth_token: Optional[str] = None,
+        token: Optional[Union[bool, str]] = None,
         revision: Optional[str] = None,
         **kwargs,
     ) -> "NeuronDecoderModel":
@@ -411,7 +410,7 @@ class NeuronDecoderModel(NeuronModel):
 
         model_path = model_id
         if not os.path.isdir(model_id):
-            model_path = snapshot_download(model_id, token=use_auth_token, revision=revision)
+            model_path = snapshot_download(model_id, token=token, revision=revision)
 
         checkpoint_dir, compiled_dir = cls._get_neuron_dirs(model_path)
         if not os.path.isdir(checkpoint_dir):
@@ -425,7 +424,7 @@ class NeuronDecoderModel(NeuronModel):
                 checkpoint_id,
                 task=task,
                 revision=checkpoint_revision,
-                use_auth_token=use_auth_token,
+                token=token,
                 **kwargs,
             )
         assert os.path.isdir(compiled_dir)
@@ -467,24 +466,13 @@ class NeuronDecoderModel(NeuronModel):
         repository_id: str,
         private: Optional[bool] = None,
         revision: Optional[str] = None,
-        use_auth_token: Union[bool, str] = True,
+        token: Union[bool, str] = True,
         endpoint: Optional[str] = None,
     ) -> str:
-        if isinstance(use_auth_token, str):
-            huggingface_token = use_auth_token
-        elif use_auth_token:
-            huggingface_token = get_token()
-        else:
-            raise ValueError("You need to provide `use_auth_token` to be able to push to the hub")
         api = HfApi(endpoint=endpoint)
 
-        user = api.whoami(huggingface_token)
-        if is_google_colab():
-            # Only in Google Colab to avoid the warning message
-            self.git_config_username_and_email(git_email=user["email"], git_user=user["fullname"])
-
         api.create_repo(
-            token=huggingface_token,
+            token=token,
             repo_id=repository_id,
             exist_ok=True,
             private=private,
@@ -498,7 +486,7 @@ class NeuronDecoderModel(NeuronModel):
         api.upload_folder(
             repo_id=repository_id,
             folder_path=save_directory,
-            token=huggingface_token,
+            token=token,
             revision=revision,
             ignore_patterns=ignore_patterns,
         )
