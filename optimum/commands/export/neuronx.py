@@ -120,6 +120,12 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         help='The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"` or `"tf32"`.',
     )
     optional_group.add_argument(
+        "--tensor_parallel_size",
+        type=int,
+        default=1,
+        help="Tensor parallelism degree, the number of devices on which to shard the model.",
+    )
+    optional_group.add_argument(
         "--dynamic-batch-size",
         action="store_true",
         help="Enable dynamic batch size for neuron compiled model. If this option is enabled, the input batch size can be a multiple of the batch size during the compilation, but it comes with a potential tradeoff in terms of latency.",
