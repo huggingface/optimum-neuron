@@ -36,9 +36,9 @@ def _test_decode(config_name, generator, do_sample):
     assert output.finish_reason == 0
     if do_sample:
         expected_text = {
-            "gpt2": " The sun was set just three miles south of the city. I had just watched a big fireworks display",
-            "llama": " George Orwell, 1984\nThe government is not interested in the truth. They want to control",
-            "mistral": " The sky was as pale as a white horse's skull. A pigeon flew",
+            "gpt2": " The sun was set just after eleven and the clouds were still beating down. And as he approached the",
+            "llama": " George Orwell, 1984\nThe government is tracking your every move, recording your phone calls,",
+            "mistral": " The sky was as pale as a ghost. The sun had risen as the sun never rose",
         }[config_name]
     else:
         expected_text = {
