@@ -33,6 +33,7 @@ from ...neuron.utils import (
     get_attention_scores_sd,
     get_attention_scores_sdxl,
 )
+from ...neuron.distributed import ParallelizersManager
 from ...utils import (
     DIFFUSERS_MINIMUM_VERSION,
     check_if_diffusers_greater,
@@ -461,6 +462,7 @@ def replace_stable_diffusion_submodels(pipeline, submodels):
 def get_encoder_decoder_models_for_export(
     model: "PreTrainedModel",
     task: str,
+    tensor_parallel_size: int,
     input_shapes: Dict[str, int],
     dynamic_batch_size: Optional[bool] = False,
     output_attentions: bool = False,
@@ -475,6 +477,10 @@ def get_encoder_decoder_models_for_export(
     Args:
         model ("PreTrainedModel"):
             The model to export.
+        task (`str`):
+            The task to export the model for. If not specified, the task will be auto-inferred based on the model.
+        tensor_parallel_size (`int`):
+            Tensor parallelism degree, the number of devices on which to shard the model.
         input_shapes (`Dict[str, int]`):
             Static shapes used for compiling the encoder and the decoder.
         dynamic_batch_size (`bool`, defaults to `False`):
@@ -489,6 +495,11 @@ def get_encoder_decoder_models_for_export(
         Neuron configs for the different components of the model.
     """
     models_for_export = {}
+    
+    # Tensor parallelism
+    if tensor_parallel_size>1:
+        parallizer = ParallelizersManager.parallelizer_for_model(model)
+        model = parallizer._parallelize(model)
 
     # Encoder
     model_type = getattr(model.config, "model_type") + "-encoder"
@@ -502,6 +513,7 @@ def get_encoder_decoder_models_for_export(
     encoder_neuron_config = encoder_config_constructor(
         config=model.config,
         task=task,
+        tensor_parallel_size=tensor_parallel_size,
         dynamic_batch_size=dynamic_batch_size,
         **input_shapes,
     )
@@ -519,6 +531,7 @@ def get_encoder_decoder_models_for_export(
     decoder_neuron_config = decoder_config_constructor(
         config=model.config,
         task=task,
+        tensor_parallel_size=tensor_parallel_size,
         dynamic_batch_size=dynamic_batch_size,
         output_attentions=output_attentions,
         output_hidden_states=output_hidden_states,

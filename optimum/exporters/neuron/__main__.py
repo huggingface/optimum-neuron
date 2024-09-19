@@ -303,7 +303,14 @@ def get_submodels_and_neuron_configs(
     elif is_encoder_decoder:
         optional_outputs = {"output_attentions": output_attentions, "output_hidden_states": output_hidden_states}
         models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs_for_encoder_decoder(
-            model, input_shapes, task, output, dynamic_batch_size, model_name_or_path, **optional_outputs
+            model=model, 
+            input_shapes=input_shapes, 
+            tensor_parallel_size=tensor_parallel_size,
+            task=task, 
+            output=output, 
+            dynamic_batch_size=dynamic_batch_size, 
+            model_name_or_path=model_name_or_path, 
+            **optional_outputs,
         )
     else:
         # TODO: Enable optional outputs for encoders
@@ -432,6 +439,7 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
 def _get_submodels_and_neuron_configs_for_encoder_decoder(
     model: "PreTrainedModel",
     input_shapes: Dict[str, int],
+    tensor_parallel_size: int,
     task: str,
     output: Path,
     dynamic_batch_size: bool = False,
@@ -447,6 +455,7 @@ def _get_submodels_and_neuron_configs_for_encoder_decoder(
     models_and_neuron_configs = get_encoder_decoder_models_for_export(
         model=model,
         task=task,
+        tensor_parallel_size=tensor_parallel_size,
         dynamic_batch_size=dynamic_batch_size,
         input_shapes=input_shapes,
         output_attentions=output_attentions,

@@ -146,6 +146,7 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
         task: str,
         compiler_type: Optional[str] = None,
         compiler_version: Optional[str] = None,
+        tensor_parallel_size: int = 1,
         batch_size: Optional[int] = None,
         text_batch_size: Optional[int] = None,
         image_batch_size: Optional[int] = None,
@@ -174,6 +175,7 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
         self._config = config
         self._normalized_config = self.NORMALIZED_CONFIG_CLASS(self._config)
         self.mandatory_axes = ()
+        self.tensor_parallel_size = tensor_parallel_size
         self.task = task
         self._axes: Dict[str, int] = {}
         self.dynamic_batch_size = dynamic_batch_size
