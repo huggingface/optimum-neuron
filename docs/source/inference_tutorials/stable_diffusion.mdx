@@ -45,7 +45,6 @@ Here is an example of exporting stable diffusion components with `Optimum` CLI:
 
 ```bash
 optimum-cli export neuron --model stabilityai/stable-diffusion-2-1-base \
-  --task stable-diffusion \
   --batch_size 1 \
   --height 512 `# height in pixels of generated image, eg. 512, 768` \
   --width 512 `# width in pixels of generated image, eg. 512, 768` \
@@ -229,7 +228,6 @@ Here is an example of exporting SDXL components with `Optimum` CLI:
 
 ```bash
 optimum-cli export neuron --model stabilityai/stable-diffusion-xl-base-1.0 \
-  --task stable-diffusion-xl \
   --batch_size 1 \
   --height 1024 `# height in pixels of generated image, eg. 768, 1024` \
   --width 1024 `# width in pixels of generated image, eg. 768, 1024` \
@@ -481,7 +479,7 @@ Here we will compile the [`stabilityai/sdxl-turbo`](https://huggingface.co/stabi
 ### Compile SDXL Turbo
 
 ```bash
-optimum-cli export neuron --model stabilityai/sdxl-turbo --task stable-diffusion-xl --batch_size 1 --height 512 --width 512 --auto_cast matmul --auto_cast_type bf16 sdxl_turbo_neuron/
+optimum-cli export neuron --model stabilityai/sdxl-turbo --batch_size 1 --height 512 --width 512 --auto_cast matmul --auto_cast_type bf16 sdxl_turbo_neuron/
 ```
 
 ### Text-to-Image
@@ -562,7 +560,7 @@ We can either compile one or multiple ControlNet via the Optimum CLI or programa
 * Export via the Optimum CLI
 
 ```bash
-optimum-cli export neuron -m runwayml/stable-diffusion-v1-5 --task stable-diffusion --batch_size 1 --height 512 --width 512 --controlnet_ids lllyasviel/sd-controlnet-canny --num_images_per_prompt 1 sd_neuron_controlnet/
+optimum-cli export neuron -m runwayml/stable-diffusion-v1-5 --batch_size 1 --height 512 --width 512 --controlnet_ids lllyasviel/sd-controlnet-canny --num_images_per_prompt 1 sd_neuron_controlnet/
 ```
 
 * Export via Python API

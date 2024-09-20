@@ -852,6 +852,7 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
                 trust_remote_code=trust_remote_code,
                 subfolder=subfolder,
                 revision=revision,
+                library_name=cls.library_name,
                 force_download=force_download,
                 local_files_only=local_files_only,
                 token=token,

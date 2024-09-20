@@ -52,7 +52,15 @@ if is_diffusers_available():
             f"We found an older version of diffusers {_diffusers_version} but we require diffusers to be >= {DIFFUSERS_MINIMUM_VERSION}. "
             "Please update diffusers by running `pip install --upgrade diffusers`"
         )
-    from diffusers import ControlNetModel, UNet2DConditionModel
+    from diffusers import (
+        ControlNetModel,
+        ModelMixin,
+        StableDiffusionPipeline,
+        StableDiffusionXLImg2ImgPipeline,
+        StableDiffusionXLInpaintPipeline,
+        StableDiffusionXLPipeline,
+        UNet2DConditionModel,
+    )
     from diffusers.models.attention_processor import Attention
 
 
@@ -60,9 +68,6 @@ if TYPE_CHECKING:
     from transformers.modeling_utils import PreTrainedModel
 
     from .base import NeuronDefaultConfig
-
-    if is_diffusers_available():
-        from diffusers import ModelMixin, StableDiffusionPipeline, StableDiffusionXLImg2ImgPipeline
 
 
 def build_stable_diffusion_components_mandatory_shapes(
@@ -107,8 +112,7 @@ def build_stable_diffusion_components_mandatory_shapes(
 
 
 def get_stable_diffusion_models_for_export(
-    pipeline: Union["StableDiffusionPipeline", "StableDiffusionXLImg2ImgPipeline"],
-    task: str,
+    pipeline: Union["StableDiffusionPipeline", "StableDiffusionXLPipeline"],
     text_encoder_input_shapes: Dict[str, int],
     unet_input_shapes: Dict[str, int],
     vae_encoder_input_shapes: Dict[str, int],
@@ -129,10 +133,8 @@ def get_stable_diffusion_models_for_export(
     performance benefit (CLIP text encoder, VAE encoder, VAE decoder, Unet).
 
     Args:
-        pipeline ([`Union["StableDiffusionPipeline", "StableDiffusionXLImg2ImgPipeline"]`]):
+        pipeline ([`Union["StableDiffusionPipeline", "StableDiffusionXLPipeline"]`]):
             The model to export.
-        task (`str`):
-            Task name, should be either "stable-diffusion" or "stable-diffusion-xl".
         text_encoder_input_shapes (`Dict[str, int]`):
             Static shapes used for compiling text encoder.
         unet_input_shapes (`Dict[str, int]`):
@@ -165,7 +167,6 @@ def get_stable_diffusion_models_for_export(
     """
     models_for_export = get_submodels_for_export_stable_diffusion(
         pipeline=pipeline,
-        task=task,
         lora_model_ids=lora_model_ids,
         lora_weight_names=lora_weight_names,
         lora_adapter_names=lora_adapter_names,
@@ -225,8 +226,10 @@ def get_stable_diffusion_models_for_export(
         dynamic_batch_size=dynamic_batch_size,
         **unet_input_shapes,
     )
-    if task == "stable-diffusion-xl":
-        unet_neuron_config.is_sdxl = True
+    is_stable_diffusion_xl = isinstance(
+        pipeline, (StableDiffusionXLImg2ImgPipeline, StableDiffusionXLInpaintPipeline, StableDiffusionXLPipeline)
+    )
+    unet_neuron_config.is_sdxl = is_stable_diffusion_xl
 
     unet_neuron_config.with_controlnet = True if controlnet_ids else False
 
@@ -295,7 +298,7 @@ def get_stable_diffusion_models_for_export(
 
 
 def _load_lora_weights_to_pipeline(
-    pipeline: Union["StableDiffusionPipeline", "StableDiffusionXLImg2ImgPipeline"],
+    pipeline: Union["StableDiffusionPipeline", "StableDiffusionXLPipeline"],
     lora_model_ids: Optional[Union[str, List[str]]] = None,
     weight_names: Optional[Union[str, List[str]]] = None,
     adapter_names: Optional[Union[str, List[str]]] = None,
@@ -349,8 +352,7 @@ def load_controlnets(controlnet_ids: Optional[Union[str, List[str]]] = None):
 
 
 def get_submodels_for_export_stable_diffusion(
-    pipeline: Union["StableDiffusionPipeline", "StableDiffusionXLImg2ImgPipeline"],
-    task: str,
+    pipeline: Union["StableDiffusionPipeline", "StableDiffusionXLPipeline"],
     output_hidden_states: bool = False,
     lora_model_ids: Optional[Union[str, List[str]]] = None,
     lora_weight_names: Optional[Union[str, List[str]]] = None,
@@ -361,7 +363,9 @@ def get_submodels_for_export_stable_diffusion(
     """
     Returns the components of a Stable Diffusion model.
     """
-    is_sdxl = "xl" in task
+    is_stable_diffusion_xl = isinstance(
+        pipeline, (StableDiffusionXLImg2ImgPipeline, StableDiffusionXLInpaintPipeline, StableDiffusionXLPipeline)
+    )
 
     # Lora
     pipeline = _load_lora_weights_to_pipeline(
@@ -380,7 +384,7 @@ def get_submodels_for_export_stable_diffusion(
 
     # Text encoders
     if pipeline.text_encoder is not None:
-        if is_sdxl or output_hidden_states:
+        if is_stable_diffusion_xl or output_hidden_states:
             pipeline.text_encoder.config.output_hidden_states = True
         models_for_export.append((DIFFUSION_MODEL_TEXT_ENCODER_NAME, copy.deepcopy(pipeline.text_encoder)))
 
@@ -399,7 +403,7 @@ def get_submodels_for_export_stable_diffusion(
     # Replace original cross-attention module with custom cross-attention module for better performance
     # For applying optimized attention score, we need to set env variable  `NEURON_FUSE_SOFTMAX=1`
     if os.environ.get("NEURON_FUSE_SOFTMAX") == "1":
-        if is_sdxl:
+        if is_stable_diffusion_xl:
             logger.info("Applying optimized attention score computation for sdxl.")
             Attention.get_attention_scores = get_attention_scores_sdxl
         else:
