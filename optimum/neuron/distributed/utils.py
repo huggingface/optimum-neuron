@@ -1020,9 +1020,8 @@ def _parallelize_active_adapters(
     skip_weight_load: bool = False,
     device: Optional["torch.device"] = None,
 ):
-    from peft.tuners.lora import Linear as LoraLinear
     from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
-    
+    from peft.tuners.lora import Linear as LoraLinear
 
     try:
         peft_config = tuner_layer._peft_config
@@ -1051,9 +1050,11 @@ def _parallelize_active_adapters(
                 dim_to_partition = layer_to_parallelize.weight.size(1)
 
             tp_size = get_tensor_model_parallel_size()
-            
+
             if dim_to_partition % tp_size != 0:
-                raise RuntimeError(f"The LoRA adapter dimension to parallelize ({dim_to_partition}) is not divisible by the TP size ({tp_size}).")
+                raise RuntimeError(
+                    f"The LoRA adapter dimension to parallelize ({dim_to_partition}) is not divisible by the TP size ({tp_size})."
+                )
 
             # TODO: handle the case were weights already exist for this adapter.
             parallel_layer = linear_to_parallel_linear(
