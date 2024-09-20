@@ -15,7 +15,7 @@ except Exception as error:
 INSTALL_REQUIRES = [
     "transformers == 4.43.2",
     "accelerate == 0.29.2",
-    "optimum ~= 1.21.0",
+    "optimum ~= 1.22.0",
     "huggingface_hub >= 0.20.1",
     "numpy>=1.22.2, <=1.25.2",
     "protobuf<4",
@@ -39,6 +39,8 @@ TESTS_REQUIRE = [
     "soundfile",
     "librosa",
     "opencv-python-headless",
+    "controlnet-aux",
+    "mediapipe",
 ]
 
 QUALITY_REQUIRES = [
@@ -62,12 +64,13 @@ EXTRAS_REQUIRE = {
     ],
     "neuronx": [
         "wheel",
-        "neuronx-cc==2.14.227.0",
-        "torch-neuronx==2.1.2.2.2.0",
-        "transformers-neuronx==0.11.351",
+        "neuronx-cc==2.15.128.0",
+        "torch-neuronx==2.1.2.2.3.0",
+        "transformers-neuronx==0.12.313",
         "torch==2.1.2.*",
         "torchvision==0.16.*",
-        "neuronx_distributed==0.8.0",
+        "neuronx_distributed==0.9.0",
+        "libneuronxla==2.0.4115.0",
     ],
     "diffusers": ["diffusers>=0.28.0, <0.29.0", "peft"],
     "sentence-transformers": ["sentence-transformers >= 2.2.0"],

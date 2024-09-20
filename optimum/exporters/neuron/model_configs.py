@@ -383,12 +383,16 @@ class LevitNeuronConfig(ViTNeuronConfig):
     pass
 
 
-@register_in_tasks_manager("mobilenet-v2", *["feature-extraction", "image-classification", "semantic-segmentation"])
+@register_in_tasks_manager(
+    "mobilenet-v2", *["feature-extraction", "image-classification", "semantic-segmentation", "image-segmentation"]
+)
 class MobileNetV2NeuronConfig(ViTNeuronConfig):
     pass
 
 
-@register_in_tasks_manager("mobilevit", *["feature-extraction", "image-classification", "semantic-segmentation"])
+@register_in_tasks_manager(
+    "mobilevit", *["feature-extraction", "image-classification", "semantic-segmentation", "image-segmentation"]
+)
 class MobileViTNeuronConfig(ViTNeuronConfig):
     pass
 

@@ -12,7 +12,7 @@ if is_sentence_transformers_available():
 def is_sentence_transformer_model(model: str, token: str = None, revision: str = None):
     """Checks if the model is a sentence transformer model based on provided model id"""
     try:
-        _library_name = TasksManager.infer_library_from_model(model, use_auth_token=token, revision=revision)
+        _library_name = TasksManager.infer_library_from_model(model, token=token, revision=revision)
         return _library_name == "sentence_transformers"
     except ValueError:
         return False

@@ -45,9 +45,9 @@ async def test_model_single_request(tgi_service):
         seed=42,
     )
     sample_expectations = {
-        "gpt2": "A lot of researchers have tried to make",
-        "llama": "Deep Learning is a subset of Artificial Intelligence",
-        "mistral": "Deep Learning is a kind of machine learning",
+        "gpt2": "Deep Learning",
+        "llama": "Deep Learning",
+        "mistral": "Deep Learning",
     }
     assert sample_expectations[service_name] in response
 

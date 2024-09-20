@@ -225,7 +225,8 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
             models_and_neuron_configs, output_model_names = get_submodels_and_neuron_configs(
                 model=model,
                 input_shapes=input_shapes,
-                task="stable-diffusion",
+                task="text-to-image",
+                library_name="diffusers",
                 output=Path(tmpdirname),
                 model_name_or_path=model_id,
             )
@@ -255,7 +256,8 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
             models_and_neuron_configs, output_model_names = get_submodels_and_neuron_configs(
                 model=model,
                 input_shapes=input_shapes,
-                task="stable-diffusion-xl",
+                task="text-to-image",
+                library_name="diffusers",
                 output=Path(tmpdirname),
                 model_name_or_path=model_id,
             )
@@ -286,7 +288,8 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
             models_and_neuron_configs, output_model_names = get_submodels_and_neuron_configs(
                 model=model,
                 input_shapes=input_shapes,
-                task="stable-diffusion",
+                task="text-to-image",
+                library_name="diffusers",
                 output=Path(tmpdirname),
                 model_name_or_path=model_id,
                 lora_model_ids=lora_params[0],
@@ -328,6 +331,7 @@ class NeuronEncoderDecoderExportTestCase(unittest.TestCase):
                 input_shapes=input_shapes,
                 task="text2text-generation",
                 output=Path(tmpdirname),
+                library_name="transformers",
                 model_name_or_path=model_id,
                 output_attentions=True,
                 output_hidden_states=True,

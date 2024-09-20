@@ -27,7 +27,6 @@ from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple, Uni
 
 import torch
 from huggingface_hub import snapshot_download
-from packaging.version import Version
 from transformers import CLIPFeatureExtractor, CLIPTokenizer, PretrainedConfig
 from transformers.modeling_outputs import ModelOutput
 
@@ -62,7 +61,6 @@ from .utils.hub_cache_utils import (
 )
 from .utils.require_utils import requires_torch_neuronx
 from .utils.version_utils import get_neuronxcc_version
-from .version import __sdk_version__
 
 
 if is_neuronx_available():
@@ -351,15 +349,6 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
             "text_encoder_2": text_encoder_2_path,
             "controlnet": controlnet_paths,
         }
-        # DataParallel class to use (to remove after neuron sdk 2.20)
-        if to_neuron:
-            if Version(__sdk_version__) >= Version("2.20.0"):
-                raise NameError(
-                    "`WeightSeparatedDataParallel` class should be deprecated when neuron sdk 2.20 is out. Please replace it with `torch_neuronx.DataParallel`."
-                )
-            dp_cls = WeightSeparatedDataParallel
-        else:
-            dp_cls = torch_neuronx.DataParallel
 
         if data_parallel_mode == "all":
             logger.info("Loading the whole pipeline into both Neuron Cores...")
@@ -372,7 +361,7 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
                         submodel = NeuronTracedModel.load_model(
                             submodel_path, to_neuron=False
                         )  # No need to load to neuron manually when dp
-                        submodel = dp_cls(
+                        submodel = torch_neuronx.DataParallel(
                             submodel,
                             [0, 1],
                             set_dynamic_batching=dynamic_batch_size,
@@ -395,7 +384,7 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
             unet = NeuronTracedModel.load_model(
                 unet_path, to_neuron=False
             )  # No need to load to neuron manually when dp
-            submodels["unet"] = dp_cls(
+            submodels["unet"] = torch_neuronx.DataParallel(
                 unet,
                 [0, 1],
                 set_dynamic_batching=dynamic_batch_size,
@@ -408,7 +397,9 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
                         controlnet = NeuronTracedModel.load_model(
                             controlnet_path, to_neuron=False
                         )  # No need to load to neuron manually when dp
-                        controlnets.append(dp_cls(controlnet, [0, 1], set_dynamic_batching=dynamic_batch_size))
+                        controlnets.append(
+                            torch_neuronx.DataParallel(controlnet, [0, 1], set_dynamic_batching=dynamic_batch_size)
+                        )
                 if controlnets:
                     submodels["controlnet"] = controlnets if len(controlnets) > 1 else controlnets[0]
                 else:
@@ -548,7 +539,7 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
         cls,
         model_id: Union[str, Path],
         config: Dict[str, Any],
-        use_auth_token: Optional[Union[bool, str]] = None,
+        token: Optional[Union[bool, str]] = None,
         revision: Optional[str] = None,
         force_download: bool = False,
         cache_dir: Optional[str] = None,
@@ -592,7 +583,7 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
                 model_id,
                 cache_dir=cache_dir,
                 local_files_only=local_files_only,
-                use_auth_token=use_auth_token,
+                token=token,
                 revision=revision,
                 force_download=force_download,
                 allow_patterns=allow_patterns,
@@ -720,7 +711,7 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
         model_id: Union[str, Path],
         config: Dict[str, Any],
         unet_id: Optional[Union[str, Path]] = None,
-        use_auth_token: Optional[Union[bool, str]] = None,
+        token: Optional[Union[bool, str]] = None,
         revision: str = "main",
         force_download: bool = True,
         cache_dir: Optional[str] = None,
@@ -758,9 +749,9 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
                 configuration files of compatible classes.
             unet_id (`Optional[Union[str, Path]]`, defaults to `None`):
                 A string or a path point to the U-NET model to replace the one in the original pipeline.
-            use_auth_token (`Optional[Union[bool, str]]`, defaults to `None`):
+            token (`Optional[Union[bool, str]]`, defaults to `None`):
                 The token to use as HTTP bearer authorization for remote files. If `True`, will use the token generated
-                when running `transformers-cli login` (stored in `~/.huggingface`).
+                when running `huggingface-cli login` (stored in `huggingface_hub.constants.HF_TOKEN_PATH`).
             revision (`str`, defaults to `"main"`):
                 The specific model version to use (can be a branch name, tag name or commit id).
             force_download (`bool`, defaults to `True`):
@@ -837,7 +828,7 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
             framework="pt",
             library_name=cls.library_name,
             cache_dir=cache_dir,
-            use_auth_token=use_auth_token,
+            token=token,
             local_files_only=local_files_only,
             force_download=force_download,
             trust_remote_code=trust_remote_code,
@@ -861,9 +852,10 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
                 trust_remote_code=trust_remote_code,
                 subfolder=subfolder,
                 revision=revision,
+                library_name=cls.library_name,
                 force_download=force_download,
                 local_files_only=local_files_only,
-                use_auth_token=use_auth_token,
+                token=token,
                 submodels=submodels,
                 output_hidden_states=output_hidden_states,
                 lora_model_ids=lora_model_ids,
@@ -938,7 +930,7 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
                 revision=revision,
                 force_download=force_download,
                 local_files_only=local_files_only,
-                use_auth_token=use_auth_token,
+                token=token,
                 do_validation=False,
                 submodels={"unet": unet_id},
                 output_hidden_states=output_hidden_states,
@@ -1189,9 +1181,14 @@ class NeuronMultiControlNetModel(_NeuronDiffusionModelPart):
         encoder_hidden_states: torch.Tensor,
         controlnet_cond: torch.Tensor,
         conditioning_scale: float = 1.0,
+        guess_mode: bool = False,
         return_dict: bool = True,
     ) -> Union["ControlNetOutput", Tuple[Tuple[torch.Tensor, ...], torch.Tensor]]:
-        for i, (image, scale, controlnet) in enumerate(zip(controlnet_cond, conditioning_scale, self.model)):
+        if guess_mode:
+            logger.info(
+                "Guess mode is not yet supported. File us an issue on: https://github.com/huggingface/optimum-neuron/issues."
+            )
+        for i, (image, scale, controlnet) in enumerate(zip(controlnet_cond, conditioning_scale, self.nets)):
             inputs = (sample, timestep, encoder_hidden_states, image, scale)
             down_samples, mid_sample = controlnet(*inputs)
 

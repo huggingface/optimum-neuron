@@ -45,7 +45,6 @@ Here is an example of exporting stable diffusion components with `Optimum` CLI:
 
 ```bash
 optimum-cli export neuron --model stabilityai/stable-diffusion-2-1-base \
-  --task stable-diffusion \
   --batch_size 1 \
   --height 512 `# height in pixels of generated image, eg. 512, 768` \
   --width 512 `# width in pixels of generated image, eg. 512, 768` \
@@ -229,7 +228,6 @@ Here is an example of exporting SDXL components with `Optimum` CLI:
 
 ```bash
 optimum-cli export neuron --model stabilityai/stable-diffusion-xl-base-1.0 \
-  --task stable-diffusion-xl \
   --batch_size 1 \
   --height 1024 `# height in pixels of generated image, eg. 768, 1024` \
   --width 1024 `# width in pixels of generated image, eg. 768, 1024` \
@@ -481,7 +479,7 @@ Here we will compile the [`stabilityai/sdxl-turbo`](https://huggingface.co/stabi
 ### Compile SDXL Turbo
 
 ```bash
-optimum-cli export neuron --model stabilityai/sdxl-turbo --task stable-diffusion-xl --batch_size 1 --height 512 --width 512 --auto_cast matmul --auto_cast_type bf16 sdxl_turbo_neuron/
+optimum-cli export neuron --model stabilityai/sdxl-turbo --batch_size 1 --height 512 --width 512 --auto_cast matmul --auto_cast_type bf16 sdxl_turbo_neuron/
 ```
 
 ### Text-to-Image
@@ -562,7 +560,7 @@ We can either compile one or multiple ControlNet via the Optimum CLI or programa
 * Export via the Optimum CLI
 
 ```bash
-optimum-cli export neuron -m runwayml/stable-diffusion-v1-5 --task stable-diffusion --batch_size 1 --height 512 --width 512 --controlnet_ids lllyasviel/sd-controlnet-canny --num_images_per_prompt 1 sd_neuron_controlnet/
+optimum-cli export neuron -m runwayml/stable-diffusion-v1-5 --batch_size 1 --height 512 --width 512 --controlnet_ids lllyasviel/sd-controlnet-canny --num_images_per_prompt 1 sd_neuron_controlnet/
 ```
 
 * Export via Python API
@@ -634,6 +632,68 @@ compare.save("compare.png")
   alt="stable diffusion 1.5 generated image with controlnet."
 />
 
+
+### MultiControlNet
+
+With Optimum Neuron, you can also compose multiple ControlNet conditionings from different image inputs:
+
+* Compile multiple ControlNet for SD1.5
+
+```bash
+optimum-cli export neuron --inline-weights-neff --model jyoung105/stable-diffusion-v1-5 --task stable-diffusion --auto_cast matmul --auto_cast_type bf16 --batch_size 1 --num_images_per_prompt 1 --controlnet_ids lllyasviel/control_v11p_sd15_openpose lllyasviel/control_v11f1p_sd15_depth --height 512 --width 512 sd15-512x512-bf16-openpose-depth
+```
+
+* Run SD1.5 with OpenPose and Depth conditionings:
+
+```python
+import numpy as np
+import torch
+from PIL import Image
+
+from controlnet_aux import OpenposeDetector
+from transformers import pipeline
+from diffusers import UniPCMultistepScheduler
+from diffusers.utils import load_image
+from optimum.neuron import NeuronStableDiffusionControlNetPipeline
+
+
+# OpenPose+Depth ControlNet
+model_id = "sd15-512x512-bf16-openpose-depth"
+
+# Load ControlNet images
+
+# 1. openpose
+image = load_image("https://huggingface.co/lllyasviel/control_v11p_sd15_openpose/resolve/main/images/input.png")
+processor = OpenposeDetector.from_pretrained('lllyasviel/ControlNet')
+openpose_image = processor(image)
+
+# 2. depth
+image = load_image("https://huggingface.co/lllyasviel/control_v11p_sd15_depth/resolve/main/images/input.png")
+depth_estimator = pipeline('depth-estimation')
+image = depth_estimator(image)['depth']
+image = np.array(image)
+image = image[:, :, None]
+image = np.concatenate([image, image, image], axis=2)
+depth_image = Image.fromarray(image)
+
+images = [openpose_image.resize((512, 512)), depth_image.resize((512, 512))]
+
+# 3. inference
+pipe = NeuronStableDiffusionControlNetPipeline.from_pretrained(model_id)
+pipe.scheduler = UniPCMultistepScheduler.from_config(pipe.scheduler.config)
+prompt = "a giant in a fantasy landscape, best quality"
+negative_prompt = "monochrome, lowres, bad anatomy, worst quality, low quality"
+
+image = pipe(prompt=prompt, image=images).images[0]
+image.save('out.png')
+```
+
+<img
+  src="https://huggingface.co/datasets/Jingya/document_images/resolve/main/optimum/neuron/multicontrolnet.png"
+  width="768"
+  height="256"
+  alt="stable diffusion 1.5 generated image with OpenPose and Depth controlnet."
+/>
 
 
 ## ControlNet with Stable Diffusion XL
