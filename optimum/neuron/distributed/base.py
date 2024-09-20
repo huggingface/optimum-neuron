@@ -777,9 +777,6 @@ class Parallelizer(ABC):
                     f"Could not find information for the parameter {name} to set its `requires_grad` attribute."
                 )
 
-        # for name, parameter in model.named_parameters():
-        #     print(f"{name} => {parameter.requires_grad}")
-
         if is_main_worker():
             logger.info("Load and initialization of the weights done.")
 

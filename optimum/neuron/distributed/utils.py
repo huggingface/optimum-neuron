@@ -155,7 +155,7 @@ class FakeProj(torch.nn.Module):
             parent_module._gqa_qkv_output = gqa_qkv_column_parallel_linear(hidden_states)
             parent_module._gqa_qkv_output_fetch_counter = 0
         parent_module._gqa_qkv_output_fetch_counter += 1
-        output = torch.nn.Identity()(parent_module._gqa_qkv_output)[self.output_index]
+        output = parent_module._gqa_qkv_output[self.output_index]
         if parent_module._gqa_qkv_output_fetch_counter == 3:
             del parent_module._gqa_qkv_output
         return output
