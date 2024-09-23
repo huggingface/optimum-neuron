@@ -99,6 +99,7 @@ RUN apt-get update -y \
     aws-neuronx-collectives=2.22.26.0-17a033bc8 \
     aws-neuronx-runtime-lib=2.22.14.0-6e27b8d5b \
     aws-neuronx-tools=2.19.0.0 \
+    libxml2 \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -116,7 +117,7 @@ RUN pip3 install \
     hf_transfer huggingface_hub
 
 # Install optimum-neuron
-COPY dist/optimum_neuron-${VERSION}.tar.gz optimum-neuron.tar.gz
+COPY ./dist/optimum_neuron-${VERSION}.tar.gz optimum-neuron.tar.gz
 RUN pip3 install optimum-neuron.tar.gz
 
 # TGI base env
