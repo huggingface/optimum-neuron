@@ -12,7 +12,7 @@ WORKDIR /usr/src
 
 ARG CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 
-FROM chef as planner
+FROM chef AS planner
 COPY --from=tgi /tgi/Cargo.lock Cargo.lock
 COPY --from=tgi /tgi/Cargo.toml Cargo.toml
 COPY --from=tgi /tgi/rust-toolchain.toml rust-toolchain.toml
@@ -133,7 +133,7 @@ COPY --from=pyserver /pyserver/build/dist dist
 RUN pip install dist/text_generation_server*.tar.gz
 
 # AWS Sagemaker compatible image
-FROM neuron as sagemaker
+FROM neuron AS sagemaker
 
 COPY text-generation-inference/sagemaker-entrypoint.sh entrypoint.sh
 RUN chmod +x entrypoint.sh
