@@ -40,19 +40,15 @@ PACKAGE_FILES = $(PACKAGE_PYTHON_FILES)  \
 $(PACKAGE_DIST) $(PACKAGE_WHEEL): $(PACKAGE_FILES)
 	python -m build
 
-TGI_VERSION ?= 2.1.1
-
 neuronx-tgi: $(PACKAGE_DIST)
 	docker build --rm -f text-generation-inference/Dockerfile \
 	             --build-arg VERSION=$(VERSION) \
-	             --build-arg TGI_VERSION=$(TGI_VERSION) \
 				 -t neuronx-tgi:$(VERSION) .
 	docker tag neuronx-tgi:$(VERSION) neuronx-tgi:latest
 
 neuronx-tgi-sagemaker: $(PACKAGE_DIST)
 	docker build --rm -f text-generation-inference/Dockerfile \
 	             --build-arg VERSION=$(VERSION) \
-	             --build-arg TGI_VERSION=$(TGI_VERSION) \
 				 --target sagemaker \
 				 -t neuronx-tgi:$(VERSION) .
 
@@ -90,7 +86,7 @@ test_installs:
 tgi_server:
 	python -m pip install -r text-generation-inference/server/build-requirements.txt
 	make -C text-generation-inference/server clean
-	VERSION=${VERSION} TGI_VERSION=${TGI_VERSION} make -C text-generation-inference/server gen-server
+	VERSION=${VERSION} make -C text-generation-inference/server gen-server
 
 tgi_test: tgi_server
 	python -m pip install .[neuronx]

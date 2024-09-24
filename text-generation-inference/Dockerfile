@@ -1,7 +1,6 @@
-# Fetch and extract the TGI sources (TGI_VERSION is mandatory)
+# Fetch and extract the TGI sources
 FROM alpine AS tgi
-ARG TGI_VERSION
-RUN test -n ${TGI_VERSION:?}
+ARG TGI_VERSION=2.1.1
 RUN mkdir -p /tgi
 ADD https://github.com/huggingface/text-generation-inference/archive/refs/tags/v${TGI_VERSION}.tar.gz /tgi/sources.tar.gz
 RUN tar -C /tgi -xf /tgi/sources.tar.gz --strip-components=1
@@ -13,7 +12,7 @@ WORKDIR /usr/src
 
 ARG CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 
-FROM chef as planner
+FROM chef AS planner
 COPY --from=tgi /tgi/Cargo.lock Cargo.lock
 COPY --from=tgi /tgi/Cargo.toml Cargo.toml
 COPY --from=tgi /tgi/rust-toolchain.toml rust-toolchain.toml
@@ -100,6 +99,7 @@ RUN apt-get update -y \
     aws-neuronx-collectives=2.22.26.0-17a033bc8 \
     aws-neuronx-runtime-lib=2.22.14.0-6e27b8d5b \
     aws-neuronx-tools=2.19.0.0 \
+    libxml2 \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -117,7 +117,7 @@ RUN pip3 install \
     hf_transfer huggingface_hub
 
 # Install optimum-neuron
-COPY dist/optimum_neuron-${VERSION}.tar.gz optimum-neuron.tar.gz
+COPY ./dist/optimum_neuron-${VERSION}.tar.gz optimum-neuron.tar.gz
 RUN pip3 install optimum-neuron.tar.gz
 
 # TGI base env
@@ -134,7 +134,7 @@ COPY --from=pyserver /pyserver/build/dist dist
 RUN pip install dist/text_generation_server*.tar.gz
 
 # AWS Sagemaker compatible image
-FROM neuron as sagemaker
+FROM neuron AS sagemaker
 
 COPY text-generation-inference/sagemaker-entrypoint.sh entrypoint.sh
 RUN chmod +x entrypoint.sh
