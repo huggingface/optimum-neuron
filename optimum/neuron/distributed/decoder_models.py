@@ -29,6 +29,7 @@ from transformers.models.llama.modeling_llama import (
     LlamaDecoderLayer,
     LlamaForQuestionAnswering,
     LlamaRMSNorm,
+    LlamaRotaryEmbedding,
     repeat_kv,
 )
 from transformers.models.mistral.modeling_mistral import (
@@ -554,7 +555,7 @@ class LlamaPipelineParallelismSpecs(PipelineParallelismSpecs):
         "LlamaForQuestionAnswering": ("input_ids", "attention_mask", "start_positions", "end_positions"),
     }
 
-    LEAF_MODULE_CLASSES_NAMES = [LlamaRMSNorm]
+    LEAF_MODULE_CLASSES_NAMES = [LlamaRMSNorm, LlamaRotaryEmbedding]
 
 
 class LlamaParallelizer(Parallelizer):
