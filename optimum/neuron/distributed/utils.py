@@ -148,6 +148,11 @@ class FakeProj(torch.nn.Module):
         self.parent_module_fully_qualified_name = parent_module_fully_qualified_name
         self.gqa_qkv_proj_name = gqa_qkv_proj_name
 
+    def get_gqa_qkv_module(self) -> "OptimumGQAQKVColumnParallelLinear":
+        parent_module = self.get_parent_module()
+        gqa_qkv_column_parallel_linear = getattr(parent_module, self.gqa_qkv_proj_name)
+        return gqa_qkv_column_parallel_linear
+
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         parent_module = self.get_parent_module()
         gqa_qkv_column_parallel_linear = getattr(parent_module, self.gqa_qkv_proj_name)
@@ -1056,17 +1061,35 @@ def _parallelize_active_adapters(
                     f"The LoRA adapter dimension to parallelize ({dim_to_partition}) is not divisible by the TP size ({tp_size})."
                 )
 
-            # TODO: handle the case were weights already exist for this adapter.
-            parallel_layer = linear_to_parallel_linear(
-                layer_to_parallelize,
-                axis,
-                input_is_parallel=input_is_parallel,
-                gather_output=gather_output,
-                stride=stride,
-                sequence_parallel_enabled=sequence_parallel_enabled,
-                skip_weight_load=skip_weight_load,
-                device=device,
-            )
+            import torch_xla.core.xla_model as xm
+            # xm.master_print("Layer to parallelize", layer_to_parallelize, dim_to_partition // tp_size)
+            if isinstance(tuner_layer.base_layer, FakeProj):
+                gqa_qkv_module = tuner_layer.base_layer.get_gqa_qkv_module()
+                parallel_layer = GQAQKVColumnParallelLinear(
+                    input_size=gqa_qkv_module.input_size,
+                    output_sizes=gqa_qkv_module.output_sizes,
+                    bias=False,
+                    gather_output=gqa_qkv_module.gather_output,
+                    dtype=gqa_qkv_module.dtype,
+                    device=gqa_qkv_module.device,
+                    init_method=gqa_qkv_module.arg_init_method,
+                    sequence_parallel_enabled=gqa_qkv_module.sequence_parallel_enabled,
+                    kv_size_multiplier=gqa_qkv_module.kv_size_multiplier,
+                    fuse_qkv=gqa_qkv_module.fuse_qkv,
+                )
+
+            else:
+                # TODO: handle the case were weights already exist for this adapter.
+                parallel_layer = linear_to_parallel_linear(
+                    layer_to_parallelize,
+                    axis,
+                    input_is_parallel=input_is_parallel,
+                    gather_output=gather_output,
+                    stride=stride,
+                    sequence_parallel_enabled=sequence_parallel_enabled,
+                    skip_weight_load=skip_weight_load,
+                    device=device,
+                )
             if axis == "row":
                 tuner_layer.lora_A[adapter_name] = parallel_layer
             else:
