@@ -247,7 +247,6 @@ class NeuronTracedModel(NeuronModel):
         config: "PretrainedConfig",
         token: Optional[Union[bool, str]] = None,
         revision: Optional[str] = None,
-        library_name: Optional[str] = None,
         force_download: bool = False,
         cache_dir: Optional[str] = None,
         compiler_workdir: Optional[Union[str, Path]] = None,
@@ -275,7 +274,6 @@ class NeuronTracedModel(NeuronModel):
         if task is None:
             task = TasksManager.infer_task_from_model(cls.auto_model_class)
         task = TasksManager.map_from_synonym(task)
-        library_name = TasksManager.infer_library_from_model(model_id, subfolder=subfolder, library_name=library_name)
 
         # Get compilation arguments
         if is_neuron_available() and dynamic_batch_size is True and "batch_size" in kwargs_shapes:
@@ -320,10 +318,9 @@ class NeuronTracedModel(NeuronModel):
                     model_name_or_path=model_id,
                     subfolder=subfolder,
                     revision=revision,
-                    framework="pt",
-                    library_name=library_name,
                     cache_dir=cache_dir,
                     token=token,
+                    framework="pt",
                     local_files_only=local_files_only,
                     force_download=force_download,
                     trust_remote_code=trust_remote_code,
@@ -361,7 +358,6 @@ class NeuronTracedModel(NeuronModel):
                 local_files_only=local_files_only,
                 token=token,
                 do_validation=False,
-                library_name=library_name,
                 **kwargs_shapes,
             )
             config = AutoConfig.from_pretrained(save_dir_path)
