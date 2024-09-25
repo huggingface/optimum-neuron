@@ -110,8 +110,8 @@ def download_example_script_from_github(task_name: str, target_directory: Path, 
     script_name = f"{_TASK_TO_EXAMPLE_SCRIPT[task_name]}.py"
     example_script_path = target_directory
     for folder in _GH_REPO_EXAMPLE_FOLDERS:
-        raw_url_folder = f"{_GH_REPO_RAW_URL}/{revision}/examples/{folder}"
-        url_folder = f"{_GH_REPO_URL}/{revision}/examples/{folder}"
+        raw_url_folder = f"{_GH_REPO_RAW_URL}/refs/heads/{revision}/examples/{folder}"
+        url_folder = f"{_GH_REPO_URL}/tree/{revision}/examples/{folder}"
         filenames_for_example = list_filenames_in_github_repo_directory(url_folder, only_files=True)
         if script_name not in filenames_for_example:
             continue
