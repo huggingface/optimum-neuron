@@ -18,7 +18,7 @@ INSTALL_REQUIRES = [
     "optimum ~= 1.22.0",
     "huggingface_hub >= 0.20.1",
     "numpy>=1.22.2, <=1.25.2",
-    "protobuf<4",
+    "protobuf>=3.20.3, <4",
 ]
 
 TESTS_REQUIRE = [

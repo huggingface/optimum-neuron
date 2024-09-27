@@ -26,7 +26,7 @@ DECODER_MODEL_ARCHITECTURES = ["bloom", "gpt2", "llama", "mistral", "mixtral", "
 DECODER_MODEL_NAMES = {
     "bloom": "hf-internal-testing/tiny-random-BloomForCausalLM",
     "gpt2": "hf-internal-testing/tiny-random-gpt2",
-    "llama": "dacorvo/tiny-random-llama",
+    "llama": "llamafactory/tiny-random-Llama-3",
     "mistral": "dacorvo/tiny-random-MistralForCausalLM",
     "mixtral": "dacorvo/Mixtral-tiny",
     "opt": "hf-internal-testing/tiny-random-OPTForCausalLM",
