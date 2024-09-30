@@ -15,6 +15,7 @@
 """NeuronDiffusionPipelineBase class for inference of diffusion models on neuron devices."""
 
 import copy
+import inspect
 import importlib
 import logging
 import os
@@ -110,7 +111,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class NeuronDiffusionPipelineBase(NeuronTracedModel):
+class NeuronDiffusionPipelineBase(NeuronTracedModel, ConfigMixin):
     auto_model_class = StableDiffusionPipeline
     library_name = "diffusers"
     base_model_prefix = "neuron_model"
@@ -129,6 +130,8 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         transformer: Optional[torch.jit._script.ScriptModule] = None,
         vae_encoder: Optional[torch.jit._script.ScriptModule] = None,
         vae_decoder: Optional[torch.jit._script.ScriptModule] = None,
+        image_encoder: Optional[torch.jit._script.ScriptModule] = None,
+        safety_checker: Optional[torch.jit._script.ScriptModule] = None,
         tokenizer: Optional[Union[CLIPTokenizer, T5Tokenizer]] = None,
         tokenizer_2: Optional[CLIPTokenizer] = None,
         scheduler: Optional[SchedulerMixin] = None,
@@ -139,6 +142,10 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 List[torch.jit._script.ScriptModule],
             ]
         ] = None,
+        # stable diffusion xl specific arguments
+        requires_aesthetics_score: bool = False,
+        force_zeros_for_empty_prompt: bool = True,
+        add_watermarker: Optional[bool] = None,
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
         model_and_config_save_paths: Optional[Dict[str, Tuple[str, Path]]] = None,
     ):
@@ -166,6 +173,10 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 The Neuron TorchScript module associated to the VAE encoder.
             vae_decoder (`Optional[torch.jit._script.ScriptModule]`, defaults to `None`):
                 The Neuron TorchScript module associated to the VAE decoder.
+            image_encoder (`Optional[torch.jit._script.ScriptModule]`, defaults to `None`):
+                The Neuron TorchScript module associated to the frozen CLIP image-encoder.
+            safety_checker (`Optional[torch.jit._script.ScriptModule]`, defaults to `None`):
+                The Neuron TorchScript module associated to the Classification module that estimates whether generated images could be considered offensive or harmful.
             tokenizer (`Optional[Union[CLIPTokenizer, T5Tokenizer]]`, defaults to `None`):
                 Tokenizer of class
                 [CLIPTokenizer](https://huggingface.co/docs/transformers/v4.21.0/en/model_doc/clip#transformers.CLIPTokenizer) for stable diffusion models,
@@ -178,7 +189,17 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             feature_extractor (`Optional[CLIPFeatureExtractor]`, defaults to `None`):
                 A model extracting features from generated images to be used as inputs for the `safety_checker`
             controlnet (`Optional[Union[torch.jit._script.ScriptModule, List[torch.jit._script.ScriptModule]]]`, defaults to `None`):
-                The Neuron TorchScript module(s) associated to the ControlNet(s).        
+                The Neuron TorchScript module(s) associated to the ControlNet(s).
+            requires_aesthetics_score (`bool`, defaults to `False`):
+                Whether the `unet` requires an `aesthetic_score` condition to be passed during inference. Also see the
+                config of `stabilityai/stable-diffusion-xl-refiner-1-0`.
+            force_zeros_for_empty_prompt (`bool`, defaults to `True`):
+                Whether the negative prompt embeddings shall be forced to always be set to 0. Also see the config of
+                `stabilityai/stable-diffusion-xl-base-1-0`.
+            add_watermarker (`Optional[bool]`, defaults to `None`):
+                Whether to use the [invisible_watermark library](https://github.com/ShieldMnt/invisible-watermark/) to
+                watermark output images. If not defined, it will default to True if the package is installed, otherwise no
+                watermarker will be used.
             model_save_dir (`Optional[Union[str, Path, TemporaryDirectory]]`, defaults to `None`):
                 The directory under which the exported Neuron models were saved.
             model_and_config_save_paths (`Optional[Dict[str, Tuple[str, Path]]]`, defaults to `None`):
@@ -219,6 +240,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         self.transformer = NeuronModelTransformer(transformer, self, self.configs[DIFFUSION_MODEL_TRANSFORMER_NAME], self.neuron_configs[DIFFUSION_MODEL_TRANSFORMER_NAME]) if transformer is not None else None
         self.vae_encoder = NeuronModelVaeEncoder(vae_encoder, self, self.configs[DIFFUSION_MODEL_VAE_ENCODER_NAME], self.neuron_configs[DIFFUSION_MODEL_VAE_ENCODER_NAME]) if vae_encoder is not None else None
         self.vae_decoder = NeuronModelVaeDecoder(vae_decoder, self, self.configs[DIFFUSION_MODEL_VAE_DECODER_NAME], self.neuron_configs[DIFFUSION_MODEL_VAE_DECODER_NAME]) if vae_decoder is not None else None
+        self.vae = NeuronModelVae(self.vae_encoder, self.vae_decoder)
 
         if controlnet is not None:
             controlnet_cls = (
@@ -246,27 +268,37 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             self.scheduler = LCMScheduler.from_config(self.scheduler.config)
         
         self.feature_extractor = feature_extractor
-        self.safety_checker = None  #TODO: Need to implement a Neuron version of `StableDiffusionSafetyChecker`.
-        sub_models = {
-            DIFFUSION_MODEL_TEXT_ENCODER_NAME: self.text_encoder,
-            DIFFUSION_MODEL_VAE_DECODER_NAME: self.vae_decoder,
+        self.image_encoder = image_encoder  # TODO: implement the class `NeuronImageEncoder`.
+        self.safety_checker = safety_checker  #TODO: implement the class `NeuronStableDiffusionSafetyChecker`.
+        
+        all_possible_init_args = {
+            "vae": self.vae,
+            "unet": self.unet,
+            "transformer": self.transformer,
+            "text_encoder": self.text_encoder,
+            "text_encoder_2": self.text_encoder_2,
+            "image_encoder": self.image_encoder,
+            "safety_checker": self.safety_checker,
+            "scheduler": self.scheduler,
+            "tokenizer": self.tokenizer,
+            "tokenizer_2": self.tokenizer_2,
+            "feature_extractor": self.feature_extractor,
+            "requires_aesthetics_score": requires_aesthetics_score,
+            "force_zeros_for_empty_prompt": force_zeros_for_empty_prompt,
+            "add_watermarker": add_watermarker,
         }
-        if self.text_encoder_2 is not None:
-            sub_models[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME] = self.text_encoder_2
-        if self.unet is not None:
-            sub_models[DIFFUSION_MODEL_UNET_NAME] = self.unet
-        if self.transformer is not None:
-            sub_models[DIFFUSION_MODEL_TRANSFORMER_NAME] = self.transformer
-        if self.vae_encoder is not None:
-            sub_models[DIFFUSION_MODEL_VAE_ENCODER_NAME] = self.vae_encoder
-
-        for name in sub_models.keys():
-            self._internal_dict[name] = ("optimum", sub_models[name].__class__.__name__)
-        self._internal_dict.pop("vae", None)
+        diffusers_pipeline_args = {}
+        for key in inspect.signature(self.auto_model_class).parameters.keys():
+            if key in all_possible_init_args:
+                diffusers_pipeline_args[key] = all_possible_init_args[key]
+        self.auto_model_class.__init__(self, **diffusers_pipeline_args)
 
         self._attributes_init(model_save_dir)
         self.model_and_config_save_paths = model_and_config_save_paths if model_and_config_save_paths else None
+        self.register_to_config(force_zeros_for_empty_prompt=force_zeros_for_empty_prompt)
+        self.register_to_config(requires_aesthetics_score=requires_aesthetics_score)
 
+        # Calculate static shapes
         if hasattr(self.vae_decoder.config, "block_out_channels"):
             self.vae_scale_factor = 2 ** (len(self.vae_decoder.config.block_out_channels) - 1)
         else:
@@ -953,6 +985,20 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
 
     def _save_config(self, save_directory):
         self.save_config(save_directory)
+    
+    @property
+    def components(self) -> Dict[str, Any]:
+        components = {
+            "vae": self.vae,
+            "unet": self.unet,
+            "transformer": self.transformer,
+            "text_encoder": self.text_encoder,
+            "text_encoder_2": self.text_encoder_2,
+            "image_encoder": self.image_encoder,
+            "safety_checker": self.safety_checker,
+        }
+        components = {k: v for k, v in components.items() if v is not None}
+        return components
 
 
 class _NeuronDiffusionModelPart:
@@ -1126,6 +1172,26 @@ class NeuronModelVaeDecoder(_NeuronDiffusionModelPart):
         outputs = self.model(*inputs)
 
         return tuple(output for output in outputs.values())
+
+
+class NeuronModelVae:
+    def __init__(
+        self,
+        encoder: Optional[NeuronModelVaeEncoder],
+        decoder: NeuronModelVaeDecoder,
+    ):
+        self.encoder = encoder
+        self.decoder = decoder
+    
+    @property
+    def config(self):
+        return self.decoder.config
+
+    def encode(self, *args, **kwargs):
+        return self.encoder(*args, **kwargs)
+
+    def decode(self, *args, **kwargs):
+        return self.decoder(*args, **kwargs)
 
 
 class NeuronControlNetModel(_NeuronDiffusionModelPart):
