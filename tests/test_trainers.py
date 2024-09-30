@@ -27,6 +27,7 @@ from transformers import (
     AutoConfig,
     AutoModelForSequenceClassification,
 )
+from transformers.testing_utils import is_staging_test
 
 from optimum.neuron import NeuronSFTConfig, NeuronSFTTrainer, NeuronTrainer, NeuronTrainingArguments
 from optimum.neuron.distributed.utils import MODEL_PARALLEL_SHARDS_DIR_NAME
@@ -462,3 +463,9 @@ class TestNeuronSFTTrainer(DistributedTest):
 
     def test_with_packing(self, parallel_sizes, tmpdir):
         return self._test_sft_trainer(parallel_sizes, tmpdir, True)
+
+
+@is_trainium_test
+@is_staging_test
+def test_dummy_staging_test():
+    pass
