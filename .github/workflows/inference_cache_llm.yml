@@ -21,9 +21,9 @@ jobs:
       matrix:
         config: [
           gpt2,
-          llama3-8b,
+          llama,
+          llama3.1-70b,
           llama3-70b,
-          llama2-7b-13b,
           llama2-70b,
           mistral,
           llama-variants,
@@ -39,7 +39,7 @@ jobs:
           EOF
           wget -qO - https://apt.repos.neuron.amazonaws.com/GPG-PUB-KEY-AMAZON-AWS-NEURON.PUB | sudo apt-key add -
           sudo apt-get update -y
-          sudo apt-get install aws-neuronx-tools=2.18.3.0 aws-neuronx-runtime-lib=2.21.41.0-fb1705f5f aws-neuronx-collectives=2.21.46.0-69b77134b  -y
+          sudo apt-get install aws-neuronx-tools=2.19.0.0 aws-neuronx-runtime-lib=2.22.14.0-6e27b8d5b aws-neuronx-collectives=2.22.26.0-17a033bc8  -y
           export PATH=/opt/aws/neuron/bin:$PATH
       - name: Checkout
         uses: actions/checkout@v4

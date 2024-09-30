@@ -36,7 +36,14 @@ jobs:
       - name: Make documentation
         shell: bash
         run: |
-          doc-builder build optimum.neuron docs/source/ --repo_name optimum-neuron --build_dir neuron-doc-build/ --version pr_${{ env.PR_NUMBER }} --version_tag_suffix "" --html --clean
+          doc-builder build optimum.neuron docs/source/ \
+            --repo_name optimum-neuron \
+            --build_dir neuron-doc-build/ \
+            --version pr_${{ env.PR_NUMBER }} \
+            --version_tag_suffix "" \
+            --html \
+            --clean \
+            --notebook_dir docs/notebooks/
 
       - name: Save commit_sha & pr_number
         run: |

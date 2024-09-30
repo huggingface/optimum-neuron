@@ -14,6 +14,8 @@
       title: Fine-tune BERT for Text Classification on AWS Trainium
     - local: training_tutorials/finetune_llm
       title: Fine-tune Llama 3 8B on AWS Trainium
+    - local: training_tutorials/sft_lora_finetune_llm
+      title: Fine-tune Llama 3 8B on with LoRA and the SFTTrainer
     title: Training Tutorials
   - sections:
     - local: inference_tutorials/notebooks
@@ -44,14 +46,10 @@
       title: NeuronX Text-generation-inference for AWS inferentia2
     title: How-To Guides
   - sections:
-    - local: benchmarks/inferentia-llama2-7b
-      title: Llama2 7b on AWS Inferentia2
-    - local: benchmarks/inferentia-llama2-13b
-      title: Llama2 13b on AWS Inferentia2
-    - local: benchmarks/inferentia-mistral-v2
-      title: Mistral v0.2 7b on AWS Inferentia2
-    - local: benchmarks/inferentia-llama3-8b
-      title: Llama-3 8B on AWS Inferentia2
+    - local: benchmarks/inferentia-mistral-small
+      title: Mistral Small on AWS Inferentia2
+    - local: benchmarks/inferentia-llama3.1-8b
+      title: Llama-3.1 8B on AWS Inferentia2
     title: Benchmarks
   - sections:
     - local: community/contributing
