@@ -94,11 +94,13 @@ if is_diffusers_available():
     from diffusers.configuration_utils import ConfigMixin, FrozenDict
     from diffusers.image_processor import VaeImageProcessor
     from diffusers.models.controlnet import ControlNetOutput
-    from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
+    from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution, DecoderOutput
     from diffusers.pipelines.controlnet import MultiControlNetModel
     from diffusers.schedulers import SchedulerMixin
     from diffusers.schedulers.scheduling_utils import SCHEDULER_CONFIG_NAME
     from diffusers.utils import CONFIG_NAME, is_invisible_watermark_available
+    
+    from .pipelines.diffusers import NeuronDiffusionPipelineMixin
 
 
 if TYPE_CHECKING:
@@ -998,7 +1000,12 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel, ConfigMixin):
         return components
 
     def __call__(self, *args, **kwargs):
-        return self.auto_model_class.__call__(self, *args, **kwargs)
+        # Height and width to unet (static shapes)
+        height = self.unet.config.neuron["static_height"] * self.vae_scale_factor
+        width = self.unet.config.neuron["static_width"] * self.vae_scale_factor
+        kwargs.pop("height", None)
+        kwargs.pop("width", None)
+        return self.auto_model_class.__call__(self, height=height, width=width, *args, **kwargs)
 
 
 class _NeuronDiffusionModelPart:
@@ -1181,6 +1188,8 @@ class NeuronModelVaeDecoder(_NeuronDiffusionModelPart):
         latent_sample: torch.Tensor,
         image: Optional[torch.Tensor] = None,
         mask: Optional[torch.Tensor] = None,
+        return_dict: bool = True, 
+        generator=None,
     ):
         inputs = (latent_sample,)
         if image is not None:
@@ -1188,12 +1197,11 @@ class NeuronModelVaeDecoder(_NeuronDiffusionModelPart):
         if mask is not None:
             inputs += (mask,)
         outputs = self.model(*inputs)
-        outputs = dict(zip(self.neuron_config.outputs, outputs))
-        
-        if "latent_sample" in outputs:
-            outputs["latents"] = outputs.pop("latent_sample")
 
-        return tuple(output for output in outputs.values())
+        if not return_dict:
+            return tuple(output for output in outputs.values())
+        else:
+            return DecoderOutput(**outputs)
 
 
 class NeuronModelVae:
