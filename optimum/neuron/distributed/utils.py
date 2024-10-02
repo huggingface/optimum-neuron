@@ -1412,7 +1412,6 @@ def create_wrapper_for_resize_token_embedding(orig_resize_token_embeddings):
 
         if lm_head is not None and lm_head.weight.device == torch.device("meta"):
             lm_head_qualified_name = param2name[lm_head.weight]
-            lm_head_bias_qualified_name = ""
             if lm_head_qualified_name in self._weight_map:
                 lm_head_weight_filename = self._weight_map[lm_head_qualified_name]
                 lm_head_weight_info = WeightInformation(
