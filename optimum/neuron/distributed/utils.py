@@ -1387,6 +1387,60 @@ def parameter_can_be_initialized(model: torch.nn.Module, parent_module: torch.nn
     )
 
 
+def create_wrapper_for_resize_token_embedding(orig_resize_token_embeddings):
+
+    @functools.wraps(orig_resize_token_embeddings)
+    def wrapper(
+        self, new_num_tokens: Optional[int] = None, pad_to_multiple_of: Optional[int] = None
+    ) -> torch.nn.Embedding:
+        embeddings = self.get_input_embeddings()
+        lm_head = self.get_output_embeddings()
+        param2name = {param: name for name, param in self.named_parameters()}
+        if embeddings.weight.device == torch.device("meta"):
+            embeddings_qualified_name = param2name[embeddings.weight]
+            if embeddings_qualified_name in self._weight_map:
+                filename = self._weight_map[embeddings_qualified_name]
+                embeddings_weight_info = WeightInformation(
+                    filename=filename,
+                    qualified_name=embeddings_qualified_name,
+                    weight_map=self._weight_map,
+                )
+                setattr(embeddings, "weight", torch.nn.Parameter(load_tensor_for_weight(embeddings_weight_info)))
+                self._weight_map.pop(embeddings_qualified_name)
+            else:
+                self._init_weights(embeddings)
+
+        if lm_head is not None and lm_head.weight.device == torch.device("meta"):
+            lm_head_qualified_name = param2name[lm_head.weight]
+            if lm_head_qualified_name in self._weight_map:
+                lm_head_weight_filename = self._weight_map[lm_head_qualified_name]
+                lm_head_weight_info = WeightInformation(
+                    filename=lm_head_weight_filename,
+                    qualified_name=lm_head_qualified_name,
+                    weight_map=self._weight_map,
+                )
+                setattr(lm_head, "weight", torch.nn.Parameter(load_tensor_for_weight(lm_head_weight_info)))
+                self._weight_map.pop(lm_head_qualified_name)
+
+                if lm_head.bias is not None:
+                    lm_head_bias_qualified_name = param2name[lm_head.bias]
+                    lm_head_bias_filename = self._weight_map[lm_head_bias_qualified_name]
+                    lm_head_bias_weight_info = WeightInformation(
+                        filename=lm_head_bias_filename,
+                        qualified_name=lm_head_bias_qualified_name,
+                        weight_map=self._weight_map,
+                    )
+                    setattr(lm_head, "bias", torch.nn.Parameter(load_tensor_for_weight(lm_head_bias_weight_info)))
+                    self._weight_map.pop(lm_head_bias_qualified_name)
+            else:
+                self._init_weights(lm_head)
+
+        return orig_resize_token_embeddings(new_num_tokens=new_num_tokens, pad_to_multiple_of=pad_to_multiple_of)
+
+    bound_wrapper = wrapper.__get__(orig_resize_token_embeddings.__self__)
+    return bound_wrapper
+
+
 @classmethod
 @requires_torch_xla
 def from_pretrained_for_mp(
@@ -1550,6 +1604,9 @@ def from_pretrained_for_mp(
         )
 
     model._weight_map = weight_map
+
+    resize_token_embeddings = create_wrapper_for_resize_token_embedding(model.resize_token_embeddings)
+    model.resize_token_embeddings = resize_token_embeddings
 
     return model
 
