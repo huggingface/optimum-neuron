@@ -219,12 +219,13 @@ class ParallelEmbedding(ParallelLayer):
                 embedding_weight_name = f"{layer_qualified_name}.{embedding_name}.weight"
             else:
                 embedding_weight_name = f"{embedding_name}.weight"
-            embedding_weight_info = WeightInformation(
-                weight_map[embedding_weight_name],
-                embedding_weight_name,
-                weight_map=weight_map,
-                device=device,
-            )
+            if embedding_name in weight_map:
+                embedding_weight_info = WeightInformation(
+                    weight_map[embedding_weight_name],
+                    embedding_weight_name,
+                    weight_map=weight_map,
+                    device=device,
+                )
             if model_has_lm_head:
                 if layer_qualified_name:
                     lm_head_weight_name = f"{layer_qualified_name}.{lm_head_name}.weight"

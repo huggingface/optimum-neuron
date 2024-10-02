@@ -759,6 +759,9 @@ class Parallelizer(ABC):
                     cls._initialize_or_load_weights(model, names_of_the_parameters_to_consider, device=device)
             gc.collect()
 
+        # It is important to do that here because initialization can untie weights.
+        model.tie_weights()
+
         # Because we initialize new parameters, we need to make sure that only the ones that required grads before
         # parallelization require grad after parallelization.
         for name, parameter in model.named_parameters():

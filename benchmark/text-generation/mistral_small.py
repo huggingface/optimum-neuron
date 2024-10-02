@@ -8,16 +8,14 @@ from optimum.neuron.modeling_decoder import get_available_cores
 
 
 def main():
-    NUM_CORES = 8
+    NUM_CORES = 12
     num_cores = get_available_cores()
     if num_cores < NUM_CORES:
         raise ValueError(f"This benchmark can only run on an instance with at least {NUM_CORES} cores.")
 
     model_configurations = {
-        "Llama-2-13B-BS1": ["meta-llama/Llama-2-13b-chat-hf", 1, 4096],
-        "Llama-2-13B-BS4": ["meta-llama/Llama-2-13b-chat-hf", 4, 4096],
-        "Llama-2-13B-BS8": ["meta-llama/Llama-2-13b-chat-hf", 8, 4096],
-        "Llama-2-13B-BS16": ["meta-llama/Llama-2-13b-chat-hf", 16, 4096],
+        "Mistral-Small-2409-BS1": ["mistralai/Mistral-Small-Instruct-2409", 1, 4096],
+        "Mistral-Small-2409-BS4": ["mistralai/Mistral-Small-Instruct-2409", 4, 4096],
     }
 
     for model_name, model_configuration in model_configurations.items():
@@ -27,7 +25,7 @@ def main():
             export=True,
             batch_size=batch_size,
             sequence_length=seq_length,
-            auto_cast_type="fp16",
+            auto_cast_type="bf16",
             num_cores=NUM_CORES,
         )
         with TemporaryDirectory() as tmpdir:
