@@ -80,28 +80,25 @@ if is_diffusers_available():
         LMSDiscreteScheduler,
         PNDMScheduler,
         StableDiffusionPipeline,
+        StableDiffusionImg2ImgPipeline,
+        StableDiffusionInpaintPipeline,
+        StableDiffusionInstructPix2PixPipeline,
+        LatentConsistencyModelPipeline,
+        StableDiffusionControlNetPipeline,
+        PixArtAlphaPipeline,
+        StableDiffusionXLPipeline,
         StableDiffusionXLImg2ImgPipeline,
+        StableDiffusionXLInpaintPipeline,
+        StableDiffusionXLControlNetPipeline,
     )
     from diffusers.configuration_utils import ConfigMixin, FrozenDict
     from diffusers.image_processor import VaeImageProcessor
     from diffusers.models.controlnet import ControlNetOutput
+    from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
     from diffusers.pipelines.controlnet import MultiControlNetModel
     from diffusers.schedulers import SchedulerMixin
     from diffusers.schedulers.scheduling_utils import SCHEDULER_CONFIG_NAME
     from diffusers.utils import CONFIG_NAME, is_invisible_watermark_available
-
-    from .pipelines import (
-        NeuronLatentConsistencyPipelineMixin,
-        NeuronStableDiffusionControlNetPipelineMixin,
-        NeuronStableDiffusionImg2ImgPipelineMixin,
-        NeuronStableDiffusionInpaintPipelineMixin,
-        NeuronStableDiffusionInstructPix2PixPipelineMixin,
-        NeuronStableDiffusionPipelineMixin,
-        NeuronStableDiffusionXLControlNetPipelineMixin,
-        NeuronStableDiffusionXLImg2ImgPipelineMixin,
-        NeuronStableDiffusionXLInpaintPipelineMixin,
-        NeuronStableDiffusionXLPipelineMixin,
-    )
 
 
 if TYPE_CHECKING:
@@ -646,8 +643,8 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel, ConfigMixin):
                 new_model_save_dir / DIFFUSION_MODEL_UNET_NAME / cls.sub_component_config_name,
             ),
             "transformer": (
-                new_model_save_dir / DIFFUSION_MODEL_UNET_NAME / transformer_file_name,
-                new_model_save_dir / DIFFUSION_MODEL_UNET_NAME / cls.sub_component_config_name,
+                new_model_save_dir / DIFFUSION_MODEL_TRANSFORMER_NAME / transformer_file_name,
+                new_model_save_dir / DIFFUSION_MODEL_TRANSFORMER_NAME / cls.sub_component_config_name,
             ),
             "vae_encoder": (
                 new_model_save_dir / DIFFUSION_MODEL_VAE_ENCODER_NAME / vae_encoder_file_name,
@@ -1000,6 +997,9 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel, ConfigMixin):
         components = {k: v for k, v in components.items() if v is not None}
         return components
 
+    def __call__(self, *args, **kwargs):
+        return self.auto_model_class.__call__(self, *args, **kwargs)
+
 
 class _NeuronDiffusionModelPart:
     """
@@ -1028,6 +1028,10 @@ class _NeuronDiffusionModelPart:
 
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
+    
+    @property
+    def dtype(self):
+        return None
 
 
 class NeuronModelTextEncoder(_NeuronDiffusionModelPart):
@@ -1045,7 +1049,7 @@ class NeuronModelTextEncoder(_NeuronDiffusionModelPart):
         input_ids: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
         output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        return_dict: Optional[bool] = False,
     ):
         if attention_mask is not None:
             assert torch.equal(
@@ -1085,10 +1089,14 @@ class NeuronModelUnet(_NeuronDiffusionModelPart):
         timestep: torch.Tensor,
         encoder_hidden_states: torch.Tensor,
         added_cond_kwargs: Optional[Dict[str, torch.Tensor]] = None,
-        timestep_cond: Optional[torch.Tensor] = None,
         down_block_additional_residuals: Optional[Tuple[torch.Tensor]] = None,
         mid_block_additional_residual: Optional[torch.Tensor] = None,
+        timestep_cond: Optional[torch.Tensor] = None,
+        cross_attention_kwargs: Optional[Dict[str, Any]] = None,
+        return_dict: bool = False,
     ):
+        if cross_attention_kwargs is not None:
+            logger.warning("`cross_attention_kwargs` is not yet supported during the tracing and it will be ignored.")
         timestep = timestep.float().expand((sample.shape[0],))
         inputs = (sample, timestep, encoder_hidden_states)
         if timestep_cond is not None:
@@ -1104,6 +1112,8 @@ class NeuronModelUnet(_NeuronDiffusionModelPart):
             inputs = inputs + (text_embeds, time_ids)
 
         outputs = self.model(*inputs)
+        if return_dict:
+            outputs = ModelOutput(dict(zip(self.neuron_config.outputs, outputs)))
         return outputs
 
 
@@ -1126,7 +1136,7 @@ class NeuronModelTransformer(_NeuronDiffusionModelPart):
         cross_attention_kwargs: Dict[str, Any] = None,
         attention_mask: Optional[torch.Tensor] = None,
         encoder_attention_mask: Optional[torch.Tensor] = None,
-        return_dict: bool = True,
+        return_dict: bool = False,
     ):
         pass
 
@@ -1144,6 +1154,14 @@ class NeuronModelVaeEncoder(_NeuronDiffusionModelPart):
     def forward(self, sample: torch.Tensor):
         inputs = (sample,)
         outputs = self.model(*inputs)
+        outputs = dict(zip(self.neuron_config.outputs, outputs))
+        if "latent_sample" in outputs:
+            outputs["latents"] = outputs.pop("latent_sample")
+
+        if "latent_parameters" in outputs:
+            outputs["latent_dist"] = DiagonalGaussianDistribution(
+                parameters=outputs.pop("latent_parameters")
+            )
 
         return tuple(output for output in outputs.values())
 
@@ -1170,6 +1188,10 @@ class NeuronModelVaeDecoder(_NeuronDiffusionModelPart):
         if mask is not None:
             inputs += (mask,)
         outputs = self.model(*inputs)
+        outputs = dict(zip(self.neuron_config.outputs, outputs))
+        
+        if "latent_sample" in outputs:
+            outputs["latents"] = outputs.pop("latent_sample")
 
         return tuple(output for output in outputs.values())
 
@@ -1297,42 +1319,39 @@ class NeuronMultiControlNetModel(_NeuronDiffusionModelPart):
         return down_block_res_samples, mid_block_res_sample
 
 
-class NeuronStableDiffusionPipeline(NeuronDiffusionPipelineBase, NeuronStableDiffusionPipelineMixin):
-    __call__ = NeuronStableDiffusionPipelineMixin.__call__
+class NeuronStableDiffusionPipeline(NeuronDiffusionPipelineBase, StableDiffusionPipeline):
+    main_input_name = "prompt"
+    auto_model_class = StableDiffusionPipeline
 
 
-class NeuronStableDiffusionImg2ImgPipeline(
-    NeuronDiffusionPipelineBase, NeuronStableDiffusionImg2ImgPipelineMixin
-):
-    __call__ = NeuronStableDiffusionImg2ImgPipelineMixin.__call__
+class NeuronStableDiffusionImg2ImgPipeline(NeuronDiffusionPipelineBase, StableDiffusionImg2ImgPipeline):
+    main_input_name = "image"
+    auto_model_class = StableDiffusionImg2ImgPipeline
 
 
-class NeuronStableDiffusionInpaintPipeline(
-    NeuronDiffusionPipelineBase, NeuronStableDiffusionInpaintPipelineMixin
-):
-    __call__ = NeuronStableDiffusionInpaintPipelineMixin.__call__
+class NeuronStableDiffusionInpaintPipeline(NeuronDiffusionPipelineBase, StableDiffusionInpaintPipeline):
+    main_input_name = "prompt"
+    auto_model_class = StableDiffusionInpaintPipeline
 
 
-class NeuronStableDiffusionInstructPix2PixPipeline(
-    NeuronDiffusionPipelineBase, NeuronStableDiffusionInstructPix2PixPipelineMixin
-):
-    __call__ = NeuronStableDiffusionInstructPix2PixPipelineMixin.__call__
+class NeuronStableDiffusionInstructPix2PixPipeline(NeuronDiffusionPipelineBase, StableDiffusionInstructPix2PixPipeline):
+    main_input_name = "prompt"
+    auto_model_class = StableDiffusionInstructPix2PixPipeline
 
 
-class NeuronLatentConsistencyModelPipeline(NeuronDiffusionPipelineBase, NeuronLatentConsistencyPipelineMixin):
-    __call__ = NeuronLatentConsistencyPipelineMixin.__call__
+class NeuronLatentConsistencyModelPipeline(NeuronDiffusionPipelineBase, LatentConsistencyModelPipeline):
+    main_input_name = "prompt"
+    auto_model_class = LatentConsistencyModelPipeline
 
 
-class NeuronStableDiffusionControlNetPipeline(
-    NeuronDiffusionPipelineBase, NeuronStableDiffusionControlNetPipelineMixin
-):
-    __call__ = NeuronStableDiffusionControlNetPipelineMixin.__call__
+class NeuronStableDiffusionControlNetPipeline(NeuronDiffusionPipelineBase, StableDiffusionControlNetPipeline):
+    main_input_name = "prompt"
+    auto_model_class = StableDiffusionControlNetPipeline
 
 
-class NeuronPixArtAlphaPipeline(
-    NeuronDiffusionPipelineBase, NeuronPixArtAlphaPipelineMixin
-):
-    __call__ = NeuronPixArtAlphaPipelineMixin.__call__
+class NeuronPixArtAlphaPipeline(NeuronDiffusionPipelineBase, PixArtAlphaPipeline):
+    main_input_name = "prompt"
+    auto_model_class = PixArtAlphaPipeline
 
 
 class NeuronStableDiffusionXLPipelineBase(NeuronDiffusionPipelineBase):
@@ -1399,23 +1418,25 @@ class NeuronStableDiffusionXLPipelineBase(NeuronDiffusionPipelineBase):
             self.watermark = None
 
 
-class NeuronStableDiffusionXLPipeline(NeuronStableDiffusionXLPipelineBase, NeuronStableDiffusionXLPipelineMixin):
-    __call__ = NeuronStableDiffusionXLPipelineMixin.__call__
+class NeuronStableDiffusionXLPipeline(NeuronStableDiffusionXLPipelineBase, StableDiffusionXLPipeline):
+    main_input_name = "prompt"
+    auto_model_class = StableDiffusionXLPipeline
 
 
-class NeuronStableDiffusionXLImg2ImgPipeline(
-    NeuronStableDiffusionXLPipelineBase, NeuronStableDiffusionXLImg2ImgPipelineMixin
-):
-    __call__ = NeuronStableDiffusionXLImg2ImgPipelineMixin.__call__
+class NeuronStableDiffusionXLImg2ImgPipeline(NeuronStableDiffusionXLPipelineBase, StableDiffusionXLImg2ImgPipeline):
+    main_input_name = "prompt"
+    auto_model_class = StableDiffusionXLImg2ImgPipeline
 
 
 class NeuronStableDiffusionXLInpaintPipeline(
-    NeuronStableDiffusionXLPipelineBase, NeuronStableDiffusionXLInpaintPipelineMixin
+    NeuronStableDiffusionXLPipelineBase, StableDiffusionXLInpaintPipeline
 ):
-    __call__ = NeuronStableDiffusionXLInpaintPipelineMixin.__call__
+    main_input_name = "image"
+    auto_model_class = StableDiffusionXLInpaintPipeline
 
 
 class NeuronStableDiffusionXLControlNetPipeline(
-    NeuronStableDiffusionXLPipelineBase, NeuronStableDiffusionXLControlNetPipelineMixin
+    NeuronStableDiffusionXLPipelineBase, StableDiffusionXLControlNetPipeline
 ):
-    __call__ = NeuronStableDiffusionXLControlNetPipelineMixin.__call__
+    main_input_name = "prompt"
+    auto_model_class = StableDiffusionXLControlNetPipeline
