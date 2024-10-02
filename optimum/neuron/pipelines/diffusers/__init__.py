@@ -24,4 +24,3 @@
 # from .pipeline_stable_diffusion_xl_img2img import NeuronStableDiffusionXLImg2ImgPipelineMixin
 # from .pipeline_stable_diffusion_xl_inpaint import NeuronStableDiffusionXLInpaintPipelineMixin
 
-from .pipeline_utils import NeuronDiffusionPipelineMixin

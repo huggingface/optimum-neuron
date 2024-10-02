@@ -20,33 +20,9 @@ from transformers.utils import _LazyModule
 
 _import_structure = {
     "transformers": ["pipeline"],
-    "diffusers": [
-        "NeuronStableDiffusionPipelineMixin",
-        "NeuronStableDiffusionImg2ImgPipelineMixin",
-        "NeuronStableDiffusionInpaintPipelineMixin",
-        "NeuronStableDiffusionInstructPix2PixPipelineMixin",
-        "NeuronLatentConsistencyPipelineMixin",
-        "NeuronStableDiffusionControlNetPipelineMixin",
-        "NeuronStableDiffusionXLPipelineMixin",
-        "NeuronStableDiffusionXLImg2ImgPipelineMixin",
-        "NeuronStableDiffusionXLInpaintPipelineMixin",
-        "NeuronStableDiffusionXLControlNetPipelineMixin",
-    ],
 }
 
 if TYPE_CHECKING:
-    from .diffusers import (
-        NeuronLatentConsistencyPipelineMixin,
-        NeuronStableDiffusionControlNetPipelineMixin,
-        NeuronStableDiffusionImg2ImgPipelineMixin,
-        NeuronStableDiffusionInpaintPipelineMixin,
-        NeuronStableDiffusionInstructPix2PixPipelineMixin,
-        NeuronStableDiffusionPipelineMixin,
-        NeuronStableDiffusionXLControlNetPipelineMixin,
-        NeuronStableDiffusionXLImg2ImgPipelineMixin,
-        NeuronStableDiffusionXLInpaintPipelineMixin,
-        NeuronStableDiffusionXLPipelineMixin,
-    )
     from .transformers import (
         pipeline,
     )

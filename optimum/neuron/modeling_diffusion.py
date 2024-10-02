@@ -94,13 +94,12 @@ if is_diffusers_available():
     from diffusers.configuration_utils import ConfigMixin, FrozenDict
     from diffusers.image_processor import VaeImageProcessor
     from diffusers.models.controlnet import ControlNetOutput
+    from diffusers.models.modeling_outputs import AutoencoderKLOutput
     from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution, DecoderOutput
     from diffusers.pipelines.controlnet import MultiControlNetModel
     from diffusers.schedulers import SchedulerMixin
     from diffusers.schedulers.scheduling_utils import SCHEDULER_CONFIG_NAME
     from diffusers.utils import CONFIG_NAME, is_invisible_watermark_available
-    
-    from .pipelines.diffusers import NeuronDiffusionPipelineMixin
 
 
 if TYPE_CHECKING:
@@ -999,6 +998,10 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel, ConfigMixin):
         components = {k: v for k, v in components.items() if v is not None}
         return components
 
+    @property
+    def do_classifier_free_guidance(self):
+        return self._guidance_scale > 1 and self.unet.config.time_cond_proj_dim is None and (self.dynamic_batch_size or self.data_parallel_mode == "unet" or self.data_parallel_mode == "transformer")
+    
     def __call__(self, *args, **kwargs):
         # Height and width to unet (static shapes)
         height = self.unet.config.neuron["static_height"] * self.vae_scale_factor
@@ -1158,19 +1161,19 @@ class NeuronModelVaeEncoder(_NeuronDiffusionModelPart):
     ):
         super().__init__(model, parent_model, config, neuron_config, DIFFUSION_MODEL_VAE_ENCODER_NAME)
 
-    def forward(self, sample: torch.Tensor):
+    def forward(self, sample: torch.Tensor, return_dict: bool = True):
         inputs = (sample,)
         outputs = self.model(*inputs)
-        outputs = dict(zip(self.neuron_config.outputs, outputs))
-        if "latent_sample" in outputs:
-            outputs["latents"] = outputs.pop("latent_sample")
 
         if "latent_parameters" in outputs:
             outputs["latent_dist"] = DiagonalGaussianDistribution(
                 parameters=outputs.pop("latent_parameters")
             )
 
-        return tuple(output for output in outputs.values())
+        if not return_dict:
+            return tuple(output for output in outputs.values())
+        else:
+            return AutoencoderKLOutput(latent_dist=outputs["latent_dist"])
 
 
 class NeuronModelVaeDecoder(_NeuronDiffusionModelPart):
