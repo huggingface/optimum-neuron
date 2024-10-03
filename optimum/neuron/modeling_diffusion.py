@@ -111,6 +111,7 @@ logger = logging.getLogger(__name__)
 
 class NeuronDiffusionPipelineBase(NeuronTracedModel, ConfigMixin):
     auto_model_class = StableDiffusionPipeline
+    task = None
     library_name = "diffusers"
     base_model_prefix = "neuron_model"
     config_name = "model_index.json"
@@ -835,7 +836,10 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel, ConfigMixin):
                 Shapes to use during inference. This argument allows to override the default shapes used during the export.
         """
         if task is None:
-            task = TasksManager.infer_task_from_model(cls.auto_model_class)
+            if cls.task is not None:
+                task = cls.task
+            else:
+                task = TasksManager.infer_task_from_model(cls.auto_model_class)
 
         # mandatory shapes
         input_shapes = normalize_stable_diffusion_input_shapes(kwargs_shapes)
@@ -1347,6 +1351,7 @@ class NeuronStableDiffusionInpaintPipeline(NeuronDiffusionPipelineBase, StableDi
 
 class NeuronStableDiffusionInstructPix2PixPipeline(NeuronDiffusionPipelineBase, StableDiffusionInstructPix2PixPipeline):
     main_input_name = "prompt"
+    task = "task-to-image"
     auto_model_class = StableDiffusionInstructPix2PixPipeline
 
 
