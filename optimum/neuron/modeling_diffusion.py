@@ -123,12 +123,12 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel, ConfigMixin):
         configs: Dict[str, "PretrainedConfig"],
         neuron_configs: Dict[str, "NeuronDefaultConfig"],
         data_parallel_mode: Literal["none", "unet", "transformer", "all"],
+        vae_decoder: torch.jit._script.ScriptModule,
         text_encoder: Optional[torch.jit._script.ScriptModule] = None,
         text_encoder_2: Optional[torch.jit._script.ScriptModule] = None,
         unet: Optional[torch.jit._script.ScriptModule] = None,
         transformer: Optional[torch.jit._script.ScriptModule] = None,
         vae_encoder: Optional[torch.jit._script.ScriptModule] = None,
-        vae_decoder: Optional[torch.jit._script.ScriptModule] = None,
         image_encoder: Optional[torch.jit._script.ScriptModule] = None,
         safety_checker: Optional[torch.jit._script.ScriptModule] = None,
         tokenizer: Optional[Union[CLIPTokenizer, T5Tokenizer]] = None,
@@ -160,6 +160,8 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel, ConfigMixin):
             data_parallel_mode (`Literal["none", "unet", "all"]`):
                 Mode to decide what components to load into both NeuronCores of a Neuron device. Can be "none"(no data parallel), "unet"(only
                 load unet into both cores of each device), "all"(load the whole pipeline into both cores).
+            vae_decoder (`torch.jit._script.ScriptModule`):
+                The Neuron TorchScript module associated to the VAE decoder.
             text_encoder (`Optional[torch.jit._script.ScriptModule]`, defaults to `None`):
                 The Neuron TorchScript module associated to the text encoder.
             text_encoder_2 (`Optional[torch.jit._script.ScriptModule]`, defaults to `None`):
@@ -170,8 +172,6 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel, ConfigMixin):
                 The Neuron TorchScript module associated to the diffuser transformer.
             vae_encoder (`Optional[torch.jit._script.ScriptModule]`, defaults to `None`):
                 The Neuron TorchScript module associated to the VAE encoder.
-            vae_decoder (`Optional[torch.jit._script.ScriptModule]`, defaults to `None`):
-                The Neuron TorchScript module associated to the VAE decoder.
             image_encoder (`Optional[torch.jit._script.ScriptModule]`, defaults to `None`):
                 The Neuron TorchScript module associated to the frozen CLIP image-encoder.
             safety_checker (`Optional[torch.jit._script.ScriptModule]`, defaults to `None`):
@@ -1012,25 +1012,27 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel, ConfigMixin):
         width = self.unet.config.neuron["static_width"] * self.vae_scale_factor
         kwargs.pop("height", None)
         kwargs.pop("width", None)
+        if kwargs.get("image", None):
+            kwargs["image"] = self.image_processor.preprocess(kwargs["image"], height=height, width=width)
         return self.auto_model_class.__call__(self, height=height, width=width, *args, **kwargs)
 
 
 class _NeuronDiffusionModelPart:
     """
-    For multi-file Neuron models, represents a part of the model.
+    For multi-file Neuron models, represents a part / a model in the pipeline.
     """
 
     def __init__(
         self,
         model: torch.jit._script.ScriptModule,
-        parent_model: NeuronTracedModel,
+        parent_pipeline: NeuronDiffusionPipelineBase,
         config: Optional[Union[DiffusersPretrainedConfig, PretrainedConfig]] = None,
         neuron_config: Optional["NeuronDefaultConfig"] = None,
         model_type: str = "unet",
         device: Optional[int] = None,
     ):
         self.model = model
-        self.parent_model = parent_model
+        self.parent_pipeline = parent_pipeline
         self.config = config
         self.neuron_config = neuron_config
         self.model_type = model_type
@@ -1046,6 +1048,9 @@ class _NeuronDiffusionModelPart:
     @property
     def dtype(self):
         return None
+    
+    def to(self, *args, **kwargs):
+        pass
 
 
 class NeuronModelTextEncoder(_NeuronDiffusionModelPart):
@@ -1063,7 +1068,7 @@ class NeuronModelTextEncoder(_NeuronDiffusionModelPart):
         input_ids: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
         output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = False,
+        return_dict: Optional[bool] = True,
     ):
         if attention_mask is not None:
             assert torch.equal(
@@ -1107,7 +1112,7 @@ class NeuronModelUnet(_NeuronDiffusionModelPart):
         mid_block_additional_residual: Optional[torch.Tensor] = None,
         timestep_cond: Optional[torch.Tensor] = None,
         cross_attention_kwargs: Optional[Dict[str, Any]] = None,
-        return_dict: bool = False,
+        return_dict: bool = True,
     ):
         if cross_attention_kwargs is not None:
             logger.warning("`cross_attention_kwargs` is not yet supported during the tracing and it will be ignored.")
@@ -1150,7 +1155,7 @@ class NeuronModelTransformer(_NeuronDiffusionModelPart):
         cross_attention_kwargs: Dict[str, Any] = None,
         attention_mask: Optional[torch.Tensor] = None,
         encoder_attention_mask: Optional[torch.Tensor] = None,
-        return_dict: bool = False,
+        return_dict: bool = True,
     ):
         pass
 
@@ -1211,7 +1216,7 @@ class NeuronModelVaeDecoder(_NeuronDiffusionModelPart):
             return DecoderOutput(**outputs)
 
 
-class NeuronModelVae:
+class NeuronModelVae(_NeuronDiffusionModelPart):
     def __init__(
         self,
         encoder: Optional[NeuronModelVaeEncoder],
@@ -1342,7 +1347,7 @@ class NeuronStableDiffusionPipeline(NeuronDiffusionPipelineBase, StableDiffusion
 class NeuronStableDiffusionImg2ImgPipeline(NeuronDiffusionPipelineBase, StableDiffusionImg2ImgPipeline):
     main_input_name = "image"
     auto_model_class = StableDiffusionImg2ImgPipeline
-
+    
 
 class NeuronStableDiffusionInpaintPipeline(NeuronDiffusionPipelineBase, StableDiffusionInpaintPipeline):
     main_input_name = "prompt"
@@ -1371,67 +1376,47 @@ class NeuronPixArtAlphaPipeline(NeuronDiffusionPipelineBase, PixArtAlphaPipeline
 
 
 class NeuronStableDiffusionXLPipelineBase(NeuronDiffusionPipelineBase):
-    # `TasksManager` registered img2ime pipeline for `stable-diffusion-xl`: https://github.com/huggingface/optimum/blob/v1.12.0/optimum/exporters/tasks.py#L174
-    auto_model_class = StableDiffusionXLImg2ImgPipeline
-
-    def __init__(
+    # Adapted from https://github.com/huggingface/diffusers/blob/v0.23.0/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py#L573
+    def _get_add_time_ids_text_to_image(self, original_size, crops_coords_top_left, target_size, dtype, text_encoder_projection_dim=None):
+        add_time_ids = list(original_size + crops_coords_top_left + target_size)
+        add_time_ids = torch.tensor([add_time_ids], dtype=dtype)
+        return add_time_ids
+    
+    # Adapted from https://github.com/huggingface/diffusers/blob/v0.21.4/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl_img2img.py#L582
+    def _get_add_time_ids_image_to_image(
         self,
-        text_encoder: torch.jit._script.ScriptModule,
-        unet: torch.jit._script.ScriptModule,
-        vae_decoder: torch.jit._script.ScriptModule,
-        config: Dict[str, Any],
-        tokenizer: CLIPTokenizer,
-        scheduler: Union[DDIMScheduler, PNDMScheduler, LMSDiscreteScheduler],
-        data_parallel_mode: Literal["none", "unet", "transformer", "all"],
-        vae_encoder: Optional[torch.jit._script.ScriptModule] = None,
-        text_encoder_2: Optional[torch.jit._script.ScriptModule] = None,
-        tokenizer_2: Optional[CLIPTokenizer] = None,
-        feature_extractor: Optional[CLIPFeatureExtractor] = None,
-        controlnet: Optional[
-            Union[
-                torch.jit._script.ScriptModule,
-                List[torch.jit._script.ScriptModule],
-                "NeuronControlNetModel",
-                "NeuronMultiControlNetModel",
-            ]
-        ] = None,
-        configs: Optional[Dict[str, "PretrainedConfig"]] = None,
-        neuron_configs: Optional[Dict[str, "NeuronDefaultConfig"]] = None,
-        model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
-        model_and_config_save_paths: Optional[Dict[str, Tuple[str, Path]]] = None,
-        add_watermarker: Optional[bool] = None,
+        original_size,
+        crops_coords_top_left,
+        target_size,
+        aesthetic_score,
+        negative_aesthetic_score,
+        negative_original_size,
+        negative_crops_coords_top_left,
+        negative_target_size,
+        dtype,
+        text_encoder_projection_dim=None,
     ):
-        super().__init__(
-            text_encoder=text_encoder,
-            unet=unet,
-            vae_decoder=vae_decoder,
-            config=config,
-            tokenizer=tokenizer,
-            scheduler=scheduler,
-            data_parallel_mode=data_parallel_mode,
-            vae_encoder=vae_encoder,
-            text_encoder_2=text_encoder_2,
-            tokenizer_2=tokenizer_2,
-            feature_extractor=feature_extractor,
-            controlnet=controlnet,
-            configs=configs,
-            neuron_configs=neuron_configs,
-            model_save_dir=model_save_dir,
-            model_and_config_save_paths=model_and_config_save_paths,
-        )
-
-        add_watermarker = add_watermarker if add_watermarker is not None else is_invisible_watermark_available()
-
-        if add_watermarker:
-            if not is_invisible_watermark_available():
-                raise ImportError(
-                    "`add_watermarker` requires invisible-watermark to be installed, which can be installed with `pip install invisible-watermark`."
-                )
-            from diffusers.pipelines.stable_diffusion_xl.watermark import StableDiffusionXLWatermarker
-
-            self.watermark = StableDiffusionXLWatermarker()
+        if self.config.get("requires_aesthetics_score"):
+            add_time_ids = list(original_size + crops_coords_top_left + (aesthetic_score,))
+            add_neg_time_ids = list(
+                negative_original_size + negative_crops_coords_top_left + (negative_aesthetic_score,)
+            )
         else:
-            self.watermark = None
+            add_time_ids = list(original_size + crops_coords_top_left + target_size)
+            add_neg_time_ids = list(negative_original_size + crops_coords_top_left + negative_target_size)
+
+        add_time_ids = torch.tensor([add_time_ids], dtype=dtype)
+        add_neg_time_ids = torch.tensor([add_neg_time_ids], dtype=dtype)
+
+        return add_time_ids, add_neg_time_ids
+    
+    def _get_add_time_ids(self, *args, **kwargs):
+        if self.auto_model_class == StableDiffusionXLPipeline:
+            return self._get_add_time_ids_text_to_image(*args, **kwargs)
+        elif self.auto_model_class in [StableDiffusionXLImg2ImgPipeline, StableDiffusionXLInpaintPipeline]:
+            return self._get_add_time_ids_image_to_image(*args, **kwargs)
+        else:
+            raise ValueError(f"The pipeline type {self.auto_model_class} is not yet supported by Optimum Neuron, please open an request on: https://github.com/huggingface/optimum-neuron/issues.")
 
 
 class NeuronStableDiffusionXLPipeline(NeuronStableDiffusionXLPipelineBase, StableDiffusionXLPipeline):
