@@ -100,6 +100,7 @@ if is_diffusers_available():
     from diffusers.schedulers import SchedulerMixin
     from diffusers.schedulers.scheduling_utils import SCHEDULER_CONFIG_NAME
     from diffusers.utils import CONFIG_NAME, is_invisible_watermark_available
+    from .pipelines import StableDiffusionXLPipelineMixin
 
 
 if TYPE_CHECKING:
@@ -276,6 +277,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel, ConfigMixin):
             "transformer": self.transformer,
             "text_encoder": self.text_encoder,
             "text_encoder_2": self.text_encoder_2,
+            "controlnet": self.controlnet,
             "image_encoder": self.image_encoder,
             "safety_checker": self.safety_checker,
             "scheduler": self.scheduler,
@@ -1057,11 +1059,11 @@ class NeuronModelTextEncoder(_NeuronDiffusionModelPart):
     def __init__(
         self,
         model: torch.jit._script.ScriptModule,
-        parent_model: NeuronTracedModel,
+        parent_pipeline: NeuronDiffusionPipelineBase,
         config: Optional[DiffusersPretrainedConfig] = None,
         neuron_config: Optional[Dict[str, str]] = None,
     ):
-        super().__init__(model, parent_model, config, neuron_config, DIFFUSION_MODEL_TEXT_ENCODER_NAME)
+        super().__init__(model, parent_pipeline, config, neuron_config, DIFFUSION_MODEL_TEXT_ENCODER_NAME)
 
     def forward(
         self,
@@ -1094,11 +1096,11 @@ class NeuronModelUnet(_NeuronDiffusionModelPart):
     def __init__(
         self,
         model: torch.jit._script.ScriptModule,
-        parent_model: NeuronTracedModel,
+        parent_pipeline: NeuronDiffusionPipelineBase,
         config: Optional[DiffusersPretrainedConfig] = None,
         neuron_config: Optional[Dict[str, str]] = None,
     ):
-        super().__init__(model, parent_model, config, neuron_config, DIFFUSION_MODEL_UNET_NAME)
+        super().__init__(model, parent_pipeline, config, neuron_config, DIFFUSION_MODEL_UNET_NAME)
         if hasattr(self.model, "device"):
             self.device = self.model.device
 
@@ -1114,6 +1116,8 @@ class NeuronModelUnet(_NeuronDiffusionModelPart):
         cross_attention_kwargs: Optional[Dict[str, Any]] = None,
         return_dict: bool = True,
     ):
+        import pdb
+        pdb.set_trace()
         if cross_attention_kwargs is not None:
             logger.warning("`cross_attention_kwargs` is not yet supported during the tracing and it will be ignored.")
         timestep = timestep.float().expand((sample.shape[0],))
@@ -1140,11 +1144,11 @@ class NeuronModelTransformer(_NeuronDiffusionModelPart):
     def __init__(
         self,
         model: torch.jit._script.ScriptModule,
-        parent_model: NeuronTracedModel,
+        parent_pipeline: NeuronDiffusionPipelineBase,
         config: Optional[DiffusersPretrainedConfig] = None,
         neuron_config: Optional[Dict[str, str]] = None,
     ):
-        super().__init__(model, parent_model, config, neuron_config, DIFFUSION_MODEL_TRANSFORMER_NAME)
+        super().__init__(model, parent_pipeline, config, neuron_config, DIFFUSION_MODEL_TRANSFORMER_NAME)
 
     def forward(
         self,
@@ -1164,11 +1168,11 @@ class NeuronModelVaeEncoder(_NeuronDiffusionModelPart):
     def __init__(
         self,
         model: torch.jit._script.ScriptModule,
-        parent_model: NeuronTracedModel,
+        parent_pipeline: NeuronDiffusionPipelineBase,
         config: Optional[DiffusersPretrainedConfig] = None,
         neuron_config: Optional[Dict[str, str]] = None,
     ):
-        super().__init__(model, parent_model, config, neuron_config, DIFFUSION_MODEL_VAE_ENCODER_NAME)
+        super().__init__(model, parent_pipeline, config, neuron_config, DIFFUSION_MODEL_VAE_ENCODER_NAME)
 
     def forward(self, sample: torch.Tensor, return_dict: bool = True):
         inputs = (sample,)
@@ -1189,11 +1193,11 @@ class NeuronModelVaeDecoder(_NeuronDiffusionModelPart):
     def __init__(
         self,
         model: torch.jit._script.ScriptModule,
-        parent_model: NeuronTracedModel,
+        parent_pipeline: NeuronDiffusionPipelineBase,
         config: Optional[DiffusersPretrainedConfig] = None,
         neuron_config: Optional[Dict[str, str]] = None,
     ):
-        super().__init__(model, parent_model, config, neuron_config, DIFFUSION_MODEL_VAE_DECODER_NAME)
+        super().__init__(model, parent_pipeline, config, neuron_config, DIFFUSION_MODEL_VAE_DECODER_NAME)
 
     def forward(
         self,
@@ -1246,11 +1250,11 @@ class NeuronControlNetModel(_NeuronDiffusionModelPart):
     def __init__(
         self,
         model: torch.jit._script.ScriptModule,
-        parent_model: NeuronTracedModel,
+        parent_pipeline: NeuronDiffusionPipelineBase,
         config: Optional[DiffusersPretrainedConfig] = None,
         neuron_config: Optional[Dict[str, str]] = None,
     ):
-        super().__init__(model, parent_model, config, neuron_config, DIFFUSION_MODEL_CONTROLNET_NAME)
+        super().__init__(model, parent_pipeline, config, neuron_config, DIFFUSION_MODEL_CONTROLNET_NAME)
 
     def forward(
         self,
@@ -1264,6 +1268,7 @@ class NeuronControlNetModel(_NeuronDiffusionModelPart):
         return_dict: bool = True,
     ) -> Union["ControlNetOutput", Tuple[Tuple[torch.Tensor, ...], torch.Tensor]]:
         timestep = timestep.expand((sample.shape[0],)).to(torch.long)
+        conditioning_scale = torch.tensor([conditioning_scale])  # traced model only accepts tensors as inputs
         inputs = (sample, timestep, encoder_hidden_states, controlnet_cond, conditioning_scale)
         if added_cond_kwargs:
             text_embeds = added_cond_kwargs.pop("text_embeds", None)
@@ -1280,6 +1285,10 @@ class NeuronControlNetModel(_NeuronDiffusionModelPart):
             outputs = ControlNetOutput(dict(zip(self.neuron_config.outputs, outputs)))
 
         return outputs
+    
+    @property
+    def __class__(self):
+        return ControlNetModel
 
 
 class NeuronMultiControlNetModel(_NeuronDiffusionModelPart):
@@ -1292,12 +1301,12 @@ class NeuronMultiControlNetModel(_NeuronDiffusionModelPart):
     def __init__(
         self,
         models: List[torch.jit._script.ScriptModule],
-        parent_model: NeuronTracedModel,
+        parent_pipeline: NeuronTracedModel,
         config: Optional[DiffusersPretrainedConfig] = None,
         neuron_config: Optional[Dict[str, str]] = None,
     ):
         self.nets = models
-        self.parent_model = parent_model
+        self.parent_pipeline = parent_pipeline
         self.config = config
         self.neuron_config = neuron_config
         self.model_type = DIFFUSION_MODEL_CONTROLNET_NAME
@@ -1337,6 +1346,10 @@ class NeuronMultiControlNetModel(_NeuronDiffusionModelPart):
             )
 
         return down_block_res_samples, mid_block_res_sample
+    
+    @property
+    def __class__(self):
+        return MultiControlNetModel
 
 
 class NeuronStableDiffusionPipeline(NeuronDiffusionPipelineBase, StableDiffusionPipeline):
@@ -1375,69 +1388,25 @@ class NeuronPixArtAlphaPipeline(NeuronDiffusionPipelineBase, PixArtAlphaPipeline
     auto_model_class = PixArtAlphaPipeline
 
 
-class NeuronStableDiffusionXLPipelineBase(NeuronDiffusionPipelineBase):
-    # Adapted from https://github.com/huggingface/diffusers/blob/v0.23.0/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py#L573
-    def _get_add_time_ids_text_to_image(self, original_size, crops_coords_top_left, target_size, dtype, text_encoder_projection_dim=None):
-        add_time_ids = list(original_size + crops_coords_top_left + target_size)
-        add_time_ids = torch.tensor([add_time_ids], dtype=dtype)
-        return add_time_ids
-    
-    # Adapted from https://github.com/huggingface/diffusers/blob/v0.21.4/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl_img2img.py#L582
-    def _get_add_time_ids_image_to_image(
-        self,
-        original_size,
-        crops_coords_top_left,
-        target_size,
-        aesthetic_score,
-        negative_aesthetic_score,
-        negative_original_size,
-        negative_crops_coords_top_left,
-        negative_target_size,
-        dtype,
-        text_encoder_projection_dim=None,
-    ):
-        if self.config.get("requires_aesthetics_score"):
-            add_time_ids = list(original_size + crops_coords_top_left + (aesthetic_score,))
-            add_neg_time_ids = list(
-                negative_original_size + negative_crops_coords_top_left + (negative_aesthetic_score,)
-            )
-        else:
-            add_time_ids = list(original_size + crops_coords_top_left + target_size)
-            add_neg_time_ids = list(negative_original_size + crops_coords_top_left + negative_target_size)
-
-        add_time_ids = torch.tensor([add_time_ids], dtype=dtype)
-        add_neg_time_ids = torch.tensor([add_neg_time_ids], dtype=dtype)
-
-        return add_time_ids, add_neg_time_ids
-    
-    def _get_add_time_ids(self, *args, **kwargs):
-        if self.auto_model_class == StableDiffusionXLPipeline:
-            return self._get_add_time_ids_text_to_image(*args, **kwargs)
-        elif self.auto_model_class in [StableDiffusionXLImg2ImgPipeline, StableDiffusionXLInpaintPipeline]:
-            return self._get_add_time_ids_image_to_image(*args, **kwargs)
-        else:
-            raise ValueError(f"The pipeline type {self.auto_model_class} is not yet supported by Optimum Neuron, please open an request on: https://github.com/huggingface/optimum-neuron/issues.")
-
-
-class NeuronStableDiffusionXLPipeline(NeuronStableDiffusionXLPipelineBase, StableDiffusionXLPipeline):
+class NeuronStableDiffusionXLPipeline(StableDiffusionXLPipelineMixin, NeuronDiffusionPipelineBase, StableDiffusionXLPipeline):
     main_input_name = "prompt"
     auto_model_class = StableDiffusionXLPipeline
 
 
-class NeuronStableDiffusionXLImg2ImgPipeline(NeuronStableDiffusionXLPipelineBase, StableDiffusionXLImg2ImgPipeline):
+class NeuronStableDiffusionXLImg2ImgPipeline(StableDiffusionXLPipelineMixin, NeuronDiffusionPipelineBase, StableDiffusionXLImg2ImgPipeline):
     main_input_name = "prompt"
     auto_model_class = StableDiffusionXLImg2ImgPipeline
 
 
 class NeuronStableDiffusionXLInpaintPipeline(
-    NeuronStableDiffusionXLPipelineBase, StableDiffusionXLInpaintPipeline
+    StableDiffusionXLPipelineMixin, NeuronDiffusionPipelineBase, StableDiffusionXLInpaintPipeline
 ):
     main_input_name = "image"
     auto_model_class = StableDiffusionXLInpaintPipeline
 
 
 class NeuronStableDiffusionXLControlNetPipeline(
-    NeuronStableDiffusionXLPipelineBase, StableDiffusionXLControlNetPipeline
+    StableDiffusionXLPipelineMixin, NeuronDiffusionPipelineBase, StableDiffusionXLControlNetPipeline
 ):
     main_input_name = "prompt"
     auto_model_class = StableDiffusionXLControlNetPipeline

@@ -429,7 +429,7 @@ class NeuronStableDiffusionXLControlNetPipelineMixin(
             batch_size = prompt_embeds.shape[0]
 
         if isinstance(controlnet_conditioning_scale, float):
-            controlnet_conditioning_scale = torch.tensor([controlnet_conditioning_scale])
+            controlnet_conditioning_scale = torch.tensor([controlnet_conditioning_scale])  #TODO: get onto controlnet modeling
             if controlnet.__class__.__name__ == "NeuronMultiControlNetModel":
                 controlnet_conditioning_scale = [controlnet_conditioning_scale] * len(controlnet.nets)
 
