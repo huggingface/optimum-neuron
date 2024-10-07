@@ -1267,8 +1267,15 @@ class NeuronControlNetModel(_NeuronDiffusionModelPart):
         added_cond_kwargs: Optional[Dict] = None,
         return_dict: bool = True,
     ) -> Union["ControlNetOutput", Tuple[Tuple[torch.Tensor, ...], torch.Tensor]]:
+        # Duplicate inputs for ddp
+        timestep = torch.tensor([timestep] * 2) if self.data_parallel_mode == "unet" else timestep
+        conditioning_scale = (
+            torch.tensor([conditioning_scale]).repeat(2)
+            if self.data_parallel_mode == "unet"
+            else torch.tensor(conditioning_scale)
+        )  # traced model only accepts tensors as inputs
+        
         timestep = timestep.expand((sample.shape[0],)).to(torch.long)
-        conditioning_scale = torch.tensor([conditioning_scale])  # traced model only accepts tensors as inputs
         inputs = (sample, timestep, encoder_hidden_states, controlnet_cond, conditioning_scale)
         if added_cond_kwargs:
             text_embeds = added_cond_kwargs.pop("text_embeds", None)
@@ -1318,7 +1325,7 @@ class NeuronMultiControlNetModel(_NeuronDiffusionModelPart):
         timestep: Union[torch.Tensor, float, int],
         encoder_hidden_states: torch.Tensor,
         controlnet_cond: torch.Tensor,
-        conditioning_scale: float = 1.0,
+        conditioning_scale: List[float],
         guess_mode: bool = False,
         return_dict: bool = True,
     ) -> Union["ControlNetOutput", Tuple[Tuple[torch.Tensor, ...], torch.Tensor]]:
@@ -1327,6 +1334,8 @@ class NeuronMultiControlNetModel(_NeuronDiffusionModelPart):
                 "Guess mode is not yet supported. File us an issue on: https://github.com/huggingface/optimum-neuron/issues."
             )
         for i, (image, scale, controlnet) in enumerate(zip(controlnet_cond, conditioning_scale, self.nets)):
+            if isinstance(scale, float):
+                scale = torch.tensor([scale])
             inputs = (sample, timestep, encoder_hidden_states, image, scale)
             down_samples, mid_sample = controlnet(*inputs)
 
