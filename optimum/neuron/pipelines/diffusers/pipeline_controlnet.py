@@ -18,158 +18,18 @@ import logging
 from typing import Any, Callable, Dict, List, Optional, Union
 
 import torch
-from diffusers import StableDiffusionControlNetPipeline
+from diffusers import ControlNetModel
 from diffusers.callbacks import MultiPipelineCallbacks, PipelineCallback
 from diffusers.image_processor import PipelineImageInput
+from diffusers.pipelines.controlnet import MultiControlNetModel
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import retrieve_timesteps
-
-from .pipeline_utils import StableDiffusionPipelineMixin
 
 
 logger = logging.getLogger(__name__)
 
 
-class NeuronStableDiffusionControlNetPipelineMixin(StableDiffusionPipelineMixin, StableDiffusionControlNetPipeline):
-    # Adapted from https://github.com/huggingface/diffusers/blob/de9528ebc7725012cf097e43f565aeff24940eda/src/diffusers/pipelines/controlnet/pipeline_controlnet.py#L594
-    # Replace class types with Neuron ones
-    def check_inputs(
-        self,
-        prompt,
-        image,
-        negative_prompt=None,
-        prompt_embeds=None,
-        negative_prompt_embeds=None,
-        ip_adapter_image=None,
-        ip_adapter_image_embeds=None,
-        controlnet_conditioning_scale=1.0,
-        control_guidance_start=0.0,
-        control_guidance_end=1.0,
-        callback_on_step_end_tensor_inputs=None,
-    ):
-        if callback_on_step_end_tensor_inputs is not None and not all(
-            k in self._callback_tensor_inputs for k in callback_on_step_end_tensor_inputs
-        ):
-            raise ValueError(
-                f"`callback_on_step_end_tensor_inputs` has to be in {self._callback_tensor_inputs}, but found {[k for k in callback_on_step_end_tensor_inputs if k not in self._callback_tensor_inputs]}"
-            )
-
-        if prompt is not None and prompt_embeds is not None:
-            raise ValueError(
-                f"Cannot forward both `prompt`: {prompt} and `prompt_embeds`: {prompt_embeds}. Please make sure to"
-                " only forward one of the two."
-            )
-        elif prompt is None and prompt_embeds is None:
-            raise ValueError(
-                "Provide either `prompt` or `prompt_embeds`. Cannot leave both `prompt` and `prompt_embeds` undefined."
-            )
-        elif prompt is not None and (not isinstance(prompt, str) and not isinstance(prompt, list)):
-            raise ValueError(f"`prompt` has to be of type `str` or `list` but is {type(prompt)}")
-
-        if negative_prompt is not None and negative_prompt_embeds is not None:
-            raise ValueError(
-                f"Cannot forward both `negative_prompt`: {negative_prompt} and `negative_prompt_embeds`:"
-                f" {negative_prompt_embeds}. Please make sure to only forward one of the two."
-            )
-
-        if prompt_embeds is not None and negative_prompt_embeds is not None:
-            if prompt_embeds.shape != negative_prompt_embeds.shape:
-                raise ValueError(
-                    "`prompt_embeds` and `negative_prompt_embeds` must have the same shape when passed directly, but"
-                    f" got: `prompt_embeds` {prompt_embeds.shape} != `negative_prompt_embeds`"
-                    f" {negative_prompt_embeds.shape}."
-                )
-
-        # Check `image`
-        if self.controlnet.__class__.__name__ == "NeuronControlNetModel":
-            self.check_image(image, prompt, prompt_embeds)
-        elif self.controlnet.__class__.__name__ == "NeuronMultiControlNetModel":
-            if not isinstance(image, list):
-                raise TypeError("For multiple controlnets: `image` must be type `list`")
-
-            # When `image` is a nested list:
-            # (e.g. [[canny_image_1, pose_image_1], [canny_image_2, pose_image_2]])
-            elif any(isinstance(i, list) for i in image):
-                transposed_image = [list(t) for t in zip(*image)]
-                if len(transposed_image) != len(self.controlnet.nets):
-                    raise ValueError(
-                        f"For multiple controlnets: if you pass`image` as a list of list, each sublist must have the same length as the number of controlnets, but the sublists in `image` got {len(transposed_image)} images and {len(self.controlnet.nets)} ControlNets."
-                    )
-                for image_ in transposed_image:
-                    self.check_image(image_, prompt, prompt_embeds)
-            elif len(image) != len(self.controlnet.nets):
-                raise ValueError(
-                    f"For multiple controlnets: `image` must have the same length as the number of controlnets, but got {len(image)} images and {len(self.controlnet.nets)} ControlNets."
-                )
-            else:
-                for image_ in image:
-                    self.check_image(image_, prompt, prompt_embeds)
-        else:
-            assert False
-
-        # Check `controlnet_conditioning_scale`
-        if self.controlnet.__class__.__name__ == "NeuronControlNetModel":
-            if not isinstance(controlnet_conditioning_scale, float):
-                raise TypeError("For single controlnet: `controlnet_conditioning_scale` must be type `float`.")
-        elif self.controlnet.__class__.__name__ == "NeuronMultiControlNetModel":
-            if isinstance(controlnet_conditioning_scale, list):
-                if any(isinstance(i, list) for i in controlnet_conditioning_scale):
-                    raise ValueError(
-                        "A single batch of varying conditioning scale settings (e.g. [[1.0, 0.5], [0.2, 0.8]]) is not supported at the moment. "
-                        "The conditioning scale must be fixed across the batch."
-                    )
-            elif isinstance(controlnet_conditioning_scale, list) and len(controlnet_conditioning_scale) != len(
-                self.controlnet.nets
-            ):
-                raise ValueError(
-                    "For multiple controlnets: When `controlnet_conditioning_scale` is specified as `list`, it must have"
-                    " the same length as the number of controlnets"
-                )
-        else:
-            assert False
-
-        if not isinstance(control_guidance_start, (tuple, list)):
-            control_guidance_start = [control_guidance_start]
-
-        if not isinstance(control_guidance_end, (tuple, list)):
-            control_guidance_end = [control_guidance_end]
-
-        if len(control_guidance_start) != len(control_guidance_end):
-            raise ValueError(
-                f"`control_guidance_start` has {len(control_guidance_start)} elements, but `control_guidance_end` has {len(control_guidance_end)} elements. Make sure to provide the same number of elements to each list."
-            )
-
-        if self.controlnet.__class__.__name__ == "NeuronMultiControlNetModel":
-            if len(control_guidance_start) != len(self.controlnet.nets):
-                raise ValueError(
-                    f"`control_guidance_start`: {control_guidance_start} has {len(control_guidance_start)} elements but there are {len(self.controlnet.nets)} controlnets available. Make sure to provide {len(self.controlnet.nets)}."
-                )
-
-        for start, end in zip(control_guidance_start, control_guidance_end):
-            if start >= end:
-                raise ValueError(
-                    f"control guidance start: {start} cannot be larger or equal to control guidance end: {end}."
-                )
-            if start < 0.0:
-                raise ValueError(f"control guidance start: {start} can't be smaller than 0.")
-            if end > 1.0:
-                raise ValueError(f"control guidance end: {end} can't be larger than 1.0.")
-
-        if ip_adapter_image is not None and ip_adapter_image_embeds is not None:
-            raise ValueError(
-                "Provide either `ip_adapter_image` or `ip_adapter_image_embeds`. Cannot leave both `ip_adapter_image` and `ip_adapter_image_embeds` defined."
-            )
-
-        if ip_adapter_image_embeds is not None:
-            if not isinstance(ip_adapter_image_embeds, list):
-                raise ValueError(
-                    f"`ip_adapter_image_embeds` has to be of type `list` but is {type(ip_adapter_image_embeds)}"
-                )
-            elif ip_adapter_image_embeds[0].ndim not in [3, 4]:
-                raise ValueError(
-                    f"`ip_adapter_image_embeds` has to be a list of 3D or 4D tensors but is {ip_adapter_image_embeds[0].ndim}D"
-                )
-
+class StableDiffusionControlNetPipelineMixin:
     def __call__(
         self,
         prompt: Union[str, List[str]] = None,
@@ -308,7 +168,7 @@ class NeuronStableDiffusionControlNetPipelineMixin(StableDiffusionPipelineMixin,
         elif not isinstance(control_guidance_end, list) and isinstance(control_guidance_start, list):
             control_guidance_end = len(control_guidance_start) * [control_guidance_end]
         elif not isinstance(control_guidance_start, list) and not isinstance(control_guidance_end, list):
-            mult = len(controlnet.nets) if controlnet.__class__.__name__ == "NeuronMultiControlNetModel" else 1
+            mult = len(controlnet.nets) if isinstance(controlnet, MultiControlNetModel) else 1
             control_guidance_start, control_guidance_end = (
                 mult * [control_guidance_start],
                 mult * [control_guidance_end],
@@ -318,6 +178,7 @@ class NeuronStableDiffusionControlNetPipelineMixin(StableDiffusionPipelineMixin,
         self.check_inputs(
             prompt=prompt,
             image=image,
+            callback_steps=None,
             negative_prompt=negative_prompt,
             prompt_embeds=prompt_embeds,
             negative_prompt_embeds=negative_prompt_embeds,
@@ -341,14 +202,12 @@ class NeuronStableDiffusionControlNetPipelineMixin(StableDiffusionPipelineMixin,
         else:
             batch_size = prompt_embeds.shape[0]
 
-        if controlnet.__class__.__name__ == "NeuronMultiControlNetModel" and isinstance(
-            controlnet_conditioning_scale, float
-        ):
+        if isinstance(controlnet, MultiControlNetModel) and isinstance(controlnet_conditioning_scale, float):
             controlnet_conditioning_scale = [controlnet_conditioning_scale] * len(controlnet.nets)
 
         global_pool_conditions = (
             controlnet.config.global_pool_conditions
-            if controlnet.__class__.__name__ == "NeuronControlNetModel"
+            if isinstance(controlnet, ControlNetModel)
             else controlnet.config[0].global_pool_conditions
         )
         guess_mode = guess_mode or global_pool_conditions
@@ -361,22 +220,21 @@ class NeuronStableDiffusionControlNetPipelineMixin(StableDiffusionPipelineMixin,
         text_encoder_lora_scale = (
             self.cross_attention_kwargs.get("scale", None) if self.cross_attention_kwargs is not None else None
         )
-        do_classifier_free_guidance = guidance_scale > 1.0 and (
-            self.dynamic_batch_size or self.data_parallel_mode == "unet"
-        )
         prompt_embeds, negative_prompt_embeds = self.encode_prompt(
             prompt,
+            None,
             num_images_per_prompt,
-            do_classifier_free_guidance,
+            self.do_classifier_free_guidance,
             negative_prompt,
             prompt_embeds=prompt_embeds,
             negative_prompt_embeds=negative_prompt_embeds,
             lora_scale=text_encoder_lora_scale,
+            clip_skip=self.clip_skip,
         )
         # For classifier free guidance, we need to do two forward passes.
         # Here we concatenate the unconditional and text embeddings into a single batch
         # to avoid doing two forward passes
-        if do_classifier_free_guidance:
+        if self.do_classifier_free_guidance:
             prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds])
 
         # TODO: support ip adapter
@@ -386,9 +244,9 @@ class NeuronStableDiffusionControlNetPipelineMixin(StableDiffusionPipelineMixin,
             )
 
         # 4. Prepare image
-        height = self.vae_encoder.config.neuron["static_height"]
-        width = self.vae_encoder.config.neuron["static_width"]
-        if controlnet.__class__.__name__ == "NeuronControlNetModel":
+        height = self.vae.config.neuron["static_height"] * self.vae_scale_factor
+        width = self.vae.config.neuron["static_width"] * self.vae_scale_factor
+        if isinstance(controlnet, ControlNetModel):
             image = self.prepare_image(
                 image=image,
                 width=width,
@@ -397,11 +255,11 @@ class NeuronStableDiffusionControlNetPipelineMixin(StableDiffusionPipelineMixin,
                 num_images_per_prompt=num_images_per_prompt,
                 device=None,
                 dtype=None,
-                do_classifier_free_guidance=do_classifier_free_guidance,
+                do_classifier_free_guidance=self.do_classifier_free_guidance,
                 guess_mode=guess_mode,
             )
             height, width = image.shape[-2:]
-        elif controlnet.__class__.__name__ == "NeuronMultiControlNetModel":
+        elif isinstance(controlnet, MultiControlNetModel):
             images = []
 
             # Nested lists as ControlNet condition
@@ -418,7 +276,7 @@ class NeuronStableDiffusionControlNetPipelineMixin(StableDiffusionPipelineMixin,
                     num_images_per_prompt=num_images_per_prompt,
                     device=None,
                     dtype=None,
-                    do_classifier_free_guidance=do_classifier_free_guidance,
+                    do_classifier_free_guidance=self.do_classifier_free_guidance,
                     guess_mode=guess_mode,
                 )
 
@@ -447,6 +305,7 @@ class NeuronStableDiffusionControlNetPipelineMixin(StableDiffusionPipelineMixin,
             height,
             width,
             prompt_embeds.dtype,
+            None,
             generator,
             latents,
         )
@@ -472,18 +331,18 @@ class NeuronStableDiffusionControlNetPipelineMixin(StableDiffusionPipelineMixin,
                 1.0 - float(i / len(timesteps) < s or (i + 1) / len(timesteps) > e)
                 for s, e in zip(control_guidance_start, control_guidance_end)
             ]
-            controlnet_keep.append(keeps[0] if controlnet.__class__.__name__ == "NeuronControlNetModel" else keeps)
+            controlnet_keep.append(keeps[0] if isinstance(controlnet, ControlNetModel) else keeps)
 
         # 8. Denoising loop
         num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
         with self.progress_bar(total=num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps):
                 # expand the latents if we are doing classifier free guidance
-                latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
+                latent_model_input = torch.cat([latents] * 2) if self.do_classifier_free_guidance else latents
                 latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
 
                 # controlnet(s) inference
-                if guess_mode and do_classifier_free_guidance:
+                if guess_mode and self.do_classifier_free_guidance:
                     # Infer ControlNet only for the conditional batch.
                     control_model_input = latents
                     control_model_input = self.scheduler.scale_model_input(control_model_input, t)
@@ -502,7 +361,7 @@ class NeuronStableDiffusionControlNetPipelineMixin(StableDiffusionPipelineMixin,
 
                 # Duplicate inputs for ddp
                 t = torch.tensor([t] * 2) if self.data_parallel_mode == "unet" else t
-                if controlnet.__class__.__name__ == "NeuronControlNetModel":
+                if isinstance(controlnet, ControlNetModel):
                     cond_scale = (
                         torch.tensor([cond_scale]).repeat(2)
                         if self.data_parallel_mode == "unet"
@@ -527,7 +386,7 @@ class NeuronStableDiffusionControlNetPipelineMixin(StableDiffusionPipelineMixin,
                     return_dict=False,
                 )
 
-                if guess_mode and do_classifier_free_guidance:
+                if guess_mode and self.do_classifier_free_guidance:
                     # Infered ControlNet only for the conditional batch.
                     # To apply the output of ControlNet to both the unconditional and conditional batches,
                     # add 0 to the unconditional batch to keep it unchanged.
@@ -540,13 +399,15 @@ class NeuronStableDiffusionControlNetPipelineMixin(StableDiffusionPipelineMixin,
                     t,
                     encoder_hidden_states=prompt_embeds,
                     timestep_cond=timestep_cond,
+                    cross_attention_kwargs=self.cross_attention_kwargs,
                     down_block_additional_residuals=down_block_res_samples,
                     mid_block_additional_residual=mid_block_res_sample,
                     added_cond_kwargs=added_cond_kwargs,
+                    return_dict=False,
                 )[0]
 
                 # perform guidance
-                if do_classifier_free_guidance:
+                if self.do_classifier_free_guidance:
                     noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
                     noise_pred = noise_pred_uncond + self.guidance_scale * (noise_pred_text - noise_pred_uncond)
 
@@ -570,8 +431,10 @@ class NeuronStableDiffusionControlNetPipelineMixin(StableDiffusionPipelineMixin,
                     progress_bar.update()
 
         if not output_type == "latent":
-            image = self.vae_decoder(latents / getattr(self.vae_decoder.config, "scaling_factor", 0.18215))[0]
-            image, has_nsfw_concept = self.run_safety_checker(image, dtype=prompt_embeds.dtype)
+            image = self.vae.decode(
+                latents / getattr(self.vae.config, "scaling_factor", 0.18215), return_dict=False, generator=generator
+            )[0]
+            image, has_nsfw_concept = self.run_safety_checker(image, None, dtype=prompt_embeds.dtype)
         else:
             image = latents
             has_nsfw_concept = None

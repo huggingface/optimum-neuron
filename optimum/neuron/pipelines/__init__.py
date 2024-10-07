@@ -20,12 +20,20 @@ from transformers.utils import _LazyModule
 
 _import_structure = {
     "transformers": ["pipeline"],
-    "diffusers": ["StableDiffusionXLPipelineMixin"],
+    "diffusers": [
+        "StableDiffusionXLPipelineMixin",
+        "StableDiffusionControlNetPipelineMixin",
+        "StableDiffusionXLControlNetPipelineMixin",
+    ],
 }
 
 if TYPE_CHECKING:
+    from .diffusers import (
+        StableDiffusionControlNetPipelineMixin,
+        StableDiffusionXLControlNetPipelineMixin,
+        StableDiffusionXLPipelineMixin,
+    )
     from .transformers import pipeline
-    from .diffusers import StableDiffusionXLPipelineMixin
 else:
     import sys
 
