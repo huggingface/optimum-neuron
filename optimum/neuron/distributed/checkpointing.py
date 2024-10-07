@@ -145,7 +145,7 @@ def consolidate_tensor_parallel_checkpoints(
         # This might not be the case anymore when `ParameterMetadata` uses slices.
         sharded_metadata = sharded_metadatas[name]
         if sharded_metadata.is_tied:
-            consolidated_state_dict[original_name] = state_dicts[0][name].to("cpu")
+            consolidated_state_dict[original_name] = state_dicts[0][name].to("cpu").contiguous()
         else:
             # Ensure that all tensors are contiguous before concatenating or further processing
             weights = [state_dict[name].contiguous() for state_dict in state_dicts]
@@ -154,7 +154,7 @@ def consolidate_tensor_parallel_checkpoints(
             full_weight = torch.cat(
                 weights,
                 dim=sharded_metadata.partition_dim,
-            ).contiguous()  # Ensure the result is also contiguous
+            ).to("cpu").contiguous()  # Ensure the result is also contiguous
             
             if weight_name in ["weight_k", "weight_v", "bias_k", "bias_v"]:
                 full_weight = (
