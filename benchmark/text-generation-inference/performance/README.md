@@ -44,22 +44,26 @@ Alternatively, you can edit the appropriate docker-compose.yaml to supply the fu
 
 ## Start the servers
 
+If you are using a gated model, first export your credentials token.
+
 ```shell
-$ docker compose -f llama3-8b/docker-compose.yaml --env-file llama3-8b/.env up
+export HF_TOKEN=$(cat ~/.cache/huggingface/token)
 ```
 
-Note: edit the .env file to change the model configuration
+Start the container servers with a single command:
+
+```shell
+$ docker compose -f llama3.1-8b/docker-compose.yaml --env-file llama3.1-8b/.env up
+```
+
+Note: you can edit the .env file to use a different model configuration
 
 ## Run the benchmark
 
-### Install `llmperf`
-
-Follow instalation [instructions](https://github.com/ray-project/llmperf/tree/main?tab=readme-ov-file#installation) for `llmperf`.
-
-### Setup test environment
+### Install `guidellm`
 
 ```shell
-$ export LLMPerf=<path-to-llmperf>
+$ pip install guidellm
 ```
 
 ### Launch benchmark run
@@ -67,14 +71,19 @@ $ export LLMPerf=<path-to-llmperf>
 The benchmark script takes the `model_id` and number of concurrent users as parameters.
 The `model_id` must match the one corresponding to the selected `.env` file.
 
-```
-$ ./benchmark.sh NousResearch/Llama-2-7b-chat-hf 128
+```shell
+$ ./benchmark.sh "meta-llama/Meta-Llama-3.1-8B-Instruct"
 ```
 
-If you would like to run the benchmark script multiple times with different concurrent user parameters, you can use:
+Note that the evaluated model **must** be an `Instruct` model.
 
-```
-$ ./run_all.sh NousResearch/Meta-Llama-3-70B-Instruct
+At the end of the benchmark, the results will be saved in a `.json` file and a
+summary will be displayed on the console.
+
+To obtain a summary from the raw benchmark output files, use the following command:
+
+```shell
+$ python generate_csv.py --dir <path_to_result_files>
 ```
 
 ### Compiling the model
