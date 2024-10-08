@@ -1155,6 +1155,7 @@ class NeuronModelTextEncoder(_NeuronDiffusionModelPart):
         return outputs
 
     def modules(self):
+        # dummy func for passing `unscale_lora_layers`.
         return []
 
 
