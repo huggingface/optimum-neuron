@@ -34,7 +34,7 @@ from ...utils import logging
 from ..utils import DynamicPatch, Patcher
 from ..utils.import_utils import is_neuronx_distributed_available
 from ..utils.misc import download_checkpoints_in_cache, is_precompilation
-from ..utils.peft_utils import NeuronPeftModel
+from ..utils.peft_utils import LoraGQAQKVParallelLinear, NeuronPeftModel
 from ..utils.require_utils import requires_neuronx_distributed, requires_peft, requires_safetensors, requires_torch_xla
 
 
@@ -67,6 +67,11 @@ MODEL_PARALLEL_SHARDS_DIR_NAME = "shards"
 
 
 def get_base_model_and_peft_prefix(model: torch.nn.Module) -> Tuple[torch.nn.Module, str]:
+    """
+    Retrieves the base model and the associated PEFT prefix.
+
+    It also attaches a callable to get the original PEFT model from the base model if needed.
+    """
     if is_peft_available() and isinstance(model, NeuronPeftModel):
         from peft.tuners.tuners_utils import BaseTunerLayer
 
@@ -81,9 +86,18 @@ def get_base_model_and_peft_prefix(model: torch.nn.Module) -> Tuple[torch.nn.Mod
         for mod in model.modules():
             if isinstance(mod, BaseTunerLayer):
                 mod._peft_config = model.peft_config
+
+        # We need to provide a way for the base model to get access to the PEFT model instance to be able to call
+        # methods that might be needed during parallelization, such as injecting new tuner layers.
+        # We attach a function instead of the attribute itself to avoid an infinite loop when looping over the model's 
+        # modules.
+        def peft_model():
+            return model
+        orig_model._peft_model = peft_model 
     else:
         peft_prefix = ""
         orig_model = model
+
     return orig_model, peft_prefix
 
 
@@ -212,15 +226,28 @@ class OptimumGQAQKVColumnParallelLinear(GQAQKVColumnParallelLinear):
         self.num_attention_heads = num_attention_heads
         self.num_key_value_heads = num_key_value_heads
 
+        # Creating these aliases for LoRA.
+        self.in_features = self.input_size
+        self.out_features = self.output_sizes
+
     def get_parameter_names_mapping(
         self, named_modules: Dict[str, torch.nn.Module], reversed: bool = False
     ) -> Dict[str, str]:
         module_to_name = {v: k for k, v in named_modules.items()}
         fully_qualified_name = module_to_name[self]
         parent_module_name, _ = fully_qualified_name.rsplit(".", maxsplit=1)
+        
+        # There are 2 cases:
+        #   1. The parent module is an "actual" module from the original model
+        #   2. The parent module is a Lora layer wrapping the QGAQKVColumnParallelLinear
+        parent_module =  named_modules[parent_module_name]
+        if isinstance(parent_module, LoraGQAQKVParallelLinear):
+            parent_module_name, _ = parent_module_name.rsplit(".", maxsplit=1)
+
         mapping = {}
         for qkv_proj_name, proj_name in self._qkv_proj_name_to_proj_name.items():
             proj_qualified_name = f"{parent_module_name}.{proj_name}"
+            print(parent_module_name, proj_name)
             proj_module = named_modules[proj_qualified_name]
 
             original_qualified_name = f"{parent_module_name}.{proj_name}"
@@ -235,6 +262,8 @@ class OptimumGQAQKVColumnParallelLinear(GQAQKVColumnParallelLinear):
                 mapping[f"{original_qualified_name}.bias"] = f"{fully_qualified_name}.bias_{qkv_proj_name}"
         if reversed:
             mapping = {v: k for k, v in mapping.items()}
+        print(mapping)
+        # assert 3==2
         return mapping
 
 
@@ -275,6 +304,9 @@ def get_output_projection_qualified_names_after_qga_qkv_replacement(model: torch
     for name, mod in named_modules.items():
         if isinstance(mod, OptimumGQAQKVColumnParallelLinear):
             parent_name = name.rsplit(".", maxsplit=1)[0]
+            parent_module = named_modules[parent_name]
+            if isinstance(parent_module, LoraGQAQKVParallelLinear):
+                parent_name, _ = parent_name.rsplit(".", maxsplit=1)
             output_projection_name = f"{parent_name}.{mod.output_proj_name}"
             qualified_names.add(f"{output_projection_name}.weight")
             if model.get_submodule(output_projection_name).bias is not None:
@@ -1361,19 +1393,64 @@ def inplace_linears_to_gqa_qkv_column_parallel_linear(
     key_is_peft_tuner = False
     value_is_peft_tuner = False
     if is_peft_available():
-        from peft.tuners.tuners_utils import BaseTunerLayer
+        from peft.tuners.tuners_utils import BaseTunerLayer, BaseTuner
 
         query_is_peft_tuner = isinstance(query_linear, BaseTunerLayer)
         key_is_peft_tuner = isinstance(key_linear, BaseTunerLayer)
         value_is_peft_tuner = isinstance(value_linear, BaseTunerLayer)
 
-    def get_parent_and_base_layer_in_tuner_layer(tuner_layer):
-        parent = tuner_layer
-        base_layer = tuner_layer
-        while hasattr(base_layer, "base_layer"):
-            parent = base_layer
-            base_layer = base_layer.base_layer
-        return parent, base_layer
+        # TODO: add test that all are peft tuners or none of them are.
+        if query_is_peft_tuner and key_is_peft_tuner and value_is_peft_tuner:
+            if isinstance(model, BaseTuner):
+                peft_model = model
+            elif hasattr(model, "_peft_model"):
+                peft_model = model._peft_model()
+            else:
+                raise RuntimeError(
+                    "`model` must be a `PeftModel` or have the `_peft_model` method to be able to retrieve the "
+                    "associated `PeftModel`."
+                )
+
+            new_module = None
+            for adapter_name in peft_model.base_model.active_adapters:
+                lora_config = peft_model.peft_config[adapter_name]
+                r = lora_config.r
+                lora_alpha = lora_config.lora_alpha
+                lora_dropout = lora_config.lora_dropout
+                if new_module is None:
+                    # TODO: add other keyword arguments
+                    new_module = LoraGQAQKVParallelLinear(
+                        gqa_qkv_column_parallel_linear,
+                        adapter_name,
+                        r=r,
+                        lora_alpha=lora_alpha,
+                        lora_dropout=lora_dropout,
+                    )
+                    setattr(attention_layer, gqa_qkv_proj_name, new_module)
+                else:
+                    new_module.update_layer(
+                        adapter_name,
+                        r,
+                        lora_alpha,
+                        lora_dropout
+                    )
+
+                # peft_model._create_and_replace(
+                #     peft_model.peft_config[adapter_name], 
+                #     adapter_name, 
+                #     gqa_qkv_column_parallel_linear,
+                #     f"{attention_layer_qualified_name}.{gqa_qkv_proj_name}",
+                #     attention_layer,
+                #     attention_layer_qualified_name,
+                # )
+
+    # def get_parent_and_base_layer_in_tuner_layer(tuner_layer):
+    #     parent = tuner_layer
+    #     base_layer = tuner_layer
+    #     while hasattr(base_layer, "base_layer"):
+    #         parent = base_layer
+    #         base_layer = base_layer.base_layer
+    #     return parent, base_layer
 
     fake_q_proj = FakeProj(
         f"{attention_layer_qualified_name}.{queries_name}",
@@ -1383,7 +1460,7 @@ def inplace_linears_to_gqa_qkv_column_parallel_linear(
         attention_layer_qualified_name,
         gqa_qkv_proj_name,
     )
-    if query_is_peft_tuner:
+    if False: # query_is_peft_tuner:
         parent, _ = get_parent_and_base_layer_in_tuner_layer(query_linear)
         setattr(parent, "base_layer", fake_q_proj)
         _parallelize_active_adapters(
@@ -1405,7 +1482,7 @@ def inplace_linears_to_gqa_qkv_column_parallel_linear(
         attention_layer_qualified_name,
         gqa_qkv_proj_name,
     )
-    if key_is_peft_tuner:
+    if False: # key_is_peft_tuner:
         parent, _ = get_parent_and_base_layer_in_tuner_layer(key_linear)
         setattr(parent, "base_layer", fake_k_proj)
         _parallelize_active_adapters(
@@ -1427,7 +1504,7 @@ def inplace_linears_to_gqa_qkv_column_parallel_linear(
         attention_layer_qualified_name,
         gqa_qkv_proj_name,
     )
-    if value_is_peft_tuner:
+    if False: # value_is_peft_tuner:
         parent, _ = get_parent_and_base_layer_in_tuner_layer(value_linear)
         setattr(parent, "base_layer", fake_v_proj)
         _parallelize_active_adapters(
@@ -1440,6 +1517,8 @@ def inplace_linears_to_gqa_qkv_column_parallel_linear(
         )
     else:
         setattr(attention_layer, values_name, fake_v_proj)
+
+    print(model)
 
 
 @requires_neuronx_distributed

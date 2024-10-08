@@ -16,12 +16,14 @@
 import collections
 import functools
 import os
+import math
 import warnings
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, List, Optional, Tuple, Union
 
 import torch
+import torch.nn as nn
 from transformers.utils import is_peft_available
 
 from .patching import Patcher, replace_class_in_inheritance_hierarchy
@@ -41,12 +43,16 @@ if is_peft_available():
     from peft.utils import (
         get_peft_model_state_dict as orig_get_peft_model_state_dict,
     )
+    from peft.tuners.lora import LoraLayer
 
 else:
 
     SAFETENSORS_WEIGHTS_NAME = WEIGHTS_NAME = ""
 
     class PeftModel:
+        pass
+
+    class LoraLayer:
         pass
 
     def orig_get_peft_model(*args, **kwargs):
@@ -290,3 +296,197 @@ def get_peft_model(*args, **kwargs):
     peft_model = orig_get_peft_model(*args, **kwargs)
     replace_class_in_inheritance_hierarchy(peft_model, PeftModel, NeuronPeftModel)
     return peft_model
+
+
+class LoraGQAQKVParallelLinear(torch.nn.Module, LoraLayer):
+    r"""
+    When the target layer parallel_linear is GQAQKVColumnParallelLinear, in order to keep the input and output shapes
+    consistent, we perform column segmentation on lora_B, while lora_A is still a complete linear layer.
+    """
+    def __init__(
+        self, 
+        base_layer: torch.nn.Module, 
+        adapter_name: str, 
+        r: int = 0,
+        lora_alpha: int = 1,
+        lora_dropout: float = 0.0,
+        fan_in_fan_out: bool = False,  # Set this to True if the layer to replace stores weight like (fan_in, fan_out)
+        is_target_conv_1d_layer: bool = False,
+        init_lora_weights: Union[bool, str] = True,
+        use_rslora: bool = False,
+        use_dora: bool = False,
+        **kwargs,
+    ):
+        super().__init__()
+        LoraLayer.__init__(self, base_layer, **kwargs)
+        self.fan_in_fan_out = fan_in_fan_out
+
+        self._active_adapter = adapter_name
+        self.update_layer(
+           adapter_name,
+            r,
+            lora_alpha=lora_alpha,
+            lora_dropout=lora_dropout,
+            init_lora_weights=init_lora_weights,
+            use_rslora=use_rslora,
+            use_dora=use_dora,
+        )
+
+    @requires_neuronx_distributed
+    def update_layer(self, adapter_name, r, lora_alpha, lora_dropout, init_lora_weights, use_rslora, use_dora):
+        from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
+        base_layer = self.get_base_layer()
+
+        self.r[adapter_name] = r
+        self.lora_alpha[adapter_name] = lora_alpha
+        if lora_dropout > 0.0:
+            lora_dropout_layer = nn.Dropout(p=lora_dropout)
+        else:
+            lora_dropout_layer = nn.Identity()
+
+        self.lora_dropout[adapter_name] = lora_dropout_layer
+
+        # GQAQKVColumnParallelLinear specific
+        self.num_attention_heads = base_layer.num_attention_heads
+        self.num_key_value_heads = base_layer.num_key_value_heads
+        self.sequence_parallel_enabled = base_layer.sequence_parallel_enabled
+        self.kv_size_multiplier = base_layer.kv_size_multiplier
+        self.gather_output = base_layer.gather_output
+
+        print(self.in_features, r, self.out_features)
+        self.lora_A[adapter_name] = nn.Linear(
+            in_features=self.in_features, out_features=r, bias=False, dtype=torch.float32
+        )
+        from ..distributed.utils import OptimumGQAQKVColumnParallelLinear
+        self.lora_B[adapter_name] = OptimumGQAQKVColumnParallelLinear(
+            base_layer.query_proj_name,
+            base_layer.key_proj_name,
+            base_layer.value_proj_name,
+            base_layer.output_proj_name,
+            base_layer.num_attention_heads,
+            base_layer.num_key_value_heads,
+            input_size=r,
+            output_sizes=self.out_features,
+            bias=False,
+            gather_output=self.gather_output,
+            dtype=torch.float32,
+            # TODO: add init method
+            # init_method=init_method,
+            kv_size_multiplier=self.kv_size_multiplier,
+            sequence_parallel_enabled = self.sequence_parallel_enabled,
+        )
+
+        if init_lora_weights:
+            init_lora_weights = "default"
+        self.init_lora_parameters(adapter_name, init_lora_weights)
+
+
+    def init_lora_parameters(self, adapter_name, init_lora_weights):
+        init_lora_weights = init_lora_weights.lower()
+        assert init_lora_weights in ["default", "gaussian"]
+
+        if init_lora_weights == "default":
+            # initialize A the same way as the default for nn.Linear and B to zero
+            # https://github.com/microsoft/LoRA/blob/a0a92e0f26c067cf94747bdbf1ce73793fa44d19/loralib/layers.py#L124
+            nn.init.kaiming_uniform_(self.lora_A[adapter_name].weight, a=math.sqrt(5))
+        elif init_lora_weights == "gaussian":
+            nn.init.normal_(self.lora_A[adapter_name].weight, std=1 / self.lora_rank)
+        else:
+            raise ValueError(f"Unknown LoRA parameters initialization with {init_lora_weights}")
+
+        q, k, v = self.get_qkv(self.lora_B[adapter_name])
+        nn.init.zeros_(q.data)
+        nn.init.zeros_(k.data)
+        nn.init.zeros_(v.data)
+
+
+    def merge(self) -> None:
+        """
+        Merge the adapter weights into the base weights
+        """
+        weight_q, weight_k, weight_v = self.get_qkv(self.base_layer)
+        delta_weight_q, delta_weight_k, delta_weight_v = self.get_delta_weight()
+
+        weight_q.data += delta_weight_q
+        weight_k.data += delta_weight_k
+        weight_v.data += delta_weight_v
+        self.merged = True
+
+
+    def unmerge(self) -> None:
+        """
+        This method unmerges merged adapter layers from the base weights.
+        """
+        if not self.merged:
+            warnings.warn("Already unmerged. Nothing to do.")
+            return
+
+        q, k, v = self.get_qkv(self.base_layer)
+        delta_weight_q, delta_weight_k, delta_weight_v = self.get_delta_weight()
+
+        q.data -= delta_weight_q
+        k.data -= delta_weight_k
+        v.data -= delta_weight_v
+        self.merged = False
+
+
+    def get_qkv(self, layer):
+        return layer.weight_q, layer.weight_k, layer.weight_v
+
+
+    def get_delta_weight(self) -> torch.Tensor:
+        weight_A = self.lora_A.weight
+        q_lora_B, k_lora_B, v_lora_B = self.get_qkv(self.lora_B)
+
+        output_q = (q_lora_B @ weight_A) * self.scaling
+        output_k = (k_lora_B @ weight_A) * self.scaling
+        output_v = (v_lora_B @ weight_A) * self.scaling
+
+        return output_q, output_k, output_v
+
+
+    def forward(self, x: torch.Tensor, *args: Any, **kwargs: Any) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        previous_dtype = x.dtype
+        if self.merged:
+            output_q, output_k, output_v = self.base_layer(x, *args, **kwargs)
+        else:
+            output_q, output_k, output_v = self.base_layer(x, *args, **kwargs)
+            lora_A = self.lora_A
+            dropout = self.lora_dropout
+            scaling = self.scaling
+            x = x.to(lora_A.weight.dtype)
+
+            q_lora_B, k_lora_B, v_lora_B = self.get_qkv(self.lora_B)
+            dropout_input = lora_A(dropout(x))
+            lora_q_output, lora_k_output, lora_v_output = self._lora_forward(dropout_input, q_lora_B, k_lora_B, v_lora_B)
+
+            output_q += lora_q_output * scaling
+            output_k += lora_k_output * scaling
+            output_v += lora_v_output * scaling
+
+        return output_q.to(previous_dtype), output_k.to(previous_dtype), output_v.to(previous_dtype)
+
+
+    def _lora_forward(self, input, weight_q, weight_k, weight_v):
+        # Matrix multiply.
+        output_parallel_q, output_parallel_k, output_parallel_v = gqa_qkv_linear_with_async_allreduce(
+            input=input,
+            weight_q=weight_q,
+            weight_k=weight_k,
+            weight_v=weight_v,
+            bias_q=None,
+            bias_k=None,
+            bias_v=None,
+            async_grad_allreduce=not self.sequence_parallel_enabled,
+            sequence_parallel_enabled=self.sequence_parallel_enabled,
+            kv_size_multiplier=self.kv_size_multiplier,
+        )
+        if self.gather_output:
+            # All-gather across the partitions.
+            assert not self.sequence_parallel_enabled
+            output_q = gather_from_tensor_model_parallel_region(output_parallel_q)
+            output_k = gather_from_tensor_model_parallel_region(output_parallel_k)
+            output_v = gather_from_tensor_model_parallel_region(output_parallel_v)
+        else:
+            output_q, output_k, output_v = output_parallel_q, output_parallel_k, output_parallel_v
+        return output_q, output_k, output_v

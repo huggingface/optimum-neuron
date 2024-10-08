@@ -38,7 +38,7 @@ def training_function(script_args, training_args):
         lora_alpha=16,
         lora_dropout=0.05,
         # target_modules=["q_proj", "gate_proj", "v_proj", "o_proj", "k_proj", "up_proj", "down_proj"],
-        target_modules=["q_proj", "v_proj"],
+        target_modules=["q_proj", "k_proj", "v_proj"],
         bias="none",
         task_type="CAUSAL_LM",
     )
