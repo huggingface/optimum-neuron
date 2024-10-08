@@ -1654,6 +1654,7 @@ class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
                     model = get_peft_model(model, peft_config, autocast_adapter_dtype=False)
                 else:
                     model = get_peft_model(model, peft_config)
+
                 if (
                     args is not None
                     and args.bf16

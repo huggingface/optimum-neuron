@@ -34,7 +34,7 @@ from ...utils import logging
 from ..utils import DynamicPatch, Patcher
 from ..utils.import_utils import is_neuronx_distributed_available
 from ..utils.misc import download_checkpoints_in_cache, is_precompilation
-from ..utils.peft_utils import NeuronPeftModel
+from ..utils.peft_utils import LoraGQAQKVParallelLinear, NeuronPeftModel
 from ..utils.require_utils import requires_neuronx_distributed, requires_peft, requires_safetensors, requires_torch_xla
 
 
@@ -67,6 +67,11 @@ MODEL_PARALLEL_SHARDS_DIR_NAME = "shards"
 
 
 def get_base_model_and_peft_prefix(model: torch.nn.Module) -> Tuple[torch.nn.Module, str]:
+    """
+    Retrieves the base model and the associated PEFT prefix.
+
+    It also attaches a callable to get the original PEFT model from the base model if needed.
+    """
     if is_peft_available() and isinstance(model, NeuronPeftModel):
         from peft.tuners.tuners_utils import BaseTunerLayer
 
@@ -81,9 +86,18 @@ def get_base_model_and_peft_prefix(model: torch.nn.Module) -> Tuple[torch.nn.Mod
         for mod in model.modules():
             if isinstance(mod, BaseTunerLayer):
                 mod._peft_config = model.peft_config
+
+        # We need to provide a way for the base model to get access to the PEFT model instance to be able to call
+        # methods that might be needed during parallelization, such as injecting new tuner layers.
+        # We attach a function instead of the attribute itself to avoid an infinite loop when looping over the model's 
+        # modules.
+        def peft_model():
+            return model
+        orig_model._peft_model = peft_model 
     else:
         peft_prefix = ""
         orig_model = model
+
     return orig_model, peft_prefix
 
 
@@ -148,6 +162,11 @@ class FakeProj(torch.nn.Module):
         self.parent_module_fully_qualified_name = parent_module_fully_qualified_name
         self.gqa_qkv_proj_name = gqa_qkv_proj_name
 
+    def get_gqa_qkv_module(self) -> "OptimumGQAQKVColumnParallelLinear":
+        parent_module = self.get_parent_module()
+        gqa_qkv_column_parallel_linear = getattr(parent_module, self.gqa_qkv_proj_name)
+        return gqa_qkv_column_parallel_linear
+
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         parent_module = self.get_parent_module()
         gqa_qkv_column_parallel_linear = getattr(parent_module, self.gqa_qkv_proj_name)
@@ -207,18 +226,44 @@ class OptimumGQAQKVColumnParallelLinear(GQAQKVColumnParallelLinear):
         self.num_attention_heads = num_attention_heads
         self.num_key_value_heads = num_key_value_heads
 
+        # Creating these aliases for LoRA.
+        self.in_features = self.input_size
+        self.out_features = self.output_sizes
+
     def get_parameter_names_mapping(
-        self, module_to_name: Dict[torch.nn.Module, str], reversed: bool = False
+        self, named_modules: Dict[str, torch.nn.Module], reversed: bool = False
     ) -> Dict[str, str]:
+        module_to_name = {v: k for k, v in named_modules.items()}
         fully_qualified_name = module_to_name[self]
         parent_module_name, _ = fully_qualified_name.rsplit(".", maxsplit=1)
+        
+        # There are 2 cases:
+        #   1. The parent module is an "actual" module from the original model
+        #   2. The parent module is a Lora layer wrapping the QGAQKVColumnParallelLinear
+        parent_module =  named_modules[parent_module_name]
+        if isinstance(parent_module, LoraGQAQKVParallelLinear):
+            parent_module_name, _ = parent_module_name.rsplit(".", maxsplit=1)
+
         mapping = {}
         for qkv_proj_name, proj_name in self._qkv_proj_name_to_proj_name.items():
-            mapping[f"{parent_module_name}.{proj_name}.weight"] = f"{fully_qualified_name}.weight_{qkv_proj_name}"
+            proj_qualified_name = f"{parent_module_name}.{proj_name}"
+            print(parent_module_name, proj_name)
+            proj_module = named_modules[proj_qualified_name]
+
+            original_qualified_name = f"{parent_module_name}.{proj_name}"
+            if is_peft_available():
+                from peft.tuners.tuners_utils import BaseTunerLayer
+
+                if isinstance(proj_module, BaseTunerLayer):
+                    original_qualified_name = module_to_name[proj_module.get_base_layer()]
+
+            mapping[f"{original_qualified_name}.weight"] = f"{fully_qualified_name}.weight_{qkv_proj_name}"
             if self.use_bias:
-                mapping[f"{parent_module_name}.{proj_name}.bias"] = f"{fully_qualified_name}.bias_{qkv_proj_name}"
+                mapping[f"{original_qualified_name}.bias"] = f"{fully_qualified_name}.bias_{qkv_proj_name}"
         if reversed:
             mapping = {v: k for k, v in mapping.items()}
+        print(mapping)
+        # assert 3==2
         return mapping
 
 
@@ -237,10 +282,9 @@ def get_parameter_names_mapping_after_gqa_qkv_replacement(
         named_modules = dict(model.local_named_modules())
     else:
         named_modules = dict(model.named_modules())
-    module_to_name = {v: k for k, v in named_modules.items()}
     for _, mod in named_modules.items():
         if isinstance(mod, OptimumGQAQKVColumnParallelLinear):
-            mapping.update(**mod.get_parameter_names_mapping(module_to_name, reversed=reversed))
+            mapping.update(**mod.get_parameter_names_mapping(named_modules, reversed=reversed))
     return mapping
 
 
@@ -260,6 +304,9 @@ def get_output_projection_qualified_names_after_qga_qkv_replacement(model: torch
     for name, mod in named_modules.items():
         if isinstance(mod, OptimumGQAQKVColumnParallelLinear):
             parent_name = name.rsplit(".", maxsplit=1)[0]
+            parent_module = named_modules[parent_name]
+            if isinstance(parent_module, LoraGQAQKVParallelLinear):
+                parent_name, _ = parent_name.rsplit(".", maxsplit=1)
             output_projection_name = f"{parent_name}.{mod.output_proj_name}"
             qualified_names.add(f"{output_projection_name}.weight")
             if model.get_submodule(output_projection_name).bias is not None:
@@ -818,8 +865,7 @@ def maybe_load_weights_to_gqa_qkv_column_parallel_linear(
     try_from_original_layer: bool = False,
 ):
     weight_map = getattr(model, "_weight_map", {})
-    named_modules = {v: k for k, v in model.named_modules()}
-    original_to_gqa = layer.get_parameter_names_mapping(named_modules)
+    original_to_gqa = layer.get_parameter_names_mapping(dict(model.named_modules()))
 
     for orig_name, gqa_name in original_to_gqa.items():
         linear_layer_qualified_name, _ = orig_name.rsplit(".", maxsplit=1)
@@ -1001,6 +1047,92 @@ def maybe_load_linear_weight_to_parallel_linear(
 
 @requires_peft
 @requires_neuronx_distributed
+def _parallelize_active_adapters(
+    tuner_layer: "BaseTunerLayer",
+    axis: Union[Literal["row"], Literal["column"]],
+    input_is_parallel: bool = False,
+    gather_output: bool = True,
+    stride: int = 1,
+    sequence_parallel_enabled: bool = False,
+    skip_weight_load: bool = False,
+    device: Optional["torch.device"] = None,
+):
+    from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
+    from peft.tuners.lora import Linear as LoraLinear
+
+    try:
+        peft_config = tuner_layer._peft_config
+    except AttributeError:
+        raise AttributeError(
+            f'It seems that {tuner_layer} does not have a "_peft_config" attribute. Please use the `parallelize` method '
+            "to attach this information to each tuner that needs to be parallelized."
+        )
+    if isinstance(tuner_layer, LoraLinear):
+        for adapter_name in tuner_layer.active_adapters:
+            config = peft_config[adapter_name]
+            tuner_layer.update_layer(
+                adapter_name,
+                tuner_layer.r[adapter_name],
+                tuner_layer.lora_alpha[adapter_name],
+                config.lora_dropout,
+                config.init_lora_weights,
+                config.use_rslora,
+                config.use_dora,
+            )
+            if axis == "row":
+                layer_to_parallelize = tuner_layer.lora_A[adapter_name]
+                dim_to_partition = layer_to_parallelize.weight.size(0)
+            else:
+                layer_to_parallelize = tuner_layer.lora_B[adapter_name]
+                dim_to_partition = layer_to_parallelize.weight.size(1)
+
+            tp_size = get_tensor_model_parallel_size()
+
+            if dim_to_partition % tp_size != 0:
+                raise RuntimeError(
+                    f"The LoRA adapter dimension to parallelize ({dim_to_partition}) is not divisible by the TP size ({tp_size})."
+                )
+
+            import torch_xla.core.xla_model as xm
+            # xm.master_print("Layer to parallelize", layer_to_parallelize, dim_to_partition // tp_size)
+            if isinstance(tuner_layer.base_layer, FakeProj):
+                gqa_qkv_module = tuner_layer.base_layer.get_gqa_qkv_module()
+                parallel_layer = GQAQKVColumnParallelLinear(
+                    input_size=gqa_qkv_module.input_size,
+                    output_sizes=gqa_qkv_module.output_sizes,
+                    bias=False,
+                    gather_output=gqa_qkv_module.gather_output,
+                    dtype=gqa_qkv_module.dtype,
+                    device=gqa_qkv_module.device,
+                    init_method=gqa_qkv_module.arg_init_method,
+                    sequence_parallel_enabled=gqa_qkv_module.sequence_parallel_enabled,
+                    kv_size_multiplier=gqa_qkv_module.kv_size_multiplier,
+                    fuse_qkv=gqa_qkv_module.fuse_qkv,
+                )
+
+            else:
+                # TODO: handle the case were weights already exist for this adapter.
+                parallel_layer = linear_to_parallel_linear(
+                    layer_to_parallelize,
+                    axis,
+                    input_is_parallel=input_is_parallel,
+                    gather_output=gather_output,
+                    stride=stride,
+                    sequence_parallel_enabled=sequence_parallel_enabled,
+                    skip_weight_load=skip_weight_load,
+                    device=device,
+                )
+            if axis == "row":
+                tuner_layer.lora_A[adapter_name] = parallel_layer
+            else:
+                tuner_layer.lora_B[adapter_name] = parallel_layer
+
+            mark_parameter_init_status_during_parallelization(tuner_layer.lora_A[adapter_name].weight, True)
+            mark_parameter_init_status_during_parallelization(tuner_layer.lora_B[adapter_name].weight, True)
+
+
+@requires_peft
+@requires_neuronx_distributed
 def _peft_tuner_linear_to_parallel_linear(
     tuner_layer: "BaseTunerLayer",
     axis: Union[Literal["row"], Literal["column"]],
@@ -1060,48 +1192,18 @@ def _peft_tuner_linear_to_parallel_linear(
         base_layer_is_on_meta_device = parallel_base_layer.weight.device == torch.device("meta")
         if base_layer_is_on_meta_device:
             parallel_base_layer.weight.data = torch.empty_like(parallel_base_layer.weight, device="cpu")
-        try:
-            peft_config = parent._peft_config
-        except AttributeError:
-            raise AttributeError(
-                f'It seems that {parent} does not have a "_peft_config" attribute. Please use the `parallelize` method '
-                "to attach this information to each tuner that needs to be parallelized."
-            )
 
-        for adapter_name in parent.active_adapters:
-            config = peft_config[adapter_name]
-            parent.update_layer(
-                adapter_name,
-                parent.r[adapter_name],
-                parent.lora_alpha[adapter_name],
-                config.lora_dropout,
-                config.init_lora_weights,
-                config.use_rslora,
-                config.use_dora,
-            )
-            if axis == "row":
-                layer_to_parallelize = parent.lora_A[adapter_name]
-            else:
-                layer_to_parallelize = parent.lora_B[adapter_name]
-
-            # TODO: handle the case were weights already exist for this adapter.
-            parallel_layer = linear_to_parallel_linear(
-                layer_to_parallelize,
-                axis,
-                input_is_parallel=input_is_parallel,
-                gather_output=gather_output,
-                stride=stride,
-                sequence_parallel_enabled=sequence_parallel_enabled,
-                skip_weight_load=skip_weight_load,
-                device=device,
-            )
-            if axis == "row":
-                parent.lora_A[adapter_name] = parallel_layer
-            else:
-                parent.lora_B[adapter_name] = parallel_layer
-
-            mark_parameter_init_status_during_parallelization(parent.lora_A[adapter_name].weight, True)
-            mark_parameter_init_status_during_parallelization(parent.lora_B[adapter_name].weight, True)
+        # Parallelize each active adapter.
+        _parallelize_active_adapters(
+            parent,
+            axis,
+            input_is_parallel=input_is_parallel,
+            gather_output=gather_output,
+            stride=stride,
+            sequence_parallel_enabled=sequence_parallel_enabled,
+            skip_weight_load=skip_weight_load,
+            device=device,
+        )
 
         if base_layer_is_on_meta_device:
             parallel_base_layer.weight.data = parallel_base_layer.weight.to("meta")
@@ -1229,6 +1331,197 @@ def linear_to_parallel_linear(
 
 
 @requires_neuronx_distributed
+def inplace_linears_to_gqa_qkv_column_parallel_linear(
+    model: torch.nn.Module,
+    attention_layer: torch.nn.Module,
+    gqa_qkv_proj_name: str,
+    queries_name: str,
+    keys_name: str,
+    values_name: str,
+    output_projection_name: str,
+    num_attention_heads: int,
+    num_key_value_heads: int,
+    sequence_parallel_enabled: bool = False,
+    kv_size_multiplier: Optional[int] = None,
+    skip_linear_weight_load: bool = False,
+):
+    from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
+
+    query_linear = getattr(attention_layer, queries_name)
+    key_linear = getattr(attention_layer, keys_name)
+    value_linear = getattr(attention_layer, values_name)
+
+    hidden_size = query_linear.weight.size(1)
+    query_in_features = query_linear.weight.size(0)
+    key_value_in_features = key_linear.weight.size(0)
+
+    if kv_size_multiplier is None:
+        kv_size_multiplier = get_tensor_model_parallel_size() // num_key_value_heads
+
+    device = query_linear.weight.device
+    if device == torch.device("meta"):
+        device = None
+
+    gqa_qkv_column_parallel_linear = OptimumGQAQKVColumnParallelLinear(
+        queries_name,
+        keys_name,
+        values_name,
+        output_projection_name,
+        num_attention_heads,
+        num_key_value_heads,
+        hidden_size,
+        [query_in_features, key_value_in_features],
+        gather_output=False,
+        bias=query_linear.bias is not None,
+        sequence_parallel_enabled=sequence_parallel_enabled,
+        device=device,
+        kv_size_multiplier=kv_size_multiplier,
+    )
+
+    setattr(attention_layer, gqa_qkv_proj_name, gqa_qkv_column_parallel_linear)
+
+    maybe_load_weights_to_gqa_qkv_column_parallel_linear(
+        model,
+        gqa_qkv_column_parallel_linear,
+        try_from_checkpoint=not skip_linear_weight_load,
+        try_from_original_layer=not skip_linear_weight_load,
+    )
+    layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
+    attention_layer_qualified_name = layer_to_fully_qualified_name[id(attention_layer)]
+
+    query_is_peft_tuner = False
+    key_is_peft_tuner = False
+    value_is_peft_tuner = False
+    if is_peft_available():
+        from peft.tuners.tuners_utils import BaseTunerLayer, BaseTuner
+
+        query_is_peft_tuner = isinstance(query_linear, BaseTunerLayer)
+        key_is_peft_tuner = isinstance(key_linear, BaseTunerLayer)
+        value_is_peft_tuner = isinstance(value_linear, BaseTunerLayer)
+
+        # TODO: add test that all are peft tuners or none of them are.
+        if query_is_peft_tuner and key_is_peft_tuner and value_is_peft_tuner:
+            if isinstance(model, BaseTuner):
+                peft_model = model
+            elif hasattr(model, "_peft_model"):
+                peft_model = model._peft_model()
+            else:
+                raise RuntimeError(
+                    "`model` must be a `PeftModel` or have the `_peft_model` method to be able to retrieve the "
+                    "associated `PeftModel`."
+                )
+
+            new_module = None
+            for adapter_name in peft_model.base_model.active_adapters:
+                lora_config = peft_model.peft_config[adapter_name]
+                r = lora_config.r
+                lora_alpha = lora_config.lora_alpha
+                lora_dropout = lora_config.lora_dropout
+                if new_module is None:
+                    # TODO: add other keyword arguments
+                    new_module = LoraGQAQKVParallelLinear(
+                        gqa_qkv_column_parallel_linear,
+                        adapter_name,
+                        r=r,
+                        lora_alpha=lora_alpha,
+                        lora_dropout=lora_dropout,
+                    )
+                    setattr(attention_layer, gqa_qkv_proj_name, new_module)
+                else:
+                    new_module.update_layer(
+                        adapter_name,
+                        r,
+                        lora_alpha,
+                        lora_dropout
+                    )
+
+                # peft_model._create_and_replace(
+                #     peft_model.peft_config[adapter_name], 
+                #     adapter_name, 
+                #     gqa_qkv_column_parallel_linear,
+                #     f"{attention_layer_qualified_name}.{gqa_qkv_proj_name}",
+                #     attention_layer,
+                #     attention_layer_qualified_name,
+                # )
+
+    # def get_parent_and_base_layer_in_tuner_layer(tuner_layer):
+    #     parent = tuner_layer
+    #     base_layer = tuner_layer
+    #     while hasattr(base_layer, "base_layer"):
+    #         parent = base_layer
+    #         base_layer = base_layer.base_layer
+    #     return parent, base_layer
+
+    fake_q_proj = FakeProj(
+        f"{attention_layer_qualified_name}.{queries_name}",
+        "q",
+        0,
+        lambda: attention_layer,
+        attention_layer_qualified_name,
+        gqa_qkv_proj_name,
+    )
+    if False: # query_is_peft_tuner:
+        parent, _ = get_parent_and_base_layer_in_tuner_layer(query_linear)
+        setattr(parent, "base_layer", fake_q_proj)
+        _parallelize_active_adapters(
+            parent,
+            "column",
+            sequence_parallel_enabled=sequence_parallel_enabled,
+            gather_output=False,
+            skip_weight_load=skip_linear_weight_load,
+            device=device,
+        )
+    else:
+        setattr(attention_layer, queries_name, fake_q_proj)
+
+    fake_k_proj = FakeProj(
+        f"{attention_layer_qualified_name}.{keys_name}",
+        "k",
+        1,
+        lambda: attention_layer,
+        attention_layer_qualified_name,
+        gqa_qkv_proj_name,
+    )
+    if False: # key_is_peft_tuner:
+        parent, _ = get_parent_and_base_layer_in_tuner_layer(key_linear)
+        setattr(parent, "base_layer", fake_k_proj)
+        _parallelize_active_adapters(
+            parent,
+            "column",
+            sequence_parallel_enabled=sequence_parallel_enabled,
+            gather_output=False,
+            skip_weight_load=skip_linear_weight_load,
+            device=device,
+        )
+    else:
+        setattr(attention_layer, keys_name, fake_k_proj)
+
+    fake_v_proj = FakeProj(
+        f"{attention_layer_qualified_name}.{values_name}",
+        "v",
+        2,
+        lambda: attention_layer,
+        attention_layer_qualified_name,
+        gqa_qkv_proj_name,
+    )
+    if False: # value_is_peft_tuner:
+        parent, _ = get_parent_and_base_layer_in_tuner_layer(value_linear)
+        setattr(parent, "base_layer", fake_v_proj)
+        _parallelize_active_adapters(
+            parent,
+            "column",
+            sequence_parallel_enabled=sequence_parallel_enabled,
+            gather_output=False,
+            skip_weight_load=skip_linear_weight_load,
+            device=device,
+        )
+    else:
+        setattr(attention_layer, values_name, fake_v_proj)
+
+    print(model)
+
+
+@requires_neuronx_distributed
 def delete_tensor_model_parallel_attributes(tensor: torch.Tensor):
     from neuronx_distributed.parallel_layers.utils import _MODEL_PARALLEL_ATTRIBUTE_DEFAULTS
 
@@ -1246,11 +1539,18 @@ def try_to_hf_initialize(
     """
     Tries to initialize the parameters in `parameter_names` that belong to the module `mod` by using the
     `model._init_weights` method. It returns the names of the parameters that were left uninitialized.
-
     """
+    if parameter_names_mapping is None:
+        parameter_names_mapping = {}
+
+    reverse_parameter_names_mapping = {v: k for k, v in parameter_names_mapping.items()}
+
+    def name_in_mod(name: str):
+        return parameter_names_mapping.get(name, name)
+
     device = torch.device("cpu")
     for name in parameter_names:
-        param_device = getattr(mod, name).device
+        param_device = getattr(mod, name_in_mod(name)).device
         if param_device != torch.device("meta"):
             device = param_device
 
@@ -1260,14 +1560,6 @@ def try_to_hf_initialize(
 
     # We initialize on cpu to have the same RNG state (mostly useful for tests).
     model._init_weights(mod)
-
-    if parameter_names_mapping is None:
-        parameter_names_mapping = {}
-
-    reverse_parameter_names_mapping = {v: k for k, v in parameter_names_mapping.items()}
-
-    def name_in_mod(name: str):
-        return parameter_names_mapping.get(name, name)
 
     dummy_mod = copy.deepcopy(mod)
     for name in parameter_names:
