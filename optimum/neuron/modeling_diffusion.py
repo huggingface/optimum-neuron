@@ -1154,6 +1154,9 @@ class NeuronModelTextEncoder(_NeuronDiffusionModelPart):
 
         return outputs
 
+    def modules(self):
+        return []
+
 
 class NeuronModelUnet(_NeuronDiffusionModelPart):
     def __init__(
