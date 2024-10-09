@@ -29,7 +29,7 @@ from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import retri
 logger = logging.getLogger(__name__)
 
 
-class StableDiffusionControlNetPipelineMixin:
+class NeuronStableDiffusionControlNetPipelineMixin:
     def __call__(
         self,
         prompt: Union[str, List[str]] = None,

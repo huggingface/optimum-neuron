@@ -100,9 +100,9 @@ if is_diffusers_available():
     from diffusers.utils import CONFIG_NAME
 
     from .pipelines import (
-        StableDiffusionControlNetPipelineMixin,
-        StableDiffusionXLControlNetPipelineMixin,
-        StableDiffusionXLPipelineMixin,
+        NeuronStableDiffusionControlNetPipelineMixin,
+        NeuronStableDiffusionXLControlNetPipelineMixin,
+        NeuronStableDiffusionXLPipelineMixin,
     )
 
 
@@ -1469,7 +1469,7 @@ class NeuronLatentConsistencyModelPipeline(NeuronDiffusionPipelineBase, LatentCo
 
 
 class NeuronStableDiffusionControlNetPipeline(
-    StableDiffusionControlNetPipelineMixin, NeuronDiffusionPipelineBase, StableDiffusionControlNetPipeline
+    NeuronStableDiffusionControlNetPipelineMixin, NeuronDiffusionPipelineBase, StableDiffusionControlNetPipeline
 ):
     main_input_name = "prompt"
     auto_model_class = StableDiffusionControlNetPipeline
@@ -1481,28 +1481,28 @@ class NeuronPixArtAlphaPipeline(NeuronDiffusionPipelineBase, PixArtAlphaPipeline
 
 
 class NeuronStableDiffusionXLPipeline(
-    StableDiffusionXLPipelineMixin, NeuronDiffusionPipelineBase, StableDiffusionXLPipeline
+    NeuronStableDiffusionXLPipelineMixin, NeuronDiffusionPipelineBase, StableDiffusionXLPipeline
 ):
     main_input_name = "prompt"
     auto_model_class = StableDiffusionXLPipeline
 
 
 class NeuronStableDiffusionXLImg2ImgPipeline(
-    StableDiffusionXLPipelineMixin, NeuronDiffusionPipelineBase, StableDiffusionXLImg2ImgPipeline
+    NeuronStableDiffusionXLPipelineMixin, NeuronDiffusionPipelineBase, StableDiffusionXLImg2ImgPipeline
 ):
     main_input_name = "prompt"
     auto_model_class = StableDiffusionXLImg2ImgPipeline
 
 
 class NeuronStableDiffusionXLInpaintPipeline(
-    StableDiffusionXLPipelineMixin, NeuronDiffusionPipelineBase, StableDiffusionXLInpaintPipeline
+    NeuronStableDiffusionXLPipelineMixin, NeuronDiffusionPipelineBase, StableDiffusionXLInpaintPipeline
 ):
     main_input_name = "image"
     auto_model_class = StableDiffusionXLInpaintPipeline
 
 
 class NeuronStableDiffusionXLControlNetPipeline(
-    StableDiffusionXLControlNetPipelineMixin, NeuronDiffusionPipelineBase, StableDiffusionXLControlNetPipeline
+    NeuronStableDiffusionXLControlNetPipelineMixin, NeuronDiffusionPipelineBase, StableDiffusionXLControlNetPipeline
 ):
     main_input_name = "prompt"
     auto_model_class = StableDiffusionXLControlNetPipeline

@@ -12,6 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from .pipeline_controlnet import StableDiffusionControlNetPipelineMixin
-from .pipeline_controlnet_sd_xl import StableDiffusionXLControlNetPipelineMixin
-from .pipeline_utils import StableDiffusionXLPipelineMixin
+from .pipeline_controlnet import NeuronStableDiffusionControlNetPipelineMixin
+from .pipeline_controlnet_sd_xl import NeuronStableDiffusionXLControlNetPipelineMixin
+from .pipeline_utils import NeuronStableDiffusionXLPipelineMixin

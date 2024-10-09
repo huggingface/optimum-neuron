@@ -26,13 +26,13 @@ from diffusers.pipelines.controlnet import MultiControlNetModel
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import retrieve_timesteps
 from diffusers.pipelines.stable_diffusion_xl import StableDiffusionXLPipelineOutput
 
-from .pipeline_utils import StableDiffusionXLPipelineMixin
+from .pipeline_utils import NeuronStableDiffusionXLPipelineMixin
 
 
 logger = logging.getLogger(__name__)
 
 
-class StableDiffusionXLControlNetPipelineMixin(StableDiffusionXLPipelineMixin):
+class NeuronStableDiffusionXLControlNetPipelineMixin(NeuronStableDiffusionXLPipelineMixin):
     # Adapted from https://github.com/huggingface/diffusers/blob/1f81fbe274e67c843283e69eb8f00bb56f75ffc4/src/diffusers/pipelines/controlnet/pipeline_controlnet_sd_xl.py#L1001
     def __call__(
         self,

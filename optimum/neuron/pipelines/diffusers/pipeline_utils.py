@@ -25,7 +25,7 @@ from diffusers import (
 logger = logging.getLogger(__name__)
 
 
-class StableDiffusionXLPipelineMixin:
+class NeuronStableDiffusionXLPipelineMixin:
     # Adapted from https://github.com/huggingface/diffusers/blob/v0.23.0/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py#L573
     def _get_add_time_ids_text_to_image(
         self, original_size, crops_coords_top_left, target_size, dtype, text_encoder_projection_dim=None
