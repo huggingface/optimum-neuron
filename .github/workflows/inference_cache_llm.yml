@@ -21,9 +21,9 @@ jobs:
       matrix:
         config: [
           gpt2,
-          llama3-8b,
+          llama,
+          llama3.1-70b,
           llama3-70b,
-          llama2-7b-13b,
           llama2-70b,
           mistral,
           llama-variants,

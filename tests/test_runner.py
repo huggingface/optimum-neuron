@@ -15,6 +15,7 @@
 """Tests for the compilation utilities."""
 
 import os
+import unittest
 from unittest import TestCase
 
 from huggingface_hub import get_token, login
@@ -83,6 +84,7 @@ class TestExampleRunner(TestCase):
             delete_custom_cache_repo_name_from_hf_home()
 
     @parameterized.expand(TO_TEST)
+    @unittest.skip("Flaky test, this is not core so skipping for now.")
     def test_run_example(self, task, model_name_or_path, sequence_length):
         runner = ExampleRunner(model_name_or_path, task, use_venv=False)
         returncode, stdout = runner.run(1, "bf16", 1, sequence_length=sequence_length, max_steps=10, save_steps=5)

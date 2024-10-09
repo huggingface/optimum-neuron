@@ -49,7 +49,7 @@ model.save_pretrained("bge_emb_inf2/")
 Here we will use the `optimum-cli` to convert the model. Similar to the `NeuronModelForSentenceTransformers` we need to define our input shape and batch size. The input shape is defined by the `sequence_length` and the batch size by `batch_size`. The `optimum-cli` will automatically convert the model to a format compatible with AWS Inferentia2 and save it to the specified output directory.
 
 ```bash
-optimum-cli export neuron -m BAAI/bge-small-en-v1.5 --library-name sentence_transformers --sequence_length 384 --batch_size 1 --task feature-extraction bge_emb_inf2/
+optimum-cli export neuron -m BAAI/bge-small-en-v1.5 --sequence_length 384 --batch_size 1 --task feature-extraction bge_emb_inf2/
 ```
 
 ### Load compiled Sentence Transformers model and run inference
@@ -94,7 +94,7 @@ You can compile CLIP models with Optimum Neuron either by using the `optimum-cli
 * With the Optimum CLI
 
 ```bash
-optimum-cli export neuron -m sentence-transformers/clip-ViT-B-32 --sequence_length 64 --text_batch_size 3 --image_batch_size 1 --num_channels 3 --height 224 --width 224 --task feature-extraction --library-name sentence_transformers --subfolder 0_CLIPModel clip_emb/
+optimum-cli export neuron -m sentence-transformers/clip-ViT-B-32 --sequence_length 64 --text_batch_size 3 --image_batch_size 1 --num_channels 3 --height 224 --width 224 --task feature-extraction --subfolder 0_CLIPModel clip_emb/
 ```
 
 * With the `NeuronModelForSentenceTransformers` class
