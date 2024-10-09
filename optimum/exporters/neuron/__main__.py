@@ -598,12 +598,6 @@ def main_export(
 
     # Validate compiled model
     if do_validation is True:
-        if library_name == "diffusers":
-            # Do not validate vae encoder due to the sampling randomness
-            neuron_outputs.pop("vae_encoder")
-            models_and_neuron_configs.pop("vae_encoder", None)
-            output_model_names.pop("vae_encoder", None)
-
         try:
             validate_models_outputs(
                 models_and_neuron_configs=models_and_neuron_configs,
