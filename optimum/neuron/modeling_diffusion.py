@@ -88,12 +88,13 @@ if is_diffusers_available():
         StableDiffusionXLInpaintPipeline,
         StableDiffusionXLPipeline,
     )
-    from diffusers.configuration_utils import ConfigMixin, FrozenDict
+    from diffusers.configuration_utils import FrozenDict
     from diffusers.image_processor import VaeImageProcessor
     from diffusers.models.autoencoders.vae import DecoderOutput, DiagonalGaussianDistribution
     from diffusers.models.controlnet import ControlNetOutput
     from diffusers.models.modeling_outputs import AutoencoderKLOutput
     from diffusers.pipelines.controlnet import MultiControlNetModel
+    from diffusers.pipelines.pipeline_utils import DiffusionPipeline
     from diffusers.schedulers import SchedulerMixin
     from diffusers.schedulers.scheduling_utils import SCHEDULER_CONFIG_NAME
     from diffusers.utils import CONFIG_NAME
@@ -112,8 +113,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class NeuronDiffusionPipelineBase(NeuronTracedModel, ConfigMixin):
-    auto_model_class = StableDiffusionPipeline
+class NeuronDiffusionPipelineBase(NeuronTracedModel):
+    auto_model_class = DiffusionPipeline
     task = None
     library_name = "diffusers"
     base_model_prefix = "neuron_model"
