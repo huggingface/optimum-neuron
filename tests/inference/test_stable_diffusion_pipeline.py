@@ -419,3 +419,19 @@ class NeuronStableDiffusionXLPipelineIntegrationTest(unittest.TestCase):
             num_inference_steps=1,
         ).images[0]
         self.assertIsInstance(image, PIL.Image.Image)
+
+    @parameterized.expand(SUPPORTED_ARCHITECTURES, skip_on_empty=True)
+    def test_from_pipe(self, model_arch):
+        txt2img_pipeline = NeuronStableDiffusionXLPipeline.from_pretrained(
+            MODEL_NAMES[model_arch],
+            export=True,
+            dynamic_batch_size=False,
+            **self.STATIC_INPUTS_SHAPES,
+            **self.COMPILER_ARGS,
+        )
+        img2img_pipeline = NeuronStableDiffusionXLImg2ImgPipeline.from_pipe(txt2img_pipeline)
+        url = "https://huggingface.co/datasets/optimum/documentation-images/resolve/main/intel/openvino/sd_xl/castle_friedrich.png"
+        init_image = download_image(url)
+        prompt = "a dog running, lake, moat"
+        image = img2img_pipeline(prompt=prompt, image=init_image).images[0]
+        self.assertIsInstance(image, PIL.Image.Image)
