@@ -1,7 +1,7 @@
 # Usage
 
 ```shell
-python llama2.py
+python <model>.py
 ```
 This will produce several JSON files.
 

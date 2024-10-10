@@ -14,11 +14,11 @@ def main():
         raise ValueError(f"This benchmark can only run on an instance with at least {NUM_CORES} cores.")
 
     model_configurations = {
-        "Llama-3-8B-BS1": ["meta-llama/Meta-Llama-3-8B", 1, 4096],
-        "Llama-3-8B-BS4": ["meta-llama/Meta-Llama-3-8B", 4, 4096],
-        "Llama-3-8B-BS8": ["meta-llama/Meta-Llama-3-8B", 8, 4096],
-        "Llama-3-8B-BS16": ["meta-llama/Meta-Llama-3-8B", 16, 4096],
-        "Llama-3-8B-BS32": ["meta-llama/Meta-Llama-3-8B", 32, 4096],
+        "Llama-3.1-8B-BS1": ["meta-llama/Meta-Llama-3.1-8B", 1, 4096],
+        "Llama-3.1-8B-BS4": ["meta-llama/Meta-Llama-3.1-8B", 4, 4096],
+        "Llama-3.1-8B-BS8": ["meta-llama/Meta-Llama-3.1-8B", 8, 4096],
+        "Llama-3.1-8B-BS16": ["meta-llama/Meta-Llama-3.1-8B", 16, 4096],
+        "Llama-3.1-8B-BS32": ["meta-llama/Meta-Llama-3.1-8B", 32, 4096],
     }
 
     for model_name, model_configuration in model_configurations.items():
@@ -28,7 +28,7 @@ def main():
             export=True,
             batch_size=batch_size,
             sequence_length=seq_length,
-            auto_cast_type="fp16",
+            auto_cast_type="bf16",
             num_cores=NUM_CORES,
         )
         with TemporaryDirectory() as tmpdir:

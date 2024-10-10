@@ -9,18 +9,17 @@ services:
       - PORT=8081
       - MODEL_ID=${MODEL_ID}
       - HF_AUTO_CAST_TYPE=${HF_AUTO_CAST_TYPE}
-      - HF_NUM_CORES=12
+      - HF_NUM_CORES=8
       - MAX_BATCH_SIZE=${MAX_BATCH_SIZE}
-      - MAX_INPUT_LENGTH=${MAX_INPUT_LENGTH}
+      - MAX_INPUT_TOKENS=${MAX_INPUT_TOKENS}
       - MAX_TOTAL_TOKENS=${MAX_TOTAL_TOKENS}
       - MAX_CONCURRENT_REQUESTS=512
+      - HF_TOKEN=${HF_TOKEN}
     devices:
       - "/dev/neuron0"
       - "/dev/neuron1"
       - "/dev/neuron2"
       - "/dev/neuron3"
-      - "/dev/neuron4"
-      - "/dev/neuron5"
 
   tgi-2:
     image: neuronx-tgi:latest
@@ -30,14 +29,33 @@ services:
       - PORT=8082
       - MODEL_ID=${MODEL_ID}
       - HF_AUTO_CAST_TYPE=${HF_AUTO_CAST_TYPE}
-      - HF_NUM_CORES=12
+      - HF_NUM_CORES=8
       - MAX_BATCH_SIZE=${MAX_BATCH_SIZE}
-      - MAX_INPUT_LENGTH=${MAX_INPUT_LENGTH}
+      - MAX_INPUT_TOKENS=${MAX_INPUT_TOKENS}
       - MAX_TOTAL_TOKENS=${MAX_TOTAL_TOKENS}
       - MAX_CONCURRENT_REQUESTS=512
+      - HF_TOKEN=${HF_TOKEN}
     devices:
+      - "/dev/neuron4"
+      - "/dev/neuron5"
       - "/dev/neuron6"
       - "/dev/neuron7"
+
+  tgi-3:
+    image: neuronx-tgi:latest
+    ports:
+      - "8083:8083"
+    environment:
+      - PORT=8083
+      - MODEL_ID=${MODEL_ID}
+      - HF_AUTO_CAST_TYPE=${HF_AUTO_CAST_TYPE}
+      - HF_NUM_CORES=8
+      - MAX_BATCH_SIZE=${MAX_BATCH_SIZE}
+      - MAX_INPUT_TOKENS=${MAX_INPUT_TOKENS}
+      - MAX_TOTAL_TOKENS=${MAX_TOTAL_TOKENS}
+      - MAX_CONCURRENT_REQUESTS=512
+      - HF_TOKEN=${HF_TOKEN}
+    devices:
       - "/dev/neuron8"
       - "/dev/neuron9"
       - "/dev/neuron10"
@@ -52,6 +70,7 @@ services:
     depends_on:
       - tgi-1
       - tgi-2
+      - tgi-3
     deploy:
       placement:
         constraints: [node.role == manager]
