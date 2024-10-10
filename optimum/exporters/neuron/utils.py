@@ -33,6 +33,7 @@ from ...neuron.utils import (
     get_attention_scores_sd,
     get_attention_scores_sdxl,
 )
+from ...neuron.distributed import ParallelizersManager
 from ...utils import (
     DIFFUSERS_MINIMUM_VERSION,
     check_if_diffusers_greater,
@@ -465,6 +466,7 @@ def replace_stable_diffusion_submodels(pipeline, submodels):
 def get_encoder_decoder_models_for_export(
     model: "PreTrainedModel",
     task: str,
+    tensor_parallel_size: int,
     input_shapes: Dict[str, int],
     dynamic_batch_size: Optional[bool] = False,
     output_attentions: bool = False,
@@ -479,6 +481,10 @@ def get_encoder_decoder_models_for_export(
     Args:
         model ("PreTrainedModel"):
             The model to export.
+        task (`str`):
+            The task to export the model for. If not specified, the task will be auto-inferred based on the model.
+        tensor_parallel_size (`int`):
+            Tensor parallelism degree, the number of devices on which to shard the model.
         input_shapes (`Dict[str, int]`):
             Static shapes used for compiling the encoder and the decoder.
         dynamic_batch_size (`bool`, defaults to `False`):
@@ -493,6 +499,38 @@ def get_encoder_decoder_models_for_export(
         Neuron configs for the different components of the model.
     """
     models_for_export = {}
+    
+    #TODO: to be replaced by modified parallizer
+    def load_pretrained_with_parallel_attn(model, ckpt_path):
+        from .t5_model_layers import ParallelSelfAttention, ParallelFF, ParallelCrossAttention
+        import neuronx_distributed
+        
+        for index, block in enumerate(model.decoder.block):
+            if index == 0:
+                block.layer[0] = ParallelSelfAttention(model.config, has_relative_attention_bias=True)
+            else:
+                block.layer[0] = ParallelSelfAttention(model.config)
+            block.layer[1] = ParallelCrossAttention(model.config)
+            block.layer[2] = ParallelFF(model.config)
+        # Load the weights into the parallel layers        
+        neuronx_distributed.parallel_layers.load(ckpt_path, model, sharded=False)
+
+        return model
+        
+    
+    # Tensor parallelism: load pretrained model with parallel attention
+    if tensor_parallel_size>1:
+        model.config.use_cache = True
+        # using parallizer
+        parallizer = ParallelizersManager.parallelizer_for_model(model)
+        with parallizer.saved_model_in_temporary_directory(model) as ckpt_path:
+            # [experimental] with manual tp implementation
+            model = load_pretrained_with_parallel_attn(model, ckpt_path)
+            # model = parallizer.parallelize(model)
+            
+        import pdb
+        pdb.set_trace()
+        
 
     # Encoder
     model_type = getattr(model.config, "model_type") + "-encoder"

@@ -124,7 +124,7 @@ class T5EncoderWrapper(torch.nn.Module):
         model: "PreTrainedModel",
         num_beams: int = 1,
         device: str = "xla",
-        tp_degree: Optional[int] = None,
+        tp_degree: int = 1,
     ):
         super().__init__()
         self.model = model
@@ -204,7 +204,7 @@ class T5DecoderWrapper(torch.nn.Module):
         output_hidden_states: bool = False,
         output_attentions: bool = False,
         device: str = "xla",
-        tp_degree: Optional[int] = None,
+        tp_degree: int = 1,
     ):
         super().__init__()
         self.model = model
