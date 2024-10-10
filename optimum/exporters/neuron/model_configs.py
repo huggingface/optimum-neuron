@@ -795,7 +795,8 @@ class T5EncoderNeuronConfig(TextSeq2SeqNeuronConfig):
 
     def patch_model_for_export(self, model, device="xla", **kwargs):
         num_beams = kwargs.pop("num_beams", 1)
-        return self.CUSTOM_MODEL_WRAPPER(model, num_beams=num_beams, device=device)
+        tp_degree = kwargs.pop("tp_degree", 1)
+        return self.CUSTOM_MODEL_WRAPPER(model, num_beams=num_beams, device=device, tp_degree=tp_degree)
 
 
 @register_in_tasks_manager("opt", "text-generation")
@@ -849,6 +850,7 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
         batch_size = kwargs.pop("batch_size", 1)
         sequence_length = kwargs.pop("sequence_length", 1)
         num_beams = kwargs.pop("num_beams", 1)
+        tp_degree = kwargs.pop("tp_degree", 1)
 
         return self.CUSTOM_MODEL_WRAPPER(
             model,
@@ -858,6 +860,7 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
             output_hidden_states=self.output_hidden_states,
             output_attentions=self.output_attentions,
             device=device,
+            tp_degree=tp_degree,
         )
 
     def generate_io_aliases(self, model):

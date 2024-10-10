@@ -500,10 +500,37 @@ def get_encoder_decoder_models_for_export(
     """
     models_for_export = {}
     
-    # Tensor parallelism
+    #TODO: to be replaced by modified parallizer
+    def load_pretrained_with_parallel_attn(model, ckpt_path):
+        from .t5_model_layers import ParallelSelfAttention, ParallelFF, ParallelCrossAttention
+        import neuronx_distributed
+        
+        for index, block in enumerate(model.decoder.block):
+            if index == 0:
+                block.layer[0] = ParallelSelfAttention(model.config, has_relative_attention_bias=True)
+            else:
+                block.layer[0] = ParallelSelfAttention(model.config)
+            block.layer[1] = ParallelCrossAttention(model.config)
+            block.layer[2] = ParallelFF(model.config)
+        # Load the weights into the parallel layers        
+        neuronx_distributed.parallel_layers.load(ckpt_path, model, sharded=False)
+
+        return model
+        
+    
+    # Tensor parallelism: load pretrained model with parallel attention
     if tensor_parallel_size>1:
+        model.config.use_cache = True
+        # using parallizer
         parallizer = ParallelizersManager.parallelizer_for_model(model)
-        model = parallizer._parallelize(model)
+        with parallizer.saved_model_in_temporary_directory(model) as ckpt_path:
+            # [experimental] with manual tp implementation
+            model = load_pretrained_with_parallel_attn(model, ckpt_path)
+            # model = parallizer.parallelize(model)
+            
+        import pdb
+        pdb.set_trace()
+        
 
     # Encoder
     model_type = getattr(model.config, "model_type") + "-encoder"
@@ -517,7 +544,6 @@ def get_encoder_decoder_models_for_export(
     encoder_neuron_config = encoder_config_constructor(
         config=model.config,
         task=task,
-        tensor_parallel_size=tensor_parallel_size,
         dynamic_batch_size=dynamic_batch_size,
         **input_shapes,
     )
@@ -535,7 +561,6 @@ def get_encoder_decoder_models_for_export(
     decoder_neuron_config = decoder_config_constructor(
         config=model.config,
         task=task,
-        tensor_parallel_size=tensor_parallel_size,
         dynamic_batch_size=dynamic_batch_size,
         output_attentions=output_attentions,
         output_hidden_states=output_hidden_states,
