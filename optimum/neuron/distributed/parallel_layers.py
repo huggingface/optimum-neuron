@@ -812,6 +812,7 @@ class ParallelMLP(ParallelLayer):
         layer: "torch.nn.Module",
         sequence_parallel_enabled: bool = False,
         device: Optional["torch.device"] = None,
+        should_parallelize_layer_predicate_func: Optional[Callable[[torch.nn.Module], bool]] = None,
         **parallel_layer_specific_kwargs,
     ) -> "torch.nn.Module":
         skip_linear_weight_load = parallel_layer_specific_kwargs["skip_linear_weight_load"]

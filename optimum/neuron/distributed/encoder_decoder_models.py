@@ -111,6 +111,7 @@ class T5ParallelMLP(ParallelMLP):
         sequence_parallel_enabled: bool = False,
         device: Optional[torch.device] = None,
         should_parallelize_layer_predicate_func: Optional[Callable[[torch.nn.Module], bool]] = None,
+        **parallel_layer_specific_kwargs,
     ) -> torch.nn.Module:
         if should_parallelize_layer_predicate_func is not None and not should_parallelize_layer_predicate_func(layer):
             return layer
