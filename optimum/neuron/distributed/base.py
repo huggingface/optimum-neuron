@@ -776,6 +776,10 @@ class Parallelizer(ABC):
             elif name in peft_parameter_names:
                 continue
             else:
+                print(name)
+                print(gqa_qkv_names_to_original_names)
+                print(name in gqa_qkv_names_to_original_names)
+                print(requires_grad_information)
                 raise ValueError(
                     f"Could not find information for the parameter {name} to set its `requires_grad` attribute."
                 )

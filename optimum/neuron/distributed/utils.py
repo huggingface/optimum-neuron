@@ -233,29 +233,42 @@ class OptimumGQAQKVColumnParallelLinear(GQAQKVColumnParallelLinear):
     def get_parameter_names_mapping(
         self, named_modules: Dict[str, torch.nn.Module], reversed: bool = False
     ) -> Dict[str, str]:
+        """
+        Returns a mapping between the original projection names and their names after replacing them with `self`.
+        """
         module_to_name = {v: k for k, v in named_modules.items()}
         fully_qualified_name = module_to_name[self]
         parent_module_name, _ = fully_qualified_name.rsplit(".", maxsplit=1)
         
         # There are 2 cases:
         #   1. The parent module is an "actual" module from the original model
-        #   2. The parent module is a Lora layer wrapping the QGAQKVColumnParallelLinear
+        #   2. `self` is the base layer of LoRA layer wrapping the QGAQKVColumnParallelLinear
+        #   3. `self` is the LoRA B layer of a LoRA layer wrapping the GQAQKVColumnParallelLinear
         parent_module =  named_modules[parent_module_name]
+
+        adapter_name = None
+        if "lora_B" in fully_qualified_name:
+            parent_module_name, adapter_name = fully_qualified_name.rsplit(".", maxsplit=1)
+            parent_module_name, _ = parent_module_name.rsplit(".", maxsplit=1)
+            parent_module = named_modules[parent_module_name]
+
         if isinstance(parent_module, LoraGQAQKVParallelLinear):
             parent_module_name, _ = parent_module_name.rsplit(".", maxsplit=1)
 
         mapping = {}
         for qkv_proj_name, proj_name in self._qkv_proj_name_to_proj_name.items():
-            proj_qualified_name = f"{parent_module_name}.{proj_name}"
-            print(parent_module_name, proj_name)
-            proj_module = named_modules[proj_qualified_name]
+            if adapter_name is not None:
+                original_qualified_name = f"{parent_module_name}.{proj_name}.lora_B.{adapter_name}"
+            else:
+                proj_qualified_name = f"{parent_module_name}.{proj_name}"
+                proj_module = named_modules[proj_qualified_name]
 
-            original_qualified_name = f"{parent_module_name}.{proj_name}"
-            if is_peft_available():
-                from peft.tuners.tuners_utils import BaseTunerLayer
+                original_qualified_name = f"{parent_module_name}.{proj_name}"
+                if is_peft_available():
+                    from peft.tuners.tuners_utils import BaseTunerLayer
 
-                if isinstance(proj_module, BaseTunerLayer):
-                    original_qualified_name = module_to_name[proj_module.get_base_layer()]
+                    if isinstance(proj_module, BaseTunerLayer):
+                        original_qualified_name = module_to_name[proj_module.get_base_layer()]
 
             mapping[f"{original_qualified_name}.weight"] = f"{fully_qualified_name}.weight_{qkv_proj_name}"
             if self.use_bias:
@@ -302,7 +315,7 @@ def get_output_projection_qualified_names_after_qga_qkv_replacement(model: torch
     else:
         named_modules = dict(model.named_modules())
     for name, mod in named_modules.items():
-        if isinstance(mod, OptimumGQAQKVColumnParallelLinear):
+        if isinstance(mod, OptimumGQAQKVColumnParallelLinear) and "lora" not in name:
             parent_name = name.rsplit(".", maxsplit=1)[0]
             parent_module = named_modules[parent_name]
             if isinstance(parent_module, LoraGQAQKVParallelLinear):
