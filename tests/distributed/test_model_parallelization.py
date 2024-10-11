@@ -21,7 +21,6 @@ from typing import TYPE_CHECKING, List, Optional, Type, Union
 import pytest
 import torch
 import torch.utils._pytree as pytree
-
 from peft import LoraConfig
 from peft import get_peft_model as orig_get_peft_model
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, LlamaForCausalLM

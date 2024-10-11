@@ -39,6 +39,7 @@ def training_function(script_args, training_args):
         lora_dropout=0.05,
         # target_modules=["q_proj", "gate_proj", "v_proj", "o_proj", "k_proj", "up_proj", "down_proj"],
         target_modules=["q_proj", "k_proj", "v_proj"],
+        # target_modules=["o_proj"],
         bias="none",
         task_type="CAUSAL_LM",
     )
@@ -53,7 +54,7 @@ def training_function(script_args, training_args):
     trainer = NeuronSFTTrainer(
         args=sft_config,
         model=model,
-        peft_config=config,
+        # peft_config=config,
         tokenizer=tokenizer,
         train_dataset=dataset,
         formatting_func=format_dolly,

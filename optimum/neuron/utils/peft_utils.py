@@ -15,8 +15,8 @@
 """Utilities related to the PEFT library and support."""
 import collections
 import functools
-import os
 import math
+import os
 import warnings
 from dataclasses import asdict
 from pathlib import Path
@@ -34,6 +34,7 @@ from .training_utils import _get_model_param_count
 if is_peft_available():
     from peft import PeftModel
     from peft import get_peft_model as orig_get_peft_model
+    from peft.tuners.lora import LoraLayer
     from peft.utils import (
         SAFETENSORS_WEIGHTS_NAME,
         WEIGHTS_NAME,
@@ -43,7 +44,6 @@ if is_peft_available():
     from peft.utils import (
         get_peft_model_state_dict as orig_get_peft_model_state_dict,
     )
-    from peft.tuners.lora import LoraLayer
 
 else:
 
@@ -303,10 +303,11 @@ class LoraGQAQKVParallelLinear(torch.nn.Module, LoraLayer):
     When the target layer parallel_linear is GQAQKVColumnParallelLinear, in order to keep the input and output shapes
     consistent, we perform column segmentation on lora_B, while lora_A is still a complete linear layer.
     """
+
     def __init__(
-        self, 
-        base_layer: torch.nn.Module, 
-        adapter_name: str, 
+        self,
+        base_layer: torch.nn.Module,
+        adapter_name: str,
         r: int = 0,
         lora_alpha: int = 1,
         lora_dropout: float = 0.0,
@@ -323,7 +324,7 @@ class LoraGQAQKVParallelLinear(torch.nn.Module, LoraLayer):
 
         self._active_adapter = adapter_name
         self.update_layer(
-           adapter_name,
+            adapter_name,
             r,
             lora_alpha=lora_alpha,
             lora_dropout=lora_dropout,
@@ -334,7 +335,7 @@ class LoraGQAQKVParallelLinear(torch.nn.Module, LoraLayer):
 
     @requires_neuronx_distributed
     def update_layer(self, adapter_name, r, lora_alpha, lora_dropout, init_lora_weights, use_rslora, use_dora):
-        from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
+
         base_layer = self.get_base_layer()
 
         self.r[adapter_name] = r
@@ -353,11 +354,11 @@ class LoraGQAQKVParallelLinear(torch.nn.Module, LoraLayer):
         self.kv_size_multiplier = base_layer.kv_size_multiplier
         self.gather_output = base_layer.gather_output
 
-        print(self.in_features, r, self.out_features)
         self.lora_A[adapter_name] = nn.Linear(
             in_features=self.in_features, out_features=r, bias=False, dtype=torch.float32
         )
         from ..distributed.utils import OptimumGQAQKVColumnParallelLinear
+
         self.lora_B[adapter_name] = OptimumGQAQKVColumnParallelLinear(
             base_layer.query_proj_name,
             base_layer.key_proj_name,
@@ -373,13 +374,27 @@ class LoraGQAQKVParallelLinear(torch.nn.Module, LoraLayer):
             # TODO: add init method
             # init_method=init_method,
             kv_size_multiplier=self.kv_size_multiplier,
-            sequence_parallel_enabled = self.sequence_parallel_enabled,
+            sequence_parallel_enabled=self.sequence_parallel_enabled,
         )
 
+        if use_rslora:
+            self.scaling[adapter_name] = lora_alpha / math.sqrt(r)
+        else:
+            self.scaling[adapter_name] = lora_alpha / r
+
+        # TODO: add support for more initialization method just as in here:
+        # https://github.com/huggingface/peft/blob/main/src/peft/tuners/lora/layer.py#L128-L139
         if init_lora_weights:
             init_lora_weights = "default"
         self.init_lora_parameters(adapter_name, init_lora_weights)
 
+        if use_dora:
+            self.dora_init(adapter_name)
+            self.use_dora[adapter_name] = True
+        else:
+            self.use_dora[adapter_name] = False
+
+        self.set_adapter(self.active_adapters)
 
     def init_lora_parameters(self, adapter_name, init_lora_weights):
         init_lora_weights = init_lora_weights.lower()
@@ -399,7 +414,6 @@ class LoraGQAQKVParallelLinear(torch.nn.Module, LoraLayer):
         nn.init.zeros_(k.data)
         nn.init.zeros_(v.data)
 
-
     def merge(self) -> None:
         """
         Merge the adapter weights into the base weights
@@ -411,7 +425,6 @@ class LoraGQAQKVParallelLinear(torch.nn.Module, LoraLayer):
         weight_k.data += delta_weight_k
         weight_v.data += delta_weight_v
         self.merged = True
-
 
     def unmerge(self) -> None:
         """
@@ -429,10 +442,8 @@ class LoraGQAQKVParallelLinear(torch.nn.Module, LoraLayer):
         v.data -= delta_weight_v
         self.merged = False
 
-
     def get_qkv(self, layer):
         return layer.weight_q, layer.weight_k, layer.weight_v
-
 
     def get_delta_weight(self) -> torch.Tensor:
         weight_A = self.lora_A.weight
@@ -444,31 +455,46 @@ class LoraGQAQKVParallelLinear(torch.nn.Module, LoraLayer):
 
         return output_q, output_k, output_v
 
-
     def forward(self, x: torch.Tensor, *args: Any, **kwargs: Any) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        self._check_forward_args(x, *args, **kwargs)
+        adapter_names = kwargs.pop("adapter_names", None)
+
         previous_dtype = x.dtype
-        if self.merged:
+        if self.disable_adapters:
+            if self.merged:
+                self.unmerge()
+            output_q, output_k, output_v = self.base_layer(x, *args, **kwargs)
+        elif adapter_names is not None:
+            raise RuntimeError("Providing specific adapter names is not supported yet.")
+        elif self.merged:
             output_q, output_k, output_v = self.base_layer(x, *args, **kwargs)
         else:
             output_q, output_k, output_v = self.base_layer(x, *args, **kwargs)
-            lora_A = self.lora_A
-            dropout = self.lora_dropout
-            scaling = self.scaling
-            x = x.to(lora_A.weight.dtype)
+            for active_adapter in self.active_adapters:
+                if active_adapter not in self.lora_A.keys():
+                    continue
+                lora_A = self.lora_A[active_adapter]
+                dropout = self.lora_dropout[active_adapter]
+                scaling = self.scaling[active_adapter]
+                x = x.to(lora_A.weight.dtype)
 
-            q_lora_B, k_lora_B, v_lora_B = self.get_qkv(self.lora_B)
-            dropout_input = lora_A(dropout(x))
-            lora_q_output, lora_k_output, lora_v_output = self._lora_forward(dropout_input, q_lora_B, k_lora_B, v_lora_B)
+                q_lora_B, k_lora_B, v_lora_B = self.get_qkv(self.lora_B[active_adapter])
+                dropout_input = lora_A(dropout(x))
+                lora_q_output, lora_k_output, lora_v_output = self._lora_forward(
+                    dropout_input, q_lora_B, k_lora_B, v_lora_B
+                )
 
-            output_q += lora_q_output * scaling
-            output_k += lora_k_output * scaling
-            output_v += lora_v_output * scaling
+                output_q += lora_q_output * scaling
+                output_k += lora_k_output * scaling
+                output_v += lora_v_output * scaling
 
         return output_q.to(previous_dtype), output_k.to(previous_dtype), output_v.to(previous_dtype)
 
-
+    @requires_neuronx_distributed
     def _lora_forward(self, input, weight_q, weight_k, weight_v):
         # Matrix multiply.
+        from neuronx_distributed.modules.qkv_linear import gqa_qkv_linear_with_async_allreduce
+
         output_parallel_q, output_parallel_k, output_parallel_v = gqa_qkv_linear_with_async_allreduce(
             input=input,
             weight_q=weight_q,
