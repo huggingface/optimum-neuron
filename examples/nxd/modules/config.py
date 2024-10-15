@@ -48,21 +48,4 @@ class NeuronInferenceConfig(PretrainedConfig):
         self.buckets = [seq_len]
         self.bucket_n_active_tokens = False
 
-        # Quantization
-        self.quantized = kwargs.get("quantized", False)
-        self.quantized_checkpoints_path = kwargs.get("quantized_checkpoints_path")
-        self.quantization_type = kwargs.get("quantization_type", "per_tensor_symmetric")
-        # TODO: Add validation for quantized_checkpoints_path after the design discussions
-
-        # Speculative decoding
-        self.trace_tokengen_model = kwargs.get("trace_tokengen_model", True)
-        self.speculation_length = kwargs.get("speculation_length", 0)
-        self.spec_batch_size = batch_size
-
-        # Medusa decoding
-        self.is_medusa = kwargs.get("is_medusa", False)
-        self.medusa_speculation_length = kwargs.get("medusa_speculation_length", 0)
-        self.num_medusa_heads = kwargs.get("num_medusa_heads", 0)
-        self.medusa_tree = kwargs.get("medusa_tree", 0)
-
         super().__init__(**kwargs)

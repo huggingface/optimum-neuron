@@ -103,7 +103,7 @@ def register_module(key: str):
 
 class NeuronLlamaConfig(NeuronInferenceConfig, LlamaConfig):
     def __init__(
-            self, max_batch_size=1, tp_degree=1, n_positions=128, padding_side="right", speculation_length=0, **kwargs
+            self, max_batch_size=1, tp_degree=1, n_positions=128, padding_side="right", **kwargs
     ):
         self.attn_cls = "NeuronLlamaAttention"
 
@@ -111,7 +111,6 @@ class NeuronLlamaConfig(NeuronInferenceConfig, LlamaConfig):
             tp_degree=tp_degree,
             seq_len=n_positions,
             padding_side=padding_side,
-            speculation_length=speculation_length,
             max_batch_size=max_batch_size,
             **kwargs,
         )
@@ -187,7 +186,6 @@ class NeuronLlamaAttention(NeuronAttentionBase):
         self.rope_theta = config.rope_theta
         self.padding_side = config.padding_side
         self.torch_dtype = config.torch_dtype
-        self.is_medusa = config.is_medusa
 
         if parallel_state.model_parallel_is_initialized():
             self.tp_degree = parallel_state.get_tensor_model_parallel_size()
@@ -202,18 +200,11 @@ class NeuronLlamaAttention(NeuronAttentionBase):
 
     def init_rope(self):
         if not hasattr(self.config, "rope_scaling") or self.config.rope_scaling is None:
-            if self.is_medusa:
-                self.rotary_emb = LlamaRotaryEmbedding(
-                    self.head_dim,
-                    max_position_embeddings=self.max_position_embeddings,
-                    base=self.rope_theta,
-                )
-            else:
-                self.rotary_emb = RotaryEmbedding(
-                    self.head_dim,
-                    max_position_embeddings=self.max_position_embeddings,
-                    base=self.rope_theta,
-                )
+            self.rotary_emb = RotaryEmbedding(
+                self.head_dim,
+                max_position_embeddings=self.max_position_embeddings,
+                base=self.rope_theta,
+            )
         else:
             scaling_type = self.config.rope_scaling["type"]
             scaling_factor = self.config.rope_scaling["factor"]
@@ -350,22 +341,6 @@ class NeuronLlamaModel(NeuronBaseModel, LlamaPreTrainedModel):
 
         self.layers = nn.ModuleList([NeuronLlamaDecoderLayer(config) for _ in range(config.num_hidden_layers)])
         self.norm = get_rmsnorm_cls()(config.hidden_size, eps=config.rms_norm_eps)
-
-        self.is_medusa = config.is_medusa
-        self.num_medusa_heads = config.num_medusa_heads
-        self.medusa_speculation_length = config.medusa_speculation_length
-
-        if self.is_medusa:
-            if parallel_state.model_parallel_is_initialized():
-                medusa_head_cls = ColumnParallelLinear
-            else:
-                medusa_head_cls = nn.Linear
-            for i in range(self.num_medusa_heads):
-                medusa_head = nn.Sequential(
-                    *([ResBlock(config.hidden_size)] * 1),
-                    medusa_head_cls(config.hidden_size, config.vocab_size, bias=False),
-                )
-                setattr(self, f"medusa_head_{i}", medusa_head)
 
 
 class NeuronLlamaForCausalLM(NeuronBaseForCausalLM, LlamaPreTrainedModel):

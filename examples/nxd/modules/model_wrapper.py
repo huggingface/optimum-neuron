@@ -7,12 +7,6 @@ import torch.nn.functional as F
 from modules.autobucketing import get_context_encoder_bk, get_token_generation_bk
 from torch_neuronx import BucketModelConfig
 
-from neuronx_distributed.quantization.quantization_config import (
-    QuantizationType,
-    get_default_custom_qconfig_dict,
-    get_default_per_channel_custom_qconfig_dict,
-)
-from neuronx_distributed.quantization.quantize import convert
 from neuronx_distributed.trace import (
     parallel_model_load,
     parallel_model_save,
@@ -23,8 +17,6 @@ from neuronx_distributed.trace.model_builder import BaseModelInstance, NxDModelE
 
 CONTEXT_ENCODING_MODEL_TAG = "context_encoding_model"
 TOKEN_GENERATION_MODEL_TAG = "token_generation_model"
-SPECULATION_MODEL_TAG = "speculation_model"
-MEDUSA_MODEL_TAG = "medusa_speculation_model"
 
 
 def get_bucket_model_config_from_tag(tag, config):
@@ -73,7 +65,6 @@ class ModelWrapper(torch.nn.Module):
         self.is_compiled = False
         self.serialize_base_path = None
         self.tag = tag
-        self.is_medusa = config.is_medusa
         if compiler_args is None:
             self.compiler_args = "--enable-saturate-infinity --auto-cast=none --model-type=transformer --tensorizer-options='--enable-ccop-compute-overlap --cc-pipeline-tiling-factor=2' -O1 "
 
@@ -126,32 +117,7 @@ class ModelWrapper(torch.nn.Module):
             position_ids = torch.zeros((self.config.batch_size, n_active_tokens), dtype=torch.int64)
             seq_ids = torch.zeros((self.config.batch_size), dtype=torch.int64)
 
-            if self.is_medusa:
-                accepted_indices = torch.zeros(
-                    (self.config.batch_size, self.config.num_medusa_heads + 1), dtype=torch.int64
-                )
-                current_length = torch.zeros((self.config.batch_size, self.config.num_medusa_heads + 1), dtype=torch.int64)
-                medusa_mask = torch.zeros(
-                    (self.config.batch_size, self.config.medusa_speculation_length, self.config.medusa_speculation_length),
-                    dtype=torch.int64,
-                )
-                scatter_index = torch.zeros(
-                    (self.config.batch_size, self.config.medusa_speculation_length), dtype=torch.int64
-                )
-                inputs.append(
-                    (
-                        input_ids,
-                        attention_mask,
-                        position_ids,
-                        seq_ids,
-                        accepted_indices,
-                        current_length,
-                        medusa_mask,
-                        scatter_index,
-                    )
-                )
-            else:
-                inputs.append((input_ids, attention_mask, position_ids, seq_ids))
+            inputs.append((input_ids, attention_mask, position_ids, seq_ids))
 
         return inputs
 
@@ -160,10 +126,6 @@ class ModelWrapper(torch.nn.Module):
 
     def _forward_with_pad(self, *args):
         seq_ids = args[3]
-        if len(args) > 4:
-            medusa_args = args[4:8]
-        else:
-            medusa_args = None
 
         # pad the inputs up to the compiled batch size in the end
         def pad_helper(tensor):
@@ -189,10 +151,6 @@ class ModelWrapper(torch.nn.Module):
             seq_ids_list + [x for x in range(self.config.max_batch_size) if x not in seq_ids_list], dtype=seq_ids.dtype
         )
         padded_args.append(padded_seq_ids)
-
-        if medusa_args is not None:
-            for arg in medusa_args:
-                padded_args.append(pad_helper(arg))
 
         outputs = self._forward(*padded_args)
 
@@ -315,17 +273,7 @@ class DecoderModelInstance(BaseModelInstance):
         if self.config.torch_dtype == torch.bfloat16:
             float_model.bfloat16()
 
-        if self.config.quantized is True:
-            quantization_type = QuantizationType(self.config.quantization_type)
-            if quantization_type == QuantizationType.PER_CHANNEL_SYMMETRIC:
-                q_config = get_default_per_channel_custom_qconfig_dict()
-            elif quantization_type == QuantizationType.PER_TENSOR_SYMMETRIC:
-                q_config = get_default_custom_qconfig_dict()
-            else:
-                raise RuntimeError(f"{self.config.quantization_type} is not supported")
-            self.module = convert(float_model, q_config=q_config, inplace=False, mapping=None)
-        else:
-            self.module = float_model
+        self.module = float_model
 
     def get(self, bucket_rank, **kwargs):
         if bucket_rank is not None:
@@ -349,17 +297,7 @@ def get_trace_callable(model_cls, config, bucket_rank=None):
     if config.torch_dtype == torch.bfloat16:
         float_model.bfloat16()
 
-    if config.quantized is True:
-        quantization_type = QuantizationType(config.quantization_type)
-        if quantization_type == QuantizationType.PER_CHANNEL_SYMMETRIC:
-            q_config = get_default_per_channel_custom_qconfig_dict()
-        elif quantization_type == QuantizationType.PER_TENSOR_SYMMETRIC:
-            q_config = get_default_custom_qconfig_dict()
-        else:
-            raise RuntimeError(f"{config.quantization_type} is not supported")
-        model = convert(float_model, q_config=q_config, inplace=False, mapping=None)
-    else:
-        model = float_model
+    model = float_model
 
     aliases = {}
     num_output_from_trace = 1
