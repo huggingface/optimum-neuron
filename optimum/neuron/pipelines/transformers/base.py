@@ -15,7 +15,7 @@
 """Pipelines running different Neuron Accelerators."""
 
 import logging
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from transformers import (
     AudioClassificationPipeline,
@@ -131,6 +131,13 @@ NEURONX_SUPPORTED_TASKS = {
         "type": "audio",
     },
 }
+
+
+def check_model_type(self, supported_models: Union[List[str], dict]):
+    """
+    Dummy function to avoid the error logs raised by https://github.com/huggingface/transformers/blob/v4.45.2/src/transformers/pipelines/base.py#L1091
+    """
+    pass
 
 
 def load_pipeline(
@@ -308,6 +315,9 @@ def pipeline(
             tokenizer.pad_token_id = model.config.eos_token_id[0]
         else:
             tokenizer.pad_token_id = model.config.eos_token_id
+
+    if hasattr(NEURONX_SUPPORTED_TASKS[task]["impl"], "check_model_type"):
+        NEURONX_SUPPORTED_TASKS[task]["impl"].check_model_type = check_model_type
 
     return transformers_pipeline(
         task,

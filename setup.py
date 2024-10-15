@@ -29,7 +29,7 @@ TESTS_REQUIRE = [
     "sentencepiece",
     "datasets",
     "sacremoses",
-    "diffusers>=0.28.0, <0.29.0",
+    "diffusers>=0.28.0, <=0.30.3",
     "safetensors",
     "sentence-transformers >= 2.2.0",
     "peft",
@@ -72,7 +72,7 @@ EXTRAS_REQUIRE = {
         "neuronx_distributed==0.9.0",
         "libneuronxla==2.0.4115.0",
     ],
-    "diffusers": ["diffusers>=0.28.0, <0.29.0", "peft"],
+    "diffusers": ["diffusers>=0.28.0, <=0.30.3", "peft"],
     "sentence-transformers": ["sentence-transformers >= 2.2.0"],
 }
 

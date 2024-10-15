@@ -653,13 +653,13 @@ IMAGE_CLASSIFICATION_EXAMPLE = r"""
     >>> logits = outputs.logits
     >>> predicted_label = logits.argmax(-1).item()
     ```
-    Example using `transformers.pipeline`:
+    Example using `optimum.neuron.pipeline`:
 
     ```python
     >>> import requests
     >>> from PIL import Image
-    >>> from transformers import {processor_class}, pipeline
-    >>> from optimum.neuron import {model_class}
+    >>> from transformers import {processor_class}
+    >>> from optimum.neuron import {model_class}, pipeline
 
     >>> preprocessor = {processor_class}.from_pretrained("{checkpoint}")
     >>> model = {model_class}.from_pretrained("{checkpoint}")
@@ -724,7 +724,7 @@ SEMANTIC_SEGMENTATION_EXAMPLE = r"""
     ```python
     >>> import requests
     >>> from PIL import Image
-    >>> from optimum.neuronimport {model_class}
+    >>> from optimum.neuron import {model_class}
     >>> from transformers import {processor_class}
 
     >>> url = "http://images.cocodataset.org/val2017/000000039769.jpg"
@@ -739,13 +739,13 @@ SEMANTIC_SEGMENTATION_EXAMPLE = r"""
     >>> logits = outputs.logits
     ```
 
-    Example using `transformers.pipeline`:
+    Example using `optimum.neuron.pipeline`:
 
     ```python
     >>> import requests
     >>> from PIL import Image
-    >>> from transformers import {processor_class}, pipeline
-    >>> from optimum.neuron import {model_class}
+    >>> from transformers import {processor_class}
+    >>> from optimum.neuron import {model_class}, pipeline
 
     >>> preprocessor = {processor_class}.from_pretrained("{checkpoint}")
     >>> model = {model_class}.from_pretrained("{checkpoint}")
@@ -810,7 +810,7 @@ OBJECT_DETECTION_EXAMPLE = r"""
     ```python
     >>> import requests
     >>> from PIL import Image
-    >>> from optimum.neuronimport {model_class}
+    >>> from optimum.neuron import {model_class}
     >>> from transformers import {processor_class}
 
     >>> url = "http://images.cocodataset.org/val2017/000000039769.jpg"
@@ -826,13 +826,13 @@ OBJECT_DETECTION_EXAMPLE = r"""
     >>> results = image_processor.post_process_object_detection(outputs, threshold=0.9, target_sizes=target_sizes)[0]
     ```
 
-    Example using `transformers.pipeline`:
+    Example using `optimum.neuron.pipeline`:
 
     ```python
     >>> import requests
     >>> from PIL import Image
-    >>> from transformers import {processor_class}, pipeline
-    >>> from optimum.neuron import {model_class}
+    >>> from transformers import {processor_class}
+    >>> from optimum.neuron import {model_class}, pipeline
 
     >>> preprocessor = {processor_class}.from_pretrained("{checkpoint}")
     >>> model = {model_class}.from_pretrained("{checkpoint}")
@@ -916,11 +916,11 @@ AUDIO_CLASSIFICATION_EXAMPLE = r"""
     >>> predicted_class_ids = torch.argmax(logits, dim=-1).item()
     >>> predicted_label = model.config.id2label[predicted_class_ids]
     ```
-    Example using `transformers.pipeline`:
+    Example using `optimum.neuron.pipeline`:
 
     ```python
-    >>> from transformers import {processor_class}, pipeline
-    >>> from optimum.neuron import {model_class}
+    >>> from transformers import {processor_class}
+    >>> from optimum.neuron import {model_class}, pipeline
 
     >>> feature_extractor = {processor_class}.from_pretrained("{checkpoint}")
     >>> dataset = load_dataset("hf-internal-testing/librispeech_asr_demo", "clean", split="validation")
@@ -1064,11 +1064,11 @@ CTC_EXAMPLE = r"""
 
     >>> transcription = processor.batch_decode(predicted_ids)
     ```
-    Example using `transformers.pipeline`:
+    Example using `optimum.neuron.pipeline`:
 
     ```python
-    >>> from transformers import {processor_class}, pipeline
-    >>> from optimum.neuron import {model_class}
+    >>> from transformers import {processor_class}
+    >>> from optimum.neuron import {model_class}, pipeline
 
     >>> processor = {processor_class}.from_pretrained("{checkpoint}")
     >>> dataset = load_dataset("hf-internal-testing/librispeech_asr_demo", "clean", split="validation")

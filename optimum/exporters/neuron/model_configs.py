@@ -724,7 +724,7 @@ class VaeEncoderNeuronConfig(VisionNeuronConfig):
 
     @property
     def outputs(self) -> List[str]:
-        return ["latent_sample"]
+        return ["latent_parameters"]
 
     def generate_dummy_inputs(self, return_tuple: bool = False, **kwargs):
         dummy_inputs = super().generate_dummy_inputs(**kwargs)
