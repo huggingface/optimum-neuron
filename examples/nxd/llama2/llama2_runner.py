@@ -44,26 +44,6 @@ class LlamaRunner(InferenceRunner):
         model.token_generation_model.model = neuron_model
         return model
 
-    def generate_quantized_hf_checkpoints_on_cpu(self, max_prompt_length, sequence_length, batch_size, **kwargs):
-        config = self.get_config_for_nxd(batch_size, 1, max_prompt_length, sequence_length, **kwargs)
-        config.torch_dtype = torch.float32
-
-        quantized_state_dict = NeuronLlamaForCausalLM.generate_quantized_state_dict(
-            model_path=self.model_path, config=config
-        )
-        return quantized_state_dict
-
-    def load_quantized_neuron_model_on_cpu(self, max_prompt_length, sequence_length, batch_size, **kwargs):
-        model = self.load_neuron_model_on_cpu(max_prompt_length, sequence_length, batch_size, **kwargs)
-
-        quantization_type = QuantizationType(kwargs.get("quantization_type", "per_tensor_symmetric"))
-        if quantization_type == QuantizationType.PER_TENSOR_SYMMETRIC:
-            return quantize_pytorch_model_per_tensor_symmetric(model, inplace=True)
-        elif quantization_type == QuantizationType.PER_CHANNEL_SYMMETRIC:
-            return quantize_pytorch_model_per_channel_symmetric(model, inplace=True)
-        else:
-            raise RuntimeError(f"quantization_type: {quantization_type} not supported")
-
     def load_neuron_model(self, traced_model_path):
         config = NeuronLlamaConfig.from_pretrained(traced_model_path)
         model = NeuronLlamaForCausalLM.from_pretrained("", config)
