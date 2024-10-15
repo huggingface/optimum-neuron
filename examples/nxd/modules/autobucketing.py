@@ -3,17 +3,18 @@ from typing import List
 
 import torch
 
+
 def generate_buckets(min_length: int, max_length: int):
-    if (min_length == max_length):
+    if min_length == max_length:
         return [max_length]
 
     min_bound = int(log2(min_length))
-    max_bound = round(log2(max_length)) # we use round because it creates optimal bucket spacing
+    max_bound = round(log2(max_length))  # we use round because it creates optimal bucket spacing
 
     # NOTE: because range operates on [a,b), and we rounded the log2 result
     # we won't get 2**i results close to the max_length.
     # ex. we won't see bucket spacing of [128,256,512,513] or [128,256,510,512]
-    buckets = [2**i for i in range(min_bound,max_bound)] + [max_length]
+    buckets = [2**i for i in range(min_bound, max_bound)] + [max_length]
     return buckets
 
 
@@ -78,8 +79,8 @@ def context_encoder_bk(tensors: List[torch.Tensor], buckets, padding_side: str, 
     # position_ids is eliminated from the flattener for context encoding models.
     # ----------------------------------------------
     position_idx = (input_ids != pad_token).sum(dim=1)
-    position_idx = position_idx[:, None] # shape (batch_size, 1)
-    buckets = buckets[None, :] # shape (1, seq_len)
+    position_idx = position_idx[:, None]  # shape (batch_size, 1)
+    buckets = buckets[None, :]  # shape (1, seq_len)
 
     # -----Remarks for choosing the bucket_idx-----
     # 1. (buckets < position_idx) produces a bucket_mask where invalid buckets are 0
@@ -91,7 +92,7 @@ def context_encoder_bk(tensors: List[torch.Tensor], buckets, padding_side: str, 
     # 5. DO NOT USE argmax since we monkeypatch it,
     # causing issues with torch.jit.script
     # ---------------------------------------------
-    bucket_mask = (buckets < position_idx).to(torch.int) # shape (batch_size, seq_len)
+    bucket_mask = (buckets < position_idx).to(torch.int)  # shape (batch_size, seq_len)
     bucket_idx = torch.max(torch.argmin(bucket_mask, dim=1))
 
     # select the chosen bucket after squeezing back to original form
@@ -108,7 +109,7 @@ def context_encoder_bk(tensors: List[torch.Tensor], buckets, padding_side: str, 
             # identifies the seq_ids, which don't need to be sliced
             if len(tens.shape) == 1:
                 new_tensors.append(tens)
-            else: # all other tensors are of shape (batch_size,seq_len) so we slice on seq_len
+            else:  # all other tensors are of shape (batch_size,seq_len) so we slice on seq_len
                 new_tensors.append(slice_lhs(tens, bucket, 1))
     else:
         max_idx = buckets[-1]

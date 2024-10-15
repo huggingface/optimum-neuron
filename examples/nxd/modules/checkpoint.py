@@ -6,6 +6,7 @@ import torch
 from safetensors.torch import load_file, save_file
 from transformers.modeling_utils import shard_checkpoint
 
+
 _SAFETENSORS_MODEL_INDEX_FILENAME_JSON = "model.safetensors.index.json"
 _SAFETENSORS_MODEL_FILENAME = "model.safetensors"
 _PYTORCH_MODEL_BIN_INDEX_FILENAME_JSON = "pytorch_model.bin.index.json"
