@@ -54,7 +54,7 @@ def training_function(script_args, training_args):
     trainer = NeuronSFTTrainer(
         args=sft_config,
         model=model,
-        # peft_config=config,
+        peft_config=config,
         tokenizer=tokenizer,
         train_dataset=dataset,
         formatting_func=format_dolly,

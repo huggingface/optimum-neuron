@@ -755,6 +755,7 @@ def create_query_or_output_projection_local_weight_from_regular_weight(
     indices = compute_query_indices_for_rank(
         tp_size, tp_rank, num_attention_heads, num_key_value_heads, kv_size_multiplier
     )
+    print(num_attention_heads, head_dim, hidden_size, weight_data.shape, tp_rank, query_or_output_proj)
     reshaped_weight = weight_data.view(num_attention_heads, head_dim, hidden_size)
     shuffled_weight = reshaped_weight[indices]
     shuffled_weight = shuffled_weight.reshape(-1, hidden_size)
