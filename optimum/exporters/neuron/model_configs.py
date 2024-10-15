@@ -797,16 +797,12 @@ class T5EncoderNeuronConfig(TextSeq2SeqNeuronConfig):
         num_beams = kwargs.pop("num_beams", 1)
         tp_degree = kwargs.pop("tp_degree", 1)
         return self.CUSTOM_MODEL_WRAPPER(model, num_beams=num_beams, device=device, tp_degree=tp_degree)
-
-
-@register_in_tasks_manager("opt", "text-generation")
-class OPTNeuronConfig(TextNeuronDecoderConfig):
-    NEURONX_CLASS = "opt.model.OPTForSampling"
-
-
-@register_in_tasks_manager("bloom", "text-generation")
-class BloomNeuronConfig(TextNeuronDecoderConfig):
-    NEURONX_CLASS = "bloom.model.BloomForSampling"
+    
+    def patch_model_for_parallel_export(self):
+        pass
+    
+    def generate_io_aliases(self, model):
+        return {}
 
 
 @register_in_tasks_manager("t5-decoder", "text2text-generation")
@@ -862,6 +858,9 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
             device=device,
             tp_degree=tp_degree,
         )
+    
+    def patch_model_for_parallel_export(self):
+        pass
 
     def generate_io_aliases(self, model):
         num_outputs_from_trace = 3 if model.num_beams > 1 else 1
@@ -873,6 +872,15 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
 
         return aliases
 
+
+@register_in_tasks_manager("opt", "text-generation")
+class OPTNeuronConfig(TextNeuronDecoderConfig):
+    NEURONX_CLASS = "opt.model.OPTForSampling"
+
+
+@register_in_tasks_manager("bloom", "text-generation")
+class BloomNeuronConfig(TextNeuronDecoderConfig):
+    NEURONX_CLASS = "bloom.model.BloomForSampling"
 
 @register_in_tasks_manager("mistral", "text-generation")
 class MistralNeuronConfig(TextNeuronDecoderConfig):

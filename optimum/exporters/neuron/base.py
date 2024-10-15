@@ -228,6 +228,14 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
     def task(self, value: str):
         self._task = value
         self.mandatory_axes = self.get_mandatory_axes_for_task(self.task)
+    
+    @property
+    def tensor_parallel_size(self) -> int:
+        return self._tensor_parallel_size
+
+    @tensor_parallel_size.setter
+    def tensor_parallel_size(self, tensor_parallel_size: int):
+        self._tensor_parallel_size = tensor_parallel_size
 
     def __getattr__(self, attr_name) -> Any:
         if attr_name != "_axes" and attr_name in self._axes:

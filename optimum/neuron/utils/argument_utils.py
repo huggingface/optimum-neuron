@@ -140,6 +140,7 @@ def store_compilation_config(
     input_shapes: Dict[str, int],
     compiler_kwargs: Dict[str, Any],
     dynamic_batch_size: bool,
+    tensor_parallel_size: int,
     compiler_type: str,
     compiler_version: str,
     inline_weights_to_neff: bool,
@@ -170,6 +171,7 @@ def store_compilation_config(
             config_args[axis] = shape
 
     config_args["dynamic_batch_size"] = dynamic_batch_size
+    config_args["tensor_parallel_size"] = tensor_parallel_size
 
     # Add compilation args to the config
     config_args["optlevel"] = optlevel

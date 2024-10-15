@@ -182,6 +182,7 @@ def validate_model_outputs(
         inputs = config.generate_dummy_inputs(return_tuple=False, **input_shapes)
         ref_inputs = config.unflatten_inputs(inputs)
         if hasattr(reference_model, "config") and getattr(reference_model.config, "is_encoder_decoder", False):
+            
             reference_model = config.patch_model_for_export(reference_model, device="cpu", **input_shapes)
         if "SentenceTransformer" in reference_model.__class__.__name__:
             reference_model = config.patch_model_for_export(reference_model, ref_inputs)
@@ -396,6 +397,7 @@ def export_models(
             input_names=neuron_inputs,
             output_names=neuron_outputs,
             dynamic_batch_size=sub_neuron_config.dynamic_batch_size,
+            tensor_parallel_size=sub_neuron_config.tensor_parallel_size,
             compiler_type=NEURON_COMPILER_TYPE,
             compiler_version=NEURON_COMPILER_VERSION,
             inline_weights_to_neff=inline_weights_to_neff,
@@ -531,8 +533,7 @@ def export_neuronx(
     aliases = {}
     if hasattr(model, "config") and getattr(model.config, "is_encoder_decoder", False):
         checked_model = config.patch_model_for_export(model, **input_shapes)
-        if getattr(config, "is_decoder", False):
-            aliases = config.generate_io_aliases(checked_model)
+        aliases = config.generate_io_aliases(checked_model)
     else:
         checked_model = config.patch_model_for_export(model, dummy_inputs)
 
