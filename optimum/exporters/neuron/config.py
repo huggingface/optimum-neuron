@@ -169,7 +169,7 @@ class TextSeq2SeqNeuronConfig(NeuronDefaultConfig):
     def load_pretrained_with_parallel_attn(self, model, ckpt_path):
         # Parallel implementation of Attention modules.
         import neuronx_distributed
-        from t5_model_layers import ParallelSelfAttention, ParallelFF, ParallelCrossAttention
+        from .t5_model_layers import ParallelSelfAttention, ParallelFF, ParallelCrossAttention
 
         for index, block in enumerate(model.decoder.block):
             if index == 0:

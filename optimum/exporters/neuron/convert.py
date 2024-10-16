@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
+from transformers import PreTrainedModel
 
 from ...exporters.error_utils import OutputMatchError, ShapeError
 from ...neuron.utils import (
@@ -43,11 +44,10 @@ from ...utils import (
     is_sentence_transformers_available,
     logging,
 )
+from .config import TextSeq2SeqNeuronConfig
 
 
 if TYPE_CHECKING:
-    from transformers import PreTrainedModel
-
     from .base import NeuronDefaultConfig
 
 if is_neuron_available():
@@ -369,7 +369,7 @@ def export_models(
 
         start_time = time.time()
         neuron_inputs, neuron_outputs = export(
-            model=submodel,
+            model_or_path=submodel,
             config=sub_neuron_config,
             output=output_path,
             compiler_workdir=compiler_workdir,
@@ -432,7 +432,7 @@ def export_models(
 
 
 def export(
-    model: "PreTrainedModel",
+    model_or_path: Union["PreTrainedModel", str, Path],
     config: "NeuronDefaultConfig",
     output: Path,
     compiler_workdir: Optional[Path] = None,
@@ -445,7 +445,7 @@ def export(
 ) -> Tuple[List[str], List[str]]:
     if is_neuron_available():
         return export_neuron(
-            model=model,
+            model=model_or_path,
             config=config,
             output=output,
             compiler_workdir=compiler_workdir,
@@ -457,7 +457,7 @@ def export(
         )
     elif is_neuronx_available():
         return export_neuronx(
-            model=model,
+            model_or_path=model_or_path,
             config=config,
             output=output,
             compiler_workdir=compiler_workdir,
@@ -473,7 +473,7 @@ def export(
 
 
 def export_neuronx(
-    model: "PreTrainedModel",
+    model_or_path: Union["PreTrainedModel", str, Path],
     config: "NeuronDefaultConfig",
     output: Path,
     compiler_workdir: Optional[Path] = None,
@@ -486,8 +486,8 @@ def export_neuronx(
     Exports a PyTorch model to a serialized TorchScript module compiled by neuronx-cc compiler.
 
     Args:
-        model ([`PreTrainedModel`]):
-            The model to export.
+        model_or_path (Union["PreTrainedModel", str, Path]):
+            The model to export or its location(case when applying the parallelism as the model needs to be loaded with the tracing).
         config ([`~exporter.NeuronDefaultConfig`]):
             The Neuron configuration associated with the exported model.
         output (`Path`):
@@ -514,17 +514,19 @@ def export_neuronx(
     if isinstance(compiler_workdir, Path):
         compiler_workdir = compiler_workdir.as_posix()
 
-    if hasattr(model, "config"):
-        model.config.return_dict = True
-        model.config.torchscript = True
-    model.eval()
+    if hasattr(model_or_path, "config"):
+        model_or_path.config.return_dict = True
+        model_or_path.config.torchscript = True
+    if isinstance(model_or_path, PreTrainedModel):
+        model_or_path.eval()
 
     # Check if we need to override certain configuration item
     if config.values_override is not None:
         logger.info(f"Overriding {len(config.values_override)} configuration item(s)")
         for override_config_key, override_config_value in config.values_override.items():
             logger.info(f"\t- {override_config_key} -> {override_config_value}")
-            setattr(model.config, override_config_key, override_config_value)
+            if isinstance(model_or_path, PreTrainedModel):
+                setattr(model_or_path.config, override_config_key, override_config_value)
 
     # Prepare dummy inputs for tracing
     input_shapes = {}
@@ -538,12 +540,12 @@ def export_neuronx(
     # Prepare the model / function(tp) to trace 
     aliases = {}
     tp_degree = config.tp_degree
-    if hasattr(model, "config") and getattr(model.config, "is_encoder_decoder", False):
-        checked_model = config.patch_model_for_export(model, **input_shapes)
+    if hasattr(model_or_path, "config") and isinstance(config, TextSeq2SeqNeuronConfig):
+        checked_model = config.patch_model_for_export(model_or_path, **input_shapes)
         if tp_degree==1:
             aliases = config.generate_io_aliases(checked_model)
     else:
-        checked_model = config.patch_model_for_export(model, dummy_inputs)
+        checked_model = config.patch_model_for_export(model_or_path, dummy_inputs)
 
     # Construct compiler configurations
     if auto_cast is not None:
@@ -595,7 +597,7 @@ def export_neuronx(
         improve_stable_diffusion_loading(config, neuron_model)
         torch.jit.save(neuron_model, output)
     
-    del model
+    del model_or_path
     del checked_model
     del dummy_inputs
     del neuron_model

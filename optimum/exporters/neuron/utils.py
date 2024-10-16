@@ -16,6 +16,7 @@
 
 import copy
 import os
+from pathlib import Path
 from collections import OrderedDict
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 
@@ -471,6 +472,7 @@ def get_encoder_decoder_models_for_export(
     dynamic_batch_size: Optional[bool] = False,
     output_attentions: bool = False,
     output_hidden_states: bool = False,
+    model_name_or_path: Optional[Union[str, Path]] = None,
 ) -> Dict[str, Tuple["PreTrainedModel", "NeuronDefaultConfig"]]:
     """
     Returns the components of an encoder-decoder model and their subsequent neuron configs.
@@ -493,6 +495,8 @@ def get_encoder_decoder_models_for_export(
             Whether or not for the traced model to return the attentions tensors of all attention layers.
         output_hidden_states (`bool`, defaults to `False`):
             Whether or not for the traced model to return the hidden states of all layers.
+        model_name_or_path (`Optional[Union[str, Path]]`, defaults to `None`):
+            The location from where the model is loaded, this is needed in the case of tensor parallelism, since we need to load the model within the tracing API.
 
     Returns:
         `Dict[str, Tuple["PreTrainedModel", "NeuronDefaultConfig"]]`: A Dict containing the model and
@@ -516,7 +520,13 @@ def get_encoder_decoder_models_for_export(
         tensor_parallel_size=tensor_parallel_size,
         **input_shapes,
     )
-    models_for_export[ENCODER_NAME] = (model, encoder_neuron_config)
+    if not tensor_parallel_size > 1:
+        models_for_export[ENCODER_NAME] = (model, encoder_neuron_config)
+    else:
+        if model_name_or_path:
+            models_for_export[ENCODER_NAME] = (model_name_or_path, encoder_neuron_config)
+        else:
+            raise ValueError(f"you need to precise `model_name_or_path` when the parallelism is on, but now it's {model_name_or_path}.")
 
     # Decoder
     model_type = getattr(model.config, "model_type") + "-decoder"
@@ -536,6 +546,12 @@ def get_encoder_decoder_models_for_export(
         output_hidden_states=output_hidden_states,
         **input_shapes,
     )
-    models_for_export[DECODER_NAME] = (model, decoder_neuron_config)
+    if not tensor_parallel_size > 1:
+        models_for_export[DECODER_NAME] = (model, decoder_neuron_config)
+    else:
+        if model_name_or_path:
+            models_for_export[DECODER_NAME] = (model_name_or_path, decoder_neuron_config)
+        else:
+            raise ValueError(f"you need to precise `model_name_or_path` when the parallelism is on, but now it's {model_name_or_path}.")
 
     return models_for_export

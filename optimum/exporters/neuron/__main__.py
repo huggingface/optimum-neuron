@@ -456,6 +456,7 @@ def _get_submodels_and_neuron_configs_for_encoder_decoder(
         input_shapes=input_shapes,
         output_attentions=output_attentions,
         output_hidden_states=output_hidden_states,
+        model_name_or_path=model_name_or_path,
     )
     output_model_names = {
         ENCODER_NAME: os.path.join(ENCODER_NAME, NEURON_FILE_NAME),
