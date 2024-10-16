@@ -1,11 +1,8 @@
 import logging
 import os
-from contextlib import contextmanager
 from typing import List, Union
 
-import neuronx_distributed as nxd
 import torch
-from torch.profiler import ProfilerActivity, profile
 from transformers import AutoTokenizer, GenerationConfig, PreTrainedModel, set_seed
 from transformers.generation import SampleDecoderOnlyOutput, SampleEncoderDecoderOutput
 
@@ -35,7 +32,6 @@ class InferenceRunner:
 
     def __init__(self, model_path: str = None, generation_config: GenerationConfig = None):
         self.model_path = model_path
-        self._is_torch_profile_enabled = False
 
         if generation_config is None:
             generation_config = GenerationConfig.from_pretrained(model_path)
@@ -63,38 +59,6 @@ class InferenceRunner:
             "top_k": self.generation_config.top_k,
             "pad_token_id": self.generation_config.pad_token_id,
         }
-
-    def enable_torch_profile(self):
-        self._is_torch_profile_enabled = True
-
-    def is_torch_profile_enabled(self):
-        return self._is_torch_profile_enabled
-
-    @contextmanager
-    def torch_profile(self, chrome_trace_path: str = "torch-trace.json", **profile_kwargs):
-        if self.is_torch_profile_enabled():
-            with profile(activities=[ProfilerActivity.CPU], **profile_kwargs) as prof:
-                yield prof
-            prof.export_chrome_trace(chrome_trace_path)
-        else:
-            yield
-
-    def init_ditributed_env(self):
-        """
-        Initialize a simple neuronx distributed (Tensor Parallelism) environment, where there TP degree is 1.
-
-        This function is just for running NeuronxDistributed models on CPU to validate correctness.
-        """
-        os.environ["RANK"] = str(0)
-        os.environ["WORLD_SIZE"] = str(1)
-        os.environ["MASTER_ADDR"] = "localhost"
-        os.environ["MASTER_PORT"] = "2024"
-
-        if not torch.distributed.is_initialized():
-            torch.distributed.init_process_group(backend="xla")
-
-        nxd.parallel_layers.parallel_state.destroy_model_parallel()
-        nxd.parallel_layers.parallel_state.initialize_model_parallel(tensor_model_parallel_size=1)
 
     def get_config_for_nxd(
         self,
@@ -175,15 +139,14 @@ class InferenceRunner:
         for idx, input in enumerate(inputs["input_ids"]):
             logging.debug("tokenized input %s : %s", idx, tokenizer.decode(input))
 
-        with self.torch_profile(chrome_trace_path="generate.torch-trace.json"):
-            outputs = model.generate(
-                inputs.input_ids,
-                generation_config=self.generation_config,
-                attention_mask=inputs.attention_mask,
-                max_length=max_length,
-                **kwargs,
-            )
-            model.reset()
+        outputs = model.generate(
+            inputs.input_ids,
+            generation_config=self.generation_config,
+            attention_mask=inputs.attention_mask,
+            max_length=max_length,
+            **kwargs,
+        )
+        model.reset()
 
         if isinstance(outputs, SampleOutput.__args__):
             # Get token ids from output when return_dict_in_generate=True
@@ -232,9 +195,6 @@ class InferenceRunner:
             )
         # We have the config in the trace_model_path
         config.save_pretrained(traced_model_path)
-
-        # Save config to be used by checkpoint_loader
-        self.config = config
 
         model = self.get_model_cls().from_pretrained(self.model_path, config)
 
