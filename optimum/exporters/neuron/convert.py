@@ -28,6 +28,7 @@ from ...neuron.utils import (
     convert_neuronx_compiler_args_to_neuron,
     is_neuron_available,
     is_neuronx_available,
+    is_neuronx_distributed_available,
     store_compilation_config,
 )
 from ...neuron.utils.cache_utils import get_model_name_or_path
@@ -67,6 +68,9 @@ if is_diffusers_available():
 
 if is_sentence_transformers_available():
     from sentence_transformers import SentenceTransformer
+
+if is_neuronx_distributed_available():
+    import neuronx_distributed
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -397,7 +401,7 @@ def export_models(
             input_names=neuron_inputs,
             output_names=neuron_outputs,
             dynamic_batch_size=sub_neuron_config.dynamic_batch_size,
-            tensor_parallel_size=sub_neuron_config.tensor_parallel_size,
+            tensor_parallel_size=sub_neuron_config.tp_degree,
             compiler_type=NEURON_COMPILER_TYPE,
             compiler_version=NEURON_COMPILER_VERSION,
             inline_weights_to_neff=inline_weights_to_neff,
@@ -522,6 +526,7 @@ def export_neuronx(
             logger.info(f"\t- {override_config_key} -> {override_config_value}")
             setattr(model.config, override_config_key, override_config_value)
 
+    # Prepare dummy inputs for tracing
     input_shapes = {}
     for axis in config.mandatory_axes:
         input_shapes[axis] = getattr(config, axis)
@@ -530,13 +535,17 @@ def export_neuronx(
     dummy_inputs = config.flatten_inputs(dummy_inputs)
     dummy_inputs_tuple = tuple(dummy_inputs.values())
 
+    # Prepare the model / function(tp) to trace 
     aliases = {}
+    tp_degree = config.tp_degree
     if hasattr(model, "config") and getattr(model.config, "is_encoder_decoder", False):
         checked_model = config.patch_model_for_export(model, **input_shapes)
-        aliases = config.generate_io_aliases(checked_model)
+        if tp_degree==1:
+            aliases = config.generate_io_aliases(checked_model)
     else:
         checked_model = config.patch_model_for_export(model, dummy_inputs)
 
+    # Construct compiler configurations
     if auto_cast is not None:
         logger.info(f"Using Neuron: --auto-cast {auto_cast}")
 
@@ -550,8 +559,7 @@ def export_neuronx(
 
     compiler_args.extend(["--optlevel", optlevel])
 
-    # diffusers specific
-    compiler_args = add_stable_diffusion_compiler_args(config, compiler_args)
+    compiler_args = add_stable_diffusion_compiler_args(config, compiler_args)  # diffusers specific
 
     if config.dynamic_batch_size and not inline_weights_to_neff:
         logger.warning(
@@ -559,22 +567,34 @@ def export_neuronx(
         )
         inline_weights_to_neff = True
 
-    neuron_model = neuronx.trace(
-        checked_model,
-        dummy_inputs_tuple,
-        compiler_args=compiler_args,
-        input_output_aliases=aliases,
-        inline_weights_to_neff=inline_weights_to_neff,
-        compiler_workdir=compiler_workdir,
-    )
-
-    if config.dynamic_batch_size is True:
-        neuron_model = neuronx.dynamic_batch(neuron_model)
-
-    # diffusers specific
-    improve_stable_diffusion_loading(config, neuron_model)
-
-    torch.jit.save(neuron_model, output)
+    # Start trace
+    if tp_degree > 1:
+        # 1. use NxD to trace for parallel 
+        neuron_model = neuronx_distributed.trace.parallel_model_trace(
+            checked_model,
+            dummy_inputs_tuple,
+            compiler_args=compiler_args,
+            inline_weights_to_neff=inline_weights_to_neff,
+            compiler_workdir=compiler_workdir,
+            tp_degree=tp_degree,
+        )
+        neuronx_distributed.trace.parallel_model_save(neuron_model, output)
+    else:
+        # 2. use `torch_neuronx.trace`
+        neuron_model = neuronx.trace(
+            checked_model,
+            dummy_inputs_tuple,
+            compiler_args=compiler_args,
+            input_output_aliases=aliases,
+            inline_weights_to_neff=inline_weights_to_neff,
+            compiler_workdir=compiler_workdir,
+        )
+        if config.dynamic_batch_size is True:
+            neuron_model = neuronx.dynamic_batch(neuron_model)
+        # diffusers specific
+        improve_stable_diffusion_loading(config, neuron_model)
+        torch.jit.save(neuron_model, output)
+    
     del model
     del checked_model
     del dummy_inputs

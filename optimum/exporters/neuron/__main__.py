@@ -461,6 +461,8 @@ def _get_submodels_and_neuron_configs_for_encoder_decoder(
         ENCODER_NAME: os.path.join(ENCODER_NAME, NEURON_FILE_NAME),
         DECODER_NAME: os.path.join(DECODER_NAME, NEURON_FILE_NAME),
     }
+    model.config.save_pretrained(output)
+    model.generation_config.save_pretrained(output)
     maybe_save_preprocessors(model_name_or_path, output)
 
     return models_and_neuron_configs, output_model_names
@@ -534,7 +536,7 @@ def main_export(
     model_name_or_path: str,
     output: Union[str, Path],
     compiler_kwargs: Dict[str, Any],
-    tensor_parallel_size: int,
+    tensor_parallel_size: int = 1,
     model: Optional[Union["PreTrainedModel", "ModelMixin"]] = None,
     task: str = "auto",
     dynamic_batch_size: bool = False,
