@@ -333,7 +333,7 @@ class NeuronLlamaModel(NeuronBaseModel, LlamaPreTrainedModel):
         self.norm = get_rmsnorm_cls()(config.hidden_size, eps=config.rms_norm_eps)
 
 
-class NeuronLlamaForCausalLM(NeuronBaseForCausalLM, LlamaPreTrainedModel):
+class NeuronLlamaForCausalLM(NeuronBaseForCausalLM):
     """
     This class extends LlamaForCausalLM create traceable
     blocks for Neuron.

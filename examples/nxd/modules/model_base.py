@@ -18,7 +18,7 @@ from neuronx_distributed.utils.sampling import Sampler  # noqa: E402
 from safetensors.torch import load_file
 from torch import nn
 from transformers import PretrainedConfig, PreTrainedModel
-from transformers.generation import SampleDecoderOnlyOutput, SampleEncoderDecoderOutput
+from transformers.generation import GenerationConfig, GenerationMixin, SampleDecoderOnlyOutput, SampleEncoderDecoderOutput
 from transformers.generation.logits_process import LogitsProcessorList
 from transformers.generation.stopping_criteria import (
     StoppingCriteriaList,
@@ -308,15 +308,21 @@ class NeuronBaseModel(PreTrainedModel):
         return (hidden_states, next_decoder_cache)
 
 
-class NeuronBaseForCausalLM:
+class NeuronBaseForCausalLM(GenerationMixin):
     _STATE_DICT_MODEL_PREFIX = "model."
 
     _model_cls = None
 
+    # Required by GenerationMixin, but present in PreTrainedModel
+    main_input_name = "input_ids"
+    _supports_cache_class = False
+    #_supports_static_cache = False
+
     def __init__(self, model_path: str, config: PretrainedConfig):
-        super().__init__(config)
+        super().__init__()
 
         self.config = config
+        self.generation_config = GenerationConfig.from_model_config(config)
         self.vocab_size = config.vocab_size
         self.padding_side = config.padding_side
         self.kv_cache_populated = False
@@ -328,6 +334,10 @@ class NeuronBaseForCausalLM:
         if config.trace_tokengen_model:
             self.enable_token_generation()
         self.model_path = model_path
+
+    def can_generate(self):
+        # Not needed after transformers 4.50
+        return True
 
     def get_compiler_args(self):
         return None
@@ -724,7 +734,7 @@ class NeuronBaseForCausalLM:
             is_for_token_generation = self.kv_cache_populated
 
             # forward pass to get next token
-            outputs = self(**model_inputs, return_dict=True)
+            outputs = self.forward(**model_inputs, return_dict=True)
 
             if not self.config.on_device_sampling:
                 next_token_logits = outputs.logits[:, -1, :]

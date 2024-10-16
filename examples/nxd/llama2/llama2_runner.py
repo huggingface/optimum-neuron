@@ -17,7 +17,8 @@ class LlamaRunner(InferenceRunner):
 
         model.load(traced_model_path)
         if config.torch_dtype == torch.bfloat16:
-            model.bfloat16()
+            for model_wrapper in model.models:
+                model_wrapper.bfloat16()
 
         return model
 

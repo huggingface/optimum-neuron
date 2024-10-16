@@ -2,8 +2,8 @@ from transformers import AutoTokenizer
 from llama2.llama2_runner import LlamaRunner
 
 
-model_path = "/home/ubuntu/neuronx-distributed/examples/inference/Llama-2-7b-chat-hf"
-traced_model_path = "/home/ubuntu/neuronx-distributed/examples/inference/llama-2-7b-chat-hf-trace"
+model_path = "/home/ubuntu/optimum-neuron/examples/nxd/Llama-2-7b-chat-hf"
+traced_model_path = "/home/ubuntu/optimum-neuron/examples/nxd/llama-2-7b-chat-hf-trace"
 
 
 def main():
