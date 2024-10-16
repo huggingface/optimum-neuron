@@ -1,6 +1,6 @@
-from torch import nn, ones, float32, rsqrt
+from torch import nn, ones
 from torch_neuronx.xla_impl.ops import RmsNorm
-from neuronx_distributed.parallel_layers import parallel_state
+
 
 class CustomRMSNorm(nn.Module):
     def __init__(self, hidden_size, eps=1e-6):

@@ -3,23 +3,22 @@ import math
 from typing import Optional, Tuple
 
 import torch
-from torch import nn, Tensor
+from modules.attention.utils import apply_rotary_pos_emb, manual_softmax, move_heads_front, repeat_kv
+from torch import Tensor, nn
 
-from modules.attention.utils import apply_rotary_pos_emb, repeat_kv, manual_softmax, move_heads_front
 
 # Try except for the compatibility with older compiler version
 try:
     from neuronxcc.nki._private_kernels.attention import attention_isa_kernel  # noqa: E402
 except ImportError:
     from neuronxcc.nki.kernels.attention import attention_isa_kernel  # noqa: E402
-from torch_neuronx.xla_impl.ops import nki_jit  # noqa: E402
-
 from modules.gqa import (  # noqa: E402
     GroupQueryAttention_O,  # noqa: E402
     GroupQueryAttention_QKV,  # noqa: E402
 )  # noqa: E402
-
 from neuronx_distributed.parallel_layers import utils  # noqa: E402
+from torch_neuronx.xla_impl.ops import nki_jit  # noqa: E402
+
 
 _flash_fwd_call = nki_jit()(attention_isa_kernel)
 
@@ -59,7 +58,7 @@ class NeuronAttentionBase(nn.Module):
             dtype=self.torch_dtype,
             gather_output=False,
             fused_qkv=self.fused_qkv,
-            clip_qkv=self.clip_qkv
+            clip_qkv=self.clip_qkv,
         )
         self.o_proj = GroupQueryAttention_O(
             hidden_size=self.hidden_size,
@@ -80,7 +79,7 @@ class NeuronAttentionBase(nn.Module):
         return QK
 
     def prep_qkv_tensors(self, position_ids, hidden_states, past_key_value):
-        """ take care of the shape, layout, group query, custom position encoding, etc. """
+        """take care of the shape, layout, group query, custom position encoding, etc."""
         Q, K, V = self.qkv_proj(hidden_states=hidden_states)
 
         # Divide hidden_dim across heads for MHA
@@ -96,7 +95,7 @@ class NeuronAttentionBase(nn.Module):
         return Q, K, V
 
     def perform_prefill(self, Q, K, V, q_len, bsz, attention_mask) -> Tensor:
-        """  attention computation at prefilling (context encoding) phase """
+        """attention computation at prefilling (context encoding) phase"""
         K_active = repeat_kv(K, self.num_key_value_groups)
         V_active = repeat_kv(V, self.num_key_value_groups)
 
@@ -114,11 +113,7 @@ class NeuronAttentionBase(nn.Module):
             logging.debug(f"Using flash_fwd for Q.shape={Q.shape}")
             # make sure to cast inputs to self.config.torch_dtype (this is needed because the downcast to bf16
             # might happen after the kernel hlo creation step). Also convert shapes as expected by the kernel.
-            Q = (
-                Q.permute(0, 1, 3, 2)
-                .reshape((bsz * self.num_heads, self.head_dim, q_len))
-                .to(self.config.torch_dtype)
-            )
+            Q = Q.permute(0, 1, 3, 2).reshape((bsz * self.num_heads, self.head_dim, q_len)).to(self.config.torch_dtype)
             Q = Q / math.sqrt(self.head_dim)
             K_active = (
                 K_active.permute(0, 1, 3, 2)
@@ -139,7 +134,7 @@ class NeuronAttentionBase(nn.Module):
         return attn_output
 
     def compute_for_token_gen(self, Q, K, V, position_ids, past_key_value, attention_mask, active_mask) -> Tensor:
-        """ attention computation at token generation phase """
+        """attention computation at token generation phase"""
         is_speculation = position_ids.shape[-1] > 1
 
         # Attention computation: softmax((Q.K/√dkv) + mask).V
@@ -170,21 +165,23 @@ class NeuronAttentionBase(nn.Module):
         return attn_output
 
     def forward(
-            self,
-            hidden_states: torch.Tensor,
-            attention_mask: Optional[torch.Tensor] = None,
-            position_ids: Optional[torch.LongTensor] = None,
-            past_key_value: Optional[Tuple[torch.Tensor]] = None,
-            active_mask: Optional[torch.LongTensor] = None,
+        self,
+        hidden_states: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        past_key_value: Optional[Tuple[torch.Tensor]] = None,
+        active_mask: Optional[torch.LongTensor] = None,
     ) -> Tuple[Tensor, Optional[Tuple[Tensor, Tensor]]]:
-        """ Implements each layer's forward pass for the attention block. """
+        """Implements each layer's forward pass for the attention block."""
         bsz, q_len, _ = hidden_states.size()
         Q, K, V = self.prep_qkv_tensors(position_ids, hidden_states, past_key_value)
 
         if past_key_value is None:
             attn_output = self.perform_prefill(Q, K, V, q_len, bsz, attention_mask)
         else:
-            attn_output = self.compute_for_token_gen(Q, K, V, position_ids, past_key_value, attention_mask, active_mask)
+            attn_output = self.compute_for_token_gen(
+                Q, K, V, position_ids, past_key_value, attention_mask, active_mask
+            )
 
         # transpose BHSD -> BSHD
         attn_output = attn_output.transpose(1, 2).contiguous()

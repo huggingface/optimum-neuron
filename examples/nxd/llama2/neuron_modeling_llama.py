@@ -21,7 +21,6 @@
 from typing import Optional, Tuple, Type, Union
 
 import torch
-
 from modules.attention.attention_base import NeuronAttentionBase
 from modules.attention.utils import RotaryEmbedding
 from modules.custom_calls import CustomRMSNorm
@@ -31,34 +30,26 @@ from transformers.activations import ACT2FN
 from transformers.generation import SampleDecoderOnlyOutput, SampleEncoderDecoderOutput
 from transformers.models.llama.configuration_llama import LlamaConfig
 from transformers.models.llama.modeling_llama import (
+    LlamaDynamicNTKScalingRotaryEmbedding,
+    LlamaLinearScalingRotaryEmbedding,
     LlamaRMSNorm,
 )
 
-from transformers.models.llama.modeling_llama import (
-    LlamaRotaryEmbedding,
-    LlamaDynamicNTKScalingRotaryEmbedding,
-    LlamaLinearScalingRotaryEmbedding,
-)
+
 SampleOutput = Union[SampleEncoderDecoderOutput, SampleDecoderOnlyOutput]
 
-from modules.autobucketing import slice_lhs, slice_rhs  # noqa: E402
+from modules.config import NeuronInferenceConfig  # noqa: E402
 from modules.gqa import (  # noqa: E402
     BaseGroupQueryAttention,  # noqa: E402
-    determine_sharding_strategy,  # noqa: E402
-    get_shardable_head_counts,  # noqa: E402
 )  # noqa: E402
-from modules.model_base import NeuronBaseModel, NeuronBaseForCausalLM  # noqa: E402
-from modules.config import NeuronInferenceConfig  # noqa: E402
-
-from transformers import LlamaForCausalLM  # noqa: E402
-
-from neuronx_distributed.parallel_layers import parallel_state, utils  # noqa: E402
+from modules.model_base import NeuronBaseForCausalLM, NeuronBaseModel  # noqa: E402
+from neuronx_distributed.parallel_layers import parallel_state  # noqa: E402
 from neuronx_distributed.parallel_layers.layers import (  # noqa: E402
     ColumnParallelLinear,  # noqa: E402
     ParallelEmbedding,  # noqa: E402
     RowParallelLinear,  # noqa: E402
 )  # noqa: E402
-from neuronx_distributed.utils.sampling import Sampler  # noqa: E402
+
 
 _LLAMA_MODULE_MAP = {}
 
@@ -102,9 +93,7 @@ def register_module(key: str):
 
 
 class NeuronLlamaConfig(NeuronInferenceConfig, LlamaConfig):
-    def __init__(
-            self, max_batch_size=1, tp_degree=1, n_positions=128, padding_side="right", **kwargs
-    ):
+    def __init__(self, max_batch_size=1, tp_degree=1, n_positions=128, padding_side="right", **kwargs):
         self.attn_cls = "NeuronLlamaAttention"
 
         super().__init__(
@@ -240,12 +229,12 @@ class NeuronLlamaDecoderLayer(nn.Module):
         self.post_attention_layernorm = get_rmsnorm_cls()(config.hidden_size, eps=config.rms_norm_eps)
 
     def forward(
-            self,
-            hidden_states: torch.Tensor,
-            attention_mask: Optional[torch.Tensor] = None,
-            position_ids: Optional[torch.LongTensor] = None,
-            past_key_value: Optional[Tuple[torch.Tensor]] = None,
-            **kwargs,
+        self,
+        hidden_states: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        past_key_value: Optional[Tuple[torch.Tensor]] = None,
+        **kwargs,
     ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
@@ -307,6 +296,7 @@ class NeuronLlamaModel(NeuronBaseModel, LlamaPreTrainedModel):
     """
     The neuron version of the LlamaModel
     """
+
     def setup_attr_for_model(self, config: NeuronLlamaConfig):
         # Needed for init_inference_optimization()
         self.on_device_sampling = config.on_device_sampling
@@ -353,7 +343,3 @@ class NeuronLlamaForCausalLM(NeuronBaseForCausalLM, LlamaPreTrainedModel):
     """
 
     _model_cls = NeuronLlamaModel
-
-    @staticmethod
-    def load_hf_model(model_path):
-        return LlamaForCausalLM.from_pretrained(model_path)

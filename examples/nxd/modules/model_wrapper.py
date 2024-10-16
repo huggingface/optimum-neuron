@@ -5,15 +5,13 @@ from functools import partial
 import torch
 import torch.nn.functional as F
 from modules.autobucketing import get_context_encoder_bk, get_token_generation_bk
-from torch_neuronx import BucketModelConfig
-
 from neuronx_distributed.trace import (
     parallel_model_load,
-    parallel_model_save,
     parallel_model_trace,
 )
-from neuronx_distributed.trace.trace import ParallelModel
-from neuronx_distributed.trace.model_builder import BaseModelInstance, NxDModelExecutor
+from neuronx_distributed.trace.model_builder import BaseModelInstance
+from torch_neuronx import BucketModelConfig
+
 
 CONTEXT_ENCODING_MODEL_TAG = "context_encoding_model"
 TOKEN_GENERATION_MODEL_TAG = "token_generation_model"
@@ -195,18 +193,17 @@ class ModelWrapper(torch.nn.Module):
         if self.tag == CONTEXT_ENCODING_MODEL_TAG:
             to_pad = args[:3]
             pad_lengths = [self.config.max_context_length - arg.shape[1] for arg in to_pad]
-            tensor_pad_vals = [
-                self.config.pad_token_id,
-                0,
-                1
+            tensor_pad_vals = [self.config.pad_token_id, 0, 1]
+            padded_args = [
+                F.pad(arg, (0, pad_len), "constant", pad_val)
+                for arg, pad_val, pad_len in zip(to_pad, tensor_pad_vals, pad_lengths)
             ]
-            padded_args = [F.pad(arg, (0, pad_len), "constant", pad_val) for arg, pad_val, pad_len in zip(to_pad, tensor_pad_vals, pad_lengths)]
-            args = (*padded_args,*args[3:])
+            args = (*padded_args, *args[3:])
         else:
-            input_ids,attention_mask,*rest_of_args = args
+            input_ids, attention_mask, *rest_of_args = args
             pad_len = self.config.max_length - attention_mask.shape[1]
             padded_attention_mask = F.pad(attention_mask, (0, pad_len), "constant", 0)
-            args = (input_ids,padded_attention_mask,*rest_of_args)
+            args = (input_ids, padded_attention_mask, *rest_of_args)
 
         return args
 
@@ -228,14 +225,14 @@ class ModelWrapper(torch.nn.Module):
         cur_batch = 0
         output_logits = []
 
-        logging.debug(f"get input_batch_size as {input_batch_size} but compiled batch_size as {self.config.batch_size}")
+        logging.debug(
+            f"get input_batch_size as {input_batch_size} but compiled batch_size as {self.config.batch_size}"
+        )
         while cur_batch < input_batch_size:
             if cur_batch + self.config.batch_size <= input_batch_size:
                 # we only process part of the input to run
                 logging.debug(f"running foward on batch {cur_batch}:{cur_batch+self.config.batch_size}")
-                outputs = self._forward(
-                    *[arg[cur_batch : cur_batch + self.config.batch_size] for arg in args]
-                )
+                outputs = self._forward(*[arg[cur_batch : cur_batch + self.config.batch_size] for arg in args])
             else:
                 # we need to pad the input to run
                 logging.debug(
@@ -257,6 +254,7 @@ class ModelWrapper(torch.nn.Module):
             return torch.cat(output_logits, dim=0)
         else:
             return [torch.cat(output_logits, dim=0), *kv_caches]
+
 
 class DecoderModelInstance(BaseModelInstance):
 

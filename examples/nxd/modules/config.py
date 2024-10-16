@@ -10,12 +10,7 @@ class NeuronInferenceConfig(PretrainedConfig):
     """
 
     def __init__(
-            self,
-            tp_degree: int = 1,
-            batch_size: int = 1,
-            seq_len: int = 128,
-            padding_side: str = "right",
-            **kwargs
+        self, tp_degree: int = 1, batch_size: int = 1, seq_len: int = 128, padding_side: str = "right", **kwargs
     ) -> None:
         # Basic config for inference in NxD
         self.tp_degree = tp_degree

@@ -1,35 +1,31 @@
-import os
 import copy
-import tempfile
-import warnings
-
-from typing import Any, Dict, List, Optional, Tuple, Union
 import logging
+import os
+import tempfile
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
-from torch import nn
 from modules.autobucketing import generate_buckets
 from modules.checkpoint import load_state_dict
-from transformers import PretrainedConfig, PreTrainedModel
-from transformers.generation import SampleDecoderOnlyOutput, SampleEncoderDecoderOutput
-from transformers.modeling_outputs import CausalLMOutputWithPast, ModelOutput
-from transformers.generation.logits_process import LogitsProcessorList
-from transformers.generation.stopping_criteria import (
-    StoppingCriteriaList,
-    validate_stopping_criteria,
-)
-
-from safetensors.torch import load_file
-
-from neuronx_distributed.parallel_layers import parallel_state, utils  # noqa: E402
-from neuronx_distributed.trace.model_builder import ModelBuilder
-from neuronx_distributed.utils.sampling import Sampler  # noqa: E402
-
 from modules.model_wrapper import (  # noqa: E402
     CONTEXT_ENCODING_MODEL_TAG,  # noqa: E402
     TOKEN_GENERATION_MODEL_TAG,  # noqa: E402
     ModelWrapper,  # noqa: E402
 )
+from neuronx_distributed.parallel_layers import parallel_state, utils  # noqa: E402
+from neuronx_distributed.trace.model_builder import ModelBuilder
+from neuronx_distributed.utils.sampling import Sampler  # noqa: E402
+from safetensors.torch import load_file
+from torch import nn
+from transformers import PretrainedConfig, PreTrainedModel
+from transformers.generation import SampleDecoderOnlyOutput, SampleEncoderDecoderOutput
+from transformers.generation.logits_process import LogitsProcessorList
+from transformers.generation.stopping_criteria import (
+    StoppingCriteriaList,
+    validate_stopping_criteria,
+)
+from transformers.modeling_outputs import CausalLMOutputWithPast, ModelOutput
+
 
 SampleOutput = Union[SampleEncoderDecoderOutput, SampleDecoderOnlyOutput]
 
@@ -160,14 +156,12 @@ class NeuronBaseModel(PreTrainedModel):
         attention_mask,
         position_ids,
         seq_ids,
-        accepted_indices = None,
-        current_length = None,
-        scatter_index = None,
+        accepted_indices=None,
+        current_length=None,
+        scatter_index=None,
     ):
 
-        is_for_context_encoding = (
-            input_ids.shape[-1] > 1
-        )
+        is_for_context_encoding = input_ids.shape[-1] > 1
 
         # It is either for context encoding or for token generation
         if is_for_context_encoding:
@@ -183,9 +177,7 @@ class NeuronBaseModel(PreTrainedModel):
                 past_key_values.append([key_state, value_state])
 
         # Prepare attention mask(s)
-        attention_mask = self.create_attn_mask(
-            attention_mask, is_for_context_encoding, position_ids
-        )
+        attention_mask = self.create_attn_mask(attention_mask, is_for_context_encoding, position_ids)
         active_mask = None
 
         hidden_states, past_key_values = self.get_model_output(
@@ -198,8 +190,8 @@ class NeuronBaseModel(PreTrainedModel):
 
         updated_kv_cache = []
         for idx, kv_per_layer in enumerate(past_key_values):
-            k_cache = self._bucket_slice_kv_cacheline(self.past_key_values[idx*2])
-            v_cache = self._bucket_slice_kv_cacheline(self.past_key_values[idx*2+1])
+            k_cache = self._bucket_slice_kv_cacheline(self.past_key_values[idx * 2])
+            v_cache = self._bucket_slice_kv_cacheline(self.past_key_values[idx * 2 + 1])
 
             if is_for_context_encoding:
                 if self.config.is_continuous_batching:
@@ -220,9 +212,7 @@ class NeuronBaseModel(PreTrainedModel):
                     k_cache = torch.cat([k_cache, kv_per_layer[0]], dim=2)
                     v_cache = torch.cat([v_cache, kv_per_layer[1]], dim=2)
                 else:
-                    scatter_index_new = position_ids.view(-1, 1, position_ids.shape[-1], 1).expand_as(
-                        kv_per_layer[0]
-                    )
+                    scatter_index_new = position_ids.view(-1, 1, position_ids.shape[-1], 1).expand_as(kv_per_layer[0])
                     k_cache = torch.scatter(k_cache, 2, scatter_index_new, kv_per_layer[0])
                     v_cache = torch.scatter(v_cache, 2, scatter_index_new, kv_per_layer[1])
 
@@ -259,12 +249,12 @@ class NeuronBaseModel(PreTrainedModel):
         self.embed_tokens = value
 
     def get_model_output(
-            self,
-            input_ids: torch.LongTensor = None,
-            attention_mask: Optional[torch.Tensor] = None,
-            position_ids: Optional[torch.LongTensor] = None,
-            past_key_values: Optional[List[torch.FloatTensor]] = None,
-            active_mask: Optional[List[torch.FloatTensor]] = None,
+        self,
+        input_ids: torch.LongTensor = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        past_key_values: Optional[List[torch.FloatTensor]] = None,
+        active_mask: Optional[List[torch.FloatTensor]] = None,
     ):
         batch_size, seq_length = input_ids.shape[:2]
 
@@ -274,15 +264,13 @@ class NeuronBaseModel(PreTrainedModel):
 
         inputs_embeds = self.embed_tokens(input_ids)
         if position_ids is None:
-            device = input_ids.device if input_ids is not None else inputs_embeds.device  #noqa
+            device = input_ids.device if input_ids is not None else inputs_embeds.device  # noqa
             position_ids = torch.arange(
                 past_key_values_length, seq_length + past_key_values_length, dtype=torch.long, device=device
             )
             position_ids = position_ids.unsqueeze(0).view(-1, seq_length)
         else:
             position_ids = position_ids.view(-1, seq_length).long()
-
-
 
         # NeuronLlamaModel class manages the KV cache. So the attention_mask will be generated and passed
         # through to LlamaModel. We override the HF's code that generates attention mask because HF does
@@ -320,7 +308,7 @@ class NeuronBaseModel(PreTrainedModel):
         return (hidden_states, next_decoder_cache)
 
 
-class NeuronBaseForCausalLM():
+class NeuronBaseForCausalLM:
     _STATE_DICT_MODEL_PREFIX = "model."
 
     _model_cls = None
@@ -341,10 +329,6 @@ class NeuronBaseForCausalLM():
             self.enable_token_generation()
         self.model_path = model_path
 
-    @staticmethod
-    def load_hf_model(model_path):
-        raise NotImplementedError("load_hf_model is not implemented")
-
     def get_compiler_args(self):
         return None
 
@@ -355,7 +339,7 @@ class NeuronBaseForCausalLM():
         new_config.bucket_n_active_tokens = True
 
         if not new_config.enable_bucketing:
-            new_config.buckets = generate_buckets(new_config.max_context_length,new_config.max_context_length)
+            new_config.buckets = generate_buckets(new_config.max_context_length, new_config.max_context_length)
         else:
             new_config.buckets = generate_buckets(128, new_config.max_context_length)
 
@@ -374,10 +358,9 @@ class NeuronBaseForCausalLM():
         new_config.bucket_n_active_tokens = False
 
         if not new_config.enable_bucketing:
-            new_config.buckets = generate_buckets(new_config.max_length,new_config.max_length)
+            new_config.buckets = generate_buckets(new_config.max_length, new_config.max_length)
         else:
             new_config.buckets = generate_buckets(128, new_config.max_length)
-
 
         self.token_generation_model = ModelWrapper(
             config=new_config,
@@ -419,7 +402,7 @@ class NeuronBaseForCausalLM():
             router=None,
             tp_degree=self.config.tp_degree,
             checkpoint_loader=self.checkpoint_loader_fn,
-            compiler_workdir=base_compile_work_dir
+            compiler_workdir=base_compile_work_dir,
         )
 
         for model in self.models:
@@ -472,18 +455,18 @@ class NeuronBaseForCausalLM():
         return torch.device("cpu")
 
     def forward(
-            self,
-            input_ids: torch.LongTensor = None,
-            seq_ids: torch.LongTensor = None,
-            attention_mask: Optional[torch.Tensor] = None,
-            position_ids: Optional[torch.LongTensor] = None,
-            past_key_values: Optional[List[torch.FloatTensor]] = None,
-            inputs_embeds: Optional[torch.FloatTensor] = None,
-            labels: Optional[torch.LongTensor] = None,
-            use_cache: Optional[bool] = None,
-            output_attentions: Optional[bool] = None,
-            output_hidden_states: Optional[bool] = None,
-            return_dict: Optional[bool] = None,
+        self,
+        input_ids: torch.LongTensor = None,
+        seq_ids: torch.LongTensor = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        past_key_values: Optional[List[torch.FloatTensor]] = None,
+        inputs_embeds: Optional[torch.FloatTensor] = None,
+        labels: Optional[torch.LongTensor] = None,
+        use_cache: Optional[bool] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
     ) -> Union[Tuple, CausalLMOutputWithPast]:
         """
         Args:
@@ -493,9 +476,9 @@ class NeuronBaseForCausalLM():
                 (masked), the loss is only computed for the tokens with labels in `[0, ..., config.vocab_size]`.
         """
 
-        output_attentions, output_hidden_states, return_dict = self._setup_func_config(output_attentions,
-                                                                                       output_hidden_states,
-                                                                                       return_dict)
+        output_attentions, output_hidden_states, return_dict = self._setup_func_config(
+            output_attentions, output_hidden_states, return_dict
+        )
 
         # infer attention_mask from position_ids if not provided
         if attention_mask is None:
@@ -558,9 +541,7 @@ class NeuronBaseForCausalLM():
             logging.debug(f"first layer kv_cache: {self.token_generation_model.model.past_key_values[0][:, 0, :, 0]}")
 
     def _get_model_outputs(self, input_ids, attention_mask, position_ids, seq_ids):
-        if (
-            input_ids.shape[-1] > 1
-        ):
+        if input_ids.shape[-1] > 1:
             outputs = self.context_encoding_model(
                 input_ids,
                 attention_mask,
@@ -609,11 +590,11 @@ class NeuronBaseForCausalLM():
     # We override this function because we want to change the way attention_mask
     # is updated each iteration.
     def _update_model_kwargs_for_generation(
-            self,
-            outputs: ModelOutput,
-            model_kwargs: Dict[str, Any],
-            is_for_token_generation: Optional[bool] = False,
-            is_encoder_decoder: bool = False,
+        self,
+        outputs: ModelOutput,
+        model_kwargs: Dict[str, Any],
+        is_for_token_generation: Optional[bool] = False,
+        is_encoder_decoder: bool = False,
     ) -> Dict[str, Any]:
 
         if getattr(outputs, "state", None) is not None:
@@ -641,7 +622,7 @@ class NeuronBaseForCausalLM():
         return model_kwargs
 
     def prepare_inputs_for_generation(
-            self, input_ids, past_key_values=None, attention_mask=None, inputs_embeds=None, **kwargs
+        self, input_ids, past_key_values=None, attention_mask=None, inputs_embeds=None, **kwargs
     ):
         if self.kv_cache_populated:
             input_ids = input_ids[:, -1:]
@@ -698,18 +679,18 @@ class NeuronBaseForCausalLM():
                 self.token_generation_model.model.past_key_values[i] = torch.zeros_like(kv_tensor)
 
     def _sample(
-            self,
-            input_ids: torch.LongTensor,
-            logits_processor: Optional[LogitsProcessorList] = None,
-            stopping_criteria: Optional[StoppingCriteriaList] = None,
-            logits_warper: Optional[LogitsProcessorList] = None,
-            max_length: Optional[int] = None,
-            pad_token_id: Optional[int] = None,
-            eos_token_id: Optional[Union[int, List[int]]] = None,
-            output_scores: Optional[bool] = None,
-            output_logits: Optional[bool] = None,
-            return_dict_in_generate: Optional[bool] = None,
-            **model_kwargs,
+        self,
+        input_ids: torch.LongTensor,
+        logits_processor: Optional[LogitsProcessorList] = None,
+        stopping_criteria: Optional[StoppingCriteriaList] = None,
+        logits_warper: Optional[LogitsProcessorList] = None,
+        max_length: Optional[int] = None,
+        pad_token_id: Optional[int] = None,
+        eos_token_id: Optional[Union[int, List[int]]] = None,
+        output_scores: Optional[bool] = None,
+        output_logits: Optional[bool] = None,
+        return_dict_in_generate: Optional[bool] = None,
+        **model_kwargs,
     ) -> Union[SampleOutput, torch.LongTensor]:
         r"""
         We override the GenerationMixin sample function (_sample for transformers>=4.39.0) to add support for right side padding.
@@ -722,8 +703,8 @@ class NeuronBaseForCausalLM():
         logits_warper = logits_warper if logits_warper is not None else LogitsProcessorList()
         eos_token_id = 2
         pad_token_id = eos_token_id
-        #pad_token_id = pad_token_id if pad_token_id is not None else self.generation_config.pad_token_id
-        #eos_token_id = eos_token_id if eos_token_id is not None else self.generation_config.eos_token_id
+        # pad_token_id = pad_token_id if pad_token_id is not None else self.generation_config.pad_token_id
+        # eos_token_id = eos_token_id if eos_token_id is not None else self.generation_config.eos_token_id
         if isinstance(eos_token_id, int):
             eos_token_id = [eos_token_id]
 

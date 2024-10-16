@@ -4,8 +4,7 @@ from torch_neuronx import nki_jit
 
 @nki_jit
 def nki_tensor_add_kernel(a_input, b_input, c_output):
-    """NKI kernel to compute element-wise addition of two input tensors
-    """
+    """NKI kernel to compute element-wise addition of two input tensors"""
 
     # Check all input/output tensor shapes are the same for element-wise operation
     assert a_input.shape == b_input.shape == c_output.shape
@@ -37,4 +36,4 @@ if __name__ == "__main__":
 
     nki_tensor_add_kernel(a, b, c)
 
-    print(c) # an implicit XLA barrier/mark-step (triggers XLA compilation)
+    print(c)  # an implicit XLA barrier/mark-step (triggers XLA compilation)

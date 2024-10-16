@@ -2,9 +2,6 @@ import enum
 from typing import Optional, Tuple
 
 import torch
-from torch import nn
-from torch.nn import functional as F
-
 from neuronx_distributed.parallel_layers import parallel_state
 from neuronx_distributed.parallel_layers.layers import (
     ColumnParallelLinear,
@@ -14,6 +11,8 @@ from neuronx_distributed.parallel_layers.pad import get_number_of_extra_heads
 from neuronx_distributed.quantization.quantization_layers import (
     BaseQuantizeParallelLinear,
 )
+from torch import nn
+from torch.nn import functional as F
 
 
 class GQA(enum.Enum):
@@ -128,7 +127,9 @@ def maybe_pad_interleaved(
 def _maybe_pad_interleaved(tensor, pad_dim: int, source_heads: int, target_heads: int, source_group_size: int):
     if tensor is None:
         return tensor
-    shape = tensor.shape[:pad_dim] + (source_heads, tensor.shape[pad_dim] // source_heads) + tensor.shape[pad_dim + 1 :]
+    shape = (
+        tensor.shape[:pad_dim] + (source_heads, tensor.shape[pad_dim] // source_heads) + tensor.shape[pad_dim + 1 :]
+    )
     tensor = tensor.view(shape)
 
     splits = torch.split(tensor, source_group_size, dim=pad_dim)
@@ -166,7 +167,9 @@ def _maybe_pad_tail(tensor, source_heads: int, target_heads: int, pad_dim: int):
 def replicate_kv(tensor, source_heads: int, repeats: int, head_dim=0, tensor_scale=None):
     tensor = _replicate_kv(tensor=tensor, source_heads=source_heads, repeats=repeats, head_dim=head_dim)
     if should_pad_scale(tensor_scale=tensor_scale, pad_dim=head_dim):
-        tensor_scale = _replicate_kv(tensor=tensor_scale, source_heads=source_heads, repeats=repeats, head_dim=head_dim)
+        tensor_scale = _replicate_kv(
+            tensor=tensor_scale, source_heads=source_heads, repeats=repeats, head_dim=head_dim
+        )
     return tensor, tensor_scale
 
 

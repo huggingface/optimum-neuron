@@ -3,11 +3,14 @@ from functools import partial
 
 import numpy as np
 
+
 BENCHMARK_REPORT_FILENAME = "benchmark_report.json"
 
 
 class Benchmark:
-    def __init__(self, benchmark_func, input_param, config, num_runs=20, preprocess_func=None, post_warmup_func=None) -> None:
+    def __init__(
+        self, benchmark_func, input_param, config, num_runs=20, preprocess_func=None, post_warmup_func=None
+    ) -> None:
         if isinstance(input_param, (tuple, list)):
             self.benchmark_func = partial(benchmark_func, *input_param)
         elif isinstance(input_param, dict):
