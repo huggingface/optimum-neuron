@@ -10,10 +10,8 @@ from transformers import AutoTokenizer, GenerationConfig, PreTrainedModel, set_s
 from transformers.generation import SampleDecoderOnlyOutput, SampleEncoderDecoderOutput
 
 
-END_TO_END_MODEL = "e2e_model"
 CONTEXT_ENCODING_MODEL = "context_encoding_model"
 TOKEN_GENERATION_MODEL = "token_generation_model"
-LM_HEAD_NAME = "lm_head.pt"
 
 
 BASE_COMPILER_WORK_DIR = "/tmp/nxd_model/"
@@ -22,8 +20,6 @@ TKN_GEN_MODEL_COMPILER_WORK_DIR = BASE_COMPILER_WORK_DIR + TOKEN_GENERATION_MODE
 
 
 SampleOutput = Union[SampleEncoderDecoderOutput, SampleDecoderOnlyOutput]
-
-TEST_PROMPT = "I believe the meaning of life is"
 
 
 class InferenceRunner:
@@ -37,9 +33,8 @@ class InferenceRunner:
         infer-with-hf - Runs inference with huggingface model on CPU
     """
 
-    def __init__(self, model_path: str = None, tokenizer_path: str = None, generation_config: GenerationConfig = None):
+    def __init__(self, model_path: str = None, generation_config: GenerationConfig = None):
         self.model_path = model_path
-        self.tokenizer_path = tokenizer_path
         self._is_torch_profile_enabled = False
 
         if generation_config is None:
@@ -54,19 +49,11 @@ class InferenceRunner:
         # Implement per model
         raise NotImplementedError
 
-    def load_tokenizer(self, padding_side=None):
-        # Implement per model
-        raise NotImplementedError
-
     def get_config_cls(self):
         # Implement per model
         raise NotImplementedError
 
     def get_model_cls(self):
-        # Implement per model
-        raise NotImplementedError
-
-    def get_padding_side(self):
         # Implement per model
         raise NotImplementedError
 
@@ -157,7 +144,7 @@ class InferenceRunner:
         config.enable_bucketing = enable_bucketing
         config.buckets = [max_length]
 
-        config.padding_side = self.get_padding_side()
+        config.padding_side = "right"
         config.on_device_sampling = kwargs.get("on_device_sampling", False)
 
         config.trace_tokengen_model = kwargs.get("trace_tokengen_model", True)
@@ -166,58 +153,37 @@ class InferenceRunner:
 
         return config
 
-    def generate_on_neuron(
-        self, prompts: List[str], model: PreTrainedModel, draft_model: PreTrainedModel = None, **kwargs
-    ):
-        """
-        Runs the trace on Neuron.
-        """
-
-        if not isinstance(model, PreTrainedModel):
-            raise ValueError(f"Model should be of type PreTrainedModel, got type {type(model)}")
-
-        tokenizer = self.load_tokenizer()
-        tokenizer.pad_token_id = tokenizer.eos_token_id
-        if len(prompts) != model.config.max_batch_size:
-            raise ValueError(f"Number of prompts should match batch size {model.config.max_batch_size}")
-
-        max_length = kwargs.pop("max_length", model.config.max_length)
-        if max_length > model.config.max_length:
-            ValueError(
-                f"Found user supplied {max_length=} exceeds the compiled model sequence_length={model.config.max_length}"
-            )
-
-        with self.torch_profile(chrome_trace_path="generate-on-neuron.torch-trace.json"):
-            outputs, output_tokens = self.generate(model, tokenizer, prompts, max_length, draft_model, **kwargs)
-        model.reset()
-        if draft_model is not None:
-            draft_model.reset()
-        return outputs, output_tokens
-
     def generate(
         self,
         model: PreTrainedModel,
         tokenizer: AutoTokenizer,
         prompts: List[str],
-        max_length: int,
-        draft_model: PreTrainedModel = None,
+        max_length: int = None,
         **kwargs,
     ):
+        # Sanity checks
+        if len(prompts) != model.config.max_batch_size:
+            raise ValueError(f"Number of prompts should match batch size {model.config.max_batch_size}")
+        if max_length is None:
+            max_length = model.config.max_length
+        if max_length > model.config.max_length:
+            ValueError(
+                f"Found user supplied {max_length=} exceeds the compiled model sequence_length={model.config.max_length}"
+            )
         set_seed(0)  # to avoid randomness in sampling if any
         inputs = tokenizer(prompts, padding=True, return_tensors="pt")
         for idx, input in enumerate(inputs["input_ids"]):
             logging.debug("tokenized input %s : %s", idx, tokenizer.decode(input))
 
-        if draft_model is not None:
-            kwargs.update({"assistant_model": draft_model, "do_sample": False})
-
-        outputs = model.generate(
-            inputs.input_ids,
-            generation_config=self.generation_config,
-            attention_mask=inputs.attention_mask,
-            max_length=max_length,
-            **kwargs,
-        )
+        with self.torch_profile(chrome_trace_path="generate.torch-trace.json"):
+            outputs = model.generate(
+                inputs.input_ids,
+                generation_config=self.generation_config,
+                attention_mask=inputs.attention_mask,
+                max_length=max_length,
+                **kwargs,
+            )
+            model.reset()
 
         if isinstance(outputs, SampleOutput.__args__):
             # Get token ids from output when return_dict_in_generate=True
@@ -269,11 +235,6 @@ class InferenceRunner:
 
         # Save config to be used by checkpoint_loader
         self.config = config
-
-        # Copy the tokenizer into the traced_model_path
-        tokenizer = self.load_tokenizer()
-        if tokenizer:
-            tokenizer.save_pretrained(traced_model_path)
 
         model = self.get_model_cls().from_pretrained(self.model_path, config)
 

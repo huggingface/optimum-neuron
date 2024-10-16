@@ -21,20 +21,11 @@ class LlamaRunner(InferenceRunner):
 
         return model
 
-    def load_tokenizer(self, padding_side=None):
-        tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_path)
-        tokenizer.pad_token_id = self.config.eos_token_id
-        tokenizer.padding_side = padding_side if padding_side else self.get_padding_side()
-        return tokenizer
-
     def get_config_cls(self):
         return NeuronLlamaConfig
 
     def get_model_cls(self):
         return NeuronLlamaForCausalLM
-
-    def get_padding_side(self):
-        return "right"
 
     def get_default_hf_generation_config_kwargs(self):
         config = super().get_default_hf_generation_config_kwargs()

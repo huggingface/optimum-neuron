@@ -1,3 +1,4 @@
+from transformers import AutoTokenizer
 from llama2.llama2_runner import LlamaRunner
 
 
@@ -11,7 +12,10 @@ def main():
     batch_size = 2
     tp_degree = 24
 
-    runner = LlamaRunner(model_path=model_path, tokenizer_path=model_path)
+    runner = LlamaRunner(model_path=model_path)
+    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    tokenizer.pad_token_id = tokenizer.eos_token_id
+    tokenizer.padding_size = 'right'
 
     runner.trace(
         traced_model_path=traced_model_path,
@@ -26,7 +30,7 @@ def main():
 
     prompt = ["I believe the meaning of life is", "The color of the sky is"]
 
-    generate_ids, outputs = runner.generate_on_neuron(prompt, neuron_model)
+    generate_ids, outputs = runner.generate(neuron_model, tokenizer, prompt)
 
     for idx, output in enumerate(outputs):
         print(f"output {idx}: {output}")
