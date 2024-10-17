@@ -67,12 +67,16 @@ def is_torch_neuronx_available() -> bool:
     return importlib.util.find_spec("torch_neuronx") is not None
 
 
-def is_trl_available() -> bool:
+def is_trl_available(required_version: Optional[str] = None) -> bool:
     trl_available = importlib.util.find_spec("trl") is not None
     if trl_available:
         import trl
 
-        if version.parse(trl.__version__) >= version.parse("0.10.0"):
+        if required_version is None:
+            required_version = trl.__version__
+
+        if version.parse(trl.__version__) == version.parse(required_version):
             return True
-        raise RuntimeError("Only `trl` 0.10.0 and more recent is supported.")
+
+        raise RuntimeError(f"Only `trl=={required_version}` is supported, but {trl.__version__} is installed.")
     return False

@@ -23,6 +23,7 @@ import shutil
 import sys
 import time
 import warnings
+from collections import defaultdict
 from functools import wraps
 from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
 
@@ -30,7 +31,6 @@ import datasets
 import numpy as np
 import torch
 from accelerate import __version__ as accelerate_version
-from accelerate.state import PartialState
 from accelerate.utils import AutocastKwargs, DataLoaderConfiguration, GradientAccumulationPlugin
 from packaging import version
 from torch import nn
@@ -45,6 +45,7 @@ from transformers import (
     Seq2SeqTrainer,
     Trainer,
     TrainingArguments,
+    is_wandb_available,
 )
 from transformers.debug_utils import DebugOption, DebugUnderflowOverflow
 from transformers.integrations import hp_params
@@ -84,7 +85,7 @@ from transformers.utils import (
 )
 
 from ..utils import logging
-from .accelerate import NeuronAccelerator, NeuronDistributedType
+from .accelerate import NeuronAccelerator, NeuronDistributedType, NeuronPartialState
 from .distributed import Parallelizer, ParallelizersManager
 from .distributed.utils import make_optimizer_constructor_lazy
 from .training_args import NeuronTrainingArguments
@@ -1715,7 +1716,7 @@ class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
                 data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
         # Pre-process the datasets only once per node. The remaining processes will use the cache.
-        with PartialState().local_main_process_first():
+        with NeuronPartialState().local_main_process_first():
             if train_dataset is not None:
                 train_dataset = self._prepare_dataset(
                     train_dataset,
@@ -1872,8 +1873,226 @@ class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
         return tokenized_dataset
 
 
-# class NeuronORPOTrainer(ORPOTrainer):
-class NeuronORPOTrainer(_TrainerForNeuron, ORPOTrainer):
+class _ORPOTrainerInit(ORPOTrainer):
+    def __init__(self, *args, **kwargs):
+        return Trainer.__init__(self, *args, **kwargs)
+
+
+class NeuronORPOTrainer(_TrainerForNeuron, _ORPOTrainerInit):
+    def __init__(
+        self,
+        model: Optional[Union[PreTrainedModel, nn.Module, str]] = None,
+        args: Optional[ORPOConfig] = None,
+        data_collator: Optional[DataCollator] = None,
+        train_dataset: Optional[Dataset] = None,
+        eval_dataset: Optional[Union[Dataset, Dict[str, Dataset]]] = None,
+        tokenizer: Optional[PreTrainedTokenizerBase] = None,
+        model_init: Optional[Callable[[], PreTrainedModel]] = None,
+        callbacks: Optional[List[TrainerCallback]] = None,
+        optimizers: Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LambdaLR] = (None, None),
+        preprocess_logits_for_metrics: Optional[Callable[[torch.Tensor, torch.Tensor], torch.Tensor]] = None,
+        peft_config: Optional[Dict] = None,
+        compute_metrics: Optional[Callable[[EvalLoopOutput], Dict]] = None,
+    ):
+        if not is_trl_available():
+            raise RuntimeError("Using NeuronORPOTrainer requires the trl library.")
+
+        from trl.trainer.utils import DPODataCollatorWithPadding, disable_dropout_in_model, peft_module_casting_to_bf16
+
+        if args.model_init_kwargs is None:
+            model_init_kwargs = {}
+        elif not isinstance(model, str):
+            raise ValueError("You passed model_kwargs to the ORPOTrainer. But your model is already instantiated.")
+        else:
+            model_init_kwargs = args.model_init_kwargs
+            torch_dtype = model_init_kwargs.get("torch_dtype")
+            if torch_dtype is not None:
+                # Convert to `torch.dtype` if an str is passed
+                if isinstance(torch_dtype, str) and torch_dtype != "auto":
+                    torch_dtype = getattr(torch, torch_dtype)
+                if torch_dtype != "auto" and not isinstance(torch_dtype, torch.dtype):
+                    raise ValueError(
+                        f"Invalid `torch_dtype` passed to the ORPOConfig. Expected a string with either `torch.dtype` or 'auto', but got {torch_dtype}."
+                    )
+                model_init_kwargs["torch_dtype"] = torch_dtype
+
+        if isinstance(model, str):
+            warnings.warn(
+                "You passed a model_id to the ORPOTrainer. This will automatically create an "
+                "`AutoModelForCausalLM` or a `PeftModel` (if you passed a `peft_config`) for you."
+            )
+            model = AutoModelForCausalLM.from_pretrained(model, **model_init_kwargs)
+
+        # Initialize this variable to False. This helps tracking the case when `peft_module_casting_to_bf16`
+        # has been called in order to properly call autocast if needed.
+        self._peft_has_been_casted_to_bf16 = False
+
+        if not is_peft_available() and peft_config is not None:
+            raise ValueError(
+                "PEFT is not installed and you passed a `peft_config` in the trainer's kwargs, please install it to use the PEFT models"
+            )
+        elif is_peft_available() and peft_config is not None:
+            from peft import prepare_model_for_kbit_training
+
+            # if model is a peft model and we have a peft_config, we merge and unload it first
+            if isinstance(model, NeuronPeftModel):
+                model = model.merge_and_unload()
+
+            if getattr(model, "is_loaded_in_8bit", False) or getattr(model, "is_loaded_in_4bit", False):
+                _support_gc_kwargs = hasattr(
+                    args, "gradient_checkpointing_kwargs"
+                ) and "gradient_checkpointing_kwargs" in list(
+                    inspect.signature(prepare_model_for_kbit_training).parameters
+                )
+
+                prepare_model_kwargs = {"use_gradient_checkpointing": args.gradient_checkpointing}
+
+                if _support_gc_kwargs:
+                    prepare_model_kwargs["gradient_checkpointing_kwargs"] = args.gradient_checkpointing_kwargs
+
+                model = prepare_model_for_kbit_training(model, **prepare_model_kwargs)
+            elif getattr(args, "gradient_checkpointing", False):
+                # For backward compatibility with older versions of transformers
+                if hasattr(model, "enable_input_require_grads"):
+                    model.enable_input_require_grads()
+                else:
+
+                    def make_inputs_require_grad(module, input, output):
+                        output.requires_grad_(True)
+
+                    model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
+
+            # get peft model with the given config
+            model = get_peft_model(model, peft_config)
+            if args.bf16 and getattr(model, "is_loaded_in_4bit", False):
+                peft_module_casting_to_bf16(model)
+                # If args.bf16 we need to explicitly call `generate` with torch amp autocast context manager
+                self._peft_has_been_casted_to_bf16 = True
+
+        # For models that use gradient_checkpointing, we need to attach a hook that enables input
+        # to explicitly have `requires_grad=True`, otherwise training will either silently
+        # fail or completely fail.
+        elif getattr(args, "gradient_checkpointing", False):
+            # For backward compatibility with older versions of transformers
+            if hasattr(model, "enable_input_require_grads"):
+                model.enable_input_require_grads()
+            else:
+
+                def make_inputs_require_grad(module, input, output):
+                    output.requires_grad_(True)
+
+                model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
+
+        if args.generate_during_eval and not is_wandb_available():
+            raise ValueError(
+                "`generate_during_eval=True` requires Weights and Biases to be installed."
+                " Please install `wandb` to resolve."
+            )
+
+        if model is not None:
+            self.is_encoder_decoder = model.config.is_encoder_decoder
+        elif args.is_encoder_decoder is None:
+            raise ValueError("When no model is provided, you need to pass the parameter is_encoder_decoder.")
+        else:
+            self.is_encoder_decoder = args.is_encoder_decoder
+
+        if self.is_encoder_decoder:
+            self.decoder_start_token_id = model.config.decoder_start_token_id
+            self.pad_token_id = model.config.pad_token_id
+
+        if tokenizer is None:
+            raise ValueError("tokenizer must be specified to tokenize a ORPO dataset.")
+        if args.max_length is None:
+            warnings.warn(
+                "`max_length` is not set in the ORPOConfig's init"
+                " it will default to `512` by default, but you should do it yourself in the future.",
+                UserWarning,
+            )
+            max_length = 512
+        else:
+            max_length = args.max_length
+        if args.max_prompt_length is None:
+            warnings.warn(
+                "`max_prompt_length` is not set in the ORPOConfig's init"
+                " it will default to `128` by default, but you should do it yourself in the future.",
+                UserWarning,
+            )
+            max_prompt_length = 128
+        else:
+            max_prompt_length = args.max_prompt_length
+
+        if args.max_completion_length is None and self.is_encoder_decoder:
+            warnings.warn(
+                "When using an encoder decoder architecture, you should set `max_completion_length` in the ORPOConfig's init"
+                " it will default to `128` by default, but you should do it yourself in the future.",
+                UserWarning,
+            )
+            self.max_completion_length = 128
+        else:
+            self.max_completion_length = args.max_completion_length
+
+        if data_collator is None:
+            data_collator = DPODataCollatorWithPadding(
+                pad_token_id=tokenizer.pad_token_id,
+                label_pad_token_id=args.label_pad_token_id,
+                is_encoder_decoder=self.is_encoder_decoder,
+            )
+
+            if args.remove_unused_columns:
+                args.remove_unused_columns = False
+                # warn users
+                warnings.warn(
+                    "When using DPODataCollatorWithPadding, you should set `remove_unused_columns=False` in your TrainingArguments"
+                    " we have set it for you, but you should do it yourself in the future.",
+                    UserWarning,
+                )
+
+            self.use_dpo_data_collator = True
+        else:
+            self.use_dpo_data_collator = False
+
+        if args.disable_dropout:
+            disable_dropout_in_model(model)
+
+        self.max_length = max_length
+        self.generate_during_eval = args.generate_during_eval
+        self.label_pad_token_id = args.label_pad_token_id
+        self.padding_value = args.padding_value if args.padding_value is not None else tokenizer.pad_token_id
+        self.max_prompt_length = max_prompt_length
+        self.truncation_mode = args.truncation_mode
+        self.tokenizer = tokenizer
+
+        self.beta = args.beta
+        self.aux_loss_enabled = getattr(model.config, "output_router_logits", False)
+
+        self._stored_metrics = defaultdict(lambda: defaultdict(list))
+
+        # Compute that only on the main process for faster data processing.
+        # see: https://github.com/huggingface/trl/pull/1255
+        with NeuronPartialState().local_main_process_first():
+            # tokenize the dataset
+            train_dataset = train_dataset.map(self.tokenize_row, num_proc=args.dataset_num_proc)
+            if eval_dataset is not None:
+                eval_dataset = eval_dataset.map(self.tokenize_row, num_proc=args.dataset_num_proc)
+
+        super().__init__(
+            model=model,
+            args=args,
+            data_collator=data_collator,
+            train_dataset=train_dataset,
+            eval_dataset=eval_dataset,
+            tokenizer=tokenizer,
+            model_init=model_init,
+            compute_metrics=compute_metrics,
+            callbacks=callbacks,
+            optimizers=optimizers,
+            preprocess_logits_for_metrics=preprocess_logits_for_metrics,
+        )
+
+        # Add tags for models that have been loaded with the correct transformers version
+        if hasattr(self.model, "add_model_tags"):
+            self.model.add_model_tags(self._tag_names)
+
     def concatenated_forward(
         self, model: nn.Module, batch: Dict[str, Union[List, torch.LongTensor]]
     ) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
