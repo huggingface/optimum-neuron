@@ -540,7 +540,7 @@ def export_neuronx(
     # Prepare the model / function(tp) to trace 
     aliases = {}
     tp_degree = config.tp_degree
-    if hasattr(model_or_path, "config") and isinstance(config, TextSeq2SeqNeuronConfig):
+    if isinstance(config, TextSeq2SeqNeuronConfig):
         checked_model = config.patch_model_for_export(model_or_path, **input_shapes)
         if tp_degree==1:
             aliases = config.generate_io_aliases(checked_model)

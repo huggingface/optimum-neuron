@@ -823,14 +823,13 @@ class T5EncoderNeuronConfig(TextSeq2SeqNeuronConfig):
         return encoder, aliases
     
     def generate_io_aliases(self, encoder=None):
+        aliases = {}
         if self.tp_degree > 1:
             for i in range(len(encoder.past_key_values_sa)):
                 aliases[encoder.past_key_values_sa[i]] = i
             
             for i in range(len(encoder.past_key_values_ca)):
                 aliases[encoder.past_key_values_ca[i]] = len(encoder.past_key_values_sa) + i
-        else:
-            aliases = {}
         return aliases
 
 
