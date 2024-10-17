@@ -261,6 +261,7 @@ def infer_stable_diffusion_shapes_from_diffusers(
 def get_submodels_and_neuron_configs(
     model: Union["PreTrainedModel", "DiffusionPipeline"],
     input_shapes: Dict[str, int],
+    tensor_parallel_size: int,
     task: str,
     output: Path,
     library_name: str,
@@ -300,7 +301,14 @@ def get_submodels_and_neuron_configs(
     elif is_encoder_decoder:
         optional_outputs = {"output_attentions": output_attentions, "output_hidden_states": output_hidden_states}
         models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs_for_encoder_decoder(
-            model, input_shapes, task, output, dynamic_batch_size, model_name_or_path, **optional_outputs
+            model=model, 
+            input_shapes=input_shapes, 
+            tensor_parallel_size=tensor_parallel_size,
+            task=task, 
+            output=output, 
+            dynamic_batch_size=dynamic_batch_size, 
+            model_name_or_path=model_name_or_path, 
+            **optional_outputs,
         )
     else:
         # TODO: Enable optional outputs for encoders
@@ -427,6 +435,7 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
 def _get_submodels_and_neuron_configs_for_encoder_decoder(
     model: "PreTrainedModel",
     input_shapes: Dict[str, int],
+    tensor_parallel_size: int,
     task: str,
     output: Path,
     dynamic_batch_size: bool = False,
@@ -442,15 +451,19 @@ def _get_submodels_and_neuron_configs_for_encoder_decoder(
     models_and_neuron_configs = get_encoder_decoder_models_for_export(
         model=model,
         task=task,
+        tensor_parallel_size=tensor_parallel_size,
         dynamic_batch_size=dynamic_batch_size,
         input_shapes=input_shapes,
         output_attentions=output_attentions,
         output_hidden_states=output_hidden_states,
+        model_name_or_path=model_name_or_path,
     )
     output_model_names = {
         ENCODER_NAME: os.path.join(ENCODER_NAME, NEURON_FILE_NAME),
         DECODER_NAME: os.path.join(DECODER_NAME, NEURON_FILE_NAME),
     }
+    model.config.save_pretrained(output)
+    model.generation_config.save_pretrained(output)
     maybe_save_preprocessors(model_name_or_path, output)
 
     return models_and_neuron_configs, output_model_names
@@ -460,6 +473,7 @@ def load_models_and_neuron_configs(
     model_name_or_path: str,
     output: Path,
     model: Optional[Union["PreTrainedModel", "ModelMixin"]],
+    tensor_parallel_size: int,
     task: str,
     dynamic_batch_size: bool,
     cache_dir: Optional[str],
@@ -499,6 +513,7 @@ def load_models_and_neuron_configs(
     models_and_neuron_configs, output_model_names = get_submodels_and_neuron_configs(
         model=model,
         input_shapes=input_shapes,
+        tensor_parallel_size=tensor_parallel_size,
         task=task,
         library_name=library_name,
         output=output,
@@ -522,6 +537,7 @@ def main_export(
     model_name_or_path: str,
     output: Union[str, Path],
     compiler_kwargs: Dict[str, Any],
+    tensor_parallel_size: int = 1,
     model: Optional[Union["PreTrainedModel", "ModelMixin"]] = None,
     task: str = "auto",
     dynamic_batch_size: bool = False,
@@ -563,6 +579,7 @@ def main_export(
         model_name_or_path=model_name_or_path,
         output=output,
         model=model,
+        tensor_parallel_size=tensor_parallel_size,
         task=task,
         dynamic_batch_size=dynamic_batch_size,
         cache_dir=cache_dir,
@@ -597,6 +614,10 @@ def main_export(
     )
 
     # Validate compiled model
+    if do_validation and tensor_parallel_size > 1:
+        # TODO: support the validation of tp models.
+        logger.warning("The validation is not yet support with tensor parallel model, the validation will be turned off.")
+        do_validation =  False
     if do_validation is True:
         try:
             validate_models_outputs(
@@ -698,6 +719,7 @@ def main():
         model_name_or_path=args.model,
         output=args.output,
         compiler_kwargs=compiler_kwargs,
+        tensor_parallel_size=args.tensor_parallel_size,
         task=task,
         dynamic_batch_size=args.dynamic_batch_size,
         atol=args.atol,

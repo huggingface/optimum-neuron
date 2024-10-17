@@ -146,6 +146,7 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
         task: str,
         compiler_type: Optional[str] = None,
         compiler_version: Optional[str] = None,
+        tensor_parallel_size: int = 1,
         batch_size: Optional[int] = None,
         text_batch_size: Optional[int] = None,
         image_batch_size: Optional[int] = None,
@@ -174,6 +175,7 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
         self._config = config
         self._normalized_config = self.NORMALIZED_CONFIG_CLASS(self._config)
         self.mandatory_axes = ()
+        self.tp_degree = tensor_parallel_size
         self.task = task
         self._axes: Dict[str, int] = {}
         self.dynamic_batch_size = dynamic_batch_size
@@ -226,6 +228,14 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
     def task(self, value: str):
         self._task = value
         self.mandatory_axes = self.get_mandatory_axes_for_task(self.task)
+    
+    @property
+    def tp_degree(self) -> int:
+        return self._tp_degree
+
+    @tp_degree.setter
+    def tp_degree(self, value: int):
+        self._tp_degree = value
 
     def __getattr__(self, attr_name) -> Any:
         if attr_name != "_axes" and attr_name in self._axes:

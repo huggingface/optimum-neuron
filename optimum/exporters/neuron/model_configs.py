@@ -16,6 +16,7 @@
 
 import copy
 from typing import TYPE_CHECKING, Dict, List
+from functools import partial
 
 import torch
 
@@ -25,6 +26,7 @@ from ...neuron.utils import (
     DummyControNetInputGenerator,
     DummyMaskedPosGenerator,
 )
+from ...neuron.distributed import ParallelizersManager
 from ...utils import (
     DummyInputGenerator,
     DummySeq2SeqDecoderTextInputGenerator,
@@ -57,6 +59,7 @@ from .model_wrappers import (
     T5EncoderWrapper,
     UnetNeuronWrapper,
 )
+from transformers import T5ForConditionalGeneration
 
 
 if TYPE_CHECKING:
@@ -793,19 +796,41 @@ class T5EncoderNeuronConfig(TextSeq2SeqNeuronConfig):
     def is_decoder(self) -> bool:
         return False
 
-    def patch_model_for_export(self, model, device="xla", **kwargs):
+    def patch_model_for_export(self, model_or_path, device="xla", **kwargs):
         num_beams = kwargs.pop("num_beams", 1)
-        return self.CUSTOM_MODEL_WRAPPER(model, num_beams=num_beams, device=device)
-
-
-@register_in_tasks_manager("opt", "text-generation")
-class OPTNeuronConfig(TextNeuronDecoderConfig):
-    NEURONX_CLASS = "opt.model.OPTForSampling"
-
-
-@register_in_tasks_manager("bloom", "text-generation")
-class BloomNeuronConfig(TextNeuronDecoderConfig):
-    NEURONX_CLASS = "bloom.model.BloomForSampling"
+        sequence_length = kwargs.pop("sequence_length", None)
+        batch_size = kwargs.pop("batch_size", None)
+        
+        if self.tp_degree > 1:
+            # `torch.nn.modules` objects not eligible for pickling, the model needs to be loaded within the func. 
+            return partial(self.get_parallel_encoder_func, model_or_path, sequence_length, batch_size, num_beams, device, self.tp_degree)
+        else:
+            return self.CUSTOM_MODEL_WRAPPER(model_or_path, sequence_length=sequence_length, batch_size=batch_size, num_beams=num_beams, device=device, tp_degree=self.tp_degree)
+    
+    def get_parallel_encoder_func(self, model_name_or_path, sequence_length, batch_size, num_beams, device, tp_degree):
+        """Unlike `torch_neuronx.trace`, `parallel_model_trace` requires a function returning a model object and a dictionary of states."""
+        model = T5ForConditionalGeneration.from_pretrained(model_name_or_path, torch_dtype="auto")
+        model.config.use_cache = True
+        parallizer = ParallelizersManager.parallelizer_for_model(model)
+        with parallizer.saved_model_in_temporary_directory(model) as ckpt_path:
+            parallel_model = self.load_pretrained_with_parallel_attn(model, ckpt_path)
+            # using parallizer
+            # parallizer = ParallelizersManager.parallelizer_for_model(model)
+            # parallel_model = parallizer.parallelize(model)
+        encoder = self.CUSTOM_MODEL_WRAPPER(parallel_model, sequence_length=sequence_length, batch_size=batch_size, num_beams=num_beams, device=device, tp_degree=tp_degree)
+        encoder.eval()
+        aliases = self.generate_io_aliases(encoder)
+        return encoder, aliases
+    
+    def generate_io_aliases(self, encoder=None):
+        aliases = {}
+        if self.tp_degree > 1:
+            for i in range(len(encoder.past_key_values_sa)):
+                aliases[encoder.past_key_values_sa[i]] = i
+            
+            for i in range(len(encoder.past_key_values_ca)):
+                aliases[encoder.past_key_values_ca[i]] = len(encoder.past_key_values_sa) + i
+        return aliases
 
 
 @register_in_tasks_manager("t5-decoder", "text2text-generation")
@@ -850,26 +875,65 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
         sequence_length = kwargs.pop("sequence_length", 1)
         num_beams = kwargs.pop("num_beams", 1)
 
-        return self.CUSTOM_MODEL_WRAPPER(
-            model,
+        trace_args = {
+            "model": model,
+            "batch_size": batch_size,
+            "sequence_length": sequence_length,
+            "num_beams": num_beams,
+            "output_hidden_states": self.output_hidden_states,
+            "output_attentions": self.output_attentions,
+            "device": device,
+            "tp_degree": self.tp_degree,
+        }
+        if self.tp_degree > 1:
+            return partial(self.get_parallel_decoder_func, model, batch_size, sequence_length, num_beams, self.output_hidden_states, self.output_attentions, device, self.tp_degree)
+        else:
+            return self.CUSTOM_MODEL_WRAPPER(**trace_args)
+        
+    def get_parallel_decoder_func(self, model_name_or_path, batch_size, sequence_length, num_beams, output_hidden_states, output_attentions, device, tp_degree):
+        """Unlike `torch_neuronx.trace`, `parallel_model_trace` requires a function returning a model object and a dictionary of states."""
+        model = T5ForConditionalGeneration.from_pretrained(model_name_or_path, torch_dtype="auto")
+        model.config.use_cache = True
+        parallizer = ParallelizersManager.parallelizer_for_model(model)
+        with parallizer.saved_model_in_temporary_directory(model) as ckpt_path:
+            parallel_model = self.load_pretrained_with_parallel_attn(model, ckpt_path)
+            # using parallizer
+            # parallizer = ParallelizersManager.parallelizer_for_model(model)
+            # parallel_model = parallizer.parallelize(model)
+            
+        decoder = self.CUSTOM_MODEL_WRAPPER(
+            parallel_model,
             batch_size=batch_size,
             sequence_length=sequence_length,
             num_beams=num_beams,
-            output_hidden_states=self.output_hidden_states,
-            output_attentions=self.output_attentions,
+            output_hidden_states=output_hidden_states,
+            output_attentions=output_attentions,
             device=device,
+            tp_degree=tp_degree,
         )
+        decoder.eval()
+        aliases = self.generate_io_aliases(decoder)
+        return decoder, aliases
 
-    def generate_io_aliases(self, model):
-        num_outputs_from_trace = 3 if model.num_beams > 1 else 1
+    def generate_io_aliases(self, decoder):
+        num_outputs_from_trace = 3 if decoder.num_beams > 1 else 1
         aliases = {}
-        for i in range(len(model.past_key_values_sa)):
-            aliases[model.past_key_values_sa[i]] = i + num_outputs_from_trace
-        for i in range(len(model.past_key_values_ca)):
-            aliases[model.past_key_values_ca[i]] = len(model.past_key_values_sa) + i + num_outputs_from_trace
+        for i in range(len(decoder.past_key_values_sa)):
+            aliases[decoder.past_key_values_sa[i]] = i + num_outputs_from_trace
+        for i in range(len(decoder.past_key_values_ca)):
+            aliases[decoder.past_key_values_ca[i]] = len(decoder.past_key_values_sa) + i + num_outputs_from_trace
 
         return aliases
 
+
+@register_in_tasks_manager("opt", "text-generation")
+class OPTNeuronConfig(TextNeuronDecoderConfig):
+    NEURONX_CLASS = "opt.model.OPTForSampling"
+
+
+@register_in_tasks_manager("bloom", "text-generation")
+class BloomNeuronConfig(TextNeuronDecoderConfig):
+    NEURONX_CLASS = "bloom.model.BloomForSampling"
 
 @register_in_tasks_manager("mistral", "text-generation")
 class MistralNeuronConfig(TextNeuronDecoderConfig):
