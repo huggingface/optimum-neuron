@@ -816,7 +816,7 @@ class T5EncoderNeuronConfig(TextSeq2SeqNeuronConfig):
             parallel_model = self.load_pretrained_with_parallel_attn(model, ckpt_path)
             # using parallizer
             # parallizer = ParallelizersManager.parallelizer_for_model(model)
-            # model = parallizer.parallelize(model)
+            # parallel_model = parallizer.parallelize(model)
         encoder = self.CUSTOM_MODEL_WRAPPER(parallel_model, sequence_length=sequence_length, batch_size=batch_size, num_beams=num_beams, device=device, tp_degree=tp_degree)
         encoder.eval()
         aliases = self.generate_io_aliases(encoder)
@@ -890,17 +890,17 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
         else:
             return self.CUSTOM_MODEL_WRAPPER(**trace_args)
         
-    def get_parallel_decoder_func(self, model, batch_size, sequence_length, num_beams, output_hidden_states, output_attentions, device, tp_degree):
+    def get_parallel_decoder_func(self, model_name_or_path, batch_size, sequence_length, num_beams, output_hidden_states, output_attentions, device, tp_degree):
         """Unlike `torch_neuronx.trace`, `parallel_model_trace` requires a function returning a model object and a dictionary of states."""
+        model = T5ForConditionalGeneration.from_pretrained(model_name_or_path, torch_dtype="auto")
         model.config.use_cache = True
-        # parallizer = ParallelizersManager.parallelizer_for_model(model)
-        # with parallizer.saved_model_in_temporary_directory(model) as ckpt_path:
-        #     parallel_model = self.load_pretrained_with_parallel_attn(model, ckpt_path)
-        #     # using parallizer
-        #     # parallizer = ParallelizersManager.parallelizer_for_model(model)
-        #     # model = parallizer.parallelize(model)
+        parallizer = ParallelizersManager.parallelizer_for_model(model)
+        with parallizer.saved_model_in_temporary_directory(model) as ckpt_path:
+            parallel_model = self.load_pretrained_with_parallel_attn(model, ckpt_path)
+            # using parallizer
+            # parallizer = ParallelizersManager.parallelizer_for_model(model)
+            # parallel_model = parallizer.parallelize(model)
             
-        parallel_model = model
         decoder = self.CUSTOM_MODEL_WRAPPER(
             parallel_model,
             batch_size=batch_size,

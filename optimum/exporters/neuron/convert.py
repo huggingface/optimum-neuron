@@ -302,7 +302,6 @@ def export_models(
     optlevel: str = "2",
     output_file_names: Optional[Dict[str, str]] = None,
     compiler_kwargs: Optional[Dict[str, Any]] = {},
-    configs: Optional[Dict[str, Any]] = {},
     model_name_or_path: Optional[str] = None,
 ) -> Tuple[Dict[str, List[str]], Dict[str, List[str]]]:
     """
@@ -329,8 +328,6 @@ def export_models(
             If None, will use the keys from `models_and_neuron_configs` as names.
         compiler_kwargs (`Optional[Dict[str, Any]]`, defaults to `None`):
             Arguments to pass to the Neuron(x) compiler for exporting Neuron models.
-        configs (`Optional[Dict[str, Any]]`, defaults to `None`):
-            A list of pretrained model configs.
         model_name_or_path (`Optional[str]`, defaults to `None`):
             Path to pretrained model or model identifier from the Hugging Face Hub.
     Returns:
@@ -382,14 +379,9 @@ def export_models(
         logger.info(f"[Compilation Time] {np.round(compilation_time, 2)} seconds.")
         all_inputs[model_name] = neuron_inputs
         all_outputs[model_name] = neuron_outputs
+        
         # Add neuron specific configs to model components' original config
-        if hasattr(submodel, "config"):
-            model_config = submodel.config
-        elif configs and (model_name in configs.keys()):
-            model_config = configs[model_name]
-        else:
-            raise AttributeError("Cannot find model's configuration, please pass it with `configs`.")
-
+        model_config = sub_neuron_config._config
         if is_diffusers_available() and isinstance(model_config, FrozenDict):
             model_config = OrderedDict(model_config)
             model_config = DiffusersPretrainedConfig.from_dict(model_config)

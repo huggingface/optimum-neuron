@@ -614,6 +614,10 @@ def main_export(
     )
 
     # Validate compiled model
+    if do_validation and tensor_parallel_size > 1:
+        # TODO: support the validation of tp models.
+        logger.warning("The validation is not yet support with tensor parallel model, the validation will be turned off.")
+        do_validation =  False
     if do_validation is True:
         try:
             validate_models_outputs(
