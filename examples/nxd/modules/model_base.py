@@ -2,6 +2,8 @@ import copy
 import logging
 import os
 import tempfile
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
@@ -18,7 +20,12 @@ from neuronx_distributed.utils.sampling import Sampler  # noqa: E402
 from safetensors.torch import load_file
 from torch import nn
 from transformers import PretrainedConfig, PreTrainedModel
-from transformers.generation import GenerationConfig, GenerationMixin, SampleDecoderOnlyOutput, SampleEncoderDecoderOutput
+from transformers.generation import (
+    GenerationConfig,
+    GenerationMixin,
+    SampleDecoderOnlyOutput,
+    SampleEncoderDecoderOutput,
+)
 from transformers.generation.logits_process import LogitsProcessorList
 from transformers.generation.stopping_criteria import (
     StoppingCriteriaList,
@@ -308,6 +315,34 @@ class NeuronBaseModel(PreTrainedModel):
         return (hidden_states, next_decoder_cache)
 
 
+@dataclass
+class CheckPointLoader:
+    """Loads model checkpoints
+
+    A Pickable class to be used by compilation processes spawned
+    by the ModelBuilder to load checkpoints.
+
+    """
+
+    model_path: Union[str, Path]
+    model_prefix: str
+    dtype: torch.dtype
+
+    def load_checkpoint(self):
+        # this function loads the model's state dictionary and weights from
+        # the hf model, removes the prefix and casts to the correct dtype
+        model_sd = load_state_dict(self.model_path)
+        param_name_list = list(model_sd.keys())
+        for param_name in param_name_list:
+            if param_name.startswith(self.model_prefix):
+                updated_param_name = param_name.replace(self.model_prefix, "", 1)
+                model_sd[updated_param_name] = model_sd[param_name].to(self.dtype)
+                del model_sd[param_name]
+            else:
+                model_sd[param_name] = model_sd[param_name].to(self.dtype)
+        return model_sd
+
+
 class NeuronBaseForCausalLM(GenerationMixin):
     _STATE_DICT_MODEL_PREFIX = "model."
 
@@ -316,7 +351,7 @@ class NeuronBaseForCausalLM(GenerationMixin):
     # Required by GenerationMixin, but present in PreTrainedModel
     main_input_name = "input_ids"
     _supports_cache_class = False
-    #_supports_static_cache = False
+    # _supports_static_cache = False
 
     def __init__(self, model_path: str, config: PretrainedConfig):
         super().__init__()
@@ -381,37 +416,19 @@ class NeuronBaseForCausalLM(GenerationMixin):
         self.models.append(self.token_generation_model)
 
     @classmethod
-    def get_state_dict(cls, model_path: str, config: PretrainedConfig) -> dict:
-        model_sd = load_state_dict(model_path)
-        param_name_list = list(model_sd.keys())
-        for param_name in param_name_list:
-            if param_name.startswith(cls._STATE_DICT_MODEL_PREFIX):
-                updated_param_name = param_name.replace(cls._STATE_DICT_MODEL_PREFIX, "", 1)
-                model_sd[updated_param_name] = model_sd[param_name]
-                del model_sd[param_name]
-        return model_sd
-
-    @classmethod
     def from_pretrained(cls, model_path: str, config: PretrainedConfig):
         return cls(model_path, config)
-
-    def checkpoint_loader_fn(self, mmap: bool = False):
-        # this function loads the model's state dictionary and weights from
-        # the hf model
-        model_sd = self.get_state_dict(self.model_path, self.config)
-        if self.config.torch_dtype == torch.bfloat16:
-            for name, param in model_sd.items():
-                model_sd[name] = param.bfloat16()
-        return model_sd
 
     def compile(self, serialize_base_path=None):
 
         base_compile_work_dir = os.environ.get("BASE_COMPILE_WORK_DIR", "/tmp/nxd_model/")
 
+        checkpoint_loader = CheckPointLoader(self.model_path, self._STATE_DICT_MODEL_PREFIX, self.config.torch_dtype)
+
         builder = ModelBuilder(
             router=None,
             tp_degree=self.config.tp_degree,
-            checkpoint_loader=self.checkpoint_loader_fn,
+            checkpoint_loader=checkpoint_loader.load_checkpoint,
             compiler_workdir=base_compile_work_dir,
         )
 
