@@ -1,6 +1,5 @@
 import torch
 from runner import InferenceRunner
-from transformers import AutoTokenizer
 
 from llama2.neuron_modeling_llama import (
     NeuronLlamaConfig,

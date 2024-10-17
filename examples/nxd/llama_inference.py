@@ -1,5 +1,5 @@
-from transformers import AutoTokenizer
 from llama2.llama2_runner import LlamaRunner
+from transformers import AutoTokenizer
 
 
 model_path = "/home/ubuntu/optimum-neuron/examples/nxd/Llama-2-7b-chat-hf"
@@ -15,7 +15,7 @@ def main():
     runner = LlamaRunner(model_path=model_path)
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     tokenizer.pad_token_id = tokenizer.eos_token_id
-    tokenizer.padding_size = 'right'
+    tokenizer.padding_size = "right"
 
     runner.trace(
         traced_model_path=traced_model_path,
