@@ -1,13 +1,11 @@
 import logging
 import os
-from functools import partial
 
 import torch
 import torch.nn.functional as F
 from modules.autobucketing import get_context_encoder_bk, get_token_generation_bk
 from neuronx_distributed.trace import (
     parallel_model_load,
-    parallel_model_trace,
 )
 from neuronx_distributed.trace.model_builder import BaseModelInstance
 from torch_neuronx import BucketModelConfig
@@ -47,61 +45,18 @@ def get_bucket_model_config_from_tag(tag, config):
         )
 
 
-class ModelWrapper(torch.nn.Module):
-    def __init__(self, config, model_cls, tag="", compiler_args: str = None, priority_model_idx: int = None) -> None:
-        super().__init__()
+class ModelExporter:
+
+    def __init__(self, config, model_cls, tag: str, compiler_args: str, priority_model_idx: int = None):
         self.config = config
-
-        if not self.config.torch_dtype:
-            self.config.torch_dtype = torch.float32
-
-        if self.config.pad_token_id is None:
-            self.config.pad_token_id = 0
-
         self.model_cls = model_cls
-        self.model = None
-        self.is_compiled = False
-        self.serialize_base_path = None
-        self.tag = tag
         if compiler_args is None:
             self.compiler_args = "--enable-saturate-infinity --auto-cast=none --model-type=transformer --tensorizer-options='--enable-ccop-compute-overlap --cc-pipeline-tiling-factor=2' -O1 "
-
         else:
             self.compiler_args = compiler_args
-
+        self.tag = tag
         self.bucket_config = get_bucket_model_config_from_tag(tag, self.config)
         self.priority_model_idx = priority_model_idx
-
-    def is_neuron(self):
-        return self.model is not None and isinstance(self.model, torch.jit.ScriptModule)
-
-    def compile(self, checkpoint_loader, serialize_base_path):
-        inputs = self.input_generator()
-
-        base_compile_work_dir = os.environ.get("BASE_COMPILE_WORK_DIR", "/tmp/nxd_model/")
-
-        # cannot pass partial func with multiprocess using model directly
-        parallel_model_trace(
-            partial(get_trace_callable, self.model_cls, self.config),
-            inputs,
-            tp_degree=self.config.tp_degree,
-            compiler_workdir=os.path.join(base_compile_work_dir, self.tag),
-            compiler_args=self.compiler_args,
-            inline_weights_to_neff=False,
-            spmd_mode=True,
-            checkpoint_loader_callable=checkpoint_loader,
-            bucket_config=self.bucket_config,
-            force_custom_init_on_device=True,
-            serialization_path=os.path.join(serialize_base_path, self.tag),
-        )
-        print(f"Successfully traced the {self.tag}!")
-
-    def load(self, serialize_base_path):
-        self.model = parallel_model_load(os.path.join(serialize_base_path, self.tag))
-
-    def load_state_dict(self, state_dict, strict: bool = True, assign: bool = False):
-        self.model = self.model_cls(self.config)
-        self.model.load_state_dict(state_dict, strict=strict, assign=assign)
 
     def input_generator(
         self,
@@ -121,6 +76,31 @@ class ModelWrapper(torch.nn.Module):
 
     def get_model_instance(self):
         return DecoderModelInstance(model_cls=self.model_cls, config=self.config)
+
+
+class ModelWrapper(torch.nn.Module):
+    def __init__(self, config, model_cls, tag="") -> None:
+        super().__init__()
+        self.config = config
+
+        if not self.config.torch_dtype:
+            self.config.torch_dtype = torch.float32
+
+        if self.config.pad_token_id is None:
+            self.config.pad_token_id = 0
+
+        self.model_cls = model_cls
+        self.model = None
+        self.is_compiled = False
+        self.serialize_base_path = None
+        self.tag = tag
+        self.bucket_config = get_bucket_model_config_from_tag(tag, self.config)
+
+    def is_neuron(self):
+        return self.model is not None and isinstance(self.model, torch.jit.ScriptModule)
+
+    def load(self, serialize_base_path):
+        self.model = parallel_model_load(os.path.join(serialize_base_path, self.tag))
 
     def _forward_with_pad(self, *args):
         seq_ids = args[3]

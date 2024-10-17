@@ -7,11 +7,16 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
-from modules.autobucketing import generate_buckets
+from modules.autobucketing import generate_buckets, slice_lhs, slice_rhs  # noqa: E402
 from modules.checkpoint import load_state_dict
+from modules.gqa import (  # noqa: E402
+    determine_sharding_strategy,  # noqa: E402
+    get_shardable_head_counts,  # noqa: E402
+)  # noqa: E402
 from modules.model_wrapper import (  # noqa: E402
     CONTEXT_ENCODING_MODEL_TAG,  # noqa: E402
     TOKEN_GENERATION_MODEL_TAG,  # noqa: E402
+    ModelExporter,
     ModelWrapper,  # noqa: E402
 )
 from neuronx_distributed.parallel_layers import parallel_state, utils  # noqa: E402
@@ -35,12 +40,6 @@ from transformers.modeling_outputs import CausalLMOutputWithPast, ModelOutput
 
 
 SampleOutput = Union[SampleEncoderDecoderOutput, SampleDecoderOnlyOutput]
-
-from modules.autobucketing import slice_lhs, slice_rhs  # noqa: E402
-from modules.gqa import (  # noqa: E402
-    determine_sharding_strategy,  # noqa: E402
-    get_shardable_head_counts,  # noqa: E402
-)  # noqa: E402
 
 
 class NeuronBaseModel(PreTrainedModel):
@@ -364,7 +363,7 @@ class NeuronBaseForCausalLM(GenerationMixin):
 
         self.sampler = None
 
-        self.models = []
+        self.exporters = []
         self.enable_context_encoding()
         if config.trace_tokengen_model:
             self.enable_token_generation()
@@ -392,9 +391,14 @@ class NeuronBaseForCausalLM(GenerationMixin):
             config=new_config,
             model_cls=self._model_cls,
             tag=CONTEXT_ENCODING_MODEL_TAG,
+        )
+        exporter = ModelExporter(
+            config=new_config,
+            model_cls=self._model_cls,
+            tag=CONTEXT_ENCODING_MODEL_TAG,
             compiler_args=self.get_compiler_args(),
         )
-        self.models.append(self.context_encoding_model)
+        self.exporters.append(exporter)
 
     def enable_token_generation(self):
         new_config = copy.deepcopy(self.config)
@@ -411,9 +415,14 @@ class NeuronBaseForCausalLM(GenerationMixin):
             config=new_config,
             model_cls=self._model_cls,
             tag=TOKEN_GENERATION_MODEL_TAG,
+        )
+        exporter = ModelExporter(
+            config=new_config,
+            model_cls=self._model_cls,
+            tag=TOKEN_GENERATION_MODEL_TAG,
             compiler_args=self.get_compiler_args(),
         )
-        self.models.append(self.token_generation_model)
+        self.exporters.append(exporter)
 
     @classmethod
     def from_pretrained(cls, model_path: str, config: PretrainedConfig):
@@ -432,14 +441,14 @@ class NeuronBaseForCausalLM(GenerationMixin):
             compiler_workdir=base_compile_work_dir,
         )
 
-        for model in self.models:
+        for exporter in self.exporters:
             builder.add(
-                key=model.tag,
-                model_instance=model.get_model_instance(),
-                example_inputs=model.input_generator(),
-                compiler_args=model.compiler_args,
-                bucket_config=model.bucket_config,
-                priority_model_idx=model.priority_model_idx,
+                key=exporter.tag,
+                model_instance=exporter.get_model_instance(),
+                example_inputs=exporter.input_generator(),
+                compiler_args=exporter.compiler_args,
+                bucket_config=exporter.bucket_config,
+                priority_model_idx=exporter.priority_model_idx,
             )
 
         traced_model = builder.trace(initialize_model_weights=False)
@@ -460,8 +469,9 @@ class NeuronBaseForCausalLM(GenerationMixin):
 
         traced_model.nxd_model.initialize(weights)
 
-        for model_wrapper in self.models:
-            model_wrapper.model = traced_model
+        self.context_encoding_model.model = traced_model
+        if self.token_generation_model is not None:
+            self.token_generation_model.model = traced_model
 
     def to_neuron(self, serialize_base_path=None):
         if serialize_base_path is None:

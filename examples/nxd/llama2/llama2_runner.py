@@ -16,8 +16,9 @@ class LlamaRunner(InferenceRunner):
 
         model.load(traced_model_path)
         if config.torch_dtype == torch.bfloat16:
-            for model_wrapper in model.models:
-                model_wrapper.bfloat16()
+            model.context_encoding_model.bfloat16()
+            if model.token_generation_model is not None:
+                model.token_generation_model.bfloat16()
 
         return model
 
