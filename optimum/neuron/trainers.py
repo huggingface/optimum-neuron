@@ -24,7 +24,7 @@ import sys
 import time
 import warnings
 from functools import wraps
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
 
 import datasets
 import numpy as np
@@ -131,13 +131,19 @@ else:
 
 
 if is_trl_available():
-    from trl import SFTConfig, SFTTrainer
+    from trl import ORPOConfig, ORPOTrainer, SFTConfig, SFTTrainer
 else:
 
     class SFTTrainer:
         pass
 
     class SFTConfig:
+        pass
+
+    class ORPOConfig:
+        pass
+
+    class ORPOTrainer:
         pass
 
 
@@ -1863,3 +1869,54 @@ class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
         tokenized_dataset = dataset.map(tokenize, **map_kwargs)
 
         return tokenized_dataset
+
+
+# class NeuronORPOTrainer(ORPOTrainer):
+class NeuronORPOTrainer(_TrainerForNeuron, ORPOTrainer):
+    def get_batch_loss_metrics(
+        self,
+        model,
+        batch: Dict[str, Union[List, torch.LongTensor]],
+        train_eval: Literal["train", "eval"] = "train",
+    ):
+        metrics = {}
+
+        forward_output = self.concatenated_forward(model, batch)
+        (
+            policy_chosen_logps,
+            policy_rejected_logps,
+            policy_chosen_logits,
+            policy_rejected_logits,
+            policy_nll_loss,
+        ) = forward_output[:5]
+        if self.aux_loss_enabled:
+            aux_loss = forward_output[5]
+
+        losses, chosen_rewards, rejected_rewards, log_odds_ratio, log_odds_chosen = self.odds_ratio_loss(
+            policy_chosen_logps, policy_rejected_logps
+        )
+        # full ORPO loss
+        loss = policy_nll_loss - losses.mean()
+
+        reward_accuracies = (chosen_rewards > rejected_rewards).float()
+
+        prefix = "eval_" if train_eval == "eval" else ""
+        metrics[f"{prefix}rewards/chosen"] = chosen_rewards.mean()
+        metrics[f"{prefix}rewards/rejected"] = rejected_rewards.mean()
+        metrics[f"{prefix}rewards/accuracies"] = reward_accuracies.mean()
+        metrics[f"{prefix}rewards/margins"] = (chosen_rewards - rejected_rewards).mean()
+        metrics[f"{prefix}logps/rejected"] = policy_rejected_logps.detach().mean()
+        metrics[f"{prefix}logps/chosen"] = policy_chosen_logps.detach().mean()
+        # metrics[f"{prefix}logits/rejected"] = policy_rejected_logits.detach().mean()
+        # metrics[f"{prefix}logits/chosen"] = policy_chosen_logits.detach().mean()
+        metrics[f"{prefix}nll_loss"] = policy_nll_loss.detach().mean()
+        metrics[f"{prefix}log_odds_ratio"] = log_odds_ratio
+        metrics[f"{prefix}log_odds_chosen"] = log_odds_chosen
+        if is_torch_xla_available():
+            xm.mark_step()  # needed because .item() calls
+        for k, v in metrics.items():
+            metrics[k] = v.item()
+        if self.aux_loss_enabled:
+            loss += getattr(model.config, "router_aux_loss_coef", 0.0) * aux_loss
+
+        return loss, metrics
