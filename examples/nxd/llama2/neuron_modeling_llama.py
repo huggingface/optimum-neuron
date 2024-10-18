@@ -305,7 +305,6 @@ class NeuronLlamaModel(NeuronBaseModel, LlamaPreTrainedModel):
         self.num_attention_heads = config.num_attention_heads
         self.num_key_value_heads = config.num_key_value_heads
         self.max_batch_size = config.max_batch_size
-        self.buckets = config.buckets
 
     def init_model(self, config: NeuronLlamaConfig):
 

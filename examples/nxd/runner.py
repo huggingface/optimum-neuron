@@ -91,7 +91,6 @@ class InferenceRunner:
         max_length = sequence_length
         config.max_length = max_length
         config.n_positions = max_length
-        config.n_active_tokens = max_length
 
         if config.max_position_embeddings <= max_length:
             logging.warning(
@@ -100,13 +99,10 @@ class InferenceRunner:
             config.max_position_embeddings = max_length + 1  # otherwise get error
 
         config.max_batch_size = batch_size
-        config.ctx_batch_size = batch_size
-        config.tkg_batch_size = batch_size
         config.batch_size = batch_size
 
         # bucketing specific
         config.enable_bucketing = enable_bucketing
-        config.buckets = [max_length]
 
         config.padding_side = "right"
         config.on_device_sampling = kwargs.get("on_device_sampling", False)

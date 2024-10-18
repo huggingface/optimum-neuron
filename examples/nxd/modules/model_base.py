@@ -1,4 +1,3 @@
-import copy
 import glob
 import logging
 import os
@@ -7,7 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
-from modules.autobucketing import generate_buckets, slice_lhs, slice_rhs  # noqa: E402
+from modules.autobucketing import slice_lhs, slice_rhs  # noqa: E402
 from modules.checkpoint import load_state_dict
 from modules.gqa import (  # noqa: E402
     determine_sharding_strategy,  # noqa: E402
@@ -74,7 +73,6 @@ class NeuronBaseModel(PreTrainedModel):
             self.num_attention_heads
             self.num_key_value_heads
             self.max_batch_size
-            self.buckets
         """
         raise NotImplementedError("setup_attr_for_model() is not implemented")
 
@@ -363,11 +361,22 @@ class NeuronBaseForCausalLM(GenerationMixin):
 
         self.sampler = None
 
-        self.exporters = []
-        self.enable_context_encoding()
-        if config.trace_tokengen_model:
-            self.enable_token_generation()
         self.model_path = model_path
+        self.context_encoding_model = ModelWrapper(
+            config=self.config,
+            model_cls=self._model_cls,
+            tag=CONTEXT_ENCODING_MODEL_TAG,
+            max_input_tokens=self.config.max_context_length,
+            max_total_tokens=self.config.max_context_length,
+        )
+        if config.trace_tokengen_model:
+            self.token_generation_model = ModelWrapper(
+                config=self.config,
+                model_cls=self._model_cls,
+                tag=TOKEN_GENERATION_MODEL_TAG,
+                max_input_tokens=1,
+                max_total_tokens=self.config.max_length,
+            )
 
     def can_generate(self):
         # Not needed after transformers 4.50
@@ -375,54 +384,6 @@ class NeuronBaseForCausalLM(GenerationMixin):
 
     def get_compiler_args(self):
         return None
-
-    def enable_context_encoding(self):
-        new_config = copy.deepcopy(self.config)
-        new_config.batch_size = self.config.ctx_batch_size
-        new_config.n_active_tokens = self.config.max_context_length
-        new_config.bucket_n_active_tokens = True
-
-        if not new_config.enable_bucketing:
-            new_config.buckets = generate_buckets(new_config.max_context_length, new_config.max_context_length)
-        else:
-            new_config.buckets = generate_buckets(128, new_config.max_context_length)
-
-        self.context_encoding_model = ModelWrapper(
-            config=new_config,
-            model_cls=self._model_cls,
-            tag=CONTEXT_ENCODING_MODEL_TAG,
-        )
-        exporter = ModelExporter(
-            config=new_config,
-            model_cls=self._model_cls,
-            tag=CONTEXT_ENCODING_MODEL_TAG,
-            compiler_args=self.get_compiler_args(),
-        )
-        self.exporters.append(exporter)
-
-    def enable_token_generation(self):
-        new_config = copy.deepcopy(self.config)
-        new_config.batch_size = self.config.tkg_batch_size
-        new_config.n_active_tokens = 1
-        new_config.bucket_n_active_tokens = False
-
-        if not new_config.enable_bucketing:
-            new_config.buckets = generate_buckets(new_config.max_length, new_config.max_length)
-        else:
-            new_config.buckets = generate_buckets(128, new_config.max_length)
-
-        self.token_generation_model = ModelWrapper(
-            config=new_config,
-            model_cls=self._model_cls,
-            tag=TOKEN_GENERATION_MODEL_TAG,
-        )
-        exporter = ModelExporter(
-            config=new_config,
-            model_cls=self._model_cls,
-            tag=TOKEN_GENERATION_MODEL_TAG,
-            compiler_args=self.get_compiler_args(),
-        )
-        self.exporters.append(exporter)
 
     @classmethod
     def from_pretrained(cls, model_path: str, config: PretrainedConfig):
@@ -441,9 +402,14 @@ class NeuronBaseForCausalLM(GenerationMixin):
             compiler_workdir=base_compile_work_dir,
         )
 
-        for exporter in self.exporters:
+        wrappers = [self.context_encoding_model]
+        if self.token_generation_model is not None:
+            wrappers.append(self.token_generation_model)
+        for wrapper in wrappers:
+            # We need a pickable object to provide the callbacks required by the Builder
+            exporter = ModelExporter(wrapper, self.get_compiler_args())
             builder.add(
-                key=exporter.tag,
+                key=wrapper.tag,
                 model_instance=exporter.get_model_instance(),
                 example_inputs=exporter.input_generator(),
                 compiler_args=exporter.compiler_args,
