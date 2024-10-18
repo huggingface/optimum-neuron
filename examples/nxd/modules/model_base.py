@@ -473,15 +473,6 @@ class NeuronBaseForCausalLM(GenerationMixin):
         if self.token_generation_model is not None:
             self.token_generation_model.model = traced_model
 
-    def to_neuron(self, serialize_base_path=None):
-        if serialize_base_path is None:
-            with tempfile.TemporaryDirectory(suffix="nxd-temp-serial-path") as tmpdirname:
-                self.compile(tmpdirname)
-                self.load(tmpdirname)
-        else:
-            self.compile(serialize_base_path)
-            self.load(serialize_base_path)
-
     @property
     def device(self) -> torch.device:
         """
