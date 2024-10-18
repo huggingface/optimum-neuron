@@ -127,6 +127,9 @@ class NeuronTrainingArgumentsMixin:
     )
 
     def __post_init__(self):
+        if self.neuron_cc_flags_model_type is not None:
+            os.environ["OPTIMUM_NEURON_COMMON_FLAGS_MODEL_TYPE"] = self.neuron_cc_flags_model_type
+
         # Patches accelerate.utils.imports.is_tpu_available to match `is_torch_xla_available`
         patch_accelerate_is_torch_xla_available()
 
@@ -220,6 +223,11 @@ class NeuronTrainingArgumentsMixin:
     )
     def _setup_devices(self) -> "torch.device":
         return super()._setup_devices
+
+    @property
+    def neuron_cc_flags_model_type(self) -> Optional[str]:
+        """Controls the value to provide to the Neuron Compiler for the model-type flag."""
+        return "transformer"
 
     @property
     def place_model_on_device(self):

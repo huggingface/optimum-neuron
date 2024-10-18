@@ -3,7 +3,6 @@ import glob
 import os
 
 import pandas as pd
-
 from guidellm.core import GuidanceReport, TextGenerationBenchmark
 
 
@@ -16,11 +15,7 @@ def _benchmark_rate_id(benchmark: TextGenerationBenchmark) -> str:
     :return: A string representing the benchmark rate ID.
     :rtype: str
     """
-    rate_id = (
-        f"{benchmark.mode}@{benchmark.rate:.2f} req/sec"
-        if benchmark.rate
-        else f"{benchmark.mode}"
-    )
+    rate_id = f"{benchmark.mode}@{benchmark.rate:.2f} req/sec" if benchmark.rate else f"{benchmark.mode}"
     return rate_id
 
 
@@ -38,20 +33,20 @@ def main():
     for path in paths:
         filename = os.path.basename(path)
         # Extract model_id
-        model_id, date = filename.replace(suffix, '').split('#')
+        model_id, date = filename.replace(suffix, "").split("#")
         with open(path) as f:
             report = GuidanceReport.from_json(f.read())
             for benchmark in report.benchmarks:
                 for b in benchmark.benchmarks_sorted:
                     d = {
-                    "model_id": model_id,
-                    "Date": date,
-                    "Input type": _benchmark_rate_id(b),
-                    "Requests per Second": b.completed_request_rate,
-                    "Request Latency (s)": b.request_latency,
-                    "Time-to-first-token (ms)": b.time_to_first_token,
-                    "Inter Token Latency (ms)": b.inter_token_latency,
-                    "Output Token Throughput (t/s)": b.output_token_throughput,
+                        "model_id": model_id,
+                        "Date": date,
+                        "Input type": _benchmark_rate_id(b),
+                        "Requests per Second": b.completed_request_rate,
+                        "Request Latency (s)": b.request_latency,
+                        "Time-to-first-token (ms)": b.time_to_first_token,
+                        "Inter Token Latency (ms)": b.inter_token_latency,
+                        "Output Token Throughput (t/s)": b.output_token_throughput,
                     }
                     results.append(pd.DataFrame.from_dict(d, orient="index").transpose())
 
