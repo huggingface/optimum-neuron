@@ -159,6 +159,9 @@ else:
 
 logger = logging.get_logger("transformers.trainer")
 
+
+TRL_VERSION = "0.11.4"
+
 KEEP_HF_HUB_PROGRESS_BARS = os.environ.get("KEEP_HF_HUB_PROGRESS_BARS")
 if KEEP_HF_HUB_PROGRESS_BARS is None:
     os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
@@ -1549,7 +1552,7 @@ class NeuronSFTTrainer(_TrainerForNeuron, _SFTTrainerTrainerInit):
         peft_config: Optional["PeftConfig"] = None,
         formatting_func: Optional[Callable] = None,
     ):
-        if not is_trl_available():
+        if not is_trl_available(required_version=TRL_VERSION):
             raise RuntimeError("Using NeuronSFTTrainer requires the trl library.")
 
         from trl.extras.dataset_formatting import get_formatting_func_from_dataset
@@ -1894,7 +1897,7 @@ class NeuronORPOTrainer(_TrainerForNeuron, _ORPOTrainerInit):
         peft_config: Optional[Dict] = None,
         compute_metrics: Optional[Callable[[EvalLoopOutput], Dict]] = None,
     ):
-        if not is_trl_available():
+        if not is_trl_available(required_version=TRL_VERSION):
             raise RuntimeError("Using NeuronORPOTrainer requires the trl library.")
 
         from trl.trainer.utils import DPODataCollatorWithPadding, disable_dropout_in_model, peft_module_casting_to_bf16
