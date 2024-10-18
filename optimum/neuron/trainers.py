@@ -2092,6 +2092,9 @@ class NeuronORPOTrainer(_TrainerForNeuron, _ORPOTrainerInit):
             preprocess_logits_for_metrics=preprocess_logits_for_metrics,
         )
 
+        if self.accelerator.state.mp_plugin.should_parallelize:
+            raise RuntimeError("Model parallelism is not supported with the NeuronORPOTrainer yet.")
+
         # Add tags for models that have been loaded with the correct transformers version
         if hasattr(self.model, "add_model_tags"):
             self.model.add_model_tags(self._tag_names)
