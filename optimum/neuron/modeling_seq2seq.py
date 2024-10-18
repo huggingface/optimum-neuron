@@ -43,6 +43,7 @@ from .utils import (
     ENCODER_NAME,
     NEURON_FILE_NAME,
     is_neuronx_available,
+    is_neuronx_distributed_available,
 )
 
 
@@ -51,6 +52,9 @@ if TYPE_CHECKING:
 
 if is_neuronx_available():
     import torch_neuronx
+
+if is_neuronx_distributed_available():
+    import neuronx_distributed
 
 logger = logging.getLogger(__name__)
 
@@ -130,10 +134,10 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
             return
 
         save_directory = Path(save_directory)
-        if not self.model_and_config_save_paths.get(ENCODER_NAME)[0].is_file():
+        if not self.model_and_config_save_paths.get(ENCODER_NAME)[0].exists():
             self.model_and_config_save_paths.pop(ENCODER_NAME)
 
-        if not self.model_and_config_save_paths.get(DECODER_NAME)[0].is_file():
+        if not self.model_and_config_save_paths.get(DECODER_NAME)[0].exists():
             self.model_and_config_save_paths.pop(DECODER_NAME)
 
         dst_paths = [
@@ -147,10 +151,28 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
 
         for src_path, dst_path in zip(src_paths, dst_paths):
             dst_path.parent.mkdir(parents=True, exist_ok=True)
-            if src_path.is_file():
-                shutil.copyfile(src_path, dst_path)
+            shutil.copytree(src_path, dst_path, dirs_exist_ok=True)
 
         self.generation_config.save_pretrained(save_directory)
+    
+    @staticmethod
+    def load_model(
+        encoder_path: Union[str, Path],
+        decoder_path: Union[str, Path],
+        tensor_parallel_size: int,
+    ):
+        if not tensor_parallel_size > 1:
+            # Initialize Neuron Runtime before loading models
+            runtime = torch.classes.neuron.Runtime()
+            runtime.initialize()
+            runtime.set_default_neuron_cores(0, 1)
+            encoder = NeuronTracedModel.load_model(encoder_path)
+            decoder = NeuronTracedModel.load_model(decoder_path)
+            torch_neuronx.move_trace_to_device(decoder, 0)
+        else:
+            encoder = neuronx_distributed.trace.parallel_model_load(encoder_path)
+            decoder = neuronx_distributed.trace.parallel_model_load(decoder_path)
+        return encoder, decoder
 
     @classmethod
     def _from_pretrained(
@@ -205,15 +227,12 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
                 configs[name] = model_config
                 neuron_configs[name] = cls._neuron_config_init(model_config)
 
-        # Initialize Neuron Runtime before loading models
-        runtime = torch.classes.neuron.Runtime()
-        runtime.initialize()
-        runtime.set_default_neuron_cores(0, 1)
-
-        encoder = cls.load_model(model_and_config_save_paths[ENCODER_NAME][0])
-        decoder = cls.load_model(model_and_config_save_paths[DECODER_NAME][0])
-        torch_neuronx.move_trace_to_device(decoder, 0)
-
+        encoder, decoder = cls.load_model(
+            encoder_path=model_and_config_save_paths[ENCODER_NAME][0],
+            decoder_path=model_and_config_save_paths[DECODER_NAME][0],
+            tensor_parallel_size = configs["decoder"].neuron["tensor_parallel_size"],
+        )
+        
         if model_save_dir is None:
             model_save_dir = new_model_save_dir
 
@@ -260,6 +279,7 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
         force_download: bool = True,
         cache_dir: Optional[str] = None,
         compiler_workdir: Optional[str] = None,
+        tensor_parallel_size: Optional[int] = 1,
         inline_weights_to_neff: bool = True,
         optlevel: str = "2",
         subfolder: str = "",
@@ -299,6 +319,7 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
             model_name_or_path=model_id,
             output=save_dir_path,
             compiler_kwargs=compiler_kwargs,
+            tensor_parallel_size=tensor_parallel_size,
             task=task,
             dynamic_batch_size=dynamic_batch_size,
             cache_dir=cache_dir,
