@@ -1,7 +1,28 @@
+from dataclasses import dataclass
+
+import torch
 from transformers import PretrainedConfig
 
+from .autobucketing import generate_buckets
 
-class NeuronInferenceConfig(PretrainedConfig):
+
+@dataclass
+class NeuronExportConfig:
+    tp_degree: int = 1
+    batch_size: int = 1
+    max_input_tokens: int = 128
+    max_total_tokens: int = 128
+    dtype: torch.dtype = torch.bfloat16
+    enable_bucketing: bool = True
+
+    @property
+    def buckets(self):
+        if self.enable_bucketing:
+            return generate_buckets(128, self.max_total_tokens)
+        return [self.max_total_tokens]
+
+
+class NeuronModelingConfig(PretrainedConfig):
     """
     Base config class for inference in NxD.
 
@@ -16,8 +37,6 @@ class NeuronInferenceConfig(PretrainedConfig):
         self.tp_degree = tp_degree
         self.batch_size = batch_size
         self.padding_side = padding_side
-        # TODO: see if we can consolidate n_active_tokens and n_positions into one
-        self.n_active_tokens = seq_len  # Need to provide example input shape for tracing
         self.n_positions = seq_len
 
         # fallback to seq_len is for compatibility with vllm
@@ -28,10 +47,6 @@ class NeuronInferenceConfig(PretrainedConfig):
         self.max_length = seq_len
 
         # Continuous batching
-        # TODO: Check if we really need different batch size for CTE and TKG, given
-        # that we anyway provide two different config instance for them.
-        self.ctx_batch_size = kwargs.get("ctx_batch_size", batch_size)
-        self.tkg_batch_size = kwargs.get("tkg_batch_size", batch_size)
         self.max_batch_size = kwargs.get("max_batch_size", batch_size)
         self.is_continuous_batching = kwargs.get("is_continuous_batching", False)
 
@@ -40,7 +55,5 @@ class NeuronInferenceConfig(PretrainedConfig):
 
         # Bucketing
         self.enable_bucketing = kwargs.get("enable_bucketing", False)
-        self.buckets = [seq_len]
-        self.bucket_n_active_tokens = False
 
         super().__init__(**kwargs)

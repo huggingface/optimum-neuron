@@ -38,7 +38,7 @@ from transformers.models.llama.modeling_llama import (
 
 SampleOutput = Union[SampleEncoderDecoderOutput, SampleDecoderOnlyOutput]
 
-from modules.config import NeuronInferenceConfig  # noqa: E402
+from modules.config import NeuronModelingConfig  # noqa: E402
 from modules.gqa import (  # noqa: E402
     BaseGroupQueryAttention,  # noqa: E402
 )  # noqa: E402
@@ -92,7 +92,7 @@ def register_module(key: str):
     return inner
 
 
-class NeuronLlamaConfig(NeuronInferenceConfig, LlamaConfig):
+class NeuronLlamaConfig(NeuronModelingConfig, LlamaConfig):
     def __init__(self, max_batch_size=1, tp_degree=1, n_positions=128, padding_side="right", **kwargs):
         self.attn_cls = "NeuronLlamaAttention"
 
@@ -305,7 +305,6 @@ class NeuronLlamaModel(NeuronBaseModel, LlamaPreTrainedModel):
         self.num_attention_heads = config.num_attention_heads
         self.num_key_value_heads = config.num_key_value_heads
         self.max_batch_size = config.max_batch_size
-        self.buckets = config.buckets
 
     def init_model(self, config: NeuronLlamaConfig):
 

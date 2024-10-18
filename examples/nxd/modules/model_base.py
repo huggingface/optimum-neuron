@@ -1,14 +1,13 @@
-import copy
 import logging
 import os
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
-from modules.autobucketing import generate_buckets, slice_lhs, slice_rhs  # noqa: E402
+from modules.autobucketing import slice_lhs, slice_rhs  # noqa: E402
 from modules.checkpoint import load_state_dict
+from modules.config import NeuronExportConfig
 from modules.gqa import (  # noqa: E402
     determine_sharding_strategy,  # noqa: E402
     get_shardable_head_counts,  # noqa: E402
@@ -74,7 +73,6 @@ class NeuronBaseModel(PreTrainedModel):
             self.num_attention_heads
             self.num_key_value_heads
             self.max_batch_size
-            self.buckets
         """
         raise NotImplementedError("setup_attr_for_model() is not implemented")
 
@@ -377,48 +375,44 @@ class NeuronBaseForCausalLM(GenerationMixin):
         return None
 
     def enable_context_encoding(self):
-        new_config = copy.deepcopy(self.config)
-        new_config.batch_size = self.config.ctx_batch_size
-        new_config.n_active_tokens = self.config.max_context_length
-        new_config.bucket_n_active_tokens = True
-
-        if not new_config.enable_bucketing:
-            new_config.buckets = generate_buckets(new_config.max_context_length, new_config.max_context_length)
-        else:
-            new_config.buckets = generate_buckets(128, new_config.max_context_length)
-
         self.context_encoding_model = ModelWrapper(
-            config=new_config,
+            config=self.config,
             model_cls=self._model_cls,
             tag=CONTEXT_ENCODING_MODEL_TAG,
         )
+        neuron_config = NeuronExportConfig(
+            tp_degree=self.config.tp_degree,
+            batch_size=self.config.batch_size,
+            max_input_tokens=self.config.max_context_length,
+            max_total_tokens=self.config.max_context_length,
+            enable_bucketing=self.config.enable_bucketing,
+        )
         exporter = ModelExporter(
-            config=new_config,
+            model_config=self.config,
             model_cls=self._model_cls,
+            neuron_config=neuron_config,
             tag=CONTEXT_ENCODING_MODEL_TAG,
             compiler_args=self.get_compiler_args(),
         )
         self.exporters.append(exporter)
 
     def enable_token_generation(self):
-        new_config = copy.deepcopy(self.config)
-        new_config.batch_size = self.config.tkg_batch_size
-        new_config.n_active_tokens = 1
-        new_config.bucket_n_active_tokens = False
-
-        if not new_config.enable_bucketing:
-            new_config.buckets = generate_buckets(new_config.max_length, new_config.max_length)
-        else:
-            new_config.buckets = generate_buckets(128, new_config.max_length)
-
         self.token_generation_model = ModelWrapper(
-            config=new_config,
+            config=self.config,
             model_cls=self._model_cls,
             tag=TOKEN_GENERATION_MODEL_TAG,
         )
+        neuron_config = NeuronExportConfig(
+            tp_degree=self.config.tp_degree,
+            batch_size=self.config.batch_size,
+            max_input_tokens=1,
+            max_total_tokens=self.config.max_length,
+            enable_bucketing=self.config.enable_bucketing,
+        )
         exporter = ModelExporter(
-            config=new_config,
+            model_config=self.config,
             model_cls=self._model_cls,
+            neuron_config=neuron_config,
             tag=TOKEN_GENERATION_MODEL_TAG,
             compiler_args=self.get_compiler_args(),
         )

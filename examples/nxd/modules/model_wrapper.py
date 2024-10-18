@@ -1,5 +1,6 @@
 import logging
 import os
+from typing import List
 
 import torch
 import torch.nn.functional as F
@@ -15,12 +16,10 @@ CONTEXT_ENCODING_MODEL_TAG = "context_encoding_model"
 TOKEN_GENERATION_MODEL_TAG = "token_generation_model"
 
 
-def get_bucket_model_config_from_tag(tag, config):
-    bucket_degree = len(config.buckets)
+def get_bucket_model_config_from_tag(tag, buckets: List[int], pad_token_id: int, padding_side: str):
+    bucket_degree = len(buckets)
     if bucket_degree == 1:
         return None
-
-    pad_token = config.pad_token_id
 
     # NOTE: KV Cache preprocessing is done within the model and not the
     # shared buffer preprocessor due to lack of support of non-contiguous
@@ -28,14 +27,14 @@ def get_bucket_model_config_from_tag(tag, config):
     if tag == CONTEXT_ENCODING_MODEL_TAG:
         return BucketModelConfig(
             bucket_kernel=get_context_encoder_bk,
-            bucket_kernel_constant_args=(torch.tensor(config.buckets), config.padding_side, pad_token),
+            bucket_kernel_constant_args=(torch.tensor(buckets), padding_side, pad_token_id),
             shared_state_buffer=None,
             func_kwargs=[{"bucket_rank": i} for i in range(bucket_degree)],
         )
     elif tag == TOKEN_GENERATION_MODEL_TAG:
         return BucketModelConfig(
             bucket_kernel=get_token_generation_bk,
-            bucket_kernel_constant_args=(torch.tensor(config.buckets), config.padding_side),
+            bucket_kernel_constant_args=(torch.tensor(buckets), padding_side),
             shared_state_buffer=None,
             func_kwargs=[{"bucket_rank": i} for i in range(bucket_degree)],
         )
@@ -47,35 +46,43 @@ def get_bucket_model_config_from_tag(tag, config):
 
 class ModelExporter:
 
-    def __init__(self, config, model_cls, tag: str, compiler_args: str, priority_model_idx: int = None):
-        self.config = config
+    def __init__(
+        self, model_config, model_cls, neuron_config, tag: str, compiler_args: str, priority_model_idx: int = None
+    ):
+        self.model_config = model_config
+        self.neuron_config = neuron_config
         self.model_cls = model_cls
         if compiler_args is None:
             self.compiler_args = "--enable-saturate-infinity --auto-cast=none --model-type=transformer --tensorizer-options='--enable-ccop-compute-overlap --cc-pipeline-tiling-factor=2' -O1 "
         else:
             self.compiler_args = compiler_args
         self.tag = tag
-        self.bucket_config = get_bucket_model_config_from_tag(tag, self.config)
+        self.bucket_config = get_bucket_model_config_from_tag(
+            tag, neuron_config.buckets, model_config.pad_token_id, model_config.padding_side
+        )
         self.priority_model_idx = priority_model_idx
 
     def input_generator(
         self,
     ):
         inputs = []
-        for bucket in self.config.buckets:
-            n_active_tokens = bucket if self.config.bucket_n_active_tokens else self.config.n_active_tokens
+        for bucket in self.neuron_config.buckets:
+            batch_size = self.neuron_config.batch_size
+            n_active_tokens = min(self.neuron_config.max_input_tokens, bucket)
 
-            input_ids = torch.zeros((self.config.batch_size, n_active_tokens), dtype=torch.int64)
-            attention_mask = torch.zeros((self.config.batch_size, bucket), dtype=torch.int64)
-            position_ids = torch.zeros((self.config.batch_size, n_active_tokens), dtype=torch.int64)
-            seq_ids = torch.zeros((self.config.batch_size), dtype=torch.int64)
+            input_ids = torch.zeros((batch_size, n_active_tokens), dtype=torch.int64)
+            attention_mask = torch.zeros((batch_size, bucket), dtype=torch.int64)
+            position_ids = torch.zeros((batch_size, n_active_tokens), dtype=torch.int64)
+            seq_ids = torch.zeros((batch_size), dtype=torch.int64)
 
             inputs.append((input_ids, attention_mask, position_ids, seq_ids))
 
         return inputs
 
     def get_model_instance(self):
-        return DecoderModelInstance(model_cls=self.model_cls, config=self.config)
+        return DecoderModelInstance(
+            model_cls=self.model_cls, model_config=self.model_config, neuron_config=self.neuron_config
+        )
 
 
 class ModelWrapper(torch.nn.Module):
@@ -94,7 +101,6 @@ class ModelWrapper(torch.nn.Module):
         self.is_compiled = False
         self.serialize_base_path = None
         self.tag = tag
-        self.bucket_config = get_bucket_model_config_from_tag(tag, self.config)
 
     def is_neuron(self):
         return self.model is not None and isinstance(self.model, torch.jit.ScriptModule)
@@ -238,24 +244,25 @@ class ModelWrapper(torch.nn.Module):
 
 class DecoderModelInstance(BaseModelInstance):
 
-    def __init__(self, model_cls, config):
+    def __init__(self, model_cls, model_config, neuron_config):
         self.model_cls = model_cls
         self.module = None
         self.input_output_aliases = None
-        self.config = config
+        self.model_config = model_config
+        self.neuron_config = neuron_config
 
     def load_module(self):
-        float_model = self.model_cls(self.config)
+        float_model = self.model_cls(self.model_config)
         float_model.eval()
 
-        if self.config.torch_dtype == torch.bfloat16:
+        if self.neuron_config.dtype == torch.bfloat16:
             float_model.bfloat16()
 
         self.module = float_model
 
     def get(self, bucket_rank, **kwargs):
         if bucket_rank is not None:
-            self.module.n_positions = self.config.buckets[bucket_rank]
+            self.module.n_positions = self.neuron_config.buckets[bucket_rank]
 
         # Currently we have to init an input_output_aliases map for
         # each buckets, otherwise it will fail the aliasing setup when
