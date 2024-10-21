@@ -107,6 +107,7 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
         if generation_config is None:
             generation_config = GenerationConfig.from_model_config(self.configs[DECODER_NAME])
         self.generation_config = generation_config
+        self.tp_degree = self.neuron_configs[DECODER_NAME].tp_degree
 
     def _save_pretrained(
         self,
@@ -245,7 +246,6 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
                 local_files_only=local_files_only,
                 token=token,
                 revision=revision,
-                subfolder=os.path.join(subfolder, DECODER_NAME),
             )
         except OSError:
             logger.info("Generation config file not found, using a generation config created from the model config.")
@@ -459,9 +459,15 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
             axis=1,
         )
 
-        # copy the new cache state to the decoder
-        for state, tensor in zip(self.decoder.model.parameters(), past_key_values):
-            state.copy_(tensor)
+        if not self.tp_degree > 1:
+            # copy the new cache state to the decoder
+            for state, tensor in zip(self.decoder.model.parameters(), past_key_values):
+                state.copy_(tensor)
+        else:
+            # Encoder returns cache as device tensors, we assign them to decoder's cache to avoid the copy. 
+            # The KV cache always use pre-allocated memory, no host-device communication overhead.
+            for decoder_tp, encoder_tp in zip(self.decoder.model.models, self.encoder.model.models):
+                decoder_tp.load_state_dict(encoder_tp.state_dict(), strict=False)
 
         output = super().generate(
             **inputs,
