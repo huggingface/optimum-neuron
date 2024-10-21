@@ -130,6 +130,22 @@ def neuron_seq2seq_greedy_path_with_optional_outputs(export_seq2seq_id):
 
 
 @pytest.fixture(scope="module")
+@requires_neuronx
+def neuron_seq2seq_tp2_path():
+    model = NeuronModelForSeq2SeqLM.from_pretrained(
+        "michaelbenayoun/t5-tiny-random", export=True, tensor_parallel_size=2, dynamic_batch_size=False, batch_size=1, sequence_length=64, num_beams=4
+    )
+    model_dir = TemporaryDirectory()
+    model_path = model_dir.name
+    model.save_pretrained(model_path)
+    del model
+    # Yield instead of returning to keep a reference to the temporary directory.
+    # It will go out of scope and be released only once all tests needing the fixture
+    # have been completed.
+    yield model_path
+
+
+@pytest.fixture(scope="module")
 def neuron_push_seq2seq_id(export_seq2seq_id):
     model_name = export_seq2seq_id.split("/")[-1]
     repo_id = f"{USER}/{model_name}-neuronx"
