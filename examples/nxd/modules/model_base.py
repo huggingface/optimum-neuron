@@ -1,7 +1,7 @@
 import copy
+import glob
 import logging
 import os
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -462,10 +462,16 @@ class NeuronBaseForCausalLM(GenerationMixin):
 
         traced_model = torch.jit.load(serialize_base_path + "model.pt")
 
-        weights = []
-        for rank in range(self.config.tp_degree):
-            ckpt = load_file(os.path.join(serialize_base_path, f"weights/tp{rank}_sharded_checkpoint.safetensors"))
-            weights.append(ckpt)
+        SHARD_PREFIX = "tp"
+        SHARD_SUFFIX = "_sharded_checkpoint.safetensors"
+        sharded_checkpoints_root = os.path.join(serialize_base_path, "weights")
+        sharded_checkpoints = glob.glob(SHARD_PREFIX + "*" + SHARD_SUFFIX, root_dir=sharded_checkpoints_root)
+
+        def get_rank(shard):
+            return int(shard[len(SHARD_PREFIX) : -len(SHARD_SUFFIX)])
+
+        sharded_checkpoints = sorted(sharded_checkpoints, key=get_rank)
+        weights = [load_file(os.path.join(sharded_checkpoints_root, ckpt_path)) for ckpt_path in sharded_checkpoints]
 
         traced_model.nxd_model.initialize(weights)
 
