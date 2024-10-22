@@ -310,6 +310,9 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
             )
 
 
+@unittest.skip(
+    "T5 compilation broken since neuron sdk 2.20, wait for the fix: https://github.com/aws-neuron/aws-neuron-sdk/issues/1013."
+)
 @is_inferentia_test
 @requires_neuronx
 class NeuronEncoderDecoderExportTestCase(unittest.TestCase):
