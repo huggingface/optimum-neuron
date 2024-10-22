@@ -261,10 +261,10 @@ def infer_stable_diffusion_shapes_from_diffusers(
 def get_submodels_and_neuron_configs(
     model: Union["PreTrainedModel", "DiffusionPipeline"],
     input_shapes: Dict[str, int],
-    tensor_parallel_size: int,
     task: str,
     output: Path,
     library_name: str,
+    tensor_parallel_size: int = 1,
     subfolder: str = "",
     dynamic_batch_size: bool = False,
     model_name_or_path: Optional[Union[str, Path]] = None,
