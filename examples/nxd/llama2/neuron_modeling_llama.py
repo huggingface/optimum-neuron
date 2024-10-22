@@ -342,3 +342,4 @@ class NeuronLlamaForCausalLM(NeuronBaseForCausalLM):
     """
 
     _model_cls = NeuronLlamaModel
+    _config_cls = NeuronLlamaConfig

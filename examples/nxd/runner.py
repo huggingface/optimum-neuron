@@ -42,8 +42,13 @@ class InferenceRunner:
         self.generation_config = generation_config
 
     def load_neuron_model(self, traced_model_path):
-        # Implement per model
-        raise NotImplementedError
+        model = self.get_model_cls().load(traced_model_path)
+
+        if model.config.torch_dtype == torch.bfloat16:
+            model.context_encoding_model.bfloat16()
+            model.token_generation_model.bfloat16()
+
+        return model
 
     def get_config_cls(self):
         # Implement per model

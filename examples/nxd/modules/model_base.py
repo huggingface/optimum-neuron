@@ -346,13 +346,14 @@ class NeuronBaseForCausalLM(GenerationMixin):
     _STATE_DICT_MODEL_PREFIX = "model."
 
     _model_cls = None
+    _config_cls = None
 
     # Required by GenerationMixin, but present in PreTrainedModel
     main_input_name = "input_ids"
     _supports_cache_class = False
     # _supports_static_cache = False
 
-    def __init__(self, model_path: str, config: PretrainedConfig):
+    def __init__(self, config: PretrainedConfig, model: torch.jit.ScriptModule):
         super().__init__()
 
         self.config = config
@@ -363,20 +364,15 @@ class NeuronBaseForCausalLM(GenerationMixin):
 
         self.sampler = None
 
-        self.model_path = model_path
         self.context_encoding_model = ModelWrapper(
             config=self.config,
-            model_cls=self._model_cls,
+            model=model,
             tag=CONTEXT_ENCODING_MODEL_TAG,
-            max_input_tokens=self.config.max_context_length,
-            max_total_tokens=self.config.max_context_length,
         )
         self.token_generation_model = ModelWrapper(
             config=self.config,
-            model_cls=self._model_cls,
+            model=model,
             tag=TOKEN_GENERATION_MODEL_TAG,
-            max_input_tokens=1,
-            max_total_tokens=self.config.max_length,
         )
 
     def can_generate(self):
@@ -437,7 +433,10 @@ class NeuronBaseForCausalLM(GenerationMixin):
     def get_traced_model_path(base_path: Union[str, Path]):
         return os.path.join(base_path, "model.pt")
 
-    def load(self, serialize_base_path):
+    @classmethod
+    def load(cls, serialize_base_path):
+
+        config = cls._config_cls.from_pretrained(serialize_base_path)
 
         traced_model = torch.jit.load(NeuronBaseForCausalLM.get_traced_model_path(serialize_base_path))
 
@@ -454,8 +453,7 @@ class NeuronBaseForCausalLM(GenerationMixin):
 
         traced_model.nxd_model.initialize(weights)
 
-        self.context_encoding_model.model = traced_model
-        self.token_generation_model.model = traced_model
+        return cls(config, traced_model)
 
     @property
     def device(self) -> torch.device:

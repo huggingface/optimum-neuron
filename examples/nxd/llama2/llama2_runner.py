@@ -1,4 +1,3 @@
-import torch
 from runner import InferenceRunner
 
 from llama2.neuron_modeling_llama import (
@@ -8,19 +7,6 @@ from llama2.neuron_modeling_llama import (
 
 
 class LlamaRunner(InferenceRunner):
-
-    def load_neuron_model(self, traced_model_path):
-        config = NeuronLlamaConfig.from_pretrained(traced_model_path)
-        model = NeuronLlamaForCausalLM.from_pretrained("", config)
-        self.config = config
-
-        model.load(traced_model_path)
-        if config.torch_dtype == torch.bfloat16:
-            model.context_encoding_model.bfloat16()
-            if model.token_generation_model is not None:
-                model.token_generation_model.bfloat16()
-
-        return model
 
     def get_config_cls(self):
         return NeuronLlamaConfig

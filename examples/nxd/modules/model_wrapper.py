@@ -15,24 +15,11 @@ TOKEN_GENERATION_MODEL_TAG = "token_generation_model"
 
 
 class ModelWrapper(torch.nn.Module):
-    def __init__(self, config, model_cls, tag="", max_input_tokens: int = 128, max_total_tokens: int = 128) -> None:
+    def __init__(self, config, model, tag="") -> None:
         super().__init__()
         self.config = config
-
-        if not self.config.torch_dtype:
-            self.config.torch_dtype = torch.float32
-
-        if self.config.pad_token_id is None:
-            self.config.pad_token_id = 0
-
-        self.model_cls = model_cls
-        self.model = None
-        self.is_compiled = False
-        self.serialize_base_path = None
+        self.model = model
         self.tag = tag
-        self.enable_bucketing = config.enable_bucketing
-        self.max_input_tokens = max_input_tokens
-        self.max_total_tokens = max_total_tokens
 
     def _forward_with_pad(self, *args):
         seq_ids = args[3]
