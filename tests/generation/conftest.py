@@ -133,7 +133,13 @@ def neuron_seq2seq_greedy_path_with_optional_outputs(export_seq2seq_id):
 @requires_neuronx
 def neuron_seq2seq_tp2_path():
     model = NeuronModelForSeq2SeqLM.from_pretrained(
-        "michaelbenayoun/t5-tiny-random", export=True, tensor_parallel_size=2, dynamic_batch_size=False, batch_size=1, sequence_length=64, num_beams=4
+        "michaelbenayoun/t5-tiny-random",
+        export=True,
+        tensor_parallel_size=2,
+        dynamic_batch_size=False,
+        batch_size=1,
+        sequence_length=64,
+        num_beams=4,
     )
     model_dir = TemporaryDirectory()
     model_path = model_dir.name

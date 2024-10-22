@@ -301,13 +301,13 @@ def get_submodels_and_neuron_configs(
     elif is_encoder_decoder:
         optional_outputs = {"output_attentions": output_attentions, "output_hidden_states": output_hidden_states}
         models_and_neuron_configs, output_model_names = _get_submodels_and_neuron_configs_for_encoder_decoder(
-            model=model, 
-            input_shapes=input_shapes, 
+            model=model,
+            input_shapes=input_shapes,
             tensor_parallel_size=tensor_parallel_size,
-            task=task, 
-            output=output, 
-            dynamic_batch_size=dynamic_batch_size, 
-            model_name_or_path=model_name_or_path, 
+            task=task,
+            output=output,
+            dynamic_batch_size=dynamic_batch_size,
+            model_name_or_path=model_name_or_path,
             **optional_outputs,
         )
     else:
@@ -616,8 +616,10 @@ def main_export(
     # Validate compiled model
     if do_validation and tensor_parallel_size > 1:
         # TODO: support the validation of tp models.
-        logger.warning("The validation is not yet supported for tensor parallel model, the validation will be turned off.")
-        do_validation =  False
+        logger.warning(
+            "The validation is not yet supported for tensor parallel model, the validation will be turned off."
+        )
+        do_validation = False
     if do_validation is True:
         try:
             validate_models_outputs(

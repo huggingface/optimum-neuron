@@ -186,7 +186,7 @@ def validate_model_outputs(
         inputs = config.generate_dummy_inputs(return_tuple=False, **input_shapes)
         ref_inputs = config.unflatten_inputs(inputs)
         if hasattr(reference_model, "config") and getattr(reference_model.config, "is_encoder_decoder", False):
-            
+
             reference_model = config.patch_model_for_export(reference_model, device="cpu", **input_shapes)
         if "SentenceTransformer" in reference_model.__class__.__name__:
             reference_model = config.patch_model_for_export(reference_model, ref_inputs)
@@ -379,7 +379,7 @@ def export_models(
         logger.info(f"[Compilation Time] {np.round(compilation_time, 2)} seconds.")
         all_inputs[model_name] = neuron_inputs
         all_outputs[model_name] = neuron_outputs
-        
+
         # Add neuron specific configs to model components' original config
         model_config = sub_neuron_config._config
         if is_diffusers_available() and isinstance(model_config, FrozenDict):
@@ -529,12 +529,12 @@ def export_neuronx(
     dummy_inputs = config.flatten_inputs(dummy_inputs)
     dummy_inputs_tuple = tuple(dummy_inputs.values())
 
-    # Prepare the model / function(tp) to trace 
+    # Prepare the model / function(tp) to trace
     aliases = {}
     tp_degree = config.tp_degree
     if isinstance(config, TextSeq2SeqNeuronConfig):
         checked_model = config.patch_model_for_export(model_or_path, **input_shapes)
-        if tp_degree==1:
+        if tp_degree == 1:
             aliases = config.generate_io_aliases(checked_model)
     else:
         checked_model = config.patch_model_for_export(model_or_path, dummy_inputs)
@@ -563,7 +563,7 @@ def export_neuronx(
 
     # Start trace
     if tp_degree > 1:
-        # 1. use NxD to trace for parallel 
+        # 1. use NxD to trace for parallel
         neuron_model = neuronx_distributed.trace.parallel_model_trace(
             checked_model,
             dummy_inputs_tuple,
@@ -588,7 +588,7 @@ def export_neuronx(
         # diffusers specific
         improve_stable_diffusion_loading(config, neuron_model)
         torch.jit.save(neuron_model, output)
-    
+
     del model_or_path
     del checked_model
     del dummy_inputs

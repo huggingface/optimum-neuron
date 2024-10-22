@@ -16,8 +16,8 @@
 
 import copy
 import os
-from pathlib import Path
 from collections import OrderedDict
+from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 
 import torch
@@ -34,7 +34,6 @@ from ...neuron.utils import (
     get_attention_scores_sd,
     get_attention_scores_sdxl,
 )
-from ...neuron.distributed import ParallelizersManager
 from ...utils import (
     DIFFUSERS_MINIMUM_VERSION,
     check_if_diffusers_greater,
@@ -526,7 +525,9 @@ def get_encoder_decoder_models_for_export(
         if model_name_or_path:
             models_for_export[ENCODER_NAME] = (model_name_or_path, encoder_neuron_config)
         else:
-            raise ValueError(f"you need to precise `model_name_or_path` when the parallelism is on, but now it's {model_name_or_path}.")
+            raise ValueError(
+                f"you need to precise `model_name_or_path` when the parallelism is on, but now it's {model_name_or_path}."
+            )
 
     # Decoder
     model_type = getattr(model.config, "model_type") + "-decoder"
@@ -552,6 +553,8 @@ def get_encoder_decoder_models_for_export(
         if model_name_or_path:
             models_for_export[DECODER_NAME] = (model_name_or_path, decoder_neuron_config)
         else:
-            raise ValueError(f"you need to precise `model_name_or_path` when the parallelism is on, but now it's {model_name_or_path}.")
+            raise ValueError(
+                f"you need to precise `model_name_or_path` when the parallelism is on, but now it's {model_name_or_path}."
+            )
 
     return models_for_export

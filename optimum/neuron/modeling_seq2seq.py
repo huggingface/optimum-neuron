@@ -155,7 +155,7 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
             shutil.copytree(src_path, dst_path, dirs_exist_ok=True)
 
         self.generation_config.save_pretrained(save_directory)
-    
+
     @staticmethod
     def load_model(
         encoder_path: Union[str, Path],
@@ -231,9 +231,9 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
         encoder, decoder = cls.load_model(
             encoder_path=model_and_config_save_paths[ENCODER_NAME][0],
             decoder_path=model_and_config_save_paths[DECODER_NAME][0],
-            tensor_parallel_size = configs["decoder"].neuron["tensor_parallel_size"],
+            tensor_parallel_size=configs["decoder"].neuron["tensor_parallel_size"],
         )
-        
+
         if model_save_dir is None:
             model_save_dir = new_model_save_dir
 
@@ -464,7 +464,7 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
             for state, tensor in zip(self.decoder.model.parameters(), past_key_values):
                 state.copy_(tensor)
         else:
-            # Encoder returns cache as device tensors, we assign them to decoder's cache to avoid the copy. 
+            # Encoder returns cache as device tensors, we assign them to decoder's cache to avoid the copy.
             # The KV cache always use pre-allocated memory, no host-device communication overhead.
             for decoder_tp, encoder_tp in zip(self.decoder.model.models, self.encoder.model.models):
                 decoder_tp.load_state_dict(encoder_tp.state_dict(), strict=False)

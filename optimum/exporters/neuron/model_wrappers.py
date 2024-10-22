@@ -21,6 +21,7 @@ from transformers.models.t5.modeling_t5 import T5LayerCrossAttention
 
 from ...neuron.utils import is_neuronx_distributed_available
 
+
 if is_neuronx_distributed_available():
     import neuronx_distributed
 
@@ -142,21 +143,59 @@ class T5EncoderWrapper(torch.nn.Module):
         self.device = device
         self.tp_degree = tp_degree
         self.num_attention_heads_per_partition = self.config.num_heads  # when tp_degree=1
-        
-        # TODO: Is it possible to move this under `forward()`?
+
         if self.tp_degree > 1:
-            self.num_attention_heads_per_partition = self.num_attention_heads_per_partition // neuronx_distributed.parallel_layers.parallel_state.get_tensor_model_parallel_size()
-            self.past_key_values_sa = torch.nn.ParameterList([torch.nn.Parameter(torch.ones((self.num_beams * batch_size, self.num_attention_heads_per_partition, self.sequence_length-1, self.config.d_kv), dtype=torch.float32), requires_grad=False) for _ in range(self.config.num_decoder_layers * 2)])
-            self.past_key_values_ca = torch.nn.ParameterList([torch.nn.Parameter(torch.ones((self.num_beams * batch_size, self.num_attention_heads_per_partition, self.sequence_length, self.config.d_kv), dtype=torch.float32), requires_grad=False) for _ in range(self.config.num_decoder_layers * 2)])
+            self.num_attention_heads_per_partition = (
+                self.num_attention_heads_per_partition
+                // neuronx_distributed.parallel_layers.parallel_state.get_tensor_model_parallel_size()
+            )
+            self.past_key_values_sa = torch.nn.ParameterList(
+                [
+                    torch.nn.Parameter(
+                        torch.ones(
+                            (
+                                self.num_beams * batch_size,
+                                self.num_attention_heads_per_partition,
+                                self.sequence_length - 1,
+                                self.config.d_kv,
+                            ),
+                            dtype=torch.float32,
+                        ),
+                        requires_grad=False,
+                    )
+                    for _ in range(self.config.num_decoder_layers * 2)
+                ]
+            )
+            self.past_key_values_ca = torch.nn.ParameterList(
+                [
+                    torch.nn.Parameter(
+                        torch.ones(
+                            (
+                                self.num_beams * batch_size,
+                                self.num_attention_heads_per_partition,
+                                self.sequence_length,
+                                self.config.d_kv,
+                            ),
+                            dtype=torch.float32,
+                        ),
+                        requires_grad=False,
+                    )
+                    for _ in range(self.config.num_decoder_layers * 2)
+                ]
+            )
 
     def forward(self, input_ids, attention_mask):
         # Infer shapes of dummy inputs used for tracing
         batch_size = input_ids.shape[0]
         sequence_length = input_ids.shape[1]
         if self.sequence_length is not None:
-            assert self.sequence_length, f"Different sequence length for the parallel partition({self.sequence_length}) and for dummy inputs({sequence_length}). Make sure that they have the same value."
+            assert (
+                self.sequence_length
+            ), f"Different sequence length for the parallel partition({self.sequence_length}) and for dummy inputs({sequence_length}). Make sure that they have the same value."
         if self.batch_size is not None:
-            assert self.batch_size, f"Different batch size for the parallel partition({self.batch_size}) and for dummy inputs({batch_size}). Make sure that they have the same value."
+            assert (
+                self.batch_size
+            ), f"Different batch size for the parallel partition({self.batch_size}) and for dummy inputs({batch_size}). Make sure that they have the same value."
 
         encoder_output = self.model.encoder(
             input_ids=input_ids, attention_mask=attention_mask, output_attentions=False, output_hidden_states=False
@@ -179,7 +218,10 @@ class T5EncoderWrapper(torch.nn.Module):
             def shape(states):
                 """projection"""
                 return states.view(
-                    self.num_beams * batch_size, -1, self.num_attention_heads_per_partition, attention.key_value_proj_dim
+                    self.num_beams * batch_size,
+                    -1,
+                    self.num_attention_heads_per_partition,
+                    attention.key_value_proj_dim,
                 ).transpose(1, 2)
 
             key_states = shape(attention.k(encoder_hidden_states))
@@ -209,10 +251,34 @@ class T5EncoderWrapper(torch.nn.Module):
                     )
                 )
             else:
-                present_key_value_states_ca.append((self.past_key_values_ca[i*2] * 0) + key_states)
-                present_key_value_states_ca.append((self.past_key_values_ca[i*2+1] * 0) + value_states)
-                present_key_value_states_sa.append(self.past_key_values_sa[i*2]*torch.zeros((self.num_beams * self.batch_size, self.num_attention_heads_per_partition, self.sequence_length-1, self.config.d_kv), dtype=torch.float32, device=self.device))
-                present_key_value_states_sa.append(self.past_key_values_sa[i*2+1]*torch.zeros((self.num_beams * self.batch_size, self.num_attention_heads_per_partition, self.sequence_length-1, self.config.d_kv), dtype=torch.float32, device=self.device))
+                present_key_value_states_ca.append((self.past_key_values_ca[i * 2] * 0) + key_states)
+                present_key_value_states_ca.append((self.past_key_values_ca[i * 2 + 1] * 0) + value_states)
+                present_key_value_states_sa.append(
+                    self.past_key_values_sa[i * 2]
+                    * torch.zeros(
+                        (
+                            self.num_beams * self.batch_size,
+                            self.num_attention_heads_per_partition,
+                            self.sequence_length - 1,
+                            self.config.d_kv,
+                        ),
+                        dtype=torch.float32,
+                        device=self.device,
+                    )
+                )
+                present_key_value_states_sa.append(
+                    self.past_key_values_sa[i * 2 + 1]
+                    * torch.zeros(
+                        (
+                            self.num_beams * self.batch_size,
+                            self.num_attention_heads_per_partition,
+                            self.sequence_length - 1,
+                            self.config.d_kv,
+                        ),
+                        dtype=torch.float32,
+                        device=self.device,
+                    )
+                )
 
         return present_key_value_states_sa + present_key_value_states_ca
 
@@ -242,10 +308,13 @@ class T5DecoderWrapper(torch.nn.Module):
         self.output_attentions = output_attentions
         self.device = device
         self.tp_degree = tp_degree
-        
+
         self.num_attention_heads_per_partition = self.config.num_heads
         if tp_degree > 1:
-            self.num_attention_heads_per_partition = self.num_attention_heads_per_partition // neuronx_distributed.parallel_layers.parallel_state.get_tensor_model_parallel_size()
+            self.num_attention_heads_per_partition = (
+                self.num_attention_heads_per_partition
+                // neuronx_distributed.parallel_layers.parallel_state.get_tensor_model_parallel_size()
+            )
 
         # Initialize KV cache (num_beams, n_heads, seq_length, dim_per_head)
         if device == "cpu":

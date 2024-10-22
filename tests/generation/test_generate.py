@@ -117,7 +117,9 @@ def test_seq2seq_generation_greedy_with_optional_outputs(neuron_seq2seq_greedy_p
     assert "decoder_hidden_states" in output
 
 
-@pytest.mark.skip("T5 compilation broken since neuron sdk 2.20, wait for the fix: https://github.com/aws-neuron/aws-neuron-sdk/issues/1013.")
+@pytest.mark.skip(
+    "T5 compilation broken since neuron sdk 2.20, wait for the fix: https://github.com/aws-neuron/aws-neuron-sdk/issues/1013."
+)
 @is_inferentia_test
 @requires_neuronx
 def test_seq2seq_generation_tp2(neuron_seq2seq_tp2_path):
@@ -184,5 +186,5 @@ def test_general_seq2seq_generation(export_seq2seq_id, export_seq2seq_model_clas
 
 
 # Mandatory for multiprocessing tests eg. tensor parallel tracing
-if __name__ == '__main__':
+if __name__ == "__main__":
     pytest.main([__file__])

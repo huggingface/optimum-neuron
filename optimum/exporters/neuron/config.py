@@ -165,21 +165,3 @@ class TextSeq2SeqNeuronConfig(NeuronDefaultConfig):
         ]
 
         return dummy_inputs_generators
-
-    def load_pretrained_with_parallel_attn(self, model, ckpt_path):
-        # Parallel implementation of Attention modules.
-        import neuronx_distributed
-        from .t5_model_layers import ParallelSelfAttention, ParallelFF, ParallelCrossAttention
-
-        for index, block in enumerate(model.decoder.block):
-            if index == 0:
-                block.layer[0] = ParallelSelfAttention(model.config,
-                                                    has_relative_attention_bias=True)
-            else:
-                block.layer[0] = ParallelSelfAttention(model.config)
-            block.layer[1] = ParallelCrossAttention(model.config)
-            block.layer[2] = ParallelFF(model.config)
-        # Load the weights into the parallel layers        
-        neuronx_distributed.parallel_layers.load(ckpt_path, model, sharded=False)
-
-        return model

@@ -228,7 +228,7 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
     def task(self, value: str):
         self._task = value
         self.mandatory_axes = self.get_mandatory_axes_for_task(self.task)
-    
+
     @property
     def tp_degree(self) -> int:
         return self._tp_degree

@@ -362,8 +362,10 @@ class TestExportCLI(unittest.TestCase):
                 shell=False,
                 check=True,
             )
-    
-    @unittest.skip("T5 compilation broken since neuron sdk 2.20, wait for the fix: https://github.com/aws-neuron/aws-neuron-sdk/issues/1013.")
+
+    @unittest.skip(
+        "T5 compilation broken since neuron sdk 2.20, wait for the fix: https://github.com/aws-neuron/aws-neuron-sdk/issues/1013."
+    )
     @requires_neuronx
     def test_encoder_decoder_tp2(self):
         model_id = "michaelbenayoun/t5-tiny-random"
@@ -377,7 +379,7 @@ class TestExportCLI(unittest.TestCase):
                     model_id,
                     "--task",
                     "text2text-generation",
-                    "--tensor_parallel_size", 
+                    "--tensor_parallel_size",
                     "2",
                     "--batch_size",
                     "1",
