@@ -836,7 +836,7 @@ class T5EncoderNeuronConfig(TextSeq2SeqNeuronConfig):
         model.config.use_cache = True
         parallelizer = ParallelizersManager.parallelizer_for_model(model)
         with parallelizer.saved_model_in_temporary_directory(model) as ckpt_path:
-            # Replace parallel laysers
+            # Replace parallel layers
             parallel_model = parallelizer._parallelize(model, parallelize_embeddings=False)
             # Load the weights into the parallel layers
             neuronx_distributed.parallel_layers.load(ckpt_path, parallel_model, sharded=False)
@@ -950,7 +950,7 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
         model.config.use_cache = True
         parallelizer = ParallelizersManager.parallelizer_for_model(model)
         with parallelizer.saved_model_in_temporary_directory(model) as ckpt_path:
-            # Replace parallel laysers
+            # Replace parallel layers
             parallel_model = parallelizer._parallelize(model, parallelize_embeddings=False)
             # Load the weights into the parallel layers
             neuronx_distributed.parallel_layers.load(ckpt_path, parallel_model, sharded=False)
