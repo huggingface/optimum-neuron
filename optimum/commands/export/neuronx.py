@@ -116,7 +116,7 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         "--tensor_parallel_size",
         type=int,
         default=1,
-        help="Tensor parallelism degree, the number of devices on which to shard the model.",
+        help="Tensor parallelism degree, the number of neuron cores on which to shard the model.",
     )
     optional_group.add_argument(
         "--dynamic-batch-size",

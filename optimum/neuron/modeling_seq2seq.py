@@ -424,7 +424,7 @@ TRANSLATION_EXAMPLE = r"""
     results = [tokenizer.decode(t, skip_special_tokens=True) for t in output]
     ```
     
-    *(For large models, in order to fit into Neuron cores, we need to applly tensor parallelism. Hers below is an example ran on `inf2.24xlarge`.)*
+    *(For large models, in order to fit into Neuron cores, we need to apply tensor parallelism. Here below is an example ran on `inf2.24xlarge`.)*
     Example of text-to-text generation with tensor parallelism:
     
     ```python
