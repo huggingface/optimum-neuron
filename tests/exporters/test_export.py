@@ -152,7 +152,7 @@ class NeuronExportTestCase(unittest.TestCase):
         with NamedTemporaryFile("w") as output:
             try:
                 _, neuron_outputs = export(
-                    model=model,
+                    model_or_path=model,
                     config=neuron_config,
                     output=Path(output.name),
                     inline_weights_to_neff=inline_weights_to_neff,
