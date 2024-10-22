@@ -369,14 +369,13 @@ class NeuronBaseForCausalLM(GenerationMixin):
             max_input_tokens=self.config.max_context_length,
             max_total_tokens=self.config.max_context_length,
         )
-        if config.trace_tokengen_model:
-            self.token_generation_model = ModelWrapper(
-                config=self.config,
-                model_cls=self._model_cls,
-                tag=TOKEN_GENERATION_MODEL_TAG,
-                max_input_tokens=1,
-                max_total_tokens=self.config.max_length,
-            )
+        self.token_generation_model = ModelWrapper(
+            config=self.config,
+            model_cls=self._model_cls,
+            tag=TOKEN_GENERATION_MODEL_TAG,
+            max_input_tokens=1,
+            max_total_tokens=self.config.max_length,
+        )
 
     def can_generate(self):
         # Not needed after transformers 4.50
@@ -402,10 +401,14 @@ class NeuronBaseForCausalLM(GenerationMixin):
             compiler_workdir=base_compile_work_dir,
         )
 
-        wrappers = [self.context_encoding_model]
-        if self.token_generation_model is not None:
-            wrappers.append(self.token_generation_model)
-        for wrapper in wrappers:
+        # The builder will create a single NxDModel that houses multiple SPMDBucketModel
+        # sharing the same weights. Typically, one SPMDBucketModel is created for each
+        # input shape that the NxDModel accepts.
+        # The SPMDBucketModel used for inference will be selected dynamically at runtime
+        # based on the inputs.
+        # For LLM models, we typically use different sets of SPMDBucketModel for encoding and
+        # token generation, each with its own list of buckets.
+        for wrapper in [self.context_encoding_model, self.token_generation_model]:
             # We need a pickable object to provide the callbacks required by the Builder
             exporter = ModelExporter(wrapper, self.get_compiler_args())
             builder.add(
@@ -422,7 +425,6 @@ class NeuronBaseForCausalLM(GenerationMixin):
         del traced_model
 
         builder.shard_checkpoint(serialize_path=os.path.join(serialize_base_path, "weights/"))
-        self.is_loaded_to_neuron = True
 
     @staticmethod
     def get_traced_model_path(base_path: Union[str, Path]):
@@ -446,8 +448,7 @@ class NeuronBaseForCausalLM(GenerationMixin):
         traced_model.nxd_model.initialize(weights)
 
         self.context_encoding_model.model = traced_model
-        if self.token_generation_model is not None:
-            self.token_generation_model.model = traced_model
+        self.token_generation_model.model = traced_model
 
     @property
     def device(self) -> torch.device:
@@ -550,19 +551,6 @@ class NeuronBaseForCausalLM(GenerationMixin):
 
         return outputs
 
-    def _copy_kv_cache(self, source_model, target_model):
-        for source, target in zip(source_model.model.models, target_model.model.models):
-            encoder_kv_cache_line = source.states
-            token_gen_kv_cache_line = target.states
-            for name, _ in token_gen_kv_cache_line._parameters.items():
-                token_gen_kv_cache_line._parameters[name] = encoder_kv_cache_line._parameters[name]
-
-    def _copy_past_key_values(self, outputs):
-        new_past_key_values = outputs[1:]
-        for i, new_past_key_value in enumerate(new_past_key_values):
-            self.token_generation_model.model.past_key_values[i].data = new_past_key_value
-            self.context_encoding_model.model.past_key_values[i].data = new_past_key_value
-
     def _construct_output(self, logits_or_next_tokens):
         next_tokens = logits_or_next_tokens
 
@@ -640,15 +628,6 @@ class NeuronBaseForCausalLM(GenerationMixin):
             }
         )
         return model_inputs
-
-    @staticmethod
-    def _reorder_cache(past_key_values, beam_idx):
-        reordered_past = ()
-        for layer_past in past_key_values:
-            reordered_past += (
-                tuple(past_state.index_select(0, beam_idx.to(past_state.device)) for past_state in layer_past),
-            )
-        return reordered_past
 
     def reset(self):
         # We need to reset the KV cache flag for a new batch of inference.
