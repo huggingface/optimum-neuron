@@ -418,15 +418,19 @@ class NeuronBaseForCausalLM(GenerationMixin):
             )
 
         traced_model = builder.trace(initialize_model_weights=False)
-        torch.jit.save(traced_model, serialize_base_path + "model.pt")
+        torch.jit.save(traced_model, NeuronBaseForCausalLM.get_traced_model_path(serialize_base_path))
         del traced_model
 
         builder.shard_checkpoint(serialize_path=os.path.join(serialize_base_path, "weights/"))
         self.is_loaded_to_neuron = True
 
+    @staticmethod
+    def get_traced_model_path(base_path: Union[str, Path]):
+        return os.path.join(base_path, "model.pt")
+
     def load(self, serialize_base_path):
 
-        traced_model = torch.jit.load(serialize_base_path + "model.pt")
+        traced_model = torch.jit.load(NeuronBaseForCausalLM.get_traced_model_path(serialize_base_path))
 
         SHARD_PREFIX = "tp"
         SHARD_SUFFIX = "_sharded_checkpoint.safetensors"
