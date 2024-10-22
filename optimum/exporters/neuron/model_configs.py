@@ -834,10 +834,10 @@ class T5EncoderNeuronConfig(TextSeq2SeqNeuronConfig):
             library_name="transformers",
         )  # TODO: add extra args, eg. revision, trust_remote_code, etc.
         model.config.use_cache = True
-        parallizer = ParallelizersManager.parallelizer_for_model(model)
-        with parallizer.saved_model_in_temporary_directory(model) as ckpt_path:
+        parallelizer = ParallelizersManager.parallelizer_for_model(model)
+        with parallelizer.saved_model_in_temporary_directory(model) as ckpt_path:
             # Replace parallel laysers
-            parallel_model = parallizer._parallelize(model, parallelize_embeddings=False)
+            parallel_model = parallelizer._parallelize(model, parallelize_embeddings=False)
             # Load the weights into the parallel layers
             neuronx_distributed.parallel_layers.load(ckpt_path, parallel_model, sharded=False)
         encoder = self.CUSTOM_MODEL_WRAPPER(
@@ -948,10 +948,10 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
             library_name="transformers",
         )  # TODO: add extra args, eg. revision, trust_remote_code, etc.
         model.config.use_cache = True
-        parallizer = ParallelizersManager.parallelizer_for_model(model)
-        with parallizer.saved_model_in_temporary_directory(model) as ckpt_path:
+        parallelizer = ParallelizersManager.parallelizer_for_model(model)
+        with parallelizer.saved_model_in_temporary_directory(model) as ckpt_path:
             # Replace parallel laysers
-            parallel_model = parallizer._parallelize(model, parallelize_embeddings=False)
+            parallel_model = parallelizer._parallelize(model, parallelize_embeddings=False)
             # Load the weights into the parallel layers
             neuronx_distributed.parallel_layers.load(ckpt_path, parallel_model, sharded=False)
 
