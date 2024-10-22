@@ -70,9 +70,6 @@ class ModelWrapper(torch.nn.Module):
             return generate_buckets(128, self.max_total_tokens)
         return [self.max_total_tokens]
 
-    def is_neuron(self):
-        return self.model is not None and isinstance(self.model, torch.jit.ScriptModule)
-
     def load(self, serialize_base_path):
         self.model = parallel_model_load(os.path.join(serialize_base_path, self.tag))
 
@@ -107,12 +104,8 @@ class ModelWrapper(torch.nn.Module):
         outputs = self._forward(*padded_args)
 
         # note that we don't do index select here as it should already be handled, simply sliced out padding here
-        if self.is_neuron():
-            logits = outputs
-            return logits[: seq_ids.shape[0]]
-        else:
-            logits, *kv_cache = outputs
-            return [logits[: seq_ids.shape[0]], *kv_cache]
+        logits = outputs
+        return logits[: seq_ids.shape[0]]
 
     def reorder_helper(self, *args):
         # we then reorder the other inputs based on padded_seq_ids
@@ -136,10 +129,7 @@ class ModelWrapper(torch.nn.Module):
         outputs = self.model(*args)
 
         if self.config.is_continuous_batching and self.config.batch_size == self.config.max_batch_size:
-            if self.is_neuron():
-                return torch.index_select(outputs, 0, seq_ids)
-            else:
-                return [torch.index_select(outputs[0], 0, seq_ids), *outputs[1:]]
+            return torch.index_select(outputs, 0, seq_ids)
 
         return outputs
 
@@ -194,20 +184,10 @@ class ModelWrapper(torch.nn.Module):
                 )
                 outputs = self._forward_with_pad(*[arg[cur_batch:input_batch_size] for arg in args])
 
-            if self.is_neuron():
-                logits = outputs
-            else:
-                logits, *kv_caches = outputs
-                for i, kv_cache in enumerate(kv_caches):
-                    self.model.past_key_values[i].data = kv_cache
-
-            output_logits.append(logits)
+            output_logits.append(outputs)
             cur_batch += self.config.batch_size
 
-        if self.is_neuron():
-            return torch.cat(output_logits, dim=0)
-        else:
-            return [torch.cat(output_logits, dim=0), *kv_caches]
+        return torch.cat(output_logits, dim=0)
 
 
 class DecoderModelInstance(BaseModelInstance):

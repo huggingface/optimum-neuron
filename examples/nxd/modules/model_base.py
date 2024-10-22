@@ -489,17 +489,7 @@ class NeuronBaseForCausalLM(GenerationMixin):
         if seq_ids is None:
             seq_ids = torch.arange(input_ids.shape[0])
 
-        outputs, is_run_on_neuron = self._get_model_outputs(input_ids, attention_mask, position_ids, seq_ids)
-
-        if self.config.trace_tokengen_model and not self.token_generation_model.is_neuron():
-            self._copy_past_key_values(outputs)
-
-        if is_run_on_neuron:
-            # When run on neuron, KV cache remains on device
-            logits_or_next_tokens = outputs
-        else:
-            # When run on cpu, KV cache is returned which has to be ignored
-            logits_or_next_tokens, *_ = outputs
+        logits_or_next_tokens = self._get_model_outputs(input_ids, attention_mask, position_ids, seq_ids)
 
         logging.debug("---output---")
         logging.debug(f"{'tokens' if self.config.on_device_sampling else 'logits'} = %s, ", logits_or_next_tokens)
@@ -537,9 +527,6 @@ class NeuronBaseForCausalLM(GenerationMixin):
         logging.debug("position_ids =%s", position_ids)
         logging.debug(f"seq_ids: {seq_ids}")
 
-        if self.config.trace_tokengen_model and not self.token_generation_model.is_neuron():
-            logging.debug(f"first layer kv_cache: {self.token_generation_model.model.past_key_values[0][:, 0, :, 0]}")
-
     def _get_model_outputs(self, input_ids, attention_mask, position_ids, seq_ids):
         if input_ids.shape[-1] > 1:
             outputs = self.context_encoding_model(
@@ -549,7 +536,6 @@ class NeuronBaseForCausalLM(GenerationMixin):
                 seq_ids,
             )
             self.kv_cache_populated = True
-            is_run_on_neuron = self.context_encoding_model.is_neuron()
         else:
             outputs = self.token_generation_model(
                 input_ids,
@@ -557,9 +543,8 @@ class NeuronBaseForCausalLM(GenerationMixin):
                 position_ids,
                 seq_ids,
             )
-            is_run_on_neuron = self.token_generation_model.is_neuron()
 
-        return outputs, is_run_on_neuron
+        return outputs
 
     def _copy_kv_cache(self, source_model, target_model):
         for source, target in zip(source_model.model.models, target_model.model.models):
@@ -666,17 +651,6 @@ class NeuronBaseForCausalLM(GenerationMixin):
         # When the flag is reset, the subsequent run will invoke the
         # context encoding model.
         self.kv_cache_populated = False
-
-    def reset_kv_cache(self):
-        # Zero out kv cache for debug.
-        # For new batch inference, use reset() instead
-        if not self.context_encoding_model.is_neuron():
-            for i, kv_tensor in enumerate(self.context_encoding_model.model.past_key_values):
-                self.context_encoding_model.model.past_key_values[i] = torch.zeros_like(kv_tensor)
-
-        if not self.token_generation_model.is_neuron():
-            for i, kv_tensor in enumerate(self.token_generation_model.model.past_key_values):
-                self.token_generation_model.model.past_key_values[i] = torch.zeros_like(kv_tensor)
 
     def _sample(
         self,
