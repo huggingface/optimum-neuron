@@ -109,7 +109,7 @@ class InferenceRunner:
 
         config.trace_tokengen_model = kwargs.get("trace_tokengen_model", True)
 
-        config.pad_token_id = kwargs.get("pad_token_id", None)
+        config.pad_token_id = kwargs.get("pad_token_id", config.eos_token_id)
 
         return config
 
@@ -192,6 +192,4 @@ class InferenceRunner:
         # We have the config in the trace_model_path
         config.save_pretrained(traced_model_path)
 
-        model = self.get_model_cls().from_pretrained(self.model_path, config)
-
-        model.compile(serialize_base_path=traced_model_path)
+        self.get_model_cls().export(self.model_path, config, serialize_base_path=traced_model_path)

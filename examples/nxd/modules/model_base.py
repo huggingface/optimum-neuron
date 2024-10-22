@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import torch
 from modules.autobucketing import slice_lhs, slice_rhs  # noqa: E402
 from modules.checkpoint import load_state_dict
+from modules.config import NeuronInferenceConfig
 from modules.gqa import (  # noqa: E402
     determine_sharding_strategy,  # noqa: E402
     get_shardable_head_counts,  # noqa: E402
@@ -382,22 +383,24 @@ class NeuronBaseForCausalLM(GenerationMixin):
         # Not needed after transformers 4.50
         return True
 
-    def get_compiler_args(self):
+    @staticmethod
+    def get_compiler_args():
         return "--enable-saturate-infinity --auto-cast=none --model-type=transformer --tensorizer-options='--enable-ccop-compute-overlap --cc-pipeline-tiling-factor=2' -O1 "
 
     @classmethod
     def from_pretrained(cls, model_path: str, config: PretrainedConfig):
         return cls(model_path, config)
 
-    def compile(self, serialize_base_path=None):
+    @classmethod
+    def export(cls, model_path: Union[str, Path], config: NeuronInferenceConfig, serialize_base_path=None):
 
         base_compile_work_dir = os.environ.get("BASE_COMPILE_WORK_DIR", "/tmp/nxd_model/")
 
-        checkpoint_loader = CheckPointLoader(self.model_path, self._STATE_DICT_MODEL_PREFIX, self.config.torch_dtype)
+        checkpoint_loader = CheckPointLoader(model_path, cls._STATE_DICT_MODEL_PREFIX, config.torch_dtype)
 
         builder = ModelBuilder(
             router=None,
-            tp_degree=self.config.tp_degree,
+            tp_degree=config.tp_degree,
             checkpoint_loader=checkpoint_loader.load_checkpoint,
             compiler_workdir=base_compile_work_dir,
         )
@@ -410,16 +413,8 @@ class NeuronBaseForCausalLM(GenerationMixin):
         # For LLM models, we typically use different sets of SPMDBucketModel for encoding and
         # token generation, each with its own list of buckets.
         exporters = [
-            ContextEncodingModelExporter(
-                self._model_cls,
-                self.config,
-                buckets=self.context_encoding_model.buckets,
-            ),
-            TokenGenerationModelExporter(
-                self._model_cls,
-                self.config,
-                buckets=self.token_generation_model.buckets,
-            ),
+            ContextEncodingModelExporter(cls._model_cls, config),
+            TokenGenerationModelExporter(cls._model_cls, config),
         ]
         for exporter in exporters:
             # We need a pickable object to provide the callbacks required by the Builder
@@ -428,7 +423,7 @@ class NeuronBaseForCausalLM(GenerationMixin):
                 model_instance=exporter.get_model_instance(),
                 example_inputs=exporter.input_generator(),
                 bucket_config=exporter.bucket_config(),
-                compiler_args=self.get_compiler_args(),
+                compiler_args=cls.get_compiler_args(),
                 priority_model_idx=None,
             )
 

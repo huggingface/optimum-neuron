@@ -34,12 +34,6 @@ class ModelWrapper(torch.nn.Module):
         self.max_input_tokens = max_input_tokens
         self.max_total_tokens = max_total_tokens
 
-    @property
-    def buckets(self):
-        if self.enable_bucketing:
-            return generate_buckets(128, self.max_total_tokens)
-        return [self.max_total_tokens]
-
     def _forward_with_pad(self, *args):
         seq_ids = args[3]
 
@@ -195,8 +189,8 @@ class ModelExporter(ABC):
     tag: str
     model_cls: type
     config: Any
-    max_input_tokens: int = 1
-    buckets: Tuple[int] = ()
+    buckets: Tuple[int]
+    max_input_tokens: int
 
     def input_generator(self):
         inputs = []
@@ -223,19 +217,24 @@ class ModelExporter(ABC):
 
 class ContextEncodingModelExporter(ModelExporter):
 
-    def __init__(self, model_cls, config, buckets: Tuple[int]):
+    def __init__(self, model_cls, config):
+        if config.enable_bucketing:
+            buckets = generate_buckets(128, config.max_context_length)
+        else:
+            buckets = [config.max_context_length]
+        print(buckets)
         super().__init__(
             tag=CONTEXT_ENCODING_MODEL_TAG,
             model_cls=model_cls,
             config=config,
-            max_input_tokens=config.max_context_length,
             buckets=buckets,
+            max_input_tokens=config.max_context_length,
         )
 
     def bucket_config(self):
-        bucket_degree = len(self.buckets)
-        if bucket_degree == 1:
+        if not self.config.enable_bucketing:
             return None
+        bucket_degree = len(self.buckets)
         return BucketModelConfig(
             bucket_kernel=get_context_encoder_bk,
             bucket_kernel_constant_args=(
@@ -250,19 +249,24 @@ class ContextEncodingModelExporter(ModelExporter):
 
 class TokenGenerationModelExporter(ModelExporter):
 
-    def __init__(self, model_cls, config, buckets: Tuple[int]):
+    def __init__(self, model_cls, config):
+        if config.enable_bucketing:
+            buckets = generate_buckets(128, config.max_length)
+        else:
+            buckets = [config.max_length]
+        print(buckets)
         super().__init__(
             tag=TOKEN_GENERATION_MODEL_TAG,
             model_cls=model_cls,
             config=config,
-            max_input_tokens=1,
             buckets=buckets,
+            max_input_tokens=1,
         )
 
     def bucket_config(self):
-        bucket_degree = len(self.buckets)
-        if bucket_degree == 1:
+        if not self.config.enable_bucketing:
             return None
+        bucket_degree = len(self.buckets)
         return BucketModelConfig(
             bucket_kernel=get_token_generation_bk,
             bucket_kernel_constant_args=(torch.tensor(self.buckets), self.config.padding_side),
