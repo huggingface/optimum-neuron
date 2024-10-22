@@ -1,47 +1,17 @@
 import logging
-import os
-from typing import List
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from typing import Any, Tuple
 
 import torch
 import torch.nn.functional as F
 from modules.autobucketing import generate_buckets, get_context_encoder_bk, get_token_generation_bk
-from neuronx_distributed.trace import (
-    parallel_model_load,
-)
 from neuronx_distributed.trace.model_builder import BaseModelInstance
 from torch_neuronx import BucketModelConfig
 
 
 CONTEXT_ENCODING_MODEL_TAG = "context_encoding_model"
 TOKEN_GENERATION_MODEL_TAG = "token_generation_model"
-
-
-def get_bucket_model_config_from_tag(tag, buckets: List[int], pad_token_id: int, padding_side: str):
-    bucket_degree = len(buckets)
-    if bucket_degree == 1:
-        return None
-
-    # NOTE: KV Cache preprocessing is done within the model and not the
-    # shared buffer preprocessor due to lack of support of non-contiguous
-    # slicing of nrt tensors via the NRT API.
-    if tag == CONTEXT_ENCODING_MODEL_TAG:
-        return BucketModelConfig(
-            bucket_kernel=get_context_encoder_bk,
-            bucket_kernel_constant_args=(torch.tensor(buckets), padding_side, pad_token_id),
-            shared_state_buffer=None,
-            func_kwargs=[{"bucket_rank": i} for i in range(bucket_degree)],
-        )
-    elif tag == TOKEN_GENERATION_MODEL_TAG:
-        return BucketModelConfig(
-            bucket_kernel=get_token_generation_bk,
-            bucket_kernel_constant_args=(torch.tensor(buckets), padding_side),
-            shared_state_buffer=None,
-            func_kwargs=[{"bucket_rank": i} for i in range(bucket_degree)],
-        )
-    else:
-        raise ValueError(
-            f"The supplied tag: {tag} is not supported for Bucketing. Only {CONTEXT_ENCODING_MODEL_TAG} and {TOKEN_GENERATION_MODEL_TAG} are supported"
-        )
 
 
 class ModelWrapper(torch.nn.Module):
@@ -69,9 +39,6 @@ class ModelWrapper(torch.nn.Module):
         if self.enable_bucketing:
             return generate_buckets(128, self.max_total_tokens)
         return [self.max_total_tokens]
-
-    def load(self, serialize_base_path):
-        self.model = parallel_model_load(os.path.join(serialize_base_path, self.tag))
 
     def _forward_with_pad(self, *args):
         seq_ids = args[3]
@@ -222,32 +189,19 @@ class DecoderModelInstance(BaseModelInstance):
         return self.module, self.input_output_aliases
 
 
-class ModelExporter:
+@dataclass
+class ModelExporter(ABC):
 
-    def __init__(self, model_wrapper: ModelWrapper, compiler_args: str, priority_model_idx: int = None):
-        self.model_cls = model_wrapper.model_cls
-        self.config = model_wrapper.config
-        self.batch_size = model_wrapper.config.batch_size
-        self.max_input_tokens = model_wrapper.max_input_tokens
-        if compiler_args is None:
-            self.compiler_args = "--enable-saturate-infinity --auto-cast=none --model-type=transformer --tensorizer-options='--enable-ccop-compute-overlap --cc-pipeline-tiling-factor=2' -O1 "
-        else:
-            self.compiler_args = compiler_args
-        self.buckets = model_wrapper.buckets
-        self.bucket_config = get_bucket_model_config_from_tag(
-            model_wrapper.tag,
-            model_wrapper.buckets,
-            model_wrapper.config.pad_token_id,
-            model_wrapper.config.padding_side,
-        )
-        self.priority_model_idx = priority_model_idx
+    tag: str
+    model_cls: type
+    config: Any
+    max_input_tokens: int = 1
+    buckets: Tuple[int] = ()
 
-    def input_generator(
-        self,
-    ):
+    def input_generator(self):
         inputs = []
         for bucket in self.buckets:
-            batch_size = self.batch_size
+            batch_size = self.config.batch_size
             n_active_tokens = min(self.max_input_tokens, bucket)
 
             input_ids = torch.zeros((batch_size, n_active_tokens), dtype=torch.int64)
@@ -261,3 +215,57 @@ class ModelExporter:
 
     def get_model_instance(self):
         return DecoderModelInstance(model_cls=self.model_cls, config=self.config, buckets=self.buckets)
+
+    @abstractmethod
+    def bucket_config(self):
+        raise NotImplementedError
+
+
+class ContextEncodingModelExporter(ModelExporter):
+
+    def __init__(self, model_cls, config, buckets: Tuple[int]):
+        super().__init__(
+            tag=CONTEXT_ENCODING_MODEL_TAG,
+            model_cls=model_cls,
+            config=config,
+            max_input_tokens=config.max_context_length,
+            buckets=buckets,
+        )
+
+    def bucket_config(self):
+        bucket_degree = len(self.buckets)
+        if bucket_degree == 1:
+            return None
+        return BucketModelConfig(
+            bucket_kernel=get_context_encoder_bk,
+            bucket_kernel_constant_args=(
+                torch.tensor(self.buckets),
+                self.config.padding_side,
+                self.config.pad_token_id,
+            ),
+            shared_state_buffer=None,
+            func_kwargs=[{"bucket_rank": i} for i in range(bucket_degree)],
+        )
+
+
+class TokenGenerationModelExporter(ModelExporter):
+
+    def __init__(self, model_cls, config, buckets: Tuple[int]):
+        super().__init__(
+            tag=TOKEN_GENERATION_MODEL_TAG,
+            model_cls=model_cls,
+            config=config,
+            max_input_tokens=1,
+            buckets=buckets,
+        )
+
+    def bucket_config(self):
+        bucket_degree = len(self.buckets)
+        if bucket_degree == 1:
+            return None
+        return BucketModelConfig(
+            bucket_kernel=get_token_generation_bk,
+            bucket_kernel_constant_args=(torch.tensor(self.buckets), self.config.padding_side),
+            shared_state_buffer=None,
+            func_kwargs=[{"bucket_rank": i} for i in range(bucket_degree)],
+        )

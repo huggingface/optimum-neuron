@@ -15,8 +15,9 @@ from modules.gqa import (  # noqa: E402
 from modules.model_wrapper import (  # noqa: E402
     CONTEXT_ENCODING_MODEL_TAG,  # noqa: E402
     TOKEN_GENERATION_MODEL_TAG,  # noqa: E402
-    ModelExporter,
+    ContextEncodingModelExporter,
     ModelWrapper,  # noqa: E402
+    TokenGenerationModelExporter,
 )
 from neuronx_distributed.parallel_layers import parallel_state, utils  # noqa: E402
 from neuronx_distributed.trace.model_builder import ModelBuilder
@@ -382,7 +383,7 @@ class NeuronBaseForCausalLM(GenerationMixin):
         return True
 
     def get_compiler_args(self):
-        return None
+        return "--enable-saturate-infinity --auto-cast=none --model-type=transformer --tensorizer-options='--enable-ccop-compute-overlap --cc-pipeline-tiling-factor=2' -O1 "
 
     @classmethod
     def from_pretrained(cls, model_path: str, config: PretrainedConfig):
@@ -408,16 +409,27 @@ class NeuronBaseForCausalLM(GenerationMixin):
         # based on the inputs.
         # For LLM models, we typically use different sets of SPMDBucketModel for encoding and
         # token generation, each with its own list of buckets.
-        for wrapper in [self.context_encoding_model, self.token_generation_model]:
+        exporters = [
+            ContextEncodingModelExporter(
+                self._model_cls,
+                self.config,
+                buckets=self.context_encoding_model.buckets,
+            ),
+            TokenGenerationModelExporter(
+                self._model_cls,
+                self.config,
+                buckets=self.token_generation_model.buckets,
+            ),
+        ]
+        for exporter in exporters:
             # We need a pickable object to provide the callbacks required by the Builder
-            exporter = ModelExporter(wrapper, self.get_compiler_args())
             builder.add(
-                key=wrapper.tag,
+                key=exporter.tag,
                 model_instance=exporter.get_model_instance(),
                 example_inputs=exporter.input_generator(),
-                compiler_args=exporter.compiler_args,
-                bucket_config=exporter.bucket_config,
-                priority_model_idx=exporter.priority_model_idx,
+                bucket_config=exporter.bucket_config(),
+                compiler_args=self.get_compiler_args(),
+                priority_model_idx=None,
             )
 
         traced_model = builder.trace(initialize_model_weights=False)
