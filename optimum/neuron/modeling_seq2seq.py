@@ -429,7 +429,7 @@ TRANSLATION_EXAMPLE = r"""
     from transformers import {processor_class}
     from optimum.neuron import {model_class}
     # 1. compile
-    if __name__ == "__main__":  # compulsory for parallel tracing since the API will spawn multiple processes
+    if __name__ == "__main__":  # compulsory for parallel tracing since the API will spawn multiple processes.
         neuron_model = {model_class}.from_pretrained(
             {checkpoint_tp}, export=True, tensor_parallel_size=8, dynamic_batch_size=False, batch_size=1, sequence_length=128, num_beams=4,
         )
