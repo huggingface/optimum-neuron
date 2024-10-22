@@ -424,12 +424,12 @@ TRANSLATION_EXAMPLE = r"""
     results = [tokenizer.decode(t, skip_special_tokens=True) for t in output]
     ```
     Example of text-to-text generation with tensor parallelism:
-    (For large models, in order to fit into Neuron cores, we need to applly tensor parallelism. Hers below is an example ran on `inf2.24xlarge`.)
+    *(For large models, in order to fit into Neuron cores, we need to applly tensor parallelism. Hers below is an example ran on `inf2.24xlarge`.)*
     ```python
     from transformers import {processor_class}
     from optimum.neuron import {model_class}
     # 1. compile
-    if __name__ == "__main__":  # `if __name__ == "__main__"` is compulsory for parallel tracing since the API will spawn multiple processes
+    if __name__ == "__main__":  # compulsory for parallel tracing since the API will spawn multiple processes
         neuron_model = {model_class}.from_pretrained(
             {checkpoint_tp}, export=True, tensor_parallel_size=8, dynamic_batch_size=False, batch_size=1, sequence_length=128, num_beams=4,
         )
