@@ -390,6 +390,10 @@ class NeuronBaseForCausalLM(GenerationMixin):
     @classmethod
     def export(cls, model_path: Union[str, Path], config: NeuronInferenceConfig, serialize_base_path=None):
 
+        if not os.path.exists(serialize_base_path):
+            os.makedirs(serialize_base_path)
+
+        config.save_pretrained(serialize_base_path)
         base_compile_work_dir = os.environ.get("BASE_COMPILE_WORK_DIR", "/tmp/nxd_model/")
 
         checkpoint_loader = CheckPointLoader(model_path, cls._STATE_DICT_MODEL_PREFIX, config.torch_dtype)
