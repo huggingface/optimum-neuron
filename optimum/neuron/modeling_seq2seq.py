@@ -105,7 +105,6 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
         neuron_configs: Optional[Dict[str, "NeuronDefaultConfig"]] = None,
         configs: Optional[Dict[str, "PretrainedConfig"]] = None,
         generation_config: Optional[GenerationConfig] = None,
-        model_and_config_save_paths: Optional[Dict[str, Tuple[str, Path]]] = None,
         **kwargs,
     ):
         self.config = config
@@ -115,7 +114,6 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
             self.neuron_configs[ENCODER_NAME]
         )  # only for the encoder
         self._attributes_init(model_save_dir, preprocessors, **kwargs)
-        self.model_and_config_save_paths = model_and_config_save_paths if model_and_config_save_paths else None
         self.encoder = NeuronEncoder(
             encoder,
             self,
@@ -139,51 +137,16 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
         self.generation_config = generation_config
         self.tp_degree = self.neuron_configs[DECODER_NAME].tp_degree
 
-    def _save_pretrained(
-        self,
-        save_directory: Union[str, Path],
-        encoder_file_name: str = NEURON_FILE_NAME,
-        decoder_file_name: str = NEURON_FILE_NAME,
-    ):
+    def _save_pretrained(self, save_directory: Union[str, Path]):
         """
-        Saves the model encoder and decoder as well as their configuration files to a
-        directory, so that it can be re-loaded using the
-        [`~optimum.neuron.modeling_seq2seq.NeuronModelForSeq2SeqLM.from_pretrained`] class method.
+        Saves a model and its configuration file to a directory, so that it can be re-loaded using the
+        [`~optimum.neuron.modeling_traced.NeuronTracedModel.from_pretrained`] class method.
 
         Args:
-            save_directory (`Union[str, Path`]):
-                The directory where to save the model files.
-            encoder_file_name (`str`, defaults to `NEURON_FILE_NAME`]):
-                The file name to save the encoder.
-            decoder_file_name (`str`, defaults to `NEURON_FILE_NAME`]):
-                The file name to save the decoder.
+            save_directory (`Union[str, Path]`):
+                Directory where to save the model file.
         """
-        if self.model_and_config_save_paths is None:
-            logger.warning(
-                "`model_save_paths` is None which means that no path of Neuron model is defined. Nothing will be saved."
-            )
-            return
-
-        save_directory = Path(save_directory)
-        if not self.model_and_config_save_paths.get(ENCODER_NAME)[0].exists():
-            self.model_and_config_save_paths.pop(ENCODER_NAME)
-
-        if not self.model_and_config_save_paths.get(DECODER_NAME)[0].exists():
-            self.model_and_config_save_paths.pop(DECODER_NAME)
-
-        dst_paths = [
-            save_directory / ENCODER_NAME / encoder_file_name,
-            save_directory / DECODER_NAME / decoder_file_name,
-        ]
-        src_paths = [
-            Path(self.model_and_config_save_paths[ENCODER_NAME][0]),
-            Path(self.model_and_config_save_paths[DECODER_NAME][0]),
-        ]
-
-        for src_path, dst_path in zip(src_paths, dst_paths):
-            dst_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(src_path, dst_path, dirs_exist_ok=True)
-
+        shutil.copytree(self.model_save_dir, save_directory, dirs_exist_ok=True)
         self.generation_config.save_pretrained(save_directory)
 
     @staticmethod
@@ -261,7 +224,7 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
         encoder, decoder = cls.load_model(
             encoder_path=model_and_config_save_paths[ENCODER_NAME][0],
             decoder_path=model_and_config_save_paths[DECODER_NAME][0],
-            tensor_parallel_size=configs["decoder"].neuron["tensor_parallel_size"],
+            tensor_parallel_size=configs["decoder"].neuron.get("tensor_parallel_size", 1),
         )
 
         if model_save_dir is None:
@@ -291,7 +254,6 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
             neuron_configs=neuron_configs,
             configs=configs,
             generation_config=generation_config,
-            model_and_config_save_paths=model_and_config_save_paths,
         )
 
     @classmethod
