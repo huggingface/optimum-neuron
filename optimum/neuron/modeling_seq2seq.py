@@ -155,7 +155,7 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
         decoder_path: Union[str, Path],
         tensor_parallel_size: int,
     ):
-        if not tensor_parallel_size > 1:
+        if tensor_parallel_size == 1:
             # Initialize Neuron Runtime before loading models
             runtime = torch.classes.neuron.Runtime()
             runtime.initialize()
