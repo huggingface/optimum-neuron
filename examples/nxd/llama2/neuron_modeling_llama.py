@@ -93,16 +93,9 @@ def register_module(key: str):
 
 
 class NeuronLlamaConfig(NeuronInferenceConfig, LlamaConfig):
-    def __init__(self, max_batch_size=1, tp_degree=1, n_positions=128, padding_side="right", **kwargs):
+    def __init__(self, *args, **kwargs):
         self.attn_cls = "NeuronLlamaAttention"
-
-        super().__init__(
-            tp_degree=tp_degree,
-            seq_len=n_positions,
-            padding_side=padding_side,
-            max_batch_size=max_batch_size,
-            **kwargs,
-        )
+        super().__init__(*args, **kwargs)
 
 
 class NeuronLlamaMLP(nn.Module):
