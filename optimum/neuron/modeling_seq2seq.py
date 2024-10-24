@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Un
 import torch
 from huggingface_hub import snapshot_download
 from transformers import AutoConfig, AutoModelForSeq2SeqLM, GenerationConfig
+from transformers.file_utils import add_start_docstrings, add_start_docstrings_to_model_forward
 from transformers.generation.logits_process import LogitsProcessorList
 from transformers.generation.stopping_criteria import StoppingCriteriaList
 from transformers.utils import ModelOutput
@@ -43,6 +44,7 @@ from .utils import (
     ENCODER_NAME,
     NEURON_FILE_NAME,
     is_neuronx_available,
+    is_neuronx_distributed_available,
 )
 
 
@@ -52,7 +54,39 @@ if TYPE_CHECKING:
 if is_neuronx_available():
     import torch_neuronx
 
+if is_neuronx_distributed_available():
+    import neuronx_distributed
+
 logger = logging.getLogger(__name__)
+
+_TOKENIZER_FOR_DOC = "AutoTokenizer"
+
+NEURON_SEQ2SEQ_MODEL_START_DOCSTRING = r"""
+    This model inherits from [`~neuron.modeling.NeuronTracedModel`]. Check the superclass documentation for the generic methods the
+    library implements for all its model (such as downloading or saving)
+
+    Args:
+        encoder (`torch.jit._script.ScriptModule`): [torch.jit._script.ScriptModule](https://pytorch.org/docs/stable/generated/torch.jit.ScriptModule.html) is the TorchScript module of the encoder with embedded NEFF(Neuron Executable File Format) compiled by neuron(x) compiler.
+        decoder (`torch.jit._script.ScriptModule`): [torch.jit._script.ScriptModule](https://pytorch.org/docs/stable/generated/torch.jit.ScriptModule.html) is the TorchScript module of the decoder with embedded NEFF(Neuron Executable File Format) compiled by neuron(x) compiler.
+        config (`transformers.PretrainedConfig`): [PretrainedConfig](https://huggingface.co/docs/transformers/main_classes/configuration#transformers.PretrainedConfig) is the Model configuration class with all the parameters of the model.
+            Initializing with a config file does not load the weights associated with the model, only the
+            configuration. Check out the [`optimum.neuron.modeling.NeuronTracedModel.from_pretrained`] method to load the model weights.
+"""
+
+NEURON_SEQ2SEQ_INPUTS_DOCSTRING = r"""
+    Args:
+        input_ids (`torch.Tensor` of shape `({0})`):
+            Indices of input sequence tokens in the vocabulary.
+            Indices can be obtained using [`AutoTokenizer`](https://huggingface.co/docs/transformers/autoclass_tutorial#autotokenizer).
+            See [`PreTrainedTokenizer.encode`](https://huggingface.co/docs/transformers/main_classes/tokenizer#transformers.PreTrainedTokenizerBase.encode) and
+            [`PreTrainedTokenizer.__call__`](https://huggingface.co/docs/transformers/main_classes/tokenizer#transformers.PreTrainedTokenizerBase.__call__) for details.
+            [What are input IDs?](https://huggingface.co/docs/transformers/glossary#input-ids)
+        attention_mask (`Union[torch.Tensor, None]` of shape `({0})`, defaults to `None`):
+            Mask to avoid performing attention on padding token indices. Mask values selected in `[0, 1]`:
+            - 1 for tokens that are **not masked**,
+            - 0 for tokens that are **masked**.
+            [What are attention masks?](https://huggingface.co/docs/transformers/glossary#attention-mask)
+"""
 
 
 class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
@@ -71,7 +105,6 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
         neuron_configs: Optional[Dict[str, "NeuronDefaultConfig"]] = None,
         configs: Optional[Dict[str, "PretrainedConfig"]] = None,
         generation_config: Optional[GenerationConfig] = None,
-        model_and_config_save_paths: Optional[Dict[str, Tuple[str, Path]]] = None,
         **kwargs,
     ):
         self.config = config
@@ -81,7 +114,6 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
             self.neuron_configs[ENCODER_NAME]
         )  # only for the encoder
         self._attributes_init(model_save_dir, preprocessors, **kwargs)
-        self.model_and_config_save_paths = model_and_config_save_paths if model_and_config_save_paths else None
         self.encoder = NeuronEncoder(
             encoder,
             self,
@@ -103,54 +135,38 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
         if generation_config is None:
             generation_config = GenerationConfig.from_model_config(self.configs[DECODER_NAME])
         self.generation_config = generation_config
+        self.tensor_parallel_size = self.neuron_configs[DECODER_NAME].tensor_parallel_size
 
-    def _save_pretrained(
-        self,
-        save_directory: Union[str, Path],
-        encoder_file_name: str = NEURON_FILE_NAME,
-        decoder_file_name: str = NEURON_FILE_NAME,
-    ):
+    def _save_pretrained(self, save_directory: Union[str, Path]):
         """
-        Saves the model encoder and decoder as well as their configuration files to a
-        directory, so that it can be re-loaded using the
-        [`~optimum.neuron.modeling_seq2seq.NeuronModelForSeq2SeqLM.from_pretrained`] class method.
+        Saves a model and its configuration file to a directory, so that it can be re-loaded using the
+        [`~optimum.neuron.modeling_traced.NeuronTracedModel.from_pretrained`] class method.
 
         Args:
-            save_directory (`Union[str, Path`]):
-                The directory where to save the model files.
-            encoder_file_name (`str`, defaults to `NEURON_FILE_NAME`]):
-                The file name to save the encoder.
-            decoder_file_name (`str`, defaults to `NEURON_FILE_NAME`]):
-                The file name to save the decoder.
+            save_directory (`Union[str, Path]`):
+                Directory where to save the model file.
         """
-        if self.model_and_config_save_paths is None:
-            logger.warning(
-                "`model_save_paths` is None which means that no path of Neuron model is defined. Nothing will be saved."
-            )
-            return
-
-        save_directory = Path(save_directory)
-        if not self.model_and_config_save_paths.get(ENCODER_NAME)[0].is_file():
-            self.model_and_config_save_paths.pop(ENCODER_NAME)
-
-        if not self.model_and_config_save_paths.get(DECODER_NAME)[0].is_file():
-            self.model_and_config_save_paths.pop(DECODER_NAME)
-
-        dst_paths = [
-            save_directory / ENCODER_NAME / encoder_file_name,
-            save_directory / DECODER_NAME / decoder_file_name,
-        ]
-        src_paths = [
-            Path(self.model_and_config_save_paths[ENCODER_NAME][0]),
-            Path(self.model_and_config_save_paths[DECODER_NAME][0]),
-        ]
-
-        for src_path, dst_path in zip(src_paths, dst_paths):
-            dst_path.parent.mkdir(parents=True, exist_ok=True)
-            if src_path.is_file():
-                shutil.copyfile(src_path, dst_path)
-
+        shutil.copytree(self.model_save_dir, save_directory, dirs_exist_ok=True)
         self.generation_config.save_pretrained(save_directory)
+
+    @staticmethod
+    def load_model(
+        encoder_path: Union[str, Path],
+        decoder_path: Union[str, Path],
+        tensor_parallel_size: int,
+    ):
+        if tensor_parallel_size == 1:
+            # Initialize Neuron Runtime before loading models
+            runtime = torch.classes.neuron.Runtime()
+            runtime.initialize()
+            runtime.set_default_neuron_cores(0, 1)
+            encoder = NeuronTracedModel.load_model(encoder_path)
+            decoder = NeuronTracedModel.load_model(decoder_path)
+            torch_neuronx.move_trace_to_device(decoder, 0)
+        else:
+            encoder = neuronx_distributed.trace.parallel_model_load(encoder_path)
+            decoder = neuronx_distributed.trace.parallel_model_load(decoder_path)
+        return encoder, decoder
 
     @classmethod
     def _from_pretrained(
@@ -205,14 +221,11 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
                 configs[name] = model_config
                 neuron_configs[name] = cls._neuron_config_init(model_config)
 
-        # Initialize Neuron Runtime before loading models
-        runtime = torch.classes.neuron.Runtime()
-        runtime.initialize()
-        runtime.set_default_neuron_cores(0, 1)
-
-        encoder = cls.load_model(model_and_config_save_paths[ENCODER_NAME][0])
-        decoder = cls.load_model(model_and_config_save_paths[DECODER_NAME][0])
-        torch_neuronx.move_trace_to_device(decoder, 0)
+        encoder, decoder = cls.load_model(
+            encoder_path=model_and_config_save_paths[ENCODER_NAME][0],
+            decoder_path=model_and_config_save_paths[DECODER_NAME][0],
+            tensor_parallel_size=configs["decoder"].neuron.get("tensor_parallel_size", 1),
+        )
 
         if model_save_dir is None:
             model_save_dir = new_model_save_dir
@@ -226,7 +239,6 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
                 local_files_only=local_files_only,
                 token=token,
                 revision=revision,
-                subfolder=os.path.join(subfolder, DECODER_NAME),
             )
         except OSError:
             logger.info("Generation config file not found, using a generation config created from the model config.")
@@ -242,7 +254,6 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
             neuron_configs=neuron_configs,
             configs=configs,
             generation_config=generation_config,
-            model_and_config_save_paths=model_and_config_save_paths,
         )
 
     @classmethod
@@ -260,6 +271,7 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
         force_download: bool = True,
         cache_dir: Optional[str] = None,
         compiler_workdir: Optional[str] = None,
+        tensor_parallel_size: Optional[int] = 1,
         inline_weights_to_neff: bool = True,
         optlevel: str = "2",
         subfolder: str = "",
@@ -299,6 +311,7 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
             model_name_or_path=model_id,
             output=save_dir_path,
             compiler_kwargs=compiler_kwargs,
+            tensor_parallel_size=tensor_parallel_size,
             task=task,
             dynamic_batch_size=dynamic_batch_size,
             cache_dir=cache_dir,
@@ -350,10 +363,76 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
         return combined_config
 
 
+TRANSLATION_EXAMPLE = r"""
+    *(Following models are compiled with neuronx compiler and can only be run on INF2.)*
+    Example of text-to-text generation with small T5 model:
+
+    ```python
+    from transformers import {processor_class}
+    from optimum.neuron import {model_class}
+
+    neuron_model = {model_class}.from_pretrained({checkpoint_regular}, export=True, dynamic_batch_size=False, batch_size=1, sequence_length=64, num_beams=4)
+    neuron_model.save_pretrained("t5_small_neuronx")
+    del neuron_model
+
+    neuron_model = {model_class}.from_pretrained("t5_small_neuronx")
+    tokenizer = {processor_class}.from_pretrained("t5_small_neuronx")
+    inputs = tokenizer("translate English to German: Lets eat good food.", return_tensors="pt")
+
+    output = neuron_model.generate(
+        **inputs,
+        num_return_sequences=1,
+    )
+    results = [tokenizer.decode(t, skip_special_tokens=True) for t in output]
+    ```
+    
+    *(For large models, in order to fit into Neuron cores, we need to apply tensor parallelism. Here below is an example ran on `inf2.24xlarge`.)*
+    Example of text-to-text generation with tensor parallelism:
+    
+    ```python
+    from transformers import {processor_class}
+    from optimum.neuron import {model_class}
+    # 1. compile
+    if __name__ == "__main__":  # compulsory for parallel tracing since the API will spawn multiple processes.
+        neuron_model = {model_class}.from_pretrained(
+            {checkpoint_tp}, export=True, tensor_parallel_size=8, dynamic_batch_size=False, batch_size=1, sequence_length=128, num_beams=4,
+        )
+        neuron_model.save_pretrained("flan_t5_xl_neuronx_tp8/")
+        del neuron_model
+
+    # 2. inference
+    neuron_model = {model_class}.from_pretrained("flan_t5_xl_neuronx_tp8")
+    tokenizer = {processor_class}.from_pretrained("flan_t5_xl_neuronx_tp8")
+    inputs = tokenizer("translate English to German: Lets eat good food.", return_tensors="pt")
+
+    output = neuron_model.generate(
+        **inputs,
+        num_return_sequences=1,
+    )
+    results = [tokenizer.decode(t, skip_special_tokens=True) for t in output]
+    ```
+"""  # noqa: W293
+
+
+@add_start_docstrings(
+    """
+    Neuron Sequence-to-sequence model with a language modeling head for text2text-generation tasks.
+    """,
+    NEURON_SEQ2SEQ_MODEL_START_DOCSTRING,
+)
 class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerationMixin):
     auto_model_class = AutoModelForSeq2SeqLM
     main_input_name = "input_ids"
 
+    @add_start_docstrings_to_model_forward(
+        NEURON_SEQ2SEQ_INPUTS_DOCSTRING.format("batch_size, sequence_length")
+        + TRANSLATION_EXAMPLE.format(
+            processor_class=_TOKENIZER_FOR_DOC,
+            model_class="NeuronModelForSeq2SeqLM",
+            checkpoint_regular="google-t5/t5-small",
+            checkpoint_tp="google/flan-t5-xl",
+        )
+    )
     def forward(
         self,
         attention_mask: Optional[torch.FloatTensor] = None,
@@ -438,9 +517,16 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
             axis=1,
         )
 
-        # copy the new cache state to the decoder
-        for state, tensor in zip(self.decoder.model.parameters(), past_key_values):
-            state.copy_(tensor)
+        if self.tensor_parallel_size == 1:
+            # copy the new cache state to the decoder
+            for state, tensor in zip(self.decoder.model.parameters(), past_key_values):
+                state.copy_(tensor)
+        else:
+            # Here we iterate sharded encoders and decoders since the encoder on each rank will return cache as device tensors,
+            # we want to assign them to the cache of the sharded decoder on the same rank to avoid the copy. The KV cache always
+            # use pre-allocated memory, no host-device communication overhead.
+            for decoder_tp, encoder_tp in zip(self.decoder.model.models, self.encoder.model.models):
+                decoder_tp.load_state_dict(encoder_tp.state_dict(), strict=False)
 
         output = super().generate(
             **inputs,

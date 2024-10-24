@@ -152,7 +152,7 @@ class NeuronExportTestCase(unittest.TestCase):
         with NamedTemporaryFile("w") as output:
             try:
                 _, neuron_outputs = export(
-                    model=model,
+                    model_or_path=model,
                     config=neuron_config,
                     output=Path(output.name),
                     inline_weights_to_neff=inline_weights_to_neff,
@@ -310,6 +310,9 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
             )
 
 
+@unittest.skip(
+    "T5 compilation broken since neuron sdk 2.20, wait for the fix: https://github.com/aws-neuron/aws-neuron-sdk/issues/1013."
+)
 @is_inferentia_test
 @requires_neuronx
 class NeuronEncoderDecoderExportTestCase(unittest.TestCase):

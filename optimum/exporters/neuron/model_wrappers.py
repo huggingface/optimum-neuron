@@ -19,6 +19,12 @@ from typing import TYPE_CHECKING, List, Optional
 import torch
 from transformers.models.t5.modeling_t5 import T5LayerCrossAttention
 
+from ...neuron.utils import is_neuronx_distributed_available
+
+
+if is_neuronx_distributed_available():
+    import neuronx_distributed
+
 
 if TYPE_CHECKING:
     from transformers.modeling_utils import PreTrainedModel
@@ -122,21 +128,74 @@ class T5EncoderWrapper(torch.nn.Module):
     def __init__(
         self,
         model: "PreTrainedModel",
+        sequence_length: Optional[int] = None,
+        batch_size: Optional[int] = None,
         num_beams: int = 1,
         device: str = "xla",
-        tp_degree: Optional[int] = None,
+        tensor_parallel_size: int = 1,
     ):
         super().__init__()
         self.model = model
         self.config = model.config
         self.num_beams = num_beams
+        self.sequence_length = sequence_length
+        self.batch_size = batch_size
         self.device = device
-        self.tp_degree = tp_degree
+        self.tensor_parallel_size = tensor_parallel_size
+        self.num_attention_heads_per_partition = self.config.num_heads  # when tensor_parallel_size=1
+
+        if self.tensor_parallel_size > 1:
+            self.num_attention_heads_per_partition = (
+                self.num_attention_heads_per_partition
+                // neuronx_distributed.parallel_layers.parallel_state.get_tensor_model_parallel_size()
+            )
+            self.past_key_values_sa = torch.nn.ParameterList(
+                [
+                    torch.nn.Parameter(
+                        torch.ones(
+                            (
+                                self.num_beams * batch_size,
+                                self.num_attention_heads_per_partition,
+                                self.sequence_length - 1,
+                                self.config.d_kv,
+                            ),
+                            dtype=torch.float32,
+                        ),
+                        requires_grad=False,
+                    )
+                    for _ in range(self.config.num_decoder_layers * 2)
+                ]
+            )
+            self.past_key_values_ca = torch.nn.ParameterList(
+                [
+                    torch.nn.Parameter(
+                        torch.ones(
+                            (
+                                self.num_beams * batch_size,
+                                self.num_attention_heads_per_partition,
+                                self.sequence_length,
+                                self.config.d_kv,
+                            ),
+                            dtype=torch.float32,
+                        ),
+                        requires_grad=False,
+                    )
+                    for _ in range(self.config.num_decoder_layers * 2)
+                ]
+            )
 
     def forward(self, input_ids, attention_mask):
-        # Infer shapes
+        # Infer shapes of dummy inputs used for tracing
         batch_size = input_ids.shape[0]
         sequence_length = input_ids.shape[1]
+        if self.sequence_length is not None:
+            assert (
+                self.sequence_length
+            ), f"Different sequence length for the parallel partition({self.sequence_length}) and for dummy inputs({sequence_length}). Make sure that they have the same value."
+        if self.batch_size is not None:
+            assert (
+                self.batch_size
+            ), f"Different batch size for the parallel partition({self.batch_size}) and for dummy inputs({batch_size}). Make sure that they have the same value."
 
         encoder_output = self.model.encoder(
             input_ids=input_ids, attention_mask=attention_mask, output_attentions=False, output_hidden_states=False
@@ -151,7 +210,7 @@ class T5EncoderWrapper(torch.nn.Module):
         present_key_value_states_sa = []
         present_key_value_states_ca = []
 
-        for block in decoder_blocks:
+        for i, block in enumerate(decoder_blocks):
             # Cross attention has to be initialized with the encoder hidden state
             cross_attention: T5LayerCrossAttention = block.layer[1]
             attention = cross_attention.EncDecAttention
@@ -159,34 +218,67 @@ class T5EncoderWrapper(torch.nn.Module):
             def shape(states):
                 """projection"""
                 return states.view(
-                    self.num_beams * batch_size, -1, self.config.num_heads, attention.key_value_proj_dim
+                    self.num_beams * batch_size,
+                    -1,
+                    self.num_attention_heads_per_partition,
+                    attention.key_value_proj_dim,
                 ).transpose(1, 2)
 
             key_states = shape(attention.k(encoder_hidden_states))
             value_states = shape(attention.v(encoder_hidden_states))
 
-            # cross_attn_kv_state
-            present_key_value_states_ca.append(key_states)
-            present_key_value_states_ca.append(value_states)
+            if not self.tensor_parallel_size > 1:
+                # cross_attn_kv_state
+                present_key_value_states_ca.append(key_states)
+                present_key_value_states_ca.append(value_states)
 
-            # Self attention kv states are initialized to zeros. This is done to keep the size of the kv cache tensor constant.
-            # The kv cache is padded here to keep a fixed shape.
-            # [key states]
-            present_key_value_states_sa.append(
-                torch.zeros(
-                    (self.num_beams * batch_size, self.config.num_heads, sequence_length - 1, self.config.d_kv),
-                    dtype=torch.float32,
-                    device=self.device,
+                # Self attention kv states are initialized to zeros. This is done to keep the size of the kv cache tensor constant.
+                # The kv cache is padded here to keep a fixed shape.
+                # [key states]
+                present_key_value_states_sa.append(
+                    torch.zeros(
+                        (self.num_beams * batch_size, self.config.num_heads, sequence_length - 1, self.config.d_kv),
+                        dtype=torch.float32,
+                        device=self.device,
+                    )
                 )
-            )
-            # [value states]
-            present_key_value_states_sa.append(
-                torch.zeros(
-                    (self.num_beams * batch_size, self.config.num_heads, sequence_length - 1, self.config.d_kv),
-                    dtype=torch.float32,
-                    device=self.device,
+                # [value states]
+                present_key_value_states_sa.append(
+                    torch.zeros(
+                        (self.num_beams * batch_size, self.config.num_heads, sequence_length - 1, self.config.d_kv),
+                        dtype=torch.float32,
+                        device=self.device,
+                    )
                 )
-            )
+            else:
+                present_key_value_states_ca.append((self.past_key_values_ca[i * 2] * 0) + key_states)
+                present_key_value_states_ca.append((self.past_key_values_ca[i * 2 + 1] * 0) + value_states)
+                present_key_value_states_sa.append(
+                    self.past_key_values_sa[i * 2]
+                    * torch.zeros(
+                        (
+                            self.num_beams * self.batch_size,
+                            self.num_attention_heads_per_partition,
+                            self.sequence_length - 1,
+                            self.config.d_kv,
+                        ),
+                        dtype=torch.float32,
+                        device=self.device,
+                    )
+                )
+                present_key_value_states_sa.append(
+                    self.past_key_values_sa[i * 2 + 1]
+                    * torch.zeros(
+                        (
+                            self.num_beams * self.batch_size,
+                            self.num_attention_heads_per_partition,
+                            self.sequence_length - 1,
+                            self.config.d_kv,
+                        ),
+                        dtype=torch.float32,
+                        device=self.device,
+                    )
+                )
 
         return present_key_value_states_sa + present_key_value_states_ca
 
@@ -204,7 +296,7 @@ class T5DecoderWrapper(torch.nn.Module):
         output_hidden_states: bool = False,
         output_attentions: bool = False,
         device: str = "xla",
-        tp_degree: Optional[int] = None,
+        tensor_parallel_size: int = 1,
     ):
         super().__init__()
         self.model = model
@@ -215,7 +307,14 @@ class T5DecoderWrapper(torch.nn.Module):
         self.output_hidden_states = output_hidden_states
         self.output_attentions = output_attentions
         self.device = device
-        self.tp_degree = tp_degree
+        self.tensor_parallel_size = tensor_parallel_size
+
+        self.num_attention_heads_per_partition = self.config.num_heads
+        if tensor_parallel_size > 1:
+            self.num_attention_heads_per_partition = (
+                self.num_attention_heads_per_partition
+                // neuronx_distributed.parallel_layers.parallel_state.get_tensor_model_parallel_size()
+            )
 
         # Initialize KV cache (num_beams, n_heads, seq_length, dim_per_head)
         if device == "cpu":
@@ -238,7 +337,7 @@ class T5DecoderWrapper(torch.nn.Module):
                         torch.ones(
                             (
                                 self.batch_size * self.num_beams,
-                                self.config.num_heads,
+                                self.num_attention_heads_per_partition,
                                 sequence_length - 1,
                                 self.config.d_kv,
                             ),
@@ -255,7 +354,7 @@ class T5DecoderWrapper(torch.nn.Module):
                         torch.ones(
                             (
                                 self.batch_size * self.num_beams,
-                                self.config.num_heads,
+                                self.num_attention_heads_per_partition,
                                 sequence_length,
                                 self.config.d_kv,
                             ),
@@ -284,8 +383,7 @@ class T5DecoderWrapper(torch.nn.Module):
 
     def reorder_cache(self, past_key_values, beam_idx):
         for i in range(len(past_key_values)):
-            gather_index = beam_idx.view([beam_idx.shape[0], 1, 1, 1]).expand_as(past_key_values[i])
-            past_key_values[i] = torch.gather(past_key_values[i], dim=0, index=gather_index)
+            past_key_values[i] = torch.index_select(past_key_values[i], 0, beam_idx)
         return past_key_values
 
     def forward(

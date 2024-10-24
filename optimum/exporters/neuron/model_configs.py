@@ -15,15 +15,18 @@
 """Model specific Neuron configurations."""
 
 import copy
+from functools import partial
 from typing import TYPE_CHECKING, Dict, List
 
 import torch
 
+from ...neuron.distributed import ParallelizersManager
 from ...neuron.utils import (
     ASTDummyAudioInputGenerator,
     DummyBeamValuesGenerator,
     DummyControNetInputGenerator,
     DummyMaskedPosGenerator,
+    is_neuronx_distributed_available,
 )
 from ...utils import (
     DummyInputGenerator,
@@ -58,6 +61,9 @@ from .model_wrappers import (
     UnetNeuronWrapper,
 )
 
+
+if is_neuronx_distributed_available():
+    import neuronx_distributed
 
 if TYPE_CHECKING:
     if is_diffusers_available():
@@ -793,19 +799,69 @@ class T5EncoderNeuronConfig(TextSeq2SeqNeuronConfig):
     def is_decoder(self) -> bool:
         return False
 
-    def patch_model_for_export(self, model, device="xla", **kwargs):
+    def patch_model_for_export(self, model_or_path, device="xla", **kwargs):
         num_beams = kwargs.pop("num_beams", 1)
-        return self.CUSTOM_MODEL_WRAPPER(model, num_beams=num_beams, device=device)
+        sequence_length = kwargs.pop("sequence_length", None)
+        batch_size = kwargs.pop("batch_size", None)
 
+        if self.tensor_parallel_size > 1:
+            # `torch.nn.modules` objects not eligible for pickling, the model needs to be loaded within the func.
+            return partial(
+                self.get_parallel_callable,
+                model_or_path,
+                sequence_length,
+                batch_size,
+                num_beams,
+                device,
+                self.tensor_parallel_size,
+            )
+        else:
+            return self.CUSTOM_MODEL_WRAPPER(
+                model_or_path,
+                sequence_length=sequence_length,
+                batch_size=batch_size,
+                num_beams=num_beams,
+                device=device,
+                tensor_parallel_size=self.tensor_parallel_size,
+            )
 
-@register_in_tasks_manager("opt", "text-generation")
-class OPTNeuronConfig(TextNeuronDecoderConfig):
-    NEURONX_CLASS = "opt.model.OPTForSampling"
+    def get_parallel_callable(
+        self, model_name_or_path, sequence_length, batch_size, num_beams, device, tensor_parallel_size
+    ):
+        """Unlike `torch_neuronx.trace`, `parallel_model_trace` requires a function returning a model object and a dictionary of states."""
+        model = TasksManager.get_model_from_task(
+            model_name_or_path=model_name_or_path,
+            task=self.task,
+            framework="pt",
+            library_name="transformers",
+        )  # TODO: add extra args, eg. revision, trust_remote_code, etc.
+        model.config.use_cache = True
+        parallelizer = ParallelizersManager.parallelizer_for_model(model)
+        with parallelizer.saved_model_in_temporary_directory(model) as ckpt_path:
+            # Replace parallel layers
+            parallel_model = parallelizer._parallelize(model, parallelize_embeddings=False)
+            # Load the weights into the parallel layers
+            neuronx_distributed.parallel_layers.load(ckpt_path, parallel_model, sharded=False)
+        encoder = self.CUSTOM_MODEL_WRAPPER(
+            parallel_model,
+            sequence_length=sequence_length,
+            batch_size=batch_size,
+            num_beams=num_beams,
+            device=device,
+            tensor_parallel_size=tensor_parallel_size,
+        )
+        encoder.eval()
+        aliases = self.generate_io_aliases(encoder)
+        return encoder, aliases
 
-
-@register_in_tasks_manager("bloom", "text-generation")
-class BloomNeuronConfig(TextNeuronDecoderConfig):
-    NEURONX_CLASS = "bloom.model.BloomForSampling"
+    def generate_io_aliases(self, encoder=None):
+        aliases = {}
+        if self.tensor_parallel_size > 1:
+            for i in range(len(encoder.past_key_values_sa)):
+                aliases[encoder.past_key_values_sa[i]] = i
+            for i in range(len(encoder.past_key_values_ca)):
+                aliases[encoder.past_key_values_ca[i]] = len(encoder.past_key_values_sa) + i
+        return aliases
 
 
 @register_in_tasks_manager("t5-decoder", "text2text-generation")
@@ -850,25 +906,90 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
         sequence_length = kwargs.pop("sequence_length", 1)
         num_beams = kwargs.pop("num_beams", 1)
 
-        return self.CUSTOM_MODEL_WRAPPER(
-            model,
+        trace_args = {
+            "model": model,
+            "batch_size": batch_size,
+            "sequence_length": sequence_length,
+            "num_beams": num_beams,
+            "output_hidden_states": self.output_hidden_states,
+            "output_attentions": self.output_attentions,
+            "device": device,
+            "tensor_parallel_size": self.tensor_parallel_size,
+        }
+        if self.tensor_parallel_size > 1:
+            return partial(
+                self.get_parallel_callable,
+                model,
+                batch_size,
+                sequence_length,
+                num_beams,
+                self.output_hidden_states,
+                self.output_attentions,
+                device,
+                self.tensor_parallel_size,
+            )
+        else:
+            return self.CUSTOM_MODEL_WRAPPER(**trace_args)
+
+    def get_parallel_callable(
+        self,
+        model_name_or_path,
+        batch_size,
+        sequence_length,
+        num_beams,
+        output_hidden_states,
+        output_attentions,
+        device,
+        tensor_parallel_size,
+    ):
+        """Unlike `torch_neuronx.trace`, `parallel_model_trace` requires a function returning a model object and a dictionary of states."""
+        model = TasksManager.get_model_from_task(
+            model_name_or_path=model_name_or_path,
+            task=self.task,
+            framework="pt",
+            library_name="transformers",
+        )  # TODO: add extra args, eg. revision, trust_remote_code, etc.
+        model.config.use_cache = True
+        parallelizer = ParallelizersManager.parallelizer_for_model(model)
+        with parallelizer.saved_model_in_temporary_directory(model) as ckpt_path:
+            # Replace parallel layers
+            parallel_model = parallelizer._parallelize(model, parallelize_embeddings=False)
+            # Load the weights into the parallel layers
+            neuronx_distributed.parallel_layers.load(ckpt_path, parallel_model, sharded=False)
+
+        decoder = self.CUSTOM_MODEL_WRAPPER(
+            parallel_model,
             batch_size=batch_size,
             sequence_length=sequence_length,
             num_beams=num_beams,
-            output_hidden_states=self.output_hidden_states,
-            output_attentions=self.output_attentions,
+            output_hidden_states=output_hidden_states,
+            output_attentions=output_attentions,
             device=device,
+            tensor_parallel_size=tensor_parallel_size,
         )
+        decoder.eval()
+        aliases = self.generate_io_aliases(decoder)
+        return decoder, aliases
 
-    def generate_io_aliases(self, model):
-        num_outputs_from_trace = 3 if model.num_beams > 1 else 1
+    def generate_io_aliases(self, decoder):
+        num_outputs_from_trace = 3 if decoder.num_beams > 1 else 1
         aliases = {}
-        for i in range(len(model.past_key_values_sa)):
-            aliases[model.past_key_values_sa[i]] = i + num_outputs_from_trace
-        for i in range(len(model.past_key_values_ca)):
-            aliases[model.past_key_values_ca[i]] = len(model.past_key_values_sa) + i + num_outputs_from_trace
+        for i in range(len(decoder.past_key_values_sa)):
+            aliases[decoder.past_key_values_sa[i]] = i + num_outputs_from_trace
+        for i in range(len(decoder.past_key_values_ca)):
+            aliases[decoder.past_key_values_ca[i]] = len(decoder.past_key_values_sa) + i + num_outputs_from_trace
 
         return aliases
+
+
+@register_in_tasks_manager("opt", "text-generation")
+class OPTNeuronConfig(TextNeuronDecoderConfig):
+    NEURONX_CLASS = "opt.model.OPTForSampling"
+
+
+@register_in_tasks_manager("bloom", "text-generation")
+class BloomNeuronConfig(TextNeuronDecoderConfig):
+    NEURONX_CLASS = "bloom.model.BloomForSampling"
 
 
 @register_in_tasks_manager("mistral", "text-generation")

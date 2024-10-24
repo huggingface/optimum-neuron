@@ -436,6 +436,7 @@ class NeuronTracedModel(NeuronModel):
         # Fetch compiler information
         compiler_type = neuron_config.get("compiler_type")
         compiler_version = neuron_config.get("compiler_version")
+        tensor_parallel_size = neuron_config.get("tensor_parallel_size", 1)
 
         # Fetch mandatory shapes from config
         compile_shapes = {
@@ -461,6 +462,7 @@ class NeuronTracedModel(NeuronModel):
             dynamic_batch_size=neuron_config.get("dynamic_batch_size", False),
             compiler_type=compiler_type,
             compiler_version=compiler_version,
+            tensor_parallel_size=tensor_parallel_size,
             **compile_shapes,
         )
 

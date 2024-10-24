@@ -303,6 +303,9 @@ class TestExportCLI(unittest.TestCase):
                 check=True,
             )
 
+    @unittest.skip(
+        "T5 compilation broken since neuron sdk 2.20, wait for the fix: https://github.com/aws-neuron/aws-neuron-sdk/issues/1013."
+    )
     @requires_neuronx
     def test_encoder_decoder(self):
         model_id = "hf-internal-testing/tiny-random-t5"
@@ -332,6 +335,9 @@ class TestExportCLI(unittest.TestCase):
                 check=True,
             )
 
+    @unittest.skip(
+        "T5 compilation broken since neuron sdk 2.20, wait for the fix: https://github.com/aws-neuron/aws-neuron-sdk/issues/1013."
+    )
     @requires_neuronx
     def test_encoder_decoder_optional_outputs(self):
         model_id = "hf-internal-testing/tiny-random-t5"
@@ -357,6 +363,40 @@ class TestExportCLI(unittest.TestCase):
                     "bf16",
                     "--output_hidden_states",
                     "--output_attentions",
+                    tempdir,
+                ],
+                shell=False,
+                check=True,
+            )
+
+    @unittest.skip(
+        "T5 compilation broken since neuron sdk 2.20, wait for the fix: https://github.com/aws-neuron/aws-neuron-sdk/issues/1013."
+    )
+    @requires_neuronx
+    def test_encoder_decoder_tp2(self):
+        model_id = "michaelbenayoun/t5-tiny-random"
+        with tempfile.TemporaryDirectory() as tempdir:
+            subprocess.run(
+                [
+                    "optimum-cli",
+                    "export",
+                    "neuron",
+                    "--model",
+                    model_id,
+                    "--task",
+                    "text2text-generation",
+                    "--tensor_parallel_size",
+                    "2",
+                    "--batch_size",
+                    "1",
+                    "--sequence_length",
+                    "18",
+                    "--num_beams",
+                    "4",
+                    "--auto_cast",
+                    "matmul",
+                    "--auto_cast_type",
+                    "bf16",
                     tempdir,
                 ],
                 shell=False,

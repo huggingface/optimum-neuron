@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
+from transformers import PreTrainedModel
 
 from ...exporters.error_utils import OutputMatchError, ShapeError
 from ...neuron.utils import (
@@ -28,6 +29,7 @@ from ...neuron.utils import (
     convert_neuronx_compiler_args_to_neuron,
     is_neuron_available,
     is_neuronx_available,
+    is_neuronx_distributed_available,
     store_compilation_config,
 )
 from ...neuron.utils.cache_utils import get_model_name_or_path
@@ -42,11 +44,10 @@ from ...utils import (
     is_sentence_transformers_available,
     logging,
 )
+from .config import TextSeq2SeqNeuronConfig
 
 
 if TYPE_CHECKING:
-    from transformers import PreTrainedModel
-
     from .base import NeuronDefaultConfig
 
 if is_neuron_available():
@@ -67,6 +68,9 @@ if is_diffusers_available():
 
 if is_sentence_transformers_available():
     from sentence_transformers import SentenceTransformer
+
+if is_neuronx_distributed_available():
+    import neuronx_distributed
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -182,6 +186,7 @@ def validate_model_outputs(
         inputs = config.generate_dummy_inputs(return_tuple=False, **input_shapes)
         ref_inputs = config.unflatten_inputs(inputs)
         if hasattr(reference_model, "config") and getattr(reference_model.config, "is_encoder_decoder", False):
+
             reference_model = config.patch_model_for_export(reference_model, device="cpu", **input_shapes)
         if "SentenceTransformer" in reference_model.__class__.__name__:
             reference_model = config.patch_model_for_export(reference_model, ref_inputs)
@@ -297,7 +302,6 @@ def export_models(
     optlevel: str = "2",
     output_file_names: Optional[Dict[str, str]] = None,
     compiler_kwargs: Optional[Dict[str, Any]] = {},
-    configs: Optional[Dict[str, Any]] = {},
     model_name_or_path: Optional[str] = None,
 ) -> Tuple[Dict[str, List[str]], Dict[str, List[str]]]:
     """
@@ -324,8 +328,6 @@ def export_models(
             If None, will use the keys from `models_and_neuron_configs` as names.
         compiler_kwargs (`Optional[Dict[str, Any]]`, defaults to `None`):
             Arguments to pass to the Neuron(x) compiler for exporting Neuron models.
-        configs (`Optional[Dict[str, Any]]`, defaults to `None`):
-            A list of pretrained model configs.
         model_name_or_path (`Optional[str]`, defaults to `None`):
             Path to pretrained model or model identifier from the Hugging Face Hub.
     Returns:
@@ -364,7 +366,7 @@ def export_models(
 
         start_time = time.time()
         neuron_inputs, neuron_outputs = export(
-            model=submodel,
+            model_or_path=submodel,
             config=sub_neuron_config,
             output=output_path,
             compiler_workdir=compiler_workdir,
@@ -377,14 +379,9 @@ def export_models(
         logger.info(f"[Compilation Time] {np.round(compilation_time, 2)} seconds.")
         all_inputs[model_name] = neuron_inputs
         all_outputs[model_name] = neuron_outputs
-        # Add neuron specific configs to model components' original config
-        if hasattr(submodel, "config"):
-            model_config = submodel.config
-        elif configs and (model_name in configs.keys()):
-            model_config = configs[model_name]
-        else:
-            raise AttributeError("Cannot find model's configuration, please pass it with `configs`.")
 
+        # Add neuron specific configs to model components' original config
+        model_config = sub_neuron_config._config
         if is_diffusers_available() and isinstance(model_config, FrozenDict):
             model_config = OrderedDict(model_config)
             model_config = DiffusersPretrainedConfig.from_dict(model_config)
@@ -396,6 +393,7 @@ def export_models(
             input_names=neuron_inputs,
             output_names=neuron_outputs,
             dynamic_batch_size=sub_neuron_config.dynamic_batch_size,
+            tensor_parallel_size=sub_neuron_config.tensor_parallel_size,
             compiler_type=NEURON_COMPILER_TYPE,
             compiler_version=NEURON_COMPILER_VERSION,
             inline_weights_to_neff=inline_weights_to_neff,
@@ -426,7 +424,7 @@ def export_models(
 
 
 def export(
-    model: "PreTrainedModel",
+    model_or_path: Union["PreTrainedModel", str, Path],
     config: "NeuronDefaultConfig",
     output: Path,
     compiler_workdir: Optional[Path] = None,
@@ -439,7 +437,7 @@ def export(
 ) -> Tuple[List[str], List[str]]:
     if is_neuron_available():
         return export_neuron(
-            model=model,
+            model=model_or_path,
             config=config,
             output=output,
             compiler_workdir=compiler_workdir,
@@ -451,7 +449,7 @@ def export(
         )
     elif is_neuronx_available():
         return export_neuronx(
-            model=model,
+            model_or_path=model_or_path,
             config=config,
             output=output,
             compiler_workdir=compiler_workdir,
@@ -467,7 +465,7 @@ def export(
 
 
 def export_neuronx(
-    model: "PreTrainedModel",
+    model_or_path: Union["PreTrainedModel", str, Path],
     config: "NeuronDefaultConfig",
     output: Path,
     compiler_workdir: Optional[Path] = None,
@@ -480,8 +478,8 @@ def export_neuronx(
     Exports a PyTorch model to a serialized TorchScript module compiled by neuronx-cc compiler.
 
     Args:
-        model ([`PreTrainedModel`]):
-            The model to export.
+        model_or_path (Union["PreTrainedModel", str, Path]):
+            The model to export or its location(case when applying the parallelism as the model needs to be loaded with the tracing).
         config ([`~exporter.NeuronDefaultConfig`]):
             The Neuron configuration associated with the exported model.
         output (`Path`):
@@ -508,18 +506,21 @@ def export_neuronx(
     if isinstance(compiler_workdir, Path):
         compiler_workdir = compiler_workdir.as_posix()
 
-    if hasattr(model, "config"):
-        model.config.return_dict = True
-        model.config.torchscript = True
-    model.eval()
+    if hasattr(model_or_path, "config"):
+        model_or_path.config.return_dict = True
+        model_or_path.config.torchscript = True
+    if isinstance(model_or_path, PreTrainedModel):
+        model_or_path.eval()
 
     # Check if we need to override certain configuration item
     if config.values_override is not None:
         logger.info(f"Overriding {len(config.values_override)} configuration item(s)")
         for override_config_key, override_config_value in config.values_override.items():
             logger.info(f"\t- {override_config_key} -> {override_config_value}")
-            setattr(model.config, override_config_key, override_config_value)
+            if isinstance(model_or_path, PreTrainedModel):
+                setattr(model_or_path.config, override_config_key, override_config_value)
 
+    # Prepare dummy inputs for tracing
     input_shapes = {}
     for axis in config.mandatory_axes:
         input_shapes[axis] = getattr(config, axis)
@@ -528,14 +529,17 @@ def export_neuronx(
     dummy_inputs = config.flatten_inputs(dummy_inputs)
     dummy_inputs_tuple = tuple(dummy_inputs.values())
 
+    # Prepare the model / function(tp) to trace
     aliases = {}
-    if hasattr(model, "config") and getattr(model.config, "is_encoder_decoder", False):
-        checked_model = config.patch_model_for_export(model, **input_shapes)
-        if getattr(config, "is_decoder", False):
+    tensor_parallel_size = config.tensor_parallel_size
+    if isinstance(config, TextSeq2SeqNeuronConfig):
+        checked_model = config.patch_model_for_export(model_or_path, **input_shapes)
+        if tensor_parallel_size == 1:
             aliases = config.generate_io_aliases(checked_model)
     else:
-        checked_model = config.patch_model_for_export(model, dummy_inputs)
+        checked_model = config.patch_model_for_export(model_or_path, dummy_inputs)
 
+    # Construct compiler configurations
     if auto_cast is not None:
         logger.info(f"Using Neuron: --auto-cast {auto_cast}")
 
@@ -549,8 +553,7 @@ def export_neuronx(
 
     compiler_args.extend(["--optlevel", optlevel])
 
-    # diffusers specific
-    compiler_args = add_stable_diffusion_compiler_args(config, compiler_args)
+    compiler_args = add_stable_diffusion_compiler_args(config, compiler_args)  # diffusers specific
 
     if config.dynamic_batch_size and not inline_weights_to_neff:
         logger.warning(
@@ -558,23 +561,35 @@ def export_neuronx(
         )
         inline_weights_to_neff = True
 
-    neuron_model = neuronx.trace(
-        checked_model,
-        dummy_inputs_tuple,
-        compiler_args=compiler_args,
-        input_output_aliases=aliases,
-        inline_weights_to_neff=inline_weights_to_neff,
-        compiler_workdir=compiler_workdir,
-    )
+    # Start trace
+    if tensor_parallel_size > 1:
+        # 1. use NxD to trace for parallel
+        neuron_model = neuronx_distributed.trace.parallel_model_trace(
+            checked_model,
+            dummy_inputs_tuple,
+            compiler_args=compiler_args,
+            inline_weights_to_neff=inline_weights_to_neff,
+            compiler_workdir=compiler_workdir,
+            tp_degree=tensor_parallel_size,
+        )
+        neuronx_distributed.trace.parallel_model_save(neuron_model, output)
+    else:
+        # 2. use `torch_neuronx.trace`
+        neuron_model = neuronx.trace(
+            checked_model,
+            dummy_inputs_tuple,
+            compiler_args=compiler_args,
+            input_output_aliases=aliases,
+            inline_weights_to_neff=inline_weights_to_neff,
+            compiler_workdir=compiler_workdir,
+        )
+        if config.dynamic_batch_size is True:
+            neuron_model = neuronx.dynamic_batch(neuron_model)
+        # diffusers specific
+        improve_stable_diffusion_loading(config, neuron_model)
+        torch.jit.save(neuron_model, output)
 
-    if config.dynamic_batch_size is True:
-        neuron_model = neuronx.dynamic_batch(neuron_model)
-
-    # diffusers specific
-    improve_stable_diffusion_loading(config, neuron_model)
-
-    torch.jit.save(neuron_model, output)
-    del model
+    del model_or_path
     del checked_model
     del dummy_inputs
     del neuron_model
