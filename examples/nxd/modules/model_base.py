@@ -20,9 +20,9 @@ from modules.model_wrapper import (  # noqa: E402
     ModelWrapper,  # noqa: E402
     TokenGenerationModelExporter,
 )
+from modules.sampling import Sampler  # noqa: E402
 from neuronx_distributed.parallel_layers import parallel_state, utils  # noqa: E402
 from neuronx_distributed.trace.model_builder import ModelBuilder
-from neuronx_distributed.utils.sampling import Sampler  # noqa: E402
 from safetensors.torch import load_file
 from torch import nn
 from transformers import PretrainedConfig, PreTrainedModel
