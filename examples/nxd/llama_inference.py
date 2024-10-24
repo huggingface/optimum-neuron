@@ -1,5 +1,8 @@
 import argparse
+import json
+import os
 import time
+import torch
 
 from typing import Union
 from llama2.neuron_modeling_llama import NeuronLlamaForCausalLM, NeuronLlamaConfig
@@ -45,6 +48,50 @@ def generate(model, tokenizer, prompts, max_new_tokens):
     return output_tokens, (end -start)
 
 
+def timed_generate(model, input_ids, output_length):
+    start = time.time()
+    with torch.inference_mode():
+        output_tokens = model.generate(input_ids, do_sample=False, min_length=output_length, max_length=output_length)
+    end = time.time()
+    model.reset()
+    return output_tokens, (end - start)
+
+
+def benchmark(model, tokenizer, inc_length, max_length, new_tokens, json_path=None):
+    # Encode the reference prompt
+    local_path = os.path.dirname(os.path.realpath(__file__))
+    with open(os.path.join(local_path, "wiki.txt")) as f:
+        prompt = f.read()
+    tokens = tokenizer([prompt], return_tensors="pt")
+    # Evaluate the batch size
+    batch_size = model.config.batch_size
+
+    def get_input_ids(tokens, batch_size, input_length):
+        return tokens.input_ids[0, :input_length].repeat((batch_size, 1))
+
+    benchmark = {"results": []}
+    for input_length in range(inc_length, max_length + 1, inc_length):
+        # Generate a single input, just to evaluate the context encoding time
+        input_ids = get_input_ids(tokens, batch_size, input_length + 1)
+        _, encoding_time = timed_generate(model, input_ids, 1)
+        output_ids, duration = timed_generate(model, input_ids, input_length + new_tokens)
+        latency = (duration - encoding_time) / new_tokens * 1000
+        throughput = new_tokens * batch_size / duration
+        result = {
+            "input_length": input_length,
+            "batch_size": batch_size,
+            "encoding_time": encoding_time,
+            "new_tokens": new_tokens,
+            "latency": latency,
+            "throughput": throughput,
+        }
+        benchmark["results"].append(result)
+    if json_path is not None:
+        with open(json_path, "w") as fp:
+            json.dump(benchmark, fp, indent=4)
+    return benchmark
+
+
 def main():
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(help="Action to perform", dest="action")
@@ -74,6 +121,12 @@ def main():
         help="The prompts to use for generation, using | as separator.",
     )
     run_parser.add_argument("--max_new_tokens", type=int, default=128, help="The number of new tokens in the generated sequences.")
+    bench_parser = subparsers.add_parser(
+        "bench", parents=[parent_parser], help="Benchmark the specified model."
+    )
+    bench_parser.add_argument("--inc-length", type=int, default=512, help="The number of input tokens in each increment.")
+    bench_parser.add_argument("--max-length", type=int, default=4096, help="The maximum number of input tokens.")
+    bench_parser.add_argument("--new-tokens", type=int, default=128, help="The number of generated tokens.")
 
     args = parser.parse_args()
     tokenizer = AutoTokenizer.from_pretrained(args.model)
@@ -122,7 +175,10 @@ def main():
         for idx, output in enumerate(outputs):
             print(f"output {idx}: {output}")
         print(f"{len(outputs)} outputs generated using Neuron model in {latency:.4f} s")
-
+    elif args.action == "bench":
+        neuron_model = NeuronLlamaForCausalLM.load(args.model)
+        model_name = os.path.basename(os.path.normpath(args.model))
+        benchmark(neuron_model, tokenizer, args.inc_length, args.max_length, args.new_tokens, json_path=f"{model_name}.json")
 
 if __name__ == "__main__":
     main()
