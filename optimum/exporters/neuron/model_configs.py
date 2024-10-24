@@ -804,7 +804,7 @@ class T5EncoderNeuronConfig(TextSeq2SeqNeuronConfig):
         sequence_length = kwargs.pop("sequence_length", None)
         batch_size = kwargs.pop("batch_size", None)
 
-        if self.tp_degree > 1:
+        if self.tensor_parallel_size > 1:
             # `torch.nn.modules` objects not eligible for pickling, the model needs to be loaded within the func.
             return partial(
                 self.get_parallel_callable,
@@ -813,7 +813,7 @@ class T5EncoderNeuronConfig(TextSeq2SeqNeuronConfig):
                 batch_size,
                 num_beams,
                 device,
-                self.tp_degree,
+                self.tensor_parallel_size,
             )
         else:
             return self.CUSTOM_MODEL_WRAPPER(
@@ -822,10 +822,12 @@ class T5EncoderNeuronConfig(TextSeq2SeqNeuronConfig):
                 batch_size=batch_size,
                 num_beams=num_beams,
                 device=device,
-                tp_degree=self.tp_degree,
+                tensor_parallel_size=self.tensor_parallel_size,
             )
 
-    def get_parallel_callable(self, model_name_or_path, sequence_length, batch_size, num_beams, device, tp_degree):
+    def get_parallel_callable(
+        self, model_name_or_path, sequence_length, batch_size, num_beams, device, tensor_parallel_size
+    ):
         """Unlike `torch_neuronx.trace`, `parallel_model_trace` requires a function returning a model object and a dictionary of states."""
         model = TasksManager.get_model_from_task(
             model_name_or_path=model_name_or_path,
@@ -846,7 +848,7 @@ class T5EncoderNeuronConfig(TextSeq2SeqNeuronConfig):
             batch_size=batch_size,
             num_beams=num_beams,
             device=device,
-            tp_degree=tp_degree,
+            tensor_parallel_size=tensor_parallel_size,
         )
         encoder.eval()
         aliases = self.generate_io_aliases(encoder)
@@ -854,7 +856,7 @@ class T5EncoderNeuronConfig(TextSeq2SeqNeuronConfig):
 
     def generate_io_aliases(self, encoder=None):
         aliases = {}
-        if self.tp_degree > 1:
+        if self.tensor_parallel_size > 1:
             for i in range(len(encoder.past_key_values_sa)):
                 aliases[encoder.past_key_values_sa[i]] = i
             for i in range(len(encoder.past_key_values_ca)):
@@ -912,9 +914,9 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
             "output_hidden_states": self.output_hidden_states,
             "output_attentions": self.output_attentions,
             "device": device,
-            "tp_degree": self.tp_degree,
+            "tensor_parallel_size": self.tensor_parallel_size,
         }
-        if self.tp_degree > 1:
+        if self.tensor_parallel_size > 1:
             return partial(
                 self.get_parallel_callable,
                 model,
@@ -924,7 +926,7 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
                 self.output_hidden_states,
                 self.output_attentions,
                 device,
-                self.tp_degree,
+                self.tensor_parallel_size,
             )
         else:
             return self.CUSTOM_MODEL_WRAPPER(**trace_args)
@@ -938,7 +940,7 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
         output_hidden_states,
         output_attentions,
         device,
-        tp_degree,
+        tensor_parallel_size,
     ):
         """Unlike `torch_neuronx.trace`, `parallel_model_trace` requires a function returning a model object and a dictionary of states."""
         model = TasksManager.get_model_from_task(
@@ -963,7 +965,7 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
             output_hidden_states=output_hidden_states,
             output_attentions=output_attentions,
             device=device,
-            tp_degree=tp_degree,
+            tensor_parallel_size=tensor_parallel_size,
         )
         decoder.eval()
         aliases = self.generate_io_aliases(decoder)

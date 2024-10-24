@@ -132,7 +132,7 @@ class T5EncoderWrapper(torch.nn.Module):
         batch_size: Optional[int] = None,
         num_beams: int = 1,
         device: str = "xla",
-        tp_degree: int = 1,
+        tensor_parallel_size: int = 1,
     ):
         super().__init__()
         self.model = model
@@ -141,10 +141,10 @@ class T5EncoderWrapper(torch.nn.Module):
         self.sequence_length = sequence_length
         self.batch_size = batch_size
         self.device = device
-        self.tp_degree = tp_degree
-        self.num_attention_heads_per_partition = self.config.num_heads  # when tp_degree=1
+        self.tensor_parallel_size = tensor_parallel_size
+        self.num_attention_heads_per_partition = self.config.num_heads  # when tensor_parallel_size=1
 
-        if self.tp_degree > 1:
+        if self.tensor_parallel_size > 1:
             self.num_attention_heads_per_partition = (
                 self.num_attention_heads_per_partition
                 // neuronx_distributed.parallel_layers.parallel_state.get_tensor_model_parallel_size()
@@ -227,7 +227,7 @@ class T5EncoderWrapper(torch.nn.Module):
             key_states = shape(attention.k(encoder_hidden_states))
             value_states = shape(attention.v(encoder_hidden_states))
 
-            if not self.tp_degree > 1:
+            if not self.tensor_parallel_size > 1:
                 # cross_attn_kv_state
                 present_key_value_states_ca.append(key_states)
                 present_key_value_states_ca.append(value_states)
@@ -296,7 +296,7 @@ class T5DecoderWrapper(torch.nn.Module):
         output_hidden_states: bool = False,
         output_attentions: bool = False,
         device: str = "xla",
-        tp_degree: int = 1,
+        tensor_parallel_size: int = 1,
     ):
         super().__init__()
         self.model = model
@@ -307,10 +307,10 @@ class T5DecoderWrapper(torch.nn.Module):
         self.output_hidden_states = output_hidden_states
         self.output_attentions = output_attentions
         self.device = device
-        self.tp_degree = tp_degree
+        self.tensor_parallel_size = tensor_parallel_size
 
         self.num_attention_heads_per_partition = self.config.num_heads
-        if tp_degree > 1:
+        if tensor_parallel_size > 1:
             self.num_attention_heads_per_partition = (
                 self.num_attention_heads_per_partition
                 // neuronx_distributed.parallel_layers.parallel_state.get_tensor_model_parallel_size()

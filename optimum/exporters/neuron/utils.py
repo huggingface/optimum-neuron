@@ -485,7 +485,7 @@ def get_encoder_decoder_models_for_export(
         task (`str`):
             The task to export the model for. If not specified, the task will be auto-inferred based on the model.
         tensor_parallel_size (`int`):
-            Tensor parallelism degree, the number of devices on which to shard the model.
+            Tensor parallelism size, the number of Neuron cores on which to shard the model.
         input_shapes (`Dict[str, int]`):
             Static shapes used for compiling the encoder and the decoder.
         dynamic_batch_size (`bool`, defaults to `False`):

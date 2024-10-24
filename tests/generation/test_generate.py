@@ -197,6 +197,8 @@ def test_general_seq2seq_generation(export_seq2seq_id, export_seq2seq_model_clas
     _test_model_generation_trn(model, tokenizer, 1, 10, **gen_kwargs)
 
 
-# Mandatory for multiprocessing tests eg. tensor parallel tracing
+# Compulsory for multiprocessing tests, since we want children processes to be spawned only in the main program.
+# eg. tensor parallel tracing, `neuronx_distributed.parallel_model_trace` will spawn multiple processes to trace
+# and compile the model.
 if __name__ == "__main__":
     pytest.main([__file__])

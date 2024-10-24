@@ -135,7 +135,7 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
         if generation_config is None:
             generation_config = GenerationConfig.from_model_config(self.configs[DECODER_NAME])
         self.generation_config = generation_config
-        self.tp_degree = self.neuron_configs[DECODER_NAME].tp_degree
+        self.tensor_parallel_size = self.neuron_configs[DECODER_NAME].tensor_parallel_size
 
     def _save_pretrained(self, save_directory: Union[str, Path]):
         """
@@ -517,13 +517,14 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
             axis=1,
         )
 
-        if not self.tp_degree > 1:
+        if self.tensor_parallel_size == 1:
             # copy the new cache state to the decoder
             for state, tensor in zip(self.decoder.model.parameters(), past_key_values):
                 state.copy_(tensor)
         else:
-            # Encoder returns cache as device tensors, we assign them to decoder's cache to avoid the copy.
-            # The KV cache always use pre-allocated memory, no host-device communication overhead.
+            # Here we iterate sharded encoders and decoders since the encoder on each rank will return cache as device tensors,
+            # we want to assign them to the cache of the sharded decoder on the same rank to avoid the copy. The KV cache always
+            # use pre-allocated memory, no host-device communication overhead.
             for decoder_tp, encoder_tp in zip(self.decoder.model.models, self.encoder.model.models):
                 decoder_tp.load_state_dict(encoder_tp.state_dict(), strict=False)
 

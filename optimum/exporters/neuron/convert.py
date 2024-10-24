@@ -393,7 +393,7 @@ def export_models(
             input_names=neuron_inputs,
             output_names=neuron_outputs,
             dynamic_batch_size=sub_neuron_config.dynamic_batch_size,
-            tensor_parallel_size=sub_neuron_config.tp_degree,
+            tensor_parallel_size=sub_neuron_config.tensor_parallel_size,
             compiler_type=NEURON_COMPILER_TYPE,
             compiler_version=NEURON_COMPILER_VERSION,
             inline_weights_to_neff=inline_weights_to_neff,
@@ -531,10 +531,10 @@ def export_neuronx(
 
     # Prepare the model / function(tp) to trace
     aliases = {}
-    tp_degree = config.tp_degree
+    tensor_parallel_size = config.tensor_parallel_size
     if isinstance(config, TextSeq2SeqNeuronConfig):
         checked_model = config.patch_model_for_export(model_or_path, **input_shapes)
-        if tp_degree == 1:
+        if tensor_parallel_size == 1:
             aliases = config.generate_io_aliases(checked_model)
     else:
         checked_model = config.patch_model_for_export(model_or_path, dummy_inputs)
@@ -562,7 +562,7 @@ def export_neuronx(
         inline_weights_to_neff = True
 
     # Start trace
-    if tp_degree > 1:
+    if tensor_parallel_size > 1:
         # 1. use NxD to trace for parallel
         neuron_model = neuronx_distributed.trace.parallel_model_trace(
             checked_model,
@@ -570,7 +570,7 @@ def export_neuronx(
             compiler_args=compiler_args,
             inline_weights_to_neff=inline_weights_to_neff,
             compiler_workdir=compiler_workdir,
-            tp_degree=tp_degree,
+            tp_degree=tensor_parallel_size,
         )
         neuronx_distributed.trace.parallel_model_save(neuron_model, output)
     else:
