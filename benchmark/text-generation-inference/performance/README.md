@@ -94,7 +94,10 @@ See the [llama3-70b-trn1.32xlarge](llama3-70b-trn1.32xlarge) as an example.
 
 It is best to compile the model with the software in the container you will be using to ensure all library versions match.
 
-As an example, you can compile with the following command.  **If you make changes, make sure your batch size, sequence length, and num_cores for compilation match the same settings in the .env file**
+As an example, you can compile with the following command.  
+
+**If you make changes, make sure your batch size, sequence length, and num_cores for compilation match the MAX_BATCH_SIZE, and MAX_TOTAL_TOKENS settings in the .env file and the HF_NUM_CORES setting in the docker-compose file.  
+MAX_INPUT_LENGTH needs to be less than sequence_length/MAX_TOTAL_TOKENS.  The directory at the end of the compile command needs to match the MODEL_ID in the .env file.**  
 
 ```
 docker run -p 8080:80 \
@@ -123,6 +126,7 @@ export neuron --model NousResearch/Meta-Llama-3-70B-Instruct \
 --num_cores 32 \
 /data/exportedmodel/
 ```
+See the [Hugging Face documentation](https://huggingface.co/docs/optimum-neuron/en/guides/export_model#exporting-a-model-to-neuron-using-the-cli) for more information on compilation.  
 
 Note that the .env file has a path for MODEL_ID to load the model from the /data directory.
 
