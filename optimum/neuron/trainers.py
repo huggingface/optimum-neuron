@@ -2238,6 +2238,7 @@ class NeuronORPOTrainer(_TrainerForNeuron, _ORPOTrainerInit):
         #     torch.log1p(-torch.exp(policy_chosen_logps)) - torch.log1p(-torch.exp(policy_rejected_logps))
         # )
 
+        # We used this instead of `torch.log1p` because it produces NaNs in BF16.
         def log1p(x):
             return torch.log(1 + x)
 
