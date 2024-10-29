@@ -14,11 +14,14 @@ pip install --upgrade --no-cache-dir \
     "notebook==7.0.6" \
     "markupsafe==2.1.1" \
     "jinja2==3.1.2" \
-    "attrs==23.1.0"
+    "attrs==23.1.0" \
+    "hf_transfer>=0.1.4" 
 
 # Temporary fix for the issue: https://github.com/huggingface/optimum-neuron/issues/142
 pip install -U optimum
 echo 'export PATH="${HOME}/.local/bin:$PATH"' >> "${HOME}/.bashrc"
+# Add HF_TRANSFER by default 
+echo 'export HF_HUB_ENABLE_HF_TRANSFER=1' >> "${HOME}/.bashrc"
 
 echo "Step: install-and-copy-optimum-neuron-examples"
 git clone -b $OPTIMUM_VERSION https://github.com/huggingface/optimum-neuron.git
