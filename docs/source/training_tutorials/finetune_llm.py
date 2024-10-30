@@ -80,7 +80,7 @@ def prepare_dataset(tokenizer, dataset):
     )
 
     # chunk dataset
-    lm_dataset = pack_dataset(dataset, chunk_length=512)  # We use 2048 as the maximum length for packing
+    lm_dataset = pack_dataset(dataset, chunk_length=2048)  # We use 2048 as the maximum length for packing
 
     return lm_dataset
 
