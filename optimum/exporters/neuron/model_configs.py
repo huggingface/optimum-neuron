@@ -780,7 +780,6 @@ class LLamaNeuronConfig(TextNeuronDecoderConfig):
     ATTENTION_lAYOUT = "BSH"
 
 
-@register_in_tasks_manager("t5-encoder", "text2text-generation")
 class T5EncoderNeuronConfig(TextSeq2SeqNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
     INPUT_ARGS = ("batch_size", "sequence_length", "num_beams")
@@ -795,9 +794,37 @@ class T5EncoderNeuronConfig(TextSeq2SeqNeuronConfig):
         allow_new=True,
     )
 
+
+@register_in_tasks_manager("t5-encoder", "text2text-generation")
+class T5EncoderForSeq2SeqNeuronConfig(T5EncoderNeuronConfig):
+    
     @property
-    def is_decoder(self) -> bool:
+    def with_cache(self) -> bool:
+        # Whether or not initialize and output KV cache
         return False
+    
+    @with_cache.setter
+    def with_cache(self, with_cache: bool) -> bool:
+        self._with_cache = with_cache
+    
+    @property
+    def inputs(self) -> List[str]:
+        return ["input_ids", "attention_mask"]
+    
+    @property
+    def outputs(self) -> List[str]:
+        if self.with_cache:
+            # encoder-decoder
+            common_outputs = (
+                [f"present.{idx}.self.key" for idx in range(self._config.num_decoder_layers)]
+                + [f"present.{idx}.self.value" for idx in range(self._config.num_decoder_layers)]
+                + [f"present.{idx}.cross.key" for idx in range(self._config.num_decoder_layers)]
+                + [f"present.{idx}.cross.value" for idx in range(self._config.num_decoder_layers)]
+            )
+        else:
+            # encoder-only, eg. a T5Encoder in DiT pipelines.
+            common_outputs = ["last_hidden_state"]
+        return common_outputs
 
     def patch_model_for_export(self, model_or_path, device="xla", **kwargs):
         num_beams = kwargs.pop("num_beams", 1)
@@ -874,13 +901,43 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
     NORMALIZED_CONFIG_CLASS = NormalizedSeq2SeqConfig
 
     @property
-    def is_decoder(self) -> bool:
-        return True
+    def inputs(self) -> List[str]:
+        common_inputs = [
+            "decoder_input_ids",
+            "decoder_attention_mask",
+            "encoder_hidden_states",
+            "attention_mask",  # TODO: replace with `encoder_attention_mask` after optimum 1.14 release
+            "beam_idx", 
+            "beam_scores",
+        ]
+        return common_inputs
 
     @property
-    def inputs(self) -> List[str]:
-        common_inputs = super().inputs + ["beam_idx", "beam_scores"]
-        return common_inputs
+    def outputs(self) -> List[str]:
+        beam_outputs = (
+            ["next_token_scores", "next_tokens", "next_indices"] if self.num_beams > 1 else ["next_tokens"]
+        )
+        common_outputs = (
+            beam_outputs
+            + [f"past.{idx}.self.key" for idx in range(self._config.num_decoder_layers)]
+            + [f"past.{idx}.self.value" for idx in range(self._config.num_decoder_layers)]
+            + [f"past.{idx}.cross.key" for idx in range(self._config.num_decoder_layers)]
+            + [f"past.{idx}.cross.value" for idx in range(self._config.num_decoder_layers)]
+        )
+
+        if self.output_hidden_states:
+            # Flatten hidden states of all layers
+            common_outputs += [
+                f"decoder_hidden_state.{idx}" for idx in range(self._config.num_decoder_layers + 1)
+            ]  # +1 for the embedding layer
+
+        if self.output_attentions:
+            # Flatten attentions tensors of all attention layers
+            common_outputs += [f"decoder_attention.{idx}" for idx in range(self._config.num_decoder_layers)]
+            if getattr(self._config, "is_encoder_decoder", False) is True:
+                common_outputs += [f"cross_attention.{idx}" for idx in range(self._config.num_decoder_layers)]
+
+        return common_outputs
 
     def generate_dummy_inputs(self, **kwargs):
         batch_size = kwargs.pop("batch_size") * kwargs.get("num_beams")

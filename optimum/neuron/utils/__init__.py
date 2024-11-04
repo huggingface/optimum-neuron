@@ -61,6 +61,7 @@ _import_structure = {
     "optimization_utils": [
         "get_attention_scores_sd",
         "get_attention_scores_sdxl",
+        "neuron_scaled_dot_product_attention",
     ],
     "patching": [
         "DynamicPatch",
@@ -121,6 +122,7 @@ if TYPE_CHECKING:
     from .optimization_utils import (
         get_attention_scores_sd,
         get_attention_scores_sdxl,
+        neuron_scaled_dot_product_attention,
     )
     from .patching import (
         DynamicPatch,

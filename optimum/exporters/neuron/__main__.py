@@ -188,7 +188,7 @@ def normalize_stable_diffusion_input_shapes(
     # Remove `sequence_length` as diffusers will pad it to the max and remove number of channels.
     mandatory_axes = mandatory_axes - {
         "sequence_length",
-        "unet_num_channels",
+        "unet_or_transformer_num_channels",
         "vae_encoder_num_channels",
         "vae_decoder_num_channels",
         "num_images_per_prompt",  # default to 1
@@ -214,27 +214,34 @@ def infer_stable_diffusion_shapes_from_diffusers(
         sequence_length = model.tokenizer_2.model_max_length
     else:
         raise AttributeError(f"Cannot infer sequence_length from {type(model)} as there is no tokenizer as attribute.")
-    unet_num_channels = model.unet.config.in_channels
     vae_encoder_num_channels = model.vae.config.in_channels
     vae_decoder_num_channels = model.vae.config.latent_channels
     vae_scale_factor = 2 ** (len(model.vae.config.block_out_channels) - 1) or 8
-    height = input_shapes["unet"]["height"]
+    height = input_shapes["unet_or_transformer"]["height"]
     scaled_height = height // vae_scale_factor
-    width = input_shapes["unet"]["width"]
+    width = input_shapes["unet_or_transformer"]["width"]
     scaled_width = width // vae_scale_factor
 
+    # Text encoders
     input_shapes["text_encoder"].update({"sequence_length": sequence_length})
     if hasattr(model, "text_encoder_2"):
         input_shapes["text_encoder_2"] = input_shapes["text_encoder"]
-    input_shapes["unet"].update(
+    
+    # UNet or Transformer
+    unet_or_transformer_name = "transformer" if hasattr(model, "transformer") else "unet"
+    unet_or_transformer_num_channels = getattr(model, unet_or_transformer_name).config.in_channels
+    input_shapes["unet_or_transformer"].update(
         {
             "sequence_length": sequence_length,
-            "num_channels": unet_num_channels,
+            "num_channels": unet_or_transformer_num_channels,
             "height": scaled_height,
             "width": scaled_width,
         }
     )
-    input_shapes["unet"]["vae_scale_factor"] = vae_scale_factor
+    input_shapes["unet_or_transformer"]["vae_scale_factor"] = vae_scale_factor
+    input_shapes[unet_or_transformer_name] = input_shapes.pop("unet_or_transformer")
+    
+    # VAE
     input_shapes["vae_encoder"].update({"num_channels": vae_encoder_num_channels, "height": height, "width": width})
     input_shapes["vae_decoder"].update(
         {"num_channels": vae_decoder_num_channels, "height": scaled_height, "width": scaled_width}
@@ -246,9 +253,9 @@ def infer_stable_diffusion_shapes_from_diffusers(
         if hasattr(model, "text_encoder_2"):
             encoder_hidden_size += model.text_encoder_2.config.hidden_size
         input_shapes["controlnet"] = {
-            "batch_size": input_shapes["unet"]["batch_size"],
+            "batch_size": input_shapes[unet_or_transformer_name]["batch_size"],
             "sequence_length": sequence_length,
-            "num_channels": unet_num_channels,
+            "num_channels": unet_or_transformer_num_channels,
             "height": scaled_height,
             "width": scaled_width,
             "vae_scale_factor": vae_scale_factor,
@@ -383,6 +390,8 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
         model.tokenizer.save_pretrained(output.joinpath("tokenizer"))
     if getattr(model, "tokenizer_2", None) is not None:
         model.tokenizer_2.save_pretrained(output.joinpath("tokenizer_2"))
+    if getattr(model, "tokenizer_3", None) is not None:
+        model.tokenizer_3.save_pretrained(output.joinpath("tokenizer_3"))
     if getattr(model, "feature_extractor", None) is not None:
         model.feature_extractor.save_pretrained(output.joinpath("feature_extractor"))
     model.save_config(output)
@@ -393,7 +402,8 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
     models_and_neuron_configs = get_stable_diffusion_models_for_export(
         pipeline=model,
         text_encoder_input_shapes=input_shapes["text_encoder"],
-        unet_input_shapes=input_shapes["unet"],
+        unet_input_shapes=input_shapes.get("unet", None),
+        transformer_input_shapes=input_shapes.get("transformer", None),
         vae_encoder_input_shapes=input_shapes["vae_encoder"],
         vae_decoder_input_shapes=input_shapes["vae_decoder"],
         dynamic_batch_size=dynamic_batch_size,

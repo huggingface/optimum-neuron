@@ -28,11 +28,13 @@ from ...neuron.utils import (
     DIFFUSION_MODEL_TEXT_ENCODER_2_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_NAME,
     DIFFUSION_MODEL_UNET_NAME,
+    DIFFUSION_MODEL_TRANSFORMER_NAME,
     DIFFUSION_MODEL_VAE_DECODER_NAME,
     DIFFUSION_MODEL_VAE_ENCODER_NAME,
     ENCODER_NAME,
     get_attention_scores_sd,
     get_attention_scores_sdxl,
+    neuron_scaled_dot_product_attention,
 )
 from ...utils import (
     DIFFUSERS_MINIMUM_VERSION,
@@ -74,7 +76,7 @@ if TYPE_CHECKING:
 def build_stable_diffusion_components_mandatory_shapes(
     batch_size: Optional[int] = None,
     sequence_length: Optional[int] = None,
-    unet_num_channels: Optional[int] = None,
+    unet_or_transformer_num_channels: Optional[int] = None,
     vae_encoder_num_channels: Optional[int] = None,
     vae_decoder_num_channels: Optional[int] = None,
     height: Optional[int] = None,
@@ -94,17 +96,17 @@ def build_stable_diffusion_components_mandatory_shapes(
         "height": height,
         "width": width,
     }
-    unet_input_shapes = {
+    unet_or_transformer_input_shapes = {
         "batch_size": batch_size * num_images_per_prompt,
         "sequence_length": sequence_length,
-        "num_channels": unet_num_channels,
+        "num_channels": unet_or_transformer_num_channels,
         "height": height,
         "width": width,
     }
 
     components_shapes = {
         "text_encoder": text_encoder_input_shapes,
-        "unet": unet_input_shapes,
+        "unet_or_transformer": unet_or_transformer_input_shapes,
         "vae_encoder": vae_encoder_input_shapes,
         "vae_decoder": vae_decoder_input_shapes,
     }
@@ -116,6 +118,7 @@ def get_stable_diffusion_models_for_export(
     pipeline: Union["StableDiffusionPipeline", "StableDiffusionXLPipeline"],
     text_encoder_input_shapes: Dict[str, int],
     unet_input_shapes: Dict[str, int],
+    transformer_input_shapes: Dict[str, int],
     vae_encoder_input_shapes: Dict[str, int],
     vae_decoder_input_shapes: Dict[str, int],
     dynamic_batch_size: Optional[bool] = False,
@@ -140,6 +143,8 @@ def get_stable_diffusion_models_for_export(
             Static shapes used for compiling text encoder.
         unet_input_shapes (`Dict[str, int]`):
             Static shapes used for compiling unet.
+        transformer_input_shapes (`Dict[str, int]`):
+            Static shapes used for compiling diffusion transformer.
         vae_encoder_input_shapes (`Dict[str, int]`):
             Static shapes used for compiling vae encoder.
         vae_decoder_input_shapes (`Dict[str, int]`):
@@ -212,7 +217,8 @@ def get_stable_diffusion_models_for_export(
         )
         models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME] = (text_encoder_2, text_encoder_neuron_config_2)
 
-    # U-NET
+    # U-NET or diffusion transformer
+    # if 
     unet = models_for_export[DIFFUSION_MODEL_UNET_NAME]
     unet_neuron_config_constructor = TasksManager.get_exporter_config_constructor(
         model=unet,
@@ -378,10 +384,6 @@ def get_submodels_for_export_stable_diffusion(
     )
 
     models_for_export = []
-    if hasattr(pipeline, "text_encoder_2"):
-        projection_dim = pipeline.text_encoder_2.config.projection_dim
-    else:
-        projection_dim = pipeline.text_encoder.config.projection_dim
 
     # Text encoders
     if pipeline.text_encoder is not None:
@@ -396,26 +398,39 @@ def get_submodels_for_export_stable_diffusion(
         models_for_export.append((DIFFUSION_MODEL_TEXT_ENCODER_2_NAME, copy.deepcopy(text_encoder_2)))
 
     # U-NET
-    pipeline.unet.config.text_encoder_projection_dim = projection_dim
-    # The U-NET time_ids inputs shapes depends on the value of `requires_aesthetics_score`
-    # https://github.com/huggingface/diffusers/blob/v0.18.2/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl_img2img.py#L571
-    pipeline.unet.config.requires_aesthetics_score = getattr(pipeline.config, "requires_aesthetics_score", False)
-
-    # Replace original cross-attention module with custom cross-attention module for better performance
-    # For applying optimized attention score, we need to set env variable  `NEURON_FUSE_SOFTMAX=1`
-    if os.environ.get("NEURON_FUSE_SOFTMAX") == "1":
-        if is_stable_diffusion_xl:
-            logger.info("Applying optimized attention score computation for sdxl.")
-            Attention.get_attention_scores = get_attention_scores_sdxl
+    unet = getattr(pipeline, "unet", None)
+    if unet is not None:
+        # The U-NET time_ids inputs shapes depends on the value of `requires_aesthetics_score`
+        # https://github.com/huggingface/diffusers/blob/v0.18.2/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl_img2img.py#L571
+        unet.config.requires_aesthetics_score = getattr(pipeline.config, "requires_aesthetics_score", False)
+        if hasattr(pipeline, "text_encoder_2"):
+            projection_dim = pipeline.text_encoder_2.config.projection_dim
         else:
-            logger.info("Applying optimized attention score computation for stable diffusion.")
-            Attention.get_attention_scores = get_attention_scores_sd
-    else:
-        logger.warning(
-            "You are not applying optimized attention score computation. If you want better performance, please"
-            " set the environment variable with `export NEURON_FUSE_SOFTMAX=1` and recompile the unet model."
-        )
-    models_for_export.append((DIFFUSION_MODEL_UNET_NAME, copy.deepcopy(pipeline.unet)))
+            projection_dim = pipeline.text_encoder.config.projection_dim
+        unet.config.text_encoder_projection_dim = projection_dim
+        
+        # Replace original cross-attention module with custom cross-attention module for better performance
+        # For applying optimized attention score, we need to set env variable  `NEURON_FUSE_SOFTMAX=1`
+        if os.environ.get("NEURON_FUSE_SOFTMAX") == "1":
+            if is_stable_diffusion_xl:
+                logger.info("Applying optimized attention score computation for sdxl.")
+                Attention.get_attention_scores = get_attention_scores_sdxl
+            else:
+                logger.info("Applying optimized attention score computation for stable diffusion.")
+                Attention.get_attention_scores = get_attention_scores_sd
+        else:
+            logger.warning(
+                "You are not applying optimized attention score computation. If you want better performance, please"
+                " set the environment variable with `export NEURON_FUSE_SOFTMAX=1` and recompile the unet model."
+            )
+        models_for_export.append((DIFFUSION_MODEL_UNET_NAME, copy.deepcopy(unet)))
+    
+    # Diffusion transformer
+    transformer = getattr(pipeline, "transformer", None)
+    if transformer is not None:
+        transformer.config.requires_aesthetics_score = getattr(pipeline.config, "requires_aesthetics_score", False)
+        torch.nn.functional.scaled_dot_product_attention = neuron_scaled_dot_product_attention
+        models_for_export.append((DIFFUSION_MODEL_TRANSFORMER_NAME, copy.deepcopy(transformer)))
 
     if pipeline.vae.config.get("force_upcast", None) is True:
         pipeline.vae.to(dtype=torch.float32)
