@@ -33,7 +33,7 @@ TESTS_REQUIRE = [
     "safetensors",
     "sentence-transformers >= 2.2.0",
     "peft",
-    "trl",
+    "trl==0.11.4",
     "compel",
     "rjieba",
     "soundfile",

@@ -75,7 +75,7 @@ _import_structure = {
         "is_model_officially_supported",
         "patch_transformers_for_neuron_sdk",
     ],
-    "trl_utils": ["NeuronSFTConfig"],
+    "trl_utils": ["NeuronSFTConfig", "NeuronORPOConfig"],
 }
 
 if TYPE_CHECKING:
@@ -135,7 +135,7 @@ if TYPE_CHECKING:
         is_model_officially_supported,
         patch_transformers_for_neuron_sdk,
     )
-    from .trl_utils import NeuronSFTConfig
+    from .trl_utils import NeuronORPOConfig, NeuronSFTConfig
 else:
     import sys
 

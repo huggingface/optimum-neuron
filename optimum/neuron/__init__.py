@@ -27,7 +27,7 @@ from transformers.utils import _LazyModule
 
 _import_structure = {
     "hf_argparser": ["NeuronHfArgumentParser"],
-    "trainers": ["NeuronTrainer", "Seq2SeqNeuronTrainer", "NeuronSFTTrainer"],
+    "trainers": ["NeuronTrainer", "Seq2SeqNeuronTrainer", "NeuronSFTTrainer", "NeuronORPOTrainer"],
     "training_args": ["NeuronTrainingArguments", "Seq2SeqNeuronTrainingArguments"],
     "modeling_traced": ["NeuronTracedModel"],
     "modeling": [
@@ -69,7 +69,7 @@ _import_structure = {
         "ModelParallelismPlugin",
     ],
     "pipelines": ["pipeline"],
-    "utils": ["NeuronSFTConfig", "get_peft_model"],
+    "utils": ["NeuronSFTConfig", "NeuronORPOConfig", "get_peft_model"],
 }
 
 if TYPE_CHECKING:
@@ -109,9 +109,9 @@ if TYPE_CHECKING:
     from .modeling_seq2seq import NeuronModelForSeq2SeqLM
     from .modeling_traced import NeuronTracedModel
     from .pipelines import pipeline
-    from .trainers import NeuronSFTTrainer, NeuronTrainer, Seq2SeqNeuronTrainer
+    from .trainers import NeuronORPOTrainer, NeuronSFTTrainer, NeuronTrainer, Seq2SeqNeuronTrainer
     from .training_args import NeuronTrainingArguments, Seq2SeqNeuronTrainingArguments
-    from .utils import NeuronSFTConfig, get_peft_model
+    from .utils import NeuronORPOConfig, NeuronSFTConfig, get_peft_model
 
 else:
     import sys
