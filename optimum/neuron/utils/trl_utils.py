@@ -15,13 +15,14 @@
 """Utilities related to the TRL library and support."""
 
 from dataclasses import dataclass
+from typing import Optional
 
 from ..training_args import NeuronTrainingArguments
 from .import_utils import is_trl_available
 
 
 if is_trl_available():
-    from trl import SFTConfig
+    from trl import ORPOConfig, SFTConfig
 else:
 
     @dataclass
@@ -29,7 +30,20 @@ else:
         def __init__(self, *args, **kwargs):
             raise RuntimeError("You need to install the `trl` library to use the `NeuronSFTConfig`.")
 
+    @dataclass
+    class ORPOConfig:
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError("You need to install the `trl` library to use the `NeuronSFTConfig`.")
+
 
 @dataclass
 class NeuronSFTConfig(NeuronTrainingArguments, SFTConfig):
     pass
+
+
+@dataclass
+class NeuronORPOConfig(NeuronTrainingArguments, ORPOConfig):
+
+    @property
+    def neuron_cc_flags_model_type(self) -> Optional[str]:
+        return None
