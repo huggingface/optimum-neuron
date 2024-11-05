@@ -81,16 +81,8 @@ class NeuronModelForCausalLM(GenerationMixin):
 
         self.sampler = None
 
-        self.context_encoding_model = DecoderModelWrapper(
-            config=self.config,
-            model=model,
-            tag=CONTEXT_ENCODING_MODEL_TAG,
-        )
-        self.token_generation_model = DecoderModelWrapper(
-            config=self.config,
-            model=model,
-            tag=TOKEN_GENERATION_MODEL_TAG,
-        )
+        self.context_encoding_model = DecoderModelWrapper(model)
+        self.token_generation_model = DecoderModelWrapper(model)
 
     def can_generate(self):
         # Not needed after transformers 4.50
@@ -260,8 +252,42 @@ class NeuronModelForCausalLM(GenerationMixin):
         logging.debug("position_ids =%s", position_ids)
         logging.debug(f"seq_ids: {seq_ids}")
 
+    def pad_to_batch_size(self, tensor):
+            if tensor is None or tensor.shape[0] == self.config.batch_size:
+                return tensor
+
+            padded_shape = list(tensor.shape)
+            padded_shape[0] = self.config.batch_size
+            padded_tensor = torch.zeros(padded_shape, dtype=tensor.dtype)
+            padded_tensor[: tensor.shape[0]] = tensor
+            return padded_tensor
+
+    def pad_to_max_compiled_seq(self, *args):
+        if not self.kv_cache_populated:
+            to_pad = args[:3]
+            pad_lengths = [self.config.max_context_length - arg.shape[1] for arg in to_pad]
+            tensor_pad_vals = [self.config.pad_token_id, 0, 1]
+            padded_args = [
+                torch.nn.functional.pad(arg, (0, pad_len), "constant", pad_val)
+                for arg, pad_val, pad_len in zip(to_pad, tensor_pad_vals, pad_lengths)
+            ]
+            args = (*padded_args, *args[3:])
+        else:
+            input_ids, attention_mask, *rest_of_args = args
+            pad_len = self.config.max_length - attention_mask.shape[1]
+            padded_attention_mask = torch.nn.functional.pad(attention_mask, (0, pad_len), "constant", 0)
+            args = (input_ids, padded_attention_mask, *rest_of_args)
+
+        return args
+
     def _get_model_outputs(self, input_ids, attention_mask, position_ids, seq_ids):
-        if input_ids.shape[-1] > 1:
+        # TODO: handle continuous batching here
+        assert torch.equal(seq_ids, torch.tensor(range(self.config.max_batch_size)))
+        input_ids, attention_mask, position_ids, seq_ids = self.pad_to_max_compiled_seq(input_ids, attention_mask, position_ids, seq_ids)
+        input_ids = self.pad_to_batch_size(input_ids)
+        attention_mask = self.pad_to_batch_size(attention_mask)
+        position_ids = self.pad_to_batch_size(position_ids)
+        if not self.kv_cache_populated:
             outputs = self.context_encoding_model(
                 input_ids,
                 attention_mask,
