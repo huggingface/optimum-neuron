@@ -17,11 +17,10 @@ SampleOutput = Union[SampleEncoderDecoderOutput, SampleDecoderOnlyOutput]
 
 ch = logging.StreamHandler()
 formatter = logging.Formatter(
-    fmt='%(asctime)s,%(msecs)03d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
-    datefmt='%Y-%m-%d:%H:%M:%S'
+    fmt="%(asctime)s,%(msecs)03d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s", datefmt="%Y-%m-%d:%H:%M:%S"
 )
 ch.setFormatter(formatter)
-level=os.getenv('LOGLEVEL', 'INFO').upper()
+level = os.getenv("LOGLEVEL", "INFO").upper()
 ch.setLevel(level)
 logger = logging.getLogger()
 logger.setLevel(level)
