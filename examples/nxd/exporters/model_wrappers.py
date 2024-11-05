@@ -1,4 +1,3 @@
-
 import torch
 
 
@@ -10,6 +9,7 @@ class DecoderModelWrapper(torch.nn.Module):
     """Eventually this wrapper should include the KV cache management
     That is now implemented in NeuronDecoderModel.
     """
+
     def __init__(self, model) -> None:
         super().__init__()
         self.model = model
