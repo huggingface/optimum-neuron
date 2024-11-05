@@ -10,7 +10,6 @@ from exporters.model_configs import get_exporter_config_constructor
 from exporters.model_wrappers import (  # noqa: E402
     CONTEXT_ENCODING_MODEL_TAG,  # noqa: E402
     TOKEN_GENERATION_MODEL_TAG,  # noqa: E402
-    DecoderModelWrapper,  # noqa: E402
 )
 from modules.checkpoint import load_state_dict
 from modules.config import NeuronInferenceConfig
@@ -54,8 +53,8 @@ class CheckPointLoader:
         model_sd = load_state_dict(self.model_path)
         param_name_list = list(model_sd.keys())
         for param_name in param_name_list:
-            if param_name.startswith(self.model_prefix):
-                updated_param_name = param_name.replace(self.model_prefix, "", 1)
+            if not param_name.startswith(self.model_prefix):
+                updated_param_name = self.model_prefix + param_name
                 model_sd[updated_param_name] = model_sd[param_name].to(self.dtype)
                 del model_sd[param_name]
             else:
@@ -81,8 +80,7 @@ class NeuronModelForCausalLM(GenerationMixin):
 
         self.sampler = None
 
-        self.context_encoding_model = DecoderModelWrapper(model)
-        self.token_generation_model = DecoderModelWrapper(model)
+        self.model = model
 
     def can_generate(self):
         # Not needed after transformers 4.50
@@ -253,14 +251,14 @@ class NeuronModelForCausalLM(GenerationMixin):
         logging.debug(f"seq_ids: {seq_ids}")
 
     def pad_to_batch_size(self, tensor):
-            if tensor is None or tensor.shape[0] == self.config.batch_size:
-                return tensor
+        if tensor is None or tensor.shape[0] == self.config.batch_size:
+            return tensor
 
-            padded_shape = list(tensor.shape)
-            padded_shape[0] = self.config.batch_size
-            padded_tensor = torch.zeros(padded_shape, dtype=tensor.dtype)
-            padded_tensor[: tensor.shape[0]] = tensor
-            return padded_tensor
+        padded_shape = list(tensor.shape)
+        padded_shape[0] = self.config.batch_size
+        padded_tensor = torch.zeros(padded_shape, dtype=tensor.dtype)
+        padded_tensor[: tensor.shape[0]] = tensor
+        return padded_tensor
 
     def pad_to_max_compiled_seq(self, *args):
         if not self.kv_cache_populated:
@@ -283,25 +281,19 @@ class NeuronModelForCausalLM(GenerationMixin):
     def _get_model_outputs(self, input_ids, attention_mask, position_ids, seq_ids):
         # TODO: handle continuous batching here
         assert torch.equal(seq_ids, torch.tensor(range(self.config.max_batch_size)))
-        input_ids, attention_mask, position_ids, seq_ids = self.pad_to_max_compiled_seq(input_ids, attention_mask, position_ids, seq_ids)
+        input_ids, attention_mask, position_ids, seq_ids = self.pad_to_max_compiled_seq(
+            input_ids, attention_mask, position_ids, seq_ids
+        )
         input_ids = self.pad_to_batch_size(input_ids)
         attention_mask = self.pad_to_batch_size(attention_mask)
         position_ids = self.pad_to_batch_size(position_ids)
-        if not self.kv_cache_populated:
-            outputs = self.context_encoding_model(
-                input_ids,
-                attention_mask,
-                position_ids,
-                seq_ids,
-            )
-            self.kv_cache_populated = True
-        else:
-            outputs = self.token_generation_model(
-                input_ids,
-                attention_mask,
-                position_ids,
-                seq_ids,
-            )
+        outputs = self.model(
+            input_ids,
+            attention_mask,
+            position_ids,
+            seq_ids,
+        )
+        self.kv_cache_populated = True
 
         return outputs
 

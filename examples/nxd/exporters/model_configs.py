@@ -1,4 +1,5 @@
 import torch
+from exporters.model_wrappers import DecoderModelWrapper
 from models.llama.modeling_llama import NeuronLlamaModel
 from modules.autobucketing import generate_buckets, get_context_encoder_bk, get_token_generation_bk
 from modules.config import NeuronInferenceConfig
@@ -41,19 +42,19 @@ class DecoderModelInstance(BaseModelInstance):
         if self.config.torch_dtype == torch.bfloat16:
             float_model.bfloat16()
 
-        self.module = float_model
+        self.module = DecoderModelWrapper(float_model)
 
     def get(self, bucket_rank, **kwargs):
         if bucket_rank is not None:
-            self.module.n_positions = self.buckets[bucket_rank]
+            self.module.model.n_positions = self.buckets[bucket_rank]
 
         # Currently we have to init an input_output_aliases map for
         # each buckets, otherwise it will fail the aliasing setup when
         # generating HLO
         self.input_output_aliases = {}
         num_output_from_trace = 1
-        for i in range(len(self.module.past_key_values)):
-            self.input_output_aliases[self.module.past_key_values[i]] = num_output_from_trace + i
+        for i in range(len(self.module.model.past_key_values)):
+            self.input_output_aliases[self.module.model.past_key_values[i]] = num_output_from_trace + i
         return self.module, self.input_output_aliases
 
 
