@@ -66,7 +66,7 @@ class DecoderModelWrapper(torch.nn.Module):
             logging.debug("running forward and reorder the inputs based on seq_ids")
             seq_ids, *args = self.reorder_helper(*args)
 
-        logging.debug("Processed inputs to the model", self.tag, args)
+        logging.debug(f"Processed inputs to the model {self.tag} with args {args}")
 
         outputs = self.model(*args)
 
