@@ -65,24 +65,24 @@ class NeuronDecoderModel(PreTrainedModel):
         raise NotImplementedError("init_model() is not implemented")
 
     def init_inference_optimization(self, config: PretrainedConfig):
-        if self.on_device_sampling:
+        if config.on_device_sampling:
             self.sampler = Sampler(config)
 
-        gqa_sharding_strategy = determine_sharding_strategy(self.tp_degree, self.num_key_value_heads)
+        gqa_sharding_strategy = determine_sharding_strategy(config.tp_degree, config.num_key_value_heads)
         _, num_key_value_heads = get_shardable_head_counts(
-            self.tp_degree, self.num_attention_heads, self.num_key_value_heads, gqa_sharding_strategy
+            config.tp_degree, config.num_attention_heads, config.num_key_value_heads, gqa_sharding_strategy
         )
         if parallel_state.model_parallel_is_initialized():
-            num_kv_heads_per_partition = utils.divide(num_key_value_heads, self.tp_degree)
+            num_kv_heads_per_partition = utils.divide(num_key_value_heads, config.tp_degree)
         else:
             num_kv_heads_per_partition = num_key_value_heads
 
-        hidden_dim_per_head = self.hidden_size // self.num_attention_heads
+        hidden_dim_per_head = config.hidden_size // config.num_attention_heads
 
         self.kv_shape = (
-            self.max_batch_size,
+            config.max_batch_size,
             num_kv_heads_per_partition,
-            self.max_length,
+            config.max_length,
             hidden_dim_per_head,
         )
         self.past_key_values = nn.ParameterList(
@@ -138,9 +138,6 @@ class NeuronDecoderModel(PreTrainedModel):
         attention_mask,
         position_ids,
         seq_ids,
-        accepted_indices=None,
-        current_length=None,
-        scatter_index=None,
     ):
 
         is_for_context_encoding = input_ids.shape[-1] > 1
@@ -218,7 +215,7 @@ class NeuronDecoderModel(PreTrainedModel):
         logits = logits.float()
 
         res = logits
-        if self.on_device_sampling:
+        if self.sampler is not None:
             # perform sampling on Neuron to get tokens
             res = self.sampler.sample(logits[:, -1, :])
 

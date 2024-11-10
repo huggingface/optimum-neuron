@@ -287,23 +287,16 @@ class NeuronLlamaModel(NeuronDecoderModel, LlamaPreTrainedModel):
 
     def setup_attr_for_model(self, config: NeuronInferenceConfig):
         # Needed for init_inference_optimization()
-        self.on_device_sampling = config.on_device_sampling
-        self.tp_degree = config.tp_degree
         self.hidden_size = config.hidden_size
-        self.num_attention_heads = config.num_attention_heads
         self.num_key_value_heads = config.num_key_value_heads
-        self.max_batch_size = config.max_batch_size
 
     def init_model(self, config: NeuronInferenceConfig):
-
-        self.padding_idx = config.pad_token_id
-        self.vocab_size = config.vocab_size
 
         if parallel_state.model_parallel_is_initialized():
             self.embed_tokens = ParallelEmbedding(
                 config.vocab_size,
                 config.hidden_size,
-                self.padding_idx,
+                config.pad_token_id,
                 dtype=config.torch_dtype,
                 shard_across_embedding=True,
                 # We choose to shard across embedding dimension because this stops XLA from introducing
