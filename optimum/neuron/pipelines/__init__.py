@@ -47,15 +47,8 @@ if TYPE_CHECKING:
         NeuronStableDiffusionXLInpaintPipelineMixin,
         NeuronStableDiffusionXLPipelineMixin,
     )
-    from .transformers import (
-        pipeline,
-    )
+    from .transformers import pipeline
 else:
     import sys
 
-    sys.modules[__name__] = _LazyModule(
-        __name__,
-        globals()["__file__"],
-        _import_structure,
-        module_spec=__spec__,
-    )
+    sys.modules[__name__] = _LazyModule(__name__, globals()["__file__"], _import_structure, module_spec=__spec__,)

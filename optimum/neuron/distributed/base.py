@@ -404,9 +404,7 @@ class Parallelizer(ABC):
                     modules_to_initialize[module].append(attribute_name)
 
                 setattr(
-                    module,
-                    attribute_name,
-                    new_parameter,
+                    module, attribute_name, new_parameter,
                 )
                 tied_weights[parameter] = new_parameter
                 new_parameters.add(new_parameter)
@@ -718,8 +716,7 @@ class Parallelizer(ABC):
 
             # 2. Taking care of scattering / gathering on the sequence axis in the model via the IOSequenceParallelizer.
             io_sequence_parallelizer = IOSequenceParallelizer(
-                sequence_parallel_enabled,
-                sequence_collective_op_infos=sequence_collective_op_infos,
+                sequence_parallel_enabled, sequence_collective_op_infos=sequence_collective_op_infos,
             )
             io_sequence_parallelizer.sequence_parallelize(model)
 
@@ -1025,10 +1022,7 @@ class Parallelizer(ABC):
             raise FileNotFoundError(f"Could not find a sharded checkpoint directory under {load_dir.as_posix()}.")
 
         neuronx_distributed.trainer.load_checkpoint(
-            load_dir.as_posix(),
-            tag=MODEL_PARALLEL_SHARDS_DIR_NAME,
-            model=model,
-            optimizer=optimizer,
+            load_dir.as_posix(), tag=MODEL_PARALLEL_SHARDS_DIR_NAME, model=model, optimizer=optimizer,
         )
 
     @classmethod

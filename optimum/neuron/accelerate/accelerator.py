@@ -165,11 +165,7 @@ class NeuronAccelerator(Accelerator):
             self.gradient_accumulation_steps = num_steps
 
     def _prepare_data_loader_for_distributed(
-        self,
-        data_loader: DataLoader,
-        num_replicas: int,
-        rank: int,
-        force_drop_last: bool,
+        self, data_loader: DataLoader, num_replicas: int, rank: int, force_drop_last: bool,
     ) -> DataLoader:
         # TODO: make it more robust, similar to the prepare_data_loader function in `accelerate`.
         if isinstance(data_loader.sampler, DistributedSampler):
@@ -319,9 +315,7 @@ class NeuronAccelerator(Accelerator):
         return super().prepare_scheduler(scheduler)
 
     def patch_model_for_neuron(
-        self,
-        model: "torch.nn.Module",
-        patching_specs: Optional[List[Tuple[str, Any]]] = None,
+        self, model: "torch.nn.Module", patching_specs: Optional[List[Tuple[str, Any]]] = None,
     ) -> "torch.nn.Module":
         if patching_specs is None:
             patching_specs = MODEL_PATCHING_SPECS
@@ -335,20 +329,10 @@ class NeuronAccelerator(Accelerator):
             use_amp=mixed_precision_is_bf16 and self.state.autocast_backend is AutocastBackend.AMP,
             xla_use_bf16=mixed_precision_is_bf16 and not self.state.downcast_bfloat,
         )
-        patching_specs.append(
-            (
-                "forward",
-                DynamicPatch(patch_within_function(("torch.finfo", patched_finfo))),
-            ),
-        )
+        patching_specs.append(("forward", DynamicPatch(patch_within_function(("torch.finfo", patched_finfo))),),)
 
         if isinstance(model, PreTrainedModel):
-            patching_specs.append(
-                (
-                    "save_pretrained",
-                    DynamicPatch(create_patched_save_pretrained),
-                ),
-            )
+            patching_specs.append(("save_pretrained", DynamicPatch(create_patched_save_pretrained),),)
 
         # TODO: @michaelbenayoun generalize an implementation of gradient checkpointing working for:
         #   - DDP

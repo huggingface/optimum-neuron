@@ -133,8 +133,7 @@ class DataTrainingArguments:
         default=False, metadata={"help": "Overwrite the cached training and evaluation sets"}
     )
     preprocessing_num_workers: Optional[int] = field(
-        default=None,
-        metadata={"help": "The number of processes to use for the preprocessing."},
+        default=None, metadata={"help": "The number of processes to use for the preprocessing."},
     )
     max_seq_length: int = field(
         default=384,
@@ -331,11 +330,7 @@ def main():
             data_files["test"] = data_args.test_file
             extension = data_args.test_file.split(".")[-1]
         raw_datasets = load_dataset(
-            extension,
-            data_files=data_files,
-            field="data",
-            cache_dir=model_args.cache_dir,
-            token=model_args.token,
+            extension, data_files=data_files, field="data", cache_dir=model_args.cache_dir, token=model_args.token,
         )
     # See more about loading any type of standard or custom dataset (from files, python dict, pandas DataFrame, etc) at
     # https://huggingface.co/docs/datasets/loading_datasets.html.

@@ -266,21 +266,13 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
         self.assertIn("last_hidden_state", neuron_outputs_dyn)
         self.assertIsInstance(neuron_outputs_dyn.last_hidden_state, torch.Tensor)
         self.assertTrue(
-            torch.allclose(
-                neuron_outputs_dyn.last_hidden_state,
-                transformers_outputs.last_hidden_state,
-                atol=atol,
-            )
+            torch.allclose(neuron_outputs_dyn.last_hidden_state, transformers_outputs.last_hidden_state, atol=atol,)
         )
 
         if "pooler_output" in neuron_outputs_dyn:
             self.assertIsInstance(neuron_outputs_dyn.pooler_output, torch.Tensor)
             self.assertTrue(
-                torch.allclose(
-                    neuron_outputs_dyn.pooler_output,
-                    transformers_outputs.pooler_output,
-                    atol=atol,
-                )
+                torch.allclose(neuron_outputs_dyn.pooler_output, transformers_outputs.pooler_output, atol=atol,)
             )
 
         gc.collect()
@@ -321,20 +313,14 @@ class NeuronModelForFeatureExtractionIntegrationTest(NeuronModelTestMixin):
         self.assertIsInstance(neuron_outputs_non_dyn.last_hidden_state, torch.Tensor)
         self.assertTrue(
             torch.allclose(
-                neuron_outputs_non_dyn.last_hidden_state,
-                transformers_outputs.last_hidden_state,
-                atol=atol,
+                neuron_outputs_non_dyn.last_hidden_state, transformers_outputs.last_hidden_state, atol=atol,
             )
         )
 
         if "pooler_output" in neuron_outputs_non_dyn:
             self.assertIsInstance(neuron_outputs_non_dyn.pooler_output, torch.Tensor)
             self.assertTrue(
-                torch.allclose(
-                    neuron_outputs_non_dyn.pooler_output,
-                    transformers_outputs.pooler_output,
-                    atol=atol,
-                )
+                torch.allclose(neuron_outputs_non_dyn.pooler_output, transformers_outputs.pooler_output, atol=atol,)
             )
 
         gc.collect()
@@ -399,9 +385,7 @@ class NeuronModelForSentenceTransformersIntegrationTest(NeuronModelTestMixin):
         self.assertIsInstance(neuron_outputs_dyn.token_embeddings, torch.Tensor)
         self.assertTrue(
             torch.allclose(
-                neuron_outputs_dyn.token_embeddings,
-                sentence_transformers_outputs.token_embeddings,
-                atol=atol,
+                neuron_outputs_dyn.token_embeddings, sentence_transformers_outputs.token_embeddings, atol=atol,
             )
         )
 
@@ -410,9 +394,7 @@ class NeuronModelForSentenceTransformersIntegrationTest(NeuronModelTestMixin):
         self.assertIsInstance(neuron_outputs_dyn.sentence_embedding, torch.Tensor)
         self.assertTrue(
             torch.allclose(
-                neuron_outputs_dyn.sentence_embedding,
-                sentence_transformers_outputs.sentence_embedding,
-                atol=atol,
+                neuron_outputs_dyn.sentence_embedding, sentence_transformers_outputs.sentence_embedding, atol=atol,
             )
         )
 
@@ -552,13 +534,7 @@ class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
         neuron_outputs_dyn = neuron_model_dyn(**tokens)
         self.assertIn("logits", neuron_outputs_dyn)
         self.assertIsInstance(neuron_outputs_dyn.logits, torch.Tensor)
-        self.assertTrue(
-            torch.allclose(
-                neuron_outputs_dyn.logits,
-                transformers_outputs.logits,
-                atol=atol,
-            )
-        )
+        self.assertTrue(torch.allclose(neuron_outputs_dyn.logits, transformers_outputs.logits, atol=atol,))
 
         gc.collect()
 
@@ -596,13 +572,7 @@ class NeuronModelForMaskedLMIntegrationTest(NeuronModelTestMixin):
         neuron_outputs_non_dyn = neuron_model_non_dyn(**tokens)
         self.assertIn("logits", neuron_outputs_non_dyn)
         self.assertIsInstance(neuron_outputs_non_dyn.logits, torch.Tensor)
-        self.assertTrue(
-            torch.allclose(
-                neuron_outputs_non_dyn.logits,
-                transformers_outputs.logits,
-                atol=atol,
-            )
-        )
+        self.assertTrue(torch.allclose(neuron_outputs_non_dyn.logits, transformers_outputs.logits, atol=atol,))
 
         gc.collect()
 
@@ -737,17 +707,11 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
         # Compare tensor outputs
         self.assertTrue(
             torch.allclose(
-                torch.Tensor(neuron_outputs_dyn.start_logits),
-                transformers_outputs.start_logits,
-                atol=atol,
+                torch.Tensor(neuron_outputs_dyn.start_logits), transformers_outputs.start_logits, atol=atol,
             )
         )
         self.assertTrue(
-            torch.allclose(
-                torch.Tensor(neuron_outputs_dyn.end_logits),
-                transformers_outputs.end_logits,
-                atol=atol,
-            )
+            torch.allclose(torch.Tensor(neuron_outputs_dyn.end_logits), transformers_outputs.end_logits, atol=atol,)
         )
 
         gc.collect()
@@ -792,16 +756,12 @@ class NeuronModelForQuestionAnsweringIntegrationTest(NeuronModelTestMixin):
         # Compare tensor outputs
         self.assertTrue(
             torch.allclose(
-                torch.Tensor(neuron_outputs_non_dyn.start_logits),
-                transformers_outputs.start_logits,
-                atol=atol,
+                torch.Tensor(neuron_outputs_non_dyn.start_logits), transformers_outputs.start_logits, atol=atol,
             )
         )
         self.assertTrue(
             torch.allclose(
-                torch.Tensor(neuron_outputs_non_dyn.end_logits),
-                transformers_outputs.end_logits,
-                atol=atol,
+                torch.Tensor(neuron_outputs_non_dyn.end_logits), transformers_outputs.end_logits, atol=atol,
             )
         )
 
@@ -937,13 +897,7 @@ class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
         neuron_outputs_dyn = neuron_model_dyn(**tokens)
         self.assertIn("logits", neuron_outputs_dyn)
         self.assertIsInstance(neuron_outputs_dyn.logits, torch.Tensor)
-        self.assertTrue(
-            torch.allclose(
-                neuron_outputs_dyn.logits,
-                transformers_outputs.logits,
-                atol=atol,
-            )
-        )
+        self.assertTrue(torch.allclose(neuron_outputs_dyn.logits, transformers_outputs.logits, atol=atol,))
 
         gc.collect()
 
@@ -983,11 +937,7 @@ class NeuronModelForSequenceClassificationIntegrationTest(NeuronModelTestMixin):
         self.assertIsInstance(neuron_outputs_non_dyn.logits, torch.Tensor)
 
         # TODO: Fix flaky, works locally but fail only for BERT in the CI
-        result_close = torch.allclose(
-            neuron_outputs_non_dyn.logits,
-            transformers_outputs.logits,
-            atol=atol,
-        )
+        result_close = torch.allclose(neuron_outputs_non_dyn.logits, transformers_outputs.logits, atol=atol,)
         if not result_close:
             warnings.warn(
                 f"Inference results between pytorch model and neuron model of {model_arch} not close enough."
@@ -1123,13 +1073,7 @@ class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
         neuron_outputs_dyn = neuron_model_dyn(**tokens)
         self.assertIn("logits", neuron_outputs_dyn)
         self.assertIsInstance(neuron_outputs_dyn.logits, torch.Tensor)
-        self.assertTrue(
-            torch.allclose(
-                neuron_outputs_dyn.logits,
-                transformers_outputs.logits,
-                atol=atol,
-            )
-        )
+        self.assertTrue(torch.allclose(neuron_outputs_dyn.logits, transformers_outputs.logits, atol=atol,))
 
         gc.collect()
 
@@ -1167,13 +1111,7 @@ class NeuronModelForTokenClassificationIntegrationTest(NeuronModelTestMixin):
         neuron_outputs_non_dyn = neuron_model_non_dyn(**tokens)
         self.assertIn("logits", neuron_outputs_non_dyn)
         self.assertIsInstance(neuron_outputs_non_dyn.logits, torch.Tensor)
-        self.assertTrue(
-            torch.allclose(
-                neuron_outputs_non_dyn.logits,
-                transformers_outputs.logits,
-                atol=atol,
-            )
-        )
+        self.assertTrue(torch.allclose(neuron_outputs_non_dyn.logits, transformers_outputs.logits, atol=atol,))
 
         gc.collect()
 
@@ -1303,13 +1241,7 @@ class NeuronModelForMultipleChoiceIntegrationTest(NeuronModelTestMixin):
         neuron_outputs_dyn = neuron_model_dyn(**pt_inputs)
         self.assertIn("logits", neuron_outputs_dyn)
         self.assertIsInstance(neuron_outputs_dyn.logits, torch.Tensor)
-        self.assertTrue(
-            torch.allclose(
-                neuron_outputs_dyn.logits,
-                transformers_outputs.logits,
-                atol=atol,
-            )
-        )
+        self.assertTrue(torch.allclose(neuron_outputs_dyn.logits, transformers_outputs.logits, atol=atol,))
 
         gc.collect()
 
@@ -1356,13 +1288,7 @@ class NeuronModelForMultipleChoiceIntegrationTest(NeuronModelTestMixin):
         neuron_outputs_non_dyn = neuron_model_non_dyn(**pt_inputs)
         self.assertIn("logits", neuron_outputs_non_dyn)
         self.assertIsInstance(neuron_outputs_non_dyn.logits, torch.Tensor)
-        self.assertTrue(
-            torch.allclose(
-                neuron_outputs_non_dyn.logits,
-                transformers_outputs.logits,
-                atol=atol,
-            )
-        )
+        self.assertTrue(torch.allclose(neuron_outputs_non_dyn.logits, transformers_outputs.logits, atol=atol,))
 
         gc.collect()
 
@@ -1428,11 +1354,7 @@ class NeuronModelForImageClassificationIntegrationTest(NeuronModelTestMixin):
         neuron_outputs = neuron_model(**inputs)
         self.assertIn("logits", neuron_outputs)
         self.assertIsInstance(neuron_outputs.logits, torch.Tensor)
-        result_close = torch.allclose(
-            neuron_outputs.logits,
-            transformers_outputs.logits,
-            atol=atol,
-        )
+        result_close = torch.allclose(neuron_outputs.logits, transformers_outputs.logits, atol=atol,)
         if not result_close:
             warnings.warn(
                 f"Inference results between pytorch model and neuron model of {model_arch} not close enough."
@@ -1550,11 +1472,7 @@ class NeuronModelForSemanticSegmentationIntegrationTest(NeuronModelTestMixin):
         neuron_outputs = neuron_model(**inputs)
         self.assertIn("logits", neuron_outputs)
         self.assertIsInstance(neuron_outputs.logits, torch.Tensor)
-        result_close = torch.allclose(
-            neuron_outputs.logits,
-            transformers_outputs.logits,
-            atol=atol,
-        )
+        result_close = torch.allclose(neuron_outputs.logits, transformers_outputs.logits, atol=atol,)
         if not result_close:
             warnings.warn(
                 f"Inference results between pytorch model and neuron model of {model_arch} not close enough."
@@ -1670,11 +1588,7 @@ class NeuronModelForObjectDetectionIntegrationTest(NeuronModelTestMixin):
         self.assertIn("logits", neuron_outputs)
         self.assertIn("pred_boxes", neuron_outputs)
         self.assertIsInstance(neuron_outputs.logits, torch.Tensor)
-        result_close = torch.allclose(
-            neuron_outputs.logits,
-            transformers_outputs.logits,
-            atol=atol,
-        )
+        result_close = torch.allclose(neuron_outputs.logits, transformers_outputs.logits, atol=atol,)
         if not result_close:
             warnings.warn(
                 f"Inference results between pytorch model and neuron model of {model_arch} not close enough."

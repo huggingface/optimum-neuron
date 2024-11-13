@@ -93,9 +93,7 @@ def validate_arg(
 
 
 def convert_neuronx_compiler_args_to_neuron(
-    auto_cast: Optional[str],
-    auto_cast_type: str,
-    disable_fast_relayout: bool,
+    auto_cast: Optional[str], auto_cast_type: str, disable_fast_relayout: bool,
 ):
     """
     Builds `compiler_args` for neuron compiler.

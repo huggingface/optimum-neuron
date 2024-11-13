@@ -46,9 +46,7 @@ from transformers.models.auto.modeling_auto import (
 import optimum
 from optimum.neuron.distributed.parallelizers_manager import ParallelizersManager
 from optimum.neuron.distributed.utils import compute_query_indices_for_rank, lazy_load_for_parallelism
-from optimum.neuron.utils.cache_utils import (
-    get_num_neuron_cores,
-)
+from optimum.neuron.utils.cache_utils import get_num_neuron_cores
 from optimum.neuron.utils.import_utils import (
     is_neuronx_available,
     is_neuronx_distributed_available,
@@ -91,8 +89,7 @@ CLASSES_TO_IGNORE = [
 
 
 def _generate_supported_model_classes(
-    model_type: str,
-    supported_tasks: Optional[Union[str, List[str]]] = None,
+    model_type: str, supported_tasks: Optional[Union[str, List[str]]] = None,
 ) -> List[Type["PreTrainedModel"]]:
     task_mapping = {
         # TODO: enable that when base models are supported.
@@ -137,28 +134,15 @@ MODEL_TYPES_TO_TEST = [
     # Since the update they seem to not match, that's ok since it is not needed anyways.
     # ("bert", "hf-internal-testing/tiny-random-bert", {"num_hidden_layers": "2"}),
     ("roberta", "hf-internal-testing/tiny-random-roberta", {"num_hidden_layers": "2"}),
-    (
-        "gpt_neo",
-        "hf-internal-testing/tiny-random-GPTNeoModel",
-        {
-            "num_layers": "2",
-        },
-    ),
+    ("gpt_neo", "hf-internal-testing/tiny-random-GPTNeoModel", {"num_layers": "2",},),
     # TODO: re-enable that. No super urgent, do not want it to be a blocker.
     # (
     #     "gpt_neox",
     #     "michaelbenayoun/gpt-neox-tiny-4layers-random",
     #     {"num_hidden_layers": "2"},
     # ),
-    (
-        "llama",
-        "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random",
-    ),
-    (
-        "t5",
-        "hf-internal-testing/tiny-random-T5Model",
-        {"d_ff": "36", "num_layers": "2", "num_decoder_layers": "2"},
-    ),
+    ("llama", "michaelbenayoun/llama-2-tiny-4kv-heads-4layers-random",),
+    ("t5", "hf-internal-testing/tiny-random-T5Model", {"d_ff": "36", "num_layers": "2", "num_decoder_layers": "2"},),
     ("mistral", "michaelbenayoun/mistral-tiny-4layers-8kv-heads-random"),
 ]
 
@@ -400,10 +384,7 @@ class TestModelParallelization(DistributedTest):
                 self._check_output(output_name, outputs[0], outputs[1])
 
     def test_parallel_model_matches_original_model_from_pretrained_with_parallel_embeddings_and_sequence_parallel(
-        self,
-        model_specs,
-        parallel_sizes,
-        monkeypatch,
+        self, model_specs, parallel_sizes, monkeypatch,
     ):
         _, model_class, model_name_or_path, config_overwrite = model_specs
 
@@ -418,10 +399,7 @@ class TestModelParallelization(DistributedTest):
 
     @pytest.mark.skip("Model parallelism from config is not fully supported yet.")
     def test_parallel_model_matches_original_model_from_config(
-        self,
-        model_specs,
-        parallel_sizes,
-        monkeypatch,
+        self, model_specs, parallel_sizes, monkeypatch,
     ):
         _, model_class, model_name_or_path, config_overwrite = model_specs
         monkeypatch.setattr(
@@ -549,10 +527,7 @@ class TestModelParallelization(DistributedTest):
             tokenizer = AutoTokenizer.from_pretrained(LLAMA_V2_MODEL_NAME)
             tokenizer.save_pretrained(model_name_or_path)
             model = get_model(
-                LlamaForCausalLM,
-                LLAMA_V2_MODEL_NAME,
-                from_config=True,
-                config_overwrite=config_overwrite,
+                LlamaForCausalLM, LLAMA_V2_MODEL_NAME, from_config=True, config_overwrite=config_overwrite,
             )
             model.save_pretrained(model_name_or_path)
         xm.rendezvous("Model creation done.")
@@ -596,12 +571,7 @@ class TestModelParallelization(DistributedTest):
         with static_seed_patcher:
             model.resize_token_embeddings(new_vocab_size)
 
-        accelerator = create_accelerator(
-            tp_size,
-            1,
-            parallelize_embeddings=True,
-            sequence_parallel_enabled=True,
-        )
+        accelerator = create_accelerator(tp_size, 1, parallelize_embeddings=True, sequence_parallel_enabled=True,)
         with static_seed_patcher:
             model = accelerator.prepare_model(model)
 

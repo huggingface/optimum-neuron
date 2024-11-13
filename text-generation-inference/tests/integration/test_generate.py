@@ -69,12 +69,7 @@ async def test_model_single_request(tgi_service):
 @pytest.mark.asyncio
 async def test_model_multiple_requests(tgi_service, generate_load):
     num_requests = 4
-    responses = await generate_load(
-        tgi_service.client,
-        "What is Deep Learning?",
-        max_new_tokens=17,
-        n=num_requests,
-    )
+    responses = await generate_load(tgi_service.client, "What is Deep Learning?", max_new_tokens=17, n=num_requests,)
 
     assert len(responses) == 4
     expectations = {

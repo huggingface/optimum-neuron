@@ -123,8 +123,7 @@ class DataTrainingArguments:
         default=False, metadata={"help": "Overwrite the cached training and evaluation sets"}
     )
     preprocessing_num_workers: Optional[int] = field(
-        default=None,
-        metadata={"help": "The number of processes to use for the preprocessing."},
+        default=None, metadata={"help": "The number of processes to use for the preprocessing."},
     )
     max_seq_length: Optional[int] = field(
         default=None,
@@ -316,19 +315,11 @@ def main():
             data_files["validation"] = data_args.validation_file
         extension = data_args.train_file.split(".")[-1]
         raw_datasets = load_dataset(
-            extension,
-            data_files=data_files,
-            cache_dir=model_args.cache_dir,
-            token=model_args.token,
+            extension, data_files=data_files, cache_dir=model_args.cache_dir, token=model_args.token,
         )
     else:
         # Downloading and loading the swag dataset from the hub.
-        raw_datasets = load_dataset(
-            "swag",
-            "regular",
-            cache_dir=model_args.cache_dir,
-            token=model_args.token,
-        )
+        raw_datasets = load_dataset("swag", "regular", cache_dir=model_args.cache_dir, token=model_args.token,)
     # See more about loading any type of standard or custom dataset (from files, python dict, pandas DataFrame, etc) at
     # https://huggingface.co/docs/datasets/loading_datasets.html.
 

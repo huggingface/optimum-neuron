@@ -187,8 +187,7 @@ class DataTrainingArguments:
         },
     )
     preprocessing_num_workers: Optional[int] = field(
-        default=None,
-        metadata={"help": "The number of processes to use for the preprocessing."},
+        default=None, metadata={"help": "The number of processes to use for the preprocessing."},
     )
     mlm_probability: float = field(
         default=0.15, metadata={"help": "Ratio of tokens to mask for masked language modeling loss"}
@@ -359,10 +358,7 @@ def main():
         if extension == "txt":
             extension = "text"
         raw_datasets = load_dataset(
-            extension,
-            data_files=data_files,
-            cache_dir=model_args.cache_dir,
-            token=model_args.token,
+            extension, data_files=data_files, cache_dir=model_args.cache_dir, token=model_args.token,
         )
 
         # If no validation data is there, validation_split_percentage will be used to divide the dataset.
@@ -511,9 +507,7 @@ def main():
                 )
             else:
                 tokenized_datasets = raw_datasets.map(
-                    tokenize_function,
-                    batched=True,
-                    remove_columns=[text_column_name],
+                    tokenize_function, batched=True, remove_columns=[text_column_name],
                 )
     else:
         # Otherwise, we tokenize every text, then concatenate them together before splitting them in smaller parts.
@@ -533,11 +527,7 @@ def main():
                     desc="Running tokenizer on every text in dataset",
                 )
             else:
-                tokenized_datasets = raw_datasets.map(
-                    tokenize_function,
-                    batched=True,
-                    remove_columns=column_names,
-                )
+                tokenized_datasets = raw_datasets.map(tokenize_function, batched=True, remove_columns=column_names,)
 
         # Main data processing function that will concatenate all texts from our dataset and generate chunks of
         # max_seq_length.
@@ -572,10 +562,7 @@ def main():
                     desc=f"Grouping texts in chunks of {max_seq_length}",
                 )
             else:
-                tokenized_datasets = tokenized_datasets.map(
-                    group_texts,
-                    batched=True,
-                )
+                tokenized_datasets = tokenized_datasets.map(group_texts, batched=True,)
 
     if training_args.do_train:
         if "train" not in tokenized_datasets:

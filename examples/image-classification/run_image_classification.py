@@ -266,10 +266,7 @@ def main():
         if data_args.validation_dir is not None:
             data_files["validation"] = os.path.join(data_args.validation_dir, "**")
         dataset = load_dataset(
-            "imagefolder",
-            data_files=data_files,
-            cache_dir=model_args.cache_dir,
-            task="image-classification",
+            "imagefolder", data_files=data_files, cache_dir=model_args.cache_dir, task="image-classification",
         )
 
     # If we don't have a validation split, split off a percentage of train as validation.
@@ -340,22 +337,8 @@ def main():
         if hasattr(image_processor, "image_mean") and hasattr(image_processor, "image_std")
         else Lambda(lambda x: x)
     )
-    _train_transforms = Compose(
-        [
-            RandomResizedCrop(size),
-            RandomHorizontalFlip(),
-            ToTensor(),
-            normalize,
-        ]
-    )
-    _val_transforms = Compose(
-        [
-            Resize(size),
-            CenterCrop(size),
-            ToTensor(),
-            normalize,
-        ]
-    )
+    _train_transforms = Compose([RandomResizedCrop(size), RandomHorizontalFlip(), ToTensor(), normalize,])
+    _val_transforms = Compose([Resize(size), CenterCrop(size), ToTensor(), normalize,])
 
     def train_transforms(example_batch):
         """Apply _train_transforms across a batch."""

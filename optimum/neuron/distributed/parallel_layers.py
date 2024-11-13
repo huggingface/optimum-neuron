@@ -59,9 +59,7 @@ class ParallelLayer(ABC):
 
     @classmethod
     def _get_module_and_attribute_name(
-        cls,
-        module: "torch.nn.Module",
-        fully_qualified_name: str,
+        cls, module: "torch.nn.Module", fully_qualified_name: str,
     ) -> Tuple["torch.nn.Module", str]:
         split = fully_qualified_name.rsplit(".", maxsplit=1)
         if len(split) == 1:
@@ -223,10 +221,7 @@ class ParallelEmbedding(ParallelLayer):
                 embedding_weight_name = f"{embedding_name}.weight"
             if embedding_name in weight_map:
                 embedding_weight_info = WeightInformation(
-                    weight_map[embedding_weight_name],
-                    embedding_weight_name,
-                    weight_map=weight_map,
-                    device=device,
+                    weight_map[embedding_weight_name], embedding_weight_name, weight_map=weight_map, device=device,
                 )
             if model_has_lm_head:
                 if layer_qualified_name:
@@ -514,10 +509,7 @@ class ParallelSelfAttention(ParallelLayer):
         else:
             for name in [cls.QUERIES_NAME, cls.KEYS_NAME, cls.VALUES_NAME]:
                 linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
-                    weight_map,
-                    f"{layer_qualified_name}.{name}",
-                    device=device,
-                    fail_if_not_found=False,
+                    weight_map, f"{layer_qualified_name}.{name}", device=device, fail_if_not_found=False,
                 )
                 parallel_linear = linear_to_parallel_linear(
                     getattr(layer, name),
@@ -568,9 +560,7 @@ class ParallelSelfAttention(ParallelLayer):
             setattr(layer, cls.OUTPUT_PROJECTION_NAME, parallel_output_proj)
 
         setattr(
-            layer,
-            num_attention_heads_name,
-            num_attention_heads // tp_size,
+            layer, num_attention_heads_name, num_attention_heads // tp_size,
         )
 
         if cls.NUM_KEY_VALUE_HEADS_NAME is not None:
@@ -580,9 +570,7 @@ class ParallelSelfAttention(ParallelLayer):
             # number of query heads and the number of kv heads.
             if not needs_gqa_qkv_column_parallel_linear:
                 setattr(
-                    layer,
-                    cls.NUM_KEY_VALUE_HEADS_NAME,
-                    num_key_value_heads // tp_size,
+                    layer, cls.NUM_KEY_VALUE_HEADS_NAME, num_key_value_heads // tp_size,
                 )
             # This happens when Grouped Query Attention (or Multi Query Attention) is used and the number of kv heads is
             # smaller than the TP size.
@@ -592,9 +580,7 @@ class ParallelSelfAttention(ParallelLayer):
                 gqa_qkv_proj = getattr(layer, cls.GQA_QKV_PROJ_NAME)
                 new_num_key_value_heads = (num_key_value_heads * gqa_qkv_proj.kv_size_multiplier) // tp_size
                 setattr(
-                    layer,
-                    cls.NUM_KEY_VALUE_HEADS_NAME,
-                    new_num_key_value_heads,
+                    layer, cls.NUM_KEY_VALUE_HEADS_NAME, new_num_key_value_heads,
                 )
                 setattr(
                     layer,
@@ -603,9 +589,7 @@ class ParallelSelfAttention(ParallelLayer):
                 )
 
         setattr(
-            layer,
-            all_head_size_name,
-            getattr(layer, all_head_size_name) // tp_size,
+            layer, all_head_size_name, getattr(layer, all_head_size_name) // tp_size,
         )
         return layer
 
@@ -682,9 +666,7 @@ class ParallelSelfAttentionWithFusedQKV(ParallelLayer):
         linear_layer_weight_info, linear_layer_bias_weight_info = None, None
         if weight_map is not None:
             linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
-                weight_map,
-                f"{layer_qualified_name}.{cls.QUERY_KEY_VALUE_NAME}",
-                device=device,
+                weight_map, f"{layer_qualified_name}.{cls.QUERY_KEY_VALUE_NAME}", device=device,
             )
 
         parallel_linear = linear_to_parallel_linear(
@@ -705,9 +687,7 @@ class ParallelSelfAttentionWithFusedQKV(ParallelLayer):
             linear_layer_weight_info, linear_layer_bias_weight_info = None, None
             if weight_map is not None:
                 linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
-                    weight_map,
-                    f"{layer_qualified_name}.{cls.OUTPUT_PROJECTION_NAME}",
-                    device=device,
+                    weight_map, f"{layer_qualified_name}.{cls.OUTPUT_PROJECTION_NAME}", device=device,
                 )
             setattr(
                 layer,
@@ -725,14 +705,10 @@ class ParallelSelfAttentionWithFusedQKV(ParallelLayer):
             )
 
         setattr(
-            layer,
-            num_attention_heads_name,
-            num_attention_heads // tp_size,
+            layer, num_attention_heads_name, num_attention_heads // tp_size,
         )
         setattr(
-            layer,
-            all_head_size_name,
-            getattr(layer, all_head_size_name) // tp_size,
+            layer, all_head_size_name, getattr(layer, all_head_size_name) // tp_size,
         )
         return layer
 
@@ -767,9 +743,7 @@ class ParallelSelfOutput(ParallelLayer):
             layer_to_fully_qualified_name = {id(module): name for name, module in model.named_modules()}
             layer_qualified_name = layer_to_fully_qualified_name[id(layer)]
             linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
-                weight_map,
-                f"{layer_qualified_name}.{cls.OUTPUT_PROJECTION_NAME}",
-                device=device,
+                weight_map, f"{layer_qualified_name}.{cls.OUTPUT_PROJECTION_NAME}", device=device,
             )
 
         setattr(
@@ -823,9 +797,7 @@ class ParallelMLP(ParallelLayer):
         if weight_map is not None:
             layer_qualified_name = layer_to_fully_qualified_name[id(module)]
             linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
-                weight_map,
-                f"{layer_qualified_name}.{attribute_name}",
-                device=device,
+                weight_map, f"{layer_qualified_name}.{attribute_name}", device=device,
             )
 
         setattr(
@@ -848,9 +820,7 @@ class ParallelMLP(ParallelLayer):
         if weight_map is not None:
             layer_qualified_name = layer_to_fully_qualified_name[id(module)]
             linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
-                weight_map,
-                f"{layer_qualified_name}.{attribute_name}",
-                device=device,
+                weight_map, f"{layer_qualified_name}.{attribute_name}", device=device,
             )
 
         setattr(
@@ -1015,9 +985,7 @@ class ParallelCrossEntropy(ParallelLayer):
             linear_projection_qualified_name = layer_to_fully_qualified_name[id(linear_projection)]
             try:
                 linear_projection_weight_info, linear_projection_bias_weight_info = get_linear_weight_info(
-                    weight_map,
-                    linear_projection_qualified_name,
-                    device=device,
+                    weight_map, linear_projection_qualified_name, device=device,
                 )
             except ValueError:
                 # It means there are no weight available for the linear, but no need to fail here.

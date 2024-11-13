@@ -186,8 +186,7 @@ class _TrainerForNeuron:
         # We need to change which process can be seen as "world process zero" to make sure the proper metrics
         # (eg.g loss) are logged and sent to the callbacks (for instance WandbCallback).
         self.state = TrainerState(
-            is_local_process_zero=self.is_local_process_zero(),
-            is_world_process_zero=is_main_worker_for_metrics(),
+            is_local_process_zero=self.is_local_process_zero(), is_world_process_zero=is_main_worker_for_metrics(),
         )
 
         if self.args.local_rank <= 0:
@@ -406,8 +405,7 @@ class _TrainerForNeuron:
         arguments, depending on the situation.
         """
         autocast_handler = AutocastKwargs(
-            enabled=self.accelerator.autocast_handler.enabled,
-            cache_enabled=cache_enabled,
+            enabled=self.accelerator.autocast_handler.enabled, cache_enabled=cache_enabled,
         )
         return self.accelerator.autocast(autocast_handler=autocast_handler)
 
@@ -1078,18 +1076,13 @@ class _TrainerForNeuron:
                         elif self.use_apex:
                             # Revert to normal clipping otherwise, handling Apex or full precision
                             torch.nn.utils.clip_grad_norm_(
-                                amp.master_params(self.optimizer),
-                                args.max_grad_norm,
+                                amp.master_params(self.optimizer), args.max_grad_norm,
                             )
                             _grad_norm = torch.nn.utils.clip_grad_norm_(
-                                amp.master_params(self.optimizer),
-                                args.max_grad_norm,
+                                amp.master_params(self.optimizer), args.max_grad_norm,
                             )
                         else:
-                            _grad_norm = self.accelerator.clip_grad_norm_(
-                                model.parameters(),
-                                args.max_grad_norm,
-                            )
+                            _grad_norm = self.accelerator.clip_grad_norm_(model.parameters(), args.max_grad_norm,)
                         grad_norm = _grad_norm
 
                     # Optimizer step

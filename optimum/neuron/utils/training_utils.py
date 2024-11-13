@@ -58,8 +58,7 @@ if TYPE_CHECKING:
 
 
 def _generate_supported_model_class_names(
-    model_type: str,
-    supported_tasks: Optional[Union[str, List[str]]] = None,
+    model_type: str, supported_tasks: Optional[Union[str, List[str]]] = None,
 ) -> List[str]:
     task_mapping = {
         "default": MODEL_MAPPING_NAMES,

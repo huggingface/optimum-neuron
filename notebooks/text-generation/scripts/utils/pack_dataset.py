@@ -34,9 +34,6 @@ def pack_dataset(dataset, chunk_length=2048):
         return result
 
     # tokenize and chunk dataset
-    lm_dataset = dataset.map(
-        partial(chunk, chunk_length=chunk_length),
-        batched=True,
-    )
+    lm_dataset = dataset.map(partial(chunk, chunk_length=chunk_length), batched=True,)
     print(f"Total number of samples: {len(lm_dataset)}")
     return lm_dataset

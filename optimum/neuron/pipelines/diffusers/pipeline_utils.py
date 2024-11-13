@@ -177,11 +177,7 @@ class StableDiffusionPipelineMixin(DiffusionBasePipelineMixin):
 
             max_length = prompt_embeds.shape[1]
             uncond_input = self.tokenizer(
-                uncond_tokens,
-                padding="max_length",
-                max_length=max_length,
-                truncation=True,
-                return_tensors="pt",
+                uncond_tokens, padding="max_length", max_length=max_length, truncation=True, return_tensors="pt",
             )
 
             negative_prompt_embeds = self.text_encoder(uncond_input.input_ids)
@@ -372,11 +368,7 @@ class StableDiffusionXLPipelineMixin(DiffusionBasePipelineMixin):
 
                 max_length = prompt_embeds.shape[1]
                 uncond_input = tokenizer(
-                    negative_prompt,
-                    padding="max_length",
-                    max_length=max_length,
-                    truncation=True,
-                    return_tensors="pt",
+                    negative_prompt, padding="max_length", max_length=max_length, truncation=True, return_tensors="pt",
                 )
                 negative_prompt_embeds = text_encoder(input_ids=uncond_input.input_ids)
                 # We are only ALWAYS interested in the pooled output of the final text encoder

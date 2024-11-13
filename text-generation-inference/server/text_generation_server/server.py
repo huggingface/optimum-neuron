@@ -50,9 +50,7 @@ class TextGenerationService(generate_pb2_grpc.TextGenerationServiceServicer):
 
 
 def serve(
-    model_id: str,
-    revision: str,
-    uds_path: Path,
+    model_id: str, revision: str, uds_path: Path,
 ):
     async def serve_inner(model_id: str, revision: str):
         unix_socket_template = "unix://{}-{}"

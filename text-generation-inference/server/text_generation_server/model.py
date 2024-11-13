@@ -55,16 +55,13 @@ def log_cache_size():
     path = HF_HUB_CACHE
     if os.path.exists(path):
         usage = shutil.disk_usage(path)
-        gb = 2**30
+        gb = 2 ** 30
         logger.info(f"Cache disk [{path}]: total = {usage.total/gb:.2f} G, free = {usage.free/gb:.2f} G")
     else:
         raise ValueError(f"The cache directory ({path}) does not exist.")
 
 
-def fetch_model(
-    model_id: str,
-    revision: Optional[str] = None,
-) -> str:
+def fetch_model(model_id: str, revision: Optional[str] = None,) -> str:
     """Fetch a neuron model.
 
     Args:

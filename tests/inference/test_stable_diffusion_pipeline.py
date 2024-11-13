@@ -71,11 +71,7 @@ class NeuronStableDiffusionPipelineIntegrationTest(unittest.TestCase):
         input_shapes = copy.deepcopy(self.STATIC_INPUTS_SHAPES)
         input_shapes.update({"num_images_per_prompt": num_images_per_prompt})
         neuron_pipeline = self.NEURON_MODEL_CLASS.from_pretrained(
-            MODEL_NAMES[model_arch],
-            export=True,
-            dynamic_batch_size=False,
-            **input_shapes,
-            **self.COMPILER_ARGS,
+            MODEL_NAMES[model_arch], export=True, dynamic_batch_size=False, **input_shapes, **self.COMPILER_ARGS,
         )
         self.assertIsInstance(neuron_pipeline.text_encoder, NeuronModelTextEncoder)
         self.assertIsInstance(neuron_pipeline.unet, NeuronModelUnet)
@@ -234,11 +230,7 @@ class NeuronStableDiffusionPipelineIntegrationTest(unittest.TestCase):
         input_shapes.update({"num_images_per_prompt": 1})
         controlnet_id = "hf-internal-testing/tiny-controlnet"
         neuron_pipeline = NeuronStableDiffusionControlNetPipeline.from_pretrained(
-            MODEL_NAMES[model_arch],
-            controlnet_ids=controlnet_id,
-            export=True,
-            **input_shapes,
-            **self.COMPILER_ARGS,
+            MODEL_NAMES[model_arch], controlnet_ids=controlnet_id, export=True, **input_shapes, **self.COMPILER_ARGS,
         )
         self.assertIsInstance(neuron_pipeline.text_encoder, NeuronModelTextEncoder)
         self.assertIsInstance(neuron_pipeline.unet, NeuronModelUnet)
@@ -296,11 +288,7 @@ class NeuronStableDiffusionXLPipelineIntegrationTest(unittest.TestCase):
         input_shapes = copy.deepcopy(self.STATIC_INPUTS_SHAPES)
         input_shapes.update({"num_images_per_prompt": num_images_per_prompt})
         neuron_pipeline = self.NEURON_MODEL_CLASS.from_pretrained(
-            MODEL_NAMES[model_arch],
-            export=True,
-            dynamic_batch_size=False,
-            **input_shapes,
-            **self.COMPILER_ARGS,
+            MODEL_NAMES[model_arch], export=True, dynamic_batch_size=False, **input_shapes, **self.COMPILER_ARGS,
         )
         self.assertIsInstance(neuron_pipeline.text_encoder, NeuronModelTextEncoder)
         self.assertIsInstance(neuron_pipeline.text_encoder_2, NeuronModelTextEncoder)

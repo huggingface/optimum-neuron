@@ -35,12 +35,8 @@ from .utils import MODEL_PARALLEL_SHARDS_DIR_NAME, ParameterMetadata, compute_qu
 
 
 if is_peft_available():
-    from peft.utils.constants import (
-        SAFETENSORS_WEIGHTS_NAME as PEFT_SAFETENSORS_WEIGHTS_NAME,
-    )
-    from peft.utils.constants import (
-        WEIGHTS_NAME as PEFT_WEIGHTS_NAME,
-    )
+    from peft.utils.constants import SAFETENSORS_WEIGHTS_NAME as PEFT_SAFETENSORS_WEIGHTS_NAME
+    from peft.utils.constants import WEIGHTS_NAME as PEFT_WEIGHTS_NAME
 else:
     PEFT_SAFETENSORS_WEIGHTS_NAME = PEFT_WEIGHTS_NAME = ""
 
@@ -151,11 +147,10 @@ def consolidate_tensor_parallel_checkpoints(
             weights = [state_dict[name].contiguous() for state_dict in state_dicts]
             tp_size = len(weights)
 
-            full_weight = torch.cat(
-                weights,
-                dim=sharded_metadata.partition_dim,
-            ).to("cpu").contiguous()  # Ensure the result is also contiguous
-            
+            full_weight = (
+                torch.cat(weights, dim=sharded_metadata.partition_dim,).to("cpu").contiguous()
+            )  # Ensure the result is also contiguous
+
             if weight_name in ["weight_k", "weight_v", "bias_k", "bias_v"]:
                 full_weight = (
                     torch.chunk(full_weight, gqa_qkv_metadata["kv_size_multiplier"], dim=0)[0].detach().clone()

@@ -55,11 +55,7 @@ def check_neuron_model(neuron_model, batch_size=None, sequence_length=None, num_
 
 @pytest.mark.parametrize(
     "batch_size, sequence_length, num_cores, auto_cast_type",
-    [
-        [1, 100, 2, "fp32"],
-        [1, 100, 2, "fp16"],
-        [2, 100, 2, "fp16"],
-    ],
+    [[1, 100, 2, "fp32"], [1, 100, 2, "fp16"], [2, 100, 2, "fp16"],],
 )
 @is_inferentia_test
 @requires_neuronx

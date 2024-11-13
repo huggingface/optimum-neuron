@@ -221,8 +221,7 @@ class DataTrainingArguments:
         },
     )
     preprocessing_num_workers: Optional[int] = field(
-        default=None,
-        metadata={"help": "The number of processes to use for the preprocessing."},
+        default=None, metadata={"help": "The number of processes to use for the preprocessing."},
     )
     keep_linebreaks: bool = field(
         default=True, metadata={"help": "Whether to keep line breaks when using TXT files or not."}
@@ -363,11 +362,7 @@ def main():
             extension = "text"
             dataset_args["keep_linebreaks"] = data_args.keep_linebreaks
         raw_datasets = load_dataset(
-            extension,
-            data_files=data_files,
-            cache_dir=model_args.cache_dir,
-            token=model_args.token,
-            **dataset_args,
+            extension, data_files=data_files, cache_dir=model_args.cache_dir, token=model_args.token, **dataset_args,
         )
         # If no validation data is there, validation_split_percentage will be used to divide the dataset.
         if "validation" not in raw_datasets.keys():
@@ -503,11 +498,7 @@ def main():
                 desc="Running tokenizer on dataset",
             )
         else:
-            tokenized_datasets = raw_datasets.map(
-                tokenize_function,
-                batched=True,
-                remove_columns=column_names,
-            )
+            tokenized_datasets = raw_datasets.map(tokenize_function, batched=True, remove_columns=column_names,)
 
     if data_args.block_size is None:
         block_size = tokenizer.model_max_length
@@ -558,10 +549,7 @@ def main():
                 desc=f"Grouping texts in chunks of {block_size}",
             )
         else:
-            lm_datasets = tokenized_datasets.map(
-                group_texts,
-                batched=True,
-            )
+            lm_datasets = tokenized_datasets.map(group_texts, batched=True,)
 
     if training_args.do_train:
         if "train" not in tokenized_datasets:

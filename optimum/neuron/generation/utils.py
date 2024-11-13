@@ -34,9 +34,7 @@ if is_torch_xla_available():
 from transformers import GenerationMixin
 from transformers.generation.beam_search import BeamScorer, BeamSearchScorer
 from transformers.generation.configuration_utils import GenerationConfig
-from transformers.generation.logits_process import (
-    LogitsProcessorList,
-)
+from transformers.generation.logits_process import LogitsProcessorList
 from transformers.generation.stopping_criteria import (
     MaxLengthCriteria,
     MaxTimeCriteria,
@@ -210,9 +208,7 @@ def _get_fwd_for_general_sampling(
             and outputs["logits"].shape[-1] != vocab_size
         ):
             outputs["logits"] = xm.all_gather(
-                outputs["logits"],
-                dim=-1,
-                groups=parallel_state.get_tensor_model_parallel_group(as_list=True),
+                outputs["logits"], dim=-1, groups=parallel_state.get_tensor_model_parallel_group(as_list=True),
             )
         xm.mark_step()
 
@@ -238,10 +234,7 @@ class GeneralNeuronGenerationMixin(GenerationMixin):
 
     @torch.no_grad()
     def generate(
-        self,
-        inputs: Optional[torch.Tensor] = None,
-        generation_config: Optional[GenerationConfig] = None,
-        **kwargs,
+        self, inputs: Optional[torch.Tensor] = None, generation_config: Optional[GenerationConfig] = None, **kwargs,
     ):
         # 1. Handle `generation_config` and kwargs that might update it, and validate the `.generate()` call
         self._validate_model_class()
@@ -296,11 +289,7 @@ class GeneralNeuronGenerationMixin(GenerationMixin):
         original_forward = copy.deepcopy(self.forward)
         try:
             general_forward = _get_fwd_for_general_sampling(
-                self.forward,
-                generation_config,
-                self.config.is_encoder_decoder,
-                self.config.vocab_size,
-                self.device,
+                self.forward, generation_config, self.config.is_encoder_decoder, self.config.vocab_size, self.device,
             )
             self.forward = general_forward
             if generation_config.use_cache:
@@ -357,11 +346,7 @@ class NeuronGenerationMixin(GenerationMixin):
 
     @staticmethod
     def _initialize_attention(
-        model_kwargs,
-        num_padding_values,
-        batch_size,
-        device,
-        is_encoder_decoder,
+        model_kwargs, num_padding_values, batch_size, device, is_encoder_decoder,
     ):
         """Initializes the appropriate attention mask -- encoder-decoder models use `decoder_attention_mask`"""
         if is_encoder_decoder:
@@ -763,9 +748,7 @@ class NeuronGenerationMixin(GenerationMixin):
             [
                 input_ids,
                 (
-                    torch.ones(
-                        (batch_size, (generation_config.max_length - input_ids_seq_length)),
-                    )
+                    torch.ones((batch_size, (generation_config.max_length - input_ids_seq_length)),)
                     .long()
                     .to(input_ids.device)
                 )

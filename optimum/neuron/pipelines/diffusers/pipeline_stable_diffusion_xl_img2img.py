@@ -389,13 +389,7 @@ class NeuronStableDiffusionXLImg2ImgPipelineMixin(StableDiffusionXLPipelineMixin
 
         # 6. Prepare latent variables
         latents = self.prepare_latents(
-            image,
-            latent_timestep,
-            batch_size,
-            num_images_per_prompt,
-            prompt_embeds.dtype,
-            generator,
-            add_noise,
+            image, latent_timestep, batch_size, num_images_per_prompt, prompt_embeds.dtype, generator, add_noise,
         )
 
         # 7. Prepare extra step kwargs.

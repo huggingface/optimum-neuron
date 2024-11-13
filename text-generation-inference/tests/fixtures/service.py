@@ -30,7 +30,6 @@ logger = logging.getLogger(__file__)
 
 
 class TestClient(AsyncInferenceClient):
-
     def __init__(self, service_name: str, base_url: str):
         super().__init__(model=base_url)
         self.service_name = service_name
@@ -104,9 +103,7 @@ def launcher(event_loop):
 
     @contextlib.contextmanager
     def docker_launcher(
-        service_name: str,
-        model_name_or_path: str,
-        trust_remote_code: bool = False,
+        service_name: str, model_name_or_path: str, trust_remote_code: bool = False,
     ):
         port = random.randint(8000, 10_000)
 
@@ -137,9 +134,7 @@ def launcher(event_loop):
 
             docker_tag = f"{container_name}-img"
             logger.info(
-                "Building image on the flight derivated from %s, tagged with %s",
-                DOCKER_IMAGE,
-                docker_tag,
+                "Building image on the flight derivated from %s, tagged with %s", DOCKER_IMAGE, docker_tag,
             )
             with tempfile.TemporaryDirectory() as context_dir:
                 # Copy model directory to build context

@@ -21,21 +21,13 @@ from optimum.neuron.utils.testing_utils import is_inferentia_test, requires_neur
 
 
 @pytest.mark.parametrize(
-    "batch_size, sequence_length, num_beams",
-    [
-        [1, 64, 1],
-        [1, 64, 4],
-    ],
+    "batch_size, sequence_length, num_beams", [[1, 64, 1], [1, 64, 4],],
 )
 @is_inferentia_test
 @requires_neuronx
 def test_seq2seq_export(export_seq2seq_id, batch_size, sequence_length, num_beams):
     model = NeuronModelForSeq2SeqLM.from_pretrained(
-        export_seq2seq_id,
-        export=True,
-        batch_size=batch_size,
-        sequence_length=sequence_length,
-        num_beams=num_beams,
+        export_seq2seq_id, export=True, batch_size=batch_size, sequence_length=sequence_length, num_beams=num_beams,
     )
     return model
 

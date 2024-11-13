@@ -145,11 +145,7 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         ),
     )
     optional_group.add_argument(
-        "--lora_weight_names",
-        default=None,
-        nargs="*",
-        type=str,
-        help="List of lora weights file names.",
+        "--lora_weight_names", default=None, nargs="*", type=str, help="List of lora weights file names.",
     )
     optional_group.add_argument(
         "--lora_adapter_names",
@@ -159,11 +155,7 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         help="List of the adapter names to be used for referencing the loaded adapter models.",
     )
     optional_group.add_argument(
-        "--lora_scales",
-        default=None,
-        nargs="*",
-        type=float,
-        help="List of scaling factors for the lora adapters.",
+        "--lora_scales", default=None, nargs="*", type=float, help="List of scaling factors for the lora adapters.",
     )
     optional_group.add_argument(
         "--controlnet_ids",
@@ -181,9 +173,7 @@ def parse_args_neuronx(parser: "ArgumentParser"):
     input_group = parser.add_argument_group("Input shapes")
     doc_input = "that the Neuronx-cc compiler exported model will be able to take as input."
     input_group.add_argument(
-        "--batch_size",
-        type=int,
-        help=f"Batch size {doc_input}",
+        "--batch_size", type=int, help=f"Batch size {doc_input}",
     )
     input_group.add_argument(
         "--text_batch_size",
@@ -196,45 +186,28 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         help=f"Batch size of the vision inputs {doc_input} (Only applied for multi-modal models)",
     )
     input_group.add_argument(
-        "--sequence_length",
-        type=int,
-        help=f"Sequence length {doc_input}",
+        "--sequence_length", type=int, help=f"Sequence length {doc_input}",
     )
     input_group.add_argument(
-        "--num_beams",
-        type=int,
-        default=1,
-        help=f"Number of beams for beam search {doc_input}",
+        "--num_beams", type=int, default=1, help=f"Number of beams for beam search {doc_input}",
     )
     input_group.add_argument(
-        "--num_choices",
-        type=int,
-        help=f"Only for the multiple-choice task. Num choices {doc_input}",
+        "--num_choices", type=int, help=f"Only for the multiple-choice task. Num choices {doc_input}",
     )
     input_group.add_argument(
-        "--num_channels",
-        type=int,
-        help=f"Image tasks only. Number of channels {doc_input}",
+        "--num_channels", type=int, help=f"Image tasks only. Number of channels {doc_input}",
     )
     input_group.add_argument(
-        "--width",
-        type=int,
-        help=f"Image tasks only. Width {doc_input}",
+        "--width", type=int, help=f"Image tasks only. Width {doc_input}",
     )
     input_group.add_argument(
-        "--height",
-        type=int,
-        help=f"Image tasks only. Height {doc_input}",
+        "--height", type=int, help=f"Image tasks only. Height {doc_input}",
     )
     input_group.add_argument(
-        "--image_size",
-        type=int,
-        help="Image tasks only. Size (resolution) of each image.",
+        "--image_size", type=int, help="Image tasks only. Size (resolution) of each image.",
     )
     input_group.add_argument(
-        "--patch_size",
-        type=int,
-        help="Image tasks only. Size (resolution) of patch.",
+        "--patch_size", type=int, help="Image tasks only. Size (resolution) of patch.",
     )
     input_group.add_argument(
         "--num_images_per_prompt",
@@ -243,9 +216,7 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         help=f"Stable diffusion only. Number of images per prompt {doc_input}",
     )
     input_group.add_argument(
-        "--audio_sequence_length",
-        type=int,
-        help=f"Audio tasks only. Audio sequence length {doc_input}",
+        "--audio_sequence_length", type=int, help=f"Audio tasks only. Audio sequence length {doc_input}",
     )
 
     level_group = parser.add_mutually_exclusive_group()

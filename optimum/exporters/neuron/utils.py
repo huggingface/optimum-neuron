@@ -179,10 +179,7 @@ def get_stable_diffusion_models_for_export(
     if DIFFUSION_MODEL_TEXT_ENCODER_NAME in models_for_export:
         text_encoder = models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_NAME]
         text_encoder_config_constructor = TasksManager.get_exporter_config_constructor(
-            model=text_encoder,
-            exporter="neuron",
-            task="feature-extraction",
-            library_name=library_name,
+            model=text_encoder, exporter="neuron", task="feature-extraction", library_name=library_name,
         )
         text_encoder_neuron_config = text_encoder_config_constructor(
             text_encoder.config,
@@ -214,17 +211,10 @@ def get_stable_diffusion_models_for_export(
     # U-NET
     unet = models_for_export[DIFFUSION_MODEL_UNET_NAME]
     unet_neuron_config_constructor = TasksManager.get_exporter_config_constructor(
-        model=unet,
-        exporter="neuron",
-        task="semantic-segmentation",
-        model_type="unet",
-        library_name=library_name,
+        model=unet, exporter="neuron", task="semantic-segmentation", model_type="unet", library_name=library_name,
     )
     unet_neuron_config = unet_neuron_config_constructor(
-        unet.config,
-        task="semantic-segmentation",
-        dynamic_batch_size=dynamic_batch_size,
-        **unet_input_shapes,
+        unet.config, task="semantic-segmentation", dynamic_batch_size=dynamic_batch_size, **unet_input_shapes,
     )
     is_stable_diffusion_xl = isinstance(
         pipeline, (StableDiffusionXLImg2ImgPipeline, StableDiffusionXLInpaintPipeline, StableDiffusionXLPipeline)
@@ -497,27 +487,18 @@ def get_encoder_decoder_models_for_export(
     # Encoder
     model_type = getattr(model.config, "model_type") + "-encoder"
     encoder_config_constructor = TasksManager.get_exporter_config_constructor(
-        exporter="neuron",
-        model_type=model_type,
-        task=task,
-        library_name="transformers",
+        exporter="neuron", model_type=model_type, task=task, library_name="transformers",
     )
     check_mandatory_input_shapes(encoder_config_constructor, task, input_shapes)
     encoder_neuron_config = encoder_config_constructor(
-        config=model.config,
-        task=task,
-        dynamic_batch_size=dynamic_batch_size,
-        **input_shapes,
+        config=model.config, task=task, dynamic_batch_size=dynamic_batch_size, **input_shapes,
     )
     models_for_export[ENCODER_NAME] = (model, encoder_neuron_config)
 
     # Decoder
     model_type = getattr(model.config, "model_type") + "-decoder"
     decoder_config_constructor = TasksManager.get_exporter_config_constructor(
-        exporter="neuron",
-        model_type=model_type,
-        task=task,
-        library_name="transformers",
+        exporter="neuron", model_type=model_type, task=task, library_name="transformers",
     )
     check_mandatory_input_shapes(encoder_config_constructor, task, input_shapes)
     decoder_neuron_config = decoder_config_constructor(

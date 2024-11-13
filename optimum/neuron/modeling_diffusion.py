@@ -362,9 +362,7 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
                             submodel_path, to_neuron=False
                         )  # No need to load to neuron manually when dp
                         submodel = torch_neuronx.DataParallel(
-                            submodel,
-                            [0, 1],
-                            set_dynamic_batching=dynamic_batch_size,
+                            submodel, [0, 1], set_dynamic_batching=dynamic_batch_size,
                         )
                         submodels_list.append(submodel)
                 if submodels_list:
@@ -384,11 +382,7 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
             unet = NeuronTracedModel.load_model(
                 unet_path, to_neuron=False
             )  # No need to load to neuron manually when dp
-            submodels["unet"] = torch_neuronx.DataParallel(
-                unet,
-                [0, 1],
-                set_dynamic_batching=dynamic_batch_size,
-            )
+            submodels["unet"] = torch_neuronx.DataParallel(unet, [0, 1], set_dynamic_batching=dynamic_batch_size,)
             # load controlnets
             if controlnet_paths:
                 controlnets = []
@@ -944,10 +938,7 @@ class NeuronStableDiffusionPipelineBase(NeuronTracedModel):
             )
 
         return cls._from_pretrained(
-            model_id=save_dir_path,
-            config=config,
-            model_save_dir=save_dir,
-            data_parallel_mode=data_parallel_mode,
+            model_id=save_dir_path, config=config, model_save_dir=save_dir, data_parallel_mode=data_parallel_mode,
         )
 
     @classmethod
@@ -1092,10 +1083,7 @@ class NeuronModelVaeDecoder(_NeuronDiffusionModelPart):
         super().__init__(model, parent_model, config, neuron_config, DIFFUSION_MODEL_VAE_DECODER_NAME)
 
     def forward(
-        self,
-        latent_sample: torch.Tensor,
-        image: Optional[torch.Tensor] = None,
-        mask: Optional[torch.Tensor] = None,
+        self, latent_sample: torch.Tensor, image: Optional[torch.Tensor] = None, mask: Optional[torch.Tensor] = None,
     ):
         inputs = (latent_sample,)
         if image is not None:
@@ -1331,7 +1319,6 @@ class NeuronStableDiffusionXLControlNetPipeline(
 if is_neuronx_available():
     # TO REMOVE: This class will be included directly in the DDP API of Neuron SDK 2.20
     class WeightSeparatedDataParallel(torch_neuronx.DataParallel):
-
         def _load_modules(self, module):
             try:
                 self.device_ids.sort()
@@ -1353,6 +1340,7 @@ if is_neuronx_available():
                 )
             self.num_workers = 2 * len(loaded_modules)
             return loaded_modules
+
 
 else:
 

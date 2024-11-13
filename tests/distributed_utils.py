@@ -102,7 +102,8 @@ class DistributedExec(ABC):
     exec_timeout: int = TEST_TIMEOUT
 
     @abstractmethod
-    def run(self): ...
+    def run(self):
+        ...
 
     def __call__(self, request=None):
         self._fixture_kwargs = self._get_fixture_kwargs(request, self.run)
@@ -217,8 +218,7 @@ class DistributedExec(ABC):
 
                 # Intializing NxD.
                 neuronx_distributed.parallel_layers.parallel_state.initialize_model_parallel(
-                    tensor_model_parallel_size=tp_size,
-                    pipeline_model_parallel_size=pp_size,
+                    tensor_model_parallel_size=tp_size, pipeline_model_parallel_size=pp_size,
                 )
         try:
             self.run(**self._fixture_kwargs)

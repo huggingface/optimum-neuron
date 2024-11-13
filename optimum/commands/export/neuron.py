@@ -119,19 +119,13 @@ def parse_args_neuron(parser: "ArgumentParser"):
     input_group = parser.add_argument_group("Input shapes")
     doc_input = "that the Neuron-cc compiler exported model will be able to take as input."
     input_group.add_argument(
-        "--batch_size",
-        type=int,
-        help=f"Batch size {doc_input}",
+        "--batch_size", type=int, help=f"Batch size {doc_input}",
     )
     input_group.add_argument(
-        "--sequence_length",
-        type=int,
-        help=f"Sequence length {doc_input}",
+        "--sequence_length", type=int, help=f"Sequence length {doc_input}",
     )
     input_group.add_argument(
-        "--num_choices",
-        type=int,
-        help=f"Only for the multiple-choice task. Num choices {doc_input}",
+        "--num_choices", type=int, help=f"Only for the multiple-choice task. Num choices {doc_input}",
     )
 
 

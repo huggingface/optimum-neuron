@@ -148,9 +148,7 @@ class TextSeq2SeqNeuronConfig(NeuronDefaultConfig):
             self.task, self._normalized_config, **kwargs
         )
         dummy_decoder_text_input_generator = self.DUMMY_INPUT_GENERATOR_CLASSES[1](
-            self.task,
-            self._normalized_config,
-            **kwargs,
+            self.task, self._normalized_config, **kwargs,
         )
         dummy_seq2seq_past_key_values_generator = self.DUMMY_INPUT_GENERATOR_CLASSES[2](
             self.task,

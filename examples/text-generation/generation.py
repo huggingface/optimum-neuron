@@ -31,10 +31,7 @@ if __name__ == "__main__":
     parent_parser.add_argument("model", type=str, help="The HF Hub model id or a local directory.")
     export_parser = subparsers.add_parser("export", parents=[parent_parser], help="Convert model to Neuron.")
     export_parser.add_argument(
-        "--batch_size",
-        type=int,
-        default=1,
-        help="The batch size.",
+        "--batch_size", type=int, default=1, help="The batch size.",
     )
     export_parser.add_argument("--sequence_length", type=int, help="The maximum sequence length.")
     export_parser.add_argument(

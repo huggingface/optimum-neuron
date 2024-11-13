@@ -52,11 +52,7 @@ class NeuronTrainingArgumentsMixin:
         default=False, metadata={"help": "Whether to skip pushing Neuron artifacts to hub cache"}
     )
     half_precision_backend: str = field(
-        default="xla",
-        metadata={
-            "help": "The backend to be used for half precision.",
-            "choices": ["xla", "amp"],
-        },
+        default="xla", metadata={"help": "The backend to be used for half precision.", "choices": ["xla", "amp"],},
     )
     zero_1: bool = field(default=False, metadata={"help": "Whether to use  ZeRO Stage 1 Optimization."})
     tensor_parallel_size: int = field(
@@ -73,8 +69,7 @@ class NeuronTrainingArgumentsMixin:
         },
     )
     disable_sequence_parallel: bool = field(
-        default=False,
-        metadata={"help": "Whether or not to disable sequence parallelism."},
+        default=False, metadata={"help": "Whether or not to disable sequence parallelism."},
     )
     neuron_cc_optlevel: Optional[int] = field(
         default=None,
@@ -84,12 +79,10 @@ class NeuronTrainingArgumentsMixin:
         },
     )
     pipeline_parallel_size: int = field(
-        default=1,
-        metadata={"help": "The number of pipeline parallel replicas."},
+        default=1, metadata={"help": "The number of pipeline parallel replicas."},
     )
     pipeline_parallel_num_microbatches: int = field(
-        default=-1,
-        metadata={"help": "The number of microbatches used for pipeline execution."},
+        default=-1, metadata={"help": "The number of microbatches used for pipeline execution."},
     )
     kv_size_multiplier: Optional[int] = field(
         default=None,

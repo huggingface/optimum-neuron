@@ -229,10 +229,7 @@ class NeuronLatentConsistencyPipelineMixin(StableDiffusionPipelineMixin, LatentC
 
                 # model prediction (v-prediction, eps, x)
                 model_pred = self.unet(
-                    sample=latents,
-                    timestep=t,
-                    encoder_hidden_states=prompt_embeds,
-                    timestep_cond=w_embedding,
+                    sample=latents, timestep=t, encoder_hidden_states=prompt_embeds, timestep_cond=w_embedding,
                 )[0]
 
                 # compute the previous noisy sample x_t -> x_t-1

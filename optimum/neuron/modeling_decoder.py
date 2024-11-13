@@ -367,10 +367,7 @@ class NeuronDecoderModel(NeuronModel):
         else:
             # Create the local transformers model checkpoint
             checkpoint_dir = cls._create_checkpoint(
-                model_id,
-                task=new_config.neuron["task"],
-                revision=revision,
-                **kwargs,
+                model_id, task=new_config.neuron["task"], revision=revision, **kwargs,
             )
 
         # Try to reload the generation config (if any)
@@ -422,11 +419,7 @@ class NeuronDecoderModel(NeuronModel):
                 raise ValueError("Unable to fetch the neuron model weights files.")
             checkpoint_revision = neuron_config["checkpoint_revision"]
             checkpoint_dir = cls._create_checkpoint(
-                checkpoint_id,
-                task=task,
-                revision=checkpoint_revision,
-                token=token,
-                **kwargs,
+                checkpoint_id, task=task, revision=checkpoint_revision, token=token, **kwargs,
             )
         assert os.path.isdir(compiled_dir)
 
@@ -473,10 +466,7 @@ class NeuronDecoderModel(NeuronModel):
         api = HfApi(endpoint=endpoint)
 
         api.create_repo(
-            token=token,
-            repo_id=repository_id,
-            exist_ok=True,
-            private=private,
+            token=token, repo_id=repository_id, exist_ok=True, private=private,
         )
         ignore_patterns = []
         neuron_config = getattr(self.config, "neuron")

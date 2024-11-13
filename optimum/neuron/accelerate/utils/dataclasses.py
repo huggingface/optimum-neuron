@@ -78,9 +78,7 @@ class ModelParallelismPlugin:
         return self.tensor_parallel_size > 1 or self.pipeline_parallel_size > 1
 
     def parallelize_model(
-        self,
-        model: "PreTrainedModel",
-        device: Optional["torch.device"] = None,
+        self, model: "PreTrainedModel", device: Optional["torch.device"] = None,
     ) -> Union["PreTrainedModel", Tuple["PreTrainedModel", Dict[int, "torch.nn.Parameter"]]]:
         parallelizer = ParallelizersManager.parallelizer_for_model(model)
         parallelized_model = parallelizer.parallelize(

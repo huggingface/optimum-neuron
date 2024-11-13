@@ -79,7 +79,6 @@ def get_random_string(length) -> str:
 
 
 def create_dummy_dataset(input_specs: Dict[str, Tuple[Tuple[int, ...], torch.dtype]], num_examples: int) -> Dataset:
-
     def gen():
         for _ in range(num_examples):
             yield {name: torch.rand(shape) for name, shape in input_specs.items()}
@@ -143,11 +142,7 @@ def create_dummy_causal_lm_dataset(
                 input_ids = generate_input_ids(vocab_size, 1, sequence_length)
                 attention_mask = generate_attention_mask(1, sequence_length, random=random_attention_mask)
                 examples.append(
-                    {
-                        "input_ids": input_ids,
-                        "attention_mask": attention_mask,
-                        "labels": input_ids,
-                    }
+                    {"input_ids": input_ids, "attention_mask": attention_mask, "labels": input_ids,}
                 )
             for i in range(num_examples):
                 yield examples[i % max_number_of_unique_examples]
@@ -391,9 +386,7 @@ def get_model_inputs(
                 else:
                     pad_value = 1
                 tensor = torch.nn.functional.pad(
-                    tensor,
-                    pad=(0, pad_to_multiple_of - tensor.shape[1] % pad_to_multiple_of),
-                    value=pad_value,
+                    tensor, pad=(0, pad_to_multiple_of - tensor.shape[1] % pad_to_multiple_of), value=pad_value,
                 )
                 inputs[name] = tensor
     return inputs
@@ -507,9 +500,7 @@ class StagingTestMixin:
         operations = [CommitOperationDelete(path_in_repo=filename) for filename in filenames]
         try:
             api.create_commit(
-                repo_id=repo_id,
-                operations=operations,
-                commit_message="Cleanup the repo",
+                repo_id=repo_id, operations=operations, commit_message="Cleanup the repo",
             )
         except RepositoryNotFoundError:
             pass

@@ -49,9 +49,7 @@ def test_prefill_truncate(neuron_model_config):
     generator = NeuronGenerator.from_pretrained(neuron_model_path)
     batch_size = generator.model.batch_size
     # We apply truncation to all requests but the first one
-    truncate = [
-        None,
-    ] + [i * 3 for i in range(1, batch_size)]
+    truncate = [None,] + [i * 3 for i in range(1, batch_size)]
     input_text = (
         "Two gin-scented tears trickled down the sides of his nose."
         " But it was all right, everything was all right, the struggle was finished."

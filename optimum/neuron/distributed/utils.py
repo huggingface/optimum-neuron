@@ -512,11 +512,7 @@ def embedding_to_parallel_embedding(
     with torch.no_grad():
         if embedding_weight_info is not None:
             weight_data = load_tensor_for_weight(
-                embedding_weight_info,
-                tensor_slices=(
-                    (tp_rank * row_size, (tp_rank + 1) * row_size),
-                    None,
-                ),
+                embedding_weight_info, tensor_slices=((tp_rank * row_size, (tp_rank + 1) * row_size), None,),
             )
             parallel_embedding_layer.weight.copy_(weight_data)
             mark_parameter_init_status_during_parallelization(parallel_embedding_layer.weight, True)
@@ -576,10 +572,7 @@ def get_linear_weight_info(
     linear_layer_bias_filename = weight_map.get(linear_layer_bias_qualified_name, None)
     if linear_layer_bias_filename is not None:
         linear_layer_bias_weight_info = WeightInformation(
-            linear_layer_bias_filename,
-            linear_layer_bias_qualified_name,
-            weight_map=weight_map,
-            device=device,
+            linear_layer_bias_filename, linear_layer_bias_qualified_name, weight_map=weight_map, device=device,
         )
     else:
         linear_layer_bias_weight_info = None
@@ -837,9 +830,7 @@ def maybe_load_weights_to_gqa_qkv_column_parallel_linear(
         elif try_from_original_layer:
             orig_layer_name, _ = orig_name.rsplit(".", maxsplit=1)
             maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
-                layer,
-                weight_name,
-                linear_layer=model.get_submodule(orig_layer_name),
+                layer, weight_name, linear_layer=model.get_submodule(orig_layer_name),
             )
 
 
@@ -920,10 +911,7 @@ def maybe_load_linear_weight_to_parallel_linear(
                 if linear_layer_weight_info is not None:
                     weight_data = load_tensor_for_weight(
                         linear_layer_weight_info,
-                        tensor_slices=(
-                            None,
-                            (tp_rank * col_size, (tp_rank + 1) * col_size),
-                        ),
+                        tensor_slices=(None, (tp_rank * col_size, (tp_rank + 1) * col_size),),
                     )
                     parallel_linear_layer.weight.copy_(weight_data)
                     mark_parameter_init_status_during_parallelization(parallel_linear_layer.weight, True)
@@ -952,10 +940,7 @@ def maybe_load_linear_weight_to_parallel_linear(
                 if linear_layer_weight_info is not None:
                     weight_data = load_tensor_for_weight(
                         linear_layer_weight_info,
-                        tensor_slices=(
-                            (tp_rank * row_size, (tp_rank + 1) * row_size),
-                            None,
-                        ),
+                        tensor_slices=((tp_rank * row_size, (tp_rank + 1) * row_size), None,),
                     )
                     parallel_linear_layer.weight.copy_(weight_data)
                     mark_parameter_init_status_during_parallelization(parallel_linear_layer.weight, True)
@@ -974,15 +959,9 @@ def maybe_load_linear_weight_to_parallel_linear(
                         if parallel_linear_layer.gather_output:
                             tensor_slices = (None,)
                         else:
-                            tensor_slices = (
-                                (
-                                    tp_rank * row_size,
-                                    (tp_rank + 1) * row_size,
-                                ),
-                            )
+                            tensor_slices = ((tp_rank * row_size, (tp_rank + 1) * row_size,),)
                         bias_weight_data = load_tensor_for_weight(
-                            linear_layer_bias_weight_info,
-                            tensor_slices=tensor_slices,
+                            linear_layer_bias_weight_info, tensor_slices=tensor_slices,
                         )
                         parallel_linear_layer.bias.copy_(bias_weight_data)
                         mark_parameter_init_status_during_parallelization(parallel_linear_layer.bias, True)
@@ -1388,7 +1367,6 @@ def parameter_can_be_initialized(model: torch.nn.Module, parent_module: torch.nn
 
 
 def create_wrapper_for_resize_token_embedding(orig_resize_token_embeddings):
-
     @functools.wraps(orig_resize_token_embeddings)
     def wrapper(
         self, new_num_tokens: Optional[int] = None, pad_to_multiple_of: Optional[int] = None
@@ -1401,9 +1379,7 @@ def create_wrapper_for_resize_token_embedding(orig_resize_token_embeddings):
             if embeddings_qualified_name in self._weight_map:
                 filename = self._weight_map[embeddings_qualified_name]
                 embeddings_weight_info = WeightInformation(
-                    filename=filename,
-                    qualified_name=embeddings_qualified_name,
-                    weight_map=self._weight_map,
+                    filename=filename, qualified_name=embeddings_qualified_name, weight_map=self._weight_map,
                 )
                 setattr(embeddings, "weight", torch.nn.Parameter(load_tensor_for_weight(embeddings_weight_info)))
                 self._weight_map.pop(embeddings_qualified_name)
@@ -1597,10 +1573,7 @@ def from_pretrained_for_mp(
 
     if _adapter_model_path is not None:
         model.load_adapter(
-            _adapter_model_path,
-            adapter_name=adapter_name,
-            token=token,
-            adapter_kwargs=adapter_kwargs,
+            _adapter_model_path, adapter_name=adapter_name, token=token, adapter_kwargs=adapter_kwargs,
         )
 
     model._weight_map = weight_map
@@ -1711,10 +1684,7 @@ def get_parameters_tp_metadata(named_parameters: Dict[str, "torch.nn.Parameter"]
     tp_metadata = {}
     for name, param in named_parameters.items():
         if getattr(param, "tensor_model_parallel", False):
-            param_metadata = ParameterMetadata(
-                "sharded",
-                partition_dim=param.partition_dim,
-            )
+            param_metadata = ParameterMetadata("sharded", partition_dim=param.partition_dim,)
         else:
             param_metadata = ParameterMetadata("tied")
         tp_metadata[name] = param_metadata

@@ -108,9 +108,7 @@ def move_params_to_cpu(parameters):
 class TestCommonDistributed(DistributedTest):
     # TODO: enable dp=4,tp=pp=2 when working on the multi-node training PR.
     @pytest.fixture(
-        scope="class",
-        params=[[2, 1, 1], [2, 2, 1], [2, 1, 2]],
-        ids=["dp=2", "tp=2", "pp=2"],
+        scope="class", params=[[2, 1, 1], [2, 2, 1], [2, 1, 2]], ids=["dp=2", "tp=2", "pp=2"],
     )
     def parallel_sizes(self, request):
         return request.param
@@ -443,20 +441,9 @@ class TestCommonDistributed(DistributedTest):
         ],
     )
     def test_consolidate_model_parallel_checkpoints(
-        self,
-        tmpdir,
-        world_size,
-        tp_size,
-        pp_size,
-        kv_size_multiplier,
-        model_name,
-        use_xser,
+        self, tmpdir, world_size, tp_size, pp_size, kv_size_multiplier, model_name, use_xser,
     ):
-        orig_model = get_model(
-            LlamaForCausalLM,
-            model_name,
-            use_static_seed_patcher=True,
-        )
+        orig_model = get_model(LlamaForCausalLM, model_name, use_static_seed_patcher=True,)
         orig_model_path = Path(tmpdir) / "orig_model"
         if xm.get_ordinal() == 0:
             # Saving to pytorch instead of safetensors because it fails otherwise for pickling issues with distributed tests.

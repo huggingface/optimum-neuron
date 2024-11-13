@@ -38,9 +38,7 @@ from ...neuron.utils import (
     is_neuronx_available,
 )
 from ...neuron.utils.misc import maybe_save_preprocessors
-from ...neuron.utils.version_utils import (
-    check_compiler_compatibility_for_stable_diffusion,
-)
+from ...neuron.utils.version_utils import check_compiler_compatibility_for_stable_diffusion
 from ...utils import is_diffusers_available, logging
 from ..error_utils import AtolError, OutputMatchError, ShapeError
 from ..tasks import TasksManager
@@ -127,10 +125,7 @@ def get_neuron_config_class(task: str, model_id: str) -> NeuronConfig:
         model_type = model_type + "-encoder"
 
     neuron_config_constructor = TasksManager.get_exporter_config_constructor(
-        model_type=model_type,
-        exporter="neuron",
-        task=task,
-        library_name="transformers",
+        model_type=model_type, exporter="neuron", task=task, library_name="transformers",
     )
     return neuron_config_constructor
 
@@ -180,9 +175,7 @@ def parse_optlevel(args: argparse.Namespace) -> Dict[str, bool]:
     return optlevel
 
 
-def normalize_stable_diffusion_input_shapes(
-    args: argparse.Namespace,
-) -> Dict[str, Dict[str, int]]:
+def normalize_stable_diffusion_input_shapes(args: argparse.Namespace,) -> Dict[str, Dict[str, int]]:
     args = vars(args) if isinstance(args, argparse.Namespace) else args
     mandatory_axes = set(getattr(inspect.getfullargspec(build_stable_diffusion_components_mandatory_shapes), "args"))
     # Remove `sequence_length` as diffusers will pad it to the max and remove number of channels.
@@ -309,10 +302,7 @@ def get_submodels_and_neuron_configs(
                 f"`output_attentions` and `output_hidden_states` are not supported by the {task} task yet."
             )
         neuron_config_constructor = TasksManager.get_exporter_config_constructor(
-            model=model,
-            exporter="neuron",
-            task=task,
-            library_name=library_name,
+            model=model, exporter="neuron", task=task, library_name=library_name,
         )
         input_shapes = check_mandatory_input_shapes(neuron_config_constructor, task, input_shapes)
         neuron_config = neuron_config_constructor(model.config, dynamic_batch_size=dynamic_batch_size, **input_shapes)
@@ -364,9 +354,7 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
             "Stable diffusion export is not supported by neuron-cc on inf1, please use neuronx-cc on either inf2/trn1 instead."
         )
     input_shapes = infer_stable_diffusion_shapes_from_diffusers(
-        input_shapes=input_shapes,
-        model=model,
-        has_controlnets=controlnet_ids is not None,
+        input_shapes=input_shapes, model=model, has_controlnets=controlnet_ids is not None,
     )
 
     # Saving the model config and preprocessor as this is needed sometimes.
@@ -636,10 +624,7 @@ def main_export(
 
 
 def decoder_export(
-    model_name_or_path: str,
-    output: Union[str, Path],
-    trust_remote_code: Optional[bool] = None,
-    **kwargs,
+    model_name_or_path: str, output: Union[str, Path], trust_remote_code: Optional[bool] = None, **kwargs,
 ):
     from ...neuron import NeuronModelForCausalLM
 

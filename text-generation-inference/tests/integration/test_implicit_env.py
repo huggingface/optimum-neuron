@@ -42,15 +42,10 @@ async def test_model_single_request(tgi_service):
     # Just verify that the generation works, and nothing is raised, with several set of params
 
     # No params
-    await tgi_service.client.text_generation(
-        "What is Deep Learning?",
-    )
+    await tgi_service.client.text_generation("What is Deep Learning?",)
 
     response = await tgi_service.client.text_generation(
-        "How to cook beans ?",
-        max_new_tokens=17,
-        details=True,
-        decoder_input_details=True,
+        "How to cook beans ?", max_new_tokens=17, details=True, decoder_input_details=True,
     )
     assert response.details.generated_tokens == 17
 

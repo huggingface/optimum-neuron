@@ -255,11 +255,7 @@ def main():
     if training_args.do_train:
         if model_args.train_language is None:
             train_dataset = load_dataset(
-                "xnli",
-                model_args.language,
-                split="train",
-                cache_dir=model_args.cache_dir,
-                token=model_args.token,
+                "xnli", model_args.language, split="train", cache_dir=model_args.cache_dir, token=model_args.token,
             )
         else:
             train_dataset = load_dataset(
@@ -273,21 +269,13 @@ def main():
 
     if training_args.do_eval:
         eval_dataset = load_dataset(
-            "xnli",
-            model_args.language,
-            split="validation",
-            cache_dir=model_args.cache_dir,
-            token=model_args.token,
+            "xnli", model_args.language, split="validation", cache_dir=model_args.cache_dir, token=model_args.token,
         )
         label_list = eval_dataset.features["label"].names
 
     if training_args.do_predict:
         predict_dataset = load_dataset(
-            "xnli",
-            model_args.language,
-            split="test",
-            cache_dir=model_args.cache_dir,
-            token=model_args.token,
+            "xnli", model_args.language, split="test", cache_dir=model_args.cache_dir, token=model_args.token,
         )
         label_list = predict_dataset.features["label"].names
 

@@ -159,24 +159,14 @@ class ExampleRunner:
             "dataset_name": "wikitext",
             "dataset_config_name": "wikitext-2-raw-v1",
             "set_max_length": True,
-            "extra_command_line_arguments": [
-                "--pad_to_max_length",
-            ],
+            "extra_command_line_arguments": ["--pad_to_max_length",],
         },
-        "causal-lm": {
-            "dataset_name": "wikitext",
-            "dataset_config_name": "wikitext-2-raw-v1",
-        },
-        "text-classification": {
-            "task_name": "sst2",
-        },
+        "causal-lm": {"dataset_name": "wikitext", "dataset_config_name": "wikitext-2-raw-v1",},
+        "text-classification": {"task_name": "sst2",},
         "token-classification": {
             "dataset_name": "bnsapa/cybersecurity-ner",
             "set_max_length": True,
-            "extra_command_line_arguments": [
-                "--pad_to_max_length",
-                "--ignore_mismatched_sizes",
-            ],
+            "extra_command_line_arguments": ["--pad_to_max_length", "--ignore_mismatched_sizes",],
         },
         "multiple-choice": {
             "set_max_length": True,
@@ -189,9 +179,7 @@ class ExampleRunner:
             "dataset_name": "squad",
             # It is already the case, but just to make sure if it ever changes.
             "set_max_length": True,
-            "extra_command_line_arguments": [
-                "--pad_to_max_length",
-            ],
+            "extra_command_line_arguments": ["--pad_to_max_length",],
         },
         "summarization": {
             "dataset_name": "cnn_dailymail",
@@ -219,10 +207,7 @@ class ExampleRunner:
         },
         "image-classification": {
             "dataset_name": "mnist",
-            "extra_command_line_arguments": [
-                "--remove_unused_columns false",
-                "--ignore_mismatched_sizes",
-            ],
+            "extra_command_line_arguments": ["--remove_unused_columns false", "--ignore_mismatched_sizes",],
         },
     }
 

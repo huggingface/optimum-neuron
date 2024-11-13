@@ -43,11 +43,7 @@ def training_function(script_args, training_args):
     )
 
     args = training_args.to_dict()
-    sft_config = NeuronSFTConfig(
-        max_seq_length=1024,
-        packing=False,
-        **args,
-    )
+    sft_config = NeuronSFTConfig(max_seq_length=1024, packing=False, **args,)
 
     trainer = NeuronSFTTrainer(
         args=sft_config,

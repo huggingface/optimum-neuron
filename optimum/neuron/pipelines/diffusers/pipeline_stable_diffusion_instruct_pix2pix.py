@@ -152,12 +152,7 @@ class NeuronStableDiffusionInstructPix2PixPipelineMixin(
 
         # 0. Check inputs
         self.check_inputs(
-            prompt,
-            None,
-            negative_prompt,
-            prompt_embeds,
-            negative_prompt_embeds,
-            callback_on_step_end_tensor_inputs,
+            prompt, None, negative_prompt, prompt_embeds, negative_prompt_embeds, callback_on_step_end_tensor_inputs,
         )
         self._guidance_scale = guidance_scale
         self._image_guidance_scale = image_guidance_scale
@@ -196,11 +191,7 @@ class NeuronStableDiffusionInstructPix2PixPipelineMixin(
 
         # 5. Prepare Image latents
         image_latents = self.prepare_image_latents(
-            image,
-            batch_size,
-            num_images_per_prompt,
-            self.do_classifier_free_guidance,
-            generator,
+            image, batch_size, num_images_per_prompt, self.do_classifier_free_guidance, generator,
         )
 
         height, width = image_latents.shape[-2:]
@@ -247,11 +238,7 @@ class NeuronStableDiffusionInstructPix2PixPipelineMixin(
                 scaled_latent_model_input = torch.cat([scaled_latent_model_input, image_latents], dim=1)
 
                 # predict the noise residual
-                noise_pred = self.unet(
-                    scaled_latent_model_input,
-                    t,
-                    encoder_hidden_states=prompt_embeds,
-                )[0]
+                noise_pred = self.unet(scaled_latent_model_input, t, encoder_hidden_states=prompt_embeds,)[0]
 
                 # perform guidance
                 if self.do_classifier_free_guidance:
@@ -445,11 +432,7 @@ class NeuronStableDiffusionInstructPix2PixPipelineMixin(
 
             max_length = prompt_embeds.shape[1]
             uncond_input = self.tokenizer(
-                uncond_tokens,
-                padding="max_length",
-                max_length=max_length,
-                truncation=True,
-                return_tensors="pt",
+                uncond_tokens, padding="max_length", max_length=max_length, truncation=True, return_tensors="pt",
             )
 
             negative_prompt_embeds = self.text_encoder(uncond_input.input_ids)

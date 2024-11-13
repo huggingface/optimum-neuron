@@ -80,8 +80,7 @@ class DataTrainingArguments:
     """
 
     task_name: Optional[str] = field(
-        default=None,
-        metadata={"help": "The name of the task to train on: " + ", ".join(task_to_keys.keys())},
+        default=None, metadata={"help": "The name of the task to train on: " + ", ".join(task_to_keys.keys())},
     )
     dataset_name: Optional[str] = field(
         default=None, metadata={"help": "The name of the dataset to use (via the datasets library)."}
@@ -305,10 +304,7 @@ def main():
     if data_args.task_name is not None:
         # Downloading and loading a dataset from the hub.
         raw_datasets = load_dataset(
-            "glue",
-            data_args.task_name,
-            cache_dir=model_args.cache_dir,
-            token=model_args.token,
+            "glue", data_args.task_name, cache_dir=model_args.cache_dir, token=model_args.token,
         )
     elif data_args.dataset_name is not None:
         # Downloading and loading a dataset from the hub.
@@ -342,18 +338,12 @@ def main():
         if data_args.train_file.endswith(".csv"):
             # Loading a dataset from local csv files
             raw_datasets = load_dataset(
-                "csv",
-                data_files=data_files,
-                cache_dir=model_args.cache_dir,
-                token=model_args.token,
+                "csv", data_files=data_files, cache_dir=model_args.cache_dir, token=model_args.token,
             )
         else:
             # Loading a dataset from local json files
             raw_datasets = load_dataset(
-                "json",
-                data_files=data_files,
-                cache_dir=model_args.cache_dir,
-                token=model_args.token,
+                "json", data_files=data_files, cache_dir=model_args.cache_dir, token=model_args.token,
             )
     # See more about loading any type of standard or custom dataset at
     # https://huggingface.co/docs/datasets/loading_datasets.html.

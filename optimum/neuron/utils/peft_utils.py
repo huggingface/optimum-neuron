@@ -38,9 +38,7 @@ if is_peft_available():
         id_tensor_storage,
         set_peft_model_state_dict,
     )
-    from peft.utils import (
-        get_peft_model_state_dict as orig_get_peft_model_state_dict,
-    )
+    from peft.utils import get_peft_model_state_dict as orig_get_peft_model_state_dict
 
 else:
 
@@ -180,10 +178,7 @@ class NeuronPeftModel(PeftModel):
 
                 dummy_mod = DummyModule()
                 neuronx_distributed.trainer.save_checkpoint(
-                    output_dir,
-                    tag="adapter_shards",
-                    model=dummy_mod,
-                    async_save=async_save,
+                    output_dir, tag="adapter_shards", model=dummy_mod, async_save=async_save,
                 )
 
                 # Importing here to avoid circular imports.
@@ -237,9 +232,7 @@ class NeuronPeftModel(PeftModel):
                         peft_config, convert_pissa_to_lora, output_state_dict, kwargs
                     )
                 safe_save_file(
-                    output_state_dict,
-                    os.path.join(output_dir, SAFETENSORS_WEIGHTS_NAME),
-                    metadata={"format": "pt"},
+                    output_state_dict, os.path.join(output_dir, SAFETENSORS_WEIGHTS_NAME), metadata={"format": "pt"},
                 )
             elif is_main_process:
                 output_state_dict = move_all_tensor_to_cpu(output_state_dict, convert=should_write_data)
@@ -261,9 +254,7 @@ class NeuronPeftModel(PeftModel):
 
             if peft_config.task_type is None:
                 # deal with auto mapping
-                base_model_class = self._get_base_model_class(
-                    is_prompt_tuning=peft_config.is_prompt_learning,
-                )
+                base_model_class = self._get_base_model_class(is_prompt_tuning=peft_config.is_prompt_learning,)
                 parent_library = base_model_class.__module__
 
                 auto_mapping_dict = {

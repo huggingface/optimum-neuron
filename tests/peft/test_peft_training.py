@@ -87,9 +87,7 @@ def test_get_peft_model():
 @is_trainium_test
 class TestPeft(DistributedTest):
     @pytest.fixture(
-        scope="class",
-        params=[[2, 1, 1], [2, 2, 1]],
-        ids=["dp=2", "tp=2"],
+        scope="class", params=[[2, 1, 1], [2, 2, 1]], ids=["dp=2", "tp=2"],
     )
     def parallel_sizes(self, request):
         return request.param
@@ -227,10 +225,7 @@ class TestPeft(DistributedTest):
         peft_config = get_peft_config(lora_on_embeddings=True, lora_on_lm_head=True)
 
         accelerator = create_accelerator(
-            tp_size,
-            pp_size,
-            parallelize_embeddings=True,
-            sequence_parallel_enabled=True,
+            tp_size, pp_size, parallelize_embeddings=True, sequence_parallel_enabled=True,
         )
 
         seed_patcher = StaticSeedPatcher(42)
@@ -243,10 +238,7 @@ class TestPeft(DistributedTest):
         orig_model = accelerator.patch_model_for_neuron(orig_model)
 
         inputs = get_model_inputs(
-            orig_model,
-            orig_model.config.name_or_path,
-            batch_size=dp_size,
-            pad_to_multiple_of=16,
+            orig_model, orig_model.config.name_or_path, batch_size=dp_size, pad_to_multiple_of=16,
         )
         xla_inputs = {k: v.to(xm.xla_device()) for k, v in inputs.items()}
 
@@ -315,10 +307,7 @@ class TestPeft(DistributedTest):
         _, model = get_tokenizer_and_tiny_llama_model()
         model = get_peft_model(model, peft_config)
         accelerator = create_accelerator(
-            tp_size,
-            pp_size,
-            parallelize_embeddings=True,
-            sequence_parallel_enabled=True,
+            tp_size, pp_size, parallelize_embeddings=True, sequence_parallel_enabled=True,
         )
         model = accelerator.prepare_model(model)
         requires_grad = {n: p.requires_grad for n, p in model.named_parameters()}

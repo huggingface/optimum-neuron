@@ -120,11 +120,7 @@ class T5EncoderWrapper(torch.nn.Module):
     """Wrapper to trace the encoder and the kv cache initialization in the decoder."""
 
     def __init__(
-        self,
-        model: "PreTrainedModel",
-        num_beams: int = 1,
-        device: str = "xla",
-        tp_degree: Optional[int] = None,
+        self, model: "PreTrainedModel", num_beams: int = 1, device: str = "xla", tp_degree: Optional[int] = None,
     ):
         super().__init__()
         self.model = model
@@ -343,7 +339,7 @@ class T5DecoderWrapper(torch.nn.Module):
         if self.config.tie_word_embeddings:
             # Rescale output before projecting on vocab
             # See https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/transformer/transformer.py#L586
-            last_hidden_state = last_hidden_state * (self.model.config.d_model**-0.5)
+            last_hidden_state = last_hidden_state * (self.model.config.d_model ** -0.5)
 
         lm_logits = self.model.lm_head(last_hidden_state)
 
@@ -421,10 +417,7 @@ class SentenceTransformersCLIPNeuronWrapper(torch.nn.Module):
         vision_outputs = self.model[0].model.vision_model(pixel_values=pixel_values)
         image_embeds = self.model[0].model.visual_projection(vision_outputs[1])
 
-        text_outputs = self.model[0].model.text_model(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-        )
+        text_outputs = self.model[0].model.text_model(input_ids=input_ids, attention_mask=attention_mask,)
         text_embeds = self.model[0].model.text_projection(text_outputs[1])
 
         if len(self.model) > 1:

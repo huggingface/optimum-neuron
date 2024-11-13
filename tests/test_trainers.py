@@ -32,9 +32,7 @@ from transformers.testing_utils import is_staging_test
 from optimum.neuron import NeuronSFTConfig, NeuronSFTTrainer, NeuronTrainer, NeuronTrainingArguments
 from optimum.neuron.distributed.utils import MODEL_PARALLEL_SHARDS_DIR_NAME
 from optimum.neuron.utils import is_neuronx_distributed_available
-from optimum.neuron.utils.cache_utils import (
-    list_files_in_neuron_cache,
-)
+from optimum.neuron.utils.cache_utils import list_files_in_neuron_cache
 from optimum.neuron.utils.testing_utils import is_trainium_test
 from optimum.neuron.utils.training_utils import get_model_param_count
 
@@ -75,9 +73,7 @@ class TestNeuronTrainingUtils(DistributedTest):
         target_num_parameters = sum(p.numel() for p in model.parameters())
 
         args = NeuronTrainingArguments(
-            tensor_parallel_size=tp_size,
-            pipeline_parallel_size=pp_size,
-            output_dir=output_dir.as_posix(),
+            tensor_parallel_size=tp_size, pipeline_parallel_size=pp_size, output_dir=output_dir.as_posix(),
         )
         trainer = NeuronTrainer(args=args, model=model)
         prepared_model = trainer.accelerator.prepare_model(model)
@@ -93,10 +89,7 @@ class TestNeuronTrainer(DistributedTest):
         # TODO: enable dp + tp + pp, currently produces communication error between replicas.
         # TODO: Fix pp as well.
         params=[[2, 1, 1], [2, 2, 1]],  # , [2, 1, 2]],  # [8, 2, 2]],
-        ids=[
-            "dp=2",
-            "tp=2",
-        ],  # "pp=2"],  # , "dp=4,tp=pp=2"],
+        ids=["dp=2", "tp=2",],  # "pp=2"],  # , "dp=4,tp=pp=2"],
     )
     def parallel_sizes(self, request):
         return request.param
@@ -402,9 +395,7 @@ class TestNeuronTrainer(DistributedTest):
 @is_trainium_test
 class TestNeuronSFTTrainer(DistributedTest):
     @pytest.fixture(
-        scope="class",
-        params=[[2, 1, 1], [2, 2, 1]],
-        ids=["dp=2", "tp=2"],
+        scope="class", params=[[2, 1, 1], [2, 2, 1]], ids=["dp=2", "tp=2"],
     )
     def parallel_sizes(self, request):
         return request.param
@@ -440,20 +431,11 @@ class TestNeuronSFTTrainer(DistributedTest):
             logging_steps=1,
         )
         args = args.to_dict()
-        sft_config = NeuronSFTConfig(
-            max_seq_length=512,
-            packing=packing,
-            dataset_num_proc=1,
-            **args,
-        )
+        sft_config = NeuronSFTConfig(max_seq_length=512, packing=packing, dataset_num_proc=1, **args,)
 
         # Create Trainer instance
         trainer = NeuronSFTTrainer(
-            model=model,
-            tokenizer=tokenizer,
-            train_dataset=dataset,
-            formatting_func=format_dolly,
-            args=sft_config,
+            model=model, tokenizer=tokenizer, train_dataset=dataset, formatting_func=format_dolly, args=sft_config,
         )
 
         trainer.train()

@@ -65,8 +65,7 @@ class ScriptArguments:
         },
     )
     dataset_path: str = field(
-        metadata={"help": "Path to the preprocessed and tokenized dataset."},
-        default=None,
+        metadata={"help": "Path to the preprocessed and tokenized dataset."}, default=None,
     )
 
 

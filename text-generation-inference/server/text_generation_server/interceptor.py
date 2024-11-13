@@ -9,11 +9,7 @@ from loguru import logger
 
 class ExceptionInterceptor(AsyncServerInterceptor):
     async def intercept(
-        self,
-        method: Callable,
-        request_or_iterator: Any,
-        context: grpc.ServicerContext,
-        method_name: str,
+        self, method: Callable, request_or_iterator: Any, context: grpc.ServicerContext, method_name: str,
     ) -> Any:
         try:
             response = method(request_or_iterator, context)

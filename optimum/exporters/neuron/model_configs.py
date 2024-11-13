@@ -440,11 +440,7 @@ class Wav2Vec2NeuronConfig(AudioNeuronConfig):
 
 
 @register_in_tasks_manager(
-    "audio-spectrogram-transformer",
-    *[
-        "feature-extraction",
-        "audio-classification",
-    ],
+    "audio-spectrogram-transformer", *["feature-extraction", "audio-classification",],
 )
 class ASTNeuronConfig(AudioNeuronConfig):
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
@@ -458,12 +454,7 @@ class ASTNeuronConfig(AudioNeuronConfig):
 
 
 @register_in_tasks_manager(
-    "hubert",
-    *[
-        "feature-extraction",
-        "automatic-speech-recognition",
-        "audio-classification",
-    ],
+    "hubert", *["feature-extraction", "automatic-speech-recognition", "audio-classification",],
 )
 class HubertNeuronConfig(Wav2Vec2NeuronConfig):
     @property
@@ -501,12 +492,7 @@ class HubertNeuronConfig(Wav2Vec2NeuronConfig):
 
 
 @register_in_tasks_manager(
-    "unispeech",
-    *[
-        "feature-extraction",
-        "automatic-speech-recognition",
-        "audio-classification",
-    ],
+    "unispeech", *["feature-extraction", "automatic-speech-recognition", "audio-classification",],
 )
 class UniSpeechNeuronConfig(Wav2Vec2NeuronConfig):
     pass
@@ -713,10 +699,7 @@ class VaeEncoderNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
     MODEL_TYPE = "vae-encoder"
 
-    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
-        num_channels="in_channels",
-        allow_new=True,
-    )
+    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(num_channels="in_channels", allow_new=True,)
 
     @property
     def inputs(self) -> List[str]:
@@ -740,10 +723,7 @@ class VaeDecoderNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
     MODEL_TYPE = "vae-decoder"
 
-    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
-        num_channels="latent_channels",
-        allow_new=True,
-    )
+    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(num_channels="latent_channels", allow_new=True,)
 
     @property
     def inputs(self) -> List[str]:
@@ -754,10 +734,7 @@ class VaeDecoderNeuronConfig(VisionNeuronConfig):
         return ["sample"]
 
     def patch_model_for_export(
-        self,
-        model: "VaeDecoder",
-        dummy_inputs: Dict[str, torch.Tensor],
-        **kwargs,
+        self, model: "VaeDecoder", dummy_inputs: Dict[str, torch.Tensor], **kwargs,
     ):
         return super().patch_model_for_export(model=model, dummy_inputs=dummy_inputs, forward_with_tuple=True)
 
@@ -837,10 +814,7 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
     def _create_dummy_input_generator_classes(self, **kwargs) -> List["DummyInputGenerator"]:
         dummy_inputs_generators = super()._create_dummy_input_generator_classes(**kwargs)
         dummy_beam_values_generator = self.DUMMY_INPUT_GENERATOR_CLASSES[-1](
-            self.task,
-            self._normalized_config,
-            num_beams=kwargs.pop("num_beams", 1),
-            **kwargs,
+            self.task, self._normalized_config, num_beams=kwargs.pop("num_beams", 1), **kwargs,
         )
         dummy_inputs_generators.append(dummy_beam_values_generator)
         return dummy_inputs_generators

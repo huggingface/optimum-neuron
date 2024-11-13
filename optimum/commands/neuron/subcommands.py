@@ -32,14 +32,10 @@ class ConsolidateCommand(BaseOptimumCLICommand):
     @staticmethod
     def parse_args(parser: "ArgumentParser"):
         parser.add_argument(
-            "checkpoint_dir",
-            type=str,
-            help="The path to the directory containing the checkpoints.",
+            "checkpoint_dir", type=str, help="The path to the directory containing the checkpoints.",
         )
         parser.add_argument(
-            "output_dir",
-            type=str,
-            help="The path to the output directory containing the consolidated checkpoint.",
+            "output_dir", type=str, help="The path to the output directory containing the consolidated checkpoint.",
         )
         parser.add_argument(
             "-f",
@@ -54,8 +50,6 @@ class ConsolidateCommand(BaseOptimumCLICommand):
         checkpoint_format = "safetensors" if self.args.format == "safetensors" else "pytorch"
         logger.info(f"Consolidating checkpoints from {self.args.checkpoint_dir} to the {checkpoint_format} format...")
         consolidate_model_parallel_checkpoints_to_unified_checkpoint(
-            self.args.checkpoint_dir,
-            self.args.output_dir,
-            save_format=self.args.format,
+            self.args.checkpoint_dir, self.args.output_dir, save_format=self.args.format,
         )
         logger.info(f"Consolidated checkpoint saved at {self.args.output_dir}")

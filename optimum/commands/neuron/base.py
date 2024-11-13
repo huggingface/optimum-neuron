@@ -27,11 +27,7 @@ logger.setLevel(logging.INFO)
 class NeuronCommand(BaseOptimumCLICommand):
     COMMAND = CommandInfo(name="neuron", help="Optimum Neuron CLI")
     SUBCOMMANDS = (
-        CommandInfo(
-            name="cache",
-            help="Manage the Neuron cache.",
-            subcommand_class=CustomCacheRepoCommand,
-        ),
+        CommandInfo(name="cache", help="Manage the Neuron cache.", subcommand_class=CustomCacheRepoCommand,),
         CommandInfo(
             name="consolidate",
             help="Consolidate checkpoints that were produced during a parallel training setting.",

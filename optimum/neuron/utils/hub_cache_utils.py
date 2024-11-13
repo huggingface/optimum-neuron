@@ -242,8 +242,7 @@ class CompileCacheHfProxy(CompileCache):
 
 
 def create_hub_compile_cache_proxy(
-    cache_url: Optional[CacheUrl] = None,
-    cache_repo_id: Optional[str] = None,
+    cache_url: Optional[CacheUrl] = None, cache_repo_id: Optional[str] = None,
 ):
     if cache_url is None:
         cache_url = CacheUrl.get_cache_url()

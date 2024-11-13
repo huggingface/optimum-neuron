@@ -217,9 +217,7 @@ class Slot:
         """Mark the slot as ready for generation."""
         self._state = Slot.State.READY
 
-    def _decode_next_tokens(
-        self,
-    ) -> str:
+    def _decode_next_tokens(self,) -> str:
         """Hack to hopefully support generate_stream for the maximum number of tokenizers"""
         # We need to include the tokens that produced the last text to defeat cleanup algorithms in the decode
         # which decide to add a space or not depending on the surrounding ids.
@@ -231,8 +229,7 @@ class Slot:
 
         # Compare the generated text with the one using only the tokens producing the last one
         last_text = self._tokenizer.decode(
-            self._tokens[self._next_text_token_start : self._next_text_token_end],
-            skip_special_tokens=False,
+            self._tokens[self._next_text_token_start : self._next_text_token_end], skip_special_tokens=False,
         )
         if len(new_text) == len(last_text):
             # Nothing new was actually generated
@@ -312,9 +309,7 @@ class NeuronGenerator(Generator):
     """A Generator for Neuron models."""
 
     def __init__(
-        self,
-        model: NeuronModelForCausalLM,
-        tokenizer: PreTrainedTokenizerBase,
+        self, model: NeuronModelForCausalLM, tokenizer: PreTrainedTokenizerBase,
     ):
         self.model = model
         self.rebuild_cache_on_prefill = not self.model.continuous_batching
@@ -331,11 +326,7 @@ class NeuronGenerator(Generator):
     def info(self) -> InfoResponse:
         """Returns the expected InfoResponse."""
         dtype = getattr(self.model.config, "torch_dtype", "float32")
-        return InfoResponse(
-            requires_padding=True,
-            dtype=str(dtype),
-            device_type="xla",
-        )
+        return InfoResponse(requires_padding=True, dtype=str(dtype), device_type="xla",)
 
     def warmup(self, batch: Batch) -> int:
         """Verify if the hardware can support the target load.

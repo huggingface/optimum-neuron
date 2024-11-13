@@ -57,10 +57,7 @@ _import_structure = {
         "replace_weights",
     ],
     "model_utils": ["get_tied_parameters_dict", "tie_parameters"],
-    "optimization_utils": [
-        "get_attention_scores_sd",
-        "get_attention_scores_sdxl",
-    ],
+    "optimization_utils": ["get_attention_scores_sd", "get_attention_scores_sdxl",],
     "patching": [
         "DynamicPatch",
         "ModelPatcher",
@@ -70,10 +67,7 @@ _import_structure = {
         "replace_class_in_inheritance_hierarchy",
     ],
     "peft_utils": ["NeuronPeftModel", "get_peft_model"],
-    "training_utils": [
-        "is_model_officially_supported",
-        "patch_transformers_for_neuron_sdk",
-    ],
+    "training_utils": ["is_model_officially_supported", "patch_transformers_for_neuron_sdk",],
     "trl_utils": ["NeuronSFTConfig"],
 }
 
@@ -137,9 +131,4 @@ if TYPE_CHECKING:
 else:
     import sys
 
-    sys.modules[__name__] = _LazyModule(
-        __name__,
-        globals()["__file__"],
-        _import_structure,
-        module_spec=__spec__,
-    )
+    sys.modules[__name__] = _LazyModule(__name__, globals()["__file__"], _import_structure, module_spec=__spec__,)

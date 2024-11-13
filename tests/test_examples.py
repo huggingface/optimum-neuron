@@ -97,48 +97,13 @@ COVERAGE = Coverage(os.environ.get("COVERAGE", "all"))
 RUN_TINY = string_to_bool(os.environ.get("RUN_TINY", "false"))
 
 MODELS_TO_TEST_MAPPING = {
-    "albert": (
-        "albert-base-v2",
-        TPSupport.NONE,
-        Coverage.LOW,
-        {"num_hidden_layers": 4},
-    ),
-    "bart": (
-        "facebook/bart-base",
-        TPSupport.NONE,
-        Coverage.MIDDLE,
-        {"encoder_layers": 2, "decoder_layers": 2},
-    ),
-    "bert": (
-        "bert-base-uncased",
-        TPSupport.FULL,
-        Coverage.HIGH,
-        {"num_hidden_layers": 4},
-    ),
-    "camembert": (
-        "camembert-base",
-        TPSupport.NONE,
-        Coverage.LOW,
-        {"num_hidden_layers": 4},
-    ),
-    "distilbert": (
-        "distilbert-base-uncased",
-        TPSupport.NONE,
-        Coverage.LOW,
-        {"num_hidden_layers": 4},
-    ),
-    "electra": (
-        "google/electra-base-discriminator",
-        TPSupport.NONE,
-        Coverage.LOW,
-        {"num_hidden_layers": 4},
-    ),
-    "gpt2": (
-        "gpt2",
-        TPSupport.NONE,
-        Coverage.MIDDLE,
-        {"num_hidden_layers": 4},
-    ),
+    "albert": ("albert-base-v2", TPSupport.NONE, Coverage.LOW, {"num_hidden_layers": 4},),
+    "bart": ("facebook/bart-base", TPSupport.NONE, Coverage.MIDDLE, {"encoder_layers": 2, "decoder_layers": 2},),
+    "bert": ("bert-base-uncased", TPSupport.FULL, Coverage.HIGH, {"num_hidden_layers": 4},),
+    "camembert": ("camembert-base", TPSupport.NONE, Coverage.LOW, {"num_hidden_layers": 4},),
+    "distilbert": ("distilbert-base-uncased", TPSupport.NONE, Coverage.LOW, {"num_hidden_layers": 4},),
+    "electra": ("google/electra-base-discriminator", TPSupport.NONE, Coverage.LOW, {"num_hidden_layers": 4},),
+    "gpt2": ("gpt2", TPSupport.NONE, Coverage.MIDDLE, {"num_hidden_layers": 4},),
     "gpt_neo": (
         "EleutherAI/gpt-neo-125M",
         TPSupport.PARTIAL,
@@ -151,49 +116,14 @@ MODELS_TO_TEST_MAPPING = {
         Coverage.MIDDLE,
         {"encoder_layers": 2, "decoder_layers": 2},
     ),
-    "roberta": (
-        "roberta-base",
-        TPSupport.PARTIAL,
-        Coverage.LOW,
-        {"num_hidden_layers": 4},
-    ),
-    "t5": (
-        "t5-small",
-        TPSupport.FULL,
-        Coverage.HIGH,
-        {"num_hidden_layers": 2},
-    ),
-    "vit": (
-        "google/vit-base-patch16-224-in21k",
-        TPSupport.NONE,
-        Coverage.HIGH,
-        {"num_hidden_layers": 4},
-    ),
-    "xlm-roberta": (
-        "xlm-roberta-base",
-        TPSupport.NONE,
-        Coverage.LOW,
-        {"num_hidden_layers": 4},
-    ),
+    "roberta": ("roberta-base", TPSupport.PARTIAL, Coverage.LOW, {"num_hidden_layers": 4},),
+    "t5": ("t5-small", TPSupport.FULL, Coverage.HIGH, {"num_hidden_layers": 2},),
+    "vit": ("google/vit-base-patch16-224-in21k", TPSupport.NONE, Coverage.HIGH, {"num_hidden_layers": 4},),
+    "xlm-roberta": ("xlm-roberta-base", TPSupport.NONE, Coverage.LOW, {"num_hidden_layers": 4},),
     # TODO: issue with this model for now.
-    "m2m_100": (
-        "facebook/m2m100_418M",
-        TPSupport.NONE,
-        Coverage.MIDDLE,
-        {"encoder_layers": 2, "decoder_layers": 2},
-    ),
-    "llama": (
-        "NousResearch/Llama-2-7b-hf",
-        TPSupport.FULL,
-        Coverage.HIGH,
-        {"num_hidden_layers": 2},
-    ),
-    "mistral": (
-        "mistralai/Mistral-7B-v0.1",
-        TPSupport.FULL,
-        Coverage.HIGH,
-        {"num_hidden_layers": 2},
-    ),
+    "m2m_100": ("facebook/m2m100_418M", TPSupport.NONE, Coverage.MIDDLE, {"encoder_layers": 2, "decoder_layers": 2},),
+    "llama": ("NousResearch/Llama-2-7b-hf", TPSupport.FULL, Coverage.HIGH, {"num_hidden_layers": 2},),
+    "mistral": ("mistralai/Mistral-7B-v0.1", TPSupport.FULL, Coverage.HIGH, {"num_hidden_layers": 2},),
     # "wav2vec2": "facebook/wav2vec2-base",
     # Remaning: XLNet, Deberta-v2, MPNet, CLIP
 }

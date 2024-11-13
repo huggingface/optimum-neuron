@@ -432,9 +432,7 @@ def download_checkpoints_in_cache(
                 if resolved_archive_file is None and filename == _add_variant(WEIGHTS_NAME, variant):
                     # Maybe the checkpoint is sharded, we try to grab the index name in this case.
                     resolved_archive_file = distributed_friendly_cached_file(
-                        pretrained_model_name_or_path,
-                        _add_variant(WEIGHTS_INDEX_NAME, variant),
-                        **cached_file_kwargs,
+                        pretrained_model_name_or_path, _add_variant(WEIGHTS_INDEX_NAME, variant), **cached_file_kwargs,
                     )
                     if resolved_archive_file is not None:
                         is_sharded = True
@@ -667,9 +665,7 @@ class DiffusersPretrainedConfig(PretrainedConfig):
         return output
 
 
-def get_stable_diffusion_configs(
-    models_for_export: Dict[str, Union["PreTrainedModel", "ModelMixin"]],
-):
+def get_stable_diffusion_configs(models_for_export: Dict[str, Union["PreTrainedModel", "ModelMixin"]],):
     subfolders = ["text_encoder", "text_encoder_2", "unet", "vae"]
     configs = {}
     for name in subfolders:

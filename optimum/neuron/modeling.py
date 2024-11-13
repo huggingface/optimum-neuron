@@ -36,9 +36,7 @@ from transformers import (
     AutoModelForTokenClassification,
 )
 from transformers.file_utils import add_start_docstrings, add_start_docstrings_to_model_forward
-from transformers.generation import (
-    GenerationMixin,
-)
+from transformers.generation import GenerationMixin
 from transformers.modeling_outputs import (
     BaseModelOutputWithPooling,
     CausalLMOutput,
@@ -246,9 +244,9 @@ class NeuronModelForSentenceTransformers(NeuronTracedModel):
         neuron_inputs = {"input_ids": input_ids}
         if pixel_values is not None:
             neuron_inputs["pixel_values"] = pixel_values
-        neuron_inputs["attention_mask"] = (
-            attention_mask  # The input order for clip is: input_ids, pixel_values, attention_mask.
-        )
+        neuron_inputs[
+            "attention_mask"
+        ] = attention_mask  # The input order for clip is: input_ids, pixel_values, attention_mask.
 
         with self.neuron_padding_manager(neuron_inputs) as inputs:
             outputs = self.model(*inputs)
@@ -700,9 +698,7 @@ class NeuronModelForImageClassification(NeuronTracedModel):
         )
     )
     def forward(
-        self,
-        pixel_values: torch.Tensor,
-        **kwargs,
+        self, pixel_values: torch.Tensor, **kwargs,
     ):
         neuron_inputs = {"pixel_values": pixel_values}
 
@@ -786,9 +782,7 @@ class NeuronModelForSemanticSegmentation(NeuronTracedModel):
         )
     )
     def forward(
-        self,
-        pixel_values: torch.Tensor,
-        **kwargs,
+        self, pixel_values: torch.Tensor, **kwargs,
     ):
         neuron_inputs = {"pixel_values": pixel_values}
 
@@ -873,9 +867,7 @@ class NeuronModelForObjectDetection(NeuronTracedModel):
         )
     )
     def forward(
-        self,
-        pixel_values: torch.Tensor,
-        **kwargs,
+        self, pixel_values: torch.Tensor, **kwargs,
     ):
         neuron_inputs = {"pixel_values": pixel_values}
 
@@ -957,9 +949,7 @@ class NeuronModelForAudioClassification(NeuronTracedModel):
         )
     )
     def forward(
-        self,
-        input_values: torch.Tensor,
-        **kwargs,
+        self, input_values: torch.Tensor, **kwargs,
     ):
         neuron_inputs = {"input_values": input_values}
 
@@ -1023,9 +1013,7 @@ class NeuronModelForAudioFrameClassification(NeuronTracedModel):
         )
     )
     def forward(
-        self,
-        input_values: torch.Tensor,
-        **kwargs,
+        self, input_values: torch.Tensor, **kwargs,
     ):
         neuron_inputs = {"input_values": input_values}
 
@@ -1103,9 +1091,7 @@ class NeuronModelForCTC(NeuronTracedModel):
         )
     )
     def forward(
-        self,
-        input_values: torch.Tensor,
-        **kwargs,
+        self, input_values: torch.Tensor, **kwargs,
     ):
         neuron_inputs = {"input_values": input_values}
 
@@ -1176,9 +1162,7 @@ class NeuronModelForXVector(NeuronTracedModel):
         )
     )
     def forward(
-        self,
-        input_values: torch.Tensor,
-        **kwargs,
+        self, input_values: torch.Tensor, **kwargs,
     ):
         neuron_inputs = {"input_values": input_values}
 
@@ -1264,9 +1248,7 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
     @add_start_docstrings_to_model_forward(
         NEURON_CAUSALLM_MODEL_FORWARD_DOCSTRING
         + TEXT_GENERATION_EXAMPLE.format(
-            processor_class="AutoTokenizer",
-            model_class="NeuronModelForCausalLM",
-            checkpoint="gpt2",
+            processor_class="AutoTokenizer", model_class="NeuronModelForCausalLM", checkpoint="gpt2",
         )
     )
     def forward(
@@ -1285,10 +1267,7 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
         return (out_logits,)
 
     def get_start_ids(
-        self,
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
-        seq_ids: Optional[torch.Tensor] = None,
+        self, input_ids: torch.Tensor, attention_mask: torch.Tensor, seq_ids: Optional[torch.Tensor] = None,
     ):
         # The start_ids parameter has different meanings:
         # - for continuous (unpadded) batching it corresponds to the sequence id,
@@ -1342,10 +1321,7 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
         }
 
     def prepare_inputs_for_decode(
-        self,
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
-        seq_ids: Optional[List[int]] = None,
+        self, input_ids: torch.Tensor, attention_mask: torch.Tensor, seq_ids: Optional[List[int]] = None,
     ) -> Dict[str, torch.Tensor]:
         start_ids = self.get_start_ids(input_ids, attention_mask, seq_ids=seq_ids)
         cache_ids = self.get_cache_ids(attention_mask, prefill=False)
@@ -1444,11 +1420,7 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
             padded_attention_mask = torch.cat([padded_attention_mask, padding])
 
         output_ids = self.generate_tokens(
-            padded_input_ids,
-            selector,
-            batch_size,
-            padded_attention_mask,
-            **model_kwargs,
+            padded_input_ids, selector, batch_size, padded_attention_mask, **model_kwargs,
         )
         return output_ids[:batch_size, :]
 
@@ -1485,10 +1457,7 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
 
         # Prefill and obtain the first token
         model_inputs = self.prepare_inputs_for_prefill(input_ids, attention_mask)
-        outputs = self(
-            **model_inputs,
-            return_dict=True,
-        )
+        outputs = self(**model_inputs, return_dict=True,)
 
         # auto-regressive generation
         while True:
@@ -1510,9 +1479,6 @@ class NeuronModelForCausalLM(NeuronDecoderModel, GenerationMixin):
 
             # forward pass to get next token
             model_inputs = self.prepare_inputs_for_decode(input_ids, attention_mask)
-            outputs = self(
-                **model_inputs,
-                return_dict=True,
-            )
+            outputs = self(**model_inputs, return_dict=True,)
 
         return input_ids

@@ -62,12 +62,7 @@ _import_structure = {
     ],
     "modeling_decoder": ["NeuronDecoderModel"],
     "modeling_seq2seq": ["NeuronModelForSeq2SeqLM"],
-    "accelerate": [
-        "NeuronAccelerator",
-        "NeuronAcceleratorState",
-        "NeuronPartialState",
-        "ModelParallelismPlugin",
-    ],
+    "accelerate": ["NeuronAccelerator", "NeuronAcceleratorState", "NeuronPartialState", "ModelParallelismPlugin",],
     "pipelines": ["pipeline"],
     "utils": ["NeuronSFTConfig", "get_peft_model"],
 }
@@ -116,12 +111,7 @@ if TYPE_CHECKING:
 else:
     import sys
 
-    sys.modules[__name__] = _LazyModule(
-        __name__,
-        globals()["__file__"],
-        _import_structure,
-        module_spec=__spec__,
-    )
+    sys.modules[__name__] = _LazyModule(__name__, globals()["__file__"], _import_structure, module_spec=__spec__,)
 
 
 from .utils import is_neuron_available, is_neuronx_available, patch_transformers_for_neuron_sdk

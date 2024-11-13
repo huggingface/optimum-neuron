@@ -140,9 +140,7 @@ class T5ParallelMLP(ParallelMLP):
             if weight_map is not None:
                 layer_qualified_name = layer_to_fully_qualified_name[id(module)]
                 linear_layer_weight_info, linear_layer_bias_weight_info = get_linear_weight_info(
-                    weight_map,
-                    f"{layer_qualified_name}.{attribute_name}",
-                    device=device,
+                    weight_map, f"{layer_qualified_name}.{attribute_name}", device=device,
                 )
 
             setattr(

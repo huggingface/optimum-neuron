@@ -38,11 +38,7 @@ class DummyBeamValuesGenerator(DummyInputGenerator):
     )
 
     def __init__(
-        self,
-        task: str,
-        normalized_config: NormalizedTextConfig,
-        num_beams: int = 1,
-        **kwargs,
+        self, task: str, normalized_config: NormalizedTextConfig, num_beams: int = 1, **kwargs,
     ):
         self.task = task
         self.num_beams = num_beams
@@ -58,11 +54,7 @@ class DummyMaskedPosGenerator(DummyInputGenerator):
     SUPPORTED_INPUT_NAMES = ("masked_pos", "bool_masked_pos")
 
     def __init__(
-        self,
-        task: str,
-        normalized_config: NormalizedVisionConfig,
-        batch_size: int,
-        **kwargs,
+        self, task: str, normalized_config: NormalizedVisionConfig, batch_size: int, **kwargs,
     ):
         self.task = task
         self.image_size = getattr(normalized_config, "image_size", None)
@@ -160,8 +152,8 @@ class DummyControNetInputGenerator(DummyInputGenerator):
             shape = (
                 self.batch_size,
                 out_channels,
-                self.height // 2**num_cross_attn_blocks,
-                self.width // 2**num_cross_attn_blocks,
+                self.height // 2 ** num_cross_attn_blocks,
+                self.width // 2 ** num_cross_attn_blocks,
             )
             return self.random_float_tensor(shape, framework=framework, dtype=float_dtype)
 

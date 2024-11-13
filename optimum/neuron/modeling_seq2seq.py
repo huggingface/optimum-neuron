@@ -82,18 +82,8 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
         )  # only for the encoder
         self._attributes_init(model_save_dir, preprocessors, **kwargs)
         self.model_and_config_save_paths = model_and_config_save_paths if model_and_config_save_paths else None
-        self.encoder = NeuronEncoder(
-            encoder,
-            self,
-            self.configs[ENCODER_NAME],
-            self.neuron_configs[ENCODER_NAME],
-        )
-        self.decoder = NeuronDecoder(
-            decoder,
-            self,
-            self.configs[DECODER_NAME],
-            self.neuron_configs[DECODER_NAME],
-        )
+        self.encoder = NeuronEncoder(encoder, self, self.configs[ENCODER_NAME], self.neuron_configs[ENCODER_NAME],)
+        self.decoder = NeuronDecoder(decoder, self, self.configs[DECODER_NAME], self.neuron_configs[DECODER_NAME],)
         self.dynamic_batch_size = all(
             neuron_config._config.neuron["dynamic_batch_size"] for neuron_config in self.neuron_configs.values()
         )
@@ -317,19 +307,14 @@ class NeuronModelForConditionalGeneration(NeuronTracedModel, ABC):
             **kwargs_shapes,
         )
 
-        return cls._from_pretrained(
-            model_id=save_dir_path,
-            config=config,
-            model_save_dir=save_dir,
-        )
+        return cls._from_pretrained(model_id=save_dir_path, config=config, model_save_dir=save_dir,)
 
     def _save_config(self, save_directory):
         save_directory = Path(save_directory)
         self.configs[ENCODER_NAME].save_pretrained(save_directory / ENCODER_NAME)
         self.configs[DECODER_NAME].save_pretrained(save_directory / DECODER_NAME)
         combined_config = self._combine_encoder_decoder_config(
-            encoder_config=self.configs[ENCODER_NAME],
-            decoder_config=self.configs[DECODER_NAME],
+            encoder_config=self.configs[ENCODER_NAME], decoder_config=self.configs[DECODER_NAME],
         )
         combined_config.save_pretrained(save_directory)
 
@@ -495,12 +480,7 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
 
     # Override to cut the input_ids to just last token
     def prepare_inputs_for_generation(
-        self,
-        input_ids,
-        attention_mask=None,
-        decoder_attention_mask=None,
-        encoder_outputs=None,
-        **kwargs,
+        self, input_ids, attention_mask=None, decoder_attention_mask=None, encoder_outputs=None, **kwargs,
     ):
         # cut decoder_input_ids as past is cached
         input_ids = input_ids[:, -1:]

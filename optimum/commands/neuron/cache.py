@@ -181,9 +181,7 @@ class LookupRepoCommand(BaseOptimumCLICommand):
     @staticmethod
     def parse_args(parser: "ArgumentParser"):
         parser.add_argument(
-            "model_id",
-            type=str,
-            help="The model_id to lookup cached versions for.",
+            "model_id", type=str, help="The model_id to lookup cached versions for.",
         )
         parser.add_argument(
             "--mode",

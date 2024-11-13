@@ -376,10 +376,7 @@ class NeuronTracedModel(NeuronModel):
         api = HfApi(endpoint=endpoint)
 
         api.create_repo(
-            token=token,
-            repo_id=repository_id,
-            exist_ok=True,
-            private=private,
+            token=token, repo_id=repository_id, exist_ok=True, private=private,
         )
         for path, subdirs, files in os.walk(save_directory):
             for name in files:
@@ -450,10 +447,7 @@ class NeuronTracedModel(NeuronModel):
         model_type = neuron_config.get("model_type", None) or config.model_type
         model_type = model_type.replace("_", "-")
         neuron_config_constructor = TasksManager.get_exporter_config_constructor(
-            model_type=model_type,
-            exporter="neuron",
-            task=task,
-            library_name=cls.library_name,
+            model_type=model_type, exporter="neuron", task=task, library_name=cls.library_name,
         )
 
         return neuron_config_constructor(

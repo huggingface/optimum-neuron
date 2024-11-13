@@ -301,10 +301,7 @@ class NeuronStableDiffusionXLPipelineMixin(StableDiffusionXLPipelineMixin, Stabl
         add_text_embeds = pooled_prompt_embeds
 
         add_time_ids = self._get_add_time_ids(
-            original_size,
-            crops_coords_top_left,
-            target_size,
-            dtype=prompt_embeds.dtype,
+            original_size, crops_coords_top_left, target_size, dtype=prompt_embeds.dtype,
         )
         if negative_original_size is not None and negative_target_size is not None:
             negative_add_time_ids = self._get_add_time_ids(

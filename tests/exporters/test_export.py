@@ -60,9 +60,7 @@ logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 
 def _get_models_to_test(
-    export_models_dict: Dict,
-    exclude_model_types: Optional[List[str]] = None,
-    library_name: str = "transformers",
+    export_models_dict: Dict, exclude_model_types: Optional[List[str]] = None, library_name: str = "transformers",
 ):
     models_to_test = []
     for model_type, model_names_tasks in export_models_dict.items():

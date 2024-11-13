@@ -260,11 +260,7 @@ class NeuronStableDiffusionImg2ImgPipelineMixin(StableDiffusionPipelineMixin, St
 
                 # predict the noise residual
                 # [modified for neuron] Remove not traced inputs: cross_attention_kwargs, return_dict
-                noise_pred = self.unet(
-                    latent_model_input,
-                    t,
-                    encoder_hidden_states=prompt_embeds,
-                )[0]
+                noise_pred = self.unet(latent_model_input, t, encoder_hidden_states=prompt_embeds,)[0]
 
                 # perform guidance
                 if do_classifier_free_guidance:

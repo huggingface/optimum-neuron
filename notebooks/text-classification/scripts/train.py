@@ -39,10 +39,7 @@ def parse_args():
     parser.add_argument("--lr", type=float, default=5e-5, help="Learning rate to use for training.")
     parser.add_argument("--seed", type=int, default=42, help="Seed to use for training.")
     parser.add_argument(
-        "--bf16",
-        type=bool,
-        default=False,
-        help="Whether to use bf16.",
+        "--bf16", type=bool, default=False, help="Whether to use bf16.",
     )
     parser.add_argument(
         "--hf_token",
