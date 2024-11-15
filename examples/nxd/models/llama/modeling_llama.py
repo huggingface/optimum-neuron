@@ -306,7 +306,7 @@ class NeuronLlamaModel(NeuronDecoderModel, LlamaPreTrainedModel):
             )
             self.lm_head = ColumnParallelLinear(config.hidden_size, config.vocab_size, bias=False, pad=True)
         else:
-            self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
+            self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, config.pad_token_id)
             self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
         self.layers = nn.ModuleList([NeuronLlamaDecoderLayer(config) for _ in range(config.num_hidden_layers)])

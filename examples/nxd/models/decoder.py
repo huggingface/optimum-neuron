@@ -6,9 +6,9 @@ from models.gqa import (  # noqa: E402
     get_shardable_head_counts,  # noqa: E402
 )  # noqa: E402
 from modules.autobucketing import slice_lhs, slice_rhs  # noqa: E402
+from modules.cache import NeuronStaticCache
 from modules.sampling import Sampler  # noqa: E402
 from neuronx_distributed.parallel_layers import parallel_state, utils  # noqa: E402
-from torch import nn
 from transformers import PretrainedConfig, PreTrainedModel
 from transformers.generation import (
     SampleDecoderOnlyOutput,
@@ -79,17 +79,13 @@ class NeuronDecoderModel(PreTrainedModel):
 
         hidden_dim_per_head = config.hidden_size // config.num_attention_heads
 
-        self.kv_shape = (
-            config.max_batch_size,
-            num_kv_heads_per_partition,
-            config.max_length,
-            hidden_dim_per_head,
-        )
-        self.past_key_values = nn.ParameterList(
-            [
-                nn.Parameter(torch.zeros(self.kv_shape, dtype=config.torch_dtype), requires_grad=False)
-                for _ in range(config.num_hidden_layers * 2)
-            ]
+        self.kv_cache = NeuronStaticCache(
+            max_batch_size=config.max_batch_size,
+            max_length=config.max_length,
+            num_kv_heads_per_partition=num_kv_heads_per_partition,
+            hidden_dim_per_head=hidden_dim_per_head,
+            num_hidden_layers=config.num_hidden_layers,
+            dtype=config.torch_dtype,
         )
 
     def _bucket_slice_kv_cacheline(self, cache):
@@ -101,12 +97,14 @@ class NeuronDecoderModel(PreTrainedModel):
             return slice_rhs(cache, self.n_positions, max_idx, self.SEQ_DIM)
 
     def _gather_bucket_slice_into_kv_cacheline(self, idx, bucket_slice):
-        max_idx = self.past_key_values[idx].shape[self.SEQ_DIM]
+        max_idx = self.kv_cache.get_max_cache_shape()
         if self.padding_side == "right":
-            remaining = slice_rhs(self.past_key_values[idx], max_idx - self.n_positions, max_idx, self.SEQ_DIM)
+            remaining = slice_rhs(
+                self.kv_cache.past_key_values[idx], max_idx - self.n_positions, max_idx, self.SEQ_DIM
+            )
             return torch.cat([bucket_slice, remaining], dim=self.SEQ_DIM)
         else:
-            remaining = slice_lhs(self.past_key_values[idx], max_idx - self.n_positions, self.SEQ_DIM)
+            remaining = slice_lhs(self.kv_cache.past_key_values[idx], max_idx - self.n_positions, self.SEQ_DIM)
             return torch.cat([remaining, bucket_slice], dim=self.SEQ_DIM)
 
     def _create_context_attn_mask(self, attention_mask):
@@ -147,9 +145,9 @@ class NeuronDecoderModel(PreTrainedModel):
             past_key_values = None
         else:
             past_key_values = []
-            for key_layer_idx in range(0, len(self.past_key_values), 2):
-                k_cache = self.past_key_values[key_layer_idx]
-                v_cache = self.past_key_values[key_layer_idx + 1]
+            for key_layer_idx in range(0, len(self.kv_cache.past_key_values), 2):
+                k_cache = self.kv_cache.past_key_values[key_layer_idx]
+                v_cache = self.kv_cache.past_key_values[key_layer_idx + 1]
                 key_state = self._bucket_slice_kv_cacheline(k_cache)
                 value_state = self._bucket_slice_kv_cacheline(v_cache)
 
@@ -169,8 +167,8 @@ class NeuronDecoderModel(PreTrainedModel):
 
         updated_kv_cache = []
         for idx, kv_per_layer in enumerate(past_key_values):
-            k_cache = self._bucket_slice_kv_cacheline(self.past_key_values[idx * 2])
-            v_cache = self._bucket_slice_kv_cacheline(self.past_key_values[idx * 2 + 1])
+            k_cache = self._bucket_slice_kv_cacheline(self.kv_cache.past_key_values[idx * 2])
+            v_cache = self._bucket_slice_kv_cacheline(self.kv_cache.past_key_values[idx * 2 + 1])
 
             if is_for_context_encoding:
                 if self.config.is_continuous_batching:

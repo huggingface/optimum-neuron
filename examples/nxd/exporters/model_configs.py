@@ -53,8 +53,8 @@ class DecoderModelInstance(BaseModelInstance):
         # generating HLO
         self.input_output_aliases = {}
         num_output_from_trace = 1
-        for i in range(len(self.module.model.past_key_values)):
-            self.input_output_aliases[self.module.model.past_key_values[i]] = num_output_from_trace + i
+        for i in range(len(self.module.model.kv_cache.past_key_values)):
+            self.input_output_aliases[self.module.model.kv_cache.past_key_values[i]] = num_output_from_trace + i
         return self.module, self.input_output_aliases
 
 
