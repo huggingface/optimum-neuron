@@ -540,7 +540,6 @@ def export_neuronx(
         checked_model = config.patch_model_for_export(model_or_path, dummy_inputs)
 
     # Construct compiler configurations
-    logger.info(f"Using Neuron: --auto-cast {auto_cast}")
     if auto_cast is not None:
         logger.info(f"Using Neuron: --auto-cast {auto_cast}")
         auto_cast = "matmult" if auto_cast == "matmul" else auto_cast
