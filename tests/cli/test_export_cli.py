@@ -303,9 +303,6 @@ class TestExportCLI(unittest.TestCase):
                 check=True,
             )
 
-    @unittest.skip(
-        "T5 compilation broken since neuron sdk 2.20, wait for the fix: https://github.com/aws-neuron/aws-neuron-sdk/issues/1013."
-    )
     @requires_neuronx
     def test_encoder_decoder(self):
         model_id = "hf-internal-testing/tiny-random-t5"
@@ -335,9 +332,6 @@ class TestExportCLI(unittest.TestCase):
                 check=True,
             )
 
-    @unittest.skip(
-        "T5 compilation broken since neuron sdk 2.20, wait for the fix: https://github.com/aws-neuron/aws-neuron-sdk/issues/1013."
-    )
     @requires_neuronx
     def test_encoder_decoder_optional_outputs(self):
         model_id = "hf-internal-testing/tiny-random-t5"
@@ -369,9 +363,6 @@ class TestExportCLI(unittest.TestCase):
                 check=True,
             )
 
-    @unittest.skip(
-        "T5 compilation broken since neuron sdk 2.20, wait for the fix: https://github.com/aws-neuron/aws-neuron-sdk/issues/1013."
-    )
     @requires_neuronx
     def test_encoder_decoder_tp2(self):
         model_id = "michaelbenayoun/t5-tiny-random"
