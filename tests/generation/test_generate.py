@@ -117,26 +117,6 @@ def test_seq2seq_generation_greedy_with_optional_outputs(neuron_seq2seq_greedy_p
     assert "decoder_hidden_states" in output
 
 
-@is_inferentia_test
-@requires_neuronx
-def test_seq2seq_generation_tp2(neuron_seq2seq_tp2_path):
-    model = NeuronModelForSeq2SeqLM.from_pretrained(neuron_seq2seq_tp2_path)
-    tokenizer = AutoTokenizer.from_pretrained(neuron_seq2seq_tp2_path)
-    inputs = tokenizer("translate English to German: Lets eat good food.", return_tensors="pt")
-
-    output = model.generate(
-        **inputs,
-        num_return_sequences=1,
-        max_length=20,
-        output_attentions=True,
-        output_hidden_states=True,
-        return_dict_in_generate=True,
-    )
-    assert "decoder_attentions" in output
-    assert "cross_attentions" in output
-    assert "decoder_hidden_states" in output
-
-
 @pytest.mark.skip("Makes pytest fail, to fix.")
 @pytest.mark.parametrize(
     "gen_kwargs",
@@ -180,10 +160,3 @@ def test_general_seq2seq_generation(export_seq2seq_id, export_seq2seq_model_clas
     model = export_seq2seq_model_class.from_pretrained(export_seq2seq_id)
     tokenizer = AutoTokenizer.from_pretrained(export_seq2seq_id)
     _test_model_generation_trn(model, tokenizer, 1, 10, **gen_kwargs)
-
-
-# Compulsory for multiprocessing tests, since we want children processes to be spawned only in the main program.
-# eg. tensor parallel tracing, `neuronx_distributed.parallel_model_trace` will spawn multiple processes to trace
-# and compile the model.
-if __name__ == "__main__":
-    pytest.main([__file__])

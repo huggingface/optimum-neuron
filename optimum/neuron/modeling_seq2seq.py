@@ -462,14 +462,14 @@ class NeuronModelForSeq2SeqLM(NeuronModelForConditionalGeneration, NeuronGenerat
         decoder_hidden_states = None
 
         # Skip pkv which can't be copied from memory to buffer
-        if output_attentions and self.config.neuron.get("output_attentions"):
+        if output_attentions and self.configs["decoder"].neuron.get("output_attentions"):
             if self.config.is_encoder_decoder:
                 cross_attentions = outputs[-self.config.num_decoder_layers :]
                 cur_idx += self.config.num_decoder_layers
             decoder_attentions = outputs[-(self.config.num_decoder_layers + cur_idx) : -cur_idx]
             cur_idx += self.config.num_decoder_layers
 
-        if output_hidden_states and self.config.neuron.get("output_hidden_states"):
+        if output_hidden_states and self.configs["decoder"].neuron.get("output_hidden_states"):
             decoder_hidden_states = outputs[-(self.config.num_decoder_layers + 1 + cur_idx) : -cur_idx]
 
         decoder_outputs = ModelOutput(
