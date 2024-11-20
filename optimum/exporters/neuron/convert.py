@@ -615,7 +615,7 @@ def add_stable_diffusion_compiler_args(config, compiler_args):
 
 
 def improve_stable_diffusion_loading(config, neuron_model):
-    # Combine the model name and its path to identify which is the subcomponent in Stable Diffusion pipeline
+    # Combine the model name and its path to identify which is the subcomponent in Diffusion pipeline
     identifier = getattr(config._config, "_name_or_path", "") + " " + getattr(config._config, "_class_name", "")
     identifier = identifier.lower()
     sd_components = ["text_encoder", "unet", "vae", "vae_encoder", "vae_decoder", "controlnet"]

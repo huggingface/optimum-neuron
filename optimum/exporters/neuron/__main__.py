@@ -51,7 +51,7 @@ from .utils import (
     build_stable_diffusion_components_mandatory_shapes,
     check_mandatory_input_shapes,
     get_encoder_decoder_models_for_export,
-    get_stable_diffusion_models_for_export,
+    get_diffusion_models_for_export,
     replace_stable_diffusion_submodels,
 )
 
@@ -399,7 +399,7 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
     lora_model_ids, lora_weight_names, lora_adapter_names, lora_scales = _normalize_lora_params(
         lora_model_ids, lora_weight_names, lora_adapter_names, lora_scales
     )
-    models_and_neuron_configs = get_stable_diffusion_models_for_export(
+    models_and_neuron_configs = get_diffusion_models_for_export(
         pipeline=model,
         text_encoder_input_shapes=input_shapes["text_encoder"],
         unet_input_shapes=input_shapes.get("unet", None),

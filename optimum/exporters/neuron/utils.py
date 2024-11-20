@@ -114,7 +114,7 @@ def build_stable_diffusion_components_mandatory_shapes(
     return components_shapes
 
 
-def get_stable_diffusion_models_for_export(
+def get_diffusion_models_for_export(
     pipeline: Union["StableDiffusionPipeline", "StableDiffusionXLPipeline"],
     text_encoder_input_shapes: Dict[str, int],
     unet_input_shapes: Dict[str, int],
@@ -218,7 +218,6 @@ def get_stable_diffusion_models_for_export(
         models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME] = (text_encoder_2, text_encoder_neuron_config_2)
 
     # U-NET or diffusion transformer
-    # if 
     unet = models_for_export[DIFFUSION_MODEL_UNET_NAME]
     unet_neuron_config_constructor = TasksManager.get_exporter_config_constructor(
         model=unet,
