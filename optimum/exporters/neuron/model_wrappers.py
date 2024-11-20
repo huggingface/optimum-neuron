@@ -383,7 +383,8 @@ class T5DecoderWrapper(torch.nn.Module):
 
     def reorder_cache(self, past_key_values, beam_idx):
         for i in range(len(past_key_values)):
-            past_key_values[i] = torch.index_select(past_key_values[i], 0, beam_idx)
+            gather_index = beam_idx.view([beam_idx.shape[0], 1, 1, 1]).expand_as(past_key_values[i])
+            past_key_values[i] = torch.gather(past_key_values[i], dim=0, index=gather_index)
         return past_key_values
 
     def forward(

@@ -176,7 +176,7 @@ class NeuronPeftModel(PeftModel):
 
                 adapter_shards_dir_model = os.path.join(output_dir, "adapter_shards", "model")
                 if not os.path.isdir(adapter_shards_dir_model):
-                    os.makedirs(adapter_shards_dir_model)
+                    os.makedirs(adapter_shards_dir_model, exist_ok=True)
 
                 dummy_mod = DummyModule()
                 neuronx_distributed.trainer.save_checkpoint(
