@@ -42,10 +42,18 @@ class DecoderModelInstance(BaseModelInstance):
         if self.config.torch_dtype == torch.bfloat16:
             float_model.bfloat16()
 
-        self.module = DecoderModelWrapper(float_model)
+        self.module = DecoderModelWrapper(
+            float_model,
+            batch_size=self.config.batch_size,
+            max_length=self.config.max_length,
+            tensor_parallel_size=self.config.tp_degree,
+            dtype=self.config.torch_dtype,
+        )
 
     def get(self, bucket_rank, **kwargs):
         if bucket_rank is not None:
+            # FIXME: do we really need this or can it be discovered dynamically ?
+            self.module.n_positions = self.buckets[bucket_rank]
             self.module.model.n_positions = self.buckets[bucket_rank]
 
         # Currently we have to init an input_output_aliases map for
@@ -53,8 +61,8 @@ class DecoderModelInstance(BaseModelInstance):
         # generating HLO
         self.input_output_aliases = {}
         num_output_from_trace = 1
-        for i in range(len(self.module.model.kv_cache.past_key_values)):
-            self.input_output_aliases[self.module.model.kv_cache.past_key_values[i]] = num_output_from_trace + i
+        for i in range(len(self.module.kv_cache.past_key_values)):
+            self.input_output_aliases[self.module.kv_cache.past_key_values[i]] = num_output_from_trace + i
         return self.module, self.input_output_aliases
 
 

@@ -1,4 +1,10 @@
 import torch
+from models.gqa import (  # noqa: E402
+    determine_sharding_strategy,  # noqa: E402
+    get_shardable_head_counts,  # noqa: E402
+)  # noqa: E402
+from modules.cache import NeuronStaticCache
+from neuronx_distributed.parallel_layers import parallel_state, utils  # noqa: E402
 
 
 CONTEXT_ENCODING_MODEL_TAG = "context_encoding_model"
@@ -6,13 +12,79 @@ TOKEN_GENERATION_MODEL_TAG = "token_generation_model"
 
 
 class DecoderModelWrapper(torch.nn.Module):
-    """Eventually this wrapper should include the KV cache management
-    That is now implemented in NeuronDecoderModel.
+    """Wraps the calls to the traced model, taking care of:
+    - padding the inputs to the correct shape (TODO),
+    - preparing and updating the KV cache.
     """
 
-    def __init__(self, model) -> None:
+    def __init__(self, model, batch_size: int, max_length: int, tensor_parallel_size: int, dtype: torch.dtype) -> None:
+        assert parallel_state.model_parallel_is_initialized()
         super().__init__()
         self.model = model
+        hidden_size = model.config.hidden_size
+        num_key_value_heads = model.config.num_key_value_heads
+        num_attention_heads = model.config.num_attention_heads
+        num_hidden_layers = model.config.num_hidden_layers
+        gqa_sharding_strategy = determine_sharding_strategy(tensor_parallel_size, num_key_value_heads)
+        _, num_key_value_heads = get_shardable_head_counts(
+            tensor_parallel_size, num_attention_heads, num_key_value_heads, gqa_sharding_strategy
+        )
+        num_kv_heads_per_partition = utils.divide(num_key_value_heads, tensor_parallel_size)
+
+        hidden_dim_per_head = hidden_size // num_attention_heads
+
+        self.kv_cache = NeuronStaticCache(
+            max_batch_size=batch_size,
+            max_length=max_length,
+            num_kv_heads_per_partition=num_kv_heads_per_partition,
+            hidden_dim_per_head=hidden_dim_per_head,
+            num_hidden_layers=num_hidden_layers,
+            dtype=dtype,
+        )
 
     def forward(self, input_ids, attention_mask, position_ids, seq_ids):
-        return self.model(input_ids, attention_mask, position_ids, seq_ids)
+        is_for_context_encoding = input_ids.shape[-1] > 1
+
+        # It is either for context encoding or for token generation
+        if is_for_context_encoding:
+            past_key_values = None
+        else:
+            past_key_values = []
+            for layer_idx in range(0, self.model.config.num_hidden_layers):
+                key_state, value_state = self.kv_cache.get_past_key_values(
+                    layer_idx, self.model.padding_side, self.n_positions
+                )
+                past_key_values.append([key_state, value_state])
+        # Actual model call
+        outputs, past_key_values = self.model(input_ids, attention_mask, position_ids, past_key_values, seq_ids)
+        # Extract updated kv cache tensors and return them: this seems required by the tracing code
+        updated_kv_cache = []
+        for layer_idx, kv_per_layer in enumerate(past_key_values):
+            k_cache, v_cache = self.kv_cache.get_past_key_values(layer_idx, self.model.padding_side, self.n_positions)
+            if is_for_context_encoding:
+                # assign back to full kv_cacheline
+                k_cache = kv_per_layer[0]
+                v_cache = kv_per_layer[1]
+            else:
+                if self.model.padding_side == "left":
+                    # TODO: fix it with scatter after right padding
+                    k_cache = k_cache[:, :, 1:, :]
+                    v_cache = v_cache[:, :, 1:, :]
+                    k_cache = torch.cat([k_cache, kv_per_layer[0]], dim=2)
+                    v_cache = torch.cat([v_cache, kv_per_layer[1]], dim=2)
+                else:
+                    scatter_index_new = position_ids.view(-1, 1, position_ids.shape[-1], 1).expand_as(kv_per_layer[0])
+                    k_cache = torch.scatter(k_cache, 2, scatter_index_new, kv_per_layer[0])
+                    v_cache = torch.scatter(v_cache, 2, scatter_index_new, kv_per_layer[1])
+
+            k_cache = self.kv_cache._gather_bucket_slice_into_kv_cacheline(
+                layer_idx * 2, k_cache, self.model.padding_side, self.n_positions
+            )
+            v_cache = self.kv_cache._gather_bucket_slice_into_kv_cacheline(
+                layer_idx * 2 + 1, v_cache, self.model.padding_side, self.n_positions
+            )
+
+            updated_kv_cache.append(k_cache)
+            updated_kv_cache.append(v_cache)
+
+        return [outputs] + updated_kv_cache
