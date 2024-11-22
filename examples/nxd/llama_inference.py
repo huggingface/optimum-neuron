@@ -139,7 +139,7 @@ def main():
     args = parser.parse_args()
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     tokenizer.pad_token_id = tokenizer.eos_token_id
-    tokenizer.padding_size = "right"
+    tokenizer.padding_side = "right"
 
     if args.action == "export":
         neuron_config = NeuronInferenceConfig.from_model_config(args.model)
