@@ -171,8 +171,11 @@ class NeuronAttentionBase(nn.Module):
         position_ids: Optional[torch.LongTensor] = None,
         past_key_value: Optional[Tuple[torch.Tensor]] = None,
         active_mask: Optional[torch.LongTensor] = None,
+        **kwargs,
     ) -> Tuple[Tensor, Optional[Tuple[Tensor, Tensor]]]:
         """Implements each layer's forward pass for the attention block."""
+        # TODO: align with standard attention inputs
+        assert active_mask is None
         bsz, q_len, _ = hidden_states.size()
         Q, K, V = self.prep_qkv_tensors(position_ids, hidden_states, past_key_value)
 
@@ -194,4 +197,5 @@ class NeuronAttentionBase(nn.Module):
 
         past_key_value: Tuple[Tensor, Tensor] = (K, V)
 
-        return attn_output, past_key_value
+        # TODO: return attn_weights when requested
+        return attn_output, None, past_key_value

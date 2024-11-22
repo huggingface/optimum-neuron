@@ -18,7 +18,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """PyTorch LLaMA model for NXD inference."""
-from typing import Optional, Tuple, Type, Union
+import warnings
+from typing import Type, Union
 
 import torch
 from neuronx_distributed.parallel_layers import parallel_state  # noqa: E402
@@ -32,6 +33,7 @@ from transformers import LlamaPreTrainedModel
 from transformers.generation import SampleDecoderOnlyOutput, SampleEncoderDecoderOutput
 from transformers.models.llama.configuration_llama import LlamaConfig
 from transformers.models.llama.modeling_llama import (
+    LlamaDecoderLayer,
     LlamaDynamicNTKScalingRotaryEmbedding,
     LlamaLinearScalingRotaryEmbedding,
     LlamaMLP,
@@ -139,10 +141,11 @@ class NeuronLlamaAttention(NeuronAttentionBase):
     5. update forward() method to adjust to changes from self.num_head
     """
 
-    def __init__(self, config: LlamaConfig):
+    def __init__(self, config: LlamaConfig, layer_idx: int):
         super().__init__()
 
         self.config = config
+        self.layer_idx = layer_idx
         self.hidden_size = config.hidden_size
         self.num_attention_heads = config.num_attention_heads
         self.num_key_value_heads = config.num_key_value_heads
@@ -191,49 +194,23 @@ class NeuronLlamaAttention(NeuronAttentionBase):
                 raise ValueError(f"Unknown RoPE scaling type {scaling_type}")
 
 
-class NeuronLlamaDecoderLayer(nn.Module):
+class NeuronLlamaDecoderLayer(LlamaDecoderLayer):
     """
     Just replace the attention with the NXD version, and MLP with the NXD version
     """
 
-    def __init__(self, config: LlamaConfig):
-        super().__init__()
-        self.hidden_size = config.hidden_size
-        self.self_attn = _LLAMA_MODULE_MAP[config.attn_cls](config=config)
+    def __init__(self, config: LlamaConfig, layer_idx: int):
+        assert parallel_state.model_parallel_is_initialized()
+        super().__init__(config, layer_idx)
+        if config._attn_implementation != "eager":
+            warnings.warn(
+                "Ignoring _attn_implementation = {config._attn_implementation} parameter: only default attention is supported for Neuron"
+            )
+        # Replace standard layers by parallel layers
+        self.self_attn = NeuronLlamaAttention(config=config, layer_idx=layer_idx)
         self.mlp = NeuronLlamaMLP(config)
-        self.input_layernorm = get_rmsnorm_cls()(config.hidden_size, eps=config.rms_norm_eps)
-        self.post_attention_layernorm = get_rmsnorm_cls()(config.hidden_size, eps=config.rms_norm_eps)
-
-    def forward(
-        self,
-        hidden_states: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_value: Optional[Tuple[torch.Tensor]] = None,
-        **kwargs,
-    ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
-        residual = hidden_states
-        hidden_states = self.input_layernorm(hidden_states)
-
-        # Self Attention
-        hidden_states, present_key_value = self.self_attn(
-            hidden_states=hidden_states,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            past_key_value=past_key_value,
-            **kwargs,
-        )
-        hidden_states = residual + hidden_states
-
-        # Fully Connected
-        residual = hidden_states
-        hidden_states = self.post_attention_layernorm(hidden_states)
-        hidden_states = self.mlp(hidden_states)
-        hidden_states = residual + hidden_states
-
-        outputs = (hidden_states, present_key_value)
-
-        return outputs
+        self.input_layernorm = CustomRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.post_attention_layernorm = CustomRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
 
 class ResBlock(nn.Module):
@@ -297,5 +274,7 @@ class NeuronLlamaModel(NeuronDecoderModel, LlamaPreTrainedModel):
             self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, config.pad_token_id)
             self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-        self.layers = nn.ModuleList([NeuronLlamaDecoderLayer(config) for _ in range(config.num_hidden_layers)])
+        self.layers = nn.ModuleList(
+            [NeuronLlamaDecoderLayer(config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
+        )
         self.norm = get_rmsnorm_cls()(config.hidden_size, eps=config.rms_norm_eps)

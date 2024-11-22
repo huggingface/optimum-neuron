@@ -274,6 +274,8 @@ class NeuronDecoderModel(PreTrainedModel):
                 position_ids=position_ids,
                 past_key_value=past_key_value,
                 active_mask=active_mask,
+                output_attentions=False,
+                use_cache=True,
             )
 
             hidden_states = layer_outputs[0]
