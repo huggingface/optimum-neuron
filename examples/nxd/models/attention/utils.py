@@ -41,15 +41,12 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1) -> 
     return q_embed, k_embed
 
 
-def manual_softmax(prior_scores, active_scores, is_speculation) -> Tuple[Tensor, Tensor]:
+def manual_softmax(prior_scores, active_scores) -> Tuple[Tensor, Tensor]:
     """
     simple softmax computation: denominator is the sum of exp over all vocab and only need compute numerator (exp)
     """
     max_score = torch.max(prior_scores, dim=-1, keepdim=True)[0]
-    max_active_score = torch.max(active_scores, dim=-1, keepdim=True)[0]
-    max_score = (
-        torch.maximum(max_score, max_active_score) if is_speculation else torch.maximum(max_score, active_scores)
-    )
+    max_score = torch.maximum(max_score, active_scores)
 
     exp_prior = torch.exp(prior_scores - max_score)
     exp_active = torch.exp(active_scores - max_score)

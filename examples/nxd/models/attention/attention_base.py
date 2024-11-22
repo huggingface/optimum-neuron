@@ -133,9 +133,8 @@ class NeuronAttentionBase(nn.Module):
             attn_output = torch.matmul(active_scores, V_active)
         return attn_output
 
-    def compute_for_token_gen(self, Q, K, V, position_ids, past_key_value, attention_mask, active_mask) -> Tensor:
+    def compute_for_token_gen(self, Q, K, V, position_ids, past_key_value, attention_mask) -> Tensor:
         """attention computation at token generation phase"""
-        is_speculation = position_ids.shape[-1] > 1
 
         # Attention computation: softmax((Q.K/√dkv) + mask).V
         # i. prior (cached) KV
@@ -151,12 +150,10 @@ class NeuronAttentionBase(nn.Module):
         K_active = repeat_kv(K, self.num_key_value_groups)
         V_active = repeat_kv(V, self.num_key_value_groups)
         active_scores = torch.matmul(Q, K_active.transpose(2, 3)) / math.sqrt(self.head_dim)
-        if is_speculation:
-            active_scores = torch.where(active_mask, active_scores, torch.finfo(active_scores.dtype).min)
         active_scores = active_scores.to(torch.float32)
 
         # iii. attention scores
-        softmax_prior, softmax_active = manual_softmax(prior_scores, active_scores, is_speculation)
+        softmax_prior, softmax_active = manual_softmax(prior_scores, active_scores)
         softmax_prior, softmax_active = softmax_prior.to(Q.dtype), softmax_active.to(Q.dtype)
         attn_prior = torch.matmul(softmax_prior, V_prior)
         attn_active = torch.matmul(softmax_active, V_active)
@@ -170,21 +167,17 @@ class NeuronAttentionBase(nn.Module):
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         past_key_value: Optional[Tuple[torch.Tensor]] = None,
-        active_mask: Optional[torch.LongTensor] = None,
         **kwargs,
     ) -> Tuple[Tensor, Optional[Tuple[Tensor, Tensor]]]:
         """Implements each layer's forward pass for the attention block."""
         # TODO: align with standard attention inputs
-        assert active_mask is None
         bsz, q_len, _ = hidden_states.size()
         Q, K, V = self.prep_qkv_tensors(position_ids, hidden_states, past_key_value)
 
         if past_key_value is None:
             attn_output = self.perform_prefill(Q, K, V, q_len, bsz, attention_mask)
         else:
-            attn_output = self.compute_for_token_gen(
-                Q, K, V, position_ids, past_key_value, attention_mask, active_mask
-            )
+            attn_output = self.compute_for_token_gen(Q, K, V, position_ids, past_key_value, attention_mask)
 
         # transpose BHSD -> BSHD
         attn_output = attn_output.transpose(1, 2).contiguous()

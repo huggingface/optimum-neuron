@@ -155,14 +155,12 @@ class NeuronDecoderModel(PreTrainedModel):
 
         # Prepare attention mask(s)
         attention_mask = self.create_attn_mask(attention_mask, is_for_context_encoding, position_ids)
-        active_mask = None
 
         hidden_states, past_key_values = self.get_model_output(
             input_ids=input_ids,
             attention_mask=attention_mask,
             position_ids=position_ids,
             past_key_values=past_key_values,
-            active_mask=active_mask,
         )
 
         updated_kv_cache = []
@@ -231,7 +229,6 @@ class NeuronDecoderModel(PreTrainedModel):
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         past_key_values: Optional[List[torch.FloatTensor]] = None,
-        active_mask: Optional[List[torch.FloatTensor]] = None,
     ):
         batch_size, seq_length = input_ids.shape[:2]
 
@@ -273,7 +270,6 @@ class NeuronDecoderModel(PreTrainedModel):
                 attention_mask=attention_mask,
                 position_ids=position_ids,
                 past_key_value=past_key_value,
-                active_mask=active_mask,
                 output_attentions=False,
                 use_cache=True,
             )
