@@ -19,9 +19,8 @@
 # limitations under the License.
 """PyTorch LLaMA model for NXD inference."""
 import warnings
-from typing import Type, Union
+from typing import Union
 
-import torch
 from neuronx_distributed.parallel_layers import parallel_state  # noqa: E402
 from neuronx_distributed.parallel_layers.layers import (  # noqa: E402
     ColumnParallelLinear,  # noqa: E402
@@ -37,7 +36,6 @@ from transformers.models.llama.modeling_llama import (
     LlamaDynamicNTKScalingRotaryEmbedding,
     LlamaLinearScalingRotaryEmbedding,
     LlamaMLP,
-    LlamaRMSNorm,
 )
 
 
@@ -48,51 +46,7 @@ from models.attention.attention_base import NeuronAttentionBase  # noqa: E402
 from models.attention.utils import RotaryEmbedding  # noqa: E402
 from models.custom_calls import CustomRMSNorm  # noqa: E402
 from models.decoder import NeuronDecoderModel  # noqa: E402
-from models.gqa import (  # noqa: E402
-    BaseGroupQueryAttention,  # noqa: E402
-)  # noqa: E402
 from modules.config import NeuronInferenceConfig  # noqa: E402
-
-
-_LLAMA_MODULE_MAP = {}
-
-
-def get_rmsnorm_cls():
-    # Initialize to the appropriate implementation of RMSNorm
-    # If infer on NXD -> CustomRMSNorm
-    # If infer on CPU -> HF_RMSNorm (CustomRMSNorm does not work on CPU)
-    return CustomRMSNorm if parallel_state.model_parallel_is_initialized() else LlamaRMSNorm
-
-
-def preshard_hook_fn(module: torch.nn.Module, model_state_dict: dict, prefix: str) -> bool:
-    if isinstance(module, (BaseGroupQueryAttention,)):
-        return module.preshard_hook(model_state_dict, prefix)
-
-    return False
-
-
-def _register_module(key: str, cls: Type[nn.Module]):
-    _LLAMA_MODULE_MAP[key] = cls
-
-
-def register_module(key: str):
-    """
-    Register a module for use in NeuronLlama.
-
-    Arguments:
-        key: String used to identify the module
-
-    Example:
-        @register_module("NeuronLlamaAttention")
-        class NeuronLlamaAttention(nn.Module):
-            ...
-    """
-
-    def inner(cls: Type[nn.Module]):
-        _register_module(key, cls)
-        return cls
-
-    return inner
 
 
 class NeuronLlamaMLP(LlamaMLP):
@@ -130,7 +84,6 @@ class NeuronLlamaMLP(LlamaMLP):
         )
 
 
-@register_module("NeuronLlamaAttention")
 class NeuronLlamaAttention(NeuronAttentionBase):
     """
     Compared with LlamaAttention, this class just
@@ -213,38 +166,6 @@ class NeuronLlamaDecoderLayer(LlamaDecoderLayer):
         self.post_attention_layernorm = CustomRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
 
-class ResBlock(nn.Module):
-    """
-    A Residual Block module.
-
-    This module performs a linear transformation followed by a SiLU activation,
-    and then adds the result to the original input, creating a residual connection.
-
-    Args:
-        hidden_size (int): The size of the hidden layers in the block.
-    """
-
-    def __init__(self, hidden_size):
-        super().__init__()
-        self.linear = nn.Linear(hidden_size, hidden_size)
-        # Initialize as an identity mapping
-        torch.nn.init.zeros_(self.linear.weight)
-        # Use SiLU activation to keep consistent with the Llama model
-        self.act = nn.SiLU()
-
-    def forward(self, x):
-        """
-        Forward pass of the ResBlock.
-
-        Args:
-            x (torch.Tensor): Input tensor.
-
-        Returns:
-            torch.Tensor: Output after the residual connection and activation.
-        """
-        return x + self.act(self.linear(x))
-
-
 class NeuronLlamaModel(NeuronDecoderModel, LlamaPreTrainedModel):
     """
     The neuron version of the LlamaModel
@@ -277,4 +198,4 @@ class NeuronLlamaModel(NeuronDecoderModel, LlamaPreTrainedModel):
         self.layers = nn.ModuleList(
             [NeuronLlamaDecoderLayer(config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
         )
-        self.norm = get_rmsnorm_cls()(config.hidden_size, eps=config.rms_norm_eps)
+        self.norm = CustomRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
