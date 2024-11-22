@@ -29,12 +29,12 @@ from neuronx_distributed.parallel_layers.layers import (  # noqa: E402
 )  # noqa: E402
 from torch import nn
 from transformers import LlamaPreTrainedModel
-from transformers.activations import ACT2FN
 from transformers.generation import SampleDecoderOnlyOutput, SampleEncoderDecoderOutput
 from transformers.models.llama.configuration_llama import LlamaConfig
 from transformers.models.llama.modeling_llama import (
     LlamaDynamicNTKScalingRotaryEmbedding,
     LlamaLinearScalingRotaryEmbedding,
+    LlamaMLP,
     LlamaRMSNorm,
 )
 
@@ -93,51 +93,39 @@ def register_module(key: str):
     return inner
 
 
-class NeuronLlamaMLP(nn.Module):
+class NeuronLlamaMLP(LlamaMLP):
     """
     This class just replace the linear layers (gate_proj, up_proj and down_proj) with column and row parallel layers
     """
 
     def __init__(self, config: LlamaConfig):
-        super().__init__()
-        self.config = config
-        self.tp_degree = config.tp_degree
-        self.hidden_size = config.hidden_size
-        self.intermediate_size = config.intermediate_size
-        self.act_fn = ACT2FN[config.hidden_act]
+        assert parallel_state.model_parallel_is_initialized()
+        super().__init__(config)
 
-        if parallel_state.model_parallel_is_initialized():
-            self.gate_proj = ColumnParallelLinear(
-                self.hidden_size,
-                self.intermediate_size,
-                bias=False,
-                gather_output=False,
-                dtype=config.torch_dtype,
-                pad=True,
-            )
-            self.up_proj = ColumnParallelLinear(
-                self.hidden_size,
-                self.intermediate_size,
-                bias=False,
-                gather_output=False,
-                dtype=config.torch_dtype,
-                pad=True,
-            )
-            self.down_proj = RowParallelLinear(
-                self.intermediate_size,
-                self.hidden_size,
-                bias=False,
-                input_is_parallel=True,
-                dtype=config.torch_dtype,
-                pad=True,
-            )
-        else:
-            self.gate_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=False)
-            self.up_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=False)
-            self.down_proj = nn.Linear(self.intermediate_size, self.hidden_size, bias=False)
-
-    def forward(self, x):
-        return self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
+        self.gate_proj = ColumnParallelLinear(
+            self.hidden_size,
+            self.intermediate_size,
+            bias=False,
+            gather_output=False,
+            dtype=config.torch_dtype,
+            pad=True,
+        )
+        self.up_proj = ColumnParallelLinear(
+            self.hidden_size,
+            self.intermediate_size,
+            bias=False,
+            gather_output=False,
+            dtype=config.torch_dtype,
+            pad=True,
+        )
+        self.down_proj = RowParallelLinear(
+            self.intermediate_size,
+            self.hidden_size,
+            bias=False,
+            input_is_parallel=True,
+            dtype=config.torch_dtype,
+            pad=True,
+        )
 
 
 @register_module("NeuronLlamaAttention")
