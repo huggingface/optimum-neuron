@@ -121,8 +121,27 @@ class ControlNetNeuronWrapper(torch.nn.Module):
         return out_tuple
 
 
-# Adapted from https://awsdocs-neuron.readthedocs-hosted.com/en/latest/src/examples/pytorch/torch-neuronx/t5-inference-tutorial.html
+# Adapted from https://github.com/aws-neuron/aws-neuron-samples/blob/master/torch-neuronx/inference/hf_pretrained_pixart_alpha_inference_on_inf2.ipynb
+# For text encoding
 class T5EncoderWrapper(torch.nn.Module):
+    def __init__(self, model: "PreTrainedModel", sequence_length: int, batch_size: Optional[int] = None,):
+        super().__init__()
+        self.model = model
+        self.sequence_length = sequence_length
+        self.batch_size = batch_size
+        self.device = model.device
+        for block in self.model.encoder.block:
+            block.layer[1].DenseReluDense.act = torch.nn.GELU(approximate="tanh")
+        precomputed_bias = self.model.encoder.block[0].layer[0].SelfAttention.compute_bias(self.sequence_length, self.sequence_length)
+        self.model.encoder.block[0].layer[0].SelfAttention.compute_bias = lambda *args, **kwargs: precomputed_bias
+    
+    def forward(self, input_ids, attention_mask):
+        return self.model(input_ids, attention_mask=attention_mask)
+
+
+# Adapted from https://awsdocs-neuron.readthedocs-hosted.com/en/latest/src/examples/pytorch/torch-neuronx/t5-inference-tutorial.html
+# For text encoding + KV cache initialization
+class T5EncoderForSeq2SeqLMWrapper(torch.nn.Module):
     """Wrapper to trace the encoder and the kv cache initialization in the decoder."""
 
     def __init__(

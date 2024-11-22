@@ -58,7 +58,7 @@ if is_diffusers_available():
     from diffusers import (
         ControlNetModel,
         ModelMixin,
-        StableDiffusionPipeline,
+        DiffusionPipeline,
         StableDiffusionXLImg2ImgPipeline,
         StableDiffusionXLInpaintPipeline,
         StableDiffusionXLPipeline,
@@ -115,7 +115,7 @@ def build_stable_diffusion_components_mandatory_shapes(
 
 
 def get_diffusion_models_for_export(
-    pipeline: Union["StableDiffusionPipeline", "StableDiffusionXLPipeline"],
+    pipeline: "DiffusionPipeline",
     text_encoder_input_shapes: Dict[str, int],
     unet_input_shapes: Dict[str, int],
     transformer_input_shapes: Dict[str, int],
@@ -137,7 +137,7 @@ def get_diffusion_models_for_export(
     performance benefit (CLIP text encoder, VAE encoder, VAE decoder, Unet).
 
     Args:
-        pipeline ([`Union["StableDiffusionPipeline", "StableDiffusionXLPipeline"]`]):
+        pipeline ([`"DiffusionPipeline"`]):
             The model to export.
         text_encoder_input_shapes (`Dict[str, int]`):
             Static shapes used for compiling text encoder.
@@ -171,7 +171,7 @@ def get_diffusion_models_for_export(
         `Dict[str, Tuple[Union[`PreTrainedModel`, `ModelMixin`], `NeuronDefaultConfig`]`: A Dict containing the model and
         Neuron configs for the different components of the model.
     """
-    models_for_export = get_submodels_for_export_stable_diffusion(
+    models_for_export = get_submodels_for_export_diffusion(
         pipeline=pipeline,
         lora_model_ids=lora_model_ids,
         lora_weight_names=lora_weight_names,
@@ -217,29 +217,48 @@ def get_diffusion_models_for_export(
         )
         models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME] = (text_encoder_2, text_encoder_neuron_config_2)
 
-    # U-NET or diffusion transformer
-    unet = models_for_export[DIFFUSION_MODEL_UNET_NAME]
-    unet_neuron_config_constructor = TasksManager.get_exporter_config_constructor(
-        model=unet,
-        exporter="neuron",
-        task="semantic-segmentation",
-        model_type="unet",
-        library_name=library_name,
-    )
-    unet_neuron_config = unet_neuron_config_constructor(
-        unet.config,
-        task="semantic-segmentation",
-        dynamic_batch_size=dynamic_batch_size,
-        **unet_input_shapes,
-    )
-    is_stable_diffusion_xl = isinstance(
-        pipeline, (StableDiffusionXLImg2ImgPipeline, StableDiffusionXLInpaintPipeline, StableDiffusionXLPipeline)
-    )
-    unet_neuron_config.is_sdxl = is_stable_diffusion_xl
+    # U-NET
+    if DIFFUSION_MODEL_UNET_NAME in models_for_export:
+        unet = models_for_export[DIFFUSION_MODEL_UNET_NAME]
+        unet_neuron_config_constructor = TasksManager.get_exporter_config_constructor(
+            model=unet,
+            exporter="neuron",
+            task="semantic-segmentation",
+            model_type="unet",
+            library_name=library_name,
+        )
+        unet_neuron_config = unet_neuron_config_constructor(
+            unet.config,
+            task="semantic-segmentation",
+            dynamic_batch_size=dynamic_batch_size,
+            **unet_input_shapes,
+        )
+        is_stable_diffusion_xl = isinstance(
+            pipeline, (StableDiffusionXLImg2ImgPipeline, StableDiffusionXLInpaintPipeline, StableDiffusionXLPipeline)
+        )
+        unet_neuron_config.is_sdxl = is_stable_diffusion_xl
 
-    unet_neuron_config.with_controlnet = True if controlnet_ids else False
+        unet_neuron_config.with_controlnet = True if controlnet_ids else False
 
-    models_for_export[DIFFUSION_MODEL_UNET_NAME] = (unet, unet_neuron_config)
+        models_for_export[DIFFUSION_MODEL_UNET_NAME] = (unet, unet_neuron_config)
+    
+    # Diffusion Transformer
+    if DIFFUSION_MODEL_TRANSFORMER_NAME in models_for_export:
+        transformer = models_for_export[DIFFUSION_MODEL_TRANSFORMER_NAME]
+        transformer_neuron_config_constructor = TasksManager.get_exporter_config_constructor(
+            model=transformer,
+            exporter="neuron",
+            task="semantic-segmentation",
+            model_type="transformer",
+            library_name=library_name,
+        )
+        transformer_neuron_config = transformer_neuron_config_constructor(
+            transformer.config,
+            task="semantic-segmentation",
+            dynamic_batch_size=dynamic_batch_size,
+            **transformer_input_shapes,
+        )
+        models_for_export[DIFFUSION_MODEL_TRANSFORMER_NAME] = (transformer, transformer_neuron_config)
 
     # VAE Encoder
     vae_encoder = models_for_export[DIFFUSION_MODEL_VAE_ENCODER_NAME]
@@ -304,7 +323,7 @@ def get_diffusion_models_for_export(
 
 
 def _load_lora_weights_to_pipeline(
-    pipeline: Union["StableDiffusionPipeline", "StableDiffusionXLPipeline"],
+    pipeline: "DiffusionPipeline",
     lora_model_ids: Optional[Union[str, List[str]]] = None,
     weight_names: Optional[Union[str, List[str]]] = None,
     adapter_names: Optional[Union[str, List[str]]] = None,
@@ -357,8 +376,8 @@ def load_controlnets(controlnet_ids: Optional[Union[str, List[str]]] = None):
     return contronets
 
 
-def get_submodels_for_export_stable_diffusion(
-    pipeline: Union["StableDiffusionPipeline", "StableDiffusionXLPipeline"],
+def get_submodels_for_export_diffusion(
+    pipeline: "DiffusionPipeline",
     output_hidden_states: bool = False,
     lora_model_ids: Optional[Union[str, List[str]]] = None,
     lora_weight_names: Optional[Union[str, List[str]]] = None,

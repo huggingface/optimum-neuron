@@ -30,12 +30,14 @@ from ...neuron.utils import (
     DIFFUSION_MODEL_TEXT_ENCODER_2_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_NAME,
     DIFFUSION_MODEL_UNET_NAME,
+    DIFFUSION_MODEL_TRANSFORMER_NAME,
     DIFFUSION_MODEL_VAE_DECODER_NAME,
     DIFFUSION_MODEL_VAE_ENCODER_NAME,
     ENCODER_NAME,
     NEURON_FILE_NAME,
     is_neuron_available,
     is_neuronx_available,
+    map_torch_dtype,
 )
 from ...neuron.utils.misc import maybe_save_preprocessors
 from ...neuron.utils.version_utils import (
@@ -185,9 +187,9 @@ def normalize_stable_diffusion_input_shapes(
 ) -> Dict[str, Dict[str, int]]:
     args = vars(args) if isinstance(args, argparse.Namespace) else args
     mandatory_axes = set(getattr(inspect.getfullargspec(build_stable_diffusion_components_mandatory_shapes), "args"))
-    # Remove `sequence_length` as diffusers will pad it to the max and remove number of channels.
     mandatory_axes = mandatory_axes - {
-        "sequence_length",
+        "sequence_length",  # `sequence_length` is optional, diffusers will pad it to the max if not provided.
+        # remove number of channels.
         "unet_or_transformer_num_channels",
         "vae_encoder_num_channels",
         "vae_decoder_num_channels",
@@ -199,6 +201,7 @@ def normalize_stable_diffusion_input_shapes(
         )
     mandatory_shapes = {name: args[name] for name in mandatory_axes}
     mandatory_shapes["num_images_per_prompt"] = args.get("num_images_per_prompt", 1)
+    mandatory_shapes["sequence_length"] = args.get("sequence_length", None)
     input_shapes = build_stable_diffusion_components_mandatory_shapes(**mandatory_shapes)
     return input_shapes
 
@@ -209,11 +212,11 @@ def infer_stable_diffusion_shapes_from_diffusers(
     has_controlnets: bool,
 ):
     if model.tokenizer is not None:
-        sequence_length = model.tokenizer.model_max_length
+        max_sequence_length = model.tokenizer.model_max_length
     elif hasattr(model, "tokenizer_2") and model.tokenizer_2 is not None:
-        sequence_length = model.tokenizer_2.model_max_length
+        max_sequence_length = model.tokenizer_2.model_max_length
     else:
-        raise AttributeError(f"Cannot infer sequence_length from {type(model)} as there is no tokenizer as attribute.")
+        raise AttributeError(f"Cannot infer max sequence_length from {type(model)} as there is no tokenizer as attribute.")
     vae_encoder_num_channels = model.vae.config.in_channels
     vae_decoder_num_channels = model.vae.config.latent_channels
     vae_scale_factor = 2 ** (len(model.vae.config.block_out_channels) - 1) or 8
@@ -223,7 +226,8 @@ def infer_stable_diffusion_shapes_from_diffusers(
     scaled_width = width // vae_scale_factor
 
     # Text encoders
-    input_shapes["text_encoder"].update({"sequence_length": sequence_length})
+    if input_shapes["text_encoder"].get("sequence_length") is None:
+        input_shapes["text_encoder"].update({"sequence_length": max_sequence_length})
     if hasattr(model, "text_encoder_2"):
         input_shapes["text_encoder_2"] = input_shapes["text_encoder"]
     
@@ -232,12 +236,13 @@ def infer_stable_diffusion_shapes_from_diffusers(
     unet_or_transformer_num_channels = getattr(model, unet_or_transformer_name).config.in_channels
     input_shapes["unet_or_transformer"].update(
         {
-            "sequence_length": sequence_length,
             "num_channels": unet_or_transformer_num_channels,
             "height": scaled_height,
             "width": scaled_width,
         }
     )
+    if input_shapes["unet_or_transformer"].get("sequence_length") is None:
+        input_shapes["unet_or_transformer"]["sequence_length"] = max_sequence_length
     input_shapes["unet_or_transformer"]["vae_scale_factor"] = vae_scale_factor
     input_shapes[unet_or_transformer_name] = input_shapes.pop("unet_or_transformer")
     
@@ -254,7 +259,7 @@ def infer_stable_diffusion_shapes_from_diffusers(
             encoder_hidden_size += model.text_encoder_2.config.hidden_size
         input_shapes["controlnet"] = {
             "batch_size": input_shapes[unet_or_transformer_name]["batch_size"],
-            "sequence_length": sequence_length,
+            "sequence_length": input_shapes[unet_or_transformer_name]["sequence_length"],
             "num_channels": unet_or_transformer_num_channels,
             "height": scaled_height,
             "width": scaled_width,
@@ -416,7 +421,6 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
         controlnet_input_shapes=input_shapes.get("controlnet", None),
     )
     output_model_names = {
-        DIFFUSION_MODEL_UNET_NAME: os.path.join(DIFFUSION_MODEL_UNET_NAME, NEURON_FILE_NAME),
         DIFFUSION_MODEL_VAE_ENCODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_ENCODER_NAME, NEURON_FILE_NAME),
         DIFFUSION_MODEL_VAE_DECODER_NAME: os.path.join(DIFFUSION_MODEL_VAE_DECODER_NAME, NEURON_FILE_NAME),
     }
@@ -427,6 +431,14 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
     if getattr(model, "text_encoder_2", None) is not None:
         output_model_names[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME] = os.path.join(
             DIFFUSION_MODEL_TEXT_ENCODER_2_NAME, NEURON_FILE_NAME
+        )
+    if getattr(model, "unet", None) is not None:
+        output_model_names[DIFFUSION_MODEL_UNET_NAME] = os.path.join(
+            DIFFUSION_MODEL_UNET_NAME, NEURON_FILE_NAME
+        )
+    if getattr(model, "transformer", None) is not None:
+        output_model_names[DIFFUSION_MODEL_TRANSFORMER_NAME] = os.path.join(
+            DIFFUSION_MODEL_TRANSFORMER_NAME, NEURON_FILE_NAME
         )
 
     # ControlNet models
@@ -498,6 +510,7 @@ def load_models_and_neuron_configs(
     lora_weight_names: Optional[Union[str, List[str]]],
     lora_adapter_names: Optional[Union[str, List[str]]],
     lora_scales: Optional[Union[float, List[float]]],
+    torch_dtype: Optional[Union[str, torch.dtype]] = None,
     tensor_parallel_size: int = 1,
     controlnet_ids: Optional[Union[str, List[str]]] = None,
     output_attentions: bool = False,
@@ -516,6 +529,7 @@ def load_models_and_neuron_configs(
         "trust_remote_code": trust_remote_code,
         "framework": "pt",
         "library_name": library_name,
+        "torch_dtype": torch_dtype,
     }
     if model is None:
         model = TasksManager.get_model_from_task(**model_kwargs)
@@ -547,6 +561,7 @@ def main_export(
     model_name_or_path: str,
     output: Union[str, Path],
     compiler_kwargs: Dict[str, Any],
+    torch_dtype: Optional[Union[str, torch.dtype]] = None,
     tensor_parallel_size: int = 1,
     model: Optional[Union["PreTrainedModel", "ModelMixin"]] = None,
     task: str = "auto",
@@ -576,6 +591,7 @@ def main_export(
     **input_shapes,
 ):
     output = Path(output)
+    torch_dtype = map_torch_dtype(torch_dtype)
     if not output.parent.exists():
         output.parent.mkdir(parents=True)
 
@@ -589,6 +605,7 @@ def main_export(
         model_name_or_path=model_name_or_path,
         output=output,
         model=model,
+        torch_dtype=torch_dtype,
         tensor_parallel_size=tensor_parallel_size,
         task=task,
         dynamic_batch_size=dynamic_batch_size,
@@ -731,6 +748,7 @@ def main():
         model_name_or_path=args.model,
         output=args.output,
         compiler_kwargs=compiler_kwargs,
+        torch_dtype=args.torch_dtype,
         tensor_parallel_size=args.tensor_parallel_size,
         task=task,
         dynamic_batch_size=args.dynamic_batch_size,

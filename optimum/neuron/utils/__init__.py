@@ -56,6 +56,7 @@ _import_structure = {
         "is_main_worker",
         "is_precompilation",
         "replace_weights",
+        "map_torch_dtype",
     ],
     "model_utils": ["get_tied_parameters_dict", "tie_parameters"],
     "optimization_utils": [
@@ -117,6 +118,7 @@ if TYPE_CHECKING:
         is_main_worker,
         is_precompilation,
         replace_weights,
+        map_torch_dtype,
     )
     from .model_utils import get_tied_parameters_dict, tie_parameters
     from .optimization_utils import (

@@ -58,6 +58,7 @@ from .model_wrappers import (
     SentenceTransformersTransformerNeuronWrapper,
     T5DecoderWrapper,
     T5EncoderWrapper,
+    T5EncoderForSeq2SeqLMWrapper,
     UnetNeuronWrapper,
 )
 
@@ -666,6 +667,35 @@ class UNetNeuronConfig(VisionNeuronConfig):
         self._with_controlnet = with_controlnet
 
 
+@register_in_tasks_manager("transformer", *["semantic-segmentation"], library_name="diffusers")
+class TransformerNeuronConfig(VisionNeuronConfig):
+    ATOL_FOR_VALIDATION = 1e-3
+    INPUT_ARGS = ("batch_size", "sequence_length", "num_channels", "width", "height", "vae_scale_factor")
+    # CUSTOM_MODEL_WRAPPER = PixartTransformerNeuronWrapper
+    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
+        height="height",
+        width="width",
+        num_channels="in_channels",
+        hidden_size="cross_attention_dim",
+        vocab_size="norm_num_groups",
+        allow_new=True,
+    )
+
+    DUMMY_INPUT_GENERATOR_CLASSES = (
+        DummyVisionInputGenerator,
+        DummyTimestepInputGenerator,
+        DummySeq2SeqDecoderTextInputGenerator,
+    )
+    
+    def inputs(self) -> List[str]:
+        common_inputs = ["hidden_states", "encoder_hidden_states", "timestep", "encoder_attention_mask"]
+        return common_inputs
+
+    @property
+    def outputs(self) -> List[str]:
+        return ["out_hidden_states"]
+
+
 @register_in_tasks_manager("controlnet", *["semantic-segmentation"], library_name="diffusers")
 class ControlNetNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
@@ -780,11 +810,8 @@ class LLamaNeuronConfig(TextNeuronDecoderConfig):
     ATTENTION_lAYOUT = "BSH"
 
 
-class T5EncoderNeuronConfig(TextSeq2SeqNeuronConfig):
+class T5EncoderBaseNeuronConfig(TextSeq2SeqNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
-    INPUT_ARGS = ("batch_size", "sequence_length", "num_beams")
-    MODEL_TYPE = "t5-encoder"
-    CUSTOM_MODEL_WRAPPER = T5EncoderWrapper
     NORMALIZED_CONFIG_CLASS = NormalizedSeq2SeqConfig.with_args(
         hidden_size="d_model",
         num_attention_heads="num_heads",
@@ -793,39 +820,41 @@ class T5EncoderNeuronConfig(TextSeq2SeqNeuronConfig):
         key_value_dim="d_kv",
         allow_new=True,
     )
-
-
-@register_in_tasks_manager("t5-encoder", "text2text-generation")
-class T5EncoderForSeq2SeqNeuronConfig(T5EncoderNeuronConfig):
-    
-    @property
-    def with_cache(self) -> bool:
-        # Whether or not initialize and output KV cache
-        return False
-    
-    @with_cache.setter
-    def with_cache(self, with_cache: bool) -> bool:
-        self._with_cache = with_cache
     
     @property
     def inputs(self) -> List[str]:
         return ["input_ids", "attention_mask"]
+
+
+@register_in_tasks_manager("t5", *["feature-extraction"], library_name="diffusers")
+class T5EncoderForDiffusersNeuronConfig(T5EncoderBaseNeuronConfig):
+    CUSTOM_MODEL_WRAPPER = T5EncoderWrapper
+    INPUT_ARGS = ("batch_size", "sequence_length")
     
     @property
     def outputs(self) -> List[str]:
-        if self.with_cache:
-            # encoder-decoder
-            common_outputs = (
-                [f"present.{idx}.self.key" for idx in range(self._config.num_decoder_layers)]
-                + [f"present.{idx}.self.value" for idx in range(self._config.num_decoder_layers)]
-                + [f"present.{idx}.cross.key" for idx in range(self._config.num_decoder_layers)]
-                + [f"present.{idx}.cross.value" for idx in range(self._config.num_decoder_layers)]
-            )
-        else:
-            # encoder-only, eg. a T5Encoder in DiT pipelines.
-            common_outputs = ["last_hidden_state"]
-        return common_outputs
+        return ["last_hidden_state"]
 
+    def patch_model_for_export(self, model_or_path, **input_shapes):
+        return self.CUSTOM_MODEL_WRAPPER(model_or_path, **input_shapes) 
+
+
+@register_in_tasks_manager("t5-encoder", *["text2text-generation"])
+class T5EncoderForTransformersNeuronConfig(T5EncoderBaseNeuronConfig):
+    CUSTOM_MODEL_WRAPPER = T5EncoderForSeq2SeqLMWrapper
+    INPUT_ARGS = ("batch_size", "sequence_length", "num_beams")
+    MODEL_TYPE = "t5-encoder"
+
+    @property
+    def outputs(self) -> List[str]:
+        common_outputs = (
+            [f"present.{idx}.self.key" for idx in range(self._config.num_decoder_layers)]
+            + [f"present.{idx}.self.value" for idx in range(self._config.num_decoder_layers)]
+            + [f"present.{idx}.cross.key" for idx in range(self._config.num_decoder_layers)]
+            + [f"present.{idx}.cross.value" for idx in range(self._config.num_decoder_layers)]
+        )
+        return common_outputs      
+    
     def patch_model_for_export(self, model_or_path, device="xla", **kwargs):
         num_beams = kwargs.pop("num_beams", 1)
         sequence_length = kwargs.pop("sequence_length", None)
