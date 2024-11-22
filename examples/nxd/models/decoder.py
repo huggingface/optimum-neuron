@@ -1,14 +1,7 @@
 from typing import List, Optional, Union
 
 import torch
-from models.gqa import (  # noqa: E402
-    determine_sharding_strategy,  # noqa: E402
-    get_shardable_head_counts,  # noqa: E402
-)  # noqa: E402
-from modules.autobucketing import slice_lhs, slice_rhs  # noqa: E402
-from modules.cache import NeuronStaticCache
 from modules.sampling import Sampler  # noqa: E402
-from neuronx_distributed.parallel_layers import parallel_state, utils  # noqa: E402
 from transformers import PretrainedConfig, PreTrainedModel
 from transformers.generation import (
     SampleDecoderOnlyOutput,
@@ -67,94 +60,42 @@ class NeuronDecoderModel(PreTrainedModel):
     def init_inference_optimization(self, config: PretrainedConfig):
         if config.on_device_sampling:
             self.sampler = Sampler(config)
+        return
 
-        gqa_sharding_strategy = determine_sharding_strategy(config.tp_degree, config.num_key_value_heads)
-        _, num_key_value_heads = get_shardable_head_counts(
-            config.tp_degree, config.num_attention_heads, config.num_key_value_heads, gqa_sharding_strategy
-        )
-        if parallel_state.model_parallel_is_initialized():
-            num_kv_heads_per_partition = utils.divide(num_key_value_heads, config.tp_degree)
-        else:
-            num_kv_heads_per_partition = num_key_value_heads
-
-        hidden_dim_per_head = config.hidden_size // config.num_attention_heads
-
-        self.kv_cache = NeuronStaticCache(
-            max_batch_size=config.max_batch_size,
-            max_length=config.max_length,
-            num_kv_heads_per_partition=num_kv_heads_per_partition,
-            hidden_dim_per_head=hidden_dim_per_head,
-            num_hidden_layers=config.num_hidden_layers,
-            dtype=config.torch_dtype,
-        )
-
-    def _bucket_slice_kv_cacheline(self, cache):
-
-        if self.padding_side == "right":
-            return slice_lhs(cache, self.n_positions, self.SEQ_DIM)
-        else:
-            max_idx = cache.shape[self.SEQ_DIM]
-            return slice_rhs(cache, self.n_positions, max_idx, self.SEQ_DIM)
-
-    def _gather_bucket_slice_into_kv_cacheline(self, idx, bucket_slice):
-        max_idx = self.kv_cache.get_max_cache_shape()
-        if self.padding_side == "right":
-            remaining = slice_rhs(
-                self.kv_cache.past_key_values[idx], max_idx - self.n_positions, max_idx, self.SEQ_DIM
-            )
-            return torch.cat([bucket_slice, remaining], dim=self.SEQ_DIM)
-        else:
-            remaining = slice_lhs(self.kv_cache.past_key_values[idx], max_idx - self.n_positions, self.SEQ_DIM)
-            return torch.cat([remaining, bucket_slice], dim=self.SEQ_DIM)
-
-    def _create_context_attn_mask(self, attention_mask):
-        mask = torch.full((self.n_positions, self.n_positions), True, device=attention_mask.device).tril(diagonal=0)
-        mask = mask[None, None, :, :].expand(self.batch_size, 1, self.n_positions, self.n_positions)
+    def _create_context_attn_mask(self, attention_mask, n_positions):
+        mask = torch.full((n_positions, n_positions), True, device=attention_mask.device).tril(diagonal=0)
+        mask = mask[None, None, :, :].expand(self.batch_size, 1, n_positions, n_positions)
 
         if self.padding_side == "right":
             return mask
         else:
             expanded_mask = (
-                attention_mask[:, None, None, :]
-                .expand(self.batch_size, 1, self.n_positions, self.n_positions)
-                .to(torch.bool)
+                attention_mask[:, None, None, :].expand(self.batch_size, 1, n_positions, n_positions).to(torch.bool)
             )
             return torch.logical_and(mask, expanded_mask)
 
-    def _create_simple_attn_mask(self, attention_mask):
-        return attention_mask[:, None, None, :].expand(self.batch_size, 1, 1, self.n_positions).to(torch.bool)
+    def _create_simple_attn_mask(self, attention_mask, n_positions):
+        return attention_mask[:, None, None, :].expand(self.batch_size, 1, 1, n_positions).to(torch.bool)
 
-    def create_attn_mask(self, attention_mask, is_for_context_encoding, position_ids):
+    def create_attn_mask(self, attention_mask, is_for_context_encoding, n_positions):
         if is_for_context_encoding:
-            return self._create_context_attn_mask(attention_mask)
+            return self._create_context_attn_mask(attention_mask, n_positions)
         else:
-            return self._create_simple_attn_mask(attention_mask)
+            return self._create_simple_attn_mask(attention_mask, n_positions)
 
     def forward(
         self,
         input_ids,
         attention_mask,
         position_ids,
+        past_key_values,
         seq_ids,
     ):
 
         is_for_context_encoding = input_ids.shape[-1] > 1
 
-        # It is either for context encoding or for token generation
-        if is_for_context_encoding:
-            past_key_values = None
-        else:
-            past_key_values = []
-            for key_layer_idx in range(0, len(self.kv_cache.past_key_values), 2):
-                k_cache = self.kv_cache.past_key_values[key_layer_idx]
-                v_cache = self.kv_cache.past_key_values[key_layer_idx + 1]
-                key_state = self._bucket_slice_kv_cacheline(k_cache)
-                value_state = self._bucket_slice_kv_cacheline(v_cache)
-
-                past_key_values.append([key_state, value_state])
-
         # Prepare attention mask(s)
-        attention_mask = self.create_attn_mask(attention_mask, is_for_context_encoding, position_ids)
+        attention_mask = self.create_attn_mask(attention_mask, is_for_context_encoding, self.n_positions)
 
         hidden_states, past_key_values = self.get_model_output(
             input_ids=input_ids,
@@ -162,40 +103,6 @@ class NeuronDecoderModel(PreTrainedModel):
             position_ids=position_ids,
             past_key_values=past_key_values,
         )
-
-        updated_kv_cache = []
-        for idx, kv_per_layer in enumerate(past_key_values):
-            k_cache = self._bucket_slice_kv_cacheline(self.kv_cache.past_key_values[idx * 2])
-            v_cache = self._bucket_slice_kv_cacheline(self.kv_cache.past_key_values[idx * 2 + 1])
-
-            if is_for_context_encoding:
-                if self.config.is_continuous_batching:
-                    # scatter back to the desired seq_ids
-                    seq_id_index_shape = seq_ids.shape[:1] + k_cache.shape[1:]
-                    seq_id_index = seq_ids.view(-1, 1, 1, 1).expand(seq_id_index_shape)
-                    k_cache = torch.scatter(k_cache, 0, seq_id_index, kv_per_layer[0])
-                    v_cache = torch.scatter(v_cache, 0, seq_id_index, kv_per_layer[1])
-                else:
-                    # assign back to full kv_cacheline
-                    k_cache = kv_per_layer[0]
-                    v_cache = kv_per_layer[1]
-            else:
-                if self.padding_side == "left":
-                    # TODO: fix it with scatter after right padding
-                    k_cache = k_cache[:, :, 1:, :]
-                    v_cache = v_cache[:, :, 1:, :]
-                    k_cache = torch.cat([k_cache, kv_per_layer[0]], dim=2)
-                    v_cache = torch.cat([v_cache, kv_per_layer[1]], dim=2)
-                else:
-                    scatter_index_new = position_ids.view(-1, 1, position_ids.shape[-1], 1).expand_as(kv_per_layer[0])
-                    k_cache = torch.scatter(k_cache, 2, scatter_index_new, kv_per_layer[0])
-                    v_cache = torch.scatter(v_cache, 2, scatter_index_new, kv_per_layer[1])
-
-            k_cache = self._gather_bucket_slice_into_kv_cacheline(idx * 2, k_cache)
-            v_cache = self._gather_bucket_slice_into_kv_cacheline(idx * 2 + 1, v_cache)
-
-            updated_kv_cache.append(k_cache)
-            updated_kv_cache.append(v_cache)
 
         if self.padding_side == "left":
             index = torch.tensor([hidden_states.shape[1] - 1], device=hidden_states.device)
@@ -215,7 +122,7 @@ class NeuronDecoderModel(PreTrainedModel):
             # perform sampling on Neuron to get tokens
             res = self.sampler.sample(logits[:, -1, :])
 
-        return [res] + updated_kv_cache
+        return res, past_key_values
 
     def get_input_embeddings(self):
         return self.embed_tokens
