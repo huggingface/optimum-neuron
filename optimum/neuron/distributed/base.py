@@ -330,6 +330,7 @@ class Parallelizer(ABC):
         from neuronx_distributed import parallel_layers
         from neuronx_distributed.modules.qkv_linear import GQAQKVColumnParallelLinear
         from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_rank
+        from neuronx_distributed.parallel_layers.utils import copy_tensor_model_parallel_attributes
 
         weight_map = getattr(model, "_weight_map", {})
         with torch.no_grad():
@@ -389,6 +390,7 @@ class Parallelizer(ABC):
                     if device is not None:
                         weight_data = weight_data.to(device)
                     new_parameter = torch.nn.Parameter(weight_data)
+                    copy_tensor_model_parallel_attributes(new_parameter, parameter)
                 elif parameter.device != torch.device("meta") and (
                     was_already_initialized_during_parallelization(parameter)
                     or not parameter_can_be_initialized(model, module, attribute_name)
@@ -401,6 +403,7 @@ class Parallelizer(ABC):
                     # We first create the module on CPU, initialize it and then move it on device if needed.
                     device = torch.device("cpu")
                     new_parameter = torch.nn.Parameter(torch.empty_like(parameter, device=device))
+                    copy_tensor_model_parallel_attributes(new_parameter, parameter)
                     modules_to_initialize[module].append(attribute_name)
 
                 setattr(
