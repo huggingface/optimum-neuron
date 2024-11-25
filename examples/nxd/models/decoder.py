@@ -62,27 +62,6 @@ class NeuronDecoderModel(PreTrainedModel):
             self.sampler = Sampler(config)
         return
 
-    def _create_context_attn_mask(self, attention_mask, n_positions):
-        mask = torch.full((n_positions, n_positions), True, device=attention_mask.device).tril(diagonal=0)
-        mask = mask[None, None, :, :].expand(self.batch_size, 1, n_positions, n_positions)
-
-        if self.padding_side == "right":
-            return mask
-        else:
-            expanded_mask = (
-                attention_mask[:, None, None, :].expand(self.batch_size, 1, n_positions, n_positions).to(torch.bool)
-            )
-            return torch.logical_and(mask, expanded_mask)
-
-    def _create_simple_attn_mask(self, attention_mask, n_positions):
-        return attention_mask[:, None, None, :].expand(self.batch_size, 1, 1, n_positions).to(torch.bool)
-
-    def create_attn_mask(self, attention_mask, is_for_context_encoding, n_positions):
-        if is_for_context_encoding:
-            return self._create_context_attn_mask(attention_mask, n_positions)
-        else:
-            return self._create_simple_attn_mask(attention_mask, n_positions)
-
     def forward(
         self,
         input_ids,
@@ -91,11 +70,6 @@ class NeuronDecoderModel(PreTrainedModel):
         past_key_values,
         seq_ids,
     ):
-
-        is_for_context_encoding = input_ids.shape[-1] > 1
-
-        # Prepare attention mask(s)
-        attention_mask = self.create_attn_mask(attention_mask, is_for_context_encoding, self.n_positions)
 
         hidden_states, past_key_values = self.get_model_output(
             input_ids=input_ids,
@@ -152,16 +126,6 @@ class NeuronDecoderModel(PreTrainedModel):
             position_ids = position_ids.unsqueeze(0).view(-1, seq_length)
         else:
             position_ids = position_ids.view(-1, seq_length).long()
-
-        # NeuronLlamaModel class manages the KV cache. So the attention_mask will be generated and passed
-        # through to LlamaModel. We override the HF's code that generates attention mask because HF does
-        # not support left aligned RHS padding. This enables Neuron to achieve higher performance and
-        # extensibility.
-        #
-        # 4d mask is passed through the layers
-        # attention_mask = _prepare_4d_causal_attention_mask(
-        #     attention_mask, (batch_size, seq_length), inputs_embeds, past_key_values_length
-        # )
 
         # embed positions
         hidden_states = inputs_embeds
