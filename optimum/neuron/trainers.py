@@ -483,8 +483,9 @@ class _TrainerForNeuron:
         if self.args.mp_plugin.should_parallelize:
             # It works even for PP because under PP we make it so that the main process to log for callbacks is
             # the one on dp_rank = tp_rank = 0 and pp_rank = pp_size -1.
+            # print("before",tr_loss_div)
             reduced_tr_loss = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div, groups=get_data_parallel_group(as_list=True))
-            print(reduced_tr_loss, xm.get_ordinal())
+            # print("after", reduced_tr_loss, xm.get_ordinal())
         else:
             reduced_tr_loss = xm.all_reduce(xm.REDUCE_SUM, tr_loss_div)
 
@@ -499,8 +500,8 @@ class _TrainerForNeuron:
             if self.control.should_log:
                 with torch.no_grad():
                     if isinstance(getattr(self, "_zero_loss_value"), torch.Tensor):
-                        # tr_loss.data = self._zero_loss_value.data
-                        tr_loss.zero_()
+                        tr_loss.data = self._zero_loss_value.data
+                        # tr_loss.zero_()
                     else:
                         tr_loss.zero_()
 
@@ -1068,6 +1069,7 @@ class _TrainerForNeuron:
                             f"{tr_loss_step.device}"
                         )
                     tr_loss += tr_loss_step
+                    print(tr_loss)
 
                 self.current_flos += float(self.floating_point_ops(inputs))
 
