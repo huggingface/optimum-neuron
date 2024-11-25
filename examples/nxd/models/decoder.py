@@ -1,4 +1,4 @@
-from typing import List, Optional, Union
+from typing import Union
 
 import torch
 from modules.sampling import Sampler  # noqa: E402
@@ -71,46 +71,6 @@ class NeuronDecoderModel(PreTrainedModel):
         seq_ids,
     ):
 
-        hidden_states, past_key_values = self.get_model_output(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            past_key_values=past_key_values,
-        )
-
-        if self.padding_side == "left":
-            index = torch.tensor([hidden_states.shape[1] - 1], device=hidden_states.device)
-            index = index.unsqueeze(1).expand(self.batch_size, 1, self.hidden_size)
-            hidden_states = torch.gather(hidden_states, dim=1, index=index)
-        else:
-            # simple token generation
-            index = torch.max(position_ids, dim=1, keepdim=True).indices
-            index = index.unsqueeze(1).expand(self.batch_size, 1, self.hidden_size)
-            hidden_states = torch.gather(hidden_states, dim=1, index=index)
-
-        logits = self.lm_head(hidden_states)
-        logits = logits.float()
-
-        res = logits
-        if self.sampler is not None:
-            # perform sampling on Neuron to get tokens
-            res = self.sampler.sample(logits[:, -1, :])
-
-        return res, past_key_values
-
-    def get_input_embeddings(self):
-        return self.embed_tokens
-
-    def set_input_embeddings(self, value):
-        self.embed_tokens = value
-
-    def get_model_output(
-        self,
-        input_ids: torch.LongTensor = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_values: Optional[List[torch.FloatTensor]] = None,
-    ):
         batch_size, seq_length = input_ids.shape[:2]
 
         past_key_values_length = 0
@@ -151,4 +111,28 @@ class NeuronDecoderModel(PreTrainedModel):
 
         hidden_states = self.norm(hidden_states)
 
-        return (hidden_states, next_decoder_cache)
+        if self.padding_side == "left":
+            index = torch.tensor([hidden_states.shape[1] - 1], device=hidden_states.device)
+            index = index.unsqueeze(1).expand(self.batch_size, 1, self.hidden_size)
+            hidden_states = torch.gather(hidden_states, dim=1, index=index)
+        else:
+            # simple token generation
+            index = torch.max(position_ids, dim=1, keepdim=True).indices
+            index = index.unsqueeze(1).expand(self.batch_size, 1, self.hidden_size)
+            hidden_states = torch.gather(hidden_states, dim=1, index=index)
+
+        logits = self.lm_head(hidden_states)
+        logits = logits.float()
+
+        res = logits
+        if self.sampler is not None:
+            # perform sampling on Neuron to get tokens
+            res = self.sampler.sample(logits[:, -1, :])
+
+        return res, next_decoder_cache
+
+    def get_input_embeddings(self):
+        return self.embed_tokens
+
+    def set_input_embeddings(self, value):
+        self.embed_tokens = value
