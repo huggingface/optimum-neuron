@@ -7,10 +7,6 @@ from modules.cache import NeuronStaticCache
 from neuronx_distributed.parallel_layers import parallel_state, utils  # noqa: E402
 
 
-CONTEXT_ENCODING_MODEL_TAG = "context_encoding_model"
-TOKEN_GENERATION_MODEL_TAG = "token_generation_model"
-
-
 class DecoderModelWrapper(torch.nn.Module):
     """Wraps the calls to the traced model, taking care of:
     - padding the inputs to the correct shape (TODO),
@@ -43,6 +39,10 @@ class DecoderModelWrapper(torch.nn.Module):
         )
 
     def forward(self, input_ids, attention_mask, position_ids, seq_ids):
+        # For generation, attention_mask and position_ids are always passed by the caller.
+        # We typically would make sure they have the correct shape in prepare_inputs_for_generation
+        assert attention_mask is not None
+        assert position_ids is not None
         is_for_context_encoding = input_ids.shape[-1] > 1
 
         # It is either for context encoding or for token generation

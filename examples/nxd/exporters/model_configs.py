@@ -42,13 +42,11 @@ class DecoderModelInstance(BaseModelInstance):
         if self.config.torch_dtype == torch.bfloat16:
             float_model.bfloat16()
 
-        self.module = DecoderModelWrapper(
-            float_model,
-            batch_size=self.config.batch_size,
-            max_length=self.config.max_length,
-            tensor_parallel_size=self.config.tp_degree,
-            dtype=self.config.torch_dtype,
-        )
+        self.module = DecoderModelWrapper(float_model,
+                                          batch_size=self.config.batch_size,
+                                          max_length=self.config.max_length,
+                                          tensor_parallel_size=self.config.tp_degree,
+                                          dtype=self.config.torch_dtype)
 
     def get(self, bucket_rank, **kwargs):
         if bucket_rank is not None:
