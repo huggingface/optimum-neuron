@@ -421,10 +421,11 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 Whether to move manually the traced model to NeuronCore. It's only needed when `inline_weights_to_neff=False`, otherwise it is loaded automatically to a Neuron device.
         """
         submodels = {
-            "text_encoder": text_encoder_path,
-            "text_encoder_2": text_encoder_2_path,
+            # Load the UNet/Diffusion transformer first to avoid CPU OOM
             "unet": unet_path,
             "transformer": transformer_path,
+            "text_encoder": text_encoder_path,
+            "text_encoder_2": text_encoder_2_path,
             "vae_encoder": vae_encoder_path,
             "vae_decoder": vae_decoder_path,
             "controlnet": controlnet_paths,
