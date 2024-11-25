@@ -30,12 +30,13 @@ def training_function(script_args, training_args):
     tokenizer = AutoTokenizer.from_pretrained(script_args.model_id)
     tokenizer.pad_token = tokenizer.eos_token
 
+    # with lazy_load_for_parallelism(tensor_parallel_size=1):
     with lazy_load_for_parallelism(tensor_parallel_size=training_args.tensor_parallel_size):
         model = AutoModelForCausalLM.from_pretrained(script_args.model_id)
 
     config = LoraConfig(
         r=16,
-        lora_alpha=16,
+        lora_alpha=32,
         lora_dropout=0.05,
         target_modules=["q_proj", "gate_proj", "v_proj", "o_proj", "k_proj", "up_proj", "down_proj"],
         bias="none",
