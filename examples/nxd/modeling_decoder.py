@@ -7,10 +7,6 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from exporters.model_configs import get_exporter_config_constructor
-from exporters.model_wrappers import (  # noqa: E402
-    CONTEXT_ENCODING_MODEL_TAG,  # noqa: E402
-    TOKEN_GENERATION_MODEL_TAG,  # noqa: E402
-)
 from modules.checkpoint import load_state_dict
 from modules.config import NeuronInferenceConfig
 from modules.sampling import Sampler  # noqa: E402
@@ -122,8 +118,8 @@ class NeuronModelForCausalLM(GenerationMixin):
         # For LLM models, we typically use different sets of SPMDBucketModel for encoding and
         # token generation, each with its own list of buckets.
         export_configs = {
-            CONTEXT_ENCODING_MODEL_TAG: export_config_cls(neuron_config, is_prefill=True),
-            TOKEN_GENERATION_MODEL_TAG: export_config_cls(neuron_config, is_prefill=False),
+            "prefill": export_config_cls(neuron_config, is_prefill=True),
+            "decode": export_config_cls(neuron_config, is_prefill=False),
         }
         for tag, export_config in export_configs.items():
             # We need a pickable object to provide the callbacks required by the Builder
