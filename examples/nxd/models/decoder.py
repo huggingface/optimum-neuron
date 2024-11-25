@@ -93,14 +93,13 @@ class NeuronDecoderModel(PreTrainedModel):
         # decoder layers
         next_decoder_cache = ()
 
-        for idx, decoder_layer in enumerate(self.layers):
-            past_key_value = past_key_values[idx] if past_key_values is not None else None
+        for decoder_layer in self.layers:
 
             layer_outputs = decoder_layer(
                 hidden_states,
                 attention_mask=attention_mask,
                 position_ids=position_ids,
-                past_key_value=past_key_value,
+                past_key_value=past_key_values,
                 output_attentions=False,
                 use_cache=True,
             )

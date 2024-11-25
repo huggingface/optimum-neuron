@@ -1,6 +1,6 @@
 import logging
 import math
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import torch
 from models.attention.utils import apply_rotary_pos_emb, manual_softmax, move_heads_front, repeat_kv
@@ -166,11 +166,12 @@ class NeuronAttentionBase(nn.Module):
         hidden_states: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
-        past_key_value: Optional[Tuple[torch.Tensor]] = None,
+        past_key_value: Optional[List[Tuple[torch.Tensor]]] = None,
         **kwargs,
     ) -> Tuple[Tensor, Optional[Tuple[Tensor, Tensor]]]:
         """Implements each layer's forward pass for the attention block."""
         # TODO: align with standard attention inputs
+        past_key_value = None if past_key_value is None else past_key_value[self.layer_idx]
         bsz, q_len, _ = hidden_states.size()
         Q, K, V = self.prep_qkv_tensors(position_ids, hidden_states, past_key_value)
 
