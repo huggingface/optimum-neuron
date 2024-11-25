@@ -38,8 +38,30 @@ class DecoderModelWrapper(torch.nn.Module):
             dtype=dtype,
         )
 
+    def _create_context_attn_mask(self, attention_mask, batch_size, n_positions, padding_side):
+        mask = torch.full((n_positions, n_positions), True, device=attention_mask.device).tril(diagonal=0)
+        mask = mask[None, None, :, :].expand(batch_size, 1, n_positions, n_positions)
+
+        if padding_side == "right":
+            # This results in the actual attention_mask being simply ignored
+            return mask
+        else:
+            expanded_mask = (
+                attention_mask[:, None, None, :].expand(batch_size, 1, n_positions, n_positions).to(torch.bool)
+            )
+            return torch.logical_and(mask, expanded_mask)
+
+    def _create_simple_attn_mask(self, attention_mask, batch_size, n_positions):
+        return attention_mask[:, None, None, :].expand(batch_size, 1, 1, n_positions).to(torch.bool)
+
+    def create_attn_mask(self, attention_mask, is_for_context_encoding, batch_size, n_positions, padding_side):
+        if is_for_context_encoding:
+            return self._create_context_attn_mask(attention_mask, batch_size, n_positions, padding_side)
+        else:
+            return self._create_simple_attn_mask(attention_mask, batch_size, n_positions)
+
     def forward(self, input_ids, attention_mask, position_ids, seq_ids):
-        # For generation, attention_mask and position_ids are always passed by the caller.
+        # For generation, 2D attention_mask and position_ids are always passed by the caller.
         # We typically would make sure they have the correct shape in prepare_inputs_for_generation
         assert attention_mask is not None
         assert position_ids is not None
@@ -55,6 +77,14 @@ class DecoderModelWrapper(torch.nn.Module):
                     layer_idx, self.model.padding_side, self.n_positions
                 )
                 past_key_values.append([key_state, value_state])
+        # Prepare 4D attention mask (TODO: optimize this by having it set by the caller ?)
+        attention_mask = self.create_attn_mask(
+            attention_mask,
+            is_for_context_encoding=is_for_context_encoding,
+            batch_size=self.model.batch_size,
+            n_positions=self.n_positions,
+            padding_side=self.model.padding_side,
+        )
         # Actual model call
         outputs, past_key_values = self.model(input_ids, attention_mask, position_ids, past_key_values, seq_ids)
         # Extract updated kv cache tensors and return them: this seems required by the tracing code
