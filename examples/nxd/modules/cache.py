@@ -29,6 +29,16 @@ class NeuronStaticCache(torch.nn.Module, Cache):
                 for _ in range(num_hidden_layers * 2)
             ]
         )
+        self.cache_position = torch.nn.ParameterList(
+            [
+                torch.nn.Parameter(torch.full((max_batch_size,), -1), requires_grad=False)
+                for _ in range(num_hidden_layers)
+            ]
+        )
+
+    def reset(self):
+        for cache_position in self.cache_position:
+            cache_position[:] = -1
 
     def update(
         self,
@@ -55,10 +65,12 @@ class NeuronStaticCache(torch.nn.Module, Cache):
             A tuple containing the updated key and value states.
         """
         cache_position = cache_kwargs.get("cache_position")
+        self.cache_position[layer_idx] = cache_position
         k_out = self.past_key_values[2 * layer_idx]
         v_out = self.past_key_values[2 * layer_idx + 1]
-        k_out[:, :, cache_position] = key_states
-        v_out[:, :, cache_position] = value_states
+        # For now the actual update is done outside of this class
+        #k_out[:, :, cache_position] = key_states
+        #v_out[:, :, cache_position] = value_states
         return k_out, v_out
 
     def _gather_bucket_slice_into_kv_cacheline(self, idx, bucket_slice, padding_side, n_positions):
@@ -72,7 +84,7 @@ class NeuronStaticCache(torch.nn.Module, Cache):
 
     def get_seq_length(self, layer_idx: Optional[int] = 0) -> int:
         """Returns the sequence length of the cached states. A layer index can be optionally passed."""
-        return (self.past_key_values[2 * layer_idx][0, 0].any(dim=-1)).sum()
+        return self.cache_position[layer_idx]
 
     def get_max_cache_shape(self) -> Optional[int]:
         """Returns the maximum sequence length (i.e. max capacity) of the cache object"""
