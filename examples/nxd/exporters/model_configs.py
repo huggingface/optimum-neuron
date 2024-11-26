@@ -26,14 +26,14 @@ def register_export_config(model_type):
 
 
 class DecoderModelInstance(BaseModelInstance):
-    # This class could probably be replaced by a callable, like it is done in optimum-neuron
 
-    def __init__(self, model_cls, config, buckets):
+    def __init__(self, model_cls, config, buckets, is_prefill):
         self.model_cls = model_cls
         self.module = None
         self.input_output_aliases = None
         self.config = config
         self.buckets = buckets
+        self.is_prefill = is_prefill
 
     def load_module(self):
         float_model = self.model_cls(self.config)
@@ -48,6 +48,7 @@ class DecoderModelInstance(BaseModelInstance):
             max_length=self.config.max_length,
             tensor_parallel_size=self.config.tp_degree,
             dtype=self.config.torch_dtype,
+            is_prefill = self.is_prefill
         )
 
     def get(self, bucket_rank, **kwargs):
@@ -111,7 +112,7 @@ class LlamaNeuronExportConfig(ExportConfig):
         return inputs
 
     def get_model_instance(self):
-        return DecoderModelInstance(model_cls=self._MODEL_CLS, config=self.config, buckets=self.buckets)
+        return DecoderModelInstance(model_cls=self._MODEL_CLS, config=self.config, buckets=self.buckets, is_prefill=self.is_prefill)
 
     def bucket_config(self):
         if not self.config.enable_bucketing:
