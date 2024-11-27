@@ -69,8 +69,8 @@ class NeuronStaticCache(torch.nn.Module, Cache):
         k_out = self.past_key_values[2 * layer_idx]
         v_out = self.past_key_values[2 * layer_idx + 1]
         # For now the actual update is done outside of this class
-        #k_out[:, :, cache_position] = key_states
-        #v_out[:, :, cache_position] = value_states
+        # k_out[:, :, cache_position] = key_states
+        # v_out[:, :, cache_position] = value_states
         return k_out, v_out
 
     def _gather_bucket_slice_into_kv_cacheline(self, idx, bucket_slice, padding_side, n_positions):
@@ -106,3 +106,39 @@ class NeuronStaticCache(torch.nn.Module, Cache):
                 return slice_rhs(cache, n_positions, max_length, 2)
 
         return slice(k_cache, padding_side, n_positions), slice(v_cache, padding_side, n_positions)
+
+    def add(
+        self, key_states: torch.Tensor, value_states: torch.Tensor, layer_idx: int, padding_side: str, n_positions: int
+    ):
+        k_cache, v_cache = self.get_past_key_values(layer_idx, padding_side, n_positions)
+        # assign back to full kv_cacheline
+        k_cache = key_states
+        v_cache = value_states
+        k_cache = self._gather_bucket_slice_into_kv_cacheline(layer_idx * 2, k_cache, padding_side, n_positions)
+        v_cache = self._gather_bucket_slice_into_kv_cacheline(layer_idx * 2 + 1, v_cache, padding_side, n_positions)
+        return k_cache, v_cache
+
+    def append(
+        self,
+        key_states: torch.Tensor,
+        value_states: torch.Tensor,
+        position_ids: torch.Tensor,
+        layer_idx: int,
+        padding_side: str,
+        n_positions: int,
+    ):
+        k_cache, v_cache = self.get_past_key_values(layer_idx, padding_side, n_positions)
+        if padding_side == "left":
+            # TODO: fix it with scatter after right padding
+            k_cache = k_cache[:, :, 1:, :]
+            v_cache = v_cache[:, :, 1:, :]
+            k_cache = torch.cat([k_cache, key_states], dim=2)
+            v_cache = torch.cat([v_cache, value_states], dim=2)
+        else:
+            scatter_index_new = position_ids.view(-1, 1, position_ids.shape[-1], 1).expand_as(key_states)
+            k_cache = torch.scatter(k_cache, 2, scatter_index_new, key_states)
+            v_cache = torch.scatter(v_cache, 2, scatter_index_new, value_states)
+
+        k_cache = self._gather_bucket_slice_into_kv_cacheline(layer_idx * 2, k_cache, padding_side, n_positions)
+        v_cache = self._gather_bucket_slice_into_kv_cacheline(layer_idx * 2 + 1, v_cache, padding_side, n_positions)
+        return k_cache, v_cache

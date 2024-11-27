@@ -48,7 +48,7 @@ class DecoderModelInstance(BaseModelInstance):
             max_length=self.config.max_length,
             tensor_parallel_size=self.config.tp_degree,
             dtype=self.config.torch_dtype,
-            is_prefill = self.is_prefill
+            is_prefill=self.is_prefill,
         )
 
     def get(self, bucket_rank, **kwargs):
@@ -112,7 +112,9 @@ class LlamaNeuronExportConfig(ExportConfig):
         return inputs
 
     def get_model_instance(self):
-        return DecoderModelInstance(model_cls=self._MODEL_CLS, config=self.config, buckets=self.buckets, is_prefill=self.is_prefill)
+        return DecoderModelInstance(
+            model_cls=self._MODEL_CLS, config=self.config, buckets=self.buckets, is_prefill=self.is_prefill
+        )
 
     def bucket_config(self):
         if not self.config.enable_bucketing:

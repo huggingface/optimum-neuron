@@ -21,7 +21,9 @@ class DecoderModelWrapper(torch.nn.Module):
     - initialize and update and prepare the KV cache entries.
     """
 
-    def __init__(self, model, batch_size: int, max_length: int, tensor_parallel_size: int, dtype: torch.dtype, is_prefill: bool) -> None:
+    def __init__(
+        self, model, batch_size: int, max_length: int, tensor_parallel_size: int, dtype: torch.dtype, is_prefill: bool
+    ) -> None:
         assert parallel_state.model_parallel_is_initialized()
         super().__init__()
         self.model = model
@@ -79,24 +81,14 @@ class DecoderModelWrapper(torch.nn.Module):
             padding_side=self.model.padding_side,
         )
         # Actual model call
-        outputs, past_key_values = self.model(input_ids,
-                                              attention_mask,
-                                              position_ids,
-                                              past_key_values=None)
+        outputs, past_key_values = self.model(input_ids, attention_mask, position_ids, past_key_values=None)
         # Extract updated kv cache tensors and return them: this seems required by the tracing code
         updated_kv_cache = []
         for layer_idx, kv_per_layer in enumerate(past_key_values):
-            k_cache, v_cache = self.kv_cache.get_past_key_values(layer_idx, self.model.padding_side, self.n_positions)
-            # assign back to full kv_cacheline
-            k_cache = kv_per_layer[0]
-            v_cache = kv_per_layer[1]
-            k_cache = self.kv_cache._gather_bucket_slice_into_kv_cacheline(
-                layer_idx * 2, k_cache, self.model.padding_side, self.n_positions
+            key_states, value_states = kv_per_layer
+            k_cache, v_cache = self.kv_cache.add(
+                key_states, value_states, layer_idx, self.model.padding_side, self.n_positions
             )
-            v_cache = self.kv_cache._gather_bucket_slice_into_kv_cacheline(
-                layer_idx * 2 + 1, v_cache, self.model.padding_side, self.n_positions
-            )
-
             updated_kv_cache.append(k_cache)
             updated_kv_cache.append(v_cache)
 
@@ -116,32 +108,14 @@ class DecoderModelWrapper(torch.nn.Module):
             n_positions=self.n_positions,
         )
         # Actual model call
-        outputs, past_key_values = self.model(input_ids,
-                                              attention_mask,
-                                              position_ids,
-                                              past_key_values=past_key_values)
+        outputs, past_key_values = self.model(input_ids, attention_mask, position_ids, past_key_values=past_key_values)
         # Extract updated kv cache tensors and return them: this seems required by the tracing code
         updated_kv_cache = []
         for layer_idx, kv_per_layer in enumerate(past_key_values):
-            k_cache, v_cache = self.kv_cache.get_past_key_values(layer_idx, self.model.padding_side, self.n_positions)
-            if self.model.padding_side == "left":
-                # TODO: fix it with scatter after right padding
-                k_cache = k_cache[:, :, 1:, :]
-                v_cache = v_cache[:, :, 1:, :]
-                k_cache = torch.cat([k_cache, kv_per_layer[0]], dim=2)
-                v_cache = torch.cat([v_cache, kv_per_layer[1]], dim=2)
-            else:
-                scatter_index_new = position_ids.view(-1, 1, position_ids.shape[-1], 1).expand_as(kv_per_layer[0])
-                k_cache = torch.scatter(k_cache, 2, scatter_index_new, kv_per_layer[0])
-                v_cache = torch.scatter(v_cache, 2, scatter_index_new, kv_per_layer[1])
-
-            k_cache = self.kv_cache._gather_bucket_slice_into_kv_cacheline(
-                layer_idx * 2, k_cache, self.model.padding_side, self.n_positions
+            key_states, value_states = kv_per_layer
+            k_cache, v_cache = self.kv_cache.append(
+                key_states, value_states, position_ids, layer_idx, self.model.padding_side, self.n_positions
             )
-            v_cache = self.kv_cache._gather_bucket_slice_into_kv_cacheline(
-                layer_idx * 2 + 1, v_cache, self.model.padding_side, self.n_positions
-            )
-
             updated_kv_cache.append(k_cache)
             updated_kv_cache.append(v_cache)
 
