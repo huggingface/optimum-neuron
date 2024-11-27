@@ -49,27 +49,12 @@ class DecoderModelWrapper(torch.nn.Module):
             dtype=dtype,
         )
 
-    def _create_context_attn_mask(self, attention_mask, batch_size, n_positions, padding_side):
+    def _create_context_attn_mask(self, attention_mask, batch_size, n_positions):
         mask = torch.full((n_positions, n_positions), True, device=attention_mask.device).tril(diagonal=0)
-        mask = mask[None, None, :, :].expand(batch_size, 1, n_positions, n_positions)
-
-        if padding_side == "right":
-            # This results in the actual attention_mask being simply ignored
-            return mask
-        else:
-            expanded_mask = (
-                attention_mask[:, None, None, :].expand(batch_size, 1, n_positions, n_positions).to(torch.bool)
-            )
-            return torch.logical_and(mask, expanded_mask)
+        return mask[None, None, :, :].expand(batch_size, 1, n_positions, n_positions)
 
     def _create_simple_attn_mask(self, attention_mask, batch_size, n_positions):
         return attention_mask[:, None, None, :].expand(batch_size, 1, 1, n_positions).to(torch.bool)
-
-    def create_attn_mask(self, attention_mask, is_for_context_encoding, batch_size, n_positions, padding_side):
-        if is_for_context_encoding:
-            return self._create_context_attn_mask(attention_mask, batch_size, n_positions, padding_side)
-        else:
-            return self._create_simple_attn_mask(attention_mask, batch_size, n_positions)
 
     def prefill(self, input_ids, attention_mask, position_ids, seq_ids):
         past_key_values = None
@@ -78,7 +63,6 @@ class DecoderModelWrapper(torch.nn.Module):
             attention_mask,
             batch_size=self.model.batch_size,
             n_positions=self.n_positions,
-            padding_side=self.model.padding_side,
         )
         # Actual model call
         outputs, past_key_values = self.model(input_ids, attention_mask, position_ids, past_key_values=None)
