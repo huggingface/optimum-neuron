@@ -33,7 +33,7 @@ jobs:
           EOF
           wget -qO - https://apt.repos.neuron.amazonaws.com/GPG-PUB-KEY-AMAZON-AWS-NEURON.PUB | sudo apt-key add -
           sudo apt-get update -y
-          sudo apt-get install aws-neuronx-tools=2.19.0.0 aws-neuronx-runtime-lib=2.22.14.0-6e27b8d5b aws-neuronx-collectives=2.22.26.0-17a033bc8  -y
+          sudo apt-get install aws-neuronx-tools=2.19.0.0 aws-neuronx-runtime-lib=2.22.19.0-5856c0b42 aws-neuronx-collectives=2.22.33.0-d2128d1aa  -y
           export PATH=/opt/aws/neuron/bin:$PATH
       - name: Install cv2 dependencies
         run: |
