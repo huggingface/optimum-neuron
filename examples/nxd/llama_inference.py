@@ -142,6 +142,7 @@ def main():
     tokenizer.padding_side = "right"
 
     if args.action == "export":
+        start = time.time()
         neuron_config = NeuronInferenceConfig.from_model_config(args.model)
         neuron_config.enable_bucketing = True
         neuron_config.tp_degree = args.tp_degree
@@ -167,6 +168,8 @@ def main():
             neuron_config,
             serialize_base_path=args.save_dir,
         )
+        end = time.time()
+        print(f"Neuron model exported in {end - start:.2f} s")
         # Also save tokenizer to be able to use it when reloading the model
         tokenizer.save_pretrained(args.save_dir)
     elif args.action == "run":

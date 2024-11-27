@@ -68,7 +68,6 @@ class NeuronDecoderModel(PreTrainedModel):
         attention_mask,
         position_ids,
         past_key_values,
-        seq_ids,
     ):
 
         batch_size, seq_length = input_ids.shape[:2]
