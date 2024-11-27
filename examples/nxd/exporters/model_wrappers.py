@@ -86,9 +86,7 @@ class DecoderModelWrapper(torch.nn.Module):
         updated_kv_cache = []
         for layer_idx, kv_per_layer in enumerate(past_key_values):
             key_states, value_states = kv_per_layer
-            k_cache, v_cache = self.kv_cache.add(
-                key_states, value_states, layer_idx, self.model.padding_side, self.n_positions
-            )
+            k_cache, v_cache = self.kv_cache.add(key_states, value_states, layer_idx, self.n_positions)
             updated_kv_cache.append(k_cache)
             updated_kv_cache.append(v_cache)
 
@@ -97,9 +95,7 @@ class DecoderModelWrapper(torch.nn.Module):
     def decode(self, input_ids, attention_mask, position_ids, seq_ids):
         past_key_values = []
         for layer_idx in range(0, self.model.config.num_hidden_layers):
-            key_state, value_state = self.kv_cache.get_past_key_values(
-                layer_idx, self.model.padding_side, self.n_positions
-            )
+            key_state, value_state = self.kv_cache.get_sliced_kv_cache(layer_idx, seq_len=self.n_positions)
             past_key_values.append([key_state, value_state])
         # Prepare 4D attention mask
         attention_mask = self._create_simple_attn_mask(
@@ -114,7 +110,7 @@ class DecoderModelWrapper(torch.nn.Module):
         for layer_idx, kv_per_layer in enumerate(past_key_values):
             key_states, value_states = kv_per_layer
             k_cache, v_cache = self.kv_cache.append(
-                key_states, value_states, position_ids, layer_idx, self.model.padding_side, self.n_positions
+                key_states, value_states, position_ids, layer_idx, seq_len=self.n_positions
             )
             updated_kv_cache.append(k_cache)
             updated_kv_cache.append(v_cache)
