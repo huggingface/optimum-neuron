@@ -247,7 +247,7 @@ class _TrainerForNeuron:
 
     def create_accelerator_and_postprocess(self):
         grad_acc_kwargs = {}
-        if is_accelerate_available("0.28.0") and self.args.accelerator_config.gradient_accumulation_kwargs is not None:
+        if self.args.accelerator_config.gradient_accumulation_kwargs is not None:
             grad_acc_kwargs = self.args.accelerator_config.gradient_accumulation_kwargs
 
         # check if num_steps is attempted to be passed in gradient_accumulation_kwargs
@@ -260,6 +260,8 @@ class _TrainerForNeuron:
         elif "num_steps" not in grad_acc_kwargs:
             # take the gradient_accumulation_steps setting from TrainingArguments.
             grad_acc_kwargs["num_steps"] = self.args.gradient_accumulation_steps
+        else:
+            self.args.gradient_accumulation_steps = grad_acc_kwargs["num_steps"]
 
         grad_acc_kwargs["sync_with_dataloader"] = False
 
@@ -267,32 +269,29 @@ class _TrainerForNeuron:
 
         accelerator_config = self.args.accelerator_config.to_dict()
 
-        if is_accelerate_available("0.28.0"):
-            dataloader_config = DataLoaderConfiguration(
-                split_batches=accelerator_config.pop("split_batches"),
-                dispatch_batches=accelerator_config.pop("dispatch_batches"),
-                even_batches=accelerator_config.pop("even_batches"),
-                use_seedable_sampler=accelerator_config.pop("use_seedable_sampler"),
-            )
+        dataloader_config = DataLoaderConfiguration(
+            split_batches=accelerator_config.pop("split_batches"),
+            dispatch_batches=accelerator_config.pop("dispatch_batches"),
+            even_batches=accelerator_config.pop("even_batches"),
+            use_seedable_sampler=accelerator_config.pop("use_seedable_sampler"),
+        )
+
         # this would have been updated above, no need for it anymore
         accelerator_config.pop("gradient_accumulation_kwargs")
 
-        args = {
+        kwargs = {
             "deepspeed_plugin": self.args.deepspeed_plugin,
             "gradient_accumulation_plugin": gradient_accumulation_plugin,
+            "dataloader_config": dataloader_config,
         }
-        if is_accelerate_available("0.28.0"):
-            args["dataloader_config"] = dataloader_config
-        else:
-            args.update(accelerator_config)
 
         # create accelerator object
         self.accelerator = NeuronAccelerator(
-            *args,
             mp_plugin=self.args.mp_plugin,
             zero_1=self.args.zero_1,
             mixed_precision="bf16" if self.args.bf16 else "no",
             autocast_backend=self.args.half_precision_backend,
+            **kwargs,
         )
 
         # some Trainer classes need to use `gather` instead of `gather_for_metrics`, thus we store a flag
@@ -525,6 +524,7 @@ class _TrainerForNeuron:
                                 if isinstance(grad_norm, torch.Tensor)
                                 else grad_norm
                             )
+
 
                         self._total_loss_scalar += tr_loss_scalar
                         self.store_flos()
