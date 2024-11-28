@@ -49,11 +49,13 @@ class DecoderModelWrapper(torch.nn.Module):
             dtype=dtype,
         )
 
-    def _create_context_attn_mask(self, attention_mask, batch_size, n_positions):
+    def _create_context_attn_mask(self, attention_mask, n_positions):
+        batch_size = attention_mask.shape[0]
         mask = torch.full((n_positions, n_positions), True, device=attention_mask.device).tril(diagonal=0)
         return mask[None, None, :, :].expand(batch_size, 1, n_positions, n_positions)
 
-    def _create_simple_attn_mask(self, attention_mask, batch_size, n_positions):
+    def _create_simple_attn_mask(self, attention_mask, n_positions):
+        batch_size = attention_mask.shape[0]
         return attention_mask[:, None, None, :].expand(batch_size, 1, 1, n_positions).to(torch.bool)
 
     def prefill(self, input_ids, attention_mask, position_ids, seq_ids):
@@ -61,7 +63,6 @@ class DecoderModelWrapper(torch.nn.Module):
         # Prepare 4D attention mask
         attention_mask = self._create_context_attn_mask(
             attention_mask,
-            batch_size=self.model.batch_size,
             n_positions=self.n_positions,
         )
         # Actual model call
@@ -84,7 +85,6 @@ class DecoderModelWrapper(torch.nn.Module):
         # Prepare 4D attention mask
         attention_mask = self._create_simple_attn_mask(
             attention_mask,
-            batch_size=self.model.batch_size,
             n_positions=self.n_positions,
         )
         # Actual model call

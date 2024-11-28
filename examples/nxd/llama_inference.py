@@ -157,9 +157,6 @@ def main():
         neuron_config.max_batch_size = args.batch_size
         neuron_config.padding_side = "right"
         neuron_config.pad_token_id = neuron_config.eos_token_id
-        # WARNING: We use on-device sampling, meaning that the generation parameters
-        # cannot be changed at inference
-        neuron_config.on_device_sampling = True
         neuron_config.do_sample = True
         neuron_config.top_k = 1
 

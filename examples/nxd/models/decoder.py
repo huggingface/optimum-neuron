@@ -1,7 +1,6 @@
 from typing import Union
 
 import torch
-from modules.sampling import Sampler  # noqa: E402
 from transformers import PretrainedConfig, PreTrainedModel
 from transformers.generation import (
     SampleDecoderOnlyOutput,
@@ -32,7 +31,6 @@ class NeuronDecoderModel(PreTrainedModel):
 
         self.setup_attr_for_model(config)
         self.init_model(config)
-        self.init_inference_optimization(config)
         self.post_init()
 
     def setup_attr_for_model(self, config: PretrainedConfig):
@@ -56,11 +54,6 @@ class NeuronDecoderModel(PreTrainedModel):
             self.lm_head
         """
         raise NotImplementedError("init_model() is not implemented")
-
-    def init_inference_optimization(self, config: PretrainedConfig):
-        if config.on_device_sampling:
-            self.sampler = Sampler(config)
-        return
 
     def forward(
         self,
@@ -122,12 +115,7 @@ class NeuronDecoderModel(PreTrainedModel):
         logits = self.lm_head(hidden_states)
         logits = logits.float()
 
-        res = logits
-        if self.sampler is not None:
-            # perform sampling on Neuron to get tokens
-            res = self.sampler.sample(logits[:, -1, :])
-
-        return res, next_decoder_cache
+        return logits, next_decoder_cache
 
     def get_input_embeddings(self):
         return self.embed_tokens
