@@ -29,13 +29,12 @@ def slice_lhs(tensor, bucket: int, dim: int):
 
 
 @torch.jit.script
-def token_generation_bk(tensors: List[torch.Tensor], buckets: torch.Tensor, padding_side: str):
+def token_generation_bk(tensors: List[torch.Tensor], buckets: torch.Tensor):
     """
     The Bucket Kernel for Token Generation Models.
 
     1) tensors: A list of torch tensors after running through the flattener
     2) buckets: A torch.tensor of the bucket sizes
-    3) padding_side: A string specifying padding side, must be "left" or "right"
     """
     attention_mask = tensors[1]
     position_ids = tensors[2]
@@ -47,10 +46,7 @@ def token_generation_bk(tensors: List[torch.Tensor], buckets: torch.Tensor, padd
     bucket = buckets[bucket_idx]
 
     # slice the attention mask based on the selected bucket size
-    if padding_side == "right":
-        tensors[1] = slice_lhs(attention_mask, bucket, 1)
-    else:
-        tensors[1] = slice_rhs(attention_mask, bucket, buckets[-1], 1)
+    tensors[1] = slice_lhs(attention_mask, bucket, 1)
 
     return tensors, bucket_idx.to(torch.int)
 
@@ -60,7 +56,7 @@ def get_token_generation_bk():
 
 
 @torch.jit.script
-def context_encoder_bk(tensors: List[torch.Tensor], buckets, padding_side: str, pad_token: int):
+def context_encoder_bk(tensors: List[torch.Tensor], buckets, pad_token: int):
     """
     The Bucket Kernel for Context Encoding Models.
 
@@ -104,21 +100,12 @@ def context_encoder_bk(tensors: List[torch.Tensor], buckets, padding_side: str, 
     # 1. slice from the opposite side for padding
     # 2. Identify seq_id tensors by shape and don't slice it
     # -------------------------------------------------
-    if padding_side == "right":
-        for i, tens in enumerate(tensors):
-            # identifies the seq_ids, which don't need to be sliced
-            if len(tens.shape) == 1:
-                new_tensors.append(tens)
-            else:  # all other tensors are of shape (batch_size,seq_len) so we slice on seq_len
-                new_tensors.append(slice_lhs(tens, bucket, 1))
-    else:
-        max_idx = buckets[-1]
-        for i, tens in enumerate(tensors):
-            # identifies the seq_ids, which don't need to be sliced
-            if len(tens.shape) == 1:
-                new_tensors.append(tens)
-            else:
-                new_tensors.append(slice_rhs(tens, bucket, max_idx, 1))
+    for i, tens in enumerate(tensors):
+        # identifies the seq_ids, which don't need to be sliced
+        if len(tens.shape) == 1:
+            new_tensors.append(tens)
+        else:  # all other tensors are of shape (batch_size,seq_len) so we slice on seq_len
+            new_tensors.append(slice_lhs(tens, bucket, 1))
 
     return new_tensors, bucket_idx.to(torch.int)
 

@@ -1,40 +1,47 @@
-from transformers import AutoConfig, PretrainedConfig
+import os
+import json
+import torch
+from dataclasses import dataclass
 
 
-class NeuronInferenceConfig(PretrainedConfig):
+@dataclass
+class NeuronInferenceConfig():
     """
-    Base config class for inference in NxD.
-
     This class contains attributes that are needed for various inference
     optimization/features in NxD.
+
     """
+    FILENAME = "neuron_config.json"
 
-    def __init__(
-        self, tp_degree: int = 1, batch_size: int = 1, seq_len: int = 128, padding_side: str = "right", **kwargs
-    ) -> None:
-        # Basic config for inference in NxD
-        self.tp_degree = tp_degree
-        self.batch_size = batch_size
-        self.padding_side = padding_side
-        self.n_positions = seq_len
+    tp_degree: int
+    batch_size: int
+    max_input_tokens: int
+    max_total_tokens: int
+    auto_cast_type: str
+    is_continuous_batching: bool = False
+    enable_bucketing: bool = True
 
-        # fallback to seq_len is for compatibility with vllm
-        self.max_context_length = kwargs.pop("max_context_length", seq_len)
-        self.max_new_tokens = seq_len - self.max_context_length
-        if self.max_new_tokens == 0:
-            self.max_new_tokens = None
-        self.max_length = seq_len
 
-        # Continuous batching
-        self.max_batch_size = kwargs.get("max_batch_size", batch_size)
-        self.is_continuous_batching = kwargs.get("is_continuous_batching", False)
+    def save_pretrained(self, path) -> str:
+        """
+        Serializes this instance to a JSON string.
 
-        # Bucketing
-        self.enable_bucketing = kwargs.get("enable_bucketing", False)
+        Args:
+            use_diff (`bool`, *optional*, defaults to `True`):
+                If set to `True`, only the difference between the config instance and the default `PretrainedConfig()`
+                is serialized to JSON string.
 
-        super().__init__(**kwargs)
+        Returns:
+            `str`: String containing all the attributes that make up this configuration instance in JSON format.
+        """
+        config_dict = self.__dict__
+        file_path = os.path.join(path, self.FILENAME)
+        with open(file_path, 'w') as f:
+            f.write(json.dumps(config_dict, indent=2, sort_keys=True) + "\n")
 
     @classmethod
-    def from_model_config(cls, pretrained_model_name_or_path, **kwargs):
-        config = AutoConfig.from_pretrained(pretrained_model_name_or_path)
-        return cls(**config.to_dict(), **kwargs)
+    def from_pretrained(cls, path):
+        file_path = os.path.join(path, cls.FILENAME)
+        with open(file_path, 'r') as f:
+            config_dict = json.load(f)
+        return cls(**config_dict)

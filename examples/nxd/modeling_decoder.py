@@ -65,13 +65,13 @@ class NeuronModelForCausalLM(GenerationMixin):
     _supports_cache_class = False
     # _supports_static_cache = False
 
-    def __init__(self, config: PretrainedConfig, model: torch.jit.ScriptModule):
+    def __init__(self, config: PretrainedConfig, neuron_config: NeuronInferenceConfig, model: torch.jit.ScriptModule):
         super().__init__()
 
         self.config = config
+        self.neuron_config = neuron_config
         self.generation_config = GenerationConfig.from_model_config(config)
         self.vocab_size = config.vocab_size
-        self.padding_side = config.padding_side
         self.kv_cache_populated = False
 
         self.sampler = None
@@ -90,17 +90,25 @@ class NeuronModelForCausalLM(GenerationMixin):
     def export(cls, model_path: Union[str, Path], neuron_config: NeuronInferenceConfig, serialize_base_path=None):
 
         config = AutoConfig.from_pretrained(model_path)
-        export_config_cls = get_exporter_config_constructor(config.model_type)
+        config.pad_token_id = config.eos_token_id
+
+        if neuron_config.auto_cast_type == "bf16":
+            config.torch_dtype = torch.bfloat16
+        elif neuron_config.auto_cast_type == "fp16":
+            config.torch_dtype = torch.float16
+        else:
+            config.torch_dtype = torch.float32
 
         if not os.path.exists(serialize_base_path):
             os.makedirs(serialize_base_path)
 
-        neuron_config.attn_cls = export_config_cls._ATTN_CLS
+        config.save_pretrained(serialize_base_path)
         neuron_config.save_pretrained(serialize_base_path)
         base_compile_work_dir = os.environ.get("BASE_COMPILE_WORK_DIR", "/tmp/nxd_model/")
 
+        export_config_cls = get_exporter_config_constructor(config.model_type)
         checkpoint_loader = CheckPointLoader(
-            model_path, export_config_cls._STATE_DICT_MODEL_PREFIX, neuron_config.torch_dtype
+            model_path, export_config_cls._STATE_DICT_MODEL_PREFIX, config.torch_dtype
         )
 
         builder = ModelBuilder(
@@ -118,8 +126,8 @@ class NeuronModelForCausalLM(GenerationMixin):
         # For LLM models, we typically use different sets of SPMDBucketModel for encoding and
         # token generation, each with its own list of buckets.
         export_configs = {
-            "prefill": export_config_cls(neuron_config, is_prefill=True),
-            "decode": export_config_cls(neuron_config, is_prefill=False),
+            "prefill": export_config_cls(config, neuron_config, is_prefill=True),
+            "decode": export_config_cls(config, neuron_config, is_prefill=False),
         }
         for tag, export_config in export_configs.items():
             # We need a pickable object to provide the callbacks required by the Builder
@@ -145,7 +153,8 @@ class NeuronModelForCausalLM(GenerationMixin):
     @classmethod
     def load(cls, serialize_base_path):
 
-        config = NeuronInferenceConfig.from_pretrained(serialize_base_path)
+        config = AutoConfig.from_pretrained(serialize_base_path)
+        neuron_config = NeuronInferenceConfig.from_pretrained(serialize_base_path)
 
         traced_model = torch.jit.load(NeuronModelForCausalLM.get_traced_model_path(serialize_base_path))
 
@@ -162,7 +171,7 @@ class NeuronModelForCausalLM(GenerationMixin):
 
         traced_model.nxd_model.initialize(weights)
 
-        return cls(config, traced_model)
+        return cls(config, neuron_config, traced_model)
 
     @property
     def device(self) -> torch.device:
@@ -244,11 +253,11 @@ class NeuronModelForCausalLM(GenerationMixin):
         logging.debug(f"seq_ids: {seq_ids}")
 
     def pad_to_batch_size(self, tensor):
-        if tensor is None or tensor.shape[0] == self.config.batch_size:
+        if tensor is None or tensor.shape[0] == self.neuron_config.batch_size:
             return tensor
 
         padded_shape = list(tensor.shape)
-        padded_shape[0] = self.config.batch_size
+        padded_shape[0] = self.neuron_config.batch_size
         padded_tensor = torch.zeros(padded_shape, dtype=tensor.dtype)
         padded_tensor[: tensor.shape[0]] = tensor
         return padded_tensor
@@ -256,7 +265,7 @@ class NeuronModelForCausalLM(GenerationMixin):
     def pad_to_max_compiled_seq(self, *args):
         if not self.kv_cache_populated:
             to_pad = args[:3]
-            pad_lengths = [self.config.max_context_length - arg.shape[1] for arg in to_pad]
+            pad_lengths = [self.neuron_config.max_input_tokens - arg.shape[1] for arg in to_pad]
             tensor_pad_vals = [self.config.pad_token_id, 0, 1]
             padded_args = [
                 torch.nn.functional.pad(arg, (0, pad_len), "constant", pad_val)
@@ -265,7 +274,7 @@ class NeuronModelForCausalLM(GenerationMixin):
             args = (*padded_args, *args[3:])
         else:
             input_ids, attention_mask, *rest_of_args = args
-            pad_len = self.config.max_length - attention_mask.shape[1]
+            pad_len = self.neuron_config.max_total_tokens - attention_mask.shape[1]
             padded_attention_mask = torch.nn.functional.pad(attention_mask, (0, pad_len), "constant", 0)
             args = (input_ids, padded_attention_mask, *rest_of_args)
 
@@ -273,7 +282,6 @@ class NeuronModelForCausalLM(GenerationMixin):
 
     def _get_model_outputs(self, input_ids, attention_mask, position_ids, seq_ids):
         # TODO: handle continuous batching here
-        assert torch.equal(seq_ids, torch.tensor(range(self.config.max_batch_size)))
         input_ids, attention_mask, position_ids, seq_ids = self.pad_to_max_compiled_seq(
             input_ids, attention_mask, position_ids, seq_ids
         )
@@ -325,15 +333,9 @@ class NeuronModelForCausalLM(GenerationMixin):
         if "attention_mask" in model_kwargs:
             attention_mask = model_kwargs["attention_mask"]
             if is_for_token_generation:
-                if self.padding_side == "left":
-                    attention_mask = torch.cat(
-                        [attention_mask, attention_mask.new_ones((attention_mask.shape[0], 1))], dim=-1
-                    )
-                    attention_mask = attention_mask[:, 1:]
-                else:
-                    attention_mask = torch.cat(
-                        [attention_mask.new_ones((attention_mask.shape[0], 1)), attention_mask], dim=-1
-                    )
+                attention_mask = torch.cat(
+                    [attention_mask.new_ones((attention_mask.shape[0], 1)), attention_mask], dim=-1
+                )
             model_kwargs["attention_mask"] = attention_mask
         return model_kwargs
 

@@ -99,7 +99,6 @@ class NeuronLlamaAttention(NeuronAttentionBase):
         self.head_dim = self.hidden_size // self.num_attention_heads
         self.max_position_embeddings = config.max_position_embeddings
         self.rope_theta = config.rope_theta
-        self.padding_side = config.padding_side
         self.torch_dtype = config.torch_dtype
 
         if parallel_state.model_parallel_is_initialized():
