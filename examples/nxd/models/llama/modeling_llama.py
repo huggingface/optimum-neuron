@@ -19,8 +19,8 @@
 # limitations under the License.
 """PyTorch LLaMA model for NXD inference."""
 import warnings
-from typing import Union
 
+import torch
 from neuronx_distributed.parallel_layers import parallel_state  # noqa: E402
 from neuronx_distributed.parallel_layers.layers import (  # noqa: E402
     ColumnParallelLinear,  # noqa: E402
@@ -28,25 +28,19 @@ from neuronx_distributed.parallel_layers.layers import (  # noqa: E402
     RowParallelLinear,  # noqa: E402
 )  # noqa: E402
 from torch import nn
-from transformers import LlamaPreTrainedModel
-from transformers.generation import SampleDecoderOnlyOutput, SampleEncoderDecoderOutput
 from transformers.models.llama.configuration_llama import LlamaConfig
 from transformers.models.llama.modeling_llama import (
     LlamaDecoderLayer,
     LlamaDynamicNTKScalingRotaryEmbedding,
     LlamaLinearScalingRotaryEmbedding,
     LlamaMLP,
+    LlamaModel,
 )
-
-
-SampleOutput = Union[SampleEncoderDecoderOutput, SampleDecoderOnlyOutput]
 
 
 from models.attention.attention_base import NeuronAttentionBase  # noqa: E402
 from models.attention.utils import RotaryEmbedding  # noqa: E402
 from models.custom_calls import CustomRMSNorm  # noqa: E402
-from models.decoder import NeuronDecoderModel  # noqa: E402
-from modules.config import NeuronInferenceConfig  # noqa: E402
 
 
 class NeuronLlamaMLP(LlamaMLP):
@@ -166,36 +160,76 @@ class NeuronLlamaDecoderLayer(LlamaDecoderLayer):
         self.post_attention_layernorm = CustomRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
 
-class NeuronLlamaModel(NeuronDecoderModel, LlamaPreTrainedModel):
+class NeuronLlamaModel(LlamaModel):
     """
     The neuron version of the LlamaModel
     """
 
-    def setup_attr_for_model(self, config: NeuronInferenceConfig):
-        # Needed for init_inference_optimization()
-        self.hidden_size = config.hidden_size
-        self.num_key_value_heads = config.num_key_value_heads
-
-    def init_model(self, config: NeuronInferenceConfig):
-
-        if parallel_state.model_parallel_is_initialized():
-            self.embed_tokens = ParallelEmbedding(
-                config.vocab_size,
-                config.hidden_size,
-                config.pad_token_id,
-                dtype=config.torch_dtype,
-                shard_across_embedding=True,
-                # We choose to shard across embedding dimension because this stops XLA from introducing
-                # rank specific constant parameters into the HLO. We could shard across vocab, but that
-                # would require us to use non SPMD parallel_model_trace.
-                pad=True,
-            )
-            self.lm_head = ColumnParallelLinear(config.hidden_size, config.vocab_size, bias=False, pad=True)
-        else:
-            self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, config.pad_token_id)
-            self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
+    def __init__(self, config: LlamaConfig):
+        assert parallel_state.model_parallel_is_initialized()
+        super().__init__(config)
+        self.embed_tokens = ParallelEmbedding(
+            config.vocab_size,
+            config.hidden_size,
+            config.pad_token_id,
+            dtype=config.torch_dtype,
+            shard_across_embedding=True,
+            # We choose to shard across embedding dimension because this stops XLA from introducing
+            # rank specific constant parameters into the HLO. We could shard across vocab, but that
+            # would require us to use non SPMD parallel_model_trace.
+            pad=True,
+        )
+        self.lm_head = ColumnParallelLinear(config.hidden_size, config.vocab_size, bias=False, pad=True)
 
         self.layers = nn.ModuleList(
             [NeuronLlamaDecoderLayer(config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
         )
         self.norm = CustomRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+
+    def forward(
+        self,
+        input_ids,
+        attention_mask,
+        position_ids,
+        past_key_values,
+    ):
+        # We need to override forward because the standard forward makes too much assumptions
+        # about the cache implementation
+
+        batch_size, seq_length = input_ids.shape[:2]
+
+        inputs_embeds = self.embed_tokens(input_ids)
+        position_ids = position_ids.view(-1, seq_length).long()
+
+        # embed positions
+        hidden_states = inputs_embeds
+
+        # decoder layers
+        next_decoder_cache = ()
+
+        for decoder_layer in self.layers:
+
+            layer_outputs = decoder_layer(
+                hidden_states,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                past_key_value=past_key_values,
+                output_attentions=False,
+                use_cache=True,
+            )
+
+            hidden_states = layer_outputs[0]
+
+            next_decoder_cache += (layer_outputs[1],)
+
+        hidden_states = self.norm(hidden_states)
+
+        hidden_size = hidden_states.shape[-1]
+        index = torch.max(position_ids, dim=1, keepdim=True).indices
+        index = index.unsqueeze(1).expand(batch_size, 1, hidden_size)
+        hidden_states = torch.gather(hidden_states, dim=1, index=index)
+
+        logits = self.lm_head(hidden_states)
+        logits = logits.float()
+
+        return logits, next_decoder_cache
