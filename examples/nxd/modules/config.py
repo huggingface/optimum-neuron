@@ -29,9 +29,6 @@ class NeuronInferenceConfig(PretrainedConfig):
         self.max_batch_size = kwargs.get("max_batch_size", batch_size)
         self.is_continuous_batching = kwargs.get("is_continuous_batching", False)
 
-        # On-device sampling
-        self.on_device_sampling = kwargs.get("on_device_sampling", False)
-
         # Bucketing
         self.enable_bucketing = kwargs.get("enable_bucketing", False)
 

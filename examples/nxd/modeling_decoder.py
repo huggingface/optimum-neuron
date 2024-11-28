@@ -210,9 +210,6 @@ class NeuronModelForCausalLM(GenerationMixin):
 
         logits_or_next_tokens = self._get_model_outputs(input_ids, attention_mask, position_ids, seq_ids)
 
-        logging.debug("---output---")
-        logging.debug(f"{'tokens' if self.config.on_device_sampling else 'logits'} = %s, ", logits_or_next_tokens)
-
         return self._construct_output(logits_or_next_tokens)
 
     def _setup_func_config(self, output_attentions, output_hidden_states, return_dict):
@@ -297,7 +294,7 @@ class NeuronModelForCausalLM(GenerationMixin):
         next_tokens = logits_or_next_tokens
 
         OutputParams = CausalLMOutputWithPast(
-            logits=None if self.config.on_device_sampling else logits_or_next_tokens,
+            logits=logits_or_next_tokens,
             hidden_states=logits_or_next_tokens,
             attentions=None,
         )
@@ -425,26 +422,22 @@ class NeuronModelForCausalLM(GenerationMixin):
             # forward pass to get next token
             outputs = self.forward(**model_inputs, return_dict=True)
 
-            if not self.config.on_device_sampling:
-                next_token_logits = outputs.logits[:, -1, :]
+            next_token_logits = outputs.logits[:, -1, :]
 
-                # pre-process distribution
-                next_token_scores = logits_processor(input_ids, next_token_logits)
-                next_token_scores = logits_warper(input_ids, next_token_scores)
+            # pre-process distribution
+            next_token_scores = logits_processor(input_ids, next_token_logits)
+            next_token_scores = logits_warper(input_ids, next_token_scores)
 
-                if return_dict_in_generate:
-                    if output_scores:
-                        scores += (next_token_scores,)
-                    if output_logits:
-                        raw_logits += (next_token_logits,)
+            if return_dict_in_generate:
+                if output_scores:
+                    scores += (next_token_scores,)
+                if output_logits:
+                    raw_logits += (next_token_logits,)
 
-            if not self.config.on_device_sampling:
-                if self.sampler is None:
-                    self.config.do_sample = True
-                    self.sampler = Sampler(self.config)
-                next_tokens = self.sampler.sample(outputs.logits[:, -1, :])
-            else:
-                next_tokens = outputs.tokens
+            if self.sampler is None:
+                self.config.do_sample = True
+                self.sampler = Sampler(self.config)
+            next_tokens = self.sampler.sample(outputs.logits[:, -1, :])
 
             # finished sentences should have their next token be a padding token
             if eos_token_id is not None:
