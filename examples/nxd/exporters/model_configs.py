@@ -5,6 +5,7 @@ from modules.autobucketing import generate_buckets, get_context_encoder_bk, get_
 from modules.config import NeuronInferenceConfig
 from neuronx_distributed.trace.model_builder import BaseModelInstance
 from torch_neuronx import BucketModelConfig
+from transformers import PretrainedConfig
 
 from optimum.exporters.base import ExportConfig
 
@@ -27,11 +28,12 @@ def register_export_config(model_type):
 
 class DecoderModelInstance(BaseModelInstance):
 
-    def __init__(self, model_cls, config, buckets, is_prefill):
+    def __init__(self, model_cls, config, neuron_config, buckets, is_prefill):
         self.model_cls = model_cls
         self.module = None
         self.input_output_aliases = None
         self.config = config
+        self.neuron_config = neuron_config
         self.buckets = buckets
         self.is_prefill = is_prefill
 
@@ -44,9 +46,9 @@ class DecoderModelInstance(BaseModelInstance):
 
         self.module = DecoderModelWrapper(
             float_model,
-            batch_size=self.config.batch_size,
-            max_length=self.config.max_length,
-            tensor_parallel_size=self.config.tp_degree,
+            batch_size=self.neuron_config.batch_size,
+            max_length=self.neuron_config.max_total_tokens,
+            tensor_parallel_size=self.neuron_config.tp_degree,
             dtype=self.config.torch_dtype,
             is_prefill=self.is_prefill,
         )
@@ -76,20 +78,21 @@ class LlamaNeuronExportConfig(ExportConfig):
     _MODEL_CLS = NeuronLlamaModel
     _ATTN_CLS = "NeuronLlamaAttention"
 
-    def __init__(self, config: NeuronInferenceConfig, is_prefill: bool):
+    def __init__(self, config: PretrainedConfig, neuron_config: NeuronInferenceConfig, is_prefill: bool):
         self.is_prefill = is_prefill
         self.config = config
-        self.max_input_tokens = config.max_context_length if is_prefill else 1
+        self.neuron_config = neuron_config
+        self.max_input_tokens = neuron_config.max_input_tokens if is_prefill else 1
         if is_prefill:
-            if config.enable_bucketing:
-                buckets = generate_buckets(128, config.max_context_length)
+            if neuron_config.enable_bucketing:
+                buckets = generate_buckets(128, neuron_config.max_input_tokens)
             else:
-                buckets = [config.max_context_length]
+                buckets = [neuron_config.max_input_tokens]
         else:
-            if config.enable_bucketing:
-                buckets = generate_buckets(128, config.max_length)
+            if neuron_config.enable_bucketing:
+                buckets = generate_buckets(128, neuron_config.max_total_tokens)
             else:
-                buckets = [config.max_length]
+                buckets = [neuron_config.max_total_tokens]
         self.buckets = buckets
 
     @staticmethod
@@ -99,7 +102,7 @@ class LlamaNeuronExportConfig(ExportConfig):
     def input_generator(self):
         inputs = []
         for bucket in self.buckets:
-            batch_size = self.config.batch_size
+            batch_size = self.neuron_config.batch_size
             n_active_tokens = min(self.max_input_tokens, bucket)
 
             input_ids = torch.zeros((batch_size, n_active_tokens), dtype=torch.int64)
@@ -113,11 +116,11 @@ class LlamaNeuronExportConfig(ExportConfig):
 
     def get_model_instance(self):
         return DecoderModelInstance(
-            model_cls=self._MODEL_CLS, config=self.config, buckets=self.buckets, is_prefill=self.is_prefill
+            model_cls=self._MODEL_CLS, config=self.config, neuron_config=self.neuron_config, buckets=self.buckets, is_prefill=self.is_prefill
         )
 
     def bucket_config(self):
-        if not self.config.enable_bucketing:
+        if not self.neuron_config.enable_bucketing:
             return None
         bucket_degree = len(self.buckets)
         if self.is_prefill:
@@ -125,7 +128,6 @@ class LlamaNeuronExportConfig(ExportConfig):
                 bucket_kernel=get_context_encoder_bk,
                 bucket_kernel_constant_args=(
                     torch.tensor(self.buckets),
-                    self.config.padding_side,
                     self.config.pad_token_id,
                 ),
                 shared_state_buffer=None,
@@ -134,7 +136,7 @@ class LlamaNeuronExportConfig(ExportConfig):
         else:
             return BucketModelConfig(
                 bucket_kernel=get_token_generation_bk,
-                bucket_kernel_constant_args=(torch.tensor(self.buckets), self.config.padding_side),
+                bucket_kernel_constant_args=(torch.tensor(self.buckets),),
                 shared_state_buffer=None,
                 func_kwargs=[{"bucket_rank": i} for i in range(bucket_degree)],
             )

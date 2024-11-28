@@ -8,7 +8,7 @@ from typing import Union
 import torch
 from modeling_decoder import NeuronModelForCausalLM
 from modules.config import NeuronInferenceConfig
-from transformers import AutoTokenizer, GenerationConfig, set_seed
+from transformers import AutoConfig, AutoTokenizer, GenerationConfig, set_seed
 from transformers.generation import SampleDecoderOnlyOutput, SampleEncoderDecoderOutput
 
 
@@ -29,8 +29,9 @@ logger.addHandler(ch)
 
 def generate(model, tokenizer, prompts, max_new_tokens):
     # Sanity checks
-    if len(prompts) != model.config.max_batch_size:
-        raise ValueError(f"Number of prompts should match batch size {model.config.max_batch_size}")
+    if len(prompts) != model.neuron_config.batch_size:
+        raise ValueError(f"Number of prompts should match batch size {model.neuron_config.batch_size}")
+    assert tokenizer.padding_side == "right"
     set_seed(0)  # to avoid randomness in sampling if any
     inputs = tokenizer(prompts, padding=True, return_tensors="pt")
 
@@ -143,23 +144,16 @@ def main():
 
     if args.action == "export":
         start = time.time()
-        neuron_config = NeuronInferenceConfig.from_model_config(args.model)
-        neuron_config.enable_bucketing = True
-        neuron_config.tp_degree = args.tp_degree
-        neuron_config.batch_size = args.batch_size
         max_length = args.sequence_length
         if max_length is None:
-            max_length = neuron_config.max_position_embeddings
-        neuron_config.max_context_length = int(max_length * 0.75)
-        neuron_config.max_new_tokens = max_length
-        neuron_config.max_length = max_length
-        neuron_config.n_positions = max_length
-        neuron_config.max_batch_size = args.batch_size
-        neuron_config.padding_side = "right"
-        neuron_config.pad_token_id = neuron_config.eos_token_id
-        neuron_config.do_sample = True
-        neuron_config.top_k = 1
-
+            config  = AutoConfig.from_pretrained(args.model)
+            max_length = config.max_position_embeddings
+        neuron_config = NeuronInferenceConfig(
+            tp_degree = args.tp_degree,
+            batch_size = args.batch_size,
+            max_input_tokens = int(max_length * 0.75),
+            max_total_tokens=max_length,
+            auto_cast_type="bf16")
         NeuronModelForCausalLM.export(
             args.model,
             neuron_config,
@@ -174,7 +168,8 @@ def main():
         neuron_model = NeuronModelForCausalLM.load(args.model)
         end = time.time()
         print(f"Neuron model loaded in {end - start:.2f} s")
-        batch_size = neuron_model.config.batch_size
+        neuron_config = NeuronInferenceConfig.from_pretrained(args.model)
+        batch_size = neuron_config.batch_size
         prompts = args.prompts.split("|")
         if len(prompts) < batch_size:
             prompts = prompts + [prompts[-1]] * (batch_size - len(prompts))
