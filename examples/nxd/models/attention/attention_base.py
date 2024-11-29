@@ -104,11 +104,6 @@ class NeuronAttentionBase(nn.Module):
         flash_attention_eligible = q_len >= 4096 and Q.shape == K_active.shape == V_active.shape
 
         if flash_attention_eligible:
-            # if we are using left padding, then the bzs needs be 1 (otherwise we get wrong result
-            # because flash attention does not use attention_mask). In practice, we use right
-            # padding so this is unlikely to cause issues
-            assert self.padding_side == "right" or bsz == 1
-
             # original shape of q, k, v is BHSD, and expected output is also BHSD.
             logging.debug(f"Using flash_fwd for Q.shape={Q.shape}")
             # make sure to cast inputs to self.config.torch_dtype (this is needed because the downcast to bf16
