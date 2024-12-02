@@ -452,11 +452,16 @@ class NeuronDecoderConfig(NeuronConfig):
             raise ModuleNotFoundError(
                 "The mandatory transformers-neuronx package is missing. Please install optimum[neuronx]."
             )
-        module_name, class_name = self.NEURONX_CLASS.rsplit(".", maxsplit=1)
-        module = importlib.import_module(f"transformers_neuronx.{module_name}")
-        self._neuronx_class = getattr(module, class_name, None)
-        if self._neuronx_class is None:
-            raise ImportError(f"{class_name} not found in {module_name}. Please check transformers-neuronx version.")
+        if isinstance(self.NEURONX_CLASS, type):
+            self._neuronx_class = self.NEURONX_CLASS
+        else:
+            module_name, class_name = self.NEURONX_CLASS.rsplit(".", maxsplit=1)
+            module = importlib.import_module(f"transformers_neuronx.{module_name}")
+            self._neuronx_class = getattr(module, class_name, None)
+            if self._neuronx_class is None:
+                raise ImportError(
+                    f"{class_name} not found in {module_name}. Please check transformers-neuronx version."
+                )
 
     @property
     def neuronx_class(self):
