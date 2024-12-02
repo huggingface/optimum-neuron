@@ -75,7 +75,7 @@ def benchmark(model, tokenizer, inc_length, max_length, new_tokens, json_path=No
         prompt = f.read()
     tokens = tokenizer([prompt], return_tensors="pt")
     # Evaluate the batch size
-    batch_size = model.config.batch_size
+    batch_size = model.neuron_config.batch_size
 
     def get_input_ids(tokens, batch_size, input_length):
         return tokens.input_ids[0, :input_length].repeat((batch_size, 1))
@@ -83,8 +83,8 @@ def benchmark(model, tokenizer, inc_length, max_length, new_tokens, json_path=No
     benchmark = {"results": []}
     for input_length in range(inc_length, max_length + 1, inc_length):
         # Generate a single input, just to evaluate the context encoding time
-        input_ids = get_input_ids(tokens, batch_size, input_length + 1)
-        _, encoding_time = timed_generate(model, input_ids, 1)
+        input_ids = get_input_ids(tokens, batch_size, input_length)
+        _, encoding_time = timed_generate(model, input_ids, input_length + 1)
         output_ids, duration = timed_generate(model, input_ids, input_length + new_tokens)
         latency = (duration - encoding_time) / new_tokens * 1000
         throughput = new_tokens * batch_size / duration
