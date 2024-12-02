@@ -17,6 +17,7 @@
 
 from optimum.exporters.tasks import TasksManager
 
+from ....neuron.models.qwen2.model import Qwen2ForSampling
 from ..config import TextNeuronDecoderConfig
 
 
@@ -55,3 +56,10 @@ class MistralNeuronConfig(TextNeuronDecoderConfig):
 class MixtralNeuronConfig(TextNeuronDecoderConfig):
     NEURONX_CLASS = "mixtral.model.MixtralForSampling"
     CONTINUOUS_BATCHING = False
+
+
+@register_in_tasks_manager("qwen2", "text-generation")
+class Qwen2NeuronConfig(TextNeuronDecoderConfig):
+    NEURONX_CLASS = Qwen2ForSampling
+    CONTINUOUS_BATCHING = True
+    FUSE_QKV = False
