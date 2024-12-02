@@ -445,6 +445,7 @@ class NeuronDecoderConfig(NeuronConfig):
     NEURONX_CLASS = None
     CONTINUOUS_BATCHING = False
     ATTENTION_lAYOUT = "HSB"
+    FUSE_QKV = True
 
     def __init__(self, task: str):
         if not is_transformers_neuronx_available():
@@ -468,3 +469,7 @@ class NeuronDecoderConfig(NeuronConfig):
     @property
     def attention_layout(self):
         return self.ATTENTION_lAYOUT
+
+    @property
+    def fuse_qkv(self):
+        return self.FUSE_QKV
