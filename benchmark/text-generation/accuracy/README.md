@@ -21,3 +21,10 @@ You can evaluate:
 |              |       |none            |     0|acc_norm   |↑  |0.7581|±  |0.0043|
 |lambada_openai|      1|none            |     0|acc        |↑  |0.7173|±  |0.0063|
 |              |       |none            |     0|perplexity |↓  |3.1102|±  |0.0769|
+
+### Qwen/Qwen2.5-Math-7B-Instruct
+
+|Tasks|Version|     Filter     |n-shot|  Metric   |   |Value |   |Stderr|
+|-----|------:|----------------|-----:|-----------|---|-----:|---|-----:|
+|gsm8k|      3|flexible-extract|     5|exact_match|↑  |0.8878|±  |0.0087|
+|     |       |strict-match    |     5|exact_match|↑  |0.8870|±  |0.0087|
