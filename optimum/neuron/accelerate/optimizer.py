@@ -73,14 +73,18 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
             self.parameters = [p for group in self.optimizer.param_groups for p in group["params"]]
             self.parameter_ids = {id(p) for p in self.parameters}
 
+        self.total_grad_norm = []
+
     # TODO: might be needed to override this soon.
     def load_state_dict(self, state_dict):
         return super().load_state_dict(state_dict)
 
     def prepare_clip_grad_norm(self, parameters, max_norm, norm_type=2):
         parameter_ids = {id(p) for p in parameters}
-        if parameter_ids == self.parameter_ids or isinstance(self.optimizer, ZeroRedundancyOptimizer):
-            self.clip_grad_norm_to_perform = {"max_norm": max_norm, "norm_type": norm_type}
+        # if parameter_ids == self.parameter_ids or isinstance(self.optimizer, ZeroRedundancyOptimizer):
+        #     assert 3==2
+        self.clip_grad_norm_to_perform = {"max_norm": max_norm, "norm_type": norm_type}
+        return self.total_grad_norm
 
     @requires_neuronx_distributed
     def step(self, closure=None):
@@ -88,9 +92,8 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
         from neuronx_distributed.parallel_layers.grads import bucket_allreduce_gradients
 
         if self.gradient_state.sync_gradients:
-            # For sequence-parallel, we have to explicitly all-reduce the layernorm gradients.
-            if self.accelerator_state.distributed_type is NeuronDistributedType.MODEL_PARALLELISM:
-                allreduce_sequence_parallel_gradients(self.optimizer)
+            self.optimizer.step()
+            return
 
             if isinstance(self.optimizer, ZeroRedundancyOptimizer):
                 if self.clip_grad_norm_to_perform is not None:
@@ -113,7 +116,9 @@ class NeuronAcceleratedOptimizer(AcceleratedOptimizer):
                 if parallel_layers.parallel_state.get_data_parallel_size() > 1:
                     bucket_allreduce_gradients(xm._fetch_gradients(self.optimizer))
                 if self.clip_grad_norm_to_perform is not None:
-                    parallel_layers.clip_grad_norm(self.parameters, **self.clip_grad_norm_to_perform)
+                    self.total_grad_norm.clear()
+                    total_grad_norm = parallel_layers.clip_grad_norm(self.parameters, **self.clip_grad_norm_to_perform)
+                    self.total_grad_norm.append(total_grad_norm)
                     self.clip_grad_norm_to_perform = None
                 self.optimizer.step()
             elif self.scaler is not None:
