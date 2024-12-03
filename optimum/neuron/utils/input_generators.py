@@ -18,7 +18,7 @@ from typing import Optional
 
 import torch
 
-from ...utils import (
+from optimum.utils import (
     DTYPE_MAPPER,
     DummyAudioInputGenerator,
     DummyInputGenerator,

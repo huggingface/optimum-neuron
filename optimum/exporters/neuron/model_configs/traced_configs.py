@@ -20,15 +20,8 @@ from typing import TYPE_CHECKING, Dict, List
 
 import torch
 
-from ...neuron.distributed import ParallelizersManager
-from ...neuron.utils import (
-    ASTDummyAudioInputGenerator,
-    DummyBeamValuesGenerator,
-    DummyControNetInputGenerator,
-    DummyMaskedPosGenerator,
-    is_neuronx_distributed_available,
-)
-from ...utils import (
+from optimum.exporters.tasks import TasksManager
+from optimum.utils import (
     DummyInputGenerator,
     DummySeq2SeqDecoderTextInputGenerator,
     DummyTextInputGenerator,
@@ -42,16 +35,23 @@ from ...utils import (
     NormalizedVisionConfig,
     is_diffusers_available,
 )
-from ..tasks import TasksManager
-from .config import (
+
+from ....neuron.distributed import ParallelizersManager
+from ....neuron.utils import (
+    ASTDummyAudioInputGenerator,
+    DummyBeamValuesGenerator,
+    DummyControNetInputGenerator,
+    DummyMaskedPosGenerator,
+    is_neuronx_distributed_available,
+)
+from ..config import (
     AudioNeuronConfig,
     TextAndVisionNeuronConfig,
     TextEncoderNeuronConfig,
-    TextNeuronDecoderConfig,
     TextSeq2SeqNeuronConfig,
     VisionNeuronConfig,
 )
-from .model_wrappers import (
+from ..model_wrappers import (
     ControlNetNeuronWrapper,
     NoCacheModelWrapper,
     SentenceTransformersCLIPNeuronWrapper,
@@ -768,18 +768,6 @@ class VaeDecoderNeuronConfig(VisionNeuronConfig):
         return super().patch_model_for_export(model=model, dummy_inputs=dummy_inputs, forward_with_tuple=True)
 
 
-@register_in_tasks_manager("gpt2", "text-generation")
-class GPT2NeuronConfig(TextNeuronDecoderConfig):
-    NEURONX_CLASS = "gpt2.model.GPT2ForSampling"
-
-
-@register_in_tasks_manager("llama", "text-generation")
-class LLamaNeuronConfig(TextNeuronDecoderConfig):
-    NEURONX_CLASS = "llama.model.LlamaForSampling"
-    CONTINUOUS_BATCHING = True
-    ATTENTION_lAYOUT = "BSH"
-
-
 @register_in_tasks_manager("t5-encoder", "text2text-generation")
 class T5EncoderNeuronConfig(TextSeq2SeqNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
@@ -980,25 +968,3 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
             aliases[decoder.past_key_values_ca[i]] = len(decoder.past_key_values_sa) + i + num_outputs_from_trace
 
         return aliases
-
-
-@register_in_tasks_manager("opt", "text-generation")
-class OPTNeuronConfig(TextNeuronDecoderConfig):
-    NEURONX_CLASS = "opt.model.OPTForSampling"
-
-
-@register_in_tasks_manager("bloom", "text-generation")
-class BloomNeuronConfig(TextNeuronDecoderConfig):
-    NEURONX_CLASS = "bloom.model.BloomForSampling"
-
-
-@register_in_tasks_manager("mistral", "text-generation")
-class MistralNeuronConfig(TextNeuronDecoderConfig):
-    NEURONX_CLASS = "mistral.model.MistralForSampling"
-    CONTINUOUS_BATCHING = True
-
-
-@register_in_tasks_manager("mixtral", "text-generation")
-class MixtralNeuronConfig(TextNeuronDecoderConfig):
-    NEURONX_CLASS = "mixtral.model.MixtralForSampling"
-    CONTINUOUS_BATCHING = False
