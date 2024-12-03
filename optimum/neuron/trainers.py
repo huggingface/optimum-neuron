@@ -245,6 +245,7 @@ class _TrainerForNeuron:
                 logger.info("Disabling prediction during precompilation as this is not well supported yet.")
             args.do_predict = False
 
+    @requires_neuronx_distributed
     def create_accelerator_and_postprocess(self):
         grad_acc_kwargs = {}
         if self.args.accelerator_config.gradient_accumulation_kwargs is not None:
@@ -286,7 +287,25 @@ class _TrainerForNeuron:
         }
 
         # create accelerator object
+        import neuronx_distributed as nxd
+        optimizer_config = {
+            "zero_one_enabled": self.args.zero_1,
+            "grad_clipping": self.args.max_grad_norm is not None and self.args.max_grad_norm > 0,
+            "max_grad_norm": self.args.max_grad_norm,
+        }
+        nxd_config = nxd.neuronx_distributed_config(
+            tensor_parallel_size=self.args.mp_plugin.tensor_parallel_size,
+            pipeline_parallel_size=self.args.mp_plugin.pipeline_parallel_size,
+            expert_parallel_size=1, # TODO: enable that once MOE is supported
+            pipeline_config=None, # TODO: integrate support for Pipeline with the NxD config
+            optimizer_config=optimizer_config,
+            activation_checkpoint_config=None, # TODO: integrate support for activation checkpointing with the NxD config
+            pad_model=False,
+            sequence_parallel=not self.args.disable_sequence_parallel,
+            # TODO: integrate other parameters as well.
+        )
         self.accelerator = NeuronAccelerator(
+            nxd_config,
             mp_plugin=self.args.mp_plugin,
             zero_1=self.args.zero_1,
             mixed_precision="bf16" if self.args.bf16 else "no",
@@ -372,6 +391,7 @@ class _TrainerForNeuron:
         args: TrainingArguments, model: Optional[PreTrainedModel] = None
     ) -> Tuple[Any, Any]:
         optimizer_cls, optimizer_kwargs = transformers_get_optimizer_cls_and_kwargs(args, model=model)
+        print(optimizer_kwargs)
         lazy_load = args.mp_plugin.should_parallelize or args.zero_1
         if lazy_load:
             optimizer_cls = make_optimizer_constructor_lazy(optimizer_cls)
@@ -379,6 +399,7 @@ class _TrainerForNeuron:
 
     @patch_within_function(("transformers.Trainer.get_optimizer_cls_and_kwargs", get_optimizer_cls_and_kwargs))
     def create_optimizer(self):
+        print("Create optimizer")
         return super().create_optimizer()
 
     def _prepare_input(self, data: Union[torch.Tensor, Any]) -> Union[torch.Tensor, Any]:
@@ -799,6 +820,7 @@ class _TrainerForNeuron:
                 debug_overflow = DebugUnderflowOverflow(self.model)  # noqa
 
         delay_optimizer_creation = is_sagemaker_mp_enabled() or self.is_fsdp_xla_enabled or self.is_fsdp_enabled
+        delay_optimizer_creation = True
 
         # We need to reset the scheduler, as its parameters may be different on subsequent calls
         if self._created_lr_scheduler:
@@ -1069,7 +1091,6 @@ class _TrainerForNeuron:
                             f"{tr_loss_step.device}"
                         )
                     tr_loss += tr_loss_step
-                    print(tr_loss)
 
                 self.current_flos += float(self.floating_point_ops(inputs))
 
@@ -1101,20 +1122,42 @@ class _TrainerForNeuron:
                                 args.max_grad_norm,
                             )
                         else:
-                            _grad_norm = self.accelerator.clip_grad_norm_(
-                                model.parameters(),
-                                args.max_grad_norm,
-                            )
+                            _grad_norm = None
+                            # _grad_norm = self.accelerator.clip_grad_norm_(
+                            #     model.parameters(),
+                            #     args.max_grad_norm,
+                            # )
                         grad_norm = _grad_norm
+
+                    old_weights = {}
+                    for name, param in model.named_parameters():
+                        if not param.requires_grad:
+                            continue
+                        old_weights[name] = param.clone().detach()
 
                     # Optimizer step
                     self.optimizer.step()
+                    grad_norm = self.optimizer.optimizer.grad_norm
+
+                    for name, param in model.named_parameters():
+                        continue
+                        if not param.requires_grad:
+                            continue
+                        diff = (param - old_weights[name]).abs().mean()
+                        xm.master_print(f"Layer {name} weight change: {diff.item()}, {diff.device}")
+
+                    # for n, p in model.named_parameters():
+                    #     if p.requires_grad and p.grad is not None:
+                    #         print(f"{n} => {p.grad.norm().item()}, {p.grad.min()}, {p.grad.max()}")
+
                     optimizer_was_run = not self.accelerator.optimizer_step_was_skipped
                     if optimizer_was_run:
                         # Delay optimizer scheduling until metrics are generated
                         if not isinstance(self.lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
                             self.lr_scheduler.step()
                     self.optimizer.zero_grad()
+                    if isinstance(grad_norm, list) and len(grad_norm) > 0:
+                        grad_norm = grad_norm[0]
 
                     self.state.global_step += 1
                     self.state.epoch = epoch + (step + 1 + steps_skipped) / steps_in_epoch
