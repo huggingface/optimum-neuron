@@ -35,14 +35,19 @@ def _test_decode(config_name, generator, do_sample):
     assert output.generated_tokens == max_new_tokens
     assert output.finish_reason == 0
     if do_sample:
-        expected_text = {"gpt2": " The sun was set", "llama": "George Orwell, 1984", "mistral": "The sky was"}[
-            config_name
-        ]
+        expected_text = {
+            "gpt2": " The sun was set",
+            "llama": "George Orwell, 1984",
+            "mistral": "The sky was",
+            "qwen2": " A young woman with",
+        }[config_name]
         assert expected_text in output.text
     else:
+        print(output.text)
         expected_text = {
             "gpt2": '\n\n"I\'m going to go to bed," I said.\n\n"I\'m going',
             "llama": " George Orwell’s classic dystopian novel, 1984, begins with this ominous sentence. The story",
             "mistral": "\nThe clocks were striking thirteen.\nThe clocks were striking thirteen.",
+            "qwen2": " I was sitting in my room, staring at the ceiling, when the door opened and in came a",
         }[config_name]
         assert output.text == expected_text
