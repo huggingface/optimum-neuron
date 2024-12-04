@@ -677,3 +677,19 @@ def get_stable_diffusion_configs(
             configs[name] = models_for_export[name].config
 
     return configs
+
+
+def map_torch_dtype(dtype: Union[str, torch.dtype]):
+    dtype_mapping = {
+        "bfloat16": torch.bfloat16,
+        "float16": torch.float16,
+        "float32": torch.float32,
+        "float64": torch.float64,
+        "int32": torch.int32,
+        "int64": torch.int64,
+    }
+    
+    if isinstance(dtype, str) and dtype in dtype_mapping:
+        dtype = dtype_mapping.get(dtype)
+    
+    return dtype

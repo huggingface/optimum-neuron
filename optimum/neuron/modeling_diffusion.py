@@ -104,6 +104,10 @@ if is_diffusers_available():
         NeuronStableDiffusionXLControlNetPipelineMixin,
         NeuronStableDiffusionXLPipelineMixin,
     )
+    os.environ["NEURON_FUSE_SOFTMAX"] = "1"
+    os.environ["NEURON_CUSTOM_SILU"] = "1"
+else:
+    raise ModuleNotFoundError("`diffusers` python package is not installed.")
 
 
 if TYPE_CHECKING:

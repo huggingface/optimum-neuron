@@ -534,7 +534,7 @@ def export_neuronx(
     tensor_parallel_size = config.tensor_parallel_size
     if isinstance(config, TextSeq2SeqNeuronConfig):
         checked_model = config.patch_model_for_export(model_or_path, **input_shapes)
-        if tensor_parallel_size == 1:
+        if tensor_parallel_size == 1 and hasattr(config, "generate_io_aliases"):
             aliases = config.generate_io_aliases(checked_model)
     else:
         checked_model = config.patch_model_for_export(model_or_path, dummy_inputs)
@@ -608,24 +608,28 @@ def add_stable_diffusion_compiler_args(config, compiler_args):
     sd_components = ["text_encoder", "vae", "vae_encoder", "vae_decoder", "controlnet"]
     if any(component in identifier for component in sd_components):
         compiler_args.append("--enable-fast-loading-neuron-binaries")
-    # unet or controlnet
-    if "unet" in identifier or "controlnet" in identifier:
+    # unet or transformer or controlnet
+    
+    if any(model_type in identifier for model_type in ["unet", "transformer", "controlnet"]):
         # SDXL unet doesn't support fast loading neuron binaries(sdk 2.19.1)
         if not getattr(config, "is_sdxl", False):
             compiler_args.append("--enable-fast-loading-neuron-binaries")
-        compiler_args.append("--model-type=unet-inference")
+        if identifier=="unet":
+            compiler_args.append("--model-type=unet-inference")
+        elif identifier=="transformer":
+            compiler_args.append("--model-type=transformer")
     return compiler_args
 
 
 def improve_stable_diffusion_loading(config, neuron_model):
-    # Combine the model name and its path to identify which is the subcomponent in Stable Diffusion pipeline
+    # Combine the model name and its path to identify which is the subcomponent in Diffusion pipeline
     identifier = getattr(config._config, "_name_or_path", "") + " " + getattr(config._config, "_class_name", "")
     identifier = identifier.lower()
     sd_components = ["text_encoder", "unet", "vae", "vae_encoder", "vae_decoder", "controlnet"]
     if any(component in identifier for component in sd_components):
         neuronx.async_load(neuron_model)
     # unet
-    if "unet" in identifier or "controlnet" in identifier:
+    if any(model_type in identifier for model_type in ["unet", "transformer", "controlnet"]):
         neuronx.lazy_load(neuron_model)
 
 
