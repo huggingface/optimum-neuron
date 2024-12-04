@@ -15,6 +15,7 @@
 import warnings
 
 import torch
+from transformers import PretrainedConfig
 from transformers_neuronx import base, bucket, decoder, ops, utils
 from transformers_neuronx.config import NeuronConfig
 from transformers_neuronx.constants import KV_SHARD_PAD, LAYOUT_HSB
@@ -29,17 +30,17 @@ class Qwen2ForSampling(base.NeuronModelBase):
 
     def __init__(
         self,
-        config,
+        config: PretrainedConfig,
         *,
-        n_positions=2048,
-        batch_size=1,
-        amp="f32",
-        tp_degree=2,
-        context_length_estimate=None,
-        context_unroll=None,
-        unroll=None,
-        neuron_config=None,
-        prefixed_length=0,
+        n_positions: int = 2048,
+        batch_size: int = 1,
+        amp: str = "f32",
+        tp_degree: int = 2,
+        context_length_estimate: int = None,
+        context_unroll: int = None,
+        unroll: int = None,
+        neuron_config: NeuronConfig = None,
+        prefixed_length: int = 0,
         **kwargs,
     ):
         config = Qwen2Config(config, n_positions, batch_size, amp, tp_degree)

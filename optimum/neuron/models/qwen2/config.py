@@ -13,12 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from transformers import PretrainedConfig
 from transformers_neuronx.llama.config import LlamaConfig
 
 
 class Qwen2Config(LlamaConfig):
     """The Qwen2 model uses the same configuration as the TnX LLama model"""
 
-    def __init__(self, config, n_positions, batch_size, amp, tp_degree, **kwargs):
+    def __init__(
+        self, config: PretrainedConfig, n_positions: int, batch_size: int, amp: str, tp_degree: int, **kwargs
+    ):
         super().__init__(config, n_positions, batch_size, amp, tp_degree, **kwargs)
         self.model_type = "qwen2"

@@ -14,10 +14,12 @@
 # ==============================================================================
 from transformers_neuronx import dtypes, module, utils
 
+from .config import Qwen2Config
+
 
 class Qwen2ForCausalLM(module.PretrainedModel):
 
-    def __init__(self, config):
+    def __init__(self, config: Qwen2Config):
         super().__init__()
         dtype, _, _ = utils.parse_amp(config.amp)
         dtype = dtypes.to_torch_dtype(dtype)
@@ -33,7 +35,7 @@ class Qwen2ForCausalLM(module.PretrainedModel):
 
 class Qwen2Model(module.LowMemoryModule):
 
-    def __init__(self, config):
+    def __init__(self, config: Qwen2Config):
         super().__init__()
         self.embed_tokens = module.LowMemoryEmbedding(config.vocab_size, config.hidden_size)
         self.layers = module.LowMemoryModuleList([Qwen2DecoderLayer(config) for _ in range(config.num_hidden_layers)])
@@ -42,14 +44,14 @@ class Qwen2Model(module.LowMemoryModule):
 
 class Qwen2RMSNorm(module.LowMemoryModule):
 
-    def __init__(self, config) -> None:
+    def __init__(self, config: Qwen2Config) -> None:
         super().__init__()
         self.weight = module.UninitializedParameter()
 
 
 class Qwen2DecoderLayer(module.LowMemoryModule):
 
-    def __init__(self, config):
+    def __init__(self, config: Qwen2Config):
         super().__init__()
         self.self_attn = Qwen2Attention(config)
         self.mlp = Qwen2MLP(config)
@@ -59,7 +61,7 @@ class Qwen2DecoderLayer(module.LowMemoryModule):
 
 class Qwen2Attention(module.LowMemoryModule):
 
-    def __init__(self, config):
+    def __init__(self, config: Qwen2Config):
         super().__init__()
         self.hidden_size = config.hidden_size
         self.num_heads = config.num_attention_heads
@@ -74,7 +76,7 @@ class Qwen2Attention(module.LowMemoryModule):
 
 class Qwen2MLP(module.LowMemoryModule):
 
-    def __init__(self, config):
+    def __init__(self, config: Qwen2Config):
         super().__init__()
         dtype, _, _ = utils.parse_amp(config.amp)
         dtype = dtypes.to_torch_dtype(dtype)
