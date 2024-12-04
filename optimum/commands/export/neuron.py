@@ -60,6 +60,12 @@ def parse_args_neuron(parser: "ArgumentParser"):
         default=None,
         help="If specified, the absolute difference tolerance when validating the model. Otherwise, the default atol for the model will be used.",
     )
+    optional_group.add_argument(
+        "--num_cores",
+        type=int,
+        default=1,
+        help="Number of neuron cores used when instantiating the model. Each neuron core has 16 Gb of memory, which means that bigger models need to be split on multiple cores.",
+    )
     optional_group.add_argument("--cache_dir", type=str, default=None, help="Path indicating where to store cache.")
     optional_group.add_argument(
         "--disable_neuron_cache",
