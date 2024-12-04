@@ -1,13 +1,24 @@
 # Fetch and extract the TGI sources
 FROM alpine AS tgi
-ARG TGI_VERSION=2.2.0
+ARG TGI_VERSION=2.3.1
 RUN mkdir -p /tgi
 ADD https://github.com/huggingface/text-generation-inference/archive/refs/tags/v${TGI_VERSION}.tar.gz /tgi/sources.tar.gz
 RUN tar -C /tgi -xf /tgi/sources.tar.gz --strip-components=1
 
 # Build cargo components (adapted from TGI original Dockerfile)
-# Note that the build image is aligned on the same Linux version as the base image (Debian bookworm/ Ubuntu 22.04)
-FROM lukemathwalker/cargo-chef:latest-rust-1.79-bookworm AS chef
+# Note: we cannot use the cargo-chef base image as it uses python 3.11
+FROM ubuntu:22.04 AS chef
+
+RUN apt-get update -y \
+ && apt-get install -y --no-install-recommends \
+    curl ca-certificates build-essential \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain 1.80 --profile minimal -y
+ENV PATH="/root/.cargo/bin:${PATH}"
+RUN cargo install cargo-chef --locked
+
 WORKDIR /usr/src
 
 ARG CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
@@ -18,10 +29,17 @@ COPY --from=tgi /tgi/Cargo.lock Cargo.lock
 COPY --from=tgi /tgi/rust-toolchain.toml rust-toolchain.toml
 COPY --from=tgi /tgi/proto proto
 COPY --from=tgi /tgi/router router
+COPY --from=tgi /tgi/backends backends
 COPY --from=tgi /tgi/launcher launcher
 RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
+
+RUN apt-get update -y \
+ && apt-get install -y --no-install-recommends \
+    unzip python3-dev libssl-dev pkg-config \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
 RUN PROTOC_ZIP=protoc-21.12-linux-x86_64.zip && \
     curl -OL https://github.com/protocolbuffers/protobuf/releases/download/v21.12/$PROTOC_ZIP && \
@@ -29,6 +47,7 @@ RUN PROTOC_ZIP=protoc-21.12-linux-x86_64.zip && \
     unzip -o $PROTOC_ZIP -d /usr/local 'include/*' && \
     rm -f $PROTOC_ZIP
 
+COPY text-generation-inference/Cargo.toml Cargo.toml
 COPY --from=planner /usr/src/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 
@@ -37,6 +56,7 @@ COPY --from=tgi /tgi/Cargo.lock Cargo.lock
 COPY --from=tgi /tgi/rust-toolchain.toml rust-toolchain.toml
 COPY --from=tgi /tgi/proto proto
 COPY --from=tgi /tgi/router router
+COPY --from=tgi /tgi/backends backends
 COPY --from=tgi /tgi/launcher launcher
 # Remove this line once TGI has fixed the conflict
 RUN cargo update ureq --precise 2.9.7
@@ -124,7 +144,7 @@ ENV HUGGINGFACE_HUB_CACHE=/data \
     PORT=80
 
 # Install router
-COPY --from=builder /usr/src/target/release/text-generation-router /usr/local/bin/text-generation-router
+COPY --from=builder /usr/src/target/release/text-generation-router-v2 /usr/local/bin/text-generation-router
 # Install launcher
 COPY --from=builder /usr/src/target/release/text-generation-launcher /usr/local/bin/text-generation-launcher
 # Install python server
