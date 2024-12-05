@@ -26,7 +26,13 @@ from .modules import Qwen2ForCausalLM
 
 
 class Qwen2ForSampling(base.NeuronModelBase):
-    """The Qwen2 model is essentially a LLama model with bias in linear projections."""
+    """The Qwen2 model is essentially a LLama model with bias in linear projections.
+
+    The implementation in this class is very similar to the one used for Llama in Tnx.
+    The only differences are:
+    - the config (Qwen2Config) and base model (Qwen2ForCausalLM) used in __init__,
+    - the addition of biases parameters when loading weights from the checkpoint model.
+    """
 
     def __init__(
         self,
