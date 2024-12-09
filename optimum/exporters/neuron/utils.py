@@ -231,6 +231,7 @@ def get_diffusion_models_for_export(
             unet.config,
             task="semantic-segmentation",
             dynamic_batch_size=dynamic_batch_size,
+            float_dtype=unet.dtype,
             **unet_input_shapes,
         )
         is_stable_diffusion_xl = isinstance(
@@ -245,17 +246,20 @@ def get_diffusion_models_for_export(
     # Diffusion Transformer
     if DIFFUSION_MODEL_TRANSFORMER_NAME in models_for_export:
         transformer = models_for_export[DIFFUSION_MODEL_TRANSFORMER_NAME]
+        model_type = get_diffusers_submodel_type(transformer)
         transformer_neuron_config_constructor = TasksManager.get_exporter_config_constructor(
             model=transformer,
             exporter="neuron",
             task="semantic-segmentation",
-            model_type="transformer",
+            model_type=model_type,
             library_name=library_name,
         )
+        transformer.config.export_model_type = model_type
         transformer_neuron_config = transformer_neuron_config_constructor(
             transformer.config,
             task="semantic-segmentation",
             dynamic_batch_size=dynamic_batch_size,
+            float_dtype=transformer.dtype,
             **transformer_input_shapes,
         )
         models_for_export[DIFFUSION_MODEL_TRANSFORMER_NAME] = (transformer, transformer_neuron_config)
@@ -273,6 +277,7 @@ def get_diffusion_models_for_export(
         vae_encoder.config,
         task="semantic-segmentation",
         dynamic_batch_size=dynamic_batch_size,
+        float_dtype=vae_encoder.dtype,
         **vae_encoder_input_shapes,
     )
     models_for_export[DIFFUSION_MODEL_VAE_ENCODER_NAME] = (vae_encoder, vae_encoder_neuron_config)
@@ -290,6 +295,7 @@ def get_diffusion_models_for_export(
         vae_decoder.config,
         task="semantic-segmentation",
         dynamic_batch_size=dynamic_batch_size,
+        float_dtype=vae_decoder.dtype,
         **vae_decoder_input_shapes,
     )
     models_for_export[DIFFUSION_MODEL_VAE_DECODER_NAME] = (vae_decoder, vae_decoder_neuron_config)
@@ -312,6 +318,7 @@ def get_diffusion_models_for_export(
                 controlnet.config,
                 task="semantic-segmentation",
                 dynamic_batch_size=dynamic_batch_size,
+                float_dtype=controlnet.dtype,
                 **controlnet_input_shapes,
             )
             models_for_export[controlnet_name] = (
@@ -414,6 +421,9 @@ def get_submodels_for_export_diffusion(
         text_encoder_2.config.output_hidden_states = True
         text_encoder_2.text_model.config.output_hidden_states = True
         models_for_export.append((DIFFUSION_MODEL_TEXT_ENCODER_2_NAME, copy.deepcopy(text_encoder_2)))
+        projection_dim = getattr(pipeline.text_encoder_2.config, "projection_dim", None)
+    else:
+        projection_dim = getattr(pipeline.text_encoder.config, "projection_dim", None)
 
     # U-NET
     unet = getattr(pipeline, "unet", None)
@@ -421,10 +431,6 @@ def get_submodels_for_export_diffusion(
         # The U-NET time_ids inputs shapes depends on the value of `requires_aesthetics_score`
         # https://github.com/huggingface/diffusers/blob/v0.18.2/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl_img2img.py#L571
         unet.config.requires_aesthetics_score = getattr(pipeline.config, "requires_aesthetics_score", False)
-        if hasattr(pipeline, "text_encoder_2"):
-            projection_dim = pipeline.text_encoder_2.config.projection_dim
-        else:
-            projection_dim = pipeline.text_encoder.config.projection_dim
         unet.config.text_encoder_projection_dim = projection_dim
         
         # Replace original cross-attention module with custom cross-attention module for better performance
@@ -447,7 +453,15 @@ def get_submodels_for_export_diffusion(
     transformer = getattr(pipeline, "transformer", None)
     if transformer is not None:
         transformer.config.requires_aesthetics_score = getattr(pipeline.config, "requires_aesthetics_score", False)
-        torch.nn.functional.scaled_dot_product_attention = neuron_scaled_dot_product_attention
+        transformer.config.text_encoder_projection_dim = projection_dim
+        # apply optimized scaled_dot_product_attention
+        sdpa_original = torch.nn.functional.scaled_dot_product_attention
+        def attention_wrapper(query, key, value, attn_mask=None, dropout_p=None, is_causal=None):
+            if attn_mask is not None:
+                return sdpa_original(query, key, value, attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal)
+            else:
+                return neuron_scaled_dot_product_attention(query, key, value, attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal)
+        torch.nn.functional.scaled_dot_product_attention = attention_wrapper
         models_for_export.append((DIFFUSION_MODEL_TRANSFORMER_NAME, copy.deepcopy(transformer)))
 
     if pipeline.vae.config.get("force_upcast", None) is True:
@@ -494,6 +508,43 @@ def replace_stable_diffusion_submodels(pipeline, submodels):
             pipeline.unet = unet
 
     return pipeline
+
+
+# TODO: remove, not used.
+def apply_fp32_wrapper_to_norm(model):
+    class f32Wrapper(torch.nn.Module):
+        def __init__(self, original):
+            super().__init__()
+            self.original = original
+        
+        def forward(self, x):
+            t = x.dtype
+            y = x.to(torch.float32)
+            output = self.original(y)
+            return output.type(t)
+    
+    for upblock in model.up_blocks:
+        for resnet in upblock.resnets:
+            orig_resnet_norm1 = resnet.norm1
+            orig_resnet_norm2 = resnet.norm2
+            resnet.norm1 = f32Wrapper(orig_resnet_norm1)
+            resnet.norm2 = f32Wrapper(orig_resnet_norm2)
+
+    for resnet in model.mid_block.resnets:
+        orig_resnet_norm1 = resnet.norm1
+        orig_resnet_norm2 = resnet.norm2
+        resnet.norm1 = f32Wrapper(orig_resnet_norm1)
+        resnet.norm2 = f32Wrapper(orig_resnet_norm2)
+
+
+# TODO: get it into https://github.com/huggingface/optimum/blob/4a7cb298140ee9bed968d98a780a950d15bb2935/optimum/exporters/utils.py#L77
+_DIFFUSERS_CLASS_NAME_TO_SUBMODEL_TYPE = {
+    "PixArtTransformer2DModel": "pixart-transformer-2d",
+}
+
+
+def get_diffusers_submodel_type(submodel):
+    return _DIFFUSERS_CLASS_NAME_TO_SUBMODEL_TYPE.get(submodel.__class__.__name__)
 
 
 def get_encoder_decoder_models_for_export(

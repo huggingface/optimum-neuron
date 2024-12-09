@@ -73,9 +73,6 @@ def get_attention_scores_sdxl(self, query, key, attn_mask):
 
 
 def neuron_scaled_dot_product_attention(query, key, value, attn_mask=None, dropout_p=None, is_causal=None):
-  if attn_mask is None:
-      return torch.nn.functional.scaled_dot_product_attention(query, key, value, attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal)
-  else:
     orig_shape = None
     if len(query.shape) == 4:
         orig_shape = query.shape

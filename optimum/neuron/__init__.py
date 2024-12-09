@@ -48,7 +48,7 @@ _import_structure = {
         "NeuronModelForXVector",
     ],
     "modeling_diffusion": [
-        "NeuronStableDiffusionPipelineBase",
+        "NeuronDiffusionPipelineBase",
         "NeuronStableDiffusionPipeline",
         "NeuronStableDiffusionImg2ImgPipeline",
         "NeuronStableDiffusionInpaintPipeline",
@@ -59,6 +59,7 @@ _import_structure = {
         "NeuronStableDiffusionXLInpaintPipeline",
         "NeuronStableDiffusionControlNetPipeline",
         "NeuronStableDiffusionXLControlNetPipeline",
+        "NeuronPixArtAlphaPipeline",
     ],
     "modeling_decoder": ["NeuronDecoderModel"],
     "modeling_seq2seq": ["NeuronModelForSeq2SeqLM"],
@@ -100,11 +101,12 @@ if TYPE_CHECKING:
         NeuronStableDiffusionInpaintPipeline,
         NeuronStableDiffusionInstructPix2PixPipeline,
         NeuronStableDiffusionPipeline,
-        NeuronStableDiffusionPipelineBase,
+        NeuronDiffusionPipelineBase,
         NeuronStableDiffusionXLControlNetPipeline,
         NeuronStableDiffusionXLImg2ImgPipeline,
         NeuronStableDiffusionXLInpaintPipeline,
         NeuronStableDiffusionXLPipeline,
+        NeuronPixArtAlphaPipeline,
     )
     from .modeling_seq2seq import NeuronModelForSeq2SeqLM
     from .modeling_traced import NeuronTracedModel

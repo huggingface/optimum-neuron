@@ -245,6 +245,8 @@ def infer_stable_diffusion_shapes_from_diffusers(
         input_shapes["unet_or_transformer"]["sequence_length"] = max_sequence_length
     input_shapes["unet_or_transformer"]["vae_scale_factor"] = vae_scale_factor
     input_shapes[unet_or_transformer_name] = input_shapes.pop("unet_or_transformer")
+    if unet_or_transformer_name=="transformer":
+        input_shapes[unet_or_transformer_name]["encoder_hidden_size"] = model.text_encoder.config.hidden_size
     
     # VAE
     input_shapes["vae_encoder"].update({"num_channels": vae_encoder_num_channels, "height": height, "width": width})

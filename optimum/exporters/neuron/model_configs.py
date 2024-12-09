@@ -32,8 +32,8 @@ from ...utils import (
     DummyInputGenerator,
     DummySeq2SeqDecoderTextInputGenerator,
     DummyTextInputGenerator,
-    DummyTimestepInputGenerator,
     DummyVisionInputGenerator,
+    DummyTimestepInputGenerator,
     NormalizedConfig,
     NormalizedConfigManager,
     NormalizedSeq2SeqConfig,
@@ -60,6 +60,7 @@ from .model_wrappers import (
     T5EncoderWrapper,
     T5EncoderForSeq2SeqLMWrapper,
     UnetNeuronWrapper,
+    PixartTransformerNeuronWrapper,
 )
 
 
@@ -667,11 +668,19 @@ class UNetNeuronConfig(VisionNeuronConfig):
         self._with_controlnet = with_controlnet
 
 
-@register_in_tasks_manager("transformer", *["semantic-segmentation"], library_name="diffusers")
-class TransformerNeuronConfig(VisionNeuronConfig):
+@register_in_tasks_manager("pixart-transformer-2d", *["semantic-segmentation"], library_name="diffusers")
+class PixartTransformerNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
-    INPUT_ARGS = ("batch_size", "sequence_length", "num_channels", "width", "height", "vae_scale_factor")
-    # CUSTOM_MODEL_WRAPPER = PixartTransformerNeuronWrapper
+    INPUT_ARGS = (
+        "batch_size", 
+        "sequence_length", 
+        "num_channels", 
+        "width", 
+        "height", 
+        "vae_scale_factor",
+        "encoder_hidden_size",
+    )
+    CUSTOM_MODEL_WRAPPER = PixartTransformerNeuronWrapper
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
         height="height",
         width="width",
@@ -683,17 +692,22 @@ class TransformerNeuronConfig(VisionNeuronConfig):
 
     DUMMY_INPUT_GENERATOR_CLASSES = (
         DummyVisionInputGenerator,
-        DummyTimestepInputGenerator,
+        DummyControNetInputGenerator,
+        DummyTextInputGenerator,
         DummySeq2SeqDecoderTextInputGenerator,
     )
     
+    @property
     def inputs(self) -> List[str]:
-        common_inputs = ["hidden_states", "encoder_hidden_states", "timestep", "encoder_attention_mask"]
+        common_inputs = ["sample", "encoder_hidden_states", "timestep", "encoder_attention_mask"]
         return common_inputs
 
     @property
     def outputs(self) -> List[str]:
         return ["out_hidden_states"]
+    
+    def patch_model_for_export(self, model, dummy_inputs):
+        return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
 
 
 @register_in_tasks_manager("controlnet", *["semantic-segmentation"], library_name="diffusers")
