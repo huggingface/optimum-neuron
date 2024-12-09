@@ -1,6 +1,6 @@
 # Fetch and extract the TGI sources
 FROM alpine AS tgi
-ARG TGI_VERSION=2.1.1
+ARG TGI_VERSION=2.2.0
 RUN mkdir -p /tgi
 ADD https://github.com/huggingface/text-generation-inference/archive/refs/tags/v${TGI_VERSION}.tar.gz /tgi/sources.tar.gz
 RUN tar -C /tgi -xf /tgi/sources.tar.gz --strip-components=1
