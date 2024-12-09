@@ -13,11 +13,10 @@ WORKDIR /usr/src
 ARG CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 
 FROM chef AS planner
+COPY text-generation-inference/Cargo.toml Cargo.toml
 COPY --from=tgi /tgi/Cargo.lock Cargo.lock
-COPY --from=tgi /tgi/Cargo.toml Cargo.toml
 COPY --from=tgi /tgi/rust-toolchain.toml rust-toolchain.toml
 COPY --from=tgi /tgi/proto proto
-COPY --from=tgi /tgi/benchmark benchmark
 COPY --from=tgi /tgi/router router
 COPY --from=tgi /tgi/launcher launcher
 RUN cargo chef prepare --recipe-path recipe.json
@@ -33,16 +32,15 @@ RUN PROTOC_ZIP=protoc-21.12-linux-x86_64.zip && \
 COPY --from=planner /usr/src/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 
+COPY text-generation-inference/Cargo.toml Cargo.toml
 COPY --from=tgi /tgi/Cargo.lock Cargo.lock
-COPY --from=tgi /tgi/Cargo.toml Cargo.toml
 COPY --from=tgi /tgi/rust-toolchain.toml rust-toolchain.toml
 COPY --from=tgi /tgi/proto proto
-COPY --from=tgi /tgi/benchmark benchmark
 COPY --from=tgi /tgi/router router
 COPY --from=tgi /tgi/launcher launcher
 # Remove this line once TGI has fixed the conflict
 RUN cargo update ureq --precise 2.9.7
-RUN cargo build --release --workspace --exclude benchmark
+RUN cargo build --release
 
 # Python base image
 FROM ubuntu:22.04 AS base
