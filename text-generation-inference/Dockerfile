@@ -1,6 +1,6 @@
 # Fetch and extract the TGI sources
 FROM alpine AS tgi
-ARG TGI_VERSION=2.3.1
+ARG TGI_VERSION=2.4.0
 RUN mkdir -p /tgi
 ADD https://github.com/huggingface/text-generation-inference/archive/refs/tags/v${TGI_VERSION}.tar.gz /tgi/sources.tar.gz
 RUN tar -C /tgi -xf /tgi/sources.tar.gz --strip-components=1
@@ -15,7 +15,7 @@ RUN apt-get update -y \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain 1.80 --profile minimal -y
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain 1.80.1 --profile minimal -y
 ENV PATH="/root/.cargo/bin:${PATH}"
 RUN cargo install cargo-chef --locked
 
