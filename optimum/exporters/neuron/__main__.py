@@ -633,6 +633,7 @@ def main_export(
     _, neuron_outputs = export_models(
         models_and_neuron_configs=models_and_neuron_configs,
         output_dir=output,
+        torch_dtype=torch_dtype,
         disable_neuron_cache=disable_neuron_cache,
         compiler_workdir=compiler_workdir,
         inline_weights_to_neff=inline_weights_to_neff,

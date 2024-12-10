@@ -680,6 +680,7 @@ class PixartTransformerNeuronConfig(VisionNeuronConfig):
         "vae_scale_factor",
         "encoder_hidden_size",
     )
+    MODEL_TYPE = "pixart-transformer-2d"
     CUSTOM_MODEL_WRAPPER = PixartTransformerNeuronWrapper
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
         height="height",

@@ -320,7 +320,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
 
         # change lcm scheduler which extends the denoising procedure
         self.is_lcm = False
-        if NeuronDiffusionPipelineBase.is_lcm(self.unet.config):
+        if self.unet and NeuronDiffusionPipelineBase.is_lcm(self.unet.config):
             self.is_lcm = True
             self.scheduler = LCMScheduler.from_config(self.scheduler.config)
 
@@ -362,13 +362,14 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         else:
             self.vae_scale_factor = 8
 
-        unet_batch_size = self.neuron_configs["unet"].batch_size
+        unet_or_transformer = "transformer" if self.transformer else "unet" 
+        unet_or_transformer_batch_size = self.neuron_configs[unet_or_transformer].batch_size
         if "text_encoder" in self.neuron_configs:
             text_encoder_batch_size = self.neuron_configs["text_encoder"].batch_size
-            self.num_images_per_prompt = unet_batch_size // text_encoder_batch_size
+            self.num_images_per_prompt = unet_or_transformer_batch_size // text_encoder_batch_size
         elif "text_encoder_2" in self.neuron_configs:
             text_encoder_batch_size = self.neuron_configs["text_encoder_2"].batch_size
-            self.num_images_per_prompt = unet_batch_size // text_encoder_batch_size
+            self.num_images_per_prompt = unet_or_transformer_batch_size // text_encoder_batch_size
         else:
             self.num_images_per_prompt = 1
 
@@ -774,11 +775,12 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             data_parallel_mode=data_parallel_mode,
             text_encoder_path=model_and_config_save_paths["text_encoder"][0],
             unet_path=model_and_config_save_paths["unet"][0],
+            transformer_path=model_and_config_save_paths["transformer"][0],
             vae_decoder_path=model_and_config_save_paths["vae_decoder"][0],
             vae_encoder_path=model_and_config_save_paths["vae_encoder"][0],
             text_encoder_2_path=model_and_config_save_paths["text_encoder_2"][0],
             controlnet_paths=model_and_config_save_paths["controlnet"][0],
-            dynamic_batch_size=neuron_configs[DIFFUSION_MODEL_UNET_NAME].dynamic_batch_size,
+            dynamic_batch_size=neuron_configs[DIFFUSION_MODEL_TEXT_ENCODER_NAME].dynamic_batch_size,
             to_neuron=not inline_weights_to_neff,
         )
 
@@ -817,6 +819,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         cls,
         model_id: Union[str, Path],
         config: Dict[str, Any],
+        torch_dtype: Optional[Union[str, torch.dtype]] = None,
         unet_id: Optional[Union[str, Path]] = None,
         token: Optional[Union[bool, str]] = None,
         revision: str = "main",
@@ -854,6 +857,8 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             config (`Dict[str, Any]`):
                 A config dictionary from which the model components will be instantiated. Make sure to only load
                 configuration files of compatible classes.
+            torch_dtype (`Optional[Union[str, torch.dtype]]`, defaults to `None`):
+                Override the default `torch.dtype` and load the model under this dtype. If `auto` is passed, the dtype will be automatically derived from the model's weights.
             unet_id (`Optional[Union[str, Path]]`, defaults to `None`):
                 A string or a path point to the U-NET model to replace the one in the original pipeline.
             token (`Optional[Union[bool, str]]`, defaults to `None`):
@@ -936,6 +941,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             subfolder=subfolder,
             revision=revision,
             framework="pt",
+            torch_dtype=torch_dtype,
             library_name=cls.library_name,
             cache_dir=cache_dir,
             token=token,
@@ -972,6 +978,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 lora_weight_names=lora_weight_names,
                 lora_adapter_names=lora_adapter_names,
                 lora_scales=lora_scales,
+                torch_dtype=torch_dtype,
                 controlnet_ids=controlnet_ids,
                 **input_shapes_copy,
             )
@@ -1028,6 +1035,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 model_name_or_path=model_id,
                 output=save_dir_path,
                 compiler_kwargs=compiler_kwargs,
+                torch_dtype=torch_dtype,
                 task=task,
                 dynamic_batch_size=dynamic_batch_size,
                 cache_dir=cache_dir,
