@@ -16,7 +16,7 @@ from optimum.neuron.utils.version_utils import get_neuronxcc_version
 
 logger = logging.getLogger(__name__)
 
-tgi_router_env_vars = ["MAX_BATCH_SIZE", "MAX_TOTAL_TOKENS", "MAX_INPUT_TOKENS"]
+tgi_router_env_vars = ["MAX_BATCH_SIZE", "MAX_TOTAL_TOKENS", "MAX_INPUT_TOKENS", "MAX_BATCH_PREFILL_TOKENS"]
 tgi_server_env_vars = ["HF_NUM_CORES", "HF_AUTO_CAST_TYPE"]
 
 env_config_peering = [
@@ -43,6 +43,7 @@ def parse_cmdline_and_set_env(argv: List[str] = None) -> argparse.Namespace:
     )
     parser.add_argument("--max-total-tokens", type=int, default=os.getenv("MAX_TOTAL_TOKENS", 0))
     parser.add_argument("--max-batch-size", type=int, default=os.getenv("MAX_BATCH_SIZE", 0))
+    parser.add_argument("--max-batch-prefill-tokens", type=int, default=os.getenv("MAX_BATCH_PREFILL_TOKENS", 0))
     parser.add_argument("--model-id", type=str, default=os.getenv("MODEL_ID"))
     parser.add_argument("--revision", type=str, default=os.getenv("REVISION"))
 
@@ -65,6 +66,9 @@ def parse_cmdline_and_set_env(argv: List[str] = None) -> argparse.Namespace:
     if args.max_batch_size > 0:
         os.environ["MAX_BATCH_SIZE"] = str(args.max_batch_size)
 
+    if args.max_batch_prefill_tokens > 0:
+        os.environ["MAX_BATCH_PREFILL_TOKENS"] = str(args.max_batch_prefill_tokens)
+
     if args.revision:
         os.environ["REVISION"] = str(args.revision)
 
@@ -81,6 +85,10 @@ def neuron_config_to_env(neuron_config):
             if max_input_tokens == 0:
                 raise Exception("Model sequence length should be greater than 1")
         f.write("export MAX_INPUT_TOKENS={}\n".format(max_input_tokens))
+        max_batch_prefill_tokens = os.getenv("MAX_BATCH_PREFILL_TOKENS")
+        if not max_batch_prefill_tokens:
+            max_batch_prefill_tokens = int(neuron_config["batch_size"]) * int(max_input_tokens)
+        f.write("export MAX_BATCH_PREFILL_TOKENS={}\n".format(max_batch_prefill_tokens))
 
 
 def sort_neuron_configs(dictionary):
