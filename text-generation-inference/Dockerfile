@@ -25,12 +25,12 @@ ARG CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 
 FROM chef AS planner
 COPY text-generation-inference/Cargo.toml Cargo.toml
+COPY text-generation-inference/launcher launcher
 COPY --from=tgi /tgi/Cargo.lock Cargo.lock
 COPY --from=tgi /tgi/rust-toolchain.toml rust-toolchain.toml
 COPY --from=tgi /tgi/proto proto
 COPY --from=tgi /tgi/router router
 COPY --from=tgi /tgi/backends backends
-COPY --from=tgi /tgi/launcher launcher
 RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
@@ -52,12 +52,12 @@ COPY --from=planner /usr/src/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 
 COPY text-generation-inference/Cargo.toml Cargo.toml
+COPY text-generation-inference/launcher launcher
 COPY --from=tgi /tgi/Cargo.lock Cargo.lock
 COPY --from=tgi /tgi/rust-toolchain.toml rust-toolchain.toml
 COPY --from=tgi /tgi/proto proto
 COPY --from=tgi /tgi/router router
 COPY --from=tgi /tgi/backends backends
-COPY --from=tgi /tgi/launcher launcher
 # Remove this line once TGI has fixed the conflict
 RUN cargo update ureq --precise 2.9.7
 RUN cargo build --release
