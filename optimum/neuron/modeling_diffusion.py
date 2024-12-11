@@ -89,7 +89,7 @@ if is_diffusers_available():
         StableDiffusionXLPipeline,
     )
     from diffusers.configuration_utils import FrozenDict
-    from diffusers.image_processor import VaeImageProcessor
+    from diffusers.image_processor import VaeImageProcessor, PixArtImageProcessor
     from diffusers.models.autoencoders.vae import DecoderOutput, DiagonalGaussianDistribution
     from diffusers.models.controlnet import ControlNetOutput
     from diffusers.models.modeling_outputs import AutoencoderKLOutput
@@ -1110,9 +1110,10 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         )
 
     def __call__(self, *args, **kwargs):
-        # Height and width to unet (static shapes)
-        height = self.unet.config.neuron["static_height"] * self.vae_scale_factor
-        width = self.unet.config.neuron["static_width"] * self.vae_scale_factor
+        # Height and width to unet/transformer (static shapes)
+        unet_or_transformer = self.unet or self.transformer
+        height = unet_or_transformer.config.neuron["static_height"] * self.vae_scale_factor
+        width = unet_or_transformer.config.neuron["static_width"] * self.vae_scale_factor
         kwargs.pop("height", None)
         kwargs.pop("width", None)
         if kwargs.get("image", None):
@@ -1173,18 +1174,16 @@ class NeuronModelTextEncoder(_NeuronDiffusionModelPart):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = True,
     ):
-        if attention_mask is not None:
-            assert torch.equal(
-                torch.ones_like(attention_mask), attention_mask
-            ), "attention_mask is expected to be only all ones."
         if output_hidden_states:
             assert (
                 self.config.output_hidden_states or self.config.neuron.get("output_hidden_states")
             ) == output_hidden_states, "output_hidden_states is expected to be False since the model was compiled without hidden_states as output."
 
         input_ids = input_ids.to(torch.long)  # dummy generator uses long int for tracing
-
         inputs = (input_ids,)
+        if attention_mask is not None and not torch.equal(torch.ones_like(attention_mask), attention_mask):
+            inputs += (attention_mask,)
+        
         outputs = self.model(*inputs)
 
         if return_dict:
@@ -1264,7 +1263,11 @@ class NeuronModelTransformer(_NeuronDiffusionModelPart):
         encoder_attention_mask: Optional[torch.Tensor] = None,
         return_dict: bool = True,
     ):
-        pass
+        inputs = (hidden_states, encoder_hidden_states, timestep, encoder_attention_mask)
+        outputs = self.model(*inputs)
+        if return_dict:
+            outputs = ModelOutput(dict(zip(self.neuron_config.outputs, outputs)))
+        return outputs
 
 
 class NeuronModelVaeEncoder(_NeuronDiffusionModelPart):
@@ -1490,6 +1493,10 @@ class NeuronStableDiffusionControlNetPipeline(
 class NeuronPixArtAlphaPipeline(NeuronDiffusionPipelineBase, PixArtAlphaPipeline):
     main_input_name = "prompt"
     auto_model_class = PixArtAlphaPipeline
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.image_processor = PixArtImageProcessor(vae_scale_factor=self.vae_scale_factor)
 
 
 class NeuronStableDiffusionXLPipeline(

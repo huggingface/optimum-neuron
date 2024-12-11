@@ -350,6 +350,8 @@ def export_models(
     total_compilation_time = 0
     compile_configs = {}
     for i, model_name in enumerate(models_and_neuron_configs.keys()):
+        # if model_name in ["text_encoder", "transformer", "vae_encoder"]:
+        #     continue
         logger.info(f"***** Compiling {model_name} *****")
         submodel, sub_neuron_config = models_and_neuron_configs[model_name]
         output_file_name = (

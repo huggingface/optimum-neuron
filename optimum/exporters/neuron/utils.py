@@ -244,6 +244,7 @@ def get_diffusion_models_for_export(
         models_for_export[DIFFUSION_MODEL_UNET_NAME] = (unet, unet_neuron_config)
     
     # Diffusion Transformer
+    transformer = None
     if DIFFUSION_MODEL_TRANSFORMER_NAME in models_for_export:
         transformer = models_for_export[DIFFUSION_MODEL_TRANSFORMER_NAME]
         model_type = get_diffusers_submodel_type(transformer)
@@ -295,7 +296,7 @@ def get_diffusion_models_for_export(
         vae_decoder.config,
         task="semantic-segmentation",
         dynamic_batch_size=dynamic_batch_size,
-        float_dtype=vae_decoder.dtype,
+        float_dtype=transformer.dtype if transformer else vae_decoder.dtype,
         **vae_decoder_input_shapes,
     )
     models_for_export[DIFFUSION_MODEL_VAE_DECODER_NAME] = (vae_decoder, vae_decoder_neuron_config)
@@ -474,7 +475,10 @@ def get_submodels_for_export_diffusion(
 
     # VAE Decoder
     vae_decoder = copy.deepcopy(pipeline.vae)
+    unet_or_transformer = unet or transformer
     vae_decoder.forward = lambda latent_sample: vae_decoder.decode(z=latent_sample)
+    if vae_decoder.dtype is torch.float32 and unet_or_transformer.dtype is not torch.float32:
+        vae_decoder = apply_fp32_wrapper_to_vae_decoder(vae_decoder)
     models_for_export.append((DIFFUSION_MODEL_VAE_DECODER_NAME, vae_decoder))
 
     # ControlNets
@@ -510,31 +514,46 @@ def replace_stable_diffusion_submodels(pipeline, submodels):
     return pipeline
 
 
-# TODO: remove, not used.
-def apply_fp32_wrapper_to_norm(model):
+def apply_fp32_wrapper_to_vae_decoder(model):
     class f32Wrapper(torch.nn.Module):
-        def __init__(self, original):
+        def __init__(self, model):
             super().__init__()
-            self.original = original
+            self.original = model
+            # self.config = model.config
+            # self.dtype = model.dtype
         
         def forward(self, x):
             t = x.dtype
             y = x.to(torch.float32)
             output = self.original(y)
-            return output.type(t)
+            return output
+            # return output.type(t)
+        
+        def __getattr__(self, name):
+            # Delegate attribute/method lookup to the wrapped model if not found in this wrapper
+            if name == "original":
+                return super().__getattr__(name)
+            return getattr(self.original, name)
     
-    for upblock in model.up_blocks:
-        for resnet in upblock.resnets:
-            orig_resnet_norm1 = resnet.norm1
-            orig_resnet_norm2 = resnet.norm2
-            resnet.norm1 = f32Wrapper(orig_resnet_norm1)
-            resnet.norm2 = f32Wrapper(orig_resnet_norm2)
+    # orig_conv_in = model.decoder.conv_in
+    # model.decoder.conv_in = f32Wrapper(orig_conv_in)
+    # for upblock in model.decoder.up_blocks:
+    #     for resnet in upblock.resnets:
+    #         orig_resnet_norm1 = resnet.norm1
+    #         orig_resnet_norm2 = resnet.norm2
+    #         resnet.norm1 = f32Wrapper(orig_resnet_norm1)
+    #         resnet.norm2 = f32Wrapper(orig_resnet_norm2)
 
-    for resnet in model.mid_block.resnets:
-        orig_resnet_norm1 = resnet.norm1
-        orig_resnet_norm2 = resnet.norm2
-        resnet.norm1 = f32Wrapper(orig_resnet_norm1)
-        resnet.norm2 = f32Wrapper(orig_resnet_norm2)
+    # for resnet in model.decoder.mid_block.resnets:
+    #     orig_resnet_norm1 = resnet.norm1
+    #     orig_resnet_norm2 = resnet.norm2
+    #     resnet.norm1 = f32Wrapper(orig_resnet_norm1)
+    #     resnet.norm2 = f32Wrapper(orig_resnet_norm2)
+    
+    # orig_post_quant_conv = model.post_quant_conv
+    # model.post_quant_conv = f32Wrapper(orig_post_quant_conv)
+    model = f32Wrapper(model)
+    return model
 
 
 # TODO: get it into https://github.com/huggingface/optimum/blob/4a7cb298140ee9bed968d98a780a950d15bb2935/optimum/exporters/utils.py#L77
