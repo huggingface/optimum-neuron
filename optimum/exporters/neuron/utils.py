@@ -519,15 +519,12 @@ def apply_fp32_wrapper_to_vae_decoder(model):
         def __init__(self, model):
             super().__init__()
             self.original = model
-            # self.config = model.config
-            # self.dtype = model.dtype
         
         def forward(self, x):
             t = x.dtype
             y = x.to(torch.float32)
             output = self.original(y)
             return output
-            # return output.type(t)
         
         def __getattr__(self, name):
             # Delegate attribute/method lookup to the wrapped model if not found in this wrapper
@@ -535,23 +532,6 @@ def apply_fp32_wrapper_to_vae_decoder(model):
                 return super().__getattr__(name)
             return getattr(self.original, name)
     
-    # orig_conv_in = model.decoder.conv_in
-    # model.decoder.conv_in = f32Wrapper(orig_conv_in)
-    # for upblock in model.decoder.up_blocks:
-    #     for resnet in upblock.resnets:
-    #         orig_resnet_norm1 = resnet.norm1
-    #         orig_resnet_norm2 = resnet.norm2
-    #         resnet.norm1 = f32Wrapper(orig_resnet_norm1)
-    #         resnet.norm2 = f32Wrapper(orig_resnet_norm2)
-
-    # for resnet in model.decoder.mid_block.resnets:
-    #     orig_resnet_norm1 = resnet.norm1
-    #     orig_resnet_norm2 = resnet.norm2
-    #     resnet.norm1 = f32Wrapper(orig_resnet_norm1)
-    #     resnet.norm2 = f32Wrapper(orig_resnet_norm2)
-    
-    # orig_post_quant_conv = model.post_quant_conv
-    # model.post_quant_conv = f32Wrapper(orig_post_quant_conv)
     model = f32Wrapper(model)
     return model
 
