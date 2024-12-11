@@ -813,7 +813,6 @@ class VaeDecoderNeuronConfig(VisionNeuronConfig):
         return super().patch_model_for_export(model=model, dummy_inputs=dummy_inputs, forward_with_tuple=True)
 
 
-@register_in_tasks_manager("t5-encoder", "text2text-generation")
 class T5EncoderBaseNeuronConfig(TextSeq2SeqNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
     NORMALIZED_CONFIG_CLASS = NormalizedSeq2SeqConfig.with_args(

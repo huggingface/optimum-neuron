@@ -116,9 +116,9 @@ def parse_args_neuronx(parser: "ArgumentParser"):
     optional_group.add_argument(
         "--torch_dtype",
         type=str,
-        default="auto",
-        choices=["auto", "bfloat16", "float16", "float32"],
-        help="Override the default `torch.dtype` and load the model under this dtype. If `auto` is passed, the dtype will be automatically derived from the model's weights.",
+        default=None,
+        choices=["bfloat16", "float16", "float32"],
+        help="Override the default `torch.dtype` and load the model under this dtype. If `None` is passed, the dtype will be automatically derived from the model's weights.",
     )
     optional_group.add_argument(
         "--tensor_parallel_size",
