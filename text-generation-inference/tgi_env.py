@@ -119,7 +119,6 @@ def lookup_compatible_cached_model(model_id: str, revision: Optional[str]) -> Op
 
 
 def check_env_and_neuron_config_compatibility(neuron_config: Dict[str, Any], check_compiler_version: bool) -> bool:
-
     logger.debug(
         "Checking the provided neuron config %s is compatible with the local setup and provided environment",
         neuron_config,

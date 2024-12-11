@@ -27,8 +27,8 @@ from ...neuron.utils import (
     DIFFUSION_MODEL_CONTROLNET_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_2_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_NAME,
-    DIFFUSION_MODEL_UNET_NAME,
     DIFFUSION_MODEL_TRANSFORMER_NAME,
+    DIFFUSION_MODEL_UNET_NAME,
     DIFFUSION_MODEL_VAE_DECODER_NAME,
     DIFFUSION_MODEL_VAE_ENCODER_NAME,
     ENCODER_NAME,
@@ -57,8 +57,8 @@ if is_diffusers_available():
         )
     from diffusers import (
         ControlNetModel,
-        ModelMixin,
         DiffusionPipeline,
+        ModelMixin,
         StableDiffusionXLImg2ImgPipeline,
         StableDiffusionXLInpaintPipeline,
         StableDiffusionXLPipeline,
@@ -242,7 +242,7 @@ def get_diffusion_models_for_export(
         unet_neuron_config.with_controlnet = True if controlnet_ids else False
 
         models_for_export[DIFFUSION_MODEL_UNET_NAME] = (unet, unet_neuron_config)
-    
+
     # Diffusion Transformer
     transformer = None
     if DIFFUSION_MODEL_TRANSFORMER_NAME in models_for_export:
@@ -433,7 +433,7 @@ def get_submodels_for_export_diffusion(
         # https://github.com/huggingface/diffusers/blob/v0.18.2/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl_img2img.py#L571
         unet.config.requires_aesthetics_score = getattr(pipeline.config, "requires_aesthetics_score", False)
         unet.config.text_encoder_projection_dim = projection_dim
-        
+
         # Replace original cross-attention module with custom cross-attention module for better performance
         # For applying optimized attention score, we need to set env variable  `NEURON_FUSE_SOFTMAX=1`
         if os.environ.get("NEURON_FUSE_SOFTMAX") == "1":
@@ -449,7 +449,7 @@ def get_submodels_for_export_diffusion(
                 " set the environment variable with `export NEURON_FUSE_SOFTMAX=1` and recompile the unet model."
             )
         models_for_export.append((DIFFUSION_MODEL_UNET_NAME, copy.deepcopy(unet)))
-    
+
     # Diffusion transformer
     transformer = getattr(pipeline, "transformer", None)
     if transformer is not None:
@@ -457,11 +457,15 @@ def get_submodels_for_export_diffusion(
         transformer.config.text_encoder_projection_dim = projection_dim
         # apply optimized scaled_dot_product_attention
         sdpa_original = torch.nn.functional.scaled_dot_product_attention
+
         def attention_wrapper(query, key, value, attn_mask=None, dropout_p=None, is_causal=None):
             if attn_mask is not None:
                 return sdpa_original(query, key, value, attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal)
             else:
-                return neuron_scaled_dot_product_attention(query, key, value, attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal)
+                return neuron_scaled_dot_product_attention(
+                    query, key, value, attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal
+                )
+
         torch.nn.functional.scaled_dot_product_attention = attention_wrapper
         models_for_export.append((DIFFUSION_MODEL_TRANSFORMER_NAME, copy.deepcopy(transformer)))
 
@@ -519,19 +523,18 @@ def apply_fp32_wrapper_to_vae_decoder(model):
         def __init__(self, model):
             super().__init__()
             self.original = model
-        
+
         def forward(self, x):
-            t = x.dtype
             y = x.to(torch.float32)
             output = self.original(y)
             return output
-        
+
         def __getattr__(self, name):
             # Delegate attribute/method lookup to the wrapped model if not found in this wrapper
             if name == "original":
                 return super().__getattr__(name)
             return getattr(self.original, name)
-    
+
     model = f32Wrapper(model)
     return model
 

@@ -21,6 +21,7 @@ from argparse import ArgumentParser
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
+import torch
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from transformers import AutoConfig, AutoTokenizer, PretrainedConfig
 
@@ -29,8 +30,8 @@ from ...neuron.utils import (
     DIFFUSION_MODEL_CONTROLNET_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_2_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_NAME,
-    DIFFUSION_MODEL_UNET_NAME,
     DIFFUSION_MODEL_TRANSFORMER_NAME,
+    DIFFUSION_MODEL_UNET_NAME,
     DIFFUSION_MODEL_VAE_DECODER_NAME,
     DIFFUSION_MODEL_VAE_ENCODER_NAME,
     ENCODER_NAME,
@@ -52,8 +53,8 @@ from .model_configs import *  # noqa: F403
 from .utils import (
     build_stable_diffusion_components_mandatory_shapes,
     check_mandatory_input_shapes,
-    get_encoder_decoder_models_for_export,
     get_diffusion_models_for_export,
+    get_encoder_decoder_models_for_export,
     replace_stable_diffusion_submodels,
 )
 
@@ -216,7 +217,9 @@ def infer_stable_diffusion_shapes_from_diffusers(
     elif hasattr(model, "tokenizer_2") and model.tokenizer_2 is not None:
         max_sequence_length = model.tokenizer_2.model_max_length
     else:
-        raise AttributeError(f"Cannot infer max sequence_length from {type(model)} as there is no tokenizer as attribute.")
+        raise AttributeError(
+            f"Cannot infer max sequence_length from {type(model)} as there is no tokenizer as attribute."
+        )
     vae_encoder_num_channels = model.vae.config.in_channels
     vae_decoder_num_channels = model.vae.config.latent_channels
     vae_scale_factor = 2 ** (len(model.vae.config.block_out_channels) - 1) or 8
@@ -230,7 +233,7 @@ def infer_stable_diffusion_shapes_from_diffusers(
         input_shapes["text_encoder"].update({"sequence_length": max_sequence_length})
     if hasattr(model, "text_encoder_2"):
         input_shapes["text_encoder_2"] = input_shapes["text_encoder"]
-    
+
     # UNet or Transformer
     unet_or_transformer_name = "transformer" if hasattr(model, "transformer") else "unet"
     unet_or_transformer_num_channels = getattr(model, unet_or_transformer_name).config.in_channels
@@ -245,9 +248,9 @@ def infer_stable_diffusion_shapes_from_diffusers(
         input_shapes["unet_or_transformer"]["sequence_length"] = max_sequence_length
     input_shapes["unet_or_transformer"]["vae_scale_factor"] = vae_scale_factor
     input_shapes[unet_or_transformer_name] = input_shapes.pop("unet_or_transformer")
-    if unet_or_transformer_name=="transformer":
+    if unet_or_transformer_name == "transformer":
         input_shapes[unet_or_transformer_name]["encoder_hidden_size"] = model.text_encoder.config.hidden_size
-    
+
     # VAE
     input_shapes["vae_encoder"].update({"num_channels": vae_encoder_num_channels, "height": height, "width": width})
     input_shapes["vae_decoder"].update(
@@ -435,9 +438,7 @@ def _get_submodels_and_neuron_configs_for_stable_diffusion(
             DIFFUSION_MODEL_TEXT_ENCODER_2_NAME, NEURON_FILE_NAME
         )
     if getattr(model, "unet", None) is not None:
-        output_model_names[DIFFUSION_MODEL_UNET_NAME] = os.path.join(
-            DIFFUSION_MODEL_UNET_NAME, NEURON_FILE_NAME
-        )
+        output_model_names[DIFFUSION_MODEL_UNET_NAME] = os.path.join(DIFFUSION_MODEL_UNET_NAME, NEURON_FILE_NAME)
     if getattr(model, "transformer", None) is not None:
         output_model_names[DIFFUSION_MODEL_TRANSFORMER_NAME] = os.path.join(
             DIFFUSION_MODEL_TRANSFORMER_NAME, NEURON_FILE_NAME

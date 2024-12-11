@@ -25,7 +25,6 @@ if TYPE_CHECKING:
 
 
 class NeuronModel(OptimizedModel):
-
     def __init__(self, model: "PreTrainedModel", config: "PretrainedConfig"):
         super().__init__(model, config)
         if hasattr(model, "device"):

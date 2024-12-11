@@ -688,8 +688,8 @@ def map_torch_dtype(dtype: Union[str, torch.dtype]):
         "int32": torch.int32,
         "int64": torch.int64,
     }
-    
+
     if isinstance(dtype, str) and dtype in dtype_mapping:
         dtype = dtype_mapping.get(dtype)
-    
+
     return dtype

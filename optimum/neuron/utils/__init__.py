@@ -117,8 +117,8 @@ if TYPE_CHECKING:
         get_stable_diffusion_configs,
         is_main_worker,
         is_precompilation,
-        replace_weights,
         map_torch_dtype,
+        replace_weights,
     )
     from .model_utils import get_tied_parameters_dict, tie_parameters
     from .optimization_utils import (

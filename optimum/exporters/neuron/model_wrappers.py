@@ -85,7 +85,7 @@ class PixartTransformerNeuronWrapper(torch.nn.Module):
         self.model = model
         self.dtype = model.dtype
         self.input_names = input_names
-    
+
     def forward(self, *inputs):
         if len(inputs) != len(self.input_names):
             raise ValueError(
@@ -107,7 +107,7 @@ class PixartTransformerNeuronWrapper(torch.nn.Module):
             encoder_hidden_states=encoder_hidden_states,
             encoder_attention_mask=encoder_attention_mask,
             added_cond_kwargs={"resolution": None, "aspect_ratio": None},
-            return_dict=False
+            return_dict=False,
         )
 
         return out_tuple
@@ -158,7 +158,9 @@ class ControlNetNeuronWrapper(torch.nn.Module):
 # Adapted from https://github.com/aws-neuron/aws-neuron-samples/blob/master/torch-neuronx/inference/hf_pretrained_pixart_alpha_inference_on_inf2.ipynb
 # For text encoding
 class T5EncoderWrapper(torch.nn.Module):
-    def __init__(self, model: "PreTrainedModel", sequence_length: int, batch_size: Optional[int] = None, device: str = "cpu"):
+    def __init__(
+        self, model: "PreTrainedModel", sequence_length: int, batch_size: Optional[int] = None, device: str = "cpu"
+    ):
         super().__init__()
         self.model = model
         self.config = model.config
@@ -167,9 +169,11 @@ class T5EncoderWrapper(torch.nn.Module):
         self.device = device
         for block in self.model.encoder.block:
             block.layer[1].DenseReluDense.act = torch.nn.GELU(approximate="tanh")
-        precomputed_bias = self.model.encoder.block[0].layer[0].SelfAttention.compute_bias(self.sequence_length, self.sequence_length)
+        precomputed_bias = (
+            self.model.encoder.block[0].layer[0].SelfAttention.compute_bias(self.sequence_length, self.sequence_length)
+        )
         self.model.encoder.block[0].layer[0].SelfAttention.compute_bias = lambda *args, **kwargs: precomputed_bias
-    
+
     def forward(self, input_ids, attention_mask):
         return self.model(input_ids, attention_mask=attention_mask)
 

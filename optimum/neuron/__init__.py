@@ -95,18 +95,18 @@ if TYPE_CHECKING:
     )
     from .modeling_decoder import NeuronDecoderModel
     from .modeling_diffusion import (
+        NeuronDiffusionPipelineBase,
         NeuronLatentConsistencyModelPipeline,
+        NeuronPixArtAlphaPipeline,
         NeuronStableDiffusionControlNetPipeline,
         NeuronStableDiffusionImg2ImgPipeline,
         NeuronStableDiffusionInpaintPipeline,
         NeuronStableDiffusionInstructPix2PixPipeline,
         NeuronStableDiffusionPipeline,
-        NeuronDiffusionPipelineBase,
         NeuronStableDiffusionXLControlNetPipeline,
         NeuronStableDiffusionXLImg2ImgPipeline,
         NeuronStableDiffusionXLInpaintPipeline,
         NeuronStableDiffusionXLPipeline,
-        NeuronPixArtAlphaPipeline,
     )
     from .modeling_seq2seq import NeuronModelForSeq2SeqLM
     from .modeling_traced import NeuronTracedModel

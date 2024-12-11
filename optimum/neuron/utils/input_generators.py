@@ -14,17 +14,14 @@
 # limitations under the License.
 """Dummy input generation classes."""
 
-import random
-from typing import Optional, Tuple
+from typing import Optional
 
 import torch
 
-from ...utils import (
+from optimum.utils import (
     DTYPE_MAPPER,
-    DEFAULT_DUMMY_SHAPES,
     DummyAudioInputGenerator,
     DummyInputGenerator,
-    NormalizedConfig,
     NormalizedTextConfig,
     NormalizedVisionConfig,
 )

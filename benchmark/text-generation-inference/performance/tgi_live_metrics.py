@@ -3,7 +3,6 @@ from prometheus_client.parser import text_string_to_metric_families
 
 
 def get_node_results(node_url):
-
     metrics = requests.get(node_url + "/metrics").text
 
     counters = {

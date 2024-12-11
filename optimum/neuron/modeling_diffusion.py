@@ -89,7 +89,7 @@ if is_diffusers_available():
         StableDiffusionXLPipeline,
     )
     from diffusers.configuration_utils import FrozenDict
-    from diffusers.image_processor import VaeImageProcessor, PixArtImageProcessor
+    from diffusers.image_processor import PixArtImageProcessor, VaeImageProcessor
     from diffusers.models.autoencoders.vae import DecoderOutput, DiagonalGaussianDistribution
     from diffusers.models.controlnet import ControlNetOutput
     from diffusers.models.modeling_outputs import AutoencoderKLOutput
@@ -104,6 +104,7 @@ if is_diffusers_available():
         NeuronStableDiffusionXLControlNetPipelineMixin,
         NeuronStableDiffusionXLPipelineMixin,
     )
+
     os.environ["NEURON_FUSE_SOFTMAX"] = "1"
     os.environ["NEURON_CUSTOM_SILU"] = "1"
 else:
@@ -362,7 +363,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         else:
             self.vae_scale_factor = 8
 
-        unet_or_transformer = "transformer" if self.transformer else "unet" 
+        unet_or_transformer = "transformer" if self.transformer else "unet"
         unet_or_transformer_batch_size = self.neuron_configs[unet_or_transformer].batch_size
         if "text_encoder" in self.neuron_configs:
             text_encoder_batch_size = self.neuron_configs["text_encoder"].batch_size
@@ -426,10 +427,11 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 Whether to move manually the traced model to NeuronCore. It's only needed when `inline_weights_to_neff=False`, otherwise it is loaded automatically to a Neuron device.
         """
         submodels = {
-            "text_encoder": text_encoder_path,
-            "text_encoder_2": text_encoder_2_path,
+            # Load the UNet/Diffusion transformer first to avoid CPU OOM
             "unet": unet_path,
             "transformer": transformer_path,
+            "text_encoder": text_encoder_path,
+            "text_encoder_2": text_encoder_2_path,
             "vae_encoder": vae_encoder_path,
             "vae_decoder": vae_decoder_path,
             "controlnet": controlnet_paths,
@@ -1183,7 +1185,7 @@ class NeuronModelTextEncoder(_NeuronDiffusionModelPart):
         inputs = (input_ids,)
         if attention_mask is not None and not torch.equal(torch.ones_like(attention_mask), attention_mask):
             inputs += (attention_mask,)
-        
+
         outputs = self.model(*inputs)
 
         if return_dict:
@@ -1493,7 +1495,7 @@ class NeuronStableDiffusionControlNetPipeline(
 class NeuronPixArtAlphaPipeline(NeuronDiffusionPipelineBase, PixArtAlphaPipeline):
     main_input_name = "prompt"
     auto_model_class = PixArtAlphaPipeline
-    
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.image_processor = PixArtImageProcessor(vae_scale_factor=self.vae_scale_factor)

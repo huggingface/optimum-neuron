@@ -20,20 +20,13 @@ from typing import TYPE_CHECKING, Dict, List
 
 import torch
 
-from ...neuron.distributed import ParallelizersManager
-from ...neuron.utils import (
-    ASTDummyAudioInputGenerator,
-    DummyBeamValuesGenerator,
-    DummyControNetInputGenerator,
-    DummyMaskedPosGenerator,
-    is_neuronx_distributed_available,
-)
-from ...utils import (
+from optimum.exporters.tasks import TasksManager
+from optimum.utils import (
     DummyInputGenerator,
     DummySeq2SeqDecoderTextInputGenerator,
     DummyTextInputGenerator,
-    DummyVisionInputGenerator,
     DummyTimestepInputGenerator,
+    DummyVisionInputGenerator,
     NormalizedConfig,
     NormalizedConfigManager,
     NormalizedSeq2SeqConfig,
@@ -42,25 +35,32 @@ from ...utils import (
     NormalizedVisionConfig,
     is_diffusers_available,
 )
-from ..tasks import TasksManager
-from .config import (
+
+from ....neuron.distributed import ParallelizersManager
+from ....neuron.utils import (
+    ASTDummyAudioInputGenerator,
+    DummyBeamValuesGenerator,
+    DummyControNetInputGenerator,
+    DummyMaskedPosGenerator,
+    is_neuronx_distributed_available,
+)
+from ..config import (
     AudioNeuronConfig,
     TextAndVisionNeuronConfig,
     TextEncoderNeuronConfig,
-    TextNeuronDecoderConfig,
     TextSeq2SeqNeuronConfig,
     VisionNeuronConfig,
 )
-from .model_wrappers import (
+from ..model_wrappers import (
     ControlNetNeuronWrapper,
     NoCacheModelWrapper,
+    PixartTransformerNeuronWrapper,
     SentenceTransformersCLIPNeuronWrapper,
     SentenceTransformersTransformerNeuronWrapper,
     T5DecoderWrapper,
-    T5EncoderWrapper,
     T5EncoderForSeq2SeqLMWrapper,
+    T5EncoderWrapper,
     UnetNeuronWrapper,
-    PixartTransformerNeuronWrapper,
 )
 
 
@@ -672,11 +672,11 @@ class UNetNeuronConfig(VisionNeuronConfig):
 class PixartTransformerNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
     INPUT_ARGS = (
-        "batch_size", 
-        "sequence_length", 
-        "num_channels", 
-        "width", 
-        "height", 
+        "batch_size",
+        "sequence_length",
+        "num_channels",
+        "width",
+        "height",
         "vae_scale_factor",
         "encoder_hidden_size",
     )
@@ -697,7 +697,7 @@ class PixartTransformerNeuronConfig(VisionNeuronConfig):
         DummyTextInputGenerator,
         DummySeq2SeqDecoderTextInputGenerator,
     )
-    
+
     @property
     def inputs(self) -> List[str]:
         common_inputs = ["sample", "encoder_hidden_states", "timestep", "encoder_attention_mask"]
@@ -706,7 +706,7 @@ class PixartTransformerNeuronConfig(VisionNeuronConfig):
     @property
     def outputs(self) -> List[str]:
         return ["out_hidden_states"]
-    
+
     def patch_model_for_export(self, model, dummy_inputs):
         return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
 
@@ -813,18 +813,7 @@ class VaeDecoderNeuronConfig(VisionNeuronConfig):
         return super().patch_model_for_export(model=model, dummy_inputs=dummy_inputs, forward_with_tuple=True)
 
 
-@register_in_tasks_manager("gpt2", "text-generation")
-class GPT2NeuronConfig(TextNeuronDecoderConfig):
-    NEURONX_CLASS = "gpt2.model.GPT2ForSampling"
-
-
-@register_in_tasks_manager("llama", "text-generation")
-class LLamaNeuronConfig(TextNeuronDecoderConfig):
-    NEURONX_CLASS = "llama.model.LlamaForSampling"
-    CONTINUOUS_BATCHING = True
-    ATTENTION_lAYOUT = "BSH"
-
-
+@register_in_tasks_manager("t5-encoder", "text2text-generation")
 class T5EncoderBaseNeuronConfig(TextSeq2SeqNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
     NORMALIZED_CONFIG_CLASS = NormalizedSeq2SeqConfig.with_args(
@@ -835,7 +824,7 @@ class T5EncoderBaseNeuronConfig(TextSeq2SeqNeuronConfig):
         key_value_dim="d_kv",
         allow_new=True,
     )
-    
+
     @property
     def inputs(self) -> List[str]:
         return ["input_ids", "attention_mask"]
@@ -845,13 +834,13 @@ class T5EncoderBaseNeuronConfig(TextSeq2SeqNeuronConfig):
 class T5EncoderForDiffusersNeuronConfig(T5EncoderBaseNeuronConfig):
     CUSTOM_MODEL_WRAPPER = T5EncoderWrapper
     INPUT_ARGS = ("batch_size", "sequence_length")
-    
+
     @property
     def outputs(self) -> List[str]:
         return ["last_hidden_state"]
 
     def patch_model_for_export(self, model_or_path, **input_shapes):
-        return self.CUSTOM_MODEL_WRAPPER(model_or_path, **input_shapes) 
+        return self.CUSTOM_MODEL_WRAPPER(model_or_path, **input_shapes)
 
 
 @register_in_tasks_manager("t5-encoder", *["text2text-generation"])
@@ -868,8 +857,8 @@ class T5EncoderForTransformersNeuronConfig(T5EncoderBaseNeuronConfig):
             + [f"present.{idx}.cross.key" for idx in range(self._config.num_decoder_layers)]
             + [f"present.{idx}.cross.value" for idx in range(self._config.num_decoder_layers)]
         )
-        return common_outputs      
-    
+        return common_outputs
+
     def patch_model_for_export(self, model_or_path, device="xla", **kwargs):
         num_beams = kwargs.pop("num_beams", 1)
         sequence_length = kwargs.pop("sequence_length", None)
@@ -951,16 +940,14 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
             "decoder_attention_mask",
             "encoder_hidden_states",
             "attention_mask",  # TODO: replace with `encoder_attention_mask` after optimum 1.14 release
-            "beam_idx", 
+            "beam_idx",
             "beam_scores",
         ]
         return common_inputs
 
     @property
     def outputs(self) -> List[str]:
-        beam_outputs = (
-            ["next_token_scores", "next_tokens", "next_indices"] if self.num_beams > 1 else ["next_tokens"]
-        )
+        beam_outputs = ["next_token_scores", "next_tokens", "next_indices"] if self.num_beams > 1 else ["next_tokens"]
         common_outputs = (
             beam_outputs
             + [f"past.{idx}.self.key" for idx in range(self._config.num_decoder_layers)]
@@ -1081,25 +1068,3 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
             aliases[decoder.past_key_values_ca[i]] = len(decoder.past_key_values_sa) + i + num_outputs_from_trace
 
         return aliases
-
-
-@register_in_tasks_manager("opt", "text-generation")
-class OPTNeuronConfig(TextNeuronDecoderConfig):
-    NEURONX_CLASS = "opt.model.OPTForSampling"
-
-
-@register_in_tasks_manager("bloom", "text-generation")
-class BloomNeuronConfig(TextNeuronDecoderConfig):
-    NEURONX_CLASS = "bloom.model.BloomForSampling"
-
-
-@register_in_tasks_manager("mistral", "text-generation")
-class MistralNeuronConfig(TextNeuronDecoderConfig):
-    NEURONX_CLASS = "mistral.model.MistralForSampling"
-    CONTINUOUS_BATCHING = True
-
-
-@register_in_tasks_manager("mixtral", "text-generation")
-class MixtralNeuronConfig(TextNeuronDecoderConfig):
-    NEURONX_CLASS = "mixtral.model.MixtralForSampling"
-    CONTINUOUS_BATCHING = False

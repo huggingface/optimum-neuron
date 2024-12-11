@@ -16,7 +16,6 @@
 
 import os
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
-import torch
 
 from ...utils import logging
 

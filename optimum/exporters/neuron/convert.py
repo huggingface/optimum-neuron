@@ -198,7 +198,9 @@ def validate_model_outputs(
             ref_inputs = tuple(ref_inputs.values())
             ref_outputs = reference_model(*ref_inputs)
             neuron_inputs = tuple(inputs.values())
-        elif any(pattern in getattr(config._config, "_class_name", "").lower() for pattern in ["controlnet", "transformer"]):
+        elif any(
+            pattern in getattr(config._config, "_class_name", "").lower() for pattern in ["controlnet", "transformer"]
+        ):
             reference_model = config.patch_model_for_export(reference_model, ref_inputs)
             neuron_inputs = ref_inputs = tuple(ref_inputs.values())
             ref_outputs = reference_model(*ref_inputs)
@@ -253,8 +255,8 @@ def validate_model_outputs(
             ref_output = torch.stack(ref_outputs[name])
             neuron_output = torch.stack(neuron_output)
         elif isinstance(neuron_output, list):
-            ref_output = [output for output in ref_outputs[name]]
-            neuron_output = [output for output in neuron_output]
+            ref_output = ref_outputs[name]
+            neuron_output = neuron_output
 
         logger.info(f'\t- Validating Neuron Model output "{name}":')
 
@@ -529,7 +531,7 @@ def export_neuronx(
     for axis in config.mandatory_axes:
         input_shapes[axis] = getattr(config, axis)
 
-    dummy_inputs = config.generate_dummy_inputs(**input_shapes)    
+    dummy_inputs = config.generate_dummy_inputs(**input_shapes)
     dummy_inputs = config.flatten_inputs(dummy_inputs)
     dummy_inputs_tuple = tuple(dummy_inputs.values())
 
