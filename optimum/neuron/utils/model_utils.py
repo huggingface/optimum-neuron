@@ -23,7 +23,6 @@ from .require_utils import requires_neuronx_distributed
 
 
 if TYPE_CHECKING:
-
     if is_torch_neuronx_available():
         from neuronx_distributed.pipeline import NxDPPModel
 

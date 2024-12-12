@@ -2182,7 +2182,6 @@ class NeuronORPOTrainer(_TrainerForNeuron, _ORPOTrainerInit):
         policy_chosen_logps: torch.FloatTensor,
         policy_rejected_logps: torch.FloatTensor,
     ) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
-
         # Neuron-specific change compared to the original implementation in `trl`, the original implementation is:
         #
         # Derived from Eqs. (4) and (7) from https://huggingface.co/papers/2403.07691 by using log identities and exp(log(P(y|x)) = P(y|x)

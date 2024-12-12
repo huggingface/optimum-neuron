@@ -30,7 +30,6 @@ logger = logging.getLogger(__file__)
 
 
 class TestClient(AsyncInferenceClient):
-
     def __init__(self, service_name: str, base_url: str):
         super().__init__(model=base_url)
         self.service_name = service_name

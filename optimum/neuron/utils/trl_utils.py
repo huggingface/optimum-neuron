@@ -43,7 +43,6 @@ class NeuronSFTConfig(NeuronTrainingArguments, SFTConfig):
 
 @dataclass
 class NeuronORPOConfig(NeuronTrainingArguments, ORPOConfig):
-
     @property
     def neuron_cc_flags_model_type(self) -> Optional[str]:
         return None

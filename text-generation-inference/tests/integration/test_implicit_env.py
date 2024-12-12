@@ -38,7 +38,6 @@ async def tgi_service(request, launcher, neuron_model_config):
 
 @pytest.mark.asyncio
 async def test_model_single_request(tgi_service):
-
     # Just verify that the generation works, and nothing is raised, with several set of params
 
     # No params
