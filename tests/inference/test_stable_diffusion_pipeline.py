@@ -19,6 +19,7 @@ import unittest
 import cv2
 import numpy as np
 import PIL
+import torch
 from compel import Compel, ReturnedEmbeddingsType
 from diffusers import UniPCMultistepScheduler
 from diffusers.utils import load_image
@@ -26,6 +27,7 @@ from parameterized import parameterized
 
 from optimum.neuron import (
     NeuronLatentConsistencyModelPipeline,
+    NeuronPixArtAlphaPipeline,
     NeuronStableDiffusionControlNetPipeline,
     NeuronStableDiffusionImg2ImgPipeline,
     NeuronStableDiffusionInpaintPipeline,
@@ -38,6 +40,7 @@ from optimum.neuron import (
 from optimum.neuron.modeling_diffusion import (
     NeuronControlNetModel,
     NeuronModelTextEncoder,
+    NeuronModelTransformer,
     NeuronModelUnet,
     NeuronModelVaeDecoder,
     NeuronModelVaeEncoder,
@@ -434,4 +437,41 @@ class NeuronStableDiffusionXLPipelineIntegrationTest(unittest.TestCase):
         init_image = download_image(url)
         prompt = "a dog running, lake, moat"
         image = img2img_pipeline(prompt=prompt, image=init_image).images[0]
+        self.assertIsInstance(image, PIL.Image.Image)
+
+
+is_inferentia_test
+
+
+@requires_neuronx
+@require_diffusers
+class NeuronPixArtAlphaPipelineIntegrationTest(unittest.TestCase):
+    ATOL_FOR_VALIDATION = 1e-3
+
+    def test_export_and_inference_non_dyn(self):
+        model_id = "hf-internal-testing/tiny-pixart-alpha-pipe"
+        compiler_args = {"auto_cast": "none"}
+        input_shapes = {"batch_size": 1, "height": 64, "width": 64, "sequence_length": 32}
+        neuron_pipeline = NeuronPixArtAlphaPipeline.from_pretrained(
+            model_id,
+            export=True,
+            torch_dtype=torch.bfloat16,
+            dynamic_batch_size=False,
+            disable_neuron_cache=True,
+            **input_shapes,
+            **compiler_args,
+        )
+        self.assertIsInstance(neuron_pipeline.text_encoder, NeuronModelTextEncoder)
+        self.assertIsInstance(neuron_pipeline.transformer, NeuronModelTransformer)
+        self.assertIsInstance(neuron_pipeline.vae_encoder, NeuronModelVaeEncoder)
+        self.assertIsInstance(neuron_pipeline.vae_decoder, NeuronModelVaeDecoder)
+
+        prompt = "Mario eating hamburgers."
+
+        neuron_pipeline.transformer.config.sample_size = (
+            32  # Skip the sample size check because the dummy model uses a smaller sample size (8).
+        )
+        image = neuron_pipeline(prompt=prompt, use_resolution_binning=False).images[
+            0
+        ]  # Set `use_resolution_binning=False` to prevent resizing.
         self.assertIsInstance(image, PIL.Image.Image)

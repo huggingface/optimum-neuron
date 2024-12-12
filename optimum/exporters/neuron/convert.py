@@ -273,7 +273,7 @@ def validate_model_outputs(
                 logger.info(f"\t\t-[✓] {output.shape} matches {ref_output.shape}")
 
             # Values
-            if not torch.allclose(ref_output, output, atol=atol):
+            if not torch.allclose(ref_output, output.to(ref_output.dtype), atol=atol):
                 max_diff = torch.max(torch.abs(ref_output - output))
                 logger.error(f"\t\t-[x] values not close enough, max diff: {max_diff} (atol: {atol})")
                 value_failures.append((name, max_diff))

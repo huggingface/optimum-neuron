@@ -1120,6 +1120,9 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         kwargs.pop("width", None)
         if kwargs.get("image", None):
             kwargs["image"] = self.image_processor.preprocess(kwargs["image"], height=height, width=width)
+        # Override default `max_sequence_length`, eg. pixart
+        if "max_sequence_length" in inspect.signature(self.auto_model_class.__call__).parameters:
+            kwargs["max_sequence_length"] = self.text_encoder.config.neuron.get("static_sequence_length", None)
         return self.auto_model_class.__call__(self, height=height, width=width, *args, **kwargs)
 
 
