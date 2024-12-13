@@ -24,6 +24,16 @@ from transformers_neuronx.nki.compile import nki_call
 from .config import GraniteConfig
 
 
+def scale_mul(t, scale):
+    """Multiply a tensor by a float scale"""
+    dtype = t.dtype
+    # Convert float to a constant scalar tensor of the target dtype
+    scale_t = dtype.Constant(constant_value=scale)
+    # Expand the scalar tensor to the target shape
+    scale_br_t = dtype[t.sizes].Broadcast(scale_t, dimensions=[])
+    return dtype[t.sizes].Multiply(t, scale_br_t)
+
+
 class GraniteForSamplingNoEmbeddingHlo:
 
     def __init__(self, config: GraniteConfig, neuron_config: Optional[NeuronConfig] = None):
@@ -117,6 +127,9 @@ class GraniteForSamplingNoEmbeddingHlo:
             )
         else:
             block_to_seq = None
+
+        # Granite specific: embeddings are multiplied by embedding_multiplier
+        hidden = scale_mul(hidden, self.config.embedding_multiplier)
 
         head_dim = self.config.attention_head_size
         pos_embed = rotary.hlo_rotary_embedding(
@@ -297,6 +310,8 @@ class GraniteForSamplingNoEmbeddingHlo:
                 attn_out_scales,
                 attn_out_bias,
             )
+        # Granite specific: attention output is multiplied by residual multiplier
+        attn_output = scale_mul(attn_output, self.config.residual_multiplier)
         hidden = hlo.add(attn_output, hidden)
         gated_mlp = hlo.gated_mlp_bsh if is_bsh else hlo.gated_mlp
         rms_norm_dim = 2 if is_bsh else 0
@@ -327,6 +342,8 @@ class GraniteForSamplingNoEmbeddingHlo:
             tp_degree=self.config.tp_degree,
             neuron_config=self.neuron_config,
         )
+        # Granite specific: MLP output is multiplied by residual_multiplier
+        mlp_hidden = scale_mul(mlp_hidden, self.config.residual_multiplier)
         res_hidden = hlo.add(mlp_hidden, hidden)
         return res_hidden, out_attn_k_cache, out_attn_v_cache
 
@@ -657,8 +674,8 @@ class GraniteForSamplingNoEmbeddingHlo:
             shard_over_batch=self.shard_over_batch,
         )
 
-        # Q = Q / sqrt(d_head)
-        query = attention.scale(query, d_head)
+        # Granite specific: instead of dividing the QK product, multiply it by the attention_multiplier
+        query = scale_mul(query, self.config.attention_multiplier)
 
         # In BSH cache layout, the output of QKV linear projection is still kept as SBH for all QKV.
         bsh_cache_layout = False
