@@ -17,6 +17,7 @@
 
 from optimum.exporters.tasks import TasksManager
 
+from ....neuron.models.granite.model import GraniteForSampling
 from ....neuron.models.qwen2.model import Qwen2ForSampling
 from ..config import TextNeuronDecoderConfig
 
@@ -63,3 +64,9 @@ class Qwen2NeuronConfig(TextNeuronDecoderConfig):
     NEURONX_CLASS = Qwen2ForSampling
     CONTINUOUS_BATCHING = True
     FUSE_QKV = False
+
+
+@register_in_tasks_manager("granite", "text-generation")
+class GraniteNeuronConfig(TextNeuronDecoderConfig):
+    NEURONX_CLASS = GraniteForSampling
+    CONTINUOUS_BATCHING = True
