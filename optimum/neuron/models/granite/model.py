@@ -297,5 +297,7 @@ class GraniteForSampling(base.NeuronModelBase):
         # either input_embeddings are generated (off device embedding), or input_ids will be padded from preprocess_and_embed (on device embedding)
         inputs = input_embeddings if input_embeddings is not None else input_ids
         logits = self._forward(inputs, *rst)
+        # Granite specific: divide logits by scaling factor
+        logits = logits / self.config.logits_scaling
         logits = self._postprocess(logits, start_ids=start_ids, **kwargs)
         return logits
