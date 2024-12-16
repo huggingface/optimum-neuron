@@ -1,6 +1,6 @@
 # Fetch and extract the TGI sources
 FROM alpine AS tgi
-ARG TGI_VERSION=3.0.0
+ARG TGI_VERSION=3.1.0
 RUN mkdir -p /tgi
 ADD https://github.com/huggingface/text-generation-inference/archive/refs/tags/v${TGI_VERSION}.tar.gz /tgi/sources.tar.gz
 RUN tar -C /tgi -xf /tgi/sources.tar.gz --strip-components=1
@@ -113,10 +113,10 @@ RUN wget -qO - https://apt.repos.neuron.amazonaws.com/GPG-PUB-KEY-AMAZON-AWS-NEU
 # Install neuronx packages
 RUN apt-get update -y \
  && apt-get install -y --no-install-recommends \
-    aws-neuronx-dkms=2.18.20.0 \
-    aws-neuronx-collectives=2.22.33.0-d2128d1aa \
-    aws-neuronx-runtime-lib=2.22.19.0-5856c0b42 \
-    aws-neuronx-tools=2.19.0.0 \
+    aws-neuronx-dkms=2.19.64.0 \
+    aws-neuronx-collectives=2.23.135.0-3e70920f2 \
+    aws-neuronx-runtime-lib=2.23.112.0-9b5179492 \
+    aws-neuronx-tools=2.20.204.0 \
     libxml2 \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
@@ -124,10 +124,10 @@ RUN apt-get update -y \
 ENV PATH="/opt/bin/:/opt/aws/neuron/bin:${PATH}"
 
 RUN pip3 install \
-    neuronx-cc==2.15.143.0 \
-    torch-neuronx==2.1.2.2.3.2 \
-    transformers-neuronx==0.12.313 \
-    libneuronxla==2.0.5347.0 \
+    neuronx-cc==2.16.372.0 \
+    torch-neuronx==2.5.1.2.4.0 \
+    transformers-neuronx==0.13.322 \
+    libneuronxla==2.1.681.0 \
     --extra-index-url=https://pip.repos.neuron.amazonaws.com
 
 # Install HuggingFace packages
