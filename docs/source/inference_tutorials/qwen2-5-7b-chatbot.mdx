@@ -1,0 +1,226 @@
+<!---
+Copyright 2024 The HuggingFace Team. All rights reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+# Deploy Qwen 2.5 7B Instruct on AWS Inferentia
+
+*There is a notebook version of that tutorial [here](https://github.com/huggingface/optimum-neuron/blob/main/notebooks/text-generation/qwen2-5-7b-chatbot.ipynb)*.
+
+This guide will detail how to export, deploy and run a **Qwen2.5 7B Instruct** model on AWS inferentia.
+
+You will learn how to:
+- set up your AWS instance,
+- export the Qwen 2.5 model to the Neuron format,
+- push the exported model to the Hugging Face Hub,
+- deploy the model and use it in a chat application.
+
+Note: This tutorial was created on a inf2.48xlarge AWS EC2 Instance.
+
+## 1. Export the Qwen 2.5 model to Neuron
+
+As explained in the [optimum-neuron documentation](https://huggingface.co/docs/optimum-neuron/guides/export_model#why-compile-to-neuron-model)
+, models need to be compiled and exported to a serialized format before running them on Neuron devices.
+
+Fortunately, 🤗 **optimum-neuron** offers an [API](https://huggingface.co/docs/optimum-neuron/guides/models#configuring-the-export-of-a-generative-model)
+to export standard 🤗 [transformers models](https://huggingface.co/docs/transformers/index) to the Neuron format.
+
+When exporting the model, we will specify two sets of parameters:
+
+- using *compiler_args*, we specify on how many cores we want the model to be deployed (each neuron device has two cores), and with which precision (here *bfloat16*),
+- using *input_shapes*, we set the static input and output dimensions of the model. All model compilers require static shapes, and neuron makes no exception. Note that the
+*sequence_length* not only constrains the length of the input context, but also the length of the Key/Value cache, and thus, the output length.
+
+Depending on your choice of parameters and inferentia host, this may take from a few minutes to more than an hour.
+
+For your convenience, we host a pre-compiled version of that model on the Hugging Face hub, so you can skip the export and start using the model immediately in section 2.
+
+```python
+from optimum.neuron import NeuronModelForCausalLM
+
+
+compiler_args = {"num_cores": 24, "auto_cast_type": 'bf16'}
+input_shapes = {"batch_size": 32, "sequence_length": 4096}
+model = NeuronModelForCausalLM.from_pretrained(
+        "Qwen/Qwen2.5-7B-Instruct",
+        export=True,
+        **compiler_args,
+        **input_shapes)
+```
+
+This will probably take a while.
+
+Fortunately, you will need to do this only once because you can save your model and reload it later.
+
+
+```python
+model.save_pretrained("qwen-2-5-7b-chat-neuron")
+```
+
+Even better, you can push it to the [Hugging Face hub](https://huggingface.co/models).
+
+For that, you need to be logged in to a [HuggingFace account](https://huggingface.co/join).
+
+If you are not connected already on your instance, you will now be prompted for an access token.
+
+```shell
+from huggingface_hub import notebook_login
+
+
+notebook_login(new_session=False)
+```
+
+By default, the model will be uploaded to your account (organization equal to your user name).
+
+Feel free to edit the cell below if you want to upload the model to a specific [Hugging Face organization](https://huggingface.co/docs/hub/organizations).
+
+
+```python
+from huggingface_hub import whoami
+
+
+org = whoami()['name']
+
+repo_id = f"{org}/qwen-2-5-7b-chat-neuron"
+
+model.push_to_hub("qwen-2-5-7b-chat-neuron", repository_id=repo_id)
+```
+
+## 2. Generate text using Qwen 2.5 on AWS Inferentia2
+
+Once your model has been exported, you can generate text using the transformers library, as it has been described in [detail in this post](https://huggingface.co/blog/how-to-generate).
+
+If as suggested you skipped the first section, don't worry: we will use a precompiled model already present on the hub instead.
+
+
+```python
+from optimum.neuron import NeuronModelForCausalLM
+
+try:
+    model
+except NameError:
+    # Edit this to use another base model
+    model = NeuronModelForCausalLM.from_pretrained('aws-neuron/qwen2-5-7b-chat-neuron')
+```
+
+We will need a *Qwen 2.5* tokenizer to convert the prompt strings to text tokens.
+
+
+```python
+from transformers import AutoTokenizer
+
+tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-7B-Instruct")
+```
+
+The following generation strategies are supported:
+
+- greedy search,
+- multinomial sampling with top-k and top-p (with temperature).
+
+Most logits pre-processing/filters (such as repetition penalty) are supported.
+
+
+```python
+inputs = tokenizer("What is deep-learning ?", return_tensors="pt")
+outputs = model.generate(**inputs,
+                         max_new_tokens=128,
+                         do_sample=True,
+                         temperature=0.9,
+                         top_k=50,
+                         top_p=0.9)
+tokenizer.batch_decode(outputs, skip_special_tokens=True)
+```
+
+## 3. Create a chat application using Qwen on AWS Inferentia2
+
+The model expects the prompts to be formatted following a specific template corresponding to the interactions between a *user* role and an *assistant* role.
+
+Each chat model has its own convention for encoding such contents, and we will not go into too much details in this guide, because we will directly use the [Hugging Face chat templates](https://huggingface.co/blog/chat-templates) corresponding to our model.
+
+The utility function below converts a list of exchanges between the user and the model into a well-formatted chat prompt.
+
+
+```python
+def format_chat_prompt(message, history, max_tokens):
+    """ Convert a history of messages to a chat prompt
+
+
+    Args:
+        message(str): the new user message.
+        history (List[str]): the list of user messages and assistant responses.
+        max_tokens (int): the maximum number of input tokens accepted by the model.
+
+    Returns:
+        a `str` prompt.
+    """
+    chat = []
+    # Convert all messages in history to chat interactions
+    for interaction in history:
+        chat.append({"role": "user", "content" : interaction[0]})
+        chat.append({"role": "assistant", "content" : interaction[1]})
+    # Add the new message
+    chat.append({"role": "user", "content" : message})
+    # Generate the prompt, verifying that we don't go beyond the maximum number of tokens
+    for i in range(0, len(chat), 2):
+        # Generate candidate prompt with the last n-i entries
+        prompt = tokenizer.apply_chat_template(chat[i:], tokenize=False)
+        # Tokenize to check if we're over the limit
+        tokens = tokenizer(prompt)
+        if len(tokens.input_ids) <= max_tokens:
+            # We're good, stop here
+            return prompt
+    # We shall never reach this line
+    raise SystemError
+```
+
+We are now equipped to build a simplistic chat application.
+
+We simply store the interactions between the user and the assistant in a list that we use to generate
+the input prompt.
+
+
+```python
+history = []
+max_tokens = 1024
+
+def chat(message, history, max_tokens):
+    prompt = format_chat_prompt(message, history, max_tokens)
+    # Uncomment the line below to see what the formatted prompt looks like
+    #print(prompt)
+    inputs = tokenizer(prompt, return_tensors="pt")
+    outputs = model.generate(**inputs,
+                             max_length=2048,
+                             do_sample=True,
+                             temperature=0.9,
+                             top_k=50,
+                             repetition_penalty=1.2)
+    # Do not include the input tokens
+    outputs = outputs[0, inputs.input_ids.size(-1):]
+    response = tokenizer.decode(outputs, skip_special_tokens=True)
+    history.append([message, response])
+    return response
+```
+
+To test the chat application you can use for instance the following sequence of prompts:
+
+```python
+print(chat("What is deep learning ?", history, max_tokens))
+print(chat("Is deep learning a subset of machine learning ?", history, max_tokens))
+print(chat("Is deep learning a subset of supervised learning ?", history, max_tokens))
+```
+
+<Warning>
+
+While very powerful, Large language models can sometimes *hallucinate*. We call *hallucinations* generated content that is irrelevant or made-up but presented by the model as if it was accurate. This is a flaw of LLMs and is not a side effect of using them on Trainium / Inferentia.
+
+</Warning>

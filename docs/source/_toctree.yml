@@ -26,6 +26,8 @@
       title: Sentence Transformers on AWS Inferentia
     - local: inference_tutorials/stable_diffusion
       title: Generate images with Stable Diffusion models on AWS Inferentia
+    - local: inference_tutorials/qwen2-5-7b-chatbot
+      title: Deploy Qwen 2.5 7B Instruct on AWS EC2
     title: Inference Tutorials
   - sections:
     - local: guides/setup_aws_instance
