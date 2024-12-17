@@ -21,6 +21,7 @@ import os
 import re
 import shutil
 import warnings
+from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Optional, Tuple, Union
@@ -32,6 +33,7 @@ from ..exporters.neuron.model_configs import *  # noqa: F403
 from ..exporters.tasks import TasksManager
 from .modeling_base import NeuronModel
 from .utils import ModelCacheEntry, hub_neuronx_cache, is_transformers_neuronx_available
+from .utils.patching import patch_everywhere
 from .utils.require_utils import requires_transformers_neuronx
 from .utils.version_utils import check_compiler_compatibility, get_neuronxcc_version
 
@@ -41,6 +43,10 @@ MAJORS_FILE = "/proc/devices"
 NEURON_MAJOR_LINE = re.compile(r"^\s*(\d+)\s+neuron\s*$")
 
 if is_transformers_neuronx_available():
+    from libneuronxla import neuron_xla_compile
+    from libneuronxla.neuron_cc_cache import CacheUrl, create_compile_cache
+    from neuronxcc import __version__ as compiler_version
+    from transformers_neuronx.compiler import compile_hlo_module, get_compiler_flags, get_hash_module
     from transformers_neuronx.config import ContinuousBatchingConfig, NeuronConfig
 
 
@@ -204,7 +210,64 @@ class NeuronDecoderModel(NeuronModel):
         cache_entry = None if checkpoint_id is None else ModelCacheEntry(checkpoint_id, config)
 
         # Export the model using the Optimum Neuron Cache
-        with hub_neuronx_cache("inference", entry=cache_entry):
+        @contextmanager
+        def target_selector():
+
+            def hf_compile_hlo_module(hlo_module, tag=None, num_exec_repetition=1):
+                print(">>> HF COMPILE HLO MODULE")
+
+                flags = get_compiler_flags()
+                flags = f"{flags} --execute-repetition={num_exec_repetition}"
+
+                module_flag_hash = get_hash_module(hlo_module, flags)
+                module_hash = get_hash_module(hlo_module, None)
+
+                neff_bytes = None
+
+                # tag is used to make folder name more clear (e.g. add bucket-size to folder name)
+                if tag is None:
+                    hlo_module_name = f"{hlo_module.name}.{compiler_version}.{module_flag_hash}"
+                else:
+                    hlo_module_name = f"{tag}-{hlo_module.name}.{compiler_version}.{module_flag_hash}"
+
+                module_bytes = hlo_module.SerializeToString()
+                try:
+                    neff_bytes = neuron_xla_compile(
+                        module_bytes,
+                        flags,
+                        input_format="hlo",
+                        platform_target="trn2",
+                        cache_key=module_hash,
+                        retry_failed_compilation=False,
+                        lazy=True,
+                        use_cache=True,
+                        cache_dir=None,
+                    )
+                finally:
+                    notemp_dump = os.environ.get("NEURONX_DUMP_TO_NOTEMP", None)
+
+                    # for torch 2.0 pjrt compatibility, check if download_artifacts is implemented
+                    cache_url = CacheUrl.get_cache_url()
+                    compile_cache = create_compile_cache(cache_url)
+                    if notemp_dump and hasattr(compile_cache, "download_artifacts"):
+                        dump_path = os.path.join(notemp_dump, hlo_module_name)
+                        os.makedirs(dump_path, exist_ok=True)
+
+                        parent_dir, cache_key = compile_cache.get_cache_dir(module_hash, flags)
+                        compile_cache.download_artifacts(parent_dir, dump_path)
+
+                return neff_bytes
+
+            try:
+                # Substitute our implementation to use trn2
+                patch_everywhere("compile_hlo_module", hf_compile_hlo_module, "transformers_neuronx")
+                yield
+                # The compilation ended without error
+            finally:
+                # Restore original implementation
+                patch_everywhere("compile_hlo_module", compile_hlo_module, "transformers_neuronx")
+
+        with hub_neuronx_cache("inference", entry=cache_entry), target_selector():
             available_cores = get_available_cores()
             if num_cores > available_cores:
                 raise ValueError(
