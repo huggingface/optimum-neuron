@@ -251,7 +251,7 @@ def get_num_neuron_cores() -> int:
     if not neuron_devices_path.is_dir():
         num_cores = 0
     else:
-        num_cores = len(list(neuron_devices_path.iterdir())) * 2
+        num_cores = len(list(neuron_devices_path.iterdir())) * 4
     return num_cores
 
 

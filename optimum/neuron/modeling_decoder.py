@@ -100,7 +100,7 @@ def get_available_cores() -> int:
             # device name
             if NEURON_DEV_PATTERN.match(f):
                 device_count += 1
-    max_cores = device_count * 2
+    max_cores = device_count * 4
     num_cores = os.environ.get("NEURON_RT_NUM_CORES", max_cores)
     if num_cores != max_cores:
         num_cores = int(num_cores)
