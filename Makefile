@@ -43,6 +43,7 @@ $(PACKAGE_DIST) $(PACKAGE_WHEEL): $(PACKAGE_FILES)
 neuronx-tgi: $(PACKAGE_DIST)
 	docker build --rm -f text-generation-inference/Dockerfile \
 	             --build-arg VERSION=$(VERSION) \
+	             --build-arg BETA_CREDENTIALS=$(BETA_CREDENTIALS) \
 				 -t neuronx-tgi:$(VERSION) .
 	docker tag neuronx-tgi:$(VERSION) neuronx-tgi:latest
 

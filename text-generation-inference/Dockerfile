@@ -107,7 +107,9 @@ RUN test -n ${VERSION:?} && apt-get update -y \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
-RUN echo "deb https://apt.repos.neuron.amazonaws.com jammy main" > /etc/apt/sources.list.d/neuron.list
+ARG BETA_CREDENTIALS
+
+RUN echo "deb https://${BETA_CREDENTIALS}@apt.repos.rc.neuron.annapurna.aws.a2z.com jammy main" > /etc/apt/sources.list.d/neuron.list
 RUN wget -qO - https://apt.repos.neuron.amazonaws.com/GPG-PUB-KEY-AMAZON-AWS-NEURON.PUB | apt-key add -
 
 # Install neuronx packages
@@ -128,7 +130,7 @@ RUN pip3 install \
     torch-neuronx==2.5.1.2.4.0 \
     transformers-neuronx==0.13.322 \
     libneuronxla==2.1.531.0 \
-    --extra-index-url=https://pip.repos.neuron.amazonaws.com
+    --extra-index-url=https://${BETA_CREDENTIALS}@pip.repos.rc.neuron.annapurna.aws.a2z.com
 
 # Install HuggingFace packages
 RUN pip3 install \
