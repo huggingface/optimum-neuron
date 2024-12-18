@@ -512,6 +512,8 @@ def get_multimodels_configs_from_hub(model_id):
 
     if "unet" in lookup_configs:
         lookup_configs["model_type"] = "stable-diffusion"
+    if "transformer" in lookup_configs:
+        lookup_configs["model_type"] = "diffusion-transformer"
     return lookup_configs
 
 
@@ -558,6 +560,9 @@ def build_cache_config(
         if "unet" in configs:
             # stable diffusion
             clean_configs["model_type"] = "stable-diffusion"
+        elif "transformer" in configs:
+            # diffusion transformer
+            clean_configs["model_type"] = "diffusion-transformer"
         else:
             # seq-to-seq
             clean_configs["model_type"] = next(iter(clean_configs.values()))["model_type"]

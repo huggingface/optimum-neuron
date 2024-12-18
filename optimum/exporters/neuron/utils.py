@@ -27,12 +27,14 @@ from ...neuron.utils import (
     DIFFUSION_MODEL_CONTROLNET_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_2_NAME,
     DIFFUSION_MODEL_TEXT_ENCODER_NAME,
+    DIFFUSION_MODEL_TRANSFORMER_NAME,
     DIFFUSION_MODEL_UNET_NAME,
     DIFFUSION_MODEL_VAE_DECODER_NAME,
     DIFFUSION_MODEL_VAE_ENCODER_NAME,
     ENCODER_NAME,
     get_attention_scores_sd,
     get_attention_scores_sdxl,
+    neuron_scaled_dot_product_attention,
 )
 from ...utils import (
     DIFFUSERS_MINIMUM_VERSION,
@@ -55,8 +57,8 @@ if is_diffusers_available():
         )
     from diffusers import (
         ControlNetModel,
+        DiffusionPipeline,
         ModelMixin,
-        StableDiffusionPipeline,
         StableDiffusionXLImg2ImgPipeline,
         StableDiffusionXLInpaintPipeline,
         StableDiffusionXLPipeline,
@@ -74,7 +76,7 @@ if TYPE_CHECKING:
 def build_stable_diffusion_components_mandatory_shapes(
     batch_size: Optional[int] = None,
     sequence_length: Optional[int] = None,
-    unet_num_channels: Optional[int] = None,
+    unet_or_transformer_num_channels: Optional[int] = None,
     vae_encoder_num_channels: Optional[int] = None,
     vae_decoder_num_channels: Optional[int] = None,
     height: Optional[int] = None,
@@ -94,17 +96,17 @@ def build_stable_diffusion_components_mandatory_shapes(
         "height": height,
         "width": width,
     }
-    unet_input_shapes = {
+    unet_or_transformer_input_shapes = {
         "batch_size": batch_size * num_images_per_prompt,
         "sequence_length": sequence_length,
-        "num_channels": unet_num_channels,
+        "num_channels": unet_or_transformer_num_channels,
         "height": height,
         "width": width,
     }
 
     components_shapes = {
         "text_encoder": text_encoder_input_shapes,
-        "unet": unet_input_shapes,
+        "unet_or_transformer": unet_or_transformer_input_shapes,
         "vae_encoder": vae_encoder_input_shapes,
         "vae_decoder": vae_decoder_input_shapes,
     }
@@ -112,10 +114,11 @@ def build_stable_diffusion_components_mandatory_shapes(
     return components_shapes
 
 
-def get_stable_diffusion_models_for_export(
-    pipeline: Union["StableDiffusionPipeline", "StableDiffusionXLPipeline"],
+def get_diffusion_models_for_export(
+    pipeline: "DiffusionPipeline",
     text_encoder_input_shapes: Dict[str, int],
     unet_input_shapes: Dict[str, int],
+    transformer_input_shapes: Dict[str, int],
     vae_encoder_input_shapes: Dict[str, int],
     vae_decoder_input_shapes: Dict[str, int],
     dynamic_batch_size: Optional[bool] = False,
@@ -134,12 +137,14 @@ def get_stable_diffusion_models_for_export(
     performance benefit (CLIP text encoder, VAE encoder, VAE decoder, Unet).
 
     Args:
-        pipeline ([`Union["StableDiffusionPipeline", "StableDiffusionXLPipeline"]`]):
+        pipeline ([`"DiffusionPipeline"`]):
             The model to export.
         text_encoder_input_shapes (`Dict[str, int]`):
             Static shapes used for compiling text encoder.
         unet_input_shapes (`Dict[str, int]`):
             Static shapes used for compiling unet.
+        transformer_input_shapes (`Dict[str, int]`):
+            Static shapes used for compiling diffusion transformer.
         vae_encoder_input_shapes (`Dict[str, int]`):
             Static shapes used for compiling vae encoder.
         vae_decoder_input_shapes (`Dict[str, int]`):
@@ -166,7 +171,7 @@ def get_stable_diffusion_models_for_export(
         `Dict[str, Tuple[Union[`PreTrainedModel`, `ModelMixin`], `NeuronDefaultConfig`]`: A Dict containing the model and
         Neuron configs for the different components of the model.
     """
-    models_for_export = get_submodels_for_export_stable_diffusion(
+    models_for_export = get_submodels_for_export_diffusion(
         pipeline=pipeline,
         lora_model_ids=lora_model_ids,
         lora_weight_names=lora_weight_names,
@@ -213,28 +218,52 @@ def get_stable_diffusion_models_for_export(
         models_for_export[DIFFUSION_MODEL_TEXT_ENCODER_2_NAME] = (text_encoder_2, text_encoder_neuron_config_2)
 
     # U-NET
-    unet = models_for_export[DIFFUSION_MODEL_UNET_NAME]
-    unet_neuron_config_constructor = TasksManager.get_exporter_config_constructor(
-        model=unet,
-        exporter="neuron",
-        task="semantic-segmentation",
-        model_type="unet",
-        library_name=library_name,
-    )
-    unet_neuron_config = unet_neuron_config_constructor(
-        unet.config,
-        task="semantic-segmentation",
-        dynamic_batch_size=dynamic_batch_size,
-        **unet_input_shapes,
-    )
-    is_stable_diffusion_xl = isinstance(
-        pipeline, (StableDiffusionXLImg2ImgPipeline, StableDiffusionXLInpaintPipeline, StableDiffusionXLPipeline)
-    )
-    unet_neuron_config.is_sdxl = is_stable_diffusion_xl
+    if DIFFUSION_MODEL_UNET_NAME in models_for_export:
+        unet = models_for_export[DIFFUSION_MODEL_UNET_NAME]
+        unet_neuron_config_constructor = TasksManager.get_exporter_config_constructor(
+            model=unet,
+            exporter="neuron",
+            task="semantic-segmentation",
+            model_type="unet",
+            library_name=library_name,
+        )
+        unet_neuron_config = unet_neuron_config_constructor(
+            unet.config,
+            task="semantic-segmentation",
+            dynamic_batch_size=dynamic_batch_size,
+            float_dtype=unet.dtype,
+            **unet_input_shapes,
+        )
+        is_stable_diffusion_xl = isinstance(
+            pipeline, (StableDiffusionXLImg2ImgPipeline, StableDiffusionXLInpaintPipeline, StableDiffusionXLPipeline)
+        )
+        unet_neuron_config.is_sdxl = is_stable_diffusion_xl
 
-    unet_neuron_config.with_controlnet = True if controlnet_ids else False
+        unet_neuron_config.with_controlnet = True if controlnet_ids else False
 
-    models_for_export[DIFFUSION_MODEL_UNET_NAME] = (unet, unet_neuron_config)
+        models_for_export[DIFFUSION_MODEL_UNET_NAME] = (unet, unet_neuron_config)
+
+    # Diffusion Transformer
+    transformer = None
+    if DIFFUSION_MODEL_TRANSFORMER_NAME in models_for_export:
+        transformer = models_for_export[DIFFUSION_MODEL_TRANSFORMER_NAME]
+        model_type = get_diffusers_submodel_type(transformer)
+        transformer_neuron_config_constructor = TasksManager.get_exporter_config_constructor(
+            model=transformer,
+            exporter="neuron",
+            task="semantic-segmentation",
+            model_type=model_type,
+            library_name=library_name,
+        )
+        transformer.config.export_model_type = model_type
+        transformer_neuron_config = transformer_neuron_config_constructor(
+            transformer.config,
+            task="semantic-segmentation",
+            dynamic_batch_size=dynamic_batch_size,
+            float_dtype=transformer.dtype,
+            **transformer_input_shapes,
+        )
+        models_for_export[DIFFUSION_MODEL_TRANSFORMER_NAME] = (transformer, transformer_neuron_config)
 
     # VAE Encoder
     vae_encoder = models_for_export[DIFFUSION_MODEL_VAE_ENCODER_NAME]
@@ -249,6 +278,7 @@ def get_stable_diffusion_models_for_export(
         vae_encoder.config,
         task="semantic-segmentation",
         dynamic_batch_size=dynamic_batch_size,
+        float_dtype=vae_encoder.dtype,
         **vae_encoder_input_shapes,
     )
     models_for_export[DIFFUSION_MODEL_VAE_ENCODER_NAME] = (vae_encoder, vae_encoder_neuron_config)
@@ -266,6 +296,7 @@ def get_stable_diffusion_models_for_export(
         vae_decoder.config,
         task="semantic-segmentation",
         dynamic_batch_size=dynamic_batch_size,
+        float_dtype=transformer.dtype if transformer else vae_decoder.dtype,
         **vae_decoder_input_shapes,
     )
     models_for_export[DIFFUSION_MODEL_VAE_DECODER_NAME] = (vae_decoder, vae_decoder_neuron_config)
@@ -288,6 +319,7 @@ def get_stable_diffusion_models_for_export(
                 controlnet.config,
                 task="semantic-segmentation",
                 dynamic_batch_size=dynamic_batch_size,
+                float_dtype=controlnet.dtype,
                 **controlnet_input_shapes,
             )
             models_for_export[controlnet_name] = (
@@ -299,7 +331,7 @@ def get_stable_diffusion_models_for_export(
 
 
 def _load_lora_weights_to_pipeline(
-    pipeline: Union["StableDiffusionPipeline", "StableDiffusionXLPipeline"],
+    pipeline: "DiffusionPipeline",
     lora_model_ids: Optional[Union[str, List[str]]] = None,
     weight_names: Optional[Union[str, List[str]]] = None,
     adapter_names: Optional[Union[str, List[str]]] = None,
@@ -352,8 +384,8 @@ def load_controlnets(controlnet_ids: Optional[Union[str, List[str]]] = None):
     return contronets
 
 
-def get_submodels_for_export_stable_diffusion(
-    pipeline: Union["StableDiffusionPipeline", "StableDiffusionXLPipeline"],
+def get_submodels_for_export_diffusion(
+    pipeline: "DiffusionPipeline",
     output_hidden_states: bool = False,
     lora_model_ids: Optional[Union[str, List[str]]] = None,
     lora_weight_names: Optional[Union[str, List[str]]] = None,
@@ -378,10 +410,6 @@ def get_submodels_for_export_stable_diffusion(
     )
 
     models_for_export = []
-    if hasattr(pipeline, "text_encoder_2"):
-        projection_dim = pipeline.text_encoder_2.config.projection_dim
-    else:
-        projection_dim = pipeline.text_encoder.config.projection_dim
 
     # Text encoders
     if pipeline.text_encoder is not None:
@@ -394,28 +422,52 @@ def get_submodels_for_export_stable_diffusion(
         text_encoder_2.config.output_hidden_states = True
         text_encoder_2.text_model.config.output_hidden_states = True
         models_for_export.append((DIFFUSION_MODEL_TEXT_ENCODER_2_NAME, copy.deepcopy(text_encoder_2)))
+        projection_dim = getattr(pipeline.text_encoder_2.config, "projection_dim", None)
+    else:
+        projection_dim = getattr(pipeline.text_encoder.config, "projection_dim", None)
 
     # U-NET
-    pipeline.unet.config.text_encoder_projection_dim = projection_dim
-    # The U-NET time_ids inputs shapes depends on the value of `requires_aesthetics_score`
-    # https://github.com/huggingface/diffusers/blob/v0.18.2/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl_img2img.py#L571
-    pipeline.unet.config.requires_aesthetics_score = getattr(pipeline.config, "requires_aesthetics_score", False)
+    unet = getattr(pipeline, "unet", None)
+    if unet is not None:
+        # The U-NET time_ids inputs shapes depends on the value of `requires_aesthetics_score`
+        # https://github.com/huggingface/diffusers/blob/v0.18.2/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl_img2img.py#L571
+        unet.config.requires_aesthetics_score = getattr(pipeline.config, "requires_aesthetics_score", False)
+        unet.config.text_encoder_projection_dim = projection_dim
 
-    # Replace original cross-attention module with custom cross-attention module for better performance
-    # For applying optimized attention score, we need to set env variable  `NEURON_FUSE_SOFTMAX=1`
-    if os.environ.get("NEURON_FUSE_SOFTMAX") == "1":
-        if is_stable_diffusion_xl:
-            logger.info("Applying optimized attention score computation for sdxl.")
-            Attention.get_attention_scores = get_attention_scores_sdxl
+        # Replace original cross-attention module with custom cross-attention module for better performance
+        # For applying optimized attention score, we need to set env variable  `NEURON_FUSE_SOFTMAX=1`
+        if os.environ.get("NEURON_FUSE_SOFTMAX") == "1":
+            if is_stable_diffusion_xl:
+                logger.info("Applying optimized attention score computation for sdxl.")
+                Attention.get_attention_scores = get_attention_scores_sdxl
+            else:
+                logger.info("Applying optimized attention score computation for stable diffusion.")
+                Attention.get_attention_scores = get_attention_scores_sd
         else:
-            logger.info("Applying optimized attention score computation for stable diffusion.")
-            Attention.get_attention_scores = get_attention_scores_sd
-    else:
-        logger.warning(
-            "You are not applying optimized attention score computation. If you want better performance, please"
-            " set the environment variable with `export NEURON_FUSE_SOFTMAX=1` and recompile the unet model."
-        )
-    models_for_export.append((DIFFUSION_MODEL_UNET_NAME, copy.deepcopy(pipeline.unet)))
+            logger.warning(
+                "You are not applying optimized attention score computation. If you want better performance, please"
+                " set the environment variable with `export NEURON_FUSE_SOFTMAX=1` and recompile the unet model."
+            )
+        models_for_export.append((DIFFUSION_MODEL_UNET_NAME, copy.deepcopy(unet)))
+
+    # Diffusion transformer
+    transformer = getattr(pipeline, "transformer", None)
+    if transformer is not None:
+        transformer.config.requires_aesthetics_score = getattr(pipeline.config, "requires_aesthetics_score", False)
+        transformer.config.text_encoder_projection_dim = projection_dim
+        # apply optimized scaled_dot_product_attention
+        sdpa_original = torch.nn.functional.scaled_dot_product_attention
+
+        def attention_wrapper(query, key, value, attn_mask=None, dropout_p=None, is_causal=None):
+            if attn_mask is not None:
+                return sdpa_original(query, key, value, attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal)
+            else:
+                return neuron_scaled_dot_product_attention(
+                    query, key, value, attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal
+                )
+
+        torch.nn.functional.scaled_dot_product_attention = attention_wrapper
+        models_for_export.append((DIFFUSION_MODEL_TRANSFORMER_NAME, copy.deepcopy(transformer)))
 
     if pipeline.vae.config.get("force_upcast", None) is True:
         pipeline.vae.to(dtype=torch.float32)
@@ -427,7 +479,10 @@ def get_submodels_for_export_stable_diffusion(
 
     # VAE Decoder
     vae_decoder = copy.deepcopy(pipeline.vae)
+    unet_or_transformer = unet or transformer
     vae_decoder.forward = lambda latent_sample: vae_decoder.decode(z=latent_sample)
+    if vae_decoder.dtype is torch.float32 and unet_or_transformer.dtype is not torch.float32:
+        vae_decoder = apply_fp32_wrapper_to_vae_decoder(vae_decoder)
     models_for_export.append((DIFFUSION_MODEL_VAE_DECODER_NAME, vae_decoder))
 
     # ControlNets
@@ -461,6 +516,37 @@ def replace_stable_diffusion_submodels(pipeline, submodels):
             pipeline.unet = unet
 
     return pipeline
+
+
+def apply_fp32_wrapper_to_vae_decoder(model):
+    class f32Wrapper(torch.nn.Module):
+        def __init__(self, model):
+            super().__init__()
+            self.original = model
+
+        def forward(self, x):
+            y = x.to(torch.float32)
+            output = self.original(y)
+            return output
+
+        def __getattr__(self, name):
+            # Delegate attribute/method lookup to the wrapped model if not found in this wrapper
+            if name == "original":
+                return super().__getattr__(name)
+            return getattr(self.original, name)
+
+    model = f32Wrapper(model)
+    return model
+
+
+# TODO: get it into https://github.com/huggingface/optimum/blob/4a7cb298140ee9bed968d98a780a950d15bb2935/optimum/exporters/utils.py#L77
+_DIFFUSERS_CLASS_NAME_TO_SUBMODEL_TYPE = {
+    "PixArtTransformer2DModel": "pixart-transformer-2d",
+}
+
+
+def get_diffusers_submodel_type(submodel):
+    return _DIFFUSERS_CLASS_NAME_TO_SUBMODEL_TYPE.get(submodel.__class__.__name__)
 
 
 def get_encoder_decoder_models_for_export(

@@ -1388,7 +1388,6 @@ def parameter_can_be_initialized(model: torch.nn.Module, parent_module: torch.nn
 
 
 def create_wrapper_for_resize_token_embedding(orig_resize_token_embeddings):
-
     @functools.wraps(orig_resize_token_embeddings)
     def wrapper(
         self, new_num_tokens: Optional[int] = None, pad_to_multiple_of: Optional[int] = None
