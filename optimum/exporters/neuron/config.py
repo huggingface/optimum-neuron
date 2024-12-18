@@ -29,7 +29,7 @@ from ...utils import (
     DummyVisionInputGenerator,
     logging,
 )
-from .base import NeuronDecoderConfig, NeuronDefaultConfig
+from .base import NeuronDefaultConfig
 
 
 logger = logging.get_logger(__name__)
@@ -68,14 +68,6 @@ class AudioNeuronConfig(NeuronDefaultConfig):
 
     DUMMY_INPUT_GENERATOR_CLASSES = (DummyAudioInputGenerator, DummyTextInputGenerator)
     INPUT_ARGS = ("batch_size", "audio_sequence_length")
-
-
-class TextNeuronDecoderConfig(NeuronDecoderConfig):
-    """
-    Handles text decoder architectures.
-    """
-
-    pass
 
 
 class TextSeq2SeqNeuronConfig(NeuronDefaultConfig):
