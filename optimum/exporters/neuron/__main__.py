@@ -38,6 +38,7 @@ from ...neuron.utils import (
     NEURON_FILE_NAME,
     is_neuron_available,
     is_neuronx_available,
+    is_transformers_neuronx_available,
     map_torch_dtype,
 )
 from ...neuron.utils.misc import maybe_save_preprocessors
@@ -47,7 +48,7 @@ from ...neuron.utils.version_utils import (
 from ...utils import is_diffusers_available, logging
 from ..error_utils import AtolError, OutputMatchError, ShapeError
 from ..tasks import TasksManager
-from .base import NeuronDecoderConfig, NeuronExportConfig
+from .base import NeuronExportConfig
 from .convert import export_models, validate_models_outputs
 from .model_configs import *  # noqa: F403
 from .utils import (
@@ -69,6 +70,11 @@ if is_neuronx_available():
     from ...commands.export.neuronx import parse_args_neuronx as parse_args_neuron  # noqa: F811
 
     NEURON_COMPILER = "Neuronx"
+
+
+if is_transformers_neuronx_available():
+    from .model_configs import NeuronDecoderExportConfig
+
 
 if is_diffusers_available():
     from diffusers import StableDiffusionXLPipeline
@@ -724,7 +730,7 @@ def main():
         submodels = None
     else:
         input_shapes, neuron_config_class = get_input_shapes_and_config_class(task, args)
-        if NeuronDecoderConfig in inspect.getmro(neuron_config_class):
+        if NeuronDecoderExportConfig in inspect.getmro(neuron_config_class):
             # TODO: warn about ignored args:
             # dynamic_batch_size, compiler_workdir, optlevel,
             # atol, disable_validation, library_name
