@@ -24,8 +24,6 @@ jobs:
           llama,
           qwen2.5,
           llama3.1-70b,
-          llama3-70b,
-          llama2-70b,
           qwen2.5-large,
           mistral,
           llama-variants,
