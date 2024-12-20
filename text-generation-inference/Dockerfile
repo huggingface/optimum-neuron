@@ -126,7 +126,7 @@ RUN apt-get update -y \
 ENV PATH="/opt/bin/:/opt/aws/neuron/bin:${PATH}"
 
 RUN pip3 install \
-    neuronx-cc==2.16.303.0 \
+    neuronx-cc==2.16.345.0 \
     torch-neuronx==2.5.1.2.4.0 \
     transformers-neuronx==0.13.322 \
     libneuronxla==2.1.531.0 \
