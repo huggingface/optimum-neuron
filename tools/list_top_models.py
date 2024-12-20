@@ -5,7 +5,6 @@ from huggingface_hub import HfApi
 
 
 class ModelStats(HfApi):
-
     class Sort:
         DOWNLOADS = "downloads"
         TRENDING = "trendingScore"

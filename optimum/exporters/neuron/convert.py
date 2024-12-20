@@ -106,7 +106,7 @@ def validate_models_outputs(
     """
     if len(neuron_named_outputs) != len(models_and_neuron_configs.keys()):
         raise ValueError(
-            f"Invalid number of Neuron named outputs. Required {len(models_and_neuron_configs.keys())}, Provided {len(neuron_named_outputs)}"
+            f"Invalid number of Neuron named outputs. Required {models_and_neuron_configs.keys()}, Provided {neuron_named_outputs.keys()}"
         )
 
     if neuron_named_outputs is not None and len(neuron_named_outputs) != len(models_and_neuron_configs):
@@ -186,7 +186,6 @@ def validate_model_outputs(
         inputs = config.generate_dummy_inputs(return_tuple=False, **input_shapes)
         ref_inputs = config.unflatten_inputs(inputs)
         if hasattr(reference_model, "config") and getattr(reference_model.config, "is_encoder_decoder", False):
-
             reference_model = config.patch_model_for_export(reference_model, device="cpu", **input_shapes)
         if "SentenceTransformer" in reference_model.__class__.__name__:
             reference_model = config.patch_model_for_export(reference_model, ref_inputs)
@@ -199,7 +198,9 @@ def validate_model_outputs(
             ref_inputs = tuple(ref_inputs.values())
             ref_outputs = reference_model(*ref_inputs)
             neuron_inputs = tuple(inputs.values())
-        elif "controlnet" in getattr(config._config, "_class_name", "").lower():
+        elif any(
+            pattern in getattr(config._config, "_class_name", "").lower() for pattern in ["controlnet", "transformer"]
+        ):
             reference_model = config.patch_model_for_export(reference_model, ref_inputs)
             neuron_inputs = ref_inputs = tuple(ref_inputs.values())
             ref_outputs = reference_model(*ref_inputs)
@@ -248,14 +249,14 @@ def validate_model_outputs(
     value_failures = []
     for i, (name, neuron_output) in enumerate(zip(neuron_output_names_list, neuron_outputs)):
         if isinstance(neuron_output, torch.Tensor):
-            ref_output = ref_outputs[name].numpy() if isinstance(ref_outputs, dict) else ref_outputs[i].numpy()
-            neuron_output = neuron_output.numpy()
+            ref_output = ref_outputs[name] if isinstance(ref_outputs, dict) else ref_outputs[i]
+            neuron_output = neuron_output
         elif isinstance(neuron_output, tuple):  # eg. `hidden_states` of `AutoencoderKL` is a tuple of tensors;
-            ref_output = torch.stack(ref_outputs[name]).numpy()
-            neuron_output = torch.stack(neuron_output).numpy()
+            ref_output = torch.stack(ref_outputs[name])
+            neuron_output = torch.stack(neuron_output)
         elif isinstance(neuron_output, list):
-            ref_output = [output.numpy() for output in ref_outputs[name]]
-            neuron_output = [output.numpy() for output in neuron_output]
+            ref_output = ref_outputs[name]
+            neuron_output = neuron_output
 
         logger.info(f'\t- Validating Neuron Model output "{name}":')
 
@@ -272,8 +273,8 @@ def validate_model_outputs(
                 logger.info(f"\t\t-[✓] {output.shape} matches {ref_output.shape}")
 
             # Values
-            if not np.allclose(ref_output, output, atol=atol):
-                max_diff = np.amax(np.abs(ref_output - output))
+            if not torch.allclose(ref_output, output.to(ref_output.dtype), atol=atol):
+                max_diff = torch.max(torch.abs(ref_output - output))
                 logger.error(f"\t\t-[x] values not close enough, max diff: {max_diff} (atol: {atol})")
                 value_failures.append((name, max_diff))
             else:
@@ -296,6 +297,7 @@ def export_models(
         str, Tuple[Union["PreTrainedModel", "ModelMixin", torch.nn.Module], "NeuronDefaultConfig"]
     ],
     output_dir: Path,
+    torch_dtype: Optional[Union[str, torch.dtype]] = None,
     disable_neuron_cache: Optional[bool] = False,
     compiler_workdir: Optional[Path] = None,
     inline_weights_to_neff: bool = True,
@@ -312,6 +314,8 @@ def export_models(
             A dictionnary containing the models to export and their corresponding neuron configs.
         output_dir (`Path`):
             Output directory to store the exported Neuron models.
+        torch_dtype (`Optional[Union[str, torch.dtype]]`, defaults to `None`):
+            Override the default `torch.dtype` and load the model under this dtype. If `auto` is passed, the dtype will be automatically derived from the model's weights.
         disable_neuron_cache (`Optional[bool]`, defaults to `False`):
             Whether to disable automatic caching of AOT compiled models (not applicable for JIT compilation).
         compiler_workdir (`Optional[Path]`, defaults to `None`):
@@ -534,7 +538,7 @@ def export_neuronx(
     tensor_parallel_size = config.tensor_parallel_size
     if isinstance(config, TextSeq2SeqNeuronConfig):
         checked_model = config.patch_model_for_export(model_or_path, **input_shapes)
-        if tensor_parallel_size == 1:
+        if tensor_parallel_size == 1 and hasattr(config, "generate_io_aliases"):
             aliases = config.generate_io_aliases(checked_model)
     else:
         checked_model = config.patch_model_for_export(model_or_path, dummy_inputs)
@@ -608,24 +612,27 @@ def add_stable_diffusion_compiler_args(config, compiler_args):
     sd_components = ["text_encoder", "vae", "vae_encoder", "vae_decoder", "controlnet"]
     if any(component in identifier for component in sd_components):
         compiler_args.append("--enable-fast-loading-neuron-binaries")
-    # unet or controlnet
-    if "unet" in identifier or "controlnet" in identifier:
+    # unet or transformer or controlnet
+    if any(model_type in identifier for model_type in ["unet", "transformer", "controlnet"]):
         # SDXL unet doesn't support fast loading neuron binaries(sdk 2.19.1)
         if not getattr(config, "is_sdxl", False):
             compiler_args.append("--enable-fast-loading-neuron-binaries")
-        compiler_args.append("--model-type=unet-inference")
+        if "unet" in identifier or "controlnet" in identifier:
+            compiler_args.append("--model-type=unet-inference")
+        if "transformer" in identifier:
+            compiler_args.append("--model-type=transformer")
     return compiler_args
 
 
 def improve_stable_diffusion_loading(config, neuron_model):
-    # Combine the model name and its path to identify which is the subcomponent in Stable Diffusion pipeline
+    # Combine the model name and its path to identify which is the subcomponent in Diffusion pipeline
     identifier = getattr(config._config, "_name_or_path", "") + " " + getattr(config._config, "_class_name", "")
     identifier = identifier.lower()
-    sd_components = ["text_encoder", "unet", "vae", "vae_encoder", "vae_decoder", "controlnet"]
+    sd_components = ["text_encoder", "unet", "transformer", "vae", "vae_encoder", "vae_decoder", "controlnet"]
     if any(component in identifier for component in sd_components):
         neuronx.async_load(neuron_model)
     # unet
-    if "unet" in identifier or "controlnet" in identifier:
+    if any(model_type in identifier for model_type in ["unet", "transformer", "controlnet"]):
         neuronx.lazy_load(neuron_model)
 
 

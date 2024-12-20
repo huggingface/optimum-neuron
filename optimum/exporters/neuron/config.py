@@ -88,61 +88,6 @@ class TextSeq2SeqNeuronConfig(NeuronDefaultConfig):
         DummySeq2SeqPastKeyValuesGenerator,
     )
 
-    @property
-    def inputs(self) -> List[str]:
-        common_inputs = []
-        # encoder + decoder without past
-        if "encoder" in self.MODEL_TYPE:
-            common_inputs = ["input_ids", "attention_mask"]
-        # decoder with past
-        if "decoder" in self.MODEL_TYPE:
-            common_inputs = [
-                "decoder_input_ids",
-                "decoder_attention_mask",
-                "encoder_hidden_states",
-                "attention_mask",  # TODO: replace with `encoder_attention_mask` after optimum 1.14 release
-            ]
-
-        return common_inputs
-
-    @property
-    def outputs(self) -> List[str]:
-        common_outputs = []
-        # encoder + decoder without past
-        if "encoder" in self.MODEL_TYPE:
-            common_outputs = (
-                [f"present.{idx}.self.key" for idx in range(self._config.num_decoder_layers)]
-                + [f"present.{idx}.self.value" for idx in range(self._config.num_decoder_layers)]
-                + [f"present.{idx}.cross.key" for idx in range(self._config.num_decoder_layers)]
-                + [f"present.{idx}.cross.value" for idx in range(self._config.num_decoder_layers)]
-            )
-        # decoder with past
-        if "decoder" in self.MODEL_TYPE:
-            beam_outputs = (
-                ["next_token_scores", "next_tokens", "next_indices"] if self.num_beams > 1 else ["next_tokens"]
-            )
-            common_outputs = (
-                beam_outputs
-                + [f"past.{idx}.self.key" for idx in range(self._config.num_decoder_layers)]
-                + [f"past.{idx}.self.value" for idx in range(self._config.num_decoder_layers)]
-                + [f"past.{idx}.cross.key" for idx in range(self._config.num_decoder_layers)]
-                + [f"past.{idx}.cross.value" for idx in range(self._config.num_decoder_layers)]
-            )
-
-            if self.output_hidden_states:
-                # Flatten hidden states of all layers
-                common_outputs += [
-                    f"decoder_hidden_state.{idx}" for idx in range(self._config.num_decoder_layers + 1)
-                ]  # +1 for the embedding layer
-
-            if self.output_attentions:
-                # Flatten attentions tensors of all attention layers
-                common_outputs += [f"decoder_attention.{idx}" for idx in range(self._config.num_decoder_layers)]
-                if getattr(self._config, "is_encoder_decoder", False) is True:
-                    common_outputs += [f"cross_attention.{idx}" for idx in range(self._config.num_decoder_layers)]
-
-        return common_outputs
-
     def _create_dummy_input_generator_classes(self, **kwargs) -> List["DummyInputGenerator"]:
         dummy_text_input_generator = self.DUMMY_INPUT_GENERATOR_CLASSES[0](
             self.task, self._normalized_config, **kwargs

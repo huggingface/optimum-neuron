@@ -21,9 +21,10 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import torch
 
+from optimum.utils import logging
+
 from ...exporters.base import ExportConfig
 from ...neuron.utils import is_neuron_available, is_transformers_neuronx_available
-from ...utils import logging
 
 
 if TYPE_CHECKING:
@@ -168,9 +169,8 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
         encoder_hidden_size: Optional[int] = None,
         output_attentions: bool = False,
         output_hidden_states: bool = False,
-        # TODO: add custom dtype after optimum 1.13 release
-        # int_dtype: str = "int64",
-        # float_dtype: str = "fp32",
+        int_dtype: Union[str, torch.dtype] = "int64",
+        float_dtype: Union[str, torch.dtype] = "fp32",
     ):
         self._config = config
         self._normalized_config = self.NORMALIZED_CONFIG_CLASS(self._config)
@@ -179,6 +179,8 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
         self.task = task
         self._axes: Dict[str, int] = {}
         self.dynamic_batch_size = dynamic_batch_size
+        self.int_dtype = int_dtype
+        self.float_dtype = float_dtype
 
         if self.dynamic_batch_size is True and is_neuron_available():
             logger.info("Overwriting batch size to 1 for neuron dynamic batch size support.")
@@ -316,9 +318,15 @@ class NeuronDefaultConfig(NeuronConfig, ABC):
             input_was_inserted = False
             for dummy_input_gen in dummy_inputs_generators:
                 if dummy_input_gen.supports_input(input_name):
-                    dummy_inputs[input_name] = dummy_input_gen.generate(input_name, framework="pt")
-                    # TODO: add custom dtype after optimum 1.13 release
-                    # dummy_inputs[input_name] = dummy_input_gen.generate(input_name, framework="pt", int_dtype=self.int_dtype, float_dtype=self.float_dtype)
+                    # TODO: remove the mapper and use directly torch float dtype after the PR in Optimum makes its way to a release: https://github.com/huggingface/optimum/pull/2117
+                    mapper = {torch.float32: "fp32", torch.float16: "fp16", torch.bfloat16: "bf16"}
+                    if isinstance(self.float_dtype, torch.dtype):
+                        float_dtype = mapper[self.float_dtype]
+                    else:
+                        float_dtype = self.float_dtype
+                    dummy_inputs[input_name] = dummy_input_gen.generate(
+                        input_name, framework="pt", int_dtype=self.int_dtype, float_dtype=float_dtype
+                    )
                     input_was_inserted = True
                     break
             if not input_was_inserted:

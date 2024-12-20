@@ -276,7 +276,6 @@ class TestNeuronTrainer(DistributedTest):
 
     @pytest.mark.skip("Test in later release")
     def test_save_and_resume_from_checkpoint(self, parallel_sizes, tmpdir):
-
         tmpdir = Path(tmpdir)
         _, tp_size, pp_size = parallel_sizes
         train_batch_size = 2

@@ -79,6 +79,40 @@ class UnetNeuronWrapper(torch.nn.Module):
         return out_tuple
 
 
+class PixartTransformerNeuronWrapper(torch.nn.Module):
+    def __init__(self, model, input_names: List[str]):
+        super().__init__()
+        self.model = model
+        self.dtype = model.dtype
+        self.input_names = input_names
+
+    def forward(self, *inputs):
+        if len(inputs) != len(self.input_names):
+            raise ValueError(
+                f"The model needs {len(self.input_names)} inputs: {self.input_names}."
+                f" But only {len(input)} inputs are passed."
+            )
+
+        ordered_inputs = dict(zip(self.input_names, inputs))
+
+        sample = ordered_inputs.pop("sample", None)
+        encoder_hidden_states = ordered_inputs.pop("encoder_hidden_states", None)
+        timestep = ordered_inputs.pop("timestep", None)
+        encoder_attention_mask = ordered_inputs.pop("encoder_attention_mask", None)
+
+        # Additional conditions
+        out_tuple = self.model(
+            hidden_states=sample,
+            timestep=timestep,
+            encoder_hidden_states=encoder_hidden_states,
+            encoder_attention_mask=encoder_attention_mask,
+            added_cond_kwargs={"resolution": None, "aspect_ratio": None},
+            return_dict=False,
+        )
+
+        return out_tuple
+
+
 class ControlNetNeuronWrapper(torch.nn.Module):
     def __init__(self, model, input_names: List[str]):
         super().__init__()
@@ -121,8 +155,32 @@ class ControlNetNeuronWrapper(torch.nn.Module):
         return out_tuple
 
 
-# Adapted from https://awsdocs-neuron.readthedocs-hosted.com/en/latest/src/examples/pytorch/torch-neuronx/t5-inference-tutorial.html
+# Adapted from https://github.com/aws-neuron/aws-neuron-samples/blob/master/torch-neuronx/inference/hf_pretrained_pixart_alpha_inference_on_inf2.ipynb
+# For text encoding
 class T5EncoderWrapper(torch.nn.Module):
+    def __init__(
+        self, model: "PreTrainedModel", sequence_length: int, batch_size: Optional[int] = None, device: str = "cpu"
+    ):
+        super().__init__()
+        self.model = model
+        self.config = model.config
+        self.sequence_length = sequence_length
+        self.batch_size = batch_size
+        self.device = device
+        for block in self.model.encoder.block:
+            block.layer[1].DenseReluDense.act = torch.nn.GELU(approximate="tanh")
+        precomputed_bias = (
+            self.model.encoder.block[0].layer[0].SelfAttention.compute_bias(self.sequence_length, self.sequence_length)
+        )
+        self.model.encoder.block[0].layer[0].SelfAttention.compute_bias = lambda *args, **kwargs: precomputed_bias
+
+    def forward(self, input_ids, attention_mask):
+        return self.model(input_ids, attention_mask=attention_mask)
+
+
+# Adapted from https://awsdocs-neuron.readthedocs-hosted.com/en/latest/src/examples/pytorch/torch-neuronx/t5-inference-tutorial.html
+# For text encoding + KV cache initialization
+class T5EncoderForSeq2SeqLMWrapper(torch.nn.Module):
     """Wrapper to trace the encoder and the kv cache initialization in the decoder."""
 
     def __init__(
