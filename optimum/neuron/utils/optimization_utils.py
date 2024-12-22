@@ -82,12 +82,10 @@ def neuron_scaled_dot_product_attention(query, key, value, attn_mask=None, dropo
             return x.reshape(-1, x.shape[2], x.shape[3])
 
         query, key, value = map(to3d, [query, key, value])
+    attention_scores = torch.bmm(key, query.transpose(-1, -2)) * (1 / math.sqrt(query.size(-1)))
+    attention_probs = attention_scores.softmax(dim=1)
     if query.size() == key.size():
-        attention_scores = torch.bmm(key, query.transpose(-1, -2)) * (1 / math.sqrt(query.size(-1)))
-        attention_probs = attention_scores.softmax(dim=1).permute(0, 2, 1)
-    else:
-        attention_scores = torch.bmm(query, key.transpose(-1, -2)) * (1 / math.sqrt(query.size(-1)))
-        attention_probs = attention_scores.softmax(dim=-1)
+       attention_probs = attention_probs.permute(0, 2, 1)
     attn_out = torch.bmm(attention_probs, value)
     if orig_shape:
         attn_out = attn_out.reshape(orig_shape[0], orig_shape[1], attn_out.shape[1], attn_out.shape[2])
