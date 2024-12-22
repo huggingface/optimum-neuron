@@ -1186,7 +1186,7 @@ class NeuronModelTextEncoder(_NeuronDiffusionModelPart):
 
         input_ids = input_ids.to(torch.long)  # dummy generator uses long int for tracing
         inputs = (input_ids,)
-        if attention_mask is not None and not torch.equal(torch.ones_like(attention_mask), attention_mask):
+        if attention_mask is not None and not torch.all(attention_mask == 1):
             inputs += (attention_mask,)
 
         outputs = self.model(*inputs)
