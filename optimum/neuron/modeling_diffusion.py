@@ -89,7 +89,7 @@ if is_diffusers_available():
         StableDiffusionXLPipeline,
     )
     from diffusers.configuration_utils import FrozenDict
-    from diffusers.image_processor import VaeImageProcessor
+    from diffusers.image_processor import PixArtImageProcessor, VaeImageProcessor
     from diffusers.models.autoencoders.vae import DecoderOutput, DiagonalGaussianDistribution
     from diffusers.models.controlnet import ControlNetOutput
     from diffusers.models.modeling_outputs import AutoencoderKLOutput
@@ -104,6 +104,11 @@ if is_diffusers_available():
         NeuronStableDiffusionXLControlNetPipelineMixin,
         NeuronStableDiffusionXLPipelineMixin,
     )
+
+    os.environ["NEURON_FUSE_SOFTMAX"] = "1"
+    os.environ["NEURON_CUSTOM_SILU"] = "1"
+else:
+    raise ModuleNotFoundError("`diffusers` python package is not installed.")
 
 
 if TYPE_CHECKING:
@@ -316,7 +321,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
 
         # change lcm scheduler which extends the denoising procedure
         self.is_lcm = False
-        if NeuronDiffusionPipelineBase.is_lcm(self.unet.config):
+        if self.unet and NeuronDiffusionPipelineBase.is_lcm(self.unet.config):
             self.is_lcm = True
             self.scheduler = LCMScheduler.from_config(self.scheduler.config)
 
@@ -358,13 +363,14 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         else:
             self.vae_scale_factor = 8
 
-        unet_batch_size = self.neuron_configs["unet"].batch_size
+        unet_or_transformer = "transformer" if self.transformer else "unet"
+        unet_or_transformer_batch_size = self.neuron_configs[unet_or_transformer].batch_size
         if "text_encoder" in self.neuron_configs:
             text_encoder_batch_size = self.neuron_configs["text_encoder"].batch_size
-            self.num_images_per_prompt = unet_batch_size // text_encoder_batch_size
+            self.num_images_per_prompt = unet_or_transformer_batch_size // text_encoder_batch_size
         elif "text_encoder_2" in self.neuron_configs:
             text_encoder_batch_size = self.neuron_configs["text_encoder_2"].batch_size
-            self.num_images_per_prompt = unet_batch_size // text_encoder_batch_size
+            self.num_images_per_prompt = unet_or_transformer_batch_size // text_encoder_batch_size
         else:
             self.num_images_per_prompt = 1
 
@@ -771,11 +777,12 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             data_parallel_mode=data_parallel_mode,
             text_encoder_path=model_and_config_save_paths["text_encoder"][0],
             unet_path=model_and_config_save_paths["unet"][0],
+            transformer_path=model_and_config_save_paths["transformer"][0],
             vae_decoder_path=model_and_config_save_paths["vae_decoder"][0],
             vae_encoder_path=model_and_config_save_paths["vae_encoder"][0],
             text_encoder_2_path=model_and_config_save_paths["text_encoder_2"][0],
             controlnet_paths=model_and_config_save_paths["controlnet"][0],
-            dynamic_batch_size=neuron_configs[DIFFUSION_MODEL_UNET_NAME].dynamic_batch_size,
+            dynamic_batch_size=neuron_configs[DIFFUSION_MODEL_TEXT_ENCODER_NAME].dynamic_batch_size,
             to_neuron=not inline_weights_to_neff,
         )
 
@@ -814,6 +821,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         cls,
         model_id: Union[str, Path],
         config: Dict[str, Any],
+        torch_dtype: Optional[Union[str, torch.dtype]] = None,
         unet_id: Optional[Union[str, Path]] = None,
         token: Optional[Union[bool, str]] = None,
         revision: str = "main",
@@ -851,6 +859,8 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             config (`Dict[str, Any]`):
                 A config dictionary from which the model components will be instantiated. Make sure to only load
                 configuration files of compatible classes.
+            torch_dtype (`Optional[Union[str, torch.dtype]]`, defaults to `None`):
+                Override the default `torch.dtype` and load the model under this dtype. If `auto` is passed, the dtype will be automatically derived from the model's weights.
             unet_id (`Optional[Union[str, Path]]`, defaults to `None`):
                 A string or a path point to the U-NET model to replace the one in the original pipeline.
             token (`Optional[Union[bool, str]]`, defaults to `None`):
@@ -933,6 +943,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
             subfolder=subfolder,
             revision=revision,
             framework="pt",
+            torch_dtype=torch_dtype,
             library_name=cls.library_name,
             cache_dir=cache_dir,
             token=token,
@@ -969,6 +980,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 lora_weight_names=lora_weight_names,
                 lora_adapter_names=lora_adapter_names,
                 lora_scales=lora_scales,
+                torch_dtype=torch_dtype,
                 controlnet_ids=controlnet_ids,
                 **input_shapes_copy,
             )
@@ -1025,6 +1037,7 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
                 model_name_or_path=model_id,
                 output=save_dir_path,
                 compiler_kwargs=compiler_kwargs,
+                torch_dtype=torch_dtype,
                 task=task,
                 dynamic_batch_size=dynamic_batch_size,
                 cache_dir=cache_dir,
@@ -1099,13 +1112,17 @@ class NeuronDiffusionPipelineBase(NeuronTracedModel):
         )
 
     def __call__(self, *args, **kwargs):
-        # Height and width to unet (static shapes)
-        height = self.unet.config.neuron["static_height"] * self.vae_scale_factor
-        width = self.unet.config.neuron["static_width"] * self.vae_scale_factor
+        # Height and width to unet/transformer (static shapes)
+        unet_or_transformer = self.unet or self.transformer
+        height = unet_or_transformer.config.neuron["static_height"] * self.vae_scale_factor
+        width = unet_or_transformer.config.neuron["static_width"] * self.vae_scale_factor
         kwargs.pop("height", None)
         kwargs.pop("width", None)
         if kwargs.get("image", None):
             kwargs["image"] = self.image_processor.preprocess(kwargs["image"], height=height, width=width)
+        # Override default `max_sequence_length`, eg. pixart
+        if "max_sequence_length" in inspect.signature(self.auto_model_class.__call__).parameters:
+            kwargs["max_sequence_length"] = self.text_encoder.config.neuron.get("static_sequence_length", None)
         return self.auto_model_class.__call__(self, height=height, width=width, *args, **kwargs)
 
 
@@ -1162,18 +1179,16 @@ class NeuronModelTextEncoder(_NeuronDiffusionModelPart):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = True,
     ):
-        if attention_mask is not None:
-            assert torch.equal(
-                torch.ones_like(attention_mask), attention_mask
-            ), "attention_mask is expected to be only all ones."
         if output_hidden_states:
             assert (
                 self.config.output_hidden_states or self.config.neuron.get("output_hidden_states")
             ) == output_hidden_states, "output_hidden_states is expected to be False since the model was compiled without hidden_states as output."
 
         input_ids = input_ids.to(torch.long)  # dummy generator uses long int for tracing
-
         inputs = (input_ids,)
+        if attention_mask is not None and not torch.all(attention_mask == 1):
+            inputs += (attention_mask,)
+
         outputs = self.model(*inputs)
 
         if return_dict:
@@ -1253,7 +1268,11 @@ class NeuronModelTransformer(_NeuronDiffusionModelPart):
         encoder_attention_mask: Optional[torch.Tensor] = None,
         return_dict: bool = True,
     ):
-        pass
+        inputs = (hidden_states, encoder_hidden_states, timestep, encoder_attention_mask)
+        outputs = self.model(*inputs)
+        if return_dict:
+            outputs = ModelOutput(dict(zip(self.neuron_config.outputs, outputs)))
+        return outputs
 
 
 class NeuronModelVaeEncoder(_NeuronDiffusionModelPart):
@@ -1479,6 +1498,10 @@ class NeuronStableDiffusionControlNetPipeline(
 class NeuronPixArtAlphaPipeline(NeuronDiffusionPipelineBase, PixArtAlphaPipeline):
     main_input_name = "prompt"
     auto_model_class = PixArtAlphaPipeline
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.image_processor = PixArtImageProcessor(vae_scale_factor=self.vae_scale_factor)
 
 
 class NeuronStableDiffusionXLPipeline(

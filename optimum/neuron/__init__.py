@@ -48,7 +48,7 @@ _import_structure = {
         "NeuronModelForXVector",
     ],
     "modeling_diffusion": [
-        "NeuronStableDiffusionPipelineBase",
+        "NeuronDiffusionPipelineBase",
         "NeuronStableDiffusionPipeline",
         "NeuronStableDiffusionImg2ImgPipeline",
         "NeuronStableDiffusionInpaintPipeline",
@@ -59,6 +59,7 @@ _import_structure = {
         "NeuronStableDiffusionXLInpaintPipeline",
         "NeuronStableDiffusionControlNetPipeline",
         "NeuronStableDiffusionXLControlNetPipeline",
+        "NeuronPixArtAlphaPipeline",
     ],
     "modeling_decoder": ["NeuronDecoderModel"],
     "modeling_seq2seq": ["NeuronModelForSeq2SeqLM"],
@@ -94,13 +95,14 @@ if TYPE_CHECKING:
     )
     from .modeling_decoder import NeuronDecoderModel
     from .modeling_diffusion import (
+        NeuronDiffusionPipelineBase,
         NeuronLatentConsistencyModelPipeline,
+        NeuronPixArtAlphaPipeline,
         NeuronStableDiffusionControlNetPipeline,
         NeuronStableDiffusionImg2ImgPipeline,
         NeuronStableDiffusionInpaintPipeline,
         NeuronStableDiffusionInstructPix2PixPipeline,
         NeuronStableDiffusionPipeline,
-        NeuronStableDiffusionPipelineBase,
         NeuronStableDiffusionXLControlNetPipeline,
         NeuronStableDiffusionXLImg2ImgPipeline,
         NeuronStableDiffusionXLInpaintPipeline,

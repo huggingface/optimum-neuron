@@ -18,7 +18,6 @@ from .config import Qwen2Config
 
 
 class Qwen2ForCausalLM(module.PretrainedModel):
-
     def __init__(self, config: Qwen2Config):
         super().__init__()
         dtype, _, _ = utils.parse_amp(config.amp)
@@ -34,7 +33,6 @@ class Qwen2ForCausalLM(module.PretrainedModel):
 
 
 class Qwen2Model(module.LowMemoryModule):
-
     def __init__(self, config: Qwen2Config):
         super().__init__()
         self.embed_tokens = module.LowMemoryEmbedding(config.vocab_size, config.hidden_size)
@@ -43,14 +41,12 @@ class Qwen2Model(module.LowMemoryModule):
 
 
 class Qwen2RMSNorm(module.LowMemoryModule):
-
     def __init__(self, config: Qwen2Config) -> None:
         super().__init__()
         self.weight = module.UninitializedParameter()
 
 
 class Qwen2DecoderLayer(module.LowMemoryModule):
-
     def __init__(self, config: Qwen2Config):
         super().__init__()
         self.self_attn = Qwen2Attention(config)
@@ -60,7 +56,6 @@ class Qwen2DecoderLayer(module.LowMemoryModule):
 
 
 class Qwen2Attention(module.LowMemoryModule):
-
     def __init__(self, config: Qwen2Config):
         super().__init__()
         self.hidden_size = config.hidden_size
@@ -75,7 +70,6 @@ class Qwen2Attention(module.LowMemoryModule):
 
 
 class Qwen2MLP(module.LowMemoryModule):
-
     def __init__(self, config: Qwen2Config):
         super().__init__()
         dtype, _, _ = utils.parse_amp(config.amp)

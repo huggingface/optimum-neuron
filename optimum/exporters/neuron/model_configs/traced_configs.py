@@ -54,9 +54,11 @@ from ..config import (
 from ..model_wrappers import (
     ControlNetNeuronWrapper,
     NoCacheModelWrapper,
+    PixartTransformerNeuronWrapper,
     SentenceTransformersCLIPNeuronWrapper,
     SentenceTransformersTransformerNeuronWrapper,
     T5DecoderWrapper,
+    T5EncoderForSeq2SeqLMWrapper,
     T5EncoderWrapper,
     UnetNeuronWrapper,
 )
@@ -666,6 +668,49 @@ class UNetNeuronConfig(VisionNeuronConfig):
         self._with_controlnet = with_controlnet
 
 
+@register_in_tasks_manager("pixart-transformer-2d", *["semantic-segmentation"], library_name="diffusers")
+class PixartTransformerNeuronConfig(VisionNeuronConfig):
+    ATOL_FOR_VALIDATION = 1e-3
+    INPUT_ARGS = (
+        "batch_size",
+        "sequence_length",
+        "num_channels",
+        "width",
+        "height",
+        "vae_scale_factor",
+        "encoder_hidden_size",
+    )
+    MODEL_TYPE = "pixart-transformer-2d"
+    CUSTOM_MODEL_WRAPPER = PixartTransformerNeuronWrapper
+    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
+        height="height",
+        width="width",
+        num_channels="in_channels",
+        hidden_size="cross_attention_dim",
+        vocab_size="norm_num_groups",
+        allow_new=True,
+    )
+
+    DUMMY_INPUT_GENERATOR_CLASSES = (
+        DummyVisionInputGenerator,
+        DummyControNetInputGenerator,
+        DummyTextInputGenerator,
+        DummySeq2SeqDecoderTextInputGenerator,
+    )
+
+    @property
+    def inputs(self) -> List[str]:
+        common_inputs = ["sample", "encoder_hidden_states", "timestep", "encoder_attention_mask"]
+        return common_inputs
+
+    @property
+    def outputs(self) -> List[str]:
+        return ["out_hidden_states"]
+
+    def patch_model_for_export(self, model, dummy_inputs):
+        return self.CUSTOM_MODEL_WRAPPER(model, list(dummy_inputs.keys()))
+
+
 @register_in_tasks_manager("controlnet", *["semantic-segmentation"], library_name="diffusers")
 class ControlNetNeuronConfig(VisionNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
@@ -768,12 +813,8 @@ class VaeDecoderNeuronConfig(VisionNeuronConfig):
         return super().patch_model_for_export(model=model, dummy_inputs=dummy_inputs, forward_with_tuple=True)
 
 
-@register_in_tasks_manager("t5-encoder", "text2text-generation")
-class T5EncoderNeuronConfig(TextSeq2SeqNeuronConfig):
+class T5EncoderBaseNeuronConfig(TextSeq2SeqNeuronConfig):
     ATOL_FOR_VALIDATION = 1e-3
-    INPUT_ARGS = ("batch_size", "sequence_length", "num_beams")
-    MODEL_TYPE = "t5-encoder"
-    CUSTOM_MODEL_WRAPPER = T5EncoderWrapper
     NORMALIZED_CONFIG_CLASS = NormalizedSeq2SeqConfig.with_args(
         hidden_size="d_model",
         num_attention_heads="num_heads",
@@ -784,8 +825,38 @@ class T5EncoderNeuronConfig(TextSeq2SeqNeuronConfig):
     )
 
     @property
-    def is_decoder(self) -> bool:
-        return False
+    def inputs(self) -> List[str]:
+        return ["input_ids", "attention_mask"]
+
+
+@register_in_tasks_manager("t5", *["feature-extraction"], library_name="diffusers")
+class T5EncoderForDiffusersNeuronConfig(T5EncoderBaseNeuronConfig):
+    CUSTOM_MODEL_WRAPPER = T5EncoderWrapper
+    INPUT_ARGS = ("batch_size", "sequence_length")
+
+    @property
+    def outputs(self) -> List[str]:
+        return ["last_hidden_state"]
+
+    def patch_model_for_export(self, model_or_path, **input_shapes):
+        return self.CUSTOM_MODEL_WRAPPER(model_or_path, **input_shapes)
+
+
+@register_in_tasks_manager("t5-encoder", *["text2text-generation"])
+class T5EncoderForTransformersNeuronConfig(T5EncoderBaseNeuronConfig):
+    CUSTOM_MODEL_WRAPPER = T5EncoderForSeq2SeqLMWrapper
+    INPUT_ARGS = ("batch_size", "sequence_length", "num_beams")
+    MODEL_TYPE = "t5-encoder"
+
+    @property
+    def outputs(self) -> List[str]:
+        common_outputs = (
+            [f"present.{idx}.self.key" for idx in range(self._config.num_decoder_layers)]
+            + [f"present.{idx}.self.value" for idx in range(self._config.num_decoder_layers)]
+            + [f"present.{idx}.cross.key" for idx in range(self._config.num_decoder_layers)]
+            + [f"present.{idx}.cross.value" for idx in range(self._config.num_decoder_layers)]
+        )
+        return common_outputs
 
     def patch_model_for_export(self, model_or_path, device="xla", **kwargs):
         num_beams = kwargs.pop("num_beams", 1)
@@ -862,13 +933,41 @@ class T5DecoderNeuronConfig(TextSeq2SeqNeuronConfig):
     NORMALIZED_CONFIG_CLASS = NormalizedSeq2SeqConfig
 
     @property
-    def is_decoder(self) -> bool:
-        return True
+    def inputs(self) -> List[str]:
+        common_inputs = [
+            "decoder_input_ids",
+            "decoder_attention_mask",
+            "encoder_hidden_states",
+            "attention_mask",  # TODO: replace with `encoder_attention_mask` after optimum 1.14 release
+            "beam_idx",
+            "beam_scores",
+        ]
+        return common_inputs
 
     @property
-    def inputs(self) -> List[str]:
-        common_inputs = super().inputs + ["beam_idx", "beam_scores"]
-        return common_inputs
+    def outputs(self) -> List[str]:
+        beam_outputs = ["next_token_scores", "next_tokens", "next_indices"] if self.num_beams > 1 else ["next_tokens"]
+        common_outputs = (
+            beam_outputs
+            + [f"past.{idx}.self.key" for idx in range(self._config.num_decoder_layers)]
+            + [f"past.{idx}.self.value" for idx in range(self._config.num_decoder_layers)]
+            + [f"past.{idx}.cross.key" for idx in range(self._config.num_decoder_layers)]
+            + [f"past.{idx}.cross.value" for idx in range(self._config.num_decoder_layers)]
+        )
+
+        if self.output_hidden_states:
+            # Flatten hidden states of all layers
+            common_outputs += [
+                f"decoder_hidden_state.{idx}" for idx in range(self._config.num_decoder_layers + 1)
+            ]  # +1 for the embedding layer
+
+        if self.output_attentions:
+            # Flatten attentions tensors of all attention layers
+            common_outputs += [f"decoder_attention.{idx}" for idx in range(self._config.num_decoder_layers)]
+            if getattr(self._config, "is_encoder_decoder", False) is True:
+                common_outputs += [f"cross_attention.{idx}" for idx in range(self._config.num_decoder_layers)]
+
+        return common_outputs
 
     def generate_dummy_inputs(self, **kwargs):
         batch_size = kwargs.pop("batch_size") * kwargs.get("num_beams")

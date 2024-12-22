@@ -29,6 +29,11 @@ jobs:
         with:
           node-version: '18'
           cache-dependency-path: "kit/package-lock.json"
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
 
       - name: Set environment variables
         run: |
@@ -46,7 +51,9 @@ jobs:
 
       - name: Setup environment
         run: |
-          pip install ".[quality, diffusers]"
+          python -m ensurepip --upgrade
+          python -m pip install --upgrade setuptools
+          python -m pip install ".[quality, diffusers]"
 
       - name: Make documentation
         shell: bash

@@ -56,11 +56,13 @@ _import_structure = {
         "is_main_worker",
         "is_precompilation",
         "replace_weights",
+        "map_torch_dtype",
     ],
     "model_utils": ["get_tied_parameters_dict", "tie_parameters"],
     "optimization_utils": [
         "get_attention_scores_sd",
         "get_attention_scores_sdxl",
+        "neuron_scaled_dot_product_attention",
     ],
     "patching": [
         "DynamicPatch",
@@ -115,12 +117,14 @@ if TYPE_CHECKING:
         get_stable_diffusion_configs,
         is_main_worker,
         is_precompilation,
+        map_torch_dtype,
         replace_weights,
     )
     from .model_utils import get_tied_parameters_dict, tie_parameters
     from .optimization_utils import (
         get_attention_scores_sd,
         get_attention_scores_sdxl,
+        neuron_scaled_dot_product_attention,
     )
     from .patching import (
         DynamicPatch,

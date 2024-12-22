@@ -43,7 +43,6 @@ if is_peft_available():
     )
 
 else:
-
     SAFETENSORS_WEIGHTS_NAME = WEIGHTS_NAME = ""
 
     class PeftModel:

@@ -28,6 +28,7 @@ if is_diffusers_available():
     import os
 
     os.environ["NEURON_FUSE_SOFTMAX"] = "1"
+    os.environ["NEURON_CUSTOM_SILU"] = "1"
 
 if TYPE_CHECKING:
     from argparse import ArgumentParser, Namespace, _SubParsersAction
@@ -111,6 +112,13 @@ def parse_args_neuronx(parser: "ArgumentParser"):
         default="bf16",
         choices=["bf16", "fp16", "tf32"],
         help='The data type to cast FP32 operations to when auto-cast mode is enabled. Can be `"bf16"`, `"fp16"` or `"tf32"`.',
+    )
+    optional_group.add_argument(
+        "--torch_dtype",
+        type=str,
+        default=None,
+        choices=["bfloat16", "float16", "float32"],
+        help="Override the default `torch.dtype` and load the model under this dtype. If `None` is passed, the dtype will be automatically derived from the model's weights.",
     )
     optional_group.add_argument(
         "--tensor_parallel_size",
