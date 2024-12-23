@@ -325,7 +325,7 @@ class GraniteForSamplingNoEmbeddingHlo:
         )
         if self.neuron_config.fuse_mlp:
             assert all(
-                map(lambda x: not (x), [in0_weight, in1_weight, out_weight, in0_scales, in1_scales, out_scales])
+                (not (x) for x in [in0_weight, in1_weight, out_weight, in0_scales, in1_scales, out_scales])
             ), "in0, in1 and out weights have to be None"
             in0_weight, in0_scales = mlp_in_weight, mlp_in_scales
             out_weight, out_scales = mlp_out_weight, mlp_out_scales
