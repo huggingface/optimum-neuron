@@ -40,6 +40,7 @@ def _test_decode(config_name, generator, do_sample):
             "llama": "George Orwell",
             "mistral": "The sky is black",
             "qwen2": " I stood in the back yard",
+            "granite": "Aldous Huxley, Brave New World",
         }[config_name]
         assert expected_text in output.text
     else:
@@ -49,5 +50,6 @@ def _test_decode(config_name, generator, do_sample):
             "llama": " George Orwell’s classic dystopian novel, 1984, begins with this ominous sentence. The story",
             "mistral": "\nThe clocks were striking thirteen.\nThe clocks were striking thirteen.",
             "qwen2": " I was sitting in my room, staring at the ceiling, when the door opened and in came a",
+            "granite": "\n\nThis opening line from George Orwell's dystopian novel \"198",
         }[config_name]
         assert output.text == expected_text

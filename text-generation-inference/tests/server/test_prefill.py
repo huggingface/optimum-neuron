@@ -39,6 +39,7 @@ def _test_prefill(config_name, generator, batch_size, do_sample):
             "llama": [10058, " George"],
             "mistral": [450, " The"],
             "qwen2": [358, " I"],
+            "granite": [429, " -"],
         }[config_name]
     else:
         expectations = {
@@ -46,6 +47,7 @@ def _test_prefill(config_name, generator, batch_size, do_sample):
             "llama": [10058, " George"],
             "mistral": [13, "\n"],
             "qwen2": [358, " I"],
+            "granite": [203, "\n"],
         }[config_name]
     for g in generations:
         tokens = g.tokens
@@ -80,6 +82,7 @@ def test_prefill_truncate(neuron_model_config):
         "llama": [" —", " The", " He", " He"],
         "mistral": [" He", "\n", " He", " He"],
         "qwen2": [" He", " The", " He", " He"],
+        "granite": ["\n", "\n", " I", " He"],
     }[config_name]
     for i, g in enumerate(generations):
         tokens = g.tokens
