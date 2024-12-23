@@ -31,6 +31,7 @@ DECODER_MODEL_NAMES = {
     "mixtral": "dacorvo/Mixtral-tiny",
     "opt": "hf-internal-testing/tiny-random-OPTForCausalLM",
     "qwen2": "yujiepan/qwen2.5-128k-tiny-random",
+    "granite": "hf-internal-testing/tiny-random-GraniteForCausalLM",
 }
 
 
