@@ -83,8 +83,7 @@ class GraniteForSamplingNoEmbeddingHlo:
             hidden = hlo.slice_along(hidden, dim=-1, limit=self.config.hidden_size, start=0)
         if self.neuron_config.attention_layout == LAYOUT_HSB:
             hidden = hlo.transpose210(hidden)
-        # Granite specific: embeddings are multiplied by embedding_multiplier
-        return hidden * self.config.embedding_multiplier
+        return hidden
 
     def token_tree_embedding(
         self, input_ids, cache_ids, start_ids, last_token_id, previous_cache_ids, reorder_mapping, *weights
@@ -328,8 +327,7 @@ class GraniteForSamplingNoEmbeddingHlo:
             tp_degree=self.config.tp_degree,
             neuron_config=self.neuron_config,
         )
-        # Granite specific: MLP output is multiplied by residual_multiplier
-        res_hidden = hlo.add(mlp_hidden * self.config.residual_multiplier, hidden)
+        res_hidden = hlo.add(mlp_hidden, hidden)
         return res_hidden, out_attn_k_cache, out_attn_v_cache
 
     def token_tree_layer(
@@ -660,9 +658,7 @@ class GraniteForSamplingNoEmbeddingHlo:
         )
 
         # Q = Q / sqrt(d_head)
-        # Granite specific: instead of dividing the QK product, multiply it by the attention_multiplier
-        # query = attention.scale(query, d_head)
-        query = query * self.config.attention_multiplier
+        query = attention.scale(query, d_head)
 
         # In BSH cache layout, the output of QKV linear projection is still kept as SBH for all QKV.
         bsh_cache_layout = False
