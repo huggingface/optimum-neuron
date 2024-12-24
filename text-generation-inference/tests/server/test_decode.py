@@ -36,10 +36,10 @@ def _test_decode(config_name, generator, do_sample):
     assert output.finish_reason == 0
     if do_sample:
         expected_text = {
-            "gpt2": " The sun was set",
-            "llama": "George Orwell, 1984",
-            "mistral": "The sky was",
-            "qwen2": " A young woman with",
+            "gpt2": " the wind was blowing",
+            "llama": "George Orwell",
+            "mistral": "The sky is black",
+            "qwen2": " I stood in the back yard",
         }[config_name]
         assert expected_text in output.text
     else:

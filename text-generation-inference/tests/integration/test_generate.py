@@ -47,8 +47,8 @@ async def test_model_single_request(tgi_service):
     )
     sample_expectations = {
         "gpt2": "Deep Learning",
-        "llama": "Deep Learning",
-        "mistral": "Deep learning",
+        "llama": "Deep learning",
+        "mistral": "Deep Learning",
         "qwen2": "Deep Learning",
     }
     assert sample_expectations[service_name] in response
