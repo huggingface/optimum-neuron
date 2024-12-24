@@ -39,7 +39,7 @@ def _test_prefill(config_name, generator, batch_size, do_sample):
             "llama": [10058, " George"],
             "mistral": [450, " The"],
             "qwen2": [358, " I"],
-            "granite": [429, " -"],
+            "granite": [489, " N"],
         }[config_name]
     else:
         expectations = {
