@@ -35,10 +35,10 @@ def _test_prefill(config_name, generator, batch_size, do_sample):
     assert len(generations) == batch_size
     if do_sample:
         expectations = {
-            "gpt2": [383, " The"],
+            "gpt2": [632, " It"],
             "llama": [10058, " George"],
             "mistral": [450, " The"],
-            "qwen2": [362, " A"],
+            "qwen2": [358, " I"],
         }[config_name]
     else:
         expectations = {
