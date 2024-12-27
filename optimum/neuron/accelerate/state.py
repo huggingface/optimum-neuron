@@ -45,7 +45,8 @@ if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
 
 if is_neuronx_distributed_available():
-    from neuronx_distributed.parallel_layers import parallel_state
+    import neuronx_distributed as nxd
+    # from neuronx_distributed.parallel_layers import parallel_state
 
 
 logger = logging.get_logger()
@@ -146,7 +147,7 @@ class NeuronAcceleratorState(AcceleratorState):
                 os.environ["ACCELERATE_USE_AMP"] = "true"
             NeuronPartialState(cpu, **kwargs)
         self.__dict__.update(NeuronPartialState._shared_state)
-        self._check_initialized(mixed_precision, cpu, autocast_backend)
+        self._check_initialized(mixed_precision, cpu) #, autocast_backend)
         if not self.initialized:
             self.deepspeed_plugin = None
             self.ipex_plugin = None
@@ -200,11 +201,18 @@ class NeuronAcceleratorState(AcceleratorState):
 
                 self.mp_plugin = mp_plugin
 
-                if torch.distributed.is_initialized() and not parallel_state.model_parallel_is_initialized():
-                    parallel_state.initialize_model_parallel(
-                        tensor_model_parallel_size=self.mp_plugin.tensor_parallel_size,
-                        pipeline_model_parallel_size=self.mp_plugin.pipeline_parallel_size,
-                    )
+                # nxd_config = nxd.neuronx_distributed_config(
+                #     tensor_parallel_size=self.mp_plugin.tensor_parallel_size,
+                #     pipeline_parallel_size=self.mp_plugin.pipeline_parallel_size,
+                #     expert_parallel_size=1, # TODO: add proper argument here once we support MOE 
+
+                # )
+
+                # if torch.distributed.is_initialized() and not parallel_state.model_parallel_is_initialized():
+                #     parallel_state.initialize_model_parallel(
+                #         tensor_model_parallel_size=self.mp_plugin.tensor_parallel_size,
+                #         pipeline_model_parallel_size=self.mp_plugin.pipeline_parallel_size,
+                #     )
 
             if self.distributed_type is DistributedType.NO:
                 if is_ipex_available():
@@ -221,16 +229,16 @@ class NeuronAcceleratorState(AcceleratorState):
 
             PartialState._shared_state["distributed_type"] = self.distributed_type
 
-    def _check_initialized(self, mixed_precision=None, cpu=None, autocast_backend=None):
+    def _check_initialized(self, mixed_precision=None, cpu=None): # autocast_backend=None):
         "Checks if a modification is trying to be made and the `AcceleratorState` has already been initialized"
         super()._check_initialized(mixed_precision=mixed_precision, cpu=cpu)
         err = (
             "AcceleratorState has already been initialized and cannot be changed, restart your runtime completely and "
             "pass `{flag}` to `Accelerator()`."
         )
-        if self.initialized:
-            if autocast_backend is not None and autocast_backend != self.autocast_backend:
-                raise ValueError(err.format(flag=f"autocast_backend='{autocast_backend}'"))
+        # if self.initialized:
+        #     if autocast_backend is not None and autocast_backend != self.autocast_backend:
+        #         raise ValueError(err.format(flag=f"autocast_backend='{autocast_backend}'"))
 
     @property
     def autocast_backend(self):
