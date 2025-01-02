@@ -64,8 +64,8 @@ if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
 
 if is_neuronx_distributed_available():
-    from neuronx_distributed.modules.qkv_linear import get_kv_shared_group
     from neuronx_distributed.parallel_layers.parallel_state import (
+        get_kv_shared_group,
         get_pipeline_model_parallel_rank,
         get_tensor_model_parallel_group,
         get_tensor_model_parallel_size,
