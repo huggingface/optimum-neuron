@@ -207,8 +207,8 @@ class DistributedExec(ABC):
                     raise RuntimeError("self.torchelastic_run_id was not set, it is needed to run a distributed test.")
                 os.environ["TORCHELASTIC_RUN_ID"] = self.torchelastic_run_id
 
-                # Now that the environment has been set, we can configure the PJRT environment.
-                torch_neuronx.xla.configure_pjrt_environment()
+                # Now that the environment has been set, we can initialize the XLA environment.
+                torch_neuronx.initialization.initialize()
 
             if self.init_distributed:
                 dist.init_process_group(backend=self.backend, rank=local_rank, world_size=num_procs)
