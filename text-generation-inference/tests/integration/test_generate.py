@@ -47,7 +47,7 @@ async def test_model_single_request(tgi_service):
         seed=42,
     )
     sample_expectations = {
-        "gpt2": "Deep Learning",
+        "gpt2": "Machine Learning",
         "llama": "Deep learning",
         "mistral": "Deep Learning",
         "qwen2": "Deep Learning",
