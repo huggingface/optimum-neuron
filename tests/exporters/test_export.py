@@ -220,6 +220,7 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
         input_shapes = build_stable_diffusion_components_mandatory_shapes(
             **{"batch_size": 1, "height": 64, "width": 64, "num_images_per_prompt": 4}
         )
+        compiler_kwargs = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
 
         with TemporaryDirectory() as tmpdirname:
             models_and_neuron_configs, output_model_names = get_submodels_and_neuron_configs(
@@ -234,6 +235,7 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
                 models_and_neuron_configs=models_and_neuron_configs,
                 output_dir=Path(tmpdirname),
                 output_file_names=output_model_names,
+                compiler_kwargs=compiler_kwargs,
             )
             validate_models_outputs(
                 models_and_neuron_configs=models_and_neuron_configs,
@@ -251,6 +253,7 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
         input_shapes = build_stable_diffusion_components_mandatory_shapes(
             **{"batch_size": 1, "height": 64, "width": 64, "num_images_per_prompt": 4}
         )
+        compiler_kwargs = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
 
         with TemporaryDirectory() as tmpdirname:
             models_and_neuron_configs, output_model_names = get_submodels_and_neuron_configs(
@@ -265,6 +268,7 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
                 models_and_neuron_configs=models_and_neuron_configs,
                 output_dir=Path(tmpdirname),
                 output_file_names=output_model_names,
+                compiler_kwargs=compiler_kwargs,
             )
             validate_models_outputs(
                 models_and_neuron_configs=models_and_neuron_configs,
@@ -283,6 +287,7 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
         input_shapes = build_stable_diffusion_components_mandatory_shapes(
             **{"batch_size": 1, "height": 64, "width": 64, "num_images_per_prompt": 4}
         )
+        compiler_kwargs = {"auto_cast": "matmul", "auto_cast_type": "bf16"}
 
         with TemporaryDirectory() as tmpdirname:
             models_and_neuron_configs, output_model_names = get_submodels_and_neuron_configs(
@@ -301,6 +306,7 @@ class NeuronStableDiffusionExportTestCase(unittest.TestCase):
                 models_and_neuron_configs=models_and_neuron_configs,
                 output_dir=Path(tmpdirname),
                 output_file_names=output_model_names,
+                compiler_kwargs=compiler_kwargs,
             )
             validate_models_outputs(
                 models_and_neuron_configs=models_and_neuron_configs,
