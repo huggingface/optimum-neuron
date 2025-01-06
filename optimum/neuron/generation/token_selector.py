@@ -8,6 +8,9 @@ from transformers.generation import (
     GenerationMixin,
     LogitsProcessorList,
     StoppingCriteriaList,
+    TemperatureLogitsWarper,
+    TopKLogitsWarper,
+    TopPLogitsWarper,
 )
 from transformers.generation.utils import GenerationMode
 
@@ -154,6 +157,15 @@ class TokenSelector:
 
         logits_warper = None
         if generation_mode == GenerationMode.SAMPLE:
+            # Remove transformers TopK, TopP and Temperature processors
+            logits_processor = LogitsProcessorList(
+                [
+                    p
+                    for p in logits_processor
+                    if not isinstance(p, (TemperatureLogitsWarper, TopKLogitsWarper, TopPLogitsWarper))
+                ]
+            )
+            # We use a fused logits warper instead
             logits_warper = FusedLogitsWarper.from_config(generation_config)
 
         return cls(
