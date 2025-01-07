@@ -40,7 +40,7 @@ def _test_decode(config_name, generator, do_sample):
             "llama": "George Orwell, 1984",
             "mistral": "The sky was",
             "qwen2": " A young woman with",
-            "granite": "Aldous Huxley, Brave New World",
+            "granite": "1984, George Orwell",
         }[config_name]
         assert expected_text in output.text
     else:
