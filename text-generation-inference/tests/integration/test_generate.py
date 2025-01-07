@@ -48,8 +48,8 @@ async def test_model_single_request(tgi_service):
     )
     sample_expectations = {
         "gpt2": "Deep Learning",
-        "llama": "Deep learning",
-        "mistral": "Deep Learning",
+        "llama": "Deep Learning",
+        "mistral": "Deep learning",
         "qwen2": "Deep Learning",
         "granite": "Deep learning",
     }
