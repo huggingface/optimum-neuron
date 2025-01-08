@@ -22,8 +22,8 @@ from pathlib import Path
 from typing import Any, List, Optional, Tuple, Union
 
 import torch
-from transformers.utils import is_peft_available
 
+from .import_utils import is_peft_available
 from .patching import Patcher, replace_class_in_inheritance_hierarchy
 from .require_utils import requires_neuronx_distributed, requires_safetensors
 from .training_utils import _get_model_param_count

@@ -23,10 +23,10 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Literal, Optional, 
 
 import torch
 from torch.nn.modules.loss import _WeightedLoss
-from transformers.utils import is_peft_available
 
 from ...utils import NormalizedConfigManager, logging
 from ..utils import patch_everywhere, patch_within_function
+from ..utils.import_utils import is_peft_available
 from ..utils.misc import is_main_worker
 from ..utils.require_utils import requires_neuronx_distributed
 from .utils import (
