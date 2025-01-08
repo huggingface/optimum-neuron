@@ -109,7 +109,6 @@ class NeuronModelIntegrationTest(NeuronModelIntegrationTestMixin):
             self.TINY_SUBFOLDER_MODEL_ID,
             subfolder="my_subfolder",
             export=True,
-            library_name="transformers",
             **self.STATIC_INPUTS_SHAPES,
         )
         self.assertIsInstance(model.model, torch.jit._script.ScriptModule)
