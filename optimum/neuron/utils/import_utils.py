@@ -21,6 +21,7 @@ from packaging import version
 
 
 MIN_ACCELERATE_VERSION = "0.20.1"
+MIN_PEFT_VERSION = "0.14.0"
 
 
 def is_neuron_available() -> bool:
@@ -80,3 +81,16 @@ def is_trl_available(required_version: Optional[str] = None) -> bool:
 
         raise RuntimeError(f"Only `trl=={required_version}` is supported, but {trl.__version__} is installed.")
     return False
+
+
+def is_peft_available(min_version: Optional[str] = MIN_PEFT_VERSION) -> bool:
+    _peft_available = importlib.util.find_spec("peft") is not None
+    if min_version is not None:
+        if _peft_available:
+            import peft
+
+            _peft_version = peft.__version__
+            return version.parse(_peft_version) >= version.parse(min_version)
+        else:
+            return False
+    return _peft_available

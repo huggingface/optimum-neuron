@@ -80,7 +80,6 @@ from transformers.utils import (
     WEIGHTS_NAME,
     is_accelerate_available,
     is_apex_available,
-    is_peft_available,
     is_sagemaker_mp_enabled,
 )
 
@@ -102,6 +101,7 @@ from .utils.cache_utils import (
     has_write_access_to_repo,
 )
 from .utils.hub_cache_utils import ModelCacheEntry, hub_neuronx_cache, patch_neuron_cc_wrapper, synchronize_hub_cache
+from .utils.import_utils import is_peft_available
 from .utils.misc import is_main_worker, is_precompilation
 from .utils.peft_utils import NeuronPeftModel, get_peft_model
 from .utils.require_utils import requires_neuronx_distributed, requires_torch_neuronx

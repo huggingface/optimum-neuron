@@ -27,12 +27,11 @@ from typing import TYPE_CHECKING, Callable, Dict, List, Literal, Optional, Set, 
 
 import torch
 from transformers import PretrainedConfig
-from transformers.utils import is_peft_available
 from transformers.utils.fx import HFTracer
 
 from ...utils import logging
 from ..utils import DynamicPatch, Patcher
-from ..utils.import_utils import is_neuronx_distributed_available
+from ..utils.import_utils import is_neuronx_distributed_available, is_peft_available
 from ..utils.misc import download_checkpoints_in_cache, is_precompilation
 from ..utils.peft_utils import NeuronPeftModel
 from ..utils.require_utils import requires_neuronx_distributed, requires_peft, requires_safetensors, requires_torch_xla
