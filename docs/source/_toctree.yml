@@ -46,8 +46,8 @@
       title: NeuronX Text-generation-inference for AWS inferentia2
     title: How-To Guides
   - sections:
-    - local: benchmarks/inferentia-mistral-small
-      title: Mistral Small on AWS Inferentia2
+    - local: benchmarks/inferentia-mistral-nemo
+      title: Mistral Nemo on AWS Inferentia2
     - local: benchmarks/inferentia-llama3.1-8b
       title: Llama-3.1 8B on AWS Inferentia2
     title: Benchmarks

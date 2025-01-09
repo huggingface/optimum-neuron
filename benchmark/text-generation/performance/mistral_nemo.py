@@ -14,8 +14,8 @@ def main():
         raise ValueError(f"This benchmark can only run on an instance with at least {NUM_CORES} cores.")
 
     model_configurations = {
-        "Mistral-Small-2409-BS1": ["mistralai/Mistral-Small-Instruct-2409", 1, 4096],
-        "Mistral-Small-2409-BS4": ["mistralai/Mistral-Small-Instruct-2409", 4, 4096],
+        "Mistral-Nemo-2407-BS1": ["mistralai/Mistral-Nemo-Instruct-2407", 1, 4096],
+        "Mistral-Nemo-2407-BS4": ["mistralai/Mistral-Nemo-Instruct-2407", 4, 4096],
     }
 
     for model_name, model_configuration in model_configurations.items():

@@ -14,16 +14,16 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-# Mistral-Small-Instruct performance on AWS Inferentia2 (Latency & Througput)
+# Mistral-Nemo-Instruct performance on AWS Inferentia2 (Latency & Througput)
 
 How fast is Mistral on Inferentia2?  Let's figure out!
 
 For this benchmark we will use the following configurations:
 
-| Model type         | batch_size | sequence_length |
-|--------------------|------------|-----------------|
-| Mistral-Small BS1  | 1          | 4096            |
-| Mistral-Small BS4  | 4          | 4096            |
+| Model type       | batch_size | sequence_length |
+|------------------|------------|-----------------|
+| Mistral-Nemo BS1 | 1          | 4096            |
+| Mistral-Nemo BS4 | 4          | 4096            |
 
 *Note: all models are compiled to use 6 devices corresponding to 12 cores on the `inf2.48xlarge` instance.*
 
@@ -38,7 +38,7 @@ We test the time to first token for increasing context sizes, from a typical Q/A
 
 Time to first token is expressed in **seconds**.
 
-![Mistral Small inferentia2 TTFT](https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/benchmarks/inferentia-mistral-small/ttft.png "Time to first token")
+![Mistral Nemo inferentia2 TTFT](https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/benchmarks/inferentia-mistral-nemo/ttft.png "Time to first token")
 
 ## Inter-token Latency
 
@@ -46,7 +46,7 @@ The inter-token latency corresponds to the average time elapsed between two gene
 
 It is expressed in **milliseconds**.
 
-![Mistral Small inferentia2 inter-token latency](https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/benchmarks/inferentia-mistral-small/latency.png "Inter-token latency")
+![Mistral Nemo inferentia2 inter-token latency](https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/benchmarks/inferentia-mistral-nemo/latency.png "Inter-token latency")
 
 ### Throughput
 
@@ -55,4 +55,4 @@ by the end-to-end latency.
 
 Throughput is expressed in **tokens/second**.
 
-![Mistral Small inferentia2 throughput](https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/benchmarks/inferentia-mistral-small/throughput.png "Throughput")
+![Mistral Nemo inferentia2 throughput](https://raw.githubusercontent.com/huggingface/optimum-neuron/main/docs/assets/benchmarks/inferentia-mistral-nemo/throughput.png "Throughput")
