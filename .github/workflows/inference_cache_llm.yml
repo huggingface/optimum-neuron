@@ -25,6 +25,7 @@ jobs:
           qwen2.5,
           llama3.1-70b,
           qwen2.5-large,
+          granite,
           mistral,
           llama-variants,
           mistral-variants,
