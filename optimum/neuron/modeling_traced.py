@@ -363,6 +363,7 @@ class NeuronTracedModel(NeuronModel):
                 local_files_only=local_files_only,
                 token=token,
                 do_validation=False,
+                library_name=cls.library_name,
                 **kwargs_shapes,
             )
             config = AutoConfig.from_pretrained(save_dir_path)
