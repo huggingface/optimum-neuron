@@ -2,6 +2,9 @@ name: Optimum neuron LLM inference cache builder
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - '*'
   schedule:
     # Schedule the workflow to run every day at midnight UTC
     - cron: '0 0 * * *'

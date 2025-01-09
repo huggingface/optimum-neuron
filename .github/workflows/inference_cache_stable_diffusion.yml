@@ -2,6 +2,9 @@ name: Optimum neuron SD inference cache builder
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - '*'
   schedule:
     # Schedule the workflow to run every Saturday at midnight UTC
     - cron: '0 0 * * 6'
