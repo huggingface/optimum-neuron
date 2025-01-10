@@ -166,6 +166,7 @@ class OptimumGQAQKVColumnParallelLinear(GQAQKVColumnParallelLinear):
     Same as GQAQKVColumnParallelLinear with the needed metadata for `optimum-neuron`.
     """
 
+    @requires_neuronx_distributed
     def __init__(
         self,
         query_proj_name: str,
@@ -185,6 +186,9 @@ class OptimumGQAQKVColumnParallelLinear(GQAQKVColumnParallelLinear):
         keep_master_weight: bool = False,
         kv_size_multiplier: int = 1,
     ):
+        from neuronx_distributed.parallel_layers.parallel_state import get_tensor_model_parallel_size
+        from neuronx_distributed.parallel_layers.utils import set_tensor_model_parallel_attributes
+
         super().__init__(
             input_size,
             output_sizes,
@@ -197,6 +201,15 @@ class OptimumGQAQKVColumnParallelLinear(GQAQKVColumnParallelLinear):
             keep_master_weight=keep_master_weight,
             kv_size_multiplier=kv_size_multiplier,
         )
+
+        if self.fuse_qkv:
+            set_tensor_model_parallel_attributes(
+                tensor=self.weight_qkv,
+                is_parallel=True,
+                dim=0,
+                stride=1,
+                num_partitions=get_tensor_model_parallel_size(),
+            )
 
         self.query_proj_name = query_proj_name
         self.key_proj_name = key_proj_name
@@ -214,9 +227,15 @@ class OptimumGQAQKVColumnParallelLinear(GQAQKVColumnParallelLinear):
         parent_module_name, _ = fully_qualified_name.rsplit(".", maxsplit=1)
         mapping = {}
         for qkv_proj_name, proj_name in self._qkv_proj_name_to_proj_name.items():
-            mapping[f"{parent_module_name}.{proj_name}.weight"] = f"{fully_qualified_name}.weight_{qkv_proj_name}"
+            if self.fuse_qkv:
+                mapping[f"{parent_module_name}.{proj_name}.weight"] = f"{fully_qualified_name}.weight_qkv"
+            else:
+                mapping[f"{parent_module_name}.{proj_name}.weight"] = f"{fully_qualified_name}.weight_{qkv_proj_name}"
             if self.use_bias:
-                mapping[f"{parent_module_name}.{proj_name}.bias"] = f"{fully_qualified_name}.bias_{qkv_proj_name}"
+                if self.fuse_qkv:
+                    mapping[f"{parent_module_name}.{proj_name}.bias"] = f"{fully_qualified_name}.bias_qkv"
+                else:
+                    mapping[f"{parent_module_name}.{proj_name}.bias"] = f"{fully_qualified_name}.bias_{qkv_proj_name}"
         if reversed:
             mapping = {v: k for k, v in mapping.items()}
         return mapping
@@ -745,6 +764,7 @@ def create_local_bias_from_regular_bias(
 @requires_neuronx_distributed
 def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
     layer: OptimumGQAQKVColumnParallelLinear,
+    proj_name: str,
     weight_name: str,
     linear_layer_weight_info: Optional[WeightInformation] = None,
     linear_layer_bias_weight_info: Optional[WeightInformation] = None,
@@ -761,16 +781,19 @@ def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
             "A linear's layer WeightInformation or a linear layer to copy the weights from need to specified."
         )
 
-    proj_name = weight_name[-1]
-    weight = getattr(layer, weight_name)
-    bias = getattr(layer, f"bias_{proj_name}")
+    if layer.fuse_qkv:
+        weight = getattr(layer, "weight_qkv")
+        bias = getattr(layer, "bias_qkv")
+    else:
+        weight = getattr(layer, weight_name)
+        bias = getattr(layer, f"bias_{proj_name}")
 
     num_attention_heads = layer.num_attention_heads
     num_key_value_heads = layer.num_key_value_heads
     kv_size_multiplier = layer.kv_size_multiplier
 
     with torch.no_grad():
-        if not was_already_initialized_during_parallelization(weight):
+        if layer.fuse_qkv or not was_already_initialized_during_parallelization(weight):
             weight_data = None
             if linear_layer_weight_info is not None:
                 weight_data = load_tensor_for_weight(linear_layer_weight_info)
@@ -778,14 +801,27 @@ def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
                 weight_data = linear_layer.weight.data
             if weight_data is not None:
                 if proj_name in "kv":
+                    output_size = layer.kv_output_size_per_partition
                     weight_data = create_kv_proj_local_weight_from_regular_weight(
-                        weight_data, kv_size_multiplier, weight.size(0)
+                        weight_data, kv_size_multiplier, output_size
                     )
                 else:
                     weight_data = create_query_or_output_projection_local_weight_from_regular_weight(
                         weight_data, num_attention_heads, num_key_value_heads, kv_size_multiplier, "query"
                     )
-                weight.copy_(weight_data)
+                if layer.fuse_qkv:
+                    if proj_name == "q":
+                        s = slice(0, layer.q_output_size_per_partition)
+                    elif proj_name == "k":
+                        s = slice(
+                            layer.q_output_size_per_partition,
+                            layer.q_output_size_per_partition + layer.kv_output_size_per_partition,
+                        )
+                    else:
+                        s = slice(layer.q_output_size_per_partition + layer.kv_output_size_per_partition, None)
+                    weight[s, :] = weight_data
+                else:
+                    weight.copy_(weight_data)
                 mark_parameter_init_status_during_parallelization(weight, True)
             else:
                 mark_parameter_init_status_during_parallelization(weight, False)
@@ -823,6 +859,12 @@ def maybe_load_weights_to_gqa_qkv_column_parallel_linear(
     original_to_gqa = layer.get_parameter_names_mapping(named_modules)
 
     for orig_name, gqa_name in original_to_gqa.items():
+        if layer.query_proj_name in orig_name:
+            proj_name = "q"
+        elif layer.key_proj_name in orig_name:
+            proj_name = "k"
+        else:
+            proj_name = "v"
         linear_layer_qualified_name, _ = orig_name.rsplit(".", maxsplit=1)
         linear_weight_info, linear_bias_weight_info = get_linear_weight_info(
             weight_map, linear_layer_qualified_name, fail_if_not_found=False
@@ -831,6 +873,7 @@ def maybe_load_weights_to_gqa_qkv_column_parallel_linear(
         if try_from_checkpoint and linear_weight_info is not None:
             maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
                 layer,
+                proj_name,
                 weight_name,
                 linear_layer_weight_info=linear_weight_info,
                 linear_layer_bias_weight_info=linear_bias_weight_info,
@@ -839,6 +882,7 @@ def maybe_load_weights_to_gqa_qkv_column_parallel_linear(
             orig_layer_name, _ = orig_name.rsplit(".", maxsplit=1)
             maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
                 layer,
+                proj_name,
                 weight_name,
                 linear_layer=model.get_submodule(orig_layer_name),
             )
