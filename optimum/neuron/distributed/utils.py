@@ -220,9 +220,15 @@ class OptimumGQAQKVColumnParallelLinear(GQAQKVColumnParallelLinear):
         parent_module_name, _ = fully_qualified_name.rsplit(".", maxsplit=1)
         mapping = {}
         for qkv_proj_name, proj_name in self._qkv_proj_name_to_proj_name.items():
-            mapping[f"{parent_module_name}.{proj_name}.weight"] = f"{fully_qualified_name}.weight_{qkv_proj_name}"
+            if self.fuse_qkv:
+                mapping[f"{parent_module_name}.{proj_name}.weight"] = f"{fully_qualified_name}.weight_qkv"
+            else:
+                mapping[f"{parent_module_name}.{proj_name}.weight"] = f"{fully_qualified_name}.weight_{qkv_proj_name}"
             if self.use_bias:
-                mapping[f"{parent_module_name}.{proj_name}.bias"] = f"{fully_qualified_name}.bias_{qkv_proj_name}"
+                if self.fuse_qkv:
+                    mapping[f"{parent_module_name}.{proj_name}.bias"] = f"{fully_qualified_name}.bias_qkv"
+                else:
+                    mapping[f"{parent_module_name}.{proj_name}.bias"] = f"{fully_qualified_name}.bias_{qkv_proj_name}"
         if reversed:
             mapping = {v: k for k, v in mapping.items()}
         return mapping
@@ -752,8 +758,12 @@ def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
         )
 
     proj_name = weight_name[-1]
-    weight = getattr(layer, weight_name)
-    bias = getattr(layer, f"bias_{proj_name}")
+    if layer.fuse_qkv:
+        weight = getattr(layer, "weight_qkv")
+        bias = getattr(layer, f"bias_qkv")
+    else:
+        weight = getattr(layer, weight_name)
+        bias = getattr(layer, f"bias_{proj_name}")
 
     num_attention_heads = layer.num_attention_heads
     num_key_value_heads = layer.num_key_value_heads
@@ -771,11 +781,22 @@ def maybe_load_linear_weight_to_gqa_qkv_column_parallel_linear(
                     weight_data = create_kv_proj_local_weight_from_regular_weight(
                         weight_data, kv_size_multiplier, weight.size(0)
                     )
+                    print(weight_data.shape)
                 else:
                     weight_data = create_query_or_output_projection_local_weight_from_regular_weight(
                         weight_data, num_attention_heads, num_key_value_heads, kv_size_multiplier, "query"
                     )
-                weight.copy_(weight_data)
+                if layer.fuse_qkv:
+                    if proj_name == "q":
+                        s = slice(0, layer.q_output_size_per_partition)
+                    elif proj_name == "k":
+                        s = slice(layer.q_output_size_per_partition, layer.q_output_size_per_partition + layer.kv_output_size_per_partition)
+                    else:
+                        s = slice(layer.q_output_size_per_partition + layer.kv_output_size_per_partition, None)
+                    print(layer.q_output_size_per_partition, layer.kv_output_size_per_partition)
+                    weight[s, :] = weight_data
+                else:
+                    weight.copy_(weight_data)
                 mark_parameter_init_status_during_parallelization(weight, True)
             else:
                 mark_parameter_init_status_during_parallelization(weight, False)
