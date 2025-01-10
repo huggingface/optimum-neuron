@@ -280,7 +280,7 @@ Make sure to run this precompilation phase for around 10 training steps. It is u
 
 </Tip>
 
-_Note: Compiling without a cache can take a while. It will also create dummy files in the `dolly_llama_sharded` during compilation you will have to remove them afterwards. We also need to add `MALLOC_ARENA_MAX=64` to limit the CPU allocation to avoid potential crashes, don't remove it for now._
+_Note: Compiling without a cache can take a while. It will also create dummy files in the `dolly_llama` directory during compilation you will have to remove them afterwards. We also need to add `MALLOC_ARENA_MAX=64` to limit the CPU allocation to avoid potential crashes, don't remove it for now._
 
 ```bash
 # remove dummy artifacts which are created by the precompilation command
