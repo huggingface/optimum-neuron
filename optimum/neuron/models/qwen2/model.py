@@ -139,10 +139,7 @@ class Qwen2ForSampling(base.NeuronModelBase):
             layer.materialize()
             attn = layer.self_attn
             mlp = layer.mlp
-            if self.neuron_config and self.neuron_config.quant:
-                is_unit_scale = self.neuron_config.quant.is_unit_scale(layer_id)
-            else:
-                is_unit_scale = False
+            is_unit_scale = False
             new_layer = self.decoder_lm_head.new_layer(is_unit_scale=is_unit_scale)
             new_layer.add_pre_attention_layer_norm(layer.input_layernorm.weight.detach(), None)
             new_layer.add_attention_query(attn.q_proj.weight.detach().T, attn.q_proj.bias.detach())
@@ -182,18 +179,12 @@ class Qwen2ForSampling(base.NeuronModelBase):
                         transposed=False,
                     )
             else:
-                new_layer.add_parameter(
-                    mlp.gate_proj.weight.T, sharding=1, allow_pad=True, allow_transform=True
-                )
-                new_layer.add_parameter(
-                    mlp.up_proj.weight.T, sharding=1, allow_pad=True, allow_transform=True
-                )
+                new_layer.add_parameter(mlp.gate_proj.weight.T, sharding=1, allow_pad=True, allow_transform=True)
+                new_layer.add_parameter(mlp.up_proj.weight.T, sharding=1, allow_pad=True, allow_transform=True)
                 if self.neuron_config.mlp_out_weight_transpose:
-                    new_layer.add_parameter(
-                        mlp.down_proj.weight.T, sharding=0, allow_pad=True)
+                    new_layer.add_parameter(mlp.down_proj.weight.T, sharding=0, allow_pad=True)
                 else:
-                    new_layer.add_parameter(
-                        mlp.down_proj.weight, sharding=1, allow_pad=True)
+                    new_layer.add_parameter(mlp.down_proj.weight, sharding=1, allow_pad=True)
             new_layer.to_neuron()
             layer.nullify()
         if self.neuron_config.shard_over_sequence:
