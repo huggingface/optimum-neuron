@@ -188,17 +188,12 @@ class Qwen2ForSampling(base.NeuronModelBase):
                 new_layer.add_parameter(
                     mlp.up_proj.weight.T, sharding=1, allow_pad=True, allow_transform=True
                 )
-                if self.neuron_config.weight_tiling:
+                if self.neuron_config.mlp_out_weight_transpose:
                     new_layer.add_parameter(
-                        mlp.down_proj.weight.T, sharding=0, allow_pad=True, allow_transform=True
-                    )
+                        mlp.down_proj.weight.T, sharding=0, allow_pad=True)
                 else:
-                    if self.neuron_config.mlp_out_weight_transpose:
-                        new_layer.add_parameter(
-                            mlp.down_proj.weight.T, sharding=0, allow_pad=True)
-                    else:
-                        new_layer.add_parameter(
-                            mlp.down_proj.weight, sharding=1, allow_pad=True)
+                    new_layer.add_parameter(
+                        mlp.down_proj.weight, sharding=1, allow_pad=True)
             new_layer.to_neuron()
             layer.nullify()
         if self.neuron_config.shard_over_sequence:
