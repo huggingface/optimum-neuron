@@ -20,8 +20,7 @@ from .config import Qwen2Config
 class Qwen2ForCausalLM(module.PretrainedModel):
     def __init__(self, config: Qwen2Config):
         super().__init__()
-        dtype, _, _ = utils.parse_amp(config.amp)
-        dtype = dtypes.to_torch_dtype(dtype)
+        dtype = dtypes.to_torch_dtype(config.amp)
         self.model = Qwen2Model(config)
         self.lm_head = module.LowMemoryLazyLinear(config.vocab_size, dtype=dtype, bias=False)
 
@@ -61,8 +60,7 @@ class Qwen2Attention(module.LowMemoryModule):
         self.hidden_size = config.hidden_size
         self.num_heads = config.num_attention_heads
         self.head_dim = self.hidden_size // self.num_heads
-        dtype, _, _ = utils.parse_amp(config.amp)
-        dtype = dtypes.to_torch_dtype(dtype)
+        dtype = dtypes.to_torch_dtype(config.amp)
         self.q_proj = module.LowMemoryLazyLinear(self.num_heads * self.head_dim, bias=True, dtype=dtype)
         self.k_proj = module.LowMemoryLazyLinear(self.num_heads * self.head_dim, bias=True, dtype=dtype)
         self.v_proj = module.LowMemoryLazyLinear(self.num_heads * self.head_dim, bias=True, dtype=dtype)
@@ -72,8 +70,7 @@ class Qwen2Attention(module.LowMemoryModule):
 class Qwen2MLP(module.LowMemoryModule):
     def __init__(self, config: Qwen2Config):
         super().__init__()
-        dtype, _, _ = utils.parse_amp(config.amp)
-        dtype = dtypes.to_torch_dtype(dtype)
+        dtype = dtypes.to_torch_dtype(config.amp)
         self.gate_proj = module.LowMemoryLazyLinear(config.intermediate_size, bias=False, dtype=dtype)
         self.up_proj = module.LowMemoryLazyLinear(config.intermediate_size, bias=False, dtype=dtype)
         self.down_proj = module.LowMemoryLazyLinear(config.hidden_size, bias=False, dtype=dtype)
