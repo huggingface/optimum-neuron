@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-from transformers_neuronx import dtypes, module, utils
+from transformers_neuronx import dtypes, module
 
 from .config import GraniteConfig
 
@@ -21,8 +21,7 @@ class GraniteForCausalLM(module.PretrainedModel):
 
     def __init__(self, config: GraniteConfig):
         super().__init__()
-        dtype, _, _ = utils.parse_amp(config.amp)
-        dtype = dtypes.to_torch_dtype(dtype)
+        dtype = dtypes.to_torch_dtype(config.amp)
         self.model = GraniteModel(config)
         self.lm_head = module.LowMemoryLazyLinear(config.vocab_size, dtype=dtype, bias=False)
 
@@ -68,8 +67,7 @@ class GraniteAttention(module.LowMemoryModule):
         self.hidden_size = config.hidden_size
         self.num_heads = config.num_attention_heads
         self.head_dim = self.hidden_size // self.num_heads
-        dtype, _, _ = utils.parse_amp(config.amp)
-        dtype = dtypes.to_torch_dtype(dtype)
+        dtype = dtypes.to_torch_dtype(config.amp)
         self.q_proj = module.LowMemoryLazyLinear(self.num_heads * self.head_dim, bias=False, dtype=dtype)
         self.k_proj = module.LowMemoryLazyLinear(self.num_heads * self.head_dim, bias=False, dtype=dtype)
         self.v_proj = module.LowMemoryLazyLinear(self.num_heads * self.head_dim, bias=False, dtype=dtype)
@@ -80,8 +78,7 @@ class GraniteMLP(module.LowMemoryModule):
 
     def __init__(self, config: GraniteConfig):
         super().__init__()
-        dtype, _, _ = utils.parse_amp(config.amp)
-        dtype = dtypes.to_torch_dtype(dtype)
+        dtype = dtypes.to_torch_dtype(config.amp)
         self.gate_proj = module.LowMemoryLazyLinear(config.intermediate_size, bias=False, dtype=dtype)
         self.up_proj = module.LowMemoryLazyLinear(config.intermediate_size, bias=False, dtype=dtype)
         self.down_proj = module.LowMemoryLazyLinear(config.hidden_size, bias=False, dtype=dtype)
